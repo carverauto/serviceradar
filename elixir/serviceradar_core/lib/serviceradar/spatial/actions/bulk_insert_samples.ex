@@ -62,7 +62,7 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertSamples do
       |> Enum.map(&clamp_signal/1)
       |> normalize_vector(dims)
 
-    "[" <> Enum.join(Enum.map(values, &to_string/1), ",") <> "]"
+    "[" <> Enum.map_join(values, ",", &to_string/1) <> "]"
   end
 
   defp parse_vector_values(nil), do: []
