@@ -111,4 +111,9 @@ defmodule ServiceRadarWebNG.Topology.Native do
         _unknown_bitmap_bytes
       ),
       do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Decode Apache Arrow IPC frames into Elixir maps.
+  """
+  def decode_arrow_payload(_binary), do: :erlang.nif_error(:nif_not_loaded)
 end

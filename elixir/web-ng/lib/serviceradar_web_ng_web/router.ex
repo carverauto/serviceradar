@@ -100,6 +100,13 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/", PageController, :home)
   end
 
+  # Mobile God-View Streaming Scope
+  scope "/v1", ServiceRadarWebNG.Api do
+    pipe_through(:api_auth)
+
+    get("/stream/:session_id", StreamController, :connect)
+  end
+
   # Other scopes may use custom stacks.
   scope "/api", ServiceRadarWebNG.Api do
     pipe_through(:api_auth)
@@ -108,6 +115,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/devices", DeviceController, :index)
     get("/devices/ocsf/export", DeviceController, :ocsf_export)
     get("/devices/:uid", DeviceController, :show)
+    
+    get("/spatial/samples", SpatialController, :index)
   end
 
   # Admin API (session/JWT auth)
@@ -379,6 +388,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/services", ServiceLive.Index, :index)
       live("/services/check", ServiceLive.Show, :show)
       live("/topology", TopologyLive.GodView, :index)
+      live("/spatial", SpatialLive.Index, :index)
       live("/settings/profile", UserLive.Settings, :edit)
       live("/settings/api-credentials", UserLive.ApiCredentials, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)

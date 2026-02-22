@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 use arrow_array::{
-    Int8Array, RecordBatch, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+    cast::AsArray, Int8Array, RecordBatch, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::{DataType, Field, Schema};
@@ -1454,6 +1454,102 @@ fn runtime_graph_encode_snapshot<'a>(
         healthy_bitmap_bytes as u32,
         unknown_bitmap_bytes as u32,
     )
+}
+
+#[derive(Debug, NifMap)]
+pub struct SurveySampleRow {
+    pub timestamp: f64,
+    pub scanner_device_id: String,
+    pub bssid: String,
+    pub ssid: String,
+    pub rssi: f64,
+    pub frequency: i64,
+    pub security_type: String,
+    pub is_secure: bool,
+    pub rf_vector: String,
+    pub ble_vector: String,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub uncertainty: f32,
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn decode_arrow_payload(binary: Binary) -> NifResult<Vec<SurveySampleRow>> {
+    let cursor = std::io::Cursor::new(binary.as_slice());
+    
+    // Try streaming format first
+    let mut reader = match arrow_ipc::reader::StreamReader::try_new(cursor, None) {
+        Ok(r) => r,
+        Err(_) => {
+            // Fallback to file reader
+            return decode_arrow_file(binary.as_slice());
+        }
+    };
+    
+    let mut rows = Vec::new();
+    while let Some(batch_result) = reader.next() {
+        let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
+        extract_rows(&batch, &mut rows)?;
+    }
+    
+    Ok(rows)
+}
+
+fn decode_arrow_file(data: &[u8]) -> NifResult<Vec<SurveySampleRow>> {
+    let cursor = std::io::Cursor::new(data);
+    let mut reader = arrow_ipc::reader::FileReader::try_new(cursor, None).map_err(|_| rustler::Error::BadArg)?;
+    
+    let mut rows = Vec::new();
+    while let Some(batch_result) = reader.next() {
+        let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
+        extract_rows(&batch, &mut rows)?;
+    }
+    
+    Ok(rows)
+}
+
+fn extract_rows(batch: &RecordBatch, rows: &mut Vec<SurveySampleRow>) -> NifResult<()> {
+    let timestamps = batch.column_by_name("timestamp").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float64Type>();
+    let scanner_device_ids = batch.column_by_name("scannerDeviceId").ok_or(rustler::Error::BadArg)?.as_string::<i32>();
+    let bssids = batch.column_by_name("bssid").ok_or(rustler::Error::BadArg)?.as_string::<i32>();
+    let ssids = batch.column_by_name("ssid").ok_or(rustler::Error::BadArg)?.as_string::<i32>();
+    let rssis = batch.column_by_name("rssi").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float64Type>();
+    let frequencies = batch.column_by_name("frequency").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Int64Type>();
+    let security_types = batch.column_by_name("securityType").ok_or(rustler::Error::BadArg)?.as_string::<i32>();
+    let is_secures = batch.column_by_name("isSecure").ok_or(rustler::Error::BadArg)?.as_boolean();
+    let rf_vectors = batch.column_by_name("rfVector").ok_or(rustler::Error::BadArg)?.as_string::<i32>();
+    let ble_vectors = batch.column_by_name("bleVector").ok_or(rustler::Error::BadArg)?.as_string::<i32>();
+    let xs = batch.column_by_name("x").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float32Type>();
+    let ys = batch.column_by_name("y").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float32Type>();
+    let zs = batch.column_by_name("z").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float32Type>();
+    let lats = batch.column_by_name("latitude").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float64Type>();
+    let lons = batch.column_by_name("longitude").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float64Type>();
+    let uncertainties = batch.column_by_name("uncertainty").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float32Type>();
+    
+    for i in 0..batch.num_rows() {
+        rows.push(SurveySampleRow {
+            timestamp: timestamps.value(i),
+            scanner_device_id: scanner_device_ids.value(i).to_string(),
+            bssid: bssids.value(i).to_string(),
+            ssid: ssids.value(i).to_string(),
+            rssi: rssis.value(i),
+            frequency: frequencies.value(i),
+            security_type: security_types.value(i).to_string(),
+            is_secure: is_secures.value(i),
+            rf_vector: rf_vectors.value(i).to_string(),
+            ble_vector: ble_vectors.value(i).to_string(),
+            x: xs.value(i),
+            y: ys.value(i),
+            z: zs.value(i),
+            latitude: lats.value(i),
+            longitude: lons.value(i),
+            uncertainty: uncertainties.value(i),
+        });
+    }
+    Ok(())
 }
 
 #[allow(non_local_definitions)]

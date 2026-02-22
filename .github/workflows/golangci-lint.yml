@@ -13,7 +13,7 @@
 # limitations under the License.
 
 name: lint
-on: [push]
+on: [push, pull_request]
 permissions:
   contents: read
   pull-requests: read
@@ -37,3 +37,34 @@ jobs:
           args: --timeout=10m
       - name: go mod tidy check
         uses: katexochen/go-tidy-check@v2
+
+  swiftlint:
+    name: swiftlint
+    runs-on: arc-runner-set
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+      - name: setup bazel
+        uses: bazelbuild/setup-bazelisk@v3
+      - name: install swiftlint
+        run: |
+          set -euo pipefail
+
+          if [[ "$(uname -s)" == "Darwin" ]]; then
+            brew install swiftlint
+          else
+            VERSION="0.63.2"
+            ARCH="$(uname -m)"
+            case "${ARCH}" in
+              x86_64) ASSET="swiftlint_linux_amd64.zip" ;;
+              aarch64|arm64) ASSET="swiftlint_linux_arm64.zip" ;;
+              *) echo "unsupported architecture: ${ARCH}" >&2; exit 1 ;;
+            esac
+            curl -fsSL -o swiftlint.zip "https://github.com/realm/SwiftLint/releases/download/${VERSION}/${ASSET}"
+            mkdir -p "$HOME/.local/bin"
+            unzip -qo swiftlint.zip -d "$HOME/.local/bin"
+            chmod +x "$HOME/.local/bin/swiftlint"
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+      - name: swiftlint (bazel)
+        run: bazel run -c opt //:swiftlint_lint

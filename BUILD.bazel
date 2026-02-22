@@ -50,3 +50,15 @@ sh_binary(
     srcs = ["buildbuddy_setup_docker_auth.sh"],
     visibility = ["//visibility:public"],
 )
+
+sh_binary(
+    name = "swiftlint_lint",
+    srcs = ["scripts/swiftlint_bazel.sh"],
+    args = [
+        "$(location .swiftlint.yml)",
+    ],
+    data = [
+        ".swiftlint.yml",
+    ],
+    visibility = ["//visibility:public"],
+)
