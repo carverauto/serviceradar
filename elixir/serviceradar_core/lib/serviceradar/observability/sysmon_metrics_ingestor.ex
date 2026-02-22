@@ -10,6 +10,7 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Repo
 
   alias ServiceRadar.Observability.{
     CpuClusterMetric,
@@ -238,14 +239,129 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
           "SysmonMetricsIngestor: failed to insert #{inspect(resource)}: #{inspect(errors)}"
         )
 
-        {:error, errors}
+        maybe_reindex_and_retry(records, resource, actor, errors)
 
       {:error, reason} ->
         Logger.warning(
           "SysmonMetricsIngestor: failed to insert #{inspect(resource)}: #{inspect(reason)}"
         )
 
+        maybe_reindex_and_retry(records, resource, actor, reason)
+    end
+  end
+
+  @doc false
+  def extract_corrupted_index_name(error_payload) do
+    error_payload
+    |> flatten_error_strings()
+    |> Enum.find_value(&index_name_from_error_text/1)
+  end
+
+  defp maybe_reindex_and_retry(records, resource, actor, error_payload) do
+    case extract_corrupted_index_name(error_payload) do
+      nil ->
+        {:error, error_payload}
+
+      index_name ->
+        case reindex_index(index_name) do
+          :ok ->
+            Logger.warning(
+              "SysmonMetricsIngestor: repaired index #{index_name}; retrying #{inspect(resource)} insert once"
+            )
+
+            retry_bulk_insert(records, resource, actor, error_payload)
+
+          {:error, reason} ->
+            Logger.warning(
+              "SysmonMetricsIngestor: failed to reindex #{index_name}: #{inspect(reason)}"
+            )
+
+            {:error, error_payload}
+        end
+    end
+  end
+
+  defp retry_bulk_insert(records, resource, actor, original_error) do
+    case Ash.bulk_create(records, resource, :create,
+           actor: actor,
+           return_errors?: true,
+           stop_on_error?: false
+         ) do
+      %Ash.BulkResult{status: :success} ->
+        :ok
+
+      %Ash.BulkResult{status: :error, errors: retry_errors} ->
+        Logger.warning(
+          "SysmonMetricsIngestor: retry failed for #{inspect(resource)}: #{inspect(retry_errors)}"
+        )
+
+        {:error, retry_errors}
+
+      {:error, retry_reason} ->
+        Logger.warning(
+          "SysmonMetricsIngestor: retry failed for #{inspect(resource)}: #{inspect(retry_reason)}"
+        )
+
+        {:error, retry_reason || original_error}
+    end
+  end
+
+  defp reindex_index(index_name) do
+    with {:ok, qualified_index} <- resolve_index_identifier(index_name),
+         {:ok, _result} <- Repo.query("REINDEX INDEX " <> qualified_index) do
+      :ok
+    end
+  end
+
+  defp resolve_index_identifier(index_name) do
+    sql = """
+    SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS qualified_name
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relkind = 'i' AND c.relname = $1
+    ORDER BY n.nspname
+    LIMIT 1
+    """
+
+    case Repo.query(sql, [index_name]) do
+      {:ok, %{rows: [[qualified_name]]}}
+      when is_binary(qualified_name) and qualified_name != "" ->
+        {:ok, qualified_name}
+
+      {:ok, _result} ->
+        {:error, :index_not_found}
+
+      {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp flatten_error_strings(value) when is_binary(value), do: [value]
+
+  defp flatten_error_strings(%{error: value, errors: nested}) do
+    flatten_error_strings(value) ++ flatten_error_strings(nested)
+  end
+
+  defp flatten_error_strings(%{error: value}) do
+    flatten_error_strings(value)
+  end
+
+  defp flatten_error_strings(%{errors: nested}) do
+    flatten_error_strings(nested)
+  end
+
+  defp flatten_error_strings(list) when is_list(list) do
+    Enum.flat_map(list, &flatten_error_strings/1)
+  end
+
+  defp flatten_error_strings(_value), do: []
+
+  defp index_name_from_error_text(text) do
+    regex = ~r/ERROR\s+XX002\s+\(index_corrupted\).*?in index "([^"]+)"/s
+
+    case Regex.run(regex, text) do
+      [_, index_name] -> index_name
+      _ -> nil
     end
   end
 
