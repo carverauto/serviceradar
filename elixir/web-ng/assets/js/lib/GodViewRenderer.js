@@ -1,32 +1,35 @@
-import {godViewLifecycleMethods} from "./god_view/lifecycle_methods"
-import {godViewLayoutMethods} from "./god_view/layout_methods"
-import {godViewRenderingMethods} from "./god_view/rendering_methods"
+import GodViewLayoutEngine from "./god_view/GodViewLayoutEngine"
+import GodViewLifecycleController from "./god_view/GodViewLifecycleController"
+import GodViewRenderingEngine from "./god_view/GodViewRenderingEngine"
 
 export default class GodViewRenderer {
   constructor(el, pushEvent, handleEvent, options = {}) {
-    this.el = el
-    this.pushEvent = pushEvent
-    this.handleEvent = handleEvent
-    this.csrfToken =
-      options.csrfToken || document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || ""
+    this.state = {
+      el,
+      pushEvent,
+      handleEvent,
+      csrfToken:
+        options.csrfToken || document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || "",
+    }
+
+    this.layoutEngine = new GodViewLayoutEngine(this.state)
+    this.renderingEngine = new GodViewRenderingEngine(this.state)
+    this.lifecycleController = new GodViewLifecycleController(this.state)
+
+    Object.assign(this.state, this.layoutEngine.getSharedApi())
+    Object.assign(this.state, this.renderingEngine.getSharedApi())
+    Object.assign(this.state, this.lifecycleController.getSharedApi())
   }
 
   mount() {
-    if (typeof this.mounted === "function") this.mounted()
+    this.lifecycleController.mount()
   }
 
   update() {
-    if (typeof this.updated === "function") this.updated()
+    if (typeof this.state.updated === "function") this.state.updated()
   }
 
   destroy() {
-    if (typeof this.destroyed === "function") this.destroyed()
+    this.lifecycleController.destroy()
   }
 }
-
-Object.assign(
-  GodViewRenderer.prototype,
-  godViewLifecycleMethods,
-  godViewLayoutMethods,
-  godViewRenderingMethods,
-)
