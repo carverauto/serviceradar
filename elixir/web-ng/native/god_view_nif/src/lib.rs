@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::RwLock;
 
 use arrow_array::{
-    cast::AsArray, Int8Array, RecordBatch, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+    cast::AsArray, Array, Int8Array, RecordBatch, StringArray, UInt16Array, UInt32Array,
+    UInt64Array, UInt8Array,
 };
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::{DataType, Field, Schema};
@@ -1466,8 +1468,8 @@ pub struct SurveySampleRow {
     pub frequency: i64,
     pub security_type: String,
     pub is_secure: bool,
-    pub rf_vector: String,
-    pub ble_vector: String,
+    pub rf_vector: Vec<f32>,
+    pub ble_vector: Vec<f32>,
     pub x: f32,
     pub y: f32,
     pub z: f32,
@@ -1479,7 +1481,7 @@ pub struct SurveySampleRow {
 #[rustler::nif(schedule = "DirtyCpu")]
 fn decode_arrow_payload(binary: Binary) -> NifResult<Vec<SurveySampleRow>> {
     let cursor = std::io::Cursor::new(binary.as_slice());
-    
+
     // Try streaming format first
     let mut reader = match arrow_ipc::reader::StreamReader::try_new(cursor, None) {
         Ok(r) => r,
@@ -1488,47 +1490,90 @@ fn decode_arrow_payload(binary: Binary) -> NifResult<Vec<SurveySampleRow>> {
             return decode_arrow_file(binary.as_slice());
         }
     };
-    
+
     let mut rows = Vec::new();
     while let Some(batch_result) = reader.next() {
         let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
         extract_rows(&batch, &mut rows)?;
     }
-    
+
     Ok(rows)
 }
 
 fn decode_arrow_file(data: &[u8]) -> NifResult<Vec<SurveySampleRow>> {
     let cursor = std::io::Cursor::new(data);
-    let mut reader = arrow_ipc::reader::FileReader::try_new(cursor, None).map_err(|_| rustler::Error::BadArg)?;
-    
+    let mut reader =
+        arrow_ipc::reader::FileReader::try_new(cursor, None).map_err(|_| rustler::Error::BadArg)?;
+
     let mut rows = Vec::new();
     while let Some(batch_result) = reader.next() {
         let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
         extract_rows(&batch, &mut rows)?;
     }
-    
+
     Ok(rows)
 }
 
 fn extract_rows(batch: &RecordBatch, rows: &mut Vec<SurveySampleRow>) -> NifResult<()> {
-    let timestamps = batch.column_by_name("timestamp").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float64Type>();
-    let scanner_device_ids = batch.column_by_name("scannerDeviceId").ok_or(rustler::Error::BadArg)?.as_string::<i32>();
-    let bssids = batch.column_by_name("bssid").ok_or(rustler::Error::BadArg)?.as_string::<i32>();
-    let ssids = batch.column_by_name("ssid").ok_or(rustler::Error::BadArg)?.as_string::<i32>();
-    let rssis = batch.column_by_name("rssi").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float64Type>();
-    let frequencies = batch.column_by_name("frequency").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Int64Type>();
-    let security_types = batch.column_by_name("securityType").ok_or(rustler::Error::BadArg)?.as_string::<i32>();
-    let is_secures = batch.column_by_name("isSecure").ok_or(rustler::Error::BadArg)?.as_boolean();
-    let rf_vectors = batch.column_by_name("rfVector").ok_or(rustler::Error::BadArg)?.as_string::<i32>();
-    let ble_vectors = batch.column_by_name("bleVector").ok_or(rustler::Error::BadArg)?.as_string::<i32>();
-    let xs = batch.column_by_name("x").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float32Type>();
-    let ys = batch.column_by_name("y").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float32Type>();
-    let zs = batch.column_by_name("z").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float32Type>();
-    let lats = batch.column_by_name("latitude").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float64Type>();
-    let lons = batch.column_by_name("longitude").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float64Type>();
-    let uncertainties = batch.column_by_name("uncertainty").ok_or(rustler::Error::BadArg)?.as_primitive::<arrow_array::types::Float32Type>();
-    
+    let timestamps = batch
+        .column_by_name("timestamp")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Float64Type>();
+    let scanner_device_ids = batch
+        .column_by_name("scannerDeviceId")
+        .ok_or(rustler::Error::BadArg)?
+        .as_string::<i32>();
+    let bssids = batch
+        .column_by_name("bssid")
+        .ok_or(rustler::Error::BadArg)?
+        .as_string::<i32>();
+    let ssids = batch
+        .column_by_name("ssid")
+        .ok_or(rustler::Error::BadArg)?
+        .as_string::<i32>();
+    let rssis = batch
+        .column_by_name("rssi")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Float64Type>();
+    let frequencies = batch
+        .column_by_name("frequency")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Int64Type>();
+    let security_types = batch
+        .column_by_name("securityType")
+        .ok_or(rustler::Error::BadArg)?
+        .as_string::<i32>();
+    let is_secures = batch
+        .column_by_name("isSecure")
+        .ok_or(rustler::Error::BadArg)?
+        .as_boolean();
+    let rf_vectors = extract_vector_column(batch, "rfVector")?;
+    let ble_vectors = extract_vector_column(batch, "bleVector")?;
+    let xs = batch
+        .column_by_name("x")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Float32Type>();
+    let ys = batch
+        .column_by_name("y")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Float32Type>();
+    let zs = batch
+        .column_by_name("z")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Float32Type>();
+    let lats = batch
+        .column_by_name("latitude")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Float64Type>();
+    let lons = batch
+        .column_by_name("longitude")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Float64Type>();
+    let uncertainties = batch
+        .column_by_name("uncertainty")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Float32Type>();
+
     for i in 0..batch.num_rows() {
         rows.push(SurveySampleRow {
             timestamp: timestamps.value(i),
@@ -1539,8 +1584,8 @@ fn extract_rows(batch: &RecordBatch, rows: &mut Vec<SurveySampleRow>) -> NifResu
             frequency: frequencies.value(i),
             security_type: security_types.value(i).to_string(),
             is_secure: is_secures.value(i),
-            rf_vector: rf_vectors.value(i).to_string(),
-            ble_vector: ble_vectors.value(i).to_string(),
+            rf_vector: rf_vectors.get(i).cloned().unwrap_or_default(),
+            ble_vector: ble_vectors.get(i).cloned().unwrap_or_default(),
             x: xs.value(i),
             y: ys.value(i),
             z: zs.value(i),
@@ -1550,6 +1595,91 @@ fn extract_rows(batch: &RecordBatch, rows: &mut Vec<SurveySampleRow>) -> NifResu
         });
     }
     Ok(())
+}
+
+fn extract_vector_column(batch: &RecordBatch, column_name: &str) -> NifResult<Vec<Vec<f32>>> {
+    let column = batch
+        .column_by_name(column_name)
+        .ok_or(rustler::Error::BadArg)?;
+
+    match column.data_type() {
+        DataType::List(_) => list_column_to_vectors_i32(column),
+        DataType::LargeList(_) => list_column_to_vectors_i64(column),
+        DataType::Utf8 => {
+            let values = column.as_string::<i32>();
+            Ok((0..batch.num_rows())
+                .map(|i| parse_vector_csv(values.value(i)))
+                .collect())
+        }
+        DataType::LargeUtf8 => {
+            let values = column.as_string::<i64>();
+            Ok((0..batch.num_rows())
+                .map(|i| parse_vector_csv(values.value(i)))
+                .collect())
+        }
+        _ => Err(rustler::Error::BadArg),
+    }
+}
+
+fn list_column_to_vectors_i32(column: &arrow_array::ArrayRef) -> NifResult<Vec<Vec<f32>>> {
+    let list = column.as_list::<i32>();
+    list_column_to_vectors(list)
+}
+
+fn list_column_to_vectors_i64(column: &arrow_array::ArrayRef) -> NifResult<Vec<Vec<f32>>> {
+    let list = column.as_list::<i64>();
+    list_column_to_vectors(list)
+}
+
+fn list_column_to_vectors<O: arrow_array::array::OffsetSizeTrait>(
+    list: &arrow_array::array::GenericListArray<O>,
+) -> NifResult<Vec<Vec<f32>>> {
+    let values = list.values();
+    let offsets = list.value_offsets();
+
+    match values.data_type() {
+        DataType::Float32 => {
+            let value_array = values.as_primitive::<arrow_array::types::Float32Type>();
+            Ok((0..list.len())
+                .map(|i| {
+                    if list.is_null(i) {
+                        Vec::new()
+                    } else {
+                        let start = offsets[i].as_usize();
+                        let end = offsets[i + 1].as_usize();
+                        (start..end).map(|idx| value_array.value(idx)).collect()
+                    }
+                })
+                .collect())
+        }
+        DataType::Float64 => {
+            let value_array = values.as_primitive::<arrow_array::types::Float64Type>();
+            Ok((0..list.len())
+                .map(|i| {
+                    if list.is_null(i) {
+                        Vec::new()
+                    } else {
+                        let start = offsets[i].as_usize();
+                        let end = offsets[i + 1].as_usize();
+                        (start..end)
+                            .map(|idx| value_array.value(idx) as f32)
+                            .collect()
+                    }
+                })
+                .collect())
+        }
+        _ => Err(rustler::Error::BadArg),
+    }
+}
+
+fn parse_vector_csv(raw: &str) -> Vec<f32> {
+    if raw.trim().is_empty() {
+        return Vec::new();
+    }
+
+    raw.split(',')
+        .filter_map(|token| f32::from_str(token.trim()).ok())
+        .collect()
 }
 
 #[allow(non_local_definitions)]

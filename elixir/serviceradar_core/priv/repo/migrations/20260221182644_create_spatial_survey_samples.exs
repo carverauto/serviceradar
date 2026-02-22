@@ -1,5 +1,7 @@
 defmodule ServiceRadar.Repo.Migrations.CreateSpatialSurveySamples do
   use Ecto.Migration
+  @rf_vector_dims 64
+  @ble_vector_dims 64
 
   def up do
     # Enable PostGIS and pgvector extensions
@@ -37,10 +39,21 @@ defmodule ServiceRadar.Repo.Migrations.CreateSpatialSurveySamples do
     # Optional TimescaleDB configuration
     execute "SELECT create_hypertable('platform.survey_samples', 'timestamp', if_not_exists => TRUE);"
 
-    # We use custom SQL execution for the HNSW cosine_ops indexes because standard Ecto `using: :hnsw` doesn't support the raw operator class parsing consistently in early versions
-    execute "CREATE INDEX IF NOT EXISTS survey_samples_rf_vector_idx ON platform.survey_samples USING hnsw (rf_vector vector_cosine_ops);"
+    execute(
+      "ALTER TABLE platform.survey_samples ALTER COLUMN rf_vector TYPE vector(#{@rf_vector_dims})"
+    )
 
-    execute "CREATE INDEX IF NOT EXISTS survey_samples_ble_vector_idx ON platform.survey_samples USING hnsw (ble_vector vector_cosine_ops);"
+    execute(
+      "ALTER TABLE platform.survey_samples ALTER COLUMN ble_vector TYPE vector(#{@ble_vector_dims})"
+    )
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS survey_samples_rf_vector_idx ON platform.survey_samples USING hnsw (rf_vector vector_cosine_ops);"
+    )
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS survey_samples_ble_vector_idx ON platform.survey_samples USING hnsw (ble_vector vector_cosine_ops);"
+    )
 
     create index(:survey_samples, [:session_id], prefix: "platform")
     create index(:survey_samples, [:bssid], prefix: "platform")

@@ -70,8 +70,12 @@ public class ArrowStreamer {
         let freqBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int64>
         let securityTypeBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
         let isSecureBuilder = try ArrowArrayBuilders.loadBoolArrayBuilder()
-        let rfVectorBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
-        let bleVectorBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
+        let rfVectorBuilder = try ArrowArrayBuilders.loadListArrayBuilder(
+            ArrowTypeList(ArrowType(ArrowType.ArrowFloat))
+        )
+        let bleVectorBuilder = try ArrowArrayBuilders.loadListArrayBuilder(
+            ArrowTypeList(ArrowType(ArrowType.ArrowFloat))
+        )
         let xBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
         let yBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
         let zBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
@@ -91,11 +95,11 @@ public class ArrowStreamer {
             securityTypeBuilder.append(sample.securityType)
             isSecureBuilder.append(sample.isSecure)
             
-            let vectorString = sample.rfVector.map { String($0) }.joined(separator: ",")
-            rfVectorBuilder.append(vectorString)
-            
-            let bleVectorString = sample.bleVector.map { String($0) }.joined(separator: ",")
-            bleVectorBuilder.append(bleVectorString)
+            let normalizedRF = SurveySample.normalizeRFVector(sample.rfVector).map(Float.init)
+            rfVectorBuilder.append(normalizedRF.map { $0 as Any? })
+
+            let normalizedBLE = SurveySample.normalizeBLEVector(sample.bleVector).map(Float.init)
+            bleVectorBuilder.append(normalizedBLE.map { $0 as Any? })
             
             xBuilder.append(sample.x)
             yBuilder.append(sample.y)
