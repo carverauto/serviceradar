@@ -60,8 +60,7 @@ public class ArrowStreamer {
     
     /// Encodes a batch of cyber-physical RF samples into an Apache Arrow IPC payload.
     /// Uses Arrow's columnar memory layout for zero-copy deserialization by the Rust backend.
-    public func encodeBatch(samples: [SurveySample]) throws -> Data {
-        logger.debug("Encoding \(samples.count) samples to Arrow IPC Layout")
+    nonisolated public func encodeBatch(samples: [SurveySample]) throws -> Data {
         
         let timestampBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
         let scannerIdBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
@@ -170,7 +169,7 @@ public class ArrowStreamer {
     }
     
     /// Compresses and saves the entire batch locally for offline/bulk sync later
-    public func compressForOfflineUpload(payload: Data, filename: String) throws -> URL {
+    nonisolated public func compressForOfflineUpload(payload: Data, filename: String) throws -> URL {
         let tempDir = FileManager.default.temporaryDirectory
         let fileURL = tempDir.appendingPathComponent("\(filename).arrow.lzfse")
         
@@ -178,7 +177,6 @@ public class ArrowStreamer {
         // Applying compression for offline syncing.
         let compressed = try (payload as NSData).compressed(using: .lzfse)
         
-        logger.info("Compressing and saving batch to \(fileURL.lastPathComponent) for offline sync.")
         try compressed.write(to: fileURL, options: .atomic)
         return fileURL
     }

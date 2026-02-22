@@ -12,6 +12,7 @@ public class BLEScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
     @Published public var discoveredPeripherals: [UUID: (rssi: Double, name: String)] = [:]
     
     private var centralManager: CBCentralManager!
+    private var scanningEnabled = false
     
     public override init() {
         super.init()
@@ -19,13 +20,28 @@ public class BLEScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
     }
     
     public func startScanning() {
-        if centralManager.state == .poweredOn {
-            centralManager.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
-        }
+        scanningEnabled = true
+        guard centralManager.state == .poweredOn else { return }
+        centralManager.scanForPeripherals(
+            withServices: nil,
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
+        )
     }
     
-    public func stopScanning() {
+    public func stopScanning(clearData: Bool = false) {
+        scanningEnabled = false
         centralManager.stopScan()
+        if clearData {
+            discoveredPeripherals.removeAll()
+        }
+    }
+
+    public func setEnabled(_ enabled: Bool) {
+        if enabled {
+            startScanning()
+        } else {
+            stopScanning(clearData: true)
+        }
     }
     
     public var currentBleVector: [Double] {
@@ -35,7 +51,12 @@ public class BLEScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
     
     public func centralManagerDidUpdateState(_ central: CBCentralManager) {
         if central.state == .poweredOn {
-            startScanning()
+            if scanningEnabled {
+                centralManager.scanForPeripherals(
+                    withServices: nil,
+                    options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
+                )
+            }
         } else {
             stopScanning()
         }

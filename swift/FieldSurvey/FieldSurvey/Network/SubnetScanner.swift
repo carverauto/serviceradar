@@ -16,32 +16,74 @@ public class SubnetScanner: ObservableObject {
     private let logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "SubnetScanner")
     private var browsers: [NWBrowser] = []
     private var posixTask: Task<Void, Never>?
+    private let browserQueue = DispatchQueue(label: "com.serviceradar.fieldsurvey.subnet.browser", qos: .utility)
+    private let resolveQueue = DispatchQueue(label: "com.serviceradar.fieldsurvey.subnet.resolve", qos: .utility, attributes: .concurrent)
+    private var isScanning = false
+    private var localNetworkAuthorizationDenied = false
+    private var didReportAuthorizationFailure = false
+    private var authorizationBlockUntil: Date?
+    private var lastResolveAttemptAt: [String: Date] = [:]
+    private var activeResolveConnections: [String: NWConnection] = [:]
+    private let resolveRetryWindow: TimeInterval = 25.0
+    private let resolveTimeout: TimeInterval = 0.9
+    private let maxConcurrentResolves = 6
     
     public init() {}
     
     public func startScanning() {
+        guard !isScanning else { return }
+        if let blockedUntil = authorizationBlockUntil, blockedUntil > Date() {
+            return
+        }
+        if localNetworkAuthorizationDenied {
+            localNetworkAuthorizationDenied = false
+        }
+        isScanning = true
+
         // Aggressive Bonjour/mDNS sweep for standard AP and IoT services
         let services = [
-            "_http._tcp", "_https._tcp", "_ssh._tcp", "_smb._tcp", 
-            "_printer._tcp", "_ipp._tcp", "_googlecast._tcp", 
-            "_airplay._tcp", "_raop._tcp", "_apple-mobdev2._tcp",
-            "_ubiquiti._tcp", "_cisco-wlc._tcp", "_meraki._tcp"
+            "_http._tcp",
+            "_https._tcp",
+            "_ssh._tcp",
+            "_ubiquiti._tcp",
+            "_cisco-wlc._tcp",
+            "_meraki._tcp"
         ]
         
         for service in services {
             let parameters = NWParameters()
-            parameters.includePeerToPeer = true
+            parameters.includePeerToPeer = false
             let browser = NWBrowser(for: .bonjour(type: service, domain: "local."), using: parameters)
+
+            browser.stateUpdateHandler = { [weak self] state in
+                guard let self else { return }
+
+                switch state {
+                case .waiting(let error), .failed(let error):
+                    if Self.isAuthorizationError(error) {
+                        Task { @MainActor [weak self] in
+                            self?.handleAuthorizationFailure(error: error)
+                        }
+                    }
+                default:
+                    break
+                }
+            }
             
             browser.browseResultsChangedHandler = { [weak self] results, changes in
                 for result in results {
-                    if case NWEndpoint.service(let name, _, _, _) = result.endpoint {
+                    if case NWEndpoint.service(let name, let type, _, _) = result.endpoint {
+                        // Skip very noisy media discovery classes; they generate many failing connection probes
+                        // and degrade AR tracking stability.
+                        if type == "_googlecast._tcp" || type == "_airplay._tcp" || type == "_raop._tcp" {
+                            continue
+                        }
                         self?.resolve(endpoint: result.endpoint, name: name)
                     }
                 }
             }
             
-            browser.start(queue: .main)
+            browser.start(queue: browserQueue)
             browsers.append(browser)
         }
         logger.info("Started mDNS Subnet Sweeping across \(services.count) services.")
@@ -52,13 +94,41 @@ public class SubnetScanner: ObservableObject {
     }
     
     public func stopScanning() {
+        isScanning = false
         for browser in browsers {
             browser.cancel()
         }
         browsers.removeAll()
+        for connection in activeResolveConnections.values {
+            connection.cancel()
+        }
+        activeResolveConnections.removeAll()
+        lastResolveAttemptAt.removeAll()
         posixTask?.cancel()
         posixTask = nil
         logger.info("Stopped Subnet Sweeping.")
+    }
+
+    nonisolated private static func isAuthorizationError(_ error: NWError) -> Bool {
+        let text = String(describing: error)
+        if text.localizedCaseInsensitiveContains("NoAuth") {
+            return true
+        }
+
+        if case .posix(let code) = error {
+            return code == .EPERM || code == .EACCES
+        }
+        return false
+    }
+
+    private func handleAuthorizationFailure(error: NWError) {
+        localNetworkAuthorizationDenied = true
+        authorizationBlockUntil = Date().addingTimeInterval(30)
+        if !didReportAuthorizationFailure {
+            didReportAuthorizationFailure = true
+            logger.error("Local network browse authorization failed (\(String(describing: error))). Disable subnet sweep until permission is granted.")
+        }
+        stopScanning()
     }
     
     nonisolated private func startPosixBroadcast() {
@@ -68,7 +138,7 @@ public class SubnetScanner: ObservableObject {
         var broadcast: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &broadcast, socklen_t(MemoryLayout.size(ofValue: broadcast)))
         
-        var timeout = timeval(tv_sec: 1, tv_usec: 0)
+        var timeout = timeval(tv_sec: 0, tv_usec: 450_000)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout)))
         
         let ubiPayload = Data([0x01, 0x00, 0x00, 0x00])
@@ -138,41 +208,97 @@ public class SubnetScanner: ObservableObject {
                     self.discoveredDevices[ipStr] = (ip: ipStr, hostname: host)
                 }
             }
+
+            if Task.isCancelled { break }
+            usleep(2_500_000)
         }
         close(fd)
     }
     
     nonisolated private func resolve(endpoint: NWEndpoint, name: String) {
-        // We open a dummy TCP connection just long enough for iOS to resolve the IP address
-        let connection = NWConnection(to: endpoint, using: .tcp)
-        connection.stateUpdateHandler = { [weak self] state in
-            switch state {
-            case .ready:
-                if let innerEndpoint = connection.currentPath?.remoteEndpoint,
-                   case .hostPort(let host, _) = innerEndpoint {
-                    
-                    var ipAddress = ""
-                    switch host {
-                    case .ipv4(let ipv4): ipAddress = "\(ipv4)"
-                    case .ipv6(let ipv6): ipAddress = "\(ipv6)"
-                    default: break
-                    }
-                    
-                    if !ipAddress.isEmpty {
-                        Task { @MainActor in
-                            self?.discoveredDevices[name] = (ip: ipAddress, hostname: name)
-                            self?.logger.debug("Subnet Sweep resolved: \(name) at \(ipAddress)")
+        Task { @MainActor [weak self] in
+            guard let self = self, self.isScanning else { return }
+
+            let key = self.endpointKey(endpoint: endpoint, name: name)
+            let now = Date()
+            if let lastAttempt = self.lastResolveAttemptAt[key], now.timeIntervalSince(lastAttempt) < self.resolveRetryWindow {
+                return
+            }
+            guard self.activeResolveConnections.count < self.maxConcurrentResolves else { return }
+
+            self.lastResolveAttemptAt[key] = now
+
+            // We open a lightweight TCP connection only long enough for iOS to resolve the concrete host.
+            let params = NWParameters.tcp
+            params.includePeerToPeer = false
+            let connection = NWConnection(to: endpoint, using: params)
+            self.activeResolveConnections[key] = connection
+
+            connection.stateUpdateHandler = { [weak self] state in
+                guard let self else { return }
+                switch state {
+                case .ready:
+                    if let innerEndpoint = connection.currentPath?.remoteEndpoint,
+                       case .hostPort(let host, _) = innerEndpoint {
+
+                        var ipAddress = ""
+                        switch host {
+                        case .ipv4(let ipv4): ipAddress = "\(ipv4)"
+                        case .ipv6(let ipv6): ipAddress = "\(ipv6)"
+                        default: break
+                        }
+
+                        let normalizedIP = ipAddress.components(separatedBy: "%").first ?? ipAddress
+                        if !normalizedIP.isEmpty {
+                            Task { @MainActor [weak self] in
+                                guard let self else { return }
+                                self.discoveredDevices[normalizedIP] = (ip: normalizedIP, hostname: name)
+                                self.logger.debug("Subnet Sweep resolved: \(name) at \(normalizedIP)")
+                                self.finishResolve(key: key)
+                            }
+                        } else {
+                            Task { @MainActor [weak self] in
+                                self?.finishResolve(key: key)
+                            }
+                        }
+                    } else {
+                        Task { @MainActor [weak self] in
+                            self?.finishResolve(key: key)
                         }
                     }
+                case .failed(_), .cancelled:
+                    Task { @MainActor [weak self] in
+                        self?.finishResolve(key: key)
+                    }
+                default:
+                    break
                 }
-                connection.cancel()
-            case .failed(_), .cancelled:
-                break
-            default:
-                break
+            }
+
+            connection.start(queue: resolveQueue)
+            resolveQueue.asyncAfter(deadline: .now() + self.resolveTimeout) { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if let inflight = self.activeResolveConnections[key] {
+                        inflight.cancel()
+                        self.activeResolveConnections.removeValue(forKey: key)
+                    }
+                }
             }
         }
-        connection.start(queue: DispatchQueue.global(qos: .background))
+    }
+
+    private func endpointKey(endpoint: NWEndpoint, name: String) -> String {
+        if case let .service(serviceName, type, domain, interface) = endpoint {
+            let iface = interface?.name ?? "-"
+            return "\(serviceName)|\(type)|\(domain)|\(iface)"
+        }
+        return "endpoint|\(name)|\(String(describing: endpoint))"
+    }
+
+    private func finishResolve(key: String) {
+        activeResolveConnections[key]?.cancel()
+        activeResolveConnections.removeValue(forKey: key)
     }
 }
 #endif

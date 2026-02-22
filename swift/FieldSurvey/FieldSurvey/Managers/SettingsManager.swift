@@ -31,6 +31,32 @@ public class SettingsManager: ObservableObject {
             UserDefaults.standard.set(showBLEBeacons, forKey: "showBLEBeacons")
         }
     }
+
+    @Published public var rfScanningEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(rfScanningEnabled, forKey: "rfScanningEnabled")
+        }
+    }
+
+    @Published public var aiObjectDetectionEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(aiObjectDetectionEnabled, forKey: "aiObjectDetectionEnabled")
+        }
+    }
+
+    @Published public var showWiFiHeatmap: Bool {
+        didSet {
+            UserDefaults.standard.set(showWiFiHeatmap, forKey: "showWiFiHeatmap")
+        }
+    }
+
+    @Published public var arPriorityModeEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(arPriorityModeEnabled, forKey: "arPriorityModeEnabled")
+        }
+    }
+
+    @Published public private(set) var arPriorityLoadShedActive: Bool = false
     
     public let scannerDeviceId: String
     
@@ -40,6 +66,10 @@ public class SettingsManager: ObservableObject {
         self.sampleRateSeconds = storedRate > 0 ? storedRate : 1.0
         
         self.showBLEBeacons = UserDefaults.standard.bool(forKey: "showBLEBeacons") // Defaults false
+        self.rfScanningEnabled = UserDefaults.standard.object(forKey: "rfScanningEnabled") as? Bool ?? true
+        self.aiObjectDetectionEnabled = UserDefaults.standard.object(forKey: "aiObjectDetectionEnabled") as? Bool ?? true
+        self.showWiFiHeatmap = UserDefaults.standard.object(forKey: "showWiFiHeatmap") as? Bool ?? true
+        self.arPriorityModeEnabled = UserDefaults.standard.object(forKey: "arPriorityModeEnabled") as? Bool ?? true
         
         self.apiURL = UserDefaults.standard.string(forKey: "apiURL") ?? "https://demo.serviceradar.cloud"
         self.authToken = UserDefaults.standard.string(forKey: "authToken") ?? ""
@@ -52,5 +82,10 @@ public class SettingsManager: ObservableObject {
             UserDefaults.standard.set(newId, forKey: "scannerDeviceId")
             self.scannerDeviceId = newId
         }
+    }
+
+    public func setARPriorityLoadShedActive(_ active: Bool) {
+        guard arPriorityLoadShedActive != active else { return }
+        arPriorityLoadShedActive = active
     }
 }

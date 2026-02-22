@@ -4,33 +4,60 @@ import RoomPlan
 import simd
 import ARKit
 import SceneKit
+import UIKit
 
 @available(iOS 16.0, *)
 public struct SurveyView: View {
     @ObservedObject public var roomScanner: RoomScanner
     @ObservedObject public var wifiScanner: RealWiFiScanner
+    @ObservedObject public var sessionStore: SurveySessionStore
+    @ObservedObject private var settings = SettingsManager.shared
     @StateObject private var networkMonitor = NetworkMonitor()
+    public var onExit: (() -> Void)?
     
     @State private var isStreaming = false
     @State private var showSettings = false
+    @State private var showSessionLibrary = false
+    @State private var showSubnetIntel = false
+    @State private var showAPIntel = false
     @State private var isMapView = false
     @State private var sessionID: String = UUID().uuidString
+    @State private var pendingAPCandidate: APLabelCandidate?
+    @State private var showSavePrompt = false
+    @State private var saveSessionName: String = ""
+    @State private var saveStatusMessage: String?
+    @State private var isExportingOfflineBundle = false
     
     // Core Pipeline Instantiation for God-View Ingestion
     private let arrowStreamer = ArrowStreamer()
     
-    public init(roomScanner: RoomScanner, wifiScanner: RealWiFiScanner) {
+    public init(
+        roomScanner: RoomScanner,
+        wifiScanner: RealWiFiScanner,
+        sessionStore: SurveySessionStore,
+        onExit: (() -> Void)? = nil
+    ) {
         self.roomScanner = roomScanner
         self.wifiScanner = wifiScanner
+        self.sessionStore = sessionStore
+        self.onExit = onExit
     }
 
     public var body: some View {
         ZStack {
-            CompositeSurveyView(roomScanner: roomScanner, wifiScanner: wifiScanner, isMapView: $isMapView)
+            CompositeSurveyView(
+                roomScanner: roomScanner,
+                wifiScanner: wifiScanner,
+                isMapView: $isMapView
+            ) { candidate in
+                if candidate.source == .tapAssist {
+                    pendingAPCandidate = candidate
+                }
+            }
                 .edgesIgnoringSafeArea(.all)
             
             VStack {
-                if SettingsManager.shared.authToken == "OFFLINE_MODE" {
+                if settings.authToken == "OFFLINE_MODE" {
                     Text("Real-time streaming is not available in Offline Mode")
                         .font(.caption)
                         .fontWeight(.bold)
@@ -49,10 +76,30 @@ public struct SurveyView: View {
                             .foregroundColor(.green)
                             .shadow(color: .green, radius: 2, x: 0, y: 0)
                         
-                        Text(isMapView ? "God-View Map Mode" : "Composite AR Mode")
+                        Text(isMapView ? "Wi-Fi Space Mode" : "LiDAR / AR Mode")
                             .font(.subheadline)
                             .foregroundColor(.white)
                             .opacity(0.8)
+
+                        Text(settings.rfScanningEnabled ? "RF Scan Enabled" : "RF Scan Paused")
+                            .font(.caption2)
+                            .foregroundColor(settings.rfScanningEnabled ? .green : .orange)
+
+                        Text(
+                            settings.arPriorityModeEnabled
+                                ? (settings.arPriorityLoadShedActive ? "AR Priority: ACTIVE" : "AR Priority: standby")
+                                : "AR Priority: off"
+                        )
+                        .font(.caption2)
+                        .foregroundColor(
+                            settings.arPriorityModeEnabled
+                                ? (settings.arPriorityLoadShedActive ? .orange : .green)
+                                : .gray
+                        )
+
+                        Text("Mapped APs: \(wifiScanner.resolvedAPLocations.count) • Roams: \(wifiScanner.roamEvents.count) • Heat pts: \(wifiScanner.heatmapPoints.count)")
+                            .font(.caption2)
+                            .foregroundColor(.cyan.opacity(0.85))
                         
                         HStack(spacing: 6) {
                             Circle()
@@ -88,6 +135,19 @@ public struct SurveyView: View {
                     Spacer()
                     
                     VStack(spacing: 12) {
+                        if onExit != nil {
+                            Button(action: {
+                                onExit?()
+                            }) {
+                                Image(systemName: "house.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.cyan)
+                                    .padding(12)
+                                    .background(Color.black.opacity(0.7))
+                                    .clipShape(Circle())
+                            }
+                        }
+
                         Button(action: {
                             showSettings.toggle()
                         }) {
@@ -98,7 +158,51 @@ public struct SurveyView: View {
                                 .background(Color.black.opacity(0.7))
                                 .clipShape(Circle())
                         }
-                        
+
+                        Button(action: {
+                            settings.rfScanningEnabled.toggle()
+                        }) {
+                            Image(systemName: settings.rfScanningEnabled ? "dot.radiowaves.left.and.right" : "wifi.slash")
+                                .font(.system(size: 24))
+                                .foregroundColor(settings.rfScanningEnabled ? .green : .orange)
+                                .padding(12)
+                                .background(Color.black.opacity(0.7))
+                                .clipShape(Circle())
+                        }
+
+                        Button(action: {
+                            showSessionLibrary = true
+                        }) {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Color.black.opacity(0.7))
+                                .clipShape(Circle())
+                        }
+
+                        Button(action: {
+                            showAPIntel = true
+                        }) {
+                            Image(systemName: "list.bullet.rectangle.portrait")
+                                .font(.system(size: 24))
+                                .foregroundColor(.cyan)
+                                .padding(12)
+                                .background(Color.black.opacity(0.7))
+                                .clipShape(Circle())
+                        }
+
+                        Button(action: {
+                            showSubnetIntel = true
+                        }) {
+                            Image(systemName: "dot.radiowaves.left.and.right")
+                                .font(.system(size: 24))
+                                .foregroundColor(.purple.opacity(0.9))
+                                .padding(12)
+                                .background(Color.black.opacity(0.7))
+                                .clipShape(Circle())
+                        }
+
                         Button(action: {
                             isMapView.toggle()
                         }) {
@@ -115,9 +219,32 @@ public struct SurveyView: View {
                 .padding(.horizontal)
                 
                 Spacer()
+
+                if let saveStatusMessage {
+                    Text(saveStatusMessage)
+                        .font(.caption2)
+                        .foregroundColor(.cyan)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.black.opacity(0.65))
+                        .cornerRadius(12)
+                        .padding(.bottom, 10)
+                }
                 
                 // Pipeline Control Bar
                 HStack(spacing: 20) {
+                    Button(action: {
+                        showSavePrompt = true
+                    }) {
+                        Text("Save Session")
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(Color.cyan.opacity(0.85))
+                            .foregroundColor(.black)
+                            .cornerRadius(25)
+                    }
+
                     Button(action: {
                         isStreaming.toggle()
                         if isStreaming {
@@ -135,25 +262,20 @@ public struct SurveyView: View {
                             .foregroundColor(isStreaming ? .white : .black)
                             .cornerRadius(25)
                     }
-                    .disabled(SettingsManager.shared.authToken == "OFFLINE_MODE")
-                    .opacity(SettingsManager.shared.authToken == "OFFLINE_MODE" ? 0.5 : 1.0)
+                    .disabled(settings.authToken == "OFFLINE_MODE")
+                    .opacity(settings.authToken == "OFFLINE_MODE" ? 0.5 : 1.0)
                     
                     Button(action: {
-                        if let _ = try? roomScanner.exportUSDZ() {
-                            // Offline sync via compressed native LZFSE + Arrow IPC buffer
-                            let currentSamples = Array(wifiScanner.accessPoints.values)
-                            if let payload = try? arrowStreamer.encodeBatch(samples: currentSamples) {
-                                _ = try? arrowStreamer.compressForOfflineUpload(payload: payload, filename: "survey_bulk")
-                            }
-                        }
+                        exportOfflineBundle()
                     }) {
                         Image(systemName: "arrow.up.doc.fill")
                             .font(.system(size: 24))
-                            .foregroundColor(.white)
+                            .foregroundColor(isExportingOfflineBundle ? .cyan : .white)
                             .padding()
                             .background(Color.black.opacity(0.7))
                             .clipShape(Circle())
                     }
+                    .disabled(isExportingOfflineBundle)
                 }
                 .padding(.bottom, 40)
             }
@@ -162,19 +284,67 @@ public struct SurveyView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView(wifiScanner: wifiScanner)
         }
+        .sheet(isPresented: $showSessionLibrary) {
+            SessionLibraryView(
+                roomScanner: roomScanner,
+                wifiScanner: wifiScanner,
+                sessionStore: sessionStore
+            )
+        }
+        .sheet(isPresented: $showSubnetIntel) {
+            SubnetIntelView()
+        }
+        .sheet(isPresented: $showAPIntel) {
+            APIntelView(wifiScanner: wifiScanner)
+        }
+        .sheet(item: $pendingAPCandidate) { candidate in
+            APLabelPromptSheet(
+                initialLabel: candidate.suggestedLabel,
+                confidence: candidate.confidence
+            ) { confirmedLabel in
+                wifiScanner.addManualAccessPoint(
+                    label: confirmedLabel,
+                    position: candidate.worldPosition,
+                    confidence: candidate.confidence,
+                    source: candidate.source.rawValue
+                )
+            }
+        }
+        .alert("Save Survey Session", isPresented: $showSavePrompt) {
+            TextField("Session name (optional)", text: $saveSessionName)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                saveSession()
+            }
+        } message: {
+            Text("This captures the current RF heatmap, AP labels, roam transitions, and LiDAR room mesh.")
+        }
         // Lifecycle Hooks for Core Location / Network Extension / MobileWiFi
         .onAppear {
-            wifiScanner.startScanning()
-            BLEScanner.shared.startScanning()
-            SubnetScanner.shared.startScanning()
+            UIApplication.shared.isIdleTimerDisabled = true
+            applyRFState(settings.rfScanningEnabled)
         }
         .onDisappear {
-            wifiScanner.stopScanning()
+            UIApplication.shared.isIdleTimerDisabled = false
+            wifiScanner.stopScanning(clearData: false)
             BLEScanner.shared.stopScanning()
             SubnetScanner.shared.stopScanning()
             if isStreaming {
                 arrowStreamer.disconnect()
                 isStreaming = false
+            }
+        }
+        .onChange(of: settings.rfScanningEnabled) { enabled in
+            applyRFState(enabled)
+        }
+        .onChange(of: settings.showBLEBeacons) { showBLE in
+            wifiScanner.setBLEIngestionEnabled(showBLE)
+            if settings.rfScanningEnabled {
+                if showBLE {
+                    BLEScanner.shared.startScanning()
+                } else {
+                    BLEScanner.shared.stopScanning()
+                }
             }
         }
         // Continuous Zero-Copy Ingestion Flow
@@ -192,6 +362,123 @@ public struct SurveyView: View {
             }
         }
     }
+
+    private func applyRFState(_ enabled: Bool) {
+        wifiScanner.setRFScanning(enabled: enabled)
+        if enabled {
+            if settings.showBLEBeacons {
+                BLEScanner.shared.startScanning()
+            } else {
+                BLEScanner.shared.stopScanning()
+                wifiScanner.setBLEIngestionEnabled(false)
+            }
+            SubnetScanner.shared.startScanning()
+        } else {
+            BLEScanner.shared.stopScanning()
+            SubnetScanner.shared.stopScanning()
+        }
+    }
+
+    private func saveSession() {
+        do {
+            let record = try sessionStore.saveCurrentSession(
+                name: saveSessionName,
+                roomScanner: roomScanner,
+                wifiScanner: wifiScanner
+            )
+            saveSessionName = ""
+            saveStatusMessage = "Saved: \(record.name)"
+        } catch {
+            saveStatusMessage = "Save failed: \(error.localizedDescription)"
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            saveStatusMessage = nil
+        }
+    }
+
+    private func exportOfflineBundle() {
+        guard !isExportingOfflineBundle else { return }
+
+        let samples = Array(wifiScanner.accessPoints.values)
+        guard !samples.isEmpty else {
+            saveStatusMessage = "No RF samples yet. Walk a bit and retry."
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+                saveStatusMessage = nil
+            }
+            return
+        }
+
+        isExportingOfflineBundle = true
+        saveStatusMessage = "Exporting offline bundle..."
+        let exportSamples = Array(samples.suffix(2600))
+        let filename = "survey_bulk_\(Int(Date().timeIntervalSince1970))"
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let payload = try arrowStreamer.encodeBatch(samples: exportSamples)
+                let fileURL = try arrowStreamer.compressForOfflineUpload(payload: payload, filename: filename)
+                DispatchQueue.main.async {
+                    isExportingOfflineBundle = false
+                    saveStatusMessage = "Offline bundle saved: \(fileURL.lastPathComponent)"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                        saveStatusMessage = nil
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    isExportingOfflineBundle = false
+                    saveStatusMessage = "Offline export failed: \(error.localizedDescription)"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                        saveStatusMessage = nil
+                    }
+                }
+            }
+        }
+    }
+}
+
+@available(iOS 16.0, *)
+private struct APLabelPromptSheet: View {
+    @Environment(\.dismiss) var dismiss
+
+    @State private var label: String
+    let confidence: Double
+    let onSave: (String) -> Void
+
+    init(initialLabel: String, confidence: Double, onSave: @escaping (String) -> Void) {
+        _label = State(initialValue: initialLabel)
+        self.confidence = confidence
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("AI Candidate")) {
+                    TextField("Access Point Label", text: $label)
+                        .textInputAutocapitalization(.words)
+                    Text("Confidence: \(Int(confidence * 100))%")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+            }
+            .navigationTitle("Label Access Point")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(label)
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
 }
 
 @available(iOS 16.0, *)
@@ -199,16 +486,37 @@ public struct ContentView: View {
     @StateObject private var settings = SettingsManager.shared
     @StateObject private var roomScanner = RoomScanner()
     @StateObject private var wifiScanner = RealWiFiScanner()
+    @StateObject private var sessionStore = SurveySessionStore()
+    @State private var showSplash = true
     
     public init() {}
     
     public var body: some View {
-        Group {
-            if settings.authToken.isEmpty {
-                LoginView()
-            } else {
-                SurveyView(roomScanner: roomScanner, wifiScanner: wifiScanner)
+        ZStack {
+            Group {
+                if settings.authToken.isEmpty {
+                    LoginView()
+                } else {
+                    HomeDashboardView(
+                        roomScanner: roomScanner,
+                        wifiScanner: wifiScanner,
+                        sessionStore: sessionStore
+                    )
                     .preferredColorScheme(.dark)
+                }
+            }
+
+            if showSplash {
+                AppSplashView()
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                withAnimation(.easeOut(duration: 0.35)) {
+                    showSplash = false
+                }
             }
         }
     }
