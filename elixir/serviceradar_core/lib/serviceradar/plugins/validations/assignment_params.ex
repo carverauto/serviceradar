@@ -6,7 +6,7 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
   use Ash.Resource.Validation
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Plugins.{ConfigSchema, PluginPackage}
+  alias ServiceRadar.Plugins.{ConfigSchema, PluginInputs, PluginPackage, TargetBatchParams}
 
   @impl true
   def atomic(_changeset, _opts, _context), do: :ok
@@ -24,9 +24,13 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
     schema_from_context = Map.get(changeset.context, :config_schema)
 
     with {:ok, schema} <- resolve_schema(schema_from_context, package_id),
+         :ok <- validate_batch_params(params),
          :ok <- validate_params(schema, params) do
       :ok
     else
+      {:error, {:invalid_batch_params, errors}} ->
+        {:error, field: :params, message: Enum.join(errors, "; ")}
+
       {:error, {:invalid_params, errors}} ->
         {:error, field: :params, message: Enum.join(errors, "; ")}
 
@@ -71,4 +75,16 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
   end
 
   defp validate_params(_schema, _params), do: :ok
+
+  defp validate_batch_params(params) when is_map(params) do
+    with :ok <- TargetBatchParams.validate(params),
+         :ok <- PluginInputs.validate(params) do
+      :ok
+    else
+      {:error, errors} -> {:error, {:invalid_batch_params, errors}}
+    end
+  end
+
+  defp validate_batch_params(_params),
+    do: {:error, {:invalid_batch_params, ["params must be an object"]}}
 end

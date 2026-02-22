@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "serviceradar.plugin_target_batch_params.v1",
+  "title": "ServiceRadar Plugin Target Batch Params",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "policy_id",
+    "policy_version",
+    "agent_id",
+    "chunk_index",
+    "chunk_total",
+    "chunk_hash",
+    "generated_at",
+    "targets"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "serviceradar.plugin_target_batch_params.v1"
+    },
+    "policy_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "chunk_index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "chunk_total": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "chunk_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "template": {
+      "type": "object",
+      "description": "Operator-provided plugin params template merged into each assignment"
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["uid"],
+        "properties": {
+          "uid": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ip": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "vendor": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "zone": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "stream_hints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["protocol", "endpoint"],
+              "properties": {
+                "protocol": {
+                  "type": "string",
+                  "enum": ["rtsp", "http", "https", "unknown"]
+                },
+                "endpoint": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "profile": {
+                  "type": "string"
+                },
+                "auth_mode": {
+                  "type": "string",
+                  "enum": ["none", "basic", "digest", "basic_or_digest", "unknown"]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
