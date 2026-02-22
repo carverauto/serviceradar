@@ -20,6 +20,7 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
 bazel_dep(name = "rules_multirun", version = "0.13.0")
+bazel_dep(name = "swiftlint", version = "0.52.4", repo_name = "SwiftLint")
 
 # NOTE: rules_multirun uses Python, which causes issues with `bazel run` when
 # using remote execution from a different host platform (e.g., macOS -> Linux RBE).

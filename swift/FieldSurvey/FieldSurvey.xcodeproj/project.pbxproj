@@ -55,14 +55,15 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		DA5F4C982F4A14BB00255097 /* FieldSurvey */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = DA5F4CA42F4A14BB00255097 /* Build configuration list for PBXNativeTarget "FieldSurvey" */;
-			buildPhases = (
-				DA5F4C952F4A14BB00255097 /* Sources */,
-				DA5F4C962F4A14BB00255097 /* Frameworks */,
-				DA5F4C972F4A14BB00255097 /* Resources */,
-			);
+			DA5F4C982F4A14BB00255097 /* FieldSurvey */ = {
+				isa = PBXNativeTarget;
+				buildConfigurationList = DA5F4CA42F4A14BB00255097 /* Build configuration list for PBXNativeTarget "FieldSurvey" */;
+				buildPhases = (
+					DA5F4C952F4A14BB00255097 /* Sources */,
+					F1C4A2B82FBA4D6500D9AA10 /* SwiftLint */,
+					DA5F4C962F4A14BB00255097 /* Frameworks */,
+					DA5F4C972F4A14BB00255097 /* Resources */,
+				);
 			buildRules = (
 			);
 			dependencies = (
@@ -118,14 +119,35 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		DA5F4C972F4A14BB00255097 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
+			DA5F4C972F4A14BB00255097 /* Resources */ = {
+				isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-		};
+			};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+			F1C4A2B82FBA4D6500D9AA10 /* SwiftLint */ = {
+				isa = PBXShellScriptBuildPhase;
+				alwaysOutOfDate = 1;
+				buildActionMask = 2147483647;
+				files = (
+				);
+				inputFileListPaths = (
+				);
+				inputPaths = (
+				);
+				outputFileListPaths = (
+				);
+				outputPaths = (
+				);
+				runOnlyForDeploymentPostprocessing = 0;
+				shellPath = /bin/sh;
+				shellScript = "if [[ \"$(uname -m)\" == \"arm64\" ]]; then\n    export PATH=\"/opt/homebrew/bin:$PATH\"\nfi\n\nif command -v swiftlint >/dev/null 2>&1\nthen\n    swiftlint --config \"$SRCROOT/../../.swiftlint.yml\"\nelse\n    echo \"warning: `swiftlint` command not found - See https://github.com/realm/SwiftLint#installation for installation instructions.\"\nfi\n";
+			};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		DA5F4C952F4A14BB00255097 /* Sources */ = {
@@ -267,17 +289,18 @@
 			};
 			name = Release;
 		};
-		DA5F4CA52F4A14BB00255097 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
+			DA5F4CA52F4A14BB00255097 /* Debug */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FieldSurvey/FieldSurvey.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 432Q4W72Q7;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = NO;
+					DEVELOPMENT_TEAM = 432Q4W72Q7;
+					ENABLE_USER_SCRIPT_SANDBOXING = NO;
+					ENABLE_PREVIEWS = YES;
+					GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Bluetooth access is required for BLE beacon trilateration.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required for ARKit and LiDAR spatial mapping.";
@@ -307,17 +330,18 @@
 			};
 			name = Debug;
 		};
-		DA5F4CA62F4A14BB00255097 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
+			DA5F4CA62F4A14BB00255097 /* Release */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FieldSurvey/FieldSurvey.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 432Q4W72Q7;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = NO;
+					DEVELOPMENT_TEAM = 432Q4W72Q7;
+					ENABLE_USER_SCRIPT_SANDBOXING = NO;
+					ENABLE_PREVIEWS = YES;
+					GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Bluetooth access is required for BLE beacon trilateration.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required for ARKit and LiDAR spatial mapping.";
