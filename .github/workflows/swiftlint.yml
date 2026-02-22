@@ -14,8 +14,6 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v6
-      - name: setup bazel
-        uses: bazelbuild/setup-bazelisk@v3
       - name: install swiftlint
         run: |
           set -euo pipefail
@@ -29,5 +27,5 @@ jobs:
           unzip -q /tmp/swiftlint.zip -d /tmp/swiftlint-bin
           install -m 0755 /tmp/swiftlint-bin/swiftlint /usr/local/bin/swiftlint
           swiftlint version
-      - name: swiftlint (bazel)
-        run: bazel run -c opt //:swiftlint_lint
+      - name: swiftlint
+        run: swiftlint lint --config .swiftlint.yml
