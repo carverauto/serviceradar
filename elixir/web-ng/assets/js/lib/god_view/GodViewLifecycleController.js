@@ -1,18 +1,58 @@
 import {godViewLifecycleMethods} from "./lifecycle_methods"
 
-import SharedStateAdapter from "./SharedStateAdapter"
-
 const LIFECYCLE_CONTROLLER_SHARED_METHODS = [
   "ensureDeck",
+]
+
+const LIFECYCLE_CONTROLLER_CONTEXT_METHODS = [
+  "mounted",
+  "destroyed",
+  "initLifecycleState",
+  "bindLifecycleMethods",
+  "attachLifecycleDom",
+  "initWasmEngine",
+  "registerLifecycleEvents",
+  "registerFilterEvent",
+  "registerZoomModeEvent",
+  "registerLayerEvents",
+  "setupSnapshotChannel",
+  "ensureGodViewSocket",
+  "registerSnapshotChannelEvents",
+  "joinSnapshotChannel",
+  "cleanupLifecycle",
+  "cleanupLifecycleDomListeners",
+  "cleanupLifecycleRuntime",
+  "startAnimationLoop",
+  "stopAnimationLoop",
+  "handlePanStart",
+  "handlePanMove",
+  "handlePanEnd",
+  "handleWheelZoom",
+  "ensureDOM",
+  "resizeCanvas",
+  "createDeckInstance",
+  "ensureDeck",
+  "handleSnapshot",
+  "parseSnapshotMessage",
+  "base64ToArrayBuffer",
+  "parseBinarySnapshotFrame",
+  "startPolling",
+  "stopPolling",
+  "pollSnapshot",
+  "decodeArrowGraph",
 ]
 
 function bindApiMethods(instance, methods) {
   return Object.fromEntries(methods.map((method) => [method, instance[method].bind(instance)]))
 }
 
-export default class GodViewLifecycleController extends SharedStateAdapter {
-  constructor(state) {
-    super(state)
+export default class GodViewLifecycleController {
+  constructor(context) {
+    this.context = context
+  }
+
+  getContextApi() {
+    return bindApiMethods(this, LIFECYCLE_CONTROLLER_CONTEXT_METHODS)
   }
 
   getSharedApi() {
@@ -28,142 +68,142 @@ export default class GodViewLifecycleController extends SharedStateAdapter {
   }
 
   mounted(...args) {
-    return godViewLifecycleMethods.mounted.call(this, ...args)
+    return godViewLifecycleMethods.mounted.call(this.context, ...args)
   }
 
   destroyed(...args) {
-    return godViewLifecycleMethods.destroyed.call(this, ...args)
+    return godViewLifecycleMethods.destroyed.call(this.context, ...args)
   }
 
   initLifecycleState(...args) {
-    return godViewLifecycleMethods.initLifecycleState.call(this, ...args)
+    return godViewLifecycleMethods.initLifecycleState.call(this.context, ...args)
   }
 
   bindLifecycleMethods(...args) {
-    return godViewLifecycleMethods.bindLifecycleMethods.call(this, ...args)
+    return godViewLifecycleMethods.bindLifecycleMethods.call(this.context, ...args)
   }
 
   attachLifecycleDom(...args) {
-    return godViewLifecycleMethods.attachLifecycleDom.call(this, ...args)
+    return godViewLifecycleMethods.attachLifecycleDom.call(this.context, ...args)
   }
 
   initWasmEngine(...args) {
-    return godViewLifecycleMethods.initWasmEngine.call(this, ...args)
+    return godViewLifecycleMethods.initWasmEngine.call(this.context, ...args)
   }
 
   registerLifecycleEvents(...args) {
-    return godViewLifecycleMethods.registerLifecycleEvents.call(this, ...args)
+    return godViewLifecycleMethods.registerLifecycleEvents.call(this.context, ...args)
   }
 
   registerFilterEvent(...args) {
-    return godViewLifecycleMethods.registerFilterEvent.call(this, ...args)
+    return godViewLifecycleMethods.registerFilterEvent.call(this.context, ...args)
   }
 
   registerZoomModeEvent(...args) {
-    return godViewLifecycleMethods.registerZoomModeEvent.call(this, ...args)
+    return godViewLifecycleMethods.registerZoomModeEvent.call(this.context, ...args)
   }
 
   registerLayerEvents(...args) {
-    return godViewLifecycleMethods.registerLayerEvents.call(this, ...args)
+    return godViewLifecycleMethods.registerLayerEvents.call(this.context, ...args)
   }
 
   setupSnapshotChannel(...args) {
-    return godViewLifecycleMethods.setupSnapshotChannel.call(this, ...args)
+    return godViewLifecycleMethods.setupSnapshotChannel.call(this.context, ...args)
   }
 
   ensureGodViewSocket(...args) {
-    return godViewLifecycleMethods.ensureGodViewSocket.call(this, ...args)
+    return godViewLifecycleMethods.ensureGodViewSocket.call(this.context, ...args)
   }
 
   registerSnapshotChannelEvents(...args) {
-    return godViewLifecycleMethods.registerSnapshotChannelEvents.call(this, ...args)
+    return godViewLifecycleMethods.registerSnapshotChannelEvents.call(this.context, ...args)
   }
 
   joinSnapshotChannel(...args) {
-    return godViewLifecycleMethods.joinSnapshotChannel.call(this, ...args)
+    return godViewLifecycleMethods.joinSnapshotChannel.call(this.context, ...args)
   }
 
   cleanupLifecycle(...args) {
-    return godViewLifecycleMethods.cleanupLifecycle.call(this, ...args)
+    return godViewLifecycleMethods.cleanupLifecycle.call(this.context, ...args)
   }
 
   cleanupLifecycleDomListeners(...args) {
-    return godViewLifecycleMethods.cleanupLifecycleDomListeners.call(this, ...args)
+    return godViewLifecycleMethods.cleanupLifecycleDomListeners.call(this.context, ...args)
   }
 
   cleanupLifecycleRuntime(...args) {
-    return godViewLifecycleMethods.cleanupLifecycleRuntime.call(this, ...args)
+    return godViewLifecycleMethods.cleanupLifecycleRuntime.call(this.context, ...args)
   }
 
   startAnimationLoop(...args) {
-    return godViewLifecycleMethods.startAnimationLoop.call(this, ...args)
+    return godViewLifecycleMethods.startAnimationLoop.call(this.context, ...args)
   }
 
   stopAnimationLoop(...args) {
-    return godViewLifecycleMethods.stopAnimationLoop.call(this, ...args)
+    return godViewLifecycleMethods.stopAnimationLoop.call(this.context, ...args)
   }
 
   handlePanStart(...args) {
-    return godViewLifecycleMethods.handlePanStart.call(this, ...args)
+    return godViewLifecycleMethods.handlePanStart.call(this.context, ...args)
   }
 
   handlePanMove(...args) {
-    return godViewLifecycleMethods.handlePanMove.call(this, ...args)
+    return godViewLifecycleMethods.handlePanMove.call(this.context, ...args)
   }
 
   handlePanEnd(...args) {
-    return godViewLifecycleMethods.handlePanEnd.call(this, ...args)
+    return godViewLifecycleMethods.handlePanEnd.call(this.context, ...args)
   }
 
   handleWheelZoom(...args) {
-    return godViewLifecycleMethods.handleWheelZoom.call(this, ...args)
+    return godViewLifecycleMethods.handleWheelZoom.call(this.context, ...args)
   }
 
   ensureDOM(...args) {
-    return godViewLifecycleMethods.ensureDOM.call(this, ...args)
+    return godViewLifecycleMethods.ensureDOM.call(this.context, ...args)
   }
 
   resizeCanvas(...args) {
-    return godViewLifecycleMethods.resizeCanvas.call(this, ...args)
+    return godViewLifecycleMethods.resizeCanvas.call(this.context, ...args)
   }
 
   createDeckInstance(...args) {
-    return godViewLifecycleMethods.createDeckInstance.call(this, ...args)
+    return godViewLifecycleMethods.createDeckInstance.call(this.context, ...args)
   }
 
   ensureDeck(...args) {
-    return godViewLifecycleMethods.ensureDeck.call(this, ...args)
+    return godViewLifecycleMethods.ensureDeck.call(this.context, ...args)
   }
 
   handleSnapshot(...args) {
-    return godViewLifecycleMethods.handleSnapshot.call(this, ...args)
+    return godViewLifecycleMethods.handleSnapshot.call(this.context, ...args)
   }
 
   parseSnapshotMessage(...args) {
-    return godViewLifecycleMethods.parseSnapshotMessage.call(this, ...args)
+    return godViewLifecycleMethods.parseSnapshotMessage.call(this.context, ...args)
   }
 
   base64ToArrayBuffer(...args) {
-    return godViewLifecycleMethods.base64ToArrayBuffer.call(this, ...args)
+    return godViewLifecycleMethods.base64ToArrayBuffer.call(this.context, ...args)
   }
 
   parseBinarySnapshotFrame(...args) {
-    return godViewLifecycleMethods.parseBinarySnapshotFrame.call(this, ...args)
+    return godViewLifecycleMethods.parseBinarySnapshotFrame.call(this.context, ...args)
   }
 
   startPolling(...args) {
-    return godViewLifecycleMethods.startPolling.call(this, ...args)
+    return godViewLifecycleMethods.startPolling.call(this.context, ...args)
   }
 
   stopPolling(...args) {
-    return godViewLifecycleMethods.stopPolling.call(this, ...args)
+    return godViewLifecycleMethods.stopPolling.call(this.context, ...args)
   }
 
   pollSnapshot(...args) {
-    return godViewLifecycleMethods.pollSnapshot.call(this, ...args)
+    return godViewLifecycleMethods.pollSnapshot.call(this.context, ...args)
   }
 
   decodeArrowGraph(...args) {
-    return godViewLifecycleMethods.decodeArrowGraph.call(this, ...args)
+    return godViewLifecycleMethods.decodeArrowGraph.call(this.context, ...args)
   }
 }

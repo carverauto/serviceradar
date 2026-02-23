@@ -4,7 +4,7 @@ import GodViewRenderingEngine from "./god_view/GodViewRenderingEngine"
 
 export default class GodViewRenderer {
   constructor(el, pushEvent, handleEvent, options = {}) {
-    this.state = {
+    this.context = {
       el,
       pushEvent,
       handleEvent,
@@ -12,13 +12,17 @@ export default class GodViewRenderer {
         options.csrfToken || document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || "",
     }
 
-    this.layoutEngine = new GodViewLayoutEngine(this.state)
-    this.renderingEngine = new GodViewRenderingEngine(this.state)
-    this.lifecycleController = new GodViewLifecycleController(this.state)
+    this.layoutEngine = new GodViewLayoutEngine(this.context)
+    this.renderingEngine = new GodViewRenderingEngine(this.context)
+    this.lifecycleController = new GodViewLifecycleController(this.context)
 
-    Object.assign(this.state, this.layoutEngine.getSharedApi())
-    Object.assign(this.state, this.renderingEngine.getSharedApi())
-    Object.assign(this.state, this.lifecycleController.getSharedApi())
+    Object.assign(this.context, this.layoutEngine.getContextApi())
+    Object.assign(this.context, this.renderingEngine.getContextApi())
+    Object.assign(this.context, this.lifecycleController.getContextApi())
+
+    Object.assign(this.context, this.layoutEngine.getSharedApi())
+    Object.assign(this.context, this.renderingEngine.getSharedApi())
+    Object.assign(this.context, this.lifecycleController.getSharedApi())
   }
 
   mount() {
@@ -26,7 +30,7 @@ export default class GodViewRenderer {
   }
 
   update() {
-    if (typeof this.state.updated === "function") this.state.updated()
+    if (typeof this.context.updated === "function") this.context.updated()
   }
 
   destroy() {
