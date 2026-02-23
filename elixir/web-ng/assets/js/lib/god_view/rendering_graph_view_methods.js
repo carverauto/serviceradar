@@ -1,7 +1,8 @@
+import {depsRef, stateRef} from "./runtime_refs"
 export const godViewRenderingGraphViewMethods = {
   autoFitViewState(graph) {
-    if (!this.deck || !graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) return
-    if (this.hasAutoFit || this.userCameraLocked) return
+    if (!stateRef(this).deck || !graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) return
+    if (stateRef(this).hasAutoFit || stateRef(this).userCameraLocked) return
 
     let minX = Number.POSITIVE_INFINITY
     let maxX = Number.NEGATIVE_INFINITY
@@ -21,26 +22,26 @@ export const godViewRenderingGraphViewMethods = {
 
     if (!Number.isFinite(minX) || !Number.isFinite(minY)) return
 
-    const width = Math.max(1, this.el.clientWidth || 1)
-    const height = Math.max(1, this.el.clientHeight || 1)
+    const width = Math.max(1, stateRef(this).el.clientWidth || 1)
+    const height = Math.max(1, stateRef(this).el.clientHeight || 1)
     const spanX = Math.max(1, maxX - minX)
     const spanY = Math.max(1, maxY - minY)
     const padding = 0.88
     const zoomX = Math.log2((width * padding) / spanX)
     const zoomY = Math.log2((height * padding) / spanY)
-    const zoom = Math.max(this.viewState.minZoom, Math.min(this.viewState.maxZoom, Math.min(zoomX, zoomY)))
+    const zoom = Math.max(stateRef(this).viewState.minZoom, Math.min(stateRef(this).viewState.maxZoom, Math.min(zoomX, zoomY)))
 
-    this.viewState = {
-      ...this.viewState,
+    stateRef(this).viewState = {
+      ...stateRef(this).viewState,
       target: [(minX + maxX) / 2, (minY + maxY) / 2, 0],
       zoom,
     }
 
-    this.hasAutoFit = true
-    this.isProgrammaticViewUpdate = true
-    this.deck.setProps({viewState: this.viewState})
-    if (this.zoomMode === "auto") {
-      this.setZoomTier(this.resolveZoomTier(zoom), true)
+    stateRef(this).hasAutoFit = true
+    stateRef(this).isProgrammaticViewUpdate = true
+    stateRef(this).deck.setProps({viewState: stateRef(this).viewState})
+    if (stateRef(this).zoomMode === "auto") {
+      depsRef(this).setZoomTier(depsRef(this).resolveZoomTier(zoom), true)
     }
   },
 }

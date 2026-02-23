@@ -23,3 +23,4 @@ export const godViewLifecycleMethods = Object.assign(
   godViewLifecycleDomMethods,
   godViewLifecycleStreamMethods,
 )
+import {depsRef, stateRef} from "./runtime_refs"

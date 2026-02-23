@@ -1,3 +1,4 @@
+import {depsRef, stateRef} from "./runtime_refs"
 export const godViewRenderingStyleEdgeTelemetryMethods = {
   formatPps(value) {
     const n = Number(value || 0)

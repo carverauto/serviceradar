@@ -49,8 +49,8 @@ export const godViewLifecycleBootstrapRuntimeMethods = {
     this.ensureDOM()
     this.resizeCanvas()
     window.addEventListener("resize", this.resizeCanvas)
-    this.canvas.addEventListener("wheel", this.handleWheelZoom, {passive: false})
-    this.canvas.addEventListener("pointerdown", this.handlePanStart)
+    stateRef(this).canvas.addEventListener("wheel", this.handleWheelZoom, {passive: false})
+    stateRef(this).canvas.addEventListener("pointerdown", this.handlePanStart)
     window.addEventListener("pointermove", this.handlePanMove)
     window.addEventListener("pointerup", this.handlePanEnd)
     window.addEventListener("pointercancel", this.handlePanEnd)
@@ -59,12 +59,13 @@ export const godViewLifecycleBootstrapRuntimeMethods = {
   initWasmEngine() {
     GodViewWasmEngine.init()
       .then((engine) => {
-        this.wasmEngine = engine
-        this.wasmReady = true
+        stateRef(this).wasmEngine = engine
+        stateRef(this).wasmReady = true
       })
       .catch((_err) => {
-        this.wasmReady = false
-        this.wasmEngine = null
+        stateRef(this).wasmReady = false
+        stateRef(this).wasmEngine = null
       })
   },
 }
+import {depsRef, stateRef} from "./runtime_refs"

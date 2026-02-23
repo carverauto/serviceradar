@@ -1,14 +1,15 @@
+import {depsRef, stateRef} from "./runtime_refs"
 export const godViewRenderingSelectionMethods = {
   renderSelectionDetails(node) {
-    if (!this.details) return
+    if (!stateRef(this).details) return
     if (!node) {
-      this.details.classList.add("hidden")
-      this.details.textContent = "Select a node for details"
+      stateRef(this).details.classList.add("hidden")
+      stateRef(this).details.textContent = "Select a node for details"
       return
     }
 
     const d = node.details || {}
-    const nodeMap = this.nodeIndexLookup((this.lastGraph?.nodes || []))
+    const nodeMap = this.nodeIndexLookup((stateRef(this).lastGraph?.nodes || []))
     const reason = this.escapeHtml(node.stateReason || this.defaultStateReason(node.state))
     const rootRef = this.nodeReferenceAction(
       d?.causal_root_index,
@@ -35,8 +36,8 @@ export const godViewRenderingSelectionMethods = {
       `<div>Geo: ${this.escapeHtml([d.geo_city, d.geo_country].filter(Boolean).join(", ") || "unknown")}</div>`,
     ].filter(Boolean)
 
-    this.details.innerHTML = detailLines.join("")
-    this.details.classList.remove("hidden")
+    stateRef(this).details.innerHTML = detailLines.join("")
+    stateRef(this).details.classList.remove("hidden")
   },
   escapeHtml(value) {
     const text = String(value == null ? "" : value)
@@ -56,68 +57,68 @@ export const godViewRenderingSelectionMethods = {
   focusNodeByIndex(index, switchToLocal = false) {
     const idx = Number(index)
     if (!Number.isFinite(idx) || idx < 0) return
-    const node = this.lastGraph?.nodes?.[idx]
+    const node = stateRef(this).lastGraph?.nodes?.[idx]
     if (!node) return
 
     if (switchToLocal) {
-      this.zoomMode = "local"
-      this.zoomTier = "local"
+      stateRef(this).zoomMode = "local"
+      stateRef(this).zoomTier = "local"
     }
 
-    this.selectedNodeIndex = idx
+    stateRef(this).selectedNodeIndex = idx
 
     const x = Number(node.x)
     const y = Number(node.y)
     if (Number.isFinite(x) && Number.isFinite(y)) {
-      this.viewState = {...this.viewState, target: [x, y, 0]}
-      if (this.deck) {
-        this.isProgrammaticViewUpdate = true
-        this.deck.setProps({viewState: this.viewState})
-        this.isProgrammaticViewUpdate = false
+      stateRef(this).viewState = {...stateRef(this).viewState, target: [x, y, 0]}
+      if (stateRef(this).deck) {
+        stateRef(this).isProgrammaticViewUpdate = true
+        stateRef(this).deck.setProps({viewState: stateRef(this).viewState})
+        stateRef(this).isProgrammaticViewUpdate = false
       }
     }
 
-    if (this.lastGraph) this.renderGraph(this.lastGraph)
+    if (stateRef(this).lastGraph) this.renderGraph(stateRef(this).lastGraph)
   },
   handlePick(info) {
     const layerId = info?.layer?.id || ""
     if (this.edgeLayerId(layerId)) {
       const key = typeof info?.object?.interactionKey === "string" ? info.object.interactionKey : null
       if (!key) return
-      this.selectedEdgeKey = this.selectedEdgeKey === key ? null : key
-      if (this.lastGraph) this.renderGraph(this.lastGraph)
+      stateRef(this).selectedEdgeKey = stateRef(this).selectedEdgeKey === key ? null : key
+      if (stateRef(this).lastGraph) this.renderGraph(stateRef(this).lastGraph)
       return
     }
 
-    const tier = this.zoomMode === "auto" ? this.zoomTier : this.zoomMode
+    const tier = stateRef(this).zoomMode === "auto" ? stateRef(this).zoomTier : stateRef(this).zoomMode
     if (tier === "local") {
       const picked = info?.object?.index
       if (Number.isInteger(picked)) {
-        this.selectedNodeIndex = this.selectedNodeIndex === picked ? null : picked
-        if (this.lastGraph) this.renderGraph(this.lastGraph)
+        stateRef(this).selectedNodeIndex = stateRef(this).selectedNodeIndex === picked ? null : picked
+        if (stateRef(this).lastGraph) this.renderGraph(stateRef(this).lastGraph)
         return
       }
     }
 
     if (info && info.picked === false) {
       let changed = false
-      if (this.selectedNodeIndex !== null) {
-        this.selectedNodeIndex = null
+      if (stateRef(this).selectedNodeIndex !== null) {
+        stateRef(this).selectedNodeIndex = null
         changed = true
       }
-      if (this.selectedEdgeKey !== null) {
-        this.selectedEdgeKey = null
+      if (stateRef(this).selectedEdgeKey !== null) {
+        stateRef(this).selectedEdgeKey = null
         changed = true
       }
-      if (changed && this.lastGraph) this.renderGraph(this.lastGraph)
+      if (changed && stateRef(this).lastGraph) this.renderGraph(stateRef(this).lastGraph)
     }
   },
   selectEdgeLabels(edgeData, shape) {
     if (!Array.isArray(edgeData) || edgeData.length === 0) return []
     if (shape !== "local" && shape !== "regional") return []
 
-    const selected = this.selectedEdgeKey
-    const hovered = this.hoveredEdgeKey
+    const selected = stateRef(this).selectedEdgeKey
+    const hovered = stateRef(this).hoveredEdgeKey
     if (!selected && !hovered) return []
 
     const picked = []

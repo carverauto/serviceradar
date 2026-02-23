@@ -1,3 +1,4 @@
+import {depsRef, stateRef} from "./runtime_refs"
 export const godViewRenderingStyleNodeReasonMethods = {
   stateCategory(state) {
     if (state === 0) return "root_cause"

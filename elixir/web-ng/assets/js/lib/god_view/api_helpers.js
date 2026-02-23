@@ -7,7 +7,7 @@ export function bindApi(context, methods) {
 }
 
 export function createStateBackedContext(state, deps = {}, stateKeys = []) {
-  const context = {...deps}
+  const context = {...deps, state, deps}
 
   for (const key of stateKeys) {
     Object.defineProperty(context, key, {

@@ -1,3 +1,4 @@
+import {depsRef, stateRef} from "./runtime_refs"
 export const godViewRenderingTooltipMethods = {
   getNodeTooltip({object, layer}) {
     if (!object) return null
@@ -7,7 +8,7 @@ export const godViewRenderingTooltipMethods = {
     }
     if (layer?.id !== "god-view-nodes") return null
     const d = object?.details || {}
-    const nodeMap = this.nodeIndexLookup((this.lastGraph?.nodes || []))
+    const nodeMap = this.nodeIndexLookup((stateRef(this).lastGraph?.nodes || []))
     const reason = this.escapeHtml(object.stateReason || this.defaultStateReason(object.state))
     const rootRef = this.nodeReferenceAction(
       d?.causal_root_index,
@@ -55,13 +56,13 @@ export const godViewRenderingTooltipMethods = {
       this.edgeLayerId(layerId) && typeof info?.object?.interactionKey === "string"
         ? info.object.interactionKey
         : null
-    if (this.hoveredEdgeKey === nextKey) return
-    this.hoveredEdgeKey = nextKey
-    if (this.lastGraph) this.renderGraph(this.lastGraph)
+    if (stateRef(this).hoveredEdgeKey === nextKey) return
+    stateRef(this).hoveredEdgeKey = nextKey
+    if (stateRef(this).lastGraph) this.renderGraph(stateRef(this).lastGraph)
   },
   edgeIsFocused(edge) {
     if (!edge) return false
     const key = edge.interactionKey
-    return key != null && (key === this.hoveredEdgeKey || key === this.selectedEdgeKey)
+    return key != null && (key === stateRef(this).hoveredEdgeKey || key === stateRef(this).selectedEdgeKey)
   },
 }
