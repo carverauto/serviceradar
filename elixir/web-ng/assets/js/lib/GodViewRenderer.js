@@ -5,6 +5,7 @@ import {buildLayoutDeps, buildLifecycleDeps, buildRenderingDeps} from "./god_vie
 
 export default class GodViewRenderer {
   constructor(el, pushEvent, handleEvent, options = {}) {
+    /** @type {{state: import("./god_view/renderer_deps").GodViewState, layout: import("./god_view/renderer_deps").GodViewLayoutApi | {}, rendering: import("./god_view/renderer_deps").GodViewRenderingApi | {}, lifecycle: import("./god_view/renderer_deps").GodViewLifecycleApi | {}}} */
     this.context = {
       state: {
         el,

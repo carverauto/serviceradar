@@ -1,3 +1,88 @@
+/**
+ * @typedef {object} GodViewState
+ * @property {Element} [el]
+ * @property {(name: string, payload: unknown) => void} [pushEvent]
+ * @property {(name: string, handler: Function) => void} [handleEvent]
+ * @property {string} [csrfToken]
+ */
+
+/**
+ * @typedef {object} GodViewLayoutApi
+ * @property {(...args: any[]) => any} resolveZoomTier
+ * @property {(...args: any[]) => any} setZoomTier
+ * @property {(...args: any[]) => any} reshapeGraph
+ * @property {(...args: any[]) => any} geoGridData
+ * @property {(...args: any[]) => any} prepareGraphLayout
+ * @property {(...args: any[]) => any} graphTopologyStamp
+ * @property {(...args: any[]) => any} sameTopology
+ * @property {(...args: any[]) => any} animateTransition
+ */
+
+/**
+ * @typedef {object} GodViewRenderingApi
+ * @property {(...args: any[]) => any} renderGraph
+ * @property {(...args: any[]) => any} stateDisplayName
+ * @property {(...args: any[]) => any} edgeTopologyClass
+ * @property {(...args: any[]) => any} focusNodeByIndex
+ * @property {(...args: any[]) => any} ensureBitmapMetadata
+ * @property {(...args: any[]) => any} pipelineStatsFromHeaders
+ * @property {(...args: any[]) => any} normalizePipelineStats
+ * @property {(...args: any[]) => any} normalizeDisplayLabel
+ * @property {(...args: any[]) => any} edgeTopologyClassFromLabel
+ */
+
+/**
+ * @typedef {object} GodViewLifecycleApi
+ * @property {(...args: any[]) => any} ensureDeck
+ * @property {(...args: any[]) => any} decodeArrowGraph
+ */
+
+/**
+ * @typedef {object} GodViewRuntimeContext
+ * @property {GodViewState} state
+ * @property {Partial<GodViewLayoutApi>} layout
+ * @property {Partial<GodViewRenderingApi>} rendering
+ * @property {Partial<GodViewLifecycleApi>} lifecycle
+ */
+
+/**
+ * @typedef {object} GodViewLayoutDeps
+ * @property {(...args: any[]) => any} renderGraph
+ * @property {(...args: any[]) => any} stateDisplayName
+ * @property {(...args: any[]) => any} edgeTopologyClass
+ */
+
+/**
+ * @typedef {object} GodViewRenderingDeps
+ * @property {(...args: any[]) => any} resolveZoomTier
+ * @property {(...args: any[]) => any} setZoomTier
+ * @property {(...args: any[]) => any} reshapeGraph
+ * @property {(...args: any[]) => any} geoGridData
+ * @property {(...args: any[]) => any} ensureDeck
+ */
+
+/**
+ * @typedef {object} GodViewLifecycleDeps
+ * @property {(...args: any[]) => any} renderGraph
+ * @property {(...args: any[]) => any} focusNodeByIndex
+ * @property {(...args: any[]) => any} ensureBitmapMetadata
+ * @property {(...args: any[]) => any} pipelineStatsFromHeaders
+ * @property {(...args: any[]) => any} normalizePipelineStats
+ * @property {(...args: any[]) => any} decodeArrowGraph
+ * @property {(...args: any[]) => any} normalizeDisplayLabel
+ * @property {(...args: any[]) => any} edgeTopologyClassFromLabel
+ * @property {(...args: any[]) => any} setZoomTier
+ * @property {(...args: any[]) => any} resolveZoomTier
+ * @property {(...args: any[]) => any} prepareGraphLayout
+ * @property {(...args: any[]) => any} graphTopologyStamp
+ * @property {(...args: any[]) => any} sameTopology
+ * @property {(...args: any[]) => any} animateTransition
+ */
+
+/**
+ * @param {GodViewRuntimeContext} context
+ * @returns {GodViewLayoutDeps}
+ */
 export function buildLayoutDeps(context) {
   return {
     renderGraph: (...args) => context.rendering.renderGraph(...args),
@@ -6,6 +91,10 @@ export function buildLayoutDeps(context) {
   }
 }
 
+/**
+ * @param {GodViewRuntimeContext} context
+ * @returns {GodViewRenderingDeps}
+ */
 export function buildRenderingDeps(context) {
   return {
     resolveZoomTier: (...args) => context.layout.resolveZoomTier(...args),
@@ -16,6 +105,10 @@ export function buildRenderingDeps(context) {
   }
 }
 
+/**
+ * @param {GodViewRuntimeContext} context
+ * @returns {GodViewLifecycleDeps}
+ */
 export function buildLifecycleDeps(context) {
   return {
     renderGraph: (...args) => context.rendering.renderGraph(...args),
