@@ -89,10 +89,10 @@ patch_file(
 patch_file(
     Path("deps/opentelemetry_api_experimental/mix.exs"),
     [
-        (":file.consult('rebar.config')", ":file.consult(~c\"rebar.config\")"),
+        (":file.consult('rebar.config')", ':file.consult(~c"rebar.config")'),
         (
             ":file.consult('src/opentelemetry_api_experimental.app.src')",
-            ":file.consult(~c\"src/opentelemetry_api_experimental.app.src\")",
+            ':file.consult(~c"src/opentelemetry_api_experimental.app.src")',
         ),
     ],
 )
