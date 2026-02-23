@@ -74,4 +74,27 @@ describe("god_view deps injection contract", () => {
 
     expect(missing).toEqual([])
   })
+
+  it("GodViewRenderer does not declare unused rendering/lifecycle deps", () => {
+    const rendererSource = fs.readFileSync(GOD_VIEW_RENDERER_FILE, "utf8")
+    const renderingDeclared = declaredDeps(rendererSource, "renderingDeps")
+    const lifecycleDeclared = declaredDeps(rendererSource, "lifecycleDeps")
+
+    const renderingUsed = usedDeps(methodFiles("rendering_"))
+    const lifecycleUsed = usedDeps(methodFiles("lifecycle_"))
+
+    const unused = []
+    for (const name of renderingDeclared) {
+      if (!renderingUsed.has(name)) {
+        unused.push(`rendering unused deps declaration: ${name}`)
+      }
+    }
+    for (const name of lifecycleDeclared) {
+      if (!lifecycleUsed.has(name)) {
+        unused.push(`lifecycle unused deps declaration: ${name}`)
+      }
+    }
+
+    expect(unused).toEqual([])
+  })
 })
