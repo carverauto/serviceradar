@@ -2,10 +2,9 @@ import fs from "node:fs"
 import path from "node:path"
 
 import {describe, expect, it} from "vitest"
+import {LIFECYCLE_DEP_KEYS, RENDERING_DEP_KEYS} from "./renderer_deps"
 
-const ASSETS_LIB_DIR = path.resolve(import.meta.dirname, "..")
 const GOD_VIEW_DIR = path.resolve(import.meta.dirname)
-const RENDERER_DEPS_FILE = path.join(GOD_VIEW_DIR, "renderer_deps.js")
 
 function methodFiles(prefix) {
   return fs
@@ -24,38 +23,10 @@ function usedDeps(files) {
   return used
 }
 
-function extractObjectLiteralBody(source, startMarker) {
-  const markerIndex = source.indexOf(startMarker)
-  if (markerIndex === -1) return null
-  const start = source.indexOf("{", markerIndex + startMarker.length)
-  if (start === -1) return null
-  let depth = 0
-  for (let i = start; i < source.length; i += 1) {
-    const ch = source[i]
-    if (ch === "{") depth += 1
-    if (ch === "}") {
-      depth -= 1
-      if (depth === 0) return source.slice(start + 1, i)
-    }
-  }
-  return null
-}
-
-function declaredDeps(depsSource, builderFunctionName) {
-  const body = extractObjectLiteralBody(depsSource, `function ${builderFunctionName}(context) {\n  return `)
-  if (body == null) return new Set()
-
-  const names = new Set()
-  const matches = body.matchAll(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:/gm)
-  for (const [, name] of matches) names.add(name)
-  return names
-}
-
 describe("god_view deps injection contract", () => {
   it("all rendering/lifecycle this.deps usages are declared in GodViewRenderer deps maps", () => {
-    const depsSource = fs.readFileSync(RENDERER_DEPS_FILE, "utf8")
-    const renderingDeclared = declaredDeps(depsSource, "buildRenderingDeps")
-    const lifecycleDeclared = declaredDeps(depsSource, "buildLifecycleDeps")
+    const renderingDeclared = new Set(RENDERING_DEP_KEYS)
+    const lifecycleDeclared = new Set(LIFECYCLE_DEP_KEYS)
 
     const renderingUsed = usedDeps(methodFiles("rendering_"))
     const lifecycleUsed = usedDeps(methodFiles("lifecycle_"))
@@ -76,9 +47,8 @@ describe("god_view deps injection contract", () => {
   })
 
   it("GodViewRenderer does not declare unused rendering/lifecycle deps", () => {
-    const depsSource = fs.readFileSync(RENDERER_DEPS_FILE, "utf8")
-    const renderingDeclared = declaredDeps(depsSource, "buildRenderingDeps")
-    const lifecycleDeclared = declaredDeps(depsSource, "buildLifecycleDeps")
+    const renderingDeclared = new Set(RENDERING_DEP_KEYS)
+    const lifecycleDeclared = new Set(LIFECYCLE_DEP_KEYS)
 
     const renderingUsed = usedDeps(methodFiles("rendering_"))
     const lifecycleUsed = usedDeps(methodFiles("lifecycle_"))

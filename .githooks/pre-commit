@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+if ! git diff --cached --name-only | rg -q '^elixir/web-ng/assets/js/lib/god_view/'; then
+  exit 0
+fi
+
+echo "Running god_view quick pre-commit checks..."
+cd elixir/web-ng/assets
+bun run precommit:god_view

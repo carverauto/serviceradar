@@ -51,6 +51,7 @@
  * @property {(...args: any[]) => any} stateDisplayName
  * @property {(...args: any[]) => any} edgeTopologyClass
  */
+export const LAYOUT_DEP_KEYS = ["renderGraph", "stateDisplayName", "edgeTopologyClass"]
 
 /**
  * @typedef {object} GodViewRenderingDeps
@@ -60,6 +61,7 @@
  * @property {(...args: any[]) => any} geoGridData
  * @property {(...args: any[]) => any} ensureDeck
  */
+export const RENDERING_DEP_KEYS = ["resolveZoomTier", "setZoomTier", "reshapeGraph", "geoGridData", "ensureDeck"]
 
 /**
  * @typedef {object} GodViewLifecycleDeps
@@ -78,6 +80,22 @@
  * @property {(...args: any[]) => any} sameTopology
  * @property {(...args: any[]) => any} animateTransition
  */
+export const LIFECYCLE_DEP_KEYS = [
+  "renderGraph",
+  "focusNodeByIndex",
+  "ensureBitmapMetadata",
+  "pipelineStatsFromHeaders",
+  "normalizePipelineStats",
+  "decodeArrowGraph",
+  "normalizeDisplayLabel",
+  "edgeTopologyClassFromLabel",
+  "setZoomTier",
+  "resolveZoomTier",
+  "prepareGraphLayout",
+  "graphTopologyStamp",
+  "sameTopology",
+  "animateTransition",
+]
 
 /**
  * @param {GodViewRuntimeContext} context

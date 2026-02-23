@@ -1,6 +1,13 @@
 import {describe, expect, it, vi} from "vitest"
 
-import {buildLayoutDeps, buildLifecycleDeps, buildRenderingDeps} from "./renderer_deps"
+import {
+  buildLayoutDeps,
+  buildLifecycleDeps,
+  buildRenderingDeps,
+  LAYOUT_DEP_KEYS,
+  LIFECYCLE_DEP_KEYS,
+  RENDERING_DEP_KEYS,
+} from "./renderer_deps"
 
 function makeContext() {
   return {
@@ -40,6 +47,7 @@ describe("renderer_deps", () => {
     expect(deps.renderGraph("g")).toEqual(["rendering.renderGraph", "g"])
     expect(deps.stateDisplayName(2)).toEqual(["rendering.stateDisplayName", 2])
     expect(deps.edgeTopologyClass({label: "x"})).toEqual(["rendering.edgeTopologyClass", {label: "x"}])
+    expect(Object.keys(deps).sort()).toEqual([...LAYOUT_DEP_KEYS].sort())
   })
 
   it("buildRenderingDeps forwards to layout/lifecycle namespaces", () => {
@@ -51,6 +59,7 @@ describe("renderer_deps", () => {
     expect(deps.reshapeGraph({nodes: []})).toEqual(["layout.reshapeGraph", {nodes: []}])
     expect(deps.geoGridData()).toEqual(["layout.geoGridData"])
     expect(deps.ensureDeck()).toEqual(["lifecycle.ensureDeck"])
+    expect(Object.keys(deps).sort()).toEqual([...RENDERING_DEP_KEYS].sort())
   })
 
   it("buildLifecycleDeps forwards to rendering/layout/lifecycle namespaces", () => {
@@ -71,5 +80,6 @@ describe("renderer_deps", () => {
     expect(deps.graphTopologyStamp({})).toEqual(["layout.graphTopologyStamp", {}])
     expect(deps.sameTopology({}, {}, "t", 1)).toEqual(["layout.sameTopology", {}, {}, "t", 1])
     expect(deps.animateTransition({}, {})).toEqual(["layout.animateTransition", {}, {}])
+    expect(Object.keys(deps).sort()).toEqual([...LIFECYCLE_DEP_KEYS].sort())
   })
 })

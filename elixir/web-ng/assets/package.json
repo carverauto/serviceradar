@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "test": "bunx vitest run js/lib/god_view/*.test.js",
-    "lint": "bunx eslint js/**/*.js"
+    "test:god_view:contracts": "bunx vitest run js/lib/god_view/*contract*.test.js js/lib/god_view/renderer_deps.test.js",
+    "lint": "bunx eslint js/**/*.js",
+    "lint:god_view": "bunx eslint js/lib/god_view/**/*.js",
+    "typecheck:god_view": "bunx tsc -p js/lib/god_view/tsconfig.json --noEmit",
+    "precommit:god_view": "bun run lint:god_view && bun run test:god_view:contracts && bun run typecheck:god_view"
   },
   "dependencies": {
     "@deck.gl/aggregation-layers": "^9.2.9",
