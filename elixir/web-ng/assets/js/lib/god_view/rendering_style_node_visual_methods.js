@@ -18,9 +18,9 @@ export const godViewRenderingStyleNodeVisualMethods = {
     return [100, 116, 139, 220]
   },
   nodeStatusIcon(operUp) {
-    if (Number(operUp) === 1) return "●"
-    if (Number(operUp) === 2) return "○"
-    return "◌"
+    if (Number(operUp) === 1) return "UP"
+    if (Number(operUp) === 2) return "DN"
+    return "UNK"
   },
   nodeStatusColor(operUp) {
     if (Number(operUp) === 1) return [34, 197, 94, 230]

@@ -16,6 +16,7 @@ export const godViewRenderingGraphDataMethods = {
       index,
       selected: this.state.selectedNodeIndex === index,
       visible: mask[index] === 1,
+      zHeight: 0,
     }))
     const visibleById = new Map(visibleNodes.map((node) => [node.id, node]))
 
@@ -65,6 +66,7 @@ export const godViewRenderingGraphDataMethods = {
       .map((node) => ({
         id: node.id,
         position: [node.x, node.y, 0],
+        zHeight: 0,
         index: node.index,
         state: node.state,
         selected: node.selected,
@@ -78,6 +80,7 @@ export const godViewRenderingGraphDataMethods = {
         statusIcon: this.nodeStatusIcon(node.operUp),
         stateReason: this.stateReasonForNode(node, edgeData, visibleNodes),
       }))
+    const rootPulseNodes = nodeData.filter((node) => node.state === 0)
 
     this.state.lastVisibleNodeCount = nodeData.length
     this.state.lastVisibleEdgeCount = edgeData.length
@@ -87,6 +90,6 @@ export const godViewRenderingGraphDataMethods = {
         ? null
         : nodeData.find((node) => node.index === this.state.selectedNodeIndex)
 
-    return {edgeData, edgeLabelData, nodeData, selectedVisibleNode}
+    return {edgeData, edgeLabelData, nodeData, rootPulseNodes, selectedVisibleNode}
   },
 }
