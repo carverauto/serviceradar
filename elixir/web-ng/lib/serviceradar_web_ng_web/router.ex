@@ -115,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/devices", DeviceController, :index)
     get("/devices/ocsf/export", DeviceController, :ocsf_export)
     get("/devices/:uid", DeviceController, :show)
-    
+
     get("/spatial/samples", SpatialController, :index)
   end
 

@@ -6,8 +6,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
     {:ok,
      socket
      |> assign(:page_title, "FieldSurvey Data Viewer")
-     |> assign(:current_path, "/spatial")
-    }
+     |> assign(:current_path, "/spatial")}
   end
 
   @impl true
@@ -33,8 +32,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
               phx-update="ignore"
               data-api-url={~p"/api/spatial/samples"}
               class="h-[75vh] min-h-[600px] w-full rounded-lg border border-base-200 bg-base-200/20"
-            ></canvas>
-            
+            >
+            </canvas>
+
             <div class="absolute bottom-4 left-4 z-20 pointer-events-auto flex gap-2 rounded bg-base-100/90 px-3 py-2 text-xs shadow-md border border-base-300">
               <div class="flex items-center gap-1">
                 <span class="inline-block w-3 h-3 rounded-full bg-cyan-400 opacity-80"></span>
