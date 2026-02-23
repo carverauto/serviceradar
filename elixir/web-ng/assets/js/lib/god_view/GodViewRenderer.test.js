@@ -5,11 +5,8 @@ vi.mock("../god_view/GodViewLayoutEngine", () => ({
     constructor(_context) {}
     getContextApi() {
       return {
+        reshapeGraph: vi.fn(),
         prepareGraphLayout: vi.fn(),
-      }
-    }
-    getSharedApi() {
-      return {
         resolveZoomTier: vi.fn(),
       }
     }
@@ -22,10 +19,6 @@ vi.mock("../god_view/GodViewRenderingEngine", () => ({
     getContextApi() {
       return {
         buildVisibleGraphData: vi.fn(),
-      }
-    }
-    getSharedApi() {
-      return {
         renderGraph: vi.fn(),
         stateDisplayName: vi.fn(),
         edgeTopologyClass: vi.fn(),
@@ -40,10 +33,6 @@ vi.mock("../god_view/GodViewLifecycleController", () => ({
     getContextApi() {
       return {
         initLifecycleState: vi.fn(),
-      }
-    }
-    getSharedApi() {
-      return {
         ensureDeck: vi.fn(),
       }
     }
@@ -55,7 +44,7 @@ vi.mock("../god_view/GodViewLifecycleController", () => ({
 import GodViewRenderer from "../GodViewRenderer"
 
 describe("GodViewRenderer", () => {
-  it("registers context methods from engines and shared APIs", () => {
+  it("registers context methods from engine context APIs", () => {
     const renderer = new GodViewRenderer({}, vi.fn(), vi.fn(), {csrfToken: "test-token"})
 
     expect(renderer.context.csrfToken).toEqual("test-token")
