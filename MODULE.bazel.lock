@@ -2109,7 +2109,7 @@
         "bzlTransitiveDigest": "qATCXoRXiE4t2IhaFrGaKqtvL9i+mgfVSeAFstpB2/Q=",
         "usagesDigest": "nQ00HMIaHo7WPW5dILqkLC3FghR4LgBt4xZNB5mlf/k=",
         "recordedFileInputs": {
-          "@@//Cargo.lock": "044eab043dba2c0939bbc4a7ff8d0ef012c9b198e5d7039732a36569cbb09d25",
+          "@@//Cargo.lock": "3ca5b3f03c0651bb8cf2b1e8549dcc3649d544503751b13453a3ebd385c89a73",
           "@@//Cargo.toml": "2011d074fb970606e393d828535db1f1b9650ce79ba4e872b03995a87d75de9d",
           "@@//rust/bmp-collector/Cargo.toml": "615ad433b32d1e3e5abf9d4b70d306e15b2c320f10a8dd6c63cd77e4a9b26c8a",
           "@@//rust/config-bootstrap/Cargo.toml": "2bab61d0cf5a9c1ad54e7d2b7b1a2ec4817ccceedf512251320481560c2ecf5d",

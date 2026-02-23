@@ -85,6 +85,18 @@ patch_file(
     ],
 )
 
+# Patch opentelemetry_api_experimental charlist deprecations under Elixir 1.19.
+patch_file(
+    Path("deps/opentelemetry_api_experimental/mix.exs"),
+    [
+        (":file.consult('rebar.config')", ":file.consult(~c\"rebar.config\")"),
+        (
+            ":file.consult('src/opentelemetry_api_experimental.app.src')",
+            ":file.consult(~c\"src/opentelemetry_api_experimental.app.src\")",
+        ),
+    ],
+)
+
 # Patch protobuf to avoid struct-update typing warnings under Elixir 1.19.
 patch_file(
     Path("deps/protobuf/lib/protobuf/dsl.ex"),

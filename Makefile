@@ -290,6 +290,11 @@ release: ## Create and push a new release
 	@git tag -a $(NEXT_VERSION) -m "Release $(NEXT_VERSION)"
 	@git push origin $(NEXT_VERSION)
 
+.PHONY: web-ng-release-check
+web-ng-release-check: ## Build web-ng Bazel release tarball preflight (same path used by MixRelease CI)
+	@echo "$(COLOR_BOLD)Running web-ng release preflight$(COLOR_RESET)"
+	@bazel build --config=remote //elixir/web-ng:release_tar
+
 
 .PHONY: version
 version: ## Show current and next version
