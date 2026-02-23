@@ -18,11 +18,11 @@ describe("GodViewRenderer real-engine smoke", () => {
   it("constructs real engines and registers composed context API", () => {
     const renderer = new GodViewRenderer({}, vi.fn(), vi.fn(), {csrfToken: "test-token"})
 
-    expect(typeof renderer.context.prepareGraphLayout).toEqual("function")
-    expect(typeof renderer.context.buildVisibleGraphData).toEqual("function")
-    expect(typeof renderer.context.initLifecycleState).toEqual("function")
-    expect(typeof renderer.context.reshapeGraph).toEqual("function")
-    expect(typeof renderer.context.renderGraph).toEqual("function")
-    expect(typeof renderer.context.ensureDeck).toEqual("function")
+    expect(typeof renderer.context.layout.prepareGraphLayout).toEqual("function")
+    expect(typeof renderer.context.rendering.buildVisibleGraphData).toEqual("function")
+    expect(typeof renderer.context.lifecycle.initLifecycleState).toEqual("function")
+    expect(typeof renderer.context.layout.reshapeGraph).toEqual("function")
+    expect(typeof renderer.context.rendering.renderGraph).toEqual("function")
+    expect(typeof renderer.context.lifecycle.ensureDeck).toEqual("function")
   })
 })

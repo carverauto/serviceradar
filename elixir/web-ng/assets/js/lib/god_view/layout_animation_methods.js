@@ -1,8 +1,9 @@
 export const godViewLayoutAnimationMethods = {
   animateTransition(previousGraph, nextGraph) {
-    if (this.pendingAnimationFrame) {
-      cancelAnimationFrame(this.pendingAnimationFrame)
-      this.pendingAnimationFrame = null
+    const {state, deps} = this
+    if (state.pendingAnimationFrame) {
+      cancelAnimationFrame(state.pendingAnimationFrame)
+      state.pendingAnimationFrame = null
     }
 
     const shouldAnimate =
@@ -11,7 +12,7 @@ export const godViewLayoutAnimationMethods = {
       previousGraph.nodes.length === nextGraph.nodes.length
 
     if (!shouldAnimate) {
-      this.renderGraph(nextGraph)
+      deps.renderGraph(nextGraph)
       return
     }
 
@@ -23,16 +24,16 @@ export const godViewLayoutAnimationMethods = {
     const step = (now) => {
       const t = Math.min((now - startedAt) / durationMs, 1)
       const frameNodes = this.interpolateNodes(previousGraph.nodes, nextGraph.nodes, prevXY, nextXY, t)
-      this.renderGraph({...nextGraph, nodes: frameNodes})
+      deps.renderGraph({...nextGraph, nodes: frameNodes})
 
       if (t < 1) {
-        this.pendingAnimationFrame = requestAnimationFrame(step)
+        state.pendingAnimationFrame = requestAnimationFrame(step)
       } else {
-        this.pendingAnimationFrame = null
+        state.pendingAnimationFrame = null
       }
     }
 
-    this.pendingAnimationFrame = requestAnimationFrame(step)
+    state.pendingAnimationFrame = requestAnimationFrame(step)
   },
   xyBuffer(nodes) {
     const xy = new Float32Array(nodes.length * 2)
@@ -43,9 +44,10 @@ export const godViewLayoutAnimationMethods = {
     return xy
   },
   interpolateNodes(previousNodes, nextNodes, prevXY, nextXY, t) {
-    if (this.wasmReady && this.wasmEngine) {
+    const {state} = this
+    if (state.wasmReady && state.wasmEngine) {
       try {
-        const xy = this.wasmEngine.computeInterpolatedXY(prevXY, nextXY, t)
+        const xy = state.wasmEngine.computeInterpolatedXY(prevXY, nextXY, t)
         const out = new Array(nextNodes.length)
         for (let i = 0; i < nextNodes.length; i += 1) {
           out[i] = {
@@ -56,7 +58,7 @@ export const godViewLayoutAnimationMethods = {
         }
         return out
       } catch (_err) {
-        this.wasmReady = false
+        state.wasmReady = false
       }
     }
 

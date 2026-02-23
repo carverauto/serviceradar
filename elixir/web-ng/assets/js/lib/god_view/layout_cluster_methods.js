@@ -5,19 +5,22 @@ export const godViewLayoutClusterMethods = {
     return "local"
   },
   setZoomTier(nextTier, forceRender) {
+    const {state, deps} = this
     if (!nextTier) return
-    if (!forceRender && this.zoomTier === nextTier) return
-    this.zoomTier = nextTier
-    if (nextTier !== "local") this.selectedNodeIndex = null
-    if (this.lastGraph) this.renderGraph(this.lastGraph)
+    if (!forceRender && state.zoomTier === nextTier) return
+    state.zoomTier = nextTier
+    if (nextTier !== "local") state.selectedNodeIndex = null
+    if (state.lastGraph) deps.renderGraph(state.lastGraph)
   },
   reshapeGraph(graph) {
-    const tier = this.zoomMode === "auto" ? this.zoomTier : this.zoomMode
+    const {state} = this
+    const tier = state.zoomMode === "auto" ? state.zoomTier : state.zoomMode
     if (tier === "local") return {shape: "local", ...graph}
     if (tier === "global") return this.reclusterByState(graph)
     return this.reclusterByGrid(graph)
   },
   reclusterByState(graph) {
+    const {deps} = this
     const clusters = new Map()
     const clusterByNode = new Array(graph.nodes.length)
 
@@ -54,7 +57,7 @@ export const godViewLayoutClusterMethods = {
       clusterCount: cluster.count,
       pps: cluster.sumPps,
       operUp: cluster.upCount > 0 ? 1 : (cluster.downCount > 0 ? 2 : 0),
-      label: `${this.stateDisplayName(Number(cluster.id.split(":")[1]))} Cluster`,
+      label: `${deps.stateDisplayName(Number(cluster.id.split(":")[1]))} Cluster`,
       details: this.clusterDetails(cluster, "global"),
     }))
 
@@ -138,6 +141,7 @@ export const godViewLayoutClusterMethods = {
     }
   },
   clusterEdges(edges, clusterByNode) {
+    const {deps} = this
     const acc = new Map()
     edges.forEach((edge) => {
       const a = clusterByNode[edge.source]
@@ -153,7 +157,7 @@ export const godViewLayoutClusterMethods = {
         capacityBps: 0,
         topologyClassCounts: {backbone: 0, inferred: 0, endpoints: 0},
       }
-      const topologyClass = this.edgeTopologyClass(edge)
+      const topologyClass = deps.edgeTopologyClass(edge)
       current.weight += 1
       current.flowPps += Number(edge.flowPps || 0)
       current.flowBps += Number(edge.flowBps || 0)

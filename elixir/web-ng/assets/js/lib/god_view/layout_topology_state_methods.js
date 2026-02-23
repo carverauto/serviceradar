@@ -1,21 +1,22 @@
 export const godViewLayoutTopologyStateMethods = {
   prepareGraphLayout(graph, revision, topologyStamp) {
+    const {state} = this
     if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return graph
     const stamp =
       typeof topologyStamp === "string" && topologyStamp.length > 0
         ? topologyStamp
         : this.graphTopologyStamp(graph)
 
-    if (this.lastGraph && stamp === this.lastTopologyStamp) {
-      const reused = this.reusePreviousPositions(graph, this.lastGraph)
-      reused._layoutMode = this.layoutMode || "auto"
+    if (state.lastGraph && stamp === state.lastTopologyStamp) {
+      const reused = this.reusePreviousPositions(graph, state.lastGraph)
+      reused._layoutMode = state.layoutMode || "auto"
       reused._layoutRevision = revision
       return reused
     }
 
-    if (this.lastGraph && Number.isFinite(revision) && this.layoutRevision === revision) {
-      const reused = this.reusePreviousPositions(graph, this.lastGraph)
-      reused._layoutMode = this.layoutMode || "auto"
+    if (state.lastGraph && Number.isFinite(revision) && state.layoutRevision === revision) {
+      const reused = this.reusePreviousPositions(graph, state.lastGraph)
+      reused._layoutMode = state.layoutMode || "auto"
       reused._layoutRevision = revision
       return reused
     }
@@ -26,8 +27,8 @@ export const godViewLayoutTopologyStateMethods = {
     const laidOut = mode === "geo" ? this.projectGeoLayout(graph) : this.forceDirectedLayout(graph)
     laidOut._layoutMode = mode
     laidOut._layoutRevision = revision
-    this.layoutMode = mode
-    this.layoutRevision = revision
+    state.layoutMode = mode
+    state.layoutRevision = revision
     return laidOut
   },
   graphTopologyStamp(graph) {
@@ -46,11 +47,12 @@ export const godViewLayoutTopologyStateMethods = {
     return `${graph.nodes.length}:${graph.edges.length}:${nodeHash}:${edgeHash}`
   },
   sameTopology(previousGraph, nextGraph, stamp, revision) {
+    const {state} = this
     if (!previousGraph || !nextGraph) return false
-    if (!Number.isFinite(revision) || !Number.isFinite(this.lastRevision)) return false
+    if (!Number.isFinite(revision) || !Number.isFinite(state.lastRevision)) return false
     return (
-      revision === this.lastRevision &&
-      stamp === this.lastTopologyStamp &&
+      revision === state.lastRevision &&
+      stamp === state.lastTopologyStamp &&
       previousGraph.nodes.length === nextGraph.nodes.length &&
       previousGraph.edges.length === nextGraph.edges.length
     )

@@ -1,15 +1,23 @@
 import {describe, expect, it, vi} from "vitest"
 
+import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingGraphDataMethods} from "./rendering_graph_data_methods"
 
-function baseContext(overrides = {}) {
-  return {
-    ...godViewRenderingGraphDataMethods,
+function baseContext({state = {}, deps = {}, overrides = {}} = {}) {
+  const initialState = {
     selectedNodeIndex: null,
     hoveredEdgeKey: "stale-edge",
     selectedEdgeKey: "stale-edge",
     lastVisibleNodeCount: 0,
     lastVisibleEdgeCount: 0,
+    ...state,
+  }
+
+  const runtime = createStateBackedContext(initialState, deps, Object.keys(initialState))
+  const api = bindApi(runtime, godViewRenderingGraphDataMethods)
+  Object.assign(runtime, api)
+
+  Object.assign(runtime, {
     visibilityMask: vi.fn((states) => new Uint8Array(states.length).fill(1)),
     computeTraversalMask: vi.fn(() => null),
     edgeEnabledByTopologyLayer: vi.fn(() => true),
@@ -22,7 +30,9 @@ function baseContext(overrides = {}) {
     nodeStatusIcon: vi.fn(() => "●"),
     stateReasonForNode: vi.fn(() => "reason"),
     ...overrides,
-  }
+  })
+
+  return runtime
 }
 
 describe("rendering_graph_data_methods", () => {
@@ -53,8 +63,8 @@ describe("rendering_graph_data_methods", () => {
 
   it("buildVisibleGraphData applies local traversal mask and resolves selectedVisibleNode", () => {
     const ctx = baseContext({
-      selectedNodeIndex: 1,
-      computeTraversalMask: vi.fn(() => Uint8Array.from([0, 1])),
+      state: {selectedNodeIndex: 1},
+      overrides: {computeTraversalMask: vi.fn(() => Uint8Array.from([0, 1]))},
     })
 
     const effective = {

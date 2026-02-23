@@ -1,5 +1,6 @@
 import {describe, expect, it} from "vitest"
 
+import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewLifecycleStreamSnapshotMethods} from "./lifecycle_stream_snapshot_methods"
 
 function buildFrame(payloadBytes) {
@@ -40,7 +41,9 @@ describe("lifecycle_stream_snapshot_methods", () => {
   })
 
   it("parseSnapshotMessage supports binary tuple payload", () => {
-    const methods = {...godViewLifecycleStreamSnapshotMethods}
+    const state = {}
+    const methods = createStateBackedContext(state, {}, Object.keys(state))
+    Object.assign(methods, bindApi(methods, godViewLifecycleStreamSnapshotMethods))
     const frame = buildFrame([1, 2])
     const encoded = Buffer.from(new Uint8Array(frame)).toString("base64")
 

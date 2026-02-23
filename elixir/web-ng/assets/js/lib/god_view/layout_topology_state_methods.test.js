@@ -73,11 +73,13 @@ describe("layout_topology_state_methods", () => {
   it("prepareGraphLayout chooses layout path and updates revision/mode", () => {
     const graph = {nodes: [{id: "a"}, {id: "b"}], edges: [{source: 0, target: 1}]}
     const context = {
+      state: {
+        layoutMode: "auto",
+        layoutRevision: null,
+        lastGraph: null,
+        lastTopologyStamp: null,
+      },
       ...godViewLayoutTopologyStateMethods,
-      layoutMode: "auto",
-      layoutRevision: null,
-      lastGraph: null,
-      lastTopologyStamp: null,
       shouldUseGeoLayout: () => true,
       projectGeoLayout: (g) => ({...g, nodes: g.nodes.map((n) => ({...n, x: 1, y: 2}))}),
       forceDirectedLayout: () => {
@@ -89,7 +91,7 @@ describe("layout_topology_state_methods", () => {
 
     expect(out._layoutMode).toEqual("geo")
     expect(out._layoutRevision).toEqual(5)
-    expect(context.layoutMode).toEqual("geo")
-    expect(context.layoutRevision).toEqual(5)
+    expect(context.state.layoutMode).toEqual("geo")
+    expect(context.state.layoutRevision).toEqual(5)
   })
 })

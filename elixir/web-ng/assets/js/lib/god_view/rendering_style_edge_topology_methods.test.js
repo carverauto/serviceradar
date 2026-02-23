@@ -1,5 +1,6 @@
 import {describe, expect, it} from "vitest"
 
+import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingStyleEdgeTopologyMethods} from "./rendering_style_edge_topology_methods"
 
 describe("rendering_style_edge_topology_methods", () => {
@@ -10,17 +11,18 @@ describe("rendering_style_edge_topology_methods", () => {
   })
 
   it("edgeTopologyClass honors explicit class before label fallback", () => {
-    const methods = {...godViewRenderingStyleEdgeTopologyMethods}
+    const state = {}
+    const methods = createStateBackedContext(state, {}, Object.keys(state))
+    Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
     expect(methods.edgeTopologyClass({topologyClass: "inferred", label: "BACKBONE"})).toEqual("inferred")
     expect(methods.edgeTopologyClass({topologyClass: "", label: "LINK ENDPOINT attachment"})).toEqual("endpoints")
   })
 
   it("edgeEnabledByTopologyLayer uses class count map when present", () => {
-    const methods = {
-      ...godViewRenderingStyleEdgeTopologyMethods,
-      topologyLayers: {backbone: false, inferred: true, endpoints: false},
-    }
+    const state = {topologyLayers: {backbone: false, inferred: true, endpoints: false}}
+    const methods = createStateBackedContext(state, {}, Object.keys(state))
+    Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
     const edge = {topologyClassCounts: {backbone: 2, inferred: 1, endpoints: 0}}
     expect(methods.edgeEnabledByTopologyLayer(edge)).toEqual(true)
@@ -30,10 +32,9 @@ describe("rendering_style_edge_topology_methods", () => {
   })
 
   it("edgeEnabledByTopologyLayer falls back to inferred/endpoints/backbone classes", () => {
-    const methods = {
-      ...godViewRenderingStyleEdgeTopologyMethods,
-      topologyLayers: {backbone: true, inferred: false, endpoints: false},
-    }
+    const state = {topologyLayers: {backbone: true, inferred: false, endpoints: false}}
+    const methods = createStateBackedContext(state, {}, Object.keys(state))
+    Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
     expect(methods.edgeEnabledByTopologyLayer({label: "LINK INFERRED path"})).toEqual(false)
     expect(methods.edgeEnabledByTopologyLayer({label: "LINK ENDPOINT attach"})).toEqual(false)

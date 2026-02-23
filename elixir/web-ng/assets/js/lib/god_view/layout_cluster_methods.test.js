@@ -2,23 +2,30 @@ import {describe, expect, it, vi} from "vitest"
 
 import {godViewLayoutClusterMethods} from "./layout_cluster_methods"
 
-function makeContext(overrides = {}) {
-  return {
+function makeContext({state = {}, deps = {}, methods = {}} = {}) {
+  const ctx = {
+    state: {
+      zoomMode: "auto",
+      zoomTier: "local",
+      selectedNodeIndex: null,
+      lastGraph: null,
+      ...state,
+    },
+    deps: {
+      renderGraph: vi.fn(),
+      stateDisplayName: (value) => ({0: "Root Cause", 1: "Affected", 2: "Healthy", 3: "Unknown"}[value] || "Unknown"),
+      edgeTopologyClass: (edge) => edge.topologyClass || "backbone",
+      ...deps,
+    },
     ...godViewLayoutClusterMethods,
-    zoomMode: "auto",
-    zoomTier: "local",
-    selectedNodeIndex: null,
-    lastGraph: null,
-    renderGraph: vi.fn(),
-    stateDisplayName: (state) => ({0: "Root Cause", 1: "Affected", 2: "Healthy", 3: "Unknown"}[state] || "Unknown"),
-    edgeTopologyClass: (edge) => edge.topologyClass || "backbone",
-    ...overrides,
+    ...methods,
   }
+  return ctx
 }
 
 describe("layout_cluster_methods", () => {
   it("resolveZoomTier and setZoomTier update tier and selection behavior", () => {
-    const ctx = makeContext({lastGraph: {nodes: []}, selectedNodeIndex: 5})
+    const ctx = makeContext({state: {lastGraph: {nodes: []}, selectedNodeIndex: 5}})
 
     expect(ctx.resolveZoomTier(-1)).toEqual("global")
     expect(ctx.resolveZoomTier(0.5)).toEqual("regional")
@@ -26,9 +33,9 @@ describe("layout_cluster_methods", () => {
 
     ctx.setZoomTier("regional", false)
 
-    expect(ctx.zoomTier).toEqual("regional")
-    expect(ctx.selectedNodeIndex).toEqual(null)
-    expect(ctx.renderGraph).toHaveBeenCalledTimes(1)
+    expect(ctx.state.zoomTier).toEqual("regional")
+    expect(ctx.state.selectedNodeIndex).toEqual(null)
+    expect(ctx.deps.renderGraph).toHaveBeenCalledTimes(1)
   })
 
   it("reclusterByState aggregates nodes and cross-cluster edges", () => {
@@ -93,15 +100,15 @@ describe("layout_cluster_methods", () => {
   it("reshapeGraph routes to tier-specific transformations", () => {
     const graph = {nodes: [], edges: []}
 
-    const localCtx = makeContext({zoomMode: "local", zoomTier: "global"})
+    const localCtx = makeContext({state: {zoomMode: "local", zoomTier: "global"}})
     expect(localCtx.reshapeGraph(graph).shape).toEqual("local")
 
-    const globalCtx = makeContext({zoomMode: "global"})
+    const globalCtx = makeContext({state: {zoomMode: "global"}})
     globalCtx.reclusterByState = vi.fn(() => ({shape: "global"}))
     expect(globalCtx.reshapeGraph(graph).shape).toEqual("global")
     expect(globalCtx.reclusterByState).toHaveBeenCalledWith(graph)
 
-    const regionalCtx = makeContext({zoomMode: "auto", zoomTier: "regional"})
+    const regionalCtx = makeContext({state: {zoomMode: "auto", zoomTier: "regional"}})
     regionalCtx.reclusterByGrid = vi.fn(() => ({shape: "regional"}))
     expect(regionalCtx.reshapeGraph(graph).shape).toEqual("regional")
     expect(regionalCtx.reclusterByGrid).toHaveBeenCalledWith(graph)

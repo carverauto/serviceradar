@@ -72,7 +72,8 @@ export const godViewLayoutTopologyAlgorithmMethods = {
     return {...graph, nodes}
   },
   geoGridData() {
-    if (this.layoutMode !== "geo") return []
+    const {state} = this
+    if (state.layoutMode !== "geo") return []
     const lines = []
     for (let lon = -150; lon <= 150; lon += 30) {
       for (let lat = -80; lat < 80; lat += 10) {

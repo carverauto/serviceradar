@@ -47,24 +47,24 @@ describe("GodViewRenderer", () => {
   it("registers context methods from engine context APIs", () => {
     const renderer = new GodViewRenderer({}, vi.fn(), vi.fn(), {csrfToken: "test-token"})
 
-    expect(renderer.context.csrfToken).toEqual("test-token")
-    expect(typeof renderer.context.prepareGraphLayout).toEqual("function")
-    expect(typeof renderer.context.buildVisibleGraphData).toEqual("function")
-    expect(typeof renderer.context.initLifecycleState).toEqual("function")
+    expect(renderer.context.state.csrfToken).toEqual("test-token")
+    expect(typeof renderer.context.layout.prepareGraphLayout).toEqual("function")
+    expect(typeof renderer.context.rendering.buildVisibleGraphData).toEqual("function")
+    expect(typeof renderer.context.lifecycle.initLifecycleState).toEqual("function")
 
-    expect(typeof renderer.context.renderGraph).toEqual("function")
-    expect(typeof renderer.context.stateDisplayName).toEqual("function")
-    expect(typeof renderer.context.edgeTopologyClass).toEqual("function")
-    expect(typeof renderer.context.ensureDeck).toEqual("function")
+    expect(typeof renderer.context.rendering.renderGraph).toEqual("function")
+    expect(typeof renderer.context.rendering.stateDisplayName).toEqual("function")
+    expect(typeof renderer.context.rendering.edgeTopologyClass).toEqual("function")
+    expect(typeof renderer.context.lifecycle.ensureDeck).toEqual("function")
   })
 
   it("update delegates to context.updated when present", () => {
     const renderer = new GodViewRenderer({}, vi.fn(), vi.fn(), {csrfToken: "test-token"})
-    renderer.context.updated = vi.fn()
+    renderer.context.state.updated = vi.fn()
 
     renderer.update()
 
-    expect(renderer.context.updated).toHaveBeenCalledTimes(1)
+    expect(renderer.context.state.updated).toHaveBeenCalledTimes(1)
   })
 
   it("mount and destroy delegate to lifecycle controller", () => {

@@ -1,12 +1,16 @@
 import {describe, expect, it} from "vitest"
 
+import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingStyleNodeReasonMethods} from "./rendering_style_node_reason_methods"
 import {godViewRenderingStyleNodeVisualMethods} from "./rendering_style_node_visual_methods"
 
-const methods = {
-  ...godViewRenderingStyleNodeVisualMethods,
-  ...godViewRenderingStyleNodeReasonMethods,
-}
+const state = {}
+const methods = createStateBackedContext(state, {}, Object.keys(state))
+Object.assign(
+  methods,
+  bindApi(methods, godViewRenderingStyleNodeVisualMethods),
+  bindApi(methods, godViewRenderingStyleNodeReasonMethods),
+)
 
 describe("rendering_style_node_reason_methods", () => {
   it("stateReasonForNode returns root-cause down-device reason", () => {

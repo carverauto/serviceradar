@@ -11,7 +11,7 @@ const EXPECTED_LAYOUT_CONTEXT_KEYS = Object.keys(
 
 describe("GodViewLayoutEngine API contract", () => {
   it("getContextApi exposes all composed layout methods", () => {
-    const engine = new GodViewLayoutEngine({})
+    const engine = new GodViewLayoutEngine({state: {}, deps: {}})
 
     expect(Object.keys(engine.getContextApi())).toEqual(EXPECTED_LAYOUT_CONTEXT_KEYS)
   })

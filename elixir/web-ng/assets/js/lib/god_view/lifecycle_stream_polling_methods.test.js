@@ -1,5 +1,6 @@
 import {afterEach, describe, expect, it, vi} from "vitest"
 
+import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewLifecycleStreamPollingMethods} from "./lifecycle_stream_polling_methods"
 
 afterEach(() => {
@@ -11,9 +12,8 @@ function makeHeaders(entries) {
   return {get: (key) => map.get(key) ?? null}
 }
 
-function makeContext(overrides = {}) {
-  return {
-    ...godViewLifecycleStreamPollingMethods,
+function makeContext({state = {}, deps = {}, methods = {}} = {}) {
+  const baseState = {
     snapshotUrl: "/api/snapshot",
     pollIntervalMs: 5000,
     channelJoined: false,
@@ -28,6 +28,10 @@ function makeContext(overrides = {}) {
     lastVisibleNodeCount: 2,
     summary: {textContent: ""},
     pushed: [],
+    ...state,
+  }
+
+  const baseDeps = {
     decodeArrowGraph: vi.fn(() => ({nodes: [{id: "n1"}, {id: "n2"}], edges: [{source: 0, target: 1}]})),
     graphTopologyStamp: vi.fn(() => "topo:1"),
     prepareGraphLayout: vi.fn((g) => g),
@@ -37,11 +41,20 @@ function makeContext(overrides = {}) {
     ensureBitmapMetadata: vi.fn((m) => m),
     pipelineStatsFromHeaders: vi.fn(() => null),
     normalizePipelineStats: vi.fn((p) => p),
-    pushEvent(name, payload) {
-      this.pushed.push({name, payload})
-    },
-    ...overrides,
+    ...deps,
   }
+
+  const ctx = createStateBackedContext(baseState, baseDeps, Object.keys(baseState))
+  Object.assign(ctx, bindApi(ctx, godViewLifecycleStreamPollingMethods), methods)
+
+  if (typeof baseState.pushEvent !== "function") {
+    baseState.pushEvent = function pushEvent(name, payload) {
+      this.pushed.push({name, payload})
+    }
+  }
+  ctx.pushEvent = (...args) => baseState.pushEvent.apply(baseState, args)
+
+  return ctx
 }
 
 describe("lifecycle_stream_polling_methods", () => {
@@ -50,9 +63,11 @@ describe("lifecycle_stream_polling_methods", () => {
     globalThis.fetch = fetchMock
 
     const ctx = makeContext({
-      channelJoined: true,
-      lastSnapshotAt: Date.now(),
-      pollIntervalMs: 6000,
+      state: {
+        channelJoined: true,
+        lastSnapshotAt: Date.now(),
+        pollIntervalMs: 6000,
+      },
     })
 
     await ctx.pollSnapshot()
@@ -72,7 +87,7 @@ describe("lifecycle_stream_polling_methods", () => {
     }
     globalThis.fetch = vi.fn(async () => response)
 
-    const ctx = makeContext({sameTopology: vi.fn(() => true)})
+    const ctx = makeContext({deps: {sameTopology: vi.fn(() => true)}})
 
     await ctx.pollSnapshot()
 
@@ -87,13 +102,13 @@ describe("lifecycle_stream_polling_methods", () => {
   it("pollSnapshot error path pushes poll_error only when channel is unavailable", async () => {
     globalThis.fetch = vi.fn(async () => ({ok: false, status: 503}))
 
-    const ctx = makeContext({channelJoined: false, lastSnapshotAt: 0})
+    const ctx = makeContext({state: {channelJoined: false, lastSnapshotAt: 0}})
     await ctx.pollSnapshot()
 
     expect(ctx.summary.textContent).toEqual("snapshot polling error")
     expect(ctx.pushed.some((e) => e.name === "god_view_stream_error")).toEqual(true)
 
-    const ctxSuppressed = makeContext({channelJoined: true, lastSnapshotAt: Date.now() - 60_000})
+    const ctxSuppressed = makeContext({state: {channelJoined: true, lastSnapshotAt: Date.now() - 60_000}})
     await ctxSuppressed.pollSnapshot()
 
     expect(ctxSuppressed.summary.textContent).toEqual("snapshot polling error")

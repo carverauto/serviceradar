@@ -1,17 +1,18 @@
 import {describe, expect, it} from "vitest"
 
+import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingGraphBitmapMethods} from "./rendering_graph_bitmap_methods"
 
 describe("rendering_graph_bitmap_methods", () => {
   it("ensureBitmapMetadata falls back to derived counts when metadata is empty", () => {
-    const ctx = {
-      ...godViewRenderingGraphBitmapMethods,
-      stateCategory: (s) => {
-        if (s === 0) return "root_cause"
-        if (s === 1) return "affected"
-        if (s === 2) return "healthy"
-        return "unknown"
-      },
+    const state = {}
+    const ctx = createStateBackedContext(state, {}, Object.keys(state))
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphBitmapMethods))
+    ctx.stateCategory = (s) => {
+      if (s === 0) return "root_cause"
+      if (s === 1) return "affected"
+      if (s === 2) return "healthy"
+      return "unknown"
     }
 
     const nodes = [{state: 0}, {state: 1}, {state: 2}, {state: 3}]
@@ -25,14 +26,14 @@ describe("rendering_graph_bitmap_methods", () => {
   })
 
   it("ensureBitmapMetadata keeps provided non-empty metadata", () => {
-    const ctx = {
-      ...godViewRenderingGraphBitmapMethods,
-      stateCategory: (s) => {
-        if (s === 0) return "root_cause"
-        if (s === 1) return "affected"
-        if (s === 2) return "healthy"
-        return "unknown"
-      },
+    const state = {}
+    const ctx = createStateBackedContext(state, {}, Object.keys(state))
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphBitmapMethods))
+    ctx.stateCategory = (s) => {
+      if (s === 0) return "root_cause"
+      if (s === 1) return "affected"
+      if (s === 2) return "healthy"
+      return "unknown"
     }
 
     const meta = {
@@ -50,12 +51,13 @@ describe("rendering_graph_bitmap_methods", () => {
   })
 
   it("computeTraversalMask fallback traverses up to 3 hops", () => {
-    const ctx = {
-      ...godViewRenderingGraphBitmapMethods,
+    const state = {
       selectedNodeIndex: 0,
       wasmReady: false,
       wasmEngine: null,
     }
+    const ctx = createStateBackedContext(state, {}, Object.keys(state))
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphBitmapMethods))
 
     const graph = {
       nodes: [{}, {}, {}, {}, {}],
@@ -75,17 +77,18 @@ describe("rendering_graph_bitmap_methods", () => {
   })
 
   it("visibilityMask fallback obeys filters", () => {
-    const ctx = {
-      ...godViewRenderingGraphBitmapMethods,
+    const state = {
       wasmReady: false,
       wasmEngine: null,
       filters: {root_cause: true, affected: false, healthy: true, unknown: false},
-      stateCategory: (s) => {
-        if (s === 0) return "root_cause"
-        if (s === 1) return "affected"
-        if (s === 2) return "healthy"
-        return "unknown"
-      },
+    }
+    const ctx = createStateBackedContext(state, {}, Object.keys(state))
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphBitmapMethods))
+    ctx.stateCategory = (s) => {
+      if (s === 0) return "root_cause"
+      if (s === 1) return "affected"
+      if (s === 2) return "healthy"
+      return "unknown"
     }
 
     const mask = ctx.visibilityMask(Uint8Array.from([0, 1, 2, 3]))

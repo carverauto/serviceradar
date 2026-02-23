@@ -2,52 +2,59 @@ import GodViewLayoutEngine from "./god_view/GodViewLayoutEngine"
 import GodViewLifecycleController from "./god_view/GodViewLifecycleController"
 import GodViewRenderingEngine from "./god_view/GodViewRenderingEngine"
 
-const REQUIRED_CONTEXT_METHODS = [
-  "renderGraph",
-  "reshapeGraph",
-  "ensureDeck",
-]
-
-function registerApi(context, api, source, ownership) {
-  for (const [name, fn] of Object.entries(api)) {
-    if (typeof fn !== "function") continue
-    if (ownership[name] && ownership[name] !== source) {
-      throw new Error(
-        `GodViewRenderer API collision for '${name}' between '${ownership[name]}' and '${source}'`,
-      )
-    }
-    context[name] = fn
-    ownership[name] = source
-  }
-}
-
-function assertRequiredContextMethods(context) {
-  const missing = REQUIRED_CONTEXT_METHODS.filter((name) => typeof context[name] !== "function")
-  if (missing.length > 0) {
-    throw new Error(`GodViewRenderer missing required context methods: ${missing.join(", ")}`)
-  }
-}
-
 export default class GodViewRenderer {
   constructor(el, pushEvent, handleEvent, options = {}) {
     this.context = {
-      el,
-      pushEvent,
-      handleEvent,
-      csrfToken:
-        options.csrfToken || document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || "",
+      state: {
+        el,
+        pushEvent,
+        handleEvent,
+        csrfToken:
+          options.csrfToken || document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || "",
+      },
+      layout: {},
+      rendering: {},
+      lifecycle: {},
     }
 
-    this.layoutEngine = new GodViewLayoutEngine(this.context)
-    this.renderingEngine = new GodViewRenderingEngine(this.context)
-    this.lifecycleController = new GodViewLifecycleController(this.context)
+    const layoutDeps = {
+      renderGraph: (...args) => this.context.rendering.renderGraph(...args),
+      stateDisplayName: (...args) => this.context.rendering.stateDisplayName(...args),
+      edgeTopologyClass: (...args) => this.context.rendering.edgeTopologyClass(...args),
+    }
 
-    const ownership = {}
-    registerApi(this.context, this.layoutEngine.getContextApi(), "layout.context", ownership)
-    registerApi(this.context, this.renderingEngine.getContextApi(), "rendering.context", ownership)
-    registerApi(this.context, this.lifecycleController.getContextApi(), "lifecycle.context", ownership)
+    const renderingDeps = {
+      resolveZoomTier: (...args) => this.context.layout.resolveZoomTier(...args),
+      setZoomTier: (...args) => this.context.layout.setZoomTier(...args),
+      reshapeGraph: (...args) => this.context.layout.reshapeGraph(...args),
+      geoGridData: (...args) => this.context.layout.geoGridData(...args),
+      ensureDeck: (...args) => this.context.lifecycle.ensureDeck(...args),
+    }
 
-    assertRequiredContextMethods(this.context)
+    const lifecycleDeps = {
+      renderGraph: (...args) => this.context.rendering.renderGraph(...args),
+      focusNodeByIndex: (...args) => this.context.rendering.focusNodeByIndex(...args),
+      ensureBitmapMetadata: (...args) => this.context.rendering.ensureBitmapMetadata(...args),
+      pipelineStatsFromHeaders: (...args) => this.context.rendering.pipelineStatsFromHeaders(...args),
+      normalizePipelineStats: (...args) => this.context.rendering.normalizePipelineStats(...args),
+      decodeArrowGraph: (...args) => this.context.lifecycle.decodeArrowGraph(...args),
+      normalizeDisplayLabel: (...args) => this.context.rendering.normalizeDisplayLabel(...args),
+      edgeTopologyClassFromLabel: (...args) => this.context.rendering.edgeTopologyClassFromLabel(...args),
+      setZoomTier: (...args) => this.context.layout.setZoomTier(...args),
+      resolveZoomTier: (...args) => this.context.layout.resolveZoomTier(...args),
+      prepareGraphLayout: (...args) => this.context.layout.prepareGraphLayout(...args),
+      graphTopologyStamp: (...args) => this.context.layout.graphTopologyStamp(...args),
+      sameTopology: (...args) => this.context.layout.sameTopology(...args),
+      animateTransition: (...args) => this.context.layout.animateTransition(...args),
+    }
+
+    this.layoutEngine = new GodViewLayoutEngine({state: this.context.state, deps: layoutDeps})
+    this.renderingEngine = new GodViewRenderingEngine({state: this.context.state, deps: renderingDeps})
+    this.lifecycleController = new GodViewLifecycleController({state: this.context.state, deps: lifecycleDeps})
+
+    this.context.layout = this.layoutEngine.getContextApi()
+    this.context.rendering = this.renderingEngine.getContextApi()
+    this.context.lifecycle = this.lifecycleController.getContextApi()
   }
 
   mount() {
@@ -55,7 +62,7 @@ export default class GodViewRenderer {
   }
 
   update() {
-    if (typeof this.context.updated === "function") this.context.updated()
+    if (typeof this.context.state.updated === "function") this.context.state.updated()
   }
 
   destroy() {

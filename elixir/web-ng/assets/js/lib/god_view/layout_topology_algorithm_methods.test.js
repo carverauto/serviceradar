@@ -77,12 +77,12 @@ describe("layout_topology_algorithm_methods", () => {
 
   it("geoGridData returns lines only in geo mode", () => {
     const ctxGeo = {
+      state: {layoutMode: "geo"},
       ...godViewLayoutTopologyAlgorithmMethods,
-      layoutMode: "geo",
     }
     const ctxForce = {
+      state: {layoutMode: "force"},
       ...godViewLayoutTopologyAlgorithmMethods,
-      layoutMode: "force",
     }
 
     const geoLines = ctxGeo.geoGridData()
