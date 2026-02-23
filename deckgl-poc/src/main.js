@@ -1,20 +1,23 @@
-import {Layer, picking, project32} from "@deck.gl/core"
-import {Geometry, Model} from "@luma.gl/engine"
+import {Deck, OrthographicView, picking, project32} from '@deck.gl/core';
+import {LineLayer, ScatterplotLayer} from '@deck.gl/layers';
+import {Geometry, Model} from '@luma.gl/engine';
+import {Layer} from '@deck.gl/core';
 
 const packetFlowUniformBlock = `\
 uniform packetFlowUniforms {
   float time;
 } packetFlow;
-`
+`;
 
 const packetFlowUniformsModule = {
   name: "packetFlow",
   vs: packetFlowUniformBlock,
+  fs: packetFlowUniformBlock,
   getUniforms: props => props,
   uniformTypes: {
     time: "f32",
   },
-}
+};
 
 const packetFlowVS = `\
 #version 300 es
@@ -44,7 +47,6 @@ void main(void) {
   float offset = (rand(vec2(instanceSeeds, instanceSeeds)) - 0.5) * 2.0;
   pos += normal * offset * instanceJitters;
 
-  // Colors are automatically normalized to 0.0-1.0 by Deck.gl's unorm8 inference.
   float brightnessBoost = 1.0 + (sin(progress * 3.14159265) * 0.5);
   vColor = vec4((instanceColors.rgb / 255.0) * brightnessBoost, instanceColors.a / 255.0);
   float alphaFade = sin(progress * 3.14159265);
@@ -52,7 +54,7 @@ void main(void) {
   gl_Position = project_position_to_clipspace(vec3(pos, 0.0), vec3(0.0), vec3(0.0));
   gl_PointSize = instanceSizes;
 }
-`
+`;
 
 const packetFlowFS = `\
 #version 300 es
@@ -73,23 +75,23 @@ void main(void) {
   float finalAlpha = vColor.a * (glow + (core * 2.0));
   fragColor = vec4(vColor.rgb, finalAlpha);
 }
-`
+`;
 
-export default class PacketFlowLayer extends Layer {
+class PacketFlowLayer extends Layer {
   static get layerName() {
-    return "PacketFlowLayer"
+    return "PacketFlowLayer";
   }
 
   static get componentName() {
-    return "PacketFlowLayer"
+    return "PacketFlowLayer";
   }
 
   getShaders() {
-    return super.getShaders({vs: packetFlowVS, fs: packetFlowFS, modules: [project32, picking, packetFlowUniformsModule]})
+    return super.getShaders({vs: packetFlowVS, fs: packetFlowFS, modules: [project32, picking, packetFlowUniformsModule]});
   }
 
   initializeState() {
-    const attributeManager = this.getAttributeManager()
+    const attributeManager = this.getAttributeManager();
     attributeManager.addInstanced({
       instanceFrom: {size: 2, accessor: "getFrom"},
       instanceTo: {size: 2, accessor: "getTo"},
@@ -98,17 +100,17 @@ export default class PacketFlowLayer extends Layer {
       instanceSizes: {size: 1, accessor: "getSize"},
       instanceJitters: {size: 1, accessor: "getJitter"},
       instanceColors: {size: 4, accessor: "getColor"},
-    })
-    this.state.model = this._getModel()
-    this.getAttributeManager()?.invalidateAll?.()
+    });
+    this.state.model = this._getModel();
+    this.getAttributeManager()?.invalidateAll?.();
   }
 
   updateState({props, oldProps, changeFlags}) {
-    super.updateState({props, oldProps, changeFlags})
+    super.updateState({props, oldProps, changeFlags});
     if (changeFlags.extensionsChanged || !this.state.model) {
-      this.state.model?.destroy()
-      this.state.model = this._getModel()
-      this.getAttributeManager()?.invalidateAll?.()
+      this.state.model?.delete?.();
+      this.state.model = this._getModel();
+      this.getAttributeManager()?.invalidateAll?.();
     }
   }
 
@@ -124,52 +126,16 @@ export default class PacketFlowLayer extends Layer {
         },
       }),
       isInstanced: true,
-    })
+    });
   }
 
   draw(opts) {
-    const model = this.state.model
-    if (model) {
-      model.shaderInputs.setProps({packetFlow: {time: this.props.time || 0}})
-      model.draw(this.context.renderPass)
+    if (this.state.model) {
+      this.state.model.shaderInputs.setProps({
+        packetFlow: {time: this.props.time || 0}
+      });
     }
-  }
-
-  getBounds() {
-    const data = this.props.data
-    if (!Array.isArray(data) || data.length === 0) return null
-
-    let minX = Number.POSITIVE_INFINITY
-    let minY = Number.POSITIVE_INFINITY
-    let maxX = Number.NEGATIVE_INFINITY
-    let maxY = Number.NEGATIVE_INFINITY
-
-    for (let i = 0; i < data.length; i += 1) {
-      const from = this.props.getFrom(data[i], {index: i})
-      const to = this.props.getTo(data[i], {index: i})
-      if (Array.isArray(from)) {
-        minX = Math.min(minX, Number(from[0] || 0))
-        minY = Math.min(minY, Number(from[1] || 0))
-        maxX = Math.max(maxX, Number(from[0] || 0))
-        maxY = Math.max(maxY, Number(from[1] || 0))
-      }
-      if (Array.isArray(to)) {
-        minX = Math.min(minX, Number(to[0] || 0))
-        minY = Math.min(minY, Number(to[1] || 0))
-        maxX = Math.max(maxX, Number(to[0] || 0))
-        maxY = Math.max(maxY, Number(to[1] || 0))
-      }
-    }
-
-    if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
-      return null
-    }
-
-    return [minX, minY, maxX, maxY]
-  }
-
-  finalizeState() {
-    this.state.model?.destroy()
+    super.draw(opts);
   }
 }
 
@@ -180,11 +146,120 @@ PacketFlowLayer.defaultProps = {
   getSpeed: {type: "accessor", value: (d) => d.speed},
   getSize: {type: "accessor", value: (d) => d.size},
   getJitter: {type: "accessor", value: (d) => d.jitter},
-  getTime: {type: "accessor", value: () => 0},
   getColor: {type: "accessor", value: (d) => (Array.isArray(d.color) ? d.color : [56, 189, 248, 80])},
   getPosition: {
     type: "accessor",
     value: (d) => (Array.isArray(d?.from) ? [d.from[0] || 0, d.from[1] || 0, 0] : [0, 0, 0]),
   },
   time: 0,
+};
+
+// --- DATA MOCK ---
+
+const nodeData = [
+  {id: 'node1', position: [100, 150]},
+  {id: 'node2', position: [600, 250]}
+];
+
+const edgeData = [
+  {sourceId: 'node1', targetId: 'node2', sourcePosition: [100, 150], targetPosition: [600, 250]}
+];
+
+// Generate 100 particles for the edge
+const packetFlowData = Array.from({length: 100}).map((_, i) => ({
+  from: [100, 150],
+  to: [600, 250],
+  seed: Math.random(),
+  speed: 0.2 + Math.random() * 0.3,
+  jitter: 20,
+  size: 14 + Math.random() * 20,
+  color: Math.random() > 0.5 ? [56, 248, 153, 255] : [56, 189, 248, 255] // Bright Green or Cyan
+}));
+
+// --- DECK.GL SETUP ---
+
+// Need to create canvas in the body first.
+document.querySelector('#app').innerHTML = `
+  <canvas id="deck-canvas" style="width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; background-color: #0f172a;"></canvas>
+`;
+
+const INITIAL_VIEW_STATE = {
+  target: [350, 200, 0],
+  zoom: 1,
+  minZoom: -2,
+  maxZoom: 5,
+};
+
+let time = 0;
+
+const deck = new Deck({
+  canvas: 'deck-canvas',
+  initialViewState: INITIAL_VIEW_STATE,
+  views: new OrthographicView({id: "god-view-ortho"}),
+  controller: true,
+  parameters: {
+    clearColor: [20/255, 28/255, 42/255, 1.0], // bg color
+    blend: true,
+    blendFunc: [770, 771],
+    depthTest: false,
+    depthWrite: false,
+  },
+  layers: []
+});
+
+function render() {
+  const nodes = new ScatterplotLayer({
+    id: 'nodes',
+    data: nodeData,
+    getPosition: d => d.position,
+    getFillColor: [248, 113, 113, 255],
+    getRadius: 15,
+    radiusUnits: 'pixels',
+    pickable: true
+  });
+
+  const edges = new LineLayer({
+    id: 'edges',
+    data: edgeData,
+    getSourcePosition: d => d.sourcePosition,
+    getTargetPosition: d => d.targetPosition,
+    getColor: [148, 163, 184, 180],
+    getWidth: 12,
+    widthUnits: 'pixels',
+    pickable: true
+  });
+
+  const flow = new PacketFlowLayer({
+    id: 'flow',
+    data: packetFlowData,
+    getFrom: d => d.from,
+    getTo: d => d.to,
+    getColor: d => d.color,
+    getSize: d => d.size,
+    getSpeed: d => d.speed,
+    getSeed: d => d.seed,
+    getJitter: d => d.jitter,
+    time: time,
+    parameters: {
+      blend: true,
+      blendFunc: [770, 1, 1, 1], // additive blending for glow
+      depthTest: false,
+      depthWrite: false,
+    },
+    updateTriggers: {
+      // time is passed via shaderInputs, we don't need it here
+    }
+  });
+
+  deck.setProps({
+    layers: [edges, nodes, flow]
+  });
 }
+
+function animate() {
+  time += 0.01;
+  render();
+  requestAnimationFrame(animate);
+}
+
+animate();

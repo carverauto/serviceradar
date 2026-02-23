@@ -46,8 +46,8 @@ export const godViewRenderingStyleEdgeParticleMethods = {
         const particleSpeed = baseSpeed * speedModifier
         const hue = Math.min(1, intensity / 4)
         const isHead = j % 5 === 0
-        const sky = [56, 189, 248, isHead ? 140 : 42]
-        const indigo = [99, 102, 241, isHead ? 165 : 55]
+        const sky = [56, 189, 248, isHead ? 255 : 120]
+        const indigo = [99, 102, 241, isHead ? 255 : 140]
         const color = [
           Math.round(sky[0] * (1 - hue) + indigo[0] * hue),
           Math.round(sky[1] * (1 - hue) + indigo[1] * hue),

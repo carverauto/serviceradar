@@ -4,6 +4,8 @@ import PacketFlowLayer from "../deckgl/PacketFlowLayer"
 
 export const godViewRenderingGraphLayerTransportMethods = {
   buildTransportAndEffectLayers(effective, nodeData, edgeData, rootPulseNodesArg = null) {
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now()
+    const atmosphereReady = now >= Number(this.state.atmosphereSuppressUntil || 0)
     const pulse = (this.state.animationPhase * 1.5) % 1.0
     const pulseRadius = 10 + (pulse * 40)
     const pulseAlpha = Math.floor(255 * (1.0 - pulse))
@@ -94,35 +96,83 @@ export const godViewRenderingGraphLayerTransportMethods = {
         : []
 
     const atmosphereLayers = this.state.layers.atmosphere && packetFlowData.length > 0
-      ? [
-          new PacketFlowLayer({
-            id: "god-view-atmosphere-particles",
-            data: packetFlowData,
-            coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-            getSourcePosition: (d) => d.sourcePosition,
-            getTargetPosition: (d) => d.targetPosition,
-            getFrom: (d) => d.from,
-            getTo: (d) => d.to,
-            getColor: (d) => d.color,
-            getSize: (d) => d.size,
-            getSpeed: (d) => d.speed,
-            getSeed: (d) => d.seed,
-            getJitter: (d) => d.jitter,
-            pickable: false,
-            time: this.state.animationPhase,
-            parameters: {
-              blend: true,
-              blendFunc: [770, 1, 1, 1],
-              depthTest: false,
-              depthWrite: false,
-            },
-            updateTriggers: {
-              getFrom: [this.state.animationPhase],
-              getTo: [this.state.animationPhase],
-              getColor: [this.state.animationPhase],
-            },
-          }),
-        ]
+      ? (() => {
+          if (atmosphereReady && this.state.packetFlowShaderEnabled === true) {
+            return [
+              new PacketFlowLayer({
+                id: "god-view-atmosphere-particles",
+                data: packetFlowData,
+                coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+                getSourcePosition: (d) => d.sourcePosition,
+                getTargetPosition: (d) => d.targetPosition,
+                getFrom: (d) => d.from,
+                getTo: (d) => d.to,
+                getColor: (d) => d.color,
+                getSize: (d) => d.size,
+                getSpeed: (d) => d.speed,
+                getSeed: (d) => d.seed,
+                getJitter: (d) => d.jitter,
+                pickable: false,
+                time: this.state.animationPhase,
+                parameters: {
+                  blend: true,
+                  blendFunc: [770, 1, 1, 1],
+                  depthTest: false,
+                  depthWrite: false,
+                },
+              }),
+            ]
+          }
+
+          const fallbackParticleData = packetFlowData.map((particle) => {
+            const from = particle.from || [0, 0]
+            const to = particle.to || [0, 0]
+            const dx = Number(to[0] || 0) - Number(from[0] || 0)
+            const dy = Number(to[1] || 0) - Number(from[1] || 0)
+            const len = Math.max(0.0001, Math.sqrt((dx * dx) + (dy * dy)))
+            const t = (Number(particle.seed || 0) + (this.state.animationPhase * Number(particle.speed || 0))) % 1
+            const x = Number(from[0] || 0) + (dx * t)
+            const y = Number(from[1] || 0) + (dy * t)
+            const nx = -dy / len
+            const ny = dx / len
+            const laneBucket = ((Math.floor(Number(particle.seed || 0) * 1009) % 7) - 3)
+            const laneOffset = laneBucket * Math.max(0.9, (Number(particle.jitter || 0) * 0.18))
+            const bob = Math.sin((this.state.animationPhase * 9.0) + (Number(particle.seed || 0) * 23.0)) * 0.35
+            const color = particle.color || [56, 189, 248, 120]
+            const alphaFade = Math.max(0, Math.sin(t * Math.PI))
+            return {
+              position: [x + (nx * (laneOffset + bob)), y + (ny * (laneOffset + bob)), 0],
+              radius: Math.max(0.9, Number(particle.size || 2.4) * 0.16),
+              color: [color[0], color[1], color[2], Math.round(Math.max(18, Number(color[3] || 90) * alphaFade))],
+            }
+          })
+
+          return [
+            new ScatterplotLayer({
+              id: "god-view-atmosphere-particles-fallback",
+              data: fallbackParticleData,
+              coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+              getPosition: (d) => d.position,
+              getRadius: (d) => d.radius,
+              radiusUnits: "pixels",
+              radiusMinPixels: 1,
+              filled: true,
+              stroked: false,
+              pickable: false,
+              getFillColor: (d) => d.color,
+              parameters: {
+                blend: true,
+                blendFunc: [770, 1, 1, 1],
+                depthTest: false,
+                depthWrite: false,
+              },
+              updateTriggers: {
+                getPosition: this.state.animationPhase,
+                getFillColor: this.state.animationPhase,
+              },
+            }),
+          ]
+        })()
       : []
 
     const securityLayers = this.state.layers.security

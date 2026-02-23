@@ -106,14 +106,16 @@ export const godViewLifecycleDomSetupMethods = {
       onError: (error, layer) => {
         const layerId = String(layer?.id || "")
         if (layerId.includes("god-view-atmosphere-particles")) {
-          this.state.layers.atmosphere = false
-          if (this.state.summary) this.state.summary.textContent = `atmosphere disabled: ${String(error)}`
+          const now = typeof performance !== "undefined" ? performance.now() : Date.now()
+          this.state.atmosphereSuppressUntil = now + 1200
+          if (this.state.summary) this.state.summary.textContent = `atmosphere shader fallback: ${String(error)}`
           if (this.state.lastGraph) this.deps.renderGraph(this.state.lastGraph)
           return
         }
         if (this.state.summary) this.state.summary.textContent = `render error: ${String(error)}`
         if (this.state.lastGraph) {
-          this.state.layers.atmosphere = false
+          const now = typeof performance !== "undefined" ? performance.now() : Date.now()
+          this.state.atmosphereSuppressUntil = now + 1200
           this.deps.renderGraph(this.state.lastGraph)
         }
       },

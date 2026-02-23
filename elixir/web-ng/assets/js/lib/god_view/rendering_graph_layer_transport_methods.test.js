@@ -9,6 +9,7 @@ describe("rendering_graph_layer_transport_methods", () => {
       animationPhase: 1.2,
       layers: {mantle: true, crust: true, atmosphere: true, security: true},
       packetFlowEnabled: true,
+      packetFlowShaderEnabled: true,
       visual: {pulse: [255, 64, 64, 220]},
     }
     const deps = {geoGridData: vi.fn(() => [])}

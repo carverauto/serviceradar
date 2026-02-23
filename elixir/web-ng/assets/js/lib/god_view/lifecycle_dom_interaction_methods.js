@@ -4,7 +4,7 @@ export const godViewLifecycleDomInteractionMethods = {
     const tick = () => {
       const motionScale = this.state.prefersReducedMotion ? 0.35 : 1
       this.state.animationPhase = (performance.now() / 1000) * motionScale
-      if (this.state.deck && this.state.lastGraph && this.state.layers?.atmosphere) {
+      if (this.state.deck && this.state.lastGraph && this.state.packetFlowEnabled) {
         try {
           this.deps.renderGraph(this.state.lastGraph)
         } catch (error) {

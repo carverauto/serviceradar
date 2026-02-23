@@ -21,12 +21,12 @@ describe("rendering_style_edge_particle_methods", () => {
     expect(headParticles.length).toBeGreaterThan(0)
     expect(dustParticles.length).toBeGreaterThan(0)
     for (const particle of headParticles) {
-      expect(particle.color[3]).toBeGreaterThanOrEqual(140)
-      expect(particle.color[3]).toBeLessThanOrEqual(165)
+      expect(particle.color[3]).toBeGreaterThanOrEqual(255)
+      expect(particle.color[3]).toBeLessThanOrEqual(255)
     }
     for (const particle of dustParticles) {
-      expect(particle.color[3]).toBeGreaterThanOrEqual(45)
-      expect(particle.color[3]).toBeLessThanOrEqual(60)
+      expect(particle.color[3]).toBeGreaterThanOrEqual(120)
+      expect(particle.color[3]).toBeLessThanOrEqual(140)
     }
   })
 
