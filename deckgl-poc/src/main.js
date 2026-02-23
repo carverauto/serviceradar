@@ -37,20 +37,23 @@ float rand(vec2 co) {
 }
 
 void main(void) {
+  // Linear progress instead of pow() clumped easing
   float progress = fract(instanceSeeds + (packetFlow.time * instanceSpeeds));
-  float eased = pow(progress, 1.18);
-  vec2 pos = mix(instanceFrom, instanceTo, eased);
+  vec2 pos = mix(instanceFrom, instanceTo, progress);
 
   vec2 dir = normalize(instanceTo - instanceFrom);
   vec2 normal = vec2(-dir.y, dir.x);
 
+  // Distribute particles across the jitter width
   float offset = (rand(vec2(instanceSeeds, instanceSeeds)) - 0.5) * 2.0;
   pos += normal * offset * instanceJitters;
 
-  float brightnessBoost = 1.0 + (sin(progress * 3.14159265) * 0.5);
-  vColor = vec4((instanceColors.rgb / 255.0) * brightnessBoost, instanceColors.a / 255.0);
-  float alphaFade = sin(progress * 3.14159265);
-  vColor.a = clamp(vColor.a * alphaFade, 0.0, 1.0);
+  vColor = vec4(instanceColors.rgb / 255.0, instanceColors.a / 255.0);
+  
+  // Fade in at 0% and fade out at 100% to prevent visual popping
+  float fade = smoothstep(0.0, 0.05, progress) * smoothstep(1.0, 0.95, progress);
+  vColor.a *= fade;
+
   gl_Position = project_position_to_clipspace(vec3(pos, 0.0), vec3(0.0), vec3(0.0));
   gl_PointSize = instanceSizes;
 }
@@ -70,9 +73,11 @@ void main(void) {
     discard;
   }
 
-  float glow = smoothstep(0.5, 0.0, dist);
-  float core = smoothstep(0.15, 0.0, dist);
-  float finalAlpha = vColor.a * (glow + (core * 2.0));
+  // Sharper core with a softer background glow
+  float core = smoothstep(0.2, 0.0, dist);
+  float glow = smoothstep(0.5, 0.2, dist) * 0.6;
+  float finalAlpha = vColor.a * (core + glow);
+  
   fragColor = vec4(vColor.rgb, finalAlpha);
 }
 `;
@@ -165,15 +170,17 @@ const edgeData = [
   {sourceId: 'node1', targetId: 'node2', sourcePosition: [100, 150], targetPosition: [600, 250]}
 ];
 
-// Generate 100 particles for the edge
-const packetFlowData = Array.from({length: 100}).map((_, i) => ({
+// Generate many more particles to look like data flow
+const packetFlowData = Array.from({length: 1200}).map((_, i) => ({
   from: [100, 150],
   to: [600, 250],
   seed: Math.random(),
-  speed: 0.2 + Math.random() * 0.3,
-  jitter: 20,
-  size: 14 + Math.random() * 20,
-  color: Math.random() > 0.5 ? [56, 248, 153, 255] : [56, 189, 248, 255] // Bright Green or Cyan
+  speed: 0.1 + Math.random() * 0.2, // Slightly slower, more consistent speed
+  jitter: 35, // Wider distribution to fill the "pipe"
+  size: Math.random() > 0.95 ? (6 + Math.random() * 3) : (2 + Math.random() * 3), // Mostly tiny dots, a few large ones
+  color: Math.random() > 0.6 
+    ? [244, 114, 255, 255] // Magenta
+    : [73, 231, 255, 255] // Cyan
 }));
 
 // --- DECK.GL SETUP ---
@@ -223,8 +230,8 @@ function render() {
     data: edgeData,
     getSourcePosition: d => d.sourcePosition,
     getTargetPosition: d => d.targetPosition,
-    getColor: [148, 163, 184, 180],
-    getWidth: 12,
+    getColor: [10, 40, 80, 160], // Dark transparent blue to act as the pipe "container"
+    getWidth: 45, // Wide enough to encapsulate the jitter width
     widthUnits: 'pixels',
     pickable: true
   });
