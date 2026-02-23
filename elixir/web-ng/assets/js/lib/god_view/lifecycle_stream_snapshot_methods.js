@@ -1,4 +1,3 @@
-import {depsRef, stateRef} from "./runtime_refs"
 export const godViewLifecycleStreamSnapshotMethods = {
   handleSnapshot(msg) {
     const startedAt = performance.now()
@@ -8,33 +7,33 @@ export const godViewLifecycleStreamSnapshotMethods = {
       if (!bytes || bytes.byteLength === 0) throw new Error("missing payload")
 
       const decodeStart = performance.now()
-      const rawGraph = depsRef(this).decodeArrowGraph(bytes)
-      const revision = Number.isFinite(Number(snapshot.revision)) ? Number(snapshot.revision) : stateRef(this).lastRevision
-      const topologyStamp = depsRef(this).graphTopologyStamp(rawGraph)
-      const graph = depsRef(this).prepareGraphLayout(rawGraph, revision, topologyStamp)
+      const rawGraph = this.deps.decodeArrowGraph(bytes)
+      const revision = Number.isFinite(Number(snapshot.revision)) ? Number(snapshot.revision) : this.state.lastRevision
+      const topologyStamp = this.deps.graphTopologyStamp(rawGraph)
+      const graph = this.deps.prepareGraphLayout(rawGraph, revision, topologyStamp)
       const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
-      const bitmapMetadata = depsRef(this).ensureBitmapMetadata(snapshot.bitmapMetadata, graph.nodes)
+      const bitmapMetadata = this.deps.ensureBitmapMetadata(snapshot.bitmapMetadata, graph.nodes)
 
       const renderStart = performance.now()
-      const previousGraph = stateRef(this).lastGraph
-      stateRef(this).lastGraph = graph
-      if (depsRef(this).sameTopology(previousGraph, graph, topologyStamp, revision)) {
-        depsRef(this).renderGraph(graph)
+      const previousGraph = this.state.lastGraph
+      this.state.lastGraph = graph
+      if (this.deps.sameTopology(previousGraph, graph, topologyStamp, revision)) {
+        this.deps.renderGraph(graph)
       } else {
-        depsRef(this).animateTransition(previousGraph, graph)
+        this.deps.animateTransition(previousGraph, graph)
       }
-      stateRef(this).lastRevision = revision
-      stateRef(this).lastTopologyStamp = topologyStamp
-      stateRef(this).lastSnapshotAt = Date.now()
-      stateRef(this).summary.textContent =
+      this.state.lastRevision = revision
+      this.state.lastTopologyStamp = topologyStamp
+      this.state.lastSnapshotAt = Date.now()
+      this.state.summary.textContent =
         `schema=${snapshot.schemaVersion} revision=${snapshot.revision} nodes=${graph.nodes.length} ` +
         `edges=${graph.edges.length} payload=${bytes.byteLength}B selected=` +
-        `${stateRef(this).selectedNodeIndex === null ? "none" : stateRef(this).selectedNodeIndex} visible=` +
-        `${stateRef(this).lastVisibleNodeCount}/${graph.nodes.length}`
+        `${this.state.selectedNodeIndex === null ? "none" : this.state.selectedNodeIndex} visible=` +
+        `${this.state.lastVisibleNodeCount}/${graph.nodes.length}`
       const renderMs = Math.round((performance.now() - renderStart) * 100) / 100
       const networkMs = Math.round((performance.now() - startedAt) * 100) / 100
 
-      stateRef(this).pushEvent("god_view_stream_stats", {
+      this.state.pushEvent("god_view_stream_stats", {
         schema_version: snapshot.schemaVersion,
         revision: snapshot.revision,
         node_count: graph.nodes.length,
@@ -42,17 +41,17 @@ export const godViewLifecycleStreamSnapshotMethods = {
         generated_at: snapshot.generatedAt,
         bitmap_metadata: bitmapMetadata,
         bytes: bytes.byteLength,
-        renderer_mode: stateRef(this).rendererMode,
-        zoom_tier: stateRef(this).zoomTier,
-        zoom_mode: stateRef(this).zoomMode,
+        renderer_mode: this.state.rendererMode,
+        zoom_tier: this.state.zoomTier,
+        zoom_mode: this.state.zoomMode,
         network_ms: networkMs,
         decode_ms: decodeMs,
         render_ms: renderMs,
-        pipeline_stats: depsRef(this).normalizePipelineStats(stateRef(this).lastPipelineStats),
+        pipeline_stats: this.deps.normalizePipelineStats(this.state.lastPipelineStats),
       })
     } catch (error) {
-      stateRef(this).summary.textContent = "snapshot decode failed"
-      stateRef(this).pushEvent("god_view_stream_error", {reason: "decode_error", message: `${error}`})
+      this.state.summary.textContent = "snapshot decode failed"
+      this.state.pushEvent("god_view_stream_error", {reason: "decode_error", message: `${error}`})
     }
   },
   parseSnapshotMessage(msg) {

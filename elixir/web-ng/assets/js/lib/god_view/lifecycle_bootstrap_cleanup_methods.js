@@ -14,4 +14,3 @@ export const godViewLifecycleBootstrapCleanupMethods = Object.assign(
   godViewLifecycleBootstrapCleanupDomMethods,
   godViewLifecycleBootstrapCleanupRuntimeMethods,
 )
-import {depsRef, stateRef} from "./runtime_refs"

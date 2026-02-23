@@ -1,4 +1,3 @@
-import {depsRef, stateRef} from "./runtime_refs"
 export const godViewRenderingStyleEdgeTopologyMethods = {
   edgeTopologyClassFromLabel(label) {
     const text = String(label == null ? "" : label).trim().toUpperCase()
@@ -17,17 +16,17 @@ export const godViewRenderingStyleEdgeTopologyMethods = {
     const classCounts = edge?.topologyClassCounts
     if (classCounts && typeof classCounts === "object") {
       const showBackbone =
-        Number(classCounts.backbone || 0) > 0 && stateRef(this).topologyLayers.backbone !== false
+        Number(classCounts.backbone || 0) > 0 && this.state.topologyLayers.backbone !== false
       const showInferred =
-        Number(classCounts.inferred || 0) > 0 && stateRef(this).topologyLayers.inferred === true
+        Number(classCounts.inferred || 0) > 0 && this.state.topologyLayers.inferred === true
       const showEndpoints =
-        Number(classCounts.endpoints || 0) > 0 && stateRef(this).topologyLayers.endpoints === true
+        Number(classCounts.endpoints || 0) > 0 && this.state.topologyLayers.endpoints === true
       return showBackbone || showInferred || showEndpoints
     }
 
     const topologyClass = this.edgeTopologyClass(edge)
-    if (topologyClass === "inferred") return stateRef(this).topologyLayers.inferred === true
-    if (topologyClass === "endpoints") return stateRef(this).topologyLayers.endpoints === true
-    return stateRef(this).topologyLayers.backbone !== false
+    if (topologyClass === "inferred") return this.state.topologyLayers.inferred === true
+    if (topologyClass === "endpoints") return this.state.topologyLayers.endpoints === true
+    return this.state.topologyLayers.backbone !== false
   },
 }

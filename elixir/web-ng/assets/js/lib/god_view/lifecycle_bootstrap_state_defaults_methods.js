@@ -1,43 +1,42 @@
-import {depsRef, stateRef} from "./runtime_refs"
 export const godViewLifecycleBootstrapStateDefaultsMethods = {
   initLifecycleState() {
-    stateRef(this).canvas = null
-    stateRef(this).summary = null
-    stateRef(this).details = null
-    stateRef(this).deck = null
-    stateRef(this).channel = null
-    stateRef(this).rendererMode = "initializing"
-    stateRef(this).filters = {root_cause: true, affected: true, healthy: true, unknown: true}
-    stateRef(this).lastGraph = null
-    stateRef(this).wasmEngine = null
-    stateRef(this).wasmReady = false
-    stateRef(this).selectedNodeIndex = null
-    stateRef(this).hoveredEdgeKey = null
-    stateRef(this).selectedEdgeKey = null
-    stateRef(this).pendingAnimationFrame = null
-    stateRef(this).zoomMode = "local"
-    stateRef(this).zoomTier = "local"
-    stateRef(this).hasAutoFit = false
-    stateRef(this).userCameraLocked = false
-    stateRef(this).dragState = null
-    stateRef(this).isProgrammaticViewUpdate = false
-    stateRef(this).lastSnapshotAt = 0
-    stateRef(this).channelJoined = false
-    stateRef(this).lastVisibleNodeCount = 0
-    stateRef(this).lastVisibleEdgeCount = 0
-    stateRef(this).pollTimer = null
-    stateRef(this).animationTimer = null
-    stateRef(this).animationPhase = 0
-    stateRef(this).layers = {mantle: true, crust: true, atmosphere: true, security: true}
-    stateRef(this).topologyLayers = {backbone: true, inferred: false, endpoints: false}
-    stateRef(this).lastPipelineStats = null
-    stateRef(this).layoutMode = "auto"
-    stateRef(this).layoutRevision = null
-    stateRef(this).lastRevision = null
-    stateRef(this).lastTopologyStamp = null
-    stateRef(this).snapshotUrl = stateRef(this).el.dataset.url || null
-    stateRef(this).pollIntervalMs = Number.parseInt(stateRef(this).el.dataset.intervalMs || "5000", 10) || 5000
-    stateRef(this).visual = {
+    this.state.canvas = null
+    this.state.summary = null
+    this.state.details = null
+    this.state.deck = null
+    this.state.channel = null
+    this.state.rendererMode = "initializing"
+    this.state.filters = {root_cause: true, affected: true, healthy: true, unknown: true}
+    this.state.lastGraph = null
+    this.state.wasmEngine = null
+    this.state.wasmReady = false
+    this.state.selectedNodeIndex = null
+    this.state.hoveredEdgeKey = null
+    this.state.selectedEdgeKey = null
+    this.state.pendingAnimationFrame = null
+    this.state.zoomMode = "local"
+    this.state.zoomTier = "local"
+    this.state.hasAutoFit = false
+    this.state.userCameraLocked = false
+    this.state.dragState = null
+    this.state.isProgrammaticViewUpdate = false
+    this.state.lastSnapshotAt = 0
+    this.state.channelJoined = false
+    this.state.lastVisibleNodeCount = 0
+    this.state.lastVisibleEdgeCount = 0
+    this.state.pollTimer = null
+    this.state.animationTimer = null
+    this.state.animationPhase = 0
+    this.state.layers = {mantle: true, crust: true, atmosphere: true, security: true}
+    this.state.topologyLayers = {backbone: true, inferred: false, endpoints: false}
+    this.state.lastPipelineStats = null
+    this.state.layoutMode = "auto"
+    this.state.layoutRevision = null
+    this.state.lastRevision = null
+    this.state.lastTopologyStamp = null
+    this.state.snapshotUrl = this.state.el.dataset.url || null
+    this.state.pollIntervalMs = Number.parseInt(this.state.el.dataset.intervalMs || "5000", 10) || 5000
+    this.state.visual = {
       bg: [10, 10, 10, 255],
       mantleEdge: [42, 42, 42, 170],
       crustArc: [214, 97, 255, 180],
@@ -50,7 +49,7 @@ export const godViewLifecycleBootstrapStateDefaultsMethods = {
       edgeLabel: [148, 163, 184, 220],
       pulse: [255, 64, 64, 220],
     }
-    stateRef(this).viewState = {
+    this.state.viewState = {
       target: [320, 160, 0],
       zoom: 1.4,
       minZoom: -2,

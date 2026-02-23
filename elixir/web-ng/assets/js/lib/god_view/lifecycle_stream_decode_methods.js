@@ -40,11 +40,11 @@ export const godViewLifecycleStreamDecodeMethods = {
         const detailLat = Number(parsedDetails?.geo_lat)
         const detailLon = Number(parsedDetails?.geo_lon)
         nodes.push({
-          id: depsRef(this).normalizeDisplayLabel(parsedDetails?.id, fallbackLabel),
+          id: this.deps.normalizeDisplayLabel(parsedDetails?.id, fallbackLabel),
           x: Number(nodeX?.get(i) || 0),
           y: Number(nodeY?.get(i) || 0),
           state: Number(nodeState?.get(i) || 3),
-          label: depsRef(this).normalizeDisplayLabel(nodeLabel?.get(i), fallbackLabel),
+          label: this.deps.normalizeDisplayLabel(nodeLabel?.get(i), fallbackLabel),
           pps: Number(nodePps?.get(i) || 0),
           operUp: Number(nodeOperUp?.get(i) || 0),
           geoLat: Number.isFinite(detailLat) ? detailLat : NaN,
@@ -60,8 +60,8 @@ export const godViewLifecycleStreamDecodeMethods = {
           flowPps: Number(edgePps?.get(i) || 0),
           flowBps: Number(edgeFlowBps?.get(i) || 0),
           capacityBps: Number(edgeCapacityBps?.get(i) || 0),
-          label: depsRef(this).normalizeDisplayLabel(edgeLabel?.get(i), ""),
-          topologyClass: depsRef(this).edgeTopologyClassFromLabel(edgeLabel?.get(i) || ""),
+          label: this.deps.normalizeDisplayLabel(edgeLabel?.get(i), ""),
+          topologyClass: this.deps.edgeTopologyClassFromLabel(edgeLabel?.get(i) || ""),
         })
         edgeSourceIndex.push(source)
         edgeTargetIndex.push(target)
@@ -76,4 +76,3 @@ export const godViewLifecycleStreamDecodeMethods = {
     }
   },
 }
-import {depsRef, stateRef} from "./runtime_refs"

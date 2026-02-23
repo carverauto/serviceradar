@@ -18,9 +18,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
         pickable: true,
         getLineWidth: (d) => (d.selected ? 3 : 1),
         getLineColor: [15, 23, 42, 255],
-        getFillColor: (d) => (stateRef(this).layers.security ? this.nodeColor(d.state) : this.nodeNeutralColor(d.operUp)),
+        getFillColor: (d) => (this.state.layers.security ? this.nodeColor(d.state) : this.nodeNeutralColor(d.operUp)),
       }),
-      ...(stateRef(this).layers.mantle && (effective.shape === "local" || effective.shape === "regional" || effective.shape === "global")
+      ...(this.state.layers.mantle && (effective.shape === "local" || effective.shape === "regional" || effective.shape === "global")
         ? [
             new TextLayer({
               id: "god-view-node-labels",
@@ -31,7 +31,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
               getSize: effective.shape === "local" ? 12 : 10,
               sizeUnits: "pixels",
               sizeMinPixels: effective.shape === "local" ? 10 : 8,
-              getColor: stateRef(this).visual.label,
+              getColor: this.state.visual.label,
               getPixelOffset: [0, -16],
               billboard: true,
               pickable: false,
@@ -66,7 +66,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
             }),
           ]
         : []),
-      ...(stateRef(this).layers.mantle && (effective.shape === "local" || effective.shape === "regional")
+      ...(this.state.layers.mantle && (effective.shape === "local" || effective.shape === "regional")
         ? [
             new TextLayer({
               id: "god-view-edge-labels",
@@ -77,7 +77,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
               getSize: 10,
               sizeUnits: "pixels",
               sizeMinPixels: 8,
-              getColor: stateRef(this).visual.edgeLabel,
+              getColor: this.state.visual.edgeLabel,
               billboard: true,
               pickable: false,
             }),
@@ -86,4 +86,3 @@ export const godViewRenderingGraphLayerNodeMethods = {
     ]
   },
 }
-import {depsRef, stateRef} from "./runtime_refs"

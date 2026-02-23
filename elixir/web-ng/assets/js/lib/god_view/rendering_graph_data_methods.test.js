@@ -13,7 +13,7 @@ function baseContext({state = {}, deps = {}, overrides = {}} = {}) {
     ...state,
   }
 
-  const runtime = createStateBackedContext(initialState, deps, Object.keys(initialState))
+  const runtime = createStateBackedContext(initialState, deps)
   const api = bindApi(runtime, godViewRenderingGraphDataMethods)
   Object.assign(runtime, api)
 
@@ -55,10 +55,10 @@ describe("rendering_graph_data_methods", () => {
     expect(out.edgeData[0].sourceId).toEqual("n1")
     expect(out.edgeData[0].targetId).toEqual("n2")
     expect(out.edgeData[0].connectionLabel).toEqual("MPLS")
-    expect(ctx.hoveredEdgeKey).toEqual(null)
-    expect(ctx.selectedEdgeKey).toEqual(null)
-    expect(ctx.lastVisibleNodeCount).toEqual(2)
-    expect(ctx.lastVisibleEdgeCount).toEqual(1)
+    expect(ctx.state.hoveredEdgeKey).toEqual(null)
+    expect(ctx.state.selectedEdgeKey).toEqual(null)
+    expect(ctx.state.lastVisibleNodeCount).toEqual(2)
+    expect(ctx.state.lastVisibleEdgeCount).toEqual(1)
   })
 
   it("buildVisibleGraphData applies local traversal mask and resolves selectedVisibleNode", () => {

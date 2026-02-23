@@ -5,13 +5,13 @@ import PacketFlowLayer from "../deckgl/PacketFlowLayer"
 
 export const godViewRenderingGraphLayerTransportMethods = {
   buildTransportAndEffectLayers(effective, nodeData, edgeData) {
-    const pulse = (Math.sin(stateRef(this).animationPhase * 3.5) + 1) / 2
+    const pulse = (Math.sin(this.state.animationPhase * 3.5) + 1) / 2
     const pulseRadius = 14 + pulse * 20
     const pulseAlpha = Math.floor(80 + pulse * 130)
     const rootPulseNodes = nodeData.filter((d) => d.state === 0)
     const packetFlowData = this.buildPacketFlowInstances(edgeData)
 
-    const mantleLayers = stateRef(this).layers.mantle
+    const mantleLayers = this.state.layers.mantle
       ? [
           new LineLayer({
             id: "god-view-edges-mantle",
@@ -34,7 +34,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
       : []
 
     const crustLayers =
-      stateRef(this).layers.crust
+      this.state.layers.crust
         ? [
             new ArcLayer({
               id: "god-view-edges-crust",
@@ -60,14 +60,14 @@ export const godViewRenderingGraphLayerTransportMethods = {
           ]
         : []
 
-    const atmosphereLayers = stateRef(this).layers.atmosphere
+    const atmosphereLayers = this.state.layers.atmosphere
       ? [
           new PacketFlowLayer({
             id: "god-view-atmosphere-particles",
             data: packetFlowData,
             coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
             pickable: false,
-            time: stateRef(this).animationPhase,
+            time: this.state.animationPhase,
             parameters: {
               blend: true,
               blendFunc: [770, 1, 1, 1],
@@ -77,7 +77,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
         ]
       : []
 
-    const securityLayers = stateRef(this).layers.security
+    const securityLayers = this.state.layers.security
       ? [
           new ScatterplotLayer({
             id: "god-view-security-pulse",
@@ -92,9 +92,9 @@ export const godViewRenderingGraphLayerTransportMethods = {
             lineWidthUnits: "pixels",
             getLineWidth: 2,
             getLineColor: [
-              stateRef(this).visual.pulse[0],
-              stateRef(this).visual.pulse[1],
-              stateRef(this).visual.pulse[2],
+              this.state.visual.pulse[0],
+              this.state.visual.pulse[1],
+              this.state.visual.pulse[2],
               pulseAlpha,
             ],
             pickable: false,
@@ -102,7 +102,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
         ]
       : []
 
-    const baseGeoLines = depsRef(this).geoGridData()
+    const baseGeoLines = this.deps.geoGridData()
     const baseLayers = baseGeoLines.length > 0
       ? [
           new LineLayer({
@@ -128,4 +128,3 @@ export const godViewRenderingGraphLayerTransportMethods = {
     }
   },
 }
-import {depsRef, stateRef} from "./runtime_refs"

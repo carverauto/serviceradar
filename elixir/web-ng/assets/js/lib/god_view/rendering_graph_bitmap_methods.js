@@ -1,4 +1,3 @@
-import {depsRef, stateRef} from "./runtime_refs"
 export const godViewRenderingGraphBitmapMethods = {
   ensureBitmapMetadata(metadata, nodes) {
     const fallback = this.buildBitmapFallbackMetadata(nodes)
@@ -56,41 +55,41 @@ export const godViewRenderingGraphBitmapMethods = {
     }
   },
   visibilityMask(states) {
-    if (stateRef(this).wasmReady && stateRef(this).wasmEngine) {
+    if (this.state.wasmReady && this.state.wasmEngine) {
       try {
-        return stateRef(this).wasmEngine.computeStateMask(states, stateRef(this).filters)
+        return this.state.wasmEngine.computeStateMask(states, this.state.filters)
       } catch (_err) {
-        stateRef(this).wasmReady = false
+        this.state.wasmReady = false
       }
     }
 
     const mask = new Uint8Array(states.length)
     for (let i = 0; i < states.length; i += 1) {
       const category = this.stateCategory(states[i])
-      mask[i] = stateRef(this).filters[category] !== false ? 1 : 0
+      mask[i] = this.state.filters[category] !== false ? 1 : 0
     }
     return mask
   },
   computeTraversalMask(graph) {
-    if (!graph || stateRef(this).selectedNodeIndex === null) return null
-    if (stateRef(this).selectedNodeIndex >= graph.nodes.length) return null
+    if (!graph || this.state.selectedNodeIndex === null) return null
+    if (this.state.selectedNodeIndex >= graph.nodes.length) return null
 
-    if (stateRef(this).wasmReady && stateRef(this).wasmEngine) {
+    if (this.state.wasmReady && this.state.wasmEngine) {
       try {
-        return stateRef(this).wasmEngine.computeThreeHopMask(
+        return this.state.wasmEngine.computeThreeHopMask(
           graph.nodes.length,
           graph.edgeSourceIndex,
           graph.edgeTargetIndex,
-          stateRef(this).selectedNodeIndex,
+          this.state.selectedNodeIndex,
         )
       } catch (_err) {
-        stateRef(this).wasmReady = false
+        this.state.wasmReady = false
       }
     }
 
     const mask = new Uint8Array(graph.nodes.length)
-    const frontier = [stateRef(this).selectedNodeIndex]
-    mask[stateRef(this).selectedNodeIndex] = 1
+    const frontier = [this.state.selectedNodeIndex]
+    mask[this.state.selectedNodeIndex] = 1
 
     for (let hop = 0; hop < 3; hop += 1) {
       if (frontier.length === 0) break

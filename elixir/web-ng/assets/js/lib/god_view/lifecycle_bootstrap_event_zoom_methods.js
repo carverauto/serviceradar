@@ -1,26 +1,25 @@
-import {depsRef, stateRef} from "./runtime_refs"
 export const godViewLifecycleBootstrapEventZoomMethods = {
   registerZoomModeEvent() {
-    stateRef(this).handleEvent("god_view:set_zoom_mode", ({mode}) => {
+    this.state.handleEvent("god_view:set_zoom_mode", ({mode}) => {
       const normalized = mode === "global" || mode === "regional" || mode === "local" ? mode : "auto"
-      stateRef(this).zoomMode = normalized
+      this.state.zoomMode = normalized
 
-      if (!stateRef(this).deck) return
+      if (!this.state.deck) return
 
       if (normalized === "auto") {
-        depsRef(this).setZoomTier(depsRef(this).resolveZoomTier(stateRef(this).viewState.zoom || 0), true)
+        this.deps.setZoomTier(this.deps.resolveZoomTier(this.state.viewState.zoom || 0), true)
         return
       }
 
       const zoomByTier = {global: -0.9, regional: 0.35, local: 1.65}
-      stateRef(this).viewState = {
-        ...stateRef(this).viewState,
-        zoom: zoomByTier[normalized] || stateRef(this).viewState.zoom,
+      this.state.viewState = {
+        ...this.state.viewState,
+        zoom: zoomByTier[normalized] || this.state.viewState.zoom,
       }
-      stateRef(this).userCameraLocked = true
-      stateRef(this).isProgrammaticViewUpdate = true
-      stateRef(this).deck.setProps({viewState: stateRef(this).viewState})
-      depsRef(this).setZoomTier(normalized, true)
+      this.state.userCameraLocked = true
+      this.state.isProgrammaticViewUpdate = true
+      this.state.deck.setProps({viewState: this.state.viewState})
+      this.deps.setZoomTier(normalized, true)
     })
   },
 }

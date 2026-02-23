@@ -17,4 +17,3 @@ export const godViewLifecycleBootstrapEventMethods = Object.assign(
   godViewLifecycleBootstrapEventZoomMethods,
   godViewLifecycleBootstrapEventLayerMethods,
 )
-import {depsRef, stateRef} from "./runtime_refs"

@@ -1,4 +1,3 @@
-import {depsRef, stateRef} from "./runtime_refs"
 export const godViewRenderingGraphDataMethods = {
   buildVisibleGraphData(effective) {
     const states = Uint8Array.from(effective.nodes.map((node) => node.state))
@@ -15,7 +14,7 @@ export const godViewRenderingGraphDataMethods = {
     const visibleNodes = effective.nodes.map((node, index) => ({
       ...node,
       index,
-      selected: stateRef(this).selectedNodeIndex === index,
+      selected: this.state.selectedNodeIndex === index,
       visible: mask[index] === 1,
     }))
     const visibleById = new Map(visibleNodes.map((node) => [node.id, node]))
@@ -57,8 +56,8 @@ export const godViewRenderingGraphDataMethods = {
       })
       .filter(Boolean)
     const edgeKeys = new Set(edgeData.map((edge) => edge.interactionKey))
-    if (stateRef(this).hoveredEdgeKey && !edgeKeys.has(stateRef(this).hoveredEdgeKey)) stateRef(this).hoveredEdgeKey = null
-    if (stateRef(this).selectedEdgeKey && !edgeKeys.has(stateRef(this).selectedEdgeKey)) stateRef(this).selectedEdgeKey = null
+    if (this.state.hoveredEdgeKey && !edgeKeys.has(this.state.hoveredEdgeKey)) this.state.hoveredEdgeKey = null
+    if (this.state.selectedEdgeKey && !edgeKeys.has(this.state.selectedEdgeKey)) this.state.selectedEdgeKey = null
     const edgeLabelData = this.selectEdgeLabels(edgeData, effective.shape)
 
     const nodeData = visibleNodes
@@ -80,13 +79,13 @@ export const godViewRenderingGraphDataMethods = {
         stateReason: this.stateReasonForNode(node, edgeData, visibleNodes),
       }))
 
-    stateRef(this).lastVisibleNodeCount = nodeData.length
-    stateRef(this).lastVisibleEdgeCount = edgeData.length
+    this.state.lastVisibleNodeCount = nodeData.length
+    this.state.lastVisibleEdgeCount = edgeData.length
 
     const selectedVisibleNode =
-      effective.shape !== "local" || stateRef(this).selectedNodeIndex === null
+      effective.shape !== "local" || this.state.selectedNodeIndex === null
         ? null
-        : nodeData.find((node) => node.index === stateRef(this).selectedNodeIndex)
+        : nodeData.find((node) => node.index === this.state.selectedNodeIndex)
 
     return {edgeData, edgeLabelData, nodeData, selectedVisibleNode}
   },

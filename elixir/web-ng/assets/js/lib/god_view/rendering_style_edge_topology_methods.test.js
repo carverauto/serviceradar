@@ -12,7 +12,7 @@ describe("rendering_style_edge_topology_methods", () => {
 
   it("edgeTopologyClass honors explicit class before label fallback", () => {
     const state = {}
-    const methods = createStateBackedContext(state, {}, Object.keys(state))
+    const methods = createStateBackedContext(state, {})
     Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
     expect(methods.edgeTopologyClass({topologyClass: "inferred", label: "BACKBONE"})).toEqual("inferred")
@@ -21,19 +21,19 @@ describe("rendering_style_edge_topology_methods", () => {
 
   it("edgeEnabledByTopologyLayer uses class count map when present", () => {
     const state = {topologyLayers: {backbone: false, inferred: true, endpoints: false}}
-    const methods = createStateBackedContext(state, {}, Object.keys(state))
+    const methods = createStateBackedContext(state, {})
     Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
     const edge = {topologyClassCounts: {backbone: 2, inferred: 1, endpoints: 0}}
     expect(methods.edgeEnabledByTopologyLayer(edge)).toEqual(true)
 
-    methods.topologyLayers = {backbone: false, inferred: false, endpoints: false}
+    methods.state.topologyLayers = {backbone: false, inferred: false, endpoints: false}
     expect(methods.edgeEnabledByTopologyLayer(edge)).toEqual(false)
   })
 
   it("edgeEnabledByTopologyLayer falls back to inferred/endpoints/backbone classes", () => {
     const state = {topologyLayers: {backbone: true, inferred: false, endpoints: false}}
-    const methods = createStateBackedContext(state, {}, Object.keys(state))
+    const methods = createStateBackedContext(state, {})
     Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
     expect(methods.edgeEnabledByTopologyLayer({label: "LINK INFERRED path"})).toEqual(false)

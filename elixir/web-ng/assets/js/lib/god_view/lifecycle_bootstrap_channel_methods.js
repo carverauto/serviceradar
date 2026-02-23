@@ -4,9 +4,9 @@ import {godViewLifecycleBootstrapChannelEventMethods} from "./lifecycle_bootstra
 const godViewLifecycleBootstrapChannelCoreMethods = {
   setupSnapshotChannel() {
     const socket = this.ensureGodViewSocket()
-    stateRef(this).channel = socket.channel("topology:god_view", {})
-    this.registerSnapshotChannelEvents(stateRef(this).channel)
-    this.joinSnapshotChannel(stateRef(this).channel)
+    this.state.channel = socket.channel("topology:god_view", {})
+    this.registerSnapshotChannelEvents(this.state.channel)
+    this.joinSnapshotChannel(this.state.channel)
   },
 }
 
@@ -16,4 +16,3 @@ export const godViewLifecycleBootstrapChannelMethods = Object.assign(
   godViewLifecycleBootstrapChannelSocketMethods,
   godViewLifecycleBootstrapChannelEventMethods,
 )
-import {depsRef, stateRef} from "./runtime_refs"

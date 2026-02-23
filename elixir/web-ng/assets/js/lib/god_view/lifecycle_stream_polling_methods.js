@@ -1,29 +1,28 @@
-import {depsRef, stateRef} from "./runtime_refs"
 export const godViewLifecycleStreamPollingMethods = {
   startPolling(force = false) {
-    if (!stateRef(this).snapshotUrl) return
-    if (stateRef(this).pollTimer && !force) return
-    if (force && stateRef(this).pollTimer) {
-      window.clearInterval(stateRef(this).pollTimer)
-      stateRef(this).pollTimer = null
+    if (!this.state.snapshotUrl) return
+    if (this.state.pollTimer && !force) return
+    if (force && this.state.pollTimer) {
+      window.clearInterval(this.state.pollTimer)
+      this.state.pollTimer = null
     }
     this.pollSnapshot()
-    stateRef(this).pollTimer = window.setInterval(this.pollSnapshot, stateRef(this).pollIntervalMs)
+    this.state.pollTimer = window.setInterval(this.pollSnapshot, this.state.pollIntervalMs)
   },
   stopPolling() {
-    if (!stateRef(this).pollTimer) return
-    window.clearInterval(stateRef(this).pollTimer)
-    stateRef(this).pollTimer = null
+    if (!this.state.pollTimer) return
+    window.clearInterval(this.state.pollTimer)
+    this.state.pollTimer = null
   },
   async pollSnapshot() {
-    if (!stateRef(this).snapshotUrl) return
-    if (stateRef(this).channelJoined && stateRef(this).lastSnapshotAt > 0) {
-      const staleAfterMs = Math.max(stateRef(this).pollIntervalMs * 2, 10_000)
-      if (Date.now() - stateRef(this).lastSnapshotAt < staleAfterMs) return
+    if (!this.state.snapshotUrl) return
+    if (this.state.channelJoined && this.state.lastSnapshotAt > 0) {
+      const staleAfterMs = Math.max(this.state.pollIntervalMs * 2, 10_000)
+      if (Date.now() - this.state.lastSnapshotAt < staleAfterMs) return
     }
     const startedAt = performance.now()
     try {
-      const response = await fetch(stateRef(this).snapshotUrl, {
+      const response = await fetch(this.state.snapshotUrl, {
         method: "GET",
         credentials: "same-origin",
         cache: "no-store",
@@ -40,25 +39,25 @@ export const godViewLifecycleStreamPollingMethods = {
 
       const revisionHeader = response.headers.get("x-sr-god-view-revision")
       const parsedRevision = revisionHeader ? Number(revisionHeader) : null
-      const revision = Number.isFinite(parsedRevision) ? parsedRevision : stateRef(this).lastRevision
+      const revision = Number.isFinite(parsedRevision) ? parsedRevision : this.state.lastRevision
 
       const decodeStart = performance.now()
-      const rawGraph = depsRef(this).decodeArrowGraph(new Uint8Array(buffer))
-      const topologyStamp = depsRef(this).graphTopologyStamp(rawGraph)
-      const graph = depsRef(this).prepareGraphLayout(rawGraph, revision, topologyStamp)
+      const rawGraph = this.deps.decodeArrowGraph(new Uint8Array(buffer))
+      const topologyStamp = this.deps.graphTopologyStamp(rawGraph)
+      const graph = this.deps.prepareGraphLayout(rawGraph, revision, topologyStamp)
       const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
 
       const renderStart = performance.now()
-      const previousGraph = stateRef(this).lastGraph
-      stateRef(this).lastGraph = graph
-      if (depsRef(this).sameTopology(previousGraph, graph, topologyStamp, revision)) {
-        depsRef(this).renderGraph(graph)
+      const previousGraph = this.state.lastGraph
+      this.state.lastGraph = graph
+      if (this.deps.sameTopology(previousGraph, graph, topologyStamp, revision)) {
+        this.deps.renderGraph(graph)
       } else {
-        depsRef(this).animateTransition(previousGraph, graph)
+        this.deps.animateTransition(previousGraph, graph)
       }
-      stateRef(this).lastRevision = revision
-      stateRef(this).lastTopologyStamp = topologyStamp
-      stateRef(this).lastSnapshotAt = Date.now()
+      this.state.lastRevision = revision
+      this.state.lastTopologyStamp = topologyStamp
+      this.state.lastSnapshotAt = Date.now()
       const renderMs = Math.round((performance.now() - renderStart) * 100) / 100
       const networkMs = Math.round((performance.now() - startedAt) * 100) / 100
 
@@ -82,17 +81,17 @@ export const godViewLifecycleStreamPollingMethods = {
           count: Number(response.headers.get("x-sr-god-view-bitmap-unknown-count") || 0),
         },
       }
-      const effectiveBitmapMetadata = depsRef(this).ensureBitmapMetadata(bitmapMetadata, graph.nodes)
-      const pipelineStats = depsRef(this).pipelineStatsFromHeaders(response.headers)
-      if (pipelineStats) stateRef(this).lastPipelineStats = pipelineStats
+      const effectiveBitmapMetadata = this.deps.ensureBitmapMetadata(bitmapMetadata, graph.nodes)
+      const pipelineStats = this.deps.pipelineStatsFromHeaders(response.headers)
+      if (pipelineStats) this.state.lastPipelineStats = pipelineStats
 
-      stateRef(this).summary.textContent =
+      this.state.summary.textContent =
         `snapshot revision=${revisionHeader || "—"} nodes=${graph.nodes.length} ` +
         `edges=${graph.edges.length} payload=${buffer.byteLength}B selected=` +
-        `${stateRef(this).selectedNodeIndex === null ? "none" : stateRef(this).selectedNodeIndex} visible=` +
-        `${stateRef(this).lastVisibleNodeCount}/${graph.nodes.length}`
+        `${this.state.selectedNodeIndex === null ? "none" : this.state.selectedNodeIndex} visible=` +
+        `${this.state.lastVisibleNodeCount}/${graph.nodes.length}`
 
-      stateRef(this).pushEvent("god_view_stream_stats", {
+      this.state.pushEvent("god_view_stream_stats", {
         schema_version: schemaHeader ? Number(schemaHeader) : null,
         revision: revisionHeader ? Number(revisionHeader) : null,
         node_count: graph.nodes.length,
@@ -100,18 +99,18 @@ export const godViewLifecycleStreamPollingMethods = {
         generated_at: response.headers.get("x-sr-god-view-generated-at"),
         bitmap_metadata: effectiveBitmapMetadata,
         bytes: buffer.byteLength,
-        renderer_mode: stateRef(this).rendererMode,
-        zoom_tier: stateRef(this).zoomTier,
-        zoom_mode: stateRef(this).zoomMode,
+        renderer_mode: this.state.rendererMode,
+        zoom_tier: this.state.zoomTier,
+        zoom_mode: this.state.zoomMode,
         network_ms: networkMs,
         decode_ms: decodeMs,
         render_ms: renderMs,
-        pipeline_stats: depsRef(this).normalizePipelineStats(pipelineStats || stateRef(this).lastPipelineStats),
+        pipeline_stats: this.deps.normalizePipelineStats(pipelineStats || this.state.lastPipelineStats),
       })
     } catch (error) {
-      stateRef(this).summary.textContent = "snapshot polling error"
-      if (!stateRef(this).channelJoined || stateRef(this).lastSnapshotAt === 0) {
-        stateRef(this).pushEvent("god_view_stream_error", {
+      this.state.summary.textContent = "snapshot polling error"
+      if (!this.state.channelJoined || this.state.lastSnapshotAt === 0) {
+        this.state.pushEvent("god_view_stream_error", {
           reason: "poll_error",
           message: `${error}`,
         })

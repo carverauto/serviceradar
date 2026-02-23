@@ -1,4 +1,3 @@
-import {depsRef, stateRef} from "./runtime_refs"
 export const godViewRenderingStyleNodeVisualMethods = {
   nodeMetricText(node, shape) {
     const clusterCount = Number(node?.clusterCount || 1)
@@ -8,10 +7,10 @@ export const godViewRenderingStyleNodeVisualMethods = {
     return this.formatPps(node?.pps || 0)
   },
   nodeColor(state) {
-    if (state === 0) return stateRef(this).visual.nodeRoot
-    if (state === 1) return stateRef(this).visual.nodeAffected
-    if (state === 2) return stateRef(this).visual.nodeHealthy
-    return stateRef(this).visual.nodeUnknown
+    if (state === 0) return this.state.visual.nodeRoot
+    if (state === 1) return this.state.visual.nodeAffected
+    if (state === 2) return this.state.visual.nodeHealthy
+    return this.state.visual.nodeUnknown
   },
   nodeNeutralColor(operUp) {
     if (Number(operUp) === 1) return [56, 189, 248, 230]

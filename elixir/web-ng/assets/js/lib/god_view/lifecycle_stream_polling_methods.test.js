@@ -44,7 +44,7 @@ function makeContext({state = {}, deps = {}, methods = {}} = {}) {
     ...deps,
   }
 
-  const ctx = createStateBackedContext(baseState, baseDeps, Object.keys(baseState))
+  const ctx = createStateBackedContext(baseState, baseDeps)
   Object.assign(ctx, bindApi(ctx, godViewLifecycleStreamPollingMethods), methods)
 
   if (typeof baseState.pushEvent !== "function") {
@@ -91,12 +91,12 @@ describe("lifecycle_stream_polling_methods", () => {
 
     await ctx.pollSnapshot()
 
-    expect(ctx.renderGraph).toHaveBeenCalledTimes(1)
-    expect(ctx.animateTransition).not.toHaveBeenCalled()
-    expect(ctx.summary.textContent).toContain("snapshot revision=12")
-    expect(ctx.pushed.some((e) => e.name === "god_view_stream_stats")).toEqual(true)
-    expect(ctx.lastRevision).toEqual(12)
-    expect(ctx.lastTopologyStamp).toEqual("topo:1")
+    expect(ctx.deps.renderGraph).toHaveBeenCalledTimes(1)
+    expect(ctx.deps.animateTransition).not.toHaveBeenCalled()
+    expect(ctx.state.summary.textContent).toContain("snapshot revision=12")
+    expect(ctx.state.pushed.some((e) => e.name === "god_view_stream_stats")).toEqual(true)
+    expect(ctx.state.lastRevision).toEqual(12)
+    expect(ctx.state.lastTopologyStamp).toEqual("topo:1")
   })
 
   it("pollSnapshot error path pushes poll_error only when channel is unavailable", async () => {
@@ -105,13 +105,13 @@ describe("lifecycle_stream_polling_methods", () => {
     const ctx = makeContext({state: {channelJoined: false, lastSnapshotAt: 0}})
     await ctx.pollSnapshot()
 
-    expect(ctx.summary.textContent).toEqual("snapshot polling error")
-    expect(ctx.pushed.some((e) => e.name === "god_view_stream_error")).toEqual(true)
+    expect(ctx.state.summary.textContent).toEqual("snapshot polling error")
+    expect(ctx.state.pushed.some((e) => e.name === "god_view_stream_error")).toEqual(true)
 
     const ctxSuppressed = makeContext({state: {channelJoined: true, lastSnapshotAt: Date.now() - 60_000}})
     await ctxSuppressed.pollSnapshot()
 
-    expect(ctxSuppressed.summary.textContent).toEqual("snapshot polling error")
-    expect(ctxSuppressed.pushed.some((e) => e.name === "god_view_stream_error")).toEqual(false)
+    expect(ctxSuppressed.state.summary.textContent).toEqual("snapshot polling error")
+    expect(ctxSuppressed.state.pushed.some((e) => e.name === "god_view_stream_error")).toEqual(false)
   })
 })
