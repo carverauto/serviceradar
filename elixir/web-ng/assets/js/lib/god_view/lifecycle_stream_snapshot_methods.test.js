@@ -42,7 +42,7 @@ describe("lifecycle_stream_snapshot_methods", () => {
 
   it("parseSnapshotMessage supports binary tuple payload", () => {
     const state = {}
-    const methods = createStateBackedContext(state, {}, Object.keys(state))
+    const methods = createStateBackedContext(state, {})
     Object.assign(methods, bindApi(methods, godViewLifecycleStreamSnapshotMethods))
     const frame = buildFrame([1, 2])
     const encoded = Buffer.from(new Uint8Array(frame)).toString("base64")

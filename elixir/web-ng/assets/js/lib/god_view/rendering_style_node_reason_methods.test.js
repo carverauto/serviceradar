@@ -5,7 +5,7 @@ import {godViewRenderingStyleNodeReasonMethods} from "./rendering_style_node_rea
 import {godViewRenderingStyleNodeVisualMethods} from "./rendering_style_node_visual_methods"
 
 const state = {}
-const methods = createStateBackedContext(state, {}, Object.keys(state))
+const methods = createStateBackedContext(state, {})
 Object.assign(
   methods,
   bindApi(methods, godViewRenderingStyleNodeVisualMethods),

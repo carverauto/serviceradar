@@ -9,7 +9,7 @@ import {godViewLifecycleBootstrapEventZoomMethods} from "./lifecycle_bootstrap_e
 describe("lifecycle_bootstrap_event_methods", () => {
   it("registerLifecycleEvents wires filter/zoom/layer registration", () => {
     const state = {}
-    const ctx = createStateBackedContext(state, {}, Object.keys(state))
+    const ctx = createStateBackedContext(state, {})
     Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapEventMethods), {
       registerFilterEvent: vi.fn(),
       registerZoomModeEvent: vi.fn(),
@@ -33,7 +33,7 @@ describe("lifecycle_bootstrap_event_methods", () => {
       }),
     }
     const deps = {renderGraph: vi.fn()}
-    const ctx = createStateBackedContext(state, deps, Object.keys(state))
+    const ctx = createStateBackedContext(state, deps)
     Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapEventFilterMethods))
 
     ctx.registerFilterEvent()
@@ -59,7 +59,7 @@ describe("lifecycle_bootstrap_event_methods", () => {
       }),
     }
     const deps = {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "regional")}
-    const ctx = createStateBackedContext(state, deps, Object.keys(state))
+    const ctx = createStateBackedContext(state, deps)
     Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapEventZoomMethods))
 
     ctx.registerZoomModeEvent()
@@ -82,7 +82,7 @@ describe("lifecycle_bootstrap_event_methods", () => {
       }),
     }
     const deps = {renderGraph: vi.fn()}
-    const ctx = createStateBackedContext(state, deps, Object.keys(state))
+    const ctx = createStateBackedContext(state, deps)
     Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapEventLayerMethods))
 
     ctx.registerLayerEvents()

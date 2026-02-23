@@ -6,7 +6,7 @@ import {godViewRenderingGraphBitmapMethods} from "./rendering_graph_bitmap_metho
 describe("rendering_graph_bitmap_methods", () => {
   it("ensureBitmapMetadata falls back to derived counts when metadata is empty", () => {
     const state = {}
-    const ctx = createStateBackedContext(state, {}, Object.keys(state))
+    const ctx = createStateBackedContext(state, {})
     Object.assign(ctx, bindApi(ctx, godViewRenderingGraphBitmapMethods))
     ctx.stateCategory = (s) => {
       if (s === 0) return "root_cause"
@@ -27,7 +27,7 @@ describe("rendering_graph_bitmap_methods", () => {
 
   it("ensureBitmapMetadata keeps provided non-empty metadata", () => {
     const state = {}
-    const ctx = createStateBackedContext(state, {}, Object.keys(state))
+    const ctx = createStateBackedContext(state, {})
     Object.assign(ctx, bindApi(ctx, godViewRenderingGraphBitmapMethods))
     ctx.stateCategory = (s) => {
       if (s === 0) return "root_cause"
@@ -56,7 +56,7 @@ describe("rendering_graph_bitmap_methods", () => {
       wasmReady: false,
       wasmEngine: null,
     }
-    const ctx = createStateBackedContext(state, {}, Object.keys(state))
+    const ctx = createStateBackedContext(state, {})
     Object.assign(ctx, bindApi(ctx, godViewRenderingGraphBitmapMethods))
 
     const graph = {
@@ -82,7 +82,7 @@ describe("rendering_graph_bitmap_methods", () => {
       wasmEngine: null,
       filters: {root_cause: true, affected: false, healthy: true, unknown: false},
     }
-    const ctx = createStateBackedContext(state, {}, Object.keys(state))
+    const ctx = createStateBackedContext(state, {})
     Object.assign(ctx, bindApi(ctx, godViewRenderingGraphBitmapMethods))
     ctx.stateCategory = (s) => {
       if (s === 0) return "root_cause"
