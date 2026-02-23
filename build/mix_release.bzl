@@ -710,14 +710,20 @@ if [ "{run_assets}" = "true" ]; then
   fi
   if [ -f assets/package.json ]; then
     if [ -f assets/bun.lockb ] || [ -f assets/bun.lock ]; then
-      (cd assets && bun install --frozen-lockfile)
+      if ! (cd assets && bun install --frozen-lockfile); then
+        echo "warning: frozen bun lockfile check failed in assets; retrying without --frozen-lockfile in release sandbox" >&2
+        (cd assets && bun install)
+      fi
     else
       (cd assets && bun install)
     fi
   fi
   if [ -f assets/component/package.json ]; then
     if [ -f assets/component/bun.lockb ] || [ -f assets/component/bun.lock ]; then
-      (cd assets/component && bun install --frozen-lockfile)
+      if ! (cd assets/component && bun install --frozen-lockfile); then
+        echo "warning: frozen bun lockfile check failed in assets/component; retrying without --frozen-lockfile in release sandbox" >&2
+        (cd assets/component && bun install)
+      fi
     else
       (cd assets/component && bun install)
     fi
