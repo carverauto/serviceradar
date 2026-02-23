@@ -174,8 +174,13 @@ get-swiftlint: ## Check SwiftLint is installed
 	@echo "$(COLOR_BOLD)Checking SwiftLint$(COLOR_RESET)"
 	@which $(SWIFTLINT) > /dev/null || (echo "swiftlint not found, please install it from https://github.com/realm/SwiftLint" && exit 1)
 
+.PHONY: get-bun
+get-bun: ## Check Bun is installed
+	@echo "$(COLOR_BOLD)Checking Bun$(COLOR_RESET)"
+	@which bun > /dev/null || (echo "bun not found, please install it from https://bun.sh" && exit 1)
+
 .PHONY: lint
-lint: get-golangcilint ## Run linting checks
+lint: get-golangcilint get-bun ## Run linting checks
 	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
 	@$(GOLANGCI_LINT) run ./...
 ifeq ($(HOST_OS),Darwin)
@@ -196,9 +201,11 @@ endif
 	@cd elixir/web-ng && mix credo --all
 	@echo "$(COLOR_BOLD)Running serviceradar_core Credo$(COLOR_RESET)"
 	@cd elixir/serviceradar_core && mix credo --strict --mute-exit-status
+	@echo "$(COLOR_BOLD)Running web-ng assets ESLint$(COLOR_RESET)"
+	@cd elixir/web-ng/assets && bun run lint
 
 .PHONY: test
-test: $(TEST_PREREQS) ## Run all tests with coverage
+test: $(TEST_PREREQS) get-bun ## Run all tests with coverage
 	@echo "$(COLOR_BOLD)Running Go short tests$(COLOR_RESET)"
 	@$(GO) test $(GO_TEST_TAGS) -timeout=15s -race -count=10 -failfast -shuffle=on -short ./... -coverprofile=./cover.short.profile -covermode=atomic -coverpkg=./...
 	@echo "$(COLOR_BOLD)Running Go long tests$(COLOR_RESET)"
@@ -210,6 +217,8 @@ test: $(TEST_PREREQS) ## Run all tests with coverage
 	@cd rust/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/srql && SRQL_ALLOW_AGE_SKIP=1 RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@echo "$(COLOR_BOLD)Running web-ng assets Vitest$(COLOR_RESET)"
+	@cd elixir/web-ng/assets && bun run test
 	@echo "$(COLOR_BOLD)Running web-ng precommit$(COLOR_RESET)"
 	@ENV_FILE="$${ENV_FILE:-$(CURDIR)/.env}"; \
 	case "$${ENV_FILE}" in \
@@ -280,6 +289,11 @@ release: ## Create and push a new release
 	@echo "$(COLOR_BOLD)Creating release $(NEXT_VERSION)$(COLOR_RESET)"
 	@git tag -a $(NEXT_VERSION) -m "Release $(NEXT_VERSION)"
 	@git push origin $(NEXT_VERSION)
+
+.PHONY: web-ng-release-check
+web-ng-release-check: ## Build web-ng Bazel release tarball preflight (same path used by MixRelease CI)
+	@echo "$(COLOR_BOLD)Running web-ng release preflight$(COLOR_RESET)"
+	@bazel build --config=remote //elixir/web-ng:release_tar
 
 
 .PHONY: version

@@ -3,6 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "bunx vitest run js/lib/god_view/*.test.js",
+    "test:god_view:contracts": "bunx vitest run js/lib/god_view/*contract*.test.js js/lib/god_view/renderer_deps.test.js",
+    "lint": "bunx eslint js/**/*.js",
+    "lint:god_view": "bunx eslint js/lib/god_view/**/*.js",
+    "typecheck:god_view": "bunx tsc -p js/lib/god_view/tsconfig.json --noEmit",
+    "precommit:god_view": "bun run lint:god_view && bun run test:god_view:contracts && bun run typecheck:god_view"
+  },
   "dependencies": {
     "@deck.gl/aggregation-layers": "^9.2.9",
     "@deck.gl/core": "^9.2.2",
@@ -19,5 +27,9 @@
     "mapbox-gl": "^3.18.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.3",
+    "vitest": "^3.2.4"
   }
 }

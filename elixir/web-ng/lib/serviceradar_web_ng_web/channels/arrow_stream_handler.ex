@@ -35,18 +35,21 @@ defmodule ServiceRadarWebNGWeb.Channels.ArrowStreamHandler do
         bytes_received: state.bytes_received + byte_size(data)
     }
 
-        # Pass the binary frame to the Rust NIF for zero-copy deserialization
-        case ServiceRadarWebNG.Topology.Native.decode_arrow_payload(data) do
-          {:ok, samples} ->
-            Logger.debug("Decoded #{length(samples)} cyber-physical samples via Arrow IPC")
-            
-            # Stream to TimescaleDB & PostGIS
-            ServiceRadar.Spatial.SurveySample.bulk_insert!(
-              session_id: state.session_id, 
-              samples: samples
-            )
-            
-            {:ok, new_state}
+    # Pass the binary frame to the Rust NIF for zero-copy deserialization
+    case ServiceRadarWebNG.Topology.Native.decode_arrow_payload(data) do
+      {:ok, samples} ->
+        Logger.debug("Decoded #{length(samples)} cyber-physical samples via Arrow IPC")
+
+        # Stream to TimescaleDB & PostGIS via Ash generic action.
+        ServiceRadar.Spatial.SurveySample
+        |> Ash.ActionInput.for_action(:bulk_insert, %{
+          session_id: state.session_id,
+          samples: samples
+        })
+        |> Ash.run_action!(domain: ServiceRadar.Spatial)
+
+        {:ok, new_state}
+
       {:error, reason} ->
         Logger.error("Arrow IPC Decode Failed: #{inspect(reason)}")
         {:ok, new_state}
