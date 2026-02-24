@@ -11,7 +11,7 @@
 <img width="1470" height="801" alt="Screenshot 2026-02-16 at 8 39 36 PM" src="https://github.com/user-attachments/assets/4f959217-4e53-487b-ae78-30c2fd3344b3" />
 <img width="1470" height="804" alt="Screenshot 2026-02-16 at 8 36 26 PM" src="https://github.com/user-attachments/assets/bec3d2cb-c311-4a26-848d-2fece4a5af86" />
 <img width="1470" height="801" alt="Screenshot 2026-02-16 at 8 37 08 PM" src="https://github.com/user-attachments/assets/0384520a-755f-4bdd-843a-a41f02d7c439" />
-<img width="1470" height="802" alt="Screenshot 2026-02-17 at 3 18 44 AM" src="https://github.com/user-attachments/assets/a28bfeb7-bc66-4ed4-ad81-98dfb443ed40" />
+https://github.com/user-attachments/assets/1cf2b90a-06f4-4ba7-b229-79720b16e0aa
 
 
 [![CI](https://github.com/carverauto/serviceradar/actions/workflows/main.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/main.yml)
