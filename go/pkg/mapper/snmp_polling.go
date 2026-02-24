@@ -202,10 +202,28 @@ func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
 // handleTopologyDiscoverySNMP queries and publishes topology information (LLDP or CDP)
 func (e *DiscoveryEngine) handleTopologyDiscoverySNMP(
 	job *DiscoveryJob, client *gosnmp.GoSNMP, targetIP string) {
-	publishedAny := false
-
 	// Try LLDP first
 	lldpLinks, lldpErr := e.queryLLDP(client, targetIP, job)
+	// Try CDP as additional evidence (some neighbors only advertise CDP).
+	cdpLinks, cdpErr := e.queryCDP(client, targetIP, job)
+	// Also run ARP+FDB enrichment even when LLDP/CDP succeeds.
+	// This captures neighbors that do not expose LLDP/CDP (e.g. some AP/uplink edges).
+	l2Links, l2Err := e.querySNMPL2Neighbors(client, targetIP, job)
+	e.publishTopologyEvidence(job, targetIP, lldpLinks, lldpErr, cdpLinks, cdpErr, l2Links, l2Err)
+}
+
+func (e *DiscoveryEngine) publishTopologyEvidence(
+	job *DiscoveryJob,
+	targetIP string,
+	lldpLinks []*TopologyLink,
+	lldpErr error,
+	cdpLinks []*TopologyLink,
+	cdpErr error,
+	l2Links []*TopologyLink,
+	l2Err error,
+) {
+	publishedAny := false
+
 	if lldpErr == nil && len(lldpLinks) > 0 {
 		e.publishTopologyLinks(job, lldpLinks, targetIP, "LLDP")
 		publishedAny = true
@@ -214,8 +232,6 @@ func (e *DiscoveryEngine) handleTopologyDiscoverySNMP(
 			Msg("LLDP not supported or no neighbors")
 	}
 
-	// Try CDP as additional evidence (some neighbors only advertise CDP).
-	cdpLinks, cdpErr := e.queryCDP(client, targetIP, job)
 	if cdpErr == nil && len(cdpLinks) > 0 {
 		e.publishTopologyLinks(job, cdpLinks, targetIP, "CDP")
 		publishedAny = true
@@ -224,9 +240,6 @@ func (e *DiscoveryEngine) handleTopologyDiscoverySNMP(
 			Msg("CDP not supported or no neighbors")
 	}
 
-	// Also run ARP+FDB enrichment even when LLDP/CDP succeeds.
-	// This captures neighbors that do not expose LLDP/CDP (e.g. some AP/uplink edges).
-	l2Links, l2Err := e.querySNMPL2Neighbors(client, targetIP, job)
 	if l2Err == nil && len(l2Links) > 0 {
 		e.publishTopologyLinks(job, l2Links, targetIP, "SNMP-L2")
 		publishedAny = true
