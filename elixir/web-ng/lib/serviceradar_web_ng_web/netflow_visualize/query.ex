@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
   @allowed_downsample_series_dims ~w(
     protocol_group
     app
+    flow_source
     dst_port
     src_ip
     dst_ip

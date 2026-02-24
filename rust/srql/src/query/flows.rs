@@ -73,6 +73,9 @@ pub(super) const FLOW_PROTOCOL_GROUP_EXPR: &str =
 // - downsample queries (raw SQL without alias)
 //
 // NOTE: cache tables live under `platform`, but SRQL assumes `search_path=platform,...`.
+pub(super) const FLOW_SOURCE_EXPR: &str =
+    "COALESCE(ocsf_payload->>'flow_source', 'Unknown')";
+
 pub(super) const FLOW_EXPORTER_NAME_EXPR: &str = r#"
 (SELECT ec.exporter_name
  FROM netflow_exporter_cache ec
@@ -462,6 +465,10 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
                 }
             }
         }
+        "flow_source" | "collector" => {
+            let expr = sql::<Text>(FLOW_SOURCE_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
         "protocol_group" | "proto_group" => {
             let expr = sql::<Text>(FLOW_PROTOCOL_GROUP_EXPR);
             match filter.op {
@@ -676,8 +683,10 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
         "src_endpoint_ip" | "src_ip" | "dst_endpoint_ip" | "dst_ip" | "protocol_name"
-        | "sampler_address" | "direction" | "exporter_name" | "in_if_name" | "out_if_name"
-        | "in_if_speed_bps" | "out_if_speed_bps" => collect_text_params(params, filter),
+        | "sampler_address" | "direction" | "flow_source" | "collector" | "exporter_name"
+        | "in_if_name" | "out_if_name" | "in_if_speed_bps" | "out_if_speed_bps" => {
+            collect_text_params(params, filter)
+        }
         // These filters are implemented using inline SQL literals in `apply_filter` (no binds),
         // so we must not collect bind params for them or we'll shift LIMIT/OFFSET binds.
         "src_country_iso2" | "src_country" | "dst_country_iso2" | "dst_country" => Ok(()),
@@ -879,6 +888,7 @@ enum FlowGroupField {
     ProtocolNum,
     ProtocolName,
     ProtocolGroup,
+    FlowSource,
     SamplerAddress,
     ExporterName,
     InIfName,
@@ -901,6 +911,7 @@ impl FlowGroupField {
             "protocol_num" | "proto" => Some(Self::ProtocolNum),
             "protocol_name" => Some(Self::ProtocolName),
             "protocol_group" | "proto_group" => Some(Self::ProtocolGroup),
+            "flow_source" | "collector" => Some(Self::FlowSource),
             "sampler_address" => Some(Self::SamplerAddress),
             "exporter_name" => Some(Self::ExporterName),
             "in_if_name" => Some(Self::InIfName),
@@ -924,6 +935,7 @@ impl FlowGroupField {
             Self::ProtocolNum => "protocol_num",
             Self::ProtocolName => "protocol_name",
             Self::ProtocolGroup => "protocol_group",
+            Self::FlowSource => "flow_source",
             Self::SamplerAddress => "sampler_address",
             Self::ExporterName => "exporter_name",
             Self::InIfName => "in_if_name",
@@ -946,6 +958,7 @@ impl FlowGroupField {
             Self::ProtocolNum => "protocol_num",
             Self::ProtocolName => "protocol_name",
             Self::ProtocolGroup => FLOW_PROTOCOL_GROUP_EXPR,
+            Self::FlowSource => FLOW_SOURCE_EXPR,
             Self::SamplerAddress => "sampler_address",
             Self::ExporterName => FLOW_EXPORTER_NAME_GROUP_EXPR,
             Self::InIfName => FLOW_IN_IF_NAME_GROUP_EXPR,
@@ -1541,6 +1554,7 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
         "dst_endpoint_ip" | "dst_ip" => build_stats_text_filter("f.dst_endpoint_ip", filter, binds),
         "protocol_name" => build_stats_text_filter("f.protocol_name", filter, binds),
         "sampler_address" => build_stats_text_filter("f.sampler_address", filter, binds),
+        "flow_source" | "collector" => build_stats_text_filter(FLOW_SOURCE_EXPR, filter, binds),
         "exporter_name" => build_stats_text_filter(FLOW_EXPORTER_NAME_GROUP_EXPR, filter, binds),
         "in_if_name" => build_stats_text_filter(FLOW_IN_IF_NAME_GROUP_EXPR, filter, binds),
         "out_if_name" => build_stats_text_filter(FLOW_OUT_IF_NAME_GROUP_EXPR, filter, binds),
