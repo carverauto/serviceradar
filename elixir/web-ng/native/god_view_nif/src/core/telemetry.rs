@@ -1,7 +1,13 @@
+//! Telemetry and interface metric formatting.
+//!
+//! Contains fallback logic and formatting heuristics to
+//! annotate link-layer graphs with realtime performance numbers.
+
 use crate::types::telemetry::InterfaceTelemetryRecord;
 use std::collections::HashMap;
 
-pub fn find_interface_for_edge(
+/// Discovers an aggregated telemetry payload by comparing interface indexes and names.
+pub(crate) fn find_interface_for_edge(
     by_index: &HashMap<(String, i64), InterfaceTelemetryRecord>,
     by_name: &HashMap<(String, String), InterfaceTelemetryRecord>,
     device_id: &str,
@@ -35,7 +41,8 @@ pub fn find_interface_for_edge(
     None
 }
 
-pub fn format_rate(value: u64) -> String {
+/// Helper function to create shorthand human-readable string values for packet rates.
+pub(crate) fn format_rate(value: u64) -> String {
     if value >= 1_000_000 {
         format!("{:.1}Mpps", value as f64 / 1_000_000.0)
     } else if value >= 1_000 {
@@ -45,7 +52,8 @@ pub fn format_rate(value: u64) -> String {
     }
 }
 
-pub fn format_capacity(value: u64) -> String {
+/// Helper function to create shorthand human-readable string values for data bandwidths.
+pub(crate) fn format_capacity(value: u64) -> String {
     if value >= 1_000_000_000 {
         format!("{}G", value / 1_000_000_000)
     } else if value >= 100_000_000 {
@@ -57,7 +65,8 @@ pub fn format_capacity(value: u64) -> String {
     }
 }
 
-pub fn edge_label(protocol: &str, flow_pps: u32, capacity_bps: u64) -> String {
+/// Generates a standardized display label mapping the specific telemetry link format bounds.
+pub(crate) fn edge_label(protocol: &str, flow_pps: u32, capacity_bps: u64) -> String {
     let p = protocol.trim().to_uppercase();
     let normalized = if p.is_empty() { "LINK" } else { p.as_str() };
     format!(
@@ -67,7 +76,9 @@ pub fn edge_label(protocol: &str, flow_pps: u32, capacity_bps: u64) -> String {
     )
 }
 
-pub fn enrich_edges_telemetry_impl(
+/// Orchestrates the total assembly of a real-time topology flow. Combines structural
+/// graph layout edges with physical port index/PPS/BPS observations passed in from Elixir metric queries.
+pub(crate) fn enrich_edges_telemetry_impl(
     edges: Vec<(String, String, String, i64, String, (u32, u64, u64))>,
     interfaces: Vec<(String, String, i64, u64)>,
     pps_metrics: Vec<(String, i64, u32)>,

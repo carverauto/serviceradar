@@ -1,3 +1,8 @@
+//! Serialization and deserialization bindings for Apache Arrow and Roaring Bitmaps.
+//!
+//! Exposes functions to pack in-memory Rust topology graphs into `RecordBatch` streams
+//! and decode physical survey payloads from binary IPC frames.
+
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -14,7 +19,11 @@ use rustler::{Binary, Env, OwnedBinary};
 use crate::core::layout::{build_hypergraph_from_projection, build_hypergraph_projection};
 use crate::types::survey::SurveySampleRow;
 
-pub fn encode_snapshot_impl(
+/// Encodes an entire topology active state into an Apache Arrow IPC stream payload.
+///
+/// This leverages columnar Arrow layouts to bypass Erlang term limits and securely
+/// blast thousands of nodes/edges directly to the frontend God View visualizers.
+pub(crate) fn encode_snapshot_impl(
     env: Env,
     schema_version: u32,
     revision: u64,
@@ -175,7 +184,8 @@ pub fn encode_snapshot_impl(
     Ok(Binary::from_owned(out, env))
 }
 
-pub fn serialize_bitmap(bitmap: &RoaringBitmap) -> Result<Vec<u8>, rustler::Error> {
+/// Serializes a sparse `RoaringBitmap` directly into byte chunks for Erlang interop.
+pub(crate) fn serialize_bitmap(bitmap: &RoaringBitmap) -> Result<Vec<u8>, rustler::Error> {
     let mut out = Vec::new();
     bitmap
         .serialize_into(&mut out)
@@ -183,13 +193,18 @@ pub fn serialize_bitmap(bitmap: &RoaringBitmap) -> Result<Vec<u8>, rustler::Erro
     Ok(out)
 }
 
-pub fn vec_into_binary<'a>(env: Env<'a>, bytes: Vec<u8>) -> Result<Binary<'a>, rustler::Error> {
+/// Moves an arbitrary byte vector into the NIF boundary wrapping an OwnedBinary.
+pub(crate) fn vec_into_binary<'a>(
+    env: Env<'a>,
+    bytes: Vec<u8>,
+) -> Result<Binary<'a>, rustler::Error> {
     let mut out = OwnedBinary::new(bytes.len()).ok_or(rustler::Error::BadArg)?;
     out.as_mut_slice().copy_from_slice(&bytes);
     Ok(Binary::from_owned(out, env))
 }
 
-pub fn decode_arrow_file(data: &[u8]) -> Result<Vec<SurveySampleRow>, rustler::Error> {
+/// Helper method to decode a raw Arrow File byte stream directly into Rust structs.
+pub(crate) fn decode_arrow_file(data: &[u8]) -> Result<Vec<SurveySampleRow>, rustler::Error> {
     let cursor = std::io::Cursor::new(data);
     let mut reader =
         arrow_ipc::reader::FileReader::try_new(cursor, None).map_err(|_| rustler::Error::BadArg)?;
@@ -203,7 +218,8 @@ pub fn decode_arrow_file(data: &[u8]) -> Result<Vec<SurveySampleRow>, rustler::E
     Ok(rows)
 }
 
-pub fn extract_rows(
+/// Extracts strongly typed columns from a RecordBatch and populates the Elixir-facing structs.
+pub(crate) fn extract_rows(
     batch: &RecordBatch,
     rows: &mut Vec<SurveySampleRow>,
 ) -> Result<(), rustler::Error> {
@@ -289,7 +305,8 @@ pub fn extract_rows(
     Ok(())
 }
 
-pub fn extract_vector_column(
+/// Helper to decode either fixed Lists or dense CSV-string vectors out of Arrow columns.
+pub(crate) fn extract_vector_column(
     batch: &RecordBatch,
     column_name: &str,
 ) -> Result<Vec<Vec<f32>>, rustler::Error> {
@@ -316,21 +333,21 @@ pub fn extract_vector_column(
     }
 }
 
-pub fn list_column_to_vectors_i32(
+pub(crate) fn list_column_to_vectors_i32(
     column: &arrow_array::ArrayRef,
 ) -> Result<Vec<Vec<f32>>, rustler::Error> {
     let list = column.as_list::<i32>();
     list_column_to_vectors(list)
 }
 
-pub fn list_column_to_vectors_i64(
+pub(crate) fn list_column_to_vectors_i64(
     column: &arrow_array::ArrayRef,
 ) -> Result<Vec<Vec<f32>>, rustler::Error> {
     let list = column.as_list::<i64>();
     list_column_to_vectors(list)
 }
 
-pub fn list_column_to_vectors<O: arrow_array::array::OffsetSizeTrait>(
+pub(crate) fn list_column_to_vectors<O: arrow_array::array::OffsetSizeTrait>(
     list: &arrow_array::array::GenericListArray<O>,
 ) -> Result<Vec<Vec<f32>>, rustler::Error> {
     let values = list.values();
@@ -371,7 +388,7 @@ pub fn list_column_to_vectors<O: arrow_array::array::OffsetSizeTrait>(
     }
 }
 
-pub fn parse_vector_csv(raw: &str) -> Vec<f32> {
+pub(crate) fn parse_vector_csv(raw: &str) -> Vec<f32> {
     if raw.trim().is_empty() {
         return Vec::new();
     }

@@ -1,3 +1,8 @@
+//! Deep causality inference engine bindings.
+//!
+//! Evaluates network topologies against live health signals to
+//! identify true root-cause devices and compute betweenness centralities.
+
 use crate::core::layout::MAX_BETWEENNESS_NODES;
 use crate::types::causality::CausalStateReasonRow;
 use deep_causality::{
@@ -7,7 +12,13 @@ use deep_causality::{
 use std::collections::VecDeque;
 use ultragraph::{CentralityGraphAlgorithms, GraphMut, UltraGraph};
 
-pub fn betweenness_scores(node_count: usize, edges: &[(u32, u32)]) -> Option<Vec<f64>> {
+/// Calculates the betweenness centrality score for all nodes in an unweighted graph.
+///
+/// Converts a sequence of indexed UI edges into an optimized `UltraGraph`
+/// structure to execute deep centrality algorithms. This highlights the nodes
+/// most critical to bridging network components together. Returns normalized
+/// scoring arrays parallel to the node indexes.
+pub(crate) fn betweenness_scores(node_count: usize, edges: &[(u32, u32)]) -> Option<Vec<f64>> {
     if node_count == 0 || node_count > MAX_BETWEENNESS_NODES {
         return None;
     }
@@ -54,11 +65,22 @@ pub fn betweenness_scores(node_count: usize, edges: &[(u32, u32)]) -> Option<Vec
     Some(scores)
 }
 
-pub fn deep_causality_eval(obs: NumericalValue) -> PropagatingEffect<bool> {
+/// The atomic causal observation evaluating if a node is behaving normally.
+///
+/// A simple numeric threshold asserting whether structural observations
+/// constitute a propagating failure effect inside `deep_causality`.
+pub(crate) fn deep_causality_eval(obs: NumericalValue) -> PropagatingEffect<bool> {
     PropagatingEffect::pure(obs > 0.5)
 }
 
-pub fn evaluate_causal_states_with_reasons_impl(
+/// Discovers the structural root cause driving cascading failures in a topology.
+///
+/// Marries boolean health signals (0=OK, 1=FAIL) with static graph layouts
+/// to resolve the absolute highest centrality node among the failures.
+/// Surrounding node states are cascaded outward, assigning them "affected"
+/// labels along with string explanations, hop distances, and parent indexing
+/// metadata back over the NIF boundary.
+pub(crate) fn evaluate_causal_states_with_reasons_impl(
     health_signals: Vec<u8>,
     edges: Vec<(u32, u32)>,
 ) -> Result<Vec<CausalStateReasonRow>, rustler::Error> {

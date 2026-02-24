@@ -1,12 +1,22 @@
+//! Graph routing and spatial layout algorithms.
+//!
+//! Handles projecting logical structural data into optimal 2D X/Y components.
+//! It isolates large connected network groups, organizes device anchors via weights
+//! or breadth-first hop counts, and falls back to naive rings for disjoint systems.
+
 use crate::types::hypergraph::HypergraphProjection;
 use deep_causality_sparse::CsrMatrix;
 use deep_causality_tensor::CausalTensor;
 use deep_causality_topology::Hypergraph;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-pub const MAX_BETWEENNESS_NODES: usize = 4_096;
+/// Safety restraint ensuring massive dense matrices don't OOM during centrality analytics.
+pub(crate) const MAX_BETWEENNESS_NODES: usize = 4_096;
 
-pub fn build_hypergraph_projection(
+/// Maps a raw sequence of edges into a bounded mathematical Hypergraph instance bounds check bounds.
+///
+/// Returns a projection containing bounds stats and incidence mappings.
+pub(crate) fn build_hypergraph_projection(
     num_nodes: usize,
     edges: &[(u16, u16, u32, u64, u64, String)],
 ) -> HypergraphProjection {
@@ -41,7 +51,8 @@ pub fn build_hypergraph_projection(
     projection
 }
 
-pub fn build_hypergraph_from_projection(
+/// Consumes a structurally-validated hypergraph projection and constructs the underlying `Hypergraph` instance.
+pub(crate) fn build_hypergraph_from_projection(
     projection: &HypergraphProjection,
 ) -> Option<Hypergraph<f32>> {
     if projection.num_nodes == 0 || projection.num_hyperedges == 0 {
@@ -63,7 +74,8 @@ pub fn build_hypergraph_from_projection(
     Hypergraph::new(incidence, node_data, 0).ok()
 }
 
-pub fn fallback_ring_layout(node_count: usize) -> Vec<(u16, u16)> {
+/// Fallback visualizer engine mapping disjoint network components into a clean overlapping circle.
+pub(crate) fn fallback_ring_layout(node_count: usize) -> Vec<(u16, u16)> {
     if node_count == 0 {
         return Vec::new();
     }
@@ -86,7 +98,8 @@ pub fn fallback_ring_layout(node_count: usize) -> Vec<(u16, u16)> {
         .collect()
 }
 
-pub fn build_adjacency_from_indexed_edges(
+/// Validates raw integer links and outputs deterministic adjacency arrays for traversal algorithms.
+pub(crate) fn build_adjacency_from_indexed_edges(
     node_count: usize,
     edges: &[(u32, u32)],
 ) -> Vec<Vec<usize>> {
@@ -113,7 +126,12 @@ pub fn build_adjacency_from_indexed_edges(
         .collect()
 }
 
-pub fn layout_nodes_layered(
+/// Core topographical layout engine for constructing 2D network views.
+///
+/// Uses node weights and adjacency to intelligently anchor components and fan
+/// out their leaf nodes via breadth-first tier discovery. Adjusts spatial overlaps
+/// automatically horizontally.
+pub(crate) fn layout_nodes_layered(
     node_count: usize,
     edges: &[(u32, u32)],
     node_weights: &[u32],

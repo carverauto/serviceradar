@@ -1,9 +1,16 @@
+//! String processing and NIF Term utilities.
+//!
+//! Helper functions for decoding unstructured Elixir `Term`s
+//! and normalizing node identifiers before handing them off to
+//! native Rust mapping contexts.
+
 use crate::types::graph::{runtime_graph_atoms, RuntimeGraphRow};
 use rustler::Term;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 
-pub fn map_get_any<'a>(
+/// Extracts an internal map value gracefully parsing both String and Atom keys.
+pub(crate) fn map_get_any<'a>(
     map: Term<'a>,
     atom_key: rustler::Atom,
     string_key: &str,
@@ -13,7 +20,8 @@ pub fn map_get_any<'a>(
         .or_else(|| map.map_get(string_key).ok())
 }
 
-pub fn term_as_string(term: Term<'_>) -> Option<String> {
+/// Fallback conversion pulling a valid String out of raw floats, unsigned, or signed integers.
+pub(crate) fn term_as_string(term: Term<'_>) -> Option<String> {
     if let Ok(v) = term.decode::<String>() {
         return Some(v);
     }
@@ -29,7 +37,8 @@ pub fn term_as_string(term: Term<'_>) -> Option<String> {
     None
 }
 
-pub fn term_as_i64(term: Term<'_>) -> Option<i64> {
+/// Decodes numeric Elixir variables (float, u64, string) directly down into a signed integer.
+pub(crate) fn term_as_i64(term: Term<'_>) -> Option<i64> {
     if let Ok(v) = term.decode::<i64>() {
         return Some(v);
     }
@@ -45,7 +54,8 @@ pub fn term_as_i64(term: Term<'_>) -> Option<i64> {
     None
 }
 
-pub fn term_as_f64(term: Term<'_>) -> Option<f64> {
+/// Decodes numeric Elixir variables (ints, u64, string) directly down into an f64 precision float.
+pub(crate) fn term_as_f64(term: Term<'_>) -> Option<f64> {
     if let Ok(v) = term.decode::<f64>() {
         return Some(v);
     }
@@ -61,7 +71,10 @@ pub fn term_as_f64(term: Term<'_>) -> Option<f64> {
     None
 }
 
-pub fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphRow> {
+/// Transforms an untyped generic Elixir Map into a strictly-typed `RuntimeGraphRow`.
+///
+/// Implements aggressive key fallback via `map_get_any` for resilient ingestion.
+pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphRow> {
     if !row.is_map() {
         return None;
     }
@@ -170,7 +183,9 @@ pub fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphRow> {
     })
 }
 
-pub fn normalized_id(value: &str) -> Option<String> {
+/// Discards unresolvable null bounds (e.g., 'unknown', 'n/a') from identifiers
+/// preventing invalid graph construction downstream.
+pub(crate) fn normalized_id(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return None;
@@ -182,7 +197,8 @@ pub fn normalized_id(value: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-pub fn build_node_index(node_ids: &[String]) -> HashMap<String, usize> {
+/// Generates a fast bi-directional lookup hash table mapping normalized Node IDs to raw array offsets.
+pub(crate) fn build_node_index(node_ids: &[String]) -> HashMap<String, usize> {
     let mut index = HashMap::with_capacity(node_ids.len() * 2);
     for (idx, id) in node_ids.iter().enumerate() {
         if let Some(norm) = normalized_id(id) {
@@ -193,7 +209,8 @@ pub fn build_node_index(node_ids: &[String]) -> HashMap<String, usize> {
     index
 }
 
-pub fn resolve_endpoint(
+/// Fallbacks gracefully looking for any valid match resolving a row coordinate onto the global map projection.
+pub(crate) fn resolve_endpoint(
     row: &RuntimeGraphRow,
     node_index: &HashMap<String, usize>,
     is_source: bool,
@@ -222,7 +239,8 @@ pub fn resolve_endpoint(
     None
 }
 
-pub fn indexed_edges_from_runtime_rows(
+/// Normalizes row links into integer tuples using `resolve_endpoint`.
+pub(crate) fn indexed_edges_from_runtime_rows(
     rows: &[RuntimeGraphRow],
     node_ids: &[String],
 ) -> Vec<(u32, u32, String)> {
@@ -257,7 +275,8 @@ pub fn indexed_edges_from_runtime_rows(
     indexed
 }
 
-pub fn canonical_pair_u32(a: u32, b: u32) -> (u32, u32) {
+/// Ensures A and B matrix references are deterministically ordered `A <= B`.
+pub(crate) fn canonical_pair_u32(a: u32, b: u32) -> (u32, u32) {
     if a <= b {
         (a, b)
     } else {
@@ -265,7 +284,8 @@ pub fn canonical_pair_u32(a: u32, b: u32) -> (u32, u32) {
     }
 }
 
-pub fn indexed_edge_telemetry(
+/// Pulls interface bandwidth mappings from Erlang tuples specifically onto the resolved Edge bounds list.
+pub(crate) fn indexed_edge_telemetry(
     edge_telemetry: &[(String, String, u32, u64, u64, String)],
     node_ids: &[String],
 ) -> HashMap<(u32, u32), (u32, u64, u64, String)> {
