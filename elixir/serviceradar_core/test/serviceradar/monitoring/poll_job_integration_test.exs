@@ -285,7 +285,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       {:ok, pending_job: pending_job, running_job: running_job}
     end
 
-    test "pending query returns only pending jobs", %{pending_job: pending, running_job: running} do
+    test "pending query returns only pending jobs", %{pending_job: pending, running_job: running, actor: actor} do
       jobs =
         PollJob
         |> Ash.Query.for_read(:pending, %{})
@@ -295,7 +295,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       refute Enum.any?(jobs, &(&1.id == running.id))
     end
 
-    test "running query returns only running jobs", %{pending_job: pending, running_job: running} do
+    test "running query returns only running jobs", %{pending_job: pending, running_job: running, actor: actor} do
       jobs =
         PollJob
         |> Ash.Query.for_read(:running, %{})
@@ -307,7 +307,8 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
 
     test "by_schedule returns jobs for a schedule", %{
       schedule_id: schedule_id,
-      pending_job: pending
+      pending_job: pending,
+      actor: actor
     } do
       jobs =
         PollJob

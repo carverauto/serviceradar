@@ -31,11 +31,11 @@ COPY rust/config-bootstrap ./rust/config-bootstrap/
 COPY rust/edge-onboarding ./rust/edge-onboarding/
 COPY rust/netflow-collector ./rust/netflow-collector/
 COPY rust/srql ./rust/srql/
-COPY cmd/flowgger ./cmd/flowgger/
-COPY cmd/trapd ./cmd/trapd/
-COPY cmd/otel ./cmd/otel/
-COPY cmd/consumers/zen ./cmd/consumers/zen/
-COPY cmd/checkers/rperf-client ./cmd/checkers/rperf-client/
+COPY rust/flowgger ./rust/flowgger/
+COPY rust/trapd ./rust/trapd/
+COPY rust/otel ./rust/otel/
+COPY rust/consumers/zen ./rust/consumers/zen/
+COPY rust/rperf-client ./rust/rperf-client/
 COPY proto ./proto
 
 # Update Rust to latest to support edition 2024
@@ -55,10 +55,10 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 
 # Set up RPM build environment
 WORKDIR /root/rpmbuild
-COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
+COPY build/packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
 RUN mkdir -p SOURCES/${COMPONENT}/systemd SOURCES/${COMPONENT}/config
-COPY packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
-COPY packaging/${COMPONENT}/config/netflow-collector.json SOURCES/${COMPONENT}/config/
+COPY build/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
+COPY build/packaging/${COMPONENT}/config/netflow-collector.json SOURCES/${COMPONENT}/config/
 
 # Build the RPM
 # Sanitize VERSION for RPM (remove pre-release suffixes like -pre1)

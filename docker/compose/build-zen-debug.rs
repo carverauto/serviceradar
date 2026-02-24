@@ -31,8 +31,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "../../otel/proto",
         "../otel/proto",
         "./otel/proto",
-        "./cmd/otel/proto",
-        "../cmd/otel/proto"
+        "./rust/otel/proto",
+        "../rust/otel/proto"
     ];
     
     let mut otel_base = None;

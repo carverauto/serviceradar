@@ -13,13 +13,13 @@ The build system SHALL produce `.deb` and `.rpm` packages for every deployable E
 #### Scenario: core-elx deb and rpm are in the release artifacts
 
 - **GIVEN** the release workflow runs
-- **WHEN** Bazel builds `//release:package_artifacts`
+- **WHEN** Bazel builds `//build/release:package_artifacts`
 - **THEN** the output includes `serviceradar-core-elx_<version>_amd64.deb` and `serviceradar-core-elx-<version>.x86_64.rpm`
 
 #### Scenario: agent-gateway deb and rpm are in the release artifacts
 
 - **GIVEN** the release workflow runs
-- **WHEN** Bazel builds `//release:package_artifacts`
+- **WHEN** Bazel builds `//build/release:package_artifacts`
 - **THEN** the output includes `serviceradar-agent-gateway_<version>_amd64.deb` and `serviceradar-agent-gateway-<version>.x86_64.rpm`
 
 ### Requirement: Elixir service packages ship a release tarball
@@ -62,11 +62,11 @@ Package upgrades SHALL preserve operator-modified configuration files.
 
 ### Requirement: Package auto-discovery in release pipeline
 
-Adding a new entry to `packaging/packages.bzl` SHALL automatically include that component in the release artifacts without modifying the release workflow or `release_targets.bzl`.
+Adding a new entry to `build/packaging/packages.bzl` SHALL automatically include that component in the release artifacts without modifying the release workflow or `release_targets.bzl`.
 
 #### Scenario: New PACKAGES entry appears in release
 
 - **GIVEN** a new key is added to the `PACKAGES` dict in `packages.bzl`
-- **AND** a corresponding `packaging/<name>/BUILD.bazel` calls `serviceradar_package_from_config`
-- **WHEN** Bazel builds `//release:package_artifacts`
+- **AND** a corresponding `build/packaging/<name>/BUILD.bazel` calls `serviceradar_package_from_config`
+- **WHEN** Bazel builds `//build/release:package_artifacts`
 - **THEN** the new component's .deb and .rpm are included

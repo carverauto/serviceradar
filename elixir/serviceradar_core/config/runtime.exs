@@ -112,6 +112,14 @@ if config_env() == :prod do
 
   config :serviceradar_core, :age_graph_name, age_graph_name
 
+  topology_v2_contract_consumption_enabled =
+    System.get_env("SERVICERADAR_TOPOLOGY_V2_CONSUMPTION_ENABLED", "true")
+    |> String.downcase()
+    |> then(&(&1 in ["1", "true", "yes", "on"]))
+
+  config :serviceradar_core,
+    topology_v2_contract_consumption_enabled: topology_v2_contract_consumption_enabled
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """
@@ -453,9 +461,23 @@ if config_env() == :prod do
           batch_timeout: 1_000
         },
         %{
-          name: "LOGS",
-          subject: "logs.>",
-          processor: ServiceRadar.EventWriter.Processors.Logs,
+          name: "BMP_CAUSAL",
+          subject: "bmp.events.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "ARANCINI_CAUSAL",
+          subject: "arancini.updates.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "SIEM_CAUSAL",
+          subject: "siem.events.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },

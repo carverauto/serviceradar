@@ -13,7 +13,7 @@
 # limitations under the License.
 
 name: lint
-on: [push]
+on: [push, pull_request]
 permissions:
   contents: read
   pull-requests: read
@@ -22,6 +22,8 @@ jobs:
   lint:
     name: lint
     runs-on: arc-runner-set
+    env:
+      GOCACHE: ${{ runner.temp }}/go-build
     steps:
       - name: checkout
         uses: actions/checkout@v6
@@ -29,9 +31,15 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - name: go toolchain info
+        run: |
+          go version
+          go env GOMOD GOCACHE GOTOOLCHAIN
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.4.0
+          version: v2.9.0
+          skip-cache: true
+          args: --timeout=10m
       - name: go mod tidy check
         uses: katexochen/go-tidy-check@v2

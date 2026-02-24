@@ -4,7 +4,7 @@
 
 The new `/netflow` Visualize page needs a consistent, reusable D3 chart toolkit to reach Akvorado-style parity: stacked area, 100% stacked, lines, grid, and sankey, with shared interaction patterns (tooltips, legends, responsive sizing).
 
-We already have some NetFlow chart hooks in `web-ng/assets/js/app.js`, but they are ad-hoc and not wired into a dedicated chart suite with a coherent API.
+We already have some NetFlow chart hooks in `elixir/web-ng/assets/js/app.js`, but they are ad-hoc and not wired into a dedicated chart suite with a coherent API.
 
 ## What Changes
 
@@ -26,8 +26,8 @@ We already have some NetFlow chart hooks in `web-ng/assets/js/app.js`, but they 
 
 - Affected specs: `build-web-ui`
 - Affected code:
-  - `web-ng/assets/js/app.js` (hooks)
-  - `web-ng/lib/**/netflow_live/visualize.ex` (chart selection + dataset loads)
+  - `elixir/web-ng/assets/js/app.js` (hooks)
+  - `elixir/web-ng/lib/**/netflow_live/visualize.ex` (chart selection + dataset loads)
 
 ## Non-Goals
 

@@ -108,9 +108,7 @@ impl Publisher {
             options = options
                 .credentials_file(creds_file)
                 .await
-                .with_context(|| {
-                    format!("Failed to load NATS creds file {}", creds_file)
-                })?;
+                .with_context(|| format!("Failed to load NATS creds file {}", creds_file))?;
         }
 
         let client = options.connect(&self.config.nats_url).await?;

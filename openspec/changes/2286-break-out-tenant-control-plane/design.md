@@ -67,14 +67,14 @@ The current architecture has significant complexity due to mixing SaaS control p
 
 | Location | Description | Action Required |
 |----------|-------------|-----------------|
-| `web-ng/lib/serviceradar_web_ng/inventory.ex:120` | Hardcoded system_actor + authorize?: false | Remove fallback |
-| `web-ng/lib/serviceradar_web_ng/infrastructure.ex:135` | Same pattern | Remove fallback |
-| `web-ng/lib/serviceradar_web_ng_web/tenant_resolver.ex` | Hardcoded @system_actor | Move to Control Plane |
-| `web-ng/lib/serviceradar_web_ng/edge/onboarding_packages.ex` | system_actor() + authorize?: false | Require explicit actor |
-| `web-ng/lib/serviceradar_web_ng/edge/onboarding_events.ex` | authorize?: false | Require explicit actor |
-| `web-ng/lib/serviceradar_web_ng/accounts/scope.ex:42,52` | Tenant/membership queries | JWT-based context |
-| `web-ng/.../plugs/tenant_context.ex` | Tenant resolution | Move to Control Plane |
-| `web-ng/.../plugs/api_auth.ex` | Token validation | JWT-based |
+| `elixir/web-ng/lib/serviceradar_web_ng/inventory.ex:120` | Hardcoded system_actor + authorize?: false | Remove fallback |
+| `elixir/web-ng/lib/serviceradar_web_ng/infrastructure.ex:135` | Same pattern | Remove fallback |
+| `elixir/web-ng/lib/serviceradar_web_ng_web/tenant_resolver.ex` | Hardcoded @system_actor | Move to Control Plane |
+| `elixir/web-ng/lib/serviceradar_web_ng/edge/onboarding_packages.ex` | system_actor() + authorize?: false | Require explicit actor |
+| `elixir/web-ng/lib/serviceradar_web_ng/edge/onboarding_events.ex` | authorize?: false | Require explicit actor |
+| `elixir/web-ng/lib/serviceradar_web_ng/accounts/scope.ex:42,52` | Tenant/membership queries | JWT-based context |
+| `elixir/web-ng/.../plugs/tenant_context.ex` | Tenant resolution | Move to Control Plane |
+| `elixir/web-ng/.../plugs/api_auth.ex` | Token validation | JWT-based |
 | Multiple LiveView modules | Ad-hoc authorize?: false | Require scope/actor |
 | Multiple API controllers | Cross-tenant access | Require proper authorization |
 

@@ -46,9 +46,9 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
       IF EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'discovered_interfaces_pkey'
-        AND conrelid = '#{prefix()}.discovered_interfaces'::regclass
+        AND conrelid = '#{prefix() || "platform"}.discovered_interfaces'::regclass
       ) THEN
-        ALTER TABLE #{prefix()}.discovered_interfaces DROP CONSTRAINT discovered_interfaces_pkey;
+        ALTER TABLE #{prefix() || "platform"}.discovered_interfaces DROP CONSTRAINT discovered_interfaces_pkey;
       END IF;
     END $$;
     """
@@ -90,9 +90,9 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
       IF NOT EXISTS (
         SELECT 1 FROM pg_constraint WHERE conname = 'mapper_snmp_credentials_mapper_job_id_fkey'
       ) THEN
-        ALTER TABLE #{prefix()}.mapper_snmp_credentials
+        ALTER TABLE #{prefix() || "platform"}.mapper_snmp_credentials
         ADD CONSTRAINT mapper_snmp_credentials_mapper_job_id_fkey
-        FOREIGN KEY (mapper_job_id) REFERENCES #{prefix()}.mapper_jobs(id);
+        FOREIGN KEY (mapper_job_id) REFERENCES #{prefix() || "platform"}.mapper_jobs(id);
       END IF;
     END $$;
     """
@@ -105,50 +105,50 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
     execute """
     DO $$
     BEGIN
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'name') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN name text NOT NULL;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'name') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN name text NOT NULL;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'description') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN description text;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'description') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN description text;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'enabled') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN enabled boolean NOT NULL DEFAULT true;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'enabled') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN enabled boolean NOT NULL DEFAULT true;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'interval') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN interval text NOT NULL DEFAULT '2h';
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'interval') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN interval text NOT NULL DEFAULT '2h';
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'partition') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN partition text NOT NULL DEFAULT 'default';
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'partition') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN partition text NOT NULL DEFAULT 'default';
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'agent_id') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN agent_id text;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'agent_id') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN agent_id text;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'discovery_mode') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN discovery_mode text NOT NULL DEFAULT 'snmp_api';
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'discovery_mode') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN discovery_mode text NOT NULL DEFAULT 'snmp_api';
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'discovery_type') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN discovery_type text NOT NULL DEFAULT 'full';
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'discovery_type') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN discovery_type text NOT NULL DEFAULT 'full';
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'concurrency') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN concurrency bigint NOT NULL DEFAULT 10;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'concurrency') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN concurrency bigint NOT NULL DEFAULT 10;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'timeout') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN timeout text NOT NULL DEFAULT '45s';
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'timeout') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN timeout text NOT NULL DEFAULT '45s';
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'retries') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN retries bigint NOT NULL DEFAULT 2;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'retries') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN retries bigint NOT NULL DEFAULT 2;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'options') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN options jsonb NOT NULL DEFAULT '{}'::jsonb;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'options') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN options jsonb NOT NULL DEFAULT '{}'::jsonb;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'last_run_at') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN last_run_at timestamp without time zone;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'last_run_at') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN last_run_at timestamp without time zone;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'inserted_at') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN inserted_at timestamp(6) without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc');
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'inserted_at') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN inserted_at timestamp(6) without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc');
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'mapper_jobs' AND column_name = 'updated_at') THEN
-        ALTER TABLE #{prefix()}.mapper_jobs ADD COLUMN updated_at timestamp(6) without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc');
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'mapper_jobs' AND column_name = 'updated_at') THEN
+        ALTER TABLE #{prefix() || "platform"}.mapper_jobs ADD COLUMN updated_at timestamp(6) without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc');
       END IF;
     END $$;
     """
@@ -198,12 +198,12 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
     BEGIN
       IF EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_schema = '#{prefix()}'
+        WHERE table_schema = '#{prefix() || "platform"}'
         AND table_name = 'sweep_host_results'
         AND column_name = 'device_id'
         AND data_type = 'uuid'
       ) THEN
-        ALTER TABLE #{prefix()}.sweep_host_results ALTER COLUMN device_id TYPE text;
+        ALTER TABLE #{prefix() || "platform"}.sweep_host_results ALTER COLUMN device_id TYPE text;
       END IF;
     END $$;
     """
@@ -293,43 +293,43 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
       -- Make if_index nullable if it isn't already
       IF EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_schema = '#{prefix()}'
+        WHERE table_schema = '#{prefix() || "platform"}'
         AND table_name = 'discovered_interfaces'
         AND column_name = 'if_index'
         AND is_nullable = 'NO'
       ) THEN
-        ALTER TABLE #{prefix()}.discovered_interfaces ALTER COLUMN if_index DROP NOT NULL;
+        ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ALTER COLUMN if_index DROP NOT NULL;
       END IF;
 
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'discovered_interfaces' AND column_name = 'interface_uid') THEN
-        ALTER TABLE #{prefix()}.discovered_interfaces ADD COLUMN interface_uid text NOT NULL;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'discovered_interfaces' AND column_name = 'interface_uid') THEN
+        ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD COLUMN interface_uid text NOT NULL;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'discovered_interfaces' AND column_name = 'speed_bps') THEN
-        ALTER TABLE #{prefix()}.discovered_interfaces ADD COLUMN speed_bps bigint;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'discovered_interfaces' AND column_name = 'speed_bps') THEN
+        ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD COLUMN speed_bps bigint;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'discovered_interfaces' AND column_name = 'if_type') THEN
-        ALTER TABLE #{prefix()}.discovered_interfaces ADD COLUMN if_type bigint;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'discovered_interfaces' AND column_name = 'if_type') THEN
+        ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD COLUMN if_type bigint;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'discovered_interfaces' AND column_name = 'if_type_name') THEN
-        ALTER TABLE #{prefix()}.discovered_interfaces ADD COLUMN if_type_name text;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'discovered_interfaces' AND column_name = 'if_type_name') THEN
+        ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD COLUMN if_type_name text;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'discovered_interfaces' AND column_name = 'interface_kind') THEN
-        ALTER TABLE #{prefix()}.discovered_interfaces ADD COLUMN interface_kind text;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'discovered_interfaces' AND column_name = 'interface_kind') THEN
+        ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD COLUMN interface_kind text;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'discovered_interfaces' AND column_name = 'classifications') THEN
-        ALTER TABLE #{prefix()}.discovered_interfaces ADD COLUMN classifications text[] DEFAULT '{}';
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'discovered_interfaces' AND column_name = 'classifications') THEN
+        ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD COLUMN classifications text[] DEFAULT '{}';
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'discovered_interfaces' AND column_name = 'classification_meta') THEN
-        ALTER TABLE #{prefix()}.discovered_interfaces ADD COLUMN classification_meta jsonb DEFAULT '{}'::jsonb;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'discovered_interfaces' AND column_name = 'classification_meta') THEN
+        ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD COLUMN classification_meta jsonb DEFAULT '{}'::jsonb;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'discovered_interfaces' AND column_name = 'classification_source') THEN
-        ALTER TABLE #{prefix()}.discovered_interfaces ADD COLUMN classification_source text DEFAULT 'rules';
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'discovered_interfaces' AND column_name = 'classification_source') THEN
+        ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD COLUMN classification_source text DEFAULT 'rules';
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'discovered_interfaces' AND column_name = 'mtu') THEN
-        ALTER TABLE #{prefix()}.discovered_interfaces ADD COLUMN mtu bigint;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'discovered_interfaces' AND column_name = 'mtu') THEN
+        ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD COLUMN mtu bigint;
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix()}' AND table_name = 'discovered_interfaces' AND column_name = 'duplex') THEN
-        ALTER TABLE #{prefix()}.discovered_interfaces ADD COLUMN duplex text;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '#{prefix() || "platform"}' AND table_name = 'discovered_interfaces' AND column_name = 'duplex') THEN
+        ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD COLUMN duplex text;
       END IF;
     END $$;
     """
@@ -345,9 +345,9 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
       IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'discovered_interfaces_pkey'
-        AND conrelid = '#{prefix()}.discovered_interfaces'::regclass
+        AND conrelid = '#{prefix() || "platform"}.discovered_interfaces'::regclass
       ) THEN
-        ALTER TABLE #{prefix()}.discovered_interfaces ADD PRIMARY KEY (timestamp, device_id, interface_uid);
+        ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD PRIMARY KEY (timestamp, device_id, interface_uid);
       END IF;
     END $$;
     """
@@ -449,7 +449,7 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
     drop table(:mapper_snmp_credentials)
 
     execute(
-      "ALTER TABLE #{prefix()}.discovered_interfaces ADD PRIMARY KEY (timestamp, device_id, if_index)"
+      "ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD PRIMARY KEY (timestamp, device_id, if_index)"
     )
 
     drop constraint(:mapper_unifi_controllers, "mapper_unifi_controllers_mapper_job_id_fkey")

@@ -36,7 +36,7 @@ defmodule ServiceRadar.Repo.Migrations.EnsureOcsfEventsHourlyStats do
         SELECT 1
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = '#{prefix()}'
+        WHERE n.nspname = '#{prefix() || "platform"}'
           AND c.relname = '#{@source_table}'
       ) INTO source_exists;
 
@@ -45,7 +45,7 @@ defmodule ServiceRadar.Repo.Migrations.EnsureOcsfEventsHourlyStats do
         RETURN;
       END IF;
 
-      view_ident := format('%I.%I', '#{prefix()}', '#{@view}');
+      view_ident := format('%I.%I', '#{prefix() || "platform"}', '#{@view}');
 
       EXECUTE format(
         'CREATE MATERIALIZED VIEW IF NOT EXISTS %I.%I WITH (timescaledb.continuous) AS '
@@ -54,23 +54,23 @@ defmodule ServiceRadar.Repo.Migrations.EnsureOcsfEventsHourlyStats do
         'COUNT(*)::bigint AS total_count '
         'FROM %I.%I '
         'GROUP BY 1, 2',
-        '#{prefix()}',
+        '#{prefix() || "platform"}',
         '#{@view}',
-        '#{prefix()}',
+        '#{prefix() || "platform"}',
         '#{@source_table}'
       );
 
       EXECUTE format(
         'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I.%I (bucket, severity_id)',
         'idx_ocsf_events_hourly_stats_bucket_severity',
-        '#{prefix()}',
+        '#{prefix() || "platform"}',
         '#{@view}'
       );
 
       EXECUTE format(
         'CREATE INDEX IF NOT EXISTS %I ON %I.%I (bucket DESC)',
         'idx_ocsf_events_hourly_stats_bucket',
-        '#{prefix()}',
+        '#{prefix() || "platform"}',
         '#{@view}'
       );
 
@@ -78,7 +78,7 @@ defmodule ServiceRadar.Repo.Migrations.EnsureOcsfEventsHourlyStats do
         SELECT 1
         FROM timescaledb_information.jobs
         WHERE proc_name = 'policy_refresh_continuous_aggregate'
-          AND hypertable_schema = '#{prefix()}'
+          AND hypertable_schema = '#{prefix() || "platform"}'
           AND hypertable_name = '#{@view}'
       ) INTO policy_exists;
 

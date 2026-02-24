@@ -1,0 +1,3 @@
+[submodule "arancini"]
+	path = arancini
+	url = git@github.com:carverauto/arancini.git

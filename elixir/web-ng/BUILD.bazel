@@ -1,0 +1,93 @@
+load("//build:mix_release.bzl", "mix_release")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "node_modules/**",
+            "tmp/**",
+            ".git/**",
+        ],
+    ),
+)
+
+genrule(
+    name = "precommit_runner",
+    srcs = ["scripts/bazel_precommit.sh"],
+    outs = ["precommit_runner.sh"],
+    cmd = "/bin/cp $(location scripts/bazel_precommit.sh) $@ && /bin/chmod +x $@",
+    local = True,
+)
+
+genrule(
+    name = "precommit_test_runner",
+    srcs = ["scripts/bazel_precommit_test.sh"],
+    outs = ["precommit_test_runner.sh"],
+    cmd = "/bin/cp $(location scripts/bazel_precommit_test.sh) $@ && /bin/chmod +x $@",
+    local = True,
+)
+
+sh_test(
+    name = "precommit",
+    srcs = [":precommit_test_runner"],
+    data = [
+        ":precommit_runner",
+        ":srcs",
+        "//:Cargo.toml",
+        "//:Cargo.lock",
+        "//:.tool-versions",
+        "//proto:kv_proto_src",
+        "//rust/kvutil:srcs",
+        "//rust/srql:srcs",
+        "//elixir/serviceradar_core:srcs",
+        "//elixir/datasvc:srcs",
+    ],
+    local = True,
+    tags = [
+        "no-remote",
+        "no-sandbox",
+    ],
+    timeout = "long",
+)
+
+mix_release(
+    name = "release_tar",
+    srcs = [":srcs"],
+    data = [
+        "//:Cargo.toml",
+        "//:Cargo.lock",
+    ],
+    out = "serviceradar-web-ng-release.tar.gz",
+    src_dir = "elixir/web-ng",
+    extra_dirs = [
+        "elixir/connection",
+        "elixir/serviceradar_core",
+        "elixir/serviceradar_srql",
+        "elixir/vendor/opentelemetry_oban",
+        "proto",
+        "rust/srql",
+        "rust/kvutil",
+        "elixir/datasvc",
+    ],
+    extra_dir_srcs = [
+        "//elixir/connection:srcs",
+        "//elixir/serviceradar_core:srcs",
+        "//elixir/serviceradar_srql:srcs",
+        "//elixir/vendor/opentelemetry_oban:srcs",
+        "//proto:kv_proto_src",
+        "//rust/srql:srcs",
+        "//rust/kvutil:srcs",
+        "//elixir/datasvc:srcs",
+    ],
+    bun = "@bun_linux_amd64//:bun",
+    hex_cache = select({
+        "//build:use_hex_cache": "//build:hex_cache",
+        "//conditions:default": None,
+    }),
+)

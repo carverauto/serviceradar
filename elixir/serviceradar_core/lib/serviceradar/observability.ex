@@ -52,6 +52,7 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.NetflowPortScanFlag
     resource ServiceRadar.Observability.NetflowPortAnomalyFlag
     resource ServiceRadar.Observability.NetflowSettings
+    resource ServiceRadar.Observability.BmpSettings
     resource ServiceRadar.Observability.NetflowLocalCidr
     resource ServiceRadar.Observability.NetflowAppClassificationRule
     resource ServiceRadar.Observability.NetflowExporterCache
@@ -62,10 +63,15 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.ServiceStatus
     resource ServiceRadar.Observability.ServiceState
     resource ServiceRadar.Observability.CpuMetric
+    resource ServiceRadar.Observability.CpuMetricHourly
     resource ServiceRadar.Observability.CpuClusterMetric
     resource ServiceRadar.Observability.MemoryMetric
+    resource ServiceRadar.Observability.MemoryMetricHourly
     resource ServiceRadar.Observability.DiskMetric
+    resource ServiceRadar.Observability.DiskMetricHourly
     resource ServiceRadar.Observability.ProcessMetric
+    resource ServiceRadar.Observability.ProcessMetricHourly
+    resource ServiceRadar.Observability.TimeseriesMetricHourly
     # OTel resources - these map to existing TimescaleDB hypertables/views
     # with migrate?: false so Ash doesn't try to manage the schema
     resource ServiceRadar.Observability.OtelMetric

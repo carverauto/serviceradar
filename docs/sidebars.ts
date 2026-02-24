@@ -17,7 +17,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Start Here',
-      items: [{type: 'doc', id: 'intro', label: 'Introduction'}, {type: 'doc', id: 'quickstart', label: 'Quickstart'}, {type: 'doc', id: 'architecture', label: 'Architecture'}],
+      items: [{type: 'doc', id: 'intro', label: 'Introduction'}, {type: 'doc', id: 'quickstart', label: 'Quickstart'}, {type: 'doc', id: 'architecture', label: 'Architecture'}, {type: 'doc', id: 'repository-layout', label: 'Repository Layout'}],
     },
     {
       type: 'category',
@@ -41,7 +41,11 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Data',
-      items: [{type: 'doc', id: 'data-pipeline', label: 'Data Pipeline'}, {type: 'doc', id: 'srql-language-reference', label: 'SRQL Reference'}],
+      items: [
+        {type: 'doc', id: 'data-pipeline', label: 'Data Pipeline'},
+        {type: 'doc', id: 'srql-language-reference', label: 'SRQL Reference'},
+        {type: 'doc', id: 'god-view-topology', label: 'God-View Topology'},
+      ],
     },
     {
       type: 'category',

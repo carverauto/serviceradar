@@ -20,6 +20,7 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
 bazel_dep(name = "rules_multirun", version = "0.13.0")
+bazel_dep(name = "swiftlint", version = "0.52.4", repo_name = "SwiftLint")
 
 # NOTE: rules_multirun uses Python, which causes issues with `bazel run` when
 # using remote execution from a different host platform (e.g., macOS -> Linux RBE).
@@ -338,6 +339,14 @@ oci_ext.pull(
     reproducible = False,
     tag = "16.6-bookworm",
 )
+oci_ext.pull(
+    name = "serviceradar_cnpg_16_6_0_sr3",
+    digest = "sha256:882fdd3f4905342a6ffa347ee988840eafa4f8e8b234a26e6e8cb72ec71b8eb8",
+    image = "ghcr.io/carverauto/serviceradar-cnpg",
+    platforms = [
+        "linux/amd64",
+    ],
+)
 use_repo(
     oci_ext,
     "actions_runner",
@@ -357,6 +366,8 @@ use_repo(
     "node_20_alpine",
     "node_20_alpine_linux_amd64",
     "serviceradar_cert_generator",
+    "serviceradar_cnpg_16_6_0_sr3",
+    "serviceradar_cnpg_16_6_0_sr3_linux_amd64",
     "serviceradar_cert_generator_linux_amd64",
     "serviceradar_tools",
     "serviceradar_tools_linux_amd64",
@@ -554,124 +565,6 @@ filegroup(
     repositories = ["rust_crates"],
 )
 
-# Direct crate specs for profiler dependencies.
-crates.spec(
-    features = ["std"],
-    package = "anyhow",
-    repositories = ["rust_crates_profiler"],
-    version = "1.0.98",
-)
-crates.spec(
-    features = ["async_tokio"],
-    package = "aya",
-    repositories = ["rust_crates_profiler"],
-    version = "0.13.1",
-)
-crates.spec(
-    package = "aya-ebpf",
-    repositories = ["rust_crates_profiler"],
-    version = "0.1.1",
-)
-crates.spec(
-    package = "aya-log",
-    repositories = ["rust_crates_profiler"],
-    version = "0.2.1",
-)
-crates.spec(
-    package = "aya-log-common",
-    repositories = ["rust_crates_profiler"],
-    version = "0.1.15",
-)
-crates.spec(
-    features = ["derive"],
-    package = "clap",
-    repositories = ["rust_crates_profiler"],
-    version = "4.5.41",
-)
-crates.spec(
-    package = "crossterm",
-    repositories = ["rust_crates_profiler"],
-    version = "0.28.1",
-)
-crates.spec(
-    package = "dashmap",
-    repositories = ["rust_crates_profiler"],
-    version = "6.1.0",
-)
-crates.spec(
-    package = "env_logger",
-    repositories = ["rust_crates_profiler"],
-    version = "0.10.2",
-)
-crates.spec(
-    package = "futures-util",
-    repositories = ["rust_crates_profiler"],
-    version = "0.3.31",
-)
-crates.spec(
-    features = [
-        "flamegraph",
-        "protobuf-codec",
-    ],
-    package = "pprof",
-    repositories = ["rust_crates_profiler"],
-    version = "0.15.0",
-)
-crates.spec(
-    package = "prost",
-    repositories = ["rust_crates_profiler"],
-    version = "0.13.5",
-)
-crates.spec(
-    package = "ratatui",
-    repositories = ["rust_crates_profiler"],
-    version = "0.29.0",
-)
-crates.spec(
-    features = ["derive"],
-    package = "serde",
-    repositories = ["rust_crates_profiler"],
-    version = "1.0.219",
-)
-crates.spec(
-    package = "serde_json",
-    repositories = ["rust_crates_profiler"],
-    version = "1.0.141",
-)
-crates.spec(
-    package = "tempfile",
-    repositories = ["rust_crates_profiler"],
-    version = "3.20.0",
-)
-crates.spec(
-    features = ["full"],
-    package = "tokio",
-    repositories = ["rust_crates_profiler"],
-    version = "1.47.0",
-)
-crates.spec(
-    package = "tokio-stream",
-    repositories = ["rust_crates_profiler"],
-    version = "0.1.17",
-)
-crates.spec(
-    features = ["tls"],
-    package = "tonic",
-    repositories = ["rust_crates_profiler"],
-    version = "0.12.3",
-)
-crates.spec(
-    package = "tonic-build",
-    repositories = ["rust_crates_profiler"],
-    version = "0.12.3",
-)
-crates.spec(
-    features = ["v4"],
-    package = "uuid",
-    repositories = ["rust_crates_profiler"],
-    version = "1.17.0",
-)
-
 # libzetta is an optional dependency for sysmon ZFS support
 crates.spec(
     package = "libzetta",
@@ -688,16 +581,6 @@ use_repo(
     "rust_crates",
     "rust_crates__rperf-0.1.25",
 )
-crates.from_cargo(
-    name = "rust_crates_profiler",
-    cargo_lockfile = "//cmd/ebpf/profiler:Cargo.lock",
-    manifests = ["//cmd/ebpf/profiler:Cargo.toml"],
-)
-use_repo(
-    crates,
-    "rust_crates_profiler",
-)
-
 # --- Node.js toolchain -------------------------------------------------------
 NODE_VERSION = "20.18.1"
 
@@ -879,6 +762,174 @@ http_file(
 )
 
 http_file(
+    name = "postgresql_16_postgis_3_amd64_deb",
+    sha256 = "fd00a20d05bc787428bcf7064aff7d0b6e8fef97231a9520b5d8ab9db7426c2f",
+    urls = [
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgis/postgresql-16-postgis-3_3.6.2+dfsg-1.pgdg12+1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "postgresql_16_postgis_3_scripts_all_deb",
+    sha256 = "c6327e424eb268739e9a9c41547aa7dd1e2c912c8f17ca695742d943c3f8eda5",
+    urls = [
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgis/postgresql-16-postgis-3-scripts_3.6.2+dfsg-1.pgdg12+1_all.deb",
+    ],
+)
+
+http_file(
+    name = "postgresql_16_pgvector_amd64_deb",
+    sha256 = "e7d4ce441c599c04d532e9596698cb97abb31ebc66825cda18c8847eb3b81d2f",
+    urls = [
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/pgvector/postgresql-16-pgvector_0.8.1-2.pgdg12+1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libgeos_c1v5_amd64_deb",
+    sha256 = "93651aef73ee0f154213010e48fad6a6fc5c3b4e1f916b748aa7ac0dd59b64ff",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/g/geos/libgeos-c1v5_3.11.1-1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libgeos3_11_1_amd64_deb",
+    sha256 = "c7d9b3ec22fe9a5d6f8fa3572bfbe504224c8b2a8a0fc3ebb000581114c47660",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/g/geos/libgeos3.11.1_3.11.1-1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libproj25_amd64_deb",
+    sha256 = "94ebf20612db95dd5994d83f15ced2469dd8ce4c7f54dba598248caf685fdc9c",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/p/proj/libproj25_9.1.1-1+b1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_proj_data_all_deb",
+    sha256 = "efa6a74fba305e664ba27b81c2a5708aa59554ba41659af0e8c325e477f3d955",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/p/proj/proj-data_9.1.1-1_all.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libjson_c5_amd64_deb",
+    sha256 = "d0e1ed8637d1c26b9720f6057d6355f18378bba5cc2553e459d1632783c00d70",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/j/json-c/libjson-c5_0.16-2_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libprotobuf_c1_amd64_deb",
+    sha256 = "e99b3091938bfbd55b24e95587b868ba735e38e4adbcb9942c6993f2de3ba1bf",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/p/protobuf-c/libprotobuf-c1_1.4.1-1+b1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libtiff6_amd64_deb",
+    sha256 = "865574d933313e9900f67dd6db8410b491bb50e6bb66c32483388e219089d97a",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/t/tiff/libtiff6_4.5.0-6+deb12u3_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libcurl3_gnutls_amd64_deb",
+    sha256 = "15431a9d3c3ea95df9f2f77ba300a992ada486e9584edf1e88ffa8be43c0fc17",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/c/curl/libcurl3-gnutls_7.88.1-10+deb12u14_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libwebp7_amd64_deb",
+    sha256 = "7259b7ce46444694ce536360ad53acb68eb3b47a7ff81d7b1b8a3939b2ac9918",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/libw/libwebp/libwebp7_1.2.4-0.2+deb12u1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_liblerc4_amd64_deb",
+    sha256 = "771f5c47ca69f24ca61e4be0c98c5912b182ce442f921697d17a472f3ded5c9c",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/l/lerc/liblerc4_4.0.0+ds-2_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libjbig0_amd64_deb",
+    sha256 = "6b07c77b700a615642888a82ba92a7e7c429d04b9c8669c62b2263f15c4c4059",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/j/jbigkit/libjbig0_2.1-6.1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libjpeg62_turbo_amd64_deb",
+    sha256 = "95ec30140789a342add8f8371ed018924de51b539056522b66f207b25cba9cad",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-2_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libdeflate0_amd64_deb",
+    sha256 = "3d4b39f94317b64a860db8a7a8b581b555124cd461fe07ec0d347edbdb9f6683",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/libd/libdeflate/libdeflate0_1.14-1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libnghttp2_14_amd64_deb",
+    sha256 = "dbe3eb8c831e654ac7d5cf045d605d53fd763e8ebc238607c25f301996103bb9",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/n/nghttp2/libnghttp2-14_1.52.0-1+deb12u2_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_librtmp1_amd64_deb",
+    sha256 = "e1f69020dc2c466e421ec6a58406b643be8b5c382abf0f8989011c1d3df91c87",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/r/rtmpdump/librtmp1_2.4+20151223.gitfa8646d.1-2+b2_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libssh2_1_amd64_deb",
+    sha256 = "d20a3ee34fa84ad8bd381e8be6e9c2c2ea32347cff5e1169c10e978d43f54f24",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/libs/libssh2/libssh2-1_1.10.0-3+b1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libpsl5_amd64_deb",
+    sha256 = "4f0d35610204e4e754b057748719744114621f2f6f4202d846c314860a981afb",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/libp/libpsl/libpsl5_0.21.2-1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libbrotli1_amd64_deb",
+    sha256 = "563b4caec1aa5e876bd3355b36e7a38e1484baf5a293b48d1e8bd22db786e4d7",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/b/brotli/libbrotli1_1.0.9-2+b6_amd64.deb",
+    ],
+)
+
+http_file(
     name = "debian_openssl_amd64_deb",
     sha256 = "405385cc86a4dc3ad084fe7f9ec38f0583a4ae75695e7719d244e675687fe728",
     urls = [
@@ -971,17 +1022,17 @@ http_file(
 
 http_file(
     name = "alpine_postgresql16_client_apk",
-    sha256 = "c3c4f1ec5f4fa95a69506685a201cb21ad163189d0d63abf93464f11a7b79dd5",
+    sha256 = "2bca5cb3e737f67e2049ff8cdc6a27ee8af4ec2c901486a1f6529f374d9f8ac9",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/postgresql16-client-16.11-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/postgresql16-client-16.12-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_libpq16_apk",
-    sha256 = "000ee52fb343e333f6fd179b9d9f02d0335a62ead37c19eabf89af67efa24b3e",
+    sha256 = "375287992600a04a598a0789a7ae066a8b0ea5601aa6424bb59b58f665254c3e",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libpq-16.11-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libpq-16.12-r0.apk",
     ],
 )
 

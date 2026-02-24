@@ -19,5 +19,5 @@ Device vendor/type enrichment is currently embedded in code, making behavior har
 - Affected code:
   - `elixir/serviceradar_core/lib/serviceradar/inventory/sync_ingestor.ex`
   - new enrichment rule loader/validator modules under `elixir/serviceradar_core/lib/serviceradar/inventory/`
-  - `web-ng/lib/serviceradar_web_ng_web/live/settings/**` (new Settings UI surface)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/**` (new Settings UI surface)
   - deployment docs/values for filesystem mounts

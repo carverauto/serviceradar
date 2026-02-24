@@ -29,7 +29,7 @@ The build system SHALL expose an OCI image target for the web-ng release that ca
 The build system SHALL produce RPM and DEB artifacts that install the Phoenix release, config, and systemd unit using existing packaging conventions.
 
 #### Scenario: DEB/RPM artifacts install correctly
-- **GIVEN** `bazel build //packaging/web-ng:web_ng_deb //packaging/web-ng:web_ng_rpm`
+- **GIVEN** `bazel build //build/packaging/web-ng:web_ng_deb //build/packaging/web-ng:web_ng_rpm`
 - **WHEN** installing the outputs on Debian and RHEL-based containers
 - **THEN** files land under `/usr/local/share/serviceradar-web-ng`, config under `/etc/serviceradar`, and systemd unit `serviceradar-web-ng.service` is enabled/available.
 

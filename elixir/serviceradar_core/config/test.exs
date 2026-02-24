@@ -197,6 +197,7 @@ config :serviceradar_core,
        repo_config
        |> Keyword.put(:parameters, search_path: search_path)
        |> Keyword.put(:types, ServiceRadar.PostgresTypes)
+       |> Keyword.put(:migration_default_prefix, "platform")
 
 # Disable cluster in tests by default
 config :serviceradar_core,
@@ -230,7 +231,8 @@ config :serviceradar_core,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.Plugins
+    ServiceRadar.Plugins,
+    ServiceRadar.Spatial
   ]
 
 # Reduce log noise in tests

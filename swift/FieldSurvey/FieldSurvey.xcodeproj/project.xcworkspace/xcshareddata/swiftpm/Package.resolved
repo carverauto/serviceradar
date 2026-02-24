@@ -1,0 +1,42 @@
+{
+  "originHash" : "bc25bb73015d9e4025b11c19be22d8cbaee2e091eede68ab6ae089a9410225bd",
+  "pins" : [
+    {
+      "identity" : "arrow-swift",
+      "kind" : "localSourceControl",
+      "location" : "/Users/mfreeman/src/serviceradar/swift/FieldSurvey/LocalPackages/arrow-swift",
+      "state" : {
+        "branch" : "fix-flatbuffers",
+        "revision" : "4d020e1174c627a021da930409befcf6ea2633d2"
+      }
+    },
+    {
+      "identity" : "flatbuffers",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/google/flatbuffers.git",
+      "state" : {
+        "revision" : "1c514626e83c20fffa8557e75641848e1e15cd5e",
+        "version" : "25.2.10"
+      }
+    },
+    {
+      "identity" : "rperfclient",
+      "kind" : "localSourceControl",
+      "location" : "/Users/mfreeman/src/serviceradar/swift/RPerfClient",
+      "state" : {
+        "branch" : "main",
+        "revision" : "8132227ea3cca6100d85ead038d14569999090b4"
+      }
+    },
+    {
+      "identity" : "swift-atomics",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-atomics.git",
+      "state" : {
+        "revision" : "b601256eab081c0f92f059e12818ac1d4f178ff7",
+        "version" : "1.3.0"
+      }
+    }
+  ],
+  "version" : 3
+}

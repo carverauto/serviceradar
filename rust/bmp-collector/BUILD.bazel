@@ -1,0 +1,71 @@
+package(default_visibility = ["//visibility:public"])
+
+genrule(
+    name = "bmp-collector",
+    srcs = [
+        "Cargo.toml",
+        "src/main.rs",
+        "src/config.rs",
+        "src/model.rs",
+        "src/publisher.rs",
+    ],
+    tools = [
+        "@rules_rust//rust/toolchain:current_cargo_files",
+        "@rules_rust//rust/toolchain:current_rust_stdlib_files",
+        "@rules_rust//rust/toolchain:current_rustc_files",
+        "@rules_rust//rust/toolchain:current_rustc_lib_files",
+    ],
+    outs = ["serviceradar-bmp-collector"],
+    cmd = """
+set -euo pipefail
+
+# Use Bazel-provided Rust toolchain binaries instead of relying on host cargo.
+for tool in $(locations @rules_rust//rust/toolchain:current_cargo_files) \
+            $(locations @rules_rust//rust/toolchain:current_rustc_files) \
+            $(locations @rules_rust//rust/toolchain:current_rust_stdlib_files) \
+            $(locations @rules_rust//rust/toolchain:current_rustc_lib_files); do
+  tool_dir="$${tool%/*}"
+  case ":$${PATH:-}:" in
+    *:"$$tool_dir":*) ;;
+    *) PATH="$$tool_dir:$${PATH:-}" ;;
+  esac
+done
+export PATH
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo not found in PATH=$$PATH" >&2
+  exit 127
+fi
+if ! command -v rustc >/dev/null 2>&1; then
+  echo "rustc not found in PATH=$$PATH" >&2
+  exit 127
+fi
+
+# Make cargo/rustc resolution deterministic inside Bazel's action sandbox.
+export CARGO="$$(command -v cargo)"
+export RUSTC="$$(command -v rustc)"
+
+SRC_MANIFEST="$(location Cargo.toml)"
+SRC_ROOT="$${SRC_MANIFEST%/Cargo.toml}"
+WORKDIR="$(@D)/bmp-collector-work"
+TARGET_DIR="$(@D)/cargo-target"
+rm -rf "$$WORKDIR"
+mkdir -p "$$WORKDIR"
+cp "$$SRC_ROOT/Cargo.toml" "$$WORKDIR/Cargo.toml"
+# Keep this copied crate isolated from the repository root workspace.
+printf '\n[workspace]\n' >> "$$WORKDIR/Cargo.toml"
+mkdir -p "$$WORKDIR/src"
+cp "$$SRC_ROOT/src/main.rs" "$$WORKDIR/src/main.rs"
+cp "$$SRC_ROOT/src/config.rs" "$$WORKDIR/src/config.rs"
+cp "$$SRC_ROOT/src/model.rs" "$$WORKDIR/src/model.rs"
+cp "$$SRC_ROOT/src/publisher.rs" "$$WORKDIR/src/publisher.rs"
+
+# Avoid stale toolchain/cargo state between Bazel invocations.
+rm -rf "$$TARGET_DIR"
+CARGO_TARGET_DIR="$$TARGET_DIR" \\
+  cargo build --release --manifest-path "$$WORKDIR/Cargo.toml" -p serviceradar-bmp-collector
+cp "$(@D)/cargo-target/release/serviceradar-bmp-collector" "$@"
+chmod 0755 "$@"
+""",
+    local = True,
+    tags = ["local", "no-remote", "no-remote-exec"],
+)

@@ -15,7 +15,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateOtelTraceSummariesMv do
     # Create the materialized view with a 7-day rolling window
     # This aggregates otel_traces spans into one row per trace
     execute("""
-    CREATE MATERIALIZED VIEW IF NOT EXISTS #{prefix()}.otel_trace_summaries AS
+    CREATE MATERIALIZED VIEW IF NOT EXISTS #{prefix() || "platform"}.otel_trace_summaries AS
     SELECT
       trace_id,
       max(timestamp) AS timestamp,
@@ -31,7 +31,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateOtelTraceSummariesMv do
       array_agg(DISTINCT service_name) FILTER (WHERE service_name IS NOT NULL) AS service_set,
       count(*) AS span_count,
       count(*) FILTER (WHERE status_code IS NOT NULL AND status_code != 1) AS error_count
-    FROM #{prefix()}.otel_traces
+    FROM #{prefix() || "platform"}.otel_traces
     WHERE timestamp >= NOW() - INTERVAL '7 days'
       AND trace_id IS NOT NULL
     GROUP BY trace_id
@@ -40,29 +40,29 @@ defmodule ServiceRadar.Repo.Migrations.CreateOtelTraceSummariesMv do
     # Create unique index on trace_id - required for REFRESH CONCURRENTLY
     execute("""
     CREATE UNIQUE INDEX IF NOT EXISTS idx_trace_summaries_trace_id
-    ON #{prefix()}.otel_trace_summaries (trace_id)
+    ON #{prefix() || "platform"}.otel_trace_summaries (trace_id)
     """)
 
     # Create index on timestamp for time-range queries (DESC for recent-first)
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trace_summaries_timestamp
-    ON #{prefix()}.otel_trace_summaries (timestamp DESC)
+    ON #{prefix() || "platform"}.otel_trace_summaries (timestamp DESC)
     """)
 
     # Create composite index for service filtering with time ordering
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trace_summaries_service_timestamp
-    ON #{prefix()}.otel_trace_summaries (root_service_name, timestamp DESC)
+    ON #{prefix() || "platform"}.otel_trace_summaries (root_service_name, timestamp DESC)
     """)
 
     # Do initial refresh to populate the view
-    execute("REFRESH MATERIALIZED VIEW #{prefix()}.otel_trace_summaries")
+    execute("REFRESH MATERIALIZED VIEW #{prefix() || "platform"}.otel_trace_summaries")
   end
 
   def down do
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_trace_summaries_service_timestamp")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_trace_summaries_timestamp")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_trace_summaries_trace_id")
-    execute("DROP MATERIALIZED VIEW IF EXISTS #{prefix()}.otel_trace_summaries")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_trace_summaries_service_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_trace_summaries_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_trace_summaries_trace_id")
+    execute("DROP MATERIALIZED VIEW IF EXISTS #{prefix() || "platform"}.otel_trace_summaries")
   end
 end

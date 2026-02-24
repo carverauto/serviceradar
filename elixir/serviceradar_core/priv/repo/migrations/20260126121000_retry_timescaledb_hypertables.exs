@@ -17,180 +17,180 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
         -- Core time-series tables
         IF EXISTS (
           SELECT 1 FROM pg_tables
-          WHERE schemaname = '#{prefix()}' AND tablename = 'events'
+          WHERE schemaname = '#{prefix() || "platform"}' AND tablename = 'events'
         ) AND NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
-          WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'events'
+          WHERE hypertable_schema = '#{prefix() || "platform"}' AND hypertable_name = 'events'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.events',
+            '#{prefix() || "platform"}.events',
             'event_timestamp'
           );
         END IF;
 
         IF EXISTS (
           SELECT 1 FROM pg_tables
-          WHERE schemaname = '#{prefix()}' AND tablename = 'logs'
+          WHERE schemaname = '#{prefix() || "platform"}' AND tablename = 'logs'
         ) AND NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
-          WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'logs'
+          WHERE hypertable_schema = '#{prefix() || "platform"}' AND hypertable_name = 'logs'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.logs',
+            '#{prefix() || "platform"}.logs',
             'timestamp'
           );
         END IF;
 
         IF EXISTS (
           SELECT 1 FROM pg_tables
-          WHERE schemaname = '#{prefix()}' AND tablename = 'service_status'
+          WHERE schemaname = '#{prefix() || "platform"}' AND tablename = 'service_status'
         ) AND NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
-          WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'service_status'
+          WHERE hypertable_schema = '#{prefix() || "platform"}' AND hypertable_name = 'service_status'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.service_status',
+            '#{prefix() || "platform"}.service_status',
             'timestamp'
           );
         END IF;
 
         IF EXISTS (
           SELECT 1 FROM pg_tables
-          WHERE schemaname = '#{prefix()}' AND tablename = 'otel_traces'
+          WHERE schemaname = '#{prefix() || "platform"}' AND tablename = 'otel_traces'
         ) AND NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
-          WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'otel_traces'
+          WHERE hypertable_schema = '#{prefix() || "platform"}' AND hypertable_name = 'otel_traces'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.otel_traces',
+            '#{prefix() || "platform"}.otel_traces',
             'timestamp'
           );
         END IF;
 
         IF EXISTS (
           SELECT 1 FROM pg_tables
-          WHERE schemaname = '#{prefix()}' AND tablename = 'otel_metrics'
+          WHERE schemaname = '#{prefix() || "platform"}' AND tablename = 'otel_metrics'
         ) AND NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
-          WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'otel_metrics'
+          WHERE hypertable_schema = '#{prefix() || "platform"}' AND hypertable_name = 'otel_metrics'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.otel_metrics',
+            '#{prefix() || "platform"}.otel_metrics',
             'timestamp'
           );
         END IF;
 
         IF EXISTS (
           SELECT 1 FROM pg_tables
-          WHERE schemaname = '#{prefix()}' AND tablename = 'timeseries_metrics'
+          WHERE schemaname = '#{prefix() || "platform"}' AND tablename = 'timeseries_metrics'
         ) AND NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
-          WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'timeseries_metrics'
+          WHERE hypertable_schema = '#{prefix() || "platform"}' AND hypertable_name = 'timeseries_metrics'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.timeseries_metrics',
+            '#{prefix() || "platform"}.timeseries_metrics',
             'timestamp'
           );
         END IF;
 
         IF EXISTS (
           SELECT 1 FROM pg_tables
-          WHERE schemaname = '#{prefix()}' AND tablename = 'cpu_metrics'
+          WHERE schemaname = '#{prefix() || "platform"}' AND tablename = 'cpu_metrics'
         ) AND NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
-          WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'cpu_metrics'
+          WHERE hypertable_schema = '#{prefix() || "platform"}' AND hypertable_name = 'cpu_metrics'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.cpu_metrics',
+            '#{prefix() || "platform"}.cpu_metrics',
             'timestamp'
           );
         END IF;
 
         IF EXISTS (
           SELECT 1 FROM pg_tables
-          WHERE schemaname = '#{prefix()}' AND tablename = 'disk_metrics'
+          WHERE schemaname = '#{prefix() || "platform"}' AND tablename = 'disk_metrics'
         ) AND NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
-          WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'disk_metrics'
+          WHERE hypertable_schema = '#{prefix() || "platform"}' AND hypertable_name = 'disk_metrics'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.disk_metrics',
+            '#{prefix() || "platform"}.disk_metrics',
             'timestamp'
           );
         END IF;
 
         IF EXISTS (
           SELECT 1 FROM pg_tables
-          WHERE schemaname = '#{prefix()}' AND tablename = 'memory_metrics'
+          WHERE schemaname = '#{prefix() || "platform"}' AND tablename = 'memory_metrics'
         ) AND NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
-          WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'memory_metrics'
+          WHERE hypertable_schema = '#{prefix() || "platform"}' AND hypertable_name = 'memory_metrics'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.memory_metrics',
+            '#{prefix() || "platform"}.memory_metrics',
             'timestamp'
           );
         END IF;
 
         IF EXISTS (
           SELECT 1 FROM pg_tables
-          WHERE schemaname = '#{prefix()}' AND tablename = 'process_metrics'
+          WHERE schemaname = '#{prefix() || "platform"}' AND tablename = 'process_metrics'
         ) AND NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
-          WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'process_metrics'
+          WHERE hypertable_schema = '#{prefix() || "platform"}' AND hypertable_name = 'process_metrics'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.process_metrics',
+            '#{prefix() || "platform"}.process_metrics',
             'timestamp'
           );
         END IF;
 
         IF EXISTS (
           SELECT 1 FROM pg_tables
-          WHERE schemaname = '#{prefix()}' AND tablename = 'device_updates'
+          WHERE schemaname = '#{prefix() || "platform"}' AND tablename = 'device_updates'
         ) AND NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
-          WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'device_updates'
+          WHERE hypertable_schema = '#{prefix() || "platform"}' AND hypertable_name = 'device_updates'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.device_updates',
+            '#{prefix() || "platform"}.device_updates',
             'observed_at'
           );
         END IF;
 
         IF EXISTS (
           SELECT 1 FROM pg_tables
-          WHERE schemaname = '#{prefix()}' AND tablename = 'otel_metrics_hourly_stats'
+          WHERE schemaname = '#{prefix() || "platform"}' AND tablename = 'otel_metrics_hourly_stats'
         ) AND NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
-          WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'otel_metrics_hourly_stats'
+          WHERE hypertable_schema = '#{prefix() || "platform"}' AND hypertable_name = 'otel_metrics_hourly_stats'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.otel_metrics_hourly_stats',
+            '#{prefix() || "platform"}.otel_metrics_hourly_stats',
             'bucket'
           );
         END IF;
@@ -198,16 +198,16 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
         -- Interface observations retention policy (3 days)
         IF EXISTS (
           SELECT 1 FROM pg_tables
-          WHERE schemaname = '#{prefix()}' AND tablename = 'discovered_interfaces'
+          WHERE schemaname = '#{prefix() || "platform"}' AND tablename = 'discovered_interfaces'
         ) THEN
           IF NOT EXISTS (
             SELECT 1 FROM timescaledb_information.hypertables
-            WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'discovered_interfaces'
+            WHERE hypertable_schema = '#{prefix() || "platform"}' AND hypertable_name = 'discovered_interfaces'
           ) THEN
             EXECUTE format(
               'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
               ts_schema,
-              '#{prefix()}.discovered_interfaces',
+              '#{prefix() || "platform"}.discovered_interfaces',
               'timestamp'
             );
           END IF;
@@ -215,7 +215,7 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
           EXECUTE format(
             'SELECT %I.add_retention_policy(%L::regclass, INTERVAL ''3 days'', if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.discovered_interfaces'
+            '#{prefix() || "platform"}.discovered_interfaces'
           );
         END IF;
       END IF;

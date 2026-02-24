@@ -27,9 +27,9 @@ Akvorado’s Visualize page supports multi-dimension selection, IP truncation (/
 
 - Affected specs: `build-web-ui`, `srql`
 - Affected code:
-  - `web-ng/lib/**/live/netflow_live/visualize.ex`
-  - `web-ng/lib/**/netflow_visualize/state.ex`
-  - `web-ng/lib/**/netflow_visualize/query.ex`
+  - `elixir/web-ng/lib/**/live/netflow_live/visualize.ex`
+  - `elixir/web-ng/lib/**/netflow_visualize/state.ex`
+  - `elixir/web-ng/lib/**/netflow_visualize/query.ex`
 
 ## Non-Goals
 

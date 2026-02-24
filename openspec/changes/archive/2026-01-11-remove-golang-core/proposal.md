@@ -17,12 +17,12 @@ The golang-based `serviceradar-core` service has been fully replaced by the Elix
 2. **Build System Cleanup**
    - Remove core targets from `alias/BUILD.bazel`
    - Remove core binary from `docker/images/BUILD.bazel`
-   - Remove core package from `packaging/packages.bzl`
+   - Remove core package from `build/packaging/packages.bzl`
 
 3. **Packaging Artifacts**
-   - Remove `packaging/core/` directory (config, scripts, systemd)
-   - Remove core entry from `packaging/components.json`
-   - Remove `packaging/specs/serviceradar-core.spec` (RPM spec)
+   - Remove `build/packaging/core/` directory (config, scripts, systemd)
+   - Remove core entry from `build/packaging/components.json`
+   - Remove `build/packaging/specs/serviceradar-core.spec` (RPM spec)
    - Remove `docker/rpm/Dockerfile.rpm.core`
 
 4. **Container Artifacts**
@@ -65,13 +65,13 @@ All packages can be safely removed. The `Webhooks` field in `CoreServiceConfig` 
   - `pkg/core/` (removed)
   - `pkg/mcp/` (removed)
   - `pkg/models/config.go` (Webhooks field removed)
-  - `packaging/core/` (removed)
+  - `build/packaging/core/` (removed)
   - `docker/compose/Dockerfile.core` (removed)
   - `docker/rpm/Dockerfile.rpm.core` (removed)
   - `k8s/demo/base/serviceradar-core.yaml` (removed/updated)
   - `helm/serviceradar/templates/core.yaml` (removed/updated)
   - `docs/docs/architecture.md` (updated)
   - `INSTALL.md`, `README.md` (updated)
-  - Build files: `alias/BUILD.bazel`, `docker/images/BUILD.bazel`, `packaging/packages.bzl`
+  - Build files: `alias/BUILD.bazel`, `docker/images/BUILD.bazel`, `build/packaging/packages.bzl`
 - **Migration**: No runtime migration needed; core-elx is already the production service
 - **Risk**: Low - golang core is deprecated and core-elx has been in production

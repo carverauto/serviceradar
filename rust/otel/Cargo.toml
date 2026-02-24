@@ -1,0 +1,42 @@
+[package]
+name = "otel"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "otel"
+path = "src/lib.rs"
+doctest = false
+
+[[bin]]
+name = "otel"
+path = "src/main.rs"
+
+[dependencies]
+tonic = { workspace = true }
+prost = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true }
+async-nats = "0.42"
+anyhow = "1.0"
+toml = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+clap = { version = "4.0", features = ["derive"] }
+log = "0.4"
+env_logger = "0.11"
+hex = "0.4"
+prometheus = { version = "0.14", features = ["process"] }
+lazy_static = "1.4"
+hyper = { version = "1.0", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+config-bootstrap = { path = "../../rust/config-bootstrap" }
+rustls = "0.23"
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[build-dependencies]
+tonic-build = { workspace = true }

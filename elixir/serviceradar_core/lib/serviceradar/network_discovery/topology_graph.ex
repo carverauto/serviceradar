@@ -7,42 +7,129 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   alias ServiceRadar.Graph
   @default_stale_minutes 180
-  @eligible_confidence_tiers MapSet.new(["high", "medium"])
+  @direct_protocols MapSet.new(["lldp", "cdp", "unifi-api"])
+  @strict_ifindex_protocols MapSet.new(["lldp", "cdp"])
+  @direct_evidence_classes MapSet.new(["direct"])
+  @attachment_evidence_classes MapSet.new(["endpoint-attachment"])
+  @inferred_evidence_classes MapSet.new(["inferred"])
 
   @spec upsert_links([map()]) :: :ok
   def upsert_links([]), do: :ok
 
   def upsert_links(links) when is_list(links) do
-    {local_device_ids, projected_count, skipped_low_count} =
-      Enum.reduce(links, {MapSet.new(), 0, 0}, &reduce_topology_link/2)
-
-    prune_stale_projected_links(MapSet.to_list(local_device_ids))
-
-    if skipped_low_count > 0 do
-      Logger.debug(
-        "Skipped #{skipped_low_count} low-confidence topology link(s); projected #{projected_count} link(s)"
+    {local_device_ids, neighbor_index, diagnostics} =
+      Enum.reduce(
+        links,
+        {MapSet.new(), %{}, empty_projection_diagnostics()},
+        &reduce_topology_link/2
       )
-    end
+
+    prune_unseen_projected_links(neighbor_index)
+    prune_stale_projected_links(MapSet.to_list(local_device_ids))
+    prune_stale_mapper_evidence_links()
+
+    Logger.info("Topology projection diagnostics: #{inspect(diagnostics)}")
 
     :ok
   end
 
-  defp reduce_topology_link(link, {local_ids, projected, skipped_low}) do
+  @doc """
+  Returns projection diagnostics for a batch without mutating AGE.
+  """
+  @spec projection_diagnostics([map()]) :: %{
+          accepted: map(),
+          rejected: map(),
+          total: non_neg_integer()
+        }
+  def projection_diagnostics(links) when is_list(links) do
+    Enum.reduce(links, empty_projection_diagnostics(), fn link, diagnostics ->
+      case classify_projection(link) do
+        {:ok, %{mode: :backbone, reason: reason}} ->
+          increment_diagnostic(diagnostics, :accepted, reason)
+
+        {:ok, %{mode: :auxiliary, reason: reason}} ->
+          increment_diagnostic(diagnostics, :accepted, reason)
+
+        {:ok, %{mode: :skip, reason: reason}} ->
+          increment_diagnostic(diagnostics, :rejected, reason)
+
+        {:error, :missing_ids} ->
+          increment_diagnostic(diagnostics, :rejected, :missing_ids)
+      end
+    end)
+  end
+
+  @doc """
+  Pure classifier for mapper topology projection decisions.
+
+  Returns:
+  - `{:ok, %{mode: :backbone, relation: "CONNECTS_TO", payload: payload}}`
+  - `{:ok, %{mode: :auxiliary, relation: "ATTACHED_TO" | "INFERRED_TO" | "OBSERVED_TO", payload: payload}}`
+  - `{:ok, %{mode: :skip, relation: nil, payload: payload}}`
+  - `{:error, :missing_ids}` when required identifiers are absent
+  """
+  @spec classify_projection(map()) ::
+          {:ok,
+           %{mode: :backbone | :auxiliary | :skip, relation: String.t() | nil, payload: map()}}
+          | {:error, :missing_ids}
+  def classify_projection(link) when is_map(link) do
     case build_link_payload(link) do
       {:ok, payload} ->
-        local_ids = MapSet.put(local_ids, payload.local_device_id)
+        case projection_mode(payload) do
+          {:backbone, reason} ->
+            {:ok, %{mode: :backbone, relation: "CONNECTS_TO", payload: payload, reason: reason}}
 
-        if projectable_confidence_tier?(payload.confidence_tier) do
-          upsert_link_payload(payload)
-          {local_ids, projected + 1, skipped_low}
-        else
-          {local_ids, projected, skipped_low + 1}
+          {:auxiliary, reason} ->
+            {:ok,
+             %{
+               mode: :auxiliary,
+               relation: evidence_relation_type(payload),
+               payload: payload,
+               reason: reason
+             }}
+
+          {:skip, reason} ->
+            {:ok, %{mode: :skip, relation: nil, payload: payload, reason: reason}}
         end
+
+      {:error, :missing_ids} = error ->
+        error
+    end
+  end
+
+  defp reduce_topology_link(link, {local_ids, neighbor_index, diagnostics}) do
+    case classify_projection(link) do
+      {:ok, %{mode: :backbone, payload: payload, reason: reason}} ->
+        local_ids = MapSet.put(local_ids, payload.local_device_id)
+        upsert_backbone_link_payload(payload)
+        diagnostics = increment_diagnostic(diagnostics, :accepted, reason)
+
+        neighbor_index =
+          add_neighbor_edge(neighbor_index, payload.local_device_id, payload.neighbor_device_id)
+
+        {local_ids, neighbor_index, diagnostics}
+
+      {:ok, %{mode: :auxiliary, payload: payload, reason: reason}} ->
+        upsert_auxiliary_link_payload(payload)
+        diagnostics = increment_diagnostic(diagnostics, :accepted, reason)
+        {local_ids, neighbor_index, diagnostics}
+
+      {:ok, %{mode: :skip, reason: reason}} ->
+        diagnostics = increment_diagnostic(diagnostics, :rejected, reason)
+        {local_ids, neighbor_index, diagnostics}
 
       {:error, :missing_ids} ->
         Logger.debug("Skipping topology link missing device identifiers")
-        {local_ids, projected, skipped_low}
+        diagnostics = increment_diagnostic(diagnostics, :rejected, :missing_ids)
+        {local_ids, neighbor_index, diagnostics}
     end
+  end
+
+  defp add_neighbor_edge(index, local_device_id, neighbor_device_id) do
+    update_in(index, [local_device_id], fn
+      nil -> MapSet.new([neighbor_device_id])
+      existing -> MapSet.put(existing, neighbor_device_id)
+    end)
   end
 
   @spec upsert_interfaces([map()]) :: :ok
@@ -86,7 +173,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp upsert_interface(_interface), do: :ok
 
   defp build_interface_payload(interface) do
-    device_id = link_value(interface, :device_id)
+    device_id = non_blank(link_value(interface, :device_id))
     if_name = link_value(interface, :if_name)
     if_index = link_value(interface, :if_index)
     interface_id = interface_id(device_id, if_name, if_index)
@@ -109,12 +196,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp build_link_payload(link) do
-    local_device_id = link_value(link, :local_device_id)
+    local_device_id = non_blank(link_value(link, :local_device_id))
     neighbor_device_id = neighbor_device_id(link)
     local_interface_id = local_interface_id(link, local_device_id)
     neighbor_port = neighbor_port(link)
     neighbor_interface_id = neighbor_interface_id(neighbor_device_id, neighbor_port)
     metadata = link_value(link, :metadata) || %{}
+    evidence_class = map_value(metadata, :evidence_class) || "inferred"
     confidence_tier = confidence_tier(link, metadata)
     confidence_score = confidence_score(link, metadata)
     confidence_reason = confidence_reason(link, metadata)
@@ -135,6 +223,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
          neighbor_port_name: neighbor_port,
          neighbor_name: link_value(link, :neighbor_system_name),
          neighbor_ip: link_value(link, :neighbor_mgmt_addr),
+         evidence_class: evidence_class,
          confidence_tier: confidence_tier,
          confidence_score: confidence_score,
          confidence_reason: confidence_reason,
@@ -190,7 +279,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end
   end
 
-  defp upsert_link_payload(payload) do
+  defp upsert_backbone_link_payload(payload) do
     cypher = """
     MERGE (a:Device {id: '#{Graph.escape(payload.local_device_id)}'})
     MERGE (b:Device {id: '#{Graph.escape(payload.neighbor_device_id)}'})
@@ -215,8 +304,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET r.confidence_tier = '#{Graph.escape(payload.confidence_tier)}'
     SET r.confidence_score = #{payload.confidence_score}
     SET r.confidence_reason = '#{Graph.escape(payload.confidence_reason)}'
+    SET r.evidence_class = '#{Graph.escape(normalize_evidence_class(payload.evidence_class))}'
     SET r.observed_at = '#{Graph.escape(payload.observed_at)}'
     SET r.last_observed_at = '#{Graph.escape(payload.observed_at)}'
+    MERGE (bi)-[rr:CONNECTS_TO]->(ai)
+    SET rr.first_observed_at = coalesce(rr.first_observed_at, '#{Graph.escape(payload.observed_at)}')
+    SET rr.ingestor = 'mapper_topology_v1'
+    SET rr.source = '#{Graph.escape(payload.protocol)}'
+    SET rr.protocol = '#{Graph.escape(payload.protocol)}'
+    SET rr.confidence_tier = '#{Graph.escape(payload.confidence_tier)}'
+    SET rr.confidence_score = #{payload.confidence_score}
+    SET rr.confidence_reason = '#{Graph.escape(payload.confidence_reason)}'
+    SET rr.evidence_class = '#{Graph.escape(normalize_evidence_class(payload.evidence_class))}'
+    SET rr.observed_at = '#{Graph.escape(payload.observed_at)}'
+    SET rr.last_observed_at = '#{Graph.escape(payload.observed_at)}'
     """
 
     case Graph.execute(cypher) do
@@ -232,9 +333,152 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       link_value(link, :neighbor_system_name)
   end
 
-  defp projectable_confidence_tier?(tier) do
-    MapSet.member?(@eligible_confidence_tiers, normalize_confidence_tier(tier))
+  defp backbone_projectable_link?(payload) when is_map(payload) do
+    evidence_class = normalize_evidence_class(payload.evidence_class)
+    protocol = normalize_protocol(payload.protocol)
+
+    MapSet.member?(@direct_evidence_classes, evidence_class) and
+      MapSet.member?(@direct_protocols, protocol) and
+      interface_contract_valid?(protocol, payload)
   end
+
+  defp backbone_projectable_link?(_payload), do: false
+
+  defp auxiliary_evidence_link?(payload) when is_map(payload) do
+    evidence_class = normalize_evidence_class(payload.evidence_class)
+    inferred_allowed = inferred_evidence_projectable?(payload)
+    attachment_allowed = MapSet.member?(@attachment_evidence_classes, evidence_class)
+
+    inferred_allowed or attachment_allowed
+  end
+
+  defp auxiliary_evidence_link?(_payload), do: false
+
+  defp projection_mode(payload) when is_map(payload) do
+    cond do
+      backbone_projectable_link?(payload) -> {:backbone, :projected_backbone}
+      auxiliary_evidence_link?(payload) -> {:auxiliary, auxiliary_reason(payload)}
+      true -> {:skip, skip_reason(payload)}
+    end
+  end
+
+  defp auxiliary_reason(payload) do
+    case evidence_relation_type(payload) do
+      "ATTACHED_TO" -> :projected_attachment
+      "INFERRED_TO" -> :projected_inferred
+      _ -> :projected_observed
+    end
+  end
+
+  defp skip_reason(payload) do
+    evidence_class = normalize_evidence_class(payload.evidence_class)
+    confidence_reason = normalize_confidence_reason(payload.confidence_reason)
+    protocol = normalize_protocol(payload.protocol)
+    strict_ifindex? = MapSet.member?(@strict_ifindex_protocols, protocol)
+
+    cond do
+      confidence_reason == "single_identifier_inference" ->
+        :skip_single_identifier_inference
+
+      strict_ifindex? and not valid_ifindex?(payload.local_if_index) ->
+        :skip_missing_ifindex
+
+      MapSet.member?(@inferred_evidence_classes, evidence_class) ->
+        :skip_inferred_low_confidence
+
+      true ->
+        :skip_policy_filtered
+    end
+  end
+
+  defp empty_projection_diagnostics do
+    %{accepted: %{}, rejected: %{}, total: 0}
+  end
+
+  defp increment_diagnostic(diag, bucket, reason) when is_map(diag) do
+    reason_key = to_string(reason || :unknown)
+
+    diag
+    |> update_in([bucket, reason_key], fn
+      nil -> 1
+      existing -> existing + 1
+    end)
+    |> Map.update!(:total, &(&1 + 1))
+  end
+
+  defp inferred_evidence_projectable?(payload) when is_map(payload) do
+    evidence_class = normalize_evidence_class(payload.evidence_class)
+    confidence_tier = normalize_confidence_tier(payload.confidence_tier)
+    confidence_reason = normalize_confidence_reason(payload.confidence_reason)
+
+    MapSet.member?(@inferred_evidence_classes, evidence_class) and
+      confidence_reason != "single_identifier_inference" and
+      (confidence_tier in ["high", "medium"] or payload.confidence_score >= 60)
+  end
+
+  defp inferred_evidence_projectable?(_payload), do: false
+
+  defp evidence_relation_type(payload) do
+    evidence_class = normalize_evidence_class(payload.evidence_class)
+
+    cond do
+      MapSet.member?(@attachment_evidence_classes, evidence_class) -> "ATTACHED_TO"
+      MapSet.member?(@inferred_evidence_classes, evidence_class) -> "INFERRED_TO"
+      true -> "OBSERVED_TO"
+    end
+  end
+
+  defp upsert_auxiliary_link_payload(payload) do
+    relation = evidence_relation_type(payload)
+
+    cypher = """
+    MERGE (a:Device {id: '#{Graph.escape(payload.local_device_id)}'})
+    MERGE (b:Device {id: '#{Graph.escape(payload.neighbor_device_id)}'})
+    #{set_prop("b", "name", payload.neighbor_name)}
+    #{set_prop("b", "ip", payload.neighbor_ip)}
+    MERGE (ai:Interface {id: '#{Graph.escape(payload.local_interface_id)}'})
+    SET ai.device_id = '#{Graph.escape(payload.local_device_id)}'
+    #{set_prop("ai", "name", payload.local_if_name)}
+    #{set_prop("ai", "ifindex", payload.local_if_index)}
+    MERGE (bi:Interface {id: '#{Graph.escape(payload.neighbor_interface_id)}'})
+    SET bi.device_id = '#{Graph.escape(payload.neighbor_device_id)}'
+    #{set_prop("bi", "name", payload.neighbor_port_name)}
+    MERGE (a)-[r1:HAS_INTERFACE]->(ai)
+    SET r1.source = 'mapper'
+    MERGE (b)-[r2:HAS_INTERFACE]->(bi)
+    SET r2.source = 'mapper'
+    MERGE (ai)-[r:#{relation}]->(bi)
+    SET r.first_observed_at = coalesce(r.first_observed_at, '#{Graph.escape(payload.observed_at)}')
+    SET r.ingestor = 'mapper_topology_v1'
+    SET r.source = '#{Graph.escape(payload.protocol)}'
+    SET r.protocol = '#{Graph.escape(payload.protocol)}'
+    SET r.evidence_class = '#{Graph.escape(normalize_evidence_class(payload.evidence_class))}'
+    SET r.confidence_tier = '#{Graph.escape(payload.confidence_tier)}'
+    SET r.confidence_score = #{payload.confidence_score}
+    SET r.confidence_reason = '#{Graph.escape(payload.confidence_reason)}'
+    SET r.observed_at = '#{Graph.escape(payload.observed_at)}'
+    SET r.last_observed_at = '#{Graph.escape(payload.observed_at)}'
+    """
+
+    case Graph.execute(cypher) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Auxiliary topology graph upsert failed: #{inspect(reason)}")
+    end
+  end
+
+  defp interface_contract_valid?(protocol, payload) do
+    if MapSet.member?(@strict_ifindex_protocols, protocol) do
+      valid_ifindex?(payload.local_if_index)
+    else
+      true
+    end
+  end
+
+  defp valid_ifindex?(value) when is_integer(value), do: value > 0
+  defp valid_ifindex?(_value), do: false
 
   defp confidence_tier(link, metadata) do
     link_value(link, :confidence_tier) ||
@@ -280,6 +524,35 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end
   end
 
+  defp prune_unseen_projected_links(neighbor_index) when map_size(neighbor_index) == 0, do: :ok
+
+  defp prune_unseen_projected_links(neighbor_index) do
+    Enum.each(neighbor_index, fn {local_device_id, neighbor_ids} ->
+      escaped_local = Graph.escape(local_device_id)
+
+      allowed_neighbors =
+        neighbor_ids
+        |> MapSet.to_list()
+        |> Enum.map_join(", ", &"'#{Graph.escape(&1)}'")
+
+      cypher = """
+      MATCH (a:Interface)-[r:CONNECTS_TO]->(b:Interface)
+      WHERE a.device_id = '#{escaped_local}'
+        AND r.ingestor = 'mapper_topology_v1'
+        AND (b.device_id IS NULL OR NOT b.device_id IN [#{allowed_neighbors}])
+      DELETE r
+      """
+
+      case Graph.execute(cypher) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Topology unseen edge pruning failed: #{inspect(reason)}")
+      end
+    end)
+  end
+
   defp prune_stale_projected_links([]), do: :ok
 
   defp prune_stale_projected_links(local_device_ids) do
@@ -298,6 +571,27 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     case Graph.execute(cypher) do
       :ok -> :ok
       {:error, reason} -> Logger.warning("Topology stale edge pruning failed: #{inspect(reason)}")
+    end
+  end
+
+  defp prune_stale_mapper_evidence_links do
+    stale_cutoff = stale_cutoff_iso8601()
+
+    cypher = """
+    MATCH ()-[r]->()
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']
+      AND r.last_observed_at IS NOT NULL
+      AND r.last_observed_at < '#{Graph.escape(stale_cutoff)}'
+    DELETE r
+    """
+
+    case Graph.execute(cypher) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Topology global stale edge pruning failed: #{inspect(reason)}")
     end
   end
 
@@ -330,10 +624,37 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp parse_confidence_score(_value), do: nil
 
+  defp normalize_protocol(nil), do: "unknown"
+
+  defp normalize_protocol(protocol) do
+    protocol
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalize_evidence_class(nil), do: "inferred"
+
+  defp normalize_evidence_class(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
   defp normalize_confidence_tier(nil), do: "low"
 
-  defp normalize_confidence_tier(tier) do
-    tier
+  defp normalize_confidence_tier(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalize_confidence_reason(nil), do: ""
+
+  defp normalize_confidence_reason(value) do
+    value
     |> to_string()
     |> String.trim()
     |> String.downcase()
@@ -371,10 +692,19 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp non_blank(value) when is_binary(value) do
     trimmed = String.trim(value)
-    if trimmed == "", do: nil, else: trimmed
+
+    cond do
+      trimmed == "" -> nil
+      String.downcase(trimmed) in ["nil", "null", "undefined"] -> nil
+      true -> trimmed
+    end
   end
 
-  defp non_blank(value), do: value
+  defp non_blank(value) when is_atom(value) do
+    if value in [nil, :null, :undefined], do: nil, else: Atom.to_string(value)
+  end
+
+  defp non_blank(value), do: value |> to_string() |> non_blank()
 
   defp set_prop(_node, _field, nil), do: ""
   defp set_prop(_node, _field, ""), do: ""

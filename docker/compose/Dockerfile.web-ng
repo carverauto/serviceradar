@@ -25,12 +25,12 @@ COPY elixir/connection ./elixir/connection
 COPY elixir/vendor ./elixir/vendor
 
 # Copy web-ng application
-COPY web-ng/mix.exs web-ng/mix.lock ./web-ng/
-COPY web-ng/config ./web-ng/config
-COPY web-ng/lib ./web-ng/lib
-COPY web-ng/priv ./web-ng/priv
-COPY web-ng/assets ./web-ng/assets
-COPY web-ng/native ./web-ng/native
+COPY elixir/web-ng/mix.exs elixir/web-ng/mix.lock ./web-ng/
+COPY elixir/web-ng/config ./web-ng/config
+COPY elixir/web-ng/lib ./web-ng/lib
+COPY elixir/web-ng/priv ./web-ng/priv
+COPY elixir/web-ng/assets ./web-ng/assets
+COPY elixir/web-ng/native ./web-ng/native
 
 COPY proto ./proto
 

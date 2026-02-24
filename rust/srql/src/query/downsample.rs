@@ -1,12 +1,12 @@
 use super::{BindParam, QueryPlan};
+use crate::query::flows::{
+    FLOW_APP_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_IN_IF_NAME_EXPR, FLOW_IN_IF_SPEED_BPS_EXPR,
+    FLOW_OUT_IF_NAME_EXPR, FLOW_OUT_IF_SPEED_BPS_EXPR, FLOW_PROTOCOL_GROUP_EXPR,
+};
 use crate::{
     error::{Result, ServiceError},
     parser::{DownsampleAgg, Entity, Filter, FilterOp},
     time::TimeRange,
-};
-use crate::query::flows::{
-    FLOW_APP_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_IN_IF_NAME_EXPR, FLOW_IN_IF_SPEED_BPS_EXPR,
-    FLOW_OUT_IF_NAME_EXPR, FLOW_OUT_IF_SPEED_BPS_EXPR, FLOW_PROTOCOL_GROUP_EXPR,
 };
 use chrono::{DateTime, Utc};
 use diesel::deserialize::QueryableByName;
@@ -52,7 +52,13 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
         ServiceError::InvalidRequest("downsample requires bucket:<duration>".into())
     })?;
 
-    let (table, ts_col, forced_metric_type) = match plan.entity {
+    let cagg_safe_shape =
+        plan.filters.is_empty() && downsample.series.as_deref().unwrap_or("").trim().is_empty();
+    let use_hourly_cagg = super::should_route_plan_to_hourly_cagg(plan)
+        && matches!(downsample.agg, DownsampleAgg::Avg)
+        && cagg_safe_shape;
+
+    let (raw_table, raw_ts_col, forced_metric_type) = match plan.entity {
         Entity::TimeseriesMetrics => ("timeseries_metrics", "timestamp", None),
         Entity::SnmpMetrics => ("timeseries_metrics", "timestamp", Some("snmp")),
         Entity::RperfMetrics => ("timeseries_metrics", "timestamp", Some("rperf")),
@@ -68,7 +74,22 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
         }
     };
 
-    let value_col = resolve_value_column(plan.entity.clone(), downsample.value_field.as_deref())?;
+    let table = if use_hourly_cagg {
+        super::cagg_table_for_entity(&plan.entity).unwrap_or(raw_table)
+    } else {
+        raw_table
+    };
+    let ts_col = if use_hourly_cagg {
+        "bucket"
+    } else {
+        raw_ts_col
+    };
+
+    let value_col = resolve_value_column(
+        plan.entity.clone(),
+        downsample.value_field.as_deref(),
+        use_hourly_cagg,
+    )?;
 
     let time_range = plan.time_range.as_ref().ok_or_else(|| {
         ServiceError::InvalidRequest("downsample queries require time:<range>".into())
@@ -191,9 +212,56 @@ fn build_bind_values(plan: &QueryPlan) -> Result<Vec<SqlBindValue>> {
     Ok(binds)
 }
 
-fn resolve_value_column(entity: Entity, value_field: Option<&str>) -> Result<&'static str> {
+fn resolve_value_column(
+    entity: Entity,
+    value_field: Option<&str>,
+    use_hourly_cagg: bool,
+) -> Result<&'static str> {
     let value_field = value_field.map(|value| value.trim().to_lowercase());
     let field = value_field.as_deref();
+
+    if use_hourly_cagg {
+        return match entity {
+            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => match field {
+                None | Some("value") => Ok("avg_value"),
+                Some(other) => Err(ServiceError::InvalidRequest(format!(
+                    "unsupported value_field '{other}' for timeseries_metrics_hourly"
+                ))),
+            },
+            Entity::CpuMetrics => match field {
+                None | Some("usage_percent") => Ok("avg_usage_percent"),
+                Some(other) => Err(ServiceError::InvalidRequest(format!(
+                    "unsupported value_field '{other}' for cpu_metrics_hourly"
+                ))),
+            },
+            Entity::MemoryMetrics => match field {
+                None | Some("usage_percent") => Ok("avg_usage_percent"),
+                Some("used_bytes") => Ok("avg_used_bytes"),
+                Some("available_bytes") => Ok("avg_available_bytes"),
+                Some(other) => Err(ServiceError::InvalidRequest(format!(
+                    "unsupported value_field '{other}' for memory_metrics_hourly"
+                ))),
+            },
+            Entity::DiskMetrics => match field {
+                None | Some("usage_percent") => Ok("avg_usage_percent"),
+                Some("used_bytes") => Ok("avg_used_bytes"),
+                Some("available_bytes") => Ok("avg_available_bytes"),
+                Some(other) => Err(ServiceError::InvalidRequest(format!(
+                    "unsupported value_field '{other}' for disk_metrics_hourly"
+                ))),
+            },
+            Entity::ProcessMetrics => match field {
+                None | Some("cpu_usage") => Ok("avg_cpu_usage"),
+                Some("memory_usage") => Ok("avg_memory_usage"),
+                Some(other) => Err(ServiceError::InvalidRequest(format!(
+                    "unsupported value_field '{other}' for process_metrics_hourly"
+                ))),
+            },
+            _ => Err(ServiceError::InvalidRequest(
+                "hourly CAGG routing is only supported for metric entities".into(),
+            )),
+        };
+    }
 
     match entity {
         Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => match field {

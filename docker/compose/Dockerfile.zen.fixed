@@ -17,7 +17,7 @@ COPY cmd ./cmd
 COPY proto ./proto
 
 # Override build.rs if needed
-COPY docker/compose/build-zen-fixed.rs ./cmd/consumers/zen/build.rs
+COPY docker/compose/build-zen-fixed.rs ./rust/consumers/zen/build.rs
 
 # Build arguments for version info
 ARG VERSION=dev
@@ -54,7 +54,7 @@ COPY --from=builder /usr/src/target/release/zen-put-rule /usr/local/bin/zen-put-
 RUN chmod +x /usr/local/bin/serviceradar-zen /usr/local/bin/zen-put-rule
 
 # Copy rule data files
-COPY cmd/consumers/zen/data /var/lib/serviceradar/data
+COPY rust/consumers/zen/data /var/lib/serviceradar/data
 
 # Copy entrypoint and rule installation scripts
 COPY docker/compose/entrypoint-zen.sh /usr/local/bin/entrypoint.sh

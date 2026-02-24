@@ -16,8 +16,8 @@ NetFlow (and other parts of the UI) would benefit from a geographic visualizatio
 ## Impact
 - Affected specs: new `ui-maps` capability; existing `observability-netflow` UI.
 - Affected code:
-  - `web-ng/assets` JS bundle (Mapbox GL integration).
-  - `web-ng/` LiveView components + settings UI.
+  - `elixir/web-ng/assets` JS bundle (Mapbox GL integration).
+  - `elixir/web-ng/` LiveView components + settings UI.
   - `elixir/serviceradar_core` settings resource + migration for encrypted token.
 
 ## Risks / Considerations

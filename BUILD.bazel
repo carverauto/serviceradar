@@ -7,7 +7,7 @@ load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 # gazelle:exclude dist
 # gazelle:exclude release-artifacts
 # gazelle:exclude target
-# gazelle:exclude cmd/checkers/rperf-client
+# gazelle:exclude rust/rperf-client
 # gazelle:exclude cmd/ebpf
 
 load("@platforms//host:extension.bzl", "host_platform")
@@ -48,5 +48,17 @@ alias(
 sh_binary(
     name = "buildbuddy_setup_docker_auth",
     srcs = ["buildbuddy_setup_docker_auth.sh"],
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "swiftlint_lint",
+    srcs = ["scripts/swiftlint_bazel.sh"],
+    args = [
+        "$(location .swiftlint.yml)",
+    ],
+    data = [
+        ".swiftlint.yml",
+    ],
     visibility = ["//visibility:public"],
 )

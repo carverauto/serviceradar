@@ -195,7 +195,9 @@ impl Converter {
                 FlowSetBody::NoTemplate(info) => {
                     debug!(
                         "V9 flowset skipped - no template for ID {} (available: {:?}, {} bytes raw data)",
-                        info.template_id, info.available_templates, info.raw_data.len()
+                        info.template_id,
+                        info.available_templates,
+                        info.raw_data.len()
                     );
                 }
                 _ => {}
@@ -413,7 +415,9 @@ impl Converter {
                 FlowSetBody::NoTemplate(info) => {
                     debug!(
                         "IPFIX flowset skipped - no template for ID {} (available: {:?}, {} bytes raw data)",
-                        info.template_id, info.available_templates, info.raw_data.len()
+                        info.template_id,
+                        info.available_templates,
+                        info.raw_data.len()
                     );
                 }
                 _ => {}

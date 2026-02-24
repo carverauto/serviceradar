@@ -15,7 +15,7 @@
 
 ## Impact
 - Affected specs: `build-web-ui` (added requirement for RBAC policy editor dashboard UI).
-- Affected code: `web-ng/lib/serviceradar_web_ng_web/live/settings/access_control_live.ex` and associated components/styles.
+- Affected code: `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/access_control_live.ex` and associated components/styles.
 - Affected APIs: may introduce an aggregated "RBAC editor payload" endpoint (catalog + profiles + assignment counts) to reduce UI round-trips; existing endpoints remain supported for backward compatibility.
 - UX breaking change: existing Access Control page layout will be replaced (functionality retained, presentation and interaction model changed).
 

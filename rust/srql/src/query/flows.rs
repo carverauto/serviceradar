@@ -1205,11 +1205,12 @@ fn parse_stats_expr(expr: &str) -> Result<FlowStatsSpec> {
 
     // Group-by may include multiple keys separated by commas. We intentionally allow
     // spaces after commas by consuming the remainder of the expression after "by".
-    let group_by: Vec<FlowGroupSpec> = if let Some(by_idx) = parts.iter().position(|&p| p == "by")
-    {
+    let group_by: Vec<FlowGroupSpec> = if let Some(by_idx) = parts.iter().position(|&p| p == "by") {
         let raw = parts
             .get(by_idx + 1..)
-            .ok_or_else(|| ServiceError::InvalidRequest("stats expression missing group-by".into()))?
+            .ok_or_else(|| {
+                ServiceError::InvalidRequest("stats expression missing group-by".into())
+            })?
             .join(" ");
 
         let tokens: Vec<&str> = raw
@@ -1369,8 +1370,9 @@ fn build_grouped_stats_query(
             offset = plan.offset
         )
     } else {
-        let inner =
-            format!("SELECT {agg_sql} AS agg_value FROM ocsf_network_activity f{join_sql}{where_sql}");
+        let inner = format!(
+            "SELECT {agg_sql} AS agg_value FROM ocsf_network_activity f{join_sql}{where_sql}"
+        );
         format!(
             "SELECT jsonb_build_object('{alias}', agg_value) AS result FROM ({inner}) t LIMIT 1",
             alias = spec.alias,
@@ -1620,13 +1622,12 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
                 )),
             }
         }
-        "dst_cidr" => {
-            match filter.op {
-                FilterOp::Eq | FilterOp::NotEq => {
-                    let value = filter.value.as_scalar()?.to_string();
-                    let cidr = normalize_cidr_literal(&value)?;
-                    binds.push(FlowSqlBindValue::Text(cidr));
-                    match filter.op {
+        "dst_cidr" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                let value = filter.value.as_scalar()?.to_string();
+                let cidr = normalize_cidr_literal(&value)?;
+                binds.push(FlowSqlBindValue::Text(cidr));
+                match filter.op {
                         FilterOp::Eq => Ok(
                             "(try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::cidr)".to_string(),
                         ),
@@ -1636,18 +1637,18 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
                         ),
                         _ => unreachable!(),
                     }
+            }
+            FilterOp::In | FilterOp::NotIn => {
+                let values = filter.value.as_list()?;
+                if values.is_empty() {
+                    return Ok("1=1".to_string());
                 }
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?;
-                    if values.is_empty() {
-                        return Ok("1=1".to_string());
-                    }
-                    let mut out: Vec<String> = Vec::with_capacity(values.len());
-                    for v in values {
-                        out.push(normalize_cidr_literal(v)?);
-                    }
-                    binds.push(FlowSqlBindValue::TextArray(out));
-                    match filter.op {
+                let mut out: Vec<String> = Vec::with_capacity(values.len());
+                for v in values {
+                    out.push(normalize_cidr_literal(v)?);
+                }
+                binds.push(FlowSqlBindValue::TextArray(out));
+                match filter.op {
                         FilterOp::In => Ok(
                             "(try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ANY(?::cidr[]))"
                                 .to_string(),
@@ -1658,12 +1659,11 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
                         ),
                         _ => unreachable!(),
                     }
-                }
-                _ => Err(ServiceError::InvalidRequest(
-                    "dst_cidr filter only supports equality or list matching".into(),
-                )),
             }
-        }
+            _ => Err(ServiceError::InvalidRequest(
+                "dst_cidr filter only supports equality or list matching".into(),
+            )),
+        },
         "direction" => {
             let expr = format!("({})", FLOW_DIRECTION_EXPR);
             build_stats_text_filter(&expr, filter, binds)
@@ -1903,7 +1903,10 @@ mod tests {
         };
 
         let (sql, params) = to_sql_and_params_stats(&plan).unwrap();
-        assert!(sql.contains("WHERE f.time >="), "should include time filter");
+        assert!(
+            sql.contains("WHERE f.time >="),
+            "should include time filter"
+        );
         assert!(
             sql.contains("f.src_endpoint_ip = $3"),
             "should include src_endpoint_ip filter with binds"
@@ -2137,7 +2140,10 @@ mod tests {
         let (sql, params) = to_sql_and_params(&plan).expect("should translate country filter");
         // Ensure we still have limit/offset binds present and typed correctly.
         assert!(sql.contains("LIMIT $3"), "expected LIMIT bind placeholder");
-        assert!(sql.contains("OFFSET $4"), "expected OFFSET bind placeholder");
+        assert!(
+            sql.contains("OFFSET $4"),
+            "expected OFFSET bind placeholder"
+        );
         assert_eq!(params.len(), 4, "expected start/end + limit/offset params");
         assert!(matches!(params[2], BindParam::Int(5)));
         assert!(matches!(params[3], BindParam::Int(0)));
@@ -2170,7 +2176,10 @@ mod tests {
 
         let (sql, params) = to_sql_and_params(&plan).expect("should translate cidr filter");
         assert!(sql.contains("LIMIT $3"), "expected LIMIT bind placeholder");
-        assert!(sql.contains("OFFSET $4"), "expected OFFSET bind placeholder");
+        assert!(
+            sql.contains("OFFSET $4"),
+            "expected OFFSET bind placeholder"
+        );
         assert_eq!(params.len(), 4, "expected start/end + limit/offset params");
         assert!(matches!(params[2], BindParam::Int(5)));
         assert!(matches!(params[3], BindParam::Int(0)));

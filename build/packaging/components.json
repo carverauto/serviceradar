@@ -1,0 +1,728 @@
+[
+  {
+    "shared_config": {
+      "certificates": {
+        "components": [
+          "srql",
+          "agent",
+          "kv",
+          "sync",
+          "event-writer",
+          "otel",
+          "trapd",
+          "flowgger",
+          "netflow-collector",
+          "nats",
+          "zen",
+          "snmp",
+          "rperf-checker"
+        ],
+        "root_dir": "/etc/serviceradar/certs"
+      }
+    }
+  },
+  {
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-event-writer",
+      "source_path": "go/cmd/consumers/db-event-writer"
+    },
+    "conffiles": [
+      "/etc/serviceradar/consumers/db-event-writer.json"
+    ],
+    "config_files": [
+      {
+        "dest": "/etc/serviceradar/consumers/db-event-writer.json",
+        "source": "build/packaging/event-writer/config/db-event-writer.json"
+      }
+    ],
+    "deb": {
+      "depends": [
+        "systemd",
+        "jq"
+      ],
+      "dockerfile": null
+    },
+    "description": "ServiceRadar DB Event Writer Service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "name": "event-writer",
+    "package_name": "serviceradar-event-writer",
+    "postinst": {
+      "source": "build/packaging/event-writer/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/event-writer/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd",
+        "jq"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "section": "utils",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-event-writer.service",
+      "source": "build/packaging/event-writer/systemd/serviceradar-event-writer.service"
+    },
+    "version": "1.0.58"
+  },
+  {
+    "additional_dirs": [
+      "/var/lib/serviceradar/faker"
+    ],
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-faker",
+      "source_path": "go/cmd/faker"
+    },
+    "conffiles": [
+      "/etc/serviceradar/faker.json"
+    ],
+    "config_files": [
+      {
+        "dest": "/etc/serviceradar/faker.json",
+        "source": "build/packaging/faker/config/faker.json"
+      }
+    ],
+    "deb": {
+      "depends": [
+        "systemd"
+      ],
+      "dockerfile": null
+    },
+    "description": "ServiceRadar Fake Armis API Service for Testing",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "name": "faker",
+    "package_name": "serviceradar-faker",
+    "postinst": {
+      "source": "build/packaging/faker/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/faker/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "section": "utils",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-faker.service",
+      "source": "build/packaging/faker/systemd/serviceradar-faker.service"
+    },
+    "version": "1.0.58"
+  },
+  {
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-agent",
+      "source_path": "go/cmd/agent"
+    },
+    "conffiles": [
+      "/etc/serviceradar/agent.json",
+      "/etc/serviceradar/checkers/sweep/sweep.json"
+    ],
+    "config_files": [
+      {
+        "dest": "/etc/serviceradar/agent.json",
+        "source": "build/packaging/agent/config/agent.json"
+      },
+      {
+        "dest": "/etc/serviceradar/checkers/sweep/sweep.json",
+        "source": "build/packaging/agent/config/checkers/sweep/sweep.json"
+      }
+    ],
+    "deb": {
+      "depends": [
+        "systemd"
+      ],
+      "dockerfile": null
+    },
+    "description": "ServiceRadar Agent Service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "name": "agent",
+    "package_name": "serviceradar-agent",
+    "postinst": {
+      "source": "build/packaging/agent/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/agent/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd",
+        "libcap"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "section": "utils",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-agent.service",
+      "source": "build/packaging/agent/systemd/serviceradar-agent.service"
+    },
+    "version": "1.0.58"
+  },
+  {
+    "additional_dirs": [
+      "/var/lib/nats/jetstream",
+      "/var/log/nats"
+    ],
+    "architecture": "amd64",
+    "build_method": "external",
+    "conffiles": [
+      "/etc/nats/nats-server.conf"
+    ],
+    "config_files": [
+      {
+        "dest": "/etc/nats/nats-server.conf",
+        "source": "build/packaging/nats/config/nats-server.conf"
+      },
+      {
+        "dest": "/etc/nats/templates/nats-cloud.conf",
+        "source": "build/packaging/nats/config/nats-cloud.conf"
+      },
+      {
+        "dest": "/etc/nats/templates/nats-leaf.conf",
+        "source": "build/packaging/nats/config/nats-leaf.conf"
+      }
+    ],
+    "deb": {
+      "depends": [
+        "systemd"
+      ],
+      "dockerfile": null
+    },
+    "description": "ServiceRadar NATS JetStream service",
+    "external_binary": {
+      "extract_path": "nats-server-v2.12.2-linux-amd64/nats-server",
+      "output_path": "/usr/bin/nats-server",
+      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.12.2/nats-server-v2.12.2-linux-amd64.tar.gz"
+    },
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "name": "nats",
+    "package_name": "serviceradar-nats",
+    "postinst": {
+      "source": "build/packaging/nats/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/nats/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.nats",
+      "release": "1"
+    },
+    "section": "utils",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-nats.service",
+      "source": "build/packaging/nats/systemd/serviceradar-nats.service"
+    },
+    "version": "1.0.58"
+  },
+  {
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-datasvc",
+      "source_path": "go/cmd/data-services"
+    },
+    "conffiles": [
+      "/etc/serviceradar/datasvc.json"
+    ],
+    "config_files": [
+      {
+        "dest": "/etc/serviceradar/datasvc.json",
+        "source": "build/packaging/datasvc/config/datasvc.json"
+      }
+    ],
+    "deb": {
+      "depends": [
+        "systemd"
+      ],
+      "dockerfile": null
+    },
+    "description": "ServiceRadar data service (KV + object store)",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "name": "datasvc",
+    "package_name": "serviceradar-datasvc",
+    "postinst": {
+      "source": "build/packaging/datasvc/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/datasvc/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "section": "utils",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-datasvc.service",
+      "source": "build/packaging/datasvc/systemd/serviceradar-datasvc.service"
+    },
+    "version": "1.0.58"
+  },
+  {
+    "additional_dirs": [
+      "/var/log/zen",
+      "/etc/serviceradar/zen/rules"
+    ],
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "rust",
+      "output_path": "/usr/local/bin/serviceradar-zen",
+      "source_path": "rust/consumers/zen"
+    },
+    "conffiles": [
+      "/etc/serviceradar/consumers/zen-consumer.json",
+      "/etc/serviceradar/zen/rules/cef_severity.json",
+      "/etc/serviceradar/zen/rules/netflow_to_ocsf.json",
+      "/etc/serviceradar/zen/rules/passthrough.json",
+      "/etc/serviceradar/zen/rules/snmp_severity.json",
+      "/etc/serviceradar/zen/rules/strip_full_message.json"
+    ],
+    "config_files": [
+      {
+        "dest": "/etc/serviceradar/consumers/zen-consumer.json",
+        "source": "build/packaging/zen/config/zen-consumer.json"
+      },
+      {
+        "dest": "/etc/serviceradar/zen/rules/cef_severity.json",
+        "source": "build/packaging/zen/rules/cef_severity.json"
+      },
+      {
+        "dest": "/etc/serviceradar/zen/rules/netflow_to_ocsf.json",
+        "source": "build/packaging/zen/rules/netflow_to_ocsf.json"
+      },
+      {
+        "dest": "/etc/serviceradar/zen/rules/passthrough.json",
+        "source": "build/packaging/zen/rules/passthrough.json"
+      },
+      {
+        "dest": "/etc/serviceradar/zen/rules/snmp_severity.json",
+        "source": "build/packaging/zen/rules/snmp_severity.json"
+      },
+      {
+        "dest": "/etc/serviceradar/zen/rules/strip_full_message.json",
+        "source": "build/packaging/zen/rules/strip_full_message.json"
+      }
+    ],
+    "deb": {
+      "depends": [
+        "systemd"
+      ],
+      "dockerfile": "rust/consumers/zen/Dockerfile"
+    },
+    "description": "ServiceRadar Zen Consumer Service",
+    "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
+    "name": "zen",
+    "package_name": "serviceradar-zen",
+    "postinst": {
+      "source": "build/packaging/zen/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/zen/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.zen",
+      "release": "1"
+    },
+    "section": "net",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-zen.service",
+      "source": "build/packaging/zen/systemd/serviceradar-zen.service"
+    },
+    "version": "1.0.58"
+  },
+  {
+    "additional_dirs": [
+      "/var/log/rperf"
+    ],
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "rust",
+      "output_path": "/usr/local/bin/serviceradar-rperf"
+    },
+    "conffiles": [],
+    "config_files": [],
+    "deb": {
+      "depends": [
+        "systemd"
+      ],
+      "dockerfile": "rust/rperf-server/Dockerfile-deb"
+    },
+    "description": "ServiceRadar RPerf Network Performance Testing Tool",
+    "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
+    "name": "rperf",
+    "package_name": "serviceradar-rperf",
+    "postinst": {
+      "source": "build/packaging/rperf/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/rperf/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.rperf",
+      "release": "1"
+    },
+    "section": "net",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-rperf.service",
+      "source": "build/packaging/rperf/systemd/serviceradar-rperf.service"
+    },
+    "version": "1.0.58"
+  },
+  {
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "rust",
+      "docker_output_path": "/output/serviceradar-rperf-checker",
+      "output_path": "/usr/local/bin/serviceradar-rperf-checker",
+      "source_path": "rust/rperf-client"
+    },
+    "conffiles": [
+      "/etc/serviceradar/checkers/rperf.json.example"
+    ],
+    "config_files": [
+      {
+        "dest": "/etc/serviceradar/checkers/rperf.json.example",
+        "source": "build/packaging/rperf-checker/config/checkers/rperf.json"
+      }
+    ],
+    "custom_steps": [],
+    "deb": {
+      "depends": [
+        "systemd"
+      ],
+      "dockerfile": "rust/rperf-client/Dockerfile"
+    },
+    "description": "ServiceRadar RPerf Network Performance Test Checker",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "name": "rperf-checker",
+    "package_name": "serviceradar-rperf-checker",
+    "postinst": {
+      "source": "build/packaging/rperf-checker/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/rperf-checker/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
+      "release": "1"
+    },
+    "section": "net",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-rperf-checker.service",
+      "source": "build/packaging/rperf-checker/systemd/serviceradar-rperf-checker.service"
+    },
+    "version": "1.0.58"
+  },
+  {
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "rust",
+      "docker_output_path": "/output/serviceradar-flowgger",
+      "output_path": "/usr/local/bin/serviceradar-flowgger",
+      "source_path": "rust/flowgger"
+    },
+    "conffiles": [
+      "/etc/serviceradar/flowgger.toml"
+    ],
+    "config_files": [
+      {
+        "dest": "/etc/serviceradar/flowgger.toml",
+        "source": "build/packaging/flowgger/config/flowgger.toml"
+      }
+    ],
+    "custom_steps": [],
+    "deb": {
+      "depends": [
+        "systemd",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "rust/flowgger/Dockerfile"
+    },
+    "description": "ServiceRadar Flowgger log ingestion service",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "name": "flowgger",
+    "package_name": "serviceradar-flowgger",
+    "postinst": {
+      "source": "build/packaging/flowgger/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/flowgger/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.flowgger",
+      "release": "1"
+    },
+    "section": "net",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-flowgger.service",
+      "source": "build/packaging/flowgger/systemd/serviceradar-flowgger.service"
+    },
+    "version": "1.0.58"
+  },
+  {
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "rust",
+      "docker_output_path": "/output/serviceradar-netflow-collector",
+      "output_path": "/usr/local/bin/serviceradar-netflow-collector",
+      "source_path": "rust/netflow-collector"
+    },
+    "conffiles": [
+      "/etc/serviceradar/netflow-collector.json"
+    ],
+    "config_files": [
+      {
+        "dest": "/etc/serviceradar/netflow-collector.json",
+        "source": "build/packaging/netflow-collector/config/netflow-collector.json"
+      }
+    ],
+    "custom_steps": [],
+    "deb": {
+      "depends": [
+        "systemd",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "rust/netflow-collector/Dockerfile"
+    },
+    "description": "ServiceRadar NetFlow/IPFIX collector",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "name": "netflow-collector",
+    "package_name": "serviceradar-netflow-collector",
+    "postinst": {
+      "source": "build/packaging/netflow-collector/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/netflow-collector/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.netflow-collector",
+      "release": "1"
+    },
+    "section": "net",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-netflow-collector.service",
+      "source": "build/packaging/netflow-collector/systemd/serviceradar-netflow-collector.service"
+    },
+    "version": "1.0.58"
+  },
+  {
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "rust",
+      "docker_output_path": "/output/serviceradar-trapd",
+      "output_path": "/usr/local/bin/serviceradar-trapd",
+      "source_path": "rust/trapd"
+    },
+    "conffiles": [
+      "/etc/serviceradar/trapd.json"
+    ],
+    "config_files": [
+      {
+        "dest": "/etc/serviceradar/trapd.json",
+        "source": "build/packaging/trapd/config/trapd.json"
+      }
+    ],
+    "custom_steps": [],
+    "deb": {
+      "depends": [
+        "systemd",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "rust/trapd/Dockerfile"
+    },
+    "description": "ServiceRadar SNMP trap receiver service",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "name": "trapd",
+    "package_name": "serviceradar-trapd",
+    "postinst": {
+      "source": "build/packaging/trapd/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/trapd/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.trapd",
+      "release": "1"
+    },
+    "section": "net",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-trapd.service",
+      "source": "build/packaging/trapd/systemd/serviceradar-trapd.service"
+    },
+    "version": "1.0.58"
+  },
+  {
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar",
+      "source_path": "go/cmd/cli"
+    },
+    "conffiles": [],
+    "config_files": [],
+    "deb": {
+      "depends": [],
+      "dockerfile": null
+    },
+    "description": "ServiceRadar CLI tool",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "name": "cli",
+    "package_name": "serviceradar-cli",
+    "postinst": {
+      "source": "build/packaging/cli/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/cli/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "section": "utils",
+    "systemd_service": null,
+    "version": "1.0.58"
+  },
+  {
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "rust",
+      "output_path": "/usr/local/bin/serviceradar-otel",
+      "source_path": "rust/otel"
+    },
+    "conffiles": [
+      "/etc/serviceradar/otel.toml"
+    ],
+    "config_files": [
+      {
+        "dest": "/etc/serviceradar/otel.toml",
+        "source": "build/packaging/otel/config/otel.toml"
+      }
+    ],
+    "deb": {
+      "depends": [
+        "serviceradar-cli"
+      ],
+      "dockerfile": "rust/otel/Dockerfile"
+    },
+    "description": "ServiceRadar OTEL Collector",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "name": "otel",
+    "package_name": "serviceradar-otel",
+    "postinst": {
+      "source": "build/packaging/otel/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/otel/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.otel",
+      "release": "1"
+    },
+    "section": "utils",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-otel.service",
+      "source": "build/packaging/otel/systemd/serviceradar-otel.service"
+    },
+    "version": "1.0.58"
+  },
+  {
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "rust",
+      "docker_output_path": "/output/serviceradar-bmp-collector",
+      "output_path": "/usr/local/bin/serviceradar-bmp-collector",
+      "source_path": "arancini/arancini"
+    },
+    "conffiles": [],
+    "config_files": [],
+    "custom_steps": [],
+    "deb": {
+      "depends": [
+        "systemd",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "rust/bmp-collector/Dockerfile"
+    },
+    "description": "ServiceRadar BMP collector powered by Arancini runtime",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "name": "bmp-collector",
+    "package_name": "serviceradar-bmp-collector",
+    "postinst": {
+      "source": "build/packaging/bmp-collector/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "build/packaging/bmp-collector/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.bmp-collector",
+      "release": "1"
+    },
+    "section": "net",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-bmp-collector.service",
+      "source": "build/packaging/bmp-collector/systemd/serviceradar-bmp-collector.service"
+    },
+    "version": "1.0.58"
+  }
+]

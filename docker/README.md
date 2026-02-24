@@ -110,8 +110,8 @@ ServiceRadar core-elx uses environment-based configuration. See `docker-compose.
 ### Default Setup
 
 The docker-compose.yml automatically mounts:
-- `packaging/core/config/core.docker.json` as `/etc/serviceradar/core.json`
-- `packaging/core/config/api.env` as `/etc/serviceradar/api.env`
+- `build/packaging/core/config/core.docker.json` as `/etc/serviceradar/core.json`
+- `build/packaging/core/config/api.env` as `/etc/serviceradar/api.env`
 
 ### Customizing Configuration
 
@@ -121,7 +121,7 @@ The docker-compose.yml automatically mounts:
    services:
      core:
        volumes:
-         - ./packaging/core/config/core.json:/etc/serviceradar/core.json:ro
+         - ./build/packaging/core/config/core.json:/etc/serviceradar/core.json:ro
    ```
 
 2. **For custom configs**: Create your own config:

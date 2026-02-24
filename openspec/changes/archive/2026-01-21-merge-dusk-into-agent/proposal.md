@@ -22,7 +22,7 @@ The standalone `serviceradar-dusk-checker` binary adds deployment complexity and
   - `pkg/agent/types.go` (add duskService field)
   - `pkg/checker/dusk/` (reuse existing implementation)
   - `cmd/checkers/dusk/` (deprecate/remove)
-  - `packaging/dusk-checker/` (deprecate/remove)
+  - `build/packaging/dusk-checker/` (deprecate/remove)
   - `elixir/serviceradar_core/` (config compiler updates)
   - `web-ng/` (UI for dusk configuration)
 - **BREAKING**: Standalone `serviceradar-dusk-checker` binary will be deprecated; users must migrate to agent-embedded configuration
