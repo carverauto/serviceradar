@@ -10,7 +10,8 @@ export const godViewRenderingGraphLayerTransportMethods = {
     const pulseRadius = 10 + (pulse * 40)
     const pulseAlpha = Math.floor(255 * (1.0 - pulse))
     const zoom = Number(this.state.viewState?.zoom || 0)
-    const zoomScale = Math.max(1, Math.min(2.8, 1 + (zoom + 1.5) * 0.22))
+    const zoomScale = Math.max(0.9, Math.min(4.5, Math.pow(1.28, zoom + 1.5)))
+    const particleSizeScale = Math.max(0.95, Math.min(4.2, Math.pow(1.34, zoom + 1.1)))
     const hasFocus = this.state.hoveredEdgeKey || this.state.selectedEdgeKey
     const alphaMult = (d) => {
       if (!hasFocus) return 1.0
@@ -32,13 +33,16 @@ export const godViewRenderingGraphLayerTransportMethods = {
             getSourcePosition: (d) => d.sourcePosition,
             getTargetPosition: (d) => d.targetPosition,
             getColor: (d) => {
-              const c = this.edgeTelemetryColor(d.flowBps, d.capacityBps, d.flowPps, false)
-              return [c[0], c[1], c[2], Math.min(255, c[3] * alphaMult(d))]
+              const edgeAlpha = Math.round(160 * alphaMult(d))
+              return [10, 40, 80, Math.max(24, Math.min(255, edgeAlpha))]
             },
-            getWidth: (d) => (this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * zoomScale) + (this.edgeIsFocused(d) ? 1.5 : 0),
+            getWidth: (d) => {
+              const tube = (this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * zoomScale * 1.65) + 6.0
+              return Math.min(42, tube + (this.edgeIsFocused(d) ? 2.0 : 0))
+            },
             getPolygonOffset: (d) => (this.edgeIsFocused(d) ? [0, -1000] : [0, 0]),
             widthUnits: "pixels",
-            widthMinPixels: 4,
+            widthMinPixels: 6,
             pickable: true,
             parameters: {
               blend: true,
@@ -72,7 +76,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
                 return [target[0], target[1], target[2], Math.min(255, target[3] * alphaMult(d))]
               },
               getWidth: (d) => {
-                const base = Math.max(3.0, Math.min(this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * 0.96 * zoomScale, 10.5))
+                const base = Math.max(3.4, Math.min((this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * 0.98 * zoomScale) + 0.6, 11.5))
                 return this.edgeIsFocused(d) ? Math.min(12.0, base + 2.0) : base
               },
               getPolygonOffset: (d) => (this.edgeIsFocused(d) ? [0, -1000] : [0, 0]),
@@ -108,10 +112,11 @@ export const godViewRenderingGraphLayerTransportMethods = {
                 getFrom: (d) => d.from,
                 getTo: (d) => d.to,
                 getColor: (d) => d.color,
-                getSize: (d) => d.size,
+                getSize: (d) => Number(d.size || 0) * particleSizeScale,
                 getSpeed: (d) => d.speed,
                 getSeed: (d) => d.seed,
                 getJitter: (d) => d.jitter,
+                getLaneOffset: (d) => d.laneOffset,
                 pickable: false,
                 time: this.state.animationPhase,
                 parameters: {
@@ -135,14 +140,15 @@ export const godViewRenderingGraphLayerTransportMethods = {
             const y = Number(from[1] || 0) + (dy * t)
             const nx = -dy / len
             const ny = dx / len
-            const laneBucket = ((Math.floor(Number(particle.seed || 0) * 1009) % 7) - 3)
-            const laneOffset = laneBucket * Math.max(0.9, (Number(particle.jitter || 0) * 0.18))
+            const laneBucket = ((Math.floor(Number(particle.seed || 0) * 1009) % 5) - 2)
+            const laneSpread = laneBucket * Math.max(0.2, (Number(particle.jitter || 0) * 0.04))
+            const laneOffset = Number(particle.laneOffset || 0)
             const bob = Math.sin((this.state.animationPhase * 9.0) + (Number(particle.seed || 0) * 23.0)) * 0.35
             const color = particle.color || [56, 189, 248, 120]
             const alphaFade = Math.max(0, Math.sin(t * Math.PI))
             return {
-              position: [x + (nx * (laneOffset + bob)), y + (ny * (laneOffset + bob)), 0],
-              radius: Math.max(0.9, Number(particle.size || 2.4) * 0.16),
+              position: [x + (nx * (laneOffset + laneSpread + bob)), y + (ny * (laneOffset + laneSpread + bob)), 0],
+              radius: Math.max(0.9, Number(particle.size || 2.4) * 0.16 * particleSizeScale),
               color: [color[0], color[1], color[2], Math.round(Math.max(18, Number(color[3] || 90) * alphaFade))],
             }
           })

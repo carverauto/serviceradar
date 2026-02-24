@@ -10,6 +10,7 @@ uniform packetFlowUniforms {
 const packetFlowUniformsModule = {
   name: "packetFlow",
   vs: packetFlowUniformBlock,
+  fs: packetFlowUniformBlock,
   getUniforms: props => props,
   uniformTypes: {
     time: "f32",
@@ -25,6 +26,7 @@ in float instanceSeeds;
 in float instanceSpeeds;
 in float instanceSizes;
 in float instanceJitters;
+in float instanceLaneOffsets;
 in vec4 instanceColors;
 
 out vec4 vColor;
@@ -35,20 +37,18 @@ float rand(vec2 co) {
 
 void main(void) {
   float progress = fract(instanceSeeds + (packetFlow.time * instanceSpeeds));
-  float eased = pow(progress, 1.18);
-  vec2 pos = mix(instanceFrom, instanceTo, eased);
+  vec2 pos = mix(instanceFrom, instanceTo, progress);
 
   vec2 dir = normalize(instanceTo - instanceFrom);
   vec2 normal = vec2(-dir.y, dir.x);
+  pos += normal * instanceLaneOffsets;
 
   float offset = (rand(vec2(instanceSeeds, instanceSeeds)) - 0.5) * 2.0;
   pos += normal * offset * instanceJitters;
 
-  // Colors are automatically normalized to 0.0-1.0 by Deck.gl's unorm8 inference.
-  float brightnessBoost = 1.0 + (sin(progress * 3.14159265) * 0.5);
-  vColor = vec4((instanceColors.rgb / 255.0) * brightnessBoost, instanceColors.a / 255.0);
-  float alphaFade = sin(progress * 3.14159265);
-  vColor.a = clamp(vColor.a * alphaFade, 0.0, 1.0);
+  vColor = vec4(instanceColors.rgb / 255.0, instanceColors.a / 255.0);
+  float fade = smoothstep(0.0, 0.05, progress) * smoothstep(1.0, 0.95, progress);
+  vColor.a *= fade;
   gl_Position = project_position_to_clipspace(vec3(pos, 0.0), vec3(0.0), vec3(0.0));
   gl_PointSize = instanceSizes;
 }
@@ -68,9 +68,9 @@ void main(void) {
     discard;
   }
 
-  float glow = smoothstep(0.5, 0.0, dist);
-  float core = smoothstep(0.15, 0.0, dist);
-  float finalAlpha = vColor.a * (glow + (core * 2.0));
+  float core = smoothstep(0.2, 0.0, dist);
+  float glow = smoothstep(0.5, 0.2, dist) * 0.6;
+  float finalAlpha = vColor.a * (core + glow);
   fragColor = vec4(vColor.rgb, finalAlpha);
 }
 `
@@ -97,6 +97,7 @@ export default class PacketFlowLayer extends Layer {
       instanceSpeeds: {size: 1, accessor: "getSpeed"},
       instanceSizes: {size: 1, accessor: "getSize"},
       instanceJitters: {size: 1, accessor: "getJitter"},
+      instanceLaneOffsets: {size: 1, accessor: "getLaneOffset"},
       instanceColors: {size: 4, accessor: "getColor"},
     })
     this.state.model = this._getModel()
@@ -131,8 +132,8 @@ export default class PacketFlowLayer extends Layer {
     const model = this.state.model
     if (model) {
       model.shaderInputs.setProps({packetFlow: {time: this.props.time || 0}})
-      model.draw(this.context.renderPass)
     }
+    super.draw(opts)
   }
 
   getBounds() {
@@ -180,7 +181,7 @@ PacketFlowLayer.defaultProps = {
   getSpeed: {type: "accessor", value: (d) => d.speed},
   getSize: {type: "accessor", value: (d) => d.size},
   getJitter: {type: "accessor", value: (d) => d.jitter},
-  getTime: {type: "accessor", value: () => 0},
+  getLaneOffset: {type: "accessor", value: (d) => d.laneOffset},
   getColor: {type: "accessor", value: (d) => (Array.isArray(d.color) ? d.color : [56, 189, 248, 80])},
   getPosition: {
     type: "accessor",
