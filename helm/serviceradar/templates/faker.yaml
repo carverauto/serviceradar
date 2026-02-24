@@ -13,6 +13,7 @@ spec:
         app: serviceradar-faker
         app.kubernetes.io/part-of: serviceradar
     spec:
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
       {{- if .Values.faker.gobgp.enabled }}
       initContainers:
       - name: gobgp-binaries

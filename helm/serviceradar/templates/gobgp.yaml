@@ -54,6 +54,7 @@ spec:
         app.kubernetes.io/part-of: serviceradar
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
       containers:
       - name: gobgpd
         image: {{ .Values.gobgp.image.repository }}:{{ .Values.gobgp.image.tag }}

@@ -35,6 +35,7 @@ spec:
         app: serviceradar-bmp-collector
         app.kubernetes.io/part-of: serviceradar
     spec:
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.bmpCollectorServiceAccount | default "serviceradar-bmp-collector" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:

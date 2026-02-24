@@ -126,6 +126,20 @@ imagePullSecrets:
   value: "{{ default "/etc/serviceradar/certs" $vals.coreClient.certDir }}"
 {{- end -}}
 
+{{/*
+Topology spread constraints to distribute serviceradar pods across nodes.
+Usage: {{ include "serviceradar.topologySpread" . | nindent 6 }}
+*/}}
+{{- define "serviceradar.topologySpread" -}}
+topologySpreadConstraints:
+  - maxSkew: 2
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: serviceradar
+{{- end -}}
+
 {{- define "serviceradar.spireSocketHostPath" -}}
 {{- $vals := .Values -}}
 {{- $ns := default .Release.Namespace $vals.spire.namespace -}}

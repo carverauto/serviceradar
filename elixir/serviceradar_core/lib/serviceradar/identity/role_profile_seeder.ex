@@ -10,6 +10,7 @@ defmodule ServiceRadar.Identity.RoleProfileSeeder do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Repo
 
   @seed_delay_ms 5_000
 
@@ -30,13 +31,25 @@ defmodule ServiceRadar.Identity.RoleProfileSeeder do
   end
 
   def seed do
-    actor = SystemActor.system(:role_profile_seeder)
-    opts = [actor: actor]
+    if role_profiles_table_exists?() do
+      actor = SystemActor.system(:role_profile_seeder)
+      opts = [actor: actor]
 
-    Catalog.system_profiles()
-    |> Enum.each(fn profile ->
-      ensure_profile(profile, opts)
-    end)
+      Catalog.system_profiles()
+      |> Enum.each(fn profile ->
+        ensure_profile(profile, opts)
+      end)
+    else
+      Logger.warning("Skipping role profile seed: platform.role_profiles table missing")
+      :ok
+    end
+  end
+
+  defp role_profiles_table_exists? do
+    case Ecto.Adapters.SQL.query(Repo, "SELECT to_regclass('platform.role_profiles')", []) do
+      {:ok, %{rows: [[value]]}} when not is_nil(value) -> true
+      _ -> false
+    end
   end
 
   defp ensure_profile(

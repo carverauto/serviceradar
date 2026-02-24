@@ -53,14 +53,25 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
   defp maybe_migrate do
     repo = ServiceRadar.Repo
 
-    # All schema objects live under the platform schema. Migrations must run with `--prefix platform`
-    # so Oban tables, constraints, etc. are created in the right namespace.
-    case Ecto.Adapters.SQL.query(repo, "SELECT to_regclass('platform.user_tokens')", []) do
-      {:ok, %{rows: [[nil]]}} ->
+    # Guard against partially migrated databases: legacy baseline tables can exist
+    # while newer RBAC tables (like role_profiles) are still missing.
+    case Ecto.Adapters.SQL.query(
+           repo,
+           "SELECT to_regclass('platform.user_tokens'), to_regclass('platform.role_profiles'), pg_catalog.pg_is_in_recovery() = false AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper)",
+           []
+         ) do
+      {:ok, %{rows: [[user_tokens, role_profiles, _can_migrate]]}}
+      when not is_nil(user_tokens) and not is_nil(role_profiles) ->
+        Mix.shell().info("Skipping ecto.migrate; schema already present")
+
+      {:ok, %{rows: [[_user_tokens, _role_profiles, true]]}} ->
         Mix.Task.run("ecto.migrate", ["--quiet", "--prefix", "platform"])
 
-      {:ok, _} ->
-        Mix.shell().info("Skipping ecto.migrate; schema already present")
+      {:ok, %{rows: [[user_tokens, role_profiles, false]]}} ->
+        Mix.shell().info(
+          "Skipping ecto.migrate; schema incomplete but current DB user lacks migrate privileges " <>
+            "(user_tokens=#{inspect(user_tokens)}, role_profiles=#{inspect(role_profiles)})"
+        )
 
       {:error, reason} ->
         Mix.shell().info("Skipping ecto.migrate; probe failed: #{inspect(reason)}")
