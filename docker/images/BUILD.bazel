@@ -868,8 +868,8 @@ oci_load(
 pkg_tar(
     name = "netflow_collector_layer_amd64",
     files = {
-        "//rust/netflow-collector:netflow-collector": "usr/local/bin/serviceradar-netflow-collector",
-        "//rust/netflow-collector:netflow-collector.json": "etc/serviceradar/netflow-collector.json",
+        "//rust/flow-collector:flow-collector": "usr/local/bin/serviceradar-netflow-collector",
+        "//rust/flow-collector:flow-collector.json": "etc/serviceradar/netflow-collector.json",
     },
     modes = {
         "usr/local/bin/serviceradar-netflow-collector": "0755",
@@ -1077,7 +1077,7 @@ pkg_tar(
         "//rust/consumers/zen:data/snmp_severity.json": "var/lib/serviceradar/data/snmp_severity.json",
         "//rust/consumers/zen:data/passthrough.json": "var/lib/serviceradar/data/passthrough.json",
         "//rust/consumers/zen:data/strip_full_message.json": "var/lib/serviceradar/data/strip_full_message.json",
-        "//rust/netflow-collector:data/flows/netflow_to_ocsf.json": "var/lib/serviceradar/data/netflow_to_ocsf.json",
+        "//rust/flow-collector:data/flows/netflow_to_ocsf.json": "var/lib/serviceradar/data/netflow_to_ocsf.json",
     },
     modes = {
         "usr/local/bin/serviceradar-zen": "0755",

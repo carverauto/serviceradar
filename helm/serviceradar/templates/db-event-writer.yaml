@@ -19,6 +19,7 @@ spec:
       annotations:
         checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
     spec:
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:

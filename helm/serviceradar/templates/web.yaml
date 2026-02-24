@@ -67,10 +67,12 @@ spec:
     metadata:
       labels:
         app: serviceradar-web-ng
+        app.kubernetes.io/part-of: serviceradar
       annotations:
         checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ $webNgSA }}
       {{- if $migrationsEnabled }}
       initContainers:

@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
     if FeatureFlags.god_view_enabled?() do
       {:ok,
        socket
-       |> assign(:page_title, "God-View Topology")
+       |> assign(:page_title, "Network Topology")
        |> assign(:current_path, "/topology")
        |> assign(:snapshot_url, ~p"/topology/snapshot/latest")
        |> assign(:schema_version, GodViewSnapshot.schema_version())
@@ -162,13 +162,6 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={%{page_path: @current_path}}>
       <div class="mx-auto max-w-7xl p-6 space-y-6">
-        <.header>
-          God-View Topology
-          <:subtitle>
-            deck.gl WebGPU topology surface with live Arrow snapshots and causal overlays.
-          </:subtitle>
-        </.header>
-
         <.ui_panel>
           <:header>
             <div class="text-sm font-semibold">Topology Surface</div>

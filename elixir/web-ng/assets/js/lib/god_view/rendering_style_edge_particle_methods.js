@@ -6,7 +6,8 @@ function packetFlowStamp(edgeData) {
   for (let i = 0; i < edgeData.length; i += step) {
     const edge = edgeData[i] || {}
     const key = edge.interactionKey || `${edge.sourceId || "s"}:${edge.targetId || "t"}:${i}`
-    acc += `|${key}:${Number(edge.flowPps || 0)}:${Number(edge.flowBps || 0)}:${Number(edge.capacityBps || 0)}`
+    const telemetryEligible = edge.telemetryEligible === false || edge.telemetry_eligible === false ? 0 : 1
+    acc += `|${key}:${Number(edge.flowPps || 0)}:${Number(edge.flowBps || 0)}:${Number(edge.flowPpsAb || 0)}:${Number(edge.flowPpsBa || 0)}:${Number(edge.flowBpsAb || 0)}:${Number(edge.flowBpsBa || 0)}:${Number(edge.capacityBps || 0)}:${telemetryEligible}`
   }
   return acc
 }
@@ -21,6 +22,8 @@ export const godViewRenderingStyleEdgeParticleMethods = {
     }
     const maxParticles = 60000
     const particles = []
+    const zoom = Number(this?.state?.viewState?.zoom || 0)
+    const zoomDensity = Math.max(0.55, Math.min(1.25, (zoom + 2.5) / 4.5))
 
     const pushDirectionParticles = ({src, dst, edgeIndex, count, speedBase, jitter, utilization, laneOffset}) => {
       for (let j = 0; j < count; j += 1) {
@@ -59,35 +62,77 @@ export const godViewRenderingStyleEdgeParticleMethods = {
     for (let i = 0; i < edgeData.length; i += 1) {
       if (particles.length >= maxParticles) break
       const edge = edgeData[i]
+      if (edge?.telemetryEligible === false || edge?.telemetry_eligible === false) continue
       const src = edge?.sourcePosition
       const dst = edge?.targetPosition
       if (!Array.isArray(src) || !Array.isArray(dst)) continue
       const pps = Number(edge?.flowPps || 0)
       const bps = Number(edge?.flowBps || 0)
+      const ppsAb = Number(edge?.flowPpsAb || 0)
+      const ppsBa = Number(edge?.flowPpsBa || 0)
+      const bpsAb = Number(edge?.flowBpsAb || 0)
+      const bpsBa = Number(edge?.flowBpsBa || 0)
       const cap = Number(edge?.capacityBps || 0)
       const utilization = cap > 0 ? Math.min(1, bps / cap) : 0
       const bpsSignal = bps > 0 ? Math.min(1, Math.log10(Math.max(1, bps)) / 10) : 0
       const baseline = 1.05 + Math.min(1.0, Math.log10(Math.max(1, edge.weight || 1)) * 0.7)
       const trafficSignal = cap > 0 ? utilization : bpsSignal
       const intensity = Math.max(0.9, (baseline * 0.45) + (trafficSignal * 3.0))
-      const particlesOnEdge = Math.max(120, Math.min(1200, Math.floor(intensity * 120)))
+      const totalDirectionalPps = ppsAb + ppsBa
+      const totalDirectionalBps = bpsAb + bpsBa
+      const totalSignal = totalDirectionalPps > 0 || totalDirectionalBps > 0
+        ? Math.max(totalDirectionalPps, totalDirectionalBps)
+        : Math.max(pps, bps)
+      const abWeight = totalDirectionalPps > 0 ? (ppsAb / Math.max(1, totalDirectionalPps))
+        : (totalDirectionalBps > 0 ? (bpsAb / Math.max(1, totalDirectionalBps)) : 1.0)
+      const baWeight = totalDirectionalPps > 0 ? (ppsBa / Math.max(1, totalDirectionalPps))
+        : (totalDirectionalBps > 0 ? (bpsBa / Math.max(1, totalDirectionalBps)) : 0.0)
       const baseSpeed = Math.min(0.11, 0.045 + (intensity * 0.014))
       const tubeWidth = typeof this.edgeWidthPixels === "function"
         ? this.edgeWidthPixels(cap, pps, bps)
         : 3.2
-      const jitterBase = Math.max(1.2, Math.min(6.5, (tubeWidth * 0.34) + 1.1))
-      const laneOffset = 0
+      const laneSeparation = Math.max(0.35, Math.min(2.6, tubeWidth * 0.22))
+      const jitterBase = Math.max(1.1, Math.min(6.2, (tubeWidth * 0.32) + 0.95))
+      const spreadFill = Math.max(0.8, Math.min(1.4, 0.9 + (utilization * 0.7)))
+      const particlesOnEdge = Math.max(
+        96,
+        Math.min(1400, Math.floor((95 + (intensity * 85)) * (0.78 + (tubeWidth * 0.16)) * zoomDensity)),
+      )
+      const bidirectional = baWeight > 0
+      const abMinWeight = bidirectional ? 0.1 : 0.05
+      const abCount = Math.max(1, Math.floor(particlesOnEdge * Math.max(abMinWeight, abWeight)))
+      const baCount = bidirectional ? Math.max(1, Math.floor(particlesOnEdge * Math.max(0.1, baWeight))) : 0
+      const totalWeight = Math.max(0.0001, abWeight + baWeight)
+      const abRatio = abWeight / totalWeight
+      const baRatio = baWeight / totalWeight
+      const abSpeed = Math.max(0.02, Math.min(0.12, baseSpeed * (0.86 + (abRatio * 0.24))))
+      const baSpeed = Math.max(0.02, Math.min(0.12, baseSpeed * (0.86 + (baRatio * 0.24))))
 
-      pushDirectionParticles({
-        src,
-        dst,
-        edgeIndex: i,
-        count: particlesOnEdge,
-        speedBase: baseSpeed,
-        jitter: jitterBase,
-        utilization,
-        laneOffset,
-      })
+      if (totalSignal > 0) {
+        pushDirectionParticles({
+          src,
+          dst,
+          edgeIndex: i,
+          count: abCount,
+          speedBase: abSpeed,
+          jitter: jitterBase * spreadFill,
+          utilization,
+          laneOffset: baCount > 0 ? laneSeparation : 0,
+        })
+
+        if (baCount > 0) {
+          pushDirectionParticles({
+            src: dst,
+            dst: src,
+            edgeIndex: i + 700_000,
+            count: baCount,
+            speedBase: baSpeed,
+            jitter: jitterBase * spreadFill,
+            utilization,
+            laneOffset: -laneSeparation,
+          })
+        }
+      }
     }
 
     if (cacheState) {

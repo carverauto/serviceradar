@@ -75,6 +75,7 @@ _ =
       # ServiceRadar-specific fields
       {"gateway_id", "text"},
       {"agent_id", "text"},
+      {"management_device_id", "text"},
       {"discovery_sources", "text[]"},
       {"is_available", "boolean"},
       {"metadata", "jsonb"}

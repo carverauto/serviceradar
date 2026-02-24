@@ -416,6 +416,115 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
     end
   end
 
+  describe "prune_unattributed_unifi_links/1" do
+    test "drops unattributed UniFi links when attributed SNMP-like evidence exists for same pair" do
+      left = "sr:left-1"
+      right = "sr:right-1"
+
+      records = [
+        %{
+          protocol: "UniFi-API",
+          local_device_id: left,
+          local_device_ip: "192.168.1.10",
+          local_if_index: 0,
+          local_if_name: nil,
+          neighbor_device_id: right,
+          neighbor_mgmt_addr: "192.168.1.11"
+        },
+        %{
+          protocol: "LLDP",
+          local_device_id: left,
+          local_device_ip: "192.168.1.10",
+          local_if_index: 7,
+          local_if_name: "eth7",
+          neighbor_device_id: right,
+          neighbor_mgmt_addr: "192.168.1.11"
+        }
+      ]
+
+      pruned = MapperResultsIngestor.prune_unattributed_unifi_links(records)
+      assert length(pruned) == 1
+      assert hd(pruned).protocol == "LLDP"
+    end
+
+    test "keeps unattributed UniFi links when no attributed evidence exists for pair" do
+      records = [
+        %{
+          protocol: "UniFi-API",
+          local_device_id: "sr:left-2",
+          local_device_ip: "192.168.1.20",
+          local_if_index: 0,
+          local_if_name: nil,
+          neighbor_device_id: "sr:right-2",
+          neighbor_mgmt_addr: "192.168.1.21"
+        }
+      ]
+
+      assert MapperResultsIngestor.prune_unattributed_unifi_links(records) == records
+    end
+  end
+
+  describe "infer_reverse_interface_hints/1" do
+    test "infers local_if_name from reverse LLDP neighbor port id" do
+      records = [
+        %{
+          protocol: "LLDP",
+          local_device_id: "sr:uswpro24-a",
+          neighbor_device_id: "sr:uswagg",
+          local_if_index: 25,
+          local_if_name: nil,
+          neighbor_port_id: "50:6f:72:74:20:31",
+          neighbor_port_descr: "SFP_ 1",
+          metadata: %{"confidence_tier" => "high"}
+        },
+        %{
+          protocol: "UniFi-API",
+          local_device_id: "sr:uswagg",
+          neighbor_device_id: "sr:uswpro24-a",
+          local_if_index: 0,
+          local_if_name: nil,
+          neighbor_port_id: nil,
+          neighbor_port_descr: nil,
+          metadata: %{}
+        }
+      ]
+
+      [_, reverse] = MapperResultsIngestor.infer_reverse_interface_hints(records)
+      assert reverse.local_if_name == "port 1"
+      assert reverse.metadata["local_if_name_inferred"] == "port 1"
+    end
+
+    test "does not override existing local interface attribution" do
+      records = [
+        %{
+          protocol: "LLDP",
+          local_device_id: "sr:a",
+          neighbor_device_id: "sr:b",
+          local_if_index: 12,
+          local_if_name: nil,
+          neighbor_port_id: "50:6f:72:74:20:32",
+          neighbor_port_descr: "Port 2",
+          metadata: %{"confidence_tier" => "high"}
+        },
+        %{
+          protocol: "UniFi-API",
+          local_device_id: "sr:b",
+          neighbor_device_id: "sr:a",
+          local_if_index: 8,
+          local_if_name: "Port 8",
+          neighbor_port_id: nil,
+          neighbor_port_descr: nil,
+          metadata: %{}
+        }
+      ]
+
+      [_, reverse] = MapperResultsIngestor.infer_reverse_interface_hints(records)
+      assert reverse.local_if_index == 8
+      assert reverse.local_if_name == "Port 8"
+      refute Map.has_key?(reverse.metadata, "local_if_name_inferred")
+    end
+  end
+
   describe "suppress_topology_sighting_candidate?/1" do
     test "suppresses low-confidence public SNMP ARP/FDB sightings without neighbor name" do
       record = %{
@@ -801,6 +910,122 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       assert MapperResultsIngestor.infer_wireguard_tunnel_links(records, interfaces, devices) ==
                []
+    end
+  end
+
+  describe "topology metric bootstrap helpers" do
+    test "topology_metric_bootstrap_targets/1 returns unique positive if_index targets" do
+      records = [
+        %{local_device_id: "sr:uswagg", local_if_index: 8},
+        %{"local_device_id" => "sr:uswagg", "local_if_index" => 8},
+        %{local_device_id: "sr:uswpro24-a", local_if_index: 19},
+        %{local_device_id: "sr:bad", local_if_index: 0},
+        %{local_device_id: nil, local_if_index: 7}
+      ]
+
+      assert MapSet.new(MapperResultsIngestor.topology_metric_bootstrap_targets(records)) ==
+               MapSet.new([{"sr:uswagg", 8}, {"sr:uswpro24-a", 19}])
+    end
+
+    test "topology_metric_bootstrap_enabled?/2 honors metadata override" do
+      records = [
+        %{
+          metadata: %{
+            "topology_interface_metrics_autobootstrap_enabled" => "false"
+          }
+        }
+      ]
+
+      assert MapperResultsIngestor.topology_metric_bootstrap_enabled?(records, true) == false
+      assert MapperResultsIngestor.topology_metric_bootstrap_enabled?(records, false) == false
+    end
+
+    test "merge_required_topology_metrics/1 adds required metrics without duplication" do
+      selected =
+        MapperResultsIngestor.merge_required_topology_metrics([
+          "ifInOctets",
+          "ifHCInOctets",
+          "ifOutOctets"
+        ])
+
+      assert "ifInOctets" in selected
+      assert "ifInUcastPkts" in selected
+      assert "ifOutOctets" in selected
+      assert "ifOutUcastPkts" in selected
+      assert Enum.count(selected, &(&1 == "ifInOctets")) == 1
+      assert Enum.count(selected, &(&1 == "ifOutOctets")) == 1
+      assert "ifHCInOctets" in selected
+    end
+
+    test "merge_required_topology_metrics/2 adds HC metrics when interface supports them" do
+      interface = %{
+        available_metrics: [
+          %{"name" => "ifInOctets"},
+          %{"name" => "ifOutOctets"},
+          %{"name" => "ifHCInOctets"},
+          %{"name" => "ifHCOutOctets"}
+        ]
+      }
+
+      selected = MapperResultsIngestor.merge_required_topology_metrics([], interface)
+
+      assert "ifInOctets" in selected
+      assert "ifOutOctets" in selected
+      assert "ifHCInOctets" in selected
+      assert "ifHCOutOctets" in selected
+      assert "ifHCInUcastPkts" in selected
+      assert "ifHCOutUcastPkts" in selected
+    end
+
+    test "merge_required_topology_metrics is idempotent for already-configured selections" do
+      initial = [
+        "ifInOctets",
+        "ifOutOctets",
+        "ifInUcastPkts",
+        "ifOutUcastPkts",
+        "ifHCInOctets"
+      ]
+
+      once = MapperResultsIngestor.merge_required_topology_metrics(initial)
+      twice = MapperResultsIngestor.merge_required_topology_metrics(once)
+
+      assert twice == once
+    end
+
+    test "topology_interface_settings_patch/2 returns no-op when already enabled and complete" do
+      existing = %{
+        metrics_enabled: true,
+        metrics_selected: ["ifInOctets", "ifOutOctets", "ifInUcastPkts", "ifOutUcastPkts"]
+      }
+
+      assert MapperResultsIngestor.topology_interface_settings_patch(existing, nil) == nil
+    end
+
+    test "topology_interface_settings_patch/2 enables metrics when disabled" do
+      existing = %{
+        metrics_enabled: false,
+        metrics_selected: ["ifInOctets", "ifOutOctets", "ifInUcastPkts", "ifOutUcastPkts"]
+      }
+
+      assert MapperResultsIngestor.topology_interface_settings_patch(existing, nil) == %{
+               metrics_enabled: true,
+               metrics_selected: ["ifInOctets", "ifOutOctets", "ifInUcastPkts", "ifOutUcastPkts"]
+             }
+    end
+
+    test "topology_interface_settings_patch/2 reconciles missing metrics and keeps existing extras" do
+      existing = %{metrics_enabled: true, metrics_selected: ["ifHCInOctets"]}
+
+      assert MapperResultsIngestor.topology_interface_settings_patch(existing, nil) == %{
+               metrics_enabled: true,
+               metrics_selected: [
+                 "ifHCInOctets",
+                 "ifInOctets",
+                 "ifInUcastPkts",
+                 "ifOutOctets",
+                 "ifOutUcastPkts"
+               ]
+             }
     end
   end
 end

@@ -14,7 +14,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AliasEvents
   alias ServiceRadar.Identity.DeviceAliasState
-  alias ServiceRadar.Inventory.{Device, IdentityReconciler, Interface, InterfaceClassifier}
+
+  alias ServiceRadar.Inventory.{
+    Device,
+    IdentityReconciler,
+    Interface,
+    InterfaceClassifier,
+    InterfaceSettings
+  }
+
   alias ServiceRadar.NetworkDiscovery.{MapperJob, TopologyGraph, TopologyLink}
   alias ServiceRadar.Repo
   @unifi_interface_metadata_keys ~w(
@@ -89,6 +97,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         case insert_bulk(records_with_wireguard, TopologyLink, actor, "topology") do
           :ok ->
             TopologyGraph.upsert_links(records_with_wireguard)
+            maybe_bootstrap_topology_interface_metrics(records_with_wireguard, actor)
             :ok
 
           {:error, reason} ->
@@ -99,6 +108,224 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       {:error, reason} ->
         Logger.warning("Mapper topology ingestion failed: #{inspect(reason)}")
         {:error, reason}
+    end
+  end
+
+  @required_topology_metrics ~w(ifInOctets ifInUcastPkts ifOutOctets ifOutUcastPkts)
+  @required_topology_metrics_hc ~w(ifHCInOctets ifHCInUcastPkts ifHCOutOctets ifHCOutUcastPkts)
+
+  @doc false
+  def topology_metric_bootstrap_targets(records) when is_list(records) do
+    records
+    |> Enum.reduce(MapSet.new(), fn record, acc ->
+      device_id =
+        normalize_string(Map.get(record, :local_device_id) || Map.get(record, "local_device_id"))
+
+      if_index = Map.get(record, :local_if_index) || Map.get(record, "local_if_index")
+
+      if is_binary(device_id) and is_integer(if_index) and if_index > 0 do
+        MapSet.put(acc, {device_id, if_index})
+      else
+        acc
+      end
+    end)
+    |> MapSet.to_list()
+  end
+
+  def topology_metric_bootstrap_targets(_), do: []
+
+  @doc false
+  def topology_metric_bootstrap_enabled?(records, default_enabled \\ nil)
+
+  def topology_metric_bootstrap_enabled?(records, default_enabled) when is_list(records) do
+    default =
+      if is_boolean(default_enabled) do
+        default_enabled
+      else
+        Application.get_env(
+          :serviceradar_core,
+          :topology_interface_metrics_autobootstrap_enabled,
+          true
+        ) == true
+      end
+
+    override =
+      Enum.reduce_while(records, nil, fn record, _acc ->
+        metadata = Map.get(record, :metadata) || Map.get(record, "metadata")
+
+        value =
+          parse_optional_bool(
+            metadata_value(metadata, "topology_snmp_bootstrap_enabled") ||
+              metadata_value(metadata, "topology_interface_metrics_autobootstrap_enabled")
+          )
+
+        if is_nil(value), do: {:cont, nil}, else: {:halt, value}
+      end)
+
+    case override do
+      nil -> default
+      value -> value
+    end
+  end
+
+  def topology_metric_bootstrap_enabled?(_, default_enabled) when is_boolean(default_enabled),
+    do: default_enabled
+
+  def topology_metric_bootstrap_enabled?(_, _), do: true
+
+  defp parse_optional_bool(nil), do: nil
+  defp parse_optional_bool(v) when is_boolean(v), do: v
+
+  defp parse_optional_bool(v) when is_binary(v) do
+    case String.downcase(String.trim(v)) do
+      "true" -> true
+      "1" -> true
+      "yes" -> true
+      "on" -> true
+      "false" -> false
+      "0" -> false
+      "no" -> false
+      "off" -> false
+      _ -> nil
+    end
+  end
+
+  defp parse_optional_bool(_), do: nil
+
+  @doc false
+  def merge_required_topology_metrics(existing, interface_or_available_metrics \\ nil)
+
+  def merge_required_topology_metrics(existing, interface_or_available_metrics)
+      when is_list(existing) do
+    required =
+      @required_topology_metrics ++
+        hc_required_topology_metrics(interface_or_available_metrics)
+
+    (existing ++ required)
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  def merge_required_topology_metrics(_, interface_or_available_metrics) do
+    @required_topology_metrics ++ hc_required_topology_metrics(interface_or_available_metrics)
+  end
+
+  defp hc_required_topology_metrics(nil), do: []
+
+  defp hc_required_topology_metrics(%{available_metrics: available_metrics}) do
+    hc_required_topology_metrics(available_metrics)
+  end
+
+  defp hc_required_topology_metrics(available_metrics) when is_list(available_metrics) do
+    names =
+      available_metrics
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn metric ->
+        Map.get(metric, "name") || Map.get(metric, :name) || ""
+      end)
+      |> Enum.map(&to_string/1)
+      |> MapSet.new()
+
+    if MapSet.member?(names, "ifHCInOctets") or MapSet.member?(names, "ifHCOutOctets") do
+      @required_topology_metrics_hc
+    else
+      []
+    end
+  end
+
+  defp hc_required_topology_metrics(_), do: []
+
+  defp maybe_bootstrap_topology_interface_metrics(records, actor) when is_list(records) do
+    if topology_metric_bootstrap_enabled?(records) do
+      records
+      |> topology_metric_bootstrap_targets()
+      |> Enum.each(fn {device_id, if_index} ->
+        ensure_topology_interface_metric_settings(device_id, if_index, actor)
+      end)
+    end
+
+    :ok
+  rescue
+    e ->
+      Logger.warning("Topology interface metric bootstrap failed: #{inspect(e)}")
+      :ok
+  end
+
+  defp maybe_bootstrap_topology_interface_metrics(_records, _actor), do: :ok
+
+  defp ensure_topology_interface_metric_settings(device_id, if_index, actor) do
+    with {:ok, interface} <- latest_interface_for_ifindex(device_id, if_index, actor),
+         true <- is_binary(interface.interface_uid) and interface.interface_uid != "" do
+      existing =
+        case InterfaceSettings.get_by_interface(device_id, interface.interface_uid, actor: actor) do
+          {:ok, settings} -> settings
+          _ -> nil
+        end
+
+      case topology_interface_settings_patch(existing, interface) do
+        nil ->
+          {:ok, existing}
+
+        patch ->
+          InterfaceSettings.upsert(
+            device_id,
+            interface.interface_uid,
+            patch,
+            actor: actor
+          )
+      end
+    else
+      _ -> :ok
+    end
+  rescue
+    e ->
+      Logger.debug(
+        "Topology interface metric bootstrap skipped for #{device_id}/ifindex:#{if_index}: #{inspect(e)}"
+      )
+
+      :ok
+  end
+
+  defp latest_interface_for_ifindex(device_id, if_index, actor)
+       when is_binary(device_id) and is_integer(if_index) do
+    query =
+      Interface
+      |> Ash.Query.filter(device_id == ^device_id and if_index == ^if_index)
+      |> Ash.Query.sort(timestamp: :desc)
+      |> Ash.Query.limit(1)
+
+    case Ash.read_one(query, actor: actor) do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, interface} -> {:ok, interface}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  def topology_interface_settings_patch(existing, interface_or_available_metrics \\ nil)
+
+  def topology_interface_settings_patch(existing, interface_or_available_metrics) do
+    existing_selected =
+      case existing do
+        nil -> []
+        settings -> Map.get(settings, :metrics_selected) || []
+      end
+
+    enabled? =
+      case existing do
+        nil -> false
+        settings -> Map.get(settings, :metrics_enabled) == true
+      end
+
+    selected =
+      merge_required_topology_metrics(existing_selected, interface_or_available_metrics)
+
+    if enabled? and selected == existing_selected do
+      nil
+    else
+      %{metrics_enabled: true, metrics_selected: selected}
     end
   end
 
@@ -1713,7 +1940,176 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       end
     end)
     |> Enum.reverse()
+    |> prune_unattributed_unifi_links()
+    |> infer_reverse_interface_hints()
   end
+
+  @doc false
+  def prune_unattributed_unifi_links(records) when is_list(records) do
+    attributed_pairs =
+      records
+      |> Enum.reduce(MapSet.new(), fn record, acc ->
+        if attributed_snmp_like_record?(record) do
+          case topology_pair_key(record) do
+            nil -> acc
+            key -> MapSet.put(acc, key)
+          end
+        else
+          acc
+        end
+      end)
+
+    Enum.reject(records, fn record ->
+      unattributed_unifi_record?(record) and
+        case topology_pair_key(record) do
+          nil -> false
+          key -> MapSet.member?(attributed_pairs, key)
+        end
+    end)
+  end
+
+  def prune_unattributed_unifi_links(records), do: records
+
+  @doc false
+  def infer_reverse_interface_hints(records) when is_list(records) do
+    hints =
+      Enum.reduce(records, %{}, fn record, acc ->
+        local = normalize_string(Map.get(record, :local_device_id))
+        neighbor = normalize_string(Map.get(record, :neighbor_device_id))
+        hint = reverse_port_hint(record)
+
+        if is_binary(local) and is_binary(neighbor) and is_binary(hint) do
+          key = {neighbor, local}
+          rank = reverse_port_hint_rank(record)
+
+          case Map.get(acc, key) do
+            nil ->
+              Map.put(acc, key, {hint, rank})
+
+            {_existing_hint, existing_rank} ->
+              if rank >= existing_rank, do: Map.put(acc, key, {hint, rank}), else: acc
+          end
+        else
+          acc
+        end
+      end)
+
+    Enum.map(records, fn record ->
+      if reverse_hint_needed?(record) do
+        local = normalize_string(Map.get(record, :local_device_id))
+        neighbor = normalize_string(Map.get(record, :neighbor_device_id))
+
+        case Map.get(hints, {local, neighbor}) do
+          {hint, _rank} ->
+            metadata = Map.get(record, :metadata, %{}) |> Map.put("local_if_name_inferred", hint)
+            %{record | local_if_name: hint, metadata: metadata}
+
+          _ ->
+            record
+        end
+      else
+        record
+      end
+    end)
+  end
+
+  def infer_reverse_interface_hints(records), do: records
+
+  defp reverse_hint_needed?(record) when is_map(record) do
+    if_index = Map.get(record, :local_if_index)
+    if_name = normalize_string(Map.get(record, :local_if_name))
+
+    is_binary(normalize_string(Map.get(record, :local_device_id))) and
+      is_binary(normalize_string(Map.get(record, :neighbor_device_id))) and
+      (not is_integer(if_index) or if_index <= 0) and not is_binary(if_name)
+  end
+
+  defp reverse_hint_needed?(_), do: false
+
+  defp reverse_port_hint(record) when is_map(record) do
+    decode_hex_port_id(Map.get(record, :neighbor_port_id)) ||
+      normalize_string(Map.get(record, :neighbor_port_id)) ||
+      normalize_string(Map.get(record, :neighbor_port_descr))
+  end
+
+  defp reverse_port_hint(_), do: nil
+
+  defp reverse_port_hint_rank(record) when is_map(record) do
+    protocol = normalize_topology_protocol(Map.get(record, :protocol))
+
+    protocol_rank =
+      case protocol do
+        "lldp" -> 3
+        "cdp" -> 3
+        "snmp-l2" -> 2
+        _ -> 1
+      end
+
+    confidence_rank =
+      case metadata_value(Map.get(record, :metadata), "confidence_tier") do
+        "high" -> 3
+        "medium" -> 2
+        "low" -> 1
+        _ -> 0
+      end
+
+    protocol_rank * 10 + confidence_rank
+  end
+
+  defp reverse_port_hint_rank(_), do: 0
+
+  # Some LLDP/CDP identifiers are colon-delimited hex bytes (e.g. "50:6f:72:74:20:31" -> "Port 1").
+  defp decode_hex_port_id(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    with true <- String.contains?(trimmed, ":"),
+         parts <- String.split(trimmed, ":", trim: true),
+         true <- parts != [],
+         true <- Enum.all?(parts, &(String.length(&1) == 2)),
+         ints <- Enum.map(parts, &Integer.parse(&1, 16)),
+         true <- Enum.all?(ints, &match?({_, ""}, &1)) do
+      ints
+      |> Enum.map(fn {i, _} -> i end)
+      |> :binary.list_to_bin()
+      |> normalize_string()
+    else
+      _ -> nil
+    end
+  end
+
+  defp decode_hex_port_id(_), do: nil
+
+  defp attributed_snmp_like_record?(record) when is_map(record) do
+    normalize_topology_protocol(record.protocol) != "unifi-api" and
+      is_integer(record.local_if_index) and record.local_if_index > 0
+  end
+
+  defp attributed_snmp_like_record?(_record), do: false
+
+  defp unattributed_unifi_record?(record) when is_map(record) do
+    if_index = record.local_if_index
+    if_name = normalize_string(record.local_if_name)
+
+    normalize_topology_protocol(record.protocol) == "unifi-api" and
+      (not is_integer(if_index) or if_index <= 0) and not is_binary(if_name)
+  end
+
+  defp unattributed_unifi_record?(_record), do: false
+
+  defp topology_pair_key(record) when is_map(record) do
+    left = normalize_string(record.local_device_id) || normalize_string(record.local_device_ip)
+
+    right =
+      normalize_string(record.neighbor_device_id) || normalize_string(record.neighbor_mgmt_addr)
+
+    if is_binary(left) and is_binary(right) do
+      if left <= right, do: {left, right}, else: {right, left}
+    else
+      nil
+    end
+  end
+
+  defp topology_pair_key(_record), do: nil
 
   @doc false
   def normalize_interface(update) when is_map(update) do

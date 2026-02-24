@@ -3,6 +3,12 @@
 
 namespace: demo
 
+topologySpread:
+  enabled: true
+  maxSkew: 2
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: ScheduleAnyway
+
 global:
   imageTag: "latest"
   imagePullPolicy: Always
