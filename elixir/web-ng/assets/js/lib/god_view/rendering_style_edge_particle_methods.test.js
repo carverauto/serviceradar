@@ -16,18 +16,18 @@ describe("rendering_style_edge_particle_methods", () => {
     ])
 
     expect(particles.length).toBeGreaterThanOrEqual(32)
-    const headParticles = particles.filter((p) => p.size >= 5.5)
-    const dustParticles = particles.filter((p) => p.size < 5.5)
+    const headParticles = particles.filter((p) => p.size >= 4.2)
+    const dustParticles = particles.filter((p) => p.size < 4.2)
     expect(headParticles.length).toBeGreaterThan(0)
     expect(dustParticles.length).toBeGreaterThan(0)
     for (const particle of headParticles) {
-      expect(particle.size).toBeLessThanOrEqual(8.5)
+      expect(particle.size).toBeLessThanOrEqual(6.2)
       expect(particle.jitter).toBeLessThanOrEqual(10.5)
       expect(particle.color[3]).toBeGreaterThanOrEqual(235)
       expect(particle.color[3]).toBeLessThanOrEqual(255)
     }
     for (const particle of dustParticles) {
-      expect(particle.size).toBeLessThanOrEqual(4.8)
+      expect(particle.size).toBeLessThanOrEqual(3.8)
       expect(particle.jitter).toBeLessThanOrEqual(10.5)
       expect(particle.color[3]).toBeGreaterThanOrEqual(235)
       expect(particle.color[3]).toBeLessThanOrEqual(255)
