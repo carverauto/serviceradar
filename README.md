@@ -12,8 +12,9 @@
 <img width="1470" height="804" alt="Screenshot 2026-02-16 at 8 36 26 PM" src="https://github.com/user-attachments/assets/bec3d2cb-c311-4a26-848d-2fece4a5af86" />
 <img width="1470" height="801" alt="Screenshot 2026-02-16 at 8 37 08 PM" src="https://github.com/user-attachments/assets/0384520a-755f-4bdd-843a-a41f02d7c439" />
 
-https://github.com/user-attachments/assets/1cf2b90a-06f4-4ba7-b229-79720b16e0aa
-
+<video width="1470" controls>
+  <source src="https://github.com/user-attachments/assets/1cf2b90a-06f4-4ba7-b229-79720b16e0aa" type="video/mp4">
+</video>
 
 [![CI](https://github.com/carverauto/serviceradar/actions/workflows/main.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/main.yml)
 [![Go Linter](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml)
