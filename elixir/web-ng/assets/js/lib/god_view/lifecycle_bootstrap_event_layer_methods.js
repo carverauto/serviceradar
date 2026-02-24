@@ -5,7 +5,7 @@ export const godViewLifecycleBootstrapEventLayerMethods = {
         this.state.layers = {
           mantle: layers.mantle !== false,
           crust: layers.crust !== false,
-          atmosphere: layers.atmosphere !== false,
+          atmosphere: Boolean(this.state.packetFlowEnabled) && layers.atmosphere !== false,
           security: layers.security !== false,
         }
         if (this.state.lastGraph) this.deps.renderGraph(this.state.lastGraph)

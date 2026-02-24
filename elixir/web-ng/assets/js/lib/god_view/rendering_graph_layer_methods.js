@@ -2,14 +2,14 @@ import {godViewRenderingGraphLayerTransportMethods} from "./rendering_graph_laye
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 
 const godViewRenderingGraphLayerCoreMethods = {
-  buildGraphLayers(effective, nodeData, edgeData, edgeLabelData) {
+  buildGraphLayers(effective, nodeData, edgeData, edgeLabelData, rootPulseNodes) {
     const {
       baseLayers,
       mantleLayers,
       crustLayers,
       atmosphereLayers,
       securityLayers,
-    } = this.buildTransportAndEffectLayers(effective, nodeData, edgeData)
+    } = this.buildTransportAndEffectLayers(effective, nodeData, edgeData, rootPulseNodes)
 
     return [
       ...baseLayers,
