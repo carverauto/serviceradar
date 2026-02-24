@@ -63,7 +63,10 @@ export const godViewRenderingGraphBitmapMethods = {
       }
     }
 
-    const mask = new Uint8Array(states.length)
+    if (!this.state.visibilityMaskBuffer || this.state.visibilityMaskBuffer.length !== states.length) {
+      this.state.visibilityMaskBuffer = new Uint8Array(states.length)
+    }
+    const mask = this.state.visibilityMaskBuffer
     for (let i = 0; i < states.length; i += 1) {
       const category = this.stateCategory(states[i])
       mask[i] = this.state.filters[category] !== false ? 1 : 0
@@ -87,7 +90,11 @@ export const godViewRenderingGraphBitmapMethods = {
       }
     }
 
-    const mask = new Uint8Array(graph.nodes.length)
+    if (!this.state.traversalMaskBuffer || this.state.traversalMaskBuffer.length !== graph.nodes.length) {
+      this.state.traversalMaskBuffer = new Uint8Array(graph.nodes.length)
+    }
+    const mask = this.state.traversalMaskBuffer
+    mask.fill(0)
     const frontier = [this.state.selectedNodeIndex]
     mask[this.state.selectedNodeIndex] = 1
 

@@ -79,14 +79,14 @@ export const godViewLayoutTopologyAlgorithmMethods = {
       for (let lat = -80; lat < 80; lat += 10) {
         const [sx, sy] = projectMercator(lat, lon)
         const [tx, ty] = projectMercator(lat + 10, lon)
-        lines.push({sourcePosition: [sx, sy, -2], targetPosition: [tx, ty, -2]})
+        lines.push({sourcePosition: [sx, sy, 0], targetPosition: [tx, ty, 0]})
       }
     }
     for (let lat = -60; lat <= 60; lat += 20) {
       for (let lon = -180; lon < 180; lon += 15) {
         const [sx, sy] = projectMercator(lat, lon)
         const [tx, ty] = projectMercator(lat, lon + 15)
-        lines.push({sourcePosition: [sx, sy, -2], targetPosition: [tx, ty, -2]})
+        lines.push({sourcePosition: [sx, sy, 0], targetPosition: [tx, ty, 0]})
       }
     }
     return lines

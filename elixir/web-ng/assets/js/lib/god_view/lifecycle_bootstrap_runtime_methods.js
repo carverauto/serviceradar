@@ -37,6 +37,8 @@ const BOUND_METHOD_NAMES = [
   "handlePanStart",
   "handlePanMove",
   "handlePanEnd",
+  "syncReducedMotionPreference",
+  "handleReducedMotionPreferenceChange",
 ]
 
 export const godViewLifecycleBootstrapRuntimeMethods = {
@@ -49,11 +51,7 @@ export const godViewLifecycleBootstrapRuntimeMethods = {
     this.ensureDOM()
     this.resizeCanvas()
     window.addEventListener("resize", this.resizeCanvas)
-    this.state.canvas.addEventListener("wheel", this.handleWheelZoom, {passive: false})
-    this.state.canvas.addEventListener("pointerdown", this.handlePanStart)
-    window.addEventListener("pointermove", this.handlePanMove)
-    window.addEventListener("pointerup", this.handlePanEnd)
-    window.addEventListener("pointercancel", this.handlePanEnd)
+    this.syncReducedMotionPreference()
     this.startAnimationLoop()
   },
   initWasmEngine() {

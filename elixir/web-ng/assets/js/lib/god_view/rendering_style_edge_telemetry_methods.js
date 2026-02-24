@@ -23,8 +23,8 @@ export const godViewRenderingStyleEdgeTelemetryMethods = {
     const spark = pps > 0 ? Math.min(1, Math.log10(Math.max(10, pps)) / 6) : 0
     const t = Math.min(1, Math.max(util, spark))
 
-    const low = vivid ? [48, 226, 255, 65] : [40, 170, 220, 45]
-    const high = vivid ? [255, 74, 212, 90] : [214, 97, 255, 70]
+    const low = vivid ? [56, 210, 255, 88] : [48, 158, 226, 58]
+    const high = vivid ? [255, 110, 220, 142] : [196, 122, 255, 98]
 
     return [
       Math.round(low[0] * (1 - t) + high[0] * t),
@@ -43,18 +43,18 @@ export const godViewRenderingStyleEdgeTelemetryMethods = {
     const pps = Number(flowPps || 0)
     const bps = Number(flowBps || 0)
 
-    let base = 0.75
-    if (cap >= 100_000_000_000) base = 3.5
+    let base = 1.2
+    if (cap >= 100_000_000_000) base = 3.2
     else if (cap >= 40_000_000_000) base = 2.8
-    else if (cap >= 10_000_000_000) base = 2
-    else if (cap >= 1_000_000_000) base = 1.5
-    else if (cap >= 100_000_000) base = 1
+    else if (cap >= 10_000_000_000) base = 2.4
+    else if (cap >= 1_000_000_000) base = 2.0
+    else if (cap >= 100_000_000) base = 1.6
 
-    const ppsBoost = Math.min(2.8, Math.log10(Math.max(1, pps)) * 0.85)
+    const ppsBoost = Math.min(3.4, Math.log10(Math.max(1, pps)) * 0.95)
     const utilization = cap > 0 ? Math.min(1, bps / cap) : 0
-    const bpsBoost = utilization > 0 ? Math.min(3.2, Math.sqrt(utilization) * 3.2) : 0
-    const flowBoost = Math.max(ppsBoost, bpsBoost) * 0.6
-    return Math.min(4.5, Math.max(0.75, base + flowBoost))
+    const bpsBoost = utilization > 0 ? Math.min(4.2, Math.sqrt(utilization) * 4.2) : 0
+    const flowBoost = Math.max(ppsBoost, bpsBoost) * 0.55
+    return Math.min(7.2, Math.max(1.2, base + flowBoost))
   },
   connectionKindFromLabel(label) {
     const text = String(label == null ? "" : label).trim()

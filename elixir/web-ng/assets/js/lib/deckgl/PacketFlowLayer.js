@@ -1,89 +1,126 @@
 import {Layer, picking, project32} from "@deck.gl/core"
 import {Geometry, Model} from "@luma.gl/engine"
 
+const packetFlowUniformBlock = `\
+uniform packetFlowUniforms {
+  float time;
+} packetFlow;
+`
+
+const packetFlowUniformsModule = {
+  name: "packetFlow",
+  vs: packetFlowUniformBlock,
+  fs: packetFlowUniformBlock,
+  getUniforms: props => props,
+  uniformTypes: {
+    time: "f32",
+  },
+}
+
 const packetFlowVS = `\
+#version 300 es
 #define SHADER_NAME sr-packet-flow-layer-vs
-attribute vec2 a_from;
-attribute vec2 a_to;
-attribute float a_seed;
-attribute float a_speed;
-attribute float a_size;
-attribute float a_jitter;
-attribute vec4 a_color;
+in vec2 instanceFrom;
+in vec2 instanceTo;
+in float instanceSeeds;
+in float instanceSpeeds;
+in float instanceSizes;
+in float instanceJitters;
+in float instanceLaneOffsets;
+in vec4 instanceColors;
 
-uniform float u_time;
+out vec4 vColor;
 
-varying vec4 vColor;
-
-float hash(float n) {
-  return fract(sin(n) * 43758.5453123);
+float rand(vec2 co) {
+  return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
 }
 
 void main(void) {
-  float t = fract((u_time * a_speed) + a_seed);
-  float eased = pow(t, 1.18);
-  vec2 base = mix(a_from, a_to, eased);
+  float progress = fract(instanceSeeds + (packetFlow.time * instanceSpeeds));
+  vec2 pos = mix(instanceFrom, instanceTo, progress);
 
-  vec2 dir = normalize(max(vec2(0.0001), a_to - a_from));
+  vec2 dir = normalize(instanceTo - instanceFrom);
   vec2 normal = vec2(-dir.y, dir.x);
+  pos += normal * instanceLaneOffsets;
 
-  float jitterSeed = hash(a_seed * 91.733);
-  float spread = (jitterSeed - 0.5) * a_jitter;
-  float wobble = sin(u_time * 7.5 + a_seed * 29.0) * (a_jitter * 0.28);
+  float offset = (rand(vec2(instanceSeeds, instanceSeeds)) - 0.5) * 2.0;
+  pos += normal * offset * instanceJitters;
 
-  vec2 pos = base + normal * (spread + wobble);
-
-  vColor = a_color;
-  float tailFade = 1.0 - smoothstep(0.82, 1.0, t);
-  float headBoost = 0.74 + (1.0 - t) * 0.26;
-  vColor.a = clamp(vColor.a * tailFade * headBoost, 0.0, 1.0);
+  vColor = vec4(instanceColors.rgb / 255.0, instanceColors.a / 255.0);
+  // Fade particles out near both endpoints so node areas stay visually cleaner.
+  float fadeIn = smoothstep(0.0, 0.18, progress);
+  float fadeOut = smoothstep(1.0, 0.82, progress);
+  float fade = fadeIn * fadeOut;
+  vColor.a *= fade;
   gl_Position = project_position_to_clipspace(vec3(pos, 0.0), vec3(0.0), vec3(0.0));
-  gl_PointSize = a_size;
+  gl_PointSize = instanceSizes;
 }
 `
 
 const packetFlowFS = `\
+#version 300 es
 #define SHADER_NAME sr-packet-flow-layer-fs
 precision highp float;
-varying vec4 vColor;
+in vec4 vColor;
+out vec4 fragColor;
 
 void main(void) {
-  vec2 p = gl_PointCoord * 2.0 - 1.0;
-  float r = length(p);
-  if (r > 1.0) {
+  vec2 coord = gl_PointCoord - vec2(0.5);
+  float dist = length(coord);
+  if (dist > 0.5) {
     discard;
   }
-  float glow = 1.0 - pow(r, 1.2);
-  float alpha = glow * vColor.a;
-  gl_FragColor = vec4(vColor.rgb, alpha);
+
+  float core = smoothstep(0.2, 0.0, dist);
+  float glow = smoothstep(0.5, 0.2, dist) * 0.6;
+  float finalAlpha = vColor.a * (core + glow);
+  fragColor = vec4(vColor.rgb, finalAlpha);
 }
 `
 
 export default class PacketFlowLayer extends Layer {
+  static get layerName() {
+    return "PacketFlowLayer"
+  }
+
+  static get componentName() {
+    return "PacketFlowLayer"
+  }
+
   getShaders() {
-    return {vs: packetFlowVS, fs: packetFlowFS, modules: [project32, picking]}
+    return super.getShaders({vs: packetFlowVS, fs: packetFlowFS, modules: [project32, picking, packetFlowUniformsModule]})
   }
 
   initializeState() {
     const attributeManager = this.getAttributeManager()
     attributeManager.addInstanced({
-      a_from: {size: 2, accessor: "getFrom"},
-      a_to: {size: 2, accessor: "getTo"},
-      a_seed: {size: 1, accessor: "getSeed"},
-      a_speed: {size: 1, accessor: "getSpeed"},
-      a_size: {size: 1, accessor: "getSize"},
-      a_jitter: {size: 1, accessor: "getJitter"},
-      a_color: {size: 4, type: 5121, normalized: true, accessor: "getColor"},
+      instanceFrom: {size: 2, accessor: "getFrom"},
+      instanceTo: {size: 2, accessor: "getTo"},
+      instanceSeeds: {size: 1, accessor: "getSeed"},
+      instanceSpeeds: {size: 1, accessor: "getSpeed"},
+      instanceSizes: {size: 1, accessor: "getSize"},
+      instanceJitters: {size: 1, accessor: "getJitter"},
+      instanceLaneOffsets: {size: 1, accessor: "getLaneOffset"},
+      instanceColors: {size: 4, accessor: "getColor"},
     })
+    this.state.model = this._getModel()
+    this.getAttributeManager()?.invalidateAll?.()
+  }
 
-    this.setState({
-      model: this._getModel(),
-    })
+  updateState({props, oldProps, changeFlags}) {
+    super.updateState({props, oldProps, changeFlags})
+    if (changeFlags.extensionsChanged || !this.state.model) {
+      this.state.model?.destroy()
+      this.state.model = this._getModel()
+      this.getAttributeManager()?.invalidateAll?.()
+    }
   }
 
   _getModel() {
     return new Model(this.context.device, {
       ...this.getShaders(),
+      id: this.props.id,
+      bufferLayout: this.getAttributeManager().getBufferLayouts(),
       geometry: new Geometry({
         topology: "point-list",
         attributes: {
@@ -94,28 +131,64 @@ export default class PacketFlowLayer extends Layer {
     })
   }
 
-  draw({uniforms}) {
+  draw(opts) {
     const model = this.state.model
-    if (!model) return
-    model.setUniforms({
-      ...uniforms,
-      u_time: Number(this.props.time || 0),
-    })
-    model.draw()
+    if (model) {
+      model.shaderInputs.setProps({packetFlow: {time: this.props.time || 0}})
+    }
+    super.draw(opts)
+  }
+
+  getBounds() {
+    const data = this.props.data
+    if (!Array.isArray(data) || data.length === 0) return null
+
+    let minX = Number.POSITIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+
+    for (let i = 0; i < data.length; i += 1) {
+      const from = this.props.getFrom(data[i], {index: i})
+      const to = this.props.getTo(data[i], {index: i})
+      if (Array.isArray(from)) {
+        minX = Math.min(minX, Number(from[0] || 0))
+        minY = Math.min(minY, Number(from[1] || 0))
+        maxX = Math.max(maxX, Number(from[0] || 0))
+        maxY = Math.max(maxY, Number(from[1] || 0))
+      }
+      if (Array.isArray(to)) {
+        minX = Math.min(minX, Number(to[0] || 0))
+        minY = Math.min(minY, Number(to[1] || 0))
+        maxX = Math.max(maxX, Number(to[0] || 0))
+        maxY = Math.max(maxY, Number(to[1] || 0))
+      }
+    }
+
+    if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+      return null
+    }
+
+    return [minX, minY, maxX, maxY]
   }
 
   finalizeState() {
-    this.state.model?.delete?.()
+    this.state.model?.destroy()
   }
 }
 
 PacketFlowLayer.defaultProps = {
-  getFrom: (d) => d.from,
-  getTo: (d) => d.to,
-  getSeed: (d) => d.seed,
-  getSpeed: (d) => d.speed,
-  getSize: (d) => d.size,
-  getJitter: (d) => d.jitter,
-  getColor: (d) => d.color,
+  getFrom: {type: "accessor", value: (d) => (Array.isArray(d.from) ? d.from : [0, 0])},
+  getTo: {type: "accessor", value: (d) => (Array.isArray(d.to) ? d.to : [0, 0])},
+  getSeed: {type: "accessor", value: (d) => d.seed},
+  getSpeed: {type: "accessor", value: (d) => d.speed},
+  getSize: {type: "accessor", value: (d) => d.size},
+  getJitter: {type: "accessor", value: (d) => d.jitter},
+  getLaneOffset: {type: "accessor", value: (d) => d.laneOffset},
+  getColor: {type: "accessor", value: (d) => (Array.isArray(d.color) ? d.color : [56, 189, 248, 80])},
+  getPosition: {
+    type: "accessor",
+    value: (d) => (Array.isArray(d?.from) ? [d.from[0] || 0, d.from[1] || 0, 0] : [0, 0, 0]),
+  },
   time: 0,
 }

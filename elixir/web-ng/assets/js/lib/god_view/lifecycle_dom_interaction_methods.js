@@ -2,8 +2,9 @@ export const godViewLifecycleDomInteractionMethods = {
   startAnimationLoop() {
     if (this.state.animationTimer) return
     const tick = () => {
-      this.state.animationPhase = performance.now() / 1000
-      if (this.state.deck && this.state.lastGraph) {
+      const motionScale = this.state.prefersReducedMotion ? 0.35 : 1
+      this.state.animationPhase = (performance.now() / 1000) * motionScale
+      if (this.state.deck && this.state.lastGraph && this.state.packetFlowEnabled) {
         try {
           this.deps.renderGraph(this.state.lastGraph)
         } catch (error) {
@@ -18,6 +19,45 @@ export const godViewLifecycleDomInteractionMethods = {
     if (!this.state.animationTimer) return
     window.cancelAnimationFrame(this.state.animationTimer)
     this.state.animationTimer = null
+  },
+  syncReducedMotionPreference() {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      this.state.prefersReducedMotion = false
+      return
+    }
+
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)")
+    if (this.state.reducedMotionMediaQuery !== mediaQuery && this.state.reducedMotionMediaQuery && this.state.reducedMotionListener) {
+      try {
+        if (typeof this.state.reducedMotionMediaQuery.removeEventListener === "function") {
+          this.state.reducedMotionMediaQuery.removeEventListener("change", this.state.reducedMotionListener)
+        } else if (typeof this.state.reducedMotionMediaQuery.removeListener === "function") {
+          this.state.reducedMotionMediaQuery.removeListener(this.state.reducedMotionListener)
+        }
+      } catch (_err) {
+        // Best effort cleanup for browser compatibility.
+      }
+    }
+
+    this.state.reducedMotionMediaQuery = mediaQuery
+    if (!this.state.reducedMotionListener) {
+      this.state.reducedMotionListener = (event) => this.handleReducedMotionPreferenceChange(event)
+    }
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", this.state.reducedMotionListener)
+    } else if (typeof mediaQuery.addListener === "function") {
+      mediaQuery.addListener(this.state.reducedMotionListener)
+    }
+
+    this.handleReducedMotionPreferenceChange(mediaQuery)
+  },
+  handleReducedMotionPreferenceChange(event) {
+    const reduced = event?.matches === true
+    if (this.state.prefersReducedMotion === reduced) return
+
+    this.state.prefersReducedMotion = reduced
+    if (!this.state.animationTimer) this.startAnimationLoop()
   },
   handlePanStart(event) {
     if (!this.state.deck) return
