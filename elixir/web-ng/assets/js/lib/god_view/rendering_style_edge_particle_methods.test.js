@@ -47,4 +47,31 @@ describe("rendering_style_edge_particle_methods", () => {
     const particles = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances(edgeData)
     expect(particles.length).toBeLessThanOrEqual(60000)
   })
+
+  it("buildPacketFlowInstances skips telemetry-ineligible edges", () => {
+    const particles = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances([
+      {
+        sourcePosition: [0, 0, 0],
+        targetPosition: [20, 0, 0],
+        flowPps: 1000,
+        flowBps: 1_000_000,
+        capacityBps: 10_000_000,
+        telemetryEligible: false,
+      },
+      {
+        sourcePosition: [0, 5, 0],
+        targetPosition: [20, 5, 0],
+        flowPps: 1000,
+        flowBps: 1_000_000,
+        capacityBps: 10_000_000,
+        telemetryEligible: true,
+      },
+    ])
+
+    expect(particles.length).toBeGreaterThan(0)
+    for (const particle of particles) {
+      expect(particle.from).toEqual([0, 5])
+      expect(particle.to).toEqual([20, 5])
+    }
+  })
 })

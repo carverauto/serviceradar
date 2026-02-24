@@ -6,7 +6,8 @@ function packetFlowStamp(edgeData) {
   for (let i = 0; i < edgeData.length; i += step) {
     const edge = edgeData[i] || {}
     const key = edge.interactionKey || `${edge.sourceId || "s"}:${edge.targetId || "t"}:${i}`
-    acc += `|${key}:${Number(edge.flowPps || 0)}:${Number(edge.flowBps || 0)}:${Number(edge.capacityBps || 0)}`
+    const telemetryEligible = edge.telemetryEligible === false || edge.telemetry_eligible === false ? 0 : 1
+    acc += `|${key}:${Number(edge.flowPps || 0)}:${Number(edge.flowBps || 0)}:${Number(edge.capacityBps || 0)}:${telemetryEligible}`
   }
   return acc
 }
@@ -59,6 +60,7 @@ export const godViewRenderingStyleEdgeParticleMethods = {
     for (let i = 0; i < edgeData.length; i += 1) {
       if (particles.length >= maxParticles) break
       const edge = edgeData[i]
+      if (edge?.telemetryEligible === false || edge?.telemetry_eligible === false) continue
       const src = edge?.sourcePosition
       const dst = edge?.targetPosition
       if (!Array.isArray(src) || !Array.isArray(dst)) continue

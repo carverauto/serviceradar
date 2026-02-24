@@ -116,7 +116,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           normalize_u32(Map.get(edge, :flow_pps, 0)),
           normalize_u64(Map.get(edge, :flow_bps, 0)),
           normalize_u64(Map.get(edge, :capacity_bps, 0)),
-          normalize_label(Map.get(edge, :label) || edge_label(edge))
+          normalize_label(Map.get(edge, :label) || edge_label(edge)),
+          normalize_u8(if(Map.get(edge, :telemetry_eligible, true), do: 1, else: 0))
         }
       end)
 
@@ -234,7 +235,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           }
 
           Map.update(acc, {a, b}, candidate, fn existing ->
-            if pair_link_rank(candidate) > pair_link_rank(existing), do: candidate, else: existing
+            choose_pair_candidate(existing, candidate)
           end)
         end
       end)
@@ -836,9 +837,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       case edge_protocol(edge) do
         "lldp" -> 6
         "cdp" -> 6
-        "unifi-api" -> 5
+        "snmp-l2" -> 5
         "wireguard-derived" -> 4
-        "snmp-l2" -> 3
+        "unifi-api" -> if(snmp_interface_attributed?(edge), do: 3, else: 0)
         "snmp-parent" -> 2
         "snmp-site" -> 1
         _ -> 0
@@ -857,6 +858,29 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp pair_link_rank(_), do: {0, 0, 0, 0, 0}
+
+  defp choose_pair_candidate(existing, candidate) when is_map(existing) and is_map(candidate) do
+    existing_unifi_unattributed? = unifi_unattributed?(existing)
+    candidate_unifi_unattributed? = unifi_unattributed?(candidate)
+    existing_snmp_attributed? = snmp_telemetry_attributed?(existing)
+    candidate_snmp_attributed? = snmp_telemetry_attributed?(candidate)
+
+    cond do
+      candidate_snmp_attributed? and existing_unifi_unattributed? ->
+        candidate
+
+      existing_snmp_attributed? and candidate_unifi_unattributed? ->
+        existing
+
+      pair_link_rank(candidate) > pair_link_rank(existing) ->
+        candidate
+
+      true ->
+        existing
+    end
+  end
+
+  defp choose_pair_candidate(existing, _candidate), do: existing
 
   defp fetch_devices(_actor, []), do: {:ok, []}
 
@@ -962,10 +986,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     |> Enum.map(fn edge ->
       source = normalize_id(Map.get(edge, :source))
       target = normalize_id(Map.get(edge, :target))
+      telemetry_eligible = telemetry_eligible_edge?(edge)
 
       edge
       |> Map.put(:source, source)
       |> Map.put(:target, target)
+      |> Map.put(:telemetry_eligible, telemetry_eligible)
     end)
     |> Enum.reject(fn edge ->
       is_nil(Map.get(edge, :source)) or is_nil(Map.get(edge, :target)) or
@@ -974,6 +1000,35 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp canonicalize_edges(_, _), do: []
+
+  defp telemetry_eligible_edge?(edge) when is_map(edge) do
+    cond do
+      unifi_unattributed?(edge) -> false
+      snmp_interface_attributed?(edge) -> true
+      true -> valid_ifindex?(Map.get(edge, :local_if_index))
+    end
+  end
+
+  defp telemetry_eligible_edge?(_), do: false
+
+  defp snmp_telemetry_attributed?(edge) when is_map(edge) do
+    edge_protocol(edge) in ["lldp", "cdp", "snmp-l2"] and snmp_interface_attributed?(edge)
+  end
+
+  defp snmp_telemetry_attributed?(_), do: false
+
+  defp unifi_unattributed?(edge) when is_map(edge) do
+    edge_protocol(edge) == "unifi-api" and not snmp_interface_attributed?(edge)
+  end
+
+  defp unifi_unattributed?(_), do: false
+
+  defp snmp_interface_attributed?(edge) when is_map(edge) do
+    valid_ifindex?(Map.get(edge, :local_if_index)) or
+      is_binary(normalize_id(Map.get(edge, :local_if_name)))
+  end
+
+  defp snmp_interface_attributed?(_), do: false
 
   defp dedupe_edges(edges) when is_list(edges) do
     edges

@@ -16,7 +16,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
 
   setup do
     previous_coalesce = Application.get_env(:serviceradar_web_ng, :god_view_snapshot_coalesce_ms)
+
+    previous_age_authoritative =
+      Application.get_env(:serviceradar_web_ng, :age_authoritative_topology_enabled)
+
     Application.put_env(:serviceradar_web_ng, :god_view_snapshot_coalesce_ms, 0)
+    Application.put_env(:serviceradar_web_ng, :age_authoritative_topology_enabled, false)
 
     on_exit(fn ->
       if is_nil(previous_coalesce) do
@@ -26,6 +31,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
           :serviceradar_web_ng,
           :god_view_snapshot_coalesce_ms,
           previous_coalesce
+        )
+      end
+
+      if is_nil(previous_age_authoritative) do
+        Application.delete_env(:serviceradar_web_ng, :age_authoritative_topology_enabled)
+      else
+        Application.put_env(
+          :serviceradar_web_ng,
+          :age_authoritative_topology_enabled,
+          previous_age_authoritative
         )
       end
     end)
@@ -361,6 +376,163 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     refute Enum.any?(snapshot.edges, &(&1.source == local_uid and &1.target == existing_uid))
   end
 
+  test "latest_snapshot/0 prefers SNMP-attributed topology evidence over UniFi-only evidence" do
+    actor = SystemActor.system(:god_view_stream_snmp_precedence_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    left_uid = "snmp-left-#{suffix}"
+    right_uid = "snmp-right-#{suffix}"
+    now = DateTime.utc_now()
+
+    _left =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: left_uid,
+          hostname: "left-#{suffix}.local",
+          type_id: 12,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    _right =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: right_uid,
+          hostname: "right-#{suffix}.local",
+          type_id: 12,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    # UniFi evidence without interface attribution.
+    TopologyLink
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: now,
+        protocol: "UniFi-API",
+        local_device_id: left_uid,
+        local_if_name: nil,
+        local_if_index: 0,
+        neighbor_device_id: right_uid,
+        neighbor_mgmt_addr: "10.10.10.2",
+        metadata: %{
+          "relation_type" => "CONNECTS_TO",
+          "evidence_class" => "direct",
+          "confidence_tier" => "low",
+          "source" => "unifi-api"
+        }
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    # SNMP-attributed LLDP evidence for the same pair.
+    TopologyLink
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: now,
+        protocol: "lldp",
+        local_device_id: left_uid,
+        local_if_name: "eth7",
+        local_if_index: 7,
+        neighbor_device_id: right_uid,
+        neighbor_mgmt_addr: "10.10.10.2",
+        metadata: @topology_link_metadata
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+
+    edge = find_edge(snapshot, left_uid, right_uid)
+    assert edge
+    assert String.downcase(to_string(edge.protocol || "")) == "lldp"
+    assert edge.local_if_index == 7
+  end
+
+  test "latest_snapshot/0 marks UniFi-only edges without interface attribution as telemetry-ineligible" do
+    actor = SystemActor.system(:god_view_stream_unifi_telemetry_eligibility_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    left_uid = "unifi-left-#{suffix}"
+    right_uid = "unifi-right-#{suffix}"
+    now = DateTime.utc_now()
+
+    _left =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: left_uid,
+          hostname: "left-unifi-#{suffix}.local",
+          type_id: 12,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    _right =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: right_uid,
+          hostname: "right-unifi-#{suffix}.local",
+          type_id: 12,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    TopologyLink
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: now,
+        protocol: "UniFi-API",
+        local_device_id: left_uid,
+        local_if_name: nil,
+        local_if_index: 0,
+        neighbor_device_id: right_uid,
+        neighbor_mgmt_addr: "10.10.20.2",
+        metadata: %{
+          "relation_type" => "CONNECTS_TO",
+          "evidence_class" => "direct",
+          "confidence_tier" => "low",
+          "source" => "unifi-api"
+        }
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+
+    edge = find_edge(snapshot, left_uid, right_uid)
+    assert edge
+    assert String.downcase(to_string(edge.protocol || "")) == "unifi-api"
+    assert Map.get(edge, :telemetry_eligible) == false
+  end
+
   test "latest_snapshot/0 applies BMP routing causal overlays without coordinate churn" do
     actor = SystemActor.system(:god_view_stream_bmp_overlay_test)
     suffix = Integer.to_string(System.unique_integer([:positive]))
@@ -582,5 +754,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     snapshot.nodes
     |> Enum.filter(&(&1.id in node_ids))
     |> Map.new(fn node -> {node.id, node.state} end)
+  end
+
+  defp find_edge(snapshot, source_id, target_id) do
+    Enum.find(snapshot.edges, fn edge ->
+      (edge.source == source_id and edge.target == target_id) or
+        (edge.source == target_id and edge.target == source_id)
+    end)
   end
 end

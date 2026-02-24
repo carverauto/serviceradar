@@ -3,18 +3,32 @@
 - [ ] 1.2 Add `build-web-ui` requirements for God-View directional rendering and PoC-like particle density/tube-fill behavior.
 - [ ] 1.3 Validate the change with `openspec validate add-god-view-directional-edge-telemetry --strict`.
 
-## 2. Backend Directional Telemetry Pipeline
-- [ ] 2.1 Update topology edge enrichment to preserve directional packet/bit rates per edge side instead of only aggregate values.
-- [ ] 2.2 Extend NIF telemetry structs and Arrow snapshot schema to encode/decode directional edge fields.
-- [ ] 2.3 Ensure canonical edge deduplication preserves both directional values on the merged edge object.
-- [ ] 2.4 Add regression tests for: both-sided telemetry, one-sided telemetry, and absent directional telemetry.
+## 2. Test-First Coverage (TDD Gate)
+- [ ] 2.1 Add failing tests that prove SNMP-attributed links (LLDP/CDP/SNMP-L2) win over UniFi-API links for telemetry-bearing canonical edges.
+- [ ] 2.2 Add failing tests that UniFi-API-only links without interface attribution are marked telemetry-ineligible (still rendered structurally).
+- [ ] 2.3 Add failing tests for directional A→B/B→A mapping semantics and one-sided fallback.
+- [ ] 2.4 Add failing tests for discovery bootstrap/reconciliation of required SNMP interface OIDs for topology-linked interfaces.
+- [ ] 2.5 Execute focused test suites and confirm failures match expected unimplemented behavior.
 
-## 3. God-View Frontend Rendering
-- [ ] 3.1 Remove synthetic bidirectional flow splitting and render reverse streams only when real directional fields exist.
-- [ ] 3.2 Implement directional lane rendering using real telemetry ratios while preserving single-direction fallback.
-- [ ] 3.3 Tune particle generation to maintain PoC-like density and tube coverage across zoom tiers.
-- [ ] 3.4 Add/adjust tests for directional rendering behavior and density constraints.
+## 3. Backend Directional Telemetry Pipeline
+- [ ] 3.1 Keep existing SNMP collection unchanged and update topology edge enrichment to attribute existing `ifIn*`/`ifOut*` rates per edge side instead of only aggregate values.
+- [ ] 3.2 Extend NIF telemetry structs and Arrow snapshot schema to encode/decode directional edge fields.
+- [ ] 3.3 Ensure canonical edge deduplication preserves both directional values on the merged edge object.
+- [ ] 3.4 Add regression tests for: both-sided telemetry, one-sided telemetry, absent directional telemetry, and canonical endpoint-order invariance.
+- [ ] 3.5 Add regression tests for packet/bit rate unit conversions so interface rates align with expected Mbps/Kbps values in edge telemetry.
 
-## 4. Verification in Demo Namespace
-- [ ] 4.1 Verify directional metric availability per topology edge side in demo CNPG (`timeseries_metrics` + mapper topology links).
-- [ ] 4.2 Validate God-View behavior in demo: no fake bidi, correct directional rendering on eligible edges, graceful fallback on incomplete edges.
+## 4. Topology Telemetry Coverage Bootstrap
+- [ ] 4.1 Add mapper/discovery setting to auto-enable required interface metrics for topology telemetry (default enabled).
+- [ ] 4.2 Implement reconciliation that ensures topology-linked interfaces have required SNMP OID configs (`ifIn/OutOctets` + `ifIn/OutUcastPkts`, HC variants when supported).
+- [ ] 4.3 Add tests for bootstrap/reconciliation behavior, including idempotent updates and no-op when already configured.
+
+## 5. God-View Frontend Rendering
+- [ ] 5.1 Remove synthetic bidirectional flow splitting and render reverse streams only when real directional fields exist.
+- [ ] 5.2 Implement directional lane rendering using real telemetry ratios while preserving single-direction fallback.
+- [ ] 5.3 Tune particle generation to maintain PoC-like density and tube coverage across zoom tiers.
+- [ ] 5.4 Add/adjust tests for directional rendering behavior and density constraints.
+
+## 6. Verification in Demo Namespace
+- [ ] 6.1 Verify directional metric availability per topology edge side in demo CNPG (`timeseries_metrics` + mapper topology links).
+- [ ] 6.2 Validate endpoint/interface mapping for known links (e.g. aggregation-switch uplinks) and confirm edge telemetry matches expected interface rates.
+- [ ] 6.3 Validate God-View behavior in demo: no fake bidi, correct directional rendering on eligible edges, graceful fallback on incomplete edges.

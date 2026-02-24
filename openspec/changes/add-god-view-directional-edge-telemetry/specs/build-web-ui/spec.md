@@ -13,6 +13,18 @@ God-View SHALL render bidirectional edge particles only from real directional ed
 - **THEN** the renderer SHALL draw only the available direction
 - **AND** SHALL NOT synthesize a reverse stream from aggregate values
 
+#### Scenario: No directional telemetry fields present
+- **GIVEN** a topology edge payload that includes only aggregate flow metrics
+- **WHEN** God-View renders atmosphere packet flow
+- **THEN** the renderer SHALL use single-stream aggregate behavior
+- **AND** SHALL NOT invent directional lanes
+
+#### Scenario: Telemetry-ineligible topology edge
+- **GIVEN** a topology edge payload marked telemetry-ineligible due to missing interface attribution or required counters
+- **WHEN** God-View renders atmosphere packet flow
+- **THEN** the renderer SHALL avoid showing misleading packet activity for that edge
+- **AND** SHALL preserve structural edge visibility for topology context
+
 ### Requirement: God-View packet stream density and tube coverage parity
 God-View SHALL render packet streams with dense tube-aligned coverage comparable to the approved deckgl PoC visual profile while preserving zoom-tier readability.
 
@@ -20,7 +32,7 @@ God-View SHALL render packet streams with dense tube-aligned coverage comparable
 - **GIVEN** topology edges with active telemetry at mid zoom
 - **WHEN** packet layers are rendered
 - **THEN** particle density SHALL fill the edge tube without appearing sparse
-- **AND** particle spread SHALL remain within the visual edge tube boundary
+- **AND** particle spread SHALL remain near the visual edge tube boundary without visibly overflowing it
 
 #### Scenario: Zoomed-out readability
 - **GIVEN** the user zooms far out

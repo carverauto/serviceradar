@@ -581,14 +581,29 @@ fn encode_snapshot_impl<'a>(
     schema_version: u32,
     revision: u64,
     nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
-    edges: Vec<(u16, u16, u32, u64, u64, String)>,
+    edges: Vec<(u16, u16, u32, u64, u64, String, u8)>,
     root_bitmap_bytes: u32,
     affected_bitmap_bytes: u32,
     healthy_bitmap_bytes: u32,
     unknown_bitmap_bytes: u32,
 ) -> NifResult<Binary<'a>> {
     let total_rows = nodes.len() + edges.len();
-    let hypergraph_projection = build_hypergraph_projection(nodes.len(), &edges);
+    let projection_edges: Vec<(u16, u16, u32, u64, u64, String)> = edges
+        .iter()
+        .map(
+            |(source, target, pps, flow_bps, capacity_bps, label, _telemetry_eligible)| {
+                (
+                    *source,
+                    *target,
+                    *pps,
+                    *flow_bps,
+                    *capacity_bps,
+                    label.clone(),
+                )
+            },
+        )
+        .collect();
+    let hypergraph_projection = build_hypergraph_projection(nodes.len(), &projection_edges);
     let hypergraph = build_hypergraph_from_projection(&hypergraph_projection);
 
     let mut row_type = Vec::<i8>::with_capacity(total_rows);
@@ -604,6 +619,7 @@ fn encode_snapshot_impl<'a>(
     let mut edge_pps = Vec::<Option<u32>>::with_capacity(total_rows);
     let mut edge_flow_bps = Vec::<Option<u64>>::with_capacity(total_rows);
     let mut edge_capacity_bps = Vec::<Option<u64>>::with_capacity(total_rows);
+    let mut edge_telemetry_eligible = Vec::<Option<u8>>::with_capacity(total_rows);
     let mut edge_label = Vec::<Option<String>>::with_capacity(total_rows);
 
     for (x, y, state, label, pps, oper_up, details) in nodes {
@@ -620,10 +636,11 @@ fn encode_snapshot_impl<'a>(
         edge_pps.push(None);
         edge_flow_bps.push(None);
         edge_capacity_bps.push(None);
+        edge_telemetry_eligible.push(None);
         edge_label.push(None);
     }
 
-    for (source, target, pps, flow_bps, capacity_bps, label) in edges {
+    for (source, target, pps, flow_bps, capacity_bps, label, telemetry_eligible) in edges {
         row_type.push(1);
         node_x.push(None);
         node_y.push(None);
@@ -637,6 +654,7 @@ fn encode_snapshot_impl<'a>(
         edge_pps.push(Some(pps));
         edge_flow_bps.push(Some(flow_bps));
         edge_capacity_bps.push(Some(capacity_bps));
+        edge_telemetry_eligible.push(Some(if telemetry_eligible > 0 { 1 } else { 0 }));
         edge_label.push(Some(label));
     }
 
@@ -691,6 +709,7 @@ fn encode_snapshot_impl<'a>(
             Field::new("edge_pps", DataType::UInt32, true),
             Field::new("edge_flow_bps", DataType::UInt64, true),
             Field::new("edge_capacity_bps", DataType::UInt64, true),
+            Field::new("edge_telemetry_eligible", DataType::UInt8, true),
             Field::new("edge_label", DataType::Utf8, true),
             Field::new("snapshot_schema_version", DataType::UInt32, false),
             Field::new("snapshot_revision", DataType::UInt64, false),
@@ -717,6 +736,7 @@ fn encode_snapshot_impl<'a>(
             Arc::new(UInt32Array::from(edge_pps)),
             Arc::new(UInt64Array::from(edge_flow_bps)),
             Arc::new(UInt64Array::from(edge_capacity_bps)),
+            Arc::new(UInt8Array::from(edge_telemetry_eligible)),
             Arc::new(StringArray::from(edge_label)),
             Arc::new(UInt32Array::from(schema_version_col)),
             Arc::new(UInt64Array::from(revision_col)),
@@ -743,7 +763,7 @@ fn encode_snapshot<'a>(
     schema_version: u32,
     revision: u64,
     nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
-    edges: Vec<(u16, u16, u32, u64, u64, String)>,
+    edges: Vec<(u16, u16, u32, u64, u64, String, u8)>,
     root_bitmap_bytes: u32,
     affected_bitmap_bytes: u32,
     healthy_bitmap_bytes: u32,
@@ -1420,7 +1440,7 @@ fn runtime_graph_encode_snapshot<'a>(
     let guard = graph.links.read().map_err(|_| rustler::Error::BadArg)?;
     let indexed = indexed_edges_from_runtime_rows(&guard, &node_ids);
     let telemetry = indexed_edge_telemetry(&edge_telemetry, &node_ids);
-    let edges: Vec<(u16, u16, u32, u64, u64, String)> = indexed
+    let edges: Vec<(u16, u16, u32, u64, u64, String, u8)> = indexed
         .into_iter()
         .filter_map(|(a, b, protocol)| {
             let Some((flow_pps, flow_bps, capacity_bps, label)) =
@@ -1441,7 +1461,7 @@ fn runtime_graph_encode_snapshot<'a>(
             } else {
                 label
             };
-            Some((src, dst, flow_pps, flow_bps, capacity_bps, final_label))
+            Some((src, dst, flow_pps, flow_bps, capacity_bps, final_label, 1))
         })
         .collect();
 
