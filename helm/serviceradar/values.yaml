@@ -501,19 +501,14 @@ trapd:
 netflowCollector:
   enabled: false
   config:
-    listen_addr: "0.0.0.0:2055"
-    buffer_size: 65536
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
     stream_name: "events"
-    subject: "flows.raw.netflow"
     stream_subjects:
       - "flows.raw.netflow"
       - "flows.raw.netflow.processed"
     stream_max_bytes: 10737418240
     partition: "default"
-    max_templates: 2000
-    max_template_fields: 10000
     channel_size: 10000
     batch_size: 100
     publish_timeout_ms: 5000
@@ -526,6 +521,13 @@ netflowCollector:
         key_file: "netflow-client.key"
         ca_file: "ca.crt"
     metrics_addr: "0.0.0.0:50046"
+    listeners:
+      - protocol: "netflow"
+        listen_addr: "0.0.0.0:2055"
+        subject: "flows.raw.netflow"
+        buffer_size: 65536
+        max_templates: 2000
+        max_template_fields: 10000
   data:
     enabled: true
     existingClaim: ""

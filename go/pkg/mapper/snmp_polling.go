@@ -2194,6 +2194,12 @@ type arpNeighbor struct {
 	neighborKnown bool
 }
 
+type knownMACNeighbor struct {
+	deviceID string
+	ip       string
+	mac      string
+}
+
 func (e *DiscoveryEngine) querySNMPL2Neighbors(
 	client *gosnmp.GoSNMP, targetIP string, job *DiscoveryJob) ([]*TopologyLink, error) {
 	localDeviceID := e.lookupLocalDeviceID(job, targetIP)
@@ -2203,6 +2209,7 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 
 	localSubnets := e.localIPv4Subnets(job, targetIP)
 	knownNeighborIPs := e.knownDeviceIPv4Set(job)
+	knownNeighborsByMAC := e.knownDeviceNeighborByMAC(job)
 	bridgeIfByMAC, fdbMacCountByIf := e.bridgeIfIndexByMAC(client)
 
 	neighbors := make([]arpNeighbor, 0, 32)
@@ -2285,6 +2292,41 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 	}
 
 	neighbors = e.selectDensePortNeighbors(neighbors)
+
+	// Bridge-only fallback: correlate known device MACs to bridge FDB entries.
+	// This covers L2 switches that lack useful ARP tables for directly connected
+	// infrastructure peers (e.g., router/SFP uplinks).
+	for normalizedMAC, ifIndex := range bridgeIfByMAC {
+		if ifIndex <= 0 {
+			continue
+		}
+
+		neighbor, ok := knownNeighborsByMAC[normalizedMAC]
+		if !ok {
+			continue
+		}
+		if neighbor.deviceID == "" || neighbor.deviceID == localDeviceID {
+			continue
+		}
+		if !isIPv4(neighbor.ip) || !inSubnetSet(localSubnets, neighbor.ip) {
+			continue
+		}
+
+		mac := strings.TrimSpace(neighbor.mac)
+		if mac == "" {
+			mac = normalizedMAC
+		}
+
+		neighbors = append(neighbors, arpNeighbor{
+			ifIndex:       ifIndex,
+			ip:            neighbor.ip,
+			mac:           mac,
+			fdbPortMapped: true,
+			fdbMacCount:   fdbMacCountByIf[ifIndex],
+			neighborKnown: true,
+		})
+	}
+
 	links := buildSNMPL2LinksFromNeighbors(localDeviceID, targetIP, job.ID, neighbors)
 
 	if len(links) == 0 {
@@ -2582,6 +2624,8 @@ func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) (map[string]
 		return nil
 	})
 
+	hasExplicitBridgePortMap := len(bridgePortToIfIndex) > 0
+
 	result := make(map[string]int32)
 	fdbMacCountByIf := make(map[int32]int)
 	seenByIfMAC := make(map[string]struct{})
@@ -2594,7 +2638,13 @@ func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) (map[string]
 
 		ifIndex, exists := bridgePortToIfIndex[bridgePort]
 		if !exists || ifIndex <= 0 {
-			return nil
+			// Some switches expose dot1dTpFdbPort but not dot1dBasePortIfIndex.
+			// On those agents, bridge port IDs are typically aligned with ifIndex.
+			// Use that as a fallback so FDB evidence can still drive topology attribution.
+			if hasExplicitBridgePortMap || bridgePort <= 0 {
+				return nil
+			}
+			ifIndex = bridgePort
 		}
 
 		mac, ok := macFromFDBOID(pdu.Name)
@@ -2653,6 +2703,53 @@ func (e *DiscoveryEngine) knownDeviceIPv4Set(job *DiscoveryJob) map[string]bool 
 	for _, ip := range job.scanQueue {
 		if isIPv4(ip) {
 			known[ip] = true
+		}
+	}
+
+	return known
+}
+
+func (e *DiscoveryEngine) knownDeviceNeighborByMAC(job *DiscoveryJob) map[string]knownMACNeighbor {
+	known := make(map[string]knownMACNeighbor)
+	if job == nil || job.Results == nil {
+		return known
+	}
+
+	job.mu.RLock()
+	defer job.mu.RUnlock()
+
+	for _, device := range job.Results.Devices {
+		if device == nil {
+			continue
+		}
+
+		deviceID := strings.TrimSpace(device.DeviceID)
+		ip := strings.TrimSpace(device.IP)
+		if deviceID == "" || !isIPv4(ip) {
+			continue
+		}
+
+		register := func(rawMAC string) {
+			norm := NormalizeMAC(rawMAC)
+			if norm == "" {
+				return
+			}
+			if _, exists := known[norm]; exists {
+				return
+			}
+			known[norm] = knownMACNeighbor{
+				deviceID: deviceID,
+				ip:       ip,
+				mac:      strings.TrimSpace(rawMAC),
+			}
+		}
+
+		register(device.MAC)
+		register(device.BridgeBaseMAC)
+		for key := range device.Metadata {
+			if strings.HasPrefix(key, "alt_mac:") {
+				register(strings.TrimPrefix(key, "alt_mac:"))
+			}
 		}
 	}
 

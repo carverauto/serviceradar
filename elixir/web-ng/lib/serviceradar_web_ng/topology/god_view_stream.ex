@@ -1208,7 +1208,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         "wireguard-derived" -> 5
         "lldp" -> 4
         "cdp" -> 4
-        "unifi-api" -> 3
+        "unifi-api" -> if(snmp_interface_attributed?(edge), do: 3, else: 0)
         "snmp-l2" -> 2
         "snmp-parent" -> 1
         "snmp-site" -> 0
@@ -1217,7 +1217,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     telemetry_rank =
       cond do
-        is_integer(Map.get(edge, :local_if_index)) -> 2
+        valid_ifindex?(Map.get(edge, :local_if_index)) -> 2
         is_binary(normalize_id(Map.get(edge, :local_if_name))) -> 1
         true -> 0
       end
@@ -2027,14 +2027,23 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     not has_flow? and
       (unifi_unattributed?(edge) or
          protocol in ["wireguard-derived", "snmp-parent", "snmp-site"] or
-         (protocol == "snmp-l2" and not snmp_interface_attributed?(edge)))
+         # SNMP-L2 links can still land on an interface that has no sampled
+         # counters in the latest window; allow bounded device-level fallback
+         # so backbone animations do not disappear on sparse polling snapshots.
+         protocol == "snmp-l2")
   end
 
   defp edge_needs_fallback_telemetry?(_), do: false
 
   defp fallback_signal_scaled(a, b) do
     # Keep fallback activity visible but restrained vs fully attributed edge telemetry.
-    trunc(pair_min_non_zero(a, b) * 0.14)
+    signal = pair_min_non_zero(a, b)
+
+    if signal > 0 do
+      max(1, trunc(signal * 0.14))
+    else
+      0
+    end
   end
 
   defp pair_min_non_zero(a, b) do
@@ -2615,9 +2624,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp normalize_neighbor_port_hint(link) when is_map(link) do
-    decode_hex_port_id(Map.get(link, :neighbor_port_id)) ||
+    # Prefer port description for interface matching (e.g. "eth4"), because some
+    # LLDP neighbor_port_id values are chassis MAC-like bytes and not interface names.
+    normalize_id(Map.get(link, :neighbor_port_descr)) ||
       normalize_id(Map.get(link, :neighbor_port_id)) ||
-      normalize_id(Map.get(link, :neighbor_port_descr))
+      decode_hex_port_id(Map.get(link, :neighbor_port_id))
   end
 
   defp normalize_neighbor_port_hint(_), do: nil

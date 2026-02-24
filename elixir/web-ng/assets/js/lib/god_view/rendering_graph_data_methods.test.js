@@ -56,6 +56,10 @@ describe("rendering_graph_data_methods", () => {
     expect(out.edgeData[0].targetId).toEqual("n2")
     expect(out.edgeData[0].connectionLabel).toEqual("MPLS")
     expect(out.edgeData[0].telemetryEligible).toEqual(true)
+    expect(out.edgeData[0].flowPpsAb).toEqual(0)
+    expect(out.edgeData[0].flowPpsBa).toEqual(0)
+    expect(out.edgeData[0].flowBpsAb).toEqual(0)
+    expect(out.edgeData[0].flowBpsBa).toEqual(0)
     expect(ctx.state.hoveredEdgeKey).toEqual(null)
     expect(ctx.state.selectedEdgeKey).toEqual(null)
     expect(ctx.state.lastVisibleNodeCount).toEqual(2)
@@ -113,12 +117,27 @@ describe("rendering_graph_data_methods", () => {
         {id: "n2", x: 3, y: 4, state: 1, label: "Node 2", pps: 20, operUp: 2, details: {}},
       ],
       edges: [
-        {source: 0, target: 1, flowPps: 10, flowBps: 100, capacityBps: 1000, telemetry_eligible: false},
+        {
+          source: 0,
+          target: 1,
+          flowPps: 10,
+          flowPpsAb: 7,
+          flowPpsBa: 3,
+          flowBps: 100,
+          flowBpsAb: 70,
+          flowBpsBa: 30,
+          capacityBps: 1000,
+          telemetry_eligible: false,
+        },
       ],
     }
 
     const out = ctx.buildVisibleGraphData(effective)
     expect(out.edgeData).toHaveLength(1)
     expect(out.edgeData[0].telemetryEligible).toEqual(false)
+    expect(out.edgeData[0].flowPpsAb).toEqual(7)
+    expect(out.edgeData[0].flowPpsBa).toEqual(3)
+    expect(out.edgeData[0].flowBpsAb).toEqual(70)
+    expect(out.edgeData[0].flowBpsBa).toEqual(30)
   })
 })

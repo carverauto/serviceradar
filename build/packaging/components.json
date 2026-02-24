@@ -504,7 +504,7 @@
       "build_method": "rust",
       "docker_output_path": "/output/serviceradar-netflow-collector",
       "output_path": "/usr/local/bin/serviceradar-netflow-collector",
-      "source_path": "rust/netflow-collector"
+      "source_path": "rust/flow-collector"
     },
     "conffiles": [
       "/etc/serviceradar/netflow-collector.json"
@@ -521,7 +521,7 @@
         "systemd",
         "serviceradar-cli"
       ],
-      "dockerfile": "rust/netflow-collector/Dockerfile"
+      "dockerfile": "rust/flow-collector/Dockerfile"
     },
     "description": "ServiceRadar NetFlow/IPFIX collector",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",

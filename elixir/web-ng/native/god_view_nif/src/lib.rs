@@ -387,9 +387,9 @@ mod tests {
         assert_eq!(*flow_bps, 2_000);
         assert_eq!(*capacity_bps, 3_000);
         assert_eq!(*flow_pps_ab, 333);
-        assert_eq!(*flow_pps_ba, 0);
+        assert_eq!(*flow_pps_ba, 999);
         assert_eq!(*flow_bps_ab, 444);
-        assert_eq!(*flow_bps_ba, 0);
+        assert_eq!(*flow_bps_ba, 888);
     }
 
     #[test]
@@ -418,13 +418,13 @@ mod tests {
             (flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba),
         ) = &result[0];
 
-        assert_eq!(*flow_pps, 22);
-        assert_eq!(*flow_bps, 123);
+        assert_eq!(*flow_pps, 99);
+        assert_eq!(*flow_bps, 579);
         assert_eq!(*capacity_bps, 123_000);
         assert_eq!(*flow_pps_ab, 22);
-        assert_eq!(*flow_pps_ba, 0);
+        assert_eq!(*flow_pps_ba, 77);
         assert_eq!(*flow_bps_ab, 123);
-        assert_eq!(*flow_bps_ba, 0);
+        assert_eq!(*flow_bps_ba, 456);
     }
 
     #[test]
@@ -512,6 +512,88 @@ mod tests {
         assert_eq!(*flow_pps, 200);
         assert_eq!(*flow_bps, 2_000);
         assert_eq!(*capacity_bps, 1_000_000);
+    }
+
+    #[test]
+    fn enrich_edges_telemetry_uses_target_ingress_for_ab_when_only_ba_attributed() {
+        let edges = vec![(
+            "dev-a".to_string(),
+            "dev-b".to_string(),
+            "lldp".to_string(),
+            (-1, "".to_string(), 20, "eth1".to_string()),
+            (0u32, 0u64, 0u64),
+        )];
+        let interfaces = vec![("dev-b".to_string(), "eth1".to_string(), 20, 1_000_000u64)];
+        let pps_metrics = vec![("dev-b".to_string(), 20, 70u32, 120u32)];
+        let bps_metrics = vec![("dev-b".to_string(), 20, 700u64, 1_200u64)];
+
+        let result =
+            enrich_edges_telemetry_impl(edges, interfaces, pps_metrics, bps_metrics).unwrap();
+        assert_eq!(result.len(), 1);
+        let (
+            _source,
+            _target,
+            flow_pps,
+            flow_bps,
+            capacity_bps,
+            _label,
+            (flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba),
+        ) = &result[0];
+
+        assert_eq!(*flow_pps_ab, 70);
+        assert_eq!(*flow_pps_ba, 120);
+        assert_eq!(*flow_bps_ab, 700);
+        assert_eq!(*flow_bps_ba, 1_200);
+        assert_eq!(*flow_pps, 190);
+        assert_eq!(*flow_bps, 1_900);
+        assert_eq!(*capacity_bps, 1_000_000);
+    }
+
+    #[test]
+    fn enrich_edges_telemetry_prefers_metric_backed_ifindex_for_duplicate_ifname() {
+        let edges = vec![(
+            "dev-a".to_string(),
+            "dev-b".to_string(),
+            "wireguard-derived".to_string(),
+            (-1, "wgsts1000".to_string(), -1, "wgsts1000".to_string()),
+            (0u32, 0u64, 0u64),
+        )];
+        // Duplicate names on both ends; only one index per side has live metrics.
+        let interfaces = vec![
+            ("dev-a".to_string(), "wgsts1000".to_string(), 32, 1_000_000_000u64),
+            ("dev-a".to_string(), "wgsts1000".to_string(), 31, 1_000_000_000u64),
+            ("dev-b".to_string(), "wgsts1000".to_string(), 49, 1_000_000_000u64),
+            ("dev-b".to_string(), "wgsts1000".to_string(), 47, 1_000_000_000u64),
+        ];
+        let pps_metrics = vec![
+            ("dev-a".to_string(), 31, 700u32, 500u32),
+            ("dev-b".to_string(), 47, 600u32, 400u32),
+        ];
+        let bps_metrics = vec![
+            ("dev-a".to_string(), 31, 7_000u64, 5_000u64),
+            ("dev-b".to_string(), 47, 6_000u64, 4_000u64),
+        ];
+
+        let result =
+            enrich_edges_telemetry_impl(edges, interfaces, pps_metrics, bps_metrics).unwrap();
+        assert_eq!(result.len(), 1);
+        let (
+            _source,
+            _target,
+            flow_pps,
+            flow_bps,
+            capacity_bps,
+            _label,
+            (flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba),
+        ) = &result[0];
+
+        assert_eq!(*flow_pps_ab, 500);
+        assert_eq!(*flow_pps_ba, 400);
+        assert_eq!(*flow_bps_ab, 5_000);
+        assert_eq!(*flow_bps_ba, 4_000);
+        assert_eq!(*flow_pps, 900);
+        assert_eq!(*flow_bps, 9_000);
+        assert_eq!(*capacity_bps, 1_000_000_000);
     }
 
     #[test]

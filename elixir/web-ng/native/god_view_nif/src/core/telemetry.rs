@@ -9,7 +9,7 @@ use std::collections::HashMap;
 /// Discovers an aggregated telemetry payload by comparing interface indexes and names.
 pub(crate) fn find_interface_for_edge(
     by_index: &HashMap<(String, i64), InterfaceTelemetryRecord>,
-    by_name: &HashMap<(String, String), InterfaceTelemetryRecord>,
+    by_name: &HashMap<(String, String), Vec<InterfaceTelemetryRecord>>,
     device_id: &str,
     if_name: &str,
     if_index: i64,
@@ -22,7 +22,10 @@ pub(crate) fn find_interface_for_edge(
 
     let trimmed = if_name.trim().to_lowercase();
     if !trimmed.is_empty() {
-        if let Some(found) = by_name.get(&(device_id.to_string(), trimmed.clone())) {
+        if let Some(found) = by_name
+            .get(&(device_id.to_string(), trimmed.clone()))
+            .and_then(|records| records.first())
+        {
             return Some(found.clone());
         }
         let fallback_name = trimmed
@@ -32,7 +35,10 @@ pub(crate) fn find_interface_for_edge(
             .trim()
             .to_string();
         if !fallback_name.is_empty() {
-            if let Some(found) = by_name.get(&(device_id.to_string(), fallback_name)) {
+            if let Some(found) = by_name
+                .get(&(device_id.to_string(), fallback_name))
+                .and_then(|records| records.first())
+            {
                 return Some(found.clone());
             }
         }
@@ -50,6 +56,69 @@ fn resolved_metric_index(
     } else {
         iface.and_then(|record| (record.if_index >= 0).then_some(record.if_index))
     }
+}
+
+fn metric_score(
+    pps_by_if: &HashMap<(String, i64), (u32, u32)>,
+    bps_by_if: &HashMap<(String, i64), (u64, u64)>,
+    device_id: &str,
+    if_index: i64,
+) -> u128 {
+    let (pps_in, pps_out) = pps_by_if
+        .get(&(device_id.to_string(), if_index))
+        .copied()
+        .unwrap_or((0, 0));
+    let (bps_in, bps_out) = bps_by_if
+        .get(&(device_id.to_string(), if_index))
+        .copied()
+        .unwrap_or((0, 0));
+    (pps_in as u128) + (pps_out as u128) + (bps_in as u128) + (bps_out as u128)
+}
+
+fn select_metric_backed_interface(
+    by_name: &HashMap<(String, String), Vec<InterfaceTelemetryRecord>>,
+    pps_by_if: &HashMap<(String, i64), (u32, u32)>,
+    bps_by_if: &HashMap<(String, i64), (u64, u64)>,
+    device_id: &str,
+    if_name: &str,
+) -> Option<InterfaceTelemetryRecord> {
+    let trimmed = if_name.trim().to_lowercase();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut name_keys = vec![trimmed.clone()];
+    let fallback_name = trimmed
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !fallback_name.is_empty() && fallback_name != trimmed {
+        name_keys.push(fallback_name);
+    }
+
+    let mut best: Option<(u128, InterfaceTelemetryRecord)> = None;
+
+    for key in name_keys {
+        if let Some(records) = by_name.get(&(device_id.to_string(), key)) {
+            for record in records {
+                if record.if_index < 0 {
+                    continue;
+                }
+                let score = metric_score(pps_by_if, bps_by_if, device_id, record.if_index);
+                if score == 0 {
+                    continue;
+                }
+                match &best {
+                    Some((best_score, _)) if *best_score >= score => {}
+                    _ => best = Some((score, record.clone())),
+                }
+            }
+        }
+    }
+
+    best.map(|(_, record)| record)
 }
 
 /// Helper function to create shorthand human-readable string values for packet rates.
@@ -102,7 +171,7 @@ pub(crate) fn enrich_edges_telemetry_impl(
     bps_metrics: Vec<(String, i64, u64, u64)>,
 ) -> Result<Vec<(String, String, u32, u64, u64, String, (u32, u32, u64, u64))>, rustler::Error> {
     let mut by_index = HashMap::<(String, i64), InterfaceTelemetryRecord>::new();
-    let mut by_name = HashMap::<(String, String), InterfaceTelemetryRecord>::new();
+    let mut by_name = HashMap::<(String, String), Vec<InterfaceTelemetryRecord>>::new();
 
     for (device_id, if_name, if_index, speed_bps) in interfaces {
         let record = InterfaceTelemetryRecord {
@@ -120,7 +189,8 @@ pub(crate) fn enrich_edges_telemetry_impl(
         if !lowered_name.is_empty() {
             by_name
                 .entry((device_id.clone(), lowered_name))
-                .or_insert_with(|| record.clone());
+                .or_default()
+                .push(record.clone());
         }
     }
 
@@ -149,8 +219,41 @@ pub(crate) fn enrich_edges_telemetry_impl(
                 let iface_ba =
                     find_interface_for_edge(&by_index, &by_name, &target, &if_name_ba, if_index_ba);
 
-                let resolved_if_index_ab = resolved_metric_index(if_index_ab, iface_ab.as_ref());
-                let resolved_if_index_ba = resolved_metric_index(if_index_ba, iface_ba.as_ref());
+                let mut resolved_if_index_ab = resolved_metric_index(if_index_ab, iface_ab.as_ref());
+                let mut resolved_if_index_ba = resolved_metric_index(if_index_ba, iface_ba.as_ref());
+
+                // If a name maps to multiple interface rows, prefer the candidate with actual telemetry.
+                if if_index_ab < 0
+                    && resolved_if_index_ab
+                        .map(|idx| metric_score(&pps_by_if, &bps_by_if, &source, idx) == 0)
+                        .unwrap_or(true)
+                {
+                    if let Some(iface) = select_metric_backed_interface(
+                        &by_name,
+                        &pps_by_if,
+                        &bps_by_if,
+                        &source,
+                        &if_name_ab,
+                    ) {
+                        resolved_if_index_ab = Some(iface.if_index);
+                    }
+                }
+
+                if if_index_ba < 0
+                    && resolved_if_index_ba
+                        .map(|idx| metric_score(&pps_by_if, &bps_by_if, &target, idx) == 0)
+                        .unwrap_or(true)
+                {
+                    if let Some(iface) = select_metric_backed_interface(
+                        &by_name,
+                        &pps_by_if,
+                        &bps_by_if,
+                        &target,
+                        &if_name_ba,
+                    ) {
+                        resolved_if_index_ba = Some(iface.if_index);
+                    }
+                }
 
                 let pps_ab_local = resolved_if_index_ab
                     .and_then(|idx| pps_by_if.get(&(source.clone(), idx)).copied());
@@ -164,10 +267,25 @@ pub(crate) fn enrich_edges_telemetry_impl(
                 let bps_ba_local = resolved_if_index_ba
                     .and_then(|idx| bps_by_if.get(&(target.clone(), idx)).copied());
 
-                let flow_pps_ab = pps_ab_local.map(|(_in_v, out_v)| out_v).unwrap_or(0);
-                let flow_pps_ba = pps_ba_local.map(|(_in_v, out_v)| out_v).unwrap_or(0);
-                let flow_bps_ab = bps_ab_local.map(|(_in_v, out_v)| out_v).unwrap_or(0);
-                let flow_bps_ba = bps_ba_local.map(|(_in_v, out_v)| out_v).unwrap_or(0);
+                // Primary directional signal uses egress on each edge endpoint.
+                // When only one side can be attributed, fall back to that same interface ingress
+                // for the opposite direction (still real SNMP telemetry, not synthetic).
+                let flow_pps_ab = pps_ab_local
+                    .map(|(_in_v, out_v)| out_v)
+                    .or_else(|| pps_ba_local.map(|(in_v, _out_v)| in_v))
+                    .unwrap_or(0);
+                let flow_pps_ba = pps_ba_local
+                    .map(|(_in_v, out_v)| out_v)
+                    .or_else(|| pps_ab_local.map(|(in_v, _out_v)| in_v))
+                    .unwrap_or(0);
+                let flow_bps_ab = bps_ab_local
+                    .map(|(_in_v, out_v)| out_v)
+                    .or_else(|| bps_ba_local.map(|(in_v, _out_v)| in_v))
+                    .unwrap_or(0);
+                let flow_bps_ba = bps_ba_local
+                    .map(|(_in_v, out_v)| out_v)
+                    .or_else(|| bps_ab_local.map(|(in_v, _out_v)| in_v))
+                    .unwrap_or(0);
 
                 let cap_ab = iface_ab.map(|r| r.speed_bps).unwrap_or(0);
                 let cap_ba = iface_ba.map(|r| r.speed_bps).unwrap_or(0);
