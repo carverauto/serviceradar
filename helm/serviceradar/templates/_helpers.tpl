@@ -128,16 +128,20 @@ imagePullSecrets:
 
 {{/*
 Topology spread constraints to distribute serviceradar pods across nodes.
+Enabled when .Values.topologySpread.enabled is true.
 Usage: {{ include "serviceradar.topologySpread" . | nindent 6 }}
 */}}
 {{- define "serviceradar.topologySpread" -}}
+{{- $ts := default (dict) .Values.topologySpread -}}
+{{- if $ts.enabled }}
 topologySpreadConstraints:
-  - maxSkew: 2
-    topologyKey: kubernetes.io/hostname
-    whenUnsatisfiable: ScheduleAnyway
+  - maxSkew: {{ $ts.maxSkew | default 2 }}
+    topologyKey: {{ $ts.topologyKey | default "kubernetes.io/hostname" }}
+    whenUnsatisfiable: {{ $ts.whenUnsatisfiable | default "ScheduleAnyway" }}
     labelSelector:
       matchLabels:
         app.kubernetes.io/part-of: serviceradar
+{{- end }}
 {{- end -}}
 
 {{- define "serviceradar.spireSocketHostPath" -}}

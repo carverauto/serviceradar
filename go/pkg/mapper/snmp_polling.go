@@ -76,11 +76,11 @@ const (
 	oidIfOperStatus  = ".1.3.6.1.2.1.2.2.1.8"
 
 	// IP address table OIDs
-	oidIPAddrTable    = ".1.3.6.1.2.1.4.20.1"
-	oidIPAdEntAddr    = ".1.3.6.1.2.1.4.20.1.1"
-	oidIPAdEntIfIndex = ".1.3.6.1.2.1.4.20.1.2"
-	oidIPNetToMedia   = ".1.3.6.1.2.1.4.22.1"
-	oidIPToMediaPhys  = ".1.3.6.1.2.1.4.22.1.2"
+	oidIPAddrTable      = ".1.3.6.1.2.1.4.20.1"
+	oidIPAdEntAddr      = ".1.3.6.1.2.1.4.20.1.1"
+	oidIPAdEntIfIndex   = ".1.3.6.1.2.1.4.20.1.2"
+	oidIPNetToMedia     = ".1.3.6.1.2.1.4.22.1"
+	oidIPToMediaPhys    = ".1.3.6.1.2.1.4.22.1.2"
 	oidIPToPhysicalPhys = ".1.3.6.1.2.1.4.35.1.4"
 
 	// Extended interface table (ifXTable)
@@ -202,36 +202,43 @@ func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
 // handleTopologyDiscoverySNMP queries and publishes topology information (LLDP or CDP)
 func (e *DiscoveryEngine) handleTopologyDiscoverySNMP(
 	job *DiscoveryJob, client *gosnmp.GoSNMP, targetIP string) {
+	publishedAny := false
+
 	// Try LLDP first
 	lldpLinks, lldpErr := e.queryLLDP(client, targetIP, job)
 	if lldpErr == nil && len(lldpLinks) > 0 {
 		e.publishTopologyLinks(job, lldpLinks, targetIP, "LLDP")
-		return
+		publishedAny = true
+	} else {
+		e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(lldpErr).
+			Msg("LLDP not supported or no neighbors")
 	}
 
-	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(lldpErr).
-		Msg("LLDP not supported or no neighbors")
-
-	// Try CDP if LLDP failed
+	// Try CDP as additional evidence (some neighbors only advertise CDP).
 	cdpLinks, cdpErr := e.queryCDP(client, targetIP, job)
 	if cdpErr == nil && len(cdpLinks) > 0 {
 		e.publishTopologyLinks(job, cdpLinks, targetIP, "CDP")
-		return
+		publishedAny = true
+	} else {
+		e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(cdpErr).
+			Msg("CDP not supported or no neighbors")
 	}
 
-	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(cdpErr).
-		Msg("CDP not supported or no neighbors")
-
-	// Fallback for devices that do not expose LLDP/CDP over SNMP:
-	// correlate ARP and bridge forwarding table evidence.
+	// Also run ARP+FDB enrichment even when LLDP/CDP succeeds.
+	// This captures neighbors that do not expose LLDP/CDP (e.g. some AP/uplink edges).
 	l2Links, l2Err := e.querySNMPL2Neighbors(client, targetIP, job)
 	if l2Err == nil && len(l2Links) > 0 {
 		e.publishTopologyLinks(job, l2Links, targetIP, "SNMP-L2")
-		return
+		publishedAny = true
+	} else {
+		e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(l2Err).
+			Msg("SNMP L2 enrichment returned no neighbors")
 	}
 
-	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(l2Err).
-		Msg("SNMP L2 enrichment returned no neighbors")
+	if !publishedAny {
+		e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).
+			Msg("No topology neighbors discovered via LLDP/CDP/SNMP-L2")
+	}
 }
 
 // setupSNMPClient creates and configures an SNMP client

@@ -280,8 +280,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       nodes = build_nodes(node_ids, device_by_id, interface_index, pps_by_if)
 
       edges = canonical_edges |> dedupe_edges()
+      device_totals = device_telemetry_totals(interface_index, pps_by_if, bps_by_if)
 
       with {:ok, edges} <- enrich_edges_via_native(edges, interfaces, pps_by_if, bps_by_if) do
+        edges = apply_unifi_uplink_telemetry_fallback(edges, device_totals)
+
         unresolved_endpoints =
           Enum.count(canonical_node_ids, fn id -> not Map.has_key?(device_by_id, id) end)
 
@@ -1770,6 +1773,90 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp load_interface_bps(_), do: %{}
+
+  defp device_telemetry_totals(interface_index, pps_by_if, bps_by_if)
+       when is_map(interface_index) and is_map(pps_by_if) and is_map(bps_by_if) do
+    devices =
+      interface_index
+      |> Map.get(:by_device, %{})
+      |> Map.keys()
+
+    Enum.reduce(devices, %{}, fn device_id, acc ->
+      if_rows = Map.get(interface_index.by_device, device_id, [])
+
+      cap_bps =
+        if_rows
+        |> Enum.map(&interface_capacity_bps/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.max(fn -> 0 end)
+
+      pps =
+        pps_by_if
+        |> Enum.filter(fn {{d, _if_index}, _v} -> d == device_id end)
+        |> Enum.map(fn {_k, v} -> v end)
+        |> Enum.sum()
+
+      bps =
+        bps_by_if
+        |> Enum.filter(fn {{d, _if_index}, _v} -> d == device_id end)
+        |> Enum.map(fn {_k, v} -> v end)
+        |> Enum.sum()
+
+      Map.put(acc, device_id, %{pps: normalize_u32(pps), bps: normalize_u64(bps), capacity_bps: normalize_u64(cap_bps)})
+    end)
+  end
+
+  defp device_telemetry_totals(_, _, _), do: %{}
+
+  defp apply_unifi_uplink_telemetry_fallback(edges, device_totals)
+       when is_list(edges) and is_map(device_totals) do
+    Enum.map(edges, fn edge ->
+      if unifi_unattributed?(edge) do
+        source = Map.get(device_totals, Map.get(edge, :source), %{})
+        target = Map.get(device_totals, Map.get(edge, :target), %{})
+
+        inferred_pps = pair_min_non_zero(Map.get(source, :pps, 0), Map.get(target, :pps, 0))
+        inferred_bps = pair_min_non_zero(Map.get(source, :bps, 0), Map.get(target, :bps, 0))
+
+        inferred_capacity =
+          pair_min_non_zero(
+            Map.get(source, :capacity_bps, 0),
+            Map.get(target, :capacity_bps, 0)
+          )
+
+        flow_pps = if normalize_u32(Map.get(edge, :flow_pps, 0)) > 0, do: Map.get(edge, :flow_pps, 0), else: inferred_pps
+        flow_bps = if normalize_u64(Map.get(edge, :flow_bps, 0)) > 0, do: Map.get(edge, :flow_bps, 0), else: inferred_bps
+
+        capacity_bps =
+          if normalize_u64(Map.get(edge, :capacity_bps, 0)) > 0,
+            do: Map.get(edge, :capacity_bps, 0),
+            else: inferred_capacity
+
+        edge
+        |> Map.put(:flow_pps, normalize_u32(flow_pps))
+        |> Map.put(:flow_bps, normalize_u64(flow_bps))
+        |> Map.put(:capacity_bps, normalize_u64(capacity_bps))
+        |> Map.put(:telemetry_eligible, normalize_u64(flow_bps) > 0 or normalize_u32(flow_pps) > 0)
+        |> Map.put(:label, edge_label(edge, normalize_u32(flow_pps), normalize_u64(capacity_bps)))
+      else
+        edge
+      end
+    end)
+  end
+
+  defp apply_unifi_uplink_telemetry_fallback(edges, _), do: edges
+
+  defp pair_min_non_zero(a, b) do
+    av = normalize_u64(a)
+    bv = normalize_u64(b)
+
+    cond do
+      av > 0 and bv > 0 -> min(av, bv)
+      av > 0 -> av
+      bv > 0 -> bv
+      true -> 0
+    end
+  end
 
   defp packet_metric_direction(metric_name)
        when metric_name in ["ifInUcastPkts", "ifHCInUcastPkts"],

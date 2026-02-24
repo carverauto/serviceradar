@@ -1,5 +1,13 @@
 namespace: demo
 
+# Pod topology spread constraints.
+# When enabled, the scheduler distributes serviceradar pods across nodes.
+topologySpread:
+  enabled: false
+  # maxSkew: 2
+  # topologyKey: kubernetes.io/hostname
+  # whenUnsatisfiable: ScheduleAnyway
+
 # Global settings that apply across all services
 global:
   # Override all ServiceRadar image tags at once. Defaults to "latest" so
