@@ -114,8 +114,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     path = uri |> to_string() |> URI.parse() |> Map.get(:path)
     tab = normalize_tab(Map.get(params, "tab"), path)
 
-    # NetFlow analytics has moved to a dedicated /netflow page. Preserve SRQL `q`
-    # and best-effort preserve netflow-specific options so bookmarks keep working.
+    # Flow analytics has moved to a dedicated /flows page. Preserve SRQL `q`
+    # and best-effort preserve flow-specific options so bookmarks keep working.
     if path == "/observability" and tab == "netflows" do
       nav_params =
         params
@@ -134,8 +134,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
       to =
         case nav_params do
-          %{} = p when map_size(p) > 0 -> "/netflow?" <> URI.encode_query(p)
-          _ -> "/netflow"
+          %{} = p when map_size(p) > 0 -> "/flows?" <> URI.encode_query(p)
+          _ -> "/flows"
         end
 
       {:noreply, push_navigate(socket, to: to)}
@@ -2697,7 +2697,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.tab_button id="metrics" label="Metrics" icon="hero-chart-bar" active={@active} />
         <.tab_button id="events" label="Events" icon="hero-bell-alert" active={@active} />
         <.tab_button id="alerts" label="Alerts" icon="hero-exclamation-triangle" active={@active} />
-        <.tab_button id="netflows" label="NetFlow" icon="hero-arrow-path" active={@active} />
+        <.tab_button id="netflows" label="Flows" icon="hero-arrow-path" active={@active} />
         <.link
           navigate={~p"/observability/bmp"}
           class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
@@ -4276,6 +4276,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     {label, variant} =
       case flow_type do
+        "SFLOW_5" -> {"sFlow v5", "primary"}
         "NETFLOW_V5" -> {"v5", "warning"}
         "NETFLOW_V9" -> {"v9", "info"}
         "IPFIX" -> {"IPFIX", "success"}
@@ -5602,7 +5603,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp compute_netflow_summary(flows) when is_list(flows) do
     Enum.reduce(
       flows,
-      %{total: 0, tcp: 0, udp: 0, other: 0, total_bytes: 0, v5: 0, v9: 0, ipfix: 0},
+      %{total: 0, tcp: 0, udp: 0, other: 0, total_bytes: 0, v5: 0, v9: 0, ipfix: 0, sflow: 0},
       fn flow, acc ->
         protocol = flow |> netflow_protocol_num() |> to_int()
         bytes = flow |> netflow_bytes() |> to_int()
@@ -5620,6 +5621,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             "NETFLOW_V5" -> Map.update!(updated, :v5, &(&1 + 1))
             "NETFLOW_V9" -> Map.update!(updated, :v9, &(&1 + 1))
             "IPFIX" -> Map.update!(updated, :ipfix, &(&1 + 1))
+            "SFLOW_5" -> Map.update!(updated, :sflow, &(&1 + 1))
             _ -> updated
           end
 
@@ -5636,7 +5638,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp panel_title("metrics"), do: "Metrics"
   defp panel_title("events"), do: "Events"
   defp panel_title("alerts"), do: "Alerts"
-  defp panel_title("netflows"), do: "NetFlow"
+  defp panel_title("netflows"), do: "Flows"
   defp panel_title(_), do: "Log Stream"
 
   defp panel_subtitle("traces"), do: "Click a trace to jump to correlated logs."

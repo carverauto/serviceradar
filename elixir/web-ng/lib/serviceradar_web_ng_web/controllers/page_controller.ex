@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.PageController do
     redirect(conn, to: ~p"/settings/cluster/nodes/#{node_name}")
   end
 
-  def redirect_to_netflow(conn, params) do
+  def redirect_to_flows(conn, params) do
     # Preserve SRQL query and any other URL params, but drop legacy tab marker.
     params =
       params
@@ -34,8 +34,8 @@ defmodule ServiceRadarWebNGWeb.PageController do
 
     url =
       case params do
-        %{} = p when map_size(p) > 0 -> "/netflow?" <> URI.encode_query(p)
-        _ -> "/netflow"
+        %{} = p when map_size(p) > 0 -> "/flows?" <> URI.encode_query(p)
+        _ -> "/flows"
       end
 
     redirect(conn, to: url)

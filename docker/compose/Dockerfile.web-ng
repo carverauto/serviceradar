@@ -8,15 +8,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     protobuf-compiler \
     libssl-dev \
+    unzip \
   && rm -rf /var/lib/apt/lists/*
 
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-ENV PATH="/root/.cargo/bin:${PATH}"
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.cargo/bin:/root/.bun/bin:${PATH}"
 
 WORKDIR /app
 
-# Copy shared Elixir library first (dependency for web-ng)
+# Copy shared Elixir libraries (dependencies for web-ng)
 COPY elixir/serviceradar_core ./elixir/serviceradar_core
+COPY elixir/serviceradar_srql ./elixir/serviceradar_srql
+COPY elixir/datasvc ./elixir/datasvc
+COPY elixir/connection ./elixir/connection
+COPY elixir/vendor ./elixir/vendor
 
 # Copy web-ng application
 COPY elixir/web-ng/mix.exs elixir/web-ng/mix.lock ./web-ng/
@@ -58,20 +64,6 @@ RUN mix deps.compile
 RUN mix compile
 RUN mix assets.deploy
 
-FROM hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim AS runtime
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app/web-ng
-
-ENV MIX_ENV=prod
-
-# Copy shared library and web-ng (web-ng depends on serviceradar_core)
-COPY --from=build /app/elixir/serviceradar_core /app/elixir/serviceradar_core
-COPY --from=build /app/web-ng /app/web-ng
-
 EXPOSE 4000
 
-CMD ["sh", "-lc", "exec mix phx.server"]
+CMD ["mix", "phx.server"]

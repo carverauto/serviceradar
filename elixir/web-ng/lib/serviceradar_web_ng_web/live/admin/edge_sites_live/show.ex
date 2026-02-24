@@ -453,6 +453,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
         :flowgger -> {"Syslog", "info"}
         :trapd -> {"SNMP", "secondary"}
         :netflow -> {"NetFlow", "accent"}
+        :sflow -> {"sFlow", "accent"}
         :otel -> {"OTel", "primary"}
         _ -> {to_string(assigns.type), "ghost"}
       end

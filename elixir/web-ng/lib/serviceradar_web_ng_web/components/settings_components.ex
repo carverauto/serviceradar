@@ -234,7 +234,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         active: sweep_profiles_active?(path)
       },
       %{
-        label: "NetFlow",
+        label: "Network Flows",
         navigate: ~p"/settings/netflows",
         active: String.starts_with?(path, "/settings/netflows")
       },

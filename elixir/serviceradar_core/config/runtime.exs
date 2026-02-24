@@ -480,6 +480,20 @@ if config_env() == :prod do
           processor: ServiceRadar.EventWriter.Processors.CausalSignals,
           batch_size: 100,
           batch_timeout: 1_000
+        },
+        %{
+          name: "SFLOW_RAW",
+          subject: "flows.raw.sflow",
+          processor: ServiceRadar.EventWriter.Processors.Flows,
+          batch_size: 50,
+          batch_timeout: 500
+        },
+        %{
+          name: "NETFLOW_RAW",
+          subject: "flows.raw.netflow",
+          processor: ServiceRadar.EventWriter.Processors.Flows,
+          batch_size: 50,
+          batch_timeout: 500
         }
       ]
   end

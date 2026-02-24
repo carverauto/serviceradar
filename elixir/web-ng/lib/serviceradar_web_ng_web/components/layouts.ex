@@ -411,7 +411,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_label("logs"), do: "Logs"
   defp section_label("observability"), do: "Observability"
   defp section_label("services"), do: "Services"
-  defp section_label("netflows"), do: "NetFlow"
+  defp section_label("netflows"), do: "Network Flows"
   defp section_label("admin"), do: "Settings"
   defp section_label("settings"), do: "Settings"
   defp section_label(other), do: String.capitalize(other)

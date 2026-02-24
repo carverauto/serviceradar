@@ -1,8 +1,8 @@
-defmodule ServiceRadar.EventWriter.Processors.NetFlow do
+defmodule ServiceRadar.EventWriter.Processors.Flows do
   @moduledoc """
-  Processor for NetFlow/IPFIX metrics messages in OCSF Network Activity format.
+  Processor for flow telemetry (sFlow, NetFlow, IPFIX) in OCSF Network Activity format.
 
-  Parses NetFlow data from NATS JetStream and inserts them into
+  Parses flow data from NATS JetStream and inserts them into
   the `ocsf_network_activity` hypertable using OCSF v1.3.0 Network Activity
   schema (class_uid: 4001) with activity_id: 6 (Traffic).
 
@@ -73,13 +73,12 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
-    # DB connection's search_path determines the schema
     case Jason.decode(data) do
       {:ok, json} ->
-        parse_netflow(json, metadata)
+        parse_flow(json, metadata)
 
       {:error, _} ->
-        Logger.debug("Failed to parse netflow message as JSON")
+        Logger.debug("Failed to parse flow message as JSON")
         nil
     end
   end
@@ -106,9 +105,8 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
     end
   end
 
-  # DB connection's search_path determines the schema
   # Produces a flat row matching the ocsf_network_activity table columns.
-  defp parse_netflow(json, nats_metadata) do
+  defp parse_flow(json, nats_metadata) do
     time = FieldParser.parse_timestamp(json["timestamp"])
     activity_id = OCSF.activity_network_traffic()
 
@@ -123,6 +121,9 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
     octets = json["octets"] || json["bytes"] || 0
     packets = json["packets"] || 0
 
+    # Prefer version-specific label from collector JSON, fall back to NATS subject
+    flow_source = json["flow_source"] || flow_source_from_subject(nats_metadata[:subject])
+
     # Build full OCSF payload for the JSONB column
     ocsf_payload = %{
       "class_uid" => OCSF.class_network_activity(),
@@ -136,9 +137,10 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       "traffic" => %{"bytes" => octets, "packets" => packets},
       "protocol_name" => protocol_name,
       "protocol_num" => protocol_num,
+      "flow_source" => flow_source,
       "metadata" =>
         OCSF.build_metadata(
-          product_name: "NetFlowCollector",
+          product_name: "FlowCollector",
           correlation_uid: nats_metadata[:subject]
         ),
       "sampler_address" =>
@@ -262,4 +264,15 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
   defp maybe_add(list, nil, _builder), do: list
   defp maybe_add(list, "", _builder), do: list
   defp maybe_add(list, value, builder), do: [builder.(value) | list]
+
+  defp flow_source_from_subject(subject) when is_binary(subject) do
+    cond do
+      String.contains?(subject, "sflow") -> "sFlow"
+      String.contains?(subject, "netflow") -> "NetFlow"
+      String.contains?(subject, "ipfix") -> "IPFIX"
+      true -> "Unknown"
+    end
+  end
+
+  defp flow_source_from_subject(_), do: "Unknown"
 end

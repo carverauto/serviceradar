@@ -768,6 +768,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
         :flowgger -> {"Syslog", "info"}
         :trapd -> {"SNMP", "secondary"}
         :netflow -> {"NetFlow", "accent"}
+        :sflow -> {"sFlow", "accent"}
         :otel -> {"OTel", "primary"}
         _ -> {to_string(type), "ghost"}
       end
