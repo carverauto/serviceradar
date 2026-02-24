@@ -135,8 +135,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     },
     %{
       id: "flows",
-      label: "NetFlow",
-      route: "/netflow",
+      label: "Flows",
+      route: "/flows",
       default_time: "last_24h",
       default_sort_field: "time",
       default_sort_dir: "desc",

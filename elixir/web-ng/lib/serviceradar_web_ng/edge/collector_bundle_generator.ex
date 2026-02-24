@@ -113,6 +113,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
       :otel -> "otel.toml"
       :trapd -> "trapd.json"
       :netflow -> "netflow.json"
+      :sflow -> "sflow.json"
       _ -> "config.toml"
     end
   end
@@ -123,6 +124,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
       :otel -> generate_otel_config(package, opts)
       :trapd -> generate_trapd_config(package, opts)
       :netflow -> generate_netflow_config(package, opts)
+      :sflow -> generate_sflow_config(package, opts)
       _ -> generate_flowgger_config(package, opts)
     end
   end
@@ -282,6 +284,34 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     Jason.encode!(config, pretty: true)
   end
 
+  defp generate_sflow_config(package, opts) do
+    nats_url = get_nats_url(package, opts)
+    site = package.site || "default"
+
+    # Apply any config overrides
+    listen_addr = get_in(package.config_overrides, ["listen_addr"]) || "0.0.0.0:6343"
+
+    config = %{
+      "listen_addr" => listen_addr,
+      "nats_url" => nats_url,
+      "stream_name" => "events",
+      "subject" => "flows.raw.sflow",
+      "partition" => site,
+      "nats_creds_file" => "/etc/serviceradar/creds/nats.creds",
+      "security" => %{
+        "mode" => "mtls",
+        "cert_dir" => "/etc/serviceradar/certs",
+        "tls" => %{
+          "cert_file" => "collector.pem",
+          "key_file" => "collector-key.pem",
+          "ca_file" => "ca-chain.pem"
+        }
+      }
+    }
+
+    Jason.encode!(config, pretty: true)
+  end
+
   defp generate_update_script(package) do
     collector_type = to_string(package.collector_type)
     config_file = config_filename(package)
@@ -378,6 +408,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
         :flowgger -> "514 (TCP/UDP)"
         :trapd -> "162 (UDP)"
         :netflow -> "2055 (UDP)"
+        :sflow -> "6343 (UDP)"
         :otel -> "4317 (gRPC), 4318 (HTTP)"
         _ -> "N/A"
       end

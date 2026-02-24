@@ -275,6 +275,13 @@ defmodule ServiceRadarWebNG.Api.CollectorEnrollController do
     })
   end
 
+  defp add_collector_defaults(config, :sflow) do
+    Map.put(config, "sflow", %{
+      "listen" => "0.0.0.0:6343",
+      "protocols" => ["sflow-v5"]
+    })
+  end
+
   defp add_collector_defaults(config, :otel) do
     Map.put(config, "otel", %{
       "grpc_listen" => "0.0.0.0:4317",

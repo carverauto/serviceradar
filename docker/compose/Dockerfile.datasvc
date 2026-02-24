@@ -55,7 +55,8 @@ RUN apt-get update && \
         netcat-openbsd \
         wget \
     && rm -rf /var/lib/apt/lists/* \
-    && wget -qO- https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_x86_64.tar.gz \
+    && GRPCURL_ARCH=$(dpkg --print-architecture | sed 's/amd64/x86_64/' | sed 's/arm64/arm64/') \
+    && wget -qO- "https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_${GRPCURL_ARCH}.tar.gz" \
         | tar -xz -C /usr/local/bin grpcurl \
     && chmod +x /usr/local/bin/grpcurl
 

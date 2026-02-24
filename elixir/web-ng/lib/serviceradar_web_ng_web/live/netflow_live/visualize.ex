@@ -28,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   @nf_dims_ordered [
     {"Protocol (group)", "protocol_group"},
     {"Application", "app"},
+    {"Flow source", "flow_source"},
     {"Dest port", "dst_port"},
     {"Source IP", "src_ip"},
     {"Dest IP", "dst_ip"},
@@ -130,7 +131,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   def handle_event("srql_submit", params, socket) do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_submit", params,
-       fallback_path: "/netflow",
+       fallback_path: "/flows",
        extra_params: srql_submit_extra_params(socket)
      )}
   end
@@ -139,7 +140,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_toggle", %{},
        entity: "flows",
-       fallback_path: "/netflow"
+       fallback_path: "/flows"
      )}
   end
 
@@ -155,7 +156,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_run", %{},
        entity: "flows",
-       fallback_path: "/netflow",
+       fallback_path: "/flows",
        extra_params: srql_submit_extra_params(socket)
      )}
   end
@@ -427,7 +428,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
             <div class="card bg-base-100 border border-base-200 shadow-sm">
               <div class="card-body gap-3">
                 <div class="min-w-0">
-                  <div class="text-base font-semibold">NetFlow Visualize</div>
+                  <div class="text-base font-semibold">Network Flows</div>
                   <div class="text-xs text-base-content/60">
                     SRQL-driven analytics (preview). Charts and dimensions will expand in follow-up changes.
                   </div>
@@ -835,7 +836,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   flows={@flows}
                   rdns_map={@rdns_map}
                   geo_iso2_map={@geo_iso2_map}
-                  base_path="/netflow"
+                  base_path="/flows"
                   query={Map.get(@srql, :query) || ""}
                   limit={@limit}
                   nf_param={nf_param(@netflow_viz_state)}
@@ -845,7 +846,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   <.ui_pagination
                     prev_cursor={Map.get(@flows_pagination, "prev_cursor")}
                     next_cursor={Map.get(@flows_pagination, "next_cursor")}
-                    base_path="/netflow"
+                    base_path="/flows"
                     query={Map.get(@srql, :query) || ""}
                     limit={@limit}
                     result_count={length(@flows || [])}
@@ -897,6 +898,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20 text-right">
               Proto
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-16 text-right">
+              Source
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-28 text-right">
               Packets / Bytes
@@ -1013,6 +1017,27 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                     {app}
                   </div>
                 </div>
+              </td>
+              <td class="whitespace-nowrap text-xs text-right font-mono align-top">
+                <% flow_src = flow_get_in(flow, ["ocsf_payload", "flow_source"]) %>
+                <.ui_badge
+                  :if={is_binary(flow_src) and flow_src != "Unknown"}
+                  variant={cond do
+                    String.starts_with?(flow_src, "sFlow") -> "info"
+                    String.starts_with?(flow_src, "IPFIX") -> "warning"
+                    true -> "success"
+                  end}
+                  size="xs"
+                  class="font-mono"
+                >
+                  {flow_src}
+                </.ui_badge>
+                <span
+                  :if={!is_binary(flow_src) or flow_src == "Unknown"}
+                  class="text-base-content/40"
+                >
+                  —
+                </span>
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono align-top">
                 <% packets = flow_get(flow, ["packets_total", "packets"]) %>

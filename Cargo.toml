@@ -10,7 +10,7 @@ members = [
     "rust/otel",
     "rust/consumers/zen",
     "rust/rperf-client",
-    "rust/netflow-collector",
+    "rust/flow-collector",
     "rust/srql",
 ]
 
