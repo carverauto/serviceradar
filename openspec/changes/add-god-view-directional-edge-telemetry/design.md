@@ -25,6 +25,9 @@ God-View edge telemetry is currently modeled as a single aggregate flow per cano
 - Decision: SNMP topology evidence is authoritative for telemetry-bearing edges.
   - Prefer LLDP/CDP/SNMP-L2 edges with valid interface attribution for edge telemetry mapping.
   - UniFi-API edges without interface attribution remain valid structural/discovery edges but are explicitly telemetry-ineligible.
+- Decision: Topology SNMP discovery SHALL execute LLDP/CDP and SNMP-L2 enrichment in the same scan.
+  - LLDP/CDP success MUST NOT short-circuit SNMP-L2 enrichment.
+  - This preserves high-confidence LLDP/CDP edges while still discovering non-LLDP neighbors that can be interface-attributed through ARP+FDB evidence.
 - Decision: UI renders bidirectional streams only when directional fields are present.
   - No synthetic 50/50 split fallback.
   - Missing side data yields single-direction rendering.
@@ -43,6 +46,7 @@ God-View edge telemetry is currently modeled as a single aggregate flow per cano
 4. Discovery/polling bootstrap:
    - Ensure topology-linked interfaces have required SNMP OID configs (`ifIn/OutOctets`, `ifIn/OutUcastPkts`, HC variants when available).
    - Add a mapper/discovery setting to control this behavior.
+   - Ensure SNMP topology scans run LLDP/CDP plus SNMP-L2 enrichment instead of LLDP-only early return.
 5. Frontend rendering:
    - Consume directional fields in particle generation.
    - Render reverse lane only with real reverse telemetry.

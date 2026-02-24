@@ -76,3 +76,14 @@ For telemetry-bearing canonical edges, the system SHALL prefer topology evidence
 - **WHEN** canonical edge selection and telemetry enrichment run
 - **THEN** telemetry-bearing edge semantics SHALL be derived from the SNMP-attributed evidence
 - **AND** UniFi/API-only evidence MAY remain as structural/discovery context but SHALL NOT override telemetry mapping
+
+### Requirement: SNMP topology enrichment completeness per scan
+SNMP topology discovery SHALL execute LLDP/CDP discovery and SNMP-L2 enrichment in the same scan cycle so non-LLDP neighbors remain discoverable and attributable.
+
+#### Scenario: LLDP neighbors exist with additional non-LLDP neighbors
+- **GIVEN** a device where LLDP returns at least one neighbor
+- **AND** additional neighbors are only inferable via SNMP ARP+FDB evidence
+- **WHEN** topology discovery runs
+- **THEN** LLDP/CDP links SHALL be published
+- **AND** SNMP-L2 enrichment SHALL still run in that same scan
+- **AND** eligible non-LLDP neighbors SHALL also be published with SNMP-L2 attribution

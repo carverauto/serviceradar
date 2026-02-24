@@ -3,6 +3,10 @@
 ## Why
 God-View currently animates topology flow using aggregate edge telemetry (`flow_pps`, `flow_bps`, `capacity_bps`). This prevents true per-direction rendering and has forced temporary UI-side synthetic splitting for bidirectional effects. We already collect directional interface counters (`ifIn*` / `ifOut*`) for these links, so the gap is attribution and propagation, not collection. In addition, visual parity with the deckgl PoC requires denser, tube-aligned particle streams with consistent behavior across zoom levels.
 
+Recent demo investigation confirmed two additional root causes that must be captured in scope:
+- Topology discovery currently treats SNMP-L2 as a fallback behind LLDP/CDP in a way that can skip additional neighbors that do not advertise LLDP/CDP.
+- SNMP OID coverage is largely driven by per-interface `interface_settings` selections, leaving many topology-linked ports without packet/octet counters and therefore without usable edge telemetry.
+
 ## What Changes
 - Keep existing SNMP interface metric collection unchanged.
 - Treat SNMP-derived topology evidence (LLDP/CDP/SNMP-L2 with interface attribution) as authoritative for telemetry-bearing topology edges.
@@ -13,6 +17,7 @@ God-View currently animates topology flow using aggregate edge telemetry (`flow_
 - Add visual parity requirements for packet density/tube fill behavior so production God-View matches PoC readability.
 - Define explicit fallback behavior when directional telemetry is incomplete on an edge.
 - Add mapper/discovery controls to auto-bootstrap required SNMP interface metrics for topology edges so links are telemetry-eligible without per-interface manual setup.
+- Require SNMP topology discovery to publish LLDP/CDP evidence and still execute SNMP-L2 enrichment in the same pass (no LLDP short-circuit), so non-LLDP neighbors can still be telemetry-attributed.
 
 ## Impact
 - Affected specs:
@@ -29,3 +34,4 @@ God-View currently animates topology flow using aggregate edge telemetry (`flow_
   - God-View edge telemetry payload shape expands with directional fields.
   - No new telemetry collectors or polling jobs are introduced.
   - UniFi-API-only edges without interface attribution are modeled as non-telemetry edges in God-View payload semantics.
+  - Mapper topology discovery behavior is tightened to always include SNMP-L2 enrichment alongside LLDP/CDP when available.

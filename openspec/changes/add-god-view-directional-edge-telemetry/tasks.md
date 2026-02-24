@@ -21,6 +21,8 @@
 - [ ] 4.1 Add mapper/discovery setting to auto-enable required interface metrics for topology telemetry (default enabled).
 - [ ] 4.2 Implement reconciliation that ensures topology-linked interfaces have required SNMP OID configs (`ifIn/OutOctets` + `ifIn/OutUcastPkts`, HC variants when supported).
 - [ ] 4.3 Add tests for bootstrap/reconciliation behavior, including idempotent updates and no-op when already configured.
+- [ ] 4.4 Ensure SNMP topology discovery runs LLDP/CDP and SNMP-L2 enrichment in the same pass (no LLDP short-circuit).
+- [ ] 4.5 Add tests proving non-LLDP neighbors are still discovered/attributed when LLDP neighbors exist on the same device.
 
 ## 5. God-View Frontend Rendering
 - [ ] 5.1 Remove synthetic bidirectional flow splitting and render reverse streams only when real directional fields exist.
@@ -32,3 +34,5 @@
 - [ ] 6.1 Verify directional metric availability per topology edge side in demo CNPG (`timeseries_metrics` + mapper topology links).
 - [ ] 6.2 Validate endpoint/interface mapping for known links (e.g. aggregation-switch uplinks) and confirm edge telemetry matches expected interface rates.
 - [ ] 6.3 Validate God-View behavior in demo: no fake bidi, correct directional rendering on eligible edges, graceful fallback on incomplete edges.
+- [ ] 6.4 Verify a reduced count of `UniFi-API` links with `local_if_index=0` for switch/AP and switch/switch paths after SNMP-L2 enrichment changes.
+- [ ] 6.5 Verify topology-linked interfaces on key devices are auto-provisioned with required packet/octet OIDs without manual per-interface toggles.
