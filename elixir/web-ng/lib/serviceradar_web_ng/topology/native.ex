@@ -28,6 +28,7 @@ defmodule ServiceRadarWebNG.Topology.Native do
         _revision,
         _nodes,
         _edges,
+        _edge_directional,
         _root_bitmap_bytes,
         _affected_bitmap_bytes,
         _healthy_bitmap_bytes,

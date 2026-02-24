@@ -309,7 +309,7 @@ PACKAGES = {
         "deb_depends": ["systemd", "serviceradar-cli"],
         "rpm_requires": ["systemd", "serviceradar-cli"],
         "binary": {
-            "target": "//rust/netflow-collector:netflow-collector",
+            "target": "//rust/flow-collector:flow-collector",
             "dest": "/usr/local/bin/serviceradar-netflow-collector",
         },
         "files": [

@@ -76,11 +76,11 @@ const (
 	oidIfOperStatus  = ".1.3.6.1.2.1.2.2.1.8"
 
 	// IP address table OIDs
-	oidIPAddrTable    = ".1.3.6.1.2.1.4.20.1"
-	oidIPAdEntAddr    = ".1.3.6.1.2.1.4.20.1.1"
-	oidIPAdEntIfIndex = ".1.3.6.1.2.1.4.20.1.2"
-	oidIPNetToMedia   = ".1.3.6.1.2.1.4.22.1"
-	oidIPToMediaPhys  = ".1.3.6.1.2.1.4.22.1.2"
+	oidIPAddrTable      = ".1.3.6.1.2.1.4.20.1"
+	oidIPAdEntAddr      = ".1.3.6.1.2.1.4.20.1.1"
+	oidIPAdEntIfIndex   = ".1.3.6.1.2.1.4.20.1.2"
+	oidIPNetToMedia     = ".1.3.6.1.2.1.4.22.1"
+	oidIPToMediaPhys    = ".1.3.6.1.2.1.4.22.1.2"
 	oidIPToPhysicalPhys = ".1.3.6.1.2.1.4.35.1.4"
 
 	// Extended interface table (ifXTable)
@@ -204,34 +204,54 @@ func (e *DiscoveryEngine) handleTopologyDiscoverySNMP(
 	job *DiscoveryJob, client *gosnmp.GoSNMP, targetIP string) {
 	// Try LLDP first
 	lldpLinks, lldpErr := e.queryLLDP(client, targetIP, job)
+	// Try CDP as additional evidence (some neighbors only advertise CDP).
+	cdpLinks, cdpErr := e.queryCDP(client, targetIP, job)
+	// Also run ARP+FDB enrichment even when LLDP/CDP succeeds.
+	// This captures neighbors that do not expose LLDP/CDP (e.g. some AP/uplink edges).
+	l2Links, l2Err := e.querySNMPL2Neighbors(client, targetIP, job)
+	e.publishTopologyEvidence(job, targetIP, lldpLinks, lldpErr, cdpLinks, cdpErr, l2Links, l2Err)
+}
+
+func (e *DiscoveryEngine) publishTopologyEvidence(
+	job *DiscoveryJob,
+	targetIP string,
+	lldpLinks []*TopologyLink,
+	lldpErr error,
+	cdpLinks []*TopologyLink,
+	cdpErr error,
+	l2Links []*TopologyLink,
+	l2Err error,
+) {
+	publishedAny := false
+
 	if lldpErr == nil && len(lldpLinks) > 0 {
 		e.publishTopologyLinks(job, lldpLinks, targetIP, "LLDP")
-		return
+		publishedAny = true
+	} else {
+		e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(lldpErr).
+			Msg("LLDP not supported or no neighbors")
 	}
 
-	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(lldpErr).
-		Msg("LLDP not supported or no neighbors")
-
-	// Try CDP if LLDP failed
-	cdpLinks, cdpErr := e.queryCDP(client, targetIP, job)
 	if cdpErr == nil && len(cdpLinks) > 0 {
 		e.publishTopologyLinks(job, cdpLinks, targetIP, "CDP")
-		return
+		publishedAny = true
+	} else {
+		e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(cdpErr).
+			Msg("CDP not supported or no neighbors")
 	}
 
-	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(cdpErr).
-		Msg("CDP not supported or no neighbors")
-
-	// Fallback for devices that do not expose LLDP/CDP over SNMP:
-	// correlate ARP and bridge forwarding table evidence.
-	l2Links, l2Err := e.querySNMPL2Neighbors(client, targetIP, job)
 	if l2Err == nil && len(l2Links) > 0 {
 		e.publishTopologyLinks(job, l2Links, targetIP, "SNMP-L2")
-		return
+		publishedAny = true
+	} else {
+		e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(l2Err).
+			Msg("SNMP L2 enrichment returned no neighbors")
 	}
 
-	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(l2Err).
-		Msg("SNMP L2 enrichment returned no neighbors")
+	if !publishedAny {
+		e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).
+			Msg("No topology neighbors discovered via LLDP/CDP/SNMP-L2")
+	}
 }
 
 // setupSNMPClient creates and configures an SNMP client
@@ -2174,6 +2194,12 @@ type arpNeighbor struct {
 	neighborKnown bool
 }
 
+type knownMACNeighbor struct {
+	deviceID string
+	ip       string
+	mac      string
+}
+
 func (e *DiscoveryEngine) querySNMPL2Neighbors(
 	client *gosnmp.GoSNMP, targetIP string, job *DiscoveryJob) ([]*TopologyLink, error) {
 	localDeviceID := e.lookupLocalDeviceID(job, targetIP)
@@ -2183,6 +2209,7 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 
 	localSubnets := e.localIPv4Subnets(job, targetIP)
 	knownNeighborIPs := e.knownDeviceIPv4Set(job)
+	knownNeighborsByMAC := e.knownDeviceNeighborByMAC(job)
 	bridgeIfByMAC, fdbMacCountByIf := e.bridgeIfIndexByMAC(client)
 
 	neighbors := make([]arpNeighbor, 0, 32)
@@ -2265,6 +2292,41 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 	}
 
 	neighbors = e.selectDensePortNeighbors(neighbors)
+
+	// Bridge-only fallback: correlate known device MACs to bridge FDB entries.
+	// This covers L2 switches that lack useful ARP tables for directly connected
+	// infrastructure peers (e.g., router/SFP uplinks).
+	for normalizedMAC, ifIndex := range bridgeIfByMAC {
+		if ifIndex <= 0 {
+			continue
+		}
+
+		neighbor, ok := knownNeighborsByMAC[normalizedMAC]
+		if !ok {
+			continue
+		}
+		if neighbor.deviceID == "" || neighbor.deviceID == localDeviceID {
+			continue
+		}
+		if !isIPv4(neighbor.ip) || !inSubnetSet(localSubnets, neighbor.ip) {
+			continue
+		}
+
+		mac := strings.TrimSpace(neighbor.mac)
+		if mac == "" {
+			mac = normalizedMAC
+		}
+
+		neighbors = append(neighbors, arpNeighbor{
+			ifIndex:       ifIndex,
+			ip:            neighbor.ip,
+			mac:           mac,
+			fdbPortMapped: true,
+			fdbMacCount:   fdbMacCountByIf[ifIndex],
+			neighborKnown: true,
+		})
+	}
+
 	links := buildSNMPL2LinksFromNeighbors(localDeviceID, targetIP, job.ID, neighbors)
 
 	if len(links) == 0 {
@@ -2562,6 +2624,8 @@ func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) (map[string]
 		return nil
 	})
 
+	hasExplicitBridgePortMap := len(bridgePortToIfIndex) > 0
+
 	result := make(map[string]int32)
 	fdbMacCountByIf := make(map[int32]int)
 	seenByIfMAC := make(map[string]struct{})
@@ -2574,7 +2638,13 @@ func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) (map[string]
 
 		ifIndex, exists := bridgePortToIfIndex[bridgePort]
 		if !exists || ifIndex <= 0 {
-			return nil
+			// Some switches expose dot1dTpFdbPort but not dot1dBasePortIfIndex.
+			// On those agents, bridge port IDs are typically aligned with ifIndex.
+			// Use that as a fallback so FDB evidence can still drive topology attribution.
+			if hasExplicitBridgePortMap || bridgePort <= 0 {
+				return nil
+			}
+			ifIndex = bridgePort
 		}
 
 		mac, ok := macFromFDBOID(pdu.Name)
@@ -2633,6 +2703,53 @@ func (e *DiscoveryEngine) knownDeviceIPv4Set(job *DiscoveryJob) map[string]bool 
 	for _, ip := range job.scanQueue {
 		if isIPv4(ip) {
 			known[ip] = true
+		}
+	}
+
+	return known
+}
+
+func (e *DiscoveryEngine) knownDeviceNeighborByMAC(job *DiscoveryJob) map[string]knownMACNeighbor {
+	known := make(map[string]knownMACNeighbor)
+	if job == nil || job.Results == nil {
+		return known
+	}
+
+	job.mu.RLock()
+	defer job.mu.RUnlock()
+
+	for _, device := range job.Results.Devices {
+		if device == nil {
+			continue
+		}
+
+		deviceID := strings.TrimSpace(device.DeviceID)
+		ip := strings.TrimSpace(device.IP)
+		if deviceID == "" || !isIPv4(ip) {
+			continue
+		}
+
+		register := func(rawMAC string) {
+			norm := NormalizeMAC(rawMAC)
+			if norm == "" {
+				return
+			}
+			if _, exists := known[norm]; exists {
+				return
+			}
+			known[norm] = knownMACNeighbor{
+				deviceID: deviceID,
+				ip:       ip,
+				mac:      strings.TrimSpace(rawMAC),
+			}
+		}
+
+		register(device.MAC)
+		register(device.BridgeBaseMAC)
+		for key := range device.Metadata {
+			if strings.HasPrefix(key, "alt_mac:") {
+				register(strings.TrimPrefix(key, "alt_mac:"))
+			}
 		}
 	}
 

@@ -2,10 +2,13 @@ package mapper
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 )
 
 const testStringTrue = "true"
@@ -15,7 +18,7 @@ func TestPublishTopologyLinksSkipsCandidateOnlyPublishing(t *testing.T) {
 
 	ctx := t.Context()
 	publisher := &recordingPublisher{}
-	engine := &DiscoveryEngine{publisher: publisher}
+	engine := &DiscoveryEngine{publisher: publisher, logger: logger.NewTestLogger()}
 	job := &DiscoveryJob{
 		ID:     "disc-test",
 		ctx:    ctx,
@@ -51,6 +54,59 @@ func TestPublishTopologyLinksSkipsCandidateOnlyPublishing(t *testing.T) {
 	require.Len(t, job.Results.TopologyLinks, 2)
 	require.Len(t, publisher.topologyLinks, 1)
 	assert.Equal(t, "192.168.10.1", publisher.topologyLinks[0].NeighborMgmtAddr)
+}
+
+func TestPublishTopologyEvidencePublishesSNMPL2EvenWhenLLDPPresent(t *testing.T) {
+	t.Parallel()
+
+	publisher := &recordingPublisher{}
+	engine := &DiscoveryEngine{publisher: publisher, logger: logger.NewTestLogger()}
+	job := &DiscoveryJob{
+		ID:     "disc-topo",
+		ctx:    context.Background(),
+		Params: &DiscoveryParams{},
+		Results: &DiscoveryResults{
+			TopologyLinks: []*TopologyLink{},
+		},
+	}
+
+	lldpLinks := []*TopologyLink{
+		{
+			Protocol:         "LLDP",
+			LocalDeviceIP:    "192.168.1.87",
+			LocalDeviceID:    "sr:agg",
+			LocalIfIndex:     8,
+			NeighborMgmtAddr: "192.168.1.131",
+			Metadata:         map[string]string{},
+		},
+	}
+	snmpL2Links := []*TopologyLink{
+		{
+			Protocol:         "SNMP-L2",
+			LocalDeviceIP:    "192.168.1.87",
+			LocalDeviceID:    "sr:agg",
+			LocalIfIndex:     7,
+			NeighborMgmtAddr: "192.168.1.138",
+			Metadata:         map[string]string{},
+		},
+	}
+
+	engine.publishTopologyEvidence(
+		job,
+		"192.168.1.87",
+		lldpLinks,
+		nil,
+		nil,
+		errors.New("no cdp"),
+		snmpL2Links,
+		nil,
+	)
+
+	// Both LLDP and SNMP-L2 evidence must be published in a single scan pass.
+	require.Len(t, publisher.topologyLinks, 2)
+	require.Len(t, job.Results.TopologyLinks, 2)
+	assert.Equal(t, "LLDP", publisher.topologyLinks[0].Protocol)
+	assert.Equal(t, "SNMP-L2", publisher.topologyLinks[1].Protocol)
 }
 
 type recordingPublisher struct {

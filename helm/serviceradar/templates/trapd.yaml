@@ -13,6 +13,7 @@ spec:
         app: serviceradar-trapd
         app.kubernetes.io/part-of: serviceradar
     spec:
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.trapdServiceAccount | default "serviceradar-trapd" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:

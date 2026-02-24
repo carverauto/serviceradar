@@ -65,6 +65,7 @@ spec:
         app: serviceradar-flowgger
         app.kubernetes.io/part-of: serviceradar
     spec:
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.flowggerServiceAccount | default "serviceradar-flowgger" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:

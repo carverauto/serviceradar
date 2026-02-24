@@ -40,6 +40,9 @@ export const godViewRenderingGraphDataMethods = {
         const sourceId = effective.shape === "local" ? src.id : src.id || edge.sourceCluster || "src"
         const targetId = effective.shape === "local" ? dst.id : dst.id || edge.targetCluster || "dst"
         const rawEdgeId = edge.id || edge.edge_id || edge.label || edge.type || `${sourceId}:${targetId}:${edgeIndex}`
+        const telemetryEligible = edge.telemetryEligible === false || edge.telemetry_eligible === false
+          ? false
+          : true
         return {
           sourceId,
           targetId,
@@ -47,11 +50,16 @@ export const godViewRenderingGraphDataMethods = {
           targetPosition: [dst.x, dst.y, 0],
           weight: edge.weight || 1,
           flowPps: Number(edge.flowPps || 0),
+          flowPpsAb: Number(edge.flowPpsAb || 0),
+          flowPpsBa: Number(edge.flowPpsBa || 0),
           flowBps: Number(edge.flowBps || 0),
+          flowBpsAb: Number(edge.flowBpsAb || 0),
+          flowBpsBa: Number(edge.flowBpsBa || 0),
           capacityBps: Number(edge.capacityBps || 0),
           midpoint: [(src.x + dst.x) / 2, (src.y + dst.y) / 2, 0],
           label: label.length > 56 ? `${label.slice(0, 56)}...` : label,
           connectionLabel,
+          telemetryEligible,
           interactionKey: `${effective.shape}:${rawEdgeId}`,
         }
       })

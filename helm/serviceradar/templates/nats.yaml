@@ -11,7 +11,9 @@ spec:
     metadata:
       labels:
         app: serviceradar-nats
+        app.kubernetes.io/part-of: serviceradar
     spec:
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
       containers:
       - name: nats
         image: nats:{{ .Values.image.tags.nats | default "latest" }}

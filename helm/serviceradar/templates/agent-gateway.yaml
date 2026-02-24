@@ -34,6 +34,7 @@ spec:
         app.kubernetes.io/part-of: serviceradar
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ $gatewaySA }}
       containers:
       - name: agent-gateway

@@ -97,6 +97,47 @@ describe("layout_cluster_methods", () => {
     expect(out.edges[0].topologyClassCounts.endpoints).toEqual(1)
   })
 
+  it("clusterEdges preserves directional telemetry with canonical cluster orientation", () => {
+    const ctx = makeContext()
+    const clusterByNode = {0: "a", 1: "b", 2: "a"}
+    const edges = [
+      {
+        source: 0,
+        target: 1,
+        flowPps: 100,
+        flowPpsAb: 80,
+        flowPpsBa: 20,
+        flowBps: 1000,
+        flowBpsAb: 800,
+        flowBpsBa: 200,
+        capacityBps: 10_000,
+      },
+      {
+        source: 1,
+        target: 2,
+        flowPps: 60,
+        flowPpsAb: 45,
+        flowPpsBa: 15,
+        flowBps: 600,
+        flowBpsAb: 450,
+        flowBpsBa: 150,
+        capacityBps: 5_000,
+      },
+    ]
+
+    const out = ctx.clusterEdges(edges, clusterByNode)
+    expect(out).toHaveLength(1)
+    expect(out[0].sourceCluster).toEqual("a")
+    expect(out[0].targetCluster).toEqual("b")
+    expect(out[0].flowPps).toEqual(160)
+    expect(out[0].flowBps).toEqual(1600)
+    // First edge (a->b): AB=80 BA=20; second edge is (b->a): AB/BA swapped into canonical a->b.
+    expect(out[0].flowPpsAb).toEqual(95)
+    expect(out[0].flowPpsBa).toEqual(65)
+    expect(out[0].flowBpsAb).toEqual(950)
+    expect(out[0].flowBpsBa).toEqual(650)
+  })
+
   it("reshapeGraph routes to tier-specific transformations", () => {
     const graph = {nodes: [], edges: []}
 

@@ -153,14 +153,27 @@ export const godViewLayoutClusterMethods = {
         targetCluster: a < b ? b : a,
         weight: 0,
         flowPps: 0,
+        flowPpsAb: 0,
+        flowPpsBa: 0,
         flowBps: 0,
+        flowBpsAb: 0,
+        flowBpsBa: 0,
         capacityBps: 0,
         topologyClassCounts: {backbone: 0, inferred: 0, endpoints: 0},
       }
       const topologyClass = deps.edgeTopologyClass(edge)
+      const canonicalForward = a < b
+      const edgePpsAb = Number(edge.flowPpsAb || 0)
+      const edgePpsBa = Number(edge.flowPpsBa || 0)
+      const edgeBpsAb = Number(edge.flowBpsAb || 0)
+      const edgeBpsBa = Number(edge.flowBpsBa || 0)
       current.weight += 1
       current.flowPps += Number(edge.flowPps || 0)
+      current.flowPpsAb += canonicalForward ? edgePpsAb : edgePpsBa
+      current.flowPpsBa += canonicalForward ? edgePpsBa : edgePpsAb
       current.flowBps += Number(edge.flowBps || 0)
+      current.flowBpsAb += canonicalForward ? edgeBpsAb : edgeBpsBa
+      current.flowBpsBa += canonicalForward ? edgeBpsBa : edgeBpsAb
       current.capacityBps += Number(edge.capacityBps || 0)
       current.topologyClassCounts[topologyClass] =
         Number(current.topologyClassCounts[topologyClass] || 0) + 1

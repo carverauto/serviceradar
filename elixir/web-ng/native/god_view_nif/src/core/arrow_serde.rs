@@ -28,7 +28,8 @@ pub(crate) fn encode_snapshot_impl(
     schema_version: u32,
     revision: u64,
     nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
-    edges: Vec<(u16, u16, u32, u64, u64, String)>,
+    edges: Vec<(u16, u16, u32, u64, u64, String, u8)>,
+    edge_directional: Vec<(u32, u32, u64, u64)>,
     root_bitmap_bytes: u32,
     affected_bitmap_bytes: u32,
     healthy_bitmap_bytes: u32,
@@ -49,8 +50,13 @@ pub(crate) fn encode_snapshot_impl(
     let mut edge_source = Vec::<Option<u16>>::with_capacity(total_rows);
     let mut edge_target = Vec::<Option<u16>>::with_capacity(total_rows);
     let mut edge_pps = Vec::<Option<u32>>::with_capacity(total_rows);
+    let mut edge_pps_ab = Vec::<Option<u32>>::with_capacity(total_rows);
+    let mut edge_pps_ba = Vec::<Option<u32>>::with_capacity(total_rows);
     let mut edge_flow_bps = Vec::<Option<u64>>::with_capacity(total_rows);
+    let mut edge_flow_bps_ab = Vec::<Option<u64>>::with_capacity(total_rows);
+    let mut edge_flow_bps_ba = Vec::<Option<u64>>::with_capacity(total_rows);
     let mut edge_capacity_bps = Vec::<Option<u64>>::with_capacity(total_rows);
+    let mut edge_telemetry_eligible = Vec::<Option<u8>>::with_capacity(total_rows);
     let mut edge_label = Vec::<Option<String>>::with_capacity(total_rows);
 
     for (x, y, state, label, pps, oper_up, details) in nodes {
@@ -65,12 +71,22 @@ pub(crate) fn encode_snapshot_impl(
         edge_source.push(None);
         edge_target.push(None);
         edge_pps.push(None);
+        edge_pps_ab.push(None);
+        edge_pps_ba.push(None);
         edge_flow_bps.push(None);
+        edge_flow_bps_ab.push(None);
+        edge_flow_bps_ba.push(None);
         edge_capacity_bps.push(None);
+        edge_telemetry_eligible.push(None);
         edge_label.push(None);
     }
 
-    for (source, target, pps, flow_bps, capacity_bps, label) in edges {
+    for (idx, (source, target, pps, flow_bps, capacity_bps, label, telemetry_eligible)) in
+        edges.into_iter().enumerate()
+    {
+        let (flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba) =
+            edge_directional.get(idx).copied().unwrap_or((0, 0, 0, 0));
+
         row_type.push(1);
         node_x.push(None);
         node_y.push(None);
@@ -82,8 +98,13 @@ pub(crate) fn encode_snapshot_impl(
         edge_source.push(Some(source));
         edge_target.push(Some(target));
         edge_pps.push(Some(pps));
+        edge_pps_ab.push(Some(flow_pps_ab));
+        edge_pps_ba.push(Some(flow_pps_ba));
         edge_flow_bps.push(Some(flow_bps));
+        edge_flow_bps_ab.push(Some(flow_bps_ab));
+        edge_flow_bps_ba.push(Some(flow_bps_ba));
         edge_capacity_bps.push(Some(capacity_bps));
+        edge_telemetry_eligible.push(Some(if telemetry_eligible > 0 { 1 } else { 0 }));
         edge_label.push(Some(label));
     }
 
@@ -136,8 +157,13 @@ pub(crate) fn encode_snapshot_impl(
             Field::new("edge_source", DataType::UInt16, true),
             Field::new("edge_target", DataType::UInt16, true),
             Field::new("edge_pps", DataType::UInt32, true),
+            Field::new("edge_pps_ab", DataType::UInt32, true),
+            Field::new("edge_pps_ba", DataType::UInt32, true),
             Field::new("edge_flow_bps", DataType::UInt64, true),
+            Field::new("edge_flow_bps_ab", DataType::UInt64, true),
+            Field::new("edge_flow_bps_ba", DataType::UInt64, true),
             Field::new("edge_capacity_bps", DataType::UInt64, true),
+            Field::new("edge_telemetry_eligible", DataType::UInt8, true),
             Field::new("edge_label", DataType::Utf8, true),
             Field::new("snapshot_schema_version", DataType::UInt32, false),
             Field::new("snapshot_revision", DataType::UInt64, false),
@@ -162,8 +188,13 @@ pub(crate) fn encode_snapshot_impl(
             Arc::new(UInt16Array::from(edge_source)),
             Arc::new(UInt16Array::from(edge_target)),
             Arc::new(UInt32Array::from(edge_pps)),
+            Arc::new(UInt32Array::from(edge_pps_ab)),
+            Arc::new(UInt32Array::from(edge_pps_ba)),
             Arc::new(UInt64Array::from(edge_flow_bps)),
+            Arc::new(UInt64Array::from(edge_flow_bps_ab)),
+            Arc::new(UInt64Array::from(edge_flow_bps_ba)),
             Arc::new(UInt64Array::from(edge_capacity_bps)),
+            Arc::new(UInt8Array::from(edge_telemetry_eligible)),
             Arc::new(StringArray::from(edge_label)),
             Arc::new(UInt32Array::from(schema_version_col)),
             Arc::new(UInt64Array::from(revision_col)),

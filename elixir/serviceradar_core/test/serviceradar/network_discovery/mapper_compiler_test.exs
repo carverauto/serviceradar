@@ -94,7 +94,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
           name: "Mapper Default",
           enabled: true,
           is_default: true,
-          community: "C4rv3rAut0"
+          community: "public"
         },
         actor: actor
       )
@@ -126,6 +126,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
 
     assert [compiled_job] = config["scheduled_jobs"]
     assert compiled_job["credentials"]["version"] == "v2c"
-    assert compiled_job["credentials"]["community"] == "C4rv3rAut0"
+    assert compiled_job["credentials"]["community"] == "public"
   end
 end
