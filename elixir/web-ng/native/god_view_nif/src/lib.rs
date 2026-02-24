@@ -123,22 +123,21 @@ fn build_roaring_bitmaps<'a>(
     let unknown_count = unknown.len() as u32;
 
     let root_bytes =
-        crate::core::arrow_serde::serialize_bitmap(&root).map_err(|_| rustler::Error::BadArg)?;
+        core::arrow_serde::serialize_bitmap(&root).map_err(|_| rustler::Error::BadArg)?;
     let affected_bytes = crate::core::arrow_serde::serialize_bitmap(&affected)
         .map_err(|_| rustler::Error::BadArg)?;
     let healthy_bytes =
-        crate::core::arrow_serde::serialize_bitmap(&healthy).map_err(|_| rustler::Error::BadArg)?;
+        core::arrow_serde::serialize_bitmap(&healthy).map_err(|_| rustler::Error::BadArg)?;
     let unknown_bytes =
-        crate::core::arrow_serde::serialize_bitmap(&unknown).map_err(|_| rustler::Error::BadArg)?;
+        core::arrow_serde::serialize_bitmap(&unknown).map_err(|_| rustler::Error::BadArg)?;
 
     Ok((
-        crate::core::arrow_serde::vec_into_binary(env, root_bytes)
+        core::arrow_serde::vec_into_binary(env, root_bytes).map_err(|_| rustler::Error::BadArg)?,
+        core::arrow_serde::vec_into_binary(env, affected_bytes)
             .map_err(|_| rustler::Error::BadArg)?,
-        crate::core::arrow_serde::vec_into_binary(env, affected_bytes)
+        core::arrow_serde::vec_into_binary(env, healthy_bytes)
             .map_err(|_| rustler::Error::BadArg)?,
-        crate::core::arrow_serde::vec_into_binary(env, healthy_bytes)
-            .map_err(|_| rustler::Error::BadArg)?,
-        crate::core::arrow_serde::vec_into_binary(env, unknown_bytes)
+        core::arrow_serde::vec_into_binary(env, unknown_bytes)
             .map_err(|_| rustler::Error::BadArg)?,
         (root_count, affected_count, healthy_count, unknown_count),
     ))
@@ -153,15 +152,14 @@ fn decode_arrow_payload(binary: Binary) -> NifResult<Vec<crate::types::survey::S
         Ok(r) => r,
         Err(_) => {
             // Fallback to file reader
-            return crate::core::arrow_serde::decode_arrow_file(binary.as_slice());
+            return core::arrow_serde::decode_arrow_file(binary.as_slice());
         }
     };
 
     let mut rows = Vec::new();
     while let Some(batch_result) = reader.next() {
         let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
-        crate::core::arrow_serde::extract_rows(&batch, &mut rows)
-            .map_err(|_| rustler::Error::BadArg)?;
+        core::arrow_serde::extract_rows(&batch, &mut rows).map_err(|_| rustler::Error::BadArg)?;
     }
 
     Ok(rows)
@@ -218,17 +216,17 @@ fn runtime_graph_indexed_edges(
 ) -> NifResult<Vec<(u32, u32)>> {
     let guard = graph.links.read().map_err(|_| rustler::Error::BadArg)?;
     let indexed = indexed_edges_from_runtime_rows(&guard, &node_ids);
-    let node_index = crate::core::utils::build_node_index(&node_ids);
+    let node_index = core::utils::build_node_index(&node_ids);
     let mut allowed = std::collections::HashSet::<(u32, u32)>::new();
 
     for (source_id, target_id) in &allowed_edges {
-        let src = crate::core::utils::normalized_id(source_id).and_then(|id| {
+        let src = core::utils::normalized_id(source_id).and_then(|id| {
             node_index
                 .get(&id)
                 .copied()
                 .or_else(|| node_index.get(&id.to_ascii_lowercase()).copied())
         });
-        let dst = crate::core::utils::normalized_id(target_id).and_then(|id| {
+        let dst = core::utils::normalized_id(target_id).and_then(|id| {
             node_index
                 .get(&id)
                 .copied()
@@ -240,13 +238,13 @@ fn runtime_graph_indexed_edges(
         if a == b {
             continue;
         }
-        allowed.insert(crate::core::utils::canonical_pair_u32(a as u32, b as u32));
+        allowed.insert(core::utils::canonical_pair_u32(a as u32, b as u32));
     }
 
     let filtered = indexed
         .into_iter()
         .filter_map(|(a, b, _)| {
-            let key = crate::core::utils::canonical_pair_u32(a, b);
+            let key = core::utils::canonical_pair_u32(a, b);
             if allowed.contains(&key) {
                 Some((key.0, key.1))
             } else {
@@ -323,7 +321,6 @@ rustler::init!("Elixir.ServiceRadarWebNG.Topology.Native", load = on_load);
 
 #[cfg(test)]
 mod tests {
-
     use crate::core::layout::{build_hypergraph_projection, layout_nodes_layered};
     use crate::core::telemetry::enrich_edges_telemetry_impl;
     use std::time::Instant;
