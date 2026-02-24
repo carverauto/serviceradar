@@ -11,11 +11,11 @@ export const godViewRenderingGraphLayerTransportMethods = {
     const pulseAlpha = Math.floor(255 * (1.0 - pulse))
     const zoom = Number(this.state.viewState?.zoom || 0)
     const zoomScale = Math.max(0.4, Math.min(4.5, Math.pow(1.24, zoom + 1.2)))
-    const particleSizeScale = Math.max(0.42, Math.min(3.6, Math.pow(1.28, zoom + 0.9)))
-    const zoomInParticleBoost = Math.max(1.0, Math.min(2.6, 1.0 + (Math.max(0, zoom) * 0.38)))
-    const particleRenderScale = particleSizeScale * zoomInParticleBoost
+    const particleRenderScale = 1.0
     const zoomParticleVisibility = Math.max(0.14, Math.min(1.0, (zoom + 2.2) / 3.6))
-    const zoomSpreadScale = Math.max(1.0, Math.min(2.1, 1.0 + ((1.0 - zoomParticleVisibility) * 0.95)))
+    const zoomParticleAlphaScale = Math.max(0.35, zoomParticleVisibility)
+    const minParticleSizePx = 1.0
+    const zoomSpreadScale = Math.max(1.0, Math.min(1.35, 1.0 + ((1.0 - zoomParticleVisibility) * 0.35)))
     const hasFocus = this.state.hoveredEdgeKey || this.state.selectedEdgeKey
     const alphaMult = (d) => {
       if (!hasFocus) return 1.0
@@ -117,9 +117,9 @@ export const godViewRenderingGraphLayerTransportMethods = {
                 getTo: (d) => d.to,
                 getColor: (d) => {
                   const color = d.color || [56, 189, 248, 120]
-                  return [color[0], color[1], color[2], Math.round((color[3] || 0) * zoomParticleVisibility)]
+                  return [color[0], color[1], color[2], Math.round((color[3] || 0) * zoomParticleAlphaScale)]
                 },
-                getSize: (d) => Math.max(1.6, Number(d.size || 0) * particleRenderScale),
+                getSize: (d) => Math.max(minParticleSizePx, Number(d.size || 0) * particleRenderScale),
                 getSpeed: (d) => d.speed,
                 getSeed: (d) => d.seed,
                 getJitter: (d) => Number(d.jitter || 0) * zoomSpreadScale,
@@ -155,8 +155,8 @@ export const godViewRenderingGraphLayerTransportMethods = {
             const alphaFade = Math.max(0, Math.sin(t * Math.PI))
             return {
               position: [x + (nx * (laneOffset + laneSpread + bob)), y + (ny * (laneOffset + laneSpread + bob)), 0],
-              radius: Math.max(1.2, Number(particle.size || 2.4) * 0.16 * particleRenderScale),
-              color: [color[0], color[1], color[2], Math.round(Math.max(8, Number(color[3] || 90) * alphaFade * zoomParticleVisibility))],
+              radius: Math.max(1.0, Number(particle.size || 2.4) * 0.16 * particleRenderScale),
+              color: [color[0], color[1], color[2], Math.round(Math.max(6, Number(color[3] || 90) * alphaFade * zoomParticleAlphaScale))],
             }
           })
 

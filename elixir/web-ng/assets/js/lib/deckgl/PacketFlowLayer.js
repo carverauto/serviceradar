@@ -47,7 +47,10 @@ void main(void) {
   pos += normal * offset * instanceJitters;
 
   vColor = vec4(instanceColors.rgb / 255.0, instanceColors.a / 255.0);
-  float fade = smoothstep(0.0, 0.05, progress) * smoothstep(1.0, 0.95, progress);
+  // Fade particles out near both endpoints so node areas stay visually cleaner.
+  float fadeIn = smoothstep(0.0, 0.18, progress);
+  float fadeOut = smoothstep(1.0, 0.82, progress);
+  float fade = fadeIn * fadeOut;
   vColor.a *= fade;
   gl_Position = project_position_to_clipspace(vec3(pos, 0.0), vec3(0.0), vec3(0.0));
   gl_PointSize = instanceSizes;
