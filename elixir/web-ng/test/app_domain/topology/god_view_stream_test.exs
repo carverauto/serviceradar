@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.NetworkDiscovery.TopologyLink
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Topology.GodViewStream
@@ -744,6 +745,100 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert second_states[router_uid] in [0, 1]
   end
 
+  test "latest_snapshot/0 publishes directional edge telemetry from interface in/out counters" do
+    actor = SystemActor.system(:god_view_stream_directional_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    left_uid = "dir-left-#{suffix}"
+    right_uid = "dir-right-#{suffix}"
+    now = DateTime.utc_now()
+
+    create_topology_device(actor, left_uid, "left-dir-#{suffix}.local")
+    create_topology_device(actor, right_uid, "right-dir-#{suffix}.local")
+
+    create_topology_link(actor, now, left_uid, right_uid, 7)
+    create_topology_link(actor, now, right_uid, left_uid, 11)
+    create_interface_observation(actor, now, left_uid, "eth7", 7)
+    create_interface_observation(actor, now, right_uid, "eth11", 11)
+
+    insert_metric(now, left_uid, 7, "ifOutUcastPkts", 300)
+    insert_metric(now, left_uid, 7, "ifOutOctets", 4_000)
+    insert_metric(now, right_uid, 11, "ifOutUcastPkts", 120)
+    insert_metric(now, right_uid, 11, "ifOutOctets", 1_000)
+
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+    edge = find_edge(snapshot, left_uid, right_uid)
+    assert edge
+    assert edge.flow_pps_ab == 300
+    assert edge.flow_pps_ba == 120
+    assert edge.flow_bps_ab == 32_000
+    assert edge.flow_bps_ba == 8_000
+    assert edge.flow_pps == 420
+    assert edge.flow_bps == 40_000
+  end
+
+  test "latest_snapshot/0 keeps directional semantics stable regardless endpoint order in rows" do
+    actor = SystemActor.system(:god_view_stream_directional_order_invariance_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    left_uid = "zzz-left-#{suffix}"
+    right_uid = "aaa-right-#{suffix}"
+    now = DateTime.utc_now()
+
+    create_topology_device(actor, left_uid, "left-order-#{suffix}.local")
+    create_topology_device(actor, right_uid, "right-order-#{suffix}.local")
+
+    # Insert reverse order first to prove canonical merge isn't row-order dependent.
+    create_topology_link(actor, now, left_uid, right_uid, 17)
+    create_topology_link(actor, now, right_uid, left_uid, 9)
+    create_interface_observation(actor, now, left_uid, "eth17", 17)
+    create_interface_observation(actor, now, right_uid, "eth9", 9)
+
+    insert_metric(now, left_uid, 17, "ifOutUcastPkts", 170)
+    insert_metric(now, left_uid, 17, "ifOutOctets", 1_700)
+    insert_metric(now, right_uid, 9, "ifOutUcastPkts", 90)
+    insert_metric(now, right_uid, 9, "ifOutOctets", 900)
+
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+    edge = find_edge(snapshot, left_uid, right_uid)
+    assert edge
+
+    if edge.source == right_uid and edge.target == left_uid do
+      assert edge.flow_pps_ab == 90
+      assert edge.flow_pps_ba == 170
+      assert edge.flow_bps_ab == 7_200
+      assert edge.flow_bps_ba == 13_600
+    else
+      assert edge.flow_pps_ab == 170
+      assert edge.flow_pps_ba == 90
+      assert edge.flow_bps_ab == 13_600
+      assert edge.flow_bps_ba == 7_200
+    end
+  end
+
+  test "latest_snapshot/0 keeps missing directional side empty when only one side exists" do
+    actor = SystemActor.system(:god_view_stream_directional_one_sided_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    left_uid = "dir-one-left-#{suffix}"
+    right_uid = "dir-one-right-#{suffix}"
+    now = DateTime.utc_now()
+
+    create_topology_device(actor, left_uid, "left-one-dir-#{suffix}.local")
+    create_topology_device(actor, right_uid, "right-one-dir-#{suffix}.local")
+
+    create_topology_link(actor, now, left_uid, right_uid, 8)
+    create_interface_observation(actor, now, left_uid, "eth8", 8)
+
+    insert_metric(now, left_uid, 8, "ifOutUcastPkts", 222)
+    insert_metric(now, left_uid, 8, "ifOutOctets", 2_000)
+
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+    edge = find_edge(snapshot, left_uid, right_uid)
+    assert edge
+    assert edge.flow_pps_ab == 222
+    assert edge.flow_pps_ba == 0
+    assert edge.flow_bps_ab == 16_000
+    assert edge.flow_bps_ba == 0
+  end
+
   defp coords_for(snapshot, node_ids) do
     snapshot.nodes
     |> Enum.filter(&(&1.id in node_ids))
@@ -761,5 +856,82 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       (edge.source == source_id and edge.target == target_id) or
         (edge.source == target_id and edge.target == source_id)
     end)
+  end
+
+  defp create_topology_device(actor, uid, hostname) do
+    Device
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        uid: uid,
+        hostname: hostname,
+        type_id: 12,
+        is_available: true,
+        first_seen_time: DateTime.utc_now(),
+        last_seen_time: DateTime.utc_now()
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+  end
+
+  defp create_topology_link(actor, timestamp, local_uid, neighbor_uid, if_index) do
+    TopologyLink
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: timestamp,
+        protocol: "lldp",
+        local_device_id: local_uid,
+        local_if_name: "eth#{if_index}",
+        local_if_index: if_index,
+        neighbor_device_id: neighbor_uid,
+        neighbor_mgmt_addr: "10.240.#{rem(if_index, 200)}.#{rem(if_index * 3, 200)}",
+        metadata: @topology_link_metadata
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+  end
+
+  defp create_interface_observation(actor, timestamp, device_id, if_name, if_index) do
+    Interface
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: timestamp,
+        device_id: device_id,
+        interface_uid: "#{device_id}/#{if_name}",
+        if_name: if_name,
+        if_index: if_index,
+        if_oper_status: 1,
+        speed_bps: 1_000_000_000
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+  end
+
+  defp insert_metric(timestamp, device_id, if_index, metric_name, value) do
+    Repo.insert_all("timeseries_metrics", [
+      %{
+        timestamp: timestamp,
+        gateway_id: "gw-god-view-test",
+        agent_id: "agent-god-view-test",
+        metric_name: metric_name,
+        metric_type: "gauge",
+        device_id: device_id,
+        value: value * 1.0,
+        unit: "",
+        tags: %{},
+        partition: "default",
+        scale: 1.0,
+        is_delta: true,
+        target_device_ip: nil,
+        if_index: if_index,
+        metadata: %{},
+        created_at: DateTime.utc_now()
+      }
+    ])
   end
 end

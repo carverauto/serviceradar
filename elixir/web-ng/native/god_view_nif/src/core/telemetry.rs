@@ -41,6 +41,17 @@ pub(crate) fn find_interface_for_edge(
     None
 }
 
+fn resolved_metric_index(
+    explicit_if_index: i64,
+    iface: Option<&InterfaceTelemetryRecord>,
+) -> Option<i64> {
+    if explicit_if_index >= 0 {
+        Some(explicit_if_index)
+    } else {
+        iface.and_then(|record| (record.if_index >= 0).then_some(record.if_index))
+    }
+}
+
 /// Helper function to create shorthand human-readable string values for packet rates.
 pub(crate) fn format_rate(value: u64) -> String {
     if value >= 1_000_000 {
@@ -79,16 +90,25 @@ pub(crate) fn edge_label(protocol: &str, flow_pps: u32, capacity_bps: u64) -> St
 /// Orchestrates the total assembly of a real-time topology flow. Combines structural
 /// graph layout edges with physical port index/PPS/BPS observations passed in from Elixir metric queries.
 pub(crate) fn enrich_edges_telemetry_impl(
-    edges: Vec<(String, String, String, i64, String, (u32, u64, u64))>,
+    edges: Vec<(
+        String,
+        String,
+        String,
+        (i64, String, i64, String),
+        (u32, u64, u64),
+    )>,
     interfaces: Vec<(String, String, i64, u64)>,
-    pps_metrics: Vec<(String, i64, u32)>,
-    bps_metrics: Vec<(String, i64, u64)>,
-) -> Result<Vec<(String, String, u32, u64, u64, String)>, rustler::Error> {
+    pps_metrics: Vec<(String, i64, u32, u32)>,
+    bps_metrics: Vec<(String, i64, u64, u64)>,
+) -> Result<Vec<(String, String, u32, u64, u64, String, (u32, u32, u64, u64))>, rustler::Error> {
     let mut by_index = HashMap::<(String, i64), InterfaceTelemetryRecord>::new();
     let mut by_name = HashMap::<(String, String), InterfaceTelemetryRecord>::new();
 
     for (device_id, if_name, if_index, speed_bps) in interfaces {
-        let record = InterfaceTelemetryRecord { speed_bps };
+        let record = InterfaceTelemetryRecord {
+            if_index,
+            speed_bps,
+        };
 
         if if_index >= 0 {
             by_index
@@ -106,68 +126,87 @@ pub(crate) fn enrich_edges_telemetry_impl(
 
     let pps_by_if = pps_metrics
         .into_iter()
-        .map(|(device_id, if_index, value)| ((device_id, if_index), value))
+        .map(|(device_id, if_index, in_value, out_value)| {
+            ((device_id, if_index), (in_value, out_value))
+        })
         .collect::<HashMap<_, _>>();
 
     let bps_by_if = bps_metrics
         .into_iter()
-        .map(|(device_id, if_index, value)| ((device_id, if_index), value))
+        .map(|(device_id, if_index, in_value, out_value)| {
+            ((device_id, if_index), (in_value, out_value))
+        })
         .collect::<HashMap<_, _>>();
 
     let enriched = edges
         .into_iter()
         .map(
-            |(source, target, protocol, local_if_index, local_if_name, typed_telemetry)| {
+            |(source, target, protocol, directional_attrs, typed_telemetry)| {
+                let (if_index_ab, if_name_ab, if_index_ba, if_name_ba) = directional_attrs;
                 let (typed_flow_pps, typed_flow_bps, typed_capacity_bps) = typed_telemetry;
-                let iface = find_interface_for_edge(
-                    &by_index,
-                    &by_name,
-                    &source,
-                    &local_if_name,
-                    local_if_index,
-                );
+                let iface_ab =
+                    find_interface_for_edge(&by_index, &by_name, &source, &if_name_ab, if_index_ab);
+                let iface_ba =
+                    find_interface_for_edge(&by_index, &by_name, &target, &if_name_ba, if_index_ba);
 
-                let (iface_pps, iface_bps, iface_capacity) = if let Some(record) = iface {
-                    let pps = if local_if_index >= 0 {
-                        pps_by_if
-                            .get(&(source.clone(), local_if_index))
-                            .copied()
-                            .map(|v| v as u64)
-                    } else {
-                        None
-                    };
+                let resolved_if_index_ab = resolved_metric_index(if_index_ab, iface_ab.as_ref());
+                let resolved_if_index_ba = resolved_metric_index(if_index_ba, iface_ba.as_ref());
 
-                    let bps = if local_if_index >= 0 {
-                        bps_by_if.get(&(source.clone(), local_if_index)).copied()
-                    } else {
-                        None
-                    };
+                let pps_ab_local = resolved_if_index_ab
+                    .and_then(|idx| pps_by_if.get(&(source.clone(), idx)).copied());
 
-                    (pps, bps, Some(record.speed_bps))
+                let pps_ba_local = resolved_if_index_ba
+                    .and_then(|idx| pps_by_if.get(&(target.clone(), idx)).copied());
+
+                let bps_ab_local = resolved_if_index_ab
+                    .and_then(|idx| bps_by_if.get(&(source.clone(), idx)).copied());
+
+                let bps_ba_local = resolved_if_index_ba
+                    .and_then(|idx| bps_by_if.get(&(target.clone(), idx)).copied());
+
+                let flow_pps_ab = pps_ab_local.map(|(_in_v, out_v)| out_v).unwrap_or(0);
+                let flow_pps_ba = pps_ba_local.map(|(_in_v, out_v)| out_v).unwrap_or(0);
+                let flow_bps_ab = bps_ab_local.map(|(_in_v, out_v)| out_v).unwrap_or(0);
+                let flow_bps_ba = bps_ba_local.map(|(_in_v, out_v)| out_v).unwrap_or(0);
+
+                let cap_ab = iface_ab.map(|r| r.speed_bps).unwrap_or(0);
+                let cap_ba = iface_ba.map(|r| r.speed_bps).unwrap_or(0);
+                let iface_capacity = if cap_ab > 0 && cap_ba > 0 {
+                    cap_ab.min(cap_ba)
+                } else if cap_ab > 0 {
+                    cap_ab
                 } else {
-                    (None, None, None)
+                    cap_ba
                 };
 
                 let flow_pps = if typed_flow_pps > 0 {
                     typed_flow_pps
                 } else {
-                    iface_pps.unwrap_or(0).min(u32::MAX as u64) as u32
+                    flow_pps_ab.saturating_add(flow_pps_ba)
                 };
 
                 let flow_bps = if typed_flow_bps > 0 {
                     typed_flow_bps
                 } else {
-                    iface_bps.unwrap_or(0)
+                    flow_bps_ab.saturating_add(flow_bps_ba)
                 };
 
                 let capacity_bps = if typed_capacity_bps > 0 {
                     typed_capacity_bps
                 } else {
-                    iface_capacity.filter(|v| *v > 0).unwrap_or(0)
+                    iface_capacity
                 };
 
                 let label = edge_label(&protocol, flow_pps, capacity_bps);
-                (source, target, flow_pps, flow_bps, capacity_bps, label)
+                (
+                    source,
+                    target,
+                    flow_pps,
+                    flow_bps,
+                    capacity_bps,
+                    label,
+                    (flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba),
+                )
             },
         )
         .collect();

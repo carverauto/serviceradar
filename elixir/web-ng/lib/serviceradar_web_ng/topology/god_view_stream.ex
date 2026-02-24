@@ -121,12 +121,23 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         }
       end)
 
+    edge_directional =
+      Enum.map(snapshot.edges, fn edge ->
+        {
+          normalize_u32(Map.get(edge, :flow_pps_ab, 0)),
+          normalize_u32(Map.get(edge, :flow_pps_ba, 0)),
+          normalize_u64(Map.get(edge, :flow_bps_ab, 0)),
+          normalize_u64(Map.get(edge, :flow_bps_ba, 0))
+        }
+      end)
+
     {:ok,
      Native.encode_snapshot(
        snapshot.schema_version,
        snapshot.revision,
        nodes,
        edges,
+       edge_directional,
        byte_size(root),
        byte_size(affected),
        byte_size(healthy),
@@ -191,6 +202,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           neighbor_device_id: normalize_id(Map.get(link, :neighbor_device_id)),
           neighbor_mgmt_addr: normalize_id(Map.get(link, :neighbor_mgmt_addr)),
           neighbor_system_name: normalize_id(Map.get(link, :neighbor_system_name)),
+          neighbor_port_id: normalize_id(Map.get(link, :neighbor_port_id)),
+          neighbor_port_descr: normalize_id(Map.get(link, :neighbor_port_descr)),
           protocol: normalize_id(Map.get(link, :protocol)),
           confidence_tier: metadata_value(Map.get(link, :metadata), "confidence_tier"),
           evidence_class: metadata_value(Map.get(link, :metadata), "evidence_class"),
@@ -219,28 +232,126 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           acc
         else
           {a, b} = canonical_pair(local_id, neighbor_id)
-
-          candidate = %{
-            source: local_id,
-            target: neighbor_id,
-            kind: "topology",
-            protocol: Map.get(link, :protocol),
-            evidence_class: evidence_class(link),
-            confidence_tier: confidence_tier(link),
-            local_device_ip: normalize_id(Map.get(link, :local_device_ip)),
-            neighbor_mgmt_addr: normalize_id(Map.get(link, :neighbor_mgmt_addr)),
-            local_if_index: Map.get(link, :local_if_index),
-            local_if_name: Map.get(link, :local_if_name),
-            metadata: Map.get(link, :metadata) || %{}
-          }
+          candidate = build_pair_candidate(link, local_id, neighbor_id, a, b)
 
           Map.update(acc, {a, b}, candidate, fn existing ->
-            choose_pair_candidate(existing, candidate)
+            merge_pair_candidate(existing, candidate)
           end)
         end
       end)
 
     {:ok, pairs}
+  end
+
+  defp build_pair_candidate(link, local_id, _neighbor_id, a, b) do
+    direction_rank =
+      pair_link_rank(%{protocol: Map.get(link, :protocol), metadata: Map.get(link, :metadata)})
+
+    local_if_index = Map.get(link, :local_if_index)
+    local_if_name = normalize_id(Map.get(link, :local_if_name))
+    remote_port_hint = normalize_neighbor_port_hint(link)
+
+    directional_attrs =
+      if local_id == a do
+        %{
+          local_if_index_ab: local_if_index,
+          local_if_name_ab: local_if_name,
+          direction_rank_ab: direction_rank,
+          local_if_index_ba: nil,
+          # Hint for reverse-direction interface attribution (neighbor/local port on endpoint b).
+          local_if_name_ba: remote_port_hint,
+          direction_rank_ba: nil
+        }
+      else
+        %{
+          local_if_index_ab: nil,
+          # Hint for forward-direction interface attribution (neighbor/local port on endpoint a).
+          local_if_name_ab: remote_port_hint,
+          direction_rank_ab: nil,
+          local_if_index_ba: local_if_index,
+          local_if_name_ba: local_if_name,
+          direction_rank_ba: direction_rank
+        }
+      end
+
+    %{
+      source: a,
+      target: b,
+      kind: "topology",
+      protocol: Map.get(link, :protocol),
+      evidence_class: evidence_class(link),
+      confidence_tier: confidence_tier(link),
+      local_device_ip: normalize_id(Map.get(link, :local_device_ip)),
+      neighbor_mgmt_addr: normalize_id(Map.get(link, :neighbor_mgmt_addr)),
+      local_if_index: local_if_index,
+      local_if_name: local_if_name,
+      metadata: Map.get(link, :metadata) || %{}
+    }
+    |> Map.merge(directional_attrs)
+  end
+
+  defp merge_pair_candidate(existing, candidate) when is_map(existing) and is_map(candidate) do
+    base = choose_pair_candidate(existing, candidate)
+
+    {local_if_index_ab, local_if_name_ab, direction_rank_ab} =
+      pick_directional_side(existing, candidate, :ab)
+
+    {local_if_index_ba, local_if_name_ba, direction_rank_ba} =
+      pick_directional_side(existing, candidate, :ba)
+
+    base
+    |> Map.put(:source, normalize_id(Map.get(base, :source)))
+    |> Map.put(:target, normalize_id(Map.get(base, :target)))
+    |> Map.put(:local_if_index_ab, local_if_index_ab)
+    |> Map.put(:local_if_name_ab, local_if_name_ab)
+    |> Map.put(:direction_rank_ab, direction_rank_ab)
+    |> Map.put(:local_if_index_ba, local_if_index_ba)
+    |> Map.put(:local_if_name_ba, local_if_name_ba)
+    |> Map.put(:direction_rank_ba, direction_rank_ba)
+    |> Map.put(:local_if_index, local_if_index_ab || local_if_index_ba)
+    |> Map.put(:local_if_name, local_if_name_ab || local_if_name_ba)
+  end
+
+  defp merge_pair_candidate(existing, _candidate), do: existing
+
+  defp pick_directional_side(existing, candidate, dir) when dir in [:ab, :ba] do
+    index_key = if dir == :ab, do: :local_if_index_ab, else: :local_if_index_ba
+    name_key = if dir == :ab, do: :local_if_name_ab, else: :local_if_name_ba
+    rank_key = if dir == :ab, do: :direction_rank_ab, else: :direction_rank_ba
+
+    existing_if_index = Map.get(existing, index_key)
+    existing_if_name = normalize_id(Map.get(existing, name_key))
+    existing_rank = Map.get(existing, rank_key) || pair_link_rank(existing)
+
+    candidate_if_index = Map.get(candidate, index_key)
+    candidate_if_name = normalize_id(Map.get(candidate, name_key))
+    candidate_rank = Map.get(candidate, rank_key) || pair_link_rank(candidate)
+
+    existing_ifindex_valid = valid_ifindex?(existing_if_index)
+    candidate_ifindex_valid = valid_ifindex?(candidate_if_index)
+
+    existing_valid = valid_ifindex?(existing_if_index) or is_binary(existing_if_name)
+    candidate_valid = valid_ifindex?(candidate_if_index) or is_binary(candidate_if_name)
+
+    cond do
+      candidate_ifindex_valid and not existing_ifindex_valid ->
+        {candidate_if_index, candidate_if_name, candidate_rank}
+
+      existing_ifindex_valid and not candidate_ifindex_valid ->
+        {existing_if_index, existing_if_name, existing_rank}
+
+      candidate_valid and (not existing_valid or candidate_rank > existing_rank) ->
+        {candidate_if_index, candidate_if_name, candidate_rank}
+
+      existing_valid ->
+        {existing_if_index, existing_if_name, existing_rank}
+
+      candidate_valid ->
+        {candidate_if_index, candidate_if_name, candidate_rank}
+
+      true ->
+        {nil, nil, nil}
+    end
   end
 
   defp build_nodes_and_edges(actor, raw_links, pairs) do
@@ -276,14 +387,22 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       interface_index = index_interfaces(interfaces)
       pps_by_if = load_interface_pps(interface_index)
       bps_by_if = load_interface_bps(interface_index)
+      pps_by_if_direction = load_interface_pps_direction(interface_index)
+      bps_by_if_direction = load_interface_bps_direction(interface_index)
       node_ids = node_ids(canonical_node_ids, devices)
       nodes = build_nodes(node_ids, device_by_id, interface_index, pps_by_if)
 
       edges = canonical_edges |> dedupe_edges()
       device_totals = device_telemetry_totals(interface_index, pps_by_if, bps_by_if)
 
-      with {:ok, edges} <- enrich_edges_via_native(edges, interfaces, pps_by_if, bps_by_if) do
-        edges = apply_unifi_uplink_telemetry_fallback(edges, device_totals)
+      with {:ok, edges} <-
+             enrich_edges_via_native(
+               edges,
+               interfaces,
+               pps_by_if_direction,
+               bps_by_if_direction
+             ) do
+        edges = apply_edge_telemetry_fallback(edges, device_totals)
 
         unresolved_endpoints =
           Enum.count(canonical_node_ids, fn id -> not Map.has_key?(device_by_id, id) end)
@@ -1553,8 +1672,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           normalize_id(Map.get(edge, :source)) || "",
           normalize_id(Map.get(edge, :target)) || "",
           to_string(Map.get(edge, :protocol) || ""),
-          normalize_i64(Map.get(edge, :local_if_index)),
-          normalize_id(Map.get(edge, :local_if_name)) || "",
+          {
+            normalize_i64(Map.get(edge, :local_if_index_ab)),
+            normalize_id(Map.get(edge, :local_if_name_ab)) || "",
+            normalize_i64(Map.get(edge, :local_if_index_ba)),
+            normalize_id(Map.get(edge, :local_if_name_ba)) || ""
+          },
           {
             normalize_u32(Map.get(edge, :flow_pps) || 0),
             normalize_u64(Map.get(edge, :flow_bps) || 0),
@@ -1565,13 +1688,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     interface_rows =
       interfaces
-      |> Enum.map(fn iface ->
-        {
-          normalize_id(Map.get(iface, :device_id)) || "",
-          normalize_id(Map.get(iface, :if_name)) || "",
-          normalize_i64(Map.get(iface, :if_index)),
-          normalize_u64(interface_capacity_bps(iface) || 0)
-        }
+      |> Enum.flat_map(fn iface ->
+        device_id = normalize_id(Map.get(iface, :device_id)) || ""
+        if_index = normalize_i64(Map.get(iface, :if_index))
+        speed_bps = normalize_u64(interface_capacity_bps(iface) || 0)
+
+        interface_name_candidates(iface)
+        |> Enum.map(fn if_name ->
+          {device_id, if_name, if_index, speed_bps}
+        end)
       end)
       |> Enum.reject(fn {device_id, _if_name, _if_index, _speed_bps} ->
         device_id == ""
@@ -1579,8 +1704,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     pps_rows =
       Enum.flat_map(pps_by_if, fn
-        {{device_id, if_index}, value} when is_binary(device_id) and is_integer(if_index) ->
-          [{device_id, if_index, normalize_u32(value)}]
+        {{device_id, if_index}, values} when is_binary(device_id) and is_integer(if_index) ->
+          [
+            {device_id, if_index, normalize_u32(Map.get(values, :in, 0)),
+             normalize_u32(Map.get(values, :out, 0))}
+          ]
 
         _ ->
           []
@@ -1588,8 +1716,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     bps_rows =
       Enum.flat_map(bps_by_if, fn
-        {{device_id, if_index}, value} when is_binary(device_id) and is_integer(if_index) ->
-          [{device_id, if_index, normalize_u64(value)}]
+        {{device_id, if_index}, values} when is_binary(device_id) and is_integer(if_index) ->
+          [
+            {device_id, if_index, normalize_u64(Map.get(values, :in, 0)),
+             normalize_u64(Map.get(values, :out, 0))}
+          ]
 
         _ ->
           []
@@ -1600,12 +1731,18 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         result =
           Enum.zip(edges, enriched_rows)
           |> Enum.map(fn
-            {edge, {_source, _target, flow_pps, flow_bps, capacity_bps, label}} ->
+            {edge,
+             {_source, _target, flow_pps, flow_bps, capacity_bps, label,
+              {flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba}}} ->
               Map.merge(edge, %{
                 flow_pps: flow_pps,
                 flow_bps: flow_bps,
                 capacity_bps: capacity_bps,
-                label: label
+                label: label,
+                flow_pps_ab: flow_pps_ab,
+                flow_pps_ba: flow_pps_ba,
+                flow_bps_ab: flow_bps_ab,
+                flow_bps_ba: flow_bps_ba
               })
 
             {edge, _} ->
@@ -1656,6 +1793,19 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp interface_pps_value(_, _), do: nil
 
   defp load_interface_pps(interface_index) when is_map(interface_index) do
+    load_interface_pps_direction(interface_index)
+    |> Enum.reduce(%{}, fn {{device_id, if_index}, values}, acc ->
+      in_pps = Map.get(values, :in, 0)
+      out_pps = Map.get(values, :out, 0)
+      Map.put(acc, {device_id, if_index}, in_pps + out_pps)
+    end)
+  rescue
+    _ -> %{}
+  end
+
+  defp load_interface_pps(_), do: %{}
+
+  defp load_interface_pps_direction(interface_index) when is_map(interface_index) do
     keys =
       interface_index.by_device_if
       |> Map.keys()
@@ -1702,19 +1852,27 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           end)
         end
       end)
-      |> Enum.reduce(%{}, fn {{device_id, if_index}, values}, acc ->
-        in_pps = Map.get(values, :in, 0)
-        out_pps = Map.get(values, :out, 0)
-        Map.put(acc, {device_id, if_index}, in_pps + out_pps)
-      end)
     end
   rescue
     _ -> %{}
   end
 
-  defp load_interface_pps(_), do: %{}
+  defp load_interface_pps_direction(_), do: %{}
 
   defp load_interface_bps(interface_index) when is_map(interface_index) do
+    load_interface_bps_direction(interface_index)
+    |> Enum.reduce(%{}, fn {{device_id, if_index}, values}, acc ->
+      in_bps = Map.get(values, :in, 0)
+      out_bps = Map.get(values, :out, 0)
+      Map.put(acc, {device_id, if_index}, in_bps + out_bps)
+    end)
+  rescue
+    _ -> %{}
+  end
+
+  defp load_interface_bps(_), do: %{}
+
+  defp load_interface_bps_direction(interface_index) when is_map(interface_index) do
     keys =
       interface_index.by_device_if
       |> Map.keys()
@@ -1754,7 +1912,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           acc
         else
           key = {normalize_id(device_id), if_index}
-          bits_per_second = bytes_per_second * 8
+          bits_per_second = octets_rate_to_bps(bytes_per_second)
 
           Map.update(acc, key, %{dir => bits_per_second}, fn current ->
             current
@@ -1762,17 +1920,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           end)
         end
       end)
-      |> Enum.reduce(%{}, fn {{device_id, if_index}, values}, acc ->
-        in_bps = Map.get(values, :in, 0)
-        out_bps = Map.get(values, :out, 0)
-        Map.put(acc, {device_id, if_index}, in_bps + out_bps)
-      end)
     end
   rescue
     _ -> %{}
   end
 
-  defp load_interface_bps(_), do: %{}
+  defp load_interface_bps_direction(_), do: %{}
+
+  @doc false
+  def octets_rate_to_bps(value) when is_integer(value) and value > 0, do: value * 8
+  def octets_rate_to_bps(_), do: 0
 
   defp device_telemetry_totals(interface_index, pps_by_if, bps_by_if)
        when is_map(interface_index) and is_map(pps_by_if) and is_map(bps_by_if) do
@@ -1802,21 +1959,25 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         |> Enum.map(fn {_k, v} -> v end)
         |> Enum.sum()
 
-      Map.put(acc, device_id, %{pps: normalize_u32(pps), bps: normalize_u64(bps), capacity_bps: normalize_u64(cap_bps)})
+      Map.put(acc, device_id, %{
+        pps: normalize_u32(pps),
+        bps: normalize_u64(bps),
+        capacity_bps: normalize_u64(cap_bps)
+      })
     end)
   end
 
   defp device_telemetry_totals(_, _, _), do: %{}
 
-  defp apply_unifi_uplink_telemetry_fallback(edges, device_totals)
+  defp apply_edge_telemetry_fallback(edges, device_totals)
        when is_list(edges) and is_map(device_totals) do
     Enum.map(edges, fn edge ->
-      if unifi_unattributed?(edge) do
+      if edge_needs_fallback_telemetry?(edge) do
         source = Map.get(device_totals, Map.get(edge, :source), %{})
         target = Map.get(device_totals, Map.get(edge, :target), %{})
 
-        inferred_pps = pair_min_non_zero(Map.get(source, :pps, 0), Map.get(target, :pps, 0))
-        inferred_bps = pair_min_non_zero(Map.get(source, :bps, 0), Map.get(target, :bps, 0))
+        inferred_pps = fallback_signal_scaled(Map.get(source, :pps, 0), Map.get(target, :pps, 0))
+        inferred_bps = fallback_signal_scaled(Map.get(source, :bps, 0), Map.get(target, :bps, 0))
 
         inferred_capacity =
           pair_min_non_zero(
@@ -1824,8 +1985,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
             Map.get(target, :capacity_bps, 0)
           )
 
-        flow_pps = if normalize_u32(Map.get(edge, :flow_pps, 0)) > 0, do: Map.get(edge, :flow_pps, 0), else: inferred_pps
-        flow_bps = if normalize_u64(Map.get(edge, :flow_bps, 0)) > 0, do: Map.get(edge, :flow_bps, 0), else: inferred_bps
+        flow_pps =
+          if normalize_u32(Map.get(edge, :flow_pps, 0)) > 0,
+            do: Map.get(edge, :flow_pps, 0),
+            else: inferred_pps
+
+        flow_bps =
+          if normalize_u64(Map.get(edge, :flow_bps, 0)) > 0,
+            do: Map.get(edge, :flow_bps, 0),
+            else: inferred_bps
 
         capacity_bps =
           if normalize_u64(Map.get(edge, :capacity_bps, 0)) > 0,
@@ -1836,7 +2004,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         |> Map.put(:flow_pps, normalize_u32(flow_pps))
         |> Map.put(:flow_bps, normalize_u64(flow_bps))
         |> Map.put(:capacity_bps, normalize_u64(capacity_bps))
-        |> Map.put(:telemetry_eligible, normalize_u64(flow_bps) > 0 or normalize_u32(flow_pps) > 0)
+        |> Map.put(
+          :telemetry_eligible,
+          normalize_u64(flow_bps) > 0 or normalize_u32(flow_pps) > 0
+        )
         |> Map.put(:label, edge_label(edge, normalize_u32(flow_pps), normalize_u64(capacity_bps)))
       else
         edge
@@ -1844,7 +2015,27 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end)
   end
 
-  defp apply_unifi_uplink_telemetry_fallback(edges, _), do: edges
+  defp apply_edge_telemetry_fallback(edges, _), do: edges
+
+  defp edge_needs_fallback_telemetry?(edge) when is_map(edge) do
+    has_flow? =
+      normalize_u64(Map.get(edge, :flow_bps, 0)) > 0 or
+        normalize_u32(Map.get(edge, :flow_pps, 0)) > 0
+
+    protocol = edge_protocol(edge)
+
+    not has_flow? and
+      (unifi_unattributed?(edge) or
+         protocol in ["wireguard-derived", "snmp-parent", "snmp-site"] or
+         (protocol == "snmp-l2" and not snmp_interface_attributed?(edge)))
+  end
+
+  defp edge_needs_fallback_telemetry?(_), do: false
+
+  defp fallback_signal_scaled(a, b) do
+    # Keep fallback activity visible but restrained vs fully attributed edge telemetry.
+    trunc(pair_min_non_zero(a, b) * 0.14)
+  end
 
   defp pair_min_non_zero(a, b) do
     av = normalize_u64(a)
@@ -1903,6 +2094,30 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       metadata["capacity_bps"]
     ])
   end
+
+  defp interface_name_candidates(iface) when is_map(iface) do
+    metadata = Map.get(iface, :metadata) || %{}
+
+    [
+      Map.get(iface, :if_name),
+      Map.get(iface, :if_descr),
+      Map.get(iface, :if_alias),
+      metadata["if_name"],
+      metadata["if_descr"],
+      metadata["if_alias"],
+      metadata["name"],
+      metadata["description"]
+    ]
+    |> Enum.map(&normalize_id/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> case do
+      [] -> [""]
+      values -> values
+    end
+  end
+
+  defp interface_name_candidates(_), do: [""]
 
   defp pick_number(values) when is_list(values) do
     values
@@ -2398,6 +2613,36 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       normalize_id(Map.get(link, :neighbor_port_id)) ||
       normalize_id(Map.get(link, :neighbor_port_descr))
   end
+
+  defp normalize_neighbor_port_hint(link) when is_map(link) do
+    decode_hex_port_id(Map.get(link, :neighbor_port_id)) ||
+      normalize_id(Map.get(link, :neighbor_port_id)) ||
+      normalize_id(Map.get(link, :neighbor_port_descr))
+  end
+
+  defp normalize_neighbor_port_hint(_), do: nil
+
+  # Some LLDP port IDs arrive as colon-delimited hex bytes (e.g. "50:6f:72:74:20:31" -> "Port 1").
+  # Decode those so we can match against discovered interface names for reverse-direction attribution.
+  defp decode_hex_port_id(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    with true <- String.contains?(trimmed, ":"),
+         parts <- String.split(trimmed, ":", trim: true),
+         true <- parts != [],
+         true <- Enum.all?(parts, &(String.length(&1) == 2)),
+         ints <- Enum.map(parts, &Integer.parse(&1, 16)),
+         true <- Enum.all?(ints, &match?({_, ""}, &1)) do
+      ints
+      |> Enum.map(fn {i, _} -> i end)
+      |> :binary.list_to_bin()
+      |> normalize_id()
+    else
+      _ -> nil
+    end
+  end
+
+  defp decode_hex_port_id(_), do: nil
 
   defp normalize_id(value) when is_binary(value) do
     trimmed = String.trim(value)

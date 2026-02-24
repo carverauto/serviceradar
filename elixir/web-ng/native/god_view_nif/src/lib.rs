@@ -23,11 +23,17 @@ use std::sync::RwLock;
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn enrich_edges_telemetry(
-    edges: Vec<(String, String, String, i64, String, (u32, u64, u64))>,
+    edges: Vec<(
+        String,
+        String,
+        String,
+        (i64, String, i64, String),
+        (u32, u64, u64),
+    )>,
     interfaces: Vec<(String, String, i64, u64)>,
-    pps_metrics: Vec<(String, i64, u32)>,
-    bps_metrics: Vec<(String, i64, u64)>,
-) -> NifResult<Vec<(String, String, u32, u64, u64, String)>> {
+    pps_metrics: Vec<(String, i64, u32, u32)>,
+    bps_metrics: Vec<(String, i64, u64, u64)>,
+) -> NifResult<Vec<(String, String, u32, u64, u64, String, (u32, u32, u64, u64))>> {
     enrich_edges_telemetry_impl(edges, interfaces, pps_metrics, bps_metrics)
 }
 
@@ -50,7 +56,8 @@ fn encode_snapshot<'a>(
     schema_version: u32,
     revision: u64,
     nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
-    edges: Vec<(u16, u16, u32, u64, u64, String)>,
+    edges: Vec<(u16, u16, u32, u64, u64, String, u8)>,
+    edge_directional: Vec<(u32, u32, u64, u64)>,
     root_bitmap_bytes: u32,
     affected_bitmap_bytes: u32,
     healthy_bitmap_bytes: u32,
@@ -62,6 +69,7 @@ fn encode_snapshot<'a>(
         revision,
         nodes,
         edges,
+        edge_directional,
         root_bitmap_bytes,
         affected_bitmap_bytes,
         healthy_bitmap_bytes,
@@ -273,7 +281,7 @@ fn runtime_graph_encode_snapshot<'a>(
     let guard = graph.links.read().map_err(|_| rustler::Error::BadArg)?;
     let indexed = indexed_edges_from_runtime_rows(&guard, &node_ids);
     let telemetry = indexed_edge_telemetry(&edge_telemetry, &node_ids);
-    let edges: Vec<(u16, u16, u32, u64, u64, String)> = indexed
+    let edges: Vec<(u16, u16, u32, u64, u64, String, u8)> = indexed
         .into_iter()
         .filter_map(|(a, b, protocol)| {
             let Some((flow_pps, flow_bps, capacity_bps, label)) = telemetry
@@ -295,7 +303,7 @@ fn runtime_graph_encode_snapshot<'a>(
             } else {
                 label
             };
-            Some((src, dst, flow_pps, flow_bps, capacity_bps, final_label))
+            Some((src, dst, flow_pps, flow_bps, capacity_bps, final_label, 1u8))
         })
         .collect();
 
@@ -305,6 +313,7 @@ fn runtime_graph_encode_snapshot<'a>(
         revision,
         nodes,
         edges,
+        Vec::new(),
         root_bitmap_bytes as u32,
         affected_bitmap_bytes as u32,
         healthy_bitmap_bytes as u32,
@@ -325,8 +334,8 @@ mod tests {
     use crate::core::telemetry::enrich_edges_telemetry_impl;
     use std::time::Instant;
 
-    fn edge(source: u16, target: u16) -> (u16, u16, u32, u64, u64, String) {
-        (source, target, 0, 0, 0, String::new())
+    fn edge(source: u16, target: u16) -> (u16, u16, u32, u64, u64, String, u8) {
+        (source, target, 0, 0, 0, String::new(), 1)
     }
 
     #[test]
@@ -354,22 +363,33 @@ mod tests {
             "dev-a".to_string(),
             "dev-b".to_string(),
             "lldp".to_string(),
-            10,
-            "eth0".to_string(),
+            (10, "eth0".to_string(), -1, "".to_string()),
             (111u32, 2_000u64, 3_000u64),
         )];
         let interfaces = vec![("dev-a".to_string(), "eth0".to_string(), 10, 50_000u64)];
-        let pps_metrics = vec![("dev-a".to_string(), 10, 999u32)];
-        let bps_metrics = vec![("dev-a".to_string(), 10, 888u64)];
+        let pps_metrics = vec![("dev-a".to_string(), 10, 999u32, 333u32)];
+        let bps_metrics = vec![("dev-a".to_string(), 10, 888u64, 444u64)];
 
         let result =
             enrich_edges_telemetry_impl(edges, interfaces, pps_metrics, bps_metrics).unwrap();
         assert_eq!(result.len(), 1);
-        let (_source, _target, flow_pps, flow_bps, capacity_bps, _label) = &result[0];
+        let (
+            _source,
+            _target,
+            flow_pps,
+            flow_bps,
+            capacity_bps,
+            _label,
+            (flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba),
+        ) = &result[0];
 
         assert_eq!(*flow_pps, 111);
         assert_eq!(*flow_bps, 2_000);
         assert_eq!(*capacity_bps, 3_000);
+        assert_eq!(*flow_pps_ab, 333);
+        assert_eq!(*flow_pps_ba, 0);
+        assert_eq!(*flow_bps_ab, 444);
+        assert_eq!(*flow_bps_ba, 0);
     }
 
     #[test]
@@ -378,22 +398,155 @@ mod tests {
             "dev-a".to_string(),
             "dev-b".to_string(),
             "lldp".to_string(),
-            10,
-            "eth0".to_string(),
+            (10, "eth0".to_string(), -1, "".to_string()),
             (0u32, 0u64, 0u64),
         )];
         let interfaces = vec![("dev-a".to_string(), "eth0".to_string(), 10, 123_000u64)];
-        let pps_metrics = vec![("dev-a".to_string(), 10, 77u32)];
-        let bps_metrics = vec![("dev-a".to_string(), 10, 456u64)];
+        let pps_metrics = vec![("dev-a".to_string(), 10, 77u32, 22u32)];
+        let bps_metrics = vec![("dev-a".to_string(), 10, 456u64, 123u64)];
 
         let result =
             enrich_edges_telemetry_impl(edges, interfaces, pps_metrics, bps_metrics).unwrap();
         assert_eq!(result.len(), 1);
-        let (_source, _target, flow_pps, flow_bps, capacity_bps, _label) = &result[0];
+        let (
+            _source,
+            _target,
+            flow_pps,
+            flow_bps,
+            capacity_bps,
+            _label,
+            (flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba),
+        ) = &result[0];
 
-        assert_eq!(*flow_pps, 77);
-        assert_eq!(*flow_bps, 456);
+        assert_eq!(*flow_pps, 22);
+        assert_eq!(*flow_bps, 123);
         assert_eq!(*capacity_bps, 123_000);
+        assert_eq!(*flow_pps_ab, 22);
+        assert_eq!(*flow_pps_ba, 0);
+        assert_eq!(*flow_bps_ab, 123);
+        assert_eq!(*flow_bps_ba, 0);
+    }
+
+    #[test]
+    fn enrich_edges_telemetry_uses_both_directional_interface_attributions() {
+        let edges = vec![(
+            "dev-a".to_string(),
+            "dev-b".to_string(),
+            "lldp".to_string(),
+            (10, "eth0".to_string(), 20, "eth1".to_string()),
+            (0u32, 0u64, 0u64),
+        )];
+        let interfaces = vec![
+            ("dev-a".to_string(), "eth0".to_string(), 10, 1_000_000u64),
+            ("dev-b".to_string(), "eth1".to_string(), 20, 1_000_000u64),
+        ];
+        let pps_metrics = vec![
+            ("dev-a".to_string(), 10, 0u32, 300u32),
+            ("dev-b".to_string(), 20, 0u32, 120u32),
+        ];
+        let bps_metrics = vec![
+            ("dev-a".to_string(), 10, 0u64, 3_000u64),
+            ("dev-b".to_string(), 20, 0u64, 1_200u64),
+        ];
+
+        let result =
+            enrich_edges_telemetry_impl(edges, interfaces, pps_metrics, bps_metrics).unwrap();
+        assert_eq!(result.len(), 1);
+        let (
+            _source,
+            _target,
+            flow_pps,
+            flow_bps,
+            _capacity_bps,
+            _label,
+            (flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba),
+        ) = &result[0];
+
+        assert_eq!(*flow_pps_ab, 300);
+        assert_eq!(*flow_pps_ba, 120);
+        assert_eq!(*flow_bps_ab, 3_000);
+        assert_eq!(*flow_bps_ba, 1_200);
+        assert_eq!(*flow_pps, 420);
+        assert_eq!(*flow_bps, 4_200);
+    }
+
+    #[test]
+    fn enrich_edges_telemetry_uses_name_match_to_resolve_metric_index() {
+        let edges = vec![(
+            "dev-a".to_string(),
+            "dev-b".to_string(),
+            "lldp".to_string(),
+            (-1, "eth0".to_string(), -1, "eth1".to_string()),
+            (0u32, 0u64, 0u64),
+        )];
+        let interfaces = vec![
+            ("dev-a".to_string(), "eth0".to_string(), 10, 1_000_000u64),
+            ("dev-b".to_string(), "eth1".to_string(), 20, 1_000_000u64),
+        ];
+        let pps_metrics = vec![
+            ("dev-a".to_string(), 10, 0u32, 140u32),
+            ("dev-b".to_string(), 20, 0u32, 60u32),
+        ];
+        let bps_metrics = vec![
+            ("dev-a".to_string(), 10, 0u64, 1_400u64),
+            ("dev-b".to_string(), 20, 0u64, 600u64),
+        ];
+
+        let result =
+            enrich_edges_telemetry_impl(edges, interfaces, pps_metrics, bps_metrics).unwrap();
+        assert_eq!(result.len(), 1);
+        let (
+            _source,
+            _target,
+            flow_pps,
+            flow_bps,
+            capacity_bps,
+            _label,
+            (flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba),
+        ) = &result[0];
+
+        assert_eq!(*flow_pps_ab, 140);
+        assert_eq!(*flow_pps_ba, 60);
+        assert_eq!(*flow_bps_ab, 1_400);
+        assert_eq!(*flow_bps_ba, 600);
+        assert_eq!(*flow_pps, 200);
+        assert_eq!(*flow_bps, 2_000);
+        assert_eq!(*capacity_bps, 1_000_000);
+    }
+
+    #[test]
+    fn enrich_edges_telemetry_handles_absent_directional_telemetry() {
+        let edges = vec![(
+            "dev-a".to_string(),
+            "dev-b".to_string(),
+            "lldp".to_string(),
+            (-1, "".to_string(), -1, "".to_string()),
+            (0u32, 0u64, 0u64),
+        )];
+        let interfaces = vec![];
+        let pps_metrics = vec![];
+        let bps_metrics = vec![];
+
+        let result =
+            enrich_edges_telemetry_impl(edges, interfaces, pps_metrics, bps_metrics).unwrap();
+        assert_eq!(result.len(), 1);
+        let (
+            _source,
+            _target,
+            flow_pps,
+            flow_bps,
+            capacity_bps,
+            _label,
+            (flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba),
+        ) = &result[0];
+
+        assert_eq!(*flow_pps, 0);
+        assert_eq!(*flow_bps, 0);
+        assert_eq!(*capacity_bps, 0);
+        assert_eq!(*flow_pps_ab, 0);
+        assert_eq!(*flow_pps_ba, 0);
+        assert_eq!(*flow_bps_ab, 0);
+        assert_eq!(*flow_bps_ba, 0);
     }
 
     #[test]
