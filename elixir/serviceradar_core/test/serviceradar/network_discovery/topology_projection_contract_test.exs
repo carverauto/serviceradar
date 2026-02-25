@@ -189,4 +189,22 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert TopologyGraph.prune_stale_projected_links_enabled?() == false
     end
   end
+
+  describe "canonical rebuild query contract" do
+    test "upsert query keeps canonical relation syntax stable" do
+      query = TopologyGraph.canonical_rebuild_upsert_query("2026-02-25T00:00:00Z")
+
+      assert query =~ "MERGE (a)-[cr:CANONICAL_TOPOLOGY]->(b)"
+      refute query =~ "CNONICAL_TOPOLOGY"
+      refute query =~ "[]->"
+      assert query =~ "WITH src_id, dst_id, collect({"
+    end
+
+    test "prune query targets canonical topology edges" do
+      query = TopologyGraph.canonical_rebuild_prune_query("2026-02-25T00:00:00Z")
+
+      assert query =~ "MATCH ()-[r:CANONICAL_TOPOLOGY]->()"
+      assert query =~ "DELETE r"
+    end
+  end
 end

@@ -654,8 +654,33 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp rebuild_canonical_device_links do
     stale_cutoff = stale_cutoff_iso8601()
+    upsert_cypher = canonical_rebuild_upsert_query(stale_cutoff)
 
-    upsert_cypher = """
+    case Graph.execute(upsert_cypher) do
+      :ok ->
+        prune_stale_canonical_device_links(stale_cutoff)
+
+      {:error, reason} ->
+        Logger.warning("Canonical topology rebuild failed: #{inspect(reason)}")
+    end
+  end
+
+  defp prune_stale_canonical_device_links(stale_cutoff) when is_binary(stale_cutoff) do
+    prune_cypher = canonical_rebuild_prune_query(stale_cutoff)
+
+    case Graph.execute(prune_cypher) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Canonical topology stale-edge prune failed: #{inspect(reason)}")
+    end
+  end
+
+  @doc false
+  @spec canonical_rebuild_upsert_query(String.t()) :: String.t()
+  def canonical_rebuild_upsert_query(stale_cutoff) when is_binary(stale_cutoff) do
+    """
     MATCH (ai:Interface)-[r]->(bi:Interface)
     WHERE r.ingestor = 'mapper_topology_v1'
       AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
@@ -663,14 +688,19 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       AND ai.device_id IS NOT NULL
       AND bi.device_id IS NOT NULL
       AND ai.device_id <> bi.device_id
-    WITH ai, bi, r, ai.device_id AS left_id, bi.device_id AS right_id
     WITH
-      CASE WHEN left_id <= right_id THEN left_id ELSE right_id END AS src_id,
-      CASE WHEN left_id <= right_id THEN right_id ELSE left_id END AS dst_id,
-      ai,
-      bi,
-      r,
-      left_id,
+      CASE WHEN ai.device_id <= bi.device_id THEN ai.device_id ELSE bi.device_id END AS src_id,
+      CASE WHEN ai.device_id <= bi.device_id THEN bi.device_id ELSE ai.device_id END AS dst_id,
+      CASE WHEN ai.device_id <= bi.device_id THEN ai.ifindex ELSE bi.ifindex END AS local_if_index,
+      coalesce(CASE WHEN ai.device_id <= bi.device_id THEN ai.name ELSE bi.name END, 'unknown') AS local_if_name,
+      coalesce(CASE WHEN ai.device_id <= bi.device_id THEN bi.name ELSE ai.name END, 'unknown') AS neighbor_if_name,
+      type(r) AS relation_type,
+      coalesce(r.protocol, r.source, 'unknown') AS protocol,
+      coalesce(r.evidence_class, 'inferred') AS evidence_class,
+      coalesce(r.confidence_tier, 'unknown') AS confidence_tier,
+      coalesce(r.confidence_score, 0) AS confidence_score,
+      coalesce(r.confidence_reason, 'unspecified') AS confidence_reason,
+      coalesce(r.last_observed_at, r.observed_at) AS last_observed_at,
       CASE type(r)
         WHEN 'CONNECTS_TO' THEN 4
         WHEN 'INFERRED_TO' THEN 3
@@ -683,23 +713,38 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         WHEN 'low' THEN 1
         ELSE 0
       END AS conf_rank
+    WITH
+      src_id,
+      dst_id,
+      local_if_index,
+      local_if_name,
+      neighbor_if_name,
+      relation_type,
+      protocol,
+      evidence_class,
+      confidence_tier,
+      confidence_score,
+      confidence_reason,
+      last_observed_at,
+      rel_rank,
+      conf_rank
     ORDER BY
       src_id,
       dst_id,
       rel_rank DESC,
       conf_rank DESC,
-      coalesce(r.last_observed_at, r.observed_at) DESC
+      last_observed_at DESC
     WITH src_id, dst_id, collect({
-      relation_type: type(r),
-      protocol: coalesce(r.protocol, r.source, 'unknown'),
-      evidence_class: coalesce(r.evidence_class, 'inferred'),
-      confidence_tier: coalesce(r.confidence_tier, 'unknown'),
-      confidence_score: coalesce(r.confidence_score, 0),
-      confidence_reason: coalesce(r.confidence_reason, 'unspecified'),
-      last_observed_at: coalesce(r.last_observed_at, r.observed_at),
-      local_if_index: CASE WHEN left_id = src_id THEN ai.ifindex ELSE bi.ifindex END,
-      local_if_name: coalesce(CASE WHEN left_id = src_id THEN ai.name ELSE bi.name END, 'unknown'),
-      neighbor_if_name: coalesce(CASE WHEN left_id = src_id THEN bi.name ELSE ai.name END, 'unknown')
+      relation_type: relation_type,
+      protocol: protocol,
+      evidence_class: evidence_class,
+      confidence_tier: confidence_tier,
+      confidence_score: confidence_score,
+      confidence_reason: confidence_reason,
+      last_observed_at: last_observed_at,
+      local_if_index: local_if_index,
+      local_if_name: local_if_name,
+      neighbor_if_name: neighbor_if_name
     }) AS candidates
     WITH src_id, dst_id, head(candidates) AS best
     MERGE (a:Device {id: src_id})
@@ -717,32 +762,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET cr.local_if_name = best.local_if_name
     SET cr.neighbor_if_name = best.neighbor_if_name
     """
-
-    case Graph.execute(upsert_cypher) do
-      :ok ->
-        prune_stale_canonical_device_links(stale_cutoff)
-
-      {:error, reason} ->
-        Logger.warning("Canonical topology rebuild failed: #{inspect(reason)}")
-    end
   end
 
-  defp prune_stale_canonical_device_links(stale_cutoff) when is_binary(stale_cutoff) do
-    prune_cypher = """
+  @doc false
+  @spec canonical_rebuild_prune_query(String.t()) :: String.t()
+  def canonical_rebuild_prune_query(stale_cutoff) when is_binary(stale_cutoff) do
+    """
     MATCH ()-[r:CANONICAL_TOPOLOGY]->()
     WHERE r.ingestor = 'mapper_topology_v1'
       AND r.last_observed_at IS NOT NULL
       AND r.last_observed_at < '#{Graph.escape(stale_cutoff)}'
     DELETE r
     """
-
-    case Graph.execute(prune_cypher) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Canonical topology stale-edge prune failed: #{inspect(reason)}")
-    end
   end
 
   @doc false
