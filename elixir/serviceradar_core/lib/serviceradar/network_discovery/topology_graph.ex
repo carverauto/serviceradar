@@ -3,10 +3,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   Projects mapper topology links into the Apache AGE graph.
   """
 
+  import Ecto.Query
+
   require Logger
 
   alias ServiceRadar.Graph
+  alias ServiceRadar.Repo
   @default_stale_minutes 180
+  @telemetry_window_minutes 10
+  @packet_metric_names ["ifInUcastPkts", "ifOutUcastPkts", "ifHCInUcastPkts", "ifHCOutUcastPkts"]
+  @octet_metric_names ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
   @direct_protocols MapSet.new(["lldp", "cdp", "unifi-api", "wireguard-derived"])
   @strict_ifindex_protocols MapSet.new(["lldp", "cdp"])
   @direct_evidence_classes MapSet.new(["direct"])
@@ -674,12 +680,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         after_upsert_edges = canonical_edge_count()
         prune_result = prune_stale_canonical_device_links(stale_cutoff)
         after_prune_edges = canonical_edge_count()
+        telemetry_result = refresh_canonical_edge_telemetry(stale_cutoff)
 
         stats = %{
           before_edges: before_edges,
           mapper_evidence_edges: mapper_evidence_edges,
           after_upsert_edges: after_upsert_edges,
           after_prune_edges: after_prune_edges,
+          telemetry_refresh: telemetry_result,
           stale_cutoff: stale_cutoff
         }
 
@@ -765,6 +773,290 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp parse_count(_), do: 0
+
+  defp refresh_canonical_edge_telemetry(stale_cutoff) when is_binary(stale_cutoff) do
+    with {:ok, edges} <- fetch_canonical_edges(stale_cutoff) do
+      metric_keys = telemetry_metric_keys(edges)
+      pps_by_if = load_packet_pps(metric_keys)
+      bps_by_if = load_octet_bps(metric_keys)
+      observed_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+      stats =
+        Enum.reduce(
+          edges,
+          %{total_edges: length(edges), interface_source: 0, none_source: 0},
+          fn edge, acc ->
+            telemetry = compute_edge_telemetry(edge, pps_by_if, bps_by_if, observed_at)
+            persist_canonical_edge_telemetry(edge, telemetry)
+
+            if telemetry.telemetry_source == "interface" do
+              Map.update!(acc, :interface_source, &(&1 + 1))
+            else
+              Map.update!(acc, :none_source, &(&1 + 1))
+            end
+          end
+        )
+
+      Logger.info("canonical_edge_telemetry_stats #{inspect(stats)}")
+      {:ok, stats}
+    else
+      {:error, reason} ->
+        Logger.warning("Canonical edge telemetry refresh failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp fetch_canonical_edges(stale_cutoff) when is_binary(stale_cutoff) do
+    cypher = """
+    MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{Graph.escape(stale_cutoff)}')
+      AND a.id IS NOT NULL
+      AND b.id IS NOT NULL
+      AND a.id STARTS WITH 'sr:'
+      AND b.id STARTS WITH 'sr:'
+    RETURN {
+      src_id: a.id,
+      dst_id: b.id,
+      local_if_index: r.local_if_index,
+      neighbor_if_index: r.neighbor_if_index
+    }
+    """
+
+    case Graph.query(cypher) do
+      {:ok, rows} when is_list(rows) ->
+        parsed =
+          Enum.flat_map(rows, fn row ->
+            src_id = map_value(row, :src_id)
+            dst_id = map_value(row, :dst_id)
+            local_if_index = parse_ifindex(map_value(row, :local_if_index))
+            neighbor_if_index = parse_ifindex(map_value(row, :neighbor_if_index))
+
+            if is_binary(src_id) and is_binary(dst_id) do
+              [
+                %{
+                  src_id: src_id,
+                  dst_id: dst_id,
+                  local_if_index: local_if_index,
+                  neighbor_if_index: neighbor_if_index
+                }
+              ]
+            else
+              []
+            end
+          end)
+
+        {:ok, parsed}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      _ ->
+        {:ok, []}
+    end
+  end
+
+  defp telemetry_metric_keys(edges) when is_list(edges) do
+    edges
+    |> Enum.flat_map(fn edge ->
+      [
+        metric_key(Map.get(edge, :src_id), Map.get(edge, :local_if_index)),
+        metric_key(Map.get(edge, :dst_id), Map.get(edge, :neighbor_if_index))
+      ]
+      |> Enum.reject(&is_nil/1)
+    end)
+    |> Enum.uniq()
+  end
+
+  defp telemetry_metric_keys(_), do: []
+
+  defp metric_key(device_id, if_index)
+       when is_binary(device_id) and is_integer(if_index) and if_index > 0,
+       do: {device_id, if_index}
+
+  defp metric_key(_, _), do: nil
+
+  defp load_packet_pps(keys) when is_list(keys) do
+    device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    if_indexes = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+
+    if device_ids == [] or if_indexes == [] do
+      %{}
+    else
+      from(m in "timeseries_metrics",
+        where: m.device_id in ^device_ids,
+        where: m.if_index in ^if_indexes,
+        where: m.metric_name in ^@packet_metric_names,
+        where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
+        distinct: [m.device_id, m.if_index, m.metric_name],
+        order_by: [asc: m.device_id, asc: m.if_index, asc: m.metric_name, desc: m.timestamp],
+        select: {m.device_id, m.if_index, m.metric_name, m.value}
+      )
+      |> Repo.all()
+      |> Enum.reduce(%{}, fn {device_id, if_index, metric_name, value}, acc ->
+        dir = packet_metric_direction(metric_name)
+        numeric_value = value_to_non_negative_int(value)
+
+        if is_nil(dir) or is_nil(numeric_value) do
+          acc
+        else
+          Map.update(acc, {device_id, if_index}, %{dir => numeric_value}, fn current ->
+            Map.update(current, dir, numeric_value, &max(&1, numeric_value))
+          end)
+        end
+      end)
+    end
+  end
+
+  defp load_packet_pps(_), do: %{}
+
+  defp load_octet_bps(keys) when is_list(keys) do
+    device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    if_indexes = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+
+    if device_ids == [] or if_indexes == [] do
+      %{}
+    else
+      from(m in "timeseries_metrics",
+        where: m.device_id in ^device_ids,
+        where: m.if_index in ^if_indexes,
+        where: m.metric_name in ^@octet_metric_names,
+        where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
+        distinct: [m.device_id, m.if_index, m.metric_name],
+        order_by: [asc: m.device_id, asc: m.if_index, asc: m.metric_name, desc: m.timestamp],
+        select: {m.device_id, m.if_index, m.metric_name, m.value}
+      )
+      |> Repo.all()
+      |> Enum.reduce(%{}, fn {device_id, if_index, metric_name, value}, acc ->
+        dir = octet_metric_direction(metric_name)
+        octets_per_second = value_to_non_negative_int(value)
+
+        if is_nil(dir) or is_nil(octets_per_second) do
+          acc
+        else
+          bits_per_second = octets_per_second * 8
+
+          Map.update(acc, {device_id, if_index}, %{dir => bits_per_second}, fn current ->
+            Map.update(current, dir, bits_per_second, &max(&1, bits_per_second))
+          end)
+        end
+      end)
+    end
+  end
+
+  defp load_octet_bps(_), do: %{}
+
+  defp compute_edge_telemetry(edge, pps_by_if, bps_by_if, observed_at)
+       when is_map(edge) and is_map(pps_by_if) and is_map(bps_by_if) and is_binary(observed_at) do
+    src_id = Map.get(edge, :src_id)
+    dst_id = Map.get(edge, :dst_id)
+    src_if_index = Map.get(edge, :local_if_index)
+    dst_if_index = Map.get(edge, :neighbor_if_index)
+
+    src_pps = Map.get(pps_by_if, metric_key(src_id, src_if_index), %{})
+    dst_pps = Map.get(pps_by_if, metric_key(dst_id, dst_if_index), %{})
+    src_bps = Map.get(bps_by_if, metric_key(src_id, src_if_index), %{})
+    dst_bps = Map.get(bps_by_if, metric_key(dst_id, dst_if_index), %{})
+
+    flow_pps_ab = min_non_zero(Map.get(src_pps, :out, 0), Map.get(dst_pps, :in, 0))
+    flow_pps_ba = min_non_zero(Map.get(dst_pps, :out, 0), Map.get(src_pps, :in, 0))
+    flow_bps_ab = min_non_zero(Map.get(src_bps, :out, 0), Map.get(dst_bps, :in, 0))
+    flow_bps_ba = min_non_zero(Map.get(dst_bps, :out, 0), Map.get(src_bps, :in, 0))
+    flow_pps = flow_pps_ab + flow_pps_ba
+    flow_bps = flow_bps_ab + flow_bps_ba
+
+    %{
+      flow_pps: flow_pps,
+      flow_bps: flow_bps,
+      capacity_bps: 0,
+      flow_pps_ab: flow_pps_ab,
+      flow_pps_ba: flow_pps_ba,
+      flow_bps_ab: flow_bps_ab,
+      flow_bps_ba: flow_bps_ba,
+      telemetry_source: if(flow_pps > 0 or flow_bps > 0, do: "interface", else: "none"),
+      telemetry_observed_at: observed_at
+    }
+  end
+
+  defp persist_canonical_edge_telemetry(edge, telemetry)
+       when is_map(edge) and is_map(telemetry) do
+    src_id = Graph.escape(Map.get(edge, :src_id))
+    dst_id = Graph.escape(Map.get(edge, :dst_id))
+
+    cypher = """
+    MATCH (a:Device {id: '#{src_id}'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id: '#{dst_id}'})
+    SET r.flow_pps = #{Map.get(telemetry, :flow_pps, 0)}
+    SET r.flow_bps = #{Map.get(telemetry, :flow_bps, 0)}
+    SET r.capacity_bps = #{Map.get(telemetry, :capacity_bps, 0)}
+    SET r.flow_pps_ab = #{Map.get(telemetry, :flow_pps_ab, 0)}
+    SET r.flow_pps_ba = #{Map.get(telemetry, :flow_pps_ba, 0)}
+    SET r.flow_bps_ab = #{Map.get(telemetry, :flow_bps_ab, 0)}
+    SET r.flow_bps_ba = #{Map.get(telemetry, :flow_bps_ba, 0)}
+    SET r.telemetry_source = '#{Graph.escape(Map.get(telemetry, :telemetry_source, "none"))}'
+    SET r.telemetry_observed_at = '#{Graph.escape(Map.get(telemetry, :telemetry_observed_at, ""))}'
+    """
+
+    case Graph.execute(cypher) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Canonical edge telemetry upsert failed: #{inspect(reason)}")
+    end
+  end
+
+  defp parse_ifindex(value) when is_integer(value) and value > 0, do: value
+
+  defp parse_ifindex(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, _} when parsed > 0 -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_ifindex(_), do: nil
+
+  defp packet_metric_direction(metric_name)
+       when metric_name in ["ifInUcastPkts", "ifHCInUcastPkts"],
+       do: :in
+
+  defp packet_metric_direction(metric_name)
+       when metric_name in ["ifOutUcastPkts", "ifHCOutUcastPkts"],
+       do: :out
+
+  defp packet_metric_direction(_), do: nil
+
+  defp octet_metric_direction(metric_name) when metric_name in ["ifInOctets", "ifHCInOctets"],
+    do: :in
+
+  defp octet_metric_direction(metric_name) when metric_name in ["ifOutOctets", "ifHCOutOctets"],
+    do: :out
+
+  defp octet_metric_direction(_), do: nil
+
+  defp value_to_non_negative_int(value) when is_integer(value) and value >= 0, do: value
+  defp value_to_non_negative_int(value) when is_float(value) and value >= 0, do: trunc(value)
+
+  defp value_to_non_negative_int(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, _} when parsed >= 0 -> parsed
+      _ -> nil
+    end
+  end
+
+  defp value_to_non_negative_int(_), do: nil
+
+  defp min_non_zero(a, b) do
+    av = value_to_non_negative_int(a) || 0
+    bv = value_to_non_negative_int(b) || 0
+
+    cond do
+      av > 0 and bv > 0 -> min(av, bv)
+      av > 0 -> av
+      bv > 0 -> bv
+      true -> 0
+    end
+  end
 
   @doc false
   @spec canonical_rebuild_upsert_query(String.t()) :: String.t()
