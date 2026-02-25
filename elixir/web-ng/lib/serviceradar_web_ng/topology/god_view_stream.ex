@@ -205,6 +205,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp build_pair_candidate(link, local_id, _neighbor_id, a, b) do
     local_if_index = Map.get(link, :local_if_index)
     local_if_name = normalize_id(Map.get(link, :local_if_name))
+    neighbor_if_index = Map.get(link, :neighbor_if_index)
+    neighbor_if_name = normalize_id(Map.get(link, :neighbor_if_name))
     remote_port_hint = normalize_neighbor_port_hint(link)
 
     directional_attrs =
@@ -212,15 +214,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         %{
           local_if_index_ab: local_if_index,
           local_if_name_ab: local_if_name,
-          local_if_index_ba: nil,
+          local_if_index_ba: neighbor_if_index,
           # Hint for reverse-direction interface attribution (neighbor/local port on endpoint b).
-          local_if_name_ba: remote_port_hint
+          local_if_name_ba: neighbor_if_name || remote_port_hint
         }
       else
         %{
-          local_if_index_ab: nil,
+          local_if_index_ab: neighbor_if_index,
           # Hint for forward-direction interface attribution (neighbor/local port on endpoint a).
-          local_if_name_ab: remote_port_hint,
+          local_if_name_ab: neighbor_if_name || remote_port_hint,
           local_if_index_ba: local_if_index,
           local_if_name_ba: local_if_name
         }
@@ -237,6 +239,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       neighbor_mgmt_addr: normalize_id(Map.get(link, :neighbor_mgmt_addr)),
       local_if_index: local_if_index,
       local_if_name: local_if_name,
+      neighbor_if_index: neighbor_if_index,
+      neighbor_if_name: neighbor_if_name,
       metadata: Map.get(link, :metadata) || %{}
     }
     |> Map.merge(directional_attrs)
@@ -326,10 +330,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
       device_by_id = Map.new(devices, &{&1.uid, &1})
       interface_index = index_interfaces(interfaces)
-      pps_by_if = load_interface_pps(interface_index)
-      bps_by_if = load_interface_bps(interface_index)
-      pps_by_if_direction = load_interface_pps_direction(interface_index)
-      bps_by_if_direction = load_interface_bps_direction(interface_index)
+      edge_metric_keys = directional_metric_keys(canonical_edges)
+      pps_by_if = load_interface_pps(interface_index, edge_metric_keys)
+      bps_by_if = load_interface_bps(interface_index, edge_metric_keys)
+      pps_by_if_direction = load_interface_pps_direction(interface_index, edge_metric_keys)
+      bps_by_if_direction = load_interface_bps_direction(interface_index, edge_metric_keys)
       node_ids = node_ids(canonical_node_ids, devices)
       nodes = build_nodes(node_ids, device_by_id, interface_index, pps_by_if)
 
@@ -707,7 +712,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp device_aliases(_device, _uid), do: []
 
   defp telemetry_eligible_edge?(edge) when is_map(edge) do
+    directional_attributed? =
+      directional_attribution_present?(edge, :ab) or directional_attribution_present?(edge, :ba)
+
     cond do
+      directional_attributed? -> true
       unifi_unattributed?(edge) -> false
       snmp_interface_attributed?(edge) -> true
       true -> valid_ifindex?(Map.get(edge, :local_if_index))
@@ -724,17 +733,29 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp snmp_interface_attributed?(edge) when is_map(edge) do
     valid_ifindex?(Map.get(edge, :local_if_index)) or
-      interface_name_attributed?(Map.get(edge, :local_if_name))
+      interface_name_attributed?(Map.get(edge, :local_if_name)) or
+      directional_attribution_present?(edge, :ab) or
+      directional_attribution_present?(edge, :ba)
   end
 
   defp snmp_interface_attributed?(_), do: false
 
   defp interface_name_attributed?(value) do
     case normalize_id(value) do
-      name when is_binary(name) -> not mac_like_identifier?(name)
-      _ -> false
+      name when is_binary(name) ->
+        not mac_like_identifier?(name) and not placeholder_identifier?(name)
+
+      _ ->
+        false
     end
   end
+
+  defp placeholder_identifier?(value) when is_binary(value) do
+    normalized = String.downcase(String.trim(value))
+    normalized in ["unknown", "unk", "none", "n/a", "na", "null", "-"]
+  end
+
+  defp placeholder_identifier?(_), do: false
 
   defp mac_like_identifier?(value) when is_binary(value) do
     normalized = normalize_mac_hex(value)
@@ -802,9 +823,22 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     telemetry_rank =
       cond do
-        valid_ifindex?(Map.get(edge, :local_if_index)) -> 2
-        is_binary(normalize_id(Map.get(edge, :local_if_name))) -> 1
-        true -> 0
+        directional_attribution_present?(edge, :ab) and
+            directional_attribution_present?(edge, :ba) ->
+          3
+
+        directional_attribution_present?(edge, :ab) or
+            directional_attribution_present?(edge, :ba) ->
+          2
+
+        valid_ifindex?(Map.get(edge, :local_if_index)) ->
+          2
+
+        is_binary(normalize_id(Map.get(edge, :local_if_name))) ->
+          1
+
+        true ->
+          0
       end
 
     {confidence_rank, protocol_rank, telemetry_rank}
@@ -1312,8 +1346,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp interface_pps_value(_, _), do: nil
 
-  defp load_interface_pps(interface_index) when is_map(interface_index) do
-    load_interface_pps_direction(interface_index)
+  defp load_interface_pps(interface_index, extra_keys) when is_map(interface_index) do
+    load_interface_pps_direction(interface_index, extra_keys)
     |> Enum.reduce(%{}, fn {{device_id, if_index}, values}, acc ->
       in_pps = Map.get(values, :in, 0)
       out_pps = Map.get(values, :out, 0)
@@ -1323,20 +1357,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     _ -> %{}
   end
 
-  defp load_interface_pps(_), do: %{}
+  defp load_interface_pps(_interface_index, _extra_keys), do: %{}
 
-  defp load_interface_pps_direction(interface_index) when is_map(interface_index) do
-    keys =
-      interface_index.by_device_if
-      |> Map.keys()
-      |> Enum.flat_map(fn
-        {:if_index, device_id, if_index} when is_binary(device_id) and is_integer(if_index) ->
-          [{device_id, if_index}]
-
-        _ ->
-          []
-      end)
-      |> Enum.uniq()
+  defp load_interface_pps_direction(interface_index, extra_keys) when is_map(interface_index) do
+    keys = metric_query_keys(interface_index, extra_keys)
 
     device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
     if_indexes = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
@@ -1377,10 +1401,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     _ -> %{}
   end
 
-  defp load_interface_pps_direction(_), do: %{}
+  defp load_interface_pps_direction(_interface_index, _extra_keys), do: %{}
 
-  defp load_interface_bps(interface_index) when is_map(interface_index) do
-    load_interface_bps_direction(interface_index)
+  defp load_interface_bps(interface_index, extra_keys) when is_map(interface_index) do
+    load_interface_bps_direction(interface_index, extra_keys)
     |> Enum.reduce(%{}, fn {{device_id, if_index}, values}, acc ->
       in_bps = Map.get(values, :in, 0)
       out_bps = Map.get(values, :out, 0)
@@ -1390,20 +1414,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     _ -> %{}
   end
 
-  defp load_interface_bps(_), do: %{}
+  defp load_interface_bps(_interface_index, _extra_keys), do: %{}
 
-  defp load_interface_bps_direction(interface_index) when is_map(interface_index) do
-    keys =
-      interface_index.by_device_if
-      |> Map.keys()
-      |> Enum.flat_map(fn
-        {:if_index, device_id, if_index} when is_binary(device_id) and is_integer(if_index) ->
-          [{device_id, if_index}]
-
-        _ ->
-          []
-      end)
-      |> Enum.uniq()
+  defp load_interface_bps_direction(interface_index, extra_keys) when is_map(interface_index) do
+    keys = metric_query_keys(interface_index, extra_keys)
 
     device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
     if_indexes = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
@@ -1445,7 +1459,51 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     _ -> %{}
   end
 
-  defp load_interface_bps_direction(_), do: %{}
+  defp load_interface_bps_direction(_interface_index, _extra_keys), do: %{}
+
+  defp metric_query_keys(interface_index, extra_keys)
+       when is_map(interface_index) and is_list(extra_keys) do
+    interface_keys =
+      interface_index.by_device_if
+      |> Map.keys()
+      |> Enum.flat_map(fn
+        {:if_index, device_id, if_index} when is_binary(device_id) and is_integer(if_index) ->
+          [{device_id, if_index}]
+
+        _ ->
+          []
+      end)
+
+    (interface_keys ++ extra_keys)
+    |> Enum.uniq()
+  end
+
+  defp metric_query_keys(_interface_index, extra_keys) when is_list(extra_keys) do
+    extra_keys
+    |> Enum.filter(fn
+      {device_id, if_index} when is_binary(device_id) and is_integer(if_index) -> true
+      _ -> false
+    end)
+    |> Enum.uniq()
+  end
+
+  defp directional_metric_keys(edges) when is_list(edges) do
+    Enum.flat_map(edges, fn edge ->
+      source = normalize_id(Map.get(edge, :source))
+      target = normalize_id(Map.get(edge, :target))
+      ab_if_index = Map.get(edge, :local_if_index_ab)
+      ba_if_index = Map.get(edge, :local_if_index_ba)
+
+      [
+        if(is_binary(source) and valid_ifindex?(ab_if_index), do: {source, ab_if_index}),
+        if(is_binary(target) and valid_ifindex?(ba_if_index), do: {target, ba_if_index})
+      ]
+      |> Enum.reject(&is_nil/1)
+    end)
+    |> Enum.uniq()
+  end
+
+  defp directional_metric_keys(_), do: []
 
   @doc false
   def octets_rate_to_bps(value) when is_integer(value) and value > 0, do: value * 8
@@ -1562,12 +1620,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp directional_attribution_present?(edge, :ab) do
     valid_ifindex?(Map.get(edge, :local_if_index_ab)) or
-      is_binary(normalize_id(Map.get(edge, :local_if_name_ab)))
+      interface_name_attributed?(Map.get(edge, :local_if_name_ab))
   end
 
   defp directional_attribution_present?(edge, :ba) do
     valid_ifindex?(Map.get(edge, :local_if_index_ba)) or
-      is_binary(normalize_id(Map.get(edge, :local_if_name_ba)))
+      interface_name_attributed?(Map.get(edge, :local_if_name_ba))
   end
 
   defp edge_needs_fallback_telemetry?(edge) when is_map(edge) do
@@ -2184,7 +2242,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp normalize_neighbor_port_hint(link) when is_map(link) do
     # Prefer port description for interface matching (e.g. "eth4"), because some
     # LLDP neighbor_port_id values are chassis MAC-like bytes and not interface names.
-    normalize_id(Map.get(link, :neighbor_port_descr)) ||
+    normalize_id(Map.get(link, :neighbor_if_name)) ||
+      normalize_id(Map.get(link, :neighbor_port_descr)) ||
       normalize_id(Map.get(link, :neighbor_port_id)) ||
       decode_hex_port_id(Map.get(link, :neighbor_port_id))
   end

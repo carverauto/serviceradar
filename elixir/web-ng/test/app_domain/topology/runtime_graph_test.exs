@@ -17,5 +17,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "relation_type: coalesce(r.relation_type, type(r))"
     assert query =~ "local_if_name: coalesce(r.local_if_name, '')"
     assert query =~ "local_if_index: r.local_if_index"
+    assert query =~ "neighbor_if_name: coalesce(r.neighbor_if_name, '')"
+    assert query =~ "neighbor_if_index: r.neighbor_if_index"
   end
 end

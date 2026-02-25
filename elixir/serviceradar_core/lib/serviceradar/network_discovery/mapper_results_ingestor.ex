@@ -1731,7 +1731,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     ip = normalize_string(candidate_ip)
 
     cond do
-      is_binary(uid) ->
+      is_binary(uid) and canonical_topology_uid?(uid) ->
         uid
 
       is_binary(ip) ->

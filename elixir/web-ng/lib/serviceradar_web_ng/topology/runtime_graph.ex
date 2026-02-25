@@ -126,6 +126,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       local_device_ip: a.ip,
       local_if_name: coalesce(r.local_if_name, ''),
       local_if_index: r.local_if_index,
+      neighbor_if_name: coalesce(r.neighbor_if_name, ''),
+      neighbor_if_index: r.neighbor_if_index,
       neighbor_device_id: b.id,
       neighbor_mgmt_addr: b.ip,
       neighbor_system_name: b.name,
@@ -203,6 +205,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     local_device_ip = map_fetch(row, :local_device_ip)
     local_if_name = map_fetch(row, :local_if_name)
     local_if_index = map_fetch(row, :local_if_index)
+    neighbor_if_name = map_fetch(row, :neighbor_if_name)
+    neighbor_if_index = map_fetch(row, :neighbor_if_index)
     neighbor_device_id = map_fetch(row, :neighbor_device_id)
     neighbor_mgmt_addr = map_fetch(row, :neighbor_mgmt_addr)
     neighbor_system_name = map_fetch(row, :neighbor_system_name)
@@ -231,6 +235,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       local_device_ip: blank_to_nil(local_device_ip),
       local_if_name: blank_to_nil(local_if_name),
       local_if_index: parse_ifindex(local_if_index),
+      neighbor_if_name: blank_to_nil(neighbor_if_name),
+      neighbor_if_index: parse_ifindex(neighbor_if_index),
       neighbor_device_id: blank_to_nil(neighbor_device_id),
       neighbor_mgmt_addr: blank_to_nil(neighbor_mgmt_addr),
       neighbor_system_name: blank_to_nil(neighbor_system_name),

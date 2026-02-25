@@ -952,6 +952,41 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert edge.flow_bps_ba == 0
   end
 
+  test "latest_snapshot/0 loads directional metrics from edge ifindexes even without interface rows" do
+    actor = SystemActor.system(:god_view_stream_directional_edge_key_metrics_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    left_uid = "dir-edge-key-left-#{suffix}"
+    right_uid = "dir-edge-key-right-#{suffix}"
+    now = DateTime.utc_now()
+
+    create_topology_device(actor, left_uid, "left-edge-key-#{suffix}.local")
+    create_topology_device(actor, right_uid, "right-edge-key-#{suffix}.local")
+
+    create_topology_link(actor, now, left_uid, right_uid, 25)
+    create_topology_link(actor, now, right_uid, left_uid, 22)
+
+    # Intentionally do not create interface observations. Edge attribution should still
+    # drive directional metric fetch by device_id+if_index.
+    insert_metric(now, left_uid, 25, "ifOutUcastPkts", 510)
+    insert_metric(now, left_uid, 25, "ifInUcastPkts", 330)
+    insert_metric(now, left_uid, 25, "ifOutOctets", 7_000)
+    insert_metric(now, left_uid, 25, "ifInOctets", 5_000)
+
+    insert_metric(now, right_uid, 22, "ifOutUcastPkts", 410)
+    insert_metric(now, right_uid, 22, "ifInUcastPkts", 290)
+    insert_metric(now, right_uid, 22, "ifOutOctets", 6_000)
+    insert_metric(now, right_uid, 22, "ifInOctets", 4_000)
+
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+    edge = find_edge(snapshot, left_uid, right_uid)
+    assert edge
+    assert edge.flow_pps_ab > 0
+    assert edge.flow_pps_ba > 0
+    assert edge.flow_bps_ab > 0
+    assert edge.flow_bps_ba > 0
+    assert edge.telemetry_source == "interface"
+  end
+
   defp coords_for(snapshot, node_ids) do
     snapshot.nodes
     |> Enum.filter(&(&1.id in node_ids))

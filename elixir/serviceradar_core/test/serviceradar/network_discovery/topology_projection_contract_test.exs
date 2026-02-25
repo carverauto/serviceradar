@@ -198,6 +198,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       refute query =~ "CNONICAL_TOPOLOGY"
       refute query =~ "[]->"
       assert query =~ "WITH src_id, dst_id, collect({"
+      assert query =~ "UNWIND candidates AS c"
+      assert query =~ "AND ai.device_id STARTS WITH 'sr:'"
+      assert query =~ "AND bi.device_id STARTS WITH 'sr:'"
+      assert query =~ "best_local_if_index"
+      assert query =~ "best_neighbor_if_index"
+      assert query =~ "SET cr.local_if_index ="
+      assert query =~ "SET cr.neighbor_if_index ="
     end
 
     test "prune query targets canonical topology edges" do

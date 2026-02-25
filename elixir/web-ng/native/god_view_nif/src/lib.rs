@@ -630,6 +630,53 @@ mod tests {
     }
 
     #[test]
+    fn enrich_edges_telemetry_overrides_stale_explicit_ifindex_with_metric_backed_name_match() {
+        let edges = vec![(
+            "dev-a".to_string(),
+            "dev-b".to_string(),
+            "lldp".to_string(),
+            (99, "eth1".to_string(), 20, "eth1".to_string()),
+            (0u32, 0u64, 0u64),
+        )];
+        let interfaces = vec![
+            ("dev-a".to_string(), "eth1".to_string(), 10, 1_000_000_000u64),
+            ("dev-a".to_string(), "eth1".to_string(), 99, 1_000_000_000u64),
+            ("dev-b".to_string(), "eth1".to_string(), 20, 1_000_000_000u64),
+        ];
+        // Only dev-a/10 carries telemetry, dev-a/99 is stale/wrong.
+        let pps_metrics = vec![
+            ("dev-a".to_string(), 10, 100u32, 200u32),
+            ("dev-b".to_string(), 20, 80u32, 120u32),
+        ];
+        let bps_metrics = vec![
+            ("dev-a".to_string(), 10, 1_000u64, 2_000u64),
+            ("dev-b".to_string(), 20, 800u64, 1_200u64),
+        ];
+
+        let result =
+            enrich_edges_telemetry_impl(edges, interfaces, pps_metrics, bps_metrics).unwrap();
+        assert_eq!(result.len(), 1);
+        let (
+            _source,
+            _target,
+            flow_pps,
+            flow_bps,
+            capacity_bps,
+            _label,
+            (flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba),
+        ) = &result[0];
+
+        // AB should use dev-a/10 (metric-backed by name) instead of stale explicit dev-a/99.
+        assert_eq!(*flow_pps_ab, 200);
+        assert_eq!(*flow_pps_ba, 120);
+        assert_eq!(*flow_bps_ab, 2_000);
+        assert_eq!(*flow_bps_ba, 1_200);
+        assert_eq!(*flow_pps, 320);
+        assert_eq!(*flow_bps, 3_200);
+        assert_eq!(*capacity_bps, 1_000_000_000);
+    }
+
+    #[test]
     fn enrich_edges_telemetry_handles_absent_directional_telemetry() {
         let edges = vec![(
             "dev-a".to_string(),

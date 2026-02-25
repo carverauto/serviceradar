@@ -687,11 +687,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{Graph.escape(stale_cutoff)}')
       AND ai.device_id IS NOT NULL
       AND bi.device_id IS NOT NULL
+      AND ai.device_id STARTS WITH 'sr:'
+      AND bi.device_id STARTS WITH 'sr:'
       AND ai.device_id <> bi.device_id
     WITH
       CASE WHEN ai.device_id <= bi.device_id THEN ai.device_id ELSE bi.device_id END AS src_id,
       CASE WHEN ai.device_id <= bi.device_id THEN bi.device_id ELSE ai.device_id END AS dst_id,
-      CASE WHEN ai.device_id <= bi.device_id THEN ai.ifindex ELSE bi.ifindex END AS local_if_index,
+      CASE
+        WHEN ai.device_id <= bi.device_id THEN CASE WHEN ai.ifindex > 0 THEN ai.ifindex ELSE NULL END
+        ELSE CASE WHEN bi.ifindex > 0 THEN bi.ifindex ELSE NULL END
+      END AS local_if_index,
+      CASE
+        WHEN ai.device_id <= bi.device_id THEN CASE WHEN bi.ifindex > 0 THEN bi.ifindex ELSE NULL END
+        ELSE CASE WHEN ai.ifindex > 0 THEN ai.ifindex ELSE NULL END
+      END AS neighbor_if_index,
       coalesce(CASE WHEN ai.device_id <= bi.device_id THEN ai.name ELSE bi.name END, 'unknown') AS local_if_name,
       coalesce(CASE WHEN ai.device_id <= bi.device_id THEN bi.name ELSE ai.name END, 'unknown') AS neighbor_if_name,
       type(r) AS relation_type,
@@ -717,6 +726,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       src_id,
       dst_id,
       local_if_index,
+      neighbor_if_index,
       local_if_name,
       neighbor_if_name,
       relation_type,
@@ -743,10 +753,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       confidence_reason: confidence_reason,
       last_observed_at: last_observed_at,
       local_if_index: local_if_index,
+      neighbor_if_index: neighbor_if_index,
       local_if_name: local_if_name,
       neighbor_if_name: neighbor_if_name
     }) AS candidates
-    WITH src_id, dst_id, head(candidates) AS best
+    WITH src_id, dst_id, head(candidates) AS best, candidates
+    UNWIND candidates AS c
+    WITH
+      src_id,
+      dst_id,
+      best,
+      max(CASE WHEN c.local_if_index IS NOT NULL AND c.local_if_index > 0 THEN c.local_if_index ELSE -1 END) AS best_local_if_index,
+      max(CASE WHEN c.neighbor_if_index IS NOT NULL AND c.neighbor_if_index > 0 THEN c.neighbor_if_index ELSE -1 END) AS best_neighbor_if_index,
+      max(CASE WHEN c.local_if_name IS NOT NULL AND c.local_if_name <> '' AND toLower(c.local_if_name) <> 'unknown' THEN c.local_if_name ELSE '' END) AS best_local_if_name,
+      max(CASE WHEN c.neighbor_if_name IS NOT NULL AND c.neighbor_if_name <> '' AND toLower(c.neighbor_if_name) <> 'unknown' THEN c.neighbor_if_name ELSE '' END) AS best_neighbor_if_name
     MERGE (a:Device {id: src_id})
     MERGE (b:Device {id: dst_id})
     MERGE (a)-[cr:CANONICAL_TOPOLOGY]->(b)
@@ -758,9 +778,26 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET cr.confidence_score = best.confidence_score
     SET cr.confidence_reason = best.confidence_reason
     SET cr.last_observed_at = best.last_observed_at
-    SET cr.local_if_index = best.local_if_index
-    SET cr.local_if_name = best.local_if_name
-    SET cr.neighbor_if_name = best.neighbor_if_name
+    SET cr.local_if_index =
+      CASE
+        WHEN best_local_if_index > 0 THEN best_local_if_index
+        ELSE best.local_if_index
+      END
+    SET cr.neighbor_if_index =
+      CASE
+        WHEN best_neighbor_if_index > 0 THEN best_neighbor_if_index
+        ELSE best.neighbor_if_index
+      END
+    SET cr.local_if_name =
+      CASE
+        WHEN best_local_if_name <> '' THEN best_local_if_name
+        ELSE best.local_if_name
+      END
+    SET cr.neighbor_if_name =
+      CASE
+        WHEN best_neighbor_if_name <> '' THEN best_neighbor_if_name
+        ELSE best.neighbor_if_name
+      END
     """
   end
 
