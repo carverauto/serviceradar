@@ -987,6 +987,36 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert edge.telemetry_source == "interface"
   end
 
+  test "latest_snapshot/0 uses neighbor-only attribution to keep direct edge telemetry visible" do
+    actor = SystemActor.system(:god_view_stream_neighbor_only_directional_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    left_uid = "dir-neighbor-left-#{suffix}"
+    right_uid = "dir-neighbor-right-#{suffix}"
+    now = DateTime.utc_now()
+
+    create_topology_device(actor, left_uid, "left-neighbor-only-#{suffix}.local")
+    create_topology_device(actor, right_uid, "right-neighbor-only-#{suffix}.local")
+
+    # Only emit one directional topology record (right -> left), which means
+    # left->right resolution must use neighbor-side attribution.
+    create_topology_link(actor, now, right_uid, left_uid, 22)
+    create_interface_observation(actor, now, right_uid, "eth22", 22)
+
+    insert_metric(now, right_uid, 22, "ifOutUcastPkts", 410)
+    insert_metric(now, right_uid, 22, "ifInUcastPkts", 290)
+    insert_metric(now, right_uid, 22, "ifOutOctets", 6_000)
+    insert_metric(now, right_uid, 22, "ifInOctets", 4_000)
+
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+    edge = find_edge(snapshot, left_uid, right_uid)
+    assert edge
+    assert edge.flow_pps_ab > 0
+    assert edge.flow_pps_ba > 0
+    assert edge.flow_bps_ab > 0
+    assert edge.flow_bps_ba > 0
+    assert edge.telemetry_source == "interface"
+  end
+
   defp coords_for(snapshot, node_ids) do
     snapshot.nodes
     |> Enum.filter(&(&1.id in node_ids))
