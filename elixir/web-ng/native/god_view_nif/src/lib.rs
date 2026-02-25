@@ -57,6 +57,7 @@ fn encode_snapshot<'a>(
     revision: u64,
     nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
     edges: Vec<(u16, u16, u32, u64, u64, String, u8)>,
+    edge_meta: Vec<(String, String, String)>,
     edge_directional: Vec<(u32, u32, u64, u64)>,
     root_bitmap_bytes: u32,
     affected_bitmap_bytes: u32,
@@ -69,6 +70,7 @@ fn encode_snapshot<'a>(
         revision,
         nodes,
         edges,
+        edge_meta,
         edge_directional,
         root_bitmap_bytes,
         affected_bitmap_bytes,
@@ -281,31 +283,41 @@ fn runtime_graph_encode_snapshot<'a>(
     let guard = graph.links.read().map_err(|_| rustler::Error::BadArg)?;
     let indexed = indexed_edges_from_runtime_rows(&guard, &node_ids);
     let telemetry = indexed_edge_telemetry(&edge_telemetry, &node_ids);
-    let edges: Vec<(u16, u16, u32, u64, u64, String, u8)> = indexed
-        .into_iter()
-        .filter_map(|(a, b, protocol)| {
-            let Some((flow_pps, flow_bps, capacity_bps, label)) = telemetry
-                .get(&crate::core::utils::canonical_pair_u32(a, b))
-                .cloned()
-            else {
-                return None;
-            };
+    let mut edges: Vec<(u16, u16, u32, u64, u64, String, u8)> = Vec::new();
+    let mut edge_meta: Vec<(String, String, String)> = Vec::new();
 
-            let src = u16::try_from(a).ok()?;
-            let dst = u16::try_from(b).ok()?;
+    for (a, b, protocol) in indexed {
+        let Some((flow_pps, flow_bps, capacity_bps, label)) = telemetry
+            .get(&crate::core::utils::canonical_pair_u32(a, b))
+            .cloned()
+        else {
+            continue;
+        };
 
-            let final_label = if label.trim().is_empty() {
-                if protocol.trim().is_empty() {
-                    "TOPOLOGY".to_string()
-                } else {
-                    protocol.trim().to_ascii_uppercase()
-                }
+        let Some(src) = u16::try_from(a).ok() else {
+            continue;
+        };
+        let Some(dst) = u16::try_from(b).ok() else {
+            continue;
+        };
+
+        let final_label = if label.trim().is_empty() {
+            if protocol.trim().is_empty() {
+                "TOPOLOGY".to_string()
             } else {
-                label
-            };
-            Some((src, dst, flow_pps, flow_bps, capacity_bps, final_label, 1u8))
-        })
-        .collect();
+                protocol.trim().to_ascii_uppercase()
+            }
+        } else {
+            label
+        };
+
+        edges.push((src, dst, flow_pps, flow_bps, capacity_bps, final_label, 1u8));
+        edge_meta.push((
+            "backbone".to_string(),
+            protocol.to_ascii_lowercase(),
+            "unknown".to_string(),
+        ));
+    }
 
     encode_snapshot_impl(
         env,
@@ -313,6 +325,7 @@ fn runtime_graph_encode_snapshot<'a>(
         revision,
         nodes,
         edges,
+        edge_meta,
         Vec::new(),
         root_bitmap_bytes as u32,
         affected_bitmap_bytes as u32,
@@ -560,10 +573,30 @@ mod tests {
         )];
         // Duplicate names on both ends; only one index per side has live metrics.
         let interfaces = vec![
-            ("dev-a".to_string(), "wgsts1000".to_string(), 32, 1_000_000_000u64),
-            ("dev-a".to_string(), "wgsts1000".to_string(), 31, 1_000_000_000u64),
-            ("dev-b".to_string(), "wgsts1000".to_string(), 49, 1_000_000_000u64),
-            ("dev-b".to_string(), "wgsts1000".to_string(), 47, 1_000_000_000u64),
+            (
+                "dev-a".to_string(),
+                "wgsts1000".to_string(),
+                32,
+                1_000_000_000u64,
+            ),
+            (
+                "dev-a".to_string(),
+                "wgsts1000".to_string(),
+                31,
+                1_000_000_000u64,
+            ),
+            (
+                "dev-b".to_string(),
+                "wgsts1000".to_string(),
+                49,
+                1_000_000_000u64,
+            ),
+            (
+                "dev-b".to_string(),
+                "wgsts1000".to_string(),
+                47,
+                1_000_000_000u64,
+            ),
         ];
         let pps_metrics = vec![
             ("dev-a".to_string(), 31, 700u32, 500u32),

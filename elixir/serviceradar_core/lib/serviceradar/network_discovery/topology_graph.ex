@@ -7,7 +7,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   alias ServiceRadar.Graph
   @default_stale_minutes 180
-  @direct_protocols MapSet.new(["lldp", "cdp", "unifi-api"])
+  @direct_protocols MapSet.new(["lldp", "cdp", "unifi-api", "wireguard-derived"])
   @strict_ifindex_protocols MapSet.new(["lldp", "cdp"])
   @direct_evidence_classes MapSet.new(["direct"])
   @attachment_evidence_classes MapSet.new(["endpoint-attachment"])
@@ -24,13 +24,22 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         &reduce_topology_link/2
       )
 
-    prune_unseen_projected_links(neighbor_index)
-    prune_stale_projected_links(MapSet.to_list(local_device_ids))
-    prune_stale_mapper_evidence_links()
+    maybe_prune_unseen_projected_links(neighbor_index)
+    maybe_prune_stale_projected_links(MapSet.to_list(local_device_ids))
+    maybe_prune_stale_mapper_evidence_links()
+    rebuild_canonical_device_links()
 
     Logger.info("Topology projection diagnostics: #{inspect(diagnostics)}")
 
     :ok
+  end
+
+  @doc """
+  Rebuilds canonical device-level topology edges from current mapper evidence in AGE.
+  """
+  @spec rebuild_canonical_links_from_current() :: :ok
+  def rebuild_canonical_links_from_current do
+    rebuild_canonical_device_links()
   end
 
   @doc """
@@ -202,7 +211,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     neighbor_port = neighbor_port(link)
     neighbor_interface_id = neighbor_interface_id(neighbor_device_id, neighbor_port)
     metadata = link_value(link, :metadata) || %{}
-    evidence_class = map_value(metadata, :evidence_class) || "inferred"
+    protocol = link_value(link, :protocol) || "unknown"
+
+    evidence_class =
+      map_value(metadata, :evidence_class) ||
+        default_evidence_class_for_protocol(protocol)
+
     confidence_tier = confidence_tier(link, metadata)
     confidence_score = confidence_score(link, metadata)
     confidence_reason = confidence_reason(link, metadata)
@@ -217,7 +231,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
          neighbor_device_id: neighbor_device_id,
          local_interface_id: local_interface_id,
          neighbor_interface_id: neighbor_interface_id,
-         protocol: link_value(link, :protocol) || "unknown",
+         protocol: protocol,
          local_if_name: link_value(link, :local_if_name),
          local_if_index: link_value(link, :local_if_index),
          neighbor_port_name: neighbor_port,
@@ -377,7 +391,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     strict_ifindex? = MapSet.member?(@strict_ifindex_protocols, protocol)
 
     cond do
-      confidence_reason == "single_identifier_inference" ->
+      confidence_reason == "single_identifier_inference" and
+          not allow_single_identifier_inference_projection?(payload) ->
         :skip_single_identifier_inference
 
       strict_ifindex? and not valid_ifindex?(payload.local_if_index) ->
@@ -412,11 +427,21 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     confidence_reason = normalize_confidence_reason(payload.confidence_reason)
 
     MapSet.member?(@inferred_evidence_classes, evidence_class) and
-      confidence_reason != "single_identifier_inference" and
+      (confidence_reason != "single_identifier_inference" or
+         allow_single_identifier_inference_projection?(payload)) and
       (confidence_tier in ["high", "medium"] or payload.confidence_score >= 60)
   end
 
   defp inferred_evidence_projectable?(_payload), do: false
+
+  defp allow_single_identifier_inference_projection?(payload) when is_map(payload) do
+    protocol = normalize_protocol(payload.protocol)
+    confidence_tier = normalize_confidence_tier(payload.confidence_tier)
+
+    protocol == "snmp-l2" and confidence_tier in ["high", "medium"]
+  end
+
+  defp allow_single_identifier_inference_projection?(_payload), do: false
 
   defp evidence_relation_type(payload) do
     evidence_class = normalize_evidence_class(payload.evidence_class)
@@ -553,6 +578,22 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end)
   end
 
+  defp maybe_prune_unseen_projected_links(neighbor_index) do
+    if prune_unseen_projected_links_enabled?() do
+      prune_unseen_projected_links(neighbor_index)
+    else
+      :ok
+    end
+  end
+
+  defp prune_unseen_projected_links_enabled? do
+    Application.get_env(
+      :serviceradar_core,
+      :mapper_topology_prune_unseen_projected_links_enabled,
+      false
+    ) == true
+  end
+
   defp prune_stale_projected_links([]), do: :ok
 
   defp prune_stale_projected_links(local_device_ids) do
@@ -571,6 +612,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     case Graph.execute(cypher) do
       :ok -> :ok
       {:error, reason} -> Logger.warning("Topology stale edge pruning failed: #{inspect(reason)}")
+    end
+  end
+
+  defp maybe_prune_stale_projected_links(local_device_ids) do
+    if prune_stale_projected_links_enabled?() do
+      prune_stale_projected_links(local_device_ids)
+    else
+      :ok
     end
   end
 
@@ -593,6 +642,117 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       {:error, reason} ->
         Logger.warning("Topology global stale edge pruning failed: #{inspect(reason)}")
     end
+  end
+
+  defp maybe_prune_stale_mapper_evidence_links do
+    if prune_stale_projected_links_enabled?() do
+      prune_stale_mapper_evidence_links()
+    else
+      :ok
+    end
+  end
+
+  defp rebuild_canonical_device_links do
+    stale_cutoff = stale_cutoff_iso8601()
+
+    upsert_cypher = """
+    MATCH (ai:Interface)-[r]->(bi:Interface)
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
+      AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{Graph.escape(stale_cutoff)}')
+      AND ai.device_id IS NOT NULL
+      AND bi.device_id IS NOT NULL
+      AND ai.device_id <> bi.device_id
+    WITH ai, bi, r, ai.device_id AS left_id, bi.device_id AS right_id
+    WITH
+      CASE WHEN left_id <= right_id THEN left_id ELSE right_id END AS src_id,
+      CASE WHEN left_id <= right_id THEN right_id ELSE left_id END AS dst_id,
+      ai,
+      bi,
+      r,
+      left_id,
+      CASE type(r)
+        WHEN 'CONNECTS_TO' THEN 4
+        WHEN 'INFERRED_TO' THEN 3
+        WHEN 'ATTACHED_TO' THEN 2
+        ELSE 1
+      END AS rel_rank,
+      CASE coalesce(r.confidence_tier, '')
+        WHEN 'high' THEN 3
+        WHEN 'medium' THEN 2
+        WHEN 'low' THEN 1
+        ELSE 0
+      END AS conf_rank
+    ORDER BY
+      src_id,
+      dst_id,
+      rel_rank DESC,
+      conf_rank DESC,
+      coalesce(r.last_observed_at, r.observed_at) DESC
+    WITH src_id, dst_id, collect({
+      relation_type: type(r),
+      protocol: coalesce(r.protocol, r.source, 'unknown'),
+      evidence_class: coalesce(r.evidence_class, 'inferred'),
+      confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+      confidence_score: coalesce(r.confidence_score, 0),
+      confidence_reason: coalesce(r.confidence_reason, 'unspecified'),
+      last_observed_at: coalesce(r.last_observed_at, r.observed_at),
+      local_if_index: CASE WHEN left_id = src_id THEN ai.ifindex ELSE bi.ifindex END,
+      local_if_name: coalesce(CASE WHEN left_id = src_id THEN ai.name ELSE bi.name END, 'unknown'),
+      neighbor_if_name: coalesce(CASE WHEN left_id = src_id THEN bi.name ELSE ai.name END, 'unknown')
+    }) AS candidates
+    WITH src_id, dst_id, head(candidates) AS best
+    MERGE (a:Device {id: src_id})
+    MERGE (b:Device {id: dst_id})
+    MERGE (a)-[cr:CANONICAL_TOPOLOGY]->(b)
+    SET cr.ingestor = 'mapper_topology_v1'
+    SET cr.relation_type = best.relation_type
+    SET cr.protocol = best.protocol
+    SET cr.evidence_class = best.evidence_class
+    SET cr.confidence_tier = best.confidence_tier
+    SET cr.confidence_score = best.confidence_score
+    SET cr.confidence_reason = best.confidence_reason
+    SET cr.last_observed_at = best.last_observed_at
+    SET cr.local_if_index = best.local_if_index
+    SET cr.local_if_name = best.local_if_name
+    SET cr.neighbor_if_name = best.neighbor_if_name
+    """
+
+    case Graph.execute(upsert_cypher) do
+      :ok ->
+        prune_stale_canonical_device_links(stale_cutoff)
+
+      {:error, reason} ->
+        Logger.warning("Canonical topology rebuild failed: #{inspect(reason)}")
+    end
+  end
+
+  defp prune_stale_canonical_device_links(stale_cutoff) when is_binary(stale_cutoff) do
+    prune_cypher = """
+    MATCH ()-[r:CANONICAL_TOPOLOGY]->()
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND r.last_observed_at IS NOT NULL
+      AND r.last_observed_at < '#{Graph.escape(stale_cutoff)}'
+    DELETE r
+    """
+
+    case Graph.execute(prune_cypher) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Canonical topology stale-edge prune failed: #{inspect(reason)}")
+    end
+  end
+
+  @doc false
+  @spec prune_stale_projected_links_enabled?() :: boolean()
+  def prune_stale_projected_links_enabled? do
+    Application.get_env(
+      :serviceradar_core,
+      :mapper_topology_prune_stale_projected_links_enabled,
+      false
+    ) == true
   end
 
   defp stale_cutoff_iso8601 do
@@ -665,6 +825,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp map_value(_map, _key), do: nil
+
+  defp default_evidence_class_for_protocol(protocol) do
+    if MapSet.member?(@direct_protocols, normalize_protocol(protocol)) do
+      "direct"
+    else
+      "inferred"
+    end
+  end
 
   defp link_value(link, key) do
     Map.get(link, key) || Map.get(link, to_string(key))

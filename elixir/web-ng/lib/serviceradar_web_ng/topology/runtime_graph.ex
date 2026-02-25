@@ -8,12 +8,12 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   """
 
   use GenServer
+  require Logger
 
   alias ServiceRadarWebNG.Graph, as: AgeGraph
   alias ServiceRadarWebNG.Topology.Native
 
   @default_refresh_ms 5_000
-  @default_stale_minutes 180
   @max_link_rows 5_000
 
   @type state :: %{
@@ -87,8 +87,14 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   defp refresh_state(state) do
     case fetch_topology_links_from_graph() do
       {:ok, rows} when is_list(rows) ->
-        _ = Native.runtime_graph_ingest_rows(state.graph_ref, rows)
+        normalized_rows = normalize_runtime_rows(rows)
+        ingested = Native.runtime_graph_ingest_rows(state.graph_ref, normalized_rows)
+        Logger.info("runtime_graph_refresh fetched=#{length(rows)} ingested=#{ingested}")
         %{state | last_refresh_at: DateTime.utc_now()}
+
+      {:error, reason} ->
+        Logger.warning("runtime_graph_refresh_failed reason=#{inspect(reason)}")
+        state
 
       _ ->
         state
@@ -96,42 +102,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   end
 
   defp fetch_topology_links_from_graph do
-    cutoff =
-      DateTime.utc_now()
-      |> DateTime.add(-topology_stale_minutes() * 60, :second)
-      |> DateTime.truncate(:second)
-      |> DateTime.to_iso8601()
-
-    escaped_cutoff = AgeGraph.escape(cutoff)
-
-    cypher = """
-    MATCH (a:Device)-[:HAS_INTERFACE]->(ai:Interface)-[r]->(bi:Interface)<-[:HAS_INTERFACE]-(b:Device)
-    WHERE r.ingestor = 'mapper_topology_v1'
-      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']
-      AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{escaped_cutoff}')
-    RETURN {
-      local_device_id: ai.device_id,
-      local_device_ip: a.ip,
-      local_if_name: ai.name,
-      local_if_index: ai.ifindex,
-      neighbor_device_id: bi.device_id,
-      neighbor_mgmt_addr: b.ip,
-      neighbor_system_name: b.name,
-      protocol: coalesce(r.protocol, r.source, 'unknown'),
-      confidence_tier: coalesce(r.confidence_tier, 'unknown'),
-      evidence_class: coalesce(r.evidence_class, ''),
-      metadata: {
-        relation_type: type(r),
-        source: coalesce(r.source, ''),
-        inference: coalesce(r.confidence_reason, ''),
-        evidence_class: coalesce(r.evidence_class, ''),
-        confidence_tier: coalesce(r.confidence_tier, 'unknown'),
-        confidence_score: coalesce(r.confidence_score, 0)
-      }
-    }
-    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
-    LIMIT #{@max_link_rows}
-    """
+    cypher = topology_links_query()
 
     case AgeGraph.query(cypher) do
       {:ok, rows} when is_list(rows) ->
@@ -142,6 +113,89 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     end
   rescue
     error -> {:error, error}
+  end
+
+  @doc false
+  @spec topology_links_query() :: String.t()
+  def topology_links_query do
+    """
+    MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+    WHERE coalesce(r.relation_type, type(r)) IN ['CONNECTS_TO', 'ATTACHED_TO']
+    RETURN {
+      local_device_id: a.id,
+      local_device_ip: a.ip,
+      local_if_name: coalesce(r.local_if_name, ''),
+      local_if_index: r.local_if_index,
+      neighbor_device_id: b.id,
+      neighbor_mgmt_addr: b.ip,
+      neighbor_system_name: b.name,
+      protocol: coalesce(r.protocol, r.source, 'unknown'),
+      confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+      evidence_class: coalesce(r.evidence_class, ''),
+      metadata: {
+        relation_type: coalesce(r.relation_type, type(r)),
+        source: coalesce(r.source, ''),
+        inference: coalesce(r.confidence_reason, ''),
+        evidence_class: coalesce(r.evidence_class, ''),
+        confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+        confidence_score: coalesce(r.confidence_score, 0)
+      }
+    }
+    ORDER BY
+      coalesce(r.last_observed_at, r.observed_at) DESC
+    LIMIT #{@max_link_rows}
+    """
+  end
+
+  defp normalize_runtime_rows(rows) when is_list(rows) do
+    Enum.reduce(rows, [], fn row, acc ->
+      case normalize_runtime_row(row) do
+        nil -> acc
+        normalized -> [normalized | acc]
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp normalize_runtime_row(%{} = row) do
+    row
+    |> unwrap_single_map_value()
+    |> maybe_string_key("local_device_id", "local_device_ip", "neighbor_device_id")
+  end
+
+  defp normalize_runtime_row(_), do: nil
+
+  defp unwrap_single_map_value(%{} = map) do
+    if map_size(map) == 1 do
+      [{_k, v}] = Map.to_list(map)
+      if is_map(v), do: v, else: map
+    else
+      map
+    end
+  end
+
+  defp maybe_string_key(%{} = map, k1, k2, k3) do
+    cond do
+      map_has_key_string_or_atom?(map, k1) ->
+        map
+
+      map_has_key_string_or_atom?(map, k2) ->
+        map
+
+      map_has_key_string_or_atom?(map, k3) ->
+        map
+
+      true ->
+        nil
+    end
+  end
+
+  defp map_has_key_string_or_atom?(%{} = map, key) when is_binary(key) do
+    Map.has_key?(map, key) or
+      Enum.any?(Map.keys(map), fn
+        k when is_atom(k) -> Atom.to_string(k) == key
+        _ -> false
+      end)
   end
 
   defp decode_row(%{} = row) do
@@ -176,8 +230,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       local_device_id: blank_to_nil(local_device_id),
       local_device_ip: blank_to_nil(local_device_ip),
       local_if_name: blank_to_nil(local_if_name),
-      local_if_index:
-        if(is_integer(local_if_index) and local_if_index >= 0, do: local_if_index, else: nil),
+      local_if_index: parse_ifindex(local_if_index),
       neighbor_device_id: blank_to_nil(neighbor_device_id),
       neighbor_mgmt_addr: blank_to_nil(neighbor_mgmt_addr),
       neighbor_system_name: blank_to_nil(neighbor_system_name),
@@ -201,14 +254,22 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   defp blank_to_nil(_), do: nil
 
+  defp parse_ifindex(value) when is_integer(value) and value >= 0, do: value
+
+  defp parse_ifindex(value) when is_float(value) do
+    rounded = trunc(Float.round(value))
+    if rounded >= 0, do: rounded, else: nil
+  end
+
+  defp parse_ifindex(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} when parsed >= 0 -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_ifindex(_), do: nil
+
   defp normalize_positive_int(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_positive_int(_value, default), do: default
-
-  defp topology_stale_minutes do
-    Application.get_env(
-      :serviceradar_core,
-      :mapper_topology_edge_stale_minutes,
-      @default_stale_minutes
-    )
-  end
 end

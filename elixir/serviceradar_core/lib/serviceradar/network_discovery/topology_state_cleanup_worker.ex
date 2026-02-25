@@ -9,6 +9,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.NetworkDiscovery.TopologyStateCleanup
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -42,6 +43,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
       {:error, reason} ->
         Logger.warning("Topology state cleanup failed", reason: inspect(reason))
     end
+
+    :ok = TopologyGraph.rebuild_canonical_links_from_current()
 
     _ = ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 60)))
     :ok

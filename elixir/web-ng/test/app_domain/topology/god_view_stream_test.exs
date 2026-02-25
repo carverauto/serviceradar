@@ -18,11 +18,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
   setup do
     previous_coalesce = Application.get_env(:serviceradar_web_ng, :god_view_snapshot_coalesce_ms)
 
-    previous_age_authoritative =
-      Application.get_env(:serviceradar_web_ng, :age_authoritative_topology_enabled)
-
     Application.put_env(:serviceradar_web_ng, :god_view_snapshot_coalesce_ms, 0)
-    Application.put_env(:serviceradar_web_ng, :age_authoritative_topology_enabled, false)
 
     on_exit(fn ->
       if is_nil(previous_coalesce) do
@@ -32,16 +28,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
           :serviceradar_web_ng,
           :god_view_snapshot_coalesce_ms,
           previous_coalesce
-        )
-      end
-
-      if is_nil(previous_age_authoritative) do
-        Application.delete_env(:serviceradar_web_ng, :age_authoritative_topology_enabled)
-      else
-        Application.put_env(
-          :serviceradar_web_ng,
-          :age_authoritative_topology_enabled,
-          previous_age_authoritative
         )
       end
     end)
@@ -532,6 +518,133 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert edge
     assert String.downcase(to_string(edge.protocol || "")) == "unifi-api"
     assert Map.get(edge, :telemetry_eligible) == false
+  end
+
+  test "latest_snapshot/0 prefers attributed SNMP-L2 over unattributed UniFi on infra links" do
+    actor = SystemActor.system(:god_view_stream_snmp_l2_preference_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    left_uid = "snmp-pref-left-#{suffix}"
+    right_uid = "snmp-pref-right-#{suffix}"
+    now = DateTime.utc_now()
+
+    create_topology_device(actor, left_uid, "left-snmp-pref-#{suffix}.local")
+    create_topology_device(actor, right_uid, "right-snmp-pref-#{suffix}.local")
+
+    TopologyLink
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: now,
+        protocol: "UniFi-API",
+        local_device_id: left_uid,
+        local_if_name: "ac:8b:a9:d5:87:dd",
+        local_if_index: 0,
+        neighbor_device_id: right_uid,
+        neighbor_mgmt_addr: "10.10.30.2",
+        metadata: %{
+          "relation_type" => "CONNECTS_TO",
+          "evidence_class" => "direct",
+          "confidence_tier" => "low",
+          "source" => "unifi-api"
+        }
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    TopologyLink
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: now,
+        protocol: "SNMP-L2",
+        local_device_id: left_uid,
+        local_if_name: "0/7",
+        local_if_index: 7,
+        neighbor_device_id: right_uid,
+        neighbor_mgmt_addr: "10.10.30.2",
+        metadata: %{
+          "relation_type" => "CONNECTS_TO",
+          "evidence_class" => "direct",
+          "confidence_tier" => "medium",
+          "source" => "snmp-l2"
+        }
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    create_interface_observation(actor, now, left_uid, "0/7", 7)
+    insert_metric(now, left_uid, 7, "ifOutUcastPkts", 123)
+    insert_metric(now, left_uid, 7, "ifOutOctets", 2_000)
+
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+    edge = find_edge(snapshot, left_uid, right_uid)
+    assert edge
+    assert String.downcase(to_string(edge.protocol || "")) == "snmp-l2"
+    assert edge.flow_pps > 0
+    assert edge.flow_bps > 0
+  end
+
+  test "latest_snapshot/0 canonicalizes mac-* topology endpoint ids to device uid aliases" do
+    actor = SystemActor.system(:god_view_stream_mac_alias_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    left_uid = "alias-left-#{suffix}"
+    right_uid = "alias-right-#{suffix}"
+    mac_alias = "mac-aabbccddeeff"
+    now = DateTime.utc_now()
+
+    Device
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        uid: left_uid,
+        hostname: "alias-left-#{suffix}.local",
+        type_id: 12,
+        is_available: true,
+        metadata: %{"device_id" => mac_alias},
+        first_seen_time: now,
+        last_seen_time: now
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    create_topology_device(actor, right_uid, "alias-right-#{suffix}.local")
+
+    TopologyLink
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: now,
+        protocol: "SNMP-L2",
+        local_device_id: mac_alias,
+        local_if_name: "0/8",
+        local_if_index: 8,
+        neighbor_device_id: right_uid,
+        neighbor_mgmt_addr: "10.10.40.2",
+        metadata: %{
+          "relation_type" => "CONNECTS_TO",
+          "evidence_class" => "direct",
+          "confidence_tier" => "medium",
+          "source" => "snmp-l2"
+        }
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    create_interface_observation(actor, now, left_uid, "0/8", 8)
+    insert_metric(now, left_uid, 8, "ifOutUcastPkts", 77)
+    insert_metric(now, left_uid, 8, "ifOutOctets", 1_000)
+
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+    edge = find_edge(snapshot, left_uid, right_uid)
+    assert edge
+
+    refute Enum.any?(snapshot.edges, fn e ->
+             e.source == mac_alias or e.target == mac_alias
+           end)
   end
 
   test "latest_snapshot/0 applies BMP routing causal overlays without coordinate churn" do

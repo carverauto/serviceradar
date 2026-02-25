@@ -1453,6 +1453,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
                 neighbor_mgmt_addr: neighbor_ip,
                 metadata: %{
                   "source" => "wireguard-derived",
+                  "evidence_class" => "direct",
                   "rule" => "exact_wg_interface_name_two_router_endpoints",
                   "tunnel_name" => tunnel_name,
                   "confidence_tier" => "high",

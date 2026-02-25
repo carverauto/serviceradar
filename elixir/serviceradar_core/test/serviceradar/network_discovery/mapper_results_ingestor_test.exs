@@ -852,6 +852,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert inferred.neighbor_device_id == "sr:tonka01"
       assert inferred.local_if_name == "wgsts1000"
       assert inferred.metadata["source"] == "wireguard-derived"
+      assert inferred.metadata["evidence_class"] == "direct"
       assert inferred.metadata["tunnel_name"] == "wgsts1000"
     end
 

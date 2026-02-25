@@ -219,8 +219,10 @@ pub(crate) fn enrich_edges_telemetry_impl(
                 let iface_ba =
                     find_interface_for_edge(&by_index, &by_name, &target, &if_name_ba, if_index_ba);
 
-                let mut resolved_if_index_ab = resolved_metric_index(if_index_ab, iface_ab.as_ref());
-                let mut resolved_if_index_ba = resolved_metric_index(if_index_ba, iface_ba.as_ref());
+                let mut resolved_if_index_ab =
+                    resolved_metric_index(if_index_ab, iface_ab.as_ref());
+                let mut resolved_if_index_ba =
+                    resolved_metric_index(if_index_ba, iface_ba.as_ref());
 
                 // If a name maps to multiple interface rows, prefer the candidate with actual telemetry.
                 if if_index_ab < 0

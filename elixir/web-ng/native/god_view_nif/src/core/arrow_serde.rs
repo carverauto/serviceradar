@@ -29,6 +29,7 @@ pub(crate) fn encode_snapshot_impl(
     revision: u64,
     nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
     edges: Vec<(u16, u16, u32, u64, u64, String, u8)>,
+    edge_meta: Vec<(String, String, String)>,
     edge_directional: Vec<(u32, u32, u64, u64)>,
     root_bitmap_bytes: u32,
     affected_bitmap_bytes: u32,
@@ -58,6 +59,9 @@ pub(crate) fn encode_snapshot_impl(
     let mut edge_capacity_bps = Vec::<Option<u64>>::with_capacity(total_rows);
     let mut edge_telemetry_eligible = Vec::<Option<u8>>::with_capacity(total_rows);
     let mut edge_label = Vec::<Option<String>>::with_capacity(total_rows);
+    let mut edge_topology_class = Vec::<Option<String>>::with_capacity(total_rows);
+    let mut edge_protocol = Vec::<Option<String>>::with_capacity(total_rows);
+    let mut edge_evidence_class = Vec::<Option<String>>::with_capacity(total_rows);
 
     for (x, y, state, label, pps, oper_up, details) in nodes {
         row_type.push(0);
@@ -79,6 +83,9 @@ pub(crate) fn encode_snapshot_impl(
         edge_capacity_bps.push(None);
         edge_telemetry_eligible.push(None);
         edge_label.push(None);
+        edge_topology_class.push(None);
+        edge_protocol.push(None);
+        edge_evidence_class.push(None);
     }
 
     for (idx, (source, target, pps, flow_bps, capacity_bps, label, telemetry_eligible)) in
@@ -86,6 +93,14 @@ pub(crate) fn encode_snapshot_impl(
     {
         let (flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba) =
             edge_directional.get(idx).copied().unwrap_or((0, 0, 0, 0));
+        let (topology_class, protocol, evidence_class) =
+            edge_meta.get(idx).cloned().unwrap_or_else(|| {
+                (
+                    "backbone".to_string(),
+                    "".to_string(),
+                    "unknown".to_string(),
+                )
+            });
 
         row_type.push(1);
         node_x.push(None);
@@ -106,6 +121,9 @@ pub(crate) fn encode_snapshot_impl(
         edge_capacity_bps.push(Some(capacity_bps));
         edge_telemetry_eligible.push(Some(if telemetry_eligible > 0 { 1 } else { 0 }));
         edge_label.push(Some(label));
+        edge_topology_class.push(Some(topology_class));
+        edge_protocol.push(Some(protocol));
+        edge_evidence_class.push(Some(evidence_class));
     }
 
     let mut metadata = HashMap::new();
@@ -165,6 +183,9 @@ pub(crate) fn encode_snapshot_impl(
             Field::new("edge_capacity_bps", DataType::UInt64, true),
             Field::new("edge_telemetry_eligible", DataType::UInt8, true),
             Field::new("edge_label", DataType::Utf8, true),
+            Field::new("edge_topology_class", DataType::Utf8, true),
+            Field::new("edge_protocol", DataType::Utf8, true),
+            Field::new("edge_evidence_class", DataType::Utf8, true),
             Field::new("snapshot_schema_version", DataType::UInt32, false),
             Field::new("snapshot_revision", DataType::UInt64, false),
         ],
@@ -196,6 +217,9 @@ pub(crate) fn encode_snapshot_impl(
             Arc::new(UInt64Array::from(edge_capacity_bps)),
             Arc::new(UInt8Array::from(edge_telemetry_eligible)),
             Arc::new(StringArray::from(edge_label)),
+            Arc::new(StringArray::from(edge_topology_class)),
+            Arc::new(StringArray::from(edge_protocol)),
+            Arc::new(StringArray::from(edge_evidence_class)),
             Arc::new(UInt32Array::from(schema_version_col)),
             Arc::new(UInt64Array::from(revision_col)),
         ],

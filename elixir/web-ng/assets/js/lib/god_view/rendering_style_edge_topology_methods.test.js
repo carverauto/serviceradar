@@ -4,19 +4,13 @@ import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingStyleEdgeTopologyMethods} from "./rendering_style_edge_topology_methods"
 
 describe("rendering_style_edge_topology_methods", () => {
-  it("edgeTopologyClassFromLabel maps inferred and endpoints labels", () => {
-    expect(godViewRenderingStyleEdgeTopologyMethods.edgeTopologyClassFromLabel("LINK INFERRED path")).toEqual("inferred")
-    expect(godViewRenderingStyleEdgeTopologyMethods.edgeTopologyClassFromLabel("LINK ENDPOINT attachment")).toEqual("endpoints")
-    expect(godViewRenderingStyleEdgeTopologyMethods.edgeTopologyClassFromLabel("BACKBONE")).toEqual("backbone")
-  })
-
-  it("edgeTopologyClass honors explicit class before label fallback", () => {
+  it("edgeTopologyClass honors explicit class and does not infer from label", () => {
     const state = {}
     const methods = createStateBackedContext(state, {})
     Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
     expect(methods.edgeTopologyClass({topologyClass: "inferred", label: "BACKBONE"})).toEqual("inferred")
-    expect(methods.edgeTopologyClass({topologyClass: "", label: "LINK ENDPOINT attachment"})).toEqual("endpoints")
+    expect(methods.edgeTopologyClass({topologyClass: "", label: "LINK ENDPOINT attachment"})).toEqual("backbone")
   })
 
   it("edgeEnabledByTopologyLayer uses class count map when present", () => {
@@ -31,13 +25,14 @@ describe("rendering_style_edge_topology_methods", () => {
     expect(methods.edgeEnabledByTopologyLayer(edge)).toEqual(false)
   })
 
-  it("edgeEnabledByTopologyLayer falls back to inferred/endpoints/backbone classes", () => {
+  it("edgeEnabledByTopologyLayer uses explicit class only when class counts absent", () => {
     const state = {topologyLayers: {backbone: true, inferred: false, endpoints: false}}
     const methods = createStateBackedContext(state, {})
     Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
-    expect(methods.edgeEnabledByTopologyLayer({label: "LINK INFERRED path"})).toEqual(false)
-    expect(methods.edgeEnabledByTopologyLayer({label: "LINK ENDPOINT attach"})).toEqual(false)
-    expect(methods.edgeEnabledByTopologyLayer({label: "BACKBONE"})).toEqual(true)
+    expect(methods.edgeEnabledByTopologyLayer({topologyClass: "inferred"})).toEqual(false)
+    expect(methods.edgeEnabledByTopologyLayer({topologyClass: "endpoints"})).toEqual(false)
+    expect(methods.edgeEnabledByTopologyLayer({topologyClass: "backbone"})).toEqual(true)
+    expect(methods.edgeEnabledByTopologyLayer({label: "LINK INFERRED path"})).toEqual(true)
   })
 })
