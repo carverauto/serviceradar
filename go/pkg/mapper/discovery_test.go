@@ -607,10 +607,11 @@ func TestCollectRecursiveSNMPTargets(t *testing.T) {
 }
 
 func TestTopologyStageReadyRequiresIdentityAndEnrichmentCompletion(t *testing.T) {
-	transitions := []DiscoveryStageTransition{
-		{Stage: DiscoveryStagePrepare, Status: DiscoveryStageStatusCompleted},
-		{Stage: DiscoveryStageIdentity, Status: DiscoveryStageStatusCompleted},
-	}
+	transitions := make([]DiscoveryStageTransition, 0, 3)
+	transitions = append(transitions,
+		DiscoveryStageTransition{Stage: DiscoveryStagePrepare, Status: DiscoveryStageStatusCompleted},
+		DiscoveryStageTransition{Stage: DiscoveryStageIdentity, Status: DiscoveryStageStatusCompleted},
+	)
 	assert.False(t, topologyStageReady(transitions))
 
 	transitions = append(transitions, DiscoveryStageTransition{

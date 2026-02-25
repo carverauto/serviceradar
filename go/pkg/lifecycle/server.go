@@ -300,10 +300,11 @@ func configureServerOptions(ctx context.Context, provider grpc.SecurityProvider,
 		}
 	}
 
-	opts := []grpc.ServerOption{
+	opts := make([]grpc.ServerOption, 0, 3)
+	opts = append(opts,
 		grpc.WithMaxRecvSize(maxRecvSize),
 		grpc.WithMaxSendSize(maxSendSize),
-	}
+	)
 
 	if provider == nil {
 		return opts, nil
