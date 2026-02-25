@@ -8,8 +8,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
-  alias ServiceRadar.NetworkDiscovery.TopologyStateCleanup
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
+  alias ServiceRadar.NetworkDiscovery.TopologyStateCleanup
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
