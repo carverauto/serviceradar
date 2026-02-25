@@ -18,6 +18,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
   require Logger
 
   @default_reschedule_seconds 300
+  @default_min_canonical_edges 1
 
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
@@ -36,6 +37,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
 
+    min_canonical_edges =
+      config
+      |> Keyword.get(:min_canonical_edges, @default_min_canonical_edges)
+      |> normalize_positive_int(@default_min_canonical_edges)
+
     case TopologyStateCleanup.canonicalize_deleted_device_links() do
       {:ok, stats} ->
         Logger.info("Topology state cleanup completed", stats: stats)
@@ -44,11 +50,52 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
         Logger.warning("Topology state cleanup failed", reason: inspect(reason))
     end
 
-    :ok = TopologyGraph.rebuild_canonical_links_from_current()
+    run_rebuild_with_recovery(min_canonical_edges)
 
     _ = ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 60)))
     :ok
   end
+
+  defp run_rebuild_with_recovery(min_canonical_edges) when is_integer(min_canonical_edges) do
+    case TopologyGraph.rebuild_canonical_links_from_current_with_stats() do
+      {:ok, stats} ->
+        maybe_recover_canonical_rebuild(stats, min_canonical_edges)
+        :ok
+
+      {:error, reason, stats} ->
+        Logger.warning("Canonical topology rebuild failed", reason: inspect(reason), stats: stats)
+        :ok
+    end
+  end
+
+  defp maybe_recover_canonical_rebuild(stats, min_canonical_edges)
+       when is_map(stats) and is_integer(min_canonical_edges) do
+    after_edges = Map.get(stats, :after_prune_edges, 0)
+    mapper_edges = Map.get(stats, :mapper_evidence_edges, 0)
+
+    if after_edges < min_canonical_edges and mapper_edges >= min_canonical_edges do
+      Logger.warning(
+        "Canonical topology below threshold; triggering one-shot recovery rebuild",
+        min_canonical_edges: min_canonical_edges,
+        after_prune_edges: after_edges,
+        mapper_evidence_edges: mapper_edges
+      )
+
+      case TopologyGraph.rebuild_canonical_links_from_current_with_stats() do
+        {:ok, retry_stats} ->
+          Logger.info("Canonical topology recovery rebuild completed", stats: retry_stats)
+
+        {:error, reason, retry_stats} ->
+          Logger.warning(
+            "Canonical topology recovery rebuild failed",
+            reason: inspect(reason),
+            stats: retry_stats
+          )
+      end
+    end
+  end
+
+  defp maybe_recover_canonical_rebuild(_stats, _min_canonical_edges), do: :ok
 
   defp job_already_scheduled? do
     query =
@@ -60,4 +107,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
 
     Repo.exists?(query, prefix: ObanSupport.prefix())
   end
+
+  defp normalize_positive_int(value, _default) when is_integer(value) and value > 0, do: value
+  defp normalize_positive_int(_value, default), do: default
 end

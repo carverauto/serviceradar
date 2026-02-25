@@ -39,6 +39,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   """
   @spec rebuild_canonical_links_from_current() :: :ok
   def rebuild_canonical_links_from_current do
+    _ = rebuild_canonical_links_from_current_with_stats()
+    :ok
+  end
+
+  @doc """
+  Rebuilds canonical device-level topology edges from current mapper evidence in AGE and
+  returns rebuild counters for observability/recovery decisions.
+  """
+  @spec rebuild_canonical_links_from_current_with_stats() ::
+          {:ok, map()} | {:error, term(), map()}
+  def rebuild_canonical_links_from_current_with_stats do
     rebuild_canonical_device_links()
   end
 
@@ -653,15 +664,37 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp rebuild_canonical_device_links do
+    before_edges = canonical_edge_count()
+    mapper_evidence_edges = mapper_evidence_edge_count()
     stale_cutoff = stale_cutoff_iso8601()
     upsert_cypher = canonical_rebuild_upsert_query(stale_cutoff)
 
     case Graph.execute(upsert_cypher) do
       :ok ->
-        prune_stale_canonical_device_links(stale_cutoff)
+        after_upsert_edges = canonical_edge_count()
+        prune_result = prune_stale_canonical_device_links(stale_cutoff)
+        after_prune_edges = canonical_edge_count()
+
+        stats = %{
+          before_edges: before_edges,
+          mapper_evidence_edges: mapper_evidence_edges,
+          after_upsert_edges: after_upsert_edges,
+          after_prune_edges: after_prune_edges,
+          stale_cutoff: stale_cutoff
+        }
+
+        Logger.info("canonical_topology_rebuild_stats #{inspect(stats)}")
+        {:ok, Map.put(stats, :prune_result, prune_result)}
 
       {:error, reason} ->
         Logger.warning("Canonical topology rebuild failed: #{inspect(reason)}")
+
+        {:error, reason,
+         %{
+           before_edges: before_edges,
+           mapper_evidence_edges: mapper_evidence_edges,
+           stale_cutoff: stale_cutoff
+         }}
     end
   end
 
@@ -674,8 +707,64 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
       {:error, reason} ->
         Logger.warning("Canonical topology stale-edge prune failed: #{inspect(reason)}")
+        {:error, reason}
     end
   end
+
+  @doc false
+  @spec canonical_edge_count_query() :: String.t()
+  def canonical_edge_count_query do
+    """
+    MATCH ()-[r:CANONICAL_TOPOLOGY]->()
+    RETURN {count: count(r)}
+    """
+  end
+
+  @doc false
+  @spec mapper_evidence_edge_count_query() :: String.t()
+  def mapper_evidence_edge_count_query do
+    """
+    MATCH ()-[r]->()
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
+    RETURN {count: count(r)}
+    """
+  end
+
+  defp canonical_edge_count do
+    edge_count_from_query(canonical_edge_count_query())
+  end
+
+  defp mapper_evidence_edge_count do
+    edge_count_from_query(mapper_evidence_edge_count_query())
+  end
+
+  defp edge_count_from_query(cypher) when is_binary(cypher) do
+    case Graph.query(cypher) do
+      {:ok, [row | _]} ->
+        row
+        |> map_value(:count)
+        |> parse_count()
+
+      {:ok, _} ->
+        0
+
+      {:error, reason} ->
+        Logger.warning("Topology edge count query failed: #{inspect(reason)}")
+        0
+    end
+  end
+
+  defp parse_count(value) when is_integer(value) and value >= 0, do: value
+
+  defp parse_count(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {count, _} when count >= 0 -> count
+      _ -> 0
+    end
+  end
+
+  defp parse_count(_), do: 0
 
   @doc false
   @spec canonical_rebuild_upsert_query(String.t()) :: String.t()

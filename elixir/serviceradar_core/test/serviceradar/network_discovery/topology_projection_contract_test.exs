@@ -213,5 +213,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert query =~ "MATCH ()-[r:CANONICAL_TOPOLOGY]->()"
       assert query =~ "DELETE r"
     end
+
+    test "canonical edge count query targets canonical topology edges" do
+      query = TopologyGraph.canonical_edge_count_query()
+
+      assert query =~ "MATCH ()-[r:CANONICAL_TOPOLOGY]->()"
+      assert query =~ "RETURN {count: count(r)}"
+    end
+
+    test "mapper evidence count query targets mapper topology evidence edges" do
+      query = TopologyGraph.mapper_evidence_edge_count_query()
+
+      assert query =~ "r.ingestor = 'mapper_topology_v1'"
+      assert query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
+      assert query =~ "RETURN {count: count(r)}"
+    end
   end
 end
