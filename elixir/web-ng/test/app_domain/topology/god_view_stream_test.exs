@@ -74,6 +74,20 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert is_integer(metadata.budget_ms)
   end
 
+  test "latest_snapshot/0 includes canonical parity and directional mismatch counters" do
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+    stats = Map.get(snapshot, :pipeline_stats, %{})
+
+    assert is_integer(Map.get(stats, :edge_parity_delta, 0))
+    assert Map.get(stats, :edge_parity_delta, 0) >= 0
+
+    assert is_integer(Map.get(stats, :edge_directional_pps_mismatch, 0))
+    assert Map.get(stats, :edge_directional_pps_mismatch, 0) >= 0
+
+    assert is_integer(Map.get(stats, :edge_directional_bps_mismatch, 0))
+    assert Map.get(stats, :edge_directional_bps_mismatch, 0) >= 0
+  end
+
   test "latest_snapshot/0 drops snapshot when real-time budget is exceeded" do
     original_budget = Application.get_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms)
     Application.put_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms, -1)

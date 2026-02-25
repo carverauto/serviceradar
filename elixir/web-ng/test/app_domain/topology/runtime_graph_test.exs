@@ -8,7 +8,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     query = RuntimeGraph.topology_links_query()
 
     assert query =~ "MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)"
-    assert query =~ "coalesce(r.relation_type, type(r)) IN ['CONNECTS_TO', 'ATTACHED_TO']"
+    assert query =~ "a.id STARTS WITH 'sr:'"
+    assert query =~ "b.id STARTS WITH 'sr:'"
     assert query =~ "ORDER BY"
   end
 
@@ -20,6 +21,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "local_if_index: r.local_if_index"
     assert query =~ "neighbor_if_name: coalesce(r.neighbor_if_name, '')"
     assert query =~ "neighbor_if_index: r.neighbor_if_index"
+    assert query =~ "flow_pps_ab: coalesce(r.flow_pps_ab, 0)"
+    assert query =~ "flow_bps_ab: coalesce(r.flow_bps_ab, 0)"
+    assert query =~ "telemetry_source: coalesce(r.telemetry_source, 'none')"
   end
 
   test "runtime graph ingest/get preserves neighbor interface attribution" do
@@ -38,6 +42,15 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
         neighbor_system_name: "device-b",
         protocol: "LLDP",
         confidence_tier: "high",
+        flow_pps: 42,
+        flow_bps: 4_200,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 30,
+        flow_pps_ba: 12,
+        flow_bps_ab: 3_000,
+        flow_bps_ba: 1_200,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-25T10:00:00Z",
         metadata: %{
           source: "mapper_topology_v1",
           inference: "direct_lldp_neighbor",
@@ -54,5 +67,13 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert link.neighbor_if_index == 22
     assert link.local_if_name == "eth0"
     assert link.neighbor_if_name == "eth1"
+    assert link.flow_pps == 42
+    assert link.flow_bps == 4_200
+    assert link.capacity_bps == 1_000_000_000
+    assert link.flow_pps_ab == 30
+    assert link.flow_pps_ba == 12
+    assert link.flow_bps_ab == 3_000
+    assert link.flow_bps_ba == 1_200
+    assert link.telemetry_source == "interface"
   end
 end

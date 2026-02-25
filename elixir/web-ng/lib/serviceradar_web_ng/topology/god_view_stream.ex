@@ -296,11 +296,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp pipeline_stats(raw_links, pair_links, final_edges, final_nodes, unresolved_endpoints)
        when is_list(raw_links) and is_list(pair_links) and is_list(final_edges) and
               is_list(final_nodes) and is_integer(unresolved_endpoints) do
+    edge_parity_delta = abs(length(raw_links) - length(final_edges))
+
     %{
       raw_links: length(raw_links),
       unique_pairs: length(pair_links),
       final_edges: length(final_edges),
       final_nodes: length(final_nodes),
+      edge_parity_delta: edge_parity_delta,
       raw_direct: count_by_evidence(raw_links, "direct"),
       raw_inferred: count_by_evidence(raw_links, "inferred"),
       raw_attachment: count_by_evidence(raw_links, "endpoint-attachment"),
@@ -1110,10 +1113,26 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           not directional_attribution_present?(edge, :ba)
       end)
 
+    directional_pps_mismatch =
+      Enum.count(edges, fn edge ->
+        normalize_u32(Map.get(edge, :flow_pps, 0)) !=
+          normalize_u32(Map.get(edge, :flow_pps_ab, 0)) +
+            normalize_u32(Map.get(edge, :flow_pps_ba, 0))
+      end)
+
+    directional_bps_mismatch =
+      Enum.count(edges, fn edge ->
+        normalize_u64(Map.get(edge, :flow_bps, 0)) !=
+          normalize_u64(Map.get(edge, :flow_bps_ab, 0)) +
+            normalize_u64(Map.get(edge, :flow_bps_ba, 0))
+      end)
+
     %{
       edge_telemetry_interface: interface_edges,
       edge_telemetry_fallback: fallback_edges,
-      edge_unresolved_directional: unresolved_directional
+      edge_unresolved_directional: unresolved_directional,
+      edge_directional_pps_mismatch: directional_pps_mismatch,
+      edge_directional_bps_mismatch: directional_bps_mismatch
     }
   end
 
