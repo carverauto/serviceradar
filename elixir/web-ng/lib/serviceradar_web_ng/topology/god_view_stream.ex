@@ -27,6 +27,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @layout_cache_key {__MODULE__, :layout_cache}
   @snapshot_cache_key {__MODULE__, :snapshot_cache}
   @packet_metric_names ["ifInUcastPkts", "ifOutUcastPkts", "ifHCInUcastPkts", "ifHCOutUcastPkts"]
+  @octet_metric_names ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
 
   @spec latest_snapshot() ::
           {:ok, %{snapshot: GodViewSnapshot.snapshot(), payload: binary()}} | {:error, term()}
@@ -222,14 +223,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       neighbor_if_index: neighbor_if_index,
       neighbor_if_name: neighbor_if_name,
       metadata: Map.get(link, :metadata) || %{},
-      flow_pps: normalize_u32(Map.get(link, :flow_pps, 0)),
-      flow_bps: normalize_u64(Map.get(link, :flow_bps, 0)),
-      capacity_bps: normalize_u64(Map.get(link, :capacity_bps, 0)),
-      flow_pps_ab: normalize_u32(Map.get(link, :flow_pps_ab, 0)),
-      flow_pps_ba: normalize_u32(Map.get(link, :flow_pps_ba, 0)),
-      flow_bps_ab: normalize_u64(Map.get(link, :flow_bps_ab, 0)),
-      flow_bps_ba: normalize_u64(Map.get(link, :flow_bps_ba, 0)),
-      telemetry_source: normalize_id(Map.get(link, :telemetry_source)) || "none",
       local_if_index_ab: local_if_index,
       local_if_name_ab: local_if_name,
       local_if_index_ba: neighbor_if_index,
@@ -256,58 +249,39 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
       device_by_id = Map.new(devices, &{&1.uid, &1})
       interface_index = index_interfaces(interfaces)
-      pps_by_if = load_interface_pps(interface_index, [])
+      edge_metric_keys = directional_metric_keys(canonical_edges)
+      pps_by_if = load_interface_pps(interface_index, edge_metric_keys)
+      bps_by_if = load_interface_bps(interface_index, edge_metric_keys)
+      pps_by_if_direction = load_interface_pps_direction(interface_index, edge_metric_keys)
+      bps_by_if_direction = load_interface_bps_direction(interface_index, edge_metric_keys)
       node_ids = node_ids(canonical_node_ids, devices)
       nodes = build_nodes(node_ids, device_by_id, interface_index, pps_by_if)
 
-      edges =
-        canonical_edges
-        |> dedupe_edges()
-        |> normalize_backend_edge_telemetry()
+      edges = canonical_edges |> dedupe_edges()
+      device_totals = device_telemetry_totals(interface_index, pps_by_if, bps_by_if)
 
-      edge_contract_stats = edge_contract_stats(edges)
+      with {:ok, edges} <-
+             enrich_edges_via_native(
+               edges,
+               interfaces,
+               pps_by_if_direction,
+               bps_by_if_direction
+             ) do
+        edges = apply_edge_telemetry_fallback(edges, device_totals)
+        edge_contract_stats = edge_contract_stats(edges)
 
-      unresolved_endpoints =
-        Enum.count(canonical_node_ids, fn id -> not Map.has_key?(device_by_id, id) end)
+        unresolved_endpoints =
+          Enum.count(canonical_node_ids, fn id -> not Map.has_key?(device_by_id, id) end)
 
-      pipeline_stats =
-        pipeline_stats(raw_links, pair_edges, edges, nodes, unresolved_endpoints)
-        |> Map.merge(edge_contract_stats)
-        |> Map.merge(component_stats(nodes, edges))
+        pipeline_stats =
+          pipeline_stats(raw_links, pair_edges, edges, nodes, unresolved_endpoints)
+          |> Map.merge(edge_contract_stats)
+          |> Map.merge(component_stats(nodes, edges))
 
-      {:ok, nodes, edges, pipeline_stats}
+        {:ok, nodes, edges, pipeline_stats}
+      end
     end
   end
-
-  defp normalize_backend_edge_telemetry(edges) when is_list(edges) do
-    Enum.map(edges, fn edge ->
-      flow_pps_ab = normalize_u32(Map.get(edge, :flow_pps_ab, 0))
-      flow_pps_ba = normalize_u32(Map.get(edge, :flow_pps_ba, 0))
-      flow_bps_ab = normalize_u64(Map.get(edge, :flow_bps_ab, 0))
-      flow_bps_ba = normalize_u64(Map.get(edge, :flow_bps_ba, 0))
-      flow_pps = normalize_u32(Map.get(edge, :flow_pps, flow_pps_ab + flow_pps_ba))
-      flow_bps = normalize_u64(Map.get(edge, :flow_bps, flow_bps_ab + flow_bps_ba))
-      capacity_bps = normalize_u64(Map.get(edge, :capacity_bps, 0))
-      telemetry_source = normalize_id(Map.get(edge, :telemetry_source)) || "none"
-
-      edge
-      |> Map.put(:flow_pps_ab, flow_pps_ab)
-      |> Map.put(:flow_pps_ba, flow_pps_ba)
-      |> Map.put(:flow_bps_ab, flow_bps_ab)
-      |> Map.put(:flow_bps_ba, flow_bps_ba)
-      |> Map.put(:flow_pps, flow_pps)
-      |> Map.put(:flow_bps, flow_bps)
-      |> Map.put(:capacity_bps, capacity_bps)
-      |> Map.put(:telemetry_source, telemetry_source)
-      |> Map.put(:label, edge_label(edge, flow_pps, capacity_bps))
-      |> Map.put(
-        :telemetry_eligible,
-        Map.get(edge, :telemetry_eligible, false) and (flow_pps > 0 or flow_bps > 0)
-      )
-    end)
-  end
-
-  defp normalize_backend_edge_telemetry(_), do: []
 
   defp maybe_apply_structural_pruning(edges, devices) do
     _ = devices
@@ -968,6 +942,107 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp node_telemetry(_, _), do: {0, nil}
 
+  defp enrich_edges_via_native(edges, interfaces, pps_by_if, bps_by_if)
+       when is_list(edges) and is_list(interfaces) and is_map(pps_by_if) and is_map(bps_by_if) do
+    edge_rows =
+      Enum.map(edges, fn edge ->
+        {
+          normalize_id(Map.get(edge, :source)) || "",
+          normalize_id(Map.get(edge, :target)) || "",
+          to_string(Map.get(edge, :protocol) || ""),
+          {
+            normalize_i64(Map.get(edge, :local_if_index_ab)),
+            normalize_id(Map.get(edge, :local_if_name_ab)) || "",
+            normalize_i64(Map.get(edge, :local_if_index_ba)),
+            normalize_id(Map.get(edge, :local_if_name_ba)) || ""
+          },
+          {
+            normalize_u32(Map.get(edge, :flow_pps) || 0),
+            normalize_u64(Map.get(edge, :flow_bps) || 0),
+            normalize_u64(Map.get(edge, :capacity_bps) || 0)
+          }
+        }
+      end)
+
+    interface_rows =
+      interfaces
+      |> Enum.flat_map(fn iface ->
+        device_id = normalize_id(Map.get(iface, :device_id)) || ""
+        if_index = normalize_i64(Map.get(iface, :if_index))
+        speed_bps = normalize_u64(interface_capacity_bps(iface) || 0)
+
+        interface_name_candidates(iface)
+        |> Enum.map(fn if_name ->
+          {device_id, if_name, if_index, speed_bps}
+        end)
+      end)
+      |> Enum.reject(fn {device_id, _if_name, _if_index, _speed_bps} ->
+        device_id == ""
+      end)
+
+    pps_rows =
+      Enum.flat_map(pps_by_if, fn
+        {{device_id, if_index}, values} when is_binary(device_id) and is_integer(if_index) ->
+          [
+            {device_id, if_index, normalize_u32(Map.get(values, :in, 0)),
+             normalize_u32(Map.get(values, :out, 0))}
+          ]
+
+        _ ->
+          []
+      end)
+
+    bps_rows =
+      Enum.flat_map(bps_by_if, fn
+        {{device_id, if_index}, values} when is_binary(device_id) and is_integer(if_index) ->
+          [
+            {device_id, if_index, normalize_u64(Map.get(values, :in, 0)),
+             normalize_u64(Map.get(values, :out, 0))}
+          ]
+
+        _ ->
+          []
+      end)
+
+    case Native.enrich_edges_telemetry(edge_rows, interface_rows, pps_rows, bps_rows) do
+      enriched_rows when is_list(enriched_rows) and length(enriched_rows) == length(edges) ->
+        result =
+          Enum.zip(edges, enriched_rows)
+          |> Enum.map(fn
+            {edge,
+             {_source, _target, flow_pps, flow_bps, capacity_bps, label,
+              {flow_pps_ab, flow_pps_ba, flow_bps_ab, flow_bps_ba}}} ->
+              Map.merge(edge, %{
+                flow_pps: flow_pps,
+                flow_bps: flow_bps,
+                capacity_bps: capacity_bps,
+                label: label,
+                flow_pps_ab: flow_pps_ab,
+                flow_pps_ba: flow_pps_ba,
+                flow_bps_ab: flow_bps_ab,
+                flow_bps_ba: flow_bps_ba,
+                telemetry_source:
+                  if(normalize_u64(flow_bps) > 0 or normalize_u32(flow_pps) > 0,
+                    do: "interface",
+                    else: "none"
+                  )
+              })
+
+            {edge, _} ->
+              edge
+          end)
+
+        {:ok, result}
+
+      _ ->
+        {:error, :native_edge_enrichment_failed}
+    end
+  rescue
+    error -> {:error, {:native_edge_enrichment_error, error}}
+  end
+
+  defp enrich_edges_via_native(_, _, _, _), do: {:error, :invalid_edge_enrichment_args}
+
   defp interface_packets_per_second(nil, _pps_by_if), do: nil
 
   defp interface_packets_per_second(iface, pps_by_if) do
@@ -1057,6 +1132,64 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp load_interface_pps_direction(_interface_index, _extra_keys), do: %{}
 
+  defp load_interface_bps(interface_index, extra_keys) when is_map(interface_index) do
+    load_interface_bps_direction(interface_index, extra_keys)
+    |> Enum.reduce(%{}, fn {{device_id, if_index}, values}, acc ->
+      in_bps = Map.get(values, :in, 0)
+      out_bps = Map.get(values, :out, 0)
+      Map.put(acc, {device_id, if_index}, in_bps + out_bps)
+    end)
+  rescue
+    _ -> %{}
+  end
+
+  defp load_interface_bps(_interface_index, _extra_keys), do: %{}
+
+  defp load_interface_bps_direction(interface_index, extra_keys) when is_map(interface_index) do
+    keys = metric_query_keys(interface_index, extra_keys)
+
+    device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    if_indexes = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+
+    if device_ids == [] or if_indexes == [] do
+      %{}
+    else
+      query =
+        from(m in "timeseries_metrics",
+          where: m.device_id in ^device_ids,
+          where: m.if_index in ^if_indexes,
+          where: m.metric_name in ^@octet_metric_names,
+          where: m.timestamp > ago(10, "minute"),
+          distinct: [m.device_id, m.if_index, m.metric_name],
+          order_by: [asc: m.device_id, asc: m.if_index, asc: m.metric_name, desc: m.timestamp],
+          select: {m.device_id, m.if_index, m.metric_name, m.value}
+        )
+
+      query
+      |> Repo.all()
+      |> Enum.reduce(%{}, fn {device_id, if_index, metric_name, value}, acc ->
+        dir = octet_metric_direction(metric_name)
+        bytes_per_second = value_to_non_negative_int(value)
+
+        if is_nil(dir) or is_nil(bytes_per_second) do
+          acc
+        else
+          key = {normalize_id(device_id), if_index}
+          bits_per_second = octets_rate_to_bps(bytes_per_second)
+
+          Map.update(acc, key, %{dir => bits_per_second}, fn current ->
+            current
+            |> Map.update(dir, bits_per_second, &max(&1, bits_per_second))
+          end)
+        end
+      end)
+    end
+  rescue
+    _ -> %{}
+  end
+
+  defp load_interface_bps_direction(_interface_index, _extra_keys), do: %{}
+
   defp metric_query_keys(interface_index, extra_keys)
        when is_map(interface_index) and is_list(extra_keys) do
     interface_keys =
@@ -1082,6 +1215,115 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end)
     |> Enum.uniq()
   end
+
+  defp directional_metric_keys(edges) when is_list(edges) do
+    Enum.flat_map(edges, fn edge ->
+      source = normalize_id(Map.get(edge, :source))
+      target = normalize_id(Map.get(edge, :target))
+      ab_if_index = Map.get(edge, :local_if_index_ab)
+      ba_if_index = Map.get(edge, :local_if_index_ba)
+
+      [
+        if(is_binary(source) and valid_ifindex?(ab_if_index), do: {source, ab_if_index}),
+        if(is_binary(target) and valid_ifindex?(ba_if_index), do: {target, ba_if_index})
+      ]
+      |> Enum.reject(&is_nil/1)
+    end)
+    |> Enum.uniq()
+  end
+
+  defp directional_metric_keys(_), do: []
+
+  @doc false
+  def octets_rate_to_bps(value) when is_integer(value) and value > 0, do: value * 8
+  def octets_rate_to_bps(_), do: 0
+
+  defp device_telemetry_totals(interface_index, pps_by_if, bps_by_if)
+       when is_map(interface_index) and is_map(pps_by_if) and is_map(bps_by_if) do
+    devices =
+      interface_index
+      |> Map.get(:by_device, %{})
+      |> Map.keys()
+
+    Enum.reduce(devices, %{}, fn device_id, acc ->
+      if_rows = Map.get(interface_index.by_device, device_id, [])
+
+      cap_bps =
+        if_rows
+        |> Enum.map(&interface_capacity_bps/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.max(fn -> 0 end)
+
+      pps =
+        pps_by_if
+        |> Enum.filter(fn {{d, _if_index}, _v} -> d == device_id end)
+        |> Enum.map(fn {_k, v} -> v end)
+        |> Enum.sum()
+
+      bps =
+        bps_by_if
+        |> Enum.filter(fn {{d, _if_index}, _v} -> d == device_id end)
+        |> Enum.map(fn {_k, v} -> v end)
+        |> Enum.sum()
+
+      Map.put(acc, device_id, %{
+        pps: normalize_u32(pps),
+        bps: normalize_u64(bps),
+        capacity_bps: normalize_u64(cap_bps)
+      })
+    end)
+  end
+
+  defp device_telemetry_totals(_, _, _), do: %{}
+
+  defp apply_edge_telemetry_fallback(edges, device_totals)
+       when is_list(edges) and is_map(device_totals) do
+    Enum.map(edges, fn edge ->
+      if edge_needs_fallback_telemetry?(edge) do
+        source = Map.get(device_totals, Map.get(edge, :source), %{})
+        target = Map.get(device_totals, Map.get(edge, :target), %{})
+
+        inferred_pps = fallback_signal_scaled(Map.get(source, :pps, 0), Map.get(target, :pps, 0))
+        inferred_bps = fallback_signal_scaled(Map.get(source, :bps, 0), Map.get(target, :bps, 0))
+
+        inferred_capacity =
+          pair_min_non_zero(
+            Map.get(source, :capacity_bps, 0),
+            Map.get(target, :capacity_bps, 0)
+          )
+
+        flow_pps =
+          if normalize_u32(Map.get(edge, :flow_pps, 0)) > 0,
+            do: Map.get(edge, :flow_pps, 0),
+            else: inferred_pps
+
+        flow_bps =
+          if normalize_u64(Map.get(edge, :flow_bps, 0)) > 0,
+            do: Map.get(edge, :flow_bps, 0),
+            else: inferred_bps
+
+        capacity_bps =
+          if normalize_u64(Map.get(edge, :capacity_bps, 0)) > 0,
+            do: Map.get(edge, :capacity_bps, 0),
+            else: inferred_capacity
+
+        edge
+        |> Map.put(:flow_pps, normalize_u32(flow_pps))
+        |> Map.put(:flow_bps, normalize_u64(flow_bps))
+        |> Map.put(:capacity_bps, normalize_u64(capacity_bps))
+        |> Map.put(:telemetry_source, "device-fallback")
+        |> Map.put(
+          :telemetry_eligible,
+          normalize_u64(flow_bps) > 0 or normalize_u32(flow_pps) > 0
+        )
+        |> Map.put(:label, edge_label(edge, normalize_u32(flow_pps), normalize_u64(capacity_bps)))
+      else
+        edge
+      end
+    end)
+  end
+
+  defp apply_edge_telemetry_fallback(edges, _), do: edges
 
   defp edge_contract_stats(edges) when is_list(edges) do
     fallback_edges =
@@ -1139,6 +1381,47 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       interface_name_attributed?(Map.get(edge, :local_if_name_ba))
   end
 
+  defp edge_needs_fallback_telemetry?(edge) when is_map(edge) do
+    has_flow? =
+      normalize_u64(Map.get(edge, :flow_bps, 0)) > 0 or
+        normalize_u32(Map.get(edge, :flow_pps, 0)) > 0
+
+    protocol = edge_protocol(edge)
+
+    # SNMP-L2 links can still land on an interface that has no sampled
+    # counters in the latest window; allow bounded device-level fallback
+    # so backbone animations do not disappear on sparse polling snapshots.
+    not has_flow? and
+      (unifi_unattributed?(edge) or
+         protocol in ["wireguard-derived", "snmp-parent", "snmp-site"] or
+         protocol == "snmp-l2")
+  end
+
+  defp edge_needs_fallback_telemetry?(_), do: false
+
+  defp fallback_signal_scaled(a, b) do
+    # Keep fallback activity visible but restrained vs fully attributed edge telemetry.
+    signal = pair_min_non_zero(a, b)
+
+    if signal > 0 do
+      max(1, trunc(signal * 0.14))
+    else
+      0
+    end
+  end
+
+  defp pair_min_non_zero(a, b) do
+    av = normalize_u64(a)
+    bv = normalize_u64(b)
+
+    cond do
+      av > 0 and bv > 0 -> min(av, bv)
+      av > 0 -> av
+      bv > 0 -> bv
+      true -> 0
+    end
+  end
+
   defp packet_metric_direction(metric_name)
        when metric_name in ["ifInUcastPkts", "ifHCInUcastPkts"],
        do: :in
@@ -1148,6 +1431,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
        do: :out
 
   defp packet_metric_direction(_), do: nil
+
+  defp octet_metric_direction(metric_name) when metric_name in ["ifInOctets", "ifHCInOctets"],
+    do: :in
+
+  defp octet_metric_direction(metric_name) when metric_name in ["ifOutOctets", "ifHCOutOctets"],
+    do: :out
+
+  defp octet_metric_direction(_), do: nil
 
   defp value_to_non_negative_int(value) when is_integer(value) and value >= 0, do: value
   defp value_to_non_negative_int(value) when is_float(value) and value >= 0, do: trunc(value)
@@ -1161,6 +1452,45 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp value_to_non_negative_int(_), do: nil
+
+  defp interface_capacity_bps(nil), do: nil
+
+  defp interface_capacity_bps(iface) do
+    metadata = Map.get(iface, :metadata) || %{}
+
+    pick_number([
+      Map.get(iface, :speed_bps),
+      Map.get(iface, :if_speed),
+      metadata["if_speed_bps"],
+      metadata["if_speed"],
+      metadata["speed_bps"],
+      metadata["capacity_bps"]
+    ])
+  end
+
+  defp interface_name_candidates(iface) when is_map(iface) do
+    metadata = Map.get(iface, :metadata) || %{}
+
+    [
+      Map.get(iface, :if_name),
+      Map.get(iface, :if_descr),
+      Map.get(iface, :if_alias),
+      metadata["if_name"],
+      metadata["if_descr"],
+      metadata["if_alias"],
+      metadata["name"],
+      metadata["description"]
+    ]
+    |> Enum.map(&normalize_id/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> case do
+      [] -> [""]
+      values -> values
+    end
+  end
+
+  defp interface_name_candidates(_), do: [""]
 
   defp pick_number(values) when is_list(values) do
     values
@@ -1753,6 +2083,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp normalize_u32(_), do: 0
   defp normalize_u64(value) when is_integer(value), do: max(value, 0)
   defp normalize_u64(_), do: 0
+  defp normalize_i64(value) when is_integer(value), do: value
+  defp normalize_i64(_), do: -1
 
   defp normalize_label(value) when is_binary(value) do
     trimmed = String.trim(value)

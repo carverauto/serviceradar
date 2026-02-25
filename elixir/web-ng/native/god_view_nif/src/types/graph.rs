@@ -32,24 +32,6 @@ pub(crate) struct RuntimeGraphRow {
     pub(crate) neighbor_mgmt_addr: String,
     /// The OS-reported system name of the neighbor.
     pub(crate) neighbor_system_name: String,
-    /// Aggregate packet rate for the canonical edge.
-    pub(crate) flow_pps: i64,
-    /// Aggregate bit rate for the canonical edge.
-    pub(crate) flow_bps: i64,
-    /// Estimated edge capacity in bits per second.
-    pub(crate) capacity_bps: i64,
-    /// Directional packet rate from source to target.
-    pub(crate) flow_pps_ab: i64,
-    /// Directional packet rate from target to source.
-    pub(crate) flow_pps_ba: i64,
-    /// Directional bit rate from source to target.
-    pub(crate) flow_bps_ab: i64,
-    /// Directional bit rate from target to source.
-    pub(crate) flow_bps_ba: i64,
-    /// Telemetry attribution source (for example, interface/none).
-    pub(crate) telemetry_source: String,
-    /// ISO8601 timestamp for last telemetry attribution update.
-    pub(crate) telemetry_observed_at: String,
     /// The protocol used to establish this link (e.g., LLDP, CDP, OSPF).
     pub(crate) protocol: String,
     /// A categorical string representing the confidence mapping algorithm (e.g., "high", "inferred").
@@ -82,15 +64,6 @@ pub(crate) mod runtime_graph_atoms {
         neighbor_device_id,
         neighbor_mgmt_addr,
         neighbor_system_name,
-        flow_pps,
-        flow_bps,
-        capacity_bps,
-        flow_pps_ab,
-        flow_pps_ba,
-        flow_bps_ab,
-        flow_bps_ba,
-        telemetry_source,
-        telemetry_observed_at,
         protocol,
         confidence_tier,
         metadata,

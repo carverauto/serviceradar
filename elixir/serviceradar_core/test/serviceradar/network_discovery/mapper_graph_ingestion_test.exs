@@ -429,61 +429,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert is_binary(edge_result["last"])
   end
 
-  test "canonical edge selection prefers same-candidate ifindex evidence over higher confidence without ifindex" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-
-    # Candidate A: higher confidence but missing ifindex data.
-    TopologyGraph.upsert_links([
-      %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-2",
-        local_if_name: "eth-z",
-        local_if_index: nil,
-        neighbor_port_id: "port-z",
-        protocol: "unifi-api",
-        metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
-        timestamp: now,
-        created_at: now
-      }
-    ])
-
-    # Candidate B: lower confidence but complete interface index evidence.
-    TopologyGraph.upsert_links([
-      %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-2",
-        local_if_name: "eth-b",
-        local_if_index: 22,
-        neighbor_port_id: "port-b",
-        protocol: "unifi-api",
-        metadata: %{"confidence_tier" => "medium", "confidence_score" => 70},
-        timestamp: DateTime.add(now, 1, :second),
-        created_at: DateTime.add(now, 1, :second)
-      }
-    ])
-
-    [result] =
-      cypher_rows(~s/MATCH (a:Device {id:'dev-1'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id:'dev-2'})
-      RETURN {
-        relation_type: r.relation_type,
-        confidence_tier: r.confidence_tier,
-        confidence_score: r.confidence_score,
-        local_if_index: r.local_if_index,
-        neighbor_if_index: r.neighbor_if_index,
-        local_if_name: r.local_if_name,
-        neighbor_if_name: r.neighbor_if_name
-      } AS result/)
-
-    # Canonical should keep one internally consistent candidate.
-    assert result["relation_type"] == "CONNECTS_TO"
-    assert result["local_if_index"] == 22
-    assert result["local_if_name"] == "eth-b"
-    assert result["neighbor_if_name"] == "port-b"
-    # Ensure we did not regress to selecting the confidence-only candidate.
-    assert result["confidence_tier"] == "medium"
-    assert result["confidence_score"] == 70
-  end
-
   test "upsert_links prunes stale projected edges by observation timestamp" do
     Application.put_env(:serviceradar_core, :mapper_topology_edge_stale_minutes, 1)
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)

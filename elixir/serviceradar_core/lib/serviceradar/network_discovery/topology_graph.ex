@@ -3,18 +3,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   Projects mapper topology links into the Apache AGE graph.
   """
 
-  import Ecto.Query
-
   require Logger
 
   alias ServiceRadar.Graph
-  alias ServiceRadar.Repo
   @default_stale_minutes 180
-  @telemetry_window_minutes 30
-  @telemetry_min_sample_spacing_seconds 20
-  @telemetry_max_samples_per_series 8
-  @packet_metric_names ["ifInUcastPkts", "ifOutUcastPkts", "ifHCInUcastPkts", "ifHCOutUcastPkts"]
-  @octet_metric_names ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
   @direct_protocols MapSet.new(["lldp", "cdp", "unifi-api", "wireguard-derived"])
   @strict_ifindex_protocols MapSet.new(["lldp", "cdp"])
   @direct_evidence_classes MapSet.new(["direct"])
@@ -242,7 +234,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
          protocol: protocol,
          local_if_name: link_value(link, :local_if_name),
          local_if_index: link_value(link, :local_if_index),
-         neighbor_if_index: link_value(link, :neighbor_if_index),
          neighbor_port_name: neighbor_port,
          neighbor_name: link_value(link, :neighbor_system_name),
          neighbor_ip: link_value(link, :neighbor_mgmt_addr),
@@ -315,7 +306,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     MERGE (bi:Interface {id: '#{Graph.escape(payload.neighbor_interface_id)}'})
     SET bi.device_id = '#{Graph.escape(payload.neighbor_device_id)}'
     #{set_prop("bi", "name", payload.neighbor_port_name)}
-    #{set_prop("bi", "ifindex", payload.neighbor_if_index)}
     MERGE (a)-[r1:HAS_INTERFACE]->(ai)
     SET r1.source = 'mapper'
     MERGE (b)-[r2:HAS_INTERFACE]->(bi)
@@ -329,8 +319,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET r.confidence_score = #{payload.confidence_score}
     SET r.confidence_reason = '#{Graph.escape(payload.confidence_reason)}'
     SET r.evidence_class = '#{Graph.escape(normalize_evidence_class(payload.evidence_class))}'
-    #{set_prop("r", "local_if_index", payload.local_if_index)}
-    #{set_prop("r", "neighbor_if_index", payload.neighbor_if_index)}
     SET r.observed_at = '#{Graph.escape(payload.observed_at)}'
     SET r.last_observed_at = '#{Graph.escape(payload.observed_at)}'
     MERGE (bi)-[rr:CONNECTS_TO]->(ai)
@@ -342,8 +330,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET rr.confidence_score = #{payload.confidence_score}
     SET rr.confidence_reason = '#{Graph.escape(payload.confidence_reason)}'
     SET rr.evidence_class = '#{Graph.escape(normalize_evidence_class(payload.evidence_class))}'
-    #{set_prop("rr", "local_if_index", payload.neighbor_if_index)}
-    #{set_prop("rr", "neighbor_if_index", payload.local_if_index)}
     SET rr.observed_at = '#{Graph.escape(payload.observed_at)}'
     SET rr.last_observed_at = '#{Graph.escape(payload.observed_at)}'
     """
@@ -672,9 +658,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
     case Graph.execute(upsert_cypher) do
       :ok ->
-        refresh_canonical_edge_telemetry(stale_cutoff)
         prune_stale_canonical_device_links(stale_cutoff)
-        prune_non_canonical_device_links()
 
       {:error, reason} ->
         Logger.warning("Canonical topology rebuild failed: #{inspect(reason)}")
@@ -690,27 +674,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
       {:error, reason} ->
         Logger.warning("Canonical topology stale-edge prune failed: #{inspect(reason)}")
-    end
-  end
-
-  defp prune_non_canonical_device_links do
-    cypher = """
-    MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
-    WHERE NOT (
-      a.id IS NOT NULL
-      AND b.id IS NOT NULL
-      AND a.id STARTS WITH 'sr:'
-      AND b.id STARTS WITH 'sr:'
-    )
-    DELETE r
-    """
-
-    case Graph.execute(cypher) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Canonical topology non-canonical edge prune failed: #{inspect(reason)}")
     end
   end
 
@@ -731,24 +694,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       CASE WHEN ai.device_id <= bi.device_id THEN ai.device_id ELSE bi.device_id END AS src_id,
       CASE WHEN ai.device_id <= bi.device_id THEN bi.device_id ELSE ai.device_id END AS dst_id,
       CASE
-        WHEN ai.device_id <= bi.device_id THEN coalesce(
-          CASE WHEN ai.ifindex > 0 THEN ai.ifindex ELSE NULL END,
-          CASE WHEN r.local_if_index > 0 THEN r.local_if_index ELSE NULL END
-        )
-        ELSE coalesce(
-          CASE WHEN bi.ifindex > 0 THEN bi.ifindex ELSE NULL END,
-          CASE WHEN r.neighbor_if_index > 0 THEN r.neighbor_if_index ELSE NULL END
-        )
+        WHEN ai.device_id <= bi.device_id THEN CASE WHEN ai.ifindex > 0 THEN ai.ifindex ELSE NULL END
+        ELSE CASE WHEN bi.ifindex > 0 THEN bi.ifindex ELSE NULL END
       END AS local_if_index,
       CASE
-        WHEN ai.device_id <= bi.device_id THEN coalesce(
-          CASE WHEN bi.ifindex > 0 THEN bi.ifindex ELSE NULL END,
-          CASE WHEN r.neighbor_if_index > 0 THEN r.neighbor_if_index ELSE NULL END
-        )
-        ELSE coalesce(
-          CASE WHEN ai.ifindex > 0 THEN ai.ifindex ELSE NULL END,
-          CASE WHEN r.local_if_index > 0 THEN r.local_if_index ELSE NULL END
-        )
+        WHEN ai.device_id <= bi.device_id THEN CASE WHEN bi.ifindex > 0 THEN bi.ifindex ELSE NULL END
+        ELSE CASE WHEN ai.ifindex > 0 THEN ai.ifindex ELSE NULL END
       END AS neighbor_if_index,
       coalesce(CASE WHEN ai.device_id <= bi.device_id THEN ai.name ELSE bi.name END, 'unknown') AS local_if_name,
       coalesce(CASE WHEN ai.device_id <= bi.device_id THEN bi.name ELSE ai.name END, 'unknown') AS neighbor_if_name,
@@ -786,33 +737,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       confidence_reason,
       last_observed_at,
       rel_rank,
-      conf_rank,
-      CASE
-        WHEN local_if_index > 0 AND neighbor_if_index > 0 THEN 2
-        WHEN local_if_index > 0 OR neighbor_if_index > 0 THEN 1
-        ELSE 0
-      END AS ifindex_rank
-    WITH
-      src_id,
-      dst_id,
-      local_if_index,
-      neighbor_if_index,
-      local_if_name,
-      neighbor_if_name,
-      relation_type,
-      protocol,
-      evidence_class,
-      confidence_tier,
-      confidence_score,
-      confidence_reason,
-      last_observed_at,
-      rel_rank,
-      conf_rank,
-      ifindex_rank
+      conf_rank
     ORDER BY
       src_id,
       dst_id,
-      ifindex_rank DESC,
       rel_rank DESC,
       conf_rank DESC,
       last_observed_at DESC
@@ -829,7 +757,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       local_if_name: local_if_name,
       neighbor_if_name: neighbor_if_name
     }) AS candidates
-    WITH src_id, dst_id, head(candidates) AS best
+    WITH src_id, dst_id, head(candidates) AS best, candidates
+    UNWIND candidates AS c
+    WITH
+      src_id,
+      dst_id,
+      best,
+      max(CASE WHEN c.local_if_index IS NOT NULL AND c.local_if_index > 0 THEN c.local_if_index ELSE -1 END) AS best_local_if_index,
+      max(CASE WHEN c.neighbor_if_index IS NOT NULL AND c.neighbor_if_index > 0 THEN c.neighbor_if_index ELSE -1 END) AS best_neighbor_if_index,
+      max(CASE WHEN c.local_if_name IS NOT NULL AND c.local_if_name <> '' AND toLower(c.local_if_name) <> 'unknown' THEN c.local_if_name ELSE '' END) AS best_local_if_name,
+      max(CASE WHEN c.neighbor_if_name IS NOT NULL AND c.neighbor_if_name <> '' AND toLower(c.neighbor_if_name) <> 'unknown' THEN c.neighbor_if_name ELSE '' END) AS best_neighbor_if_name
     MERGE (a:Device {id: src_id})
     MERGE (b:Device {id: dst_id})
     MERGE (a)-[cr:CANONICAL_TOPOLOGY]->(b)
@@ -841,10 +778,26 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET cr.confidence_score = best.confidence_score
     SET cr.confidence_reason = best.confidence_reason
     SET cr.last_observed_at = best.last_observed_at
-    SET cr.local_if_index = best.local_if_index
-    SET cr.neighbor_if_index = best.neighbor_if_index
-    SET cr.local_if_name = best.local_if_name
-    SET cr.neighbor_if_name = best.neighbor_if_name
+    SET cr.local_if_index =
+      CASE
+        WHEN best_local_if_index > 0 THEN best_local_if_index
+        ELSE best.local_if_index
+      END
+    SET cr.neighbor_if_index =
+      CASE
+        WHEN best_neighbor_if_index > 0 THEN best_neighbor_if_index
+        ELSE best.neighbor_if_index
+      END
+    SET cr.local_if_name =
+      CASE
+        WHEN best_local_if_name <> '' THEN best_local_if_name
+        ELSE best.local_if_name
+      END
+    SET cr.neighbor_if_name =
+      CASE
+        WHEN best_neighbor_if_name <> '' THEN best_neighbor_if_name
+        ELSE best.neighbor_if_name
+      END
     """
   end
 
@@ -884,495 +837,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     |> DateTime.truncate(:second)
     |> DateTime.to_iso8601()
   end
-
-  defp refresh_canonical_edge_telemetry(stale_cutoff) when is_binary(stale_cutoff) do
-    with {:ok, edges} <- fetch_canonical_edges(stale_cutoff) do
-      metric_keys = telemetry_metric_keys(edges)
-      pps_by_if = load_packet_metrics(metric_keys)
-      bps_by_if = load_bps_metrics(metric_keys)
-      capacity_by_if = load_interface_capacity(metric_keys)
-
-      stats =
-        Enum.reduce(edges, empty_canonical_telemetry_stats(), fn edge, acc ->
-          telemetry = compute_edge_telemetry(edge, pps_by_if, bps_by_if, capacity_by_if)
-          persist_canonical_edge_telemetry(edge, telemetry)
-          update_canonical_telemetry_stats(acc, telemetry)
-        end)
-
-      Logger.info(
-        "canonical_edge_telemetry_stats #{inspect(Map.put(stats, :total_edges, length(edges)))}"
-      )
-    else
-      {:error, reason} ->
-        Logger.warning("Canonical edge telemetry refresh failed: #{inspect(reason)}")
-    end
-  end
-
-  defp fetch_canonical_edges(stale_cutoff) when is_binary(stale_cutoff) do
-    cypher = """
-    MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
-    WHERE r.ingestor = 'mapper_topology_v1'
-      AND a.id IS NOT NULL
-      AND b.id IS NOT NULL
-      AND a.id STARTS WITH 'sr:'
-      AND b.id STARTS WITH 'sr:'
-      AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{Graph.escape(stale_cutoff)}')
-    RETURN {
-      src_id: a.id,
-      dst_id: b.id,
-      local_if_index: r.local_if_index,
-      neighbor_if_index: r.neighbor_if_index
-    }
-    """
-
-    case Graph.query(cypher) do
-      {:ok, rows} when is_list(rows) ->
-        {:ok,
-         Enum.reduce(rows, [], fn row, acc ->
-           src_id = map_value(row, :src_id)
-           dst_id = map_value(row, :dst_id)
-           local_if_index = parse_ifindex(map_value(row, :local_if_index))
-           neighbor_if_index = parse_ifindex(map_value(row, :neighbor_if_index))
-
-           if is_binary(src_id) and is_binary(dst_id) and src_id != dst_id do
-             [
-               %{
-                 src_id: src_id,
-                 dst_id: dst_id,
-                 local_if_index: local_if_index,
-                 neighbor_if_index: neighbor_if_index
-               }
-               | acc
-             ]
-           else
-             acc
-           end
-         end)
-         |> Enum.reverse()}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp telemetry_metric_keys(edges) when is_list(edges) do
-    edges
-    |> Enum.flat_map(fn edge ->
-      src_id = map_value(edge, :src_id)
-      dst_id = map_value(edge, :dst_id)
-      local_if_index = map_value(edge, :local_if_index)
-      neighbor_if_index = map_value(edge, :neighbor_if_index)
-
-      [
-        if(is_binary(src_id) and is_integer(local_if_index) and local_if_index > 0,
-          do: {src_id, local_if_index}
-        ),
-        if(is_binary(dst_id) and is_integer(neighbor_if_index) and neighbor_if_index > 0,
-          do: {dst_id, neighbor_if_index}
-        )
-      ]
-      |> Enum.reject(&is_nil/1)
-    end)
-    |> Enum.uniq()
-  end
-
-  defp load_packet_metrics([]), do: %{}
-
-  defp load_packet_metrics(metric_keys) when is_list(metric_keys) do
-    device_ids = metric_keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
-    if_indexes = metric_keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
-
-    query =
-      from(m in "timeseries_metrics",
-        where: m.device_id in ^device_ids,
-        where: m.if_index in ^if_indexes,
-        where: m.metric_name in ^@packet_metric_names,
-        where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
-        order_by: [asc: m.device_id, asc: m.if_index, asc: m.metric_name, desc: m.timestamp],
-        select: {m.device_id, m.if_index, m.metric_name, m.timestamp, m.value}
-      )
-
-    query
-    |> Repo.all()
-    |> rates_by_interface(&packet_metric_direction/1, fn rate -> rate end)
-  rescue
-    _ -> %{}
-  end
-
-  defp load_bps_metrics([]), do: %{}
-
-  defp load_bps_metrics(metric_keys) when is_list(metric_keys) do
-    device_ids = metric_keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
-    if_indexes = metric_keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
-
-    query =
-      from(m in "timeseries_metrics",
-        where: m.device_id in ^device_ids,
-        where: m.if_index in ^if_indexes,
-        where: m.metric_name in ^@octet_metric_names,
-        where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
-        order_by: [asc: m.device_id, asc: m.if_index, asc: m.metric_name, desc: m.timestamp],
-        select: {m.device_id, m.if_index, m.metric_name, m.timestamp, m.value}
-      )
-
-    query
-    |> Repo.all()
-    |> rates_by_interface(&octet_metric_direction/1, fn rate -> rate * 8 end)
-  rescue
-    _ -> %{}
-  end
-
-  defp rates_by_interface(rows, direction_fun, unit_fun)
-       when is_list(rows) and is_function(direction_fun, 1) and is_function(unit_fun, 1) do
-    rows
-    |> Enum.reduce(%{}, fn {device_id, if_index, metric_name, ts, value}, acc ->
-      key = {to_string(device_id), if_index, metric_name}
-
-      with numeric when is_integer(numeric) <- value_to_non_negative_int(value),
-           timestamp when not is_nil(timestamp) <- normalize_timestamp(ts) do
-        update_metric_samples(acc, key, {timestamp, numeric})
-      else
-        _ -> acc
-      end
-    end)
-    |> Enum.reduce(%{}, fn {{device_id, if_index, metric_name}, samples}, acc ->
-      dir = direction_fun.(metric_name)
-      rate = samples_to_rate_per_second(metric_name, samples)
-
-      if is_nil(dir) or is_nil(rate) do
-        acc
-      else
-        key = {device_id, if_index}
-        scaled = non_negative_int(unit_fun.(rate)) || 0
-
-        Map.update(acc, key, %{dir => scaled}, fn existing ->
-          Map.update(existing, dir, scaled, &max(&1, scaled))
-        end)
-      end
-    end)
-  end
-
-  defp update_metric_samples(grouped, key, sample) do
-    Map.update(grouped, key, [sample], fn existing ->
-      [sample | existing]
-      |> Enum.sort_by(fn {timestamp, _value} -> timestamp end, {:desc, DateTime})
-      |> Enum.take(@telemetry_max_samples_per_series)
-    end)
-  end
-
-  defp samples_to_rate_per_second(metric_name, samples)
-       when is_binary(metric_name) and is_list(samples) do
-    samples
-    |> Enum.sort_by(fn {timestamp, _value} -> timestamp end, {:desc, DateTime})
-    |> adjacent_pairs()
-    |> Enum.find_value(fn {{latest_ts, latest_value}, {prev_ts, prev_value}} ->
-      sample_pair_rate(metric_name, latest_ts, latest_value, prev_ts, prev_value)
-    end)
-  end
-
-  defp samples_to_rate_per_second(_, _), do: nil
-
-  defp sample_pair_rate(
-         metric_name,
-         latest_ts,
-         latest_value,
-         prev_ts,
-         prev_value
-       )
-       when is_binary(metric_name) and is_integer(latest_value) and is_integer(prev_value) do
-    dt = DateTime.diff(latest_ts, prev_ts, :second)
-    dv = counter_delta(metric_name, latest_value, prev_value)
-
-    cond do
-      dt < @telemetry_min_sample_spacing_seconds ->
-        nil
-
-      is_nil(dv) or dv < 0 ->
-        nil
-
-      true ->
-        trunc(dv / dt)
-    end
-  end
-
-  defp sample_pair_rate(_, _, _, _, _), do: nil
-
-  defp adjacent_pairs([first, second | rest]),
-    do: [{first, second} | adjacent_pairs([second | rest])]
-
-  defp adjacent_pairs(_), do: []
-
-  defp counter_delta(metric_name, latest_value, prev_value)
-       when is_binary(metric_name) and is_integer(latest_value) and is_integer(prev_value) do
-    cond do
-      latest_value >= prev_value ->
-        latest_value - prev_value
-
-      counter32_metric?(metric_name) ->
-        # Counter32 wrapped once between samples.
-        latest_value + 4_294_967_296 - prev_value
-
-      true ->
-        # Counter64 wrap is practically impossible here; treat decrease as reset.
-        nil
-    end
-  end
-
-  defp counter_delta(_, _, _), do: nil
-
-  defp counter32_metric?(metric_name)
-       when metric_name in ["ifInOctets", "ifOutOctets", "ifInUcastPkts", "ifOutUcastPkts"],
-       do: true
-
-  defp counter32_metric?(_), do: false
-
-  defp normalize_timestamp(%DateTime{} = dt), do: dt
-
-  defp normalize_timestamp(%NaiveDateTime{} = ndt) do
-    DateTime.from_naive(ndt, "Etc/UTC")
-    |> case do
-      {:ok, dt} -> dt
-      _ -> nil
-    end
-  end
-
-  defp normalize_timestamp(_), do: nil
-
-  defp load_interface_capacity([]), do: %{}
-
-  defp load_interface_capacity(metric_keys) when is_list(metric_keys) do
-    device_ids = metric_keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
-    if_indexes = metric_keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
-
-    query =
-      from(i in "discovered_interfaces",
-        where: i.device_id in ^device_ids,
-        where: i.if_index in ^if_indexes,
-        distinct: [i.device_id, i.if_index],
-        order_by: [asc: i.device_id, asc: i.if_index, desc: i.timestamp],
-        select: {i.device_id, i.if_index, i.speed_bps, i.if_speed}
-      )
-
-    query
-    |> Repo.all()
-    |> Enum.reduce(%{}, fn {device_id, if_index, speed_bps, if_speed}, acc ->
-      cap = non_negative_int(speed_bps) || non_negative_int(if_speed) || 0
-      Map.put(acc, {to_string(device_id), if_index}, cap)
-    end)
-  rescue
-    _ -> %{}
-  end
-
-  defp compute_edge_telemetry(edge, pps_by_if, bps_by_if, cap_by_if) do
-    src_id = map_value(edge, :src_id)
-    dst_id = map_value(edge, :dst_id)
-    local_if_index = map_value(edge, :local_if_index)
-    neighbor_if_index = map_value(edge, :neighbor_if_index)
-
-    pps_ab_local = ifindex_metric(pps_by_if, src_id, local_if_index)
-    pps_ba_local = ifindex_metric(pps_by_if, dst_id, neighbor_if_index)
-    bps_ab_local = ifindex_metric(bps_by_if, src_id, local_if_index)
-    bps_ba_local = ifindex_metric(bps_by_if, dst_id, neighbor_if_index)
-
-    cap_ab = ifindex_capacity(cap_by_if, src_id, local_if_index)
-    cap_ba = ifindex_capacity(cap_by_if, dst_id, neighbor_if_index)
-
-    max_pps_ab = max_pps_for_capacity(cap_ab)
-    max_pps_ba = max_pps_for_capacity(cap_ba)
-
-    flow_pps_ab =
-      (pps_ab_local && map_value(pps_ab_local, :out)) ||
-        (pps_ba_local && map_value(pps_ba_local, :in)) || 0
-
-    flow_pps_ba =
-      (pps_ba_local && map_value(pps_ba_local, :out)) ||
-        (pps_ab_local && map_value(pps_ab_local, :in)) || 0
-
-    flow_bps_ab =
-      (bps_ab_local && map_value(bps_ab_local, :out)) ||
-        (bps_ba_local && map_value(bps_ba_local, :in)) || 0
-
-    flow_bps_ba =
-      (bps_ba_local && map_value(bps_ba_local, :out)) ||
-        (bps_ab_local && map_value(bps_ab_local, :in)) || 0
-
-    flow_pps_ab = sanitize_pps(flow_pps_ab, max_pps_ab)
-    flow_pps_ba = sanitize_pps(flow_pps_ba, max_pps_ba)
-    flow_bps_ab = sanitize_bps(flow_bps_ab, cap_ab)
-    flow_bps_ba = sanitize_bps(flow_bps_ba, cap_ba)
-
-    flow_pps = flow_pps_ab + flow_pps_ba
-    flow_bps = flow_bps_ab + flow_bps_ba
-
-    capacity_bps =
-      cond do
-        cap_ab > 0 and cap_ba > 0 -> min(cap_ab, cap_ba)
-        cap_ab > 0 -> cap_ab
-        cap_ba > 0 -> cap_ba
-        true -> 0
-      end
-
-    telemetry_source = if flow_pps > 0 or flow_bps > 0, do: "interface", else: "none"
-
-    %{
-      flow_pps_ab: flow_pps_ab,
-      flow_pps_ba: flow_pps_ba,
-      flow_bps_ab: flow_bps_ab,
-      flow_bps_ba: flow_bps_ba,
-      flow_pps: flow_pps,
-      flow_bps: flow_bps,
-      capacity_bps: capacity_bps,
-      telemetry_source: telemetry_source,
-      telemetry_observed_at:
-        DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-    }
-  end
-
-  defp persist_canonical_edge_telemetry(edge, telemetry)
-       when is_map(edge) and is_map(telemetry) do
-    src_id = map_value(edge, :src_id)
-    dst_id = map_value(edge, :dst_id)
-
-    cypher = """
-    MATCH (a:Device {id: '#{Graph.escape(src_id)}'})-[cr:CANONICAL_TOPOLOGY]->(b:Device {id: '#{Graph.escape(dst_id)}'})
-    SET cr.flow_pps_ab = #{map_value(telemetry, :flow_pps_ab)}
-    SET cr.flow_pps_ba = #{map_value(telemetry, :flow_pps_ba)}
-    SET cr.flow_bps_ab = #{map_value(telemetry, :flow_bps_ab)}
-    SET cr.flow_bps_ba = #{map_value(telemetry, :flow_bps_ba)}
-    SET cr.flow_pps = #{map_value(telemetry, :flow_pps)}
-    SET cr.flow_bps = #{map_value(telemetry, :flow_bps)}
-    SET cr.capacity_bps = #{map_value(telemetry, :capacity_bps)}
-    SET cr.telemetry_source = '#{Graph.escape(map_value(telemetry, :telemetry_source))}'
-    SET cr.telemetry_observed_at = '#{Graph.escape(map_value(telemetry, :telemetry_observed_at))}'
-    """
-
-    case Graph.execute(cypher) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Canonical edge telemetry upsert failed: #{inspect(reason)}")
-    end
-  end
-
-  defp empty_canonical_telemetry_stats do
-    %{both_sides: 0, one_side: 0, none: 0, interface_source: 0}
-  end
-
-  defp update_canonical_telemetry_stats(stats, telemetry) do
-    has_ab = map_value(telemetry, :flow_pps_ab) > 0 or map_value(telemetry, :flow_bps_ab) > 0
-    has_ba = map_value(telemetry, :flow_pps_ba) > 0 or map_value(telemetry, :flow_bps_ba) > 0
-
-    stats =
-      cond do
-        has_ab and has_ba -> Map.update!(stats, :both_sides, &(&1 + 1))
-        has_ab or has_ba -> Map.update!(stats, :one_side, &(&1 + 1))
-        true -> Map.update!(stats, :none, &(&1 + 1))
-      end
-
-    if map_value(telemetry, :telemetry_source) == "interface" do
-      Map.update!(stats, :interface_source, &(&1 + 1))
-    else
-      stats
-    end
-  end
-
-  defp ifindex_metric(metrics, device_id, if_index)
-       when is_map(metrics) and is_binary(device_id) and is_integer(if_index) and if_index > 0 do
-    Map.get(metrics, {device_id, if_index})
-  end
-
-  defp ifindex_metric(_, _, _), do: nil
-
-  defp ifindex_capacity(capacity, device_id, if_index)
-       when is_map(capacity) and is_binary(device_id) and is_integer(if_index) and if_index > 0 do
-    Map.get(capacity, {device_id, if_index}, 0)
-  end
-
-  defp ifindex_capacity(_, _, _), do: 0
-
-  defp sanitize_bps(value, cap_bps)
-       when is_integer(value) and value >= 0 and is_integer(cap_bps) do
-    cond do
-      cap_bps <= 0 -> value
-      value > cap_bps * 2 -> 0
-      true -> value
-    end
-  end
-
-  defp sanitize_bps(_, _), do: 0
-
-  defp sanitize_pps(value, max_pps)
-       when is_integer(value) and value >= 0 and is_integer(max_pps) do
-    cond do
-      max_pps <= 0 -> value
-      value > max_pps * 2 -> 0
-      true -> value
-    end
-  end
-
-  defp sanitize_pps(_, _), do: 0
-
-  defp max_pps_for_capacity(cap_bps) when is_integer(cap_bps) and cap_bps > 0 do
-    # Worst-case ~64-byte packets => cap_bps / (64 * 8)
-    max(1, div(cap_bps, 512))
-  end
-
-  defp max_pps_for_capacity(_), do: 0
-
-  defp packet_metric_direction(metric_name)
-       when metric_name in ["ifInUcastPkts", "ifHCInUcastPkts"],
-       do: :in
-
-  defp packet_metric_direction(metric_name)
-       when metric_name in ["ifOutUcastPkts", "ifHCOutUcastPkts"],
-       do: :out
-
-  defp packet_metric_direction(_), do: nil
-
-  defp octet_metric_direction(metric_name) when metric_name in ["ifInOctets", "ifHCInOctets"],
-    do: :in
-
-  defp octet_metric_direction(metric_name) when metric_name in ["ifOutOctets", "ifHCOutOctets"],
-    do: :out
-
-  defp octet_metric_direction(_), do: nil
-
-  defp value_to_non_negative_int(value) when is_integer(value) and value >= 0, do: value
-  defp value_to_non_negative_int(value) when is_float(value) and value >= 0, do: trunc(value)
-
-  defp value_to_non_negative_int(%Decimal{} = value) do
-    value
-    |> Decimal.round(0, :floor)
-    |> Decimal.to_integer()
-    |> non_negative_int()
-  rescue
-    _ -> nil
-  end
-
-  defp value_to_non_negative_int(value) when is_binary(value) do
-    case Integer.parse(String.trim(value)) do
-      {n, _} when n >= 0 -> n
-      _ -> nil
-    end
-  end
-
-  defp value_to_non_negative_int(_), do: nil
-
-  defp non_negative_int(value) when is_integer(value) and value >= 0, do: value
-  defp non_negative_int(value) when is_float(value) and value >= 0, do: trunc(value)
-  defp non_negative_int(_), do: nil
-
-  defp parse_ifindex(value) when is_integer(value) and value > 0, do: value
-
-  defp parse_ifindex(value) when is_binary(value) do
-    case Integer.parse(String.trim(value)) do
-      {parsed, _} when parsed > 0 -> parsed
-      _ -> nil
-    end
-  end
-
-  defp parse_ifindex(_), do: nil
 
   defp normalize_positive_int(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_positive_int(_value, default), do: default

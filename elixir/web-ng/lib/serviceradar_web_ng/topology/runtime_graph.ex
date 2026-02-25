@@ -120,10 +120,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   def topology_links_query do
     """
     MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
-    WHERE a.id IS NOT NULL
-      AND b.id IS NOT NULL
-      AND a.id STARTS WITH 'sr:'
-      AND b.id STARTS WITH 'sr:'
+    WHERE coalesce(r.relation_type, type(r)) IN ['CONNECTS_TO', 'ATTACHED_TO']
     RETURN {
       local_device_id: a.id,
       local_device_ip: a.ip,
@@ -134,15 +131,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       neighbor_device_id: b.id,
       neighbor_mgmt_addr: b.ip,
       neighbor_system_name: b.name,
-      flow_pps: coalesce(r.flow_pps, 0),
-      flow_bps: coalesce(r.flow_bps, 0),
-      capacity_bps: coalesce(r.capacity_bps, 0),
-      flow_pps_ab: coalesce(r.flow_pps_ab, 0),
-      flow_pps_ba: coalesce(r.flow_pps_ba, 0),
-      flow_bps_ab: coalesce(r.flow_bps_ab, 0),
-      flow_bps_ba: coalesce(r.flow_bps_ba, 0),
-      telemetry_source: coalesce(r.telemetry_source, 'none'),
-      telemetry_observed_at: coalesce(r.telemetry_observed_at, ''),
       protocol: coalesce(r.protocol, r.source, 'unknown'),
       confidence_tier: coalesce(r.confidence_tier, 'unknown'),
       evidence_class: coalesce(r.evidence_class, ''),
@@ -225,15 +213,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     protocol = map_fetch(row, :protocol)
     confidence_tier = map_fetch(row, :confidence_tier)
     evidence_class = map_fetch(row, :evidence_class)
-    flow_pps = parse_non_negative_int(map_fetch(row, :flow_pps))
-    flow_bps = parse_non_negative_int(map_fetch(row, :flow_bps))
-    capacity_bps = parse_non_negative_int(map_fetch(row, :capacity_bps))
-    flow_pps_ab = parse_non_negative_int(map_fetch(row, :flow_pps_ab))
-    flow_pps_ba = parse_non_negative_int(map_fetch(row, :flow_pps_ba))
-    flow_bps_ab = parse_non_negative_int(map_fetch(row, :flow_bps_ab))
-    flow_bps_ba = parse_non_negative_int(map_fetch(row, :flow_bps_ba))
-    telemetry_source = map_fetch(row, :telemetry_source)
-    telemetry_observed_at = map_fetch(row, :telemetry_observed_at)
     metadata_value = map_fetch(row, :metadata) || map_fetch(row, :metadata_json) || %{}
 
     metadata =
@@ -264,15 +243,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       protocol: blank_to_nil(protocol),
       confidence_tier: blank_to_nil(confidence_tier),
       evidence_class: blank_to_nil(evidence_class),
-      flow_pps: flow_pps,
-      flow_bps: flow_bps,
-      capacity_bps: capacity_bps,
-      flow_pps_ab: flow_pps_ab,
-      flow_pps_ba: flow_pps_ba,
-      flow_bps_ab: flow_bps_ab,
-      flow_bps_ba: flow_bps_ba,
-      telemetry_source: blank_to_nil(telemetry_source),
-      telemetry_observed_at: blank_to_nil(telemetry_observed_at),
       metadata: metadata
     }
   end
@@ -305,17 +275,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   end
 
   defp parse_ifindex(_), do: nil
-
-  defp parse_non_negative_int(value) when is_integer(value) and value >= 0, do: value
-
-  defp parse_non_negative_int(value) when is_binary(value) do
-    case Integer.parse(String.trim(value)) do
-      {parsed, _} when parsed >= 0 -> parsed
-      _ -> 0
-    end
-  end
-
-  defp parse_non_negative_int(_), do: 0
 
   defp normalize_positive_int(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_positive_int(_value, default), do: default
