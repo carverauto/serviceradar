@@ -237,6 +237,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       local_if_name: local_if_name,
       neighbor_if_index: neighbor_if_index,
       neighbor_if_name: neighbor_if_name,
+      flow_pps: normalize_u32(Map.get(link, :flow_pps, 0)),
+      flow_bps: normalize_u64(Map.get(link, :flow_bps, 0)),
+      capacity_bps: normalize_u64(Map.get(link, :capacity_bps, 0)),
+      flow_pps_ab: normalize_u32(Map.get(link, :flow_pps_ab, 0)),
+      flow_pps_ba: normalize_u32(Map.get(link, :flow_pps_ba, 0)),
+      flow_bps_ab: normalize_u64(Map.get(link, :flow_bps_ab, 0)),
+      flow_bps_ba: normalize_u64(Map.get(link, :flow_bps_ba, 0)),
+      telemetry_source: normalize_id(Map.get(link, :telemetry_source)) || "none",
       metadata: Map.get(link, :metadata) || %{}
     }
     |> Map.merge(directional_attrs)
@@ -476,7 +484,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       |> Map.put(:label, edge_label(edge, flow_pps, capacity_bps))
       |> Map.put(
         :telemetry_eligible,
-        Map.get(edge, :telemetry_eligible, false) and (flow_pps > 0 or flow_bps > 0)
+        Map.get(edge, :telemetry_eligible, true) and (flow_pps > 0 or flow_bps > 0)
       )
     end)
   end

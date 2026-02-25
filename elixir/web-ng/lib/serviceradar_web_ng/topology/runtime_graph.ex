@@ -124,6 +124,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       AND b.id IS NOT NULL
       AND a.id STARTS WITH 'sr:'
       AND b.id STARTS WITH 'sr:'
+      AND coalesce(r.relation_type, type(r)) IN ['CONNECTS_TO', 'ATTACHED_TO']
     RETURN {
       local_device_id: a.id,
       local_device_ip: a.ip,
