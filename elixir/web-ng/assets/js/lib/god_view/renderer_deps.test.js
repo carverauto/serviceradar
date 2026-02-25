@@ -30,7 +30,6 @@ function makeContext() {
       pipelineStatsFromHeaders: vi.fn((...args) => ["rendering.pipelineStatsFromHeaders", ...args]),
       normalizePipelineStats: vi.fn((...args) => ["rendering.normalizePipelineStats", ...args]),
       normalizeDisplayLabel: vi.fn((...args) => ["rendering.normalizeDisplayLabel", ...args]),
-      edgeTopologyClassFromLabel: vi.fn((...args) => ["rendering.edgeTopologyClassFromLabel", ...args]),
       getNodeTooltip: vi.fn((...args) => ["rendering.getNodeTooltip", ...args]),
       handleHover: vi.fn((...args) => ["rendering.handleHover", ...args]),
       handlePick: vi.fn((...args) => ["rendering.handlePick", ...args]),
@@ -76,7 +75,6 @@ describe("renderer_deps", () => {
     expect(deps.normalizePipelineStats({})).toEqual(["rendering.normalizePipelineStats", {}])
     expect(deps.decodeArrowGraph(new Uint8Array([1]))).toEqual(["lifecycle.decodeArrowGraph", new Uint8Array([1])])
     expect(deps.normalizeDisplayLabel("a", "b")).toEqual(["rendering.normalizeDisplayLabel", "a", "b"])
-    expect(deps.edgeTopologyClassFromLabel("x")).toEqual(["rendering.edgeTopologyClassFromLabel", "x"])
     expect(deps.getNodeTooltip({object: {id: "n1"}})).toEqual(["rendering.getNodeTooltip", {object: {id: "n1"}}])
     expect(deps.handleHover({object: {id: "n1"}})).toEqual(["rendering.handleHover", {object: {id: "n1"}}])
     expect(deps.handlePick({object: {id: "n1"}})).toEqual(["rendering.handlePick", {object: {id: "n1"}}])

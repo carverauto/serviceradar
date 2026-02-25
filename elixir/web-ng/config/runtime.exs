@@ -131,15 +131,6 @@ god_view_enabled =
 
 config :serviceradar_web_ng, :god_view_enabled, god_view_enabled
 
-age_authoritative_topology_enabled =
-  System.get_env("SERVICERADAR_AGE_AUTHORITATIVE_TOPOLOGY_ENABLED", "true")
-  |> String.downcase()
-  |> then(&(&1 in ["1", "true", "yes", "on"]))
-
-config :serviceradar_web_ng,
-       :age_authoritative_topology_enabled,
-       age_authoritative_topology_enabled
-
 config :serviceradar_core,
   device_enrichment_rules_dir:
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")

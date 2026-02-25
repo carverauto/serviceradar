@@ -38,7 +38,8 @@ type ServiceMetricsPayload struct {
 
 // SNMPMetricsPayload is the enhanced payload structure for SNMP metrics reports.
 // It includes metadata about the collector infrastructure along with the target data.
-// Deprecated: Use ServiceMetricsPayload instead
+//
+// Deprecated: Use ServiceMetricsPayload instead.
 type SNMPMetricsPayload struct {
 	GatewayID  string          `json:"gateway_id"` // Gateway that collected the metrics
 	AgentID   string          `json:"agent_id"`  // Agent that the gateway belongs to

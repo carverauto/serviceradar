@@ -22,6 +22,10 @@ pub(crate) struct RuntimeGraphRow {
     pub(crate) local_if_name: String,
     /// The logical interface index of the local device instance.
     pub(crate) local_if_index: i64,
+    /// The human-readable name of the neighbor interface (e.g., "eth1").
+    pub(crate) neighbor_if_name: String,
+    /// The logical interface index of the neighbor endpoint.
+    pub(crate) neighbor_if_index: i64,
     /// The identified or assumed MAC/ID of the receiving neighbor.
     pub(crate) neighbor_device_id: String,
     /// The management IP address discovered for the neighbor.
@@ -55,6 +59,8 @@ pub(crate) mod runtime_graph_atoms {
         local_device_ip,
         local_if_name,
         local_if_index,
+        neighbor_if_name,
+        neighbor_if_index,
         neighbor_device_id,
         neighbor_mgmt_addr,
         neighbor_system_name,

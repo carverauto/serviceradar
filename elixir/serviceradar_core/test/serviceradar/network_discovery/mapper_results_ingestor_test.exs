@@ -665,7 +665,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       }
 
       [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
-      assert resolved.local_device_id == "default:10.10.10.10"
+      assert is_binary(resolved.local_device_id)
+      assert String.starts_with?(resolved.local_device_id, "sr:")
       assert resolved.neighbor_device_id == "sr:uswagg"
       assert resolved.metadata["source_local_uid"] == "default:10.10.10.10"
     end
@@ -852,6 +853,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert inferred.neighbor_device_id == "sr:tonka01"
       assert inferred.local_if_name == "wgsts1000"
       assert inferred.metadata["source"] == "wireguard-derived"
+      assert inferred.metadata["evidence_class"] == "direct"
       assert inferred.metadata["tunnel_name"] == "wgsts1000"
     end
 

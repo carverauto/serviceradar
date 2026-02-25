@@ -121,6 +121,36 @@ fn select_metric_backed_interface(
     best.map(|(_, record)| record)
 }
 
+fn maybe_prefer_metric_backed_index(
+    explicit_if_index: i64,
+    resolved_if_index: Option<i64>,
+    by_name: &HashMap<(String, String), Vec<InterfaceTelemetryRecord>>,
+    pps_by_if: &HashMap<(String, i64), (u32, u32)>,
+    bps_by_if: &HashMap<(String, i64), (u64, u64)>,
+    device_id: &str,
+    if_name: &str,
+) -> Option<i64> {
+    let current_score = resolved_if_index
+        .map(|idx| metric_score(pps_by_if, bps_by_if, device_id, idx))
+        .unwrap_or(0);
+
+    // If the explicit/initial attribution has no sampled telemetry in-window,
+    // prefer a same-name interface candidate that does have telemetry.
+    // This protects against stale or mis-projected ifIndex values in topology edges.
+    if explicit_if_index < 0 || current_score == 0 {
+        if let Some(iface) =
+            select_metric_backed_interface(by_name, pps_by_if, bps_by_if, device_id, if_name)
+        {
+            let candidate_score = metric_score(pps_by_if, bps_by_if, device_id, iface.if_index);
+            if candidate_score > current_score {
+                return Some(iface.if_index);
+            }
+        }
+    }
+
+    resolved_if_index
+}
+
 /// Helper function to create shorthand human-readable string values for packet rates.
 pub(crate) fn format_rate(value: u64) -> String {
     if value >= 1_000_000 {
@@ -219,41 +249,30 @@ pub(crate) fn enrich_edges_telemetry_impl(
                 let iface_ba =
                     find_interface_for_edge(&by_index, &by_name, &target, &if_name_ba, if_index_ba);
 
-                let mut resolved_if_index_ab = resolved_metric_index(if_index_ab, iface_ab.as_ref());
-                let mut resolved_if_index_ba = resolved_metric_index(if_index_ba, iface_ba.as_ref());
+                let mut resolved_if_index_ab =
+                    resolved_metric_index(if_index_ab, iface_ab.as_ref());
+                let mut resolved_if_index_ba =
+                    resolved_metric_index(if_index_ba, iface_ba.as_ref());
 
-                // If a name maps to multiple interface rows, prefer the candidate with actual telemetry.
-                if if_index_ab < 0
-                    && resolved_if_index_ab
-                        .map(|idx| metric_score(&pps_by_if, &bps_by_if, &source, idx) == 0)
-                        .unwrap_or(true)
-                {
-                    if let Some(iface) = select_metric_backed_interface(
-                        &by_name,
-                        &pps_by_if,
-                        &bps_by_if,
-                        &source,
-                        &if_name_ab,
-                    ) {
-                        resolved_if_index_ab = Some(iface.if_index);
-                    }
-                }
+                resolved_if_index_ab = maybe_prefer_metric_backed_index(
+                    if_index_ab,
+                    resolved_if_index_ab,
+                    &by_name,
+                    &pps_by_if,
+                    &bps_by_if,
+                    &source,
+                    &if_name_ab,
+                );
 
-                if if_index_ba < 0
-                    && resolved_if_index_ba
-                        .map(|idx| metric_score(&pps_by_if, &bps_by_if, &target, idx) == 0)
-                        .unwrap_or(true)
-                {
-                    if let Some(iface) = select_metric_backed_interface(
-                        &by_name,
-                        &pps_by_if,
-                        &bps_by_if,
-                        &target,
-                        &if_name_ba,
-                    ) {
-                        resolved_if_index_ba = Some(iface.if_index);
-                    }
-                }
+                resolved_if_index_ba = maybe_prefer_metric_backed_index(
+                    if_index_ba,
+                    resolved_if_index_ba,
+                    &by_name,
+                    &pps_by_if,
+                    &bps_by_if,
+                    &target,
+                    &if_name_ba,
+                );
 
                 let pps_ab_local = resolved_if_index_ab
                     .and_then(|idx| pps_by_if.get(&(source.clone(), idx)).copied());
