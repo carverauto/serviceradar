@@ -639,9 +639,24 @@ mod tests {
             (0u32, 0u64, 0u64),
         )];
         let interfaces = vec![
-            ("dev-a".to_string(), "eth1".to_string(), 10, 1_000_000_000u64),
-            ("dev-a".to_string(), "eth1".to_string(), 99, 1_000_000_000u64),
-            ("dev-b".to_string(), "eth1".to_string(), 20, 1_000_000_000u64),
+            (
+                "dev-a".to_string(),
+                "eth1".to_string(),
+                10,
+                1_000_000_000u64,
+            ),
+            (
+                "dev-a".to_string(),
+                "eth1".to_string(),
+                99,
+                1_000_000_000u64,
+            ),
+            (
+                "dev-b".to_string(),
+                "eth1".to_string(),
+                20,
+                1_000_000_000u64,
+            ),
         ];
         // Only dev-a/10 carries telemetry, dev-a/99 is stale/wrong.
         let pps_metrics = vec![

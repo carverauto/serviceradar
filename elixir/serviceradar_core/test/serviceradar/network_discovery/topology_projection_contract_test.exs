@@ -198,13 +198,31 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       refute query =~ "CNONICAL_TOPOLOGY"
       refute query =~ "[]->"
       assert query =~ "WITH src_id, dst_id, collect({"
-      assert query =~ "UNWIND candidates AS c"
+      assert query =~ "ifindex_rank"
       assert query =~ "AND ai.device_id STARTS WITH 'sr:'"
       assert query =~ "AND bi.device_id STARTS WITH 'sr:'"
-      assert query =~ "best_local_if_index"
-      assert query =~ "best_neighbor_if_index"
-      assert query =~ "SET cr.local_if_index ="
-      assert query =~ "SET cr.neighbor_if_index ="
+      assert query =~ "SET cr.local_if_index = best.local_if_index"
+      assert query =~ "SET cr.neighbor_if_index = best.neighbor_if_index"
+    end
+
+    test "upsert query prioritizes interface-index evidence over confidence" do
+      query = TopologyGraph.canonical_rebuild_upsert_query("2026-02-25T00:00:00Z")
+
+      # Regression guard: canonical candidate ordering must choose viable ifindex
+      # pairs before confidence-only links, otherwise telemetry lookup collapses.
+      assert query =~ ~r/ifindex_rank DESC,\s+rel_rank DESC,\s+conf_rank DESC/s
+    end
+
+    test "upsert query does not merge ifindexes across different candidates" do
+      query = TopologyGraph.canonical_rebuild_upsert_query("2026-02-25T00:00:00Z")
+
+      # Regression guard: mixing index/name fields from different candidates can
+      # attach wrong interface IDs to canonical edges.
+      refute query =~ "UNWIND candidates AS c"
+      refute query =~ "best_local_if_index"
+      refute query =~ "best_neighbor_if_index"
+      refute query =~ "max(CASE WHEN c.local_if_index"
+      refute query =~ "max(CASE WHEN c.neighbor_if_index"
     end
 
     test "prune query targets canonical topology edges" do

@@ -1916,6 +1916,27 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 				allPotentialSNMPTargets[target] = true
 			}
 
+			// Ensure recursively discovered neighbors also get interface discovery.
+			// Without this pass, topology-only recursive polling can produce links
+			// but no interface inventory/counters for those neighbors.
+			if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeInterfaces {
+				if !e.setupAndExecuteSNMPPolling(
+					job,
+					recursiveTargets,
+					initialSeeds,
+					snmpPollingModeEnrichment,
+				) {
+					recordStageTransition(
+						job,
+						DiscoveryStageTopology,
+						DiscoveryStageStatusFailed,
+						"recursive enrichment polling canceled or failed",
+					)
+					e.finalizeJobStatus(job)
+					return
+				}
+			}
+
 			if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds, snmpPollingModeTopology) {
 				recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, "recursive topology polling canceled or failed")
 				e.finalizeJobStatus(job)
