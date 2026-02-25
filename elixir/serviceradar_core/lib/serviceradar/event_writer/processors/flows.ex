@@ -42,16 +42,6 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
 
   require Logger
 
-  @direction_map %{
-    "ingress" => {"Inbound", 1},
-    "inbound" => {"Inbound", 1},
-    "in" => {"Inbound", 1},
-    "egress" => {"Outbound", 2},
-    "outbound" => {"Outbound", 2},
-    "out" => {"Outbound", 2},
-    "lateral" => {"Lateral", 3}
-  }
-
   @impl true
   def table_name, do: "ocsf_network_activity"
 
@@ -181,35 +171,6 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   defp safe_int(v) when is_integer(v), do: v
   defp safe_int(_), do: nil
 
-  defp build_traffic_stats(json) do
-    octets = json["octets"] || json["bytes"]
-    packets = json["packets"]
-
-    OCSF.build_traffic(
-      bytes: octets,
-      packets: packets
-    )
-  end
-
-  defp build_flow_observables(json) do
-    src_ip = flow_value(json, "src_addr", "srcAddr", "sourceAddress")
-    dst_ip = flow_value(json, "dst_addr", "dstAddr", "destinationAddress")
-    src_port = flow_value(json, "src_port", "srcPort", "sourcePort")
-    dst_port = flow_value(json, "dst_port", "dstPort", "destinationPort")
-
-    []
-    |> maybe_add(src_ip, &OCSF.ip_observable/1)
-    |> maybe_add(dst_ip, &OCSF.ip_observable/1)
-    |> maybe_add(src_port, &OCSF.port_observable/1)
-    |> maybe_add(dst_port, &OCSF.port_observable/1)
-  end
-
-  defp parse_direction(json) do
-    direction = FieldParser.get_field(json, "flow_direction", "flowDirection")
-
-    Map.get(@direction_map, direction, {nil, 0})
-  end
-
   defp build_traffic_message(json, protocol_name) do
     src_ip = flow_value(json, "src_addr", "srcAddr", "sourceAddress")
     dst_ip = flow_value(json, "dst_addr", "dstAddr", "destinationAddress")
@@ -260,10 +221,6 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   defp flow_value(json, snake_key, camel_key, fallback_key, default \\ nil) do
     json[snake_key] || json[camel_key] || json[fallback_key] || default
   end
-
-  defp maybe_add(list, nil, _builder), do: list
-  defp maybe_add(list, "", _builder), do: list
-  defp maybe_add(list, value, builder), do: [builder.(value) | list]
 
   defp flow_source_from_subject(subject) when is_binary(subject) do
     cond do

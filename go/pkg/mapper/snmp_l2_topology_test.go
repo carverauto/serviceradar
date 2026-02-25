@@ -11,6 +11,8 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 )
 
+var errNoCDP = errors.New("no cdp")
+
 const testStringTrue = "true"
 
 func TestPublishTopologyLinksSkipsCandidateOnlyPublishing(t *testing.T) {
@@ -97,7 +99,7 @@ func TestPublishTopologyEvidencePublishesSNMPL2EvenWhenLLDPPresent(t *testing.T)
 		lldpLinks,
 		nil,
 		nil,
-		errors.New("no cdp"),
+		errNoCDP,
 		snmpL2Links,
 		nil,
 	)

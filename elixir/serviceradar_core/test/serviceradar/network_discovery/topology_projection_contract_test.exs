@@ -67,6 +67,49 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
                TopologyGraph.classify_projection(normalized)
     end
 
+    test "SNMP-L2 medium single-identifier inferred evidence projects to INFERRED_TO" do
+      normalized = %{
+        "protocol" => "snmp-l2",
+        "local_device_id" => "dev-switch",
+        "local_device_ip" => "192.168.1.87",
+        "local_if_name" => "0/7",
+        "local_if_index" => 7,
+        "neighbor_mgmt_addr" => "192.168.1.1",
+        "metadata" => %{
+          "source" => "snmp-l2",
+          "confidence_reason" => "single_identifier_inference",
+          "confidence_tier" => "medium",
+          "confidence_score" => 66,
+          "evidence_class" => "inferred"
+        }
+      }
+
+      assert {:ok, %{mode: :auxiliary, relation: "INFERRED_TO", reason: :projected_inferred}} =
+               TopologyGraph.classify_projection(normalized)
+    end
+
+    test "wireguard-derived direct evidence projects to backbone CONNECTS_TO" do
+      normalized =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "wireguard-derived",
+          "local_device_id" => "farm01",
+          "local_device_ip" => "192.168.1.1",
+          "local_if_name" => "wgsts1000",
+          "neighbor_device_id" => "tonka01",
+          "neighbor_mgmt_addr" => "192.168.1.2",
+          "neighbor_port_id" => "wgsts1000",
+          "metadata" => %{
+            "source" => "wireguard-derived",
+            "confidence_tier" => "high",
+            "confidence_score" => 95,
+            "evidence_class" => "direct"
+          }
+        })
+
+      assert {:ok, %{mode: :backbone, relation: "CONNECTS_TO", reason: :projected_backbone}} =
+               TopologyGraph.classify_projection(normalized)
+    end
+
     test "low-confidence unknown evidence is skipped" do
       normalized =
         MapperResultsIngestor.normalize_topology(%{
@@ -138,6 +181,37 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert diagnostics.accepted["projected_backbone"] == 1
       assert diagnostics.rejected["skip_missing_ifindex"] == 1
       assert diagnostics.rejected["missing_ids"] == 1
+    end
+  end
+
+  describe "pruning policy gates" do
+    test "stale projected-link pruning is disabled by default" do
+      assert TopologyGraph.prune_stale_projected_links_enabled?() == false
+    end
+  end
+
+  describe "canonical rebuild query contract" do
+    test "upsert query keeps canonical relation syntax stable" do
+      query = TopologyGraph.canonical_rebuild_upsert_query("2026-02-25T00:00:00Z")
+
+      assert query =~ "MERGE (a)-[cr:CANONICAL_TOPOLOGY]->(b)"
+      refute query =~ "CNONICAL_TOPOLOGY"
+      refute query =~ "[]->"
+      assert query =~ "WITH src_id, dst_id, collect({"
+      assert query =~ "UNWIND candidates AS c"
+      assert query =~ "AND ai.device_id STARTS WITH 'sr:'"
+      assert query =~ "AND bi.device_id STARTS WITH 'sr:'"
+      assert query =~ "best_local_if_index"
+      assert query =~ "best_neighbor_if_index"
+      assert query =~ "SET cr.local_if_index ="
+      assert query =~ "SET cr.neighbor_if_index ="
+    end
+
+    test "prune query targets canonical topology edges" do
+      query = TopologyGraph.canonical_rebuild_prune_query("2026-02-25T00:00:00Z")
+
+      assert query =~ "MATCH ()-[r:CANONICAL_TOPOLOGY]->()"
+      assert query =~ "DELETE r"
     end
   end
 end

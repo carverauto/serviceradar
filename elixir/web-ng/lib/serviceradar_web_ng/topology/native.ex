@@ -23,11 +23,13 @@ defmodule ServiceRadarWebNG.Topology.Native do
   @doc """
   Encode God-View snapshot header + node/edge binary segments.
   """
+  # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
   def encode_snapshot(
         _schema_version,
         _revision,
         _nodes,
         _edges,
+        _edge_meta,
         _edge_directional,
         _root_bitmap_bytes,
         _affected_bitmap_bytes,

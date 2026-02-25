@@ -28,7 +28,6 @@
  * @property {(...args: any[]) => any} pipelineStatsFromHeaders
  * @property {(...args: any[]) => any} normalizePipelineStats
  * @property {(...args: any[]) => any} normalizeDisplayLabel
- * @property {(...args: any[]) => any} edgeTopologyClassFromLabel
  * @property {(...args: any[]) => any} getNodeTooltip
  * @property {(...args: any[]) => any} handleHover
  * @property {(...args: any[]) => any} handlePick
@@ -75,7 +74,6 @@ export const RENDERING_DEP_KEYS = ["resolveZoomTier", "setZoomTier", "reshapeGra
  * @property {(...args: any[]) => any} normalizePipelineStats
  * @property {(...args: any[]) => any} decodeArrowGraph
  * @property {(...args: any[]) => any} normalizeDisplayLabel
- * @property {(...args: any[]) => any} edgeTopologyClassFromLabel
  * @property {(...args: any[]) => any} getNodeTooltip
  * @property {(...args: any[]) => any} handleHover
  * @property {(...args: any[]) => any} handlePick
@@ -94,7 +92,6 @@ export const LIFECYCLE_DEP_KEYS = [
   "normalizePipelineStats",
   "decodeArrowGraph",
   "normalizeDisplayLabel",
-  "edgeTopologyClassFromLabel",
   "getNodeTooltip",
   "handleHover",
   "handlePick",
@@ -145,7 +142,6 @@ export function buildLifecycleDeps(context) {
     normalizePipelineStats: (...args) => context.rendering.normalizePipelineStats(...args),
     decodeArrowGraph: (...args) => context.lifecycle.decodeArrowGraph(...args),
     normalizeDisplayLabel: (...args) => context.rendering.normalizeDisplayLabel(...args),
-    edgeTopologyClassFromLabel: (...args) => context.rendering.edgeTopologyClassFromLabel(...args),
     getNodeTooltip: (...args) => context.rendering.getNodeTooltip(...args),
     handleHover: (...args) => context.rendering.handleHover(...args),
     handlePick: (...args) => context.rendering.handlePick(...args),

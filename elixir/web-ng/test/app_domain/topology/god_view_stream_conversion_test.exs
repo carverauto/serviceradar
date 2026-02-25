@@ -14,4 +14,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamConversionTest do
     assert GodViewStream.octets_rate_to_bps(-1) == 0
     assert GodViewStream.octets_rate_to_bps(nil) == 0
   end
+
+  test "edge_connected_node_ids/1 only returns normalized edge-connected ids" do
+    assert GodViewStream.edge_connected_node_ids([" farm01 ", "uswagg", nil, "farm01", ""]) == [
+             "farm01",
+             "uswagg"
+           ]
+  end
 end

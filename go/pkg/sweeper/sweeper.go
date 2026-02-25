@@ -1313,7 +1313,7 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.Dev
 	s.logger.Debug().
 		Str("device", deviceTarget.Network).
 		Strs("sweep_modes", func() []string {
-			modes := []string{}
+			modes := make([]string, 0, len(sweepModes))
 			for _, m := range sweepModes {
 				modes = append(modes, string(m))
 			}
@@ -1393,7 +1393,7 @@ func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 		Int("totalHosts", totalHostCount).
 		Ints("configuredPorts", s.config.Ports).
 		Strs("globalSweepModes", func() []string {
-			modes := []string{}
+			modes := make([]string, 0, len(s.config.SweepModes))
 			for _, m := range s.config.SweepModes {
 				modes = append(modes, string(m))
 			}
@@ -1512,7 +1512,7 @@ func (s *NetworkSweeper) prepareDeviceAggregators(targets []models.Target) {
 			continue
 		}
 
-		var expectedIPs []string
+		expectedIPs := make([]string, 0, len(targets))
 		for _, t := range targets {
 			expectedIPs = append(expectedIPs, t.Host)
 		}

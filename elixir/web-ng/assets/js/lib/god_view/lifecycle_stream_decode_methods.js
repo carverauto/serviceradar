@@ -22,6 +22,9 @@ export const godViewLifecycleStreamDecodeMethods = {
     const edgeCapacityBps = table.getChild("edge_capacity_bps")
     const edgeTelemetryEligible = table.getChild("edge_telemetry_eligible")
     const edgeLabel = table.getChild("edge_label")
+    const edgeTopologyClass = table.getChild("edge_topology_class")
+    const edgeProtocol = table.getChild("edge_protocol")
+    const edgeEvidenceClass = table.getChild("edge_evidence_class")
 
     const nodes = []
     const edges = []
@@ -71,7 +74,9 @@ export const godViewLifecycleStreamDecodeMethods = {
           capacityBps: Number(edgeCapacityBps?.get(i) || 0),
           telemetryEligible: Number(edgeTelemetryEligible?.get(i) ?? 1) > 0,
           label: this.deps.normalizeDisplayLabel(edgeLabel?.get(i), ""),
-          topologyClass: this.deps.edgeTopologyClassFromLabel(edgeLabel?.get(i) || ""),
+          topologyClass: this.deps.normalizeDisplayLabel(edgeTopologyClass?.get(i), "backbone"),
+          protocol: this.deps.normalizeDisplayLabel(edgeProtocol?.get(i), ""),
+          evidenceClass: this.deps.normalizeDisplayLabel(edgeEvidenceClass?.get(i), ""),
         })
         edgeSourceIndex.push(source)
         edgeTargetIndex.push(target)

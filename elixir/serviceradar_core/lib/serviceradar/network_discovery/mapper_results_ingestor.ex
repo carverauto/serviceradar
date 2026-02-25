@@ -1453,6 +1453,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
                 neighbor_mgmt_addr: neighbor_ip,
                 metadata: %{
                   "source" => "wireguard-derived",
+                  "evidence_class" => "direct",
                   "rule" => "exact_wg_interface_name_two_router_endpoints",
                   "tunnel_name" => tunnel_name,
                   "confidence_tier" => "high",
@@ -1730,7 +1731,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     ip = normalize_string(candidate_ip)
 
     cond do
-      is_binary(uid) ->
+      is_binary(uid) and canonical_topology_uid?(uid) ->
         uid
 
       is_binary(ip) ->

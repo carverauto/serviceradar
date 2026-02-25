@@ -179,6 +179,23 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
             </div>
 
             <div
+              :if={empty_topology_message(@stream_state, @last_node_count, @last_edge_count, @pipeline_stats)}
+              class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+            >
+              <div class="max-w-xl rounded-lg border border-warning/30 bg-base-100/90 px-5 py-4 text-center shadow-lg backdrop-blur-sm">
+                <div class="text-sm font-semibold text-warning">Topology unavailable</div>
+                <div class="mt-1 text-xs text-base-content/70">
+                  {empty_topology_message(
+                    @stream_state,
+                    @last_node_count,
+                    @last_edge_count,
+                    @pipeline_stats
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div
               id="god-view-controls"
               phx-hook="GodViewControlsState"
               data-collapsed={to_string(@controls_collapsed)}
@@ -571,6 +588,29 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   end
 
   defp parse_pipeline_stat(_), do: nil
+
+  defp empty_topology_message(stream_state, last_node_count, last_edge_count, pipeline_stats) do
+    node_count =
+      parse_pipeline_stat(last_node_count) ||
+        Map.get(pipeline_stats, :final_nodes) ||
+        Map.get(pipeline_stats, :raw_links)
+
+    edge_count =
+      parse_pipeline_stat(last_edge_count) ||
+        Map.get(pipeline_stats, :final_edges) ||
+        Map.get(pipeline_stats, :unique_pairs)
+
+    cond do
+      stream_state == :error ->
+        "The topology stream failed. Check web-ng/runtime-graph logs and AGE topology data."
+
+      stream_state == :ok and node_count == 0 and edge_count == 0 ->
+        "No topology nodes or edges were returned from AGE. Verify topology ingestion is writing graph relations."
+
+      true ->
+        nil
+    end
+  end
 
   defp normalize_zoom_mode("global"), do: "global"
   defp normalize_zoom_mode("regional"), do: "regional"

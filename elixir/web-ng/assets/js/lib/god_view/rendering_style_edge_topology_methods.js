@@ -1,16 +1,10 @@
 export const godViewRenderingStyleEdgeTopologyMethods = {
-  edgeTopologyClassFromLabel(label) {
-    const text = String(label == null ? "" : label).trim().toUpperCase()
-    if (text.includes(" ENDPOINT ")) return "endpoints"
-    if (text.includes(" INFERRED ")) return "inferred"
-    return "backbone"
-  },
   edgeTopologyClass(edge) {
     const explicit = String(edge?.topologyClass || "").trim().toLowerCase()
     if (explicit === "inferred" || explicit === "endpoints" || explicit === "backbone") {
       return explicit
     }
-    return this.edgeTopologyClassFromLabel(edge?.label || "")
+    return "backbone"
   },
   edgeEnabledByTopologyLayer(edge) {
     const classCounts = edge?.topologyClassCounts
