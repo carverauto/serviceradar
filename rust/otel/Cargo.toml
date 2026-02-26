@@ -8,10 +8,6 @@ name = "otel"
 path = "src/lib.rs"
 doctest = false
 
-[[bin]]
-name = "otel"
-path = "src/main.rs"
-
 [dependencies]
 tonic = { workspace = true }
 prost = { workspace = true }

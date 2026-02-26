@@ -6,8 +6,7 @@ on:
       - 'cmd/checkers/rperf-server/**'
       - 'cmd/trapd/**'
       - 'cmd/consumers/zen/**'
-      - 'cmd/otel/**'
-      - 'cmd/flowgger/**'
+      - 'rust/log-collector/**'
       - 'rust/srql/**'
       - '.github/workflows/tests-rust.yml'
 
@@ -27,8 +26,7 @@ jobs:
           - cmd/checkers/rperf-client
           - cmd/trapd
           - cmd/consumers/zen
-          - cmd/otel
-          - cmd/flowgger
+          - rust/log-collector
           - rust/srql
     steps:
       - name: Checkout

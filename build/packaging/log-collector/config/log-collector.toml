@@ -1,0 +1,13 @@
+# ServiceRadar Unified Log Collector
+# Enable/disable each input and point to their native config files.
+
+[flowgger]
+enabled = true
+config_file = "/etc/serviceradar/flowgger.toml"
+
+[otel]
+enabled = true
+config_file = "/etc/serviceradar/otel.toml"
+
+[health]
+listen_addr = "0.0.0.0:50044"

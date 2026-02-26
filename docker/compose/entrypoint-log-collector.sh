@@ -62,13 +62,13 @@ if [ -n "${WAIT_FOR_NATS:-}" ]; then
 fi
 
 # Check if config file exists
-CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/flowgger.toml}"
+CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/log-collector.toml}"
 if [ ! -f "$CONFIG_PATH" ]; then
     echo "Error: Configuration file not found at $CONFIG_PATH"
     exit 1
 fi
 
-echo "Starting ServiceRadar Flowgger with config: $CONFIG_PATH"
+echo "Starting ServiceRadar Log Collector with config: $CONFIG_PATH"
 
-# Start the Flowgger service
-exec /usr/local/bin/serviceradar-flowgger "$CONFIG_PATH"
+# Start the unified log collector
+exec /usr/local/bin/serviceradar-log-collector --config "$CONFIG_PATH"
