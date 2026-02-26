@@ -91,6 +91,7 @@ export const godViewRenderingStyleEdgeParticleMethods = {
       const tubeWidth = typeof this.edgeWidthPixels === "function"
         ? this.edgeWidthPixels(cap, pps, bps)
         : 3.2
+      const laneSeparation = Math.max(0.35, Math.min(2.6, tubeWidth * 0.22))
       const jitterBase = Math.max(1.1, Math.min(6.2, (tubeWidth * 0.32) + 0.95))
       const spreadFill = Math.max(0.8, Math.min(1.4, 0.9 + (utilization * 0.7)))
       const particlesOnEdge = Math.max(
@@ -116,7 +117,7 @@ export const godViewRenderingStyleEdgeParticleMethods = {
           speedBase: abSpeed,
           jitter: jitterBase * spreadFill,
           utilization,
-          laneOffset: 0,
+          laneOffset: baCount > 0 ? laneSeparation : 0,
         })
 
         if (baCount > 0) {
@@ -128,7 +129,9 @@ export const godViewRenderingStyleEdgeParticleMethods = {
             speedBase: baSpeed,
             jitter: jitterBase * spreadFill,
             utilization,
-            laneOffset: 0,
+            // Keep same signed offset for reverse direction; the segment normal flips with direction,
+            // so this lands on the opposite side of the tube in world space.
+            laneOffset: laneSeparation,
           })
         }
       }
