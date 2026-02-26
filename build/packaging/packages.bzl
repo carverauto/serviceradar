@@ -268,9 +268,9 @@ PACKAGES = {
             "/etc/serviceradar/trapd.json",
         ],
     },
-    "flowgger": {
-        "package_name": "serviceradar-flowgger",
-        "description": "ServiceRadar Flowgger log collector",
+    "log-collector": {
+        "package_name": "serviceradar-log-collector",
+        "description": "ServiceRadar unified log collector (syslog + OTEL)",
         "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
         "architecture": "amd64",
         "section": "utils",
@@ -278,30 +278,30 @@ PACKAGES = {
         "deb_depends": ["systemd"],
         "rpm_requires": ["systemd"],
         "binary": {
-            "target": "//rust/flowgger:flowgger",
-            "dest": "/usr/local/bin/serviceradar-flowgger",
+            "target": "//rust/log-collector:log-collector",
+            "dest": "/usr/local/bin/serviceradar-log-collector",
         },
         "files": [
             {
-                "src": "config/flowgger.toml",
-                "dest": "/etc/serviceradar/flowgger.toml",
+                "src": "config/log-collector.toml",
+                "dest": "/etc/serviceradar/log-collector.toml",
                 "mode": "0644",
                 "rpm_filetag": "config(noreplace)",
             },
         ],
         "systemd": {
-            "src": "systemd/serviceradar-flowgger.service",
-            "dest": "/lib/systemd/system/serviceradar-flowgger.service",
+            "src": "systemd/serviceradar-log-collector.service",
+            "dest": "/lib/systemd/system/serviceradar-log-collector.service",
         },
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",
         "conffiles": [
-            "/etc/serviceradar/flowgger.toml",
+            "/etc/serviceradar/log-collector.toml",
         ],
     },
-    "netflow-collector": {
-        "package_name": "serviceradar-netflow-collector",
-        "description": "ServiceRadar NetFlow/IPFIX collector",
+    "flow-collector": {
+        "package_name": "serviceradar-flow-collector",
+        "description": "ServiceRadar unified flow collector (NetFlow/IPFIX + sFlow)",
         "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
         "architecture": "amd64",
         "section": "net",
@@ -310,24 +310,24 @@ PACKAGES = {
         "rpm_requires": ["systemd", "serviceradar-cli"],
         "binary": {
             "target": "//rust/flow-collector:flow-collector",
-            "dest": "/usr/local/bin/serviceradar-netflow-collector",
+            "dest": "/usr/local/bin/serviceradar-flow-collector",
         },
         "files": [
             {
-                "src": "config/netflow-collector.json",
-                "dest": "/etc/serviceradar/netflow-collector.json",
+                "src": "config/flow-collector.json",
+                "dest": "/etc/serviceradar/flow-collector.json",
                 "mode": "0644",
                 "rpm_filetag": "config(noreplace)",
             },
         ],
         "systemd": {
-            "src": "systemd/serviceradar-netflow-collector.service",
-            "dest": "/lib/systemd/system/serviceradar-netflow-collector.service",
+            "src": "systemd/serviceradar-flow-collector.service",
+            "dest": "/lib/systemd/system/serviceradar-flow-collector.service",
         },
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",
         "conffiles": [
-            "/etc/serviceradar/netflow-collector.json",
+            "/etc/serviceradar/flow-collector.json",
         ],
     },
     "bmp-collector": {
@@ -534,36 +534,5 @@ PACKAGES = {
         },
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",
-    },
-    "otel": {
-        "package_name": "serviceradar-otel",
-        "description": "ServiceRadar OTEL Collector",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": [],
-        "rpm_requires": ["systemd"],
-        "binary": {
-            "target": "//rust/otel:otel",
-            "dest": "/usr/local/bin/serviceradar-otel",
-        },
-        "files": [
-            {
-                "src": "config/otel.toml",
-                "dest": "/etc/serviceradar/otel.toml",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-otel.service",
-            "dest": "/lib/systemd/system/serviceradar-otel.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/otel.toml",
-        ],
     },
 }

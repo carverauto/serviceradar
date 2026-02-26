@@ -1,30 +1,23 @@
-# ServiceRadar NetFlow Collector Service
+# ServiceRadar Flow Collector Service (NetFlow/IPFIX + sFlow)
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: serviceradar-netflow-collector-config
+  name: serviceradar-flow-collector-config
 data:
-  netflow-collector.json: |
+  flow-collector.json: |
     {
       "nats_url": "tls://serviceradar-nats:4222",
       "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
       "stream_name": "events",
-      "stream_subjects": [
-        "flows.raw.netflow",
-        "flows.raw.netflow.processed"
-      ],
-      "stream_max_bytes": 1073741824,
-      "partition": "default",
       "channel_size": 10000,
       "batch_size": 100,
       "publish_timeout_ms": 5000,
-      "drop_policy": "drop_oldest",
       "security": {
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
         "tls": {
-          "cert_file": "netflow-client.crt",
-          "key_file": "netflow-client.key",
+          "cert_file": "flow-collector.pem",
+          "key_file": "flow-collector-key.pem",
           "ca_file": "ca.crt"
         }
       },
@@ -37,6 +30,11 @@ data:
           "buffer_size": 65536,
           "max_templates": 2000,
           "max_template_fields": 10000
+        },
+        {
+          "protocol": "sflow",
+          "listen_addr": "0.0.0.0:6343",
+          "subject": "flows.raw.sflow"
         }
       ]
     }
@@ -44,7 +42,7 @@ data:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: serviceradar-netflow-collector-data
+  name: serviceradar-flow-collector-data
 spec:
   accessModes:
     - ReadWriteOnce
@@ -55,31 +53,34 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: serviceradar-netflow-collector
+  name: serviceradar-flow-collector
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: serviceradar-netflow-collector
+      app: serviceradar-flow-collector
       app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:
-        app: serviceradar-netflow-collector
+        app: serviceradar-flow-collector
         app.kubernetes.io/part-of: serviceradar
     spec:
-      serviceAccountName: serviceradar-netflow-collector
+      serviceAccountName: serviceradar-flow-collector
       imagePullSecrets:
       - name: ghcr-io-cred
       containers:
-      - name: netflow-collector
-        image: ghcr.io/carverauto/serviceradar-netflow-collector:latest
+      - name: flow-collector
+        image: ghcr.io/carverauto/serviceradar-flow-collector:latest
         imagePullPolicy: Always
         ports:
         - name: netflow
           containerPort: 2055
+          protocol: UDP
+        - name: sflow
+          containerPort: 6343
           protocol: UDP
         - name: ipfix
           containerPort: 4739
@@ -89,7 +90,7 @@ spec:
           protocol: TCP
         args:
         - "--config"
-        - "/etc/serviceradar/netflow-collector.json"
+        - "/etc/serviceradar/flow-collector.json"
         env:
         - name: RUST_LOG
           value: "info"
@@ -99,7 +100,7 @@ spec:
             command:
             - /bin/sh
             - -c
-            - "pgrep -f netflow-collector > /dev/null"
+            - "pgrep -f flow-collector > /dev/null"
           initialDelaySeconds: 30
           periodSeconds: 30
           timeoutSeconds: 5
@@ -109,7 +110,7 @@ spec:
             command:
             - /bin/sh
             - -c
-            - "pgrep -f netflow-collector > /dev/null"
+            - "pgrep -f flow-collector > /dev/null"
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
@@ -126,7 +127,7 @@ spec:
             add:
             - NET_BIND_SERVICE
         volumeMounts:
-        - name: netflow-collector-config
+        - name: flow-collector-config
           mountPath: /etc/serviceradar
         - name: cert-data
           mountPath: /etc/serviceradar/certs
@@ -134,40 +135,44 @@ spec:
         - name: nats-creds
           mountPath: /etc/serviceradar/creds
           readOnly: true
-        - name: netflow-collector-data
+        - name: flow-collector-data
           mountPath: /var/lib/serviceradar
         - name: logs
           mountPath: /var/log/serviceradar
       volumes:
-      - name: netflow-collector-config
+      - name: flow-collector-config
         configMap:
-          name: serviceradar-netflow-collector-config
+          name: serviceradar-flow-collector-config
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
       - name: nats-creds
         secret:
           name: serviceradar-nats-creds
-      - name: netflow-collector-data
+      - name: flow-collector-data
         persistentVolumeClaim:
-          claimName: serviceradar-netflow-collector-data
+          claimName: serviceradar-flow-collector-data
       - name: logs
         emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: serviceradar-netflow-collector
+  name: serviceradar-flow-collector
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
   selector:
-    app: serviceradar-netflow-collector
+    app: serviceradar-flow-collector
   externalTrafficPolicy: Local
   ports:
   - name: netflow
     port: 2055
     targetPort: 2055
+    protocol: UDP
+  - name: sflow
+    port: 6343
+    targetPort: 6343
     protocol: UDP
   - name: ipfix
     port: 4739
@@ -182,6 +187,6 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: serviceradar-netflow-collector
+  name: serviceradar-flow-collector
   labels:
     app.kubernetes.io/part-of: serviceradar

@@ -201,10 +201,8 @@ flowgger:
     loadBalancerIP: "23.138.124.24"
     externalTrafficPolicy: Local
 
-netflowCollector:
+flowCollector:
   enabled: true
-  config:
-    stream_max_bytes: 1073741824
   service:
     type: LoadBalancer
     annotations:

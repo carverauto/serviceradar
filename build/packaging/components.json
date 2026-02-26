@@ -8,10 +8,9 @@
           "kv",
           "sync",
           "event-writer",
-          "otel",
+          "log-collector",
           "trapd",
-          "flowgger",
-          "netflow-collector",
+          "flow-collector",
           "nats",
           "zen",
           "snmp",
@@ -500,17 +499,17 @@
     "architecture": "amd64",
     "binary": {
       "build_method": "rust",
-      "docker_output_path": "/output/serviceradar-netflow-collector",
-      "output_path": "/usr/local/bin/serviceradar-netflow-collector",
+      "docker_output_path": "/output/serviceradar-flow-collector",
+      "output_path": "/usr/local/bin/serviceradar-flow-collector",
       "source_path": "rust/flow-collector"
     },
     "conffiles": [
-      "/etc/serviceradar/netflow-collector.json"
+      "/etc/serviceradar/flow-collector.json"
     ],
     "config_files": [
       {
-        "dest": "/etc/serviceradar/netflow-collector.json",
-        "source": "build/packaging/netflow-collector/config/netflow-collector.json"
+        "dest": "/etc/serviceradar/flow-collector.json",
+        "source": "build/packaging/flow-collector/config/flow-collector.json"
       }
     ],
     "custom_steps": [],
@@ -521,15 +520,15 @@
       ],
       "dockerfile": "rust/flow-collector/Dockerfile"
     },
-    "description": "ServiceRadar NetFlow/IPFIX collector",
+    "description": "ServiceRadar unified flow collector (NetFlow/IPFIX + sFlow)",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
-    "name": "netflow-collector",
-    "package_name": "serviceradar-netflow-collector",
+    "name": "flow-collector",
+    "package_name": "serviceradar-flow-collector",
     "postinst": {
-      "source": "build/packaging/netflow-collector/scripts/postinstall.sh"
+      "source": "build/packaging/flow-collector/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "build/packaging/netflow-collector/scripts/preremove.sh"
+      "source": "build/packaging/flow-collector/scripts/preremove.sh"
     },
     "priority": "optional",
     "rpm": {
@@ -537,13 +536,13 @@
         "systemd",
         "serviceradar-cli"
       ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.netflow-collector",
+      "dockerfile": "rust/flow-collector/Dockerfile",
       "release": "1"
     },
     "section": "net",
     "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-netflow-collector.service",
-      "source": "build/packaging/netflow-collector/systemd/serviceradar-netflow-collector.service"
+      "dest": "/lib/systemd/system/serviceradar-flow-collector.service",
+      "source": "build/packaging/flow-collector/systemd/serviceradar-flow-collector.service"
     },
     "version": "1.0.58"
   },

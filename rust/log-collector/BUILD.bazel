@@ -1,0 +1,21 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rust_crates//:defs.bzl", "all_crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_binary(
+    name = "log-collector",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/main.rs",
+    edition = "2024",
+    crate_features = [
+        "syslog",
+        "otel",
+    ],
+    deps = all_crate_deps(normal = True) + [
+        "//rust/flowgger:flowgger_lib",
+        "//rust/otel:otel_lib",
+        "//rust/config-bootstrap:config_bootstrap",
+    ],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
