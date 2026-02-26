@@ -14,28 +14,21 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "ORDER BY"
   end
 
-  test "topology_links_query/0 supports backend rollback mode via mapper interface evidence query" do
+  test "topology_links_query/0 stays canonical-only even if legacy flag is set false" do
     original = Application.get_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology)
 
-    Application.put_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology, false)
-
-    on_exit(fn ->
+    try do
+      Application.put_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology, false)
+      query = RuntimeGraph.topology_links_query()
+      assert query =~ "MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)"
+      refute query =~ "MATCH (ai:Interface)-[r]->(bi:Interface)"
+    after
       if is_nil(original) do
         Application.delete_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology)
       else
-        Application.put_env(
-          :serviceradar_web_ng,
-          :god_view_backend_authoritative_topology,
-          original
-        )
+        Application.put_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology, original)
       end
-    end)
-
-    query = RuntimeGraph.topology_links_query()
-
-    assert query =~ "MATCH (ai:Interface)-[r]->(bi:Interface)"
-    assert query =~ "r.ingestor = 'mapper_topology_v1'"
-    assert query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
+    end
   end
 
   test "topology_links_query/0 returns relation metadata and interface attribution" do

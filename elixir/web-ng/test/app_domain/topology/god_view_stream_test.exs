@@ -156,6 +156,150 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Map.get(snapshot.pipeline_stats, :edge_parity_delta) == 0
   end
 
+  test "latest_snapshot/0 preserves mixed telemetry_eligible edge contract from runtime graph" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    rows = [
+      %{
+        local_device_id: "sr:eligible-a",
+        local_device_ip: "192.0.2.30",
+        local_if_name: "eth1",
+        local_if_index: 1,
+        local_if_name_ab: "eth1",
+        local_if_index_ab: 1,
+        local_if_name_ba: "eth2",
+        local_if_index_ba: 2,
+        neighbor_if_name: "eth2",
+        neighbor_if_index: 2,
+        neighbor_device_id: "sr:eligible-b",
+        neighbor_mgmt_addr: "192.0.2.31",
+        neighbor_system_name: "eligible-b",
+        protocol: "lldp",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        confidence_reason: "direct",
+        flow_pps: 100,
+        flow_bps: 10_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 70,
+        flow_pps_ba: 30,
+        flow_bps_ab: 7_000,
+        flow_bps_ba: 3_000,
+        telemetry_eligible: true,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      },
+      %{
+        local_device_id: "sr:eligible-c",
+        local_device_ip: "192.0.2.32",
+        local_if_name: "eth3",
+        local_if_index: 3,
+        local_if_name_ab: "eth3",
+        local_if_index_ab: 3,
+        local_if_name_ba: "eth4",
+        local_if_index_ba: 4,
+        neighbor_if_name: "eth4",
+        neighbor_if_index: 4,
+        neighbor_device_id: "sr:eligible-d",
+        neighbor_mgmt_addr: "192.0.2.33",
+        neighbor_system_name: "eligible-d",
+        protocol: "snmp-l2",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        confidence_reason: "direct",
+        flow_pps: 0,
+        flow_bps: 0,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 0,
+        flow_pps_ba: 0,
+        flow_bps_ab: 0,
+        flow_bps_ba: 0,
+        telemetry_eligible: false,
+        telemetry_source: "none",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      }
+    ]
+
+    assert true = Native.runtime_graph_replace_links(graph_ref, rows)
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+
+    eligible_edges =
+      Enum.count(snapshot.edges, fn edge -> Map.get(edge, :telemetry_eligible) == true end)
+
+    assert eligible_edges == 1
+  end
+
+  test "latest_snapshot/0 emits pipeline alert telemetry when interface-attributed edges drop to zero" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    handler_id = "god-view-pipeline-alert-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :god_view, :pipeline, :alert],
+        fn _event, measurements, metadata, pid ->
+          send(pid, {:god_view_pipeline_alert, measurements, metadata})
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    rows = [
+      %{
+        local_device_id: "sr:alert-a",
+        local_device_ip: "192.0.2.40",
+        local_if_name: "eth1",
+        local_if_index: 1,
+        local_if_name_ab: "eth1",
+        local_if_index_ab: 1,
+        local_if_name_ba: "eth2",
+        local_if_index_ba: 2,
+        neighbor_if_name: "eth2",
+        neighbor_if_index: 2,
+        neighbor_device_id: "sr:alert-b",
+        neighbor_mgmt_addr: "192.0.2.41",
+        neighbor_system_name: "alert-b",
+        protocol: "snmp-l2",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        confidence_reason: "direct",
+        flow_pps: 0,
+        flow_bps: 0,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 0,
+        flow_pps_ba: 0,
+        flow_bps_ab: 0,
+        flow_bps_ba: 0,
+        telemetry_eligible: false,
+        telemetry_source: "none",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      }
+    ]
+
+    assert true = Native.runtime_graph_replace_links(graph_ref, rows)
+    assert {:ok, _} = GodViewStream.latest_snapshot()
+
+    assert_receive {:god_view_pipeline_alert, measurements, metadata}, 2_000
+    assert measurements.final_edges > 0
+    assert measurements.edge_telemetry_interface == 0
+    assert metadata.alert == "edge_telemetry_interface_zero"
+  end
+
   test "latest_snapshot/0 tolerates runtime rows missing directional interface names" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)

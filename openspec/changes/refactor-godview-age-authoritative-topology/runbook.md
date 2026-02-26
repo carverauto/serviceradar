@@ -2,11 +2,11 @@
 
 ## Feature Flag and Rollback
 
-- Default mode (authoritative): `god_view_backend_authoritative_topology=true`
+- Runtime graph is canonical-only.
   - Runtime graph reads only `:CANONICAL_TOPOLOGY` edges.
-- Rollback mode (backend fallback): `god_view_backend_authoritative_topology=false`
-  - Runtime graph reads mapper interface evidence edges directly (`CONNECTS_TO`, `INFERRED_TO`, `ATTACHED_TO`, `OBSERVED_TO`).
-  - This keeps topology available during canonical rebuild incidents without reintroducing frontend graph shaping.
+  - Legacy mapper-interface fallback query mode is removed from web-ng runtime graph ingestion.
+- Rollback strategy is now operational, not query-mode toggling.
+  - Recover canonical graph via backend rebuild/recovery workflows (`canonical_rebuild` and `cleanup_recovery`) rather than switching to non-canonical reads.
 
 ## SLO Gates
 
@@ -39,8 +39,7 @@ Monitor these counters from `god_view_pipeline_stats` and runtime refresh logs:
 
 - Symptom: empty/sparse topology after deploy.
   - Check canonical rebuild logs and telemetry counts (`before_edges`, `after_upsert_edges`, `after_prune_edges`).
-  - If canonical edges collapse while mapper evidence exists, set fallback mode:
-    - `god_view_backend_authoritative_topology=false`.
+  - If canonical edges collapse while mapper evidence exists, trigger recovery/rebuild and verify refresh counts (`runtime_graph_refresh fetched=<n> ingested=<n>` with `n > 0`).
 - Symptom: topology present but reduced animations.
   - Check `edge_telemetry_interface` and `edge_unresolved_directional`.
   - Verify interface attribution fields (`local_if_index_ab`, `local_if_index_ba`) are present in runtime rows.
@@ -48,11 +47,10 @@ Monitor these counters from `god_view_pipeline_stats` and runtime refresh logs:
   - Investigate mapper evidence freshness and stale pruning windows.
   - Validate SNMP-L2/LLDP evidence ingestion cadence and agent reachability.
 
-## Return to Authoritative Mode
+## Return to Stable State
 
 After canonical rebuild stability is restored:
 
 1. Confirm `after_prune_edges` remains stable above threshold for multiple cycles.
-2. Switch back:
-   - `god_view_backend_authoritative_topology=true`.
+2. Confirm runtime refresh remains non-zero and stable over multiple intervals.
 3. Re-validate SLO gates.
