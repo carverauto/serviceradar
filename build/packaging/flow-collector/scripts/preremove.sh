@@ -14,11 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Pre-removal script for ServiceRadar NetFlow Collector
+# Pre-removal script for ServiceRadar Flow Collector
 set -e
 
 systemctl daemon-reload
-systemctl stop serviceradar-netflow-collector >/dev/null 2>&1 || true
-systemctl disable serviceradar-netflow-collector >/dev/null 2>&1 || true
+systemctl stop serviceradar-flow-collector >/dev/null 2>&1 || true
+systemctl disable serviceradar-flow-collector >/dev/null 2>&1 || true
 
 exit 0

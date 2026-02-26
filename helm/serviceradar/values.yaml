@@ -33,7 +33,7 @@ image:
     otel: *appTag
     trapd: *appTag
     flowgger: *appTag
-    netflowCollector: *appTag
+    flowCollector: *appTag
     bmpCollector: *appTag
     zen: *appTag
     rperfClient: *appTag
@@ -500,36 +500,29 @@ trapd:
         port: 162
         targetPort: 162
         protocol: UDP
-netflowCollector:
+flowCollector:
   enabled: false
   config:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
     stream_name: "events"
-    stream_subjects:
-      - "flows.raw.netflow"
-      - "flows.raw.netflow.processed"
-    stream_max_bytes: 10737418240
-    partition: "default"
     channel_size: 10000
     batch_size: 100
     publish_timeout_ms: 5000
-    drop_policy: "drop_oldest"
+    listeners:
+      - protocol: "sflow"
+        listen_addr: "0.0.0.0:6343"
+        subject: "flows.raw.sflow"
+      - protocol: "netflow"
+        listen_addr: "0.0.0.0:2055"
+        subject: "flows.raw.netflow"
     security:
       mode: "mtls"
       cert_dir: "/etc/serviceradar/certs"
       tls:
-        cert_file: "netflow-client.crt"
-        key_file: "netflow-client.key"
+        cert_file: "flow-collector.pem"
+        key_file: "flow-collector-key.pem"
         ca_file: "ca.crt"
-    metrics_addr: "0.0.0.0:50046"
-    listeners:
-      - protocol: "netflow"
-        listen_addr: "0.0.0.0:2055"
-        subject: "flows.raw.netflow"
-        buffer_size: 65536
-        max_templates: 2000
-        max_template_fields: 10000
   data:
     enabled: true
     existingClaim: ""
@@ -539,7 +532,6 @@ netflowCollector:
     type: ClusterIP
     annotations: {}
     loadBalancerIP: ""
-    # Only advertise from nodes with local endpoints (required for Calico BGP)
     externalTrafficPolicy: Cluster
     ports:
       netflow:
@@ -547,16 +539,11 @@ netflowCollector:
         port: 2055
         targetPort: 2055
         protocol: UDP
-      ipfix:
+      sflow:
         enabled: true
-        port: 4739
-        targetPort: 4739
+        port: 6343
+        targetPort: 6343
         protocol: UDP
-      metrics:
-        enabled: true
-        port: 50046
-        targetPort: 50046
-        protocol: TCP
   resources:
     requests:
       memory: "256Mi"
@@ -650,7 +637,7 @@ spire:
   rperfCheckerServiceAccount: serviceradar-rperf-checker
   flowggerServiceAccount: serviceradar-flowgger
   trapdServiceAccount: serviceradar-trapd
-  netflowCollectorServiceAccount: serviceradar-netflow-collector
+  flowCollectorServiceAccount: serviceradar-flow-collector
   bmpCollectorServiceAccount: serviceradar-bmp-collector
   bundleConfigMap: spire-bundle
   server:
