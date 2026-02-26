@@ -10,7 +10,7 @@
   (dict "name" "serviceradar-zen" "label" "serviceradar-zen" "sa" (.Values.spire.zenServiceAccount | default "serviceradar-zen"))
   (dict "name" "serviceradar-db-event-writer" "label" "serviceradar-db-event-writer" "sa" (.Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer"))
   (dict "name" "serviceradar-rperf-checker" "label" "serviceradar-rperf-client" "sa" (.Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker"))
-  (dict "name" "serviceradar-netflow-collector" "label" "serviceradar-netflow-collector" "sa" (.Values.spire.netflowCollectorServiceAccount | default "serviceradar-netflow-collector"))
+  (dict "name" "serviceradar-flow-collector" "label" "serviceradar-flow-collector" "sa" (.Values.spire.flowCollectorServiceAccount | default "serviceradar-flow-collector"))
   (dict "name" "serviceradar-bmp-collector" "label" "serviceradar-bmp-collector" "sa" (.Values.spire.bmpCollectorServiceAccount | default "serviceradar-bmp-collector"))
   (dict "name" "serviceradar-trapd" "label" "serviceradar-trapd" "sa" (.Values.spire.trapdServiceAccount | default "serviceradar-trapd"))
 }}

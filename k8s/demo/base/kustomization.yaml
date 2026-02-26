@@ -15,7 +15,7 @@ resources:
 - serviceradar-zen-rules.yaml
 - serviceradar-zen-rules-bootstrap.yaml
 - identity-prometheus-rules.yaml
-- serviceradar-netflow-collector.yaml
+- serviceradar-flow-collector.yaml
 - serviceradar-trapd.yaml
 - serviceradar-tools.yaml
 - serviceradar-rperf-checker.yaml

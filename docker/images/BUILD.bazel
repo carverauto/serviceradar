@@ -781,16 +781,20 @@ oci_load(
 )
 
 pkg_tar(
-    name = "flowgger_layer_amd64",
+    name = "log_collector_layer_amd64",
     files = {
-        "//rust/flowgger:flowgger": "usr/local/bin/serviceradar-flowgger",
-        "//docker/compose:entrypoint-flowgger.sh": "usr/local/bin/entrypoint.sh",
+        "//rust/log-collector:log-collector": "usr/local/bin/serviceradar-log-collector",
+        "//docker/compose:entrypoint-log-collector.sh": "usr/local/bin/entrypoint.sh",
+        "//docker/compose:log-collector.docker.toml": "etc/serviceradar/log-collector.toml",
         "//docker/compose:flowgger.docker.toml": "etc/serviceradar/flowgger.toml",
+        "//docker/compose:otel.docker.toml": "etc/serviceradar/otel.toml",
     },
     modes = {
-        "usr/local/bin/serviceradar-flowgger": "0755",
+        "usr/local/bin/serviceradar-log-collector": "0755",
         "usr/local/bin/entrypoint.sh": "0755",
+        "etc/serviceradar/log-collector.toml": "0644",
         "etc/serviceradar/flowgger.toml": "0644",
+        "etc/serviceradar/otel.toml": "0644",
     },
     empty_dirs = [
         "etc/serviceradar/checkers",
@@ -802,25 +806,25 @@ pkg_tar(
 )
 
 oci_image(
-    name = "flowgger_image_amd64",
-    base = "@debian_testing_slim_linux_amd64//:debian_testing_slim_linux_amd64",
-    tars = [":common_tools_amd64", ":flowgger_layer_amd64"],
+    name = "log_collector_image_amd64",
+    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    tars = [":common_tools_amd64", ":log_collector_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
-    cmd = ["serviceradar-flowgger"],
+    cmd = ["serviceradar-log-collector"],
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
     },
     workdir = "/var/lib/serviceradar",
-    exposed_ports = ["514/udp", "50044/tcp"],
+    exposed_ports = ["514/udp", "4317/tcp", "50044/tcp"],
     labels = {
-        "org.opencontainers.image.title": "serviceradar-flowgger",
+        "org.opencontainers.image.title": "serviceradar-log-collector",
     },
 )
 
 oci_load(
-    name = "flowgger_image_amd64_tar",
-    image = ":flowgger_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-flowgger:local"],
+    name = "log_collector_image_amd64_tar",
+    image = ":log_collector_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-log-collector:local"],
 )
 
 pkg_tar(
@@ -866,14 +870,14 @@ oci_load(
 )
 
 pkg_tar(
-    name = "netflow_collector_layer_amd64",
+    name = "flow_collector_layer_amd64",
     files = {
-        "//rust/flow-collector:flow-collector": "usr/local/bin/serviceradar-netflow-collector",
-        "//rust/flow-collector:flow-collector.json": "etc/serviceradar/netflow-collector.json",
+        "//rust/flow-collector:flow-collector": "usr/local/bin/serviceradar-flow-collector",
+        "//rust/flow-collector:flow-collector.json": "etc/serviceradar/flow-collector.json",
     },
     modes = {
-        "usr/local/bin/serviceradar-netflow-collector": "0755",
-        "etc/serviceradar/netflow-collector.json": "0644",
+        "usr/local/bin/serviceradar-flow-collector": "0755",
+        "etc/serviceradar/flow-collector.json": "0644",
     },
     empty_dirs = [
         "etc/serviceradar/certs",
@@ -884,25 +888,25 @@ pkg_tar(
 )
 
 oci_image(
-    name = "netflow_collector_image_amd64",
+    name = "flow_collector_image_amd64",
     base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    tars = [":common_tools_amd64", ":netflow_collector_layer_amd64"],
-    entrypoint = ["/usr/local/bin/serviceradar-netflow-collector"],
-    cmd = ["--config", "/etc/serviceradar/netflow-collector.json"],
+    tars = [":common_tools_amd64", ":flow_collector_layer_amd64"],
+    entrypoint = ["/usr/local/bin/serviceradar-flow-collector"],
+    cmd = ["--config", "/etc/serviceradar/flow-collector.json"],
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
     },
     workdir = "/var/lib/serviceradar",
-    exposed_ports = ["2055/udp", "4739/udp", "50046/tcp"],
+    exposed_ports = ["2055/udp", "6343/udp"],
     labels = {
-        "org.opencontainers.image.title": "serviceradar-netflow-collector",
+        "org.opencontainers.image.title": "serviceradar-flow-collector",
     },
 )
 
 oci_load(
-    name = "netflow_collector_image_amd64_tar",
-    image = ":netflow_collector_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-netflow-collector:local"],
+    name = "flow_collector_image_amd64_tar",
+    image = ":flow_collector_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-flow-collector:local"],
 )
 
 pkg_tar(
@@ -943,47 +947,6 @@ oci_load(
     repo_tags = ["ghcr.io/carverauto/arancini:local"],
 )
 
-pkg_tar(
-    name = "otel_layer_amd64",
-    files = {
-        "//rust/otel:otel": "usr/local/bin/serviceradar-otel",
-        "//docker/compose:entrypoint-otel.sh": "usr/local/bin/entrypoint.sh",
-        "//docker/compose:otel.docker.toml": "etc/serviceradar/otel.toml",
-    },
-    modes = {
-        "usr/local/bin/serviceradar-otel": "0755",
-        "usr/local/bin/entrypoint.sh": "0755",
-        "etc/serviceradar/otel.toml": "0644",
-    },
-    empty_dirs = [
-        "etc/serviceradar/certs",
-        "var/log/serviceradar",
-        "var/lib/serviceradar",
-    ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "otel_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    tars = [":common_tools_amd64", ":otel_layer_amd64"],
-    entrypoint = ["/usr/local/bin/entrypoint.sh"],
-    cmd = ["serviceradar-otel"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
-    workdir = "/var/lib/serviceradar",
-    exposed_ports = ["4317/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-otel",
-    },
-)
-
-oci_load(
-    name = "otel_image_amd64_tar",
-    image = ":otel_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-otel:local"],
-)
 
 pkg_tar(
     name = "rperf_client_layer_amd64",

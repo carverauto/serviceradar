@@ -4,6 +4,6 @@ load("//build/packaging:packages.bzl", "PACKAGES")
 package(default_visibility = ["//visibility:public"])
 
 serviceradar_package_from_config(
-    name = "netflow-collector",
-    config = PACKAGES["netflow-collector"],
+    name = "flow-collector",
+    config = PACKAGES["flow-collector"],
 )
