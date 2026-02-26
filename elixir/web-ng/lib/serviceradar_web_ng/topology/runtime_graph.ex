@@ -43,6 +43,11 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     GenServer.cast(__MODULE__, :refresh_now)
   end
 
+  @spec refresh_now_sync() :: :ok
+  def refresh_now_sync do
+    GenServer.call(__MODULE__, :refresh_now_sync, 30_000)
+  end
+
   @impl true
   def init(_opts) do
     refresh_ms =
@@ -81,6 +86,11 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   @impl true
   def handle_call(:get_graph_ref, _from, state) do
     {:reply, {:ok, state.graph_ref}, state}
+  end
+
+  @impl true
+  def handle_call(:refresh_now_sync, _from, state) do
+    {:reply, :ok, refresh_state(state)}
   end
 
   @impl true

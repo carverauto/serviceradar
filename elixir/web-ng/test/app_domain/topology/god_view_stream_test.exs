@@ -1995,7 +1995,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       end
 
       _ = TopologyGraph.rebuild_canonical_links_from_current()
-      RuntimeGraph.refresh_now()
+      :ok = RuntimeGraph.refresh_now_sync()
       await_runtime_graph_refresh(graph_ref)
     end
 
