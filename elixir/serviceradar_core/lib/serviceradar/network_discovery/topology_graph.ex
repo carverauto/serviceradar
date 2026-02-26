@@ -987,7 +987,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     if accepted_device_ids == [] or if_indexes == [] do
       %{}
     else
-      from(i in "interfaces",
+      from(i in "discovered_interfaces",
         where: i.device_id in ^accepted_device_ids,
         where: i.if_index in ^if_indexes,
         distinct: [i.device_id, i.if_index],
