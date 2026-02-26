@@ -27,7 +27,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @layout_cache_key {__MODULE__, :layout_cache}
   @snapshot_cache_key {__MODULE__, :snapshot_cache}
   @packet_metric_names ["ifInUcastPkts", "ifOutUcastPkts", "ifHCInUcastPkts", "ifHCOutUcastPkts"]
-  @octet_metric_names ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
 
   @spec latest_snapshot() ::
           {:ok, %{snapshot: GodViewSnapshot.snapshot(), payload: binary()}} | {:error, term()}
@@ -270,9 +269,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       device_by_id = Map.new(devices, &{&1.uid, &1})
       interface_index = index_interfaces(interfaces)
       pps_by_if = load_interface_pps(interface_index, [])
-      directional_keys = directional_metric_keys(canonical_edges)
-      pps_by_if_direction = load_interface_pps_direction(interface_index, directional_keys)
-      bps_by_if_direction = load_interface_bps_direction(interface_index, directional_keys)
       node_ids = node_ids(canonical_node_ids, devices)
       nodes = build_nodes(node_ids, device_by_id, interface_index, pps_by_if)
 
@@ -280,7 +276,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         canonical_edges
         |> dedupe_edges()
         |> normalize_backend_edge_telemetry()
-        |> backfill_directional_edge_telemetry(pps_by_if_direction, bps_by_if_direction)
 
       edge_contract_stats = edge_contract_stats(edges)
 
@@ -495,90 +490,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp normalize_backend_edge_telemetry(_), do: []
-
-  defp backfill_directional_edge_telemetry(edges, pps_by_if_direction, bps_by_if_direction)
-       when is_list(edges) and is_map(pps_by_if_direction) and is_map(bps_by_if_direction) do
-    Enum.map(edges, fn edge ->
-      flow_pps = normalize_u32(Map.get(edge, :flow_pps, 0))
-      flow_bps = normalize_u64(Map.get(edge, :flow_bps, 0))
-
-      if flow_pps > 0 or flow_bps > 0 do
-        edge
-      else
-        source = normalize_id(Map.get(edge, :source))
-        target = normalize_id(Map.get(edge, :target))
-        ab_if_index = Map.get(edge, :local_if_index_ab)
-        ba_if_index = Map.get(edge, :local_if_index_ba)
-
-        src_pps = Map.get(pps_by_if_direction, metric_key(source, ab_if_index), %{})
-        dst_pps = Map.get(pps_by_if_direction, metric_key(target, ba_if_index), %{})
-        src_bps = Map.get(bps_by_if_direction, metric_key(source, ab_if_index), %{})
-        dst_bps = Map.get(bps_by_if_direction, metric_key(target, ba_if_index), %{})
-
-        flow_pps_ab = min_non_zero(Map.get(src_pps, :out, 0), Map.get(dst_pps, :in, 0))
-        flow_pps_ba = min_non_zero(Map.get(dst_pps, :out, 0), Map.get(src_pps, :in, 0))
-        flow_bps_ab = min_non_zero(Map.get(src_bps, :out, 0), Map.get(dst_bps, :in, 0))
-        flow_bps_ba = min_non_zero(Map.get(dst_bps, :out, 0), Map.get(src_bps, :in, 0))
-        backfill_pps = normalize_u32(flow_pps_ab + flow_pps_ba)
-        backfill_bps = normalize_u64(flow_bps_ab + flow_bps_ba)
-
-        edge
-        |> Map.put(:flow_pps_ab, flow_pps_ab)
-        |> Map.put(:flow_pps_ba, flow_pps_ba)
-        |> Map.put(:flow_bps_ab, flow_bps_ab)
-        |> Map.put(:flow_bps_ba, flow_bps_ba)
-        |> Map.put(:flow_pps, backfill_pps)
-        |> Map.put(:flow_bps, backfill_bps)
-        |> Map.put(
-          :telemetry_source,
-          if(backfill_pps > 0 or backfill_bps > 0, do: "interface-runtime", else: "none")
-        )
-        |> Map.put(:telemetry_eligible, backfill_pps > 0 or backfill_bps > 0)
-        |> Map.put(
-          :label,
-          edge_label(edge, backfill_pps, normalize_u64(Map.get(edge, :capacity_bps, 0)))
-        )
-      end
-    end)
-  end
-
-  defp backfill_directional_edge_telemetry(edges, _pps_by_if_direction, _bps_by_if_direction),
-    do: edges
-
-  defp directional_metric_keys(edges) when is_list(edges) do
-    edges
-    |> Enum.flat_map(fn edge ->
-      source = normalize_id(Map.get(edge, :source))
-      target = normalize_id(Map.get(edge, :target))
-
-      [
-        metric_key(source, Map.get(edge, :local_if_index_ab)),
-        metric_key(target, Map.get(edge, :local_if_index_ba))
-      ]
-      |> Enum.reject(&is_nil/1)
-    end)
-    |> Enum.uniq()
-  end
-
-  defp directional_metric_keys(_), do: []
-
-  defp metric_key(device_id, if_index)
-       when is_binary(device_id) and is_integer(if_index) and if_index > 0,
-       do: {device_id, if_index}
-
-  defp metric_key(_, _), do: nil
-
-  defp min_non_zero(a, b) do
-    av = value_to_non_negative_int(a) || 0
-    bv = value_to_non_negative_int(b) || 0
-
-    cond do
-      av > 0 and bv > 0 -> min(av, bv)
-      av > 0 -> av
-      bv > 0 -> bv
-      true -> 0
-    end
-  end
 
   defp telemetry_eligible_edge?(edge) when is_map(edge) do
     directional_attributed? =
@@ -1171,51 +1082,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp load_interface_pps_direction(_interface_index, _extra_keys), do: %{}
 
-  defp load_interface_bps_direction(interface_index, extra_keys) when is_map(interface_index) do
-    keys = metric_query_keys(interface_index, extra_keys)
-
-    device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
-    if_indexes = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
-
-    if device_ids == [] or if_indexes == [] do
-      %{}
-    else
-      query =
-        from(m in "timeseries_metrics",
-          where: m.device_id in ^device_ids,
-          where: m.if_index in ^if_indexes,
-          where: m.metric_name in ^@octet_metric_names,
-          where: m.timestamp > ago(10, "minute"),
-          distinct: [m.device_id, m.if_index, m.metric_name],
-          order_by: [asc: m.device_id, asc: m.if_index, asc: m.metric_name, desc: m.timestamp],
-          select: {m.device_id, m.if_index, m.metric_name, m.value}
-        )
-
-      query
-      |> Repo.all()
-      |> Enum.reduce(%{}, fn {device_id, if_index, metric_name, value}, acc ->
-        dir = octet_metric_direction(metric_name)
-        octets_per_second = value_to_non_negative_int(value)
-
-        if is_nil(dir) or is_nil(octets_per_second) do
-          acc
-        else
-          bits_per_second = octets_per_second * 8
-          key = {normalize_id(device_id), if_index}
-
-          Map.update(acc, key, %{dir => bits_per_second}, fn current ->
-            current
-            |> Map.update(dir, bits_per_second, &max(&1, bits_per_second))
-          end)
-        end
-      end)
-    end
-  rescue
-    _ -> %{}
-  end
-
-  defp load_interface_bps_direction(_interface_index, _extra_keys), do: %{}
-
   defp metric_query_keys(interface_index, extra_keys)
        when is_map(interface_index) and is_list(extra_keys) do
     interface_keys =
@@ -1299,14 +1165,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
        do: :out
 
   defp packet_metric_direction(_), do: nil
-
-  defp octet_metric_direction(metric_name) when metric_name in ["ifInOctets", "ifHCInOctets"],
-    do: :in
-
-  defp octet_metric_direction(metric_name) when metric_name in ["ifOutOctets", "ifHCOutOctets"],
-    do: :out
-
-  defp octet_metric_direction(_), do: nil
 
   defp value_to_non_negative_int(value) when is_integer(value) and value >= 0, do: value
   defp value_to_non_negative_int(value) when is_float(value) and value >= 0, do: trunc(value)
