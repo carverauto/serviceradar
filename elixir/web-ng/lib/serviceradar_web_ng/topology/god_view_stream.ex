@@ -151,8 +151,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp build_projection(actor) do
     with {:ok, links} <- fetch_topology_links(actor),
-         {:ok, pairs} <- unique_pairs(links),
-         {:ok, nodes, edges, pipeline_stats} <- build_nodes_and_edges(actor, links, pairs),
+         {:ok, nodes, edges, pipeline_stats} <- build_nodes_and_edges(actor, links),
          {:ok, indexed_edges} <- index_edges(nodes, edges) do
       emit_pipeline_stats(pipeline_stats)
       topology_revision = topology_revision(nodes, indexed_edges)
@@ -178,55 +177,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     RuntimeGraph.get_links()
   end
 
-  defp unique_pairs(links) when is_list(links) do
-    pairs =
-      Enum.reduce(links, %{}, fn link, acc ->
-        local_id = normalize_id(Map.get(link, :local_device_id))
-        neighbor_id = normalize_id(Map.get(link, :neighbor_device_id))
-
-        if is_nil(local_id) or is_nil(neighbor_id) or local_id == neighbor_id do
-          acc
-        else
-          {a, b} = canonical_pair(local_id, neighbor_id)
-          candidate = build_pair_candidate(link, local_id, neighbor_id, a, b)
-          Map.put_new(acc, {a, b}, candidate)
-        end
-      end)
-
-    {:ok, pairs}
-  end
-
-  defp unique_pairs(_links), do: {:ok, %{}}
-
-  defp build_pair_candidate(link, local_id, _neighbor_id, a, b) do
+  defp runtime_link_to_edge(link) when is_map(link) do
     local_if_index = Map.get(link, :local_if_index)
     local_if_name = normalize_id(Map.get(link, :local_if_name))
     neighbor_if_index = Map.get(link, :neighbor_if_index)
     neighbor_if_name = normalize_id(Map.get(link, :neighbor_if_name))
-    remote_port_hint = normalize_neighbor_port_hint(link)
-
-    directional_attrs =
-      if local_id == a do
-        %{
-          local_if_index_ab: local_if_index,
-          local_if_name_ab: local_if_name,
-          local_if_index_ba: neighbor_if_index,
-          # Hint for reverse-direction interface attribution (neighbor/local port on endpoint b).
-          local_if_name_ba: neighbor_if_name || remote_port_hint
-        }
-      else
-        %{
-          local_if_index_ab: neighbor_if_index,
-          # Hint for forward-direction interface attribution (neighbor/local port on endpoint a).
-          local_if_name_ab: neighbor_if_name || remote_port_hint,
-          local_if_index_ba: local_if_index,
-          local_if_name_ba: local_if_name
-        }
-      end
 
     %{
-      source: a,
-      target: b,
+      source: normalize_id(Map.get(link, :local_device_id)),
+      target: normalize_id(Map.get(link, :neighbor_device_id)),
       kind: "topology",
       protocol: Map.get(link, :protocol),
       evidence_class: evidence_class(link),
@@ -245,60 +204,47 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       flow_bps_ab: normalize_u64(Map.get(link, :flow_bps_ab, 0)),
       flow_bps_ba: normalize_u64(Map.get(link, :flow_bps_ba, 0)),
       telemetry_source: normalize_id(Map.get(link, :telemetry_source)) || "none",
+      local_if_index_ab: local_if_index,
+      local_if_name_ab: local_if_name,
+      local_if_index_ba: neighbor_if_index,
+      local_if_name_ba: neighbor_if_name,
       metadata: Map.get(link, :metadata) || %{}
     }
-    |> Map.merge(directional_attrs)
   end
 
-  defp build_nodes_and_edges(actor, raw_links, pairs) do
-    pair_edges = Map.values(pairs)
-    edge_node_ids = pairs |> Map.keys() |> Enum.flat_map(&Tuple.to_list/1) |> Enum.uniq()
-    lookup_ids = edge_node_ids
+  defp runtime_link_to_edge(_), do: nil
 
-    with {:ok, devices} <- fetch_devices(actor, lookup_ids),
+  defp build_nodes_and_edges(actor, raw_links) do
+    canonical_edges =
+      raw_links
+      |> Enum.map(&runtime_link_to_edge/1)
+      |> Enum.reject(&is_nil/1)
+      |> canonicalize_edges()
+      |> normalize_backend_edge_telemetry()
+
+    edge_node_ids = canonical_edges |> Enum.flat_map(&[&1.source, &1.target]) |> Enum.uniq()
+
+    with {:ok, devices} <- fetch_devices(actor, edge_node_ids),
          {:ok, interfaces} <- fetch_interfaces(actor, edge_node_ids) do
-      canonical_edges =
-        pair_edges
-        |> canonicalize_edges()
-        |> maybe_apply_structural_pruning(devices)
-        |> maybe_apply_edge_normalization(devices)
-
-      canonical_node_ids =
-        canonical_edges |> Enum.flat_map(&[&1.source, &1.target]) |> Enum.uniq()
-
       device_by_id = Map.new(devices, &{&1.uid, &1})
       interface_index = index_interfaces(interfaces)
       pps_by_if = load_interface_pps(interface_index, [])
-      node_ids = node_ids(canonical_node_ids, devices)
+      node_ids = node_ids(edge_node_ids, devices)
       nodes = build_nodes(node_ids, device_by_id, interface_index, pps_by_if)
-
-      edges =
-        canonical_edges
-        |> dedupe_edges()
-        |> normalize_backend_edge_telemetry()
+      edges = canonical_edges
 
       edge_contract_stats = edge_contract_stats(edges)
 
       unresolved_endpoints =
-        Enum.count(canonical_node_ids, fn id -> not Map.has_key?(device_by_id, id) end)
+        Enum.count(edge_node_ids, fn id -> not Map.has_key?(device_by_id, id) end)
 
       pipeline_stats =
-        pipeline_stats(raw_links, pair_edges, edges, nodes, unresolved_endpoints)
+        pipeline_stats(raw_links, edges, edges, nodes, unresolved_endpoints)
         |> Map.merge(edge_contract_stats)
         |> Map.merge(component_stats(nodes, edges))
 
       {:ok, nodes, edges, pipeline_stats}
     end
-  end
-
-  defp maybe_apply_structural_pruning(edges, devices) do
-    _ = devices
-    edges
-  end
-
-  defp maybe_apply_edge_normalization(edges, devices) do
-    _ = devices
-    edges
   end
 
   defp pipeline_stats(raw_links, pair_links, final_edges, final_nodes, unresolved_endpoints)
@@ -556,75 +502,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp normalize_mac_hex(_), do: nil
 
-  defp dedupe_edges(edges) when is_list(edges) do
-    edges
-    |> Enum.reduce(%{}, fn edge, acc ->
-      source = Map.get(edge, :source)
-      target = Map.get(edge, :target)
-
-      if is_binary(source) and is_binary(target) and source != target do
-        {a, b} = canonical_pair(source, target)
-
-        Map.update(acc, {a, b}, edge, fn existing ->
-          if edge_rank(edge) > edge_rank(existing), do: edge, else: existing
-        end)
-      else
-        acc
-      end
-    end)
-    |> Map.values()
-  end
-
-  defp dedupe_edges(_), do: []
-
   defp valid_ifindex?(value) when is_integer(value), do: value > 0
   defp valid_ifindex?(_value), do: false
-
-  defp edge_rank(edge) when is_map(edge) do
-    confidence_rank =
-      case confidence_tier(edge) do
-        "high" -> 3
-        "medium" -> 2
-        "low" -> 1
-        _ -> 0
-      end
-
-    protocol_rank =
-      case edge_protocol(edge) do
-        "wireguard-derived" -> 5
-        "lldp" -> 4
-        "cdp" -> 4
-        "unifi-api" -> if(snmp_interface_attributed?(edge), do: 3, else: 0)
-        "snmp-l2" -> 2
-        "snmp-parent" -> 1
-        "snmp-site" -> 0
-        _ -> 0
-      end
-
-    telemetry_rank =
-      cond do
-        directional_attribution_present?(edge, :ab) and
-            directional_attribution_present?(edge, :ba) ->
-          3
-
-        directional_attribution_present?(edge, :ab) or
-            directional_attribution_present?(edge, :ba) ->
-          2
-
-        valid_ifindex?(Map.get(edge, :local_if_index)) ->
-          2
-
-        is_binary(normalize_id(Map.get(edge, :local_if_name))) ->
-          1
-
-        true ->
-          0
-      end
-
-    {confidence_rank, protocol_rank, telemetry_rank}
-  end
-
-  defp edge_rank(_), do: {0, 0, 0}
 
   defp fetch_interfaces(_actor, []), do: {:ok, []}
 
@@ -1651,42 +1530,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     {bitmaps, metadata}
   end
-
-  defp canonical_pair(a, b) when a <= b, do: {a, b}
-  defp canonical_pair(a, b), do: {b, a}
-
-  defp normalize_neighbor_port_hint(link) when is_map(link) do
-    # Prefer port description for interface matching (e.g. "eth4"), because some
-    # LLDP neighbor_port_id values are chassis MAC-like bytes and not interface names.
-    normalize_id(Map.get(link, :neighbor_if_name)) ||
-      normalize_id(Map.get(link, :neighbor_port_descr)) ||
-      normalize_id(Map.get(link, :neighbor_port_id)) ||
-      decode_hex_port_id(Map.get(link, :neighbor_port_id))
-  end
-
-  defp normalize_neighbor_port_hint(_), do: nil
-
-  # Some LLDP port IDs arrive as colon-delimited hex bytes (e.g. "50:6f:72:74:20:31" -> "Port 1").
-  # Decode those so we can match against discovered interface names for reverse-direction attribution.
-  defp decode_hex_port_id(value) when is_binary(value) do
-    trimmed = String.trim(value)
-
-    with true <- String.contains?(trimmed, ":"),
-         parts <- String.split(trimmed, ":", trim: true),
-         true <- parts != [],
-         true <- Enum.all?(parts, &(String.length(&1) == 2)),
-         ints <- Enum.map(parts, &Integer.parse(&1, 16)),
-         true <- Enum.all?(ints, &match?({_, ""}, &1)) do
-      ints
-      |> Enum.map(fn {i, _} -> i end)
-      |> :binary.list_to_bin()
-      |> normalize_id()
-    else
-      _ -> nil
-    end
-  end
-
-  defp decode_hex_port_id(_), do: nil
 
   defp normalize_id(value) when is_binary(value) do
     trimmed = String.trim(value)
