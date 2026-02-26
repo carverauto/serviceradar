@@ -673,6 +673,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     before_edges = canonical_edge_count()
     mapper_evidence_edges = mapper_evidence_edge_count()
     stale_cutoff = stale_cutoff_iso8601()
+    min_canonical_edges = canonical_rebuild_min_edges()
     upsert_cypher = canonical_rebuild_upsert_query(stale_cutoff)
 
     case Graph.execute(upsert_cypher) do
@@ -681,6 +682,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         prune_result = prune_stale_canonical_device_links(stale_cutoff)
         after_prune_edges = canonical_edge_count()
         telemetry_result = refresh_canonical_edge_telemetry(stale_cutoff)
+        {after_prune_edges, self_heal_result} =
+          maybe_self_heal_zero_canonical(
+            after_prune_edges,
+            mapper_evidence_edges,
+            stale_cutoff,
+            min_canonical_edges
+          )
 
         stats = %{
           before_edges: before_edges,
@@ -688,23 +696,103 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
           after_upsert_edges: after_upsert_edges,
           after_prune_edges: after_prune_edges,
           telemetry_refresh: telemetry_result,
-          stale_cutoff: stale_cutoff
+          stale_cutoff: stale_cutoff,
+          self_heal_result: self_heal_result
         }
 
+        emit_canonical_rebuild_telemetry(:completed, stats)
         Logger.info("canonical_topology_rebuild_stats #{inspect(stats)}")
         {:ok, Map.put(stats, :prune_result, prune_result)}
 
       {:error, reason} ->
         Logger.warning("Canonical topology rebuild failed: #{inspect(reason)}")
+        failure_stats = %{
+          before_edges: before_edges,
+          mapper_evidence_edges: mapper_evidence_edges,
+          stale_cutoff: stale_cutoff
+        }
 
-        {:error, reason,
-         %{
-           before_edges: before_edges,
-           mapper_evidence_edges: mapper_evidence_edges,
-           stale_cutoff: stale_cutoff
-         }}
+        emit_canonical_rebuild_telemetry(:failed, failure_stats, reason)
+        {:error, reason, failure_stats}
     end
   end
+
+  @doc false
+  @spec canonical_rebuild_min_edges() :: pos_integer()
+  def canonical_rebuild_min_edges do
+    Application.get_env(:serviceradar_core, __MODULE__, [])
+    |> Keyword.get(:min_canonical_edges, 1)
+    |> normalize_positive_int(1)
+  end
+
+  @doc false
+  @spec self_heal_needed?(integer(), integer(), integer()) :: boolean()
+  def self_heal_needed?(after_prune_edges, mapper_evidence_edges, min_canonical_edges)
+      when is_integer(after_prune_edges) and is_integer(mapper_evidence_edges) and
+             is_integer(min_canonical_edges) do
+    after_prune_edges < min_canonical_edges and mapper_evidence_edges >= min_canonical_edges
+  end
+
+  def self_heal_needed?(_after_prune_edges, _mapper_evidence_edges, _min_canonical_edges), do: false
+
+  defp maybe_self_heal_zero_canonical(
+         after_prune_edges,
+         mapper_evidence_edges,
+         stale_cutoff,
+         min_canonical_edges
+       )
+       when is_integer(after_prune_edges) and is_integer(mapper_evidence_edges) and
+              is_binary(stale_cutoff) and is_integer(min_canonical_edges) do
+    if self_heal_needed?(after_prune_edges, mapper_evidence_edges, min_canonical_edges) do
+      Logger.warning(
+        "Canonical topology self-heal triggered",
+        after_prune_edges: after_prune_edges,
+        mapper_evidence_edges: mapper_evidence_edges,
+        min_canonical_edges: min_canonical_edges
+      )
+
+      case Graph.execute(canonical_rebuild_upsert_query(stale_cutoff)) do
+        :ok ->
+          healed_edges = canonical_edge_count()
+          {healed_edges, %{status: :completed, before: after_prune_edges, after: healed_edges}}
+
+        {:error, reason} ->
+          Logger.warning("Canonical topology self-heal failed", reason: inspect(reason))
+
+          {after_prune_edges,
+           %{status: :failed, before: after_prune_edges, after: after_prune_edges, reason: reason}}
+      end
+    else
+      {after_prune_edges, %{status: :skipped}}
+    end
+  end
+
+  @doc false
+  @spec emit_canonical_rebuild_telemetry(:completed | :failed, map(), term() | nil) :: :ok
+  def emit_canonical_rebuild_telemetry(status, stats, reason \\ nil)
+      when status in [:completed, :failed] and is_map(stats) do
+    measurements = %{
+      before_edges: Map.get(stats, :before_edges, 0),
+      mapper_evidence_edges: Map.get(stats, :mapper_evidence_edges, 0),
+      after_upsert_edges: Map.get(stats, :after_upsert_edges, 0),
+      after_prune_edges: Map.get(stats, :after_prune_edges, 0)
+    }
+
+    metadata =
+      %{
+        status: status,
+        stale_cutoff: Map.get(stats, :stale_cutoff),
+        prune_result: Map.get(stats, :prune_result),
+        telemetry_refresh: Map.get(stats, :telemetry_refresh)
+      }
+      |> maybe_put_reason(reason)
+
+    :telemetry.execute([:serviceradar, :topology, :canonical_rebuild, status], measurements, metadata)
+    :ok
+  end
+
+  defp maybe_put_reason(metadata, nil), do: metadata
+  defp maybe_put_reason(metadata, reason), do: Map.put(metadata, :reason, inspect(reason))
 
   defp prune_stale_canonical_device_links(stale_cutoff) when is_binary(stale_cutoff) do
     prune_cypher = canonical_rebuild_prune_query(stale_cutoff)

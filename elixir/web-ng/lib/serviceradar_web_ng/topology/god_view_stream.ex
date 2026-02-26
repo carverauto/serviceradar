@@ -191,8 +191,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp runtime_link_to_edge(link) when is_map(link) do
     local_if_index = Map.get(link, :local_if_index)
     local_if_name = normalize_id(Map.get(link, :local_if_name))
+    local_if_index_ab = Map.get(link, :local_if_index_ab) || local_if_index
+    local_if_name_ab = normalize_id(Map.get(link, :local_if_name_ab)) || local_if_name
     neighbor_if_index = Map.get(link, :neighbor_if_index)
     neighbor_if_name = normalize_id(Map.get(link, :neighbor_if_name))
+    local_if_index_ba = Map.get(link, :local_if_index_ba) || neighbor_if_index
+    local_if_name_ba = normalize_id(Map.get(link, :local_if_name_ba)) || neighbor_if_name
 
     %{
       source: normalize_id(Map.get(link, :local_device_id)),
@@ -201,6 +205,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       protocol: Map.get(link, :protocol),
       evidence_class: evidence_class(link),
       confidence_tier: confidence_tier(link),
+      confidence_reason: normalize_id(Map.get(link, :confidence_reason)) || "unspecified",
       local_device_ip: normalize_id(Map.get(link, :local_device_ip)),
       neighbor_mgmt_addr: normalize_id(Map.get(link, :neighbor_mgmt_addr)),
       local_if_index: local_if_index,
@@ -215,10 +220,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       flow_bps_ab: normalize_u64(Map.get(link, :flow_bps_ab, 0)),
       flow_bps_ba: normalize_u64(Map.get(link, :flow_bps_ba, 0)),
       telemetry_source: normalize_id(Map.get(link, :telemetry_source)) || "none",
-      local_if_index_ab: local_if_index,
-      local_if_name_ab: local_if_name,
-      local_if_index_ba: neighbor_if_index,
-      local_if_name_ba: neighbor_if_name,
+      local_if_index_ab: local_if_index_ab,
+      local_if_name_ab: local_if_name_ab,
+      local_if_index_ba: local_if_index_ba,
+      local_if_name_ba: local_if_name_ba,
       metadata: Map.get(link, :metadata) || %{}
     }
   end

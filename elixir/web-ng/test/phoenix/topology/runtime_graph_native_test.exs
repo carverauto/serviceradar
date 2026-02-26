@@ -11,6 +11,10 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphNativeTest do
       local_device_ip: "192.168.1.10",
       local_if_name: "eth0",
       local_if_index: 10,
+      local_if_name_ab: "eth0.10",
+      local_if_index_ab: 110,
+      local_if_name_ba: "eth1.20",
+      local_if_index_ba: 220,
       neighbor_if_name: "eth1",
       neighbor_if_index: 20,
       neighbor_device_id: "sr:device-b",
@@ -19,6 +23,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphNativeTest do
       protocol: "lldp",
       evidence_class: "direct",
       confidence_tier: "high",
+      confidence_reason: "direct_lldp_neighbor",
       flow_pps: 300,
       flow_bps: 3_000,
       capacity_bps: 1_000_000_000,
@@ -46,6 +51,11 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphNativeTest do
     assert stored.flow_pps_ba == 180
     assert stored.flow_bps_ab == 1_200
     assert stored.flow_bps_ba == 1_800
+    assert stored.local_if_index_ab == 110
+    assert stored.local_if_name_ab == "eth0.10"
+    assert stored.local_if_index_ba == 220
+    assert stored.local_if_name_ba == "eth1.20"
+    assert stored.confidence_reason == "direct_lldp_neighbor"
     assert stored.telemetry_source == "interface"
     assert stored.evidence_class == "direct"
   end

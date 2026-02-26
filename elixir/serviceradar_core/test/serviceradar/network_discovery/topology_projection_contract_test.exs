@@ -228,5 +228,62 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
       assert query =~ "RETURN {count: count(r)}"
     end
+
+    test "canonical rebuild telemetry emits before/after counters on completion" do
+      handler_id = "canonical-rebuild-completed-#{System.unique_integer([:positive])}"
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:serviceradar, :topology, :canonical_rebuild, :completed],
+          fn event, measurements, metadata, pid ->
+            send(pid, {:telemetry, event, measurements, metadata})
+          end,
+          self()
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      stats = %{
+        before_edges: 7,
+        mapper_evidence_edges: 12,
+        after_upsert_edges: 10,
+        after_prune_edges: 9,
+        stale_cutoff: "2026-02-26T00:00:00Z"
+      }
+
+      assert :ok = TopologyGraph.emit_canonical_rebuild_telemetry(:completed, stats)
+
+      assert_receive {:telemetry, [:serviceradar, :topology, :canonical_rebuild, :completed],
+                      measurements, metadata}
+
+      assert measurements.before_edges == 7
+      assert measurements.mapper_evidence_edges == 12
+      assert measurements.after_upsert_edges == 10
+      assert measurements.after_prune_edges == 9
+      assert metadata.status == :completed
+    end
+  end
+
+  describe "canonical rebuild stabilization" do
+    test "self_heal_needed?/3 gates only on low canonical count with mapper evidence present" do
+      assert TopologyGraph.self_heal_needed?(0, 5, 1)
+      refute TopologyGraph.self_heal_needed?(2, 5, 1)
+      refute TopologyGraph.self_heal_needed?(0, 0, 1)
+    end
+
+    test "canonical_rebuild_min_edges/0 defaults to 1 and honors positive config" do
+      original = Application.get_env(:serviceradar_core, TopologyGraph, [])
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_core, TopologyGraph, original)
+      end)
+
+      Application.put_env(:serviceradar_core, TopologyGraph, [])
+      assert TopologyGraph.canonical_rebuild_min_edges() == 1
+
+      Application.put_env(:serviceradar_core, TopologyGraph, min_canonical_edges: 3)
+      assert TopologyGraph.canonical_rebuild_min_edges() == 3
+    end
   end
 end

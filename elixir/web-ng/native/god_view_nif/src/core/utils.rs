@@ -99,6 +99,13 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
     let local_if_index = map_get_any(row, runtime_graph_atoms::local_if_index(), "local_if_index")
         .and_then(term_as_i64)
         .unwrap_or(-1);
+    let local_if_index_ab =
+        map_get_any(row, runtime_graph_atoms::local_if_index_ab(), "local_if_index_ab")
+            .and_then(term_as_i64)
+            .unwrap_or(local_if_index);
+    let local_if_name_ab = map_get_any(row, runtime_graph_atoms::local_if_name_ab(), "local_if_name_ab")
+        .and_then(term_as_string)
+        .unwrap_or_else(|| local_if_name.clone());
     let neighbor_if_name = map_get_any(
         row,
         runtime_graph_atoms::neighbor_if_name(),
@@ -113,6 +120,13 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
     )
     .and_then(term_as_i64)
     .unwrap_or(-1);
+    let local_if_index_ba =
+        map_get_any(row, runtime_graph_atoms::local_if_index_ba(), "local_if_index_ba")
+            .and_then(term_as_i64)
+            .unwrap_or(neighbor_if_index);
+    let local_if_name_ba = map_get_any(row, runtime_graph_atoms::local_if_name_ba(), "local_if_name_ba")
+        .and_then(term_as_string)
+        .unwrap_or_else(|| neighbor_if_name.clone());
     let neighbor_device_id = map_get_any(
         row,
         runtime_graph_atoms::neighbor_device_id(),
@@ -147,6 +161,13 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
     )
     .and_then(term_as_string)
     .unwrap_or_else(|| "unknown".to_string());
+    let confidence_reason = map_get_any(
+        row,
+        runtime_graph_atoms::confidence_reason(),
+        "confidence_reason",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_default();
     let flow_pps = map_get_any(row, runtime_graph_atoms::flow_pps(), "flow_pps")
         .and_then(term_as_i64)
         .unwrap_or(0);
@@ -226,6 +247,10 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
         local_device_ip,
         local_if_name,
         local_if_index,
+        local_if_index_ab,
+        local_if_name_ab,
+        local_if_index_ba,
+        local_if_name_ba,
         neighbor_if_name,
         neighbor_if_index,
         neighbor_device_id,
@@ -234,6 +259,7 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
         protocol,
         evidence_class,
         confidence_tier,
+        confidence_reason,
         flow_pps,
         flow_bps,
         capacity_bps,

@@ -20,8 +20,13 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "relation_type: coalesce(r.relation_type, type(r))"
     assert query =~ "local_if_name: coalesce(r.local_if_name, '')"
     assert query =~ "local_if_index: r.local_if_index"
+    assert query =~ "local_if_name_ab: coalesce(r.local_if_name_ab, r.local_if_name, '')"
+    assert query =~ "local_if_index_ab: coalesce(r.local_if_index_ab, r.local_if_index)"
+    assert query =~ "local_if_name_ba: coalesce(r.local_if_name_ba, r.neighbor_if_name, '')"
+    assert query =~ "local_if_index_ba: coalesce(r.local_if_index_ba, r.neighbor_if_index)"
     assert query =~ "neighbor_if_name: coalesce(r.neighbor_if_name, '')"
     assert query =~ "neighbor_if_index: r.neighbor_if_index"
+    assert query =~ "confidence_reason: coalesce(r.confidence_reason, '')"
     assert query =~ "flow_pps_ab: coalesce(r.flow_pps_ab, 0)"
     assert query =~ "flow_bps_ab: coalesce(r.flow_bps_ab, 0)"
     assert query =~ "telemetry_source: coalesce(r.telemetry_source, 'none')"
@@ -36,6 +41,10 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
         local_device_ip: "192.0.2.1",
         local_if_name: "eth0",
         local_if_index: 7,
+        local_if_name_ab: "eth0.100",
+        local_if_index_ab: 107,
+        local_if_name_ba: "eth1.200",
+        local_if_index_ba: 222,
         neighbor_if_name: "eth1",
         neighbor_if_index: 22,
         neighbor_device_id: "sr:b",
@@ -43,6 +52,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
         neighbor_system_name: "device-b",
         protocol: "LLDP",
         confidence_tier: "high",
+        confidence_reason: "direct_lldp_neighbor",
         flow_pps: 42,
         flow_bps: 4_200,
         capacity_bps: 1_000_000_000,
@@ -65,9 +75,14 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
 
     [link] = Native.runtime_graph_get_links(graph)
     assert link.local_if_index == 7
+    assert link.local_if_index_ab == 107
+    assert link.local_if_name_ab == "eth0.100"
+    assert link.local_if_index_ba == 222
+    assert link.local_if_name_ba == "eth1.200"
     assert link.neighbor_if_index == 22
     assert link.local_if_name == "eth0"
     assert link.neighbor_if_name == "eth1"
+    assert link.confidence_reason == "direct_lldp_neighbor"
     assert link.flow_pps == 42
     assert link.flow_bps == 4_200
     assert link.capacity_bps == 1_000_000_000

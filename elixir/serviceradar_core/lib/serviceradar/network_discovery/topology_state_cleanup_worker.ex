@@ -59,10 +59,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
   defp run_rebuild_with_recovery(min_canonical_edges) when is_integer(min_canonical_edges) do
     case TopologyGraph.rebuild_canonical_links_from_current_with_stats() do
       {:ok, stats} ->
+        emit_cleanup_rebuild_telemetry(:completed, stats, min_canonical_edges)
         maybe_recover_canonical_rebuild(stats, min_canonical_edges)
         :ok
 
       {:error, reason, stats} ->
+        emit_cleanup_rebuild_telemetry(:failed, stats, min_canonical_edges, reason)
         Logger.warning("Canonical topology rebuild failed", reason: inspect(reason), stats: stats)
         :ok
     end
@@ -73,7 +75,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
     after_edges = Map.get(stats, :after_prune_edges, 0)
     mapper_edges = Map.get(stats, :mapper_evidence_edges, 0)
 
-    if after_edges < min_canonical_edges and mapper_edges >= min_canonical_edges do
+    if recovery_needed?(stats, min_canonical_edges) do
       Logger.warning(
         "Canonical topology below threshold; triggering one-shot recovery rebuild",
         min_canonical_edges: min_canonical_edges,
@@ -81,11 +83,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
         mapper_evidence_edges: mapper_edges
       )
 
+      emit_recovery_telemetry(:triggered, stats, min_canonical_edges)
+
       case TopologyGraph.rebuild_canonical_links_from_current_with_stats() do
         {:ok, retry_stats} ->
+          emit_recovery_telemetry(:completed, retry_stats, min_canonical_edges)
           Logger.info("Canonical topology recovery rebuild completed", stats: retry_stats)
 
         {:error, reason, retry_stats} ->
+          emit_recovery_telemetry(:failed, retry_stats, min_canonical_edges, reason)
           Logger.warning(
             "Canonical topology recovery rebuild failed",
             reason: inspect(reason),
@@ -96,6 +102,65 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
   end
 
   defp maybe_recover_canonical_rebuild(_stats, _min_canonical_edges), do: :ok
+
+  @doc false
+  @spec recovery_needed?(map(), integer()) :: boolean()
+  def recovery_needed?(stats, min_canonical_edges)
+      when is_map(stats) and is_integer(min_canonical_edges) and min_canonical_edges > 0 do
+    after_edges = Map.get(stats, :after_prune_edges, 0)
+    mapper_edges = Map.get(stats, :mapper_evidence_edges, 0)
+    after_edges < min_canonical_edges and mapper_edges >= min_canonical_edges
+  end
+
+  def recovery_needed?(_stats, _min_canonical_edges), do: false
+
+  @doc false
+  @spec emit_cleanup_rebuild_telemetry(:completed | :failed, map(), integer(), term() | nil) :: :ok
+  def emit_cleanup_rebuild_telemetry(status, stats, min_canonical_edges, reason \\ nil)
+      when status in [:completed, :failed] and is_map(stats) and is_integer(min_canonical_edges) do
+    measurements = %{
+      before_edges: Map.get(stats, :before_edges, 0),
+      mapper_evidence_edges: Map.get(stats, :mapper_evidence_edges, 0),
+      after_upsert_edges: Map.get(stats, :after_upsert_edges, 0),
+      after_prune_edges: Map.get(stats, :after_prune_edges, 0),
+      min_canonical_edges: min_canonical_edges
+    }
+
+    metadata =
+      %{
+        status: status,
+        stale_cutoff: Map.get(stats, :stale_cutoff)
+      }
+      |> maybe_put_reason(reason)
+
+    :telemetry.execute([:serviceradar, :topology, :cleanup_rebuild, status], measurements, metadata)
+    :ok
+  end
+
+  @doc false
+  @spec emit_recovery_telemetry(:triggered | :completed | :failed, map(), integer(), term() | nil) :: :ok
+  def emit_recovery_telemetry(status, stats, min_canonical_edges, reason \\ nil)
+      when status in [:triggered, :completed, :failed] and is_map(stats) and
+             is_integer(min_canonical_edges) do
+    measurements = %{
+      mapper_evidence_edges: Map.get(stats, :mapper_evidence_edges, 0),
+      after_prune_edges: Map.get(stats, :after_prune_edges, 0),
+      min_canonical_edges: min_canonical_edges
+    }
+
+    metadata =
+      %{
+        status: status,
+        stale_cutoff: Map.get(stats, :stale_cutoff)
+      }
+      |> maybe_put_reason(reason)
+
+    :telemetry.execute([:serviceradar, :topology, :cleanup_recovery, status], measurements, metadata)
+    :ok
+  end
+
+  defp maybe_put_reason(metadata, nil), do: metadata
+  defp maybe_put_reason(metadata, reason), do: Map.put(metadata, :reason, inspect(reason))
 
   defp job_already_scheduled? do
     query =

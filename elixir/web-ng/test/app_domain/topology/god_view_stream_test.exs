@@ -1216,6 +1216,120 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert edge.flow_bps_ba == 8_000
   end
 
+  test "latest_snapshot/0 preserves known critical edges and directional telemetry for site links" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    critical_rows = [
+      %{
+        local_device_id: "sr:tonka01",
+        local_device_ip: "192.168.10.1",
+        local_if_name: "eth9",
+        local_if_index: 9,
+        local_if_name_ab: "eth9",
+        local_if_index_ab: 9,
+        local_if_name_ba: "1/1/24",
+        local_if_index_ba: 24,
+        neighbor_if_name: "1/1/24",
+        neighbor_if_index: 24,
+        neighbor_device_id: "sr:aruba-24g-02",
+        neighbor_mgmt_addr: "192.168.10.154",
+        neighbor_system_name: "aruba-24g-02",
+        protocol: "snmp-l2",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        confidence_reason: "fdb_bridge_match",
+        flow_pps: 140,
+        flow_bps: 20_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 90,
+        flow_pps_ba: 50,
+        flow_bps_ab: 12_000,
+        flow_bps_ba: 8_000,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      },
+      %{
+        local_device_id: "sr:farm01",
+        local_device_ip: "192.168.1.1",
+        local_if_name: "eth10",
+        local_if_index: 10,
+        local_if_name_ab: "eth10",
+        local_if_index_ab: 10,
+        local_if_name_ba: "0/8",
+        local_if_index_ba: 8,
+        neighbor_if_name: "0/8",
+        neighbor_if_index: 8,
+        neighbor_device_id: "sr:uswaggregation",
+        neighbor_mgmt_addr: "192.168.1.87",
+        neighbor_system_name: "USWAggregation",
+        protocol: "snmp-l2",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        confidence_reason: "fdb_bridge_match",
+        flow_pps: 520,
+        flow_bps: 64_000,
+        capacity_bps: 10_000_000_000,
+        flow_pps_ab: 300,
+        flow_pps_ba: 220,
+        flow_bps_ab: 40_000,
+        flow_bps_ba: 24_000,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      },
+      %{
+        local_device_id: "sr:uswlite8poe",
+        local_device_ip: "192.168.1.238",
+        local_if_name: "0/7",
+        local_if_index: 7,
+        local_if_name_ab: "0/7",
+        local_if_index_ab: 7,
+        local_if_name_ba: "eth0",
+        local_if_index_ba: 2,
+        neighbor_if_name: "eth0",
+        neighbor_if_index: 2,
+        neighbor_device_id: "sr:u6mesh",
+        neighbor_mgmt_addr: "192.168.1.96",
+        neighbor_system_name: "U6Mesh",
+        protocol: "snmp-l2",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        confidence_reason: "fdb_bridge_match",
+        flow_pps: 180,
+        flow_bps: 22_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 120,
+        flow_pps_ba: 60,
+        flow_bps_ab: 14_000,
+        flow_bps_ba: 8_000,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "direct"}
+      }
+    ]
+
+    assert true = Native.runtime_graph_replace_links(graph_ref, critical_rows)
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+
+    assert edge = find_edge(snapshot, "sr:tonka01", "sr:aruba-24g-02")
+    assert edge.flow_pps_ab > 0
+    assert edge.flow_pps_ba > 0
+
+    assert edge = find_edge(snapshot, "sr:farm01", "sr:uswaggregation")
+    assert edge.flow_pps_ab > 0
+    assert edge.flow_pps_ba > 0
+
+    assert edge = find_edge(snapshot, "sr:uswlite8poe", "sr:u6mesh")
+    assert edge.flow_pps_ab > 0
+    assert edge.flow_pps_ba > 0
+  end
+
   defp coords_for(snapshot, node_ids) do
     snapshot.nodes
     |> Enum.filter(&(&1.id in node_ids))

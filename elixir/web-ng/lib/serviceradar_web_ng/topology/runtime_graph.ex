@@ -130,6 +130,10 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       local_device_ip: a.ip,
       local_if_name: coalesce(r.local_if_name, ''),
       local_if_index: r.local_if_index,
+      local_if_name_ab: coalesce(r.local_if_name_ab, r.local_if_name, ''),
+      local_if_index_ab: coalesce(r.local_if_index_ab, r.local_if_index),
+      local_if_name_ba: coalesce(r.local_if_name_ba, r.neighbor_if_name, ''),
+      local_if_index_ba: coalesce(r.local_if_index_ba, r.neighbor_if_index),
       neighbor_if_name: coalesce(r.neighbor_if_name, ''),
       neighbor_if_index: r.neighbor_if_index,
       neighbor_device_id: b.id,
@@ -146,6 +150,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       telemetry_observed_at: coalesce(r.telemetry_observed_at, ''),
       protocol: coalesce(r.protocol, r.source, 'unknown'),
       confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+      confidence_reason: coalesce(r.confidence_reason, ''),
       evidence_class: coalesce(r.evidence_class, ''),
       metadata: {
         relation_type: coalesce(r.relation_type, type(r)),
@@ -220,11 +225,16 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     local_if_index = map_fetch(row, :local_if_index)
     neighbor_if_name = map_fetch(row, :neighbor_if_name)
     neighbor_if_index = map_fetch(row, :neighbor_if_index)
+    local_if_name_ab = map_fetch(row, :local_if_name_ab)
+    local_if_index_ab = map_fetch(row, :local_if_index_ab)
+    local_if_name_ba = map_fetch(row, :local_if_name_ba)
+    local_if_index_ba = map_fetch(row, :local_if_index_ba)
     neighbor_device_id = map_fetch(row, :neighbor_device_id)
     neighbor_mgmt_addr = map_fetch(row, :neighbor_mgmt_addr)
     neighbor_system_name = map_fetch(row, :neighbor_system_name)
     protocol = map_fetch(row, :protocol)
     confidence_tier = map_fetch(row, :confidence_tier)
+    confidence_reason = map_fetch(row, :confidence_reason)
     evidence_class = map_fetch(row, :evidence_class)
     flow_pps = parse_non_negative_int(map_fetch(row, :flow_pps))
     flow_bps = parse_non_negative_int(map_fetch(row, :flow_bps))
@@ -257,6 +267,10 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       local_device_ip: blank_to_nil(local_device_ip),
       local_if_name: blank_to_nil(local_if_name),
       local_if_index: parse_ifindex(local_if_index),
+      local_if_name_ab: blank_to_nil(local_if_name_ab),
+      local_if_index_ab: parse_ifindex(local_if_index_ab),
+      local_if_name_ba: blank_to_nil(local_if_name_ba),
+      local_if_index_ba: parse_ifindex(local_if_index_ba),
       neighbor_if_name: blank_to_nil(neighbor_if_name),
       neighbor_if_index: parse_ifindex(neighbor_if_index),
       neighbor_device_id: blank_to_nil(neighbor_device_id),
@@ -264,6 +278,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       neighbor_system_name: blank_to_nil(neighbor_system_name),
       protocol: blank_to_nil(protocol),
       confidence_tier: blank_to_nil(confidence_tier),
+      confidence_reason: blank_to_nil(confidence_reason),
       evidence_class: blank_to_nil(evidence_class),
       flow_pps: flow_pps,
       flow_bps: flow_bps,

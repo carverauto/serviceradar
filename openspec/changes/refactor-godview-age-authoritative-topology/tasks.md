@@ -1,6 +1,6 @@
 ## 1. Canonical Contract and Data Shape
 - [x] 1.1 Define the canonical GodView edge payload schema in code comments/docs with required fields: `source`, `target`, `if_index_ab`, `if_name_ab`, `if_index_ba`, `if_name_ba`, `flow_pps`, `flow_bps`, `flow_pps_ab`, `flow_pps_ba`, `flow_bps_ab`, `flow_bps_ba`, `capacity_bps`, `telemetry_eligible`, `protocol`, `evidence_class`, `confidence_tier`, `confidence_reason`.
-- [ ] 1.2 Add/confirm backend validation for canonical edge schema before payload encoding.
+- [x] 1.2 Add/confirm backend validation for canonical edge schema before payload encoding.
 - [x] 1.3 Ensure canonical edge schema is represented in AGE projection query output and GodView snapshot payload.
 - [x] 1.4 Document field semantics for directional attribution (`ab` = `source->target`, `ba` = `target->source`).
 
@@ -9,7 +9,7 @@
 - [ ] 2.2 Ensure mapper emits usable interface hints for both directions where available (`local_if_index`, `local_if_name`, neighbor port hints).
 - [ ] 2.3 Keep SNMP-L2 evidence generation for L2-only switches when LLDP is unavailable.
 - [ ] 2.4 Verify SNMP-L2 bridge/FDB fallback paths for devices missing `dot1dBasePortIfIndex`.
-- [ ] 2.5 Add/extend mapper tests for FDB-only uplink attribution and AP/switch attachment scenarios.
+- [x] 2.5 Add/extend mapper tests for FDB-only uplink attribution and AP/switch attachment scenarios.
 
 ## 3. Backend Reconciler Ownership
 - [x] 3.1 Move/centralize protocol ranking and pair-candidate arbitration to backend reconciler layer.
@@ -20,7 +20,7 @@
 
 ## 4. AGE Projection and Query
 - [x] 4.1 Update AGE edge projection to upsert canonical edge only (no duplicate structural variants per pair).
-- [ ] 4.2 Include directional telemetry and attribution fields in AGE-backed read model.
+- [x] 4.2 Include directional telemetry and attribution fields in AGE-backed read model.
 - [x] 4.3 Add freshness handling for stale edges/telemetry in AGE projection.
 - [x] 4.4 Add query-level checks so GodView reads only canonical AGE edges.
 - [x] 4.5 Add query tests to assert complete canonical edge shape is returned.
@@ -40,7 +40,7 @@
 
 ## 7. Parity and Regression Tests
 - [x] 7.1 Add backend-to-frontend parity test asserting AGE query edge count equals streamed canonical edge count (within expected filters).
-- [ ] 7.2 Add regression tests for known problematic links: `tonka01<->aruba`, `farm01<->uswaggregation`, `uswlite8poe<->u6mesh/u6lr`.
+- [x] 7.2 Add regression tests for known problematic links: `tonka01<->aruba`, `farm01<->uswaggregation`, `uswlite8poe<->u6mesh/u6lr`.
 - [x] 7.3 Add directional parity checks ensuring `ab/ba` values survive AGE -> stream -> Arrow -> JS decode.
 - [x] 7.4 Add tests for duplicate interface-name cases (for example multiple `wgsts1000` ifIndexes) selecting metric-backed attribution.
 
@@ -56,6 +56,6 @@
 - [x] 9.3 Run `openspec validate refactor-godview-age-authoritative-topology --strict`.
 
 ## 10. Remaining Blockers (Current)
-- [ ] 10.1 Stabilize canonical rebuild trigger so `CANONICAL_TOPOLOGY` does not drop to zero between runs in `demo`.
-- [ ] 10.2 Add explicit observability for canonical rebuild success/failure and edge counts (`before/after`) in core logs/telemetry.
-- [ ] 10.3 Add an automated recovery path (scheduled job/worker) that re-materializes canonical edges from current mapper evidence when canonical count is below threshold.
+- [x] 10.1 Stabilize canonical rebuild trigger so `CANONICAL_TOPOLOGY` does not drop to zero between runs in `demo`.
+- [x] 10.2 Add explicit observability for canonical rebuild success/failure and edge counts (`before/after`) in core logs/telemetry.
+- [x] 10.3 Add an automated recovery path (scheduled job/worker) that re-materializes canonical edges from current mapper evidence when canonical count is below threshold.
