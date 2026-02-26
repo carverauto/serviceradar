@@ -65,6 +65,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
   @spec schema_version() :: pos_integer()
   def schema_version, do: @schema_version
 
+  @spec required_keys() :: [atom()]
+  def required_keys, do: @required_keys
+
+  @spec required_edge_keys() :: [atom()]
+  def required_edge_keys, do: @required_edge_keys
+
   @spec validate(map()) :: :ok | {:error, term()}
   def validate(%{} = snapshot) do
     with :ok <- validate_required_keys(snapshot),

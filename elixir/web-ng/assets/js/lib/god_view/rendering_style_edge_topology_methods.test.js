@@ -10,7 +10,7 @@ describe("rendering_style_edge_topology_methods", () => {
     Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
     expect(methods.edgeTopologyClass({topologyClass: "inferred", label: "BACKBONE"})).toEqual("inferred")
-    expect(methods.edgeTopologyClass({topologyClass: "", label: "LINK ENDPOINT attachment"})).toEqual("backbone")
+    expect(methods.edgeTopologyClass({topologyClass: "", label: "LINK ENDPOINT attachment"})).toEqual("unknown")
   })
 
   it("edgeEnabledByTopologyLayer uses class count map when present", () => {
@@ -18,7 +18,7 @@ describe("rendering_style_edge_topology_methods", () => {
     const methods = createStateBackedContext(state, {})
     Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
-    const edge = {topologyClassCounts: {backbone: 2, inferred: 1, endpoints: 0}}
+    const edge = {topologyClassCounts: {backbone: 2, inferred: 1, endpoints: 0, unknown: 1}}
     expect(methods.edgeEnabledByTopologyLayer(edge)).toEqual(true)
 
     methods.state.topologyLayers = {backbone: false, inferred: false, endpoints: false}
@@ -34,5 +34,8 @@ describe("rendering_style_edge_topology_methods", () => {
     expect(methods.edgeEnabledByTopologyLayer({topologyClass: "endpoints"})).toEqual(false)
     expect(methods.edgeEnabledByTopologyLayer({topologyClass: "backbone"})).toEqual(true)
     expect(methods.edgeEnabledByTopologyLayer({label: "LINK INFERRED path"})).toEqual(true)
+
+    methods.state.topologyLayers.backbone = false
+    expect(methods.edgeEnabledByTopologyLayer({label: "unclassified"})).toEqual(false)
   })
 })

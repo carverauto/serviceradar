@@ -32,6 +32,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   @default_real_time_budget_ms 2_000
   @default_snapshot_coalesce_ms 0
+  @default_parity_alert_delta 0
+  @default_unresolved_directional_ratio_alert 0.6
   @drop_counter_key {__MODULE__, :dropped_updates}
   @layout_cache_key {__MODULE__, :layout_cache}
   @snapshot_cache_key {__MODULE__, :snapshot_cache}
@@ -221,10 +223,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         telemetry_source: normalize_id(Map.get(link, :telemetry_source)) || "none",
         local_if_index_ab: Map.get(link, :local_if_index_ab),
         local_if_name_ab:
-          normalize_id(Map.get(link, :local_if_name_ab)) || local_if_name || neighbor_if_name || "",
+          normalize_id(Map.get(link, :local_if_name_ab)) || local_if_name || neighbor_if_name ||
+            "",
         local_if_index_ba: Map.get(link, :local_if_index_ba),
         local_if_name_ba:
-          normalize_id(Map.get(link, :local_if_name_ba)) || neighbor_if_name || local_if_name || "",
+          normalize_id(Map.get(link, :local_if_name_ba)) || neighbor_if_name || local_if_name ||
+            "",
         label: edge_label(link, flow_pps, capacity_bps),
         metadata: Map.get(link, :metadata) || %{}
       }
@@ -377,19 +381,47 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp maybe_emit_pipeline_alert(measurements) when is_map(measurements) do
     final_edges = Map.get(measurements, :final_edges, 0)
     interface_edges = Map.get(measurements, :edge_telemetry_interface, 0)
+    parity_delta = Map.get(measurements, :edge_parity_delta, 0)
+    unresolved_directional = Map.get(measurements, :edge_unresolved_directional, 0)
+    unresolved_ratio = unresolved_ratio(unresolved_directional, final_edges)
 
     if final_edges > 0 and interface_edges == 0 do
-      :telemetry.execute(
-        [:serviceradar, :god_view, :pipeline, :alert],
-        %{final_edges: final_edges, edge_telemetry_interface: interface_edges},
-        %{alert: "edge_telemetry_interface_zero"}
+      emit_pipeline_alert(
+        "edge_telemetry_interface_zero",
+        %{final_edges: final_edges, edge_telemetry_interface: interface_edges}
       )
+    end
 
-      Logger.warning("god_view_pipeline_alert edge_telemetry_interface_zero")
+    if parity_delta > parity_alert_delta_threshold() do
+      emit_pipeline_alert(
+        "edge_parity_delta_nonzero",
+        %{final_edges: final_edges, edge_parity_delta: parity_delta}
+      )
+    end
+
+    if final_edges > 0 and unresolved_ratio > unresolved_directional_ratio_alert_threshold() do
+      emit_pipeline_alert(
+        "edge_unresolved_directional_ratio_high",
+        %{
+          final_edges: final_edges,
+          edge_unresolved_directional: unresolved_directional,
+          edge_unresolved_directional_ratio: unresolved_ratio
+        }
+      )
     end
   end
 
   defp maybe_emit_pipeline_alert(_measurements), do: :ok
+
+  defp emit_pipeline_alert(alert, measurements) when is_binary(alert) and is_map(measurements) do
+    :telemetry.execute(
+      [:serviceradar, :god_view, :pipeline, :alert],
+      measurements,
+      %{alert: alert}
+    )
+
+    Logger.warning("god_view_pipeline_alert #{alert} #{inspect(measurements)}")
+  end
 
   defp count_by_evidence(items, expected) when is_list(items) and is_binary(expected) do
     Enum.count(items, fn item -> evidence_class(item) == expected end)
@@ -1386,6 +1418,29 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       @default_snapshot_coalesce_ms
     )
   end
+
+  defp parity_alert_delta_threshold do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :god_view_pipeline_parity_alert_delta,
+      @default_parity_alert_delta
+    )
+  end
+
+  defp unresolved_directional_ratio_alert_threshold do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :god_view_pipeline_unresolved_directional_ratio_alert,
+      @default_unresolved_directional_ratio_alert
+    )
+  end
+
+  defp unresolved_ratio(unresolved_directional, final_edges)
+       when is_integer(unresolved_directional) and is_integer(final_edges) and final_edges > 0 do
+    unresolved_directional / final_edges
+  end
+
+  defp unresolved_ratio(_unresolved_directional, _final_edges), do: 0.0
 
   defp coalesced_snapshot(coalesce_ms)
        when is_integer(coalesce_ms) and coalesce_ms > 0 do

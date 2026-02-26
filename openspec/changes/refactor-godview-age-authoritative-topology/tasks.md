@@ -61,10 +61,10 @@
 - [x] 10.3 Add an automated recovery path (scheduled job/worker) that re-materializes canonical edges from current mapper evidence when canonical count is below threshold.
 
 ## 11. Top Offenders Cleanup (Backend-First, No UI Stopgaps)
-- [ ] 11.1 Remove any remaining topology-shaping logic from `web-ng` God-View stream/bootstrap paths (pair arbitration, endpoint guessing, structural mutation) and keep frontend render-only.
+- [x] 11.1 Remove any remaining topology-shaping logic from `web-ng` God-View stream/bootstrap paths (pair arbitration, endpoint guessing, structural mutation) and keep frontend render-only.
 - [x] 11.2 Move runtime edge/node telemetry normalization/coercion to backend canonical runtime graph generation so snapshot stream and JS consume typed values without per-edge sanitation passes.
 - [x] 11.3 Enforce websocket-first snapshot delivery (reconnect-only strategy) and remove active HTTP polling fallback paths from God-View runtime update flow.
-- [ ] 11.4 Add contract tests that fail on backend/frontend schema drift (missing required canonical fields, unexpected required-field additions, invalid typed values) before deploy.
-- [ ] 11.5 Add regression/integration tests for known unstable links so canonical graph + directional telemetry parity is verified end-to-end (`AGE -> stream -> Arrow -> JS`) in CI.
-- [ ] 11.6 Add performance guardrails for God-View hot paths (snapshot build latency + decode/render prep budgets) with alerting thresholds tied to pipeline diagnostics.
+- [x] 11.4 Add contract tests that fail on backend/frontend schema drift (missing required canonical fields, unexpected required-field additions, invalid typed values) before deploy.
+- [x] 11.5 Add regression/integration tests for known unstable links so canonical graph + directional telemetry parity is verified end-to-end (`AGE -> stream -> Arrow -> JS`) in CI.
+- [x] 11.6 Add performance guardrails for God-View hot paths (snapshot build latency + decode/render prep budgets) with alerting thresholds tied to pipeline diagnostics.
 - [ ] 11.7 Validate in `demo` that graph structure and animations remain stable across repeated refresh/reconcile cycles (no islands/spider-web regressions, no random animation collapse).

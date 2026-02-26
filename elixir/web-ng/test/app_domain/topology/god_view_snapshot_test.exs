@@ -3,6 +3,38 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshotTest do
 
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
 
+  test "snapshot contract required key lists are locked" do
+    assert GodViewSnapshot.required_keys() == [
+             :schema_version,
+             :revision,
+             :generated_at,
+             :nodes,
+             :edges,
+             :causal_bitmaps,
+             :bitmap_metadata
+           ]
+
+    assert GodViewSnapshot.required_edge_keys() == [
+             :source,
+             :target,
+             :flow_pps,
+             :flow_bps,
+             :flow_pps_ab,
+             :flow_pps_ba,
+             :flow_bps_ab,
+             :flow_bps_ba,
+             :capacity_bps,
+             :telemetry_eligible,
+             :protocol,
+             :evidence_class,
+             :confidence_tier,
+             :local_if_index_ab,
+             :local_if_name_ab,
+             :local_if_index_ba,
+             :local_if_name_ba
+           ]
+  end
+
   test "validate/1 accepts a valid snapshot envelope" do
     snapshot = %{
       schema_version: GodViewSnapshot.schema_version(),
