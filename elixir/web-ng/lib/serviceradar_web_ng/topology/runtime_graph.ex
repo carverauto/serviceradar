@@ -118,6 +118,14 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   @doc false
   @spec topology_links_query() :: String.t()
   def topology_links_query do
+    if backend_authoritative_topology_enabled?() do
+      authoritative_topology_links_query()
+    else
+      fallback_topology_links_query()
+    end
+  end
+
+  defp authoritative_topology_links_query do
     """
     MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
     WHERE a.id IS NOT NULL
@@ -165,6 +173,60 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       coalesce(r.last_observed_at, r.observed_at) DESC
     LIMIT #{@max_link_rows}
     """
+  end
+
+  defp fallback_topology_links_query do
+    """
+    MATCH (ai:Interface)-[r]->(bi:Interface)
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
+      AND ai.device_id IS NOT NULL
+      AND bi.device_id IS NOT NULL
+      AND ai.device_id <> bi.device_id
+    RETURN {
+      local_device_id: ai.device_id,
+      local_device_ip: coalesce(ai.ip, ''),
+      local_if_name: coalesce(ai.name, ''),
+      local_if_index: ai.ifindex,
+      local_if_name_ab: coalesce(ai.name, ''),
+      local_if_index_ab: ai.ifindex,
+      local_if_name_ba: coalesce(bi.name, ''),
+      local_if_index_ba: bi.ifindex,
+      neighbor_if_name: coalesce(bi.name, ''),
+      neighbor_if_index: bi.ifindex,
+      neighbor_device_id: bi.device_id,
+      neighbor_mgmt_addr: coalesce(bi.ip, ''),
+      neighbor_system_name: coalesce(bi.system_name, ''),
+      flow_pps: coalesce(r.flow_pps, 0),
+      flow_bps: coalesce(r.flow_bps, 0),
+      capacity_bps: coalesce(r.capacity_bps, 0),
+      flow_pps_ab: coalesce(r.flow_pps_ab, 0),
+      flow_pps_ba: coalesce(r.flow_pps_ba, 0),
+      flow_bps_ab: coalesce(r.flow_bps_ab, 0),
+      flow_bps_ba: coalesce(r.flow_bps_ba, 0),
+      telemetry_source: coalesce(r.telemetry_source, 'none'),
+      telemetry_observed_at: coalesce(r.telemetry_observed_at, ''),
+      protocol: coalesce(r.protocol, r.source, 'unknown'),
+      confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+      confidence_reason: coalesce(r.confidence_reason, ''),
+      evidence_class: coalesce(r.evidence_class, ''),
+      metadata: {
+        relation_type: coalesce(r.relation_type, type(r)),
+        source: coalesce(r.source, ''),
+        inference: coalesce(r.confidence_reason, ''),
+        evidence_class: coalesce(r.evidence_class, ''),
+        confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+        confidence_score: coalesce(r.confidence_score, 0)
+      }
+    }
+    ORDER BY
+      coalesce(r.last_observed_at, r.observed_at) DESC
+    LIMIT #{@max_link_rows}
+    """
+  end
+
+  defp backend_authoritative_topology_enabled? do
+    Application.get_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology, true)
   end
 
   defp normalize_runtime_rows(rows) when is_list(rows) do

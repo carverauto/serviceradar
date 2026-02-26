@@ -144,6 +144,91 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert {:ok, %{mode: :skip, reason: :skip_single_identifier_inference}} =
                TopologyGraph.classify_projection(normalized)
     end
+
+    test "competing evidence mix keeps LLDP/CDP backbone and routes SNMP-L2 single-identifier to auxiliary" do
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      lldp =
+        MapperResultsIngestor.normalize_topology(%{
+          "timestamp" => now,
+          "protocol" => "lldp",
+          "local_device_id" => "dev-a",
+          "local_device_ip" => "192.168.1.10",
+          "local_if_name" => "eth0",
+          "local_if_index" => 10,
+          "neighbor_device_id" => "dev-b",
+          "neighbor_port_id" => "eth1",
+          "metadata" => %{"confidence_tier" => "high", "confidence_score" => 95}
+        })
+
+      cdp =
+        MapperResultsIngestor.normalize_topology(%{
+          "timestamp" => now,
+          "protocol" => "cdp",
+          "local_device_id" => "dev-a",
+          "local_device_ip" => "192.168.1.10",
+          "local_if_name" => "eth0",
+          "local_if_index" => 10,
+          "neighbor_device_id" => "dev-b",
+          "neighbor_port_id" => "eth1",
+          "metadata" => %{"confidence_tier" => "medium", "confidence_score" => 80}
+        })
+
+      snmp_l2_single_identifier =
+        MapperResultsIngestor.normalize_topology(%{
+          "timestamp" => now,
+          "protocol" => "snmp-l2",
+          "local_device_id" => "dev-a",
+          "local_device_ip" => "192.168.1.10",
+          "local_if_name" => "eth0",
+          "local_if_index" => 10,
+          "neighbor_device_id" => "dev-b",
+          "neighbor_port_id" => "eth9",
+          "metadata" => %{
+            "confidence_tier" => "medium",
+            "confidence_score" => 70,
+            "confidence_reason" => "port_neighbor_inference",
+            "evidence_class" => "inferred"
+          }
+        })
+
+      unifi_direct =
+        MapperResultsIngestor.normalize_topology(%{
+          "timestamp" => now,
+          "protocol" => "unifi-api",
+          "local_device_id" => "dev-a",
+          "local_device_ip" => "192.168.1.10",
+          "local_if_name" => "eth0",
+          "local_if_index" => 10,
+          "neighbor_device_id" => "dev-b",
+          "neighbor_port_id" => "eth1",
+          "metadata" => %{"confidence_tier" => "medium", "confidence_score" => 78}
+        })
+
+      assert {:ok, %{mode: :backbone, relation: "CONNECTS_TO"}} =
+               TopologyGraph.classify_projection(lldp)
+
+      assert {:ok, %{mode: :backbone, relation: "CONNECTS_TO"}} =
+               TopologyGraph.classify_projection(cdp)
+
+      assert {:ok, %{mode: :auxiliary, relation: "INFERRED_TO"}} =
+               TopologyGraph.classify_projection(snmp_l2_single_identifier)
+
+      assert {:ok, %{mode: :backbone, relation: "CONNECTS_TO"}} =
+               TopologyGraph.classify_projection(unifi_direct)
+
+      diagnostics =
+        TopologyGraph.projection_diagnostics([
+          lldp,
+          cdp,
+          snmp_l2_single_identifier,
+          unifi_direct
+        ])
+
+      assert diagnostics.total == 4
+      assert diagnostics.accepted["projected_backbone"] == 3
+      assert diagnostics.accepted["projected_inferred"] == 1
+    end
   end
 
   describe "projection_diagnostics/1 contract" do

@@ -5,10 +5,10 @@
 - [x] 1.4 Document field semantics for directional attribution (`ab` = `source->target`, `ba` = `target->source`).
 
 ## 2. Mapper Evidence Completeness
-- [ ] 2.1 Ensure mapper emits topology evidence with stable endpoint IDs and source metadata for LLDP/CDP/SNMP-L2/UniFi.
-- [ ] 2.2 Ensure mapper emits usable interface hints for both directions where available (`local_if_index`, `local_if_name`, neighbor port hints).
-- [ ] 2.3 Keep SNMP-L2 evidence generation for L2-only switches when LLDP is unavailable.
-- [ ] 2.4 Verify SNMP-L2 bridge/FDB fallback paths for devices missing `dot1dBasePortIfIndex`.
+- [x] 2.1 Ensure mapper emits topology evidence with stable endpoint IDs and source metadata for LLDP/CDP/SNMP-L2/UniFi.
+- [x] 2.2 Ensure mapper emits usable interface hints for both directions where available (`local_if_index`, `local_if_name`, neighbor port hints).
+- [x] 2.3 Keep SNMP-L2 evidence generation for L2-only switches when LLDP is unavailable.
+- [x] 2.4 Verify SNMP-L2 bridge/FDB fallback paths for devices missing `dot1dBasePortIfIndex`.
 - [x] 2.5 Add/extend mapper tests for FDB-only uplink attribution and AP/switch attachment scenarios.
 
 ## 3. Backend Reconciler Ownership
@@ -16,7 +16,7 @@
 - [x] 3.2 Make backend arbitration deterministic and idempotent for repeated ingestion runs.
 - [x] 3.3 Persist arbitration reason metadata for diagnostics on accepted/rejected edge candidates.
 - [x] 3.4 Ensure unresolved endpoint/interface attribution is represented explicitly, not guessed.
-- [ ] 3.5 Add integration tests for competing evidence mixes (LLDP vs CDP vs SNMP-L2 vs UniFi).
+- [x] 3.5 Add integration tests for competing evidence mixes (LLDP vs CDP vs SNMP-L2 vs UniFi).
 
 ## 4. AGE Projection and Query
 - [x] 4.1 Update AGE edge projection to upsert canonical edge only (no duplicate structural variants per pair).
@@ -45,10 +45,10 @@
 - [x] 7.4 Add tests for duplicate interface-name cases (for example multiple `wgsts1000` ifIndexes) selecting metric-backed attribution.
 
 ## 8. Rollout, Gates, and Rollback
-- [ ] 8.1 Add feature flag for backend-authoritative GodView topology consumption.
-- [ ] 8.2 Define rollout SLO gates: edge parity, unresolved edge ceiling, animated-edge parity, directional parity.
-- [ ] 8.3 Add rollback toggle path to restore previous topology path if SLO gates fail.
-- [ ] 8.4 Produce operator runbook for post-deploy verification queries and troubleshooting.
+- [x] 8.1 Add feature flag for backend-authoritative GodView topology consumption.
+- [x] 8.2 Define rollout SLO gates: edge parity, unresolved edge ceiling, animated-edge parity, directional parity.
+- [x] 8.3 Add rollback toggle path to restore previous topology path if SLO gates fail.
+- [x] 8.4 Produce operator runbook for post-deploy verification queries and troubleshooting.
 
 ## 9. Validation
 - [x] 9.1 Run unit/integration suites for mapper, core reconciliation, and web-ng GodView paths.
