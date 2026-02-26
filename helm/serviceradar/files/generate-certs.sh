@@ -75,10 +75,9 @@ generate_cert "gateway" "serviceradar-agent-gateway" "DNS:serviceradar-agent-gat
 generate_cert "rperf-client" "serviceradar-rperf-client" "DNS:serviceradar-rperf-client,DNS:rperf-client,DNS:serviceradar-rperf,DNS:localhost,IP:127.0.0.1"
 generate_cert "db-event-writer" "serviceradar-db-event-writer" "DNS:serviceradar-db-event-writer,DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "zen" "serviceradar-zen" "DNS:serviceradar-zen,DNS:zen,DNS:zen.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "flowgger" "serviceradar-flowgger" "DNS:serviceradar-flowgger,DNS:flowgger,DNS:flowgger.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "log-collector" "serviceradar-log-collector" "DNS:serviceradar-log-collector,DNS:log-collector,DNS:log-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "netflow-collector" "serviceradar-netflow-collector" "DNS:serviceradar-netflow-collector,DNS:netflow-collector,DNS:netflow-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "bmp-collector" "serviceradar-bmp-collector" "DNS:serviceradar-bmp-collector,DNS:bmp-collector,DNS:bmp-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "otel" "serviceradar-otel" "DNS:serviceradar-otel,DNS:otel,DNS:otel.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "trapd" "serviceradar-trapd" "DNS:serviceradar-trapd,DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "client" "serviceradar-debug-client" "DNS:serviceradar-tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
 if [ -f "$CERT_DIR/root.pem" ] && [ ! -f "$CERT_DIR/ca.crt" ]; then

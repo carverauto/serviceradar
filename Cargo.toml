@@ -8,6 +8,7 @@ members = [
     "rust/flowgger",
     "rust/trapd",
     "rust/otel",
+    "rust/log-collector",
     "rust/consumers/zen",
     "rust/rperf-client",
     "rust/flow-collector",

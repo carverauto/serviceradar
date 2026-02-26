@@ -28,6 +28,8 @@ image:
     agent: *appTag
     agentGateway: *appTag
     dbEventWriter: *appTag
+    logCollector: *appTag
+    # Deprecated: otel and flowgger are now merged into logCollector
     otel: *appTag
     trapd: *appTag
     flowgger: *appTag
@@ -76,8 +78,8 @@ zenRulesBootstrap:
 # Points to the OTEL collector deployed in the same namespace.
 otelExporter:
   enabled: true
-  # OTLP/gRPC endpoint (uses the in-cluster OTEL collector service)
-  endpoint: "https://serviceradar-otel:4317"
+  # OTLP/gRPC endpoint (uses the unified log-collector service)
+  endpoint: "https://serviceradar-log-collector:4317"
   # TLS certificate directory (SPIFFE-issued certs)
   certDir: "/etc/serviceradar/certs"
   # Trace sampling ratio (0.0 - 1.0). 1.0 = sample everything.
@@ -456,7 +458,7 @@ dbEventWriter:
   configSource: file
   kvBootstrap:
     enabled: true
-flowgger:
+logCollector:
   # External service configuration for syslog/NetFlow ingestion from outside the cluster.
   # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
   externalService:
@@ -603,7 +605,7 @@ bmpCollector:
       memory: "512Mi"
       cpu: "500m"
 configSync:
-  flowgger:
+  logCollector:
     enabled: true
     seed: true
     watch: false
@@ -612,14 +614,6 @@ configSync:
     extraArgs: ""
     extraEnv: {}
   trapd:
-    enabled: true
-    seed: true
-    watch: false
-    kvKey: ""
-    role: ""
-    extraArgs: ""
-    extraEnv: {}
-  otel:
     enabled: true
     seed: true
     watch: false
@@ -648,6 +642,8 @@ spire:
   serviceradarAgentServiceAccount: serviceradar-agent
   socketHostPath: ""
   joinTokenTTL: 15m
+  logCollectorServiceAccount: serviceradar-log-collector
+  # Deprecated: otel and flowgger are now merged into logCollector
   otelServiceAccount: serviceradar-otel
   zenServiceAccount: serviceradar-zen
   dbEventWriterServiceAccount: serviceradar-db-event-writer

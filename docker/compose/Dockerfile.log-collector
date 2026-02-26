@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Build wait-for-port helper used by entrypoint scripts
-FROM golang:1.22-alpine AS waitforport-builder
+FROM golang:1.25-alpine AS waitforport-builder
 
 RUN apk add --no-cache git
 
@@ -25,7 +25,7 @@ RUN go mod download
 COPY go/cmd/tools/waitforport ./go/cmd/tools/waitforport
 RUN CGO_ENABLED=0 GOOS=linux go build -o /wait-for-port ./go/cmd/tools/waitforport
 
-# Multi-stage build for ServiceRadar Flowgger service (Rust)
+# Multi-stage build for ServiceRadar Log Collector (Rust)
 FROM rust:latest AS builder
 
 # Build from workspace root so workspace dependencies resolve
@@ -40,22 +40,29 @@ RUN apt-get update && apt-get install -y \
 COPY Cargo.toml ./
 COPY Cargo.lock ./
 
-# Copy workspace members required for dependency resolution and build
+# Copy workspace members needed for build (cargo resolves the full workspace)
 COPY rust/kvutil ./rust/kvutil
+COPY rust/config-bootstrap ./rust/config-bootstrap
 COPY rust/flowgger ./rust/flowgger
-COPY rust/trapd ./rust/trapd
 COPY rust/otel ./rust/otel
+COPY rust/log-collector ./rust/log-collector
+COPY rust/trapd ./rust/trapd
 COPY rust/consumers/zen ./rust/consumers/zen
+COPY rust/edge-onboarding ./rust/edge-onboarding
+COPY rust/bmp-collector ./rust/bmp-collector
+COPY rust/rperf-client ./rust/rperf-client
+COPY rust/flow-collector ./rust/flow-collector
+COPY rust/srql ./rust/srql
 COPY proto ./proto
 
-# Build arguments for version info (unused in Rust but kept for consistency)
+# Build arguments for version info
 ARG VERSION=dev
 ARG BUILD_ID=docker
 
-# Build for current architecture (ARM64 or AMD64) with NATS output feature
-RUN cargo build -p serviceradar-flowgger --features nats-output --release
+# Build unified log collector with all features
+RUN cargo build -p serviceradar-log-collector --release
 
-# Runtime stage - use Ubuntu 24.04 (glibc 2.39) for compatibility across architectures
+# Runtime stage - use Ubuntu 24.04 for compatibility across architectures
 FROM ubuntu:24.04
 
 ARG TARGETARCH
@@ -77,21 +84,21 @@ RUN apt-get update && \
     && chmod +x /usr/local/bin/grpcurl
 
 # Create non-root user
-RUN useradd --system --create-home --home /var/lib/serviceradar serviceradar
+RUN groupadd -r -g 1001 serviceradar && useradd -r -u 1001 -g serviceradar --create-home --home /var/lib/serviceradar serviceradar
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /etc/serviceradar /var/log/serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
 
 # Copy binary from builder
-COPY --from=builder /usr/src/target/release/serviceradar-flowgger /usr/local/bin/serviceradar-flowgger
-RUN chmod +x /usr/local/bin/serviceradar-flowgger
+COPY --from=builder /usr/src/target/release/serviceradar-log-collector /usr/local/bin/serviceradar-log-collector
+RUN chmod +x /usr/local/bin/serviceradar-log-collector
 
 COPY --from=waitforport-builder /wait-for-port /usr/local/bin/wait-for-port
 RUN chmod +x /usr/local/bin/wait-for-port
 
 # Copy entrypoint script
-COPY docker/compose/entrypoint-flowgger.sh /usr/local/bin/entrypoint.sh
+COPY docker/compose/entrypoint-log-collector.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Switch to non-root user
@@ -100,10 +107,11 @@ USER serviceradar
 # Set working directory
 WORKDIR /var/lib/serviceradar
 
-# Expose UDP syslog port and gRPC port
+# Expose syslog UDP, Flowgger gRPC, and OTEL gRPC ports
 EXPOSE 514/udp
+EXPOSE 4317
 EXPOSE 50044
 
 # Set entrypoint
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["serviceradar-flowgger"]
+CMD ["serviceradar-log-collector"]
