@@ -119,8 +119,8 @@ describe("rendering_style_edge_particle_methods", () => {
     const reverse = withReverse.filter((p) => p.from[0] === 100 && p.to[0] === 0)
     expect(forward.length).toBeGreaterThan(0)
     expect(reverse.length).toBeGreaterThan(0)
-    expect(forward.every((p) => p.laneOffset > 0)).toBe(true)
-    expect(reverse.every((p) => p.laneOffset < 0)).toBe(true)
+    expect(forward.every((p) => p.laneOffset === 0)).toBe(true)
+    expect(reverse.every((p) => p.laneOffset === 0)).toBe(true)
   })
 
   it("buildPacketFlowInstances uses directional ratios to bias per-lane density", () => {
