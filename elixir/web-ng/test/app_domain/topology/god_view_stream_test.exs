@@ -1740,6 +1740,116 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Enum.all?(matching, fn edge -> edge.telemetry_eligible == true end)
   end
 
+  test "latest_snapshot/0 does not synthesize star/full-mesh links from chain runtime edges" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    rows = [
+      %{
+        local_device_id: "sr:chain-a",
+        local_device_ip: "192.0.2.31",
+        local_if_name: "eth1",
+        local_if_index: 1,
+        neighbor_if_name: "eth2",
+        neighbor_if_index: 2,
+        neighbor_device_id: "sr:chain-b",
+        neighbor_mgmt_addr: "192.0.2.32",
+        neighbor_system_name: "chain-b",
+        protocol: "snmp-l2",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        flow_pps: 100,
+        flow_bps: 10_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 60,
+        flow_pps_ba: 40,
+        flow_bps_ab: 6_000,
+        flow_bps_ba: 4_000,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      },
+      %{
+        local_device_id: "sr:chain-b",
+        local_device_ip: "192.0.2.32",
+        local_if_name: "eth3",
+        local_if_index: 3,
+        neighbor_if_name: "eth4",
+        neighbor_if_index: 4,
+        neighbor_device_id: "sr:chain-c",
+        neighbor_mgmt_addr: "192.0.2.33",
+        neighbor_system_name: "chain-c",
+        protocol: "snmp-l2",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        flow_pps: 90,
+        flow_bps: 9_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 55,
+        flow_pps_ba: 35,
+        flow_bps_ab: 5_500,
+        flow_bps_ba: 3_500,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      },
+      %{
+        local_device_id: "sr:chain-c",
+        local_device_ip: "192.0.2.33",
+        local_if_name: "eth5",
+        local_if_index: 5,
+        neighbor_if_name: "eth6",
+        neighbor_if_index: 6,
+        neighbor_device_id: "sr:chain-d",
+        neighbor_mgmt_addr: "192.0.2.34",
+        neighbor_system_name: "chain-d",
+        protocol: "snmp-l2",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        flow_pps: 80,
+        flow_bps: 8_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 50,
+        flow_pps_ba: 30,
+        flow_bps_ab: 5_000,
+        flow_bps_ba: 3_000,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      }
+    ]
+
+    assert true = Native.runtime_graph_replace_links(graph_ref, rows)
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+
+    assert length(snapshot.nodes) == 4
+    assert length(snapshot.edges) == 3
+
+    expected_pairs =
+      MapSet.new([
+        normalized_pair("sr:chain-a", "sr:chain-b"),
+        normalized_pair("sr:chain-b", "sr:chain-c"),
+        normalized_pair("sr:chain-c", "sr:chain-d")
+      ])
+
+    actual_pairs =
+      snapshot.edges
+      |> Enum.map(fn edge -> normalized_pair(edge.source, edge.target) end)
+      |> MapSet.new()
+
+    assert actual_pairs == expected_pairs
+
+    stats = Map.get(snapshot, :pipeline_stats, %{})
+    assert Map.get(stats, :connected_components) == 1
+    assert Map.get(stats, :isolated_nodes) == 0
+    assert Map.get(stats, :largest_component_size) == 4
+    assert Map.get(stats, :edge_parity_delta) == 0
+  end
+
   defp coords_for(snapshot, node_ids) do
     snapshot.nodes
     |> Enum.filter(&(&1.id in node_ids))
@@ -1798,6 +1908,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       telemetry_observed_at: "2026-02-26T00:00:00Z",
       metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
     }
+  end
+
+  defp normalized_pair(a, b) when is_binary(a) and is_binary(b) do
+    [left, right] = Enum.sort([a, b])
+    "#{left}::#{right}"
   end
 
   defp create_topology_device(actor, uid, hostname) do
