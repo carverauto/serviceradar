@@ -1,6 +1,17 @@
 defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @moduledoc """
   Builds God-View snapshot payloads backed by the Rust Arrow encoder.
+
+  Canonical edge contract consumed from backend/runtime graph:
+  - `source`, `target`: canonical device endpoint IDs.
+  - `local_if_index_ab`, `local_if_name_ab`: source-side interface attribution for `source -> target`.
+  - `local_if_index_ba`, `local_if_name_ba`: source-side interface attribution for `target -> source`.
+  - `flow_pps`, `flow_bps`: aggregate link packet/bit rate.
+  - `flow_pps_ab`, `flow_bps_ab`: directional packet/bit rate from `source -> target`.
+  - `flow_pps_ba`, `flow_bps_ba`: directional packet/bit rate from `target -> source`.
+  - `capacity_bps`: link capacity in bps when known.
+  - `telemetry_eligible`: whether edge has interface-attributed telemetry suitable for animation.
+  - `protocol`, `evidence_class`, `confidence_tier`, `confidence_reason`: backend topology evidence metadata.
   """
 
   # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity

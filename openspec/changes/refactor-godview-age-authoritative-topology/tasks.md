@@ -1,8 +1,8 @@
 ## 1. Canonical Contract and Data Shape
-- [ ] 1.1 Define the canonical GodView edge payload schema in code comments/docs with required fields: `source`, `target`, `if_index_ab`, `if_name_ab`, `if_index_ba`, `if_name_ba`, `flow_pps`, `flow_bps`, `flow_pps_ab`, `flow_pps_ba`, `flow_bps_ab`, `flow_bps_ba`, `capacity_bps`, `telemetry_eligible`, `protocol`, `evidence_class`, `confidence_tier`, `confidence_reason`.
+- [x] 1.1 Define the canonical GodView edge payload schema in code comments/docs with required fields: `source`, `target`, `if_index_ab`, `if_name_ab`, `if_index_ba`, `if_name_ba`, `flow_pps`, `flow_bps`, `flow_pps_ab`, `flow_pps_ba`, `flow_bps_ab`, `flow_bps_ba`, `capacity_bps`, `telemetry_eligible`, `protocol`, `evidence_class`, `confidence_tier`, `confidence_reason`.
 - [ ] 1.2 Add/confirm backend validation for canonical edge schema before payload encoding.
 - [x] 1.3 Ensure canonical edge schema is represented in AGE projection query output and GodView snapshot payload.
-- [ ] 1.4 Document field semantics for directional attribution (`ab` = `source->target`, `ba` = `target->source`).
+- [x] 1.4 Document field semantics for directional attribution (`ab` = `source->target`, `ba` = `target->source`).
 
 ## 2. Mapper Evidence Completeness
 - [ ] 2.1 Ensure mapper emits topology evidence with stable endpoint IDs and source metadata for LLDP/CDP/SNMP-L2/UniFi.
@@ -36,13 +36,13 @@
 - [x] 6.2 Remove frontend interface-attribution inference for directional telemetry.
 - [x] 6.3 Keep frontend clustering/layout/rendering concerns only.
 - [x] 6.4 Ensure directional particle generation uses backend-provided directional fields as-is.
-- [ ] 6.5 Add frontend regression tests that fail if topology structure is altered client-side.
+- [x] 6.5 Add frontend regression tests that fail if topology structure is altered client-side.
 
 ## 7. Parity and Regression Tests
-- [ ] 7.1 Add backend-to-frontend parity test asserting AGE query edge count equals streamed canonical edge count (within expected filters).
+- [x] 7.1 Add backend-to-frontend parity test asserting AGE query edge count equals streamed canonical edge count (within expected filters).
 - [ ] 7.2 Add regression tests for known problematic links: `tonka01<->aruba`, `farm01<->uswaggregation`, `uswlite8poe<->u6mesh/u6lr`.
-- [ ] 7.3 Add directional parity checks ensuring `ab/ba` values survive AGE -> stream -> Arrow -> JS decode.
-- [ ] 7.4 Add tests for duplicate interface-name cases (for example multiple `wgsts1000` ifIndexes) selecting metric-backed attribution.
+- [x] 7.3 Add directional parity checks ensuring `ab/ba` values survive AGE -> stream -> Arrow -> JS decode.
+- [x] 7.4 Add tests for duplicate interface-name cases (for example multiple `wgsts1000` ifIndexes) selecting metric-backed attribution.
 
 ## 8. Rollout, Gates, and Rollback
 - [ ] 8.1 Add feature flag for backend-authoritative GodView topology consumption.

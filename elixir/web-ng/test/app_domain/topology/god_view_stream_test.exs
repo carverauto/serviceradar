@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
   alias ServiceRadar.NetworkDiscovery.TopologyLink
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Topology.GodViewStream
+  alias ServiceRadarWebNG.Topology.Native
+  alias ServiceRadarWebNG.Topology.RuntimeGraph
 
   @topology_link_metadata %{
     "relation_type" => "CONNECTS_TO",
@@ -86,6 +88,72 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
 
     assert is_integer(Map.get(stats, :edge_directional_bps_mismatch, 0))
     assert Map.get(stats, :edge_directional_bps_mismatch, 0) >= 0
+  end
+
+  test "latest_snapshot/0 keeps runtime canonical edge count parity" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    rows = [
+      %{
+        local_device_id: "sr:parity-a",
+        local_device_ip: "192.0.2.10",
+        local_if_name: "eth1",
+        local_if_index: 1,
+        neighbor_if_name: "eth2",
+        neighbor_if_index: 2,
+        neighbor_device_id: "sr:parity-b",
+        neighbor_mgmt_addr: "192.0.2.11",
+        neighbor_system_name: "parity-b",
+        protocol: "snmp-l2",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        flow_pps: 110,
+        flow_bps: 11_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 70,
+        flow_pps_ba: 40,
+        flow_bps_ab: 7_000,
+        flow_bps_ba: 4_000,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      },
+      %{
+        local_device_id: "sr:parity-c",
+        local_device_ip: "192.0.2.12",
+        local_if_name: "eth3",
+        local_if_index: 3,
+        neighbor_if_name: "eth4",
+        neighbor_if_index: 4,
+        neighbor_device_id: "sr:parity-d",
+        neighbor_mgmt_addr: "192.0.2.13",
+        neighbor_system_name: "parity-d",
+        protocol: "lldp",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        flow_pps: 220,
+        flow_bps: 22_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 120,
+        flow_pps_ba: 100,
+        flow_bps_ab: 12_000,
+        flow_bps_ba: 10_000,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      }
+    ]
+
+    assert true = Native.runtime_graph_replace_links(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+    assert length(snapshot.edges) == length(rows)
+    assert Map.get(snapshot.pipeline_stats, :edge_parity_delta) == 0
   end
 
   test "latest_snapshot/0 drops snapshot when real-time budget is exceeded" do
@@ -903,6 +971,51 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert edge.flow_bps == 40_000
   end
 
+  test "latest_snapshot/0 preserves directional parity from runtime graph through snapshot fields" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    row = %{
+      local_device_id: "sr:dir-parity-a",
+      local_device_ip: "192.0.2.21",
+      local_if_name: "eth7",
+      local_if_index: 7,
+      neighbor_if_name: "eth9",
+      neighbor_if_index: 9,
+      neighbor_device_id: "sr:dir-parity-b",
+      neighbor_mgmt_addr: "192.0.2.22",
+      neighbor_system_name: "dir-parity-b",
+      protocol: "snmp-l2",
+      evidence_class: "direct",
+      confidence_tier: "high",
+      flow_pps: 500,
+      flow_bps: 50_000,
+      capacity_bps: 1_000_000_000,
+      flow_pps_ab: 321,
+      flow_pps_ba: 179,
+      flow_bps_ab: 32_100,
+      flow_bps_ba: 17_900,
+      telemetry_source: "interface",
+      telemetry_observed_at: "2026-02-26T00:00:00Z",
+      metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+    }
+
+    assert true = Native.runtime_graph_replace_links(graph_ref, [row])
+
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+    assert [edge] = snapshot.edges
+    assert edge.flow_pps_ab == 321
+    assert edge.flow_pps_ba == 179
+    assert edge.flow_bps_ab == 32_100
+    assert edge.flow_bps_ba == 17_900
+    assert edge.flow_pps == 500
+    assert edge.flow_bps == 50_000
+  end
+
   test "latest_snapshot/0 keeps directional semantics stable regardless endpoint order in rows" do
     actor = SystemActor.system(:god_view_stream_directional_order_invariance_test)
     suffix = Integer.to_string(System.unique_integer([:positive]))
@@ -1029,6 +1142,78 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert edge.flow_bps_ab > 0
     assert edge.flow_bps_ba > 0
     assert edge.telemetry_source == "interface"
+  end
+
+  test "latest_snapshot/0 selects directional telemetry by if_index when interface names collide" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_duplicate_ifname_directional_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    left_uid = "sr:dup-if-left-#{suffix}"
+    right_uid = "sr:dup-if-right-#{suffix}"
+    now = DateTime.utc_now()
+
+    create_topology_device(actor, left_uid, "dup-if-left-#{suffix}.local")
+    create_topology_device(actor, right_uid, "dup-if-right-#{suffix}.local")
+
+    # Same interface name, different if_indexes on the same device.
+    create_interface_observation(actor, now, left_uid, "wgsts1000", 14)
+    create_interface_observation(actor, now, left_uid, "wgsts1000", 32)
+    create_interface_observation(actor, now, right_uid, "eth9", 9)
+
+    # Edge explicitly attributed to if_index 14 for AB and 9 for BA.
+    row = %{
+      local_device_id: left_uid,
+      local_device_ip: "192.0.2.61",
+      local_if_name: "wgsts1000",
+      local_if_index: 14,
+      local_if_name_ab: "wgsts1000",
+      local_if_index_ab: 14,
+      neighbor_if_name: "eth9",
+      neighbor_if_index: 9,
+      local_if_name_ba: "eth9",
+      local_if_index_ba: 9,
+      neighbor_device_id: right_uid,
+      neighbor_mgmt_addr: "192.0.2.62",
+      neighbor_system_name: "dup-if-right",
+      protocol: "snmp-l2",
+      evidence_class: "direct",
+      confidence_tier: "high",
+      flow_pps: 0,
+      flow_bps: 0,
+      capacity_bps: 1_000_000_000,
+      flow_pps_ab: 0,
+      flow_pps_ba: 0,
+      flow_bps_ab: 0,
+      flow_bps_ba: 0,
+      telemetry_source: "interface",
+      telemetry_observed_at: "2026-02-26T00:00:00Z",
+      metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+    }
+
+    assert true = Native.runtime_graph_replace_links(graph_ref, [row])
+
+    # Metric on selected AB index (14)
+    insert_metric(now, left_uid, 14, "ifOutUcastPkts", 400)
+    insert_metric(now, left_uid, 14, "ifOutOctets", 4_000)
+    # Conflicting metric on same-name interface index (32) must not be used.
+    insert_metric(now, left_uid, 32, "ifOutUcastPkts", 3)
+    insert_metric(now, left_uid, 32, "ifOutOctets", 30)
+    # BA metric from right side.
+    insert_metric(now, right_uid, 9, "ifOutUcastPkts", 100)
+    insert_metric(now, right_uid, 9, "ifOutOctets", 1_000)
+
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+    assert [edge] = snapshot.edges
+    assert edge.flow_pps_ab == 400
+    assert edge.flow_pps_ba == 100
+    assert edge.flow_bps_ab == 32_000
+    assert edge.flow_bps_ba == 8_000
   end
 
   defp coords_for(snapshot, node_ids) do
