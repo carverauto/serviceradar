@@ -779,6 +779,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       metric_keys = telemetry_metric_keys(edges)
       pps_by_if = load_packet_pps(metric_keys)
       bps_by_if = load_octet_bps(metric_keys)
+      capacity_by_if = load_interface_capacity(metric_keys)
       observed_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
       stats =
@@ -786,7 +787,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
           edges,
           %{total_edges: length(edges), interface_source: 0, none_source: 0},
           fn edge, acc ->
-            telemetry = compute_edge_telemetry(edge, pps_by_if, bps_by_if, observed_at)
+            telemetry =
+              compute_edge_telemetry(edge, pps_by_if, bps_by_if, capacity_by_if, observed_at)
+
             persist_canonical_edge_telemetry(edge, telemetry)
 
             if telemetry.telemetry_source == "interface" do
@@ -975,6 +978,39 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp load_octet_bps(_), do: %{}
 
+  defp load_interface_capacity(keys) when is_list(keys) do
+    device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    if_indexes = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+    device_identity = build_device_identity(device_ids)
+    accepted_device_ids = telemetry_metric_device_ids(device_identity)
+
+    if accepted_device_ids == [] or if_indexes == [] do
+      %{}
+    else
+      from(i in "interfaces",
+        where: i.device_id in ^accepted_device_ids,
+        where: i.if_index in ^if_indexes,
+        distinct: [i.device_id, i.if_index],
+        order_by: [asc: i.device_id, asc: i.if_index, desc: i.timestamp],
+        select: {i.device_id, i.if_index, i.speed_bps, i.if_speed}
+      )
+      |> Repo.all()
+      |> Enum.reduce(%{}, fn {device_id, if_index, speed_bps, if_speed}, acc ->
+        canonical_device_id = canonical_metric_device_id(device_id, nil, device_identity)
+        capacity = value_to_non_negative_int(speed_bps) || value_to_non_negative_int(if_speed)
+
+        if is_nil(canonical_device_id) or not is_integer(if_index) or if_index <= 0 or
+             is_nil(capacity) or capacity <= 0 do
+          acc
+        else
+          Map.update(acc, {canonical_device_id, if_index}, capacity, &max(&1, capacity))
+        end
+      end)
+    end
+  end
+
+  defp load_interface_capacity(_), do: %{}
+
   defp build_device_identity(device_uids) when is_list(device_uids) do
     uid_set =
       device_uids
@@ -1058,8 +1094,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp normalize_ip(_), do: nil
 
-  defp compute_edge_telemetry(edge, pps_by_if, bps_by_if, observed_at)
-       when is_map(edge) and is_map(pps_by_if) and is_map(bps_by_if) and is_binary(observed_at) do
+  defp compute_edge_telemetry(edge, pps_by_if, bps_by_if, capacity_by_if, observed_at)
+       when is_map(edge) and is_map(pps_by_if) and is_map(bps_by_if) and is_map(capacity_by_if) and
+              is_binary(observed_at) do
     src_id = Map.get(edge, :src_id)
     dst_id = Map.get(edge, :dst_id)
     src_if_index = Map.get(edge, :local_if_index)
@@ -1076,11 +1113,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     flow_bps_ba = min_non_zero(Map.get(dst_bps, :out, 0), Map.get(src_bps, :in, 0))
     flow_pps = flow_pps_ab + flow_pps_ba
     flow_bps = flow_bps_ab + flow_bps_ba
+    src_capacity = Map.get(capacity_by_if, metric_key(src_id, src_if_index), 0)
+    dst_capacity = Map.get(capacity_by_if, metric_key(dst_id, dst_if_index), 0)
+    capacity_bps = min_non_zero(src_capacity, dst_capacity)
 
     %{
       flow_pps: flow_pps,
       flow_bps: flow_bps,
-      capacity_bps: 0,
+      capacity_bps: capacity_bps,
       flow_pps_ab: flow_pps_ab,
       flow_pps_ba: flow_pps_ba,
       flow_bps_ab: flow_bps_ab,
