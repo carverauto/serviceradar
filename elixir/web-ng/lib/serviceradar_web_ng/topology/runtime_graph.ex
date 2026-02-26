@@ -19,7 +19,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   @type state :: %{
           graph_ref: term(),
           last_refresh_at: DateTime.t() | nil,
-          refresh_ms: pos_integer()
+          refresh_ms: pos_integer(),
+          auto_refresh?: boolean()
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -52,8 +53,18 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       )
       |> normalize_positive_int(@default_refresh_ms)
 
-    state = %{graph_ref: Native.runtime_graph_new(), last_refresh_at: nil, refresh_ms: refresh_ms}
-    send(self(), :refresh)
+    auto_refresh? =
+      Application.get_env(:serviceradar_web_ng, :god_view_runtime_graph_auto_refresh, true) ==
+        true
+
+    state = %{
+      graph_ref: Native.runtime_graph_new(),
+      last_refresh_at: nil,
+      refresh_ms: refresh_ms,
+      auto_refresh?: auto_refresh?
+    }
+
+    if auto_refresh?, do: send(self(), :refresh)
     {:ok, state}
   end
 
@@ -80,7 +91,11 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   @impl true
   def handle_info(:refresh, state) do
     next = refresh_state(state)
-    Process.send_after(self(), :refresh, state.refresh_ms)
+
+    if next.auto_refresh? do
+      Process.send_after(self(), :refresh, state.refresh_ms)
+    end
+
     {:noreply, next}
   end
 

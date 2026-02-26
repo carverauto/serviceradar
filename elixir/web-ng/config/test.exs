@@ -2,6 +2,7 @@ import Config
 
 # Mark this as test environment for single-deployment defaults
 config :serviceradar_web_ng, :env, :test
+config :serviceradar_web_ng, :god_view_runtime_graph_auto_refresh, false
 
 # Only in tests, remove the complexity from the password hashing algorithm
 config :bcrypt_elixir, :log_rounds, 1
