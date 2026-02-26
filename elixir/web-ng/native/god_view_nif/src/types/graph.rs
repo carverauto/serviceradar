@@ -34,8 +34,28 @@ pub(crate) struct RuntimeGraphRow {
     pub(crate) neighbor_system_name: String,
     /// The protocol used to establish this link (e.g., LLDP, CDP, OSPF).
     pub(crate) protocol: String,
+    /// Canonical evidence class from backend graph projection (direct, inferred, endpoint-attachment).
+    pub(crate) evidence_class: String,
     /// A categorical string representing the confidence mapping algorithm (e.g., "high", "inferred").
     pub(crate) confidence_tier: String,
+    /// Aggregated packets/sec across both directions for this edge.
+    pub(crate) flow_pps: i64,
+    /// Aggregated bits/sec across both directions for this edge.
+    pub(crate) flow_bps: i64,
+    /// Estimated capacity in bits/sec for this edge.
+    pub(crate) capacity_bps: i64,
+    /// Directional packets/sec from local -> neighbor.
+    pub(crate) flow_pps_ab: i64,
+    /// Directional packets/sec from neighbor -> local.
+    pub(crate) flow_pps_ba: i64,
+    /// Directional bits/sec from local -> neighbor.
+    pub(crate) flow_bps_ab: i64,
+    /// Directional bits/sec from neighbor -> local.
+    pub(crate) flow_bps_ba: i64,
+    /// Source used for telemetry attribution (interface, device-fallback, none).
+    pub(crate) telemetry_source: String,
+    /// ISO8601 timestamp for when telemetry was observed.
+    pub(crate) telemetry_observed_at: String,
     /// A raw JSON string containing nested inference scores and algorithm meta-parameters.
     pub(crate) metadata_json: String,
 }
@@ -65,7 +85,17 @@ pub(crate) mod runtime_graph_atoms {
         neighbor_mgmt_addr,
         neighbor_system_name,
         protocol,
+        evidence_class,
         confidence_tier,
+        flow_pps,
+        flow_bps,
+        capacity_bps,
+        flow_pps_ab,
+        flow_pps_ba,
+        flow_bps_ab,
+        flow_bps_ba,
+        telemetry_source,
+        telemetry_observed_at,
         metadata,
         source,
         inference,

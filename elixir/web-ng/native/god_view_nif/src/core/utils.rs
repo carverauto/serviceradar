@@ -99,14 +99,20 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
     let local_if_index = map_get_any(row, runtime_graph_atoms::local_if_index(), "local_if_index")
         .and_then(term_as_i64)
         .unwrap_or(-1);
-    let neighbor_if_name =
-        map_get_any(row, runtime_graph_atoms::neighbor_if_name(), "neighbor_if_name")
-            .and_then(term_as_string)
-            .unwrap_or_default();
-    let neighbor_if_index =
-        map_get_any(row, runtime_graph_atoms::neighbor_if_index(), "neighbor_if_index")
-            .and_then(term_as_i64)
-            .unwrap_or(-1);
+    let neighbor_if_name = map_get_any(
+        row,
+        runtime_graph_atoms::neighbor_if_name(),
+        "neighbor_if_name",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_default();
+    let neighbor_if_index = map_get_any(
+        row,
+        runtime_graph_atoms::neighbor_if_index(),
+        "neighbor_if_index",
+    )
+    .and_then(term_as_i64)
+    .unwrap_or(-1);
     let neighbor_device_id = map_get_any(
         row,
         runtime_graph_atoms::neighbor_device_id(),
@@ -131,6 +137,9 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
     let protocol = map_get_any(row, runtime_graph_atoms::protocol(), "protocol")
         .and_then(term_as_string)
         .unwrap_or_default();
+    let evidence_class = map_get_any(row, runtime_graph_atoms::evidence_class(), "evidence_class")
+        .and_then(term_as_string)
+        .unwrap_or_default();
     let confidence_tier = map_get_any(
         row,
         runtime_graph_atoms::confidence_tier(),
@@ -138,6 +147,41 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
     )
     .and_then(term_as_string)
     .unwrap_or_else(|| "unknown".to_string());
+    let flow_pps = map_get_any(row, runtime_graph_atoms::flow_pps(), "flow_pps")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let flow_bps = map_get_any(row, runtime_graph_atoms::flow_bps(), "flow_bps")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let capacity_bps = map_get_any(row, runtime_graph_atoms::capacity_bps(), "capacity_bps")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let flow_pps_ab = map_get_any(row, runtime_graph_atoms::flow_pps_ab(), "flow_pps_ab")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let flow_pps_ba = map_get_any(row, runtime_graph_atoms::flow_pps_ba(), "flow_pps_ba")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let flow_bps_ab = map_get_any(row, runtime_graph_atoms::flow_bps_ab(), "flow_bps_ab")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let flow_bps_ba = map_get_any(row, runtime_graph_atoms::flow_bps_ba(), "flow_bps_ba")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let telemetry_source = map_get_any(
+        row,
+        runtime_graph_atoms::telemetry_source(),
+        "telemetry_source",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_else(|| "none".to_string());
+    let telemetry_observed_at = map_get_any(
+        row,
+        runtime_graph_atoms::telemetry_observed_at(),
+        "telemetry_observed_at",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_default();
 
     let metadata_term = map_get_any(row, runtime_graph_atoms::metadata(), "metadata");
     let metadata_source = metadata_term
@@ -188,7 +232,17 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
         neighbor_mgmt_addr,
         neighbor_system_name,
         protocol,
+        evidence_class,
         confidence_tier,
+        flow_pps,
+        flow_bps,
+        capacity_bps,
+        flow_pps_ab,
+        flow_pps_ba,
+        flow_bps_ab,
+        flow_bps_ba,
+        telemetry_source,
+        telemetry_observed_at,
         metadata_json,
     })
 }
