@@ -682,6 +682,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         prune_result = prune_stale_canonical_device_links(stale_cutoff)
         after_prune_edges = canonical_edge_count()
         telemetry_result = refresh_canonical_edge_telemetry(stale_cutoff)
+
         {after_prune_edges, self_heal_result} =
           maybe_self_heal_zero_canonical(
             after_prune_edges,
@@ -706,6 +707,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
       {:error, reason} ->
         Logger.warning("Canonical topology rebuild failed: #{inspect(reason)}")
+
         failure_stats = %{
           before_edges: before_edges,
           mapper_evidence_edges: mapper_evidence_edges,
@@ -733,7 +735,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     after_prune_edges < min_canonical_edges and mapper_evidence_edges >= min_canonical_edges
   end
 
-  def self_heal_needed?(_after_prune_edges, _mapper_evidence_edges, _min_canonical_edges), do: false
+  def self_heal_needed?(_after_prune_edges, _mapper_evidence_edges, _min_canonical_edges),
+    do: false
 
   defp maybe_self_heal_zero_canonical(
          after_prune_edges,
@@ -787,7 +790,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       }
       |> maybe_put_reason(reason)
 
-    :telemetry.execute([:serviceradar, :topology, :canonical_rebuild, status], measurements, metadata)
+    :telemetry.execute(
+      [:serviceradar, :topology, :canonical_rebuild, status],
+      measurements,
+      metadata
+    )
+
     :ok
   end
 
@@ -910,7 +918,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       src_id: a.id,
       dst_id: b.id,
       local_if_index: r.local_if_index,
-      neighbor_if_index: r.neighbor_if_index
+      neighbor_if_index: r.neighbor_if_index,
+      local_if_index_ab: r.local_if_index_ab,
+      local_if_index_ba: r.local_if_index_ba
     }
     """
 
@@ -920,6 +930,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
           Enum.flat_map(rows, fn row ->
             src_id = map_value(row, :src_id)
             dst_id = map_value(row, :dst_id)
+            local_if_index_ab = parse_ifindex(map_value(row, :local_if_index_ab))
+            local_if_index_ba = parse_ifindex(map_value(row, :local_if_index_ba))
             local_if_index = parse_ifindex(map_value(row, :local_if_index))
             neighbor_if_index = parse_ifindex(map_value(row, :neighbor_if_index))
 
@@ -928,6 +940,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
                 %{
                   src_id: src_id,
                   dst_id: dst_id,
+                  local_if_index_ab: local_if_index_ab || local_if_index,
+                  local_if_index_ba: local_if_index_ba || neighbor_if_index,
                   local_if_index: local_if_index,
                   neighbor_if_index: neighbor_if_index
                 }
@@ -951,8 +965,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     edges
     |> Enum.flat_map(fn edge ->
       [
-        metric_key(Map.get(edge, :src_id), Map.get(edge, :local_if_index)),
-        metric_key(Map.get(edge, :dst_id), Map.get(edge, :neighbor_if_index))
+        metric_key(
+          Map.get(edge, :src_id),
+          Map.get(edge, :local_if_index_ab) || Map.get(edge, :local_if_index)
+        ),
+        metric_key(
+          Map.get(edge, :dst_id),
+          Map.get(edge, :local_if_index_ba) || Map.get(edge, :neighbor_if_index)
+        )
       ]
       |> Enum.reject(&is_nil/1)
     end)
@@ -1187,8 +1207,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
               is_binary(observed_at) do
     src_id = Map.get(edge, :src_id)
     dst_id = Map.get(edge, :dst_id)
-    src_if_index = Map.get(edge, :local_if_index)
-    dst_if_index = Map.get(edge, :neighbor_if_index)
+    src_if_index = Map.get(edge, :local_if_index_ab) || Map.get(edge, :local_if_index)
+    dst_if_index = Map.get(edge, :local_if_index_ba) || Map.get(edge, :neighbor_if_index)
 
     src_pps = Map.get(pps_by_if, metric_key(src_id, src_if_index), %{})
     dst_pps = Map.get(pps_by_if, metric_key(dst_id, dst_if_index), %{})
@@ -1213,6 +1233,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       flow_pps_ba: flow_pps_ba,
       flow_bps_ab: flow_bps_ab,
       flow_bps_ba: flow_bps_ba,
+      telemetry_eligible: flow_pps > 0 or flow_bps > 0,
       telemetry_source: if(flow_pps > 0 or flow_bps > 0, do: "interface", else: "none"),
       telemetry_observed_at: observed_at
     }
@@ -1232,6 +1253,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET r.flow_pps_ba = #{Map.get(telemetry, :flow_pps_ba, 0)}
     SET r.flow_bps_ab = #{Map.get(telemetry, :flow_bps_ab, 0)}
     SET r.flow_bps_ba = #{Map.get(telemetry, :flow_bps_ba, 0)}
+    SET r.telemetry_eligible = #{if(Map.get(telemetry, :telemetry_eligible, false), do: "true", else: "false")}
     SET r.telemetry_source = '#{Graph.escape(Map.get(telemetry, :telemetry_source, "none"))}'
     SET r.telemetry_observed_at = '#{Graph.escape(Map.get(telemetry, :telemetry_observed_at, ""))}'
     """
@@ -1419,6 +1441,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         WHEN best_neighbor_if_name <> '' THEN best_neighbor_if_name
         ELSE best.neighbor_if_name
       END
+    SET cr.local_if_index_ab = cr.local_if_index
+    SET cr.local_if_index_ba = cr.neighbor_if_index
+    SET cr.local_if_name_ab = cr.local_if_name
+    SET cr.local_if_name_ba = cr.neighbor_if_name
     """
   end
 

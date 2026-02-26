@@ -290,6 +290,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert query =~ "best_neighbor_if_index"
       assert query =~ "SET cr.local_if_index ="
       assert query =~ "SET cr.neighbor_if_index ="
+      assert query =~ "SET cr.local_if_index_ab = cr.local_if_index"
+      assert query =~ "SET cr.local_if_index_ba = cr.neighbor_if_index"
+      assert query =~ "SET cr.local_if_name_ab = cr.local_if_name"
+      assert query =~ "SET cr.local_if_name_ba = cr.neighbor_if_name"
     end
 
     test "prune query targets canonical topology edges" do
