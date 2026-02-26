@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2023 Carver Automation Corporation.
+# Copyright 2025 Carver Automation Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Post-install script for ServiceRadar Flowgger Server
+# Post-install script for ServiceRadar Log Collector
 set -e
 
 # Create serviceradar group if it doesn't exist
@@ -31,36 +31,33 @@ mkdir -p /var/log/serviceradar
 chown serviceradar:serviceradar /var/log/serviceradar
 
 # Set proper ownership and permissions
-chmod 755 /usr/local/bin/serviceradar-flowgger
-chmod 644 /etc/serviceradar/flowgger.toml
+chmod 755 /usr/local/bin/serviceradar-log-collector
+chmod 644 /etc/serviceradar/log-collector.toml
+chown serviceradar:serviceradar /usr/local/bin/serviceradar-log-collector
+chown serviceradar:serviceradar /etc/serviceradar/log-collector.toml
 
-# Set required capability for to listen for syslog messages
-if [ -x /usr/local/bin/serviceradar-flowgger ]; then
-    setcap cap_net_raw=+ep /usr/local/bin/serviceradar-flowgger || {
-        echo "Warning: Failed to set cap_net_raw capability on /usr/local/bin/serviceradar-flowgger"
-        echo "  sudo setcap cap_net_raw=+ep /usr/local/bin/serviceradar-flowgger"
-    }
-    setcap cap_net_bind_service=+ep /usr/local/bin/serviceradar-flowgger || {
-        echo "Warning: Failed to set cap_net_raw capability on /usr/local/bin/serviceradar-flowgger"
-        echo "  sudo setcap cap_net_bind_service=+ep /usr/local/bin/serviceradar-flowgger"
+# Set required capability for binding to privileged ports (514/udp)
+if [ -x /usr/local/bin/serviceradar-log-collector ]; then
+    setcap cap_net_bind_service=+ep /usr/local/bin/serviceradar-log-collector || {
+        echo "Warning: Failed to set cap_net_bind_service capability on /usr/local/bin/serviceradar-log-collector"
+        echo "  sudo setcap cap_net_bind_service=+ep /usr/local/bin/serviceradar-log-collector"
     }
 fi
 
 # Enable and start the service
 systemctl daemon-reload
-systemctl enable serviceradar-flowgger
-if ! systemctl start serviceradar-flowgger; then
-    echo "WARNING: Failed to start serviceradar-flowgger service. Please check the logs."
-    echo "Run: journalctl -u serviceradar-flowgger.service"
+systemctl enable serviceradar-log-collector
+if ! systemctl start serviceradar-log-collector; then
+    echo "WARNING: Failed to start serviceradar-log-collector service. Please check the logs."
+    echo "Run: journalctl -u serviceradar-log-collector.service"
 fi
 
 # Configure SELinux if it's enabled
 if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce)" != "Disabled" ]; then
     echo "Configuring SELinux policies..."
-    # Set correct context for binary
     if command -v restorecon >/dev/null 2>&1; then
-        restorecon -v /usr/local/bin/serviceradar-flowgger
+        restorecon -v /usr/local/bin/serviceradar-log-collector
     fi
 fi
 
-echo "ServiceRadar Flowgger Server installed successfully!"
+echo "ServiceRadar Log Collector installed successfully!"

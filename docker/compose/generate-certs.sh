@@ -238,7 +238,7 @@ EOF
 generate_cert "core" "core.serviceradar" "DNS:core,DNS:core-elx,DNS:core.serviceradar,DNS:serviceradar-core,DNS:agent-gateway.serviceradar,DNS:agent.serviceradar,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # NATS - messaging backbone, many services connect to it
-generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:flowgger.serviceradar,DNS:otel.serviceradar,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:log-collector.serviceradar,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Services that agent connects to
 generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:agent.serviceradar,DNS:zen.serviceradar,DNS:core.serviceradar,DNS:localhost,IP:127.0.0.1"
@@ -268,8 +268,7 @@ generate_cert "workstation" "workstation.serviceradar" "DNS:workstation,DNS:work
 
 # Other services
 generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:rperf-client.serviceradar,DNS:serviceradar-rperf-client,DNS:agent.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "otel" "otel.serviceradar" "DNS:otel,DNS:otel.serviceradar,DNS:serviceradar-otel,DNS:localhost,IP:127.0.0.1"
-generate_cert "flowgger" "flowgger.serviceradar" "DNS:flowgger,DNS:flowgger.serviceradar,DNS:serviceradar-flowgger,DNS:localhost,IP:127.0.0.1"
+generate_cert "log-collector" "log-collector.serviceradar" "DNS:log-collector,DNS:log-collector.serviceradar,DNS:serviceradar-log-collector,DNS:localhost,IP:127.0.0.1"
 generate_cert "netflow-collector" "netflow-collector.serviceradar" "DNS:netflow-collector,DNS:netflow-collector.serviceradar,DNS:serviceradar-netflow-collector,DNS:localhost,IP:127.0.0.1"
 generate_cert "bmp-collector" "bmp-collector.serviceradar" "DNS:bmp-collector,DNS:bmp-collector.serviceradar,DNS:serviceradar-bmp-collector,DNS:localhost,IP:127.0.0.1"
 

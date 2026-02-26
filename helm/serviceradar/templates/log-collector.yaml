@@ -1,8 +1,20 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: serviceradar-flowgger-config
+  name: serviceradar-log-collector-config
 data:
+  log-collector.toml: |
+    [flowgger]
+    enabled = true
+    config_file = "/etc/serviceradar/flowgger.toml"
+
+    [otel]
+    enabled = true
+    config_file = "/etc/serviceradar/otel.toml"
+
+    [health]
+    listen_addr = "0.0.0.0:50044"
+
   flowgger.toml: |
     [input]
     type = "udp"
@@ -19,28 +31,51 @@ data:
     nats_stream = "events"
     nats_timeout = 30000
     nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"
-    nats_tls_cert = "/etc/serviceradar/certs/flowgger.pem"
-    nats_tls_key = "/etc/serviceradar/certs/flowgger-key.pem"
+    nats_tls_cert = "/etc/serviceradar/certs/log-collector.pem"
+    nats_tls_key = "/etc/serviceradar/certs/log-collector-key.pem"
     nats_tls_skip_verify = false
 {{- if .Values.natsCreds.platform }}
     nats_creds_file = "/etc/serviceradar/creds/platform.creds"
 {{- end }}
 
-    [grpc]
-    listen_addr = "0.0.0.0:50044"
-    mode = "spiffe"
-    cert_dir = "/etc/serviceradar/certs"
-    trust_domain = "{{ .Values.spire.trustDomain }}"
-    workload_socket = "unix:/run/spire/sockets/agent.sock"
+    # gRPC health is handled by the log-collector unified health server.
+    # Flowgger's built-in gRPC server is not needed here.
 
     [logging]
     level = "info"
     format = "json"
+
+  otel.toml: |
+    [server]
+    bind_address = "0.0.0.0"
+    port = 4317
+
+    [nats]
+    url = "tls://serviceradar-nats:4222"
+    subject = "otel"
+    logs_subject = "logs.otel"
+    stream = "events"
+    timeout_secs = 30
+    max_bytes = 2147483648
+    max_age_secs = 1800
+{{- if .Values.natsCreds.platform }}
+    creds_file = "/etc/serviceradar/creds/platform.creds"
+{{- end }}
+
+    [nats.tls]
+    cert_file = "/etc/serviceradar/certs/log-collector.pem"
+    key_file = "/etc/serviceradar/certs/log-collector-key.pem"
+    ca_file = "/etc/serviceradar/certs/root.pem"
+
+    [grpc_tls]
+    cert_file = "/etc/serviceradar/certs/log-collector.pem"
+    key_file = "/etc/serviceradar/certs/log-collector-key.pem"
+    ca_file = "/etc/serviceradar/certs/root.pem"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: serviceradar-flowgger-data
+  name: serviceradar-log-collector-data
 spec:
   accessModes:
     - ReadWriteOnce
@@ -51,50 +86,53 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: serviceradar-flowgger
+  name: serviceradar-log-collector
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: serviceradar-flowgger
+      app: serviceradar-log-collector
   template:
     metadata:
       labels:
-        app: serviceradar-flowgger
+        app: serviceradar-log-collector
         app.kubernetes.io/part-of: serviceradar
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
-      serviceAccountName: {{ .Values.spire.flowggerServiceAccount | default "serviceradar-flowgger" }}
+      serviceAccountName: {{ .Values.spire.logCollectorServiceAccount | default "serviceradar-log-collector" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
-      - name: flowgger
-        image: ghcr.io/carverauto/serviceradar-flowgger:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "flowgger") }}
+      - name: log-collector
+        image: ghcr.io/carverauto/serviceradar-log-collector:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "logCollector") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - name: syslog
           containerPort: 514
           protocol: UDP
+        - name: otel-grpc
+          containerPort: 4317
+          protocol: TCP
         - name: grpc
           containerPort: 50044
           protocol: TCP
         env:
 {{ include "serviceradar.kvEnv" . | indent 8 }}
         - name: CONFIG_PATH
-          value: "/etc/serviceradar/flowgger.toml"
+          value: "/etc/serviceradar/log-collector.toml"
         - name: RUST_LOG
           value: "info"
-        {{- include "serviceradar.configSyncEnv" (dict "cfg" (default (dict) .Values.configSync.flowgger)) | nindent 8 }}
+        {{- include "serviceradar.configSyncEnv" (dict "cfg" (default (dict) .Values.configSync.logCollector)) | nindent 8 }}
         livenessProbe:
-          tcpSocket:
+          grpc:
             port: 50044
           initialDelaySeconds: 30
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
-          tcpSocket:
+          grpc:
             port: 50044
           initialDelaySeconds: 10
           periodSeconds: 10
@@ -111,7 +149,7 @@ spec:
           capabilities:
             add: ["NET_BIND_SERVICE"]
         volumeMounts:
-        - name: flowgger-config
+        - name: log-collector-config
           mountPath: /etc/serviceradar
         - name: cert-data
           mountPath: /etc/serviceradar/certs
@@ -121,7 +159,7 @@ spec:
           mountPath: /etc/serviceradar/creds
           readOnly: true
         {{- end }}
-        - name: flowgger-data
+        - name: log-collector-data
           mountPath: /var/lib/serviceradar
         - name: logs
           mountPath: /var/log/serviceradar
@@ -129,9 +167,9 @@ spec:
           mountPath: /run/spire/sockets
           readOnly: true
       volumes:
-      - name: flowgger-config
+      - name: log-collector-config
         configMap:
-          name: serviceradar-flowgger-config
+          name: serviceradar-log-collector-config
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
@@ -140,9 +178,9 @@ spec:
         secret:
           name: serviceradar-nats-creds
       {{- end }}
-      - name: flowgger-data
+      - name: log-collector-data
         persistentVolumeClaim:
-          claimName: serviceradar-flowgger-data
+          claimName: serviceradar-log-collector-data
       - name: logs
         emptyDir: {}
       - name: spire-agent-socket
@@ -153,17 +191,21 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: serviceradar-flowgger
+  name: serviceradar-log-collector
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
   selector:
-    app: serviceradar-flowgger
+    app: serviceradar-log-collector
   ports:
   - name: syslog
     port: 514
     targetPort: 514
     protocol: UDP
+  - name: otel-grpc
+    port: 4317
+    targetPort: 4317
+    protocol: TCP
   - name: grpc
     port: 50044
     targetPort: 50044
@@ -173,44 +215,42 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ .Values.spire.flowggerServiceAccount | default "serviceradar-flowgger" }}
+  name: {{ .Values.spire.logCollectorServiceAccount | default "serviceradar-log-collector" }}
   labels:
     app.kubernetes.io/part-of: serviceradar
-{{- if .Values.flowgger.externalService.enabled }}
+{{- if (default (dict) .Values.logCollector).externalService }}
+{{- if .Values.logCollector.externalService.enabled }}
 ---
-# External LoadBalancer service for syslog/NetFlow ingestion from outside the cluster
+# External LoadBalancer service for syslog ingestion from outside the cluster
 apiVersion: v1
 kind: Service
 metadata:
-  name: serviceradar-flowgger-external
+  name: serviceradar-log-collector-external
   labels:
     app.kubernetes.io/part-of: serviceradar
-  {{- with .Values.flowgger.externalService.annotations }}
+  {{- with .Values.logCollector.externalService.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  type: {{ .Values.flowgger.externalService.type | default "LoadBalancer" }}
-  {{- with .Values.flowgger.externalService.externalTrafficPolicy }}
+  type: {{ .Values.logCollector.externalService.type | default "LoadBalancer" }}
+  {{- with .Values.logCollector.externalService.externalTrafficPolicy }}
   externalTrafficPolicy: {{ . }}
   {{- end }}
-  {{- if .Values.flowgger.externalService.loadBalancerIP }}
-  loadBalancerIP: {{ .Values.flowgger.externalService.loadBalancerIP }}
+  {{- if .Values.logCollector.externalService.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.logCollector.externalService.loadBalancerIP }}
   {{- end }}
   selector:
-    app: serviceradar-flowgger
+    app: serviceradar-log-collector
     app.kubernetes.io/part-of: serviceradar
   ports:
-  {{- if .Values.flowgger.externalService.ports.syslog.enabled }}
+  {{- if (default (dict) .Values.logCollector.externalService.ports).syslog }}
+  {{- if .Values.logCollector.externalService.ports.syslog.enabled }}
   - name: syslog
-    port: {{ .Values.flowgger.externalService.ports.syslog.port | default 514 }}
-    targetPort: {{ .Values.flowgger.externalService.ports.syslog.targetPort | default 514 }}
-    protocol: {{ .Values.flowgger.externalService.ports.syslog.protocol | default "UDP" }}
+    port: {{ .Values.logCollector.externalService.ports.syslog.port | default 514 }}
+    targetPort: {{ .Values.logCollector.externalService.ports.syslog.targetPort | default 514 }}
+    protocol: {{ .Values.logCollector.externalService.ports.syslog.protocol | default "UDP" }}
   {{- end }}
-  {{- if .Values.flowgger.externalService.ports.netflow.enabled }}
-  - name: netflow
-    port: {{ .Values.flowgger.externalService.ports.netflow.port | default 2055 }}
-    targetPort: {{ .Values.flowgger.externalService.ports.netflow.targetPort | default 2055 }}
-    protocol: {{ .Values.flowgger.externalService.ports.netflow.protocol | default "UDP" }}
   {{- end }}
+{{- end }}
 {{- end }}

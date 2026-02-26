@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2023 Carver Automation Corporation.
+# Copyright 2025 Carver Automation Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,18 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Pre-removal script for ServiceRadar OTEL collector
+# Pre-removal script for ServiceRadar Log Collector
 set -e
 
 # Stop and disable the service
-if systemctl is-active --quiet serviceradar-otel; then
-    echo "Stopping serviceradar-otel service..."
-    systemctl stop serviceradar-otel
+if systemctl is-active --quiet serviceradar-log-collector; then
+    echo "Stopping serviceradar-log-collector service..."
+    systemctl stop serviceradar-log-collector
 fi
 
-if systemctl is-enabled --quiet serviceradar-otel; then
-    echo "Disabling serviceradar-otel service..."
-    systemctl disable serviceradar-otel
+if systemctl is-enabled --quiet serviceradar-log-collector; then
+    echo "Disabling serviceradar-log-collector service..."
+    systemctl disable serviceradar-log-collector
 fi
 
 echo "Pre-removal cleanup completed."

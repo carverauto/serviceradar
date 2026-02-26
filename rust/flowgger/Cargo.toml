@@ -9,10 +9,6 @@ description = "Flowgger is a fast, simple and lightweight data collector."
 license = "ISC"
 documentation="https://github.com/awslabs/flowgger/wiki"
 
-[[bin]]
-name = "serviceradar-flowgger"
-path = "src/main.rs"
-
 [lib]
 name = "flowgger"
 path = "src/lib.rs"
