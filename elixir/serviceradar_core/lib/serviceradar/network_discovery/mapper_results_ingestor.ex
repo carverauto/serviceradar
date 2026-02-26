@@ -1209,11 +1209,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       uid =
         entries
         |> Enum.sort_by(&device_ip_resolution_rank/1)
-        |> List.first()
-        |> case do
-          {_ip, uid, _metadata} -> uid
-          _ -> nil
-        end
+        |> Enum.find_value(fn
+          {_ip, uid, _metadata} ->
+            normalized_uid = normalize_string(uid)
+
+            if canonical_topology_uid?(normalized_uid) do
+              uid
+            else
+              nil
+            end
+
+          _ ->
+            nil
+        end)
 
       {ip, uid}
     end)
@@ -1922,8 +1930,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     value
     |> String.trim()
     |> case do
-      "" -> nil
-      trimmed -> String.downcase(trimmed)
+      "" ->
+        nil
+
+      trimmed ->
+        normalized = String.downcase(trimmed)
+
+        if normalized in ["nil", "null", "undefined"] do
+          nil
+        else
+          normalized
+        end
     end
   end
 

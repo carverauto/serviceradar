@@ -172,16 +172,23 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   @spec upsert_managed_by(String.t(), String.t()) :: :ok
   def upsert_managed_by(device_uid, management_device_uid)
       when is_binary(device_uid) and is_binary(management_device_uid) do
-    cypher = """
-    MERGE (child:Device {id: '#{Graph.escape(device_uid)}'})
-    MERGE (mgmt:Device {id: '#{Graph.escape(management_device_uid)}'})
-    MERGE (child)-[r:MANAGED_BY]->(mgmt)
-    SET r.source = 'mapper'
-    """
+    device_uid = non_blank(device_uid)
+    management_device_uid = non_blank(management_device_uid)
 
-    case Graph.execute(cypher) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("MANAGED_BY graph upsert failed: #{inspect(reason)}")
+    if is_nil(device_uid) or is_nil(management_device_uid) do
+      :ok
+    else
+      cypher = """
+      MERGE (child:Device {id: '#{Graph.escape(device_uid)}'})
+      MERGE (mgmt:Device {id: '#{Graph.escape(management_device_uid)}'})
+      MERGE (child)-[r:MANAGED_BY]->(mgmt)
+      SET r.source = 'mapper'
+      """
+
+      case Graph.execute(cypher) do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("MANAGED_BY graph upsert failed: #{inspect(reason)}")
+      end
     end
   end
 
@@ -223,7 +230,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp build_link_payload(link) do
     local_device_id = non_blank(link_value(link, :local_device_id))
-    neighbor_device_id = neighbor_device_id(link)
+    neighbor_device_id = non_blank(neighbor_device_id(link))
     local_interface_id = local_interface_id(link, local_device_id)
     neighbor_port = neighbor_port(link)
     neighbor_interface_id = neighbor_interface_id(neighbor_device_id, neighbor_port)
@@ -1330,6 +1337,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{Graph.escape(stale_cutoff)}')
       AND ai.device_id IS NOT NULL
       AND bi.device_id IS NOT NULL
+      AND toLower(trim(ai.device_id)) <> 'nil'
+      AND toLower(trim(ai.device_id)) <> 'null'
+      AND toLower(trim(ai.device_id)) <> 'undefined'
+      AND toLower(trim(bi.device_id)) <> 'nil'
+      AND toLower(trim(bi.device_id)) <> 'null'
+      AND toLower(trim(bi.device_id)) <> 'undefined'
       AND ai.device_id STARTS WITH 'sr:'
       AND bi.device_id STARTS WITH 'sr:'
       AND ai.device_id <> bi.device_id
