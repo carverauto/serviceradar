@@ -5989,6 +5989,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "serviceradar-log-collector"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 4.5.56",
+ "config-bootstrap",
+ "env_logger 0.11.8",
+ "log 0.4.29",
+ "otel",
+ "rustls 0.23.36",
+ "serde 1.0.228",
+ "serviceradar-flowgger",
+ "tokio",
+ "toml 0.8.23",
+ "tonic 0.12.3",
+ "tonic-health 0.12.3",
+]
+
+[[package]]
 name = "serviceradar-rperf-checker"
 version = "1.0.30"
 dependencies = [

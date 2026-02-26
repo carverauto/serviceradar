@@ -11,6 +11,7 @@
   "serviceradar-db-event-writer"
   "serviceradar-rperf-checker"
   "serviceradar-flowgger"
+  "serviceradar-log-collector"
   "serviceradar-trapd"
 }}
 ---

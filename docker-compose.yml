@@ -239,7 +239,7 @@ services:
       - NATS_SERVER_NAME=nats.serviceradar
       - NATS_CREDS_FILE=/etc/serviceradar/creds/platform.creds
       # OpenTelemetry
-      - OTEL_EXPORTER_OTLP_ENDPOINT=https://otel:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
       - OTEL_CERT_DIR=/etc/serviceradar/certs
       - OTEL_CERT_NAME=core
       - OTEL_SERVICE_NAME=serviceradar-core-elx
@@ -262,7 +262,7 @@ services:
         condition: service_healthy
       nats:
         condition: service_started
-      otel:
+      log-collector:
         condition: service_started
     healthcheck:
       test:
@@ -495,7 +495,7 @@ services:
       - RELEASE_DISTRIBUTION=sname
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
       # OpenTelemetry
-      - OTEL_EXPORTER_OTLP_ENDPOINT=https://otel:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
       - OTEL_CERT_DIR=/etc/serviceradar/certs
       - OTEL_CERT_NAME=gateway
       - OTEL_SERVICE_NAME=serviceradar-agent-gateway
@@ -509,7 +509,7 @@ services:
         condition: service_completed_successfully
       core-elx:
         condition: service_healthy
-      otel:
+      log-collector:
         condition: service_started
     healthcheck:
       test: ["CMD", "/app/bin/serviceradar_agent_gateway", "pid"]
@@ -524,45 +524,27 @@ services:
           - agent-gateway.serviceradar
     restart: unless-stopped
 
-  otel:
-    image: ghcr.io/carverauto/serviceradar-otel:${APP_TAG:-latest}
-    container_name: serviceradar-otel-mtls
+  log-collector:
+    image: ghcr.io/carverauto/serviceradar-log-collector:${APP_TAG:-latest}
+    container_name: serviceradar-log-collector-mtls
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.log-collector
     ports:
+      - "514:514/udp"
       - "4317:4317"
+      - "50044:50044"
     volumes:
+      - ./docker/compose/log-collector.docker.toml:/etc/serviceradar/log-collector.toml:ro
+      - ./docker/compose/flowgger.docker.toml:/etc/serviceradar/flowgger.toml:ro
       - ./docker/compose/otel.docker.toml:/etc/serviceradar/otel.toml:ro
       - cert-data:/etc/serviceradar/certs:ro
       - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
-      - otel-data:/var/lib/serviceradar
+      - log-collector-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
       - CONFIG_SOURCE=file
-      - CONFIG_PATH=/etc/serviceradar/otel.toml
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      nats:
-        condition: service_started
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  flowgger:
-    image: ghcr.io/carverauto/serviceradar-flowgger:${APP_TAG:-latest}
-    container_name: serviceradar-flowgger-mtls
-    ports:
-      - "514:514/udp"
-      - "50044:50044"
-    volumes:
-      - ./docker/compose/flowgger.docker.toml:/etc/serviceradar/flowgger.toml:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
-      - flowgger-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-    environment:
-      - CONFIG_SOURCE=file
-      - CONFIG_PATH=/etc/serviceradar/flowgger.toml
+      - CONFIG_PATH=/etc/serviceradar/log-collector.toml
       - LOG_LEVEL=${LOG_LEVEL:-info}
     cap_add:
       - NET_BIND_SERVICE
@@ -602,54 +584,22 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  netflow-collector:
-    image: ghcr.io/carverauto/serviceradar-netflow-collector:${APP_TAG:-latest}
-    container_name: serviceradar-netflow-collector-mtls
+  flow-collector:
+    image: ghcr.io/carverauto/serviceradar-flow-collector:${APP_TAG:-latest}
+    container_name: serviceradar-flow-collector-mtls
+    build:
+      context: .
+      dockerfile: rust/flow-collector/Dockerfile
     ports:
-      - "2055:2055/udp"
-      - "4739:4739/udp"
-      - "50046:50046"
+      - "2055:2055/udp"       # NetFlow/IPFIX
+      - "6343:6343/udp"       # sFlow
     volumes:
-      - ./rust/netflow-collector/netflow-collector.json:/etc/serviceradar/netflow-collector.json:ro
+      - ./docker/compose/flow-collector.docker.json:/etc/serviceradar/flow-collector.json:ro
       - cert-data:/etc/serviceradar/certs:ro
-      - netflow-data:/var/lib/serviceradar
+      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
+      - flow-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=file
-      - CONFIG_PATH=/etc/serviceradar/netflow-collector.json
-      - SECURITY_MODE=mtls
-      - CERT_DIR=/etc/serviceradar/certs
-      - CERT_FILE=/etc/serviceradar/certs/netflow-client.crt
-      - KEY_FILE=/etc/serviceradar/certs/netflow-client.key
-      - CA_FILE=/etc/serviceradar/certs/ca.crt
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    cap_add:
-      - NET_BIND_SERVICE
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      nats:
-        condition: service_started
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  sflow-collector:
-    image: ghcr.io/carverauto/serviceradar-sflow-collector:${APP_TAG:-latest}
-    container_name: serviceradar-sflow-collector-mtls
-    ports:
-      - "6343:6343/udp"
-      - "50047:50047"
-    volumes:
-      - ./rust/sflow-collector/sflow-collector.json:/etc/serviceradar/sflow-collector.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - sflow-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-    environment:
-      - CONFIG_SOURCE=file
-      - CONFIG_PATH=/etc/serviceradar/sflow-collector.json
-      - SECURITY_MODE=mtls
-      - CERT_DIR=/etc/serviceradar/certs
       - LOG_LEVEL=${LOG_LEVEL:-info}
     cap_add:
       - NET_BIND_SERVICE
@@ -824,7 +774,7 @@ services:
       - DATASVC_CERT_NAME=web
       - DATASVC_SERVER_NAME=datasvc.serviceradar
       # OpenTelemetry
-      - OTEL_EXPORTER_OTLP_ENDPOINT=https://otel:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
       - OTEL_CERT_DIR=/etc/serviceradar/certs
       - OTEL_CERT_NAME=web
       - OTEL_SERVICE_NAME=serviceradar-web-ng
@@ -849,7 +799,7 @@ services:
         condition: service_completed_successfully
       core-elx:
         condition: service_healthy
-      otel:
+      log-collector:
         condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f serviceradar_web_ng >/dev/null"]
@@ -908,11 +858,9 @@ volumes:
   plugin-packages:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_plugin-packages"
   logs:
-  otel-data:
-  flowgger-data:
+  log-collector-data:
   trapd-data:
-  netflow-data:
-  sflow-data:
+  flow-data:
   bmp-data:
   zen-data:
   db-event-writer-data:

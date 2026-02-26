@@ -22,11 +22,10 @@
 {{- end -}}
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
-{{- $otelSA := .Values.spire.otelServiceAccount | default "serviceradar-otel" -}}
+{{- $logCollectorSA := .Values.spire.logCollectorServiceAccount | default "serviceradar-log-collector" -}}
 {{- $zenSA := .Values.spire.zenServiceAccount | default "serviceradar-zen" -}}
 {{- $dbEventWriterSA := .Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer" -}}
 {{- $rperfCheckerSA := .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" -}}
-{{- $flowggerSA := .Values.spire.flowggerServiceAccount | default "serviceradar-flowgger" -}}
 {{- $trapdSA := .Values.spire.trapdServiceAccount | default "serviceradar-trapd" -}}
 {{- $serverVals := default (dict) .Values.spire.server -}}
 {{- $spireServerService := default "spire-server" $serverVals.serviceName -}}
@@ -278,7 +277,7 @@ data:
         "time_format": "",
         "otel": {
           "enabled": true,
-          "endpoint": "serviceradar-otel:4317",
+          "endpoint": "serviceradar-log-collector:4317",
           "service_name": "serviceradar-core",
           "batch_timeout": "5s",
           "insecure": false,
@@ -287,7 +286,7 @@ data:
             "cert_file": "/etc/serviceradar/certs/core.pem",
             "key_file": "/etc/serviceradar/certs/core-key.pem",
             "ca_file": "/etc/serviceradar/certs/root.pem",
-            "server_name": "serviceradar-otel",
+            "server_name": "serviceradar-log-collector",
             "skip_verify": false
           }
         }
@@ -501,13 +500,13 @@ data:
       {
         "name": "flowgger",
         "type": "grpc",
-        "address": "serviceradar-flowgger:50044",
+        "address": "serviceradar-log-collector:50044",
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$flowggerSA}}",
+          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$logCollectorSA}}",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
           "tls": {
             "cert_file": "agent.pem",
@@ -599,7 +598,7 @@ data:
           "time_format": "",
           "otel": {
             "enabled": true,
-            "endpoint": "serviceradar-otel:4317",
+            "endpoint": "serviceradar-log-collector:4317",
             "service_name": "serviceradar-zen",
             "batch_timeout": "5s",
             "insecure": false,
@@ -608,7 +607,7 @@ data:
               "cert_file": "/etc/serviceradar/certs/zen.pem",
               "key_file": "/etc/serviceradar/certs/zen-key.pem",
               "ca_file": "/etc/serviceradar/certs/root.pem",
-              "server_name": "serviceradar-otel"
+              "server_name": "serviceradar-log-collector"
             }
           }
         }
@@ -842,7 +841,7 @@ data:
             }
           },
           {
-            user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            user: "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
                 allow: ["logs.syslog", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
@@ -853,7 +852,7 @@ data:
             }
           },
           {
-            user: "CN=serviceradar-otel,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            user: "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
                 allow: ["otel.>", "logs.otel", "$JS.API.>"]
@@ -875,10 +874,10 @@ data:
             }
           },
           {
-            user: "CN=serviceradar-netflow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            user: "CN=serviceradar-flow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: ["flows.raw.netflow", "$JS.API.STREAM.INFO.flows", "$JS.API.STREAM.CREATE.flows", "$JS.API.>"]
+                allow: ["flows.raw.>", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
               }
               subscribe: {
                 allow: ["$JS.API.>", "_INBOX.>"]
@@ -947,13 +946,13 @@ data:
       
       # mTLS configuration for NATS
       [nats.tls]
-      cert_file = "/etc/serviceradar/certs/otel.pem"
-      key_file = "/etc/serviceradar/certs/otel-key.pem"
+      cert_file = "/etc/serviceradar/certs/log-collector.pem"
+      key_file = "/etc/serviceradar/certs/log-collector-key.pem"
       ca_file = "/etc/serviceradar/certs/root.pem"
       
       [grpc_tls]
-      cert_file = "/etc/serviceradar/certs/otel.pem"
-      key_file = "/etc/serviceradar/certs/otel-key.pem"
+      cert_file = "/etc/serviceradar/certs/log-collector.pem"
+      key_file = "/etc/serviceradar/certs/log-collector-key.pem"
       ca_file = "/etc/serviceradar/certs/root.pem"
   
   trapd.json: |
@@ -984,13 +983,13 @@ data:
         },
         "otel": {
           "enabled": true,
-          "endpoint": "serviceradar-otel:4317",
+          "endpoint": "serviceradar-log-collector:4317",
           "service_name": "serviceradar-trapd",
           "tls": {
             "cert_file": "/etc/serviceradar/certs/trapd.pem",
             "key_file": "/etc/serviceradar/certs/trapd-key.pem",
             "ca_file": "/etc/serviceradar/certs/root.pem",
-            "server_name": "serviceradar-otel"
+            "server_name": "serviceradar-log-collector"
           }
         }
       }
@@ -1121,7 +1120,7 @@ data:
         "rbac": {
           "roles": [
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}", "role": "admin"},
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $otelSA }}", "role": "reader"},
+            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $logCollectorSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $agentSA }}", "role": "writer"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $dbEventWriterSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $zenSA }}", "role": "reader"},

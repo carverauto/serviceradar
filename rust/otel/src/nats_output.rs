@@ -152,12 +152,64 @@ async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> R
             }
         }
         Err(e) => {
-            error!(
-                "Failed to create/verify JetStream stream '{}': {e}",
+            // Stream may already exist with different subjects (e.g., created by another
+            // pipeline like Flowgger). Fall back to fetching and updating it.
+            warn!(
+                "get_or_create_stream failed for '{}': {e}; attempting fetch-and-update",
                 config.stream
             );
-            error!("Stream config was: {desired_config:?}");
-            return Err(e.into());
+            match jetstream.get_stream(&config.stream).await {
+                Ok(mut stream) => {
+                    let stream_info = stream.info().await?;
+                    let mut updated_config = stream_info.config.clone();
+                    let mut needs_update = false;
+
+                    for subject in &subjects {
+                        if !updated_config.subjects.contains(subject) {
+                            updated_config.subjects.push(subject.clone());
+                            needs_update = true;
+                        }
+                    }
+
+                    if updated_config.max_bytes != config.max_bytes {
+                        updated_config.max_bytes = config.max_bytes;
+                        needs_update = true;
+                    }
+                    if updated_config.max_age != config.max_age {
+                        updated_config.max_age = config.max_age;
+                        needs_update = true;
+                    }
+
+                    if needs_update {
+                        info!(
+                            "Updating existing stream '{}' to add subjects: {:?}",
+                            config.stream, subjects
+                        );
+                        jetstream.update_stream(updated_config).await.map_err(|ue| {
+                            anyhow!(
+                                "Failed to update stream '{}' after config mismatch: {ue}",
+                                config.stream
+                            )
+                        })?;
+                        info!("Successfully updated stream '{}'", config.stream);
+                    } else {
+                        info!(
+                            "Stream '{}' already has all required subjects",
+                            config.stream
+                        );
+                    }
+                }
+                Err(fetch_err) => {
+                    error!(
+                        "Failed to fetch existing stream '{}': {fetch_err}",
+                        config.stream
+                    );
+                    return Err(anyhow!(
+                        "Cannot create or update stream '{}': create={e}, fetch={fetch_err}",
+                        config.stream
+                    ));
+                }
+            }
         }
     }
 

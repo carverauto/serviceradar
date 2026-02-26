@@ -28,10 +28,12 @@ image:
     agent: *appTag
     agentGateway: *appTag
     dbEventWriter: *appTag
+    logCollector: *appTag
+    # Deprecated: otel and flowgger are now merged into logCollector
     otel: *appTag
     trapd: *appTag
     flowgger: *appTag
-    netflowCollector: *appTag
+    flowCollector: *appTag
     bmpCollector: *appTag
     zen: *appTag
     rperfClient: *appTag
@@ -76,8 +78,8 @@ zenRulesBootstrap:
 # Points to the OTEL collector deployed in the same namespace.
 otelExporter:
   enabled: true
-  # OTLP/gRPC endpoint (uses the in-cluster OTEL collector service)
-  endpoint: "https://serviceradar-otel:4317"
+  # OTLP/gRPC endpoint (uses the unified log-collector service)
+  endpoint: "https://serviceradar-log-collector:4317"
   # TLS certificate directory (SPIFFE-issued certs)
   certDir: "/etc/serviceradar/certs"
   # Trace sampling ratio (0.0 - 1.0). 1.0 = sample everything.
@@ -456,7 +458,7 @@ dbEventWriter:
   configSource: file
   kvBootstrap:
     enabled: true
-flowgger:
+logCollector:
   # External service configuration for syslog/NetFlow ingestion from outside the cluster.
   # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
   externalService:
@@ -498,36 +500,29 @@ trapd:
         port: 162
         targetPort: 162
         protocol: UDP
-netflowCollector:
+flowCollector:
   enabled: false
   config:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
     stream_name: "events"
-    stream_subjects:
-      - "flows.raw.netflow"
-      - "flows.raw.netflow.processed"
-    stream_max_bytes: 10737418240
-    partition: "default"
     channel_size: 10000
     batch_size: 100
     publish_timeout_ms: 5000
-    drop_policy: "drop_oldest"
+    listeners:
+      - protocol: "sflow"
+        listen_addr: "0.0.0.0:6343"
+        subject: "flows.raw.sflow"
+      - protocol: "netflow"
+        listen_addr: "0.0.0.0:2055"
+        subject: "flows.raw.netflow"
     security:
       mode: "mtls"
       cert_dir: "/etc/serviceradar/certs"
       tls:
-        cert_file: "netflow-client.crt"
-        key_file: "netflow-client.key"
+        cert_file: "flow-collector.pem"
+        key_file: "flow-collector-key.pem"
         ca_file: "ca.crt"
-    metrics_addr: "0.0.0.0:50046"
-    listeners:
-      - protocol: "netflow"
-        listen_addr: "0.0.0.0:2055"
-        subject: "flows.raw.netflow"
-        buffer_size: 65536
-        max_templates: 2000
-        max_template_fields: 10000
   data:
     enabled: true
     existingClaim: ""
@@ -537,7 +532,6 @@ netflowCollector:
     type: ClusterIP
     annotations: {}
     loadBalancerIP: ""
-    # Only advertise from nodes with local endpoints (required for Calico BGP)
     externalTrafficPolicy: Cluster
     ports:
       netflow:
@@ -545,16 +539,11 @@ netflowCollector:
         port: 2055
         targetPort: 2055
         protocol: UDP
-      ipfix:
+      sflow:
         enabled: true
-        port: 4739
-        targetPort: 4739
+        port: 6343
+        targetPort: 6343
         protocol: UDP
-      metrics:
-        enabled: true
-        port: 50046
-        targetPort: 50046
-        protocol: TCP
   resources:
     requests:
       memory: "256Mi"
@@ -603,7 +592,7 @@ bmpCollector:
       memory: "512Mi"
       cpu: "500m"
 configSync:
-  flowgger:
+  logCollector:
     enabled: true
     seed: true
     watch: false
@@ -612,14 +601,6 @@ configSync:
     extraArgs: ""
     extraEnv: {}
   trapd:
-    enabled: true
-    seed: true
-    watch: false
-    kvKey: ""
-    role: ""
-    extraArgs: ""
-    extraEnv: {}
-  otel:
     enabled: true
     seed: true
     watch: false
@@ -648,13 +629,15 @@ spire:
   serviceradarAgentServiceAccount: serviceradar-agent
   socketHostPath: ""
   joinTokenTTL: 15m
+  logCollectorServiceAccount: serviceradar-log-collector
+  # Deprecated: otel and flowgger are now merged into logCollector
   otelServiceAccount: serviceradar-otel
   zenServiceAccount: serviceradar-zen
   dbEventWriterServiceAccount: serviceradar-db-event-writer
   rperfCheckerServiceAccount: serviceradar-rperf-checker
   flowggerServiceAccount: serviceradar-flowgger
   trapdServiceAccount: serviceradar-trapd
-  netflowCollectorServiceAccount: serviceradar-netflow-collector
+  flowCollectorServiceAccount: serviceradar-flow-collector
   bmpCollectorServiceAccount: serviceradar-bmp-collector
   bundleConfigMap: spire-bundle
   server:

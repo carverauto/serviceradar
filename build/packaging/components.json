@@ -8,10 +8,9 @@
           "kv",
           "sync",
           "event-writer",
-          "otel",
+          "log-collector",
           "trapd",
-          "flowgger",
-          "netflow-collector",
+          "flow-collector",
           "nats",
           "zen",
           "snmp",
@@ -451,17 +450,17 @@
     "architecture": "amd64",
     "binary": {
       "build_method": "rust",
-      "docker_output_path": "/output/serviceradar-flowgger",
-      "output_path": "/usr/local/bin/serviceradar-flowgger",
-      "source_path": "rust/flowgger"
+      "docker_output_path": "/output/serviceradar-log-collector",
+      "output_path": "/usr/local/bin/serviceradar-log-collector",
+      "source_path": "rust/log-collector"
     },
     "conffiles": [
-      "/etc/serviceradar/flowgger.toml"
+      "/etc/serviceradar/log-collector.toml"
     ],
     "config_files": [
       {
-        "dest": "/etc/serviceradar/flowgger.toml",
-        "source": "build/packaging/flowgger/config/flowgger.toml"
+        "dest": "/etc/serviceradar/log-collector.toml",
+        "source": "build/packaging/log-collector/config/log-collector.toml"
       }
     ],
     "custom_steps": [],
@@ -469,18 +468,17 @@
       "depends": [
         "systemd",
         "serviceradar-cli"
-      ],
-      "dockerfile": "rust/flowgger/Dockerfile"
+      ]
     },
-    "description": "ServiceRadar Flowgger log ingestion service",
+    "description": "ServiceRadar Unified Log Collector (syslog/GELF + OpenTelemetry)",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
-    "name": "flowgger",
-    "package_name": "serviceradar-flowgger",
+    "name": "log-collector",
+    "package_name": "serviceradar-log-collector",
     "postinst": {
-      "source": "build/packaging/flowgger/scripts/postinstall.sh"
+      "source": "build/packaging/log-collector/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "build/packaging/flowgger/scripts/preremove.sh"
+      "source": "build/packaging/log-collector/scripts/preremove.sh"
     },
     "priority": "optional",
     "rpm": {
@@ -488,13 +486,12 @@
         "systemd",
         "serviceradar-cli"
       ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.flowgger",
       "release": "1"
     },
     "section": "net",
     "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-flowgger.service",
-      "source": "build/packaging/flowgger/systemd/serviceradar-flowgger.service"
+      "dest": "/lib/systemd/system/serviceradar-log-collector.service",
+      "source": "build/packaging/log-collector/systemd/serviceradar-log-collector.service"
     },
     "version": "1.0.58"
   },
@@ -502,17 +499,17 @@
     "architecture": "amd64",
     "binary": {
       "build_method": "rust",
-      "docker_output_path": "/output/serviceradar-netflow-collector",
-      "output_path": "/usr/local/bin/serviceradar-netflow-collector",
+      "docker_output_path": "/output/serviceradar-flow-collector",
+      "output_path": "/usr/local/bin/serviceradar-flow-collector",
       "source_path": "rust/flow-collector"
     },
     "conffiles": [
-      "/etc/serviceradar/netflow-collector.json"
+      "/etc/serviceradar/flow-collector.json"
     ],
     "config_files": [
       {
-        "dest": "/etc/serviceradar/netflow-collector.json",
-        "source": "build/packaging/netflow-collector/config/netflow-collector.json"
+        "dest": "/etc/serviceradar/flow-collector.json",
+        "source": "build/packaging/flow-collector/config/flow-collector.json"
       }
     ],
     "custom_steps": [],
@@ -523,15 +520,15 @@
       ],
       "dockerfile": "rust/flow-collector/Dockerfile"
     },
-    "description": "ServiceRadar NetFlow/IPFIX collector",
+    "description": "ServiceRadar unified flow collector (NetFlow/IPFIX + sFlow)",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
-    "name": "netflow-collector",
-    "package_name": "serviceradar-netflow-collector",
+    "name": "flow-collector",
+    "package_name": "serviceradar-flow-collector",
     "postinst": {
-      "source": "build/packaging/netflow-collector/scripts/postinstall.sh"
+      "source": "build/packaging/flow-collector/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "build/packaging/netflow-collector/scripts/preremove.sh"
+      "source": "build/packaging/flow-collector/scripts/preremove.sh"
     },
     "priority": "optional",
     "rpm": {
@@ -539,13 +536,13 @@
         "systemd",
         "serviceradar-cli"
       ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.netflow-collector",
+      "dockerfile": "rust/flow-collector/Dockerfile",
       "release": "1"
     },
     "section": "net",
     "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-netflow-collector.service",
-      "source": "build/packaging/netflow-collector/systemd/serviceradar-netflow-collector.service"
+      "dest": "/lib/systemd/system/serviceradar-flow-collector.service",
+      "source": "build/packaging/flow-collector/systemd/serviceradar-flow-collector.service"
     },
     "version": "1.0.58"
   },
@@ -631,54 +628,6 @@
     },
     "section": "utils",
     "systemd_service": null,
-    "version": "1.0.58"
-  },
-  {
-    "architecture": "amd64",
-    "binary": {
-      "build_method": "rust",
-      "output_path": "/usr/local/bin/serviceradar-otel",
-      "source_path": "rust/otel"
-    },
-    "conffiles": [
-      "/etc/serviceradar/otel.toml"
-    ],
-    "config_files": [
-      {
-        "dest": "/etc/serviceradar/otel.toml",
-        "source": "build/packaging/otel/config/otel.toml"
-      }
-    ],
-    "deb": {
-      "depends": [
-        "serviceradar-cli"
-      ],
-      "dockerfile": "rust/otel/Dockerfile"
-    },
-    "description": "ServiceRadar OTEL Collector",
-    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-    "name": "otel",
-    "package_name": "serviceradar-otel",
-    "postinst": {
-      "source": "build/packaging/otel/scripts/postinstall.sh"
-    },
-    "prerm": {
-      "source": "build/packaging/otel/scripts/preremove.sh"
-    },
-    "priority": "optional",
-    "rpm": {
-      "depends": [
-        "systemd",
-        "serviceradar-cli"
-      ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.otel",
-      "release": "1"
-    },
-    "section": "utils",
-    "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-otel.service",
-      "source": "build/packaging/otel/systemd/serviceradar-otel.service"
-    },
     "version": "1.0.58"
   },
   {
