@@ -594,8 +594,9 @@ services:
       - "2055:2055/udp"       # NetFlow/IPFIX
       - "6343:6343/udp"       # sFlow
     volumes:
-      - ./rust/flow-collector/flow-collector.json:/etc/serviceradar/flow-collector.json:ro
+      - ./docker/compose/flow-collector.docker.json:/etc/serviceradar/flow-collector.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
       - flow-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:

@@ -1,0 +1,29 @@
+{
+  "nats_url": "tls://nats:4222",
+  "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
+  "stream_name": "events",
+  "channel_size": 10000,
+  "batch_size": 100,
+  "publish_timeout_ms": 5000,
+  "listeners": [
+    {
+      "protocol": "sflow",
+      "listen_addr": "0.0.0.0:6343",
+      "subject": "flows.raw.sflow"
+    },
+    {
+      "protocol": "netflow",
+      "listen_addr": "0.0.0.0:2055",
+      "subject": "flows.raw.netflow"
+    }
+  ],
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "tls": {
+      "cert_file": "flow-collector.pem",
+      "key_file": "flow-collector-key.pem",
+      "ca_file": "root.pem"
+    }
+  }
+}
