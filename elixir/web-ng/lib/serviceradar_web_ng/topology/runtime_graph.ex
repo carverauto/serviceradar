@@ -128,7 +128,13 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       AND b.id IS NOT NULL
       AND a.id STARTS WITH 'sr:'
       AND b.id STARTS WITH 'sr:'
-      AND coalesce(r.relation_type, type(r)) IN ['CONNECTS_TO', 'ATTACHED_TO']
+      AND (
+        toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'ATTACHED_TO']
+        OR (
+          r.relation_type IS NULL
+          AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'endpoint-attachment']
+        )
+      )
     RETURN {
       local_device_id: a.id,
       local_device_ip: a.ip,

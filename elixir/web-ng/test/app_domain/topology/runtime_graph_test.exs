@@ -10,7 +10,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)"
     assert query =~ "a.id STARTS WITH 'sr:'"
     assert query =~ "b.id STARTS WITH 'sr:'"
-    assert query =~ "coalesce(r.relation_type, type(r)) IN ['CONNECTS_TO', 'ATTACHED_TO']"
+    assert query =~ "toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'ATTACHED_TO']"
+    assert query =~ "r.relation_type IS NULL"
+    assert query =~ "toLower(coalesce(r.evidence_class, '')) IN ['direct', 'endpoint-attachment']"
     assert query =~ "ORDER BY"
   end
 
