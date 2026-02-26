@@ -248,6 +248,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
   end
 
   defp edge_fetch(edge, key) when is_map(edge) and is_atom(key) do
-    Map.get(edge, key) || Map.get(edge, Atom.to_string(key))
+    cond do
+      Map.has_key?(edge, key) ->
+        Map.get(edge, key)
+
+      Map.has_key?(edge, Atom.to_string(key)) ->
+        Map.get(edge, Atom.to_string(key))
+
+      true ->
+        nil
+    end
   end
 end

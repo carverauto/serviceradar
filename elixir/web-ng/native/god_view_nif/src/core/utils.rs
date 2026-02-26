@@ -71,6 +71,23 @@ pub(crate) fn term_as_f64(term: Term<'_>) -> Option<f64> {
     None
 }
 
+pub(crate) fn term_as_bool(term: Term<'_>) -> Option<bool> {
+    if let Ok(v) = term.decode::<bool>() {
+        return Some(v);
+    }
+    if let Ok(v) = term.decode::<i64>() {
+        return Some(v > 0);
+    }
+    if let Ok(v) = term.decode::<u64>() {
+        return Some(v > 0);
+    }
+    if let Ok(v) = term.decode::<String>() {
+        let normalized = v.trim().to_ascii_lowercase();
+        return Some(matches!(normalized.as_str(), "true" | "1" | "yes" | "y"));
+    }
+    None
+}
+
 /// Transforms an untyped generic Elixir Map into a strictly-typed `RuntimeGraphRow`.
 ///
 /// Implements aggressive key fallback via `map_get_any` for resilient ingestion.
@@ -99,13 +116,20 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
     let local_if_index = map_get_any(row, runtime_graph_atoms::local_if_index(), "local_if_index")
         .and_then(term_as_i64)
         .unwrap_or(-1);
-    let local_if_index_ab =
-        map_get_any(row, runtime_graph_atoms::local_if_index_ab(), "local_if_index_ab")
-            .and_then(term_as_i64)
-            .unwrap_or(local_if_index);
-    let local_if_name_ab = map_get_any(row, runtime_graph_atoms::local_if_name_ab(), "local_if_name_ab")
-        .and_then(term_as_string)
-        .unwrap_or_else(|| local_if_name.clone());
+    let local_if_index_ab = map_get_any(
+        row,
+        runtime_graph_atoms::local_if_index_ab(),
+        "local_if_index_ab",
+    )
+    .and_then(term_as_i64)
+    .unwrap_or(local_if_index);
+    let local_if_name_ab = map_get_any(
+        row,
+        runtime_graph_atoms::local_if_name_ab(),
+        "local_if_name_ab",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_else(|| local_if_name.clone());
     let neighbor_if_name = map_get_any(
         row,
         runtime_graph_atoms::neighbor_if_name(),
@@ -120,13 +144,20 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
     )
     .and_then(term_as_i64)
     .unwrap_or(-1);
-    let local_if_index_ba =
-        map_get_any(row, runtime_graph_atoms::local_if_index_ba(), "local_if_index_ba")
-            .and_then(term_as_i64)
-            .unwrap_or(neighbor_if_index);
-    let local_if_name_ba = map_get_any(row, runtime_graph_atoms::local_if_name_ba(), "local_if_name_ba")
-        .and_then(term_as_string)
-        .unwrap_or_else(|| neighbor_if_name.clone());
+    let local_if_index_ba = map_get_any(
+        row,
+        runtime_graph_atoms::local_if_index_ba(),
+        "local_if_index_ba",
+    )
+    .and_then(term_as_i64)
+    .unwrap_or(neighbor_if_index);
+    let local_if_name_ba = map_get_any(
+        row,
+        runtime_graph_atoms::local_if_name_ba(),
+        "local_if_name_ba",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_else(|| neighbor_if_name.clone());
     let neighbor_device_id = map_get_any(
         row,
         runtime_graph_atoms::neighbor_device_id(),
@@ -189,6 +220,20 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
     let flow_bps_ba = map_get_any(row, runtime_graph_atoms::flow_bps_ba(), "flow_bps_ba")
         .and_then(term_as_i64)
         .unwrap_or(0);
+    let telemetry_eligible = map_get_any(
+        row,
+        runtime_graph_atoms::telemetry_eligible(),
+        "telemetry_eligible",
+    )
+    .and_then(term_as_bool)
+    .unwrap_or(
+        flow_pps > 0
+            || flow_bps > 0
+            || flow_pps_ab > 0
+            || flow_pps_ba > 0
+            || flow_bps_ab > 0
+            || flow_bps_ba > 0,
+    );
     let telemetry_source = map_get_any(
         row,
         runtime_graph_atoms::telemetry_source(),
@@ -267,6 +312,7 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
         flow_pps_ba,
         flow_bps_ab,
         flow_bps_ba,
+        telemetry_eligible,
         telemetry_source,
         telemetry_observed_at,
         metadata_json,

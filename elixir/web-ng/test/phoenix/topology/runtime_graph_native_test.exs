@@ -51,6 +51,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphNativeTest do
     assert stored.flow_pps_ba == 180
     assert stored.flow_bps_ab == 1_200
     assert stored.flow_bps_ba == 1_800
+    assert stored.telemetry_eligible == true
     assert stored.local_if_index_ab == 110
     assert stored.local_if_name_ab == "eth0.10"
     assert stored.local_if_index_ba == 220

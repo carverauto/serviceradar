@@ -47,6 +47,50 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshotTest do
     assert :ok = GodViewSnapshot.validate(snapshot)
   end
 
+  test "validate/1 accepts telemetry_eligible set to false" do
+    snapshot = %{
+      schema_version: GodViewSnapshot.schema_version(),
+      revision: 43,
+      generated_at: DateTime.utc_now(),
+      nodes: [%{"id" => "node-1"}],
+      edges: [
+        %{
+          source: "node-1",
+          target: "node-2",
+          flow_pps: 0,
+          flow_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          capacity_bps: 1_000_000_000,
+          telemetry_eligible: false,
+          protocol: "snmp-l2",
+          evidence_class: "direct",
+          confidence_tier: "high",
+          local_if_index_ab: 1,
+          local_if_name_ab: "eth1",
+          local_if_index_ba: 2,
+          local_if_name_ba: "eth2"
+        }
+      ],
+      causal_bitmaps: %{
+        root_cause: <<1, 0, 0, 1>>,
+        affected: <<0, 1, 1, 0>>,
+        healthy: <<1, 1, 1, 1>>,
+        unknown: <<0, 0, 0, 0>>
+      },
+      bitmap_metadata: %{
+        root_cause: %{bytes: 4, count: 2},
+        affected: %{bytes: 4, count: 2},
+        healthy: %{bytes: 4, count: 4},
+        unknown: %{bytes: 4, count: 0}
+      }
+    }
+
+    assert :ok = GodViewSnapshot.validate(snapshot)
+  end
+
   test "validate/1 rejects unsupported schema versions" do
     snapshot = %{
       schema_version: 999,

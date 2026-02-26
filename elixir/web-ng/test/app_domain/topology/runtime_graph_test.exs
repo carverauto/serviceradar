@@ -53,6 +53,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "confidence_reason: coalesce(r.confidence_reason, '')"
     assert query =~ "flow_pps_ab: coalesce(r.flow_pps_ab, 0)"
     assert query =~ "flow_bps_ab: coalesce(r.flow_bps_ab, 0)"
+    assert query =~ "telemetry_eligible: coalesce("
     assert query =~ "telemetry_source: coalesce(r.telemetry_source, 'none')"
   end
 
@@ -114,6 +115,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert link.flow_pps_ba == 12
     assert link.flow_bps_ab == 3_000
     assert link.flow_bps_ba == 1_200
+    assert link.telemetry_eligible == true
     assert link.telemetry_source == "interface"
   end
 end

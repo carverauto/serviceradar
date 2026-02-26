@@ -62,6 +62,8 @@ pub(crate) struct RuntimeGraphRow {
     pub(crate) flow_bps_ab: i64,
     /// Directional bits/sec from neighbor -> local.
     pub(crate) flow_bps_ba: i64,
+    /// Whether this edge is eligible for animated telemetry rendering.
+    pub(crate) telemetry_eligible: bool,
     /// Source used for telemetry attribution (interface, device-fallback, none).
     pub(crate) telemetry_source: String,
     /// ISO8601 timestamp for when telemetry was observed.
@@ -109,6 +111,7 @@ pub(crate) mod runtime_graph_atoms {
         flow_pps_ba,
         flow_bps_ab,
         flow_bps_ba,
+        telemetry_eligible,
         telemetry_source,
         telemetry_observed_at,
         metadata,

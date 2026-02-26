@@ -156,6 +156,56 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Map.get(snapshot.pipeline_stats, :edge_parity_delta) == 0
   end
 
+  test "latest_snapshot/0 tolerates runtime rows missing directional interface names" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    rows = [
+      %{
+        local_device_id: "sr:contract-a",
+        local_device_ip: "192.0.2.20",
+        local_if_name: "",
+        local_if_index: 1,
+        local_if_name_ab: "",
+        local_if_index_ab: 1,
+        local_if_name_ba: "",
+        local_if_index_ba: 2,
+        neighbor_if_name: "",
+        neighbor_if_index: 2,
+        neighbor_device_id: "sr:contract-b",
+        neighbor_mgmt_addr: "192.0.2.21",
+        neighbor_system_name: "contract-b",
+        protocol: "snmp-l2",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        confidence_reason: "direct",
+        flow_pps: 10,
+        flow_bps: 1_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 7,
+        flow_pps_ba: 3,
+        flow_bps_ab: 700,
+        flow_bps_ba: 300,
+        telemetry_eligible: true,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      }
+    ]
+
+    assert true = Native.runtime_graph_replace_links(graph_ref, rows)
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+
+    edge = find_edge(snapshot, "sr:contract-a", "sr:contract-b")
+    assert edge
+    assert is_binary(Map.get(edge, :local_if_name_ab))
+    assert is_binary(Map.get(edge, :local_if_name_ba))
+  end
+
   test "latest_snapshot/0 drops snapshot when real-time budget is exceeded" do
     original_budget = Application.get_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms)
     Application.put_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms, -1)

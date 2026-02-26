@@ -154,6 +154,15 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       flow_pps_ba: coalesce(r.flow_pps_ba, 0),
       flow_bps_ab: coalesce(r.flow_bps_ab, 0),
       flow_bps_ba: coalesce(r.flow_bps_ba, 0),
+      telemetry_eligible: coalesce(
+        r.telemetry_eligible,
+        CASE
+          WHEN coalesce(r.flow_pps, 0) > 0 OR coalesce(r.flow_bps, 0) > 0 THEN true
+          WHEN coalesce(r.flow_pps_ab, 0) > 0 OR coalesce(r.flow_pps_ba, 0) > 0 THEN true
+          WHEN coalesce(r.flow_bps_ab, 0) > 0 OR coalesce(r.flow_bps_ba, 0) > 0 THEN true
+          ELSE false
+        END
+      ),
       telemetry_source: coalesce(r.telemetry_source, 'none'),
       telemetry_observed_at: coalesce(r.telemetry_observed_at, ''),
       protocol: coalesce(r.protocol, r.source, 'unknown'),
@@ -204,6 +213,15 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       flow_pps_ba: coalesce(r.flow_pps_ba, 0),
       flow_bps_ab: coalesce(r.flow_bps_ab, 0),
       flow_bps_ba: coalesce(r.flow_bps_ba, 0),
+      telemetry_eligible: coalesce(
+        r.telemetry_eligible,
+        CASE
+          WHEN coalesce(r.flow_pps, 0) > 0 OR coalesce(r.flow_bps, 0) > 0 THEN true
+          WHEN coalesce(r.flow_pps_ab, 0) > 0 OR coalesce(r.flow_pps_ba, 0) > 0 THEN true
+          WHEN coalesce(r.flow_bps_ab, 0) > 0 OR coalesce(r.flow_bps_ba, 0) > 0 THEN true
+          ELSE false
+        END
+      ),
       telemetry_source: coalesce(r.telemetry_source, 'none'),
       telemetry_observed_at: coalesce(r.telemetry_observed_at, ''),
       protocol: coalesce(r.protocol, r.source, 'unknown'),
@@ -306,6 +324,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     flow_bps_ab = parse_non_negative_int(map_fetch(row, :flow_bps_ab))
     flow_bps_ba = parse_non_negative_int(map_fetch(row, :flow_bps_ba))
     telemetry_source = map_fetch(row, :telemetry_source)
+    telemetry_eligible = parse_bool(map_fetch(row, :telemetry_eligible))
     telemetry_observed_at = map_fetch(row, :telemetry_observed_at)
     metadata_value = map_fetch(row, :metadata) || map_fetch(row, :metadata_json) || %{}
 
@@ -349,6 +368,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       flow_pps_ba: flow_pps_ba,
       flow_bps_ab: flow_bps_ab,
       flow_bps_ba: flow_bps_ba,
+      telemetry_eligible: telemetry_eligible,
       telemetry_source: blank_to_nil(telemetry_source),
       telemetry_observed_at: blank_to_nil(telemetry_observed_at),
       metadata: metadata
@@ -394,6 +414,19 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   end
 
   defp parse_non_negative_int(_), do: 0
+
+  defp parse_bool(value) when is_boolean(value), do: value
+  defp parse_bool(value) when is_integer(value), do: value > 0
+
+  defp parse_bool(value) when is_binary(value) do
+    case String.trim(String.downcase(value)) do
+      "true" -> true
+      "1" -> true
+      _ -> false
+    end
+  end
+
+  defp parse_bool(_), do: false
 
   defp normalize_positive_int(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_positive_int(_value, default), do: default
