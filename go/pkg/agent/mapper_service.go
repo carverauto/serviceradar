@@ -598,11 +598,6 @@ func buildMapperResultsPayload(updates []map[string]interface{}, agentID, partit
 			meta["sync_service_id"] = agentID
 		}
 		update["metadata"] = meta
-		if id, ok := update["device_id"].(string); !ok || id == "" {
-			if ip, ok := update["ip"].(string); ok && ip != "" {
-				update["device_id"] = fmt.Sprintf("%s:%s", partition, ip)
-			}
-		}
 	}
 
 	return json.Marshal(updates)
@@ -631,11 +626,6 @@ func buildMapperInterfacePayload(updates []map[string]interface{}, agentID, part
 		if update["partition"] == nil {
 			update["partition"] = partition
 		}
-		if id, ok := update["device_id"].(string); !ok || id == "" {
-			if ip, ok := update["device_ip"].(string); ok && ip != "" {
-				update["device_id"] = fmt.Sprintf("%s:%s", partition, ip)
-			}
-		}
 	}
 
 	return json.Marshal(updates)
@@ -662,16 +652,6 @@ func buildMapperTopologyPayload(updates []map[string]interface{}, agentID, parti
 		}
 		if update["partition"] == nil {
 			update["partition"] = partition
-		}
-		if id, ok := update["local_device_id"].(string); !ok || id == "" {
-			if ip, ok := update["local_device_ip"].(string); ok && ip != "" {
-				update["local_device_id"] = fmt.Sprintf("%s:%s", partition, ip)
-			}
-		}
-		if _, ok := update["neighbor_device_id"]; !ok {
-			if ip, ok := update["neighbor_mgmt_addr"].(string); ok && ip != "" {
-				update["neighbor_device_id"] = fmt.Sprintf("%s:%s", partition, ip)
-			}
 		}
 	}
 

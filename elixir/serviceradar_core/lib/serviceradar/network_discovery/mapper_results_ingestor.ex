@@ -1689,23 +1689,27 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       candidate_name
       |> topology_name_candidates()
 
+    uid_match =
+      if is_binary(uid), do: canonical_uid_from_index(index.uid_to_uid, uid), else: nil
+
+    ip_match =
+      if is_binary(ip), do: canonical_uid_from_index(index.ip_to_uid, ip), else: nil
+
+    mac_match =
+      if is_binary(chassis), do: canonical_uid_from_index(index.mac_to_uid, chassis), else: nil
+
+    name_match =
+      Enum.find_value(name_candidates, fn name ->
+        canonical_uid_from_index(index.name_to_uid, name)
+      end)
+
     cond do
-      is_binary(uid) and Map.has_key?(index.uid_to_uid, uid) ->
-        canonical_uid_from_index(index.uid_to_uid, uid)
-
-      is_binary(ip) and Map.has_key?(index.ip_to_uid, ip) ->
-        canonical_uid_from_index(index.ip_to_uid, ip)
-
-      is_binary(chassis) and Map.has_key?(index.mac_to_uid, chassis) ->
-        canonical_uid_from_index(index.mac_to_uid, chassis)
-
-      is_binary(uid) and canonical_topology_uid?(uid) ->
-        uid
-
-      true ->
-        Enum.find_value(name_candidates, fn name ->
-          canonical_uid_from_index(index.name_to_uid, name)
-        end)
+      is_binary(uid_match) -> uid_match
+      is_binary(ip_match) -> ip_match
+      is_binary(mac_match) -> mac_match
+      is_binary(uid) and canonical_topology_uid?(uid) -> uid
+      is_binary(name_match) -> name_match
+      true -> nil
     end
   end
 
@@ -1803,11 +1807,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       query =
         from(d in Device,
           where: is_nil(d.deleted_at),
-          where:
-            fragment(
-              "COALESCE((?->>'identity_source'), '') <> 'mapper_topology_sighting'",
-              d.metadata
-            ),
           where:
             d.ip in ^ips or d.uid in ^uids or fragment("LOWER(COALESCE(?, ''))", d.name) in ^names or
               fragment("LOWER(COALESCE(?, ''))", d.hostname) in ^names or

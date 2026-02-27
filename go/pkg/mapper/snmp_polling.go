@@ -486,9 +486,6 @@ func (e *DiscoveryEngine) generateDeviceID(job *DiscoveryJob, device *Discovered
 
 	if device.MAC != "" && device.DeviceID == "" {
 		device.DeviceID = GenerateDeviceID(device.MAC)
-	} else if device.DeviceID == "" {
-		// Fallback to IP-based DeviceID as a last resort
-		device.DeviceID = GenerateDeviceIDFromIP(target)
 	}
 }
 
@@ -2046,10 +2043,6 @@ func (*DiscoveryEngine) ensureCDPLinkExists(
 		}
 
 		job.mu.RUnlock()
-
-		if localDeviceID == "" {
-			localDeviceID = GenerateDeviceIDFromIP(targetIP)
-		}
 
 		ifIdx, _ := strconv.Atoi(ifIndex)
 
