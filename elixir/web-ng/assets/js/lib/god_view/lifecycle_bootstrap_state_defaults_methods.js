@@ -22,9 +22,12 @@ export const godViewLifecycleBootstrapStateDefaultsMethods = {
     this.state.isProgrammaticViewUpdate = false
     this.state.lastSnapshotAt = 0
     this.state.channelJoined = false
+    this.state.channelReconnectTimer = null
+    this.state.channelReconnectAttempt = 0
+    this.state.channelReconnectBaseMs = 1000
+    this.state.channelReconnectMaxMs = 10000
     this.state.lastVisibleNodeCount = 0
     this.state.lastVisibleEdgeCount = 0
-    this.state.pollTimer = null
     this.state.animationTimer = null
     this.state.animationPhase = 0
     this.state.lastReducedMotionFrameAt = 0
@@ -45,8 +48,6 @@ export const godViewLifecycleBootstrapStateDefaultsMethods = {
     this.state.layoutRevision = null
     this.state.lastRevision = null
     this.state.lastTopologyStamp = null
-    this.state.snapshotUrl = this.state.el.dataset.url || null
-    this.state.pollIntervalMs = Number.parseInt(this.state.el.dataset.intervalMs || "5000", 10) || 5000
     this.state.visual = {
       bg: [20, 28, 42, 255],
       mantleEdge: [42, 42, 42, 170],

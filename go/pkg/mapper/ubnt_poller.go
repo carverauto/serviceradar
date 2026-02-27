@@ -521,9 +521,6 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 		device := &deviceResp.Data[i]
 
 		deviceID := GenerateDeviceID(device.MAC)
-		if deviceID == "" {
-			deviceID = GenerateDeviceIDFromIP(device.IPAddress)
-		}
 
 		deviceCache[device.ID] = struct {
 			IP       string
@@ -886,9 +883,6 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		device := &devices[i]
 
 		deviceID := GenerateDeviceID(device.MAC)
-		if deviceID == "" {
-			deviceID = GenerateDeviceIDFromIP(device.IPAddress)
-		}
 
 		// Fetch device details
 		details, err := e.fetchDeviceDetails(ctx, job, client, headers, apiConfig, site, device.ID)
@@ -1177,9 +1171,6 @@ func (e *DiscoveryEngine) createDiscoveredDevice(
 
 	// Generate standardized device ID
 	deviceID := GenerateDeviceID(device.MAC)
-	if deviceID == "" {
-		deviceID = GenerateDeviceIDFromIP(device.IPAddress)
-	}
 
 	return &DiscoveredDevice{
 		DeviceID: deviceID,
@@ -1253,9 +1244,6 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 	// Ensure we have a proper device ID
 	if deviceID == "" {
 		deviceID = GenerateDeviceID(device.MAC)
-	}
-	if deviceID == "" {
-		deviceID = GenerateDeviceIDFromIP(device.IPAddress)
 	}
 
 	for i := range switchInterfaces.Ports {

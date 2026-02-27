@@ -1655,8 +1655,6 @@ func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevic
 func (*DiscoveryEngine) ensureDeviceID(device *DiscoveredDevice) {
 	if device.DeviceID == "" && device.MAC != "" {
 		device.DeviceID = GenerateDeviceID(device.MAC)
-	} else if device.DeviceID == "" {
-		device.DeviceID = GenerateDeviceIDFromIP(device.IP)
 	}
 }
 
@@ -2036,8 +2034,8 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 			job.mu.Unlock()
 
 			for _, iface := range interfaces {
-				if iface.DeviceID == "" && iface.DeviceIP != "" {
-					iface.DeviceID = GenerateDeviceIDFromIP(iface.DeviceIP)
+				if iface.DeviceID == "" && iface.IfPhysAddress != "" {
+					iface.DeviceID = GenerateDeviceID(iface.IfPhysAddress)
 				}
 				e.upsertInterface(job, iface)
 			}

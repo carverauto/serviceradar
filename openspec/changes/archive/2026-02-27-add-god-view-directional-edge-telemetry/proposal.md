@@ -35,3 +35,8 @@ Recent demo investigation confirmed two additional root causes that must be capt
   - No new telemetry collectors or polling jobs are introduced.
   - UniFi-API-only edges without interface attribution are modeled as non-telemetry edges in God-View payload semantics.
   - Mapper topology discovery behavior is tightened to always include SNMP-L2 enrichment alongside LLDP/CDP when available.
+
+## Follow-up Focus (2026-02-26)
+- Complete demo validation for real-bidi rendering parity on all telemetry-eligible links.
+- Close remaining UX regressions tied to directional rendering stability (lane centering, intermittent animation loss, `UNK` rate labels).
+- Keep directional behavior backend-driven only; no synthetic front-end bidirectional reconstruction.

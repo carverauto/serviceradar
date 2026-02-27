@@ -570,6 +570,25 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
   end
 
   describe "resolve_topology_records/2" do
+    test "sanitize_topology_records/1 strips non-canonical endpoint ids before resolution" do
+      records = [
+        %{
+          local_device_id: "nil",
+          local_device_ip: "192.168.10.1",
+          neighbor_device_id: "default:192.168.10.154",
+          neighbor_mgmt_addr: "192.168.10.154",
+          metadata: %{}
+        }
+      ]
+
+      [sanitized] = MapperResultsIngestor.sanitize_topology_records(records)
+
+      assert sanitized.local_device_id == nil
+      assert sanitized.neighbor_device_id == nil
+      assert sanitized.metadata["source_local_uid"] == nil
+      assert sanitized.metadata["source_target_uid"] == "default:192.168.10.154"
+    end
+
     test "resolves local and neighbor by IP first and keeps unresolved neighbor" do
       records = [
         %{
@@ -695,6 +714,89 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert resolved.local_device_id == "sr:tonka01"
       assert resolved.neighbor_device_id == nil
       assert resolved.metadata["source_target_uid"] == "default:192.168.10.96"
+    end
+
+    test "treats sentinel neighbor ids as unresolved" do
+      records = [
+        %{
+          local_device_id: "sr:tonka01",
+          local_device_ip: "192.168.10.1",
+          neighbor_device_id: "nil",
+          neighbor_mgmt_addr: nil,
+          neighbor_system_name: nil,
+          neighbor_chassis_id: nil,
+          partition: "default"
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"sr:tonka01" => "sr:tonka01"},
+        ip_to_uid: %{"192.168.10.1" => "sr:tonka01"},
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+      assert resolved.local_device_id == "sr:tonka01"
+      assert resolved.neighbor_device_id == nil
+      assert resolved.metadata["source_target_uid"] == nil
+    end
+
+    test "ignores non-canonical index mappings and falls back to canonical id generation" do
+      records = [
+        %{
+          local_device_id: "nil",
+          local_device_ip: "192.168.10.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "192.168.10.154",
+          neighbor_system_name: nil,
+          neighbor_chassis_id: nil,
+          partition: "default"
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"nil" => "nil"},
+        ip_to_uid: %{"192.168.10.1" => "nil", "192.168.10.154" => "nil"},
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+      assert is_binary(resolved.local_device_id)
+      assert String.starts_with?(resolved.local_device_id, "sr:")
+      assert resolved.local_device_id != "nil"
+      assert resolved.neighbor_device_id == nil
+      assert resolved.metadata["source_local_uid"] == nil
+    end
+
+    test "falls through poisoned uid mapping and still resolves by ip" do
+      records = [
+        %{
+          local_device_id: "default:192.168.10.1",
+          local_device_ip: "192.168.10.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "192.168.10.154",
+          neighbor_system_name: nil,
+          neighbor_chassis_id: nil,
+          partition: "default"
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"default:192.168.10.1" => "nil"},
+        ip_to_uid: %{
+          "192.168.10.1" => "sr:tonka01",
+          "192.168.10.154" => "sr:aruba-10-154"
+        },
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+      assert resolved.local_device_id == "sr:tonka01"
+      assert resolved.neighbor_device_id == "sr:aruba-10-154"
+      assert resolved.metadata["source_local_uid"] == "default:192.168.10.1"
     end
 
     test "preserves canonical sr neighbor ids even when they are not indexed" do

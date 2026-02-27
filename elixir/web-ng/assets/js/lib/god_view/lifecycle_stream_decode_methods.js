@@ -74,7 +74,7 @@ export const godViewLifecycleStreamDecodeMethods = {
           capacityBps: Number(edgeCapacityBps?.get(i) || 0),
           telemetryEligible: Number(edgeTelemetryEligible?.get(i) ?? 1) > 0,
           label: this.deps.normalizeDisplayLabel(edgeLabel?.get(i), ""),
-          topologyClass: this.deps.normalizeDisplayLabel(edgeTopologyClass?.get(i), "backbone"),
+          topologyClass: this.deps.normalizeDisplayLabel(edgeTopologyClass?.get(i), "unknown"),
           protocol: this.deps.normalizeDisplayLabel(edgeProtocol?.get(i), ""),
           evidenceClass: this.deps.normalizeDisplayLabel(edgeEvidenceClass?.get(i), ""),
         })
