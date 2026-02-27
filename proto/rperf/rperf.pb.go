@@ -499,7 +499,7 @@ const file_rperf_rperf_proto_rawDesc = "" +
 	"\amessage\x18\x03 \x01(\tR\amessage2\x80\x01\n" +
 	"\fRPerfService\x124\n" +
 	"\aRunTest\x12\x12.rperf.TestRequest\x1a\x13.rperf.TestResponse\"\x00\x12:\n" +
-	"\tGetStatus\x12\x14.rperf.StatusRequest\x1a\x15.rperf.StatusResponse\"\x00BGZEgithub.com/carverauto/serviceradar/cmd/checkers/rperf/src/proto/rperfb\x06proto3"
+	"\tGetStatus\x12\x14.rperf.StatusRequest\x1a\x15.rperf.StatusResponse\"\x00BGZEgithub.com/carverauto/serviceradar/proto/rperfb\x06proto3"
 
 var (
 	file_rperf_rperf_proto_rawDescOnce sync.Once

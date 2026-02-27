@@ -32,6 +32,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @process_limit 25
   @process_query_limit 200
   @interfaces_limit 200
+  @flows_limit 50
   @availability_window "last_24h"
   @availability_bucket "30m"
 
@@ -68,6 +69,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:sweep_results, nil)
      |> assign(:process_metrics, nil)
      |> assign(:limit, @default_limit)
+     |> assign(:flows_limit, @flows_limit)
      |> assign(:srql, srql)
      # Edit mode
      |> assign(:editing, false)
@@ -87,6 +89,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      # Interface metrics for favorited interfaces
      |> assign(:interface_metrics, nil)
      |> assign(:interface_metrics_layout, "two")
+     |> assign(:device_flows, [])
+     |> assign(:flows_error, nil)
+     |> assign(:flows_pagination, %{})
+     |> assign(:has_flows, false)
      |> assign(:ip_aliases, [])
      |> assign(:ip_alias_error, nil)
      |> assign(:show_stale_aliases, false)
@@ -99,24 +105,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     limit = parse_limit(Map.get(params, "limit"), @default_limit, @max_limit)
     # Read tab from URL params, fall back to current or default
     url_tab = Map.get(params, "tab")
+    cursor = normalize_cursor(Map.get(params, "cursor"))
 
     requested_tab =
-      if url_tab in ["details", "interfaces", "profiles", "sysmon"],
+      if url_tab in ["details", "interfaces", "flows", "profiles", "sysmon"],
         do: url_tab,
         else: socket.assigns.active_tab
 
     # When only the tab changed on the same device, skip reloading all data
     if uid == socket.assigns.device_uid and limit == socket.assigns.limit do
       active_tab =
-        if requested_tab == "interfaces" and not socket.assigns.has_ifaces,
-          do: "details",
-          else: requested_tab
+        cond do
+          requested_tab == "interfaces" and not socket.assigns.has_ifaces -> "details"
+          requested_tab == "flows" and not socket.assigns.has_flows -> "details"
+          true -> requested_tab
+        end
 
       srql =
-        if active_tab == "interfaces" do
-          srql_for_tab("interfaces", uid, limit, socket.assigns.srql)
+        cond do
+          active_tab == "interfaces" ->
+            srql_for_tab("interfaces", uid, limit, socket.assigns.srql)
+
+          active_tab == "flows" ->
+            srql_for_tab("flows", uid, limit, socket.assigns.srql)
+
+          true ->
+            socket.assigns.srql
+        end
+
+      socket =
+        if active_tab == "flows" do
+          {flows, pagination, flows_error} =
+            load_flows(srql_module(), uid, socket.assigns.current_scope, cursor)
+
+          socket
+          |> assign(:device_flows, flows)
+          |> assign(:flows_pagination, pagination)
+          |> assign(:flows_error, flows_error)
         else
-          socket.assigns.srql
+          socket
         end
 
       {:noreply,
@@ -136,6 +163,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       end
     end
   end
+
+  defp normalize_cursor(nil), do: nil
+  defp normalize_cursor(""), do: nil
+
+  defp normalize_cursor(cursor) when is_binary(cursor) do
+    cursor = String.trim(cursor)
+    if cursor == "", do: nil, else: cursor
+  end
+
+  defp normalize_cursor(_), do: nil
 
   defp load_device_data(socket, uid, limit, requested_tab, params, uri) do
     default_query = default_device_query(uid, limit)
@@ -187,6 +224,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       Task.async(fn -> {:sweep, load_sweep_results(socket.assigns.current_scope, device_ip)} end),
       Task.async(fn -> {:profile, load_sysmon_profile_info(scope, uid)} end),
       Task.async(fn -> {:interfaces, load_interfaces(srql_module, uid, scope)} end),
+      Task.async(fn ->
+        {:flows, load_flows(srql_module, uid, scope, normalize_cursor(Map.get(params, "cursor")))}
+      end),
       Task.async(fn -> {:mapper, load_mapper_jobs_for_device(scope, device_row)} end),
       Task.async(fn -> {:iface_settings, load_interface_settings(scope, uid)} end),
       Task.async(fn -> {:snmp, load_device_snmp_credential(scope, uid)} end),
@@ -215,6 +255,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     sweep_results = parallel_results.sweep
     {sysmon_profile_info, available_profiles} = parallel_results.profile
     {network_interfaces, interfaces_error} = parallel_results.interfaces
+    {device_flows, flows_pagination, flows_error} = parallel_results.flows
     discovery_jobs = parallel_results.mapper
     interface_settings = parallel_results.iface_settings
     device_snmp_credential = parallel_results.snmp
@@ -247,16 +288,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       is_binary(interfaces_error) or
         (is_list(network_interfaces) and network_interfaces != []) or has_discovery_job
 
+    has_flows = is_binary(flows_error) or (is_list(device_flows) and device_flows != [])
+
     active_tab =
-      if requested_tab == "interfaces" and not has_ifaces,
-        do: "details",
-        else: requested_tab
+      cond do
+        requested_tab == "interfaces" and not has_ifaces -> "details"
+        requested_tab == "flows" and not has_flows -> "details"
+        true -> requested_tab
+      end
 
     srql =
-      if active_tab == "interfaces" do
-        srql_for_tab("interfaces", uid, limit, base_srql)
-      else
-        base_srql
+      case active_tab do
+        "interfaces" -> srql_for_tab("interfaces", uid, limit, base_srql)
+        "flows" -> srql_for_tab("flows", uid, limit, base_srql)
+        _ -> base_srql
       end
 
     {:noreply,
@@ -267,6 +312,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:network_interfaces, network_interfaces)
      |> assign(:interfaces_error, interfaces_error)
      |> assign(:has_ifaces, has_ifaces)
+     |> assign(:device_flows, device_flows)
+     |> assign(:flows_error, flows_error)
+     |> assign(:flows_pagination, flows_pagination)
+     |> assign(:has_flows, has_flows)
      |> assign(:discovery_job, discovery_job)
      |> assign(:favorited_interfaces, favorited_interfaces)
      |> assign(:interface_metrics, interface_metrics)
@@ -793,6 +842,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  defp load_flows(srql_module, device_uid, scope, cursor) do
+    query = default_flows_query(device_uid)
+    opts = %{scope: scope, limit: @flows_limit, cursor: cursor}
+
+    case srql_module.query(query, opts) do
+      {:ok, %{"results" => results, "pagination" => pagination}} when is_list(results) ->
+        {Enum.filter(results, &is_map/1), pagination || %{}, nil}
+
+      {:ok, %{"results" => results}} when is_list(results) ->
+        {Enum.filter(results, &is_map/1), %{}, nil}
+
+      {:ok, %{"error" => error}} when is_binary(error) ->
+        {[], %{}, error}
+
+      {:ok, other} ->
+        Logger.warning("Unexpected SRQL flows response for #{device_uid}: #{inspect(other)}")
+        {[], %{}, "Failed to load flows data"}
+
+      {:error, reason} ->
+        Logger.warning("Failed to load device flows for #{device_uid}: #{inspect(reason)}")
+        {[], %{}, "Failed to load flows data"}
+    end
+  end
+
   defp filter_interfaces_for_display(interfaces, device_row)
        when is_list(interfaces) and is_map(device_row) do
     if switch_device?(device_row) do
@@ -1215,6 +1288,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.link navigate={~p"/devices/#{@device_uid}"}>{device_display_name(@device_row)}</.link>
             </li>
             <li :if={@active_tab == "interfaces"} class="text-base-content/70">Interfaces</li>
+            <li :if={@active_tab == "flows"} class="text-base-content/70">Flows</li>
             <li :if={@active_tab == "profiles"} class="text-base-content/70">Profiles</li>
             <li :if={@active_tab == "sysmon"} class="text-base-content/70">System Monitor</li>
           </ul>
@@ -1758,8 +1832,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             </div>
           </div>
           
-    <!-- Tabs Navigation (show if sysmon or interfaces present) -->
-          <div :if={(@sysmon_presence or @has_ifaces) and is_map(@device_row)} class="tabs tabs-box">
+    <!-- Tabs Navigation (show if sysmon, interfaces, or flows are present) -->
+          <div
+            :if={(@sysmon_presence or @has_ifaces or @has_flows) and is_map(@device_row)}
+            class="tabs tabs-box"
+          >
             <button
               type="button"
               phx-click="switch_tab"
@@ -1775,7 +1852,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               phx-value-tab="interfaces"
               class={["tab", @active_tab == "interfaces" && "tab-active"]}
             >
-              <.icon name="hero-arrows-right-left" class="size-4 mr-1.5" /> Interfaces
+              <.icon name="hero-server-stack" class="size-4 mr-1.5" /> Interfaces
+            </button>
+            <button
+              :if={@has_flows}
+              type="button"
+              phx-click="switch_tab"
+              phx-value-tab="flows"
+              class={["tab", @active_tab == "flows" && "tab-active"]}
+            >
+              <.icon name="hero-arrows-right-left" class="size-4 mr-1.5" /> Flows
             </button>
             <button
               :if={@sysmon_presence}
@@ -1789,7 +1875,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           </div>
           
     <!-- Details Tab Content -->
-          <div :if={@active_tab == "details" or not (@sysmon_presence or @has_ifaces)}>
+          <div :if={@active_tab == "details" or not (@sysmon_presence or @has_ifaces or @has_flows)}>
             <div class="grid grid-cols-1 gap-4">
               <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
 
@@ -1902,6 +1988,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               interface_metrics={@interface_metrics}
               discovery_job={@discovery_job}
               interface_metrics_layout={@interface_metrics_layout}
+            />
+          </div>
+          
+    <!-- Flows Tab Content -->
+          <div :if={@active_tab == "flows" and @has_flows}>
+            <.flows_tab_content
+              flows={@device_flows}
+              error={@flows_error}
+              pagination={@flows_pagination}
+              device_uid={@device_uid}
+              query={default_flows_query(@device_uid)}
+              limit={@flows_limit}
             />
           </div>
           
@@ -2611,6 +2709,147 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       </div>
     <% end %>
     """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Flows Tab Content
+  # ---------------------------------------------------------------------------
+
+  attr :flows, :list, required: true
+  attr :error, :string, default: nil
+  attr :pagination, :map, default: %{}
+  attr :device_uid, :string, required: true
+  attr :query, :string, required: true
+  attr :limit, :integer, required: true
+
+  defp flows_tab_content(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-arrows-right-left" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Flows</span>
+          <span class="text-xs text-base-content/50">({length(@flows)} rows)</span>
+        </div>
+        <.link navigate={~p"/flows?q=#{@query}"} class="text-xs text-primary hover:underline">
+          Open full flows view
+        </.link>
+      </div>
+
+      <div class="p-4">
+        <div :if={is_binary(@error)} class="mb-3 text-xs text-error">{@error}</div>
+
+        <%= if @flows == [] and is_nil(@error) do %>
+          <div class="text-sm text-base-content/60">No flows found for this device.</div>
+        <% else %>
+          <div class="overflow-x-auto">
+            <table class="table table-xs w-full">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Source</th>
+                  <th>Destination</th>
+                  <th class="text-right">Proto</th>
+                  <th class="text-right">Packets</th>
+                  <th class="text-right">Bytes</th>
+                  <th class="text-right"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <%= for flow <- @flows do %>
+                  <tr>
+                    <td class="font-mono">{format_timestamp(flow_time(flow))}</td>
+                    <td class="font-mono">
+                      {flow_endpoint(flow, :src)}{flow_port(flow, :src)}
+                    </td>
+                    <td class="font-mono">
+                      {flow_endpoint(flow, :dst)}{flow_port(flow, :dst)}
+                    </td>
+                    <td class="text-right font-mono">
+                      {Map.get(flow, "protocol_name") || Map.get(flow, "protocol_num") || "—"}
+                    </td>
+                    <td class="text-right font-mono">{Map.get(flow, "packets_total") || "—"}</td>
+                    <td class="text-right font-mono">{format_bytes(Map.get(flow, "bytes_total"))}</td>
+                    <td class="text-right">
+                      <.link
+                        navigate={
+                          ~p"/flows?#{%{"q" => flow_drilldown_query(flow), "open" => "first"}}"
+                        }
+                        class="btn btn-ghost btn-xs"
+                      >
+                        Details
+                      </.link>
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="pt-3 border-t border-base-200 mt-3">
+            <.ui_pagination
+              prev_cursor={Map.get(@pagination, "prev_cursor")}
+              next_cursor={Map.get(@pagination, "next_cursor")}
+              base_path={"/devices/#{@device_uid}"}
+              query={@query}
+              limit={@limit}
+              result_count={length(@flows)}
+              extra_params={%{"tab" => "flows"}}
+            />
+          </div>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  defp flow_endpoint(flow, :src), do: Map.get(flow, "src_endpoint_ip") || "—"
+  defp flow_endpoint(flow, :dst), do: Map.get(flow, "dst_endpoint_ip") || "—"
+
+  defp flow_port(flow, :src) do
+    case Map.get(flow, "src_endpoint_port") do
+      port when is_integer(port) -> ":#{port}"
+      _ -> ""
+    end
+  end
+
+  defp flow_port(flow, :dst) do
+    case Map.get(flow, "dst_endpoint_port") do
+      port when is_integer(port) -> ":#{port}"
+      _ -> ""
+    end
+  end
+
+  defp flow_time(flow) do
+    Map.get(flow, "time") || Map.get(flow, "timestamp")
+  end
+
+  defp flow_drilldown_query(flow) when is_map(flow) do
+    tokens =
+      ["in:flows", "time:last_24h"]
+      |> maybe_add_flow_token("src_endpoint_ip", Map.get(flow, "src_endpoint_ip"))
+      |> maybe_add_flow_token("dst_endpoint_ip", Map.get(flow, "dst_endpoint_ip"))
+      |> maybe_add_flow_token("src_endpoint_port", Map.get(flow, "src_endpoint_port"))
+      |> maybe_add_flow_token("dst_endpoint_port", Map.get(flow, "dst_endpoint_port"))
+      |> maybe_add_flow_token("protocol_num", Map.get(flow, "protocol_num"))
+      |> Kernel.++(["sort:time:desc", "limit:1"])
+
+    Enum.join(tokens, " ")
+  end
+
+  defp flow_drilldown_query(_), do: "in:flows time:last_24h sort:time:desc limit:1"
+
+  defp maybe_add_flow_token(tokens, _field, nil), do: tokens
+  defp maybe_add_flow_token(tokens, _field, ""), do: tokens
+
+  defp maybe_add_flow_token(tokens, field, value) do
+    value = to_string(value) |> String.trim()
+
+    if value == "" do
+      tokens
+    else
+      tokens ++ ["#{field}:#{value}"]
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -4509,12 +4748,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       "sort:if_name:asc limit:#{@interfaces_limit}"
   end
 
+  defp default_flows_query(device_uid) do
+    "in:flows device_id:\"#{escape_value(device_uid)}\" time:last_24h sort:time:desc"
+  end
+
   defp srql_for_tab("interfaces", device_uid, _limit, srql)
        when is_binary(device_uid) and device_uid != "" do
     query = default_interfaces_query(device_uid)
 
     srql
     |> Map.put(:entity, "interfaces")
+    |> Map.put(:query, query)
+    |> Map.put(:draft, query)
+    |> Map.put(:error, nil)
+    |> Map.put(:loading, false)
+  end
+
+  defp srql_for_tab("flows", device_uid, _limit, srql)
+       when is_binary(device_uid) and device_uid != "" do
+    query = default_flows_query(device_uid)
+
+    srql
+    |> Map.put(:entity, "flows")
     |> Map.put(:query, query)
     |> Map.put(:draft, query)
     |> Map.put(:error, nil)

@@ -467,6 +467,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       html = render(view)
       assert html =~ "hero-star"
     end
+
+    test "shows flows tab when device-scoped flows exist", %{conn: conn, device_uid: device_uid} do
+      insert_test_flow!(device_uid, "192.168.1.55")
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      assert has_element?(view, "button[phx-click='switch_tab'][phx-value-tab='flows']")
+
+      view
+      |> element("button[phx-click='switch_tab'][phx-value-tab='flows']")
+      |> render_click()
+
+      assert has_element?(view, "a.btn.btn-ghost.btn-xs", "Details")
+    end
+
+    test "hides flows tab when no scoped flows exist", %{conn: conn, device_uid: device_uid} do
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+      refute has_element?(view, "button[phx-click='switch_tab'][phx-value-tab='flows']")
+    end
   end
 
   describe "interfaces bulk edit" do
@@ -593,6 +611,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         if_admin_status: 1,
         speed_bps: nil,
         if_index: 2
+      }
+    ])
+  end
+
+  defp insert_test_flow!(device_uid, device_ip) do
+    ts = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Repo.insert_all("ocsf_network_activity", [
+      %{
+        time: ts,
+        src_endpoint_ip: device_ip,
+        src_endpoint_port: 52_344,
+        dst_endpoint_ip: "8.8.8.8",
+        dst_endpoint_port: 53,
+        protocol_num: 17,
+        protocol_name: "udp",
+        bytes_total: 1_024,
+        packets_total: 8,
+        bytes_in: 256,
+        bytes_out: 768,
+        sampler_address: "10.1.1.1",
+        ocsf_payload: %{"device_id" => device_uid},
+        created_at: ts
       }
     ])
   end

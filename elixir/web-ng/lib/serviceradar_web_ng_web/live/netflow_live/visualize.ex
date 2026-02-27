@@ -118,6 +118,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         |> load_srql_assigns(q_param, uri, parse_limit_param(Map.get(params, "limit")))
         |> load_visualize_chart(q_param, state)
         |> load_flows_list(params, state)
+        |> maybe_open_flow_from_params(params)
 
       {:noreply, socket}
     end
@@ -1340,7 +1341,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     fallback_time = Map.get(state, "time", @default_time)
 
     list_query =
-      chart_base_query(chart_query, fallback_time)
+      flows_list_base_query(chart_query, fallback_time)
       |> ensure_sort_time_desc()
 
     window_label = flows_window_label_from_query(list_query, fallback_time)
@@ -1374,6 +1375,19 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> assign(:rdns_map, %{})
       |> assign(:geo_iso2_map, %{})
       |> assign(:flows_window_label, nil)
+  end
+
+  defp maybe_open_flow_from_params(socket, params) do
+    if Map.get(params, "open") == "first" do
+      selected = List.first(Map.get(socket.assigns, :flows, []))
+      context = load_flow_context(selected, socket.assigns.current_scope)
+
+      socket
+      |> assign(:selected_flow, selected)
+      |> assign(:selected_flow_context, context)
+    else
+      socket
+    end
   end
 
   defp ensure_sort_time_desc(query) when is_binary(query) do
@@ -2475,8 +2489,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     previous_period = Map.get(state, "previous_period", false) == true
 
     # IMPORTANT: `chart_query` may already be a downsample/stats query; for fallbacks we need a
-    # "base flows" query without chart tokens.
-    base = chart_base_query(chart_query, fallback_time)
+    # "base flows" query without chart tokens. Preserve explicit `time:` from query when present.
+    base = flows_list_base_query(chart_query, fallback_time)
 
     case graph do
       "sankey" ->
@@ -2551,6 +2565,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp load_visualize_chart(socket, other, %{} = state),
     do: load_visualize_chart(socket, to_string(other || ""), state)
+
+  defp flows_list_base_query(query, fallback_time) when is_binary(fallback_time) do
+    query
+    |> to_string()
+    |> NFQuery.flows_base_query(fallback_time)
+    |> NFQuery.flows_sanitize_for_stats()
+    |> String.trim()
+  end
 
   defp load_sankey_edges(srql_module, chart_query, base, state, scope, max_edges)
        when is_integer(max_edges) and max_edges > 0 do

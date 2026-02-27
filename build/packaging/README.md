@@ -2,7 +2,7 @@
 
 ## Overview
 
-The ServiceRadar build system has been consolidated into a single script, `setup-package.sh`, which replaces the multiple `setup-deb-*.sh` scripts. This script builds both Debian (`.deb`) and RPM (`.rpm`) packages for all components of the ServiceRadar project, using a configuration-driven approach defined in `build/packaging/components.json`. The system supports components written in Go, Rust, and Node.js, as well as external binaries (e.g., NATS), and organizes Dockerfiles in `docker/deb/` and `docker/rpm/` directories (with some exceptions in `cmd/checkers/`).
+The ServiceRadar build system has been consolidated into a single script, `setup-package.sh`, which replaces the multiple `setup-deb-*.sh` scripts. This script builds both Debian (`.deb`) and RPM (`.rpm`) packages for all components of the ServiceRadar project, using a configuration-driven approach defined in `build/packaging/components.json`. The system supports components written in Go, Rust, and Node.js, as well as external binaries (e.g., NATS), and organizes Dockerfiles in `docker/deb/` and `docker/rpm/` directories (with some exceptions in component source directories such as `rust/`).
 
 This documentation explains the structure of `components.json`, how to use `setup-package.sh`, and how to add new components. It also addresses the management of packaging files and the rationale for dynamic generation of Debian control files.
 
@@ -103,7 +103,7 @@ The `setup-package.sh` script builds Debian and RPM packages based on the `compo
     - `build/packaging/components.json`: Configuration file.
     - `build/packaging/<component>/`: Component-specific files (e.g., `config/`, `systemd/`, `scripts/`).
     - `docker/deb/` and `docker/rpm/`: Dockerfiles for Debian and RPM builds.
-    - `cmd/checkers/<checker>/`: Dockerfiles for checkers like rperf-client, rperf-server, sysmon.
+    - `rust/<component>/`: Dockerfiles for Rust components like rperf-client and rperf-server.
 
 ### Running the Build
 
@@ -178,7 +178,7 @@ Example for `new-checker` (Go-based):
     "release": "1"
   },
   "binary": {
-    "source_path": "cmd/checkers/new-checker",
+    "source_path": "go/cmd/new-checker",
     "build_method": "go",
     "output_path": "/usr/local/bin/serviceradar-new-checker"
   },
@@ -206,9 +206,9 @@ Example for `new-checker` (Go-based):
 
 ### 3. Create Source Code:
 
-Add the component's source code (e.g., `cmd/checkers/new-checker/main.go` for a Go-based checker).
+Add the component's source code (e.g., `go/cmd/new-checker/main.go` for a Go-based checker).
 
-If using Docker or Rust, create a Dockerfile in `cmd/checkers/new-checker/` or `docker/deb/` and update the `deb.dockerfile` and `rpm.dockerfile` fields.
+If using Docker or Rust, create a Dockerfile in `rust/new-checker/` or `docker/deb/` and update the `deb.dockerfile` and `rpm.dockerfile` fields.
 
 ### 4. Test the Build:
 

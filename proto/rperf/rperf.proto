@@ -18,7 +18,7 @@ syntax = "proto3";
 
 package rperf;
 
-option go_package = "github.com/carverauto/serviceradar/cmd/checkers/rperf/src/proto/rperf";
+option go_package = "github.com/carverauto/serviceradar/proto/rperf";
 
 // The RPerf service definition
 service RPerfService {
