@@ -10,9 +10,8 @@ defmodule ServiceRadar.Repo.Migrations.FixTraceSummariesSchema do
   """
   use Ecto.Migration
 
-  @schema prefix() || "platform"
-
   def up do
+    schema = schema()
     # 1. Remove any stale copy in public (table or materialized view)
     execute("DROP TABLE IF EXISTS public.otel_trace_summaries CASCADE")
     execute("DROP MATERIALIZED VIEW IF EXISTS public.otel_trace_summaries CASCADE")
@@ -25,17 +24,17 @@ defmodule ServiceRadar.Repo.Migrations.FixTraceSummariesSchema do
         SELECT 1 FROM pg_class c
         JOIN pg_namespace n ON c.relnamespace = n.oid
         WHERE c.relname = 'otel_trace_summaries'
-          AND n.nspname = '#{@schema}'
+          AND n.nspname = '#{schema}'
           AND c.relkind = 'm'
       ) THEN
-        DROP MATERIALIZED VIEW #{@schema}.otel_trace_summaries CASCADE;
+        DROP MATERIALIZED VIEW #{schema}.otel_trace_summaries CASCADE;
       END IF;
     END $$
     """)
 
     # 3. Create the table if it doesn't exist
     execute("""
-    CREATE TABLE IF NOT EXISTS #{@schema}.otel_trace_summaries (
+    CREATE TABLE IF NOT EXISTS #{schema}.otel_trace_summaries (
       trace_id         TEXT PRIMARY KEY,
       timestamp        TIMESTAMPTZ,
       root_span_id     TEXT,
@@ -61,11 +60,11 @@ defmodule ServiceRadar.Repo.Migrations.FixTraceSummariesSchema do
     BEGIN
       IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_schema = '#{@schema}'
+        WHERE table_schema = '#{schema}'
           AND table_name = 'otel_trace_summaries'
           AND column_name = 'refreshed_at'
       ) THEN
-        ALTER TABLE #{@schema}.otel_trace_summaries
+        ALTER TABLE #{schema}.otel_trace_summaries
           ADD COLUMN refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
       END IF;
     END $$
@@ -74,12 +73,12 @@ defmodule ServiceRadar.Repo.Migrations.FixTraceSummariesSchema do
     # 5. Ensure indexes exist
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trace_summaries_timestamp
-    ON #{@schema}.otel_trace_summaries (timestamp DESC)
+    ON #{schema}.otel_trace_summaries (timestamp DESC)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trace_summaries_service_timestamp
-    ON #{@schema}.otel_trace_summaries (root_service_name, timestamp DESC)
+    ON #{schema}.otel_trace_summaries (root_service_name, timestamp DESC)
     """)
   end
 
@@ -87,4 +86,6 @@ defmodule ServiceRadar.Repo.Migrations.FixTraceSummariesSchema do
     # Nothing to undo — this is a repair migration
     :ok
   end
+
+  defp schema, do: prefix() || "platform"
 end
