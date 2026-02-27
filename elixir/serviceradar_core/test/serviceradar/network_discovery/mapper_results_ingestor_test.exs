@@ -570,6 +570,25 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
   end
 
   describe "resolve_topology_records/2" do
+    test "sanitize_topology_records/1 strips non-canonical endpoint ids before resolution" do
+      records = [
+        %{
+          local_device_id: "nil",
+          local_device_ip: "192.168.10.1",
+          neighbor_device_id: "default:192.168.10.154",
+          neighbor_mgmt_addr: "192.168.10.154",
+          metadata: %{}
+        }
+      ]
+
+      [sanitized] = MapperResultsIngestor.sanitize_topology_records(records)
+
+      assert sanitized.local_device_id == nil
+      assert sanitized.neighbor_device_id == nil
+      assert sanitized.metadata["source_local_uid"] == nil
+      assert sanitized.metadata["source_target_uid"] == "default:192.168.10.154"
+    end
+
     test "resolves local and neighbor by IP first and keeps unresolved neighbor" do
       records = [
         %{

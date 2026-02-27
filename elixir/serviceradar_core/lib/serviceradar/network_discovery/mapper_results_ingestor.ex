@@ -84,7 +84,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     with {:ok, updates} <- decode_payload(message),
          records <- build_topology_records(updates),
-         resolved_records <- resolve_topology_device_ids(records),
+         canonical_seed_records <- sanitize_topology_records(records),
+         resolved_records <- resolve_topology_device_ids(canonical_seed_records),
          :ok <- promote_topology_sightings(resolved_records, actor),
          final_records <- resolve_topology_device_ids(resolved_records),
          records_with_wireguard <- add_deterministic_wireguard_links(final_records) do
@@ -1977,6 +1978,39 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> prune_unattributed_unifi_links()
     |> infer_reverse_interface_hints()
   end
+
+  @doc false
+  def sanitize_topology_records(records) when is_list(records) do
+    Enum.map(records, &sanitize_topology_record/1)
+  end
+
+  defp sanitize_topology_record(record) when is_map(record) do
+    local_candidate = normalize_string(Map.get(record, :local_device_id))
+    neighbor_candidate = normalize_string(Map.get(record, :neighbor_device_id))
+
+    metadata =
+      record
+      |> Map.get(:metadata, %{})
+      |> case do
+        map when is_map(map) -> map
+        _ -> %{}
+      end
+      |> maybe_put_metadata_value("source_local_uid", local_candidate)
+      |> maybe_put_metadata_value("source_target_uid", neighbor_candidate)
+
+    record
+    |> Map.put(:metadata, metadata)
+    |> Map.put(:local_device_id, sanitize_topology_candidate_uid(local_candidate))
+    |> Map.put(:neighbor_device_id, sanitize_topology_candidate_uid(neighbor_candidate))
+  end
+
+  defp sanitize_topology_record(record), do: record
+
+  defp sanitize_topology_candidate_uid(uid) when is_binary(uid) do
+    if canonical_topology_uid?(uid), do: uid, else: nil
+  end
+
+  defp sanitize_topology_candidate_uid(_), do: nil
 
   @doc false
   def prune_unattributed_unifi_links(records) when is_list(records) do
