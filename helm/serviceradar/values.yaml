@@ -367,6 +367,7 @@ geoipMmdb:
 webNg:
   host: ""
   publicUrl: ""
+  godViewEnabled: "true"
   checkOrigin: "false"
   devRoutes: "false"
   localMailer: "false"
