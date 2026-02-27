@@ -108,7 +108,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           normalize_label(Map.get(node, :label) || Map.get(node, :id) || "node"),
           normalize_u32(Map.get(node, :pps, 0)),
           normalize_u8(node_oper_up_value(Map.get(node, :oper_up))),
-          normalize_label(Map.get(node, :details_json) || "{}")
+          normalize_details_json(Map.get(node, :details_json))
         }
       end)
 
@@ -632,6 +632,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       hostname: Map.get(device || %{}, :hostname),
       ip: node_ip(device, id),
       type: node_type(device),
+      type_id: Map.get(device || %{}, :type_id),
       vendor: Map.get(device || %{}, :vendor_name),
       model: Map.get(device || %{}, :model),
       last_seen:
@@ -666,12 +667,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     metadata = Map.get(device, :metadata) || %{}
 
     meta =
-      metadata["ip"] ||
-        metadata["mgmt_ip"] ||
-        metadata["management_ip"] ||
-        metadata["primary_ip"] ||
-        metadata["ipv4"] ||
-        metadata["host_ip"]
+      metadata_value(metadata, "ip") ||
+        metadata_value(metadata, "mgmt_ip") ||
+        metadata_value(metadata, "management_ip") ||
+        metadata_value(metadata, "primary_ip") ||
+        metadata_value(metadata, "ipv4") ||
+        metadata_value(metadata, "host_ip")
 
     normalize_id(direct) || normalize_id(meta) || ip_like_id(id)
   end
@@ -688,9 +689,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     metadata = Map.get(device, :metadata) || %{}
 
     Map.get(device, :type) ||
-      metadata["type"] ||
-      metadata["device_type"] ||
-      metadata["category"] ||
+      metadata_value(metadata, "type") ||
+      metadata_value(metadata, "device_type") ||
+      metadata_value(metadata, "category") ||
       type_name_from_id(Map.get(device, :type_id))
   end
 
@@ -728,7 +729,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     keys
     |> Enum.find_value(fn key ->
-      case Map.get(metadata, key) do
+      case metadata_value(metadata, key) do
         value when is_binary(value) and value != "" -> value
         value when is_integer(value) -> Integer.to_string(value)
         value when is_float(value) -> Float.to_string(value)
@@ -744,7 +745,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     keys
     |> Enum.find_value(fn key ->
-      case Map.get(metadata, key) do
+      case metadata_value(metadata, key) do
         value when is_float(value) ->
           value
 
@@ -762,6 +763,19 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       end
     end)
   end
+
+  defp metadata_value(metadata, key) when is_map(metadata) and is_binary(key) do
+    Map.get(metadata, key) ||
+      Enum.find_value(Map.keys(metadata), fn
+        atom_key when is_atom(atom_key) ->
+          if Atom.to_string(atom_key) == key, do: Map.get(metadata, atom_key), else: nil
+
+        _ ->
+          nil
+      end)
+  end
+
+  defp metadata_value(_metadata, _key), do: nil
 
   defp health_signal(%{is_available: true}), do: :healthy
   defp health_signal(%{is_available: false}), do: :unhealthy
@@ -1329,6 +1343,28 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp normalize_label(_), do: "node"
+
+  defp normalize_details_json(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    if trimmed == "" do
+      "{}"
+    else
+      case Jason.decode(trimmed) do
+        {:ok, _decoded} -> trimmed
+        _ -> "{}"
+      end
+    end
+  end
+
+  defp normalize_details_json(value) when is_map(value) do
+    case Jason.encode(value) do
+      {:ok, json} -> json
+      _ -> "{}"
+    end
+  end
+
+  defp normalize_details_json(_), do: "{}"
 
   defp clamp(value, min, _max) when value < min, do: min
   defp clamp(value, _min, max) when value > max, do: max

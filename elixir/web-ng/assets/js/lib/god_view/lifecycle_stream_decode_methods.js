@@ -1,6 +1,17 @@
 import {tableFromIPC} from "apache-arrow"
 
 export const godViewLifecycleStreamDecodeMethods = {
+  parseOptionalFloat(value) {
+    if (value == null) return NaN
+    if (typeof value === "number") return Number.isFinite(value) ? value : NaN
+    if (typeof value === "string") {
+      const trimmed = value.trim()
+      if (trimmed === "") return NaN
+      const parsed = Number(trimmed)
+      return Number.isFinite(parsed) ? parsed : NaN
+    }
+    return NaN
+  },
   decodeArrowGraph(bytes) {
     const table = tableFromIPC(bytes)
     const rowType = table.getChild("row_type")
@@ -45,8 +56,8 @@ export const godViewLifecycleStreamDecodeMethods = {
             parsedDetails = {}
           }
         }
-        const detailLat = Number(parsedDetails?.geo_lat)
-        const detailLon = Number(parsedDetails?.geo_lon)
+        const detailLat = this.parseOptionalFloat(parsedDetails?.geo_lat)
+        const detailLon = this.parseOptionalFloat(parsedDetails?.geo_lon)
         nodes.push({
           id: this.deps.normalizeDisplayLabel(parsedDetails?.id, fallbackLabel),
           x: Number(nodeX?.get(i) || 0),
