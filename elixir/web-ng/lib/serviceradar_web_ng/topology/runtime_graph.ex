@@ -114,7 +114,10 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       {:ok, rows} when is_list(rows) ->
         normalized_rows = normalize_runtime_rows(rows)
         ingested = Native.runtime_graph_ingest_rows(state.graph_ref, normalized_rows)
-        Logger.info("runtime_graph_refresh fetched=#{length(rows)} ingested=#{ingested}")
+
+        Logger.info(
+          "runtime_graph_refresh fetched=#{length(rows)} normalized=#{length(normalized_rows)} dropped=#{max(length(rows) - length(normalized_rows), 0)} ingested=#{ingested}"
+        )
 
         %{state | last_refresh_at: DateTime.utc_now()}
 
@@ -213,14 +216,40 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   end
 
   defp normalize_runtime_rows(rows) when is_list(rows) do
-    Enum.reduce(rows, [], fn row, acc ->
-      case normalize_runtime_row(row) do
-        nil -> acc
-        normalized -> [normalized | acc]
-      end
-    end)
-    |> Enum.reverse()
+    rows
+    |> Enum.map(&normalize_runtime_row/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.filter(&canonical_runtime_row?/1)
   end
+
+  @doc false
+  @spec canonical_runtime_row?(map()) :: boolean()
+  def canonical_runtime_row?(row) when is_map(row) do
+    source = canonical_runtime_id(map_fetch(row, :local_device_id))
+    target = canonical_runtime_id(map_fetch(row, :neighbor_device_id))
+
+    relation_type =
+      row
+      |> map_fetch(:metadata)
+      |> metadata_value("relation_type")
+      |> to_string()
+      |> String.trim()
+      |> String.upcase()
+
+    evidence_class =
+      row
+      |> map_fetch(:evidence_class)
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    valid_relation? = relation_type in ["CONNECTS_TO", "ATTACHED_TO"]
+    valid_evidence? = evidence_class in ["direct", "endpoint-attachment"]
+
+    is_binary(source) and is_binary(target) and source != target and (valid_relation? or valid_evidence?)
+  end
+
+  def canonical_runtime_row?(_row), do: false
 
   defp normalize_runtime_row(%{} = row) do
     row
@@ -345,6 +374,31 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   defp map_fetch(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
+
+  defp metadata_value(metadata, key) when is_map(metadata) and is_binary(key) do
+    Map.get(metadata, key) ||
+      Enum.find_value(Map.keys(metadata), fn
+        atom_key when is_atom(atom_key) ->
+          if Atom.to_string(atom_key) == key, do: Map.get(metadata, atom_key), else: nil
+
+        _ ->
+          nil
+      end)
+  end
+
+  defp metadata_value(_metadata, _key), do: nil
+
+  defp canonical_runtime_id(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    cond do
+      trimmed == "" -> nil
+      String.starts_with?(trimmed, "sr:") -> trimmed
+      true -> nil
+    end
+  end
+
+  defp canonical_runtime_id(_value), do: nil
 
   defp blank_to_nil(value) when is_binary(value) do
     trimmed = String.trim(value)

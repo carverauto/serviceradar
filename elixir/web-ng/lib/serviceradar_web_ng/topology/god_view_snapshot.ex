@@ -128,9 +128,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
   defp validate_nodes(_), do: {:error, :invalid_nodes}
 
   defp validate_edges(%{edges: edges}) when is_list(edges) do
-    with :ok <- validate_edge_required_keys(edges),
-         :ok <- validate_edge_values(edges) do
-      :ok
+    with :ok <- validate_edge_required_keys(edges) do
+      validate_edge_values(edges)
     end
   end
 

@@ -311,6 +311,51 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert metadata.alert == "edge_telemetry_interface_zero"
   end
 
+  test "latest_snapshot/0 does not infer evidence class from protocol when backend evidence is missing" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    rows = [
+      %{
+        local_device_id: "sr:no-evidence-a",
+        local_device_ip: "192.0.2.70",
+        local_if_name: "eth1",
+        local_if_index: 1,
+        neighbor_if_name: "eth2",
+        neighbor_if_index: 2,
+        neighbor_device_id: "sr:no-evidence-b",
+        neighbor_mgmt_addr: "192.0.2.71",
+        neighbor_system_name: "no-evidence-b",
+        protocol: "lldp",
+        evidence_class: "",
+        confidence_tier: "unknown",
+        confidence_reason: "",
+        flow_pps: 10,
+        flow_bps: 1_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 6,
+        flow_pps_ba: 4,
+        flow_bps_ab: 600,
+        flow_bps_ba: 400,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-27T00:00:00Z",
+        metadata: %{"relation_type" => "UNKNOWN", "evidence_class" => ""}
+      }
+    ]
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+    assert length(snapshot.edges) == 1
+    assert Map.get(snapshot.pipeline_stats, :final_direct) == 0
+    assert Map.get(snapshot.pipeline_stats, :final_inferred) == 0
+    assert Map.get(snapshot.pipeline_stats, :final_attachment) == 0
+  end
+
   test "latest_snapshot/0 emits pipeline alert telemetry when edge parity delta is non-zero" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)

@@ -894,17 +894,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       stats =
         Enum.reduce(
           edges,
-          %{total_edges: length(edges), interface_source: 0, none_source: 0},
+          %{
+            total_edges: length(edges),
+            interface_source: 0,
+            none_source: 0,
+            render_ready: 0,
+            render_partial: 0,
+            render_unattributed: 0
+          },
           fn edge, acc ->
             telemetry =
               compute_edge_telemetry(edge, pps_by_if, bps_by_if, capacity_by_if, observed_at)
 
             persist_canonical_edge_telemetry(edge, telemetry)
 
-            if telemetry.telemetry_source == "interface" do
-              Map.update!(acc, :interface_source, &(&1 + 1))
-            else
-              Map.update!(acc, :none_source, &(&1 + 1))
+            acc = update_render_readiness_stats(acc, edge_render_readiness_class(edge))
+
+            case telemetry.telemetry_source do
+              "interface" -> Map.update!(acc, :interface_source, &(&1 + 1))
+              _ -> Map.update!(acc, :none_source, &(&1 + 1))
             end
           end
         )
@@ -1291,6 +1299,39 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp parse_ifindex(_), do: nil
 
+  @doc false
+  @spec edge_render_readiness_class(map()) ::
+          :render_ready | :render_partial | :render_unattributed
+  def edge_render_readiness_class(edge) when is_map(edge) do
+    src_if_index =
+      parse_ifindex(Map.get(edge, :local_if_index_ab) || Map.get(edge, :local_if_index))
+
+    dst_if_index =
+      parse_ifindex(Map.get(edge, :local_if_index_ba) || Map.get(edge, :neighbor_if_index))
+
+    cond do
+      is_integer(src_if_index) and is_integer(dst_if_index) ->
+        :render_ready
+
+      is_integer(src_if_index) or is_integer(dst_if_index) ->
+        :render_partial
+
+      true ->
+        :render_unattributed
+    end
+  end
+
+  def edge_render_readiness_class(_edge), do: :render_unattributed
+
+  defp update_render_readiness_stats(acc, :render_ready),
+    do: Map.update!(acc, :render_ready, &(&1 + 1))
+
+  defp update_render_readiness_stats(acc, :render_partial),
+    do: Map.update!(acc, :render_partial, &(&1 + 1))
+
+  defp update_render_readiness_stats(acc, _),
+    do: Map.update!(acc, :render_unattributed, &(&1 + 1))
+
   defp packet_metric_direction(metric_name)
        when metric_name in ["ifInUcastPkts", "ifHCInUcastPkts"],
        do: :in
@@ -1464,6 +1505,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET cr.local_if_index_ba = cr.neighbor_if_index
     SET cr.local_if_name_ab = cr.local_if_name
     SET cr.local_if_name_ba = cr.neighbor_if_name
+    SET cr.flow_pps = coalesce(cr.flow_pps, 0)
+    SET cr.flow_bps = coalesce(cr.flow_bps, 0)
+    SET cr.capacity_bps = coalesce(cr.capacity_bps, 0)
+    SET cr.flow_pps_ab = coalesce(cr.flow_pps_ab, 0)
+    SET cr.flow_pps_ba = coalesce(cr.flow_pps_ba, 0)
+    SET cr.flow_bps_ab = coalesce(cr.flow_bps_ab, 0)
+    SET cr.flow_bps_ba = coalesce(cr.flow_bps_ba, 0)
+    SET cr.telemetry_eligible = coalesce(cr.telemetry_eligible, false)
+    SET cr.telemetry_source = coalesce(cr.telemetry_source, 'none')
+    SET cr.telemetry_observed_at = coalesce(cr.telemetry_observed_at, '')
     """
   end
 

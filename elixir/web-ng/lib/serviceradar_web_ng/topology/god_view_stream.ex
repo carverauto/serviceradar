@@ -1295,18 +1295,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         "direct"
 
       true ->
-        protocol =
-          link
-          |> Map.get(:protocol)
-          |> to_string()
-          |> String.trim()
-          |> String.downcase()
-
-        cond do
-          protocol in ["lldp", "cdp", "wireguard-derived"] -> "direct"
-          protocol == "snmp-l2" -> "inferred"
-          true -> "direct"
-        end
+        "unknown"
     end
   end
 

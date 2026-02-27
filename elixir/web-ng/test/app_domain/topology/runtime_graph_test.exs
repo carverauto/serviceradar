@@ -114,4 +114,27 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert link.telemetry_eligible == true
     assert link.telemetry_source == "interface"
   end
+
+  test "canonical_runtime_row?/1 accepts canonical direct rows and rejects inferred/non-canonical rows" do
+    assert RuntimeGraph.canonical_runtime_row?(%{
+             local_device_id: "sr:a",
+             neighbor_device_id: "sr:b",
+             evidence_class: "direct",
+             metadata: %{"relation_type" => "CONNECTS_TO"}
+           })
+
+    refute RuntimeGraph.canonical_runtime_row?(%{
+             local_device_id: "sr:a",
+             neighbor_device_id: "sr:b",
+             evidence_class: "inferred",
+             metadata: %{"relation_type" => "INFERRED_TO"}
+           })
+
+    refute RuntimeGraph.canonical_runtime_row?(%{
+             local_device_id: "ip-192.168.1.1",
+             neighbor_device_id: "sr:b",
+             evidence_class: "direct",
+             metadata: %{"relation_type" => "CONNECTS_TO"}
+           })
+  end
 end

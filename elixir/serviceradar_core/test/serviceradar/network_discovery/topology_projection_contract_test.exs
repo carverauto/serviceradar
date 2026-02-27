@@ -299,6 +299,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert query =~ "SET cr.local_if_index_ba = cr.neighbor_if_index"
       assert query =~ "SET cr.local_if_name_ab = cr.local_if_name"
       assert query =~ "SET cr.local_if_name_ba = cr.neighbor_if_name"
+      assert query =~ "SET cr.flow_pps = coalesce(cr.flow_pps, 0)"
+      assert query =~ "SET cr.flow_bps = coalesce(cr.flow_bps, 0)"
+      assert query =~ "SET cr.capacity_bps = coalesce(cr.capacity_bps, 0)"
+      assert query =~ "SET cr.flow_pps_ab = coalesce(cr.flow_pps_ab, 0)"
+      assert query =~ "SET cr.flow_pps_ba = coalesce(cr.flow_pps_ba, 0)"
+      assert query =~ "SET cr.flow_bps_ab = coalesce(cr.flow_bps_ab, 0)"
+      assert query =~ "SET cr.flow_bps_ba = coalesce(cr.flow_bps_ba, 0)"
+      assert query =~ "SET cr.telemetry_eligible = coalesce(cr.telemetry_eligible, false)"
+      assert query =~ "SET cr.telemetry_source = coalesce(cr.telemetry_source, 'none')"
+      assert query =~ "SET cr.telemetry_observed_at = coalesce(cr.telemetry_observed_at, '')"
     end
 
     test "prune query targets canonical topology edges" do
@@ -378,6 +388,23 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
 
       Application.put_env(:serviceradar_core, TopologyGraph, min_canonical_edges: 3)
       assert TopologyGraph.canonical_rebuild_min_edges() == 3
+    end
+  end
+
+  describe "render readiness contract" do
+    test "classifies fully-attributed canonical edge as render_ready" do
+      edge = %{local_if_index_ab: 7, local_if_index_ba: 25}
+      assert TopologyGraph.edge_render_readiness_class(edge) == :render_ready
+    end
+
+    test "classifies one-sided canonical edge as render_partial" do
+      edge = %{local_if_index_ab: 7, local_if_index_ba: 0}
+      assert TopologyGraph.edge_render_readiness_class(edge) == :render_partial
+    end
+
+    test "classifies unattributed canonical edge as render_unattributed" do
+      edge = %{local_if_index_ab: 0, local_if_index_ba: nil, local_if_index: nil}
+      assert TopologyGraph.edge_render_readiness_class(edge) == :render_unattributed
     end
   end
 end

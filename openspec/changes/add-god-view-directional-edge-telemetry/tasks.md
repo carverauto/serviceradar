@@ -37,8 +37,8 @@
 - [x] 6.4 Verify a reduced count of `UniFi-API` links with `local_if_index=0` for switch/AP and switch/switch paths after SNMP-L2 enrichment changes.
 - [x] 6.5 Verify topology-linked interfaces on key devices are auto-provisioned with required packet/octet OIDs without manual per-interface toggles.
 - [ ] 6.6 Validate lane centering/split behavior against live telemetry so directional particles stay centered on their tube and render one-lane only when truly one-sided.
-- [ ] 6.7 Validate link label telemetry (`flow_pps`/`flow_bps`/capacity) is populated from canonical directional totals and no widespread `UNK` rate regressions occur after stream/schema changes.
-- [ ] 6.8 Run repeated refresh/reconcile soak validation in demo (minimum 30 minutes) to confirm directional animations do not randomly disappear on stable links.
+- [x] 6.7 Validate link label telemetry (`flow_pps`/`flow_bps`/capacity) is populated from canonical directional totals and no widespread `UNK` rate regressions occur after stream/schema changes.
+- [x] 6.8 Run repeated refresh/reconcile soak validation in demo (minimum 30 minutes) to confirm directional animations do not randomly disappear on stable links.
 
 ## Verification Notes (2026-02-24)
 - Demo CNPG confirms directional interface telemetry exists in `platform.timeseries_metrics` for active topology-linked ports (`ifIn/OutOctets`, `ifIn/OutUcastPkts`) with recent timestamps.
@@ -47,3 +47,10 @@
 - Raw topology evidence still includes many UniFi unattributed edges in the last 90 minutes (`switch-switch`: 72 with `if_index=0`; `switch-ap`: 90 with `if_index=0`), so reduction goal is not yet met despite SNMP-L2 coexistence.
 - Auto-bootstrap is confirmed on topology-attributed interfaces (settings present with required packet/octet metrics enabled), but interfaces missing topology attribution (no positive `local_if_index` edge evidence) remain unprovisioned.
 - Demo agent logs show repeated SNMP timeouts for `192.168.1.87` (`SNMP get failed ... request timeout`), which likely explains missing SNMP-attributed topology evidence from the aggregation side and continued dependence on UniFi unattributed rows for that endpoint.
+
+## Verification Notes (2026-02-27)
+- `web-ng` log soak (`--since=35m`) remained stable with no `snapshot build failed`, no `runtime_graph_refresh_failed`, and no `invalid_edge_schema` markers.
+- Over the same soak window, all sampled `god_view_pipeline_stats` lines stayed at `connected_components: 1`, `final_nodes: 14`, `final_edges: 13`, `final_direct: 13`, `final_inferred: 0`, `edge_telemetry_interface: 12`, `edge_telemetry_fallback: 0`, and `edge_unresolved_directional: 0`.
+- Over the same soak window, all sampled `runtime_graph_refresh` lines stayed at `fetched=13 normalized=13 dropped=0 ingested=13`.
+- CNPG canonical-edge telemetry completeness check: `total=45`, `null_flow_pps=0`, `null_flow_bps=0`, `null_capacity=0`, `telemetry_true=44`, `telemetry_false=1`, with only one unattributed UniFi edge (`telemetry_source='none'`, `single_identifier_inference`).
+- Canonical label-field population check from AGE: `zero_capacity=2`, `zero_flow_bps=1`, `zero_flow_pps=2`, `telemetry_none=1`; indicates no widespread label telemetry regression after stream/schema updates.

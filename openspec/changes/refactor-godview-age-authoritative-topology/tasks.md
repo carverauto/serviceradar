@@ -67,4 +67,4 @@
 - [x] 11.4 Add contract tests that fail on backend/frontend schema drift (missing required canonical fields, unexpected required-field additions, invalid typed values) before deploy.
 - [x] 11.5 Add regression/integration tests for known unstable links so canonical graph + directional telemetry parity is verified end-to-end (`AGE -> stream -> Arrow -> JS`) in CI.
 - [x] 11.6 Add performance guardrails for God-View hot paths (snapshot build latency + decode/render prep budgets) with alerting thresholds tied to pipeline diagnostics.
-- [ ] 11.7 Validate in `demo` that graph structure and animations remain stable across repeated refresh/reconcile cycles (no islands/spider-web regressions, no random animation collapse).
+- [x] 11.7 Validate in `demo` that graph structure and animations remain stable across repeated refresh/reconcile cycles (no islands/spider-web regressions, no random animation collapse).
