@@ -24,8 +24,9 @@ rules:
     reason: "USW switch signature in SNMP identity"
     match:
       any:
-        sys_descr: ["usw", "switch"]
-        sys_name: ["usw", "switch"]
+        sys_descr: ["usw", "unifi switch"]
+        sys_name: ["usw"]
+        hostname: ["usw"]
     set:
       vendor_name: "Ubiquiti"
       type: "Switch"
@@ -39,7 +40,7 @@ rules:
     reason: "UAP/U6 AP signature in SNMP identity"
     match:
       any:
-        sys_descr: ["u6-", "uap-", "uap ", "nanohd", "access point"]
+        sys_descr: ["u6-", "uap-", "uap ", "nanohd"]
         sys_name: ["u6", "uap"]
         hostname: ["u6", "uap"]
     set:
