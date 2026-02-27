@@ -381,6 +381,21 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     end
   end
 
+  describe "captured Aruba payload fixture" do
+    test "aruba fixture does not match Ubiquiti and classifies as Aruba Switch", %{actor: actor} do
+      ip = unique_ip()
+      update = load_fixture_update!("aruba_switch_update.json", ip)
+
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+      device = fetch_device_by_ip!(actor, ip)
+      assert device.vendor_name == "Aruba"
+      assert device.type == "Switch"
+      assert device.type_id == 10
+      assert device.metadata["classification_rule_id"] == "aruba-switch"
+    end
+  end
+
   defp fetch_device_by_ip!(actor, ip) do
     query = Device |> Ash.Query.filter(ip == ^ip)
     assert {:ok, result} = Ash.read(query, actor: actor)

@@ -57,6 +57,27 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRulesTest do
     assert classification.rule_id == "ubiquiti-switch-usw"
   end
 
+  test "does not misclassify Aruba switch as Ubiquiti" do
+    update = %{
+      hostname: "aruba-24g-02",
+      source: "snmp",
+      metadata: %{
+        "sys_object_id" => ".1.3.6.1.4.1.11.2.3.7.11.153",
+        "sys_descr" =>
+          "HP J9727A 2920-24G-PoE+ Switch, revision WB.16.10.0025 (Formerly ProCurve)",
+        "sys_name" => "aruba-24g-02",
+        "ip_forwarding" => "1"
+      }
+    }
+
+    classification = DeviceEnrichmentRules.classify(update)
+
+    assert classification.vendor_name == "Aruba"
+    assert classification.type == "Switch"
+    assert classification.type_id == 10
+    assert classification.rule_id == "aruba-switch"
+  end
+
   test "filesystem override with same rule id takes precedence over built-in rule" do
     tmp_dir =
       Path.join(

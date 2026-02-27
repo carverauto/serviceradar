@@ -207,6 +207,27 @@ flowCollector:
       metallb.universe.tf/address-pool: k3s-pool
     loadBalancerIP: "23.138.124.25"
     externalTrafficPolicy: Local
+    ports:
+      netflow:
+        enabled: true
+        port: 2055
+        targetPort: 2055
+        protocol: UDP
+      sflow:
+        enabled: true
+        port: 6343
+        targetPort: 6343
+        protocol: UDP
+      ipfix:
+        enabled: false
+        port: 4739
+        targetPort: 4739
+        protocol: UDP
+      metrics:
+        enabled: false
+        port: 50046
+        targetPort: 50046
+        protocol: TCP
 
 certs:
   regenerator:
