@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'ATTACHED_TO']"
     assert query =~ "r.relation_type IS NULL"
     assert query =~ "toLower(coalesce(r.evidence_class, '')) IN ['direct', 'endpoint-attachment']"
+    refute query =~ "toUpper(coalesce(r.relation_type, '')) = 'INFERRED_TO'"
     assert query =~ "ORDER BY"
   end
 

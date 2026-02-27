@@ -263,8 +263,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
         TopologyGraph.projection_diagnostics([accepted_link, rejected_link, missing_ids_link])
 
       assert diagnostics.total == 3
-      assert diagnostics.accepted["projected_backbone"] == 1
-      assert diagnostics.rejected["skip_missing_ifindex"] == 1
+      assert diagnostics.accepted["projected_backbone"] == 2
       assert diagnostics.rejected["missing_ids"] == 1
     end
   end

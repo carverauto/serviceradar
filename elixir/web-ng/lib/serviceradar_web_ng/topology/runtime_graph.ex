@@ -115,6 +115,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
         normalized_rows = normalize_runtime_rows(rows)
         ingested = Native.runtime_graph_ingest_rows(state.graph_ref, normalized_rows)
         Logger.info("runtime_graph_refresh fetched=#{length(rows)} ingested=#{ingested}")
+
         %{state | last_refresh_at: DateTime.utc_now()}
 
       {:error, reason} ->

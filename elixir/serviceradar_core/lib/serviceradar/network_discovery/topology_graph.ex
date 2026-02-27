@@ -419,7 +419,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
           not allow_single_identifier_inference_projection?(payload) ->
         :skip_single_identifier_inference
 
-      strict_ifindex? and not valid_ifindex?(payload.local_if_index) ->
+      strict_ifindex? and not strict_protocol_interface_identity?(payload) ->
         :skip_missing_ifindex
 
       MapSet.member?(@inferred_evidence_classes, evidence_class) ->
@@ -520,11 +520,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp interface_contract_valid?(protocol, payload) do
     if MapSet.member?(@strict_ifindex_protocols, protocol) do
-      valid_ifindex?(payload.local_if_index)
+      strict_protocol_interface_identity?(payload)
     else
       true
     end
   end
+
+  defp strict_protocol_interface_identity?(payload) when is_map(payload) do
+    valid_ifindex?(payload.local_if_index) or is_binary(non_blank(payload.local_if_name))
+  end
+
+  defp strict_protocol_interface_identity?(_payload), do: false
 
   defp valid_ifindex?(value) when is_integer(value), do: value > 0
   defp valid_ifindex?(_value), do: false
