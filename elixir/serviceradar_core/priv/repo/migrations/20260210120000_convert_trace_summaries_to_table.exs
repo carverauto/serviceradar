@@ -10,12 +10,31 @@ defmodule ServiceRadar.Repo.Migrations.ConvertTraceSummariesToTable do
   """
   use Ecto.Migration
 
-  @schema prefix() || "platform"
-
   def up do
-    # Drop the materialized view and its indexes (CASCADE drops dependent indexes)
-    # Use explicit schema prefix to avoid search_path ambiguity
-    execute("DROP MATERIALIZED VIEW IF EXISTS #{@schema}.otel_trace_summaries CASCADE")
+    schema = schema()
+
+    # Drop whichever object currently exists in platform (materialized view or table).
+    execute("""
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = '#{schema}' AND c.relname = 'otel_trace_summaries' AND c.relkind = 'm'
+      ) THEN
+        EXECUTE 'DROP MATERIALIZED VIEW #{schema}.otel_trace_summaries CASCADE';
+      ELSIF EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = '#{schema}' AND c.relname = 'otel_trace_summaries' AND c.relkind = 'r'
+      ) THEN
+        EXECUTE 'DROP TABLE #{schema}.otel_trace_summaries CASCADE';
+      END IF;
+    END
+    $$;
+    """)
 
     # Also clean up any stale copy that ended up in public
     execute("DROP MATERIALIZED VIEW IF EXISTS public.otel_trace_summaries CASCADE")
@@ -23,7 +42,7 @@ defmodule ServiceRadar.Repo.Migrations.ConvertTraceSummariesToTable do
 
     # Create regular table with same schema + refreshed_at for incremental upserts
     execute("""
-    CREATE TABLE IF NOT EXISTS #{@schema}.otel_trace_summaries (
+    CREATE TABLE IF NOT EXISTS #{schema}.otel_trace_summaries (
       trace_id         TEXT PRIMARY KEY,
       timestamp        TIMESTAMPTZ,
       root_span_id     TEXT,
@@ -45,22 +64,25 @@ defmodule ServiceRadar.Repo.Migrations.ConvertTraceSummariesToTable do
     # Same indexes as before (minus the unique one — PRIMARY KEY covers that)
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trace_summaries_timestamp
-    ON #{@schema}.otel_trace_summaries (timestamp DESC)
+    ON #{schema}.otel_trace_summaries (timestamp DESC)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trace_summaries_service_timestamp
-    ON #{@schema}.otel_trace_summaries (root_service_name, timestamp DESC)
+    ON #{schema}.otel_trace_summaries (root_service_name, timestamp DESC)
     """)
   end
 
   def down do
-    # Drop the table
-    execute("DROP TABLE IF EXISTS #{@schema}.otel_trace_summaries CASCADE")
+    schema = schema()
+
+    # Drop either form before recreating the materialized view.
+    execute("DROP TABLE IF EXISTS #{schema}.otel_trace_summaries CASCADE")
+    execute("DROP MATERIALIZED VIEW IF EXISTS #{schema}.otel_trace_summaries CASCADE")
 
     # Recreate the materialized view
     execute("""
-    CREATE MATERIALIZED VIEW IF NOT EXISTS #{@schema}.otel_trace_summaries AS
+    CREATE MATERIALIZED VIEW IF NOT EXISTS #{schema}.otel_trace_summaries AS
     SELECT
       trace_id,
       max(timestamp) AS timestamp,
@@ -76,7 +98,7 @@ defmodule ServiceRadar.Repo.Migrations.ConvertTraceSummariesToTable do
       array_agg(DISTINCT service_name) FILTER (WHERE service_name IS NOT NULL) AS service_set,
       count(*) AS span_count,
       count(*) FILTER (WHERE status_code IS NOT NULL AND status_code != 1) AS error_count
-    FROM #{@schema}.otel_traces
+    FROM #{schema}.otel_traces
     WHERE timestamp >= NOW() - INTERVAL '7 days'
       AND trace_id IS NOT NULL
     GROUP BY trace_id
@@ -84,19 +106,21 @@ defmodule ServiceRadar.Repo.Migrations.ConvertTraceSummariesToTable do
 
     execute("""
     CREATE UNIQUE INDEX IF NOT EXISTS idx_trace_summaries_trace_id
-    ON #{@schema}.otel_trace_summaries (trace_id)
+    ON #{schema}.otel_trace_summaries (trace_id)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trace_summaries_timestamp
-    ON #{@schema}.otel_trace_summaries (timestamp DESC)
+    ON #{schema}.otel_trace_summaries (timestamp DESC)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trace_summaries_service_timestamp
-    ON #{@schema}.otel_trace_summaries (root_service_name, timestamp DESC)
+    ON #{schema}.otel_trace_summaries (root_service_name, timestamp DESC)
     """)
 
-    execute("REFRESH MATERIALIZED VIEW #{@schema}.otel_trace_summaries")
+    execute("REFRESH MATERIALIZED VIEW #{schema}.otel_trace_summaries")
   end
+
+  defp schema, do: prefix() || "platform"
 end
