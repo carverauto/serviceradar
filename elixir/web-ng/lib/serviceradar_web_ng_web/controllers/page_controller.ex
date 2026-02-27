@@ -24,20 +24,4 @@ defmodule ServiceRadarWebNGWeb.PageController do
   def redirect_to_settings_cluster_node(conn, %{"node_name" => node_name}) do
     redirect(conn, to: ~p"/settings/cluster/nodes/#{node_name}")
   end
-
-  def redirect_to_flows(conn, params) do
-    # Preserve SRQL query and any other URL params, but drop legacy tab marker.
-    params =
-      params
-      |> Map.drop(["tab"])
-      |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-
-    url =
-      case params do
-        %{} = p when map_size(p) > 0 -> "/flows?" <> URI.encode_query(p)
-        _ -> "/flows"
-      end
-
-    redirect(conn, to: url)
-  end
 end

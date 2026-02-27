@@ -181,7 +181,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                          String.starts_with?(@current_path, "/logs") ||
                          String.starts_with?(@current_path, "/events") ||
                          String.starts_with?(@current_path, "/alerts") ||
-                         String.starts_with?(@current_path, "/netflows"))
+                         String.starts_with?(@current_path, "/flows"))
                   }
                 />
               </li>

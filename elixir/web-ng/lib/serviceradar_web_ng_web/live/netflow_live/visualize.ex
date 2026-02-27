@@ -1022,11 +1022,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                 <% flow_src = flow_get_in(flow, ["ocsf_payload", "flow_source"]) %>
                 <.ui_badge
                   :if={is_binary(flow_src) and flow_src != "Unknown"}
-                  variant={cond do
-                    String.starts_with?(flow_src, "sFlow") -> "info"
-                    String.starts_with?(flow_src, "IPFIX") -> "warning"
-                    true -> "success"
-                  end}
+                  variant={
+                    cond do
+                      String.starts_with?(flow_src, "sFlow") -> "info"
+                      String.starts_with?(flow_src, "IPFIX") -> "warning"
+                      true -> "success"
+                    end
+                  }
                   size="xs"
                   class="font-mono"
                 >
@@ -2332,7 +2334,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> Map.merge(extra_params)
       |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
 
-    "/netflow?" <> URI.encode_query(params)
+    "/flows?" <> URI.encode_query(params)
   end
 
   defp merge_nf_state(%{} = current, %{} = incoming) do

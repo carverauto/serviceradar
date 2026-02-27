@@ -5670,7 +5670,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     do: length(logs)
 
   defp default_tab_for_path("/observability"), do: "logs"
-  defp default_tab_for_path("/netflows"), do: "netflows"
+  defp default_tab_for_path("/flows"), do: "netflows"
   defp default_tab_for_path(_), do: "logs"
 
   defp normalize_tab("logs", _path), do: "logs"

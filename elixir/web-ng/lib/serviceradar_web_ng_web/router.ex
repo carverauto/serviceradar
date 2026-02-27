@@ -356,8 +356,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     # Redirect /dashboard to /analytics
     get("/dashboard", PageController, :redirect_to_analytics)
     get("/users/settings", PageController, :redirect_to_settings_profile)
-    get("/netflows", PageController, :redirect_to_flows)
-    get("/netflow", PageController, :redirect_to_flows)
 
     live_session :require_authenticated_user,
       on_mount: [
