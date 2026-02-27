@@ -1690,19 +1690,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     cond do
       is_binary(uid) and Map.has_key?(index.uid_to_uid, uid) ->
-        Map.get(index.uid_to_uid, uid)
+        canonical_uid_from_index(index.uid_to_uid, uid)
 
       is_binary(ip) and Map.has_key?(index.ip_to_uid, ip) ->
-        Map.get(index.ip_to_uid, ip)
+        canonical_uid_from_index(index.ip_to_uid, ip)
 
       is_binary(chassis) and Map.has_key?(index.mac_to_uid, chassis) ->
-        Map.get(index.mac_to_uid, chassis)
+        canonical_uid_from_index(index.mac_to_uid, chassis)
 
       is_binary(uid) and canonical_topology_uid?(uid) ->
         uid
 
       true ->
-        Enum.find_value(name_candidates, fn name -> Map.get(index.name_to_uid, name) end)
+        Enum.find_value(name_candidates, fn name ->
+          canonical_uid_from_index(index.name_to_uid, name)
+        end)
     end
   end
 
@@ -1845,12 +1847,26 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         |> Kernel.++(topology_name_candidates(row.hostname))
         |> Enum.uniq()
 
-      acc
-      |> put_topology_index_entry(:uid_to_uid, uid)
-      |> put_topology_index_entry(:ip_to_uid, ip, uid)
-      |> put_topology_index_entry(:mac_to_uid, mac, uid)
-      |> put_topology_name_entries(name_candidates, uid)
+      if canonical_topology_uid?(uid) do
+        acc
+        |> put_topology_index_entry(:uid_to_uid, uid)
+        |> put_topology_index_entry(:ip_to_uid, ip, uid)
+        |> put_topology_index_entry(:mac_to_uid, mac, uid)
+        |> put_topology_name_entries(name_candidates, uid)
+      else
+        acc
+      end
     end)
+  end
+
+  defp canonical_uid_from_index(index_map, key) when is_map(index_map) do
+    case Map.get(index_map, key) |> normalize_string() do
+      uid when is_binary(uid) ->
+        if canonical_topology_uid?(uid), do: uid, else: nil
+
+      _ ->
+        nil
+    end
   end
 
   defp topology_index_row_rank(row) do

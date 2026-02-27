@@ -723,6 +723,34 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert resolved.metadata["source_target_uid"] == nil
     end
 
+    test "ignores non-canonical index mappings and falls back to canonical id generation" do
+      records = [
+        %{
+          local_device_id: "nil",
+          local_device_ip: "192.168.10.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "192.168.10.154",
+          neighbor_system_name: nil,
+          neighbor_chassis_id: nil,
+          partition: "default"
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"nil" => "nil"},
+        ip_to_uid: %{"192.168.10.1" => "nil", "192.168.10.154" => "nil"},
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+      assert is_binary(resolved.local_device_id)
+      assert String.starts_with?(resolved.local_device_id, "sr:")
+      assert resolved.local_device_id != "nil"
+      assert resolved.neighbor_device_id == nil
+      assert resolved.metadata["source_local_uid"] == nil
+    end
+
     test "preserves canonical sr neighbor ids even when they are not indexed" do
       records = [
         %{
