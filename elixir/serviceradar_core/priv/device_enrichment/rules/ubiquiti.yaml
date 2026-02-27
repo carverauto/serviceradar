@@ -33,20 +33,6 @@ rules:
       type_id: 10
       model_from_sys_descr_prefix: ""
 
-  - id: aruba-switch
-    enabled: true
-    priority: 890
-    confidence: 90
-    reason: "Aruba switch signature in SNMP identity"
-    match:
-      any:
-        sys_name: ["aruba"]
-        sys_descr: ["procurve", "arubaos-switch", "aruba switch"]
-    set:
-      vendor_name: "Aruba"
-      type: "Switch"
-      type_id: 10
-
   - id: ubiquiti-ap-u6-uap
     enabled: true
     priority: 850
