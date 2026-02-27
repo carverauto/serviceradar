@@ -246,7 +246,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     valid_relation? = relation_type in ["CONNECTS_TO", "ATTACHED_TO"]
     valid_evidence? = evidence_class in ["direct", "endpoint-attachment"]
 
-    is_binary(source) and is_binary(target) and source != target and (valid_relation? or valid_evidence?)
+    is_binary(source) and is_binary(target) and source != target and
+      (valid_relation? or valid_evidence?)
   end
 
   def canonical_runtime_row?(_row), do: false
