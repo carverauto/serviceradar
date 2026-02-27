@@ -108,6 +108,10 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
      |> push_event("god_view:set_filters", %{filters: stringify_filter_keys(filters)})}
   end
 
+  def handle_event("reset_view", _params, socket) do
+    {:noreply, push_event(socket, "god_view:reset_view", %{})}
+  end
+
   def handle_event("set_zoom_mode", %{"mode" => mode}, socket) do
     requested_mode = normalize_zoom_mode(mode)
     current_mode = socket.assigns.zoom_mode || "local"
@@ -318,7 +322,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
                   </button>
                 </div>
 
-                <div :if={@controls_collapsed} class="mt-2 grid grid-cols-2 gap-1">
+                <div :if={@controls_collapsed} class="mt-2 grid grid-cols-3 gap-1">
                   <button
                     type="button"
                     class={overlay_filter_button_class(@visual_layers.atmosphere)}
@@ -336,6 +340,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
                     title="Auto Focus"
                   >
                     Auto
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-ghost h-7 min-h-7"
+                    phx-click="reset_view"
+                    title="Reset view to fit all nodes"
+                  >
+                    Reset
                   </button>
                 </div>
 
@@ -382,6 +394,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
                         Detail
                       </button>
                     </div>
+                    <button
+                      type="button"
+                      class="btn btn-xs btn-ghost h-7 min-h-7 w-full mt-1"
+                      phx-click="reset_view"
+                      title="Reset view to fit all nodes"
+                    >
+                      Reset View
+                    </button>
                   </div>
 
                   <div>
