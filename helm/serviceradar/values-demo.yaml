@@ -16,6 +16,9 @@ global:
 image:
   registryPullSecret: ghcr-io-cred
 
+natsCreds:
+  autoGenerate: true
+
 agentGateway:
   enabled: true
   service:

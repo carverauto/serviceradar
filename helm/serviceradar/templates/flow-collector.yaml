@@ -115,6 +115,45 @@ spec:
           mountPath: /var/lib/serviceradar
         - name: logs
           mountPath: /var/log/serviceradar
+      initContainers:
+      - name: wait-for-cert-files
+        image: alpine:3.20
+        command: ["/bin/sh", "-ec"]
+        args:
+        - |
+          for file in /etc/serviceradar/certs/flow-collector.pem /etc/serviceradar/certs/flow-collector-key.pem /etc/serviceradar/certs/root.pem; do
+            i=0
+            until [ -f "${file}" ]; do
+              i=$((i+1))
+              if [ "${i}" -ge 90 ]; then
+                echo "Timed out waiting for ${file}" >&2
+                exit 1
+              fi
+              sleep 2
+            done
+          done
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+      - name: wait-for-nats-creds
+        image: alpine:3.20
+        command: ["/bin/sh", "-ec"]
+        args:
+        - |
+          i=0
+          until [ -f /etc/serviceradar/creds/platform.creds ]; do
+            i=$((i+1))
+            if [ "${i}" -ge 90 ]; then
+              echo "Timed out waiting for /etc/serviceradar/creds/platform.creds" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+        volumeMounts:
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
       volumes:
       - name: flow-collector-config
         configMap:
