@@ -14,6 +14,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   @default_marker_path "/tmp/serviceradar_migrations_complete"
   @default_search_path "platform, public, ag_catalog"
   @default_app_user "serviceradar"
+  @max_migration_repair_attempts 500
 
   def child_spec(_opts) do
     %{
@@ -72,13 +73,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     ensure_database_search_path!(app_user, app_database(), search_path())
     set_session_search_path!(search_path())
 
-    Ecto.Migrator.run(
-      ServiceRadar.Repo,
-      Application.app_dir(:serviceradar_core, "priv/repo/migrations"),
-      :up,
-      all: true,
-      prefix: "platform"
-    )
+    run_migrations_with_repair!()
 
     # Sync to ash_schema_migrations after migrations complete.
     # Ash Framework uses this table to track migrations via Repo config.
@@ -620,6 +615,80 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
       ON CONFLICT (version) DO NOTHING
       """)
     end
+  end
+
+  defp run_migrations_with_repair! do
+    migrations_path = Application.app_dir(:serviceradar_core, "priv/repo/migrations")
+    do_run_migrations_with_repair!(migrations_path, @max_migration_repair_attempts)
+  end
+
+  defp do_run_migrations_with_repair!(_migrations_path, 0) do
+    raise RuntimeError,
+          "migration self-repair exhausted #{@max_migration_repair_attempts} attempts"
+  end
+
+  defp do_run_migrations_with_repair!(migrations_path, attempts_left) do
+    case next_pending_migration(migrations_path) do
+      nil ->
+        :ok
+
+      {version, name} ->
+        try do
+          Ecto.Migrator.run(
+            ServiceRadar.Repo,
+            migrations_path,
+            :up,
+            step: 1,
+            prefix: "platform"
+          )
+        rescue
+          error in Postgrex.Error ->
+            if duplicate_ddl_error?(error) do
+              Logger.warning(
+                "[StartupMigrations] Duplicate DDL while running migration #{version} #{name}; " <>
+                  "marking as applied and continuing: #{postgres_error_summary(error)}"
+              )
+
+              mark_platform_migration_applied!(version)
+            else
+              reraise error, __STACKTRACE__
+            end
+        end
+
+        do_run_migrations_with_repair!(migrations_path, attempts_left - 1)
+    end
+  end
+
+  defp next_pending_migration(migrations_path) do
+    ServiceRadar.Repo
+    |> Ecto.Migrator.migrations([migrations_path], prefix: "platform")
+    |> Enum.find_value(fn
+      {:down, version, name} -> {version, name}
+      _ -> nil
+    end)
+  end
+
+  defp duplicate_ddl_error?(%Postgrex.Error{postgres: %{code: code}}) do
+    code in [:duplicate_column, :duplicate_table, :duplicate_object, :duplicate_function] or
+      code in ["42701", "42P07", "42710", "42723"]
+  end
+
+  defp duplicate_ddl_error?(_), do: false
+
+  defp postgres_error_summary(%Postgrex.Error{postgres: %{code: code, message: message}}),
+    do: "#{code} #{message}"
+
+  defp postgres_error_summary(error), do: inspect(error)
+
+  defp mark_platform_migration_applied!(version) when is_integer(version) do
+    ServiceRadar.Repo.query!(
+      """
+      INSERT INTO platform.schema_migrations (version, inserted_at)
+      VALUES ($1, NOW())
+      ON CONFLICT (version) DO NOTHING
+      """,
+      [version]
+    )
   end
 
   defp table_exists?(qualified_table) do
