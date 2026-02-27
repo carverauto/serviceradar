@@ -73,8 +73,7 @@ pub(super) const FLOW_PROTOCOL_GROUP_EXPR: &str =
 // - downsample queries (raw SQL without alias)
 //
 // NOTE: cache tables live under `platform`, but SRQL assumes `search_path=platform,...`.
-pub(super) const FLOW_SOURCE_EXPR: &str =
-    "COALESCE(ocsf_payload->>'flow_source', 'Unknown')";
+pub(super) const FLOW_SOURCE_EXPR: &str = "COALESCE(ocsf_payload->>'flow_source', 'Unknown')";
 
 pub(super) const FLOW_EXPORTER_NAME_EXPR: &str = r#"
 (SELECT ec.exporter_name
@@ -325,6 +324,10 @@ fn build_query(plan: &QueryPlan) -> Result<FlowsQuery<'static>> {
 
 fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQuery<'a>> {
     match filter.field.as_str() {
+        "device_id" => {
+            let expr = flow_device_scope_expr(filter)?;
+            query = query.filter(sql::<diesel::sql_types::Bool>(&expr));
+        }
         "src_endpoint_ip" | "src_ip" => {
             query = apply_text_filter!(query, filter, src_endpoint_ip)?;
         }
@@ -682,6 +685,8 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
+        // device_id scope is expressed with validated SQL literals in `flow_device_scope_expr`.
+        "device_id" => Ok(()),
         "src_endpoint_ip" | "src_ip" | "dst_endpoint_ip" | "dst_ip" | "protocol_name"
         | "sampler_address" | "direction" | "flow_source" | "collector" | "exporter_name"
         | "in_if_name" | "out_if_name" | "in_if_speed_bps" | "out_if_speed_bps" => {
@@ -742,7 +747,8 @@ fn apply_ordering<'a>(mut query: FlowsQuery<'a>, order: &[OrderClause]) -> Flows
         query = query.order(time.desc());
     }
 
-    query
+    // Always apply a stable tie-breaker for deterministic pagination.
+    query.then_order_by(created_at.desc())
 }
 
 fn apply_single_order<'a>(
@@ -1550,6 +1556,7 @@ fn build_stats_bigint_filter(
 
 fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>) -> Result<String> {
     match filter.field.as_str() {
+        "device_id" => flow_device_scope_expr(filter),
         "src_endpoint_ip" | "src_ip" => build_stats_text_filter("f.src_endpoint_ip", filter, binds),
         "dst_endpoint_ip" | "dst_ip" => build_stats_text_filter("f.dst_endpoint_ip", filter, binds),
         "protocol_name" => build_stats_text_filter("f.protocol_name", filter, binds),
@@ -1681,6 +1688,63 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for flows stats: '{other}'"
         ))),
+    }
+}
+
+fn flow_device_scope_expr(filter: &Filter) -> Result<String> {
+    let device_uid = normalize_device_uid_literal(filter.value.as_scalar()?)?;
+
+    // Match flows for a device in two ways:
+    // 1) exporter-owned flows (sampler -> exporter cache device_uid)
+    // 2) endpoint flows (src/dst endpoint IP matches primary or active alias IPs)
+    let base = format!(
+        concat!(
+            "(",
+            "EXISTS (",
+            "SELECT 1 FROM netflow_exporter_cache ec ",
+            "WHERE ec.sampler_address = sampler_address ",
+            "AND ec.device_uid = '{uid}'",
+            ") ",
+            "OR EXISTS (",
+            "SELECT 1 FROM ocsf_devices d ",
+            "WHERE d.uid = '{uid}' ",
+            "AND d.ip IS NOT NULL AND d.ip <> '' ",
+            "AND (src_endpoint_ip = d.ip OR dst_endpoint_ip = d.ip)",
+            ") ",
+            "OR EXISTS (",
+            "SELECT 1 FROM device_alias_states das ",
+            "WHERE das.device_id = '{uid}' ",
+            "AND das.alias_type = 'ip' ",
+            "AND das.state IN ('detected', 'confirmed', 'updated') ",
+            "AND (src_endpoint_ip = das.alias_value OR dst_endpoint_ip = das.alias_value)",
+            ")",
+            ")"
+        ),
+        uid = device_uid
+    );
+
+    match filter.op {
+        FilterOp::Eq => Ok(base),
+        FilterOp::NotEq => Ok(format!("NOT ({base})")),
+        _ => Err(ServiceError::InvalidRequest(
+            "device_id filter only supports equality".into(),
+        )),
+    }
+}
+
+fn normalize_device_uid_literal(input: &str) -> Result<String> {
+    let uid = input.trim();
+    let valid = !uid.is_empty()
+        && uid
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_' | '.'));
+
+    if valid {
+        Ok(uid.to_string())
+    } else {
+        Err(ServiceError::InvalidRequest(
+            "device_id filter must be a canonical UID-like value".into(),
+        ))
     }
 }
 
@@ -2004,6 +2068,80 @@ mod tests {
 
         let result = build_query(&plan);
         assert!(result.is_ok(), "should build query with IP filter");
+    }
+
+    #[test]
+    fn translate_device_id_filter_includes_exporter_and_alias_scope() {
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: vec![Filter {
+                field: "device_id".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("sr:device-1".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 50,
+            offset: 0,
+            time_range: None,
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params(&plan).expect("device filter should translate");
+        assert!(
+            sql.contains("netflow_exporter_cache"),
+            "expected exporter scope in SQL: {sql}"
+        );
+        assert!(
+            sql.contains("device_alias_states"),
+            "expected alias scope in SQL: {sql}"
+        );
+        assert!(
+            sql.contains("ocsf_devices"),
+            "expected device IP scope in SQL: {sql}"
+        );
+    }
+
+    #[test]
+    fn translate_stats_device_id_filter_includes_exporter_and_alias_scope() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: vec![Filter {
+                field: "device_id".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("sr:device-1".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as total_bytes by src_endpoint_ip",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, _params) =
+            to_sql_and_params_stats(&plan).expect("stats device filter should translate");
+        assert!(
+            sql.contains("netflow_exporter_cache"),
+            "expected exporter scope in stats SQL: {sql}"
+        );
+        assert!(
+            sql.contains("device_alias_states"),
+            "expected alias scope in stats SQL: {sql}"
+        );
+        assert!(
+            sql.contains("ocsf_devices"),
+            "expected device IP scope in stats SQL: {sql}"
+        );
     }
 
     #[test]
