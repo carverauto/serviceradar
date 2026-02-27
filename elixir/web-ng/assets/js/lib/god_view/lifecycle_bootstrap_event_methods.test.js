@@ -4,16 +4,18 @@ import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewLifecycleBootstrapEventFilterMethods} from "./lifecycle_bootstrap_event_filter_methods"
 import {godViewLifecycleBootstrapEventLayerMethods} from "./lifecycle_bootstrap_event_layer_methods"
 import {godViewLifecycleBootstrapEventMethods} from "./lifecycle_bootstrap_event_methods"
+import {godViewLifecycleBootstrapEventResetViewMethods} from "./lifecycle_bootstrap_event_reset_view_methods"
 import {godViewLifecycleBootstrapEventZoomMethods} from "./lifecycle_bootstrap_event_zoom_methods"
 
 describe("lifecycle_bootstrap_event_methods", () => {
-  it("registerLifecycleEvents wires filter/zoom/layer registration", () => {
+  it("registerLifecycleEvents wires filter/zoom/layer/reset registration", () => {
     const state = {}
     const ctx = createStateBackedContext(state, {})
     Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapEventMethods), {
       registerFilterEvent: vi.fn(),
       registerZoomModeEvent: vi.fn(),
       registerLayerEvents: vi.fn(),
+      registerResetViewEvent: vi.fn(),
     })
 
     ctx.registerLifecycleEvents()
@@ -21,6 +23,7 @@ describe("lifecycle_bootstrap_event_methods", () => {
     expect(ctx.registerFilterEvent).toHaveBeenCalledTimes(1)
     expect(ctx.registerZoomModeEvent).toHaveBeenCalledTimes(1)
     expect(ctx.registerLayerEvents).toHaveBeenCalledTimes(1)
+    expect(ctx.registerResetViewEvent).toHaveBeenCalledTimes(1)
   })
 
   it("registerFilterEvent updates filters and rerenders when graph exists", () => {
@@ -69,6 +72,30 @@ describe("lifecycle_bootstrap_event_methods", () => {
     expect(state.viewState.zoom).toEqual(-0.9)
     expect(deps.setZoomTier).toHaveBeenCalledWith("global", true)
     expect(state.deck.setProps).toHaveBeenCalled()
+  })
+
+  it("registerResetViewEvent clears camera lock and re-triggers autoFit", () => {
+    let handler = null
+    const graph = {nodes: [{x: 0, y: 0}, {x: 100, y: 100}]}
+    const state = {
+      deck: {setProps: vi.fn()},
+      userCameraLocked: true,
+      hasAutoFit: true,
+      lastGraph: graph,
+      handleEvent: vi.fn((name, fn) => {
+        if (name === "god_view:reset_view") handler = fn
+      }),
+    }
+    const deps = {autoFitViewState: vi.fn()}
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapEventResetViewMethods))
+
+    ctx.registerResetViewEvent()
+    handler()
+
+    expect(state.userCameraLocked).toBe(false)
+    expect(state.hasAutoFit).toBe(false)
+    expect(deps.autoFitViewState).toHaveBeenCalledWith(graph)
   })
 
   it("registerLayerEvents updates topology + visual layers and rerenders", () => {

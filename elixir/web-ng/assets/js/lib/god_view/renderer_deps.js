@@ -81,6 +81,7 @@ export const RENDERING_DEP_KEYS = ["resolveZoomTier", "setZoomTier", "reshapeGra
  * @property {(...args: any[]) => any} graphTopologyStamp
  * @property {(...args: any[]) => any} sameTopology
  * @property {(...args: any[]) => any} animateTransition
+ * @property {(...args: any[]) => any} autoFitViewState
  */
 export const LIFECYCLE_DEP_KEYS = [
   "renderGraph",
@@ -98,6 +99,7 @@ export const LIFECYCLE_DEP_KEYS = [
   "graphTopologyStamp",
   "sameTopology",
   "animateTransition",
+  "autoFitViewState",
 ]
 
 /**
@@ -147,5 +149,6 @@ export function buildLifecycleDeps(context) {
     graphTopologyStamp: (...args) => context.layout.graphTopologyStamp(...args),
     sameTopology: (...args) => context.layout.sameTopology(...args),
     animateTransition: (...args) => context.layout.animateTransition(...args),
+    autoFitViewState: (...args) => context.rendering.autoFitViewState(...args),
   }
 }
