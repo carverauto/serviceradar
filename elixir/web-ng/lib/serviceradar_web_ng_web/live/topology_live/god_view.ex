@@ -1,8 +1,13 @@
 defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   use ServiceRadarWebNGWeb, :live_view
 
+  require Logger
+
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
   alias ServiceRadarWebNGWeb.FeatureFlags
+
+  @default_decode_alert_ms 20.0
+  @default_render_alert_ms 40.0
 
   @impl true
   def mount(_params, _session, socket) do
@@ -60,6 +65,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
       params
       |> Map.get("pipeline_stats", %{})
       |> normalize_pipeline_stats()
+
+    maybe_emit_client_perf_alert(params, pipeline_stats)
 
     {:noreply,
      socket
@@ -157,6 +164,94 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
     {:noreply, assign(socket, :controls_collapsed, truthy?(collapsed))}
   end
 
+  defp maybe_emit_client_perf_alert(params, pipeline_stats)
+       when is_map(params) and is_map(pipeline_stats) do
+    decode_ms = numeric_ms(Map.get(params, "decode_ms"))
+    render_ms = numeric_ms(Map.get(params, "render_ms"))
+    node_count = numeric_count(Map.get(params, "node_count"))
+    edge_count = numeric_count(Map.get(params, "edge_count"))
+
+    if decode_ms > decode_alert_ms_threshold() do
+      emit_client_perf_alert(
+        "decode_ms_high",
+        decode_ms,
+        render_ms,
+        node_count,
+        edge_count,
+        pipeline_stats
+      )
+    end
+
+    if render_ms > render_alert_ms_threshold() do
+      emit_client_perf_alert(
+        "render_ms_high",
+        decode_ms,
+        render_ms,
+        node_count,
+        edge_count,
+        pipeline_stats
+      )
+    end
+  end
+
+  defp maybe_emit_client_perf_alert(_params, _pipeline_stats), do: :ok
+
+  defp emit_client_perf_alert(alert, decode_ms, render_ms, node_count, edge_count, pipeline_stats) do
+    measurements = %{
+      decode_ms: decode_ms,
+      render_ms: render_ms,
+      node_count: node_count,
+      edge_count: edge_count
+    }
+
+    metadata = %{alert: alert, pipeline_stats: pipeline_stats}
+
+    :telemetry.execute([:serviceradar, :god_view, :client, :perf_alert], measurements, metadata)
+
+    Logger.warning(
+      "god_view_client_perf_alert #{alert} decode_ms=#{decode_ms} render_ms=#{render_ms} " <>
+        "nodes=#{node_count} edges=#{edge_count} pipeline_stats=#{inspect(pipeline_stats)}"
+    )
+  end
+
+  defp decode_alert_ms_threshold do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :god_view_client_decode_alert_ms,
+      @default_decode_alert_ms
+    )
+  end
+
+  defp render_alert_ms_threshold do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :god_view_client_render_alert_ms,
+      @default_render_alert_ms
+    )
+  end
+
+  defp numeric_ms(value) when is_number(value), do: value * 1.0
+
+  defp numeric_ms(value) when is_binary(value) do
+    case Float.parse(value) do
+      {parsed, _rest} -> parsed
+      _ -> 0.0
+    end
+  end
+
+  defp numeric_ms(_), do: 0.0
+
+  defp numeric_count(value) when is_integer(value), do: max(value, 0)
+
+  defp numeric_count(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, _rest} -> max(parsed, 0)
+      _ -> 0
+    end
+  end
+
+  defp numeric_count(_), do: 0
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -179,7 +274,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
             </div>
 
             <div
-              :if={empty_topology_message(@stream_state, @last_node_count, @last_edge_count, @pipeline_stats)}
+              :if={
+                empty_topology_message(
+                  @stream_state,
+                  @last_node_count,
+                  @last_edge_count,
+                  @pipeline_stats
+                )
+              }
               class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
             >
               <div class="max-w-xl rounded-lg border border-warning/30 bg-base-100/90 px-5 py-4 text-center shadow-lg backdrop-blur-sm">

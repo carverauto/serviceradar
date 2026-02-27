@@ -484,7 +484,14 @@ func TestEnsureDeviceID(t *testing.T) {
 		IP: "192.168.1.1",
 	}
 	discoveryEngine.ensureDeviceID(device)
-	assert.NotEmpty(t, device.DeviceID)
+	assert.Empty(t, device.DeviceID)
+
+	// Test MAC-based fallback
+	device = &DiscoveredDevice{
+		MAC: "aa:bb:cc:dd:ee:ff",
+	}
+	discoveryEngine.ensureDeviceID(device)
+	assert.Equal(t, "mac-aabbccddeeff", device.DeviceID)
 
 	// Test with existing DeviceID
 	device = &DiscoveredDevice{

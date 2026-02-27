@@ -86,6 +86,18 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
             "x-sr-god-view-pipeline-unresolved-endpoints",
             Integer.to_string(Map.get(pipeline_stats, :unresolved_endpoints, 0))
           )
+          |> put_resp_header(
+            "x-sr-god-view-pipeline-edge-telemetry-interface",
+            Integer.to_string(Map.get(pipeline_stats, :edge_telemetry_interface, 0))
+          )
+          |> put_resp_header(
+            "x-sr-god-view-pipeline-edge-telemetry-fallback",
+            Integer.to_string(Map.get(pipeline_stats, :edge_telemetry_fallback, 0))
+          )
+          |> put_resp_header(
+            "x-sr-god-view-pipeline-edge-unresolved-directional",
+            Integer.to_string(Map.get(pipeline_stats, :edge_unresolved_directional, 0))
+          )
           |> send_resp(200, payload)
 
         {:error, reason} ->
@@ -117,7 +129,10 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
       :final_direct,
       :final_inferred,
       :final_attachment,
-      :unresolved_endpoints
+      :unresolved_endpoints,
+      :edge_telemetry_interface,
+      :edge_telemetry_fallback,
+      :edge_unresolved_directional
     ])
   end
 end

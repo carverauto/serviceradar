@@ -1,7 +1,7 @@
 export const godViewLifecycleBootstrapCleanupRuntimeMethods = {
   cleanupLifecycleRuntime() {
     this.stopAnimationLoop()
-    this.stopPolling()
+    this.clearChannelReconnectTimer?.()
     if (this.state.reducedMotionMediaQuery && this.state.reducedMotionListener) {
       try {
         if (typeof this.state.reducedMotionMediaQuery.removeEventListener === "function") {

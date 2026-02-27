@@ -1,10 +1,10 @@
 export const godViewRenderingStyleEdgeTopologyMethods = {
   edgeTopologyClass(edge) {
     const explicit = String(edge?.topologyClass || "").trim().toLowerCase()
-    if (explicit === "inferred" || explicit === "endpoints" || explicit === "backbone") {
+    if (explicit === "inferred" || explicit === "endpoints" || explicit === "backbone" || explicit === "unknown") {
       return explicit
     }
-    return "backbone"
+    return "unknown"
   },
   edgeEnabledByTopologyLayer(edge) {
     const classCounts = edge?.topologyClassCounts
@@ -15,7 +15,9 @@ export const godViewRenderingStyleEdgeTopologyMethods = {
         Number(classCounts.inferred || 0) > 0 && this.state.topologyLayers.inferred === true
       const showEndpoints =
         Number(classCounts.endpoints || 0) > 0 && this.state.topologyLayers.endpoints === true
-      return showBackbone || showInferred || showEndpoints
+      const showUnknown =
+        Number(classCounts.unknown || 0) > 0 && this.state.topologyLayers.backbone !== false
+      return showBackbone || showInferred || showEndpoints || showUnknown
     }
 
     const topologyClass = this.edgeTopologyClass(edge)

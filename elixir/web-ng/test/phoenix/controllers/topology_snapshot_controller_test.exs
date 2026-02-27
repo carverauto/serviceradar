@@ -39,6 +39,12 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotControllerTest do
     assert get_resp_header(conn, "x-sr-god-view-bitmap-affected-count") != []
     assert get_resp_header(conn, "x-sr-god-view-bitmap-healthy-count") != []
     assert get_resp_header(conn, "x-sr-god-view-bitmap-unknown-count") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-raw-links") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-unique-pairs") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-final-edges") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-telemetry-interface") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-telemetry-fallback") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-unresolved-directional") != []
     assert binary_part(conn.resp_body, 0, 6) == "ARROW1"
     assert binary_part(conn.resp_body, byte_size(conn.resp_body) - 6, 6) == "ARROW1"
   end

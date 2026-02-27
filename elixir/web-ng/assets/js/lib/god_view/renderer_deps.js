@@ -25,7 +25,6 @@
  * @property {(...args: any[]) => any} edgeTopologyClass
  * @property {(...args: any[]) => any} focusNodeByIndex
  * @property {(...args: any[]) => any} ensureBitmapMetadata
- * @property {(...args: any[]) => any} pipelineStatsFromHeaders
  * @property {(...args: any[]) => any} normalizePipelineStats
  * @property {(...args: any[]) => any} normalizeDisplayLabel
  * @property {(...args: any[]) => any} getNodeTooltip
@@ -70,7 +69,6 @@ export const RENDERING_DEP_KEYS = ["resolveZoomTier", "setZoomTier", "reshapeGra
  * @property {(...args: any[]) => any} renderGraph
  * @property {(...args: any[]) => any} focusNodeByIndex
  * @property {(...args: any[]) => any} ensureBitmapMetadata
- * @property {(...args: any[]) => any} pipelineStatsFromHeaders
  * @property {(...args: any[]) => any} normalizePipelineStats
  * @property {(...args: any[]) => any} decodeArrowGraph
  * @property {(...args: any[]) => any} normalizeDisplayLabel
@@ -88,7 +86,6 @@ export const LIFECYCLE_DEP_KEYS = [
   "renderGraph",
   "focusNodeByIndex",
   "ensureBitmapMetadata",
-  "pipelineStatsFromHeaders",
   "normalizePipelineStats",
   "decodeArrowGraph",
   "normalizeDisplayLabel",
@@ -138,7 +135,6 @@ export function buildLifecycleDeps(context) {
     renderGraph: (...args) => context.rendering.renderGraph(...args),
     focusNodeByIndex: (...args) => context.rendering.focusNodeByIndex(...args),
     ensureBitmapMetadata: (...args) => context.rendering.ensureBitmapMetadata(...args),
-    pipelineStatsFromHeaders: (...args) => context.rendering.pipelineStatsFromHeaders(...args),
     normalizePipelineStats: (...args) => context.rendering.normalizePipelineStats(...args),
     decodeArrowGraph: (...args) => context.lifecycle.decodeArrowGraph(...args),
     normalizeDisplayLabel: (...args) => context.rendering.normalizeDisplayLabel(...args),

@@ -27,7 +27,6 @@ function makeContext() {
       edgeTopologyClass: vi.fn((...args) => ["rendering.edgeTopologyClass", ...args]),
       focusNodeByIndex: vi.fn((...args) => ["rendering.focusNodeByIndex", ...args]),
       ensureBitmapMetadata: vi.fn((...args) => ["rendering.ensureBitmapMetadata", ...args]),
-      pipelineStatsFromHeaders: vi.fn((...args) => ["rendering.pipelineStatsFromHeaders", ...args]),
       normalizePipelineStats: vi.fn((...args) => ["rendering.normalizePipelineStats", ...args]),
       normalizeDisplayLabel: vi.fn((...args) => ["rendering.normalizeDisplayLabel", ...args]),
       getNodeTooltip: vi.fn((...args) => ["rendering.getNodeTooltip", ...args]),
@@ -71,7 +70,6 @@ describe("renderer_deps", () => {
     expect(deps.renderGraph("g")).toEqual(["rendering.renderGraph", "g"])
     expect(deps.focusNodeByIndex(3, true)).toEqual(["rendering.focusNodeByIndex", 3, true])
     expect(deps.ensureBitmapMetadata({}, [])).toEqual(["rendering.ensureBitmapMetadata", {}, []])
-    expect(deps.pipelineStatsFromHeaders({})).toEqual(["rendering.pipelineStatsFromHeaders", {}])
     expect(deps.normalizePipelineStats({})).toEqual(["rendering.normalizePipelineStats", {}])
     expect(deps.decodeArrowGraph(new Uint8Array([1]))).toEqual(["lifecycle.decodeArrowGraph", new Uint8Array([1])])
     expect(deps.normalizeDisplayLabel("a", "b")).toEqual(["rendering.normalizeDisplayLabel", "a", "b"])

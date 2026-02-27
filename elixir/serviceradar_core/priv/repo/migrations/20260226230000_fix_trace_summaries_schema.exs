@@ -12,7 +12,6 @@ defmodule ServiceRadar.Repo.Migrations.FixTraceSummariesSchema do
 
   def up do
     schema = schema()
-
     # 1. Remove any stale copy in public (table or materialized view)
     execute("DROP TABLE IF EXISTS public.otel_trace_summaries CASCADE")
     execute("DROP MATERIALIZED VIEW IF EXISTS public.otel_trace_summaries CASCADE")

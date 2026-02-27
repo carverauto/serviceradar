@@ -71,6 +71,23 @@ pub(crate) fn term_as_f64(term: Term<'_>) -> Option<f64> {
     None
 }
 
+pub(crate) fn term_as_bool(term: Term<'_>) -> Option<bool> {
+    if let Ok(v) = term.decode::<bool>() {
+        return Some(v);
+    }
+    if let Ok(v) = term.decode::<i64>() {
+        return Some(v > 0);
+    }
+    if let Ok(v) = term.decode::<u64>() {
+        return Some(v > 0);
+    }
+    if let Ok(v) = term.decode::<String>() {
+        let normalized = v.trim().to_ascii_lowercase();
+        return Some(matches!(normalized.as_str(), "true" | "1" | "yes" | "y"));
+    }
+    None
+}
+
 /// Transforms an untyped generic Elixir Map into a strictly-typed `RuntimeGraphRow`.
 ///
 /// Implements aggressive key fallback via `map_get_any` for resilient ingestion.
@@ -99,14 +116,48 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
     let local_if_index = map_get_any(row, runtime_graph_atoms::local_if_index(), "local_if_index")
         .and_then(term_as_i64)
         .unwrap_or(-1);
-    let neighbor_if_name =
-        map_get_any(row, runtime_graph_atoms::neighbor_if_name(), "neighbor_if_name")
-            .and_then(term_as_string)
-            .unwrap_or_default();
-    let neighbor_if_index =
-        map_get_any(row, runtime_graph_atoms::neighbor_if_index(), "neighbor_if_index")
-            .and_then(term_as_i64)
-            .unwrap_or(-1);
+    let local_if_index_ab = map_get_any(
+        row,
+        runtime_graph_atoms::local_if_index_ab(),
+        "local_if_index_ab",
+    )
+    .and_then(term_as_i64)
+    .unwrap_or(local_if_index);
+    let local_if_name_ab = map_get_any(
+        row,
+        runtime_graph_atoms::local_if_name_ab(),
+        "local_if_name_ab",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_else(|| local_if_name.clone());
+    let neighbor_if_name = map_get_any(
+        row,
+        runtime_graph_atoms::neighbor_if_name(),
+        "neighbor_if_name",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_default();
+    let neighbor_if_index = map_get_any(
+        row,
+        runtime_graph_atoms::neighbor_if_index(),
+        "neighbor_if_index",
+    )
+    .and_then(term_as_i64)
+    .unwrap_or(-1);
+    let local_if_index_ba = map_get_any(
+        row,
+        runtime_graph_atoms::local_if_index_ba(),
+        "local_if_index_ba",
+    )
+    .and_then(term_as_i64)
+    .unwrap_or(neighbor_if_index);
+    let local_if_name_ba = map_get_any(
+        row,
+        runtime_graph_atoms::local_if_name_ba(),
+        "local_if_name_ba",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_else(|| neighbor_if_name.clone());
     let neighbor_device_id = map_get_any(
         row,
         runtime_graph_atoms::neighbor_device_id(),
@@ -131,6 +182,9 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
     let protocol = map_get_any(row, runtime_graph_atoms::protocol(), "protocol")
         .and_then(term_as_string)
         .unwrap_or_default();
+    let evidence_class = map_get_any(row, runtime_graph_atoms::evidence_class(), "evidence_class")
+        .and_then(term_as_string)
+        .unwrap_or_default();
     let confidence_tier = map_get_any(
         row,
         runtime_graph_atoms::confidence_tier(),
@@ -138,6 +192,62 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
     )
     .and_then(term_as_string)
     .unwrap_or_else(|| "unknown".to_string());
+    let confidence_reason = map_get_any(
+        row,
+        runtime_graph_atoms::confidence_reason(),
+        "confidence_reason",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_default();
+    let flow_pps = map_get_any(row, runtime_graph_atoms::flow_pps(), "flow_pps")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let flow_bps = map_get_any(row, runtime_graph_atoms::flow_bps(), "flow_bps")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let capacity_bps = map_get_any(row, runtime_graph_atoms::capacity_bps(), "capacity_bps")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let flow_pps_ab = map_get_any(row, runtime_graph_atoms::flow_pps_ab(), "flow_pps_ab")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let flow_pps_ba = map_get_any(row, runtime_graph_atoms::flow_pps_ba(), "flow_pps_ba")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let flow_bps_ab = map_get_any(row, runtime_graph_atoms::flow_bps_ab(), "flow_bps_ab")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let flow_bps_ba = map_get_any(row, runtime_graph_atoms::flow_bps_ba(), "flow_bps_ba")
+        .and_then(term_as_i64)
+        .unwrap_or(0);
+    let telemetry_eligible = map_get_any(
+        row,
+        runtime_graph_atoms::telemetry_eligible(),
+        "telemetry_eligible",
+    )
+    .and_then(term_as_bool)
+    .unwrap_or(
+        flow_pps > 0
+            || flow_bps > 0
+            || flow_pps_ab > 0
+            || flow_pps_ba > 0
+            || flow_bps_ab > 0
+            || flow_bps_ba > 0,
+    );
+    let telemetry_source = map_get_any(
+        row,
+        runtime_graph_atoms::telemetry_source(),
+        "telemetry_source",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_else(|| "none".to_string());
+    let telemetry_observed_at = map_get_any(
+        row,
+        runtime_graph_atoms::telemetry_observed_at(),
+        "telemetry_observed_at",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_default();
 
     let metadata_term = map_get_any(row, runtime_graph_atoms::metadata(), "metadata");
     let metadata_source = metadata_term
@@ -182,13 +292,29 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
         local_device_ip,
         local_if_name,
         local_if_index,
+        local_if_index_ab,
+        local_if_name_ab,
+        local_if_index_ba,
+        local_if_name_ba,
         neighbor_if_name,
         neighbor_if_index,
         neighbor_device_id,
         neighbor_mgmt_addr,
         neighbor_system_name,
         protocol,
+        evidence_class,
         confidence_tier,
+        confidence_reason,
+        flow_pps,
+        flow_bps,
+        capacity_bps,
+        flow_pps_ab,
+        flow_pps_ba,
+        flow_bps_ab,
+        flow_bps_ba,
+        telemetry_eligible,
+        telemetry_source,
+        telemetry_observed_at,
         metadata_json,
     })
 }

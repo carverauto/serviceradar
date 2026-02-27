@@ -140,4 +140,52 @@ describe("rendering_graph_data_methods", () => {
     expect(out.edgeData[0].flowBpsAb).toEqual(70)
     expect(out.edgeData[0].flowBpsBa).toEqual(30)
   })
+
+  it("buildVisibleGraphData preserves backend edge multiplicity for identical endpoints", () => {
+    const ctx = baseContext()
+    const effective = {
+      shape: "local",
+      nodes: [
+        {id: "n1", x: 1, y: 2, state: 0, label: "Node 1", pps: 10, operUp: 1, details: {}},
+        {id: "n2", x: 3, y: 4, state: 1, label: "Node 2", pps: 20, operUp: 2, details: {}},
+      ],
+      edges: [
+        {
+          id: "edge-canonical-a",
+          source: 0,
+          target: 1,
+          flowPps: 100,
+          flowPpsAb: 70,
+          flowPpsBa: 30,
+          flowBps: 1000,
+          flowBpsAb: 700,
+          flowBpsBa: 300,
+          capacityBps: 10_000,
+          telemetryEligible: true,
+        },
+        {
+          id: "edge-canonical-b",
+          source: 0,
+          target: 1,
+          flowPps: 55,
+          flowPpsAb: 50,
+          flowPpsBa: 5,
+          flowBps: 550,
+          flowBpsAb: 500,
+          flowBpsBa: 50,
+          capacityBps: 10_000,
+          telemetryEligible: true,
+        },
+      ],
+    }
+
+    const out = ctx.buildVisibleGraphData(effective)
+    expect(out.edgeData).toHaveLength(2)
+    expect(out.edgeData.map((edge) => edge.interactionKey)).toEqual([
+      "local:edge-canonical-a",
+      "local:edge-canonical-b",
+    ])
+    expect(out.edgeData.map((edge) => edge.flowPpsAb)).toEqual([70, 50])
+    expect(out.edgeData.map((edge) => edge.flowPpsBa)).toEqual([30, 5])
+  })
 })

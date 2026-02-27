@@ -34,3 +34,9 @@ GodView still relies on frontend-side edge pairing, interface attribution, and f
   - Observed `runtime_graph_refresh fetched=56 ingested=56` and non-zero pipeline edge/node counts after canonical rebuild.
 - Remaining gap:
   - Canonical edge population is still not consistently self-healing in `demo` without manual rebuild; stabilizing canonical rebuild invocation/triggering remains the top blocker.
+
+## Follow-up Focus (2026-02-26)
+- Eliminate remaining God-View frontend hot-path mutation/normalization so frontend is strictly render-only.
+- Keep runtime snapshot transport websocket-first with reconnect semantics and no active HTTP polling fallback.
+- Lock backend/frontend canonical schema parity with automated contract tests to prevent `topology unavailable` regressions from field drift.
+- Add end-to-end regression coverage for previously unstable links and animation parity to prevent repeated demo regressions.

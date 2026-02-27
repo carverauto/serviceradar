@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/carverauto/serviceradar/go/pkg/mapper"
@@ -92,5 +93,72 @@ func TestPublishDeviceIncludesSNMPFingerprint(t *testing.T) {
 
 	if got := system["ip_forwarding"]; got != int32(1) {
 		t.Fatalf("expected ip_forwarding=1, got %v", got)
+	}
+}
+
+func TestBuildMapperInterfacePayloadDoesNotSynthesizeDeviceID(t *testing.T) {
+	updates := []map[string]interface{}{
+		{
+			"device_ip": "192.168.10.154",
+			"if_index":  7,
+			"if_name":   "eth0",
+		},
+	}
+
+	payload, err := buildMapperInterfacePayload(updates, "agent-1", "default")
+	if err != nil {
+		t.Fatalf("expected payload build to succeed, got error: %v", err)
+	}
+
+	var got []map[string]interface{}
+	if err := json.Unmarshal(payload, &got); err != nil {
+		t.Fatalf("expected valid JSON payload, got error: %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("expected one record, got %d", len(got))
+	}
+
+	if _, exists := got[0]["device_id"]; exists {
+		t.Fatalf("expected device_id to remain unset when missing at source, got %v", got[0]["device_id"])
+	}
+}
+
+func TestBuildMapperTopologyPayloadDoesNotSynthesizeEndpointIDs(t *testing.T) {
+	updates := []map[string]interface{}{
+		{
+			"protocol":           "lldp",
+			"local_device_ip":    "192.168.10.1",
+			"neighbor_mgmt_addr": "192.168.10.154",
+			"local_if_index":     11,
+		},
+	}
+
+	payload, err := buildMapperTopologyPayload(updates, "agent-1", "default")
+	if err != nil {
+		t.Fatalf("expected payload build to succeed, got error: %v", err)
+	}
+
+	var got []map[string]interface{}
+	if err := json.Unmarshal(payload, &got); err != nil {
+		t.Fatalf("expected valid JSON payload, got error: %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("expected one record, got %d", len(got))
+	}
+
+	if _, exists := got[0]["local_device_id"]; exists {
+		t.Fatalf(
+			"expected local_device_id to remain unset when missing at source, got %v",
+			got[0]["local_device_id"],
+		)
+	}
+
+	if _, exists := got[0]["neighbor_device_id"]; exists {
+		t.Fatalf(
+			"expected neighbor_device_id to remain unset when missing at source, got %v",
+			got[0]["neighbor_device_id"],
+		)
 	}
 }

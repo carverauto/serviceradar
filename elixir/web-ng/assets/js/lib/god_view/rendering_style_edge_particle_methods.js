@@ -129,7 +129,9 @@ export const godViewRenderingStyleEdgeParticleMethods = {
             speedBase: baSpeed,
             jitter: jitterBase * spreadFill,
             utilization,
-            laneOffset: -laneSeparation,
+            // Keep same signed offset for reverse direction; the segment normal flips with direction,
+            // so this lands on the opposite side of the tube in world space.
+            laneOffset: laneSeparation,
           })
         }
       }

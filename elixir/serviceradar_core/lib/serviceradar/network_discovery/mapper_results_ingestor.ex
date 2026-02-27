@@ -84,7 +84,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     with {:ok, updates} <- decode_payload(message),
          records <- build_topology_records(updates),
-         resolved_records <- resolve_topology_device_ids(records),
+         canonical_seed_records <- sanitize_topology_records(records),
+         resolved_records <- resolve_topology_device_ids(canonical_seed_records),
          :ok <- promote_topology_sightings(resolved_records, actor),
          final_records <- resolve_topology_device_ids(resolved_records),
          records_with_wireguard <- add_deterministic_wireguard_links(final_records) do
@@ -1209,11 +1210,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       uid =
         entries
         |> Enum.sort_by(&device_ip_resolution_rank/1)
-        |> List.first()
-        |> case do
-          {_ip, uid, _metadata} -> uid
-          _ -> nil
-        end
+        |> Enum.find_value(fn
+          {_ip, uid, _metadata} ->
+            normalized_uid = normalize_string(uid)
+
+            if canonical_topology_uid?(normalized_uid) do
+              uid
+            else
+              nil
+            end
+
+          _ ->
+            nil
+        end)
 
       {ip, uid}
     end)
@@ -1680,21 +1689,27 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       candidate_name
       |> topology_name_candidates()
 
+    uid_match =
+      if is_binary(uid), do: canonical_uid_from_index(index.uid_to_uid, uid), else: nil
+
+    ip_match =
+      if is_binary(ip), do: canonical_uid_from_index(index.ip_to_uid, ip), else: nil
+
+    mac_match =
+      if is_binary(chassis), do: canonical_uid_from_index(index.mac_to_uid, chassis), else: nil
+
+    name_match =
+      Enum.find_value(name_candidates, fn name ->
+        canonical_uid_from_index(index.name_to_uid, name)
+      end)
+
     cond do
-      is_binary(uid) and Map.has_key?(index.uid_to_uid, uid) ->
-        Map.get(index.uid_to_uid, uid)
-
-      is_binary(ip) and Map.has_key?(index.ip_to_uid, ip) ->
-        Map.get(index.ip_to_uid, ip)
-
-      is_binary(chassis) and Map.has_key?(index.mac_to_uid, chassis) ->
-        Map.get(index.mac_to_uid, chassis)
-
-      is_binary(uid) and canonical_topology_uid?(uid) ->
-        uid
-
-      true ->
-        Enum.find_value(name_candidates, fn name -> Map.get(index.name_to_uid, name) end)
+      is_binary(uid_match) -> uid_match
+      is_binary(ip_match) -> ip_match
+      is_binary(mac_match) -> mac_match
+      is_binary(uid) and canonical_topology_uid?(uid) -> uid
+      is_binary(name_match) -> name_match
+      true -> nil
     end
   end
 
@@ -1793,11 +1808,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         from(d in Device,
           where: is_nil(d.deleted_at),
           where:
-            fragment(
-              "COALESCE((?->>'identity_source'), '') <> 'mapper_topology_sighting'",
-              d.metadata
-            ),
-          where:
             d.ip in ^ips or d.uid in ^uids or fragment("LOWER(COALESCE(?, ''))", d.name) in ^names or
               fragment("LOWER(COALESCE(?, ''))", d.hostname) in ^names or
               fragment(
@@ -1837,12 +1847,26 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         |> Kernel.++(topology_name_candidates(row.hostname))
         |> Enum.uniq()
 
-      acc
-      |> put_topology_index_entry(:uid_to_uid, uid)
-      |> put_topology_index_entry(:ip_to_uid, ip, uid)
-      |> put_topology_index_entry(:mac_to_uid, mac, uid)
-      |> put_topology_name_entries(name_candidates, uid)
+      if canonical_topology_uid?(uid) do
+        acc
+        |> put_topology_index_entry(:uid_to_uid, uid)
+        |> put_topology_index_entry(:ip_to_uid, ip, uid)
+        |> put_topology_index_entry(:mac_to_uid, mac, uid)
+        |> put_topology_name_entries(name_candidates, uid)
+      else
+        acc
+      end
     end)
+  end
+
+  defp canonical_uid_from_index(index_map, key) when is_map(index_map) do
+    case Map.get(index_map, key) |> normalize_string() do
+      uid when is_binary(uid) ->
+        if canonical_topology_uid?(uid), do: uid, else: nil
+
+      _ ->
+        nil
+    end
   end
 
   defp topology_index_row_rank(row) do
@@ -1922,8 +1946,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     value
     |> String.trim()
     |> case do
-      "" -> nil
-      trimmed -> String.downcase(trimmed)
+      "" ->
+        nil
+
+      trimmed ->
+        normalized = String.downcase(trimmed)
+
+        if normalized in ["nil", "null", "undefined"] do
+          nil
+        else
+          normalized
+        end
     end
   end
 
@@ -1944,6 +1977,39 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> prune_unattributed_unifi_links()
     |> infer_reverse_interface_hints()
   end
+
+  @doc false
+  def sanitize_topology_records(records) when is_list(records) do
+    Enum.map(records, &sanitize_topology_record/1)
+  end
+
+  defp sanitize_topology_record(record) when is_map(record) do
+    local_candidate = normalize_string(Map.get(record, :local_device_id))
+    neighbor_candidate = normalize_string(Map.get(record, :neighbor_device_id))
+
+    metadata =
+      record
+      |> Map.get(:metadata, %{})
+      |> case do
+        map when is_map(map) -> map
+        _ -> %{}
+      end
+      |> maybe_put_metadata_value("source_local_uid", local_candidate)
+      |> maybe_put_metadata_value("source_target_uid", neighbor_candidate)
+
+    record
+    |> Map.put(:metadata, metadata)
+    |> Map.put(:local_device_id, sanitize_topology_candidate_uid(local_candidate))
+    |> Map.put(:neighbor_device_id, sanitize_topology_candidate_uid(neighbor_candidate))
+  end
+
+  defp sanitize_topology_record(record), do: record
+
+  defp sanitize_topology_candidate_uid(uid) when is_binary(uid) do
+    if canonical_topology_uid?(uid), do: uid, else: nil
+  end
+
+  defp sanitize_topology_candidate_uid(_), do: nil
 
   @doc false
   def prune_unattributed_unifi_links(records) when is_list(records) do

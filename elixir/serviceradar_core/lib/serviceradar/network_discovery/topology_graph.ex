@@ -3,10 +3,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   Projects mapper topology links into the Apache AGE graph.
   """
 
+  import Ecto.Query
+
   require Logger
 
   alias ServiceRadar.Graph
+  alias ServiceRadar.Repo
   @default_stale_minutes 180
+  @telemetry_window_minutes 10
+  @packet_metric_names ["ifInUcastPkts", "ifOutUcastPkts", "ifHCInUcastPkts", "ifHCOutUcastPkts"]
+  @octet_metric_names ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
   @direct_protocols MapSet.new(["lldp", "cdp", "unifi-api", "wireguard-derived"])
   @strict_ifindex_protocols MapSet.new(["lldp", "cdp"])
   @direct_evidence_classes MapSet.new(["direct"])
@@ -39,6 +45,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   """
   @spec rebuild_canonical_links_from_current() :: :ok
   def rebuild_canonical_links_from_current do
+    _ = rebuild_canonical_links_from_current_with_stats()
+    :ok
+  end
+
+  @doc """
+  Rebuilds canonical device-level topology edges from current mapper evidence in AGE and
+  returns rebuild counters for observability/recovery decisions.
+  """
+  @spec rebuild_canonical_links_from_current_with_stats() ::
+          {:ok, map()} | {:error, term(), map()}
+  def rebuild_canonical_links_from_current_with_stats do
     rebuild_canonical_device_links()
   end
 
@@ -155,16 +172,23 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   @spec upsert_managed_by(String.t(), String.t()) :: :ok
   def upsert_managed_by(device_uid, management_device_uid)
       when is_binary(device_uid) and is_binary(management_device_uid) do
-    cypher = """
-    MERGE (child:Device {id: '#{Graph.escape(device_uid)}'})
-    MERGE (mgmt:Device {id: '#{Graph.escape(management_device_uid)}'})
-    MERGE (child)-[r:MANAGED_BY]->(mgmt)
-    SET r.source = 'mapper'
-    """
+    device_uid = non_blank(device_uid)
+    management_device_uid = non_blank(management_device_uid)
 
-    case Graph.execute(cypher) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("MANAGED_BY graph upsert failed: #{inspect(reason)}")
+    if is_nil(device_uid) or is_nil(management_device_uid) do
+      :ok
+    else
+      cypher = """
+      MERGE (child:Device {id: '#{Graph.escape(device_uid)}'})
+      MERGE (mgmt:Device {id: '#{Graph.escape(management_device_uid)}'})
+      MERGE (child)-[r:MANAGED_BY]->(mgmt)
+      SET r.source = 'mapper'
+      """
+
+      case Graph.execute(cypher) do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("MANAGED_BY graph upsert failed: #{inspect(reason)}")
+      end
     end
   end
 
@@ -206,7 +230,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp build_link_payload(link) do
     local_device_id = non_blank(link_value(link, :local_device_id))
-    neighbor_device_id = neighbor_device_id(link)
+    neighbor_device_id = non_blank(neighbor_device_id(link))
     local_interface_id = local_interface_id(link, local_device_id)
     neighbor_port = neighbor_port(link)
     neighbor_interface_id = neighbor_interface_id(neighbor_device_id, neighbor_port)
@@ -395,7 +419,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
           not allow_single_identifier_inference_projection?(payload) ->
         :skip_single_identifier_inference
 
-      strict_ifindex? and not valid_ifindex?(payload.local_if_index) ->
+      strict_ifindex? and not strict_protocol_interface_identity?(payload) ->
         :skip_missing_ifindex
 
       MapSet.member?(@inferred_evidence_classes, evidence_class) ->
@@ -496,11 +520,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp interface_contract_valid?(protocol, payload) do
     if MapSet.member?(@strict_ifindex_protocols, protocol) do
-      valid_ifindex?(payload.local_if_index)
+      strict_protocol_interface_identity?(payload)
     else
       true
     end
   end
+
+  defp strict_protocol_interface_identity?(payload) when is_map(payload) do
+    valid_ifindex?(payload.local_if_index) or is_binary(non_blank(payload.local_if_name))
+  end
+
+  defp strict_protocol_interface_identity?(_payload), do: false
 
   defp valid_ifindex?(value) when is_integer(value), do: value > 0
   defp valid_ifindex?(_value), do: false
@@ -653,17 +683,137 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp rebuild_canonical_device_links do
+    before_edges = canonical_edge_count()
+    mapper_evidence_edges = mapper_evidence_edge_count()
     stale_cutoff = stale_cutoff_iso8601()
+    min_canonical_edges = canonical_rebuild_min_edges()
     upsert_cypher = canonical_rebuild_upsert_query(stale_cutoff)
 
     case Graph.execute(upsert_cypher) do
       :ok ->
-        prune_stale_canonical_device_links(stale_cutoff)
+        after_upsert_edges = canonical_edge_count()
+        prune_result = prune_stale_canonical_device_links(stale_cutoff)
+        after_prune_edges = canonical_edge_count()
+        telemetry_result = refresh_canonical_edge_telemetry(stale_cutoff)
+
+        {after_prune_edges, self_heal_result} =
+          maybe_self_heal_zero_canonical(
+            after_prune_edges,
+            mapper_evidence_edges,
+            stale_cutoff,
+            min_canonical_edges
+          )
+
+        stats = %{
+          before_edges: before_edges,
+          mapper_evidence_edges: mapper_evidence_edges,
+          after_upsert_edges: after_upsert_edges,
+          after_prune_edges: after_prune_edges,
+          telemetry_refresh: telemetry_result,
+          stale_cutoff: stale_cutoff,
+          self_heal_result: self_heal_result
+        }
+
+        emit_canonical_rebuild_telemetry(:completed, stats)
+        Logger.info("canonical_topology_rebuild_stats #{inspect(stats)}")
+        {:ok, Map.put(stats, :prune_result, prune_result)}
 
       {:error, reason} ->
         Logger.warning("Canonical topology rebuild failed: #{inspect(reason)}")
+
+        failure_stats = %{
+          before_edges: before_edges,
+          mapper_evidence_edges: mapper_evidence_edges,
+          stale_cutoff: stale_cutoff
+        }
+
+        emit_canonical_rebuild_telemetry(:failed, failure_stats, reason)
+        {:error, reason, failure_stats}
     end
   end
+
+  @doc false
+  @spec canonical_rebuild_min_edges() :: pos_integer()
+  def canonical_rebuild_min_edges do
+    Application.get_env(:serviceradar_core, __MODULE__, [])
+    |> Keyword.get(:min_canonical_edges, 1)
+    |> normalize_positive_int(1)
+  end
+
+  @doc false
+  @spec self_heal_needed?(integer(), integer(), integer()) :: boolean()
+  def self_heal_needed?(after_prune_edges, mapper_evidence_edges, min_canonical_edges)
+      when is_integer(after_prune_edges) and is_integer(mapper_evidence_edges) and
+             is_integer(min_canonical_edges) do
+    after_prune_edges < min_canonical_edges and mapper_evidence_edges >= min_canonical_edges
+  end
+
+  def self_heal_needed?(_after_prune_edges, _mapper_evidence_edges, _min_canonical_edges),
+    do: false
+
+  defp maybe_self_heal_zero_canonical(
+         after_prune_edges,
+         mapper_evidence_edges,
+         stale_cutoff,
+         min_canonical_edges
+       )
+       when is_integer(after_prune_edges) and is_integer(mapper_evidence_edges) and
+              is_binary(stale_cutoff) and is_integer(min_canonical_edges) do
+    if self_heal_needed?(after_prune_edges, mapper_evidence_edges, min_canonical_edges) do
+      Logger.warning(
+        "Canonical topology self-heal triggered",
+        after_prune_edges: after_prune_edges,
+        mapper_evidence_edges: mapper_evidence_edges,
+        min_canonical_edges: min_canonical_edges
+      )
+
+      case Graph.execute(canonical_rebuild_upsert_query(stale_cutoff)) do
+        :ok ->
+          healed_edges = canonical_edge_count()
+          {healed_edges, %{status: :completed, before: after_prune_edges, after: healed_edges}}
+
+        {:error, reason} ->
+          Logger.warning("Canonical topology self-heal failed", reason: inspect(reason))
+
+          {after_prune_edges,
+           %{status: :failed, before: after_prune_edges, after: after_prune_edges, reason: reason}}
+      end
+    else
+      {after_prune_edges, %{status: :skipped}}
+    end
+  end
+
+  @doc false
+  @spec emit_canonical_rebuild_telemetry(:completed | :failed, map(), term() | nil) :: :ok
+  def emit_canonical_rebuild_telemetry(status, stats, reason \\ nil)
+      when status in [:completed, :failed] and is_map(stats) do
+    measurements = %{
+      before_edges: Map.get(stats, :before_edges, 0),
+      mapper_evidence_edges: Map.get(stats, :mapper_evidence_edges, 0),
+      after_upsert_edges: Map.get(stats, :after_upsert_edges, 0),
+      after_prune_edges: Map.get(stats, :after_prune_edges, 0)
+    }
+
+    metadata =
+      %{
+        status: status,
+        stale_cutoff: Map.get(stats, :stale_cutoff),
+        prune_result: Map.get(stats, :prune_result),
+        telemetry_refresh: Map.get(stats, :telemetry_refresh)
+      }
+      |> maybe_put_reason(reason)
+
+    :telemetry.execute(
+      [:serviceradar, :topology, :canonical_rebuild, status],
+      measurements,
+      metadata
+    )
+
+    :ok
+  end
+
+  defp maybe_put_reason(metadata, nil), do: metadata
+  defp maybe_put_reason(metadata, reason), do: Map.put(metadata, :reason, inspect(reason))
 
   defp prune_stale_canonical_device_links(stale_cutoff) when is_binary(stale_cutoff) do
     prune_cypher = canonical_rebuild_prune_query(stale_cutoff)
@@ -674,6 +824,577 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
       {:error, reason} ->
         Logger.warning("Canonical topology stale-edge prune failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec canonical_edge_count_query() :: String.t()
+  def canonical_edge_count_query do
+    """
+    MATCH ()-[r:CANONICAL_TOPOLOGY]->()
+    RETURN {count: count(r)}
+    """
+  end
+
+  @doc false
+  @spec mapper_evidence_edge_count_query() :: String.t()
+  def mapper_evidence_edge_count_query do
+    """
+    MATCH ()-[r]->()
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
+    RETURN {count: count(r)}
+    """
+  end
+
+  defp canonical_edge_count do
+    edge_count_from_query(canonical_edge_count_query())
+  end
+
+  defp mapper_evidence_edge_count do
+    edge_count_from_query(mapper_evidence_edge_count_query())
+  end
+
+  defp edge_count_from_query(cypher) when is_binary(cypher) do
+    case Graph.query(cypher) do
+      {:ok, [row | _]} ->
+        row
+        |> map_value(:count)
+        |> parse_count()
+
+      {:ok, _} ->
+        0
+
+      {:error, reason} ->
+        Logger.warning("Topology edge count query failed: #{inspect(reason)}")
+        0
+    end
+  end
+
+  defp parse_count(value) when is_integer(value) and value >= 0, do: value
+
+  defp parse_count(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {count, _} when count >= 0 -> count
+      _ -> 0
+    end
+  end
+
+  defp parse_count(_), do: 0
+
+  defp refresh_canonical_edge_telemetry(stale_cutoff) when is_binary(stale_cutoff) do
+    with {:ok, edges} <- fetch_canonical_edges(stale_cutoff) do
+      metric_keys = telemetry_metric_keys(edges)
+      pps_by_if = load_packet_pps(metric_keys)
+      bps_by_if = load_octet_bps(metric_keys)
+      capacity_by_if = load_interface_capacity(metric_keys)
+      observed_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+      stats =
+        Enum.reduce(
+          edges,
+          %{
+            total_edges: length(edges),
+            interface_source: 0,
+            none_source: 0,
+            render_ready: 0,
+            render_partial: 0,
+            render_unattributed: 0
+          },
+          fn edge, acc ->
+            telemetry =
+              compute_edge_telemetry(edge, pps_by_if, bps_by_if, capacity_by_if, observed_at)
+
+            persist_canonical_edge_telemetry(edge, telemetry)
+
+            acc = update_render_readiness_stats(acc, edge_render_readiness_class(edge))
+
+            case telemetry.telemetry_source do
+              "interface" -> Map.update!(acc, :interface_source, &(&1 + 1))
+              _ -> Map.update!(acc, :none_source, &(&1 + 1))
+            end
+          end
+        )
+
+      Logger.info("canonical_edge_telemetry_stats #{inspect(stats)}")
+      {:ok, stats}
+    else
+      {:error, reason} ->
+        Logger.warning("Canonical edge telemetry refresh failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp fetch_canonical_edges(stale_cutoff) when is_binary(stale_cutoff) do
+    cypher = """
+    MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{Graph.escape(stale_cutoff)}')
+      AND a.id IS NOT NULL
+      AND b.id IS NOT NULL
+      AND a.id STARTS WITH 'sr:'
+      AND b.id STARTS WITH 'sr:'
+    RETURN {
+      src_id: a.id,
+      dst_id: b.id,
+      local_if_index: r.local_if_index,
+      neighbor_if_index: r.neighbor_if_index,
+      local_if_index_ab: r.local_if_index_ab,
+      local_if_index_ba: r.local_if_index_ba
+    }
+    """
+
+    case Graph.query(cypher) do
+      {:ok, rows} when is_list(rows) -> {:ok, Enum.flat_map(rows, &parse_canonical_edge_row/1)}
+      {:error, reason} -> {:error, reason}
+      _ -> {:ok, []}
+    end
+  end
+
+  defp parse_canonical_edge_row(row) do
+    src_id = map_value(row, :src_id)
+    dst_id = map_value(row, :dst_id)
+
+    with true <- is_binary(src_id),
+         true <- is_binary(dst_id) do
+      local_if_index_ab = parse_ifindex(map_value(row, :local_if_index_ab))
+      local_if_index_ba = parse_ifindex(map_value(row, :local_if_index_ba))
+      local_if_index = parse_ifindex(map_value(row, :local_if_index))
+      neighbor_if_index = parse_ifindex(map_value(row, :neighbor_if_index))
+
+      [
+        %{
+          src_id: src_id,
+          dst_id: dst_id,
+          local_if_index_ab: local_if_index_ab || local_if_index,
+          local_if_index_ba: local_if_index_ba || neighbor_if_index,
+          local_if_index: local_if_index,
+          neighbor_if_index: neighbor_if_index
+        }
+      ]
+    else
+      _ -> []
+    end
+  end
+
+  defp telemetry_metric_keys(edges) when is_list(edges) do
+    edges
+    |> Enum.flat_map(fn edge ->
+      [
+        metric_key(
+          Map.get(edge, :src_id),
+          Map.get(edge, :local_if_index_ab) || Map.get(edge, :local_if_index)
+        ),
+        metric_key(
+          Map.get(edge, :dst_id),
+          Map.get(edge, :local_if_index_ba) || Map.get(edge, :neighbor_if_index)
+        )
+      ]
+      |> Enum.reject(&is_nil/1)
+    end)
+    |> Enum.uniq()
+  end
+
+  defp telemetry_metric_keys(_), do: []
+
+  defp metric_key(device_id, if_index)
+       when is_binary(device_id) and is_integer(if_index) and if_index > 0,
+       do: {device_id, if_index}
+
+  defp metric_key(_, _), do: nil
+
+  defp load_packet_pps(keys) when is_list(keys) do
+    load_directional_metric(
+      keys,
+      @packet_metric_names,
+      &packet_metric_direction/1,
+      &value_to_non_negative_int/1,
+      fn value -> value end
+    )
+  end
+
+  defp load_packet_pps(_), do: %{}
+
+  defp load_octet_bps(keys) when is_list(keys) do
+    load_directional_metric(
+      keys,
+      @octet_metric_names,
+      &octet_metric_direction/1,
+      &value_to_non_negative_int/1,
+      fn value -> value * 8 end
+    )
+  end
+
+  defp load_octet_bps(_), do: %{}
+
+  defp load_interface_capacity(keys) when is_list(keys) do
+    device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    if_indexes = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+    device_identity = build_device_identity(device_ids)
+    accepted_device_ids = telemetry_metric_device_ids(device_identity)
+
+    case accepted_device_ids == [] or if_indexes == [] do
+      true ->
+        %{}
+
+      false ->
+        from(i in "discovered_interfaces",
+          where: i.device_id in ^accepted_device_ids,
+          where: i.if_index in ^if_indexes,
+          distinct: [i.device_id, i.if_index],
+          order_by: [asc: i.device_id, asc: i.if_index, desc: i.timestamp],
+          select: {i.device_id, i.if_index, i.speed_bps, i.if_speed}
+        )
+        |> Repo.all()
+        |> Enum.reduce(%{}, fn row, acc -> reduce_capacity_row(row, acc, device_identity) end)
+    end
+  end
+
+  defp load_interface_capacity(_), do: %{}
+
+  defp build_device_identity(device_uids) when is_list(device_uids) do
+    uid_set =
+      device_uids
+      |> Enum.filter(&(is_binary(&1) and &1 != ""))
+      |> MapSet.new()
+
+    ip_to_uid =
+      case MapSet.size(uid_set) do
+        0 ->
+          %{}
+
+        _ ->
+          from(d in "ocsf_devices",
+            where: d.uid in ^MapSet.to_list(uid_set),
+            select: {d.uid, d.ip}
+          )
+          |> Repo.all()
+          |> Enum.reduce(%{}, &reduce_device_ip_row/2)
+      end
+
+    %{uid_set: uid_set, ip_to_uid: ip_to_uid}
+  end
+
+  defp build_device_identity(_), do: %{uid_set: MapSet.new(), ip_to_uid: %{}}
+
+  defp telemetry_metric_device_ids(%{uid_set: uid_set, ip_to_uid: ip_to_uid}) do
+    (MapSet.to_list(uid_set) ++ Map.keys(ip_to_uid))
+    |> Enum.uniq()
+  end
+
+  defp telemetry_metric_device_ids(_), do: []
+
+  defp telemetry_metric_ips(%{ip_to_uid: ip_to_uid}) when is_map(ip_to_uid),
+    do: Map.keys(ip_to_uid)
+
+  defp telemetry_metric_ips(_), do: []
+
+  defp canonical_metric_device_id(device_id, target_ip, identity) do
+    cond do
+      is_binary(device_id) and
+          MapSet.member?(Map.get(identity, :uid_set, MapSet.new()), device_id) ->
+        device_id
+
+      is_binary(device_id) ->
+        ip = extract_ip(device_id)
+        Map.get(Map.get(identity, :ip_to_uid, %{}), ip)
+
+      true ->
+        nil
+    end || Map.get(Map.get(identity, :ip_to_uid, %{}), normalize_ip(target_ip))
+  end
+
+  defp extract_ip(value) when is_binary(value) do
+    normalized = normalize_ip(value)
+
+    cond do
+      is_binary(normalized) and normalized != "" ->
+        normalized
+
+      String.contains?(value, ":") ->
+        value
+        |> String.split(":", parts: 2)
+        |> List.last()
+        |> normalize_ip()
+
+      true ->
+        nil
+    end
+  end
+
+  defp extract_ip(_), do: nil
+
+  defp normalize_ip(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalize_ip(_), do: nil
+
+  defp compute_edge_telemetry(edge, pps_by_if, bps_by_if, capacity_by_if, observed_at)
+       when is_map(edge) and is_map(pps_by_if) and is_map(bps_by_if) and is_map(capacity_by_if) and
+              is_binary(observed_at) do
+    src_id = Map.get(edge, :src_id)
+    dst_id = Map.get(edge, :dst_id)
+    src_if_index = Map.get(edge, :local_if_index_ab) || Map.get(edge, :local_if_index)
+    dst_if_index = Map.get(edge, :local_if_index_ba) || Map.get(edge, :neighbor_if_index)
+
+    src_pps = directional_metrics(pps_by_if, src_id, src_if_index)
+    dst_pps = directional_metrics(pps_by_if, dst_id, dst_if_index)
+    src_bps = directional_metrics(bps_by_if, src_id, src_if_index)
+    dst_bps = directional_metrics(bps_by_if, dst_id, dst_if_index)
+
+    flow_pps_ab = directional_min_flow(src_pps, dst_pps)
+    flow_pps_ba = directional_min_flow(dst_pps, src_pps)
+    flow_bps_ab = directional_min_flow(src_bps, dst_bps)
+    flow_bps_ba = directional_min_flow(dst_bps, src_bps)
+    flow_pps = flow_pps_ab + flow_pps_ba
+    flow_bps = flow_bps_ab + flow_bps_ba
+    src_capacity = directional_capacity(capacity_by_if, src_id, src_if_index)
+    dst_capacity = directional_capacity(capacity_by_if, dst_id, dst_if_index)
+    capacity_bps = min_non_zero(src_capacity, dst_capacity)
+
+    base = %{
+      flow_pps: flow_pps,
+      flow_bps: flow_bps,
+      capacity_bps: capacity_bps,
+      flow_pps_ab: flow_pps_ab,
+      flow_pps_ba: flow_pps_ba,
+      flow_bps_ab: flow_bps_ab,
+      flow_bps_ba: flow_bps_ba
+    }
+
+    Map.merge(base, telemetry_status_fields(flow_pps, flow_bps, observed_at))
+  end
+
+  defp load_directional_metric(keys, metric_names, direction_fun, value_fun, transform_fun) do
+    {device_identity, accepted_metric_ids, accepted_metric_ips, if_indexes} =
+      telemetry_metric_scope(keys)
+
+    case accepted_metric_ids == [] or if_indexes == [] do
+      true ->
+        %{}
+
+      false ->
+        from(m in "timeseries_metrics",
+          where:
+            m.device_id in ^accepted_metric_ids or m.target_device_ip in ^accepted_metric_ips,
+          where: m.if_index in ^if_indexes,
+          where: m.metric_name in ^metric_names,
+          where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
+          distinct: [m.device_id, m.target_device_ip, m.if_index, m.metric_name],
+          order_by: [
+            asc: m.device_id,
+            asc: m.target_device_ip,
+            asc: m.if_index,
+            asc: m.metric_name,
+            desc: m.timestamp
+          ],
+          select: {m.device_id, m.target_device_ip, m.if_index, m.metric_name, m.value}
+        )
+        |> Repo.all()
+        |> Enum.reduce(%{}, fn row, acc ->
+          reduce_directional_metric_row(
+            row,
+            acc,
+            device_identity,
+            direction_fun,
+            value_fun,
+            transform_fun
+          )
+        end)
+    end
+  end
+
+  defp telemetry_metric_scope(keys) do
+    device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    if_indexes = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+    device_identity = build_device_identity(device_ids)
+
+    {
+      device_identity,
+      telemetry_metric_device_ids(device_identity),
+      telemetry_metric_ips(device_identity),
+      if_indexes
+    }
+  end
+
+  defp reduce_directional_metric_row(
+         {device_id, target_ip, if_index, metric_name, value},
+         acc,
+         device_identity,
+         direction_fun,
+         value_fun,
+         transform_fun
+       ) do
+    with dir when not is_nil(dir) <- direction_fun.(metric_name),
+         numeric_value when not is_nil(numeric_value) <- value_fun.(value),
+         canonical_device_id when not is_nil(canonical_device_id) <-
+           canonical_metric_device_id(device_id, target_ip, device_identity) do
+      mapped_value = transform_fun.(numeric_value)
+
+      Map.update(acc, {canonical_device_id, if_index}, %{dir => mapped_value}, fn current ->
+        Map.update(current, dir, mapped_value, &max(&1, mapped_value))
+      end)
+    else
+      _ -> acc
+    end
+  end
+
+  defp reduce_capacity_row({device_id, if_index, speed_bps, if_speed}, acc, device_identity) do
+    canonical_device_id = canonical_metric_device_id(device_id, nil, device_identity)
+    capacity = value_to_non_negative_int(speed_bps) || value_to_non_negative_int(if_speed)
+
+    with true <- is_binary(canonical_device_id),
+         true <- is_integer(if_index) and if_index > 0,
+         true <- is_integer(capacity) and capacity > 0 do
+      Map.update(acc, {canonical_device_id, if_index}, capacity, &max(&1, capacity))
+    else
+      _ -> acc
+    end
+  end
+
+  defp reduce_device_ip_row({uid, ip}, acc) do
+    with true <- is_binary(uid),
+         true <- is_binary(ip),
+         trimmed when trimmed != "" <- String.trim(ip) do
+      Map.put(acc, trimmed, uid)
+    else
+      _ -> acc
+    end
+  end
+
+  defp directional_metrics(source, device_id, if_index),
+    do: Map.get(source, metric_key(device_id, if_index), %{})
+
+  defp directional_capacity(source, device_id, if_index),
+    do: Map.get(source, metric_key(device_id, if_index), 0)
+
+  defp directional_min_flow(primary, secondary),
+    do: min_non_zero(Map.get(primary, :out, 0), Map.get(secondary, :in, 0))
+
+  defp telemetry_status_fields(flow_pps, flow_bps, observed_at) do
+    eligible? = flow_pps > 0 or flow_bps > 0
+
+    %{
+      telemetry_eligible: eligible?,
+      telemetry_source: if(eligible?, do: "interface", else: "none"),
+      telemetry_observed_at: observed_at
+    }
+  end
+
+  defp persist_canonical_edge_telemetry(edge, telemetry)
+       when is_map(edge) and is_map(telemetry) do
+    src_id = Graph.escape(Map.get(edge, :src_id))
+    dst_id = Graph.escape(Map.get(edge, :dst_id))
+
+    cypher = """
+    MATCH (a:Device {id: '#{src_id}'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id: '#{dst_id}'})
+    SET r.flow_pps = #{Map.get(telemetry, :flow_pps, 0)}
+    SET r.flow_bps = #{Map.get(telemetry, :flow_bps, 0)}
+    SET r.capacity_bps = #{Map.get(telemetry, :capacity_bps, 0)}
+    SET r.flow_pps_ab = #{Map.get(telemetry, :flow_pps_ab, 0)}
+    SET r.flow_pps_ba = #{Map.get(telemetry, :flow_pps_ba, 0)}
+    SET r.flow_bps_ab = #{Map.get(telemetry, :flow_bps_ab, 0)}
+    SET r.flow_bps_ba = #{Map.get(telemetry, :flow_bps_ba, 0)}
+    SET r.telemetry_eligible = #{if(Map.get(telemetry, :telemetry_eligible, false), do: "true", else: "false")}
+    SET r.telemetry_source = '#{Graph.escape(Map.get(telemetry, :telemetry_source, "none"))}'
+    SET r.telemetry_observed_at = '#{Graph.escape(Map.get(telemetry, :telemetry_observed_at, ""))}'
+    """
+
+    case Graph.execute(cypher) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Canonical edge telemetry upsert failed: #{inspect(reason)}")
+    end
+  end
+
+  defp parse_ifindex(value) when is_integer(value) and value > 0, do: value
+
+  defp parse_ifindex(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, _} when parsed > 0 -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_ifindex(_), do: nil
+
+  @doc false
+  @spec edge_render_readiness_class(map()) ::
+          :render_ready | :render_partial | :render_unattributed
+  def edge_render_readiness_class(edge) when is_map(edge) do
+    src_if_index =
+      parse_ifindex(Map.get(edge, :local_if_index_ab) || Map.get(edge, :local_if_index))
+
+    dst_if_index =
+      parse_ifindex(Map.get(edge, :local_if_index_ba) || Map.get(edge, :neighbor_if_index))
+
+    cond do
+      is_integer(src_if_index) and is_integer(dst_if_index) ->
+        :render_ready
+
+      is_integer(src_if_index) or is_integer(dst_if_index) ->
+        :render_partial
+
+      true ->
+        :render_unattributed
+    end
+  end
+
+  def edge_render_readiness_class(_edge), do: :render_unattributed
+
+  defp update_render_readiness_stats(acc, :render_ready),
+    do: Map.update!(acc, :render_ready, &(&1 + 1))
+
+  defp update_render_readiness_stats(acc, :render_partial),
+    do: Map.update!(acc, :render_partial, &(&1 + 1))
+
+  defp update_render_readiness_stats(acc, _),
+    do: Map.update!(acc, :render_unattributed, &(&1 + 1))
+
+  defp packet_metric_direction(metric_name)
+       when metric_name in ["ifInUcastPkts", "ifHCInUcastPkts"],
+       do: :in
+
+  defp packet_metric_direction(metric_name)
+       when metric_name in ["ifOutUcastPkts", "ifHCOutUcastPkts"],
+       do: :out
+
+  defp packet_metric_direction(_), do: nil
+
+  defp octet_metric_direction(metric_name) when metric_name in ["ifInOctets", "ifHCInOctets"],
+    do: :in
+
+  defp octet_metric_direction(metric_name) when metric_name in ["ifOutOctets", "ifHCOutOctets"],
+    do: :out
+
+  defp octet_metric_direction(_), do: nil
+
+  defp value_to_non_negative_int(value) when is_integer(value) and value >= 0, do: value
+  defp value_to_non_negative_int(value) when is_float(value) and value >= 0, do: trunc(value)
+
+  defp value_to_non_negative_int(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, _} when parsed >= 0 -> parsed
+      _ -> nil
+    end
+  end
+
+  defp value_to_non_negative_int(_), do: nil
+
+  defp min_non_zero(a, b) do
+    av = value_to_non_negative_int(a) || 0
+    bv = value_to_non_negative_int(b) || 0
+
+    cond do
+      av > 0 and bv > 0 -> min(av, bv)
+      av > 0 -> av
+      bv > 0 -> bv
+      true -> 0
     end
   end
 
@@ -687,6 +1408,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{Graph.escape(stale_cutoff)}')
       AND ai.device_id IS NOT NULL
       AND bi.device_id IS NOT NULL
+      AND toLower(trim(ai.device_id)) <> 'nil'
+      AND toLower(trim(ai.device_id)) <> 'null'
+      AND toLower(trim(ai.device_id)) <> 'undefined'
+      AND toLower(trim(bi.device_id)) <> 'nil'
+      AND toLower(trim(bi.device_id)) <> 'null'
+      AND toLower(trim(bi.device_id)) <> 'undefined'
       AND ai.device_id STARTS WITH 'sr:'
       AND bi.device_id STARTS WITH 'sr:'
       AND ai.device_id <> bi.device_id
@@ -798,6 +1525,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         WHEN best_neighbor_if_name <> '' THEN best_neighbor_if_name
         ELSE best.neighbor_if_name
       END
+    SET cr.local_if_index_ab = cr.local_if_index
+    SET cr.local_if_index_ba = cr.neighbor_if_index
+    SET cr.local_if_name_ab = cr.local_if_name
+    SET cr.local_if_name_ba = cr.neighbor_if_name
+    SET cr.flow_pps = coalesce(cr.flow_pps, 0)
+    SET cr.flow_bps = coalesce(cr.flow_bps, 0)
+    SET cr.capacity_bps = coalesce(cr.capacity_bps, 0)
+    SET cr.flow_pps_ab = coalesce(cr.flow_pps_ab, 0)
+    SET cr.flow_pps_ba = coalesce(cr.flow_pps_ba, 0)
+    SET cr.flow_bps_ab = coalesce(cr.flow_bps_ab, 0)
+    SET cr.flow_bps_ba = coalesce(cr.flow_bps_ba, 0)
+    SET cr.telemetry_eligible = coalesce(cr.telemetry_eligible, false)
+    SET cr.telemetry_source = coalesce(cr.telemetry_source, 'none')
+    SET cr.telemetry_observed_at = coalesce(cr.telemetry_observed_at, '')
     """
   end
 
