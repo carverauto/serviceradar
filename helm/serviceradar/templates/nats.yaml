@@ -12,6 +12,8 @@ spec:
       labels:
         app: serviceradar-nats
         app.kubernetes.io/part-of: serviceradar
+      annotations:
+        checksum/serviceradar-config: {{ include (print $.Template.BasePath "/serviceradar-config.yaml") . | sha256sum }}
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       containers:

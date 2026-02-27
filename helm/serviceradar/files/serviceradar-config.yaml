@@ -844,6 +844,17 @@ data:
             user: "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
+                allow: ["logs.syslog", "otel.>", "logs.otel", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
                 allow: ["logs.syslog", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
               }
               subscribe: {
@@ -852,7 +863,7 @@ data:
             }
           },
           {
-            user: "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            user: "CN=serviceradar-otel,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
                 allow: ["otel.>", "logs.otel", "$JS.API.>"]
@@ -875,6 +886,17 @@ data:
           },
           {
             user: "CN=serviceradar-flow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["flows.raw.>", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-netflow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
                 allow: ["flows.raw.>", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]

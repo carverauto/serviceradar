@@ -283,6 +283,30 @@ if [ -f "$CERT_DIR/flow-collector.pem" ] && [ -f "$CERT_DIR/flow-collector-key.p
         chmod 600 "$CERT_DIR/flow-client.key"
     fi
 fi
+if [ -f "$CERT_DIR/flow-collector.pem" ] && [ ! -f "$CERT_DIR/netflow-collector.pem" ]; then
+    cp "$CERT_DIR/flow-collector.pem" "$CERT_DIR/netflow-collector.pem"
+    chmod 644 "$CERT_DIR/netflow-collector.pem"
+fi
+if [ -f "$CERT_DIR/flow-collector-key.pem" ] && [ ! -f "$CERT_DIR/netflow-collector-key.pem" ]; then
+    cp "$CERT_DIR/flow-collector-key.pem" "$CERT_DIR/netflow-collector-key.pem"
+    chmod 600 "$CERT_DIR/netflow-collector-key.pem"
+fi
+if [ -f "$CERT_DIR/log-collector.pem" ] && [ ! -f "$CERT_DIR/flowgger.pem" ]; then
+    cp "$CERT_DIR/log-collector.pem" "$CERT_DIR/flowgger.pem"
+    chmod 644 "$CERT_DIR/flowgger.pem"
+fi
+if [ -f "$CERT_DIR/log-collector-key.pem" ] && [ ! -f "$CERT_DIR/flowgger-key.pem" ]; then
+    cp "$CERT_DIR/log-collector-key.pem" "$CERT_DIR/flowgger-key.pem"
+    chmod 600 "$CERT_DIR/flowgger-key.pem"
+fi
+if [ -f "$CERT_DIR/log-collector.pem" ] && [ ! -f "$CERT_DIR/otel.pem" ]; then
+    cp "$CERT_DIR/log-collector.pem" "$CERT_DIR/otel.pem"
+    chmod 644 "$CERT_DIR/otel.pem"
+fi
+if [ -f "$CERT_DIR/log-collector-key.pem" ] && [ ! -f "$CERT_DIR/otel-key.pem" ]; then
+    cp "$CERT_DIR/log-collector-key.pem" "$CERT_DIR/otel-key.pem"
+    chmod 600 "$CERT_DIR/otel-key.pem"
+fi
 if [ -f "$CERT_DIR/root.pem" ] && [ ! -f "$CERT_DIR/ca.crt" ]; then
     cp "$CERT_DIR/root.pem" "$CERT_DIR/ca.crt"
     chmod 644 "$CERT_DIR/ca.crt"

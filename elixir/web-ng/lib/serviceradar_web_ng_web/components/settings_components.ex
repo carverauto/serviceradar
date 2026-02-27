@@ -235,8 +235,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       },
       %{
         label: "Network Flows",
-        navigate: ~p"/settings/netflows",
-        active: String.starts_with?(path, "/settings/netflows")
+        navigate: ~p"/settings/flows",
+        active: String.starts_with?(path, "/settings/flows")
       },
       %{
         label: "Discovery",

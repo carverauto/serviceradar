@@ -7,6 +7,7 @@ use log::{error, info};
 use std::io::{stderr, Write};
 use std::net::SocketAddr;
 use std::sync::Once;
+use std::time::Duration;
 use tonic_health::server::health_reporter;
 use tonic_health::ServingStatus;
 
@@ -96,8 +97,15 @@ async fn run() -> Result<()> {
         info!("Starting OTEL collector with config: {otel_config_path}");
 
         let handle = tokio::spawn(async move {
-            if let Err(e) = start_otel(&otel_config_path).await {
-                error!("OTEL collector error: {e}");
+            let mut backoff_secs: u64 = 1;
+            loop {
+                if let Err(e) = start_otel(&otel_config_path).await {
+                    error!("OTEL collector error: {e}");
+                } else {
+                    error!("OTEL collector exited unexpectedly; restarting");
+                }
+                tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+                backoff_secs = (backoff_secs * 2).min(30);
             }
         });
         handles.push(handle);
