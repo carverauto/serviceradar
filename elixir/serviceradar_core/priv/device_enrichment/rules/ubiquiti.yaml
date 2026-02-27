@@ -24,13 +24,28 @@ rules:
     reason: "USW switch signature in SNMP identity"
     match:
       any:
-        sys_descr: ["usw", "switch"]
-        sys_name: ["usw", "switch"]
+        sys_descr: ["usw", "unifi switch"]
+        sys_name: ["usw"]
+        hostname: ["usw"]
     set:
       vendor_name: "Ubiquiti"
       type: "Switch"
       type_id: 10
       model_from_sys_descr_prefix: ""
+
+  - id: aruba-switch
+    enabled: true
+    priority: 890
+    confidence: 90
+    reason: "Aruba switch signature in SNMP identity"
+    match:
+      any:
+        sys_name: ["aruba"]
+        sys_descr: ["procurve", "arubaos-switch", "aruba switch"]
+    set:
+      vendor_name: "Aruba"
+      type: "Switch"
+      type_id: 10
 
   - id: ubiquiti-ap-u6-uap
     enabled: true
@@ -39,7 +54,7 @@ rules:
     reason: "UAP/U6 AP signature in SNMP identity"
     match:
       any:
-        sys_descr: ["u6-", "uap-", "uap ", "nanohd", "access point"]
+        sys_descr: ["u6-", "uap-", "uap ", "nanohd"]
         sys_name: ["u6", "uap"]
         hostname: ["u6", "uap"]
     set:
