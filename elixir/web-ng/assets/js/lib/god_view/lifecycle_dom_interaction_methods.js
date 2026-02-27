@@ -63,23 +63,40 @@ export const godViewLifecycleDomInteractionMethods = {
     if (!this.state.deck) return
     if (event.button !== 0) return
 
-    event.preventDefault()
-    this.state.dragState = {
+    this.state.pendingDragState = {
       pointerId: event.pointerId,
-      lastX: Number(event.clientX || 0),
-      lastY: Number(event.clientY || 0),
-    }
-    this.state.canvas.style.cursor = "grabbing"
-    if (typeof this.state.canvas.setPointerCapture === "function") {
-      try {
-        this.state.canvas.setPointerCapture(event.pointerId)
-      } catch (_err) {
-        // Ignore capture failures and continue with window listeners.
-      }
+      startX: Number(event.clientX || 0),
+      startY: Number(event.clientY || 0),
     }
   },
   handlePanMove(event) {
-    if (!this.state.deck || !this.state.dragState) return
+    if (!this.state.deck) return
+
+    if (!this.state.dragState && this.state.pendingDragState) {
+      if (event.pointerId !== this.state.pendingDragState.pointerId) return
+      const dx = Number(event.clientX || 0) - this.state.pendingDragState.startX
+      const dy = Number(event.clientY || 0) - this.state.pendingDragState.startY
+      if (Math.hypot(dx, dy) < 4) return
+
+      this.state.dragState = {
+        pointerId: this.state.pendingDragState.pointerId,
+        lastX: Number(event.clientX || 0),
+        lastY: Number(event.clientY || 0),
+      }
+      this.state.pendingDragState = null
+      event.preventDefault()
+      this.state.canvas.style.cursor = "grabbing"
+      if (typeof this.state.canvas.setPointerCapture === "function") {
+        try {
+          this.state.canvas.setPointerCapture(event.pointerId)
+        } catch (_err) {
+          // Ignore capture failures and continue with window listeners.
+        }
+      }
+      return
+    }
+
+    if (!this.state.dragState) return
     if (event.pointerId !== this.state.dragState.pointerId) return
 
     event.preventDefault()
@@ -103,6 +120,12 @@ export const godViewLifecycleDomInteractionMethods = {
     this.state.deck.setProps({viewState: this.state.viewState})
   },
   handlePanEnd(event) {
+    if (this.state.pendingDragState) {
+      if (!event || event.pointerId === this.state.pendingDragState.pointerId) {
+        this.state.pendingDragState = null
+      }
+    }
+
     if (!this.state.dragState) return
     if (event && event.pointerId !== this.state.dragState.pointerId) return
 
@@ -114,7 +137,10 @@ export const godViewLifecycleDomInteractionMethods = {
       }
     }
     this.state.dragState = null
-    if (this.state.canvas) this.state.canvas.style.cursor = "grab"
+    if (this.state.canvas) {
+      const interactive = this.state.hoveredNodeIndex !== null || this.state.hoveredEdgeKey !== null
+      this.state.canvas.style.cursor = interactive ? "pointer" : "grab"
+    }
   },
   handleWheelZoom(event) {
     if (!this.state.deck) return

@@ -102,4 +102,27 @@ describe("lifecycle_dom_interaction_methods", () => {
     expect(addEventListener).toHaveBeenCalledWith("change", ctx.state.reducedMotionListener)
     expect(handleSpy).toHaveBeenCalledWith(mediaQuery)
   })
+
+  it("handlePanStart/Move uses threshold so click does not instantly become drag", () => {
+    const preventDefault = vi.fn()
+    const setPointerCapture = vi.fn()
+    const ctx = makeContext({
+      state: {
+        canvas: {style: {cursor: "grab"}, setPointerCapture},
+      },
+    })
+
+    ctx.handlePanStart({button: 0, pointerId: 11, clientX: 100, clientY: 100})
+    expect(ctx.state.pendingDragState.pointerId).toEqual(11)
+    expect(ctx.state.dragState).toBeUndefined()
+
+    ctx.handlePanMove({pointerId: 11, clientX: 102, clientY: 101, preventDefault})
+    expect(ctx.state.dragState).toBeUndefined()
+    expect(preventDefault).not.toHaveBeenCalled()
+
+    ctx.handlePanMove({pointerId: 11, clientX: 110, clientY: 110, preventDefault})
+    expect(ctx.state.dragState.pointerId).toEqual(11)
+    expect(preventDefault).toHaveBeenCalled()
+    expect(setPointerCapture).toHaveBeenCalledWith(11)
+  })
 })
