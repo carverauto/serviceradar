@@ -2,8 +2,7 @@ name: Golang Tests
 on:
   push:
     paths-ignore:
-      - 'rust/rperf-client/**'  # Ignore changes in the Rust project directory
-      - 'rust/rperf-server/**'  # Ignore changes in the Rust project directory
+      - 'rust/**'  # Ignore changes in the Rust project directory
 
 permissions:
   contents: write
