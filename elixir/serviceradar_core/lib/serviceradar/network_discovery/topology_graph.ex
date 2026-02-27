@@ -946,39 +946,35 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     """
 
     case Graph.query(cypher) do
-      {:ok, rows} when is_list(rows) ->
-        parsed =
-          Enum.flat_map(rows, fn row ->
-            src_id = map_value(row, :src_id)
-            dst_id = map_value(row, :dst_id)
-            local_if_index_ab = parse_ifindex(map_value(row, :local_if_index_ab))
-            local_if_index_ba = parse_ifindex(map_value(row, :local_if_index_ba))
-            local_if_index = parse_ifindex(map_value(row, :local_if_index))
-            neighbor_if_index = parse_ifindex(map_value(row, :neighbor_if_index))
+      {:ok, rows} when is_list(rows) -> {:ok, Enum.flat_map(rows, &parse_canonical_edge_row/1)}
+      {:error, reason} -> {:error, reason}
+      _ -> {:ok, []}
+    end
+  end
 
-            if is_binary(src_id) and is_binary(dst_id) do
-              [
-                %{
-                  src_id: src_id,
-                  dst_id: dst_id,
-                  local_if_index_ab: local_if_index_ab || local_if_index,
-                  local_if_index_ba: local_if_index_ba || neighbor_if_index,
-                  local_if_index: local_if_index,
-                  neighbor_if_index: neighbor_if_index
-                }
-              ]
-            else
-              []
-            end
-          end)
+  defp parse_canonical_edge_row(row) do
+    src_id = map_value(row, :src_id)
+    dst_id = map_value(row, :dst_id)
 
-        {:ok, parsed}
+    with true <- is_binary(src_id),
+         true <- is_binary(dst_id) do
+      local_if_index_ab = parse_ifindex(map_value(row, :local_if_index_ab))
+      local_if_index_ba = parse_ifindex(map_value(row, :local_if_index_ba))
+      local_if_index = parse_ifindex(map_value(row, :local_if_index))
+      neighbor_if_index = parse_ifindex(map_value(row, :neighbor_if_index))
 
-      {:error, reason} ->
-        {:error, reason}
-
-      _ ->
-        {:ok, []}
+      [
+        %{
+          src_id: src_id,
+          dst_id: dst_id,
+          local_if_index_ab: local_if_index_ab || local_if_index,
+          local_if_index_ba: local_if_index_ba || neighbor_if_index,
+          local_if_index: local_if_index,
+          neighbor_if_index: neighbor_if_index
+        }
+      ]
+    else
+      _ -> []
     end
   end
 
@@ -1009,100 +1005,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp metric_key(_, _), do: nil
 
   defp load_packet_pps(keys) when is_list(keys) do
-    device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
-    if_indexes = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
-    device_identity = build_device_identity(device_ids)
-    accepted_metric_ids = telemetry_metric_device_ids(device_identity)
-    accepted_metric_ips = telemetry_metric_ips(device_identity)
-
-    if accepted_metric_ids == [] or if_indexes == [] do
-      %{}
-    else
-      from(m in "timeseries_metrics",
-        where: m.device_id in ^accepted_metric_ids or m.target_device_ip in ^accepted_metric_ips,
-        where: m.if_index in ^if_indexes,
-        where: m.metric_name in ^@packet_metric_names,
-        where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
-        distinct: [m.device_id, m.target_device_ip, m.if_index, m.metric_name],
-        order_by: [
-          asc: m.device_id,
-          asc: m.target_device_ip,
-          asc: m.if_index,
-          asc: m.metric_name,
-          desc: m.timestamp
-        ],
-        select: {m.device_id, m.target_device_ip, m.if_index, m.metric_name, m.value}
-      )
-      |> Repo.all()
-      |> Enum.reduce(%{}, fn {device_id, target_ip, if_index, metric_name, value}, acc ->
-        dir = packet_metric_direction(metric_name)
-        numeric_value = value_to_non_negative_int(value)
-
-        canonical_device_id =
-          canonical_metric_device_id(device_id, target_ip, device_identity)
-
-        if is_nil(dir) or is_nil(numeric_value) or is_nil(canonical_device_id) do
-          acc
-        else
-          Map.update(acc, {canonical_device_id, if_index}, %{dir => numeric_value}, fn current ->
-            Map.update(current, dir, numeric_value, &max(&1, numeric_value))
-          end)
-        end
-      end)
-    end
+    load_directional_metric(
+      keys,
+      @packet_metric_names,
+      &packet_metric_direction/1,
+      &value_to_non_negative_int/1,
+      fn value -> value end
+    )
   end
 
   defp load_packet_pps(_), do: %{}
 
   defp load_octet_bps(keys) when is_list(keys) do
-    device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
-    if_indexes = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
-    device_identity = build_device_identity(device_ids)
-    accepted_metric_ids = telemetry_metric_device_ids(device_identity)
-    accepted_metric_ips = telemetry_metric_ips(device_identity)
-
-    if accepted_metric_ids == [] or if_indexes == [] do
-      %{}
-    else
-      from(m in "timeseries_metrics",
-        where: m.device_id in ^accepted_metric_ids or m.target_device_ip in ^accepted_metric_ips,
-        where: m.if_index in ^if_indexes,
-        where: m.metric_name in ^@octet_metric_names,
-        where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
-        distinct: [m.device_id, m.target_device_ip, m.if_index, m.metric_name],
-        order_by: [
-          asc: m.device_id,
-          asc: m.target_device_ip,
-          asc: m.if_index,
-          asc: m.metric_name,
-          desc: m.timestamp
-        ],
-        select: {m.device_id, m.target_device_ip, m.if_index, m.metric_name, m.value}
-      )
-      |> Repo.all()
-      |> Enum.reduce(%{}, fn {device_id, target_ip, if_index, metric_name, value}, acc ->
-        dir = octet_metric_direction(metric_name)
-        octets_per_second = value_to_non_negative_int(value)
-
-        canonical_device_id =
-          canonical_metric_device_id(device_id, target_ip, device_identity)
-
-        if is_nil(dir) or is_nil(octets_per_second) or is_nil(canonical_device_id) do
-          acc
-        else
-          bits_per_second = octets_per_second * 8
-
-          Map.update(
-            acc,
-            {canonical_device_id, if_index},
-            %{dir => bits_per_second},
-            fn current ->
-              Map.update(current, dir, bits_per_second, &max(&1, bits_per_second))
-            end
-          )
-        end
-      end)
-    end
+    load_directional_metric(
+      keys,
+      @octet_metric_names,
+      &octet_metric_direction/1,
+      &value_to_non_negative_int/1,
+      fn value -> value * 8 end
+    )
   end
 
   defp load_octet_bps(_), do: %{}
@@ -1113,28 +1034,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     device_identity = build_device_identity(device_ids)
     accepted_device_ids = telemetry_metric_device_ids(device_identity)
 
-    if accepted_device_ids == [] or if_indexes == [] do
-      %{}
-    else
-      from(i in "discovered_interfaces",
-        where: i.device_id in ^accepted_device_ids,
-        where: i.if_index in ^if_indexes,
-        distinct: [i.device_id, i.if_index],
-        order_by: [asc: i.device_id, asc: i.if_index, desc: i.timestamp],
-        select: {i.device_id, i.if_index, i.speed_bps, i.if_speed}
-      )
-      |> Repo.all()
-      |> Enum.reduce(%{}, fn {device_id, if_index, speed_bps, if_speed}, acc ->
-        canonical_device_id = canonical_metric_device_id(device_id, nil, device_identity)
-        capacity = value_to_non_negative_int(speed_bps) || value_to_non_negative_int(if_speed)
+    case accepted_device_ids == [] or if_indexes == [] do
+      true ->
+        %{}
 
-        if is_nil(canonical_device_id) or not is_integer(if_index) or if_index <= 0 or
-             is_nil(capacity) or capacity <= 0 do
-          acc
-        else
-          Map.update(acc, {canonical_device_id, if_index}, capacity, &max(&1, capacity))
-        end
-      end)
+      false ->
+        from(i in "discovered_interfaces",
+          where: i.device_id in ^accepted_device_ids,
+          where: i.if_index in ^if_indexes,
+          distinct: [i.device_id, i.if_index],
+          order_by: [asc: i.device_id, asc: i.if_index, desc: i.timestamp],
+          select: {i.device_id, i.if_index, i.speed_bps, i.if_speed}
+        )
+        |> Repo.all()
+        |> Enum.reduce(%{}, fn row, acc -> reduce_capacity_row(row, acc, device_identity) end)
     end
   end
 
@@ -1147,21 +1060,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       |> MapSet.new()
 
     ip_to_uid =
-      if MapSet.size(uid_set) == 0 do
-        %{}
-      else
-        from(d in "ocsf_devices",
-          where: d.uid in ^MapSet.to_list(uid_set),
-          select: {d.uid, d.ip}
-        )
-        |> Repo.all()
-        |> Enum.reduce(%{}, fn {uid, ip}, acc ->
-          if is_binary(uid) and is_binary(ip) and String.trim(ip) != "" do
-            Map.put(acc, String.trim(ip), uid)
-          else
-            acc
-          end
-        end)
+      case MapSet.size(uid_set) do
+        0 ->
+          %{}
+
+        _ ->
+          from(d in "ocsf_devices",
+            where: d.uid in ^MapSet.to_list(uid_set),
+            select: {d.uid, d.ip}
+          )
+          |> Repo.all()
+          |> Enum.reduce(%{}, &reduce_device_ip_row/2)
       end
 
     %{uid_set: uid_set, ip_to_uid: ip_to_uid}
@@ -1231,31 +1140,146 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     src_if_index = Map.get(edge, :local_if_index_ab) || Map.get(edge, :local_if_index)
     dst_if_index = Map.get(edge, :local_if_index_ba) || Map.get(edge, :neighbor_if_index)
 
-    src_pps = Map.get(pps_by_if, metric_key(src_id, src_if_index), %{})
-    dst_pps = Map.get(pps_by_if, metric_key(dst_id, dst_if_index), %{})
-    src_bps = Map.get(bps_by_if, metric_key(src_id, src_if_index), %{})
-    dst_bps = Map.get(bps_by_if, metric_key(dst_id, dst_if_index), %{})
+    src_pps = directional_metrics(pps_by_if, src_id, src_if_index)
+    dst_pps = directional_metrics(pps_by_if, dst_id, dst_if_index)
+    src_bps = directional_metrics(bps_by_if, src_id, src_if_index)
+    dst_bps = directional_metrics(bps_by_if, dst_id, dst_if_index)
 
-    flow_pps_ab = min_non_zero(Map.get(src_pps, :out, 0), Map.get(dst_pps, :in, 0))
-    flow_pps_ba = min_non_zero(Map.get(dst_pps, :out, 0), Map.get(src_pps, :in, 0))
-    flow_bps_ab = min_non_zero(Map.get(src_bps, :out, 0), Map.get(dst_bps, :in, 0))
-    flow_bps_ba = min_non_zero(Map.get(dst_bps, :out, 0), Map.get(src_bps, :in, 0))
+    flow_pps_ab = directional_min_flow(src_pps, dst_pps)
+    flow_pps_ba = directional_min_flow(dst_pps, src_pps)
+    flow_bps_ab = directional_min_flow(src_bps, dst_bps)
+    flow_bps_ba = directional_min_flow(dst_bps, src_bps)
     flow_pps = flow_pps_ab + flow_pps_ba
     flow_bps = flow_bps_ab + flow_bps_ba
-    src_capacity = Map.get(capacity_by_if, metric_key(src_id, src_if_index), 0)
-    dst_capacity = Map.get(capacity_by_if, metric_key(dst_id, dst_if_index), 0)
+    src_capacity = directional_capacity(capacity_by_if, src_id, src_if_index)
+    dst_capacity = directional_capacity(capacity_by_if, dst_id, dst_if_index)
     capacity_bps = min_non_zero(src_capacity, dst_capacity)
 
-    %{
+    base = %{
       flow_pps: flow_pps,
       flow_bps: flow_bps,
       capacity_bps: capacity_bps,
       flow_pps_ab: flow_pps_ab,
       flow_pps_ba: flow_pps_ba,
       flow_bps_ab: flow_bps_ab,
-      flow_bps_ba: flow_bps_ba,
-      telemetry_eligible: flow_pps > 0 or flow_bps > 0,
-      telemetry_source: if(flow_pps > 0 or flow_bps > 0, do: "interface", else: "none"),
+      flow_bps_ba: flow_bps_ba
+    }
+
+    Map.merge(base, telemetry_status_fields(flow_pps, flow_bps, observed_at))
+  end
+
+  defp load_directional_metric(keys, metric_names, direction_fun, value_fun, transform_fun) do
+    {device_identity, accepted_metric_ids, accepted_metric_ips, if_indexes} =
+      telemetry_metric_scope(keys)
+
+    case accepted_metric_ids == [] or if_indexes == [] do
+      true ->
+        %{}
+
+      false ->
+        from(m in "timeseries_metrics",
+          where:
+            m.device_id in ^accepted_metric_ids or m.target_device_ip in ^accepted_metric_ips,
+          where: m.if_index in ^if_indexes,
+          where: m.metric_name in ^metric_names,
+          where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
+          distinct: [m.device_id, m.target_device_ip, m.if_index, m.metric_name],
+          order_by: [
+            asc: m.device_id,
+            asc: m.target_device_ip,
+            asc: m.if_index,
+            asc: m.metric_name,
+            desc: m.timestamp
+          ],
+          select: {m.device_id, m.target_device_ip, m.if_index, m.metric_name, m.value}
+        )
+        |> Repo.all()
+        |> Enum.reduce(%{}, fn row, acc ->
+          reduce_directional_metric_row(
+            row,
+            acc,
+            device_identity,
+            direction_fun,
+            value_fun,
+            transform_fun
+          )
+        end)
+    end
+  end
+
+  defp telemetry_metric_scope(keys) do
+    device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    if_indexes = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+    device_identity = build_device_identity(device_ids)
+
+    {
+      device_identity,
+      telemetry_metric_device_ids(device_identity),
+      telemetry_metric_ips(device_identity),
+      if_indexes
+    }
+  end
+
+  defp reduce_directional_metric_row(
+         {device_id, target_ip, if_index, metric_name, value},
+         acc,
+         device_identity,
+         direction_fun,
+         value_fun,
+         transform_fun
+       ) do
+    with dir when not is_nil(dir) <- direction_fun.(metric_name),
+         numeric_value when not is_nil(numeric_value) <- value_fun.(value),
+         canonical_device_id when not is_nil(canonical_device_id) <-
+           canonical_metric_device_id(device_id, target_ip, device_identity) do
+      mapped_value = transform_fun.(numeric_value)
+
+      Map.update(acc, {canonical_device_id, if_index}, %{dir => mapped_value}, fn current ->
+        Map.update(current, dir, mapped_value, &max(&1, mapped_value))
+      end)
+    else
+      _ -> acc
+    end
+  end
+
+  defp reduce_capacity_row({device_id, if_index, speed_bps, if_speed}, acc, device_identity) do
+    canonical_device_id = canonical_metric_device_id(device_id, nil, device_identity)
+    capacity = value_to_non_negative_int(speed_bps) || value_to_non_negative_int(if_speed)
+
+    with true <- is_binary(canonical_device_id),
+         true <- is_integer(if_index) and if_index > 0,
+         true <- is_integer(capacity) and capacity > 0 do
+      Map.update(acc, {canonical_device_id, if_index}, capacity, &max(&1, capacity))
+    else
+      _ -> acc
+    end
+  end
+
+  defp reduce_device_ip_row({uid, ip}, acc) do
+    with true <- is_binary(uid),
+         true <- is_binary(ip),
+         trimmed when trimmed != "" <- String.trim(ip) do
+      Map.put(acc, trimmed, uid)
+    else
+      _ -> acc
+    end
+  end
+
+  defp directional_metrics(source, device_id, if_index),
+    do: Map.get(source, metric_key(device_id, if_index), %{})
+
+  defp directional_capacity(source, device_id, if_index),
+    do: Map.get(source, metric_key(device_id, if_index), 0)
+
+  defp directional_min_flow(primary, secondary),
+    do: min_non_zero(Map.get(primary, :out, 0), Map.get(secondary, :in, 0))
+
+  defp telemetry_status_fields(flow_pps, flow_bps, observed_at) do
+    eligible? = flow_pps > 0 or flow_bps > 0
+
+    %{
+      telemetry_eligible: eligible?,
+      telemetry_source: if(eligible?, do: "interface", else: "none"),
       telemetry_observed_at: observed_at
     }
   end
