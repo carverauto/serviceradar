@@ -24,23 +24,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     %{conn: conn}
   end
 
-  test "legacy /netflows redirects to /netflow preserving SRQL params", %{conn: conn} do
+  test "/flows renders netflow visualize page", %{conn: conn} do
     q = "in:flows time:last_24h"
-    assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/netflows?#{%{q: q, limit: 50}}")
-
-    uri = URI.parse(to)
-    assert uri.path == "/netflow"
-
-    params = Plug.Conn.Query.decode(uri.query || "")
-    assert params["q"] == q
-    assert params["limit"] == "50"
+    {:ok, _lv, html} = live(conn, ~p"/flows?#{%{q: q, limit: 50}}")
+    assert html =~ "Network Flows"
   end
 
-  test "netflow visualize page renders after redirect", %{conn: conn} do
+  test "/flows keeps canonical path when patching state", %{conn: conn} do
     q = "in:flows time:last_24h"
-    assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/netflows?#{%{q: q, limit: 50}}")
+    {:ok, lv, _html} = live(conn, ~p"/flows?#{%{q: q, limit: 50}}")
 
-    {:ok, _lv, html} = live(conn, to)
-    assert html =~ "NetFlow Visualize"
+    lv
+    |> element("button[phx-click=\"nf_reset\"]")
+    |> render_click()
+
+    assert_patch(lv, path)
+    assert String.starts_with?(path, "/flows?")
   end
 end
