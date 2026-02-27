@@ -628,11 +628,11 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   defp do_run_migrations_with_repair!(migrations_path, attempts_left) do
-    case next_pending_migration(migrations_path) do
+    case next_pending_migration_version(migrations_path) do
       nil ->
         :ok
 
-      {version, name} ->
+      version ->
         try do
           Ecto.Migrator.run(
             ServiceRadar.Repo,
@@ -645,7 +645,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
           error in Postgrex.Error ->
             if duplicate_ddl_error?(error) do
               Logger.warning(
-                "[StartupMigrations] Duplicate DDL while running migration #{version} #{name}; " <>
+                "[StartupMigrations] Duplicate DDL while running migration #{version}; " <>
                   "marking as applied and continuing: #{postgres_error_summary(error)}"
               )
 
@@ -659,13 +659,27 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     end
   end
 
-  defp next_pending_migration(migrations_path) do
-    ServiceRadar.Repo
-    |> Ecto.Migrator.migrations([migrations_path], prefix: "platform")
-    |> Enum.find_value(fn
-      {:down, version, name} -> {version, name}
-      _ -> nil
-    end)
+  defp next_pending_migration_version(migrations_path) do
+    migrated_versions =
+      ServiceRadar.Repo
+      |> Ecto.Migrator.migrated_versions(prefix: "platform")
+      |> MapSet.new()
+
+    migrations_path
+    |> Path.join("*.exs")
+    |> Path.wildcard()
+    |> Enum.map(&migration_version_from_file/1)
+    |> Enum.reject(&MapSet.member?(migrated_versions, &1))
+    |> Enum.sort()
+    |> List.first()
+  end
+
+  defp migration_version_from_file(path) do
+    path
+    |> Path.basename()
+    |> String.split("_", parts: 2)
+    |> hd()
+    |> String.to_integer()
   end
 
   defp duplicate_ddl_error?(%Postgrex.Error{postgres: %{code: code}}) do
