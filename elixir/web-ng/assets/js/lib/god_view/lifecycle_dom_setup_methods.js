@@ -1,6 +1,51 @@
 import {Deck, OrthographicView} from "@deck.gl/core"
 
 export const godViewLifecycleDomSetupMethods = {
+  navigateToHref(href) {
+    if (typeof href !== "string" || href.trim() === "") return
+    if (typeof window !== "undefined" && window.location && typeof window.location.assign === "function") {
+      window.location.assign(href)
+    }
+  },
+  handleDetailsPanelClick(event) {
+    const deviceLink = event.target?.closest?.("[data-device-href]")
+    if (deviceLink) {
+      const href = deviceLink.getAttribute("data-device-href")
+      if (href) {
+        event.preventDefault()
+        event.stopPropagation?.()
+        this.navigateToHref(href)
+      }
+      return
+    }
+
+    const action = event.target?.closest?.("[data-node-index]")
+    if (!action) return
+    const nextIndex = Number(action.getAttribute("data-node-index"))
+    if (!Number.isFinite(nextIndex)) return
+    event.preventDefault()
+    this.deps.focusNodeByIndex(nextIndex, true)
+  },
+  handleTooltipPanelClick(event) {
+    const link = event.target?.closest?.(".deck-tooltip a[href]")
+    if (link) {
+      const href = link.getAttribute("href")
+      if (href) {
+        event.preventDefault()
+        event.stopPropagation?.()
+        this.navigateToHref(href)
+        return
+      }
+    }
+
+    const action = event.target?.closest?.(".deck-tooltip [data-node-index]")
+    if (!action) return
+    const nextIndex = Number(action.getAttribute("data-node-index"))
+    if (!Number.isFinite(nextIndex)) return
+    event.preventDefault()
+    event.stopPropagation()
+    this.deps.focusNodeByIndex(nextIndex, true)
+  },
   ensureDOM() {
     if (this.state.canvas && this.state.summary) return
 
@@ -33,26 +78,15 @@ export const godViewLifecycleDomSetupMethods = {
 
     this.state.details = document.createElement("div")
     this.state.details.className =
-      "absolute left-3 top-3 z-30 max-w-sm whitespace-pre-line rounded-lg px-4 py-3 text-xs hidden shadow-xl"
+      "pointer-events-auto absolute left-3 top-3 z-30 max-w-sm whitespace-pre-line rounded-lg px-4 py-3 text-xs hidden shadow-xl"
     this.state.details.style.cssText = hudStyle
+    this.state.details.style.pointerEvents = "auto"
+    this.state.details.addEventListener("pointerdown", (event) => {
+      event.stopPropagation?.()
+    })
     this.state.details.textContent = "Select a node for details"
-    this.state.details.addEventListener("click", (event) => {
-      const action = event.target?.closest?.("[data-node-index]")
-      if (!action) return
-      const nextIndex = Number(action.getAttribute("data-node-index"))
-      if (!Number.isFinite(nextIndex)) return
-      event.preventDefault()
-      this.deps.focusNodeByIndex(nextIndex, true)
-    })
-    this.state.el.addEventListener("click", (event) => {
-      const action = event.target?.closest?.(".deck-tooltip [data-node-index]")
-      if (!action) return
-      const nextIndex = Number(action.getAttribute("data-node-index"))
-      if (!Number.isFinite(nextIndex)) return
-      event.preventDefault()
-      event.stopPropagation()
-      this.deps.focusNodeByIndex(nextIndex, true)
-    })
+    this.state.details.addEventListener("click", (event) => this.handleDetailsPanelClick(event))
+    this.state.el.addEventListener("click", (event) => this.handleTooltipPanelClick(event))
 
     this.state.el.style.backgroundColor = `rgb(${this.state.visual.bg.slice(0, 3).join(",")})`
     this.state.el.appendChild(this.state.canvas)
@@ -83,6 +117,7 @@ export const godViewLifecycleDomSetupMethods = {
       height,
       views: new OrthographicView({id: "god-view-ortho"}),
       controller: false,
+      pickingRadius: 8,
       useDevicePixels: true,
       initialViewState: this.state.viewState,
       parameters: {

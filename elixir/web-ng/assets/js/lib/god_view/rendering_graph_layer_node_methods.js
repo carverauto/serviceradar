@@ -102,7 +102,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
               fontWeight: 600,
               getPixelOffset: [0, -16],
               billboard: true,
-              pickable: false,
+              pickable: true,
             }),
           ]
         : []),

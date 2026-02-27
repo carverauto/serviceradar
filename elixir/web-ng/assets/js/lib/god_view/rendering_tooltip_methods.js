@@ -7,6 +7,10 @@ export const godViewRenderingTooltipMethods = {
     }
     if (layer?.id !== "god-view-nodes") return null
     const d = object?.details || {}
+    const rawIp = typeof d.ip === "string" ? d.ip.trim() : ""
+    const hasRealIp =
+      rawIp !== "" && !["unknown", "n/a", "na", "null", "undefined", "-"].includes(rawIp.toLowerCase())
+    const ipText = this.escapeHtml(hasRealIp ? rawIp : "unknown")
     const nodeMap = this.nodeIndexLookup((this.state.lastGraph?.nodes || []))
     const reason = this.escapeHtml(object.stateReason || this.defaultStateReason(object.state))
     const rootRef = this.nodeReferenceAction(
@@ -23,7 +27,7 @@ export const godViewRenderingTooltipMethods = {
     return {
       html: [
         `<div class="font-semibold">${this.escapeHtml(object.label || "node")}</div>`,
-        `<div>IP: ${this.escapeHtml(d.ip || "unknown")}</div>`,
+        `<div>IP: ${ipText}</div>`,
         `<div>Type: ${this.escapeHtml(d.type || "unknown")}</div>`,
         `<div>State: ${this.escapeHtml(this.stateDisplayName(object.state))}</div>`,
         `<div>Why: ${reason}</div>`,
@@ -46,7 +50,7 @@ export const godViewRenderingTooltipMethods = {
         lineHeight: "1.35",
         maxWidth: "360px",
         padding: "8px 10px",
-        pointerEvents: "auto",
+        pointerEvents: "none",
         whiteSpace: "normal",
       },
     }
@@ -56,12 +60,20 @@ export const godViewRenderingTooltipMethods = {
   },
   handleHover(info) {
     const layerId = info?.layer?.id || ""
+    const nextNodeIndex =
+      (layerId === "god-view-nodes" || layerId === "god-view-node-labels") && Number.isInteger(info?.object?.index)
+        ? info.object.index
+        : null
     const nextKey =
       this.edgeLayerId(layerId) && typeof info?.object?.interactionKey === "string"
         ? info.object.interactionKey
         : null
-    if (this.state.hoveredEdgeKey === nextKey) return
+    if (this.state.hoveredEdgeKey === nextKey && this.state.hoveredNodeIndex === nextNodeIndex) return
     this.state.hoveredEdgeKey = nextKey
+    this.state.hoveredNodeIndex = nextNodeIndex
+    if (this.state.canvas && !this.state.dragState && !this.state.pendingDragState) {
+      this.state.canvas.style.cursor = nextKey || nextNodeIndex !== null ? "pointer" : "grab"
+    }
     if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
   },
   edgeIsFocused(edge) {

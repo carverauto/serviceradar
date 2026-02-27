@@ -252,4 +252,35 @@ describe("lifecycle_stream_decode_methods", () => {
     expect(hasTonkaForward).toEqual(true)
     expect(hasLiteForward).toEqual(true)
   })
+
+  it("treats null geo fields as missing coordinates instead of 0,0", () => {
+    tableFromIPC.mockReturnValueOnce(
+      makeTable(
+        {
+          row_type: makeColumn([0]),
+          node_x: makeColumn([10]),
+          node_y: makeColumn([20]),
+          node_state: makeColumn([1]),
+          node_label: makeColumn(["geo-null-node"]),
+          node_pps: makeColumn([0]),
+          node_oper_up: makeColumn([1]),
+          node_details: makeColumn([JSON.stringify({id: "sr:geo-null", geo_lat: null, geo_lon: null})]),
+        },
+        1,
+      ),
+    )
+
+    const state = {}
+    const deps = {
+      normalizeDisplayLabel: (value, fallback) =>
+        typeof value === "string" && value.trim() !== "" ? value : fallback,
+    }
+    const methods = createStateBackedContext(state, deps)
+    Object.assign(methods, bindApi(methods, godViewLifecycleStreamDecodeMethods))
+
+    const decoded = methods.decodeArrowGraph(new Uint8Array([1, 2, 3]))
+    expect(decoded.nodes).toHaveLength(1)
+    expect(Number.isNaN(decoded.nodes[0].geoLat)).toEqual(true)
+    expect(Number.isNaN(decoded.nodes[0].geoLon)).toEqual(true)
+  })
 })
