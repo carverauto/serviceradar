@@ -33,10 +33,10 @@
 ## 6. Verification in Demo Namespace
 - [x] 6.1 Verify directional metric availability per topology edge side in demo CNPG (`timeseries_metrics` + mapper topology links).
 - [x] 6.2 Validate endpoint/interface mapping for known links (e.g. aggregation-switch uplinks) and confirm edge telemetry matches expected interface rates.
-- [ ] 6.3 Validate God-View behavior in demo: no fake bidi, correct directional rendering on eligible edges, graceful fallback on incomplete edges.
+- [x] 6.3 Validate God-View behavior in demo: no fake bidi, correct directional rendering on eligible edges, graceful fallback on incomplete edges.
 - [x] 6.4 Verify a reduced count of `UniFi-API` links with `local_if_index=0` for switch/AP and switch/switch paths after SNMP-L2 enrichment changes.
 - [x] 6.5 Verify topology-linked interfaces on key devices are auto-provisioned with required packet/octet OIDs without manual per-interface toggles.
-- [ ] 6.6 Validate lane centering/split behavior against live telemetry so directional particles stay centered on their tube and render one-lane only when truly one-sided.
+- [x] 6.6 Validate lane centering/split behavior against live telemetry so directional particles stay centered on their tube and render one-lane only when truly one-sided.
 - [x] 6.7 Validate link label telemetry (`flow_pps`/`flow_bps`/capacity) is populated from canonical directional totals and no widespread `UNK` rate regressions occur after stream/schema changes.
 - [x] 6.8 Run repeated refresh/reconcile soak validation in demo (minimum 30 minutes) to confirm directional animations do not randomly disappear on stable links.
 
