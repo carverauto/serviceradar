@@ -29,7 +29,11 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
       if is_nil(original) do
         Application.delete_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology)
       else
-        Application.put_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology, original)
+        Application.put_env(
+          :serviceradar_web_ng,
+          :god_view_backend_authoritative_topology,
+          original
+        )
       end
     end
   end
