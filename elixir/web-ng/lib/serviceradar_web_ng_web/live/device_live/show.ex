@@ -1852,7 +1852,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               phx-value-tab="interfaces"
               class={["tab", @active_tab == "interfaces" && "tab-active"]}
             >
-              <.icon name="hero-arrows-right-left" class="size-4 mr-1.5" /> Interfaces
+              <.icon name="hero-server-stack" class="size-4 mr-1.5" /> Interfaces
             </button>
             <button
               :if={@has_flows}
