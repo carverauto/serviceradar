@@ -58,6 +58,41 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     assert html =~ "Query Builder"
   end
 
+  test "hydrates builder from edit query with negated list filter", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Builder Hydration #{unique}",
+        interval: "1h",
+        partition: "default",
+        target_query: "in:devices !discovery_sources:(armis)"
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/groups/#{group.id}/edit")
+
+    lv
+    |> element("button[aria-label='Toggle query builder']")
+    |> render_click()
+
+    assert has_element?(
+             lv,
+             "select[name='builder[filters][0][field]'] option[value='discovery_sources'][selected]"
+           )
+
+    assert has_element?(
+             lv,
+             "select[name='builder[filters][0][op]'] option[value='not_equals'][selected]"
+           )
+
+    assert has_element?(
+             lv,
+             "input[name='builder[filters][0][value]'][value='armis']"
+           )
+  end
+
   test "renders new scanner profile form", %{conn: conn} do
     {:ok, _lv, html} = live(conn, ~p"/settings/networks/profiles/new")
 
