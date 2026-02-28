@@ -66,9 +66,27 @@ networkPolicy:
     allowedCIDRs:
       - "10.0.0.0/8"
       - "192.168.0.0/16"
-      # Allow GeoLite MMDB refresh from raw.githubusercontent.com (resolves to 185.199.108.0/22).
+      # Allow GeoLite MMDB + rezmoss provider CIDR refresh from raw.githubusercontent.com
+      # (resolved on 2026-02-28 to 185.199.108.133-111.133, summarized as 185.199.108.0/22).
       # Kubernetes NetworkPolicy can't allow by DNS name, so we allow the minimal known CIDR for this host.
       - "185.199.108.0/22"
+      # Allow IEEE OUI refresh from standards-oui.ieee.org
+      # (resolved on 2026-02-28 to 140.98.223.27).
+      - "140.98.223.27/32"
+      # Allow ARIN Whois-RWS ASN lookups from web-ng flow details modal.
+      # whois.arin.net resolves (2026-02-28) to:
+      # - 199.5.26.46
+      # - 199.71.0.46
+      # - 199.212.0.46
+      - "199.5.26.46/32"
+      - "199.71.0.46/32"
+      - "199.212.0.46/32"
+      # Allow RIPE Stat Whois API endpoint used for non-ARIN ASN fallback.
+      # stat.ripe.net resolves (2026-02-28) to:
+      # - 193.0.6.150
+      # - 2001:67c:2e8:22::c100:696
+      - "193.0.6.150/32"
+      - "2001:67c:2e8:22::c100:696/128"
       # Allow ipinfo lite MMDB refresh from ipinfo.io. (Resolved as 34.117.59.81 on 2026-02-07.)
       # Note: this is a best-effort allowlist and may need adjustment if ipinfo changes their IPs.
       - "34.117.0.0/16"

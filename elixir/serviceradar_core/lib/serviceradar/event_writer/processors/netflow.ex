@@ -37,6 +37,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.FlowEnrichment
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Observability.FlowPubSub
 
@@ -104,14 +105,20 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
 
     protocol_num = json["protocol"]
     protocol_name = OCSF.protocol_name(protocol_num)
+    flow = parse_netflow_fields(json)
 
-    src_ip = FieldParser.get_field(json, "src_addr", "srcAddr") || json["sourceAddress"]
-    src_port = FieldParser.get_field(json, "src_port", "srcPort") || json["sourcePort"]
-    dst_ip = FieldParser.get_field(json, "dst_addr", "dstAddr") || json["destinationAddress"]
-    dst_port = FieldParser.get_field(json, "dst_port", "dstPort") || json["destinationPort"]
-
-    octets = json["octets"] || json["bytes"] || 0
-    packets = json["packets"] || 0
+    enrichment =
+      FlowEnrichment.enrich(%{
+        protocol_num: protocol_num,
+        tcp_flags: json["tcp_flags"],
+        dst_port: safe_int(flow.dst_port),
+        bytes_in: flow.bytes_in,
+        bytes_out: flow.bytes_out,
+        src_ip: flow.src_ip,
+        dst_ip: flow.dst_ip,
+        src_mac: flow.src_mac,
+        dst_mac: flow.dst_mac
+      })
 
     # Build full OCSF payload for the JSONB column
     ocsf_payload = %{
@@ -121,18 +128,27 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       "type_uid" => OCSF.type_uid(OCSF.class_network_activity(), activity_id),
       "severity_id" => OCSF.severity_informational(),
       "message" => build_traffic_message(json, protocol_name),
-      "src_endpoint" => %{"ip" => src_ip, "port" => src_port},
-      "dst_endpoint" => %{"ip" => dst_ip, "port" => dst_port},
-      "traffic" => %{"bytes" => octets, "packets" => packets},
+      "src_endpoint" => %{"ip" => flow.src_ip, "port" => flow.src_port},
+      "dst_endpoint" => %{"ip" => flow.dst_ip, "port" => flow.dst_port},
+      "traffic" => %{"bytes" => flow.octets, "packets" => flow.packets},
       "protocol_name" => protocol_name,
       "protocol_num" => protocol_num,
+      "enrichment" => %{
+        "protocol_source" => enrichment.protocol_source,
+        "tcp_flags_labels" => enrichment.tcp_flags_labels,
+        "dst_service_label" => enrichment.dst_service_label,
+        "direction_label" => enrichment.direction_label,
+        "src_hosting_provider" => enrichment.src_hosting_provider,
+        "dst_hosting_provider" => enrichment.dst_hosting_provider,
+        "src_mac_vendor" => enrichment.src_mac_vendor,
+        "dst_mac_vendor" => enrichment.dst_mac_vendor
+      },
       "metadata" =>
         OCSF.build_metadata(
           product_name: "NetFlowCollector",
           correlation_uid: nats_metadata[:subject]
         ),
-      "sampler_address" =>
-        FieldParser.get_field(json, "sampler_address", "samplerAddress"),
+      "sampler_address" => FieldParser.get_field(json, "sampler_address", "samplerAddress"),
       "unmapped" => extract_unmapped(json)
     }
 
@@ -144,24 +160,55 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       activity_id: activity_id,
       type_uid: OCSF.type_uid(OCSF.class_network_activity(), activity_id),
       severity_id: OCSF.severity_informational(),
-      src_endpoint_ip: src_ip,
-      src_endpoint_port: safe_int(src_port),
+      src_endpoint_ip: flow.src_ip,
+      src_endpoint_port: safe_int(flow.src_port),
       src_as_number: safe_int(json["src_as"]),
-      dst_endpoint_ip: dst_ip,
-      dst_endpoint_port: safe_int(dst_port),
+      dst_endpoint_ip: flow.dst_ip,
+      dst_endpoint_port: safe_int(flow.dst_port),
       dst_as_number: safe_int(json["dst_as"]),
       protocol_num: protocol_num,
       protocol_name: protocol_name,
+      protocol_source: enrichment.protocol_source,
       tcp_flags: json["tcp_flags"],
-      bytes_total: octets,
-      packets_total: packets,
-      bytes_in: nil,
-      bytes_out: nil,
-      sampler_address:
-        FieldParser.get_field(json, "sampler_address", "samplerAddress"),
+      tcp_flags_labels: enrichment.tcp_flags_labels,
+      tcp_flags_source: enrichment.tcp_flags_source,
+      dst_service_label: enrichment.dst_service_label,
+      dst_service_source: enrichment.dst_service_source,
+      bytes_total: flow.octets,
+      packets_total: flow.packets,
+      bytes_in: flow.bytes_in || 0,
+      bytes_out: flow.bytes_out || 0,
+      direction_label: enrichment.direction_label,
+      direction_source: enrichment.direction_source,
+      src_hosting_provider: enrichment.src_hosting_provider,
+      src_hosting_provider_source: enrichment.src_hosting_provider_source,
+      dst_hosting_provider: enrichment.dst_hosting_provider,
+      dst_hosting_provider_source: enrichment.dst_hosting_provider_source,
+      src_mac: enrichment.src_mac,
+      dst_mac: enrichment.dst_mac,
+      src_mac_vendor: enrichment.src_mac_vendor,
+      src_mac_vendor_source: enrichment.src_mac_vendor_source,
+      dst_mac_vendor: enrichment.dst_mac_vendor,
+      dst_mac_vendor_source: enrichment.dst_mac_vendor_source,
+      sampler_address: FieldParser.get_field(json, "sampler_address", "samplerAddress"),
       ocsf_payload: ocsf_payload,
       partition: "default",
       created_at: DateTime.utc_now()
+    }
+  end
+
+  defp parse_netflow_fields(json) do
+    %{
+      src_ip: endpoint_field(json, "src_addr", "srcAddr", "sourceAddress"),
+      src_port: endpoint_field(json, "src_port", "srcPort", "sourcePort"),
+      dst_ip: endpoint_field(json, "dst_addr", "dstAddr", "destinationAddress"),
+      dst_port: endpoint_field(json, "dst_port", "dstPort", "destinationPort"),
+      src_mac: flow_value(json, "src_mac", "srcMac", "sourceMac"),
+      dst_mac: flow_value(json, "dst_mac", "dstMac", "destinationMac"),
+      octets: first_present(json, ["octets", "bytes"], 0),
+      packets: first_present(json, ["packets"], 0),
+      bytes_in: safe_int(first_present(json, ["bytes_in", "bytesIn"])),
+      bytes_out: safe_int(first_present(json, ["bytes_out", "bytesOut"]))
     }
   end
 
@@ -204,6 +251,8 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       flow_direction flowDirection src_addr srcAddr sourceAddress
       dst_addr dstAddr destinationAddress src_port srcPort sourcePort
       dst_port dstPort destinationPort protocol packets octets bytes
+      bytes_in bytesIn bytes_out bytesOut tcp_flags tcpFlags
+      src_mac srcMac sourceMac dst_mac dstMac destinationMac
       sampler_address samplerAddress input_snmp inputSnmp output_snmp outputSnmp
       metadata
     )
@@ -218,5 +267,13 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
 
   defp flow_value(json, snake_key, camel_key, fallback_key, default \\ nil) do
     json[snake_key] || json[camel_key] || json[fallback_key] || default
+  end
+
+  defp endpoint_field(json, snake_key, camel_key, fallback_key) do
+    FieldParser.get_field(json, snake_key, camel_key) || json[fallback_key]
+  end
+
+  defp first_present(json, keys, default \\ nil) do
+    Enum.find_value(keys, default, &Map.get(json, &1))
   end
 end

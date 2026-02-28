@@ -25,6 +25,10 @@ message FlowMessage {
   // Found inside packet
   uint64 time_flow_start_ns = 111;
   uint64 time_flow_end_ns = 112;
+  uint64 bytes_in = 113;
+  uint64 bytes_out = 114;
+  uint64 packets_in = 115;
+  uint64 packets_out = 116;
 
   // Size of the sampled packet
   uint64 bytes = 9;

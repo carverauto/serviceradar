@@ -61,6 +61,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
 
     {:ok, _lv, html} = live(conn, ~p"/flows?#{%{q: q, open: "first", limit: 50}}")
     assert html =~ "Flow details"
+    assert html =~ "dst_service:"
+    assert html =~ "HTTPS"
+    assert html =~ "direction:"
+    assert html =~ "bidirectional"
+    assert html =~ "SourceNet Inc"
+    assert html =~ "DestNet LLC"
+    assert html =~ "SourceVendor Corp"
+    assert html =~ "DestVendor Inc"
 
     queries = collect_srql_queries([])
     assert Enum.any?(queries, &String.contains?(&1, "time:last_24h"))
@@ -117,6 +125,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
                  "dst_endpoint_port" => 443,
                  "protocol_num" => 6,
                  "protocol_name" => "tcp",
+                 "direction_label" => "bidirectional",
+                 "dst_service_label" => "HTTPS",
+                 "src_hosting_provider" => "SourceNet Inc",
+                 "dst_hosting_provider" => "DestNet LLC",
+                 "src_mac" => "001122334455",
+                 "dst_mac" => "AABBCCDDEEFF",
+                 "src_mac_vendor" => "SourceVendor Corp",
+                 "dst_mac_vendor" => "DestVendor Inc",
+                 "tcp_flags" => 18,
+                 "tcp_flags_labels" => ["SYN", "ACK"],
                  "packets_total" => 10,
                  "bytes_total" => 2048
                }

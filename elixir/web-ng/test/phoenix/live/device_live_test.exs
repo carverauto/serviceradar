@@ -479,11 +479,41 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> render_click()
 
       assert has_element?(view, "a.btn.btn-ghost.btn-xs", "Details")
+      assert render(view) =~ "DNS"
+      assert render(view) =~ "bidirectional"
     end
 
     test "hides flows tab when no scoped flows exist", %{conn: conn, device_uid: device_uid} do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
       refute has_element?(view, "button[phx-click='switch_tab'][phx-value-tab='flows']")
+    end
+
+    test "device flows and /flows details show consistent persisted enrichment", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      device_ip = "192.168.1.55"
+      insert_test_flow!(device_uid, device_ip)
+
+      {:ok, device_view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      device_view
+      |> element("button[phx-click='switch_tab'][phx-value-tab='flows']")
+      |> render_click()
+
+      device_html = render(device_view)
+      assert device_html =~ "DNS"
+      assert device_html =~ "bidirectional"
+
+      q =
+        "in:flows time:last_24h src_endpoint_ip:#{device_ip} dst_endpoint_ip:8.8.8.8 src_endpoint_port:52344 dst_endpoint_port:53 protocol_num:17 sort:time:desc limit:1"
+
+      {:ok, _flows_view, flows_html} = live(conn, ~p"/flows?#{%{q: q, open: "first", limit: 50}}")
+
+      assert flows_html =~ "DNS"
+      assert flows_html =~ "bidirectional"
+      assert flows_html =~ "SourceVendor Corp"
+      assert flows_html =~ "DestVendor Inc"
     end
   end
 
@@ -627,6 +657,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         dst_endpoint_port: 53,
         protocol_num: 17,
         protocol_name: "udp",
+        direction_label: "bidirectional",
+        dst_service_label: "DNS",
+        src_hosting_provider: "SourceNet Inc",
+        dst_hosting_provider: "DestNet LLC",
+        src_mac: "001122334455",
+        dst_mac: "AABBCCDDEEFF",
+        src_mac_vendor: "SourceVendor Corp",
+        dst_mac_vendor: "DestVendor Inc",
         bytes_total: 1_024,
         packets_total: 8,
         bytes_in: 256,

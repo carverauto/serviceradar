@@ -131,7 +131,6 @@ config :serviceradar_core, Oban,
   prefix: "platform",
   queues: [
     default: 10,
-    maintenance: 2,
     # AshOban queues
     alerts: 5,
     service_checks: 10,
