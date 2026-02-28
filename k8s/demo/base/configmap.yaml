@@ -452,8 +452,7 @@ data:
           "*.logs.snmp",
           "*.logs.otel",
           "*.logs.internal.>",
-          "*.otel.metrics.raw",
-          "flows.raw.netflow"
+          "*.otel.metrics.raw"
         ],
         "decision_groups": [
           {
@@ -488,14 +487,6 @@ data:
               {"order": 1, "key": "passthrough"}
             ],
             "format": "otel_metrics"
-          },
-          {
-            "name": "netflow",
-            "subjects": ["flows.raw.netflow"],
-            "rules": [
-              {"order": 1, "key": "netflow_to_ocsf"}
-            ],
-            "format": "flow_protobuf"
           },
           {
             "name": "internal_logs",
