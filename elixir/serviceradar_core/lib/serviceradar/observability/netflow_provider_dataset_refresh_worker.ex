@@ -22,6 +22,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   @default_timeout_ms 30_000
   @default_reschedule_seconds 86_400
   @default_failure_reschedule_seconds 6 * 3600
+  @insert_chunk_size 1_000
 
   @doc """
   Schedules the refresh job if not already scheduled.
@@ -128,12 +129,13 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
       with true <- is_binary(cidr),
            true <- cidr != "",
            {:ok, normalized_cidr} <- ServiceRadar.Types.Cidr.cast_input(cidr, []),
+           {:ok, native_cidr} <- ServiceRadar.Types.Cidr.dump_to_native(normalized_cidr, []),
            true <- is_binary(provider),
            true <- provider != "" do
         key = {normalized_cidr, provider}
 
         Map.put(acc, key, %{
-          cidr: normalized_cidr,
+          cidr: native_cidr,
           provider: provider,
           service: value(row, "service") |> blank_to_nil(),
           region: value(row, "region") |> blank_to_nil(),
@@ -148,7 +150,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   end
 
   defp promote_snapshot(source_url, payload, rows, etag) do
-    snapshot_id = Ecto.UUID.generate()
+    snapshot_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     Repo.transaction(fn ->
@@ -174,12 +176,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
         )
 
       rows_to_insert = Enum.map(rows, &Map.put(&1, :snapshot_id, snapshot_id))
-
-      {count, _} =
-        Repo.insert_all("netflow_provider_cidrs", rows_to_insert,
-          prefix: "platform",
-          on_conflict: :nothing
-        )
+      count = insert_provider_rows(rows_to_insert)
 
       Repo.query!(
         "UPDATE platform.netflow_provider_dataset_snapshots SET is_active = FALSE, updated_at = now() WHERE id <> $1 AND is_active = TRUE",
@@ -259,4 +256,18 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   end
 
   defp blank_to_nil(value), do: to_string(value)
+
+  defp insert_provider_rows(rows) when is_list(rows) do
+    rows
+    |> Enum.chunk_every(@insert_chunk_size)
+    |> Enum.reduce(0, fn chunk, acc ->
+      {count, _} =
+        Repo.insert_all("netflow_provider_cidrs", chunk,
+          prefix: "platform",
+          on_conflict: :nothing
+        )
+
+      acc + count
+    end)
+  end
 end

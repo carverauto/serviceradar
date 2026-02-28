@@ -1717,6 +1717,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         <% tcp_flags_labels =
           flow_get(@flow, ["tcp_flags_labels"]) ||
             flow_get_in(ocsf, ["enrichment", "tcp_flags_labels"]) %>
+        <% protocol_num = flow_get(@flow, ["protocol_num"]) %>
+        <% tcp_flags_raw = flow_get(@flow, ["tcp_flags"]) %>
+        <% protocol_label =
+          flow_get(@flow, ["protocol_name", "protocol_group", "proto"]) ||
+            get_in(ocsf, ["connection_info", "protocol_name"]) %>
         <% sampler =
           flow_get(@flow, ["sampler_address"]) ||
             flow_get_in(ocsf, ["observables"])
@@ -1869,19 +1874,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
               <div class="p-3 rounded-lg border border-base-200 bg-base-200/30">
                 <div class="text-xs uppercase tracking-wider text-base-content/50">Protocol</div>
                 <div class="mt-1 font-mono text-sm">
-                  {flow_get(@flow, ["protocol_name", "protocol_group", "proto"]) ||
-                    get_in(ocsf, ["connection_info", "protocol_name"]) || "—"}
+                  {protocol_label || "—"}
                 </div>
                 <div class="mt-1 text-[11px] text-base-content/60 space-y-0.5">
-                  <div :if={n = flow_get(@flow, ["protocol_num"])}>
-                    proto_num: <span class="font-mono">{n}</span>
-                  </div>
-                  <div :if={flags = flow_get(@flow, ["tcp_flags"])}>
-                    tcp_flags: <span class="font-mono">{flags}</span>
+                  <div :if={not is_nil(protocol_num) and is_nil(protocol_label)}>
+                    proto_num: <span class="font-mono">{protocol_num}</span>
                   </div>
                   <div :if={is_list(tcp_flags_labels) and tcp_flags_labels != []}>
-                    tcp_flags_labels:
-                    <span class="font-mono">{Enum.join(tcp_flags_labels, ", ")}</span>
+                    flags: <span class="font-mono">{Enum.join(tcp_flags_labels, ", ")}</span>
+                  </div>
+                  <div :if={not is_nil(tcp_flags_raw) and (not is_list(tcp_flags_labels) or tcp_flags_labels == [])}>
+                    tcp_flags: <span class="font-mono">{tcp_flags_raw}</span>
                   </div>
                   <div :if={is_binary(direction_label) and direction_label != ""}>
                     direction: <span class="font-mono">{direction_label}</span>

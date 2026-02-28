@@ -139,7 +139,7 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
   end
 
   defp promote_snapshot(source_url, payload, rows, etag) do
-    snapshot_id = Ecto.UUID.generate()
+    snapshot_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     Repo.transaction(fn ->

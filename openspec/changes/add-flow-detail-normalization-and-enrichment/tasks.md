@@ -32,5 +32,5 @@
 
 ## 6. Validation
 - [x] 6.1 Add ingestion-path tests for protocol/tcp/service/direction/provider/OUI enrichment.
-- [ ] 6.2 Add job tests for provider and OUI dataset refresh success/failure/last-known-good behavior.
+- [x] 6.2 Add job tests for provider and OUI dataset refresh success/failure/last-known-good behavior.
 - [ ] 6.3 Run `openspec validate add-flow-detail-normalization-and-enrichment --strict`.

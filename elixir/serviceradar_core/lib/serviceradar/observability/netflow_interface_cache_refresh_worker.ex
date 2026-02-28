@@ -18,6 +18,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability.NetflowInterfaceCache
+  alias ServiceRadar.Observability
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -99,7 +100,11 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
         }
       end)
 
-    case Ash.bulk_create(NetflowInterfaceCache, :upsert, attrs, actor: actor, return_errors?: true) do
+    case Ash.bulk_create(NetflowInterfaceCache, :upsert, attrs,
+           actor: actor,
+           domain: Observability,
+           return_errors?: true
+         ) do
       %Ash.BulkResult{errors: []} ->
         ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 300)))
         :ok
@@ -198,20 +203,23 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   defp load_devices_by_ip([], _actor), do: %{}
 
   defp load_devices_by_ip(ips, actor) when is_list(ips) do
-    q =
-      Device
-      |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
-      |> Ash.Query.filter(expr(ip in ^ips))
-      |> Ash.Query.select([:uid, :ip])
-      |> Ash.Query.limit(length(ips))
+    ips
+    |> Enum.chunk_every(2_000)
+    |> Enum.reduce(%{}, fn chunk, acc ->
+      q =
+        Device
+        |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
+        |> Ash.Query.filter(expr(ip in ^chunk))
+        |> Ash.Query.select([:uid, :ip])
 
-    case Ash.read(q, actor: actor) do
-      {:ok, devices} ->
-        Map.new(devices, fn d -> {Map.get(d, :ip), d} end)
-
-      _ ->
-        %{}
-    end
+      read_results(q, actor)
+      |> Enum.reduce(acc, fn d, map ->
+        case Map.get(d, :ip) do
+          ip when is_binary(ip) and ip != "" -> Map.put(map, ip, d)
+          _ -> map
+        end
+      end)
+    end)
   end
 
   defp latest_interfaces_for_device(device_uid, sampler_address, idxs)
@@ -248,4 +256,12 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   end
 
   defp latest_interfaces_for_device(_device_uid, _sampler_address, _idxs), do: []
+
+  defp read_results(query, actor) do
+    case Ash.read(query, actor: actor) do
+      {:ok, devices} when is_list(devices) -> devices
+      {:ok, %{results: results}} when is_list(results) -> results
+      _ -> []
+    end
+  end
 end
