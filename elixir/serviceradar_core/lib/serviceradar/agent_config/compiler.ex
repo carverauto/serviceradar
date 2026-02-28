@@ -2,7 +2,7 @@ defmodule ServiceRadar.AgentConfig.Compiler do
   @moduledoc """
   Behaviour for config compilers that transform Ash resources into agent-consumable format.
 
-  Each config type (sweep, poller, checker) implements this behaviour to compile
+  Each config type (sweep, sysmon, snmp, mapper) implements this behaviour to compile
   configurations from Ash resources into JSON format that agents expect.
 
   Schema isolation is handled by the database connection's search_path.
@@ -30,7 +30,7 @@ defmodule ServiceRadar.AgentConfig.Compiler do
 
   @type partition :: String.t()
   @type agent_id :: String.t() | nil
-  @type config_type :: :sweep | :sysmon | :snmp | :mapper | :poller | :checker
+  @type config_type :: :sweep | :sysmon | :snmp | :mapper
   @type compiled_config :: map()
   @type compile_opts :: [actor: map(), timeout: pos_integer()]
 
