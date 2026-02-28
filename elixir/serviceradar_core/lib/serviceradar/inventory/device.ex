@@ -29,6 +29,7 @@ defmodule ServiceRadar.Inventory.Device do
   use Ash.Resource,
     domain: ServiceRadar.Inventory,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.Inventory.DeviceNotifier],
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource],
     primary_read_warning?: false

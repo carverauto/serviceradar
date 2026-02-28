@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   require Logger
 
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadar.Inventory.Device
@@ -25,6 +26,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket) do
+      DevicePubSub.subscribe()
+    end
+
     {:ok,
      socket
      |> assign(:page_title, "Devices")
@@ -72,45 +77,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   @impl true
   def handle_params(params, uri, socket) do
-    socket =
-      socket
-      |> SRQLPage.load_list(params, uri, :devices,
-        default_limit: @default_limit,
-        max_limit: @max_limit
-      )
-
-    scope = Map.get(socket.assigns, :current_scope)
-    query = Map.get(socket.assigns.srql || %{}, :query, "")
-
-    {icmp_sparklines, icmp_error} =
-      load_icmp_sparklines(srql_module(), socket.assigns.devices, scope)
-
-    {snmp_presence, sysmon_presence} =
-      load_metric_presence(srql_module(), socket.assigns.devices, scope)
-
-    sysmon_profiles_by_device = load_sysmon_profiles_for_devices(scope, socket.assigns.devices)
-
-    # Load total count for pagination display
-    total_device_count = get_total_matching_count(scope, query)
-
-    # Track current page from URL params (default to 1 if not present or no cursor)
-    current_page = parse_page_param(params)
-
-    # Load device stats for cards (async to not block page load)
-    device_stats = load_device_stats(srql_module(), scope)
-
     {:noreply,
-     assign(socket,
-       icmp_sparklines: icmp_sparklines,
-       icmp_error: icmp_error,
-       snmp_presence: snmp_presence,
-       sysmon_presence: sysmon_presence,
-       sysmon_profiles_by_device: sysmon_profiles_by_device,
-       total_device_count: total_device_count,
-       current_page: current_page,
-       device_stats: device_stats,
-       device_stats_loading: false
-     )}
+     socket
+     |> assign(:last_params, params)
+     |> assign(:last_uri, uri)
+     |> refresh_devices()}
+  end
+
+  @impl true
+  def handle_info({:device_created, _uid, _device}, socket) do
+    {:noreply, refresh_devices(socket)}
+  end
+
+  def handle_info({:device_updated, _uid, _device}, socket) do
+    {:noreply, refresh_devices(socket)}
+  end
+
+  def handle_info({:device_deleted, _uid}, socket) do
+    {:noreply, refresh_devices(socket)}
   end
 
   @impl true
@@ -415,6 +399,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
              |> assign(:csv_errors, errors)}
         end
     end
+  end
+
+  defp refresh_devices(socket) do
+    params = Map.get(socket.assigns, :last_params, %{})
+    uri = Map.get(socket.assigns, :last_uri, "/devices")
+
+    socket =
+      socket
+      |> SRQLPage.load_list(params, uri, :devices,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+
+    scope = Map.get(socket.assigns, :current_scope)
+    query = Map.get(socket.assigns.srql || %{}, :query, "")
+
+    {icmp_sparklines, icmp_error} =
+      load_icmp_sparklines(srql_module(), socket.assigns.devices, scope)
+
+    {snmp_presence, sysmon_presence} =
+      load_metric_presence(srql_module(), socket.assigns.devices, scope)
+
+    sysmon_profiles_by_device = load_sysmon_profiles_for_devices(scope, socket.assigns.devices)
+
+    total_device_count = get_total_matching_count(scope, query)
+    current_page = parse_page_param(params)
+    device_stats = load_device_stats(srql_module(), scope)
+
+    assign(socket,
+      icmp_sparklines: icmp_sparklines,
+      icmp_error: icmp_error,
+      snmp_presence: snmp_presence,
+      sysmon_presence: sysmon_presence,
+      sysmon_profiles_by_device: sysmon_profiles_by_device,
+      total_device_count: total_device_count,
+      current_page: current_page,
+      device_stats: device_stats,
+      device_stats_loading: false
+    )
   end
 
   defp import_csv_preview(socket) do
