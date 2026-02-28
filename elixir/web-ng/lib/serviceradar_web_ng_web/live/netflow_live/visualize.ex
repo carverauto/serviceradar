@@ -1137,13 +1137,30 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     :protocol_group,
     :proto,
     :protocol_num,
+    :protocol_source,
     :tcp_flags,
+    :tcp_flags_labels,
+    :tcp_flags_source,
+    :dst_service_label,
+    :dst_service_source,
     :packets_total,
     :packets,
     :bytes_total,
     :bytes,
     :bytes_in,
     :bytes_out,
+    :direction_label,
+    :direction_source,
+    :src_hosting_provider,
+    :src_hosting_provider_source,
+    :dst_hosting_provider,
+    :dst_hosting_provider_source,
+    :src_mac,
+    :dst_mac,
+    :src_mac_vendor,
+    :src_mac_vendor_source,
+    :dst_mac_vendor,
+    :dst_mac_vendor_source,
     :sampler_address,
     :src_country_iso2,
     :dst_country_iso2,
@@ -1194,9 +1211,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp flow_map_get(_acc, _key), do: nil
 
   defp flow_app_label(flow) when is_map(flow) do
-    # Prefer any computed/app-labeled field if present, otherwise use a small pragmatic mapping
-    # for common ports so the flows table shows useful L7 hints.
-    flow_get(flow, ["app", "app_label"]) ||
+    # Prefer persisted enrichment labels first.
+    flow_get(flow, ["dst_service_label", "app", "app_label"]) ||
       case to_int(flow_get(flow, ["dst_endpoint_port", "dst_port"])) do
         53 -> "dns"
         80 -> "http"
@@ -1681,8 +1697,26 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         <% ocsf = flow_get(@flow, ["ocsf_payload"]) || %{} %>
         <% src_if_uid = flow_get_in(ocsf, ["src_endpoint", "interface_uid"]) %>
         <% dst_if_uid = flow_get_in(ocsf, ["dst_endpoint", "interface_uid"]) %>
-        <% src_mac = flow_get_in(ocsf, ["unmapped", "src_mac"]) %>
-        <% dst_mac = flow_get_in(ocsf, ["unmapped", "dst_mac"]) %>
+        <% src_mac = flow_get(@flow, ["src_mac"]) || flow_get_in(ocsf, ["unmapped", "src_mac"]) %>
+        <% dst_mac = flow_get(@flow, ["dst_mac"]) || flow_get_in(ocsf, ["unmapped", "dst_mac"]) %>
+        <% src_mac_vendor =
+          flow_get(@flow, ["src_mac_vendor"]) || flow_get_in(ocsf, ["enrichment", "src_mac_vendor"]) %>
+        <% dst_mac_vendor =
+          flow_get(@flow, ["dst_mac_vendor"]) || flow_get_in(ocsf, ["enrichment", "dst_mac_vendor"]) %>
+        <% src_provider =
+          flow_get(@flow, ["src_hosting_provider"]) ||
+            flow_get_in(ocsf, ["enrichment", "src_hosting_provider"]) %>
+        <% dst_provider =
+          flow_get(@flow, ["dst_hosting_provider"]) ||
+            flow_get_in(ocsf, ["enrichment", "dst_hosting_provider"]) %>
+        <% direction_label =
+          flow_get(@flow, ["direction_label"]) || flow_get_in(ocsf, ["enrichment", "direction_label"]) %>
+        <% service_label =
+          flow_get(@flow, ["dst_service_label"]) ||
+            flow_get_in(ocsf, ["enrichment", "dst_service_label"]) %>
+        <% tcp_flags_labels =
+          flow_get(@flow, ["tcp_flags_labels"]) ||
+            flow_get_in(ocsf, ["enrichment", "tcp_flags_labels"]) %>
         <% sampler =
           flow_get(@flow, ["sampler_address"]) ||
             flow_get_in(ocsf, ["observables"])
@@ -1755,6 +1789,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                       <span class="font-mono text-base-content/50">n/a</span>
                     <% end %>
                   </div>
+                  <div :if={is_binary(src_mac_vendor) and src_mac_vendor != ""}>
+                    vendor: <span class="font-mono">{src_mac_vendor}</span>
+                  </div>
+                  <div :if={is_binary(src_provider) and src_provider != ""}>
+                    provider: <span class="font-mono">{src_provider}</span>
+                  </div>
                 </div>
               </div>
 
@@ -1817,6 +1857,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                       <span class="font-mono text-base-content/50">n/a</span>
                     <% end %>
                   </div>
+                  <div :if={is_binary(dst_mac_vendor) and dst_mac_vendor != ""}>
+                    vendor: <span class="font-mono">{dst_mac_vendor}</span>
+                  </div>
+                  <div :if={is_binary(dst_provider) and dst_provider != ""}>
+                    provider: <span class="font-mono">{dst_provider}</span>
+                  </div>
                 </div>
               </div>
 
@@ -1832,6 +1878,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   </div>
                   <div :if={flags = flow_get(@flow, ["tcp_flags"])}>
                     tcp_flags: <span class="font-mono">{flags}</span>
+                  </div>
+                  <div :if={is_list(tcp_flags_labels) and tcp_flags_labels != []}>
+                    tcp_flags_labels:
+                    <span class="font-mono">{Enum.join(tcp_flags_labels, ", ")}</span>
+                  </div>
+                  <div :if={is_binary(direction_label) and direction_label != ""}>
+                    direction: <span class="font-mono">{direction_label}</span>
+                  </div>
+                  <div :if={is_binary(service_label) and service_label != ""}>
+                    dst_service: <span class="font-mono">{service_label}</span>
                   </div>
                   <div :if={dir = get_in(ocsf, ["connection_info", "direction_id"])}>
                     direction_id: <span class="font-mono">{dir}</span>
@@ -2143,10 +2199,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     dst_port = flow_get(flow, ["dst_endpoint_port", "dst_port"]) |> to_int()
 
     src_mac =
-      get_in(flow_get(flow, ["ocsf_payload"]) || %{}, ["unmapped", "src_mac"]) |> normalize_mac()
+      (flow_get(flow, ["src_mac"]) ||
+         get_in(flow_get(flow, ["ocsf_payload"]) || %{}, ["unmapped", "src_mac"]))
+      |> normalize_mac()
 
     dst_mac =
-      get_in(flow_get(flow, ["ocsf_payload"]) || %{}, ["unmapped", "dst_mac"]) |> normalize_mac()
+      (flow_get(flow, ["dst_mac"]) ||
+         get_in(flow_get(flow, ["ocsf_payload"]) || %{}, ["unmapped", "dst_mac"]))
+      |> normalize_mac()
 
     src_device_uid =
       lookup_device_uid_by_ip_or_mac(srql_module, scope, src_ip, src_mac)

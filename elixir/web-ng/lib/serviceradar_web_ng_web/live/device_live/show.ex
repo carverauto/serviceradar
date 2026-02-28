@@ -2750,6 +2750,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   <th>Source</th>
                   <th>Destination</th>
                   <th class="text-right">Proto</th>
+                  <th class="text-right">Direction</th>
                   <th class="text-right">Packets</th>
                   <th class="text-right">Bytes</th>
                   <th class="text-right"></th>
@@ -2766,7 +2767,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       {flow_endpoint(flow, :dst)}{flow_port(flow, :dst)}
                     </td>
                     <td class="text-right font-mono">
-                      {Map.get(flow, "protocol_name") || Map.get(flow, "protocol_num") || "—"}
+                      {flow_protocol(flow)}
+                      <div
+                        :if={service = flow_service_label(flow)}
+                        class="text-[10px] text-base-content/60"
+                      >
+                        {service}
+                      </div>
+                    </td>
+                    <td class="text-right font-mono">
+                      {flow_direction(flow)}
                     </td>
                     <td class="text-right font-mono">{Map.get(flow, "packets_total") || "—"}</td>
                     <td class="text-right font-mono">{format_bytes(Map.get(flow, "bytes_total"))}</td>
@@ -2805,6 +2815,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp flow_endpoint(flow, :src), do: Map.get(flow, "src_endpoint_ip") || "—"
   defp flow_endpoint(flow, :dst), do: Map.get(flow, "dst_endpoint_ip") || "—"
+
+  defp flow_protocol(flow),
+    do: Map.get(flow, "protocol_name") || Map.get(flow, "protocol_num") || "—"
+
+  defp flow_service_label(flow) when is_map(flow) do
+    case Map.get(flow, "dst_service_label") do
+      service when is_binary(service) and service != "" -> service
+      _ -> nil
+    end
+  end
+
+  defp flow_service_label(_), do: nil
+
+  defp flow_direction(flow) when is_map(flow) do
+    Map.get(flow, "direction_label") || "—"
+  end
+
+  defp flow_direction(_), do: "—"
 
   defp flow_port(flow, :src) do
     case Map.get(flow, "src_endpoint_port") do

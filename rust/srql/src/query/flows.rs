@@ -23,44 +23,8 @@ type FlowsFromClause = FromClause<FlowsTable>;
 type FlowsQuery<'a> =
     BoxedSelectStatement<'a, <FlowsTable as AsQuery>::SqlType, FlowsFromClause, Pg>;
 
-// Directionality tagging for flows based on configured local CIDRs.
-//
-// NOTE: `netflow_local_cidrs` is stored under the `platform` schema, but SRQL
-// typically runs with `search_path=platform,...`, so we intentionally omit the schema prefix.
-pub(super) const FLOW_DIRECTION_EXPR: &str = r#"
-(SELECT
-  CASE
-    WHEN NULLIF(src_endpoint_ip, '') IS NULL OR NULLIF(dst_endpoint_ip, '') IS NULL THEN 'unknown'
-    ELSE (
-      CASE flags.mask
-        WHEN 3 THEN 'internal'
-        WHEN 2 THEN 'outbound'
-        WHEN 1 THEN 'inbound'
-        ELSE 'external'
-      END
-    )
-  END
-  FROM LATERAL (
-    SELECT
-      (
-        CASE WHEN EXISTS (
-          SELECT 1
-          FROM netflow_local_cidrs c
-          WHERE c.enabled
-            AND (c.partition IS NULL OR c.partition = partition)
-            AND (try_inet(NULLIF(src_endpoint_ip, '')) <<= c.cidr)
-        ) THEN 2 ELSE 0 END
-      ) + (
-        CASE WHEN EXISTS (
-          SELECT 1
-          FROM netflow_local_cidrs c
-          WHERE c.enabled
-            AND (c.partition IS NULL OR c.partition = partition)
-            AND (try_inet(NULLIF(dst_endpoint_ip, '')) <<= c.cidr)
-        ) THEN 1 ELSE 0 END
-      ) AS mask
-  ) flags)
-"#;
+// Directionality is persisted at ingestion time.
+pub(super) const FLOW_DIRECTION_EXPR: &str = "COALESCE(direction_label, 'unknown')";
 
 pub(super) const FLOW_PROTOCOL_GROUP_EXPR: &str =
     "CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END";
@@ -220,11 +184,28 @@ struct FlowRow {
     dst_as_number: Option<i32>,
     protocol_num: Option<i32>,
     protocol_name: Option<String>,
+    protocol_source: Option<String>,
     tcp_flags: Option<i32>,
+    tcp_flags_labels: Option<Vec<String>>,
+    tcp_flags_source: Option<String>,
+    dst_service_label: Option<String>,
+    dst_service_source: Option<String>,
     bytes_total: i64,
     packets_total: i64,
     bytes_in: i64,
     bytes_out: i64,
+    direction_label: Option<String>,
+    direction_source: Option<String>,
+    src_hosting_provider: Option<String>,
+    src_hosting_provider_source: Option<String>,
+    dst_hosting_provider: Option<String>,
+    dst_hosting_provider_source: Option<String>,
+    src_mac: Option<String>,
+    dst_mac: Option<String>,
+    src_mac_vendor: Option<String>,
+    src_mac_vendor_source: Option<String>,
+    dst_mac_vendor: Option<String>,
+    dst_mac_vendor_source: Option<String>,
     sampler_address: Option<String>,
     ocsf_payload: Value,
     partition: Option<String>,
