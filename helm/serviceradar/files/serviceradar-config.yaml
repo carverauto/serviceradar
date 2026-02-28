@@ -525,7 +525,7 @@ data:
       {{ end }}
         "stream_name": "events",
         "consumer_name": "zen-consumer",
-        "subjects": ["logs.syslog", "logs.snmp", "logs.otel", "flows.raw.netflow"],
+        "subjects": ["logs.syslog", "logs.snmp", "logs.otel"],
         "decision_groups": [
           {
             "name": "syslog",
@@ -551,14 +551,6 @@ data:
               {"order": 1, "key": "passthrough"}
             ],
             "format": "protobuf"
-          },
-          {
-            "name": "netflow",
-            "subjects": ["flows.raw.netflow"],
-            "rules": [
-              {"order": 1, "key": "netflow_to_ocsf"}
-            ],
-            "format": "flow_protobuf"
           }
         ],
         "agent_id": "k8s-zen-consumer",
