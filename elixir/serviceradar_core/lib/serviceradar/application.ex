@@ -151,6 +151,7 @@ defmodule ServiceRadar.Application do
         ip_enrichment_scheduler_child(),
         geolite_mmdb_scheduler_child(),
         ipinfo_mmdb_scheduler_child(),
+        netflow_enrichment_dataset_scheduler_child(),
         netflow_security_scheduler_child(),
         netflow_cache_scheduler_child(),
         topology_state_scheduler_child(),
@@ -480,6 +481,14 @@ defmodule ServiceRadar.Application do
   defp ipinfo_mmdb_scheduler_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
       ServiceRadar.Observability.IpinfoMmdbScheduler
+    else
+      nil
+    end
+  end
+
+  defp netflow_enrichment_dataset_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+      ServiceRadar.Observability.NetflowEnrichmentDatasetScheduler
     else
       nil
     end

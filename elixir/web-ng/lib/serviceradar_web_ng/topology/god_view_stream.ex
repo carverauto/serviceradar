@@ -438,16 +438,32 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp fetch_devices(_actor, []), do: {:ok, []}
 
   defp fetch_devices(actor, node_ids) when is_list(node_ids) do
-    query =
-      Device
-      |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
-      |> Ash.Query.filter(uid in ^node_ids)
-      |> Ash.Query.sort(uid: :asc)
+    # Keep query parameter counts bounded for large topology graphs.
+    node_ids
+    |> Enum.chunk_every(2_000)
+    |> Enum.reduce_while({:ok, []}, fn node_id_chunk, {:ok, acc} ->
+      query =
+        Device
+        |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
+        |> Ash.Query.filter(uid in ^node_id_chunk)
 
-    case Ash.read(query, actor: actor) do
-      {:ok, devices} when is_list(devices) -> {:ok, devices}
-      {:ok, page} -> {:ok, page_results(page)}
-      {:error, reason} -> {:error, reason}
+      case Ash.read(query, actor: actor) do
+        {:ok, devices} when is_list(devices) ->
+          {:cont, {:ok, devices ++ acc}}
+
+        {:ok, page} ->
+          {:cont, {:ok, page_results(page) ++ acc}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, devices} ->
+        {:ok, devices |> Enum.uniq_by(& &1.uid) |> Enum.sort_by(& &1.uid)}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

@@ -69,6 +69,22 @@ fn bytes_to_ip(bytes: &[u8]) -> Option<String> {
     }
 }
 
+fn mac_to_string(mac: u64) -> Option<String> {
+    if mac == 0 {
+        return None;
+    }
+
+    Some(format!(
+        "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+        (mac >> 40) & 0xFF,
+        (mac >> 32) & 0xFF,
+        (mac >> 24) & 0xFF,
+        (mac >> 16) & 0xFF,
+        (mac >> 8) & 0xFF,
+        mac & 0xFF
+    ))
+}
+
 /// Map FlowType enum to a human-readable version label.
 fn flow_source_label(flow_type: i32) -> &'static str {
     use crate::flowpb::flow_message::FlowType;
@@ -86,6 +102,8 @@ pub fn flow_to_json(msg: &FlowMessage) -> Option<Vec<u8>> {
     let src_addr = bytes_to_ip(&msg.src_addr).unwrap_or_default();
     let dst_addr = bytes_to_ip(&msg.dst_addr).unwrap_or_default();
     let sampler_addr = bytes_to_ip(&msg.sampler_address).unwrap_or_default();
+    let src_mac = mac_to_string(msg.src_mac);
+    let dst_mac = mac_to_string(msg.dst_mac);
 
     let json = serde_json::json!({
         "src_addr": src_addr,
@@ -95,6 +113,10 @@ pub fn flow_to_json(msg: &FlowMessage) -> Option<Vec<u8>> {
         "protocol": msg.proto,
         "packets": msg.packets,
         "bytes": msg.bytes,
+        "bytes_in": msg.bytes_in,
+        "bytes_out": msg.bytes_out,
+        "packets_in": msg.packets_in,
+        "packets_out": msg.packets_out,
         "sampling_rate": msg.sampling_rate,
         "sampler_address": sampler_addr,
         "input_snmp": msg.in_if,
@@ -104,6 +126,8 @@ pub fn flow_to_json(msg: &FlowMessage) -> Option<Vec<u8>> {
         "src_as": msg.src_as,
         "dst_as": msg.dst_as,
         "protocol_name": msg.protocol_name,
+        "src_mac": src_mac,
+        "dst_mac": dst_mac,
         "timestamp": msg.time_received_ns,
         "flow_source": flow_source_label(msg.r#type),
     });

@@ -65,8 +65,7 @@ export(_SpansTid, _Resource, _State) ->
 shutdown(#{otlp := #{channel := undefined}}) ->
     ok;
 shutdown(#{otlp := #{channel := Channel}}) ->
-    %% stop by channel name, not pid
-    try grpcbox_channel:stop(Channel, {shutdown, force_delete}) catch _:_ -> ok end,
+    maybe_stop_channel(Channel),
     ok;
 shutdown(_) ->
     ok.
@@ -186,7 +185,7 @@ do_restart_channel(Channel, Endpoints, Compression) ->
     ChannelOpts = channel_opts(Compression),
     ?LOG_INFO("OTLP grpc channel has no endpoints; restarting channel=~p endpoints=~p",
               [Channel, length(EndpointTuples)]),
-    try grpcbox_channel:stop(Channel, {shutdown, force_delete}) catch _:_ -> ok end,
+    maybe_stop_channel(Channel),
     timer:sleep(100),
     try grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts) of
         {ok, _Pid} ->
@@ -215,3 +214,20 @@ scheme(<<"http">>) -> http;
 scheme("https") -> https;
 scheme("http") -> http;
 scheme(_) -> http.
+
+maybe_stop_channel(Channel) ->
+    case gproc_ready() of
+        true ->
+            %% stop by channel name, not pid
+            try grpcbox_channel:stop(Channel, {shutdown, force_delete}) catch _:_ -> ok end;
+        false ->
+            ok
+    end.
+
+gproc_ready() ->
+    try ets:info(gproc, size) of
+        undefined -> false;
+        _ -> true
+    catch
+        _:_ -> false
+    end.

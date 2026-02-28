@@ -5,6 +5,7 @@ use netflow_parser::protocol::ProtocolTypes;
 use netflow_parser::static_versions::v5::V5;
 use netflow_parser::variable_versions::data_number::{DataNumber, FieldValue};
 use netflow_parser::variable_versions::ipfix_lookup::{IANAIPFixField, IPFixField};
+use netflow_parser::variable_versions::ipfix_lookup::ReverseInformationElement;
 use netflow_parser::variable_versions::v9_lookup::V9Field;
 use std::net::{IpAddr, SocketAddr};
 
@@ -43,6 +44,8 @@ impl Converter {
             msg.protocol_name = protocol_type_name(ProtocolTypes::from(flow.protocol_number));
             msg.bytes = u64::from(flow.d_octets);
             msg.packets = u64::from(flow.d_pkts);
+            msg.bytes_out = msg.bytes;
+            msg.packets_out = msg.packets;
 
             let uptime_ms = packet.header.sys_up_time;
             let unix_secs = packet.header.unix_secs;
@@ -189,6 +192,9 @@ impl Converter {
                             }
                         }
 
+                        msg.bytes_out = msg.bytes;
+                        msg.packets_out = msg.packets;
+
                         messages.push(msg);
                     }
                 }
@@ -261,19 +267,51 @@ impl Converter {
                                     msg.protocol_name = field_value_to_protocol_name(field_value);
                                 }
                                 IPFixField::IANA(IANAIPFixField::OctetDeltaCount) => {
-                                    msg.bytes = field_value_to_u64(field_value)
+                                    let value = field_value_to_u64(field_value);
+                                    msg.bytes = value;
+                                    msg.bytes_out = value;
                                 }
                                 IPFixField::IANA(IANAIPFixField::OctetTotalCount) => {
-                                    if msg.bytes == 0 {
-                                        msg.bytes = field_value_to_u64(field_value)
+                                    if msg.bytes_out == 0 {
+                                        let value = field_value_to_u64(field_value);
+                                        msg.bytes = value;
+                                        msg.bytes_out = value;
                                     }
                                 }
                                 IPFixField::IANA(IANAIPFixField::PacketDeltaCount) => {
-                                    msg.packets = field_value_to_u64(field_value)
+                                    let value = field_value_to_u64(field_value);
+                                    msg.packets = value;
+                                    msg.packets_out = value;
                                 }
                                 IPFixField::IANA(IANAIPFixField::PacketTotalCount) => {
-                                    if msg.packets == 0 {
-                                        msg.packets = field_value_to_u64(field_value)
+                                    if msg.packets_out == 0 {
+                                        let value = field_value_to_u64(field_value);
+                                        msg.packets = value;
+                                        msg.packets_out = value;
+                                    }
+                                }
+                                IPFixField::IANA(IANAIPFixField::InitiatorOctets) => {
+                                    if msg.bytes_out == 0 {
+                                        let value = field_value_to_u64(field_value);
+                                        msg.bytes = value;
+                                        msg.bytes_out = value;
+                                    }
+                                }
+                                IPFixField::IANA(IANAIPFixField::ResponderOctets) => {
+                                    if msg.bytes_in == 0 {
+                                        msg.bytes_in = field_value_to_u64(field_value);
+                                    }
+                                }
+                                IPFixField::IANA(IANAIPFixField::InitiatorPackets) => {
+                                    if msg.packets_out == 0 {
+                                        let value = field_value_to_u64(field_value);
+                                        msg.packets = value;
+                                        msg.packets_out = value;
+                                    }
+                                }
+                                IPFixField::IANA(IANAIPFixField::ResponderPackets) => {
+                                    if msg.packets_in == 0 {
+                                        msg.packets_in = field_value_to_u64(field_value);
                                     }
                                 }
                                 IPFixField::IANA(IANAIPFixField::FlowStartMilliseconds) => {
@@ -401,6 +439,38 @@ impl Converter {
                                         let val = field_value_to_u32(field_value);
                                         msg.icmp_type = (val >> 8) & 0xFF;
                                         msg.icmp_code = val & 0xFF;
+                                    }
+                                }
+                                IPFixField::ReverseInformationElement(
+                                    ReverseInformationElement::ReverseOctetDeltaCount,
+                                )
+                                | IPFixField::ReverseInformationElement(
+                                    ReverseInformationElement::ReverseOctetTotalCount,
+                                )
+                                | IPFixField::ReverseInformationElement(
+                                    ReverseInformationElement::ReversePostOctetDeltaCount,
+                                )
+                                | IPFixField::ReverseInformationElement(
+                                    ReverseInformationElement::ReversePostOctetTotalCount,
+                                ) => {
+                                    if msg.bytes_in == 0 {
+                                        msg.bytes_in = field_value_to_u64(field_value);
+                                    }
+                                }
+                                IPFixField::ReverseInformationElement(
+                                    ReverseInformationElement::ReversePacketDeltaCount,
+                                )
+                                | IPFixField::ReverseInformationElement(
+                                    ReverseInformationElement::ReversePacketTotalCount,
+                                )
+                                | IPFixField::ReverseInformationElement(
+                                    ReverseInformationElement::ReversePostPacketDeltaCount,
+                                )
+                                | IPFixField::ReverseInformationElement(
+                                    ReverseInformationElement::ReversePostPacketTotalCount,
+                                ) => {
+                                    if msg.packets_in == 0 {
+                                        msg.packets_in = field_value_to_u64(field_value);
                                     }
                                 }
                                 _ => {

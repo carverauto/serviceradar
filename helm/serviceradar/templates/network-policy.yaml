@@ -11,13 +11,21 @@
 {{- if $allowKubeAPI -}}
   {{- $kubeSvc := (lookup "v1" "Service" "default" "kubernetes") -}}
   {{- if and $kubeSvc $kubeSvc.spec.clusterIP -}}
-    {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/32" $kubeSvc.spec.clusterIP) -}}
+    {{- if contains ":" $kubeSvc.spec.clusterIP -}}
+      {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/128" $kubeSvc.spec.clusterIP) -}}
+    {{- else -}}
+      {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/32" $kubeSvc.spec.clusterIP) -}}
+    {{- end -}}
   {{- end -}}
   {{- $kubeEps := (lookup "v1" "Endpoints" "default" "kubernetes") -}}
   {{- if $kubeEps -}}
     {{- range $subset := $kubeEps.subsets -}}
       {{- range $addr := $subset.addresses -}}
-        {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/32" $addr.ip) -}}
+        {{- if contains ":" $addr.ip -}}
+          {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/128" $addr.ip) -}}
+        {{- else -}}
+          {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/32" $addr.ip) -}}
+        {{- end -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}

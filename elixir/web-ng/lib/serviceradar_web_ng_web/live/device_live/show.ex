@@ -107,60 +107,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     url_tab = Map.get(params, "tab")
     cursor = normalize_cursor(Map.get(params, "cursor"))
 
-    requested_tab =
-      if url_tab in ["details", "interfaces", "flows", "profiles", "sysmon"],
-        do: url_tab,
-        else: socket.assigns.active_tab
+    requested_tab = normalize_requested_tab(url_tab, socket.assigns.active_tab)
 
-    # When only the tab changed on the same device, skip reloading all data
-    if uid == socket.assigns.device_uid and limit == socket.assigns.limit do
-      active_tab =
-        cond do
-          requested_tab == "interfaces" and not socket.assigns.has_ifaces -> "details"
-          requested_tab == "flows" and not socket.assigns.has_flows -> "details"
-          true -> requested_tab
-        end
+    cond do
+      same_device_and_limit?(socket, uid, limit) ->
+        handle_same_device_params(socket, uid, limit, requested_tab, cursor)
 
-      srql =
-        cond do
-          active_tab == "interfaces" ->
-            srql_for_tab("interfaces", uid, limit, socket.assigns.srql)
-
-          active_tab == "flows" ->
-            srql_for_tab("flows", uid, limit, socket.assigns.srql)
-
-          true ->
-            socket.assigns.srql
-        end
-
-      socket =
-        if active_tab == "flows" do
-          {flows, pagination, flows_error} =
-            load_flows(srql_module(), uid, socket.assigns.current_scope, cursor)
-
-          socket
-          |> assign(:device_flows, flows)
-          |> assign(:flows_pagination, pagination)
-          |> assign(:flows_error, flows_error)
-        else
-          socket
-        end
-
-      {:noreply,
-       socket
-       |> assign(:active_tab, active_tab)
-       |> assign(:srql, srql)}
-    else
-      if connected?(socket) do
+      connected?(socket) ->
         load_device_data(socket, uid, limit, requested_tab, params, uri)
-      else
+
+      true ->
         # Disconnected render — show page shell with empty defaults from mount/3
         {:noreply,
          socket
          |> assign(:device_uid, uid)
          |> assign(:limit, limit)
          |> assign(:active_tab, requested_tab)}
-      end
     end
   end
 
@@ -174,18 +136,64 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp normalize_cursor(_), do: nil
 
+  defp normalize_requested_tab(url_tab, fallback_tab) do
+    if url_tab in ["details", "interfaces", "flows", "profiles", "sysmon"],
+      do: url_tab,
+      else: fallback_tab
+  end
+
+  defp same_device_and_limit?(socket, uid, limit) do
+    uid == socket.assigns.device_uid and limit == socket.assigns.limit
+  end
+
+  defp handle_same_device_params(socket, uid, limit, requested_tab, cursor) do
+    active_tab =
+      resolve_active_tab(
+        requested_tab,
+        socket.assigns.has_ifaces,
+        socket.assigns.has_flows
+      )
+
+    srql = srql_for_tab_if_needed(active_tab, uid, limit, socket.assigns.srql)
+
+    socket =
+      maybe_reload_flows_for_active_tab(
+        socket,
+        active_tab,
+        uid,
+        cursor
+      )
+
+    {:noreply,
+     socket
+     |> assign(:active_tab, active_tab)
+     |> assign(:srql, srql)}
+  end
+
+  defp maybe_reload_flows_for_active_tab(socket, "flows", uid, cursor) do
+    {flows, pagination, flows_error} =
+      load_flows(srql_module(), uid, socket.assigns.current_scope, cursor)
+
+    socket
+    |> assign(:device_flows, flows)
+    |> assign(:flows_pagination, pagination)
+    |> assign(:flows_error, flows_error)
+  end
+
+  defp maybe_reload_flows_for_active_tab(socket, _active_tab, _uid, _cursor), do: socket
+
+  defp srql_for_tab_if_needed("interfaces", uid, limit, srql),
+    do: srql_for_tab("interfaces", uid, limit, srql)
+
+  defp srql_for_tab_if_needed("flows", uid, limit, srql),
+    do: srql_for_tab("flows", uid, limit, srql)
+
+  defp srql_for_tab_if_needed(_active_tab, _uid, _limit, srql), do: srql
+
   defp load_device_data(socket, uid, limit, requested_tab, params, uri) do
     default_query = default_device_query(uid, limit)
 
-    query =
-      params
-      |> Map.get("q", default_query)
-      |> to_string()
-      |> String.trim()
-      |> case do
-        "" -> default_query
-        other -> other
-      end
+    query = normalized_device_query(params, default_query)
 
     srql_module = srql_module()
     scope = Map.get(socket.assigns, :current_scope)
@@ -290,19 +298,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     has_flows = is_binary(flows_error) or (is_list(device_flows) and device_flows != [])
 
-    active_tab =
-      cond do
-        requested_tab == "interfaces" and not has_ifaces -> "details"
-        requested_tab == "flows" and not has_flows -> "details"
-        true -> requested_tab
-      end
-
-    srql =
-      case active_tab do
-        "interfaces" -> srql_for_tab("interfaces", uid, limit, base_srql)
-        "flows" -> srql_for_tab("flows", uid, limit, base_srql)
-        _ -> base_srql
-      end
+    active_tab = resolve_active_tab(requested_tab, has_ifaces, has_flows)
+    srql = srql_for_tab_if_needed(active_tab, uid, limit, base_srql)
 
     {:noreply,
      socket
@@ -340,6 +337,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:device_snmp_credential, device_snmp_credential)
      |> assign(:srql, srql)}
   end
+
+  defp normalized_device_query(params, default_query) do
+    params
+    |> Map.get("q", default_query)
+    |> to_string()
+    |> String.trim()
+    |> case do
+      "" -> default_query
+      other -> other
+    end
+  end
+
+  defp resolve_active_tab("interfaces", false, _has_flows), do: "details"
+  defp resolve_active_tab("flows", _has_ifaces, false), do: "details"
+  defp resolve_active_tab(requested_tab, _has_ifaces, _has_flows), do: requested_tab
 
   @impl true
   def handle_event("srql_change", %{"q" => q}, socket) do
@@ -2750,6 +2762,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   <th>Source</th>
                   <th>Destination</th>
                   <th class="text-right">Proto</th>
+                  <th class="text-right">Direction</th>
                   <th class="text-right">Packets</th>
                   <th class="text-right">Bytes</th>
                   <th class="text-right"></th>
@@ -2766,7 +2779,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       {flow_endpoint(flow, :dst)}{flow_port(flow, :dst)}
                     </td>
                     <td class="text-right font-mono">
-                      {Map.get(flow, "protocol_name") || Map.get(flow, "protocol_num") || "—"}
+                      {flow_protocol(flow)}
+                      <div
+                        :if={service = flow_service_label(flow)}
+                        class="text-[10px] text-base-content/60"
+                      >
+                        {service}
+                      </div>
+                    </td>
+                    <td class="text-right font-mono">
+                      {flow_direction(flow)}
                     </td>
                     <td class="text-right font-mono">{Map.get(flow, "packets_total") || "—"}</td>
                     <td class="text-right font-mono">{format_bytes(Map.get(flow, "bytes_total"))}</td>
@@ -2805,6 +2827,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp flow_endpoint(flow, :src), do: Map.get(flow, "src_endpoint_ip") || "—"
   defp flow_endpoint(flow, :dst), do: Map.get(flow, "dst_endpoint_ip") || "—"
+
+  defp flow_protocol(flow),
+    do: Map.get(flow, "protocol_name") || Map.get(flow, "protocol_num") || "—"
+
+  defp flow_service_label(flow) when is_map(flow) do
+    case Map.get(flow, "dst_service_label") do
+      service when is_binary(service) and service != "" -> service
+      _ -> nil
+    end
+  end
+
+  defp flow_service_label(_), do: nil
+
+  defp flow_direction(flow) when is_map(flow) do
+    Map.get(flow, "direction_label") || "—"
+  end
+
+  defp flow_direction(_), do: "—"
 
   defp flow_port(flow, :src) do
     case Map.get(flow, "src_endpoint_port") do

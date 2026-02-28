@@ -481,6 +481,7 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::pg::sql_types::Array;
     use diesel::sql_types::*;
 
     ocsf_network_activity (time) {
@@ -500,11 +501,28 @@ diesel::table! {
         dst_as_number -> Nullable<Int4>,
         protocol_num -> Nullable<Int4>,
         protocol_name -> Nullable<Text>,
+        protocol_source -> Nullable<Text>,
         tcp_flags -> Nullable<Int4>,
+        tcp_flags_labels -> Nullable<Array<Text>>,
+        tcp_flags_source -> Nullable<Text>,
+        dst_service_label -> Nullable<Text>,
+        dst_service_source -> Nullable<Text>,
         bytes_total -> Int8,
         packets_total -> Int8,
         bytes_in -> Int8,
         bytes_out -> Int8,
+        direction_label -> Nullable<Text>,
+        direction_source -> Nullable<Text>,
+        src_hosting_provider -> Nullable<Text>,
+        src_hosting_provider_source -> Nullable<Text>,
+        dst_hosting_provider -> Nullable<Text>,
+        dst_hosting_provider_source -> Nullable<Text>,
+        src_mac -> Nullable<Text>,
+        dst_mac -> Nullable<Text>,
+        src_mac_vendor -> Nullable<Text>,
+        src_mac_vendor_source -> Nullable<Text>,
+        dst_mac_vendor -> Nullable<Text>,
+        dst_mac_vendor_source -> Nullable<Text>,
         sampler_address -> Nullable<Text>,
         ocsf_payload -> Jsonb,
         partition -> Nullable<Text>,

@@ -57,6 +57,10 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.NetflowAppClassificationRule
     resource ServiceRadar.Observability.NetflowExporterCache
     resource ServiceRadar.Observability.NetflowInterfaceCache
+    resource ServiceRadar.Observability.NetflowProviderDatasetSnapshot
+    resource ServiceRadar.Observability.NetflowProviderCidr
+    resource ServiceRadar.Observability.NetflowOuiDatasetSnapshot
+    resource ServiceRadar.Observability.NetflowOuiPrefix
     # Metrics resources - all map to TimescaleDB hypertables with migrate?: false
     # matching Go schema exactly
     resource ServiceRadar.Observability.TimeseriesMetric

@@ -1040,8 +1040,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
       false ->
         from(i in "discovered_interfaces",
-          where: i.device_id in ^accepted_device_ids,
-          where: i.if_index in ^if_indexes,
+          where:
+            fragment(
+              "? = ANY(?)",
+              i.device_id,
+              type(^accepted_device_ids, {:array, :string})
+            ),
+          where: fragment("? = ANY(?)", i.if_index, type(^if_indexes, {:array, :integer})),
           distinct: [i.device_id, i.if_index],
           order_by: [asc: i.device_id, asc: i.if_index, desc: i.timestamp],
           select: {i.device_id, i.if_index, i.speed_bps, i.if_speed}
@@ -1065,8 +1070,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
           %{}
 
         _ ->
+          uid_list = MapSet.to_list(uid_set)
+
           from(d in "ocsf_devices",
-            where: d.uid in ^MapSet.to_list(uid_set),
+            where: fragment("? = ANY(?)", d.uid, type(^uid_list, {:array, :string})),
             select: {d.uid, d.ip}
           )
           |> Repo.all()
@@ -1179,9 +1186,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       false ->
         from(m in "timeseries_metrics",
           where:
-            m.device_id in ^accepted_metric_ids or m.target_device_ip in ^accepted_metric_ips,
-          where: m.if_index in ^if_indexes,
-          where: m.metric_name in ^metric_names,
+            fragment(
+              "(? = ANY(?)) OR (? = ANY(?))",
+              m.device_id,
+              type(^accepted_metric_ids, {:array, :string}),
+              m.target_device_ip,
+              type(^accepted_metric_ips, {:array, :string})
+            ),
+          where: fragment("? = ANY(?)", m.if_index, type(^if_indexes, {:array, :integer})),
+          where: fragment("? = ANY(?)", m.metric_name, type(^metric_names, {:array, :string})),
           where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
           distinct: [m.device_id, m.target_device_ip, m.if_index, m.metric_name],
           order_by: [
