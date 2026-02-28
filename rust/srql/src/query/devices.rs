@@ -7,7 +7,7 @@ use crate::{
         agent_id as col_agent_id, deleted_at as col_deleted_at, device_type as col_device_type,
         first_seen_time as col_first_seen_time, gateway_id as col_gateway_id,
         hostname as col_hostname, ip as col_ip, is_available as col_is_available,
-        last_seen_time as col_last_seen_time, mac as col_mac, model as col_model, ocsf_devices,
+        last_seen_time as col_last_seen_time, model as col_model, ocsf_devices,
         risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
         vendor_name as col_vendor_name,
     },
@@ -441,7 +441,7 @@ fn build_grouped_stats_filter_clause(
         "uid" => build_grouped_text_clause("uid", filter, &mut binds)?,
         "hostname" => build_grouped_text_clause("hostname", filter, &mut binds)?,
         "ip" => build_grouped_text_clause("ip", filter, &mut binds)?,
-        "mac" => build_grouped_text_clause("mac", filter, &mut binds)?,
+        "mac" => build_grouped_mac_clause(filter, &mut binds)?,
         "gateway_id" => build_grouped_text_clause("gateway_id", filter, &mut binds)?,
         "agent_id" => build_grouped_text_clause("agent_id", filter, &mut binds)?,
         "type" | "device_type" => build_grouped_text_clause("device_type", filter, &mut binds)?,
@@ -646,12 +646,7 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
             query = apply_ip_filter(query, filter)?;
         }
         "mac" => {
-            query = apply_text_filter_no_lists!(
-                query,
-                filter,
-                col_mac,
-                "mac filter does not support lists"
-            )?;
+            query = apply_mac_filter(query, filter)?;
         }
         "gateway_id" => {
             query = apply_eq_filter!(
@@ -875,6 +870,89 @@ fn apply_ip_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<Device
     apply_text_filter_no_lists!(query, filter, col_ip, "ip filter does not support lists")
 }
 
+/// Normalized MAC filter for the Diesel typed query path.
+/// Strips separators from both column and value so any format matches.
+fn apply_mac_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<DeviceQuery<'a>> {
+    let norm_col = "lower(regexp_replace(mac, '[^0-9a-fA-F]', '', 'g'))";
+
+    match filter.op {
+        FilterOp::Eq => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, false)?;
+            Ok(query.filter(sql::<Bool>(&format!("{norm_col} = ")).bind::<Text, _>(normalized)))
+        }
+        FilterOp::NotEq => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, false)?;
+            Ok(query
+                .filter(sql::<Bool>(&format!("(mac IS NULL OR {norm_col} <> ")).bind::<Text, _>(normalized).sql(")")))
+        }
+        FilterOp::Like => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, true)?;
+            Ok(query.filter(sql::<Bool>(&format!("{norm_col} LIKE ")).bind::<Text, _>(normalized)))
+        }
+        FilterOp::NotLike => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, true)?;
+            Ok(query
+                .filter(sql::<Bool>(&format!("(mac IS NULL OR {norm_col} NOT LIKE ")).bind::<Text, _>(normalized).sql(")")))
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "mac filter only supports equality and LIKE operators".into(),
+        )),
+    }
+}
+
+/// Normalized MAC clause for the grouped stats raw-SQL path.
+fn build_grouped_mac_clause(
+    filter: &Filter,
+    binds: &mut Vec<DeviceSqlBindValue>,
+) -> Result<String> {
+    let norm_col = "lower(regexp_replace(mac, '[^0-9a-fA-F]', '', 'g'))";
+
+    match filter.op {
+        FilterOp::Eq => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, false)?;
+            binds.push(DeviceSqlBindValue::Text(normalized));
+            Ok(format!("{norm_col} = ?"))
+        }
+        FilterOp::NotEq => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, false)?;
+            binds.push(DeviceSqlBindValue::Text(normalized));
+            Ok(format!("(mac IS NULL OR {norm_col} <> ?)"))
+        }
+        FilterOp::Like => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, true)?;
+            binds.push(DeviceSqlBindValue::Text(normalized));
+            Ok(format!("{norm_col} LIKE ?"))
+        }
+        FilterOp::NotLike => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, true)?;
+            binds.push(DeviceSqlBindValue::Text(normalized));
+            Ok(format!("(mac IS NULL OR {norm_col} NOT LIKE ?)"))
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "mac filter only supports equality and LIKE operators".into(),
+        )),
+    }
+}
+
+/// Collects normalized MAC bind params for the count/non-grouped stats path.
+fn collect_mac_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, false)?;
+            params.push(BindParam::Text(normalized));
+            Ok(())
+        }
+        FilterOp::Like | FilterOp::NotLike => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, true)?;
+            params.push(BindParam::Text(normalized));
+            Ok(())
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "mac filter only supports equality and LIKE operators".into(),
+        )),
+    }
+}
+
 fn collect_text_params(
     params: &mut Vec<BindParam>,
     filter: &Filter,
@@ -906,7 +984,8 @@ fn collect_text_params(
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
         "uid" => collect_text_params(params, filter, true),
-        "hostname" | "mac" => collect_text_params(params, filter, false),
+        "hostname" => collect_text_params(params, filter, false),
+        "mac" => collect_mac_params(params, filter),
         "ip" => collect_ip_params(params, filter),
         "gateway_id" | "agent_id" | "type" | "device_type" | "vendor_name" | "model"
         | "risk_level" => {

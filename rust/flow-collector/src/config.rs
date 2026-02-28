@@ -93,18 +93,13 @@ impl ListenerConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DropPolicy {
+    #[default]
     DropOldest,
     DropNewest,
     Block,
-}
-
-impl Default for DropPolicy {
-    fn default() -> Self {
-        Self::DropOldest
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

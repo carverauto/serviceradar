@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       filter_fields: [
         "hostname",
         "ip",
+        "mac",
         "uid",
         "gateway_id",
         "agent_id",

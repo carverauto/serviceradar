@@ -30,10 +30,6 @@ rustls = "0.23"
 [build-dependencies]
 tonic-build = { workspace = true }
 
-[[bin]]
-name = "zen-put-rule"
-path = "src/bin/put_rule.rs"
-
 [lints.clippy]
 # Suppress warnings from generated protobuf code
 enum_variant_names = "allow"
