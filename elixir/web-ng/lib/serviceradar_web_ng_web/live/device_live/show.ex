@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.SweepJobs.SweepHostResult
@@ -38,6 +39,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket) do
+      DevicePubSub.subscribe()
+    end
+
     srql = %{
       enabled: true,
       entity: "devices",
@@ -102,6 +107,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   @impl true
   def handle_params(%{"uid" => uid} = params, uri, socket) do
+    socket =
+      socket
+      |> assign(:last_params, params)
+      |> assign(:last_uri, uri)
+
     limit = parse_limit(Map.get(params, "limit"), @default_limit, @max_limit)
     # Read tab from URL params, fall back to current or default
     url_tab = Map.get(params, "tab")
@@ -126,6 +136,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  @impl true
+  def handle_info({:device_created, uid, _device}, socket) do
+    maybe_refresh_current_device(socket, uid)
+  end
+
+  def handle_info({:device_updated, uid, _device}, socket) do
+    maybe_refresh_current_device(socket, uid)
+  end
+
+  def handle_info({:device_deleted, uid}, socket) do
+    maybe_refresh_current_device(socket, uid)
+  end
+
   defp normalize_cursor(nil), do: nil
   defp normalize_cursor(""), do: nil
 
@@ -135,6 +158,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp normalize_cursor(_), do: nil
+
+  defp maybe_refresh_current_device(socket, uid) when is_binary(uid) do
+    if uid == socket.assigns.device_uid do
+      params =
+        socket.assigns
+        |> Map.get(:last_params, %{})
+        |> Map.put("uid", uid)
+
+      uri = Map.get(socket.assigns, :last_uri, "/devices/#{uid}")
+      limit = parse_limit(Map.get(params, "limit"), socket.assigns.limit, @max_limit)
+      requested_tab = normalize_requested_tab(Map.get(params, "tab"), socket.assigns.active_tab)
+
+      load_device_data(socket, uid, limit, requested_tab, params, uri)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  defp maybe_refresh_current_device(socket, _uid), do: {:noreply, socket}
 
   defp normalize_requested_tab(url_tab, fallback_tab) do
     if url_tab in ["details", "interfaces", "flows", "profiles", "sysmon"],

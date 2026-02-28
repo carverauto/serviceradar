@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   alias ServiceRadarWebNG.AshTestHelpers
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.Repo
   alias ServiceRadar.NetworkDiscovery.{MapperJob, MapperSeed}
   import Phoenix.LiveViewTest
@@ -69,6 +70,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute has_element?(view, "[data-testid='sysmon-profile-label']")
   end
 
+  test "auto-refreshes devices list when a device is created", %{conn: conn, scope: scope} do
+    uid = "test-device-pubsub-#{System.unique_integer([:positive])}"
+    hostname = "pubsub-host-#{System.unique_integer([:positive])}"
+
+    {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
+    refute render(view) =~ hostname
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{uid: uid, hostname: hostname, ip: "10.10.10.10"})
+      |> Ash.create(scope: scope)
+
+    assert render(view) =~ hostname
+  end
+
   test "shows deleted badge and restore action for deleted devices", %{conn: conn, user: user} do
     promote_user!(user, :admin)
     uid = "test-device-deleted-#{System.unique_integer([:positive])}"
@@ -90,6 +106,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
     assert html =~ "Deleted"
     assert html =~ "Restore"
+  end
+
+  test "auto-refreshes device details when the viewed device is updated", %{
+    conn: conn,
+    scope: scope
+  } do
+    uid = "test-device-show-pubsub-#{System.unique_integer([:positive])}"
+    initial_hostname = "show-pubsub-initial-#{System.unique_integer([:positive])}"
+    updated_hostname = "show-pubsub-updated-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: initial_hostname,
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    assert render(view) =~ initial_hostname
+
+    {:ok, device} = Device.get_by_uid(uid, true, scope: scope)
+
+    {:ok, _updated} =
+      device
+      |> Ash.Changeset.for_update(:update, %{hostname: updated_hostname})
+      |> Ash.update(scope: scope)
+
+    _ = :sys.get_state(view.pid)
+    assert render(view) =~ updated_hostname
   end
 
   test "include_deleted query surfaces deleted devices in the list", %{conn: conn, user: user} do
