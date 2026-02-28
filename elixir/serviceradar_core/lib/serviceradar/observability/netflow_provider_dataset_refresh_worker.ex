@@ -22,7 +22,8 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   @default_timeout_ms 30_000
   @default_reschedule_seconds 86_400
   @default_failure_reschedule_seconds 6 * 3600
-  @insert_chunk_size 1_000
+  @insert_chunk_size 250
+  @db_timeout_ms 120_000
 
   @doc """
   Schedules the refresh job if not already scheduled.
@@ -172,7 +173,8 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
               updated_at: now
             }
           ],
-          prefix: "platform"
+          prefix: "platform",
+          timeout: @db_timeout_ms
         )
 
       rows_to_insert = Enum.map(rows, &Map.put(&1, :snapshot_id, snapshot_id))
@@ -180,12 +182,14 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
 
       Repo.query!(
         "UPDATE platform.netflow_provider_dataset_snapshots SET is_active = FALSE, updated_at = now() WHERE id <> $1 AND is_active = TRUE",
-        [snapshot_id]
+        [snapshot_id],
+        timeout: @db_timeout_ms
       )
 
       Repo.query!(
         "UPDATE platform.netflow_provider_dataset_snapshots SET is_active = TRUE, promoted_at = now(), updated_at = now() WHERE id = $1",
-        [snapshot_id]
+        [snapshot_id],
+        timeout: @db_timeout_ms
       )
 
       if count == 0 do
@@ -193,7 +197,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
       else
         :ok
       end
-    end)
+    end, timeout: @db_timeout_ms)
     |> case do
       {:ok, :ok} -> :ok
       {:error, reason} -> {:error, reason}
@@ -264,7 +268,8 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
       {count, _} =
         Repo.insert_all("netflow_provider_cidrs", chunk,
           prefix: "platform",
-          on_conflict: :nothing
+          on_conflict: :nothing,
+          timeout: @db_timeout_ms
         )
 
       acc + count

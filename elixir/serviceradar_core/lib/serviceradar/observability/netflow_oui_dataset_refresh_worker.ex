@@ -22,6 +22,8 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
   @default_timeout_ms 45_000
   @default_reschedule_seconds 7 * 86_400
   @default_failure_reschedule_seconds 12 * 3600
+  @insert_chunk_size 250
+  @db_timeout_ms 120_000
 
   @doc """
   Schedules the refresh job if not already scheduled.
@@ -161,25 +163,23 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
               updated_at: now
             }
           ],
-          prefix: "platform"
+          prefix: "platform",
+          timeout: @db_timeout_ms
         )
 
       rows_to_insert = Enum.map(rows, &Map.put(&1, :snapshot_id, snapshot_id))
-
-      {count, _} =
-        Repo.insert_all("netflow_oui_prefixes", rows_to_insert,
-          prefix: "platform",
-          on_conflict: :nothing
-        )
+      count = insert_oui_rows(rows_to_insert)
 
       Repo.query!(
         "UPDATE platform.netflow_oui_dataset_snapshots SET is_active = FALSE, updated_at = now() WHERE id <> $1 AND is_active = TRUE",
-        [snapshot_id]
+        [snapshot_id],
+        timeout: @db_timeout_ms
       )
 
       Repo.query!(
         "UPDATE platform.netflow_oui_dataset_snapshots SET is_active = TRUE, promoted_at = now(), updated_at = now() WHERE id = $1",
-        [snapshot_id]
+        [snapshot_id],
+        timeout: @db_timeout_ms
       )
 
       if count == 0 do
@@ -187,7 +187,7 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
       else
         :ok
       end
-    end)
+    end, timeout: @db_timeout_ms)
     |> case do
       {:ok, :ok} -> :ok
       {:error, reason} -> {:error, reason}
@@ -243,5 +243,20 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
     |> to_string()
     |> String.trim()
     |> String.trim("\"")
+  end
+
+  defp insert_oui_rows(rows) when is_list(rows) do
+    rows
+    |> Enum.chunk_every(@insert_chunk_size)
+    |> Enum.reduce(0, fn chunk, acc ->
+      {count, _} =
+        Repo.insert_all("netflow_oui_prefixes", chunk,
+          prefix: "platform",
+          on_conflict: :nothing,
+          timeout: @db_timeout_ms
+        )
+
+      acc + count
+    end)
   end
 end

@@ -215,7 +215,8 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   def provider_for_ip(nil), do: nil
 
   def provider_for_ip(ip) when is_binary(ip) do
-    with {:ok, %{rows: [[provider]]}} <- Ecto.Adapters.SQL.query(Repo, @provider_lookup_sql, [ip]),
+    with {:ok, inet} <- ServiceRadar.Types.Cidr.dump_to_native(ip, []),
+         {:ok, %{rows: [[provider]]}} <- Ecto.Adapters.SQL.query(Repo, @provider_lookup_sql, [inet]),
          true <- is_binary(provider) and provider != "" do
       provider
     else
