@@ -20,8 +20,8 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
 
   @default_source_url "https://raw.githubusercontent.com/rezmoss/cloud-provider-ip-addresses/main/all_providers/all_providers.json"
   @default_timeout_ms 30_000
-  @default_reschedule_seconds 86_400
-  @default_failure_reschedule_seconds 6 * 3600
+  @default_reschedule_seconds 24 * 3600
+  @default_failure_reschedule_seconds 12 * 3600
   @insert_chunk_size 250
   @db_timeout_ms 120_000
 
@@ -53,6 +53,15 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
 
   @impl Oban.Worker
   def perform(_job) do
+    if scheduler_node?() do
+      do_perform()
+    else
+      Logger.debug("Skipping cloud-provider CIDR refresh on non-scheduler node", node: Node.self())
+      :ok
+    end
+  end
+
+  defp do_perform do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     source_url = Keyword.get(config, :source_url, @default_source_url)
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
@@ -87,6 +96,15 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
         Logger.warning("Cloud-provider CIDR dataset fetch failed", reason: inspect(reason))
         schedule_next(failure_reschedule_seconds)
     end
+  end
+
+  defp scheduler_node? do
+    cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, false)
+
+    cluster_coordinator =
+      Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
+
+    if cluster_enabled, do: cluster_coordinator, else: true
   end
 
   defp fetch_provider_rows(source_url, timeout_ms) do

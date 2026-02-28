@@ -24,6 +24,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   @default_time "last_1h"
   @default_bucket "5m"
   @chart_limit 4000
+  @arin_cache_table :netflow_arin_asn_cache
+  @arin_cache_ttl_ms 6 * 60 * 60 * 1000
+  @arin_cache_negative_ttl_ms 60 * 1000
 
   @nf_dims_ordered [
     {"Protocol (group)", "protocol_group"},
@@ -69,6 +72,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> assign(:limit, @default_limit)
       |> assign(:selected_flow, nil)
       |> assign(:selected_flow_context, %{})
+      |> assign(:arin_lookup, %{})
       |> assign(:flows, [])
       |> assign(:flows_pagination, %{})
       |> assign(:rdns_map, %{})
@@ -203,14 +207,35 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {:noreply,
      socket
      |> assign(:selected_flow, selected)
-     |> assign(:selected_flow_context, context)}
+     |> assign(:selected_flow_context, context)
+     |> assign(:arin_lookup, %{})}
   end
 
   def handle_event("netflow_close", _params, socket) do
     {:noreply,
      socket
      |> assign(:selected_flow, nil)
-     |> assign(:selected_flow_context, %{})}
+     |> assign(:selected_flow_context, %{})
+     |> assign(:arin_lookup, %{})}
+  end
+
+  def handle_event("netflow_lookup_asn", %{"asn" => asn_raw}, socket) do
+    asn = to_int(asn_raw)
+
+    if is_integer(asn) and asn > 0 do
+      lookup =
+        case fetch_arin_asn(asn) do
+          {:ok, data} ->
+            %{asn: asn, loading: false, data: data, error: nil}
+
+          {:error, reason} ->
+            %{asn: asn, loading: false, data: nil, error: arin_error_text(reason)}
+        end
+
+      {:noreply, assign(socket, :arin_lookup, lookup)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("netflow_sankey_edge", %{} = params, socket) do
@@ -866,6 +891,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
               flow={@selected_flow}
               rdns_map={@rdns_map}
               context={@selected_flow_context}
+              arin_lookup={@arin_lookup}
             />
           </section>
         </div>
@@ -1247,6 +1273,23 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   defp iso2_flag_emoji(_), do: nil
+
+  defp tcp_flag_tooltip(flag) when is_binary(flag) do
+    case String.upcase(String.trim(flag)) do
+      "SYN" -> "SYN: Starts a TCP connection."
+      "ACK" -> "ACK: Acknowledges received data."
+      "FIN" -> "FIN: Requests a graceful connection close."
+      "RST" -> "RST: Abruptly resets the connection."
+      "PSH" -> "PSH: Pushes buffered data to the application immediately."
+      "URG" -> "URG: Marks urgent data in this segment."
+      "ECE" -> "ECE: Signals Explicit Congestion Notification."
+      "CWR" -> "CWR: Confirms congestion window was reduced."
+      "NS" -> "NS: ECN nonce protection flag (rare)."
+      _ -> "TCP flag."
+    end
+  end
+
+  defp tcp_flag_tooltip(_), do: "TCP flag."
 
   defp flows_filter_patch(base_path, query, limit, nf, field, value) do
     value = to_string(value || "") |> String.trim()
@@ -1667,6 +1710,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   attr(:flow, :map, required: true)
   attr(:rdns_map, :map, default: %{})
   attr(:context, :map, default: %{})
+  attr(:arin_lookup, :map, default: %{})
 
   defp flow_details_modal(assigns) do
     ~H"""
@@ -1717,6 +1761,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         <% tcp_flags_labels =
           flow_get(@flow, ["tcp_flags_labels"]) ||
             flow_get_in(ocsf, ["enrichment", "tcp_flags_labels"]) %>
+        <% tcp_flags_labels =
+          if is_list(tcp_flags_labels),
+            do: Enum.map(tcp_flags_labels, &to_string/1),
+            else: [] %>
+        <% tcp_flags_count = length(tcp_flags_labels) %>
         <% protocol_num = flow_get(@flow, ["protocol_num"]) %>
         <% tcp_flags_raw = flow_get(@flow, ["tcp_flags"]) %>
         <% protocol_label =
@@ -1731,6 +1780,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
             end %>
         <% mapbox = Map.get(@context, :mapbox) %>
         <% map_markers = netflow_map_markers(@context, @flow) %>
+        <% arin_lookup = @arin_lookup || %{} %>
 
         <div class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
           <div class="space-y-3 lg:col-span-2">
@@ -1880,10 +1930,19 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   <div :if={not is_nil(protocol_num) and is_nil(protocol_label)}>
                     proto_num: <span class="font-mono">{protocol_num}</span>
                   </div>
-                  <div :if={is_list(tcp_flags_labels) and tcp_flags_labels != []}>
-                    flags: <span class="font-mono">{Enum.join(tcp_flags_labels, ", ")}</span>
+                  <div :if={tcp_flags_labels != []}>
+                    flags:
+                    <span class="ml-1 font-mono">
+                      <%= for {flag, idx} <- Enum.with_index(tcp_flags_labels) do %>
+                        <span class="tooltip tooltip-top" data-tip={tcp_flag_tooltip(flag)}>
+                          <span class="cursor-help underline decoration-dotted underline-offset-2">
+                            {flag}
+                          </span>
+                        </span><%= if idx < tcp_flags_count - 1, do: ", " %>
+                      <% end %>
+                    </span>
                   </div>
-                  <div :if={not is_nil(tcp_flags_raw) and (not is_list(tcp_flags_labels) or tcp_flags_labels == [])}>
+                  <div :if={not is_nil(tcp_flags_raw) and tcp_flags_labels == []}>
                     tcp_flags: <span class="font-mono">{tcp_flags_raw}</span>
                   </div>
                   <div :if={is_binary(direction_label) and direction_label != ""}>
@@ -1979,8 +2038,59 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
             <div class="mt-3 space-y-3 text-xs">
               <div>
                 <div class="font-semibold">GeoIP / ASN</div>
-                <.netflow_geoip_asn_line side="Source" geo={Map.get(@context, :src_geo)} />
-                <.netflow_geoip_asn_line side="Dest" geo={Map.get(@context, :dst_geo)} />
+                <.netflow_geoip_asn_line
+                  side="Source"
+                  geo={Map.get(@context, :src_geo)}
+                  arin_lookup={arin_lookup}
+                />
+                <.netflow_geoip_asn_line
+                  side="Dest"
+                  geo={Map.get(@context, :dst_geo)}
+                  arin_lookup={arin_lookup}
+                />
+              </div>
+
+              <div>
+                <div class="font-semibold">ARIN ASN lookup</div>
+                <div class="mt-1 text-base-content/70">
+                  Click any AS number to load ARIN Whois details.
+                </div>
+                <%= if is_binary(Map.get(arin_lookup, :error)) and Map.get(arin_lookup, :error) != "" do %>
+                  <div class="mt-2 text-error">
+                    {Map.get(arin_lookup, :error)}
+                  </div>
+                <% end %>
+                <%= if data = Map.get(arin_lookup, :data) do %>
+                  <div class="mt-2 rounded-lg border border-base-200 bg-base-200/30 p-2">
+                    <div class="font-mono text-[11px] text-base-content/80">
+                      {data.handle} {if is_binary(data.name), do: "- #{data.name}", else: ""}
+                    </div>
+                    <div class="mt-2 max-h-48 overflow-y-auto space-y-1 font-mono text-[11px] text-base-content/70 pr-1">
+                      <div :if={is_binary(data.org_name) and data.org_name != ""}>
+                        org: {data.org_name}
+                        <span :if={is_binary(data.org_handle) and data.org_handle != ""}>
+                          ({data.org_handle})
+                        </span>
+                      </div>
+                      <div :if={is_binary(data.range) and data.range != ""}>range: {data.range}</div>
+                      <div :if={is_binary(data.registration_date) and data.registration_date != ""}>
+                        registered: {data.registration_date}
+                      </div>
+                      <div :if={is_binary(data.update_date) and data.update_date != ""}>
+                        updated: {data.update_date}
+                      </div>
+                      <div :if={is_binary(data.comment) and data.comment != ""}>
+                        comment: {data.comment}
+                      </div>
+                      <div :if={is_binary(data.rdap_ref) and data.rdap_ref != ""}>
+                        rdap: <a href={data.rdap_ref} target="_blank" rel="noopener noreferrer" class="link link-hover">{data.rdap_ref}</a>
+                      </div>
+                      <div :if={is_binary(data.ref) and data.ref != ""}>
+                        whois: <a href={data.ref} target="_blank" rel="noopener noreferrer" class="link link-hover">{data.ref}</a>
+                      </div>
+                    </div>
+                  </div>
+                <% end %>
               </div>
 
               <div>
@@ -2040,7 +2150,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                         ", "
                       )}
                       <%= if is_integer(info.as_number) and info.as_number > 0 do %>
-                        <span class="ml-2">AS{info.as_number}</span>
+                        <button
+                          type="button"
+                          phx-click="netflow_lookup_asn"
+                          phx-value-asn={info.as_number}
+                          class={[
+                            "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-primary",
+                            Map.get(arin_lookup, :asn) == info.as_number && "text-primary"
+                          ]}
+                        >
+                          AS{info.as_number}
+                        </button>
                       <% end %>
                       <%= if is_binary(info.as_name) and info.as_name != "" do %>
                         <span class="ml-2 text-base-content/60">{info.as_name}</span>
@@ -2062,7 +2182,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                         ", "
                       )}
                       <%= if is_integer(info.as_number) and info.as_number > 0 do %>
-                        <span class="ml-2">AS{info.as_number}</span>
+                        <button
+                          type="button"
+                          phx-click="netflow_lookup_asn"
+                          phx-value-asn={info.as_number}
+                          class={[
+                            "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-primary",
+                            Map.get(arin_lookup, :asn) == info.as_number && "text-primary"
+                          ]}
+                        >
+                          AS{info.as_number}
+                        </button>
                       <% end %>
                       <%= if is_binary(info.as_name) and info.as_name != "" do %>
                         <span class="ml-2 text-base-content/60">{info.as_name}</span>
@@ -2125,30 +2255,51 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   attr(:side, :string, required: true)
   attr(:geo, :any, default: nil)
+  attr(:arin_lookup, :map, default: %{})
 
   defp netflow_geoip_asn_line(assigns) do
     geo = assigns.geo
 
-    parts =
+    {location_label, as_number, as_name} =
       if is_map(geo) do
-        [
-          Map.get(geo, :country_code),
-          Map.get(geo, :country_name),
-          Map.get(geo, :as_number) && "AS#{Map.get(geo, :as_number)}",
-          Map.get(geo, :as_name)
-        ]
-        |> Enum.filter(&is_binary/1)
-        |> Enum.map(&String.trim/1)
-        |> Enum.reject(&(&1 == ""))
+        location =
+          [Map.get(geo, :country_code), Map.get(geo, :country_name)]
+          |> Enum.filter(&is_binary/1)
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.join(" ")
+
+        {location, to_int(Map.get(geo, :as_number)), normalize_optional_string(Map.get(geo, :as_name))}
       else
-        []
+        {"", nil, nil}
       end
 
-    assigns = assign(assigns, :label, if(parts == [], do: "n/a", else: Enum.join(parts, " ")))
+    assigns =
+      assigns
+      |> assign(:location_label, if(location_label == "", do: "n/a", else: location_label))
+      |> assign(:as_number, as_number)
+      |> assign(:as_name, as_name)
+      |> assign(:asn_selected, Map.get(assigns.arin_lookup || %{}, :asn))
 
     ~H"""
     <div class="mt-1 text-base-content/70">
-      {@side}: <span class="font-mono">{@label}</span>
+      {@side}:
+      <span class="font-mono">{@location_label}</span>
+      <button
+        :if={is_integer(@as_number) and @as_number > 0}
+        type="button"
+        phx-click="netflow_lookup_asn"
+        phx-value-asn={@as_number}
+        class={[
+          "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-primary",
+          @asn_selected == @as_number && "text-primary"
+        ]}
+      >
+        AS{@as_number}
+      </button>
+      <span :if={is_binary(@as_name) and @as_name != ""} class="ml-2 font-mono text-base-content/60">
+        {@as_name}
+      </span>
     </div>
     """
   end
@@ -2842,6 +2993,156 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   defp to_number(_), do: 0
+
+  defp fetch_arin_asn(asn) when is_integer(asn) and asn > 0 do
+    case arin_cache_get(asn) do
+      {:hit, result} ->
+        result
+
+      :miss ->
+        result = fetch_arin_asn_remote(asn)
+        arin_cache_put(asn, result)
+        result
+    end
+  end
+
+  defp fetch_arin_asn(_), do: {:error, :invalid_asn}
+
+  defp fetch_arin_asn_remote(asn) when is_integer(asn) and asn > 0 do
+    url = "https://whois.arin.net/rest/asn/AS#{asn}.json"
+
+    req_opts = [
+      receive_timeout: 8_000,
+      retry: false,
+      finch: ServiceRadar.Finch,
+      headers: [{"accept", "application/json"}]
+    ]
+
+    case Req.get(url, req_opts) do
+      {:ok, %Req.Response{status: 200, body: %{"asn" => asn_payload}}} when is_map(asn_payload) ->
+        {:ok, normalize_arin_asn(asn_payload)}
+
+      {:ok, %Req.Response{status: 404}} ->
+        {:error, :not_found}
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, {:http_status, status}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    e -> {:error, e}
+  end
+
+  defp fetch_arin_asn_remote(_), do: {:error, :invalid_asn}
+
+  defp arin_cache_get(asn) when is_integer(asn) do
+    ensure_arin_cache_table()
+    now = System.monotonic_time(:millisecond)
+
+    case :ets.lookup(@arin_cache_table, asn) do
+      [{^asn, expires_at_ms, result}] when is_integer(expires_at_ms) and expires_at_ms > now ->
+        {:hit, result}
+
+      [{^asn, _expires_at_ms, _result}] ->
+        _ = :ets.delete(@arin_cache_table, asn)
+        :miss
+
+      _ ->
+        :miss
+    end
+  rescue
+    _ -> :miss
+  end
+
+  defp arin_cache_get(_), do: :miss
+
+  defp arin_cache_put(asn, result) when is_integer(asn) do
+    ensure_arin_cache_table()
+    ttl_ms = if match?({:ok, _}, result), do: @arin_cache_ttl_ms, else: @arin_cache_negative_ttl_ms
+    expires_at_ms = System.monotonic_time(:millisecond) + ttl_ms
+    _ = :ets.insert(@arin_cache_table, {asn, expires_at_ms, result})
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  defp arin_cache_put(_asn, _result), do: :ok
+
+  defp ensure_arin_cache_table do
+    case :ets.whereis(@arin_cache_table) do
+      :undefined ->
+        try do
+          :ets.new(@arin_cache_table, [
+            :named_table,
+            :set,
+            :public,
+            {:read_concurrency, true},
+            {:write_concurrency, true}
+          ])
+
+          :ok
+        rescue
+          ArgumentError -> :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp normalize_arin_asn(%{} = asn_payload) do
+    org_ref = Map.get(asn_payload, "orgRef")
+    start_as = arin_leaf_value(Map.get(asn_payload, "startAsNumber"))
+    end_as = arin_leaf_value(Map.get(asn_payload, "endAsNumber"))
+
+    %{
+      handle: arin_leaf_value(Map.get(asn_payload, "handle")),
+      name: arin_leaf_value(Map.get(asn_payload, "name")),
+      range: arin_as_range(start_as, end_as),
+      registration_date: arin_leaf_value(Map.get(asn_payload, "registrationDate")),
+      update_date: arin_leaf_value(Map.get(asn_payload, "updateDate")),
+      rdap_ref: arin_leaf_value(Map.get(asn_payload, "rdapRef")),
+      ref: arin_leaf_value(Map.get(asn_payload, "ref")),
+      org_handle: if(is_map(org_ref), do: Map.get(org_ref, "@handle")),
+      org_name: if(is_map(org_ref), do: Map.get(org_ref, "@name")),
+      org_ref: if(is_map(org_ref), do: Map.get(org_ref, "$")),
+      comment: arin_comment(Map.get(asn_payload, "comment"))
+    }
+  end
+
+  defp normalize_arin_asn(_), do: %{}
+
+  defp arin_leaf_value(%{"$" => value}) when is_binary(value), do: String.trim(value)
+  defp arin_leaf_value(value) when is_binary(value), do: String.trim(value)
+  defp arin_leaf_value(_), do: nil
+
+  defp arin_comment(%{"line" => lines}) when is_list(lines) do
+    lines
+    |> Enum.map(&arin_leaf_value/1)
+    |> Enum.filter(&is_binary/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(" ")
+    |> normalize_optional_string()
+  end
+
+  defp arin_comment(%{"line" => line}) do
+    arin_leaf_value(line)
+  end
+
+  defp arin_comment(_), do: nil
+
+  defp arin_as_range(start_as, end_as) when is_binary(start_as) and is_binary(end_as) do
+    if start_as == end_as, do: "AS#{start_as}", else: "AS#{start_as}-AS#{end_as}"
+  end
+
+  defp arin_as_range(_start_as, _end_as), do: nil
+
+  defp arin_error_text(:not_found), do: "ARIN has no record for that ASN."
+  defp arin_error_text(:invalid_asn), do: "Invalid ASN."
+  defp arin_error_text({:http_status, status}), do: "ARIN lookup failed (HTTP #{status})."
+  defp arin_error_text(_), do: "ARIN lookup failed."
 
   defp to_int(value) when is_integer(value), do: value
   defp to_int(value) when is_float(value), do: trunc(value)

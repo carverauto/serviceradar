@@ -20,7 +20,7 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
 
   @default_source_url "https://standards-oui.ieee.org/oui/oui.csv"
   @default_timeout_ms 45_000
-  @default_reschedule_seconds 7 * 86_400
+  @default_reschedule_seconds 24 * 3600
   @default_failure_reschedule_seconds 12 * 3600
   @insert_chunk_size 250
   @db_timeout_ms 120_000
@@ -53,6 +53,15 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
 
   @impl Oban.Worker
   def perform(_job) do
+    if scheduler_node?() do
+      do_perform()
+    else
+      Logger.debug("Skipping IEEE OUI dataset refresh on non-scheduler node", node: Node.self())
+      :ok
+    end
+  end
+
+  defp do_perform do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     source_url = Keyword.get(config, :source_url, @default_source_url)
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
@@ -81,6 +90,15 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
         Logger.warning("IEEE OUI dataset fetch failed", reason: inspect(reason))
         schedule_next(failure_reschedule_seconds)
     end
+  end
+
+  defp scheduler_node? do
+    cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, false)
+
+    cluster_coordinator =
+      Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
+
+    if cluster_enabled, do: cluster_coordinator, else: true
   end
 
   defp fetch_oui_rows(source_url, timeout_ms) do
