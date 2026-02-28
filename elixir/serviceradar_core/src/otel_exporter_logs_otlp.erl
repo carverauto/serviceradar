@@ -188,8 +188,7 @@ charlist_from_any_values(Values) ->
 shutdown(#state{channel=undefined}) ->
     ok;
 shutdown(#state{channel=Channel}) ->
-    %% stop by channel name, not pid
-    try grpcbox_channel:stop(Channel, {shutdown, force_delete}) catch _:_ -> ok end,
+    maybe_stop_channel(Channel),
     ok.
 
 %% Retry wrapper around grpcbox unary export.
@@ -367,9 +366,7 @@ do_restart_channel(Channel, Endpoints, Compression) ->
     ChannelOpts = channel_opts(Compression),
     ?LOG_INFO("OTLP grpc channel has no endpoints; restarting channel=~p endpoints=~p",
               [Channel, length(EndpointTuples)]),
-    %% force_delete ensures gproc_pool is fully cleaned up, preventing
-    %% stale pool entries from blocking the next start_link.
-    try grpcbox_channel:stop(Channel, {shutdown, force_delete}) catch _:_ -> ok end,
+    maybe_stop_channel(Channel),
     timer:sleep(100),
     try grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts) of
         {ok, _Pid} ->
@@ -398,6 +395,23 @@ scheme(<<"http">>) -> http;
 scheme("https") -> https;
 scheme("http") -> http;
 scheme(_) -> http.
+
+maybe_stop_channel(Channel) ->
+    case gproc_ready() of
+        true ->
+            %% stop by channel name, not pid
+            try grpcbox_channel:stop(Channel, {shutdown, force_delete}) catch _:_ -> ok end;
+        false ->
+            ok
+    end.
+
+gproc_ready() ->
+    try ets:info(gproc, size) of
+        undefined -> false;
+        _ -> true
+    catch
+        _:_ -> false
+    end.
 
 merge_with_environment(Opts) ->
     %% See `otel_exporter_traces_otlp:merge_with_environment/1` for rationale.

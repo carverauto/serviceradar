@@ -9,7 +9,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
 
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
