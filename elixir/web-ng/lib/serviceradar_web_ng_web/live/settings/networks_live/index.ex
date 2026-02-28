@@ -695,8 +695,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
     socket =
       if builder_open do
-        form_data = form_params(socket.assigns.ash_form)
-        target_query = Map.get(form_data, "target_query", "")
+        target_query = current_target_query(socket)
         {builder, builder_sync} = parse_target_query_to_builder(target_query)
 
         socket
@@ -3780,6 +3779,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     ash_form
     |> Form.params()
     |> Map.new(fn {k, v} -> {to_string(k), v} end)
+  end
+
+  defp current_target_query(socket) do
+    case Phoenix.HTML.Form.input_value(socket.assigns.form, :target_query) do
+      value when is_binary(value) -> value
+      value when is_list(value) -> to_string(value)
+      _ -> ""
+    end
   end
 
   # Transform comma-separated ports string to array of integers for Ash
