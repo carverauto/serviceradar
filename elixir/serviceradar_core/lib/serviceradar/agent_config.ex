@@ -4,7 +4,7 @@ defmodule ServiceRadar.AgentConfig do
 
   This domain provides a reusable pattern for generating, versioning, and distributing
   configurations to agents via the agent-gateway. It supports multiple config types
-  (sweep, poller, checker) through pluggable compilers.
+  (sweep, sysmon, snmp, mapper) through pluggable compilers.
 
   ## Resources
 

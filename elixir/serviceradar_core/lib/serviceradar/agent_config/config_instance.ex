@@ -121,7 +121,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
     attribute :config_type, :atom do
       allow_nil? false
       public? true
-      constraints one_of: [:sweep, :poller, :checker]
+      constraints one_of: [:sweep, :sysmon, :snmp, :mapper]
       description "Type of configuration"
     end
 
