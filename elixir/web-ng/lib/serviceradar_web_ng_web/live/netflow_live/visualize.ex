@@ -1931,7 +1931,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                     protocol_num == 6 %>
                 <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs">
                   <span class="badge badge-xs badge-outline">{protocol_label || "Unknown"}</span>
-                  <span :if={not is_nil(protocol_num)} class="text-base-content/60">proto {protocol_num}</span>
+                  <span :if={not is_nil(protocol_num)} class="text-base-content/60">
+                    proto {protocol_num}
+                  </span>
                   <span class="text-base-content/60">{src_port || "—"} → {dst_port || "—"}</span>
                 </div>
                 <div :if={is_tcp} class="mt-1 rounded border border-base-300 bg-base-100/60 p-1.5">
@@ -1942,21 +1944,22 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                     <%= for flag <- ["CWR", "ECE", "URG", "ACK", "PSH", "RST", "SYN", "FIN"] do %>
                       <% active = MapSet.member?(flag_set, flag) %>
                       <span class="tooltip tooltip-top" data-tip={tcp_flag_tooltip(flag)}>
-                        <span
-                          class={[
-                            "inline-flex h-5 min-w-6 items-center justify-center rounded border px-1 text-[10px] font-mono cursor-help",
-                            if(active,
-                              do: "border-primary bg-primary/15 text-primary",
-                              else: "border-base-300 text-base-content/50"
-                            )
-                          ]}
-                        >
+                        <span class={[
+                          "inline-flex h-5 min-w-6 items-center justify-center rounded border px-1 text-[10px] font-mono cursor-help",
+                          if(active,
+                            do: "border-primary bg-primary/15 text-primary",
+                            else: "border-base-300 text-base-content/50"
+                          )
+                        ]}>
                           {flag}
                         </span>
                       </span>
                     <% end %>
                   </div>
-                  <div :if={not is_nil(tcp_flags_raw) and tcp_flags_labels == []} class="mt-1 text-[10px] text-base-content/60">
+                  <div
+                    :if={not is_nil(tcp_flags_raw) and tcp_flags_labels == []}
+                    class="mt-1 text-[10px] text-base-content/60"
+                  >
                     raw mask: <span class="font-mono">{tcp_flags_raw}</span>
                   </div>
                 </div>
@@ -2083,7 +2086,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                       <div class="font-mono text-[11px] text-base-content/80">
                         {data.handle} {if is_binary(data.name), do: "- #{data.name}", else: ""}
                       </div>
-                      <span :if={is_binary(data.source) and data.source != ""} class="badge badge-xs badge-outline">
+                      <span
+                        :if={is_binary(data.source) and data.source != ""}
+                        class="badge badge-xs badge-outline"
+                      >
                         {data.source}
                       </span>
                     </div>
@@ -2105,10 +2111,26 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                         comment: {data.comment}
                       </div>
                       <div :if={is_binary(data.rdap_ref) and data.rdap_ref != ""}>
-                        rdap: <a href={data.rdap_ref} target="_blank" rel="noopener noreferrer" class="link link-hover">{data.rdap_ref}</a>
+                        rdap:
+                        <a
+                          href={data.rdap_ref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="link link-hover"
+                        >
+                          {data.rdap_ref}
+                        </a>
                       </div>
                       <div :if={is_binary(data.ref) and data.ref != ""}>
-                        whois: <a href={data.ref} target="_blank" rel="noopener noreferrer" class="link link-hover">{data.ref}</a>
+                        whois:
+                        <a
+                          href={data.ref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="link link-hover"
+                        >
+                          {data.ref}
+                        </a>
                       </div>
                     </div>
                   </div>
@@ -2293,7 +2315,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           |> Enum.reject(&(&1 == ""))
           |> Enum.join(" ")
 
-        {location, to_int(Map.get(geo, :as_number)), normalize_optional_string(Map.get(geo, :as_name)),
+        {location, to_int(Map.get(geo, :as_number)),
+         normalize_optional_string(Map.get(geo, :as_name)),
          normalize_optional_string(Map.get(geo, :country_code))}
       else
         {"", nil, nil, nil}
@@ -2309,8 +2332,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
     ~H"""
     <div class="mt-1 text-base-content/70">
-      {@side}:
-      <span class="font-mono">{@location_label}</span>
+      {@side}: <span class="font-mono">{@location_label}</span>
       <button
         :if={is_integer(@as_number) and @as_number > 0}
         type="button"
@@ -3055,8 +3077,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
       {:error, first_reason} ->
         case run_asn_lookup(asn, second) do
-          {:ok, data} -> {:ok, data}
-          {:error, second_reason} -> {:error, {:lookup_failed, first, first_reason, second, second_reason}}
+          {:ok, data} ->
+            {:ok, data}
+
+          {:error, second_reason} ->
+            {:error, {:lookup_failed, first, first_reason, second, second_reason}}
         end
     end
   end
@@ -3156,7 +3181,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp arin_cache_put(asn, result) when is_integer(asn) do
     ensure_arin_cache_table()
-    ttl_ms = if match?({:ok, _}, result), do: @arin_cache_ttl_ms, else: @arin_cache_negative_ttl_ms
+
+    ttl_ms =
+      if match?({:ok, _}, result), do: @arin_cache_ttl_ms, else: @arin_cache_negative_ttl_ms
+
     expires_at_ms = System.monotonic_time(:millisecond) + ttl_ms
     _ = :ets.insert(@arin_cache_table, {asn, expires_at_ms, result})
     :ok

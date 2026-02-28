@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
      |> assign(:history_params, %{})
      |> assign(:limit, @default_limit)
      |> assign(:refresh_pending, false)
-     |> SRQLPage.init("services", default_limit: @default_limit, builder_available: false)}
+     |> SRQLPage.init("services", default_limit: @default_limit)}
   end
 
   @impl true
@@ -75,6 +75,43 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   def handle_info(:refresh_service_details, socket) do
     {:noreply, refresh_service_details(socket)}
+  end
+
+  @impl true
+  def handle_event("srql_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("srql_submit", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/services/check")}
+  end
+
+  def handle_event("srql_builder_toggle", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "services")}
+  end
+
+  def handle_event("srql_builder_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/services/check")}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "services")}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "services")}
   end
 
   @impl true
@@ -425,9 +462,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
     end
   end
 
-  attr :services, :list, default: []
-  attr :page, :integer, default: 1
-  attr :per_page, :integer, default: 20
+  attr(:services, :list, default: [])
+  attr(:page, :integer, default: 1)
+  attr(:per_page, :integer, default: 20)
 
   defp service_history_table(assigns) do
     total = length(assigns.services)
@@ -517,7 +554,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
     """
   end
 
-  attr :available, :any, default: nil
+  attr(:available, :any, default: nil)
 
   defp status_badge(assigns) do
     available = normalize_available(assigns.available)
