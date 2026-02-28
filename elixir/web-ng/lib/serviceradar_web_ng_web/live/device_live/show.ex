@@ -2155,9 +2155,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def kv_inline(assigns) do
     ~H"""
-    <div class="flex items-center gap-2">
-      <span class="text-base-content/60">{@label}:</span>
-      <span class={["text-base-content", @mono && "font-mono text-xs"]}>
+    <div class="flex items-start gap-2">
+      <span class="shrink-0 text-base-content/60">{@label}:</span>
+      <span class={[
+        "min-w-0 flex-1 break-words whitespace-normal text-base-content",
+        @mono && "font-mono text-xs"
+      ]}>
         {format_value(@value)}
       </span>
     </div>
