@@ -505,23 +505,7 @@ fn build_mac_clause(
 }
 
 fn normalize_mac_value(raw: &str, allow_wildcards: bool) -> Result<String> {
-    let mut normalized = String::with_capacity(raw.len());
-
-    for ch in raw.chars() {
-        if ch.is_ascii_hexdigit() {
-            normalized.push(ch.to_ascii_lowercase());
-        } else if allow_wildcards && (ch == '%' || ch == '_') {
-            normalized.push(ch);
-        }
-    }
-
-    if normalized.is_empty() {
-        return Err(ServiceError::InvalidRequest(
-            "mac filter expects hex digits".into(),
-        ));
-    }
-
-    Ok(normalized)
+    super::normalize_mac_value(raw, allow_wildcards)
 }
 
 fn build_int_clause(
