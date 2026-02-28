@@ -175,6 +175,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "MDF Rack A"
     assert html =~ "SNMP Description"
     assert html =~ "Ubiquiti UniFi UDM-Pro"
+    assert html =~ "min-w-0 flex-1 break-words whitespace-normal"
   end
 
   test "prefers snmp_* metadata aliases for SNMP panel fields", %{conn: conn} do
