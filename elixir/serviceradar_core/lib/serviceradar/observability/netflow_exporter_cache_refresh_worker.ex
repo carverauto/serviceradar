@@ -13,8 +13,8 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.Observability.NetflowExporterCache
   alias ServiceRadar.Observability
+  alias ServiceRadar.Observability.NetflowExporterCache
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -139,13 +139,20 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
         |> Ash.Query.filter(expr(ip in ^chunk))
         |> Ash.Query.select([:uid, :ip, :hostname, :name])
 
-      read_results(q, actor)
-      |> Enum.reduce(acc, fn d, map ->
-        case Map.get(d, :ip) do
-          ip when is_binary(ip) and ip != "" -> Map.put(map, ip, d)
-          _ -> map
-        end
-      end)
+      q
+      |> read_results(actor)
+      |> merge_devices_by_ip(acc)
+    end)
+  end
+
+  defp merge_devices_by_ip(devices, acc) when is_list(devices) and is_map(acc) do
+    Enum.reduce(devices, acc, fn d, map ->
+      with ip when is_binary(ip) <- Map.get(d, :ip),
+           true <- ip != "" do
+        Map.put(map, ip, d)
+      else
+        _ -> map
+      end
     end)
   end
 

@@ -7,8 +7,10 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   - provider/OUI lookups read from CNPG snapshot tables
   """
 
+  alias Ecto.Adapters.SQL
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Repo
+  alias ServiceRadar.Types.Cidr
 
   require Logger
 
@@ -43,7 +45,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     3306 => "MySQL",
     3389 => "RDP",
     4222 => "NATS",
-    50051 => "gRPC",
+    50_051 => "gRPC",
     5432 => "PostgreSQL",
     5672 => "AMQP",
     6379 => "Redis",
@@ -54,8 +56,8 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     9093 => "Kafka TLS",
     9200 => "Elasticsearch",
     9418 => "Git",
-    11211 => "Memcached",
-    27017 => "MongoDB"
+    11_211 => "Memcached",
+    27_017 => "MongoDB"
   }
 
   @udp_service_labels %{
@@ -215,8 +217,8 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   def provider_for_ip(nil), do: nil
 
   def provider_for_ip(ip) when is_binary(ip) do
-    with {:ok, inet} <- ServiceRadar.Types.Cidr.dump_to_native(ip, []),
-         {:ok, %{rows: [[provider]]}} <- Ecto.Adapters.SQL.query(Repo, @provider_lookup_sql, [inet]),
+    with {:ok, inet} <- Cidr.dump_to_native(ip, []),
+         {:ok, %{rows: [[provider]]}} <- SQL.query(Repo, @provider_lookup_sql, [inet]),
          true <- is_binary(provider) and provider != "" do
       provider
     else
@@ -233,7 +235,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
   def oui_vendor_for_mac(mac) when is_binary(mac) do
     with {:ok, prefix} <- oui_prefix_int(mac),
-         {:ok, %{rows: [[org]]}} <- Ecto.Adapters.SQL.query(Repo, @oui_lookup_sql, [prefix]),
+         {:ok, %{rows: [[org]]}} <- SQL.query(Repo, @oui_lookup_sql, [prefix]),
          true <- is_binary(org) and org != "" do
       org
     else

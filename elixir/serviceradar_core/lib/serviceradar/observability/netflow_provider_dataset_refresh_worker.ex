@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
 
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
+  alias ServiceRadar.Types.Cidr
 
   import Ecto.Query, only: [from: 2]
 
@@ -147,8 +148,8 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
 
       with true <- is_binary(cidr),
            true <- cidr != "",
-           {:ok, normalized_cidr} <- ServiceRadar.Types.Cidr.cast_input(cidr, []),
-           {:ok, native_cidr} <- ServiceRadar.Types.Cidr.dump_to_native(normalized_cidr, []),
+           {:ok, normalized_cidr} <- Cidr.cast_input(cidr, []),
+           {:ok, native_cidr} <- Cidr.dump_to_native(normalized_cidr, []),
            true <- is_binary(provider),
            true <- provider != "" do
         key = {normalized_cidr, provider}
