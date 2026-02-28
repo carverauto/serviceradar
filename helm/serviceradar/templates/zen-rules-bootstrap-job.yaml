@@ -111,9 +111,6 @@ spec:
               # Rule: passthrough -> logs.otel
               install_rule "${RULES_DIR}/passthrough.json" "logs.otel" "passthrough"
 
-              # Rule: netflow_to_ocsf -> flows.raw.netflow
-              install_rule "${RULES_DIR}/netflow_to_ocsf.json" "flows.raw.netflow" "netflow_to_ocsf"
-
               echo "✅ Zen rules bootstrap completed successfully"
           env:
             - name: CONFIG_PATH

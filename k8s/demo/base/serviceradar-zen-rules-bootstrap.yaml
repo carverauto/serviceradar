@@ -88,8 +88,6 @@ spec:
               install_rule "${RULES_DIR}/cef_severity.json" "logs.syslog" "cef_severity"
               install_rule "${RULES_DIR}/snmp_severity.json" "logs.snmp" "snmp_severity"
               install_rule "${RULES_DIR}/passthrough.json" "logs.otel" "passthrough"
-              install_rule "${RULES_DIR}/netflow_to_ocsf.json" "flows.raw.netflow" "netflow_to_ocsf"
-
               echo "✅ Zen rules bootstrap completed successfully"
           env:
             - name: CONFIG_PATH

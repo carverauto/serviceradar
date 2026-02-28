@@ -3,7 +3,7 @@
   "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
-  "subjects": ["logs.syslog", "logs.snmp", "logs.otel", "logs.internal", "flows.raw.netflow"],
+  "subjects": ["logs.syslog", "logs.snmp", "logs.otel", "logs.internal"],
   "decision_groups": [
     {
       "name": "syslog",
@@ -37,14 +37,6 @@
         {"order": 1, "key": "passthrough"}
       ],
       "format": "json"
-    },
-    {
-      "name": "netflow",
-      "subjects": ["flows.raw.netflow"],
-      "rules": [
-        {"order": 1, "key": "netflow_to_ocsf"}
-      ],
-      "format": "flow_protobuf"
     }
   ],
   "agent_id": "docker-zen-consumer",
