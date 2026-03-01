@@ -63,142 +63,149 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope} srql={%{enabled: false, page_path: @page_path}}>
+    <Layouts.app
+      flash={@flash}
+      current_scope={@current_scope}
+      srql={%{enabled: false, page_path: @page_path}}
+    >
       <div class="p-6 space-y-6">
-      <div class="flex items-center gap-3">
-        <.link navigate={~p"/diagnostics/mtr"} class="btn btn-sm btn-ghost">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
-          Back
-        </.link>
-        <h1 class="text-2xl font-bold">MTR Trace Detail</h1>
-      </div>
-
-      <div :if={@error} class="alert alert-error">
-        <span>{@error}</span>
-      </div>
-
-      <div :if={@trace} class="space-y-6">
-        <div class="stats shadow bg-base-200">
-          <div class="stat">
-            <div class="stat-title">Target</div>
-            <div class="stat-value text-lg font-mono">{@trace["target"]}</div>
-            <div :if={@trace["target_ip"] != @trace["target"]} class="stat-desc">
-              {@trace["target_ip"]}
-            </div>
-          </div>
-          <div class="stat">
-            <div class="stat-title">Status</div>
-            <div class="stat-value text-lg">
-              <span class={status_class(@trace)}>{status_label(@trace)}</span>
-            </div>
-          </div>
-          <div class="stat">
-            <div class="stat-title">Hops</div>
-            <div class="stat-value text-lg">{@trace["total_hops"]}</div>
-          </div>
-          <div class="stat">
-            <div class="stat-title">Protocol</div>
-            <div class="stat-value text-lg">
-              {String.upcase(@trace["protocol"] || "icmp")}
-              <span :if={@trace["ip_version"] == 6} class="text-sm text-info ml-1">IPv6</span>
-            </div>
-          </div>
-          <div class="stat">
-            <div class="stat-title">Time</div>
-            <div class="stat-value text-sm">{format_time(@trace["time"])}</div>
-            <div class="stat-desc">Agent: {@trace["agent_id"]}</div>
-          </div>
+        <div class="flex items-center gap-3">
+          <.link navigate={~p"/diagnostics/mtr"} class="btn btn-sm btn-ghost">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+            Back
+          </.link>
+          <h1 class="text-2xl font-bold">MTR Trace Detail</h1>
         </div>
 
-        <div :if={@trace["error"]} class="alert alert-warning">
-          <span>Error: {@trace["error"]}</span>
+        <div :if={@error} class="alert alert-error">
+          <span>{@error}</span>
         </div>
 
-        <div class="overflow-x-auto">
-          <table class="table table-sm">
-            <thead>
-              <tr>
-                <th class="w-12">Hop</th>
-                <th>Endpoint</th>
-                <th class="text-right">Loss %</th>
-                <th class="text-right">Last</th>
-                <th class="text-right">Avg</th>
-                <th class="text-right">Min</th>
-                <th class="text-right">Max</th>
-                <th class="text-right">StdDev</th>
-                <th class="text-right">Jitter</th>
-                <th class="w-24">Trend</th>
-                <th>MPLS</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr :for={hop <- @hops} class={hop_row_class(hop)}>
-                <td class="font-mono text-center">{hop["hop_number"]}</td>
-                <td class="text-xs">
-                  <div class="font-mono text-sm">
-                    {hop["addr"] || "???"}
-                    <span
-                      :if={hop["ecmp_addrs"] && hop["ecmp_addrs"] != []}
-                      class="badge badge-xs badge-info ml-1"
-                      title={Enum.join(hop["ecmp_addrs"], ", ")}
+        <div :if={@trace} class="space-y-6">
+          <div class="stats shadow bg-base-200">
+            <div class="stat">
+              <div class="stat-title">Target</div>
+              <div class="stat-value text-lg font-mono">{@trace["target"]}</div>
+              <div :if={@trace["target_ip"] != @trace["target"]} class="stat-desc">
+                {@trace["target_ip"]}
+              </div>
+            </div>
+            <div class="stat">
+              <div class="stat-title">Status</div>
+              <div class="stat-value text-lg">
+                <span class={status_class(@trace)}>{status_label(@trace)}</span>
+              </div>
+            </div>
+            <div class="stat">
+              <div class="stat-title">Hops</div>
+              <div class="stat-value text-lg">{@trace["total_hops"]}</div>
+            </div>
+            <div class="stat">
+              <div class="stat-title">Protocol</div>
+              <div class="stat-value text-lg">
+                {String.upcase(@trace["protocol"] || "icmp")}
+                <span :if={@trace["ip_version"] == 6} class="text-sm text-info ml-1">IPv6</span>
+              </div>
+            </div>
+            <div class="stat">
+              <div class="stat-title">Time</div>
+              <div class="stat-value text-sm">{format_time(@trace["time"])}</div>
+              <div class="stat-desc">Agent: {@trace["agent_id"]}</div>
+            </div>
+          </div>
+
+          <div :if={@trace["error"]} class="alert alert-warning">
+            <span>Error: {@trace["error"]}</span>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th class="w-12">Hop</th>
+                  <th>Endpoint</th>
+                  <th class="text-right">Loss %</th>
+                  <th class="text-right">Last</th>
+                  <th class="text-right">Avg</th>
+                  <th class="text-right">Min</th>
+                  <th class="text-right">Max</th>
+                  <th class="text-right">StdDev</th>
+                  <th class="text-right">Jitter</th>
+                  <th class="w-24">Trend</th>
+                  <th>MPLS</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={hop <- @hops} class={hop_row_class(hop)}>
+                  <td class="font-mono text-center">{hop["hop_number"]}</td>
+                  <td class="text-xs">
+                    <div class="font-mono text-sm">
+                      {hop["addr"] || "???"}
+                      <span
+                        :if={hop["ecmp_addrs"] && hop["ecmp_addrs"] != []}
+                        class="badge badge-xs badge-info ml-1"
+                        title={Enum.join(hop["ecmp_addrs"], ", ")}
+                      >
+                        +{length(hop["ecmp_addrs"])} ECMP
+                      </span>
+                    </div>
+                    <div
+                      class="text-sm text-base-content/80 max-w-[220px] truncate"
+                      title={hop["hostname"]}
                     >
-                      +{length(hop["ecmp_addrs"])} ECMP
-                    </span>
-                  </div>
-                  <div class="text-sm text-base-content/80 max-w-[220px] truncate" title={hop["hostname"]}>
-                    {hop["hostname"] || "-"}
-                  </div>
-                  <div class="text-[11px]">
-                    <span :if={hop["asn"]} class="badge badge-ghost badge-sm mr-1">
-                      AS{hop["asn"]}
-                    </span>
-                    <span
-                      :if={hop["asn_org"]}
-                      class="text-base-content/50 truncate inline-block max-w-[180px] align-middle"
-                      title={hop["asn_org"]}
-                    >
-                      {hop["asn_org"]}
-                    </span>
-                  </div>
-                </td>
-                <td class={["text-right font-mono text-sm", loss_class(hop["loss_pct"])]}>
-                  {format_pct(hop["loss_pct"])}
-                </td>
-                <td class="text-right font-mono text-sm">{format_us(hop["last_us"])}</td>
-                <td class="text-right font-mono text-sm">{format_us(hop["avg_us"])}</td>
-                <td class="text-right font-mono text-sm">{format_us(hop["min_us"])}</td>
-                <td class="text-right font-mono text-sm">{format_us(hop["max_us"])}</td>
-                <td class="text-right font-mono text-sm">{format_us(hop["stddev_us"])}</td>
-                <td class="text-right font-mono text-sm">{format_us(hop["jitter_us"])}</td>
-                <td>
-                  <.srql_sparkline points={Map.get(@hop_sparklines, hop["addr"], [])} />
-                </td>
-                <td class="text-xs">
-                  {format_mpls(hop["mpls_labels"])}
-                </td>
-              </tr>
-              <tr :if={@hops == []}>
-                <td colspan="11" class="text-center py-4 text-base-content/50">
-                  No hop data available
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                      {hop["hostname"] || "-"}
+                    </div>
+                    <div class="text-[11px]">
+                      <span :if={hop["asn"]} class="badge badge-ghost badge-sm mr-1">
+                        AS{hop["asn"]}
+                      </span>
+                      <span
+                        :if={hop["asn_org"]}
+                        class="text-base-content/50 truncate inline-block max-w-[180px] align-middle"
+                        title={hop["asn_org"]}
+                      >
+                        {hop["asn_org"]}
+                      </span>
+                    </div>
+                  </td>
+                  <td class={["text-right font-mono text-sm", loss_class(hop["loss_pct"])]}>
+                    {format_pct(hop["loss_pct"])}
+                  </td>
+                  <td class="text-right font-mono text-sm">{format_us(hop["last_us"])}</td>
+                  <td class="text-right font-mono text-sm">{format_us(hop["avg_us"])}</td>
+                  <td class="text-right font-mono text-sm">{format_us(hop["min_us"])}</td>
+                  <td class="text-right font-mono text-sm">{format_us(hop["max_us"])}</td>
+                  <td class="text-right font-mono text-sm">{format_us(hop["stddev_us"])}</td>
+                  <td class="text-right font-mono text-sm">{format_us(hop["jitter_us"])}</td>
+                  <td>
+                    <.srql_sparkline points={Map.get(@hop_sparklines, hop["addr"], [])} />
+                  </td>
+                  <td class="text-xs">
+                    {format_mpls(hop["mpls_labels"])}
+                  </td>
+                </tr>
+                <tr :if={@hops == []}>
+                  <td colspan="11" class="text-center py-4 text-base-content/50">
+                    No hop data available
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
       </div>
     </Layouts.app>
     """

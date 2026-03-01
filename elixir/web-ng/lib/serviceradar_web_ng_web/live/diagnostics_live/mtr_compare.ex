@@ -193,119 +193,125 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope} srql={%{enabled: false, page_path: @page_path}}>
+    <Layouts.app
+      flash={@flash}
+      current_scope={@current_scope}
+      srql={%{enabled: false, page_path: @page_path}}
+    >
       <div class="p-6 space-y-6">
-      <div class="flex items-center gap-3">
-        <.link navigate={~p"/diagnostics/mtr"} class="btn btn-sm btn-ghost">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
-          Back
-        </.link>
-        <h1 class="text-2xl font-bold">Path Comparison</h1>
-      </div>
-
-      <div :if={@error} class="alert alert-error">
-        <span>{@error}</span>
-      </div>
-
-      <form phx-submit="compare" class="flex items-end gap-3">
-        <div class="form-control">
-          <label class="label"><span class="label-text">Trace A</span></label>
-          <select name="a" class="select select-bordered select-sm w-72">
-            <option value="">Select trace...</option>
-            <%= for t <- @recent_traces do %>
-              <option
-                value={t["id"]}
-                selected={@trace_a && @trace_a["id"] == t["id"]}
-              >
-                {trace_option_label(t)}
-              </option>
-            <% end %>
-          </select>
+        <div class="flex items-center gap-3">
+          <.link navigate={~p"/diagnostics/mtr"} class="btn btn-sm btn-ghost">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+            Back
+          </.link>
+          <h1 class="text-2xl font-bold">Path Comparison</h1>
         </div>
-        <div class="form-control">
-          <label class="label"><span class="label-text">Trace B</span></label>
-          <select name="b" class="select select-bordered select-sm w-72">
-            <option value="">Select trace...</option>
-            <%= for t <- @recent_traces do %>
-              <option
-                value={t["id"]}
-                selected={@trace_b && @trace_b["id"] == t["id"]}
-              >
-                {trace_option_label(t)}
-              </option>
-            <% end %>
-          </select>
-        </div>
-        <button type="submit" class="btn btn-sm btn-primary">Compare</button>
-      </form>
 
-      <div :if={@trace_a && @trace_b} class="space-y-4">
-        <div class="grid grid-cols-2 gap-4">
-          <div class="card bg-base-200 p-3">
-            <div class="text-xs text-base-content/60">Trace A</div>
-            <div class="font-mono text-sm">{@trace_a["target"]}</div>
-            <div class="text-xs">
-              {format_time(@trace_a["time"])} &mdash; {@trace_a["agent_id"]}
-              &mdash; {String.upcase(@trace_a["protocol"] || "icmp")}
+        <div :if={@error} class="alert alert-error">
+          <span>{@error}</span>
+        </div>
+
+        <form phx-submit="compare" class="flex items-end gap-3">
+          <div class="form-control">
+            <label class="label"><span class="label-text">Trace A</span></label>
+            <select name="a" class="select select-bordered select-sm w-72">
+              <option value="">Select trace...</option>
+              <%= for t <- @recent_traces do %>
+                <option
+                  value={t["id"]}
+                  selected={@trace_a && @trace_a["id"] == t["id"]}
+                >
+                  {trace_option_label(t)}
+                </option>
+              <% end %>
+            </select>
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">Trace B</span></label>
+            <select name="b" class="select select-bordered select-sm w-72">
+              <option value="">Select trace...</option>
+              <%= for t <- @recent_traces do %>
+                <option
+                  value={t["id"]}
+                  selected={@trace_b && @trace_b["id"] == t["id"]}
+                >
+                  {trace_option_label(t)}
+                </option>
+              <% end %>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-sm btn-primary">Compare</button>
+        </form>
+
+        <div :if={@trace_a && @trace_b} class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div class="card bg-base-200 p-3">
+              <div class="text-xs text-base-content/60">Trace A</div>
+              <div class="font-mono text-sm">{@trace_a["target"]}</div>
+              <div class="text-xs">
+                {format_time(@trace_a["time"])} &mdash; {@trace_a["agent_id"]} &mdash; {String.upcase(
+                  @trace_a["protocol"] || "icmp"
+                )}
+              </div>
+            </div>
+            <div class="card bg-base-200 p-3">
+              <div class="text-xs text-base-content/60">Trace B</div>
+              <div class="font-mono text-sm">{@trace_b["target"]}</div>
+              <div class="text-xs">
+                {format_time(@trace_b["time"])} &mdash; {@trace_b["agent_id"]} &mdash; {String.upcase(
+                  @trace_b["protocol"] || "icmp"
+                )}
+              </div>
             </div>
           </div>
-          <div class="card bg-base-200 p-3">
-            <div class="text-xs text-base-content/60">Trace B</div>
-            <div class="font-mono text-sm">{@trace_b["target"]}</div>
-            <div class="text-xs">
-              {format_time(@trace_b["time"])} &mdash; {@trace_b["agent_id"]}
-              &mdash; {String.upcase(@trace_b["protocol"] || "icmp")}
-            </div>
+
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th class="w-12">Hop</th>
+                  <th class="w-8"></th>
+                  <th>Address A</th>
+                  <th class="text-right">Avg A</th>
+                  <th class="text-right">Loss A</th>
+                  <th>Address B</th>
+                  <th class="text-right">Avg B</th>
+                  <th class="text-right">Loss B</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={{hop_num, a, b, status} <- @diff} class={diff_row_class(status)}>
+                  <td class="font-mono text-center">{hop_num}</td>
+                  <td>{diff_icon(status)}</td>
+                  <td class="font-mono text-sm">{hop_addr(a)}</td>
+                  <td class="text-right font-mono text-sm">{hop_val(a, "avg_us")}</td>
+                  <td class="text-right font-mono text-sm">{hop_pct(a, "loss_pct")}</td>
+                  <td class="font-mono text-sm">{hop_addr(b)}</td>
+                  <td class="text-right font-mono text-sm">{hop_val(b, "avg_us")}</td>
+                  <td class="text-right font-mono text-sm">{hop_pct(b, "loss_pct")}</td>
+                </tr>
+                <tr :if={@diff == []}>
+                  <td colspan="8" class="text-center py-4 text-base-content/50">
+                    No hop data to compare
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
-
-        <div class="overflow-x-auto">
-          <table class="table table-sm">
-            <thead>
-              <tr>
-                <th class="w-12">Hop</th>
-                <th class="w-8"></th>
-                <th>Address A</th>
-                <th class="text-right">Avg A</th>
-                <th class="text-right">Loss A</th>
-                <th>Address B</th>
-                <th class="text-right">Avg B</th>
-                <th class="text-right">Loss B</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr :for={{hop_num, a, b, status} <- @diff} class={diff_row_class(status)}>
-                <td class="font-mono text-center">{hop_num}</td>
-                <td>{diff_icon(status)}</td>
-                <td class="font-mono text-sm">{hop_addr(a)}</td>
-                <td class="text-right font-mono text-sm">{hop_val(a, "avg_us")}</td>
-                <td class="text-right font-mono text-sm">{hop_pct(a, "loss_pct")}</td>
-                <td class="font-mono text-sm">{hop_addr(b)}</td>
-                <td class="text-right font-mono text-sm">{hop_val(b, "avg_us")}</td>
-                <td class="text-right font-mono text-sm">{hop_pct(b, "loss_pct")}</td>
-              </tr>
-              <tr :if={@diff == []}>
-                <td colspan="8" class="text-center py-4 text-base-content/50">
-                  No hop data to compare
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
       </div>
     </Layouts.app>
     """
@@ -358,8 +364,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   defp diff_row_class(:removed), do: "bg-error/10"
   defp diff_row_class(_), do: ""
 
-  defp diff_icon(:changed), do: Phoenix.HTML.raw("<span class=\"text-warning\" title=\"Changed\">~</span>")
-  defp diff_icon(:added), do: Phoenix.HTML.raw("<span class=\"text-info\" title=\"New hop\">+</span>")
-  defp diff_icon(:removed), do: Phoenix.HTML.raw("<span class=\"text-error\" title=\"Missing hop\">-</span>")
+  defp diff_icon(:changed),
+    do: Phoenix.HTML.raw("<span class=\"text-warning\" title=\"Changed\">~</span>")
+
+  defp diff_icon(:added),
+    do: Phoenix.HTML.raw("<span class=\"text-info\" title=\"New hop\">+</span>")
+
+  defp diff_icon(:removed),
+    do: Phoenix.HTML.raw("<span class=\"text-error\" title=\"Missing hop\">-</span>")
+
   defp diff_icon(_), do: ""
 end

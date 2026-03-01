@@ -375,13 +375,21 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
       [section, id] ->
         [
-          %{label: section_label(section), icon: section_icon(section), href: section_href(section)},
+          %{
+            label: section_label(section),
+            icon: section_icon(section),
+            href: section_href(section)
+          },
           %{label: format_id(id), icon: nil, href: nil}
         ]
 
       [section, subsection, id] ->
         [
-          %{label: section_label(section), icon: section_icon(section), href: section_href(section)},
+          %{
+            label: section_label(section),
+            icon: section_icon(section),
+            href: section_href(section)
+          },
           %{
             label: section_label(subsection),
             icon: section_icon(subsection),
@@ -392,7 +400,11 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
       [section, id | _rest] ->
         [
-          %{label: section_label(section), icon: section_icon(section), href: section_href(section)},
+          %{
+            label: section_label(section),
+            icon: section_icon(section),
+            href: section_href(section)
+          },
           %{label: format_id(id), icon: nil, href: nil}
         ]
     end
