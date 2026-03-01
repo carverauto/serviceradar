@@ -194,6 +194,8 @@ struct FlowRow {
     packets_total: i64,
     bytes_in: i64,
     bytes_out: i64,
+    packets_in: i64,
+    packets_out: i64,
     direction_label: Option<String>,
     direction_source: Option<String>,
     src_hosting_provider: Option<String>,
@@ -758,6 +760,14 @@ fn apply_single_order<'a>(
             OrderDirection::Asc => query.order(bytes_out.asc()),
             OrderDirection::Desc => query.order(bytes_out.desc()),
         },
+        "packets_in" => match direction {
+            OrderDirection::Asc => query.order(packets_in.asc()),
+            OrderDirection::Desc => query.order(packets_in.desc()),
+        },
+        "packets_out" => match direction {
+            OrderDirection::Asc => query.order(packets_out.asc()),
+            OrderDirection::Desc => query.order(packets_out.desc()),
+        },
         _ => query,
     }
 }
@@ -787,6 +797,14 @@ fn apply_secondary_order<'a>(
         "bytes_out" => match direction {
             OrderDirection::Asc => query.then_order_by(bytes_out.asc()),
             OrderDirection::Desc => query.then_order_by(bytes_out.desc()),
+        },
+        "packets_in" => match direction {
+            OrderDirection::Asc => query.then_order_by(packets_in.asc()),
+            OrderDirection::Desc => query.then_order_by(packets_in.desc()),
+        },
+        "packets_out" => match direction {
+            OrderDirection::Asc => query.then_order_by(packets_out.asc()),
+            OrderDirection::Desc => query.then_order_by(packets_out.desc()),
         },
         _ => query,
     }
@@ -835,6 +853,8 @@ enum FlowAggField {
     PacketsTotal,
     BytesIn,
     BytesOut,
+    PacketsIn,
+    PacketsOut,
     SrcEndpointPort,
     DstEndpointPort,
 }
@@ -847,6 +867,8 @@ impl FlowAggField {
             "packets_total" => Some(Self::PacketsTotal),
             "bytes_in" => Some(Self::BytesIn),
             "bytes_out" => Some(Self::BytesOut),
+            "packets_in" => Some(Self::PacketsIn),
+            "packets_out" => Some(Self::PacketsOut),
             "src_endpoint_port" | "src_port" => Some(Self::SrcEndpointPort),
             "dst_endpoint_port" | "dst_port" => Some(Self::DstEndpointPort),
             _ => None,
@@ -860,6 +882,8 @@ impl FlowAggField {
             Self::PacketsTotal => "packets_total",
             Self::BytesIn => "bytes_in",
             Self::BytesOut => "bytes_out",
+            Self::PacketsIn => "packets_in",
+            Self::PacketsOut => "packets_out",
             Self::SrcEndpointPort => "src_endpoint_port",
             Self::DstEndpointPort => "dst_endpoint_port",
         }

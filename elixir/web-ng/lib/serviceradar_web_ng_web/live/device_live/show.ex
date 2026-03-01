@@ -111,6 +111,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flow_facets, %{protocols: [], directions: [], services: []})
      |> assign(:flow_active_facets, %{})
      |> assign(:flow_active_topn, nil)
+     |> assign(:flow_zoom_range, nil)
      |> assign(:ip_aliases, [])
      |> assign(:ip_alias_error, nil)
      |> assign(:show_stale_aliases, false)
@@ -903,26 +904,78 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     uid = socket.assigns.device_uid
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
-    query = "in:flows device_id:\"#{escape_value(uid)}\" time:[#{start},#{end_t}] sort:time:desc"
+    zoomed_base = "in:flows device_id:\"#{escape_value(uid)}\" time:[#{start},#{end_t}]"
+    query = "#{zoomed_base} sort:time:desc"
     opts = %{scope: scope, limit: @flows_limit, cursor: nil}
 
-    {flows, pagination, flows_error} =
-      case srql_mod.query(query, opts) do
-        {:ok, %{"results" => results, "pagination" => p}} when is_list(results) ->
-          {Enum.filter(results, &is_map/1), p || %{}, nil}
+    # Reload flows table and stats in parallel for the zoomed range
+    flows_task = Task.async(fn -> {:flows, load_zoomed_flows(srql_mod, query, opts)} end)
+    stats_task = Task.async(fn -> {:stats, load_device_flow_stats(srql_mod, uid, scope, zoomed_base)} end)
 
-        {:ok, %{"results" => results}} when is_list(results) ->
-          {Enum.filter(results, &is_map/1), %{}, nil}
+    results = safe_yield_many([flows_task, stats_task], 15_000)
 
-        _ ->
-          {[], %{}, "Failed to load flows for selected range"}
-      end
+    {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
+
+    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points,
+     top_talkers_json, top_destinations_json, top_ports_json, facets} =
+      Map.get(results, :stats,
+        {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]",
+         %{protocols: [], directions: [], services: []}})
 
     {:noreply,
      socket
      |> assign(:device_flows, flows)
      |> assign(:flows_pagination, pagination)
-     |> assign(:flows_error, flows_error)}
+     |> assign(:flows_error, flows_error)
+     |> assign(:flow_zoom_range, %{start: start, end: end_t})
+     |> assign(:flow_stats, flow_stats)
+     |> assign(:flow_sparkline_json, sparkline_json)
+     |> assign(:flow_proto_json, proto_json)
+     |> assign(:flow_chart_keys_json, chart_keys)
+     |> assign(:flow_chart_points_json, chart_points)
+     |> assign(:flow_top_talkers_json, top_talkers_json)
+     |> assign(:flow_top_destinations_json, top_destinations_json)
+     |> assign(:flow_top_ports_json, top_ports_json)
+     |> assign(:flow_facets, facets)
+     |> assign(:flow_active_facets, %{})
+     |> assign(:flow_active_topn, nil)}
+  end
+
+  def handle_event("clear_zoom", _params, socket) do
+    uid = socket.assigns.device_uid
+    scope = socket.assigns.current_scope
+    srql_mod = srql_module()
+
+    flows_task = Task.async(fn -> {:flows, load_flows(srql_mod, uid, scope, nil)} end)
+    stats_task = Task.async(fn -> {:stats, load_device_flow_stats(srql_mod, uid, scope)} end)
+
+    results = safe_yield_many([flows_task, stats_task], 15_000)
+
+    {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
+
+    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points,
+     top_talkers_json, top_destinations_json, top_ports_json, facets} =
+      Map.get(results, :stats,
+        {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]",
+         %{protocols: [], directions: [], services: []}})
+
+    {:noreply,
+     socket
+     |> assign(:flow_zoom_range, nil)
+     |> assign(:device_flows, flows)
+     |> assign(:flows_pagination, pagination)
+     |> assign(:flows_error, flows_error)
+     |> assign(:flow_stats, flow_stats)
+     |> assign(:flow_sparkline_json, sparkline_json)
+     |> assign(:flow_proto_json, proto_json)
+     |> assign(:flow_chart_keys_json, chart_keys)
+     |> assign(:flow_chart_points_json, chart_points)
+     |> assign(:flow_top_talkers_json, top_talkers_json)
+     |> assign(:flow_top_destinations_json, top_destinations_json)
+     |> assign(:flow_top_ports_json, top_ports_json)
+     |> assign(:flow_facets, facets)
+     |> assign(:flow_active_facets, %{})
+     |> assign(:flow_active_topn, nil)}
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
@@ -1074,6 +1127,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  defp load_zoomed_flows(srql_mod, query, opts) do
+    case srql_mod.query(query, opts) do
+      {:ok, %{"results" => results, "pagination" => p}} when is_list(results) ->
+        {Enum.filter(results, &is_map/1), p || %{}, nil}
+
+      {:ok, %{"results" => results}} when is_list(results) ->
+        {Enum.filter(results, &is_map/1), %{}, nil}
+
+      _ ->
+        {[], %{}, "Failed to load flows for selected range"}
+    end
+  end
+
   defp reload_flows_with_facets(socket, uid, facets) do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
@@ -1109,7 +1175,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp load_device_flow_stats(srql_mod, device_uid, scope) do
-    base = "in:flows device_id:\"#{escape_value(device_uid)}\" time:last_24h"
+    load_device_flow_stats(srql_mod, device_uid, scope, "in:flows device_id:\"#{escape_value(device_uid)}\" time:last_24h")
+  end
+
+  defp load_device_flow_stats(srql_mod, _device_uid, scope, base) do
 
     tasks = [
       Task.async(fn -> {:summary, load_device_flow_summary(srql_mod, scope, base)} end),
@@ -2400,6 +2469,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               facets={@flow_facets}
               active_facets={@flow_active_facets}
               active_topn={@flow_active_topn}
+              zoom_range={@flow_zoom_range}
             />
           </div>
           
@@ -3136,6 +3206,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr :facets, :map, default: %{protocols: [], directions: [], services: []}
   attr :active_facets, :map, default: %{}
   attr :active_topn, :map, default: nil
+  attr :zoom_range, :map, default: nil
 
   defp flows_tab_content(assigns) do
     max_bytes =
@@ -3304,7 +3375,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         </div>
       </div>
 
-      <%!-- Active top-N filter indicator --%>
+      <%!-- Active filter indicators --%>
+      <div :if={@zoom_range} class="flex items-center gap-2 px-3 py-2 rounded-lg bg-info/10 border border-info/20 text-sm">
+        <.icon name="hero-magnifying-glass-plus-solid" class="size-4 text-info" />
+        <span class="text-base-content/70">Zoomed to</span>
+        <span class="badge badge-info badge-sm font-mono">{String.slice(@zoom_range.start, 0, 19)}</span>
+        <span class="text-base-content/50">&rarr;</span>
+        <span class="badge badge-info badge-sm font-mono">{String.slice(@zoom_range.end, 0, 19)}</span>
+        <button phx-click="clear_zoom" class="ml-auto btn btn-ghost btn-xs text-error">
+          <.icon name="hero-x-mark-mini" class="size-3.5" /> Reset
+        </button>
+      </div>
       <div :if={@active_topn} class="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 text-sm">
         <.icon name="hero-funnel-solid" class="size-4 text-primary" />
         <span class="text-base-content/70">Filtered by</span>

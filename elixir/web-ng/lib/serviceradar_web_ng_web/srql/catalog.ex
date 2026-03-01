@@ -161,7 +161,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_agg: "sum",
       default_value_field: "bytes_total",
       default_series_field: "app",
-      value_fields: ["bytes_total", "packets_total"],
+      value_fields: ["bytes_total", "packets_total", "bytes_in", "bytes_out", "packets_in", "packets_out"],
       series_fields: [
         "protocol_group",
         "protocol_name",

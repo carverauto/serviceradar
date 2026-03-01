@@ -329,8 +329,10 @@ fn resolve_value_column(
             Some("packets_total") => Ok("packets_total"),
             Some("bytes_in") => Ok("bytes_in"),
             Some("bytes_out") => Ok("bytes_out"),
+            Some("packets_in") => Ok("packets_in"),
+            Some("packets_out") => Ok("packets_out"),
             Some(other) => Err(ServiceError::InvalidRequest(format!(
-                "unsupported value_field '{other}' for flows (supported: bytes_total|packets_total|bytes_in|bytes_out)"
+                "unsupported value_field '{other}' for flows (supported: bytes_total|packets_total|bytes_in|bytes_out|packets_in|packets_out)"
             ))),
         },
         _ => Err(ServiceError::InvalidRequest(

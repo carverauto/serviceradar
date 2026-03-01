@@ -529,13 +529,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
         Enum.map(results, fn %{"payload" => p} ->
+          name = get_field(p, group_field)
+          val = to_number(get_field(p, value_field))
+
           %{
-            ip: get_field(p, group_field),
-            app: get_field(p, group_field),
-            protocol: get_field(p, group_field),
-            port: get_field(p, group_field),
-            bytes: to_number(get_field(p, value_field)),
-            packets: 0
+            ip: name,
+            app: name,
+            protocol: name,
+            port: name,
+            bytes: if(value_field == "bytes_total", do: val, else: 0),
+            packets: if(value_field == "packets_total", do: val, else: 0)
           }
         end)
 
@@ -550,11 +553,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
         Enum.map(results, fn %{"payload" => p} ->
+          val = to_number(get_field(p, sort_field))
+
           %{
             src_ip: get_field(p, "src_endpoint_ip"),
             dst_ip: get_field(p, "dst_endpoint_ip"),
-            bytes: to_number(get_field(p, sort_field)),
-            packets: 0
+            bytes: if(sort_field == "bytes_total", do: val, else: 0),
+            packets: if(sort_field == "packets_total", do: val, else: 0)
           }
         end)
 
@@ -570,9 +575,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     bucket = timeseries_bucket(tw)
     base = "in:flows time:last_#{tw} sampler_address:#{srql_quote(sampler)}"
 
+    {in_field, out_field} =
+      if socket.assigns.unit_mode == "pps",
+        do: {"packets_in", "packets_out"},
+        else: {"bytes_in", "bytes_out"}
+
     tasks = [
-      Task.async(fn -> {:ingress, load_iface_downsample(srql_mod, scope, base, bucket, "bytes_in")} end),
-      Task.async(fn -> {:egress, load_iface_downsample(srql_mod, scope, base, bucket, "bytes_out")} end)
+      Task.async(fn -> {:ingress, load_iface_downsample(srql_mod, scope, base, bucket, in_field)} end),
+      Task.async(fn -> {:egress, load_iface_downsample(srql_mod, scope, base, bucket, out_field)} end)
     ]
 
     results = safe_await_many(tasks, :timer.seconds(10))
