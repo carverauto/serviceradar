@@ -20,7 +20,6 @@ use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat};
 use env_logger::Env;
 use futures::Stream;
 use log::{info, warn};
-use serde::Serialize;
 use std::pin::Pin;
 use std::sync::Once;
 use std::{fs, net::SocketAddr};
@@ -33,9 +32,10 @@ use tonic::{
 use tonic_health::server::health_reporter;
 use tonic_reflection::server::Builder as ReflectionBuilder;
 
-mod config;
 mod spiffe;
-use config::{Config, SecurityMode};
+pub mod types;
+use types::config_types::config::Config;
+use crate::types::config_types::SecurityMode;
 
 pub mod monitoring {
     tonic::include_proto!("monitoring");
@@ -55,19 +55,7 @@ struct Cli {
     config: Option<String>,
 }
 
-#[derive(Serialize)]
-struct Varbind {
-    oid: String,
-    value: String,
-}
 
-#[derive(Serialize)]
-struct TrapMessage {
-    source: String,
-    version: String,
-    community: String,
-    varbinds: Vec<Varbind>,
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -186,7 +174,7 @@ fn ensure_rustls_provider_installed() {
     });
 }
 
-fn build_message(pdu: &snmp2::Pdu<'_>, addr: SocketAddr) -> TrapMessage {
+fn build_message(pdu: &snmp2::Pdu<'_>, addr: SocketAddr) -> crate::types::TrapMessage {
     let version = match pdu.version() {
         Ok(v) => format!("{v:?}"),
         Err(_) => "unknown".to_string(),
@@ -194,12 +182,12 @@ fn build_message(pdu: &snmp2::Pdu<'_>, addr: SocketAddr) -> TrapMessage {
     let community = String::from_utf8_lossy(pdu.community).into_owned();
     let mut varbinds = Vec::new();
     for (oid, value) in pdu.varbinds.clone() {
-        varbinds.push(Varbind {
+        varbinds.push(crate::types::Varbind {
             oid: format!("{oid}"),
             value: format!("{value:?}"),
         });
     }
-    TrapMessage {
+    crate::types::TrapMessage {
         source: addr.to_string(),
         version,
         community,
