@@ -6,47 +6,14 @@ use async_nats::jetstream::{
 use async_nats::{Client, ConnectOptions, jetstream};
 use log::{debug, error, info, warn};
 use prost::Message;
-use serde::Serialize;
-use std::path::PathBuf;
-use std::time::Duration;
 use tokio::time::timeout;
 
 use crate::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest;
 use crate::opentelemetry::proto::collector::metrics::v1::ExportMetricsServiceRequest;
 use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest;
 
-#[derive(Clone, Debug)]
-pub struct NATSConfig {
-    pub url: String,
-    pub subject: String,
-    pub stream: String,
-    pub logs_subject: Option<String>,
-    pub timeout: Duration,
-    pub max_bytes: i64,
-    pub max_age: Duration,
-    pub creds_file: Option<PathBuf>,
-    pub tls_cert: Option<PathBuf>,
-    pub tls_key: Option<PathBuf>,
-    pub tls_ca: Option<PathBuf>,
-}
-
-impl Default for NATSConfig {
-    fn default() -> Self {
-        Self {
-            url: "nats://localhost:4222".to_string(),
-            subject: "otel".to_string(),
-            stream: "events".to_string(),
-            logs_subject: None,
-            timeout: Duration::from_secs(30),
-            max_bytes: 2 * 1024 * 1024 * 1024,
-            max_age: Duration::from_secs(30 * 60),
-            creds_file: None,
-            tls_cert: None,
-            tls_key: None,
-            tls_ca: None,
-        }
-    }
-}
+use crate::types::nats::NATSConfig;
+use crate::types::metrics::PerformanceMetric;
 
 pub struct NATSOutput {
     config: NATSConfig,
@@ -673,32 +640,4 @@ impl NATSOutput {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct PerformanceMetric {
-    pub timestamp: String, // ISO 8601 timestamp
-    pub trace_id: String,
-    pub span_id: String,
-    pub service_name: String,
-    pub span_name: String,
-    pub span_kind: String,
-    pub duration_ms: f64,
-    pub duration_seconds: f64,
-    pub metric_type: String, // "span", "http", "grpc", "slow_span"
 
-    // Optional HTTP fields
-    pub http_method: Option<String>,
-    pub http_route: Option<String>,
-    pub http_status_code: Option<String>,
-
-    // Optional gRPC fields
-    pub grpc_service: Option<String>,
-    pub grpc_method: Option<String>,
-    pub grpc_status_code: Option<String>,
-
-    // Performance flags
-    pub is_slow: bool, // true if > 100ms
-
-    // Additional metadata
-    pub component: String, // "otel-collector"
-    pub level: String,     // "info", "warn" for slow spans
-}

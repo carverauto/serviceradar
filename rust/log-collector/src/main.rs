@@ -1,4 +1,5 @@
 mod config;
+pub mod types;
 
 use anyhow::Result;
 use clap::{Arg, Command};

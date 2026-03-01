@@ -1,7 +1,7 @@
 use log::{debug, info};
 use std::net::SocketAddr;
 
-use crate::cli::CLI;
+use crate::types::config_types::cli::CLI;
 use crate::config::Config;
 
 /// Sets up logging and parses command line arguments

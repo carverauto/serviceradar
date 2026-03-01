@@ -1,13 +1,11 @@
 use log::{debug, error, info, warn};
 use tonic::{Request, Response, Status};
 
-pub mod cli;
 pub mod config;
-pub mod metrics;
-pub mod nats_output;
 pub mod server;
 pub mod setup;
 pub mod tls;
+pub mod types;
 
 pub mod opentelemetry {
     #![allow(
@@ -61,7 +59,7 @@ pub mod opentelemetry {
     }
 }
 
-use crate::nats_output::PerformanceMetric;
+use crate::types::metrics::PerformanceMetric;
 use opentelemetry::proto::collector::logs::v1::logs_service_server::LogsService;
 use opentelemetry::proto::collector::logs::v1::{
     ExportLogsPartialSuccess, ExportLogsServiceRequest, ExportLogsServiceResponse,
@@ -78,6 +76,8 @@ use opentelemetry::proto::metrics::v1::Metric;
 use opentelemetry::proto::metrics::v1::metric::Data as MetricData;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use types::metrics::metrics_settings;
+use types::nats::nats_output;
 
 #[derive(Clone)]
 pub struct ServiceRadarCollector {
@@ -86,7 +86,7 @@ pub struct ServiceRadarCollector {
 
 impl ServiceRadarCollector {
     pub async fn new(
-        nats_config: Option<nats_output::NATSConfig>,
+        nats_config: Option<crate::types::nats::NATSConfig>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         debug!("Creating ServiceRadarCollector");
 
@@ -115,7 +115,7 @@ impl ServiceRadarCollector {
     }
 
     /// Reconfigure NATS output at runtime. If None, disables output. If Some, rebuilds the output.
-    pub async fn reconfigure_nats(&self, nats_config: Option<nats_output::NATSConfig>) {
+    pub async fn reconfigure_nats(&self, nats_config: Option<crate::types::nats::NATSConfig>) {
         debug!("Reconfiguring NATS output for collector");
         match nats_config {
             Some(cfg) => match nats_output::NATSOutput::new(cfg).await {
@@ -239,8 +239,8 @@ impl TraceService for ServiceRadarCollector {
                     }
 
                     // Record Prometheus metrics
-                    let span_kind = metrics::span_kind_to_string(span.kind);
-                    metrics::record_span_metrics(
+                    let span_kind = metrics_settings::span_kind_to_string(span.kind);
+                    metrics_settings::record_span_metrics(
                         service_name,
                         &span.name,
                         span_kind,
