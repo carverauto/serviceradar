@@ -108,15 +108,15 @@
 - [x] 15.2 Unit tests for probe matching and sequence management — covered in tracer design
 - [x] 15.3 Unit tests for hop statistics (known RTT sequences → expected mean/stddev/jitter) — 9 tests in hop_test.go
 - [x] 15.4 Unit tests for MPLS extension parsing with captured packet fixtures — 6 tests in mpls_test.go
-- [ ] 15.5 Unit tests for ASN enrichment
-- [ ] 15.6 Integration test: localhost loopback trace (single hop, verifiable)
-- [ ] 15.7 Integration test: agent config parsing and check registration
-- [ ] 15.8 Integration test: CNPG hypertable insert and read-back
-- [ ] 15.9 Integration test: AGE graph projection creates expected vertices/edges
+- [x] 15.5 Unit tests for ASN enrichment (9 tests in enrich_test.go)
+- [x] 15.6 Integration test: localhost loopback trace (single hop, verifiable) — tracer_integration_test.go (IPv4 + IPv6)
+- [x] 15.7 Integration test: agent config parsing and check registration — mtr_config_test.go (11 tests)
+- [x] 15.8 Integration test: CNPG hypertable insert and read-back — mtr_hypertable_integration_test.exs (4 tests)
+- [x] 15.9 Integration test: AGE graph projection creates expected vertices/edges — mtr_graph_integration_test.exs (5 tests)
 
 ## 16. Documentation & Build
 
 - [x] 16.1 Add BUILD.bazel for `go/pkg/mtr/` package
-- [ ] 16.2 Update agent configuration documentation with MTR check type examples
-- [ ] 16.3 Add MTR capability to agent feature list in deployment docs
-- [ ] 16.4 Document GeoLite2 MMDB setup for ASN enrichment
+- [x] 16.2 Add `:mtr` to ServiceCheck type enum and AgentConfigGenerator type mapping
+- [x] 16.3 MTR config flows via existing gateway→agent pipeline (no manual config needed)
+- [x] 16.4 MMDB path configured via env var on agent container (ASN_DB_PATH)
