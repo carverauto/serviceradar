@@ -1,30 +1,25 @@
 use serde::{Deserialize, Serialize};
-use spiffe::cert::Certificate as SpiffeCertificate;
 use spiffe::error::GrpcClientError;
 use spiffe::workload_api::x509_source::X509SourceError;
 use spiffe::{
-    BundleSource, SvidSource, TrustDomain, WorkloadApiClient, X509Source, X509SourceBuilder,
+    TrustDomain, WorkloadApiClient, X509SourceBuilder,
 };
 use std::fs;
-use std::sync::Arc;
-use thiserror::Error;
 use tokio::time::{sleep, Duration};
 use tokio_stream::StreamExt;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
+
+pub mod errors;
+pub mod types;
+pub mod traits;
+
+pub use errors::{KvError, Result};
+use types::SpiffeSourceGuard;
 
 pub mod kvproto {
     tonic::include_proto!("proto");
 }
 
-#[derive(Error, Debug)]
-pub enum KvError {
-    #[error("not found")]
-    NotFound,
-    #[error(transparent)]
-    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
-}
-
-pub type Result<T> = std::result::Result<T, KvError>;
 
 pub struct KvClient {
     inner: kvproto::kv_service_client::KvServiceClient<Channel>,
@@ -228,51 +223,6 @@ async fn load_spiffe_tls(workload_socket: &str, trust_domain: &str) -> Result<Cl
     }
 }
 
-struct SpiffeSourceGuard {
-    source: Arc<X509Source>,
-    trust_domain: TrustDomain,
-}
-
-impl SpiffeSourceGuard {
-    fn tls_materials(&self) -> std::result::Result<(Identity, Certificate), anyhow::Error> {
-        let svid = self
-            .source
-            .get_svid()
-            .map_err(|err| anyhow::anyhow!("failed to fetch default X.509 SVID: {err}"))?
-            .ok_or_else(|| anyhow::anyhow!("workload API returned no default X.509 SVID"))?;
-
-        let bundle = self
-            .source
-            .get_bundle_for_trust_domain(&self.trust_domain)
-            .map_err(|err| anyhow::anyhow!("failed to fetch X.509 bundle: {err}"))?
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no X.509 bundle available for trust domain {}",
-                    self.trust_domain
-                )
-            })?;
-
-        let cert_pem = encode_chain(svid.cert_chain());
-        let key_pem = encode_block("PRIVATE KEY", svid.private_key().as_ref());
-        let ca_pem = encode_chain(bundle.authorities());
-
-        Ok((
-            Identity::from_pem(cert_pem.into_bytes(), key_pem.into_bytes()),
-            Certificate::from_pem(ca_pem.into_bytes()),
-        ))
-    }
-}
-
-fn encode_chain(items: &[SpiffeCertificate]) -> String {
-    items
-        .iter()
-        .map(|cert| encode_block("CERTIFICATE", cert.as_ref()))
-        .collect()
-}
-
-fn encode_block(tag: &str, der: &[u8]) -> String {
-    pem::encode(&pem::Pem::new(tag.to_string(), der.to_vec()))
-}
 
 fn should_retry_grpc(err: &GrpcClientError) -> bool {
     matches!(
