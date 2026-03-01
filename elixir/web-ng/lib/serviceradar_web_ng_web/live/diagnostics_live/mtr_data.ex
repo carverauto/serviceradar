@@ -52,9 +52,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
     with {:ok, jobs} <- read_all(query, scope) do
       jobs
-      |> Enum.filter(&match_target?(&1, target_filter))
-      |> Enum.filter(&match_agent?(&1, agent_filter))
-      |> Enum.filter(&match_device?(&1, device_uid, device_ip))
+      |> Enum.filter(fn job ->
+        match_target?(job, target_filter) and
+          match_agent?(job, agent_filter) and
+          match_device?(job, device_uid, device_ip)
+      end)
       |> Enum.take(25)
       |> then(&{:ok, &1})
     end

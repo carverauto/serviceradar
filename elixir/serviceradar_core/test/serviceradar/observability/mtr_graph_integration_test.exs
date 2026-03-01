@@ -320,21 +320,21 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
 
     case SQL.query(Repo, sql, []) do
       {:ok, %Postgrex.Result{rows: rows}} ->
-        Enum.map(rows, fn
-          [text_value] when is_binary(text_value) ->
-            case Jason.decode(text_value) do
-              {:ok, parsed} -> parsed
-              {:error, _} -> text_value
-            end
-
-          row ->
-            row
-        end)
+        Enum.map(rows, &decode_cypher_row/1)
 
       {:error, error} ->
         raise "cypher query failed: #{inspect(error)}"
     end
   end
+
+  defp decode_cypher_row([text_value]) when is_binary(text_value) do
+    case Jason.decode(text_value) do
+      {:ok, parsed} -> parsed
+      {:error, _} -> text_value
+    end
+  end
+
+  defp decode_cypher_row(row), do: row
 
   defp graph_name do
     Application.get_env(:serviceradar_core, :age_graph_name, "platform_graph")

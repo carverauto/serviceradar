@@ -105,11 +105,24 @@ defmodule ServiceRadar.Observability.MtrGraph do
   defp project_edge(from_hop, to_hop, agent_id, observed_at, ip_to_device) do
     {from_label, from_id} = node_identity(from_hop, ip_to_device)
     {to_label, to_id} = node_identity(to_hop, ip_to_device)
+    cypher = edge_upsert_cypher(from_hop, to_hop, from_label, from_id, to_label, to_id, agent_id, observed_at)
 
-    from_asn = from_hop["asn"] || %{}
-    to_asn = to_hop["asn"] || %{}
+    case Graph.execute(cypher) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("MTR graph edge upsert failed: #{inspect(reason)}")
+    end
+  end
 
-    cypher = """
+  defp edge_upsert_cypher(from_hop, to_hop, from_label, from_id, to_label, to_id, agent_id, observed_at) do
+    from_asn = hop_asn(from_hop)
+    to_asn = hop_asn(to_hop)
+    from_hop_no = hop_metric(from_hop, "hop_number", 0)
+    to_hop_no = hop_metric(to_hop, "hop_number", 0)
+    avg_us = hop_metric(to_hop, "avg_us", 0)
+    loss_pct = hop_metric(to_hop, "loss_pct", 0.0)
+    jitter_us = hop_metric(to_hop, "jitter_us", 0)
+
+    """
     MERGE (a:#{from_label} {id: '#{Graph.escape(from_id)}'})
     SET a.addr = '#{Graph.escape(from_hop["addr"])}'
     #{set_prop("a", "hostname", from_hop["hostname"])}
@@ -125,18 +138,19 @@ defmodule ServiceRadar.Observability.MtrGraph do
     SET r.last_observed_at = '#{Graph.escape(observed_at)}'
     SET r.ingestor = 'mtr_v1'
     SET r.agent_id = '#{Graph.escape(agent_id)}'
-    SET r.from_hop = #{from_hop["hop_number"] || 0}
-    SET r.to_hop = #{to_hop["hop_number"] || 0}
-    SET r.avg_us = #{to_hop["avg_us"] || 0}
-    SET r.loss_pct = #{to_hop["loss_pct"] || 0.0}
-    SET r.jitter_us = #{to_hop["jitter_us"] || 0}
+    SET r.from_hop = #{from_hop_no}
+    SET r.to_hop = #{to_hop_no}
+    SET r.avg_us = #{avg_us}
+    SET r.loss_pct = #{loss_pct}
+    SET r.jitter_us = #{jitter_us}
     """
-
-    case Graph.execute(cypher) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("MTR graph edge upsert failed: #{inspect(reason)}")
-    end
   end
+
+  defp hop_asn(hop) when is_map(hop), do: hop["asn"] || %{}
+  defp hop_asn(_), do: %{}
+
+  defp hop_metric(hop, key, default) when is_map(hop), do: hop[key] || default
+  defp hop_metric(_hop, _key, default), do: default
 
   # If the hop IP matches a known device, use Device label with device UID.
   # Otherwise fall back to MtrHop label keyed by IP.

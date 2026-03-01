@@ -249,18 +249,17 @@ defmodule ServiceRadar.Observability.MtrConsensusWorker do
   defp aggregate_avg_rtt_ms(trace) do
     hops = List.wrap(trace["hops"])
 
-    if hops == [] do
-      0.0
-    else
-      hops
-      |> Enum.map(fn hop ->
-        cond do
-          is_number(hop["avg_rtt_ms"]) -> to_float(hop["avg_rtt_ms"], 0.0)
-          is_number(hop["avg_rtt_us"]) -> to_float(hop["avg_rtt_us"], 0.0) / 1000.0
-          true -> 0.0
-        end
-      end)
-      |> Enum.max(fn -> 0.0 end)
+    case hops do
+      [] -> 0.0
+      _ -> hops |> Enum.map(&hop_avg_rtt_ms/1) |> Enum.max(fn -> 0.0 end)
+    end
+  end
+
+  defp hop_avg_rtt_ms(hop) do
+    case {hop["avg_rtt_ms"], hop["avg_rtt_us"]} do
+      {ms, _us} when is_number(ms) -> to_float(ms, 0.0)
+      {_ms, us} when is_number(us) -> to_float(us, 0.0) / 1000.0
+      _ -> 0.0
     end
   end
 

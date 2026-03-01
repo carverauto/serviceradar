@@ -140,36 +140,20 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
   @spec target_ctx_from_health_event(struct() | map()) :: {:ok, target_ctx()} | {:error, term()}
   def target_ctx_from_health_event(event) do
-    metadata = Map.get(event, :metadata, %{}) || %{}
+    metadata = event_metadata(event)
     entity_id = Map.get(event, :entity_id)
     entity_type = Map.get(event, :entity_type)
+    target_ip = health_event_target_ip(metadata, entity_id)
+    target_device_uid = health_event_target_device_uid(metadata)
 
-    target_ip =
-      metadata_value(metadata, "target_ip") ||
-        metadata_value(metadata, "ip") ||
-        if(ip_string?(entity_id), do: entity_id, else: nil)
-
-    target = metadata_value(metadata, "target") || target_ip
-
-    target_device_uid =
-      metadata_value(metadata, "target_device_uid") || metadata_value(metadata, "device_uid")
-
-    partition_id =
-      metadata_value(metadata, "partition_id") || metadata_value(metadata, "partition")
-
-    gateway_id = metadata_value(metadata, "gateway_id")
-
-    case normalize_target_ctx(%{
-           target: target,
-           target_ip: target_ip,
-           target_device_uid: target_device_uid,
-           partition_id: partition_id,
-           gateway_id: gateway_id,
-           target_key: target_key(target_device_uid, target_ip, entity_type, entity_id)
-         }) do
-      {:ok, ctx} -> {:ok, ctx}
-      {:error, _} = error -> error
-    end
+    normalize_target_ctx(%{
+      target: metadata_value(metadata, "target") || target_ip,
+      target_ip: target_ip,
+      target_device_uid: target_device_uid,
+      partition_id: health_event_partition_id(metadata),
+      gateway_id: metadata_value(metadata, "gateway_id"),
+      target_key: target_key(target_device_uid, target_ip, entity_type, entity_id)
+    })
   end
 
   defp select_agents(target_ctx, policy, :baseline) do
@@ -243,64 +227,41 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
          incident_correlation_id,
          transition_class
        ) do
-    protocol = normalize_protocol(Map.get(policy, :baseline_protocol))
-    target = Map.get(target_ctx, :target) || Map.get(target_ctx, :target_ip)
+    target = target_from_ctx(target_ctx)
 
     if is_binary(target) and target != "" do
-      payload = %{"target" => target, "protocol" => protocol}
       trigger_mode = trigger_mode(mode)
-      now = DateTime.utc_now()
+      partition_id = normalize_partition(Map.get(target_ctx, :partition_id))
+      payload = %{"target" => target, "protocol" => normalize_protocol(Map.get(policy, :baseline_protocol))}
+      context = dispatch_context(target_ctx, trigger_mode, incident_correlation_id)
       actor = SystemActor.system(:mtr_automation)
+      now = DateTime.utc_now()
 
       dispatched =
-        agent_ids
-        |> Enum.filter(fn agent_id ->
-          context = %{
-            "trigger_mode" => trigger_mode,
-            "target_device_uid" => Map.get(target_ctx, :target_device_uid),
-            "target_ip" => Map.get(target_ctx, :target_ip),
-            "target_key" => Map.get(target_ctx, :target_key),
-            "incident_correlation_id" => incident_correlation_id
-          }
-
-          case AgentCommandBus.dispatch(agent_id, "mtr.run", payload,
-                 context: context,
-                 partition_id: normalize_partition(Map.get(target_ctx, :partition_id)),
-                 required_partition: normalize_partition(Map.get(target_ctx, :partition_id)),
-                 required_capability: "mtr",
-                 actor: actor
-               ) do
-            {:ok, _command_id} ->
-              true
-
-            {:error, reason} ->
-              Logger.warning("MTR automated dispatch failed",
-                trigger_mode: trigger_mode,
-                agent_id: agent_id,
-                reason: inspect(reason)
-              )
-
-              false
-          end
+        Enum.filter(agent_ids, fn agent_id ->
+          dispatch_agent(
+            agent_id,
+            payload,
+            context,
+            partition_id,
+            actor,
+            trigger_mode
+          )
         end)
 
-      if dispatched == [] do
-        {:error, :dispatch_failed}
-      else
-        _ =
-          put_dispatch_window(
-            Map.get(target_ctx, :target_key),
-            trigger_mode,
-            transition_class,
-            normalize_partition(Map.get(target_ctx, :partition_id)),
-            now,
-            cooldown_seconds(policy, mode),
-            incident_correlation_id,
-            dispatched
-          )
-
-        {:ok, :dispatched}
-      end
+      finalize_dispatch(
+        dispatched,
+        target_ctx,
+        policy,
+        mode,
+        %{
+          transition_class: transition_class,
+          incident_correlation_id: incident_correlation_id,
+          trigger_mode: trigger_mode,
+          partition_id: partition_id,
+          now: now
+        }
+      )
     else
       {:error, :missing_target}
     end
@@ -347,33 +308,17 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   defp agent_id_from_key(_), do: nil
 
   defp normalize_target_ctx(ctx) when is_map(ctx) do
-    target = blank_to_nil(Map.get(ctx, :target) || Map.get(ctx, "target"))
-    target_ip = blank_to_nil(Map.get(ctx, :target_ip) || Map.get(ctx, "target_ip"))
+    target = read_ctx_value(ctx, :target)
+    target_ip = read_ctx_value(ctx, :target_ip)
+    target_device_uid = read_ctx_value(ctx, :target_device_uid)
+    partition_id = normalize_partition(read_ctx_value(ctx, :partition_id))
+    gateway_id = read_ctx_value(ctx, :gateway_id)
+    target_key = read_ctx_value(ctx, :target_key) || target_key(target_device_uid, target_ip, nil, nil)
 
-    target_device_uid =
-      blank_to_nil(Map.get(ctx, :target_device_uid) || Map.get(ctx, "target_device_uid"))
-
-    partition_id =
-      normalize_partition(Map.get(ctx, :partition_id) || Map.get(ctx, "partition_id"))
-
-    gateway_id = blank_to_nil(Map.get(ctx, :gateway_id) || Map.get(ctx, "gateway_id"))
-
-    target_key =
-      blank_to_nil(Map.get(ctx, :target_key) || Map.get(ctx, "target_key")) ||
-        target_key(target_device_uid, target_ip, nil, nil)
-
-    if target_key == nil or (target == nil and target_ip == nil) do
+    if missing_target_context?(target_key, target, target_ip) do
       {:error, :missing_target}
     else
-      {:ok,
-       %{
-         target: target || target_ip,
-         target_ip: target_ip || target,
-         target_device_uid: target_device_uid,
-         partition_id: partition_id,
-         gateway_id: gateway_id,
-         target_key: target_key
-       }}
+      {:ok, normalized_target_ctx(target, target_ip, target_device_uid, partition_id, gateway_id, target_key)}
     end
   end
 
@@ -383,34 +328,15 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     selector = Map.get(policy, :target_selector, %{}) || %{}
     srql_query = selector_string(selector, "srql_query")
 
-    if is_binary(srql_query) and srql_query != "" do
-      target_device_uid = blank_to_nil(Map.get(target_ctx, :target_device_uid))
-      target_ip = blank_to_nil(Map.get(target_ctx, :target_ip))
-
-      constraint =
-        cond do
-          is_binary(target_device_uid) and target_device_uid != "" ->
-            ~s(uid:"#{target_device_uid}")
-
-          is_binary(target_ip) and target_ip != "" ->
-            ~s(ip:"#{target_ip}")
-
-          true ->
-            nil
-        end
-
-      if is_nil(constraint) do
+    case scope_constraint(target_ctx) do
+      nil ->
         true
-      else
-        query = normalize_srql_target_query("#{srql_query} #{constraint}", 1)
 
-        case SRQLRunner.query(query, limit: 1) do
-          {:ok, [_ | _]} -> true
-          _ -> false
-        end
-      end
-    else
-      true
+      constraint when is_binary(srql_query) and srql_query != "" ->
+        scope_query_matches?(srql_query, constraint)
+
+      _ ->
+        true
     end
   end
 
@@ -519,14 +445,14 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   end
 
   defp row_to_target_ctx(row) when is_map(row) do
-    target_ip = blank_to_nil(Map.get(row, "ip") || Map.get(row, "target_ip"))
+    target_ip = row_value(row, ["ip", "target_ip"])
     target = blank_to_nil(Map.get(row, "hostname")) || target_ip
-    device_uid = blank_to_nil(Map.get(row, "uid") || Map.get(row, "device_uid") || Map.get(row, "id"))
-    partition_id = normalize_partition(Map.get(row, "partition_id") || Map.get(row, "partition"))
+    device_uid = row_value(row, ["uid", "device_uid", "id"])
+    partition_id = normalize_partition(row_value(row, ["partition_id", "partition"]))
     gateway_id = blank_to_nil(Map.get(row, "gateway_id"))
     target_key = target_key(device_uid, target_ip, :device, device_uid)
 
-    if is_binary(target_key) and target_key != "" and is_binary(target_ip) and target_ip != "" do
+    if valid_row_target?(target_key, target_ip) do
       %{
         target: target,
         target_ip: target_ip,
@@ -552,6 +478,142 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
   defp maybe_filter_ips(query, ips) do
     Ash.Query.filter(query, expr(ip in ^ips))
+  end
+
+  defp target_from_ctx(target_ctx) do
+    Map.get(target_ctx, :target) || Map.get(target_ctx, :target_ip)
+  end
+
+  defp dispatch_context(target_ctx, trigger_mode, incident_correlation_id) do
+    %{
+      "trigger_mode" => trigger_mode,
+      "target_device_uid" => Map.get(target_ctx, :target_device_uid),
+      "target_ip" => Map.get(target_ctx, :target_ip),
+      "target_key" => Map.get(target_ctx, :target_key),
+      "incident_correlation_id" => incident_correlation_id
+    }
+  end
+
+  defp dispatch_agent(agent_id, payload, context, partition_id, actor, trigger_mode) do
+    case AgentCommandBus.dispatch(agent_id, "mtr.run", payload,
+           context: context,
+           partition_id: partition_id,
+           required_partition: partition_id,
+           required_capability: "mtr",
+           actor: actor
+         ) do
+      {:ok, _command_id} ->
+        true
+
+      {:error, reason} ->
+        Logger.warning("MTR automated dispatch failed",
+          trigger_mode: trigger_mode,
+          agent_id: agent_id,
+          reason: inspect(reason)
+        )
+
+        false
+    end
+  end
+
+  defp finalize_dispatch(
+         [],
+         _target_ctx,
+         _policy,
+         _mode,
+         _meta
+       ),
+       do: {:error, :dispatch_failed}
+
+  defp finalize_dispatch(
+         dispatched,
+         target_ctx,
+         policy,
+         mode,
+         meta
+       ) do
+    transition_class = Map.fetch!(meta, :transition_class)
+    incident_correlation_id = Map.fetch!(meta, :incident_correlation_id)
+    trigger_mode = Map.fetch!(meta, :trigger_mode)
+    partition_id = Map.fetch!(meta, :partition_id)
+    now = Map.fetch!(meta, :now)
+
+    _ =
+      put_dispatch_window(
+        Map.get(target_ctx, :target_key),
+        trigger_mode,
+        transition_class,
+        partition_id,
+        now,
+        cooldown_seconds(policy, mode),
+        incident_correlation_id,
+        dispatched
+      )
+
+    {:ok, :dispatched}
+  end
+
+  defp read_ctx_value(ctx, key) do
+    blank_to_nil(Map.get(ctx, key) || Map.get(ctx, Atom.to_string(key)))
+  end
+
+  defp missing_target_context?(target_key, target, target_ip) do
+    is_nil(target_key) or (is_nil(target) and is_nil(target_ip))
+  end
+
+  defp normalized_target_ctx(target, target_ip, target_device_uid, partition_id, gateway_id, target_key) do
+    %{
+      target: target || target_ip,
+      target_ip: target_ip || target,
+      target_device_uid: target_device_uid,
+      partition_id: partition_id,
+      gateway_id: gateway_id,
+      target_key: target_key
+    }
+  end
+
+  defp scope_constraint(target_ctx) do
+    target_device_uid = blank_to_nil(Map.get(target_ctx, :target_device_uid))
+    target_ip = blank_to_nil(Map.get(target_ctx, :target_ip))
+
+    cond do
+      is_binary(target_device_uid) and target_device_uid != "" -> ~s(uid:"#{target_device_uid}")
+      is_binary(target_ip) and target_ip != "" -> ~s(ip:"#{target_ip}")
+      true -> nil
+    end
+  end
+
+  defp scope_query_matches?(srql_query, constraint) do
+    query = normalize_srql_target_query("#{srql_query} #{constraint}", 1)
+    match?({:ok, [_ | _]}, SRQLRunner.query(query, limit: 1))
+  end
+
+  defp row_value(row, keys) when is_map(row) and is_list(keys) do
+    keys
+    |> Enum.find_value(fn key -> Map.get(row, key) end)
+    |> blank_to_nil()
+  end
+
+  defp valid_row_target?(target_key, target_ip) do
+    is_binary(target_key) and target_key != "" and is_binary(target_ip) and target_ip != ""
+  end
+
+  defp event_metadata(event) do
+    Map.get(event, :metadata, %{}) || %{}
+  end
+
+  defp health_event_target_ip(metadata, entity_id) do
+    metadata_value(metadata, "target_ip") ||
+      metadata_value(metadata, "ip") ||
+      if(ip_string?(entity_id), do: entity_id, else: nil)
+  end
+
+  defp health_event_target_device_uid(metadata) do
+    metadata_value(metadata, "target_device_uid") || metadata_value(metadata, "device_uid")
+  end
+
+  defp health_event_partition_id(metadata) do
+    metadata_value(metadata, "partition_id") || metadata_value(metadata, "partition")
   end
 
   defp target_key(device_uid, target_ip, entity_type, entity_id) do

@@ -138,51 +138,64 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
     payload = Map.get(data, :payload)
     trace = payload_trace(payload)
 
-    if is_map(payload) and is_map(trace) do
-      target = payload["target"] || trace["target"] || trace["target_ip"] || ""
-      timestamp = trace["timestamp"] || Map.get(data, :timestamp)
-
-      mtr_payload = %{
-        "results" => [
-          %{
-            "check_id" => Map.get(data, :command_id),
-            "check_name" => "on-demand",
-            "target" => target,
-            "available" => trace["target_reached"] == true,
-            "trace" => trace,
-            "timestamp" => timestamp,
-            "error" => nil
-          }
-        ]
-      }
-
-      status = %{
-        agent_id: Map.get(data, :agent_id),
-        gateway_id: Map.get(data, :gateway_id) || Map.get(data, :gateway_node),
-        partition: Map.get(data, :partition_id)
-      }
-
-      case MtrMetricsIngestor.ingest(mtr_payload, status) do
-        :ok ->
-          _ =
-            MtrPubSub.broadcast_ingest(%{
-              command_id: Map.get(data, :command_id),
-              target: target,
-              agent_id: Map.get(data, :agent_id)
-            })
-
-          :ok
-
-        {:error, reason} ->
-          Logger.warning("AgentCommandStatusHandler: failed to ingest on-demand MTR result",
-            command_id: Map.get(data, :command_id),
-            reason: inspect(reason)
-          )
-      end
-    end
+    if is_map(payload) and is_map(trace),
+      do: ingest_mtr_result(data, payload, trace)
   end
 
   defp maybe_ingest_mtr_result(_data), do: :ok
+
+  defp ingest_mtr_result(data, payload, trace) do
+    target = first_target(payload, trace)
+    timestamp = trace["timestamp"] || Map.get(data, :timestamp)
+    mtr_payload = build_ingest_payload(data, trace, target, timestamp)
+    status = build_ingest_status(data)
+
+    case MtrMetricsIngestor.ingest(mtr_payload, status) do
+      :ok ->
+        _ =
+          MtrPubSub.broadcast_ingest(%{
+            command_id: Map.get(data, :command_id),
+            target: target,
+            agent_id: Map.get(data, :agent_id)
+          })
+
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("AgentCommandStatusHandler: failed to ingest on-demand MTR result",
+          command_id: Map.get(data, :command_id),
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp first_target(payload, trace) do
+    payload["target"] || trace["target"] || trace["target_ip"] || ""
+  end
+
+  defp build_ingest_payload(data, trace, target, timestamp) do
+    %{
+      "results" => [
+        %{
+          "check_id" => Map.get(data, :command_id),
+          "check_name" => "on-demand",
+          "target" => target,
+          "available" => trace["target_reached"] == true,
+          "trace" => trace,
+          "timestamp" => timestamp,
+          "error" => nil
+        }
+      ]
+    }
+  end
+
+  defp build_ingest_status(data) do
+    %{
+      agent_id: Map.get(data, :agent_id),
+      gateway_id: Map.get(data, :gateway_id) || Map.get(data, :gateway_node),
+      partition: Map.get(data, :partition_id)
+    }
+  end
 
   defp payload_trace(%{"trace" => trace}) when is_map(trace), do: trace
   defp payload_trace(_payload), do: nil

@@ -83,34 +83,13 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   defp insert_single_result(result, agent_id, gateway_id, partition, now) when is_map(result) do
     trace = result["trace"] || %{}
     trace_id = Ecto.UUID.bingenerate()
-    trace_time = parse_trace_time(trace["timestamp"] || result["timestamp"]) || now
+    trace_time = trace_time(result, trace, now)
 
-    trace_row = %{
-      id: trace_id,
-      time: trace_time,
-      agent_id: agent_id,
-      gateway_id: gateway_id,
-      check_id: result["check_id"],
-      check_name: result["check_name"],
-      device_id: result["device_id"],
-      target: result["target"] || trace["target"] || "",
-      target_ip: trace["target_ip"] || result["target"] || "",
-      target_reached: result["available"] || trace["target_reached"] || false,
-      total_hops: trace["total_hops"] || 0,
-      protocol: trace["protocol"] || "icmp",
-      ip_version: trace["ip_version"] || 4,
-      packet_size: trace["packet_size"],
-      partition: partition,
-      error: result["error"]
-    }
+    result
+    |> build_trace_row(trace, trace_id, trace_time, agent_id, gateway_id, partition)
+    |> insert_trace()
 
-    insert_trace(trace_row)
-
-    hops = trace["hops"] || []
-
-    unless Enum.empty?(hops) do
-      insert_hops(hops, trace_id, trace_time)
-    end
+    insert_trace_hops(trace["hops"] || [], trace_id, trace_time)
   end
 
   defp insert_single_result(_result, _agent_id, _gateway_id, _partition, _now), do: :ok
@@ -150,6 +129,42 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   defp insert_hops(hops, trace_id, trace_time) do
     Enum.each(hops, fn hop ->
       insert_hop(hop, trace_id, trace_time)
+    end)
+  end
+
+  defp trace_time(result, trace, now) do
+    parse_trace_time(trace["timestamp"] || result["timestamp"]) || now
+  end
+
+  defp build_trace_row(result, trace, trace_id, trace_time, agent_id, gateway_id, partition) do
+    %{
+      id: trace_id,
+      time: trace_time,
+      agent_id: agent_id,
+      gateway_id: gateway_id,
+      check_id: result["check_id"],
+      check_name: result["check_name"],
+      device_id: result["device_id"],
+      target: first_present([result["target"], trace["target"]], ""),
+      target_ip: first_present([trace["target_ip"], result["target"]], ""),
+      target_reached: first_present([result["available"], trace["target_reached"]], false),
+      total_hops: trace["total_hops"] || 0,
+      protocol: trace["protocol"] || "icmp",
+      ip_version: trace["ip_version"] || 4,
+      packet_size: trace["packet_size"],
+      partition: partition,
+      error: result["error"]
+    }
+  end
+
+  defp insert_trace_hops([], _trace_id, _trace_time), do: :ok
+  defp insert_trace_hops(hops, trace_id, trace_time), do: insert_hops(hops, trace_id, trace_time)
+
+  defp first_present(values, default) when is_list(values) do
+    Enum.find_value(values, default, fn
+      nil -> nil
+      false -> nil
+      value -> value
     end)
   end
 

@@ -567,23 +567,29 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp profile_to_form_params(profile) do
     selector = profile.target_selector || %{}
+    defaults = default_form_params()
 
     %{
-      "name" => profile.name || "",
-      "enabled" => profile.enabled == true,
+      "name" => fallback(profile.name, defaults["name"]),
+      "enabled" => truthy(profile.enabled),
       "target_query" => selector_query(profile),
-      "selector_limit" => Map.get(selector, "limit") || 100,
-      "preferred_agent_id" => Map.get(selector, "agent_id") || "",
-      "partition_id" => profile.partition_id || "",
-      "baseline_protocol" => profile.baseline_protocol || "icmp",
-      "baseline_interval_sec" => profile.baseline_interval_sec || 300,
-      "baseline_canary_vantages" => profile.baseline_canary_vantages || 0,
-      "incident_fanout_max_agents" => profile.incident_fanout_max_agents || 3,
-      "incident_cooldown_sec" => profile.incident_cooldown_sec || 600,
-      "recovery_capture" => profile.recovery_capture == true,
-      "consensus_mode" => profile.consensus_mode || "majority",
-      "consensus_threshold" => profile.consensus_threshold || 0.66,
-      "consensus_min_agents" => profile.consensus_min_agents || 2
+      "selector_limit" => fallback(Map.get(selector, "limit"), defaults["selector_limit"]),
+      "preferred_agent_id" => fallback(Map.get(selector, "agent_id"), defaults["preferred_agent_id"]),
+      "partition_id" => fallback(profile.partition_id, defaults["partition_id"]),
+      "baseline_protocol" => fallback(profile.baseline_protocol, defaults["baseline_protocol"]),
+      "baseline_interval_sec" =>
+        fallback(profile.baseline_interval_sec, defaults["baseline_interval_sec"]),
+      "baseline_canary_vantages" =>
+        fallback(profile.baseline_canary_vantages, defaults["baseline_canary_vantages"]),
+      "incident_fanout_max_agents" =>
+        fallback(profile.incident_fanout_max_agents, defaults["incident_fanout_max_agents"]),
+      "incident_cooldown_sec" =>
+        fallback(profile.incident_cooldown_sec, defaults["incident_cooldown_sec"]),
+      "recovery_capture" => truthy(profile.recovery_capture),
+      "consensus_mode" => fallback(profile.consensus_mode, defaults["consensus_mode"]),
+      "consensus_threshold" =>
+        fallback(profile.consensus_threshold, defaults["consensus_threshold"]),
+      "consensus_min_agents" => fallback(profile.consensus_min_agents, defaults["consensus_min_agents"])
     }
   end
 
@@ -757,28 +763,33 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     filters =
       builder
       |> Map.get("filters", [])
-      |> Enum.filter(fn f -> String.trim(f["field"] || "") != "" and String.trim(f["value"] || "") != "" end)
+      |> Enum.filter(&builder_filter_present?/1)
 
     base = "in:devices"
 
-    if filters == [] do
-      base
-    else
-      filter_tokens =
-        Enum.map(filters, fn filter ->
-          field = String.trim(filter["field"] || "")
-          value = String.trim(filter["value"] || "")
-          op = filter["op"] || "contains"
+    case filters do
+      [] ->
+        base
 
-          case op do
-            "not_contains" -> "!#{field}:#{value}"
-            "equals" -> "#{field}:\"#{value}\""
-            "not_equals" -> "!#{field}:\"#{value}\""
-            _ -> "#{field}:#{value}"
-          end
-        end)
+      _ ->
+        filter_tokens = Enum.map(filters, &builder_filter_token/1)
+        Enum.join([base | filter_tokens], " ")
+    end
+  end
 
-      Enum.join([base | filter_tokens], " ")
+  defp builder_filter_present?(filter) do
+    String.trim(filter["field"] || "") != "" and String.trim(filter["value"] || "") != ""
+  end
+
+  defp builder_filter_token(filter) do
+    field = String.trim(filter["field"] || "")
+    value = String.trim(filter["value"] || "")
+
+    case filter["op"] || "contains" do
+      "not_contains" -> "!#{field}:#{value}"
+      "equals" -> "#{field}:\"#{value}\""
+      "not_equals" -> "!#{field}:\"#{value}\""
+      _ -> "#{field}:#{value}"
     end
   end
 
@@ -851,6 +862,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   end
 
   defp blank_to_nil(_), do: nil
+
+  defp truthy(value), do: value == true
+
+  defp fallback(nil, default), do: default
+  defp fallback("", default), do: default
+  defp fallback(value, _default), do: value
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
