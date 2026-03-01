@@ -964,7 +964,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           rescue
             _ ->
               {:stats,
-               {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]",
+               {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]",
                 %{protocols: [], directions: [], services: []}}}
           end
         end)
@@ -1360,12 +1360,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
-        Enum.map(results, fn %{"payload" => p} ->
-          %{
-            t: flow_stat_field(p, "bucket") || flow_stat_field(p, "time_bucket"),
-            v: flow_stat_number(p, "bytes_total")
-          }
+        results
+        |> Enum.map(fn row ->
+          raw_t = row["timestamp"] || row["bucket"] || row["time_bucket"]
+
+          t =
+            cond do
+              is_integer(raw_t) -> raw_t
+              is_float(raw_t) -> trunc(raw_t)
+              is_binary(raw_t) ->
+                case DateTime.from_iso8601(raw_t) do
+                  {:ok, dt, _} -> DateTime.to_unix(dt, :millisecond)
+                  _ -> nil
+                end
+              true -> nil
+            end
+
+          %{t: t, v: to_safe_number(row["value"] || row["bytes_total"] || 0)}
         end)
+        |> Enum.reject(&is_nil(&1.t))
 
       _ ->
         []
