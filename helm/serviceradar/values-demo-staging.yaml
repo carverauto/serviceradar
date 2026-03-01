@@ -56,6 +56,37 @@ faker:
       allowExpansion: false
       poolHeadroomPercent: 0
 
+core:
+  # MTR automation rollout profiles (copy/paste into mtrAutomation):
+  # baseline_only:
+  #   enabled: true
+  #   baselineEnabled: true
+  #   triggerEnabled: false
+  #   consensusEnabled: false
+  #   baselineTickMs: 60000
+  #   consensusCohortRetentionMs: 300000
+  # trigger_capture:
+  #   enabled: true
+  #   baselineEnabled: true
+  #   triggerEnabled: true
+  #   consensusEnabled: false
+  #   baselineTickMs: 60000
+  #   consensusCohortRetentionMs: 300000
+  # full_consensus:
+  #   enabled: true
+  #   baselineEnabled: true
+  #   triggerEnabled: true
+  #   consensusEnabled: true
+  #   baselineTickMs: 60000
+  #   consensusCohortRetentionMs: 300000
+  mtrAutomation:
+    enabled: true
+    baselineEnabled: true
+    triggerEnabled: true
+    consensusEnabled: true
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
+
 # Temporarily disabled client CA for initial testing - there's a circular dependency
 # where CNPG needs the client CA secret, but the job that creates it
 # runs post-install and needs CNPG to be running first.

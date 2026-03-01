@@ -450,6 +450,7 @@ use_repo(
     "com_github_nats_io_nats_go",
     "com_github_nats_io_nats_server_v2",
     "com_github_nats_io_nkeys",
+    "com_github_oschwald_maxminddb_golang",
     "com_github_rs_zerolog",
     "com_github_shirou_gopsutil_v3",
     "com_github_spiffe_go_spiffe_v2",

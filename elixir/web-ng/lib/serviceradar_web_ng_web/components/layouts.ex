@@ -172,6 +172,17 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
+                  href={~p"/diagnostics/mtr"}
+                  label="Diagnostics"
+                  icon="hero-signal"
+                  active={
+                    @current_path &&
+                      String.starts_with?(@current_path, "/diagnostics")
+                  }
+                />
+              </li>
+              <li>
+                <.sidebar_link
                   href={~p"/observability"}
                   label="Observability"
                   icon="hero-presentation-chart-line"
@@ -364,30 +375,48 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
       [section, id] ->
         [
-          %{label: section_label(section), icon: section_icon(section), href: "/#{section}"},
+          %{
+            label: section_label(section),
+            icon: section_icon(section),
+            href: section_href(section)
+          },
           %{label: format_id(id), icon: nil, href: nil}
         ]
 
       [section, subsection, id] ->
         [
-          %{label: section_label(section), icon: section_icon(section), href: "/#{section}"},
+          %{
+            label: section_label(section),
+            icon: section_icon(section),
+            href: section_href(section)
+          },
           %{
             label: section_label(subsection),
             icon: section_icon(subsection),
-            href: "/#{section}?tab=#{subsection}"
+            href: subsection_href(section, subsection)
           },
           %{label: format_id(id), icon: nil, href: nil}
         ]
 
       [section, id | _rest] ->
         [
-          %{label: section_label(section), icon: section_icon(section), href: "/#{section}"},
+          %{
+            label: section_label(section),
+            icon: section_icon(section),
+            href: section_href(section)
+          },
           %{label: format_id(id), icon: nil, href: nil}
         ]
     end
   end
 
   defp build_breadcrumbs(_), do: []
+
+  defp section_href("diagnostics"), do: "/diagnostics/mtr"
+  defp section_href(section), do: "/#{section}"
+
+  defp subsection_href("diagnostics", subsection), do: "/diagnostics/#{subsection}"
+  defp subsection_href(section, subsection), do: "/#{section}?tab=#{subsection}"
 
   # Normalize paths so agents and gateways appear under infrastructure
   defp normalize_infrastructure_path(["agents" | rest]) do

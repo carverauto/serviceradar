@@ -1227,6 +1227,116 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert second_states[router_uid] in [0, 1]
   end
 
+  test "latest_snapshot/0 maps MTR consensus overlays to causal classes without coordinate churn" do
+    actor = SystemActor.system(:god_view_stream_mtr_overlay_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    target_uid = "sr:target-mtr-causal-#{suffix}"
+    neighbor_uid = "sr:neighbor-mtr-causal-#{suffix}"
+    target_ip = "198.18.0.#{rem(String.to_integer(suffix), 200) + 20}"
+    now = DateTime.utc_now()
+
+    _target =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: target_uid,
+          hostname: "target-mtr-#{suffix}.local",
+          type_id: 12,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now,
+          metadata: %{"ip" => target_ip}
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    _neighbor =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: neighbor_uid,
+          hostname: "neighbor-mtr-#{suffix}.local",
+          type_id: 12,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    TopologyLink
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: now,
+        protocol: "lldp",
+        local_device_id: target_uid,
+        local_if_name: "eth0",
+        local_if_index: 1,
+        neighbor_device_id: neighbor_uid,
+        neighbor_mgmt_addr: "203.0.113.250",
+        metadata: @topology_link_metadata
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    assert {:ok, %{snapshot: first}} = latest_snapshot_for_test()
+    tracked = [target_uid, neighbor_uid]
+    first_coords = coords_for(first, tracked)
+    first_states = states_for(first, tracked)
+
+    Repo.insert_all("ocsf_events", [
+      %{
+        id: Ecto.UUID.dump!(Ecto.UUID.generate()),
+        time: DateTime.utc_now(),
+        class_uid: 1008,
+        category_uid: 1,
+        type_uid: 1_008_003,
+        activity_id: 1,
+        activity_name: "Causal Signal",
+        severity_id: 6,
+        severity: "critical",
+        message: "MTR target outage",
+        metadata: %{
+          "signal_type" => "mtr",
+          "event_type" => "target_outage",
+          "primary_domain" => "network_path",
+          "routing_correlation" => %{
+            "target_device_uid" => target_uid,
+            "target_ip" => target_ip,
+            "topology_keys" => %{
+              "target_device_uid" => target_uid,
+              "target_ip" => target_ip
+            }
+          },
+          "source_identity" => %{
+            "agent_ids" => ["agent-mtr-a", "agent-mtr-b"]
+          }
+        },
+        device: %{"uid" => target_uid, "ip" => target_ip},
+        src_endpoint: %{"ip" => target_ip},
+        observables: [],
+        actor: %{},
+        dst_endpoint: %{},
+        unmapped: %{},
+        created_at: DateTime.utc_now()
+      }
+    ])
+
+    assert {:ok, %{snapshot: second}} = latest_snapshot_for_test()
+    second_coords = coords_for(second, tracked)
+    second_states = states_for(second, tracked)
+
+    assert second_coords == first_coords
+    assert second_states != first_states
+    assert second_states[target_uid] == 0
+  end
+
   test "latest_snapshot/0 applies BMP routing overlays from bmp_routing_events table" do
     actor = SystemActor.system(:god_view_stream_bmp_table_overlay_test)
     suffix = Integer.to_string(System.unique_integer([:positive]))
