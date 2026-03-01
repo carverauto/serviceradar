@@ -1,0 +1,36 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "mtr",
+    srcs = [
+        "dns.go",
+        "enrich.go",
+        "hop.go",
+        "mpls.go",
+        "options.go",
+        "socket.go",
+        "socket_darwin.go",
+        "socket_linux.go",
+        "tracer.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/mtr",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/logger",
+        "@com_github_oschwald_maxminddb_golang//:go_default_library",
+        "@org_golang_x_net//icmp",
+        "@org_golang_x_net//ipv4",
+        "@org_golang_x_net//ipv6",
+    ],
+)
+
+go_test(
+    name = "mtr_test",
+    srcs = [
+        "enrich_test.go",
+        "hop_test.go",
+        "mpls_test.go",
+        "options_test.go",
+    ],
+    embed = [":mtr"],
+)

@@ -123,6 +123,14 @@ config :serviceradar_core,
 config :serviceradar_core,
   topology_v2_contract_consumption_enabled: true
 
+config :serviceradar_core,
+  mtr_automation_enabled: false,
+  mtr_automation_baseline_enabled: false,
+  mtr_automation_trigger_enabled: false,
+  mtr_automation_consensus_enabled: false,
+  mtr_baseline_tick_ms: 60_000,
+  mtr_consensus_cohort_retention_ms: 300_000
+
 # Sweep SRQL paging configuration
 config :serviceradar_core,
   sweep_srql_page_limit: 500

@@ -755,6 +755,98 @@ defmodule Monitoring.SNMPOIDConfig do
   field :delta, 5, type: :bool
 end
 
+defmodule Monitoring.MtrMplsLabel do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.MtrMplsLabel",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :label, 1, type: :int32
+  field :exp, 2, type: :int32
+  field :s, 3, type: :bool
+  field :ttl, 4, type: :int32
+end
+
+defmodule Monitoring.MtrAsnInfo do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.MtrAsnInfo",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :asn, 1, type: :int32
+  field :org, 2, type: :string
+end
+
+defmodule Monitoring.MtrHopResult do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.MtrHopResult",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :hop_number, 1, type: :int32, json_name: "hopNumber"
+  field :addr, 2, type: :string
+  field :hostname, 3, type: :string
+  field :ecmp_addrs, 4, repeated: true, type: :string, json_name: "ecmpAddrs"
+  field :asn, 5, type: Monitoring.MtrAsnInfo
+  field :mpls_labels, 6, repeated: true, type: Monitoring.MtrMplsLabel, json_name: "mplsLabels"
+  field :sent, 7, type: :int32
+  field :received, 8, type: :int32
+  field :loss_pct, 9, type: :double, json_name: "lossPct"
+  field :last_us, 10, type: :int64, json_name: "lastUs"
+  field :avg_us, 11, type: :int64, json_name: "avgUs"
+  field :min_us, 12, type: :int64, json_name: "minUs"
+  field :max_us, 13, type: :int64, json_name: "maxUs"
+  field :stddev_us, 14, type: :int64, json_name: "stddevUs"
+  field :jitter_us, 15, type: :int64, json_name: "jitterUs"
+  field :jitter_worst_us, 16, type: :int64, json_name: "jitterWorstUs"
+  field :jitter_interarrival_us, 17, type: :int64, json_name: "jitterInterarrivalUs"
+end
+
+defmodule Monitoring.MtrTraceResult do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.MtrTraceResult",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :target, 1, type: :string
+  field :target_ip, 2, type: :string, json_name: "targetIp"
+  field :target_reached, 3, type: :bool, json_name: "targetReached"
+  field :total_hops, 4, type: :int32, json_name: "totalHops"
+  field :protocol, 5, type: :string
+  field :ip_version, 6, type: :int32, json_name: "ipVersion"
+  field :packet_size, 7, type: :int32, json_name: "packetSize"
+  field :hops, 8, repeated: true, type: Monitoring.MtrHopResult
+  field :agent_id, 9, type: :string, json_name: "agentId"
+  field :gateway_id, 10, type: :string, json_name: "gatewayId"
+  field :timestamp, 11, type: :int64
+end
+
+defmodule Monitoring.MtrCheckResult do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.MtrCheckResult",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :check_id, 1, type: :string, json_name: "checkId"
+  field :check_name, 2, type: :string, json_name: "checkName"
+  field :target, 3, type: :string
+  field :device_id, 4, type: :string, json_name: "deviceId"
+  field :available, 5, type: :bool
+  field :trace, 6, type: Monitoring.MtrTraceResult
+  field :timestamp, 7, type: :int64
+  field :error, 8, type: :string
+end
+
 defmodule Monitoring.AgentService.Service do
   @moduledoc false
 

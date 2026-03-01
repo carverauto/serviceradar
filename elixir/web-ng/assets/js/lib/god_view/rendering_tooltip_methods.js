@@ -5,6 +5,9 @@ export const godViewRenderingTooltipMethods = {
       const connection = object.connectionLabel || "LINK"
       return {text: `${connection}\n${this.formatPps(object.flowPps || 0)}\n${this.formatCapacity(object.capacityBps || 0)}`}
     }
+    if (layer?.id === "god-view-mtr-paths") {
+      return this.getMtrPathTooltip(object)
+    }
     if (layer?.id !== "god-view-nodes") return null
     const d = object?.details || {}
     const rawIp = typeof d.ip === "string" ? d.ip.trim() : ""
@@ -55,6 +58,46 @@ export const godViewRenderingTooltipMethods = {
       },
     }
   },
+  getMtrPathTooltip(object) {
+    if (!object) return null
+    const latency = this.formatMtrLatency(object.avgUs || 0)
+    const jitter = this.formatMtrLatency(object.jitterUs || 0)
+    const lossValue = Number(object.lossPct)
+    const loss = `${(Number.isFinite(lossValue) ? lossValue : 0).toFixed(1)}%`
+    const hasHops = Number.isFinite(object.fromHop) && Number.isFinite(object.toHop)
+    const hops = hasHops ? `Hop ${object.fromHop} → ${object.toHop}` : ""
+    const agent = object.agentId ? `Agent: ${this.escapeHtml(object.agentId)}` : ""
+    const srcAddr = object.sourceAddr || ""
+    const dstAddr = object.targetAddr || ""
+    return {
+      html: [
+        `<div class="font-semibold">MTR Path</div>`,
+        srcAddr || dstAddr ? `<div>${this.escapeHtml(srcAddr)} → ${this.escapeHtml(dstAddr)}</div>` : "",
+        hops ? `<div>${hops}</div>` : "",
+        `<div>Latency: ${latency}</div>`,
+        `<div>Loss: ${loss}</div>`,
+        `<div>Jitter: ${jitter}</div>`,
+        agent ? `<div>${agent}</div>` : "",
+      ].filter(Boolean).join(""),
+      style: {
+        backgroundColor: "rgba(15, 23, 42, 0.8)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        border: "1px solid rgba(148, 163, 184, 0.15)",
+        borderRadius: "10px",
+        boxShadow: "0 8px 32px rgba(0, 0, 0, 0.4)",
+        color: "#e2e8f0",
+        fontFamily: "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
+        fontSize: "12px",
+        letterSpacing: "0.2px",
+        lineHeight: "1.35",
+        maxWidth: "360px",
+        padding: "8px 10px",
+        pointerEvents: "none",
+        whiteSpace: "normal",
+      },
+    }
+  },
   edgeLayerId(layerId) {
     return layerId === "god-view-edges-mantle" || layerId === "god-view-edges-crust"
   },
@@ -64,8 +107,9 @@ export const godViewRenderingTooltipMethods = {
       (layerId === "god-view-nodes" || layerId === "god-view-node-labels") && Number.isInteger(info?.object?.index)
         ? info.object.index
         : null
+    const isMtrPath = layerId === "god-view-mtr-paths"
     const nextKey =
-      this.edgeLayerId(layerId) && typeof info?.object?.interactionKey === "string"
+      (this.edgeLayerId(layerId) || isMtrPath) && typeof info?.object?.interactionKey === "string"
         ? info.object.interactionKey
         : null
     if (this.state.hoveredEdgeKey === nextKey && this.state.hoveredNodeIndex === nextNodeIndex) return

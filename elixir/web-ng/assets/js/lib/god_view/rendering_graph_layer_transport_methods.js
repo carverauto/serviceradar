@@ -249,12 +249,142 @@ export const godViewRenderingGraphLayerTransportMethods = {
         ]
       : []
 
+    const topologyLayers = this.state.topologyLayers || {}
+
+    const mtrPathEdgeData = topologyLayers.mtr_paths
+      ? this.buildMtrPathEdgeData(nodeData)
+      : []
+
+    const mtrPathLayers = topologyLayers.mtr_paths && mtrPathEdgeData.length > 0
+      ? [
+          new ArcLayer({
+            id: "god-view-mtr-paths",
+            data: mtrPathEdgeData,
+            coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+            getSourcePosition: (d) => d.sourcePosition,
+            getTargetPosition: (d) => d.targetPosition,
+            getSourceColor: (d) => this.mtrLatencyColor(d.avgUs, 0.9),
+            getTargetColor: (d) => this.mtrLatencyColor(d.avgUs, 0.6),
+            getWidth: (d) => this.mtrLossWidth(d.lossPct),
+            getHeight: 0.6,
+            widthUnits: "pixels",
+            greatCircle: false,
+            pickable: true,
+            parameters: {
+              blend: true,
+              blendFunc: [770, 771],
+              depthTest: false,
+              depthWrite: false,
+            },
+            updateTriggers: {
+              getSourceColor: [this.state.animationPhase],
+              getTargetColor: [this.state.animationPhase],
+            },
+          }),
+        ]
+      : []
+
     return {
       baseLayers,
       mantleLayers,
       crustLayers,
       atmosphereLayers,
       securityLayers,
+      mtrPathLayers,
     }
+  },
+
+  buildMtrPathEdgeData(nodeData) {
+    const paths = this.state.mtrPathData
+    if (!paths || paths.length === 0) return []
+
+    const nodeById = new Map()
+    for (const node of nodeData) {
+      if (node.id) nodeById.set(node.id, node)
+    }
+
+    return paths
+      .map((path) => {
+        const src = nodeById.get(path.source)
+        const dst = nodeById.get(path.target)
+        if (!src || !dst) return null
+        if (!Array.isArray(src.position) || src.position.length < 2) return null
+        if (!Array.isArray(dst.position) || dst.position.length < 2) return null
+
+        const avgUs = Number(path.avg_us)
+        const lossPct = Number(path.loss_pct)
+        const jitterUs = Number(path.jitter_us)
+        const fromHop = Number(path.from_hop)
+        const toHop = Number(path.to_hop)
+
+        return {
+          sourcePosition: [src.position[0], src.position[1], 0],
+          targetPosition: [dst.position[0], dst.position[1], 0],
+          avgUs: Number.isFinite(avgUs) ? avgUs : 0,
+          lossPct: Number.isFinite(lossPct) ? lossPct : 0,
+          jitterUs: Number.isFinite(jitterUs) ? jitterUs : 0,
+          fromHop: Number.isFinite(fromHop) ? fromHop : 0,
+          toHop: Number.isFinite(toHop) ? toHop : 0,
+          agentId: String(path.agent_id || ""),
+          sourceAddr: String(path.source_addr || ""),
+          targetAddr: String(path.target_addr || ""),
+          sourceId: path.source,
+          targetId: path.target,
+          interactionKey: [
+            "mtr",
+            String(path.source ?? ""),
+            String(path.target ?? ""),
+            String(path.agent_id ?? ""),
+            String(Number.isFinite(fromHop) ? fromHop : ""),
+            String(Number.isFinite(toHop) ? toHop : ""),
+          ]
+            .map((segment) => encodeURIComponent(segment))
+            .join(":"),
+        }
+      })
+      .filter(Boolean)
+  },
+
+  mtrLatencyColor(avgUs, alphaScale) {
+    const ms = avgUs / 1000
+    const pulse = (Math.sin(this.state.animationPhase * Math.PI * 2) + 1) * 0.5
+    const alphaBoost = 0.85 + (pulse * 0.15)
+    const rawScale = Number(alphaScale ?? 1.0)
+    const scale = Number.isFinite(rawScale) ? Math.max(0, Math.min(1, rawScale)) : 1.0
+    const alpha = Math.max(0, Math.min(255, Math.round(200 * scale * alphaBoost)))
+
+    if (ms <= 5) return [76, 175, 80, alpha]
+    if (ms <= 20) {
+      const t = (ms - 5) / 15
+      return [
+        Math.round(76 + (179 * t)),
+        Math.round(175 - (32 * t)),
+        Math.round(80 - (73 * t)),
+        alpha,
+      ]
+    }
+    if (ms <= 100) {
+      const t = Math.min(1, (ms - 20) / 80)
+      return [
+        Math.round(255 - (11 * t)),
+        Math.round(143 - (76 * t)),
+        Math.round(7 + (47 * t)),
+        alpha,
+      ]
+    }
+    return [244, 67, 54, alpha]
+  },
+
+  mtrLossWidth(lossPct) {
+    const raw = Number(lossPct)
+    const loss = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0
+    return 2.5 + (loss / 100) * 9.5
+  },
+
+  formatMtrLatency(avgUs) {
+    const ms = avgUs / 1000
+    if (ms < 1) return `${Math.round(avgUs)}us`
+    if (ms < 100) return `${ms.toFixed(1)}ms`
+    return `${Math.round(ms)}ms`
   },
 }

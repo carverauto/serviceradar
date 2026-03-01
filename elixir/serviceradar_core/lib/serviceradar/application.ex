@@ -154,6 +154,9 @@ defmodule ServiceRadar.Application do
         netflow_enrichment_dataset_scheduler_child(),
         netflow_security_scheduler_child(),
         netflow_cache_scheduler_child(),
+        mtr_baseline_scheduler_child(),
+        mtr_state_trigger_worker_child(),
+        mtr_consensus_worker_child(),
         topology_state_scheduler_child(),
         plugin_target_policy_scheduler_child(),
 
@@ -502,6 +505,36 @@ defmodule ServiceRadar.Application do
     end
   end
 
+  defp mtr_baseline_scheduler_child do
+    if mtr_baseline_automation_enabled?() and
+         Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         job_scheduler_node?() do
+      ServiceRadar.Observability.MtrBaselineScheduler
+    else
+      nil
+    end
+  end
+
+  defp mtr_state_trigger_worker_child do
+    if mtr_trigger_automation_enabled?() and
+         Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         job_scheduler_node?() do
+      ServiceRadar.Observability.MtrStateTriggerWorker
+    else
+      nil
+    end
+  end
+
+  defp mtr_consensus_worker_child do
+    if mtr_consensus_automation_enabled?() and
+         Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         job_scheduler_node?() do
+      ServiceRadar.Observability.MtrConsensusWorker
+    else
+      nil
+    end
+  end
+
   # Only one node should be responsible for inserting periodic/scheduled jobs.
   # In clustered deployments, that's the cluster coordinator (core-elx).
   # In non-clustered deployments, schedule locally.
@@ -676,8 +709,71 @@ defmodule ServiceRadar.Application do
   defp event_writer_enabled? do
     case System.get_env("EVENT_WRITER_ENABLED") do
       nil -> Application.get_env(:serviceradar_core, :event_writer_enabled, false)
-      value when value in ["true", "1", "yes"] -> true
+      value when is_binary(value) -> truthy_env_value?(value)
       _ -> false
     end
+  end
+
+  defp mtr_automation_enabled? do
+    case System.get_env("MTR_AUTOMATION_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :mtr_automation_enabled, false)
+      value when is_binary(value) -> truthy_env_value?(value)
+      _ -> false
+    end
+  end
+
+  defp mtr_baseline_automation_enabled? do
+    case System.get_env("MTR_AUTOMATION_BASELINE_ENABLED") do
+      nil ->
+        Application.get_env(
+          :serviceradar_core,
+          :mtr_automation_baseline_enabled,
+          mtr_automation_enabled?()
+        )
+
+      value when is_binary(value) ->
+        truthy_env_value?(value)
+
+      _ ->
+        false
+    end
+  end
+
+  defp mtr_trigger_automation_enabled? do
+    case System.get_env("MTR_AUTOMATION_TRIGGER_ENABLED") do
+      nil ->
+        Application.get_env(
+          :serviceradar_core,
+          :mtr_automation_trigger_enabled,
+          mtr_automation_enabled?()
+        )
+
+      value when is_binary(value) ->
+        truthy_env_value?(value)
+
+      _ ->
+        false
+    end
+  end
+
+  defp mtr_consensus_automation_enabled? do
+    case System.get_env("MTR_AUTOMATION_CONSENSUS_ENABLED") do
+      nil ->
+        Application.get_env(
+          :serviceradar_core,
+          :mtr_automation_consensus_enabled,
+          mtr_automation_enabled?()
+        )
+
+      value when is_binary(value) ->
+        truthy_env_value?(value)
+
+      _ ->
+        false
+    end
+  end
+
+  defp truthy_env_value?(value) when is_binary(value) do
+    String.downcase(String.trim(value)) in ["1", "true", "yes", "on"]
   end
 end

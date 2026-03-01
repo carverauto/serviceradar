@@ -698,15 +698,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           current_path={@current_path || @plugins_base_path}
           current_scope={@current_scope}
         />
-        <%= if @plugins_base_path == "/settings/agents/plugins" do %>
-          <.agents_nav
-            current_path={@current_path || @plugins_base_path}
-            class="mt-2"
-            current_scope={@current_scope}
-          />
-        <% else %>
-          <.edge_nav current_path={@current_path || @plugins_base_path} class="mt-2" />
-        <% end %>
+        <.edge_nav
+          current_path={@current_path || @plugins_base_path}
+          class="mt-2"
+          current_scope={@current_scope}
+        />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>

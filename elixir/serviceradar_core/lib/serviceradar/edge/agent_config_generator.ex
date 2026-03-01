@@ -506,6 +506,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp atom_to_check_type(:snmp), do: "snmp"
   defp atom_to_check_type(:grpc), do: "grpc"
   defp atom_to_check_type(:dns), do: "dns"
+  defp atom_to_check_type(:mtr), do: "mtr"
   defp atom_to_check_type(:custom), do: "custom"
   defp atom_to_check_type(other) when is_atom(other), do: Atom.to_string(other)
   defp atom_to_check_type(other) when is_binary(other), do: other

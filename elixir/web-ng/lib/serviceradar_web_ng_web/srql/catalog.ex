@@ -199,6 +199,27 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "mtr_traces",
+      label: "MTR Traces",
+      route: "/diagnostics/mtr",
+      default_time: "",
+      default_sort_field: "time",
+      default_sort_dir: "desc",
+      default_filter_field: "target",
+      filter_fields: [
+        "target",
+        "target_ip",
+        "agent_id",
+        "protocol",
+        "check_name",
+        "device_id",
+        "target_reached",
+        "error"
+      ],
+      boolean_fields: ["target_reached"],
+      downsample: false
+    },
+    %{
       id: "interfaces",
       label: "Interfaces",
       route: "/interfaces",

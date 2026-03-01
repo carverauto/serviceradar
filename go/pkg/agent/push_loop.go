@@ -123,6 +123,8 @@ type PushLoop struct {
 	lastStatusPush            time.Time
 	lastStatusSignature       string
 	syncRuntime               *SyncRuntime
+	mtrState                  *mtrCheckerState
+	mtrOnDemandSem            chan struct{}
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -310,6 +312,8 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		statusDebounce:     debounce,
 		statusHeartbeat:    heartbeat,
 		syncRuntime:        NewSyncRuntime(server, gateway, log),
+		mtrState:           newMtrCheckerState(),
+		mtrOnDemandSem:     make(chan struct{}, defaultMaxConcurrentOnDemandMtr),
 	}
 }
 
@@ -717,6 +721,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	}
 
 	sentICMPResults := p.pushICMPResults(ctx)
+	sentMtrResults := p.pushMtrResults(ctx)
 	sentSweepResults := p.pushSweepResults(ctx)
 	sentMapperResults := p.pushMapperResults(ctx)
 	sentMapperInterfaces := p.pushMapperInterfaces(ctx)
@@ -728,6 +733,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	if len(statuses) == 0 &&
 		sysmonStatus == nil &&
 		!sentICMPResults &&
+		!sentMtrResults &&
 		!sentSweepResults &&
 		!sentMapperResults &&
 		!sentMapperInterfaces &&
@@ -2918,6 +2924,9 @@ func (p *PushLoop) applyCheckConfigs(checks []*proto.AgentCheckConfig) {
 	} else if len(checks) > 0 {
 		p.logger.Debug().Msg("Gateway checks did not include any ICMP checks")
 	}
+
+	// Apply MTR check configs from the same check list.
+	p.applyMtrCheckConfigs(checks)
 }
 
 func parseICMPCheckConfig(check *proto.AgentCheckConfig) *icmpCheckConfig {
@@ -2974,6 +2983,7 @@ func parseICMPCheckConfig(check *proto.AgentCheckConfig) *icmpCheckConfig {
 func getAgentCapabilities() []string {
 	return []string{
 		"icmp",
+		"mtr",
 		sweepType,
 		"snmp",
 		"mapper",

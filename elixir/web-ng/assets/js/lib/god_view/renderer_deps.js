@@ -30,6 +30,7 @@
  * @property {(...args: any[]) => any} getNodeTooltip
  * @property {(...args: any[]) => any} handleHover
  * @property {(...args: any[]) => any} handlePick
+ * @property {(...args: any[]) => any} autoFitViewState
  */
 
 /**

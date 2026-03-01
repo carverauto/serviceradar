@@ -14,13 +14,21 @@ export const godViewLifecycleBootstrapEventLayerMethods = {
 
     this.state.handleEvent("god_view:set_topology_layers", ({layers}) => {
       if (layers && typeof layers === "object") {
+        const prev = this.state.topologyLayers || {}
         this.state.topologyLayers = {
           backbone: layers.backbone !== false,
           inferred: layers.inferred === true,
           endpoints: layers.endpoints === true,
+          mtr_paths:
+            typeof layers.mtr_paths === "boolean" ? layers.mtr_paths : prev.mtr_paths !== false,
         }
         if (this.state.lastGraph) this.deps.renderGraph(this.state.lastGraph)
       }
+    })
+
+    this.state.handleEvent("god_view:mtr_path_data", ({paths}) => {
+      this.state.mtrPathData = Array.isArray(paths) ? paths : []
+      if (this.state.lastGraph) this.deps.renderGraph(this.state.lastGraph)
     })
   },
 }

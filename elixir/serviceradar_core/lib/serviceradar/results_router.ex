@@ -11,6 +11,7 @@ defmodule ServiceRadar.ResultsRouter do
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.Observability.IcmpMetricsIngestor
+  alias ServiceRadar.Observability.MtrMetricsIngestor
   alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatusPubSub
@@ -97,6 +98,11 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp process(%{source: source} = status) when source in ["plugin-result", :plugin_result] do
     handle_plugin_results(status)
+  end
+
+  defp process(%{source: source, service_type: "mtr"} = status)
+       when source in ["results", :results] do
+    handle_mtr_results(status)
   end
 
   defp process(_status), do: :ok
@@ -190,6 +196,14 @@ defmodule ServiceRadar.ResultsRouter do
   defp handle_icmp_results(status) do
     with {:ok, payload} <- decode_payload(status[:message]) do
       icmp_ingestor().ingest(payload, status)
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp handle_mtr_results(status) do
+    with {:ok, payload} <- decode_payload(status[:message]) do
+      mtr_ingestor().ingest(payload, status)
     else
       {:error, reason} -> {:error, reason}
     end
@@ -510,5 +524,9 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp plugin_ingestor do
     Application.get_env(:serviceradar_core, :plugin_result_ingestor, PluginResultIngestor)
+  end
+
+  defp mtr_ingestor do
+    Application.get_env(:serviceradar_core, :mtr_metrics_ingestor, MtrMetricsIngestor)
   end
 end
