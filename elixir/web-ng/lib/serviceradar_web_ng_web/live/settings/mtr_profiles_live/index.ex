@@ -785,12 +785,18 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   defp count_target_devices(_scope, ""), do: nil
 
   defp count_target_devices(scope, target_query) when is_binary(target_query) do
-    srql_module = srql_module()
-    full_query = "#{normalize_target_query(target_query)} stats:\"count() as total\""
+    case normalize_target_query(target_query) do
+      nil ->
+        nil
 
-    case srql_module.query(full_query, %{scope: scope}) do
-      {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) -> count
-      _ -> nil
+      normalized ->
+        srql_module = srql_module()
+        full_query = "#{normalized} stats:\"count() as total\""
+
+        case srql_module.query(full_query, %{scope: scope}) do
+          {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) -> count
+          _ -> nil
+        end
     end
   rescue
     _ -> nil

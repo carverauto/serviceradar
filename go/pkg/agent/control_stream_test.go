@@ -11,10 +11,9 @@ import (
 func TestCommandTimeoutCap_NoCommandTTLUsesCap(t *testing.T) {
 	t.Parallel()
 
-	capDuration := 45 * time.Second
-	got := commandTimeoutCap(nil, capDuration)
-	if got != capDuration {
-		t.Fatalf("expected %v, got %v", capDuration, got)
+	got := commandTimeoutCap(nil)
+	if got != defaultOnDemandMtrDeadline {
+		t.Fatalf("expected %v, got %v", defaultOnDemandMtrDeadline, got)
 	}
 }
 
@@ -26,7 +25,7 @@ func TestCommandTimeoutCap_ExpiredReturnsZero(t *testing.T) {
 		TtlSeconds: 60,
 	}
 
-	got := commandTimeoutCap(cmd, 45*time.Second)
+	got := commandTimeoutCap(cmd)
 	if got != 0 {
 		t.Fatalf("expected 0, got %v", got)
 	}
@@ -40,7 +39,7 @@ func TestCommandTimeoutCap_CapsToRemainingTTL(t *testing.T) {
 		TtlSeconds: 20,
 	}
 
-	got := commandTimeoutCap(cmd, 45*time.Second)
+	got := commandTimeoutCap(cmd)
 	if got <= 0 || got > 12*time.Second {
 		t.Fatalf("expected timeout close to 10s remaining, got %v", got)
 	}
@@ -49,15 +48,14 @@ func TestCommandTimeoutCap_CapsToRemainingTTL(t *testing.T) {
 func TestCommandTimeoutCap_UsesCapWhenTTLIsLonger(t *testing.T) {
 	t.Parallel()
 
-	capDuration := 45 * time.Second
 	cmd := &proto.CommandRequest{
 		CreatedAt:  time.Now().Unix(),
 		TtlSeconds: 120,
 	}
 
-	got := commandTimeoutCap(cmd, capDuration)
-	if got != capDuration {
-		t.Fatalf("expected %v, got %v", capDuration, got)
+	got := commandTimeoutCap(cmd)
+	if got != defaultOnDemandMtrDeadline {
+		t.Fatalf("expected %v, got %v", defaultOnDemandMtrDeadline, got)
 	}
 }
 

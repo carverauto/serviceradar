@@ -332,13 +332,13 @@ func parseMtrCheckConfig(check *proto.AgentCheckConfig) *mtrCheckConfig {
 
 		if v, ok := check.Settings["max_hops"]; ok {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				cfg.MaxHops = clampInt(n, 1, mtrMaxHopsUpperBound)
+				cfg.MaxHops = clampInt(n, mtrMaxHopsUpperBound)
 			}
 		}
 
 		if v, ok := check.Settings["probes_per_hop"]; ok {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				cfg.ProbesPerHop = clampInt(n, 1, mtrProbesPerHopUpperBound)
+				cfg.ProbesPerHop = clampInt(n, mtrProbesPerHopUpperBound)
 			}
 		}
 
@@ -348,13 +348,13 @@ func parseMtrCheckConfig(check *proto.AgentCheckConfig) *mtrCheckConfig {
 
 		if v, ok := check.Settings["probe_interval_ms"]; ok {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				cfg.ProbeIntervalMs = clampInt(n, 1, mtrProbeIntervalMsUpperBound)
+				cfg.ProbeIntervalMs = clampInt(n, mtrProbeIntervalMsUpperBound)
 			}
 		}
 
 		if v, ok := check.Settings["packet_size"]; ok {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				cfg.PacketSize = clampInt(n, 1, mtrPacketSizeUpperBound)
+				cfg.PacketSize = clampInt(n, mtrPacketSizeUpperBound)
 			}
 		}
 
@@ -370,9 +370,9 @@ func parseMtrCheckConfig(check *proto.AgentCheckConfig) *mtrCheckConfig {
 	return cfg
 }
 
-func clampInt(v, minV, maxV int) int {
-	if v < minV {
-		return minV
+func clampInt(v, maxV int) int {
+	if v < 1 {
+		return 1
 	}
 
 	if v > maxV {

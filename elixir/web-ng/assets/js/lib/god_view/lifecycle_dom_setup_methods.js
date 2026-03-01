@@ -21,9 +21,9 @@ export const godViewLifecycleDomSetupMethods = {
     const safeUrl = this.sanitizeNavigationHref(href)
     if (!safeUrl) return
     if (typeof window === "undefined" || !window.location) return
-    window.location.pathname = safeUrl.pathname
-    window.location.search = safeUrl.search
-    window.location.hash = safeUrl.hash
+    if (typeof window.location.assign === "function") {
+      window.location.assign(safeUrl.href)
+    }
   },
   handleDetailsPanelClick(event) {
     const deviceLink = event.target?.closest?.("[data-device-href]")

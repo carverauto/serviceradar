@@ -774,16 +774,24 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   defp mtr_get(_row, _key), do: nil
 
   defp mtr_int(row, key) do
-    val = Map.get(row, key) || Map.get(row, String.to_existing_atom(key), 0)
+    val = mtr_get(row, key)
 
     case val do
-      v when is_integer(v) -> v
-      v when is_float(v) -> round(v)
-      v when is_binary(v) -> String.to_integer(v)
-      _ -> 0
+      v when is_integer(v) ->
+        v
+
+      v when is_float(v) ->
+        round(v)
+
+      v when is_binary(v) ->
+        case Integer.parse(v) do
+          {i, _} -> i
+          :error -> 0
+        end
+
+      _ ->
+        0
     end
-  rescue
-    _ -> 0
   end
 
   defp mtr_float(row, key) do

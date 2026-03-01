@@ -5,11 +5,12 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
 
   use GenServer
 
-  alias ServiceRadar.Observability.{MtrAutomationDispatcher, MtrPolicy}
+  alias ServiceRadar.Observability.{MtrAutomationDispatcher, MtrGraph, MtrPolicy}
 
   require Logger
 
   @default_tick_ms 60_000
+  @default_prune_interval_ms :timer.hours(1)
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -18,13 +19,15 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
   @impl GenServer
   def init(opts) do
     tick_ms = Keyword.get(opts, :tick_ms, tick_interval_ms())
+    prune_interval_ms = Keyword.get(opts, :prune_interval_ms, prune_interval_ms())
     send(self(), :run_baseline_tick)
-    {:ok, %{tick_ms: tick_ms}}
+    {:ok, %{tick_ms: tick_ms, prune_interval_ms: prune_interval_ms, last_prune_ms: nil}}
   end
 
   @impl GenServer
   def handle_info(:run_baseline_tick, state) do
     run_tick()
+    state = maybe_prune_stale_edges(state)
     Process.send_after(self(), :run_baseline_tick, state.tick_ms)
     {:noreply, state}
   end
@@ -66,7 +69,12 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
         end
       end)
 
-    log_dispatch_summary("MTR baseline dispatch summary", Map.get(policy, :name), length(targets), stats)
+    log_dispatch_summary(
+      "MTR baseline dispatch summary",
+      Map.get(policy, :name),
+      length(targets),
+      stats
+    )
   end
 
   defp init_dispatch_stats do
@@ -111,6 +119,41 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
     case System.get_env("MTR_BASELINE_TICK_MS") do
       nil -> Application.get_env(:serviceradar_core, :mtr_baseline_tick_ms, @default_tick_ms)
       value -> parse_int(value, @default_tick_ms)
+    end
+  end
+
+  defp prune_interval_ms do
+    case System.get_env("MTR_GRAPH_PRUNE_INTERVAL_MS") do
+      nil ->
+        Application.get_env(
+          :serviceradar_core,
+          :mtr_graph_prune_interval_ms,
+          @default_prune_interval_ms
+        )
+
+      value ->
+        parse_int(value, @default_prune_interval_ms)
+    end
+  end
+
+  defp maybe_prune_stale_edges(
+         %{
+           prune_interval_ms: prune_interval_ms,
+           last_prune_ms: last_prune_ms
+         } = state
+       ) do
+    now_ms = System.monotonic_time(:millisecond)
+    interval_ms = max(parse_int(prune_interval_ms, @default_prune_interval_ms), 1)
+
+    should_prune? =
+      is_nil(last_prune_ms) or
+        (is_integer(last_prune_ms) and now_ms - last_prune_ms >= interval_ms)
+
+    if should_prune? do
+      MtrGraph.prune_stale_edges()
+      %{state | last_prune_ms: now_ms}
+    else
+      state
     end
   end
 

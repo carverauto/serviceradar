@@ -302,7 +302,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
     }
 
     return paths
-      .map((path, idx) => {
+      .map((path) => {
         const src = nodeById.get(path.source)
         const dst = nodeById.get(path.target)
         if (!src || !dst) return null
@@ -328,7 +328,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
           targetAddr: String(path.target_addr || ""),
           sourceId: path.source,
           targetId: path.target,
-          interactionKey: `mtr:${path.source}:${path.target}:${idx}`,
+          interactionKey: `mtr:${path.source}:${path.target}:${path.agent_id || ""}:${path.from_hop ?? ""}:${path.to_hop ?? ""}`,
         }
       })
       .filter(Boolean)

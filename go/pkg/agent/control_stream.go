@@ -375,7 +375,7 @@ func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, 
 		return
 	}
 
-	runTimeout := commandTimeoutCap(cmd, defaultOnDemandMtrDeadline)
+	runTimeout := commandTimeoutCap(cmd)
 	if runTimeout <= 0 {
 		_ = sender.Send(commandResult(cmd, false, "command deadline exceeded", nil))
 		return
@@ -421,19 +421,19 @@ func onDemandMtrOptions(payload mtrRunPayload) mtr.Options {
 	}
 
 	if payload.MaxHops > 0 {
-		opts.MaxHops = clampInt(payload.MaxHops, 1, mtrMaxHopsUpperBound)
+		opts.MaxHops = clampInt(payload.MaxHops, mtrMaxHopsUpperBound)
 	}
 
 	return opts
 }
 
-func commandTimeoutCap(cmd *proto.CommandRequest, capDuration time.Duration) time.Duration {
-	if capDuration <= 0 {
+func commandTimeoutCap(cmd *proto.CommandRequest) time.Duration {
+	if defaultOnDemandMtrDeadline <= 0 {
 		return 0
 	}
 
 	if cmd == nil || cmd.TtlSeconds <= 0 || cmd.CreatedAt <= 0 {
-		return capDuration
+		return defaultOnDemandMtrDeadline
 	}
 
 	expiry := time.Unix(cmd.CreatedAt, 0).Add(time.Duration(cmd.TtlSeconds) * time.Second)
@@ -442,11 +442,11 @@ func commandTimeoutCap(cmd *proto.CommandRequest, capDuration time.Duration) tim
 		return 0
 	}
 
-	if remaining < capDuration {
+	if remaining < defaultOnDemandMtrDeadline {
 		return remaining
 	}
 
-	return capDuration
+	return defaultOnDemandMtrDeadline
 }
 
 func commandExpired(cmd *proto.CommandRequest) bool {

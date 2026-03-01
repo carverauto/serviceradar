@@ -169,10 +169,10 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   end
 
   defp first_non_nil(values, default) when is_list(values) do
-    Enum.find_value(values, default, fn
-      nil -> nil
+    case Enum.find(values, :not_found, fn value -> value != nil end) do
+      :not_found -> default
       value -> value
-    end)
+    end
   end
 
   defp insert_hop(hop, trace_id, trace_time, actor) when is_map(hop) do

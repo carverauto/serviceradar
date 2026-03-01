@@ -30,6 +30,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
                          ])
   @boolean_filter_fields MapSet.new(["target_reached"])
   @exact_filter_fields MapSet.new(["protocol", "device_id", "target_reached"])
+  @safe_filter_columns %{
+    "target" => "target",
+    "target_ip" => "target_ip",
+    "agent_id" => "agent_id",
+    "protocol" => "protocol",
+    "check_name" => "check_name",
+    "device_id" => "device_id",
+    "target_reached" => "target_reached",
+    "error" => "error"
+  }
 
   def list_traces(opts \\ []) do
     target_filter = normalize_string(Keyword.get(opts, :target_filter, ""))
@@ -165,8 +175,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     """
 
     with {:ok, %{rows: [trace_row], columns: trace_cols}} <- Repo.query(trace_query, [trace_id]),
+         trace <- Enum.zip(trace_cols, trace_row) |> Map.new(),
          {:ok, %{rows: hop_rows, columns: hop_cols}} <- Repo.query(hops_query, [trace_id]) do
-      trace = Enum.zip(trace_cols, trace_row) |> Map.new()
       hops = Enum.map(hop_rows, fn row -> Enum.zip(hop_cols, row) |> Map.new() end)
       {:ok, trace, hops}
     else
@@ -195,6 +205,20 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   def suppress_completed_pending_jobs(pending_jobs, _traces), do: pending_jobs
 
   defp build_trace_where(target_filter, agent_filter, device_uid, device_ip) do
+    {conditions, params} =
+      build_trace_conditions(target_filter, agent_filter, device_uid, device_ip)
+
+    where_clause =
+      if conditions == [] do
+        ""
+      else
+        "WHERE " <> Enum.join(conditions, " AND ")
+      end
+
+    {where_clause, params}
+  end
+
+  defp build_trace_conditions(target_filter, agent_filter, device_uid, device_ip) do
     conditions = []
     params = []
     idx = 1
@@ -230,47 +254,62 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
           {conditions, params, idx}
       end
 
-    if conditions == [] do
-      {"", params}
-    else
-      {"WHERE " <> Enum.join(conditions, " AND "), params}
-    end
+    {conditions, params}
   end
 
   defp load_last_hop_latencies([]), do: []
 
   defp load_last_hop_latencies(traces) do
-    trace_ids =
-      traces
-      |> Enum.map(& &1["id"])
-      |> Enum.reject(&(is_nil(&1) or &1 == ""))
+    trace_ids = valid_trace_ids(traces)
 
-    if trace_ids == [] do
-      []
-    else
-      placeholders = Enum.map_join(1..length(trace_ids), ", ", fn i -> "$#{i}" end)
+    case trace_ids do
+      [] ->
+        []
 
-      query = """
-      SELECT DISTINCT ON (trace_id) trace_id::text, avg_us
-      FROM mtr_hops
-      WHERE trace_id::text IN (#{placeholders})
-        AND addr IS NOT NULL
-      ORDER BY trace_id, hop_number DESC
-      """
+      _ ->
+        latency_map = fetch_last_hop_latency_map(trace_ids)
 
-      case Repo.query(query, trace_ids) do
-        {:ok, %{rows: rows}} ->
-          latency_map = Map.new(rows, fn [trace_id, avg_us] -> {trace_id, avg_us || 0} end)
-
-          Enum.map(traces, fn trace ->
-            {trace["time"], Map.get(latency_map, trace["id"], 0)}
-          end)
-
-        {:error, _reason} ->
-          []
-      end
+        Enum.map(traces, fn trace ->
+          {trace["time"], Map.get(latency_map, trace["id"], 0)}
+        end)
     end
   end
+
+  defp valid_trace_ids(traces) do
+    traces
+    |> Enum.map(& &1["id"])
+    |> Enum.reject(&(is_nil(&1) or &1 == ""))
+    |> Enum.filter(&uuid?/1)
+  end
+
+  defp fetch_last_hop_latency_map(trace_ids) do
+    placeholders = Enum.map_join(1..length(trace_ids), ", ", fn i -> "$#{i}" end)
+
+    query = """
+    SELECT DISTINCT ON (trace_id) trace_id::text, avg_us
+    FROM mtr_hops
+    WHERE trace_id::text IN (#{placeholders})
+      AND addr IS NOT NULL
+    ORDER BY trace_id, hop_number DESC
+    """
+
+    case Repo.query(query, trace_ids) do
+      {:ok, %{rows: rows}} ->
+        Map.new(rows, fn [trace_id, avg_us] -> {trace_id, avg_us || 0} end)
+
+      {:error, _reason} ->
+        %{}
+    end
+  end
+
+  defp uuid?(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, _uuid} -> true
+      :error -> false
+    end
+  end
+
+  defp uuid?(_value), do: false
 
   defp read_all(query, scope) do
     case Ash.read(query, scope: scope) do
@@ -362,19 +401,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   defp to_string_safe(value), do: to_string(value)
 
   defp build_trace_where_with_srql(target_filter, agent_filter, device_uid, device_ip, srql_query) do
-    {where_clause, params} = build_trace_where(target_filter, agent_filter, device_uid, device_ip)
+    {conditions, params} =
+      build_trace_conditions(target_filter, agent_filter, device_uid, device_ip)
 
-    {conditions, params, idx} =
-      if where_clause == "" do
-        {[], [], 1}
-      else
-        existing =
-          where_clause
-          |> String.trim_leading("WHERE ")
-          |> String.split(" AND ", trim: true)
-
-        {existing, params, length(params) + 1}
-      end
+    idx = length(params) + 1
 
     {srql_conditions, srql_params, _idx, srql_sort} = parse_srql_conditions(srql_query, idx)
     all_conditions = conditions ++ srql_conditions
@@ -456,18 +486,20 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   end
 
   defp apply_filter_by_field(field, value, conditions, params, idx, sort) do
+    col = Map.get(@safe_filter_columns, field)
+
     cond do
-      not MapSet.member?(@allowed_filter_fields, field) ->
+      is_nil(col) or not MapSet.member?(@allowed_filter_fields, field) ->
         {conditions, params, idx, sort}
 
       MapSet.member?(@boolean_filter_fields, field) ->
-        maybe_add_boolean_filter(parse_boolean(value), field, conditions, params, idx, sort)
+        maybe_add_boolean_filter(parse_boolean(value), col, conditions, params, idx, sort)
 
       MapSet.member?(@exact_filter_fields, field) ->
-        {conditions ++ ["#{field} = $#{idx}"], params ++ [value], idx + 1, sort}
+        {conditions ++ ["#{col} = $#{idx}"], params ++ [value], idx + 1, sort}
 
       true ->
-        {conditions ++ ["#{field} ILIKE $#{idx}"], params ++ ["%#{value}%"], idx + 1, sort}
+        {conditions ++ ["#{col} ILIKE $#{idx}"], params ++ ["%#{value}%"], idx + 1, sort}
     end
   end
 
