@@ -45,6 +45,7 @@ go_test(
         "topology_identity_test.go",
         "ubnt_poller_test.go",
     ],
+    data = glob(["testdata/**"]),
     embed = [":mapper"],
     deps = [
         "//go/pkg/logger",

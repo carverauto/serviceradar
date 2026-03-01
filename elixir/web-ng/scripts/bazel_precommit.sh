@@ -1,23 +1,31 @@
 #!/bin/sh
 set -eu
 
-if [ -z "${HOME:-}" ]; then
-  if command -v getent >/dev/null 2>&1; then
-    HOST_HOME=$(getent passwd "$(id -u)" | cut -d: -f6)
-  elif command -v python3 >/dev/null 2>&1; then
-    HOST_HOME=$(python3 - <<'PY'
+unset ENV
+unset BASH_ENV
+
+HOST_HOME="${HOME:-}"
+if command -v getent >/dev/null 2>&1; then
+  resolved_home=$(getent passwd "$(id -u)" | cut -d: -f6)
+  if [ -n "${resolved_home:-}" ]; then
+    HOST_HOME="$resolved_home"
+  fi
+elif command -v python3 >/dev/null 2>&1; then
+  resolved_home=$(python3 - <<'PY'
 import os
 import pwd
 print(pwd.getpwuid(os.getuid()).pw_dir)
 PY
-    )
-  else
-    HOST_HOME="$PWD"
+  )
+  if [ -n "${resolved_home:-}" ]; then
+    HOST_HOME="$resolved_home"
   fi
-  export HOME="$HOST_HOME"
-else
-  HOST_HOME="$HOME"
 fi
+
+if [ -z "$HOST_HOME" ]; then
+  HOST_HOME="$PWD"
+fi
+export HOME="$HOST_HOME"
 
 if ! command -v mix >/dev/null 2>&1; then
   echo "mix not found in PATH" >&2
@@ -52,6 +60,8 @@ if [ -z "${OPENSSL_INCLUDE_DIR:-}" ] && [ -d /usr/include/openssl ]; then
 fi
 
 ROOT="${TEST_SRCDIR:?}/${TEST_WORKSPACE:?}"
+WEB_NG_SRC="${ROOT}/elixir/web-ng"
+
 WORK_BASE="${HOST_HOME:-$PWD}/.cache/serviceradar/bazel_precommit"
 mkdir -p "$WORK_BASE"
 
@@ -102,7 +112,7 @@ EOF
   export GIT="$GIT_WRAP_DIR/git"
 fi
 
-mkdir -p "$WORKDIR/web-ng" "$WORKDIR/rust/srql" "$WORKDIR/rust/kvutil" "$WORKDIR/proto" "$WORKDIR/elixir/serviceradar_core" "$WORKDIR/elixir/datasvc"
+mkdir -p "$WORKDIR/elixir/web-ng" "$WORKDIR/rust/srql" "$WORKDIR/rust/kvutil" "$WORKDIR/proto" "$WORKDIR/elixir/connection" "$WORKDIR/elixir/serviceradar_core" "$WORKDIR/elixir/serviceradar_srql" "$WORKDIR/elixir/datasvc" "$WORKDIR/elixir/vendor/opentelemetry_oban"
 
 copy_dir() {
   src="$1"
@@ -122,15 +132,18 @@ copy_dir() {
   cp -a "$src"/. "$dest"/ 2>/dev/null || cp -R "$src"/. "$dest"/
 }
 
-copy_dir "$ROOT/web-ng" "$WORKDIR/web-ng"
+copy_dir "$WEB_NG_SRC" "$WORKDIR/elixir/web-ng"
 if [ -f "$ROOT/.tool-versions" ]; then
-  cp "$ROOT/.tool-versions" "$WORKDIR/web-ng/.tool-versions"
+  cp "$ROOT/.tool-versions" "$WORKDIR/elixir/web-ng/.tool-versions"
 fi
 copy_dir "$ROOT/rust/srql" "$WORKDIR/rust/srql"
 copy_dir "$ROOT/rust/kvutil" "$WORKDIR/rust/kvutil"
 copy_dir "$ROOT/proto" "$WORKDIR/proto"
+copy_dir "$ROOT/elixir/connection" "$WORKDIR/elixir/connection"
 copy_dir "$ROOT/elixir/serviceradar_core" "$WORKDIR/elixir/serviceradar_core"
+copy_dir "$ROOT/elixir/serviceradar_srql" "$WORKDIR/elixir/serviceradar_srql"
 copy_dir "$ROOT/elixir/datasvc" "$WORKDIR/elixir/datasvc"
+copy_dir "$ROOT/elixir/vendor/opentelemetry_oban" "$WORKDIR/elixir/vendor/opentelemetry_oban"
 cp "$ROOT/Cargo.toml" "$WORKDIR/Cargo.toml"
 if [ -f "$ROOT/Cargo.lock" ]; then
   cp "$ROOT/Cargo.lock" "$WORKDIR/Cargo.lock"
@@ -152,12 +165,33 @@ export RUSTLER_TEMP_DIR="$TMPROOT"
 # Persistent cargo target dir to cache compiled Rust deps
 export CARGO_TARGET_DIR="$CACHE_DIR/_cargo_target"
 
-cd "$WORKDIR/web-ng"
+cd "$WORKDIR/elixir/web-ng"
+
+deps_cache_key() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$@" | sha256sum | awk '{print $1}'
+    return
+  fi
+
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$@" | shasum -a 256 | awk '{print $1}'
+    return
+  fi
+
+  cksum "$@" | cksum | awk '{print $1}'
+}
+
+DEPS_CACHE_FINGERPRINT="$(deps_cache_key mix.exs mix.lock ../connection/mix.exs ../serviceradar_core/mix.exs ../serviceradar_srql/mix.exs ../datasvc/mix.exs ../vendor/opentelemetry_oban/mix.exs)"
+DEPS_CACHE_KEY_FILE="$CACHE_DIR/deps.key"
+
+if [ -f "$DEPS_CACHE_KEY_FILE" ] && [ "$(cat "$DEPS_CACHE_KEY_FILE")" != "$DEPS_CACHE_FINGERPRINT" ]; then
+  rm -rf "$CACHE_DIR/deps" "$CACHE_DIR/_build"
+fi
 
 # Restore cached deps if available (speeds up mix deps.get significantly)
 # This avoids re-cloning heroicons and re-downloading hex packages each run
 if [ -d "$CACHE_DIR/deps" ]; then
-  cp -a "$CACHE_DIR/deps" "$WORKDIR/web-ng/deps"
+  cp -a "$CACHE_DIR/deps" "$WORKDIR/elixir/web-ng/deps"
 fi
 
 # Only install hex/rebar if not already cached
@@ -182,15 +216,16 @@ fi
 
 # Cache deps for next run (speeds up heroicons clone and hex downloads)
 rm -rf "$CACHE_DIR/deps"
-cp -a "$WORKDIR/web-ng/deps" "$CACHE_DIR/deps"
+cp -a "$WORKDIR/elixir/web-ng/deps" "$CACHE_DIR/deps"
+printf '%s\n' "$DEPS_CACHE_FINGERPRINT" >"$DEPS_CACHE_KEY_FILE"
 
 # Restore cached _build if available (speeds up compilation)
 if [ -d "$CACHE_DIR/_build" ]; then
-  cp -a "$CACHE_DIR/_build" "$WORKDIR/web-ng/_build"
+  cp -a "$CACHE_DIR/_build" "$WORKDIR/elixir/web-ng/_build"
 fi
 
 mix precommit_fast
 
 # Cache _build for next run
 rm -rf "$CACHE_DIR/_build"
-cp -a "$WORKDIR/web-ng/_build" "$CACHE_DIR/_build"
+cp -a "$WORKDIR/elixir/web-ng/_build" "$CACHE_DIR/_build"

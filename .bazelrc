@@ -9,6 +9,7 @@ common --experimental_convenience_symlinks=clean
 common --color=yes
 common --curses=yes
 common --repository_cache=third_party/bazel-repo-cache
+common --repo_contents_cache=
 common --disk_cache=third_party/bazel-disk-cache
 common --distdir=third_party/distdir
 # Allow platform-specific build:* sections (linux/macos/windows).
