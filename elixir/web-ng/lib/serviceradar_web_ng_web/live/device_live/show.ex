@@ -184,7 +184,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_info({:command_progress, _progress}, socket), do: {:noreply, socket}
 
   def handle_info(msg, socket) do
-    Logger.debug(fn -> "[DeviceLive.Show] unhandled message: #{inspect(msg)}" end)
+    Logger.debug(fn ->
+      "[DeviceLive.Show] unhandled message: " <>
+        inspect(msg, limit: 50, printable_limit: 2_000, charlists: :as_lists)
+    end)
+
     {:noreply, socket}
   end
 

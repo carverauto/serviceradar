@@ -359,6 +359,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       |> to_string_safe()
       |> String.trim()
 
+    context_target_ip =
+      context
+      |> fetch_map("target_ip")
+      |> to_string_safe()
+      |> String.trim()
+
     payload_target =
       payload
       |> fetch_map("target")
@@ -366,7 +372,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       |> String.trim()
 
     uid_match? = is_binary(device_uid) and context_device_uid == String.trim(device_uid)
-    ip_match? = is_binary(device_ip) and payload_target == String.trim(device_ip)
+
+    ip_match? =
+      is_binary(device_ip) and
+        (payload_target == String.trim(device_ip) or context_target_ip == String.trim(device_ip))
+
     uid_match? || ip_match?
   end
 

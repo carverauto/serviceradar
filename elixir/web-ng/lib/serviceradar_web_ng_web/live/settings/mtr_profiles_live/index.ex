@@ -795,14 +795,26 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
         full_query =
           if has_stats? do
-            normalized
+            "#{normalized} limit:1"
           else
-            "#{normalized} stats:\"count() as total\""
+            "#{normalized} stats:\"count() as total\" limit:1"
           end
 
         case srql_module.query(full_query, %{scope: scope}) do
-          {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) -> count
-          _ -> nil
+          {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) ->
+            count
+
+          {:ok, %{"results" => [%{"total" => count} | _]}} when is_float(count) ->
+            trunc(count)
+
+          {:ok, %{"results" => [%{"total" => count} | _]}} when is_binary(count) ->
+            case Integer.parse(count) do
+              {parsed, ""} -> parsed
+              _ -> nil
+            end
+
+          _ ->
+            nil
         end
     end
   rescue
@@ -953,7 +965,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       |> String.replace("\\", "\\\\")
       |> String.replace("\"", "\\\"")
 
-    needs_quotes? = Regex.match?(~r/\s/, value)
+    needs_quotes? = Regex.match?(~r/[^A-Za-z0-9_.-]/, value)
 
     token_value =
       if needs_quotes? do
@@ -964,8 +976,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
     case filter["op"] || "contains" do
       "not_contains" -> "!#{field}:#{token_value}"
-      "equals" -> "#{field}:\"#{value}\""
-      "not_equals" -> "!#{field}:\"#{value}\""
+      "equals" -> "#{field}:#{token_value}"
+      "not_equals" -> "!#{field}:#{token_value}"
       _ -> "#{field}:#{token_value}"
     end
   end

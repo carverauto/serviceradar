@@ -639,19 +639,31 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     partition_id = Map.fetch!(meta, :partition_id)
     now = Map.fetch!(meta, :now)
 
-    _ =
-      put_dispatch_window(
-        Map.get(target_ctx, :target_key),
-        trigger_mode,
-        transition_class,
-        partition_id,
-        now,
-        cooldown_seconds(policy, mode),
-        incident_correlation_id,
-        dispatched
-      )
+    case put_dispatch_window(
+           Map.get(target_ctx, :target_key),
+           trigger_mode,
+           transition_class,
+           partition_id,
+           now,
+           cooldown_seconds(policy, mode),
+           incident_correlation_id,
+           dispatched
+         ) do
+      {:ok, _window} ->
+        {:ok, :dispatched}
 
-    {:ok, :dispatched}
+      {:error, reason} ->
+        Logger.error(
+          "Failed to persist MTR dispatch window",
+          reason: inspect(reason),
+          target_key: Map.get(target_ctx, :target_key),
+          trigger_mode: trigger_mode,
+          transition_class: transition_class,
+          partition_id: partition_id
+        )
+
+        {:error, {:dispatch_window_write_failed, reason}}
+    end
   end
 
   defp read_ctx_value(ctx, key) do
@@ -792,7 +804,10 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   end
 
   defp selector_value(map, key) when is_map(map) do
-    Map.get(map, key) || map_get_existing_atom_key(map, key)
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> map_get_existing_atom_key(map, key)
+    end
   end
 
   defp selector_value(_, _), do: nil

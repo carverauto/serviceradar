@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
 
   @default_decode_alert_ms 20.0
   @default_render_alert_ms 40.0
+  @mtr_paths_cache_ttl_ms 10_000
 
   @impl true
   def mount(_params, _session, socket) do
@@ -51,6 +52,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
           endpoints: false,
           mtr_paths: true
         })
+        |> assign(:mtr_paths_cache, nil)
         |> assign(:pipeline_stats, %{})
         |> assign(:controls_collapsed, true)
 
@@ -680,7 +682,22 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   end
 
   defp push_mtr_path_data(socket) do
-    push_event(socket, "god_view:mtr_path_data", %{paths: load_mtr_paths()})
+    {paths, socket} = cached_mtr_paths(socket)
+    push_event(socket, "god_view:mtr_path_data", %{paths: paths})
+  end
+
+  defp cached_mtr_paths(socket) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    case socket.assigns do
+      %{mtr_paths_cache: %{at_ms: at_ms, paths: paths}}
+      when is_integer(at_ms) and now_ms - at_ms < @mtr_paths_cache_ttl_ms and is_list(paths) ->
+        {paths, socket}
+
+      _ ->
+        paths = load_mtr_paths()
+        {paths, assign(socket, :mtr_paths_cache, %{at_ms: now_ms, paths: paths})}
+    end
   end
 
   defp load_mtr_paths do

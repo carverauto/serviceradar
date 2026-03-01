@@ -136,11 +136,11 @@ defmodule ServiceRadar.Observability.MtrGraph do
        ) do
     from_asn = hop_asn(from_hop)
     to_asn = hop_asn(to_hop)
-    from_hop_no = hop_metric(from_hop, "hop_number", 0)
-    to_hop_no = hop_metric(to_hop, "hop_number", 0)
-    avg_us = hop_metric(to_hop, "avg_us", 0)
-    loss_pct = hop_metric(to_hop, "loss_pct", 0.0)
-    jitter_us = hop_metric(to_hop, "jitter_us", 0)
+    from_hop_no = hop_int(from_hop, "hop_number", 0)
+    to_hop_no = hop_int(to_hop, "hop_number", 0)
+    avg_us = hop_int(to_hop, "avg_us", 0)
+    loss_pct = hop_float(to_hop, "loss_pct", 0.0)
+    jitter_us = hop_int(to_hop, "jitter_us", 0)
 
     """
     MERGE (a:#{from_label} {id: '#{Graph.escape(from_id)}'})
@@ -174,8 +174,45 @@ defmodule ServiceRadar.Observability.MtrGraph do
   defp hop_asn(hop) when is_map(hop), do: hop["asn"] || %{}
   defp hop_asn(_), do: %{}
 
-  defp hop_metric(hop, key, default) when is_map(hop), do: hop[key] || default
-  defp hop_metric(_hop, _key, default), do: default
+  defp hop_int(hop, key, default) when is_map(hop) do
+    case hop[key] do
+      v when is_integer(v) -> v
+      v when is_float(v) -> round(v)
+      v when is_binary(v) -> parse_int(v, default)
+      _ -> default
+    end
+  end
+
+  defp hop_int(_hop, _key, default), do: default
+
+  defp hop_float(hop, key, default) when is_map(hop) do
+    case hop[key] do
+      v when is_float(v) -> v
+      v when is_integer(v) -> v / 1.0
+      v when is_binary(v) -> parse_float(v, default)
+      _ -> default
+    end
+  end
+
+  defp hop_float(_hop, _key, default), do: default
+
+  defp parse_int(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, ""} -> n
+      _ -> default
+    end
+  end
+
+  defp parse_int(_value, default), do: default
+
+  defp parse_float(value, default) when is_binary(value) do
+    case Float.parse(value) do
+      {n, ""} -> n
+      _ -> default
+    end
+  end
+
+  defp parse_float(_value, default), do: default
 
   # If the hop IP matches a known device, use Device label with device UID.
   # Otherwise fall back to MtrHop label keyed by IP.
