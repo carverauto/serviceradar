@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     agent_filter = normalize_string(Keyword.get(opts, :agent_filter, ""))
     device_uid = normalize_string(Keyword.get(opts, :device_uid))
     device_ip = normalize_string(Keyword.get(opts, :device_ip))
-    limit = Keyword.get(opts, :limit, 50)
+    limit = normalize_limit(Keyword.get(opts, :limit, 50))
 
     {where_clause, params} = build_trace_where(target_filter, agent_filter, device_uid, device_ip)
 
@@ -240,27 +240,35 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   defp load_last_hop_latencies([]), do: []
 
   defp load_last_hop_latencies(traces) do
-    trace_ids = Enum.map(traces, & &1["id"])
-    placeholders = Enum.map_join(1..length(trace_ids), ", ", fn i -> "$#{i}" end)
+    trace_ids =
+      traces
+      |> Enum.map(& &1["id"])
+      |> Enum.reject(&(is_nil(&1) or &1 == ""))
 
-    query = """
-    SELECT DISTINCT ON (trace_id) trace_id::text, avg_us
-    FROM mtr_hops
-    WHERE trace_id::text IN (#{placeholders})
-      AND addr IS NOT NULL
-    ORDER BY trace_id, hop_number DESC
-    """
+    if trace_ids == [] do
+      []
+    else
+      placeholders = Enum.map_join(1..length(trace_ids), ", ", fn i -> "$#{i}" end)
 
-    case Repo.query(query, trace_ids) do
-      {:ok, %{rows: rows}} ->
-        latency_map = Map.new(rows, fn [trace_id, avg_us] -> {trace_id, avg_us || 0} end)
+      query = """
+      SELECT DISTINCT ON (trace_id) trace_id::text, avg_us
+      FROM mtr_hops
+      WHERE trace_id::text IN (#{placeholders})
+        AND addr IS NOT NULL
+      ORDER BY trace_id, hop_number DESC
+      """
 
-        Enum.map(traces, fn trace ->
-          {trace["time"], Map.get(latency_map, trace["id"], 0)}
-        end)
+      case Repo.query(query, trace_ids) do
+        {:ok, %{rows: rows}} ->
+          latency_map = Map.new(rows, fn [trace_id, avg_us] -> {trace_id, avg_us || 0} end)
 
-      {:error, _reason} ->
-        []
+          Enum.map(traces, fn trace ->
+            {trace["time"], Map.get(latency_map, trace["id"], 0)}
+          end)
+
+        {:error, _reason} ->
+          []
+      end
     end
   end
 

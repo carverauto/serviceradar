@@ -306,14 +306,23 @@ export const godViewRenderingGraphLayerTransportMethods = {
         const src = nodeById.get(path.source)
         const dst = nodeById.get(path.target)
         if (!src || !dst) return null
+        if (!Array.isArray(src.position) || src.position.length < 2) return null
+        if (!Array.isArray(dst.position) || dst.position.length < 2) return null
+
+        const avgUs = Number(path.avg_us)
+        const lossPct = Number(path.loss_pct)
+        const jitterUs = Number(path.jitter_us)
+        const fromHop = Number(path.from_hop)
+        const toHop = Number(path.to_hop)
+
         return {
           sourcePosition: [src.position[0], src.position[1], 0],
           targetPosition: [dst.position[0], dst.position[1], 0],
-          avgUs: Number(path.avg_us || 0),
-          lossPct: Number(path.loss_pct || 0),
-          jitterUs: Number(path.jitter_us || 0),
-          fromHop: Number(path.from_hop || 0),
-          toHop: Number(path.to_hop || 0),
+          avgUs: Number.isFinite(avgUs) ? avgUs : 0,
+          lossPct: Number.isFinite(lossPct) ? lossPct : 0,
+          jitterUs: Number.isFinite(jitterUs) ? jitterUs : 0,
+          fromHop: Number.isFinite(fromHop) ? fromHop : 0,
+          toHop: Number.isFinite(toHop) ? toHop : 0,
           agentId: String(path.agent_id || ""),
           sourceAddr: String(path.source_addr || ""),
           targetAddr: String(path.target_addr || ""),

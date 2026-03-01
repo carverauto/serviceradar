@@ -62,8 +62,10 @@ export const godViewRenderingTooltipMethods = {
     if (!object) return null
     const latency = this.formatMtrLatency(object.avgUs || 0)
     const jitter = this.formatMtrLatency(object.jitterUs || 0)
-    const loss = `${Number(object.lossPct || 0).toFixed(1)}%`
-    const hops = object.fromHop && object.toHop ? `Hop ${object.fromHop} → ${object.toHop}` : ""
+    const lossValue = Number(object.lossPct)
+    const loss = `${(Number.isFinite(lossValue) ? lossValue : 0).toFixed(1)}%`
+    const hasHops = Number.isFinite(object.fromHop) && Number.isFinite(object.toHop)
+    const hops = hasHops ? `Hop ${object.fromHop} → ${object.toHop}` : ""
     const agent = object.agentId ? `Agent: ${this.escapeHtml(object.agentId)}` : ""
     const srcAddr = object.sourceAddr || ""
     const dstAddr = object.targetAddr || ""

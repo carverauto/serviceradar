@@ -75,8 +75,14 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       end)
     end)
     |> case do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+
+      {:error, reason, _stacktrace} ->
+        {:error, reason}
     end
   end
 
@@ -147,7 +153,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       device_id: result["device_id"],
       target: first_present([result["target"], trace["target"]], ""),
       target_ip: first_present([trace["target_ip"], result["target"]], ""),
-      target_reached: first_present([result["available"], trace["target_reached"]], false),
+      target_reached: first_non_nil([result["available"], trace["target_reached"]], false),
       total_hops: trace["total_hops"] || 0,
       protocol: trace["protocol"] || "icmp",
       ip_version: trace["ip_version"] || 4,
@@ -164,6 +170,13 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     Enum.find_value(values, default, fn
       nil -> nil
       false -> nil
+      value -> value
+    end)
+  end
+
+  defp first_non_nil(values, default) when is_list(values) do
+    Enum.find_value(values, default, fn
+      nil -> nil
       value -> value
     end)
   end

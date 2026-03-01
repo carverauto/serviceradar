@@ -21,6 +21,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.Observability.MtrPubSub
+  alias ServiceRadar.Observability.MtrAutomationDispatcher
+  alias ServiceRadar.Observability.MtrPolicy
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.SysmonProfiles.SysmonProfile
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
@@ -663,10 +666,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_event("run_mtr", _params, socket) do
     device_ip = get_device_ip(socket.assigns.results)
 
-    with :ok <- validate_device_ip(device_ip),
-         {:ok, agent_id} <- first_connected_agent_id() do
-      {:noreply, dispatch_mtr_trace(socket, agent_id, device_ip)}
-    else
+    case queue_mtr_trace(socket, device_ip) do
+      {:ok, queued_on} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "MTR trace queued on #{queued_on}")
+         |> load_mtr_traces()}
+
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, reason)}
     end
@@ -703,7 +709,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp first_connected_agent_id() do
     case list_connected_agents() do
       [first | _] ->
-        {:ok, Map.get(first, :agent_id) || Map.get(first, "agent_id") || ""}
+        agent_id = Map.get(first, :agent_id) || Map.get(first, "agent_id")
+
+        if is_binary(agent_id) and String.trim(agent_id) != "" do
+          {:ok, agent_id}
+        else
+          {:error, "Connected agent is missing an agent_id"}
+        end
 
       [] ->
         {:error, "No agents connected"}
@@ -718,19 +730,74 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp dispatch_mtr_trace(socket, agent_id, device_ip) do
+  defp queue_mtr_trace(socket, device_ip) do
+    with :ok <- validate_device_ip(device_ip) do
+      target_ctx = build_mtr_target_ctx(socket, device_ip)
+
+      case dispatch_with_automation_policy(target_ctx) do
+        {:ok, [agent_id | _]} ->
+          {:ok, agent_id}
+
+        {:error, _} ->
+          with {:ok, agent_id} <- first_connected_agent_id() do
+            dispatch_direct_mtr_trace(socket, agent_id, device_ip)
+          end
+      end
+    end
+  end
+
+  defp dispatch_direct_mtr_trace(socket, agent_id, device_ip) do
     payload = %{"target" => device_ip, "protocol" => "icmp"}
     context = %{"device_uid" => socket.assigns.device_uid, "target_ip" => device_ip}
 
-    case ServiceRadar.Edge.AgentCommandBus.dispatch(agent_id, "mtr.run", payload, context: context) do
+    case AgentCommandBus.dispatch(agent_id, "mtr.run", payload, context: context) do
       {:ok, _command_id} ->
-        socket
-        |> put_flash(:info, "MTR trace queued on #{agent_id}")
-        |> load_mtr_traces()
+        {:ok, agent_id}
 
       {:error, reason} ->
-        put_flash(socket, :error, "Failed to run MTR: #{inspect(reason)}")
+        {:error, "Failed to run MTR: #{inspect(reason)}"}
     end
+  end
+
+  defp dispatch_with_automation_policy(target_ctx) do
+    case MtrPolicy.list_enabled() do
+      {:ok, policies} when is_list(policies) ->
+        dispatch_with_first_matching_policy(policies, target_ctx)
+
+      _ ->
+        {:error, :no_enabled_policy}
+    end
+  end
+
+  defp dispatch_with_first_matching_policy([], _target_ctx), do: {:error, :no_matching_policy}
+
+  defp dispatch_with_first_matching_policy([policy | rest], target_ctx) do
+    policy =
+      policy
+      |> Map.put(:baseline_canary_vantages, 0)
+      |> Map.put("baseline_canary_vantages", 0)
+
+    case MtrAutomationDispatcher.dispatch_for_mode(target_ctx, policy, :baseline) do
+      {:ok, selected_agents} when is_list(selected_agents) and selected_agents != [] ->
+        {:ok, selected_agents}
+
+      _ ->
+        dispatch_with_first_matching_policy(rest, target_ctx)
+    end
+  end
+
+  defp build_mtr_target_ctx(socket, target_ip) do
+    device_row = socket.assigns[:device_row] || %{}
+    partition_id = device_row["partition"] || device_row["partition_id"] || "default"
+
+    %{
+      target: target_ip,
+      target_ip: target_ip,
+      target_device_uid: socket.assigns.device_uid,
+      partition_id: partition_id,
+      gateway_id: device_row["gateway_id"],
+      target_key: "device:#{socket.assigns.device_uid}"
+    }
   end
 
   # ---------------------------------------------------------------------------
@@ -2334,10 +2401,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             </div>
 
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4 text-sm">
-              <div><span class="text-base-content/60">Target:</span> <span class="font-mono">{@selected_mtr_trace["target"]}</span></div>
-              <div><span class="text-base-content/60">Agent:</span> <span class="font-mono">{@selected_mtr_trace["agent_id"]}</span></div>
-              <div><span class="text-base-content/60">Protocol:</span> {String.upcase(@selected_mtr_trace["protocol"] || "icmp")}</div>
-              <div><span class="text-base-content/60">Time:</span> {format_mtr_time(@selected_mtr_trace["time"])}</div>
+              <div>
+                <span class="text-base-content/60">Target:</span>
+                <span class="font-mono">{@selected_mtr_trace["target"]}</span>
+              </div>
+              <div>
+                <span class="text-base-content/60">Agent:</span>
+                <span class="font-mono">{@selected_mtr_trace["agent_id"]}</span>
+              </div>
+              <div>
+                <span class="text-base-content/60">Protocol:</span> {String.upcase(
+                  @selected_mtr_trace["protocol"] || "icmp"
+                )}
+              </div>
+              <div>
+                <span class="text-base-content/60">Time:</span> {format_mtr_time(
+                  @selected_mtr_trace["time"]
+                )}
+              </div>
             </div>
 
             <div class="overflow-x-auto max-h-[60vh]">
@@ -2358,15 +2439,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   <tr :for={hop <- @selected_mtr_hops}>
                     <td class="font-mono text-center">{hop["hop_number"]}</td>
                     <td class="font-mono text-sm">{hop["addr"] || "???"}</td>
-                    <td class="text-sm max-w-[220px] truncate" title={hop["hostname"]}>{hop["hostname"] || "-"}</td>
-                    <td class={["text-right font-mono text-sm", loss_class_for_modal(hop["loss_pct"])]}>{format_pct_mtr(hop["loss_pct"])}</td>
+                    <td class="text-sm max-w-[220px] truncate" title={hop["hostname"]}>
+                      {hop["hostname"] || "-"}
+                    </td>
+                    <td class={["text-right font-mono text-sm", loss_class_for_modal(hop["loss_pct"])]}>
+                      {format_pct_mtr(hop["loss_pct"])}
+                    </td>
                     <td class="text-right font-mono text-sm">{format_us_mtr(hop["last_us"])}</td>
                     <td class="text-right font-mono text-sm">{format_us_mtr(hop["avg_us"])}</td>
                     <td class="text-right font-mono text-sm">{format_us_mtr(hop["min_us"])}</td>
                     <td class="text-right font-mono text-sm">{format_us_mtr(hop["max_us"])}</td>
                   </tr>
                   <tr :if={@selected_mtr_hops == []}>
-                    <td colspan="8" class="text-center py-4 text-base-content/50">No hop data available</td>
+                    <td colspan="8" class="text-center py-4 text-base-content/50">
+                      No hop data available
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -5503,7 +5590,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       traces_result = MtrData.list_traces(device_uid: device_uid, device_ip: device_ip, limit: 20)
 
       pending_result =
-        MtrData.list_pending_jobs(socket.assigns.current_scope, device_uid: device_uid, device_ip: device_ip)
+        MtrData.list_pending_jobs(socket.assigns.current_scope,
+          device_uid: device_uid,
+          device_ip: device_ip
+        )
 
       traces =
         case traces_result do

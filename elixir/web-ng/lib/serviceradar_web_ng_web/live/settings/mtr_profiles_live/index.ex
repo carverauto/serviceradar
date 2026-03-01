@@ -63,7 +63,10 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     |> assign(:show_form, :new_profile)
     |> assign(:selected_profile, nil)
     |> assign(:form, to_form(defaults, as: :form))
-    |> assign(:target_device_count, count_target_devices(socket.assigns.current_scope, defaults["target_query"]))
+    |> assign(
+      :target_device_count,
+      count_target_devices(socket.assigns.current_scope, defaults["target_query"])
+    )
     |> assign(:builder_open, false)
     |> assign(:builder, default_builder_state())
     |> assign(:builder_sync, true)
@@ -339,19 +342,36 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               <td>{profile.baseline_interval_sec}s</td>
               <td>{profile.incident_fanout_max_agents}</td>
               <td>
-                <span class={["badge badge-sm", if(profile.enabled, do: "badge-success", else: "badge-ghost")]}>
+                <span class={[
+                  "badge badge-sm",
+                  if(profile.enabled, do: "badge-success", else: "badge-ghost")
+                ]}>
                   {if profile.enabled, do: "ENABLED", else: "DISABLED"}
                 </span>
               </td>
               <td>
                 <div class="flex items-center gap-1">
-                  <button type="button" class="btn btn-xs btn-ghost" phx-click="toggle_profile" phx-value-id={profile.id}>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-ghost"
+                    phx-click="toggle_profile"
+                    phx-value-id={profile.id}
+                  >
                     {if profile.enabled, do: "Disable", else: "Enable"}
                   </button>
-                  <.link navigate={~p"/settings/networks/mtr/#{profile.id}/edit"} class="btn btn-xs btn-ghost">
+                  <.link
+                    navigate={~p"/settings/networks/mtr/#{profile.id}/edit"}
+                    class="btn btn-xs btn-ghost"
+                  >
                     Edit
                   </.link>
-                  <button type="button" class="btn btn-xs btn-ghost text-error" phx-click="delete_profile" phx-value-id={profile.id} data-confirm="Delete this MTR profile?">
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-ghost text-error"
+                    phx-click="delete_profile"
+                    phx-value-id={profile.id}
+                    data-confirm="Delete this MTR profile?"
+                  >
                     Delete
                   </button>
                 </div>
@@ -386,7 +406,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     <.ui_panel>
       <:header>
         <div class="text-sm font-semibold">
-          {if @show_form == :new_profile, do: "New MTR Automation Profile", else: "Edit #{@selected_profile.name}"}
+          {if @show_form == :new_profile,
+            do: "New MTR Automation Profile",
+            else: "Edit #{@selected_profile.name}"}
         </div>
       </:header>
 
@@ -399,20 +421,35 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <.input type="text" field={@form[:name]} class="input input-bordered w-full" required />
           </div>
           <label class="flex items-center gap-2 mt-8 cursor-pointer">
-            <.input type="checkbox" field={@form[:enabled]} class="checkbox checkbox-sm checkbox-primary" />
+            <.input
+              type="checkbox"
+              field={@form[:enabled]}
+              class="checkbox checkbox-sm checkbox-primary"
+            />
             <span class="label-text">Enabled</span>
           </label>
         </div>
 
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">Device Scope</h3>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+            Device Scope
+          </h3>
           <div>
             <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
             <div class="flex items-center gap-2">
               <div class="flex-1">
-                <.input type="text" field={@form[:target_query]} class="input input-bordered w-full font-mono text-sm" placeholder="in:devices tags.role:edge" />
+                <.input
+                  type="text"
+                  field={@form[:target_query]}
+                  class="input input-bordered w-full font-mono text-sm"
+                  placeholder="in:devices tags.role:edge"
+                />
               </div>
-              <.ui_icon_button active={@builder_open} aria-label="Toggle query builder" phx-click="builder_toggle">
+              <.ui_icon_button
+                active={@builder_open}
+                aria-label="Toggle query builder"
+                phx-click="builder_toggle"
+              >
                 <.icon name="hero-adjustments-horizontal" class="size-4" />
               </.ui_icon_button>
             </div>
@@ -423,7 +460,13 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               <div class="text-sm font-semibold">Query Builder</div>
               <div class="flex items-center gap-2">
                 <.ui_badge :if={not @builder_sync} size="sm">Not applied</.ui_badge>
-                <.ui_button :if={not @builder_sync} size="sm" variant="ghost" type="button" phx-click="builder_apply">
+                <.ui_button
+                  :if={not @builder_sync}
+                  size="sm"
+                  variant="ghost"
+                  type="button"
+                  phx-click="builder_apply"
+                >
                   Apply to query
                 </.ui_button>
               </div>
@@ -433,27 +476,51 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
                 <div class="flex items-center gap-3">
                   <.query_builder_pill label="Filter">
-                    <.ui_inline_select name={"builder[filters][#{idx}][field]"} form="mtr-builder-form">
+                    <.ui_inline_select
+                      name={"builder[filters][#{idx}][field]"}
+                      form="mtr-builder-form"
+                    >
                       <%= for field <- @config.filter_fields do %>
                         <option value={field} selected={filter["field"] == field}>{field}</option>
                       <% end %>
                     </.ui_inline_select>
                     <.ui_inline_select name={"builder[filters][#{idx}][op]"} form="mtr-builder-form">
-                      <option value="contains" selected={(filter["op"] || "contains") == "contains"}>contains</option>
-                      <option value="not_contains" selected={filter["op"] == "not_contains"}>does not contain</option>
+                      <option value="contains" selected={(filter["op"] || "contains") == "contains"}>
+                        contains
+                      </option>
+                      <option value="not_contains" selected={filter["op"] == "not_contains"}>
+                        does not contain
+                      </option>
                       <option value="equals" selected={filter["op"] == "equals"}>equals</option>
-                      <option value="not_equals" selected={filter["op"] == "not_equals"}>does not equal</option>
+                      <option value="not_equals" selected={filter["op"] == "not_equals"}>
+                        does not equal
+                      </option>
                     </.ui_inline_select>
-                    <.ui_inline_input type="text" name={"builder[filters][#{idx}][value]"} value={filter["value"] || ""} form="mtr-builder-form" class="w-48" />
+                    <.ui_inline_input
+                      type="text"
+                      name={"builder[filters][#{idx}][value]"}
+                      value={filter["value"] || ""}
+                      form="mtr-builder-form"
+                      class="w-48"
+                    />
                   </.query_builder_pill>
 
-                  <.ui_icon_button size="xs" phx-click="builder_remove_filter" phx-value-idx={idx} aria-label="Remove filter">
+                  <.ui_icon_button
+                    size="xs"
+                    phx-click="builder_remove_filter"
+                    phx-value-idx={idx}
+                    aria-label="Remove filter"
+                  >
                     <.icon name="hero-x-mark" class="size-4" />
                   </.ui_icon_button>
                 </div>
               <% end %>
 
-              <button type="button" class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit" phx-click="builder_add_filter">
+              <button
+                type="button"
+                class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
+                phx-click="builder_add_filter"
+              >
                 <.icon name="hero-plus" class="size-4" /> Add filter
               </button>
             </div>
@@ -468,55 +535,122 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label class="label"><span class="label-text">Selector Limit</span></label>
-            <.input type="number" field={@form[:selector_limit]} class="input input-bordered w-full" min="1" />
+            <.input
+              type="number"
+              field={@form[:selector_limit]}
+              class="input input-bordered w-full"
+              min="1"
+            />
           </div>
           <div>
             <label class="label"><span class="label-text">Preferred Agent</span></label>
-            <.input type="select" field={@form[:preferred_agent_id]} class="select select-bordered w-full" options={[{"Auto-select by policy", ""} | Enum.map(@agents, &{agent_label(&1), agent_id(&1)})]} />
+            <.input
+              type="select"
+              field={@form[:preferred_agent_id]}
+              class="select select-bordered w-full"
+              options={[
+                {"Auto-select by policy", ""} | Enum.map(@agents, &{agent_label(&1), agent_id(&1)})
+              ]}
+            />
           </div>
           <div>
             <label class="label"><span class="label-text">Partition (optional)</span></label>
-            <.input type="text" field={@form[:partition_id]} class="input input-bordered w-full" placeholder="default" />
+            <.input
+              type="text"
+              field={@form[:partition_id]}
+              class="input input-bordered w-full"
+              placeholder="default"
+            />
           </div>
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <label class="label"><span class="label-text">Protocol</span></label>
-            <.input type="select" field={@form[:baseline_protocol]} class="select select-bordered w-full" options={[{"ICMP", "icmp"}, {"UDP", "udp"}, {"TCP", "tcp"}]} />
+            <.input
+              type="select"
+              field={@form[:baseline_protocol]}
+              class="select select-bordered w-full"
+              options={[{"ICMP", "icmp"}, {"UDP", "udp"}, {"TCP", "tcp"}]}
+            />
           </div>
           <div>
             <label class="label"><span class="label-text">Baseline Interval (sec)</span></label>
-            <.input type="number" field={@form[:baseline_interval_sec]} class="input input-bordered w-full" min="30" />
+            <.input
+              type="number"
+              field={@form[:baseline_interval_sec]}
+              class="input input-bordered w-full"
+              min="30"
+            />
           </div>
           <div>
             <label class="label"><span class="label-text">Canary Vantages</span></label>
-            <.input type="number" field={@form[:baseline_canary_vantages]} class="input input-bordered w-full" min="0" />
+            <.input
+              type="number"
+              field={@form[:baseline_canary_vantages]}
+              class="input input-bordered w-full"
+              min="0"
+            />
           </div>
           <div>
             <label class="label"><span class="label-text">Incident Cooldown (sec)</span></label>
-            <.input type="number" field={@form[:incident_cooldown_sec]} class="input input-bordered w-full" min="30" />
+            <.input
+              type="number"
+              field={@form[:incident_cooldown_sec]}
+              class="input input-bordered w-full"
+              min="30"
+            />
           </div>
           <div>
             <label class="label"><span class="label-text">Incident Fanout</span></label>
-            <.input type="number" field={@form[:incident_fanout_max_agents]} class="input input-bordered w-full" min="1" />
+            <.input
+              type="number"
+              field={@form[:incident_fanout_max_agents]}
+              class="input input-bordered w-full"
+              min="1"
+            />
           </div>
           <div>
             <label class="label"><span class="label-text">Consensus Mode</span></label>
-            <.input type="select" field={@form[:consensus_mode]} class="select select-bordered w-full" options={[{"Majority", "majority"}, {"Unanimous", "unanimous"}, {"Threshold", "threshold"}]} />
+            <.input
+              type="select"
+              field={@form[:consensus_mode]}
+              class="select select-bordered w-full"
+              options={[
+                {"Majority", "majority"},
+                {"Unanimous", "unanimous"},
+                {"Threshold", "threshold"}
+              ]}
+            />
           </div>
           <div>
             <label class="label"><span class="label-text">Consensus Threshold</span></label>
-            <.input type="number" field={@form[:consensus_threshold]} class="input input-bordered w-full" step="0.01" min="0" max="1" />
+            <.input
+              type="number"
+              field={@form[:consensus_threshold]}
+              class="input input-bordered w-full"
+              step="0.01"
+              min="0"
+              max="1"
+            />
           </div>
           <div>
             <label class="label"><span class="label-text">Consensus Min Agents</span></label>
-            <.input type="number" field={@form[:consensus_min_agents]} class="input input-bordered w-full" min="1" />
+            <.input
+              type="number"
+              field={@form[:consensus_min_agents]}
+              class="input input-bordered w-full"
+              min="1"
+            />
           </div>
         </div>
 
         <label class="flex items-center gap-2 cursor-pointer">
-          <.input type="checkbox" field={@form[:recovery_capture]} class="checkbox checkbox-sm checkbox-primary" />
+          <.input
+            type="checkbox"
+            field={@form[:recovery_capture]}
+            class="checkbox checkbox-sm checkbox-primary"
+          />
           <span class="label-text">Run recovery capture MTR on return-to-healthy transitions</span>
         </label>
 
@@ -541,8 +675,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     end
   end
 
-  defp save_profile(:new_profile, _profile, attrs, scope), do: MtrPolicy.create_policy(attrs, scope: scope)
-  defp save_profile(:edit_profile, profile, attrs, scope), do: MtrPolicy.update_policy(profile, attrs, scope: scope)
+  defp save_profile(:new_profile, _profile, attrs, scope),
+    do: MtrPolicy.create_policy(attrs, scope: scope)
+
+  defp save_profile(:edit_profile, profile, attrs, scope),
+    do: MtrPolicy.update_policy(profile, attrs, scope: scope)
+
   defp save_profile(_, _profile, _attrs, _scope), do: {:error, :invalid_form_state}
 
   defp default_form_params do
@@ -574,7 +712,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       "enabled" => truthy(profile.enabled),
       "target_query" => selector_query(profile),
       "selector_limit" => fallback(Map.get(selector, "limit"), defaults["selector_limit"]),
-      "preferred_agent_id" => fallback(Map.get(selector, "agent_id"), defaults["preferred_agent_id"]),
+      "preferred_agent_id" =>
+        fallback(Map.get(selector, "agent_id"), defaults["preferred_agent_id"]),
       "partition_id" => fallback(profile.partition_id, defaults["partition_id"]),
       "baseline_protocol" => fallback(profile.baseline_protocol, defaults["baseline_protocol"]),
       "baseline_interval_sec" =>
@@ -589,7 +728,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       "consensus_mode" => fallback(profile.consensus_mode, defaults["consensus_mode"]),
       "consensus_threshold" =>
         fallback(profile.consensus_threshold, defaults["consensus_threshold"]),
-      "consensus_min_agents" => fallback(profile.consensus_min_agents, defaults["consensus_min_agents"])
+      "consensus_min_agents" =>
+        fallback(profile.consensus_min_agents, defaults["consensus_min_agents"])
     }
   end
 
@@ -735,7 +875,11 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
     case String.split(field_expr, ":", parts: 2) do
       [field, value] when field != "" and value != "" ->
-        %{"field" => field, "op" => if(negated, do: "not_contains", else: "contains"), "value" => value}
+        %{
+          "field" => field,
+          "op" => if(negated, do: "not_contains", else: "contains"),
+          "value" => value
+        }
 
       _ ->
         nil
@@ -746,7 +890,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     filters =
       params
       |> Map.get("filters", %{})
-      |> Enum.sort_by(fn {k, _} -> String.to_integer(k) end)
+      |> Enum.sort_by(fn {k, _} ->
+        case Integer.parse(to_string(k)) do
+          {i, ""} -> i
+          _ -> 1_000_000_000
+        end
+      end)
       |> Enum.map(fn {_idx, filter} ->
         %{
           "field" => Map.get(filter, "field", ""),
@@ -840,8 +989,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     end
   end
 
-  defp parse_float(value, _default, min, max) when is_float(value), do: value |> max(min) |> min(max)
-  defp parse_float(value, _default, min, max) when is_integer(value), do: (value / 1.0) |> max(min) |> min(max)
+  defp parse_float(value, _default, min, max) when is_float(value),
+    do: value |> max(min) |> min(max)
+
+  defp parse_float(value, _default, min, max) when is_integer(value),
+    do: (value / 1.0) |> max(min) |> min(max)
+
   defp parse_float(_value, default, _min, _max), do: default
 
   defp normalize_protocol(value) do

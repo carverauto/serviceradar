@@ -206,20 +206,6 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			seq := t.allocateSeq()
 			ttl := hopIdx + 1
 
-			var sendErr error
-
-			switch t.opts.Protocol {
-			case ProtocolUDP:
-				sendErr = t.sock.SendUDP(t.targetIP, ttl, MinPort+seq%1000, DefaultUDPBasePort+seq%1000, t.makePayload()) //nolint:mnd
-			case ProtocolICMP, ProtocolTCP:
-				sendErr = t.sock.SendICMP(t.targetIP, ttl, t.icmpID, seq, t.makePayload())
-			}
-
-			if sendErr != nil {
-				t.logger.Debug().Err(sendErr).Int("ttl", ttl).Int("cycle", cycle).Msg("send probe failed")
-				continue
-			}
-
 			t.probesMu.Lock()
 			t.probes[seq] = &probeRecord{
 				hopIndex: hopIdx,
@@ -231,6 +217,35 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			t.hops[hopIdx].InFlight++
 			t.hops[hopIdx].mu.Unlock()
 			t.probesMu.Unlock()
+
+			var sendErr error
+
+			switch t.opts.Protocol {
+			case ProtocolUDP:
+				sendErr = t.sock.SendUDP(t.targetIP, ttl, MinPort+seq%1000, DefaultUDPBasePort+seq%1000, t.makePayload()) //nolint:mnd
+			case ProtocolICMP, ProtocolTCP:
+				sendErr = t.sock.SendICMP(t.targetIP, ttl, t.icmpID, seq, t.makePayload())
+			}
+
+			if sendErr != nil {
+				t.logger.Debug().Err(sendErr).Int("ttl", ttl).Int("cycle", cycle).Msg("send probe failed")
+				// Roll back optimistic probe accounting on send failures.
+				t.probesMu.Lock()
+				if probe, ok := t.probes[seq]; ok {
+					delete(t.probes, seq)
+					hop := t.hops[probe.hopIndex]
+					hop.mu.Lock()
+					if hop.Sent > 0 {
+						hop.Sent--
+					}
+					if hop.InFlight > 0 {
+						hop.InFlight--
+					}
+					hop.mu.Unlock()
+				}
+				t.probesMu.Unlock()
+				continue
+			}
 
 			// Check if target was reached in a previous cycle.
 			if t.targetReached {
@@ -302,10 +317,7 @@ func (t *Tracer) handleResponse(resp *ICMPResponse) {
 		case 0: // ICMP Echo Reply
 			seq = resp.InnerSeq
 		case 11, 3: // Time Exceeded, Dest Unreachable
-			// For ICMP probes, also verify the ICMP ID.
-			if t.opts.Protocol == ProtocolICMP && resp.InnerID != t.icmpID {
-				return
-			}
+			// Match by sequence; some devices do not quote echo ID consistently.
 			seq = resp.InnerSeq
 		default:
 			return

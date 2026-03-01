@@ -40,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
      |> assign(:mtr_running, false)
      |> assign(:mtr_error, nil)
      |> assign(:mtr_command_id, nil)
+     |> assign(:refresh_timer, nil)
      |> SRQLPage.init("mtr_traces", default_limit: @default_limit)}
   end
 
@@ -190,18 +191,25 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     {:noreply,
      socket
      |> assign(:mtr_running, false)
-     |> refresh_diagnostics()}
+     |> schedule_refresh()}
   end
 
   def handle_info({:mtr_trace_ingested, _event}, socket) do
-    {:noreply, refresh_diagnostics(socket)}
+    {:noreply, schedule_refresh(socket)}
   end
 
   def handle_info({:command_ack, %{command_type: "mtr.run"}}, socket),
-    do: {:noreply, refresh_diagnostics(socket)}
+    do: {:noreply, schedule_refresh(socket)}
 
   def handle_info({:command_progress, %{command_type: "mtr.run"}}, socket),
-    do: {:noreply, refresh_diagnostics(socket)}
+    do: {:noreply, schedule_refresh(socket)}
+
+  def handle_info(:refresh_diagnostics, socket) do
+    {:noreply,
+     socket
+     |> assign(:refresh_timer, nil)
+     |> refresh_diagnostics()}
+  end
 
   def handle_info({:command_result, _}, socket), do: {:noreply, socket}
   def handle_info({:command_ack, _}, socket), do: {:noreply, socket}
@@ -211,6 +219,17 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     socket
     |> load_traces()
     |> load_pending_jobs()
+  end
+
+  defp schedule_refresh(socket) do
+    case socket.assigns[:refresh_timer] do
+      nil ->
+        ref = Process.send_after(self(), :refresh_diagnostics, 250)
+        assign(socket, :refresh_timer, ref)
+
+      _ref ->
+        socket
+    end
   end
 
   defp load_traces(socket) do

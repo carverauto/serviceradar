@@ -15,44 +15,44 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
     if FeatureFlags.god_view_enabled?() do
       socket =
         socket
-       |> assign(:page_title, "Network Topology")
-       |> assign(:current_path, "/topology")
-       |> assign(:snapshot_url, ~p"/topology/snapshot/latest")
-       |> assign(:schema_version, GodViewSnapshot.schema_version())
-       |> assign(:stream_state, :idle)
-       |> assign(:last_revision, nil)
-       |> assign(:last_generated_at, nil)
-       |> assign(:last_bytes, nil)
-       |> assign(:last_node_count, nil)
-       |> assign(:last_edge_count, nil)
-       |> assign(:last_renderer_mode, nil)
-       |> assign(:last_network_ms, nil)
-       |> assign(:last_decode_ms, nil)
-       |> assign(:last_render_ms, nil)
-       |> assign(:last_bitmap_metadata, nil)
-       |> assign(:last_zoom_tier, nil)
-       |> assign(:last_zoom_mode, "local")
-       |> assign(:zoom_mode, "local")
-       |> assign(:causal_filters, %{
-         root_cause: true,
-         affected: true,
-         healthy: true,
-         unknown: true
-       })
-       |> assign(:visual_layers, %{
-         mantle: true,
-         crust: true,
-         atmosphere: true,
-         security: true
-       })
-       |> assign(:topology_layers, %{
-         backbone: true,
-         inferred: false,
-         endpoints: false,
-         mtr_paths: true
-       })
-       |> assign(:pipeline_stats, %{})
-       |> assign(:controls_collapsed, true)
+        |> assign(:page_title, "Network Topology")
+        |> assign(:current_path, "/topology")
+        |> assign(:snapshot_url, ~p"/topology/snapshot/latest")
+        |> assign(:schema_version, GodViewSnapshot.schema_version())
+        |> assign(:stream_state, :idle)
+        |> assign(:last_revision, nil)
+        |> assign(:last_generated_at, nil)
+        |> assign(:last_bytes, nil)
+        |> assign(:last_node_count, nil)
+        |> assign(:last_edge_count, nil)
+        |> assign(:last_renderer_mode, nil)
+        |> assign(:last_network_ms, nil)
+        |> assign(:last_decode_ms, nil)
+        |> assign(:last_render_ms, nil)
+        |> assign(:last_bitmap_metadata, nil)
+        |> assign(:last_zoom_tier, nil)
+        |> assign(:last_zoom_mode, "local")
+        |> assign(:zoom_mode, "local")
+        |> assign(:causal_filters, %{
+          root_cause: true,
+          affected: true,
+          healthy: true,
+          unknown: true
+        })
+        |> assign(:visual_layers, %{
+          mantle: true,
+          crust: true,
+          atmosphere: true,
+          security: true
+        })
+        |> assign(:topology_layers, %{
+          backbone: true,
+          inferred: false,
+          endpoints: false,
+          mtr_paths: true
+        })
+        |> assign(:pipeline_stats, %{})
+        |> assign(:controls_collapsed, true)
 
       socket =
         if connected?(socket) do
@@ -749,10 +749,29 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   defp normalize_mtr_path_row(_), do: nil
 
   defp mtr_str(row, key) do
-    to_string(Map.get(row, key) || Map.get(row, String.to_existing_atom(key), ""))
-  rescue
-    _ -> ""
+    case mtr_get(row, key) do
+      nil -> ""
+      val -> to_string(val)
+    end
   end
+
+  defp mtr_get(row, key) when is_map(row) and is_binary(key) do
+    case Map.get(row, key) do
+      nil ->
+        Enum.find_value(row, fn
+          {k, v} when is_atom(k) ->
+            if Atom.to_string(k) == key, do: v, else: nil
+
+          _ ->
+            nil
+        end)
+
+      value ->
+        value
+    end
+  end
+
+  defp mtr_get(_row, _key), do: nil
 
   defp mtr_int(row, key) do
     val = Map.get(row, key) || Map.get(row, String.to_existing_atom(key), 0)

@@ -298,7 +298,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   end
 
   defp discovery_active?(path) do
-    (String.starts_with?(path, "/settings/networks") or String.starts_with?(path, "/settings/snmp")) and
+    (String.starts_with?(path, "/settings/networks") or
+       String.starts_with?(path, "/settings/snmp")) and
       not String.starts_with?(path, "/settings/networks/integrations") and
       not String.starts_with?(path, "/settings/networks/bmp") and
       not String.starts_with?(path, "/settings/networks/mtr") and
@@ -408,9 +409,14 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   def edge_tabs(current_path, current_scope \\ nil) do
     path = current_path || ""
-    can_sysmon = RBAC.can?(current_scope, "settings.sysmon_profiles.manage")
-    can_edge = RBAC.can?(current_scope, "settings.edge.manage")
-    can_plugins = RBAC.can?(current_scope, "plugins.view")
+
+    can_sysmon =
+      if current_scope,
+        do: RBAC.can?(current_scope, "settings.sysmon_profiles.manage"),
+        else: false
+
+    can_edge = if current_scope, do: RBAC.can?(current_scope, "settings.edge.manage"), else: false
+    can_plugins = if current_scope, do: RBAC.can?(current_scope, "plugins.view"), else: false
 
     [
       %{
