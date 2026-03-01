@@ -101,15 +101,26 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   defp insert_single_result(result, agent_id, gateway_id, partition, now, actor)
        when is_map(result) do
     trace = result["trace"] || %{}
-    trace_id = Ecto.UUID.generate()
-    trace_time = trace_time(result, trace, now)
 
-    with {:ok, _trace} <-
-           result
-           |> build_trace_row(trace, trace_id, trace_time, agent_id, gateway_id, partition)
-           |> insert_trace(actor),
-         :ok <- insert_trace_hops(trace["hops"] || [], trace_id, trace_time, actor) do
-      :ok
+    target_value =
+      first_present(
+        [trace["target_ip"], trace["target"], result["target"]],
+        ""
+      )
+
+    if is_binary(target_value) and String.trim(target_value) != "" do
+      trace_id = Ecto.UUID.generate()
+      trace_time = trace_time(result, trace, now)
+
+      with {:ok, _trace} <-
+             result
+             |> build_trace_row(trace, trace_id, trace_time, agent_id, gateway_id, partition)
+             |> insert_trace(actor),
+           :ok <- insert_trace_hops(trace["hops"] || [], trace_id, trace_time, actor) do
+        :ok
+      end
+    else
+      {:error, :missing_target_ip}
     end
   end
 
@@ -157,8 +168,15 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
   defp insert_trace_hops([], _trace_id, _trace_time, _actor), do: :ok
 
-  defp insert_trace_hops(hops, trace_id, trace_time, actor),
+  defp insert_trace_hops(hops, trace_id, trace_time, actor) when is_list(hops),
     do: insert_hops(hops, trace_id, trace_time, actor)
+
+  defp insert_trace_hops(hops, trace_id, trace_time, actor) do
+    hops
+    |> List.wrap()
+    |> Enum.filter(&is_map/1)
+    |> insert_hops(trace_id, trace_time, actor)
+  end
 
   defp first_present(values, default) when is_list(values) do
     Enum.find_value(values, default, fn
@@ -183,6 +201,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     mpls_payload =
       if is_list(mpls_labels) and mpls_labels != [] do
         %{"labels" => mpls_labels}
+      else
+        nil
       end
 
     attrs = %{

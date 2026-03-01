@@ -938,7 +938,13 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp builder_filter_token(filter) do
     field = String.trim(filter["field"] || "")
-    value = String.trim(filter["value"] || "")
+
+    value =
+      filter["value"]
+      |> to_string()
+      |> String.trim()
+      |> String.replace("\\", "\\\\")
+      |> String.replace("\"", "\\\"")
 
     case filter["op"] || "contains" do
       "not_contains" -> "!#{field}:#{value}"

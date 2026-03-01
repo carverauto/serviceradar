@@ -163,17 +163,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     maybe_refresh_current_device(socket, uid)
   end
 
-  def handle_info({:command_result, %{command_type: "mtr.run"}}, socket),
-    do: {:noreply, maybe_refresh_mtr_tab(socket)}
+  def handle_info({:command_result, %{command_type: "mtr.run"} = msg}, socket) do
+    {:noreply, refresh_mtr_if_relevant(socket, msg)}
+  end
 
-  def handle_info({:command_ack, %{command_type: "mtr.run"}}, socket),
-    do: {:noreply, maybe_refresh_mtr_tab(socket)}
+  def handle_info({:command_ack, %{command_type: "mtr.run"} = msg}, socket) do
+    {:noreply, refresh_mtr_if_relevant(socket, msg)}
+  end
 
-  def handle_info({:command_progress, %{command_type: "mtr.run"}}, socket),
-    do: {:noreply, maybe_refresh_mtr_tab(socket)}
+  def handle_info({:command_progress, %{command_type: "mtr.run"} = msg}, socket) do
+    {:noreply, refresh_mtr_if_relevant(socket, msg)}
+  end
 
-  def handle_info({:mtr_trace_ingested, _event}, socket),
-    do: {:noreply, maybe_refresh_mtr_tab(socket)}
+  def handle_info({:mtr_trace_ingested, event}, socket) do
+    {:noreply, refresh_mtr_if_relevant(socket, event)}
+  end
 
   def handle_info({:command_result, _result}, socket), do: {:noreply, socket}
   def handle_info({:command_ack, _ack}, socket), do: {:noreply, socket}
@@ -774,8 +778,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp dispatch_with_first_matching_policy([policy | rest], target_ctx) do
     policy =
       policy
-      |> Map.put(:baseline_canary_vantages, 0)
-      |> Map.put("baseline_canary_vantages", 0)
+      |> Map.put_new(:baseline_canary_vantages, 0)
+      |> Map.put_new("baseline_canary_vantages", 0)
 
     case MtrAutomationDispatcher.dispatch_for_mode(target_ctx, policy, :baseline) do
       {:ok, selected_agents} when is_list(selected_agents) and selected_agents != [] ->
@@ -5576,6 +5580,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       socket
     end
   end
+
+  defp refresh_mtr_if_relevant(socket, msg) when is_map(msg) do
+    device_uid = socket.assigns.device_uid
+    device_ip = get_device_ip(socket.assigns.results)
+    msg_device_uid = mtr_msg_device_uid(msg)
+    msg_target_ip = mtr_msg_target_ip(msg)
+
+    if msg_matches_device?(msg_device_uid, device_uid) or
+         msg_matches_device?(msg_target_ip, device_ip) do
+      maybe_refresh_mtr_tab(socket)
+    else
+      socket
+    end
+  end
+
+  defp refresh_mtr_if_relevant(socket, _msg), do: socket
+
+  defp mtr_msg_device_uid(msg) do
+    context = map_get_any(msg, [:context, "context"], %{})
+    map_get_any(context, [:device_uid, "device_uid"], nil)
+  end
+
+  defp mtr_msg_target_ip(msg) do
+    context = map_get_any(msg, [:context, "context"], %{})
+    payload = map_get_any(msg, [:payload, "payload"], %{})
+    trace = map_get_any(payload, [:trace, "trace"], %{})
+
+    map_get_any(context, [:target_ip, "target_ip"], nil) ||
+      map_get_any(msg, [:target, "target", :target_ip, "target_ip"], nil) ||
+      map_get_any(payload, [:target, "target"], nil) ||
+      map_get_any(trace, [:target_ip, "target_ip", :target, "target"], nil)
+  end
+
+  defp msg_matches_device?(candidate, expected)
+       when is_binary(candidate) and is_binary(expected) do
+    String.trim(candidate) != "" and candidate == expected
+  end
+
+  defp msg_matches_device?(_, _), do: false
+
+  defp map_get_any(map, keys, default) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, default, fn key ->
+      case Map.get(map, key) do
+        nil -> nil
+        value -> value
+      end
+    end)
+  end
+
+  defp map_get_any(_map, _keys, default), do: default
 
   defp load_mtr_traces(socket) do
     device_uid = socket.assigns.device_uid
