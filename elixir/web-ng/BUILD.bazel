@@ -1,4 +1,5 @@
 load("//build:mix_release.bzl", "mix_release")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 package(default_visibility = ["//visibility:public"])
 
