@@ -214,6 +214,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   def handle_info({:command_result, _}, socket), do: {:noreply, socket}
   def handle_info({:command_ack, _}, socket), do: {:noreply, socket}
   def handle_info({:command_progress, _}, socket), do: {:noreply, socket}
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   defp refresh_diagnostics(socket) do
     socket

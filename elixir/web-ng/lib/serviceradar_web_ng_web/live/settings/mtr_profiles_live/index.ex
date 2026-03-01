@@ -791,11 +791,10 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
       normalized ->
         srql_module = srql_module()
-        normalized_downcased = String.downcase(normalized)
+        has_stats? = Regex.match?(~r/(^|\s)stats:/i, normalized)
 
         full_query =
-          if String.contains?(normalized_downcased, " stats:") or
-               String.starts_with?(normalized_downcased, "stats:") do
+          if has_stats? do
             normalized
           else
             "#{normalized} stats:\"count() as total\""
@@ -954,11 +953,20 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       |> String.replace("\\", "\\\\")
       |> String.replace("\"", "\\\"")
 
+    needs_quotes? = Regex.match?(~r/\s/, value)
+
+    token_value =
+      if needs_quotes? do
+        "\"#{value}\""
+      else
+        value
+      end
+
     case filter["op"] || "contains" do
-      "not_contains" -> "!#{field}:#{value}"
+      "not_contains" -> "!#{field}:#{token_value}"
       "equals" -> "#{field}:\"#{value}\""
       "not_equals" -> "!#{field}:\"#{value}\""
-      _ -> "#{field}:#{value}"
+      _ -> "#{field}:#{token_value}"
     end
   end
 

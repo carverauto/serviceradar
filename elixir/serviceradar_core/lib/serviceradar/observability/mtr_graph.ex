@@ -105,7 +105,18 @@ defmodule ServiceRadar.Observability.MtrGraph do
   defp project_edge(from_hop, to_hop, agent_id, observed_at, ip_to_device) do
     {from_label, from_id} = node_identity(from_hop, ip_to_device)
     {to_label, to_id} = node_identity(to_hop, ip_to_device)
-    cypher = edge_upsert_cypher(from_hop, to_hop, from_label, from_id, to_label, to_id, agent_id, observed_at)
+
+    cypher =
+      edge_upsert_cypher(
+        from_hop,
+        to_hop,
+        from_label,
+        from_id,
+        to_label,
+        to_id,
+        agent_id,
+        observed_at
+      )
 
     case Graph.execute(cypher) do
       :ok -> :ok
@@ -113,7 +124,16 @@ defmodule ServiceRadar.Observability.MtrGraph do
     end
   end
 
-  defp edge_upsert_cypher(from_hop, to_hop, from_label, from_id, to_label, to_id, agent_id, observed_at) do
+  defp edge_upsert_cypher(
+         from_hop,
+         to_hop,
+         from_label,
+         from_id,
+         to_label,
+         to_id,
+         agent_id,
+         observed_at
+       ) do
     from_asn = hop_asn(from_hop)
     to_asn = hop_asn(to_hop)
     from_hop_no = hop_metric(from_hop, "hop_number", 0)
@@ -124,15 +144,9 @@ defmodule ServiceRadar.Observability.MtrGraph do
 
     """
     MERGE (a:#{from_label} {id: '#{Graph.escape(from_id)}'})
-    SET a.addr = '#{Graph.escape(from_hop["addr"])}'
-    #{set_prop("a", "hostname", from_hop["hostname"])}
-    #{set_prop("a", "asn", from_asn["asn"])}
-    #{set_prop("a", "asn_org", from_asn["org"])}
+    #{set_node_props(from_label, "a", from_hop, from_asn)}
     MERGE (b:#{to_label} {id: '#{Graph.escape(to_id)}'})
-    SET b.addr = '#{Graph.escape(to_hop["addr"])}'
-    #{set_prop("b", "hostname", to_hop["hostname"])}
-    #{set_prop("b", "asn", to_asn["asn"])}
-    #{set_prop("b", "asn_org", to_asn["org"])}
+    #{set_node_props(to_label, "b", to_hop, to_asn)}
     MERGE (a)-[r:MTR_PATH]->(b)
     SET r.first_observed_at = coalesce(r.first_observed_at, '#{Graph.escape(observed_at)}')
     SET r.last_observed_at = '#{Graph.escape(observed_at)}'
@@ -145,6 +159,17 @@ defmodule ServiceRadar.Observability.MtrGraph do
     SET r.jitter_us = #{jitter_us}
     """
   end
+
+  defp set_node_props("MtrHop", var, hop, asn) do
+    """
+    SET #{var}.addr = '#{Graph.escape(hop["addr"])}'
+    #{set_prop(var, "hostname", hop["hostname"])}
+    #{set_prop(var, "asn", asn["asn"])}
+    #{set_prop(var, "asn_org", asn["org"])}
+    """
+  end
+
+  defp set_node_props(_label, _var, _hop, _asn), do: ""
 
   defp hop_asn(hop) when is_map(hop), do: hop["asn"] || %{}
   defp hop_asn(_), do: %{}

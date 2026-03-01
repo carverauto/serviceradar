@@ -352,11 +352,21 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
     context = Map.get(job, :context, %{})
     payload = Map.get(job, :payload, %{})
-    context_device_uid = fetch_map(context, "device_uid") |> to_string_safe()
-    payload_target = fetch_map(payload, "target") |> to_string_safe()
 
-    uid_match? = is_binary(device_uid) and context_device_uid == device_uid
-    ip_match? = is_binary(device_ip) and payload_target == device_ip
+    context_device_uid =
+      context
+      |> fetch_map("device_uid")
+      |> to_string_safe()
+      |> String.trim()
+
+    payload_target =
+      payload
+      |> fetch_map("target")
+      |> to_string_safe()
+      |> String.trim()
+
+    uid_match? = is_binary(device_uid) and context_device_uid == String.trim(device_uid)
+    ip_match? = is_binary(device_ip) and payload_target == String.trim(device_ip)
     uid_match? || ip_match?
   end
 
@@ -377,7 +387,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     if value == "", do: "", else: value
   end
 
-  defp normalize_string(value), do: to_string(value)
+  defp normalize_string(value) when is_integer(value) or is_float(value), do: to_string(value)
+  defp normalize_string(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_string(_value), do: ""
 
   defp normalize_page(page) when is_integer(page) and page > 0, do: page
 

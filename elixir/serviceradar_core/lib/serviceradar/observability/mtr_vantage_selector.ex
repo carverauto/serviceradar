@@ -278,8 +278,10 @@ defmodule ServiceRadar.Observability.MtrVantageSelector do
     end
   end
 
-  defp normalize_capabilities(v) when is_list(v), do: Enum.map(v, &to_string/1)
-  defp normalize_capabilities(v) when is_binary(v), do: [v]
+  defp normalize_capabilities(v) when is_list(v),
+    do: Enum.map(v, &(&1 |> to_string() |> String.downcase()))
+
+  defp normalize_capabilities(v) when is_binary(v), do: [String.downcase(v)]
   defp normalize_capabilities(_), do: []
 
   defp normalize_bool(v) when is_boolean(v), do: v

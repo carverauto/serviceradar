@@ -709,7 +709,7 @@ defmodule ServiceRadar.Application do
   defp event_writer_enabled? do
     case System.get_env("EVENT_WRITER_ENABLED") do
       nil -> Application.get_env(:serviceradar_core, :event_writer_enabled, false)
-      value when value in ["true", "1", "yes"] -> true
+      value when is_binary(value) -> truthy_env_value?(value)
       _ -> false
     end
   end
@@ -717,7 +717,7 @@ defmodule ServiceRadar.Application do
   defp mtr_automation_enabled? do
     case System.get_env("MTR_AUTOMATION_ENABLED") do
       nil -> Application.get_env(:serviceradar_core, :mtr_automation_enabled, false)
-      value when value in ["true", "1", "yes"] -> true
+      value when is_binary(value) -> truthy_env_value?(value)
       _ -> false
     end
   end
@@ -731,8 +731,8 @@ defmodule ServiceRadar.Application do
           mtr_automation_enabled?()
         )
 
-      value when value in ["true", "1", "yes"] ->
-        true
+      value when is_binary(value) ->
+        truthy_env_value?(value)
 
       _ ->
         false
@@ -748,8 +748,8 @@ defmodule ServiceRadar.Application do
           mtr_automation_enabled?()
         )
 
-      value when value in ["true", "1", "yes"] ->
-        true
+      value when is_binary(value) ->
+        truthy_env_value?(value)
 
       _ ->
         false
@@ -765,11 +765,15 @@ defmodule ServiceRadar.Application do
           mtr_automation_enabled?()
         )
 
-      value when value in ["true", "1", "yes"] ->
-        true
+      value when is_binary(value) ->
+        truthy_env_value?(value)
 
       _ ->
         false
     end
+  end
+
+  defp truthy_env_value?(value) when is_binary(value) do
+    String.downcase(String.trim(value)) in ["1", "true", "yes", "on"]
   end
 end

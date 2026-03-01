@@ -26,6 +26,7 @@ import (
 const (
 	dnsWorkers  = 4
 	dnsCacheTTL = 10 * time.Minute
+	dnsTimeout  = 2 * time.Second
 )
 
 type dnsEntry struct {
@@ -96,7 +97,10 @@ func (r *DNSResolver) LookupSync(ip string) string {
 	}
 	r.mu.RUnlock()
 
-	hostname := reverseLookup(ip)
+	lookupCtx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
+	defer cancel()
+
+	hostname := reverseLookup(lookupCtx, ip)
 	r.cacheResult(ip, hostname)
 
 	return hostname
@@ -120,7 +124,9 @@ func (r *DNSResolver) worker(ctx context.Context) {
 				return
 			}
 
-			hostname := reverseLookup(req.ip)
+			lookupCtx, cancel := context.WithTimeout(ctx, dnsTimeout)
+			hostname := reverseLookup(lookupCtx, req.ip)
+			cancel()
 			r.cacheResult(req.ip, hostname)
 			req.callback(hostname)
 		}
@@ -136,8 +142,8 @@ func (r *DNSResolver) cacheResult(ip, hostname string) {
 	r.mu.Unlock()
 }
 
-func reverseLookup(ip string) string {
-	names, err := net.DefaultResolver.LookupAddr(context.Background(), ip)
+func reverseLookup(ctx context.Context, ip string) string {
+	names, err := net.DefaultResolver.LookupAddr(ctx, ip)
 	if err != nil || len(names) == 0 {
 		return ""
 	}

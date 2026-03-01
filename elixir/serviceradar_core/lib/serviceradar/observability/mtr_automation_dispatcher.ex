@@ -792,9 +792,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   end
 
   defp selector_value(map, key) when is_map(map) do
-    Map.get(map, key) || Map.get(map, String.to_atom(key))
-  rescue
-    _ -> nil
+    Map.get(map, key) || map_get_existing_atom_key(map, key)
   end
 
   defp selector_value(_, _), do: nil
@@ -823,12 +821,19 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   end
 
   defp metadata_value(map, key) when is_map(map) do
-    Map.get(map, key) || Map.get(map, String.to_atom(key))
+    Map.get(map, key) || map_get_existing_atom_key(map, key)
+  end
+
+  defp metadata_value(_, _), do: nil
+
+  defp map_get_existing_atom_key(map, key) when is_map(map) and is_binary(key) do
+    atom_key = String.to_existing_atom(key)
+    Map.get(map, atom_key)
   rescue
     _ -> nil
   end
 
-  defp metadata_value(_, _), do: nil
+  defp map_get_existing_atom_key(_map, _key), do: nil
 
   defp int_value(value, _default) when is_integer(value), do: value
   defp int_value(value, _default) when is_float(value), do: trunc(value)

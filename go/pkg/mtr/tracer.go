@@ -198,6 +198,10 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 				return
 			}
 
+			// Age out timed-out probes during active probing so unknown-hop cutoff
+			// can trigger without waiting for end-of-run finalization.
+			t.expireTimedOutProbes(time.Now())
+
 			// Evaluate unknown-hop cutoff from completed historical probes only.
 			// Do not treat a hop as unknown immediately after dispatching a fresh probe.
 			hop := t.hops[hopIdx]
@@ -439,10 +443,52 @@ func (t *Tracer) buildResult() *TraceResult {
 }
 
 func (t *Tracer) finalizeTimeouts() {
+	t.expireTimedOutProbes(time.Now())
+
 	for _, hop := range t.hops {
 		if hop != nil {
 			hop.FinalizeTimeouts()
 		}
+	}
+}
+
+func (t *Tracer) expireTimedOutProbes(now time.Time) {
+	if t.opts.Timeout <= 0 {
+		return
+	}
+
+	cutoff := now.Add(-t.opts.Timeout)
+	expired := make([]*probeRecord, 0)
+
+	t.probesMu.Lock()
+	for key, probe := range t.probes {
+		if probe == nil {
+			delete(t.probes, key)
+			continue
+		}
+
+		if !probe.sentAt.After(cutoff) {
+			expired = append(expired, probe)
+			delete(t.probes, key)
+		}
+	}
+	t.probesMu.Unlock()
+
+	for _, probe := range expired {
+		if probe.hopIndex < 0 || probe.hopIndex >= len(t.hops) {
+			continue
+		}
+
+		hop := t.hops[probe.hopIndex]
+		if hop == nil {
+			continue
+		}
+
+		hop.mu.Lock()
+		if hop.InFlight > 0 {
+			hop.InFlight--
+		}
+		hop.mu.Unlock()
 	}
 }
 
