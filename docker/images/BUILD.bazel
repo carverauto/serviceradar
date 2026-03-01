@@ -2,6 +2,7 @@
 
 load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
+load("//docker/images:apk.bzl", "apk_rootfs_amd64")
 load("//docker/images:push_targets.bzl", "declare_ghcr_push_targets")
 
 exports_files([
@@ -146,136 +147,24 @@ tar -czf "$@" -C "$${TMP}/rootfs" .
 """,
 )
 
-genrule(
-    name = "apk_inetutils_telnet_rootfs_amd64",
-    srcs = ["@alpine_inetutils_telnet_apk//file"],
-    outs = ["apk_inetutils_telnet_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_inetutils_telnet_apk//file)
-TMP=$(@D)/inetutils_telnet_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
-""",
+apk_rootfs_amd64(
+    name = "inetutils_telnet",
+    apk_target = "@alpine_inetutils_telnet_apk//file",
 )
 
-genrule(
-    name = "apk_libcap2_rootfs_amd64",
-    srcs = ["@alpine_libcap2_apk//file"],
-    outs = ["apk_libcap2_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_libcap2_apk//file)
-TMP=$(@D)/libcap2_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
-""",
+apk_rootfs_amd64(
+    name = "libcap2",
+    apk_target = "@alpine_libcap2_apk//file",
 )
 
-genrule(
-    name = "apk_libbsd_rootfs_amd64",
-    srcs = ["@alpine_libbsd_apk//file"],
-    outs = ["apk_libbsd_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_libbsd_apk//file)
-TMP=$(@D)/libbsd_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
-""",
+apk_rootfs_amd64(
+    name = "libbsd",
+    apk_target = "@alpine_libbsd_apk//file",
 )
 
-genrule(
-    name = "apk_libmd_rootfs_amd64",
-    srcs = ["@alpine_libmd_apk//file"],
-    outs = ["apk_libmd_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_libmd_apk//file)
-TMP=$(@D)/libmd_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
-""",
+apk_rootfs_amd64(
+    name = "libmd",
+    apk_target = "@alpine_libmd_apk//file",
 )
 
 genrule(
