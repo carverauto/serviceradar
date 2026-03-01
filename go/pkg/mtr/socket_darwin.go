@@ -290,7 +290,6 @@ func (s *darwinRawSocket) parseICMPv4(buf []byte, resp *ICMPResponse) (*ICMPResp
 
 	resp.Type = int(buf[0])
 	resp.Code = int(buf[1])
-	resp.ICMPLengthField = int(buf[5])
 	resp.Payload = buf[darwinICMPHeaderLen:]
 
 	switch resp.Type {
@@ -301,6 +300,7 @@ func (s *darwinRawSocket) parseICMPv4(buf []byte, resp *ICMPResponse) (*ICMPResp
 		}
 
 	case darwinICMPv4TimeExceeded, darwinICMPv4DstUnreach:
+		resp.ICMPLengthField = int(buf[5])
 		s.parseInnerPacketV4(resp)
 	}
 

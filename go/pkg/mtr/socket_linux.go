@@ -360,7 +360,6 @@ func (s *linuxRawSocket) parseICMPv4(buf []byte, resp *ICMPResponse) (*ICMPRespo
 
 	resp.Type = int(buf[0])
 	resp.Code = int(buf[1])
-	resp.ICMPLengthField = int(buf[5])
 	resp.Payload = buf[icmpHeaderLen:]
 
 	switch resp.Type {
@@ -371,6 +370,7 @@ func (s *linuxRawSocket) parseICMPv4(buf []byte, resp *ICMPResponse) (*ICMPRespo
 		}
 
 	case icmpv4TimeExceeded, icmpv4DstUnreach:
+		resp.ICMPLengthField = int(buf[5])
 		s.parseInnerPacketV4(resp)
 	}
 

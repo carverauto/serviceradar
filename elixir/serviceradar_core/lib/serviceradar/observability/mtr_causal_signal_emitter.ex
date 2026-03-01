@@ -3,8 +3,9 @@ defmodule ServiceRadar.Observability.MtrCausalSignalEmitter do
   Emits normalized MTR-derived causal signal envelopes with topology join keys.
   """
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.CausalPubSub
-  alias ServiceRadar.Repo
 
   require Logger
 
@@ -17,9 +18,13 @@ defmodule ServiceRadar.Observability.MtrCausalSignalEmitter do
     event_identity = Ecto.UUID.generate()
     envelope = build_normalized_envelope(consensus_result, context, outcomes, event_identity)
     row = build_ocsf_event_row(envelope)
+    attrs = Map.drop(row, [:id, :created_at])
+    actor = SystemActor.system(:mtr_causal_signal_emitter)
 
-    case Repo.insert_all("ocsf_events", [row], on_conflict: :nothing, returning: false) do
-      {1, _} ->
+    case OcsfEvent
+         |> Ash.Changeset.for_create(:record, attrs, actor: actor)
+         |> Ash.create(actor: actor) do
+      {:ok, _event} ->
         CausalPubSub.broadcast_ingest(%{
           count: 1,
           signal_type: @signal_type,
@@ -30,8 +35,9 @@ defmodule ServiceRadar.Observability.MtrCausalSignalEmitter do
 
         :ok
 
-      _ ->
-        :ok
+      {:error, reason} ->
+        Logger.warning("MTR causal signal emission failed", reason: inspect(reason))
+        {:error, reason}
     end
   rescue
     error ->

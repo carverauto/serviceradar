@@ -33,6 +33,7 @@ import (
 
 var (
 	errNoTargetAddresses = errors.New("no addresses found for target")
+	icmpIDCounter        atomic.Uint32
 )
 
 // probeRecord tracks an in-flight probe.
@@ -116,7 +117,7 @@ func NewTracer(ctx context.Context, opts Options, log logger.Logger) (*Tracer, e
 		hops:      make([]*HopResult, opts.MaxHops),
 		probes:    make(map[int]*probeRecord),
 		nextSeq:   MinPort,
-		icmpID:    os.Getpid() & 0xFFFF, //nolint:mnd
+		icmpID:    nextICMPID(),
 	}, nil
 }
 
@@ -322,29 +323,9 @@ func (t *Tracer) receiveLoop(ctx context.Context) {
 
 // handleResponse processes a received ICMP response.
 func (t *Tracer) handleResponse(resp *ICMPResponse) {
-	var seq int
-
-	isIPv6 := t.ipVersion == 6
-
-	if isIPv6 {
-		switch resp.Type {
-		case 129: // ICMPv6 Echo Reply
-			seq = resp.InnerSeq
-		case 3, 1: // ICMPv6 Time Exceeded, Dest Unreachable
-			seq = resp.InnerSeq
-		default:
-			return
-		}
-	} else {
-		switch resp.Type {
-		case 0: // ICMP Echo Reply
-			seq = resp.InnerSeq
-		case 11, 3: // Time Exceeded, Dest Unreachable
-			// Match by sequence; some devices do not quote echo ID consistently.
-			seq = resp.InnerSeq
-		default:
-			return
-		}
+	seq, ok := t.matchProbeResponse(resp)
+	if !ok {
+		return
 	}
 
 	t.probesMu.Lock()
@@ -359,6 +340,7 @@ func (t *Tracer) handleResponse(resp *ICMPResponse) {
 
 	rtt := resp.RecvTime.Sub(probe.sentAt)
 	hop := t.hops[probe.hopIndex]
+	isIPv6 := t.ipVersion == 6
 
 	hop.mu.Lock()
 	hop.InFlight--
@@ -367,8 +349,8 @@ func (t *Tracer) handleResponse(resp *ICMPResponse) {
 	hop.AddResponse(rtt)
 	hop.AddAddress(resp.SrcAddr)
 
-	// Parse MPLS labels from ICMP extension objects.
-	if !isIPv6 && len(resp.Payload) > 0 {
+	// Parse MPLS labels only from ICMP error payloads that can carry RFC4884 extensions.
+	if !isIPv6 && (resp.Type == 11 || resp.Type == 3) && len(resp.Payload) > 0 {
 		if labels := ParseMPLSFromICMP(resp.Payload, resp.ICMPLengthField); len(labels) > 0 {
 			hop.SetMPLS(labels)
 		}
@@ -388,6 +370,52 @@ func (t *Tracer) handleResponse(resp *ICMPResponse) {
 			hop.mu.Unlock()
 		})
 	}
+}
+
+func (t *Tracer) matchProbeResponse(resp *ICMPResponse) (int, bool) {
+	seq := resp.InnerSeq
+	if seq < MinPort || seq > MaxPort {
+		return 0, false
+	}
+
+	isIPv6 := t.ipVersion == 6
+	switch {
+	case isIPv6 && resp.Type != 129 && resp.Type != 3 && resp.Type != 1: // ICMPv6 Echo Reply / Time Exceeded / Dest Unreachable
+		return 0, false
+	case !isIPv6 && resp.Type != 0 && resp.Type != 11 && resp.Type != 3: // ICMP Echo Reply / Time Exceeded / Dest Unreachable
+		return 0, false
+	}
+
+	switch t.opts.Protocol {
+	case ProtocolICMP:
+		// Echo replies should come from the target and match this tracer's ICMP identifier.
+		if (resp.Type == 0 || resp.Type == 129) &&
+			(!resp.SrcAddr.Equal(t.targetIP) || resp.InnerID != t.icmpID) {
+			return 0, false
+		}
+
+		// Quoted ICMP errors should match ICMP ID and destination.
+		if (resp.Type == 11 || resp.Type == 3 || resp.Type == 1) &&
+			(resp.InnerID != t.icmpID || !t.matchTargetAddr(resp.InnerDstAddr)) {
+			return 0, false
+		}
+
+	case ProtocolUDP, ProtocolTCP:
+		// UDP/TCP probes are keyed by destination port, so require quoted destination match.
+		if !t.matchTargetAddr(resp.InnerDstAddr) {
+			return 0, false
+		}
+	}
+
+	return seq, true
+}
+
+func (t *Tracer) matchTargetAddr(addr net.IP) bool {
+	if addr == nil || len(addr) == 0 {
+		return false
+	}
+
+	return addr.Equal(t.targetIP)
 }
 
 // enrichResults adds ASN data to all hops.
@@ -501,6 +529,18 @@ func (t *Tracer) allocateSeq() int {
 	}
 
 	return seq
+}
+
+func nextICMPID() int {
+	// Use a process-unique base and increment atomically per tracer instance.
+	next := icmpIDCounter.Add(1)
+	base := uint32(os.Getpid() & 0xFFFF) //nolint:mnd
+	id := int((base + next) & 0xFFFF)
+	if id == 0 {
+		id = 1
+	}
+
+	return id
 }
 
 func (t *Tracer) makePayload() []byte {
