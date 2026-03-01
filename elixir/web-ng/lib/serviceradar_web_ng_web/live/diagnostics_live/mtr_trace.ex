@@ -102,8 +102,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
           <div class="stat">
             <div class="stat-title">Status</div>
             <div class="stat-value text-lg">
-              <span :if={@trace["target_reached"]} class="text-success">Reached</span>
-              <span :if={!@trace["target_reached"]} class="text-error">Unreachable</span>
+              <span class={status_class(@trace)}>{status_label(@trace)}</span>
             </div>
           </div>
           <div class="stat">
@@ -133,9 +132,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
             <thead>
               <tr>
                 <th class="w-12">Hop</th>
-                <th>Address</th>
-                <th>Hostname</th>
-                <th>ASN</th>
+                <th>Endpoint</th>
                 <th class="text-right">Loss %</th>
                 <th class="text-right">Last</th>
                 <th class="text-right">Avg</th>
@@ -150,30 +147,32 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
             <tbody>
               <tr :for={hop <- @hops} class={hop_row_class(hop)}>
                 <td class="font-mono text-center">{hop["hop_number"]}</td>
-                <td class="font-mono text-sm">
-                  {hop["addr"] || "???"}
-                  <span
-                    :if={hop["ecmp_addrs"] && hop["ecmp_addrs"] != []}
-                    class="badge badge-xs badge-info ml-1"
-                    title={Enum.join(hop["ecmp_addrs"], ", ")}
-                  >
-                    +{length(hop["ecmp_addrs"])} ECMP
-                  </span>
-                </td>
-                <td class="text-sm max-w-[200px] truncate" title={hop["hostname"]}>
-                  {hop["hostname"] || "-"}
-                </td>
                 <td class="text-xs">
-                  <span :if={hop["asn"]} class="badge badge-ghost badge-sm">
-                    AS{hop["asn"]}
-                  </span>
-                  <span
-                    :if={hop["asn_org"]}
-                    class="block text-base-content/50 truncate max-w-[120px]"
-                    title={hop["asn_org"]}
-                  >
-                    {hop["asn_org"]}
-                  </span>
+                  <div class="font-mono text-sm">
+                    {hop["addr"] || "???"}
+                    <span
+                      :if={hop["ecmp_addrs"] && hop["ecmp_addrs"] != []}
+                      class="badge badge-xs badge-info ml-1"
+                      title={Enum.join(hop["ecmp_addrs"], ", ")}
+                    >
+                      +{length(hop["ecmp_addrs"])} ECMP
+                    </span>
+                  </div>
+                  <div class="text-sm text-base-content/80 max-w-[220px] truncate" title={hop["hostname"]}>
+                    {hop["hostname"] || "-"}
+                  </div>
+                  <div class="text-[11px]">
+                    <span :if={hop["asn"]} class="badge badge-ghost badge-sm mr-1">
+                      AS{hop["asn"]}
+                    </span>
+                    <span
+                      :if={hop["asn_org"]}
+                      class="text-base-content/50 truncate inline-block max-w-[180px] align-middle"
+                      title={hop["asn_org"]}
+                    >
+                      {hop["asn_org"]}
+                    </span>
+                  </div>
                 </td>
                 <td class={["text-right font-mono text-sm", loss_class(hop["loss_pct"])]}>
                   {format_pct(hop["loss_pct"])}
@@ -192,7 +191,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                 </td>
               </tr>
               <tr :if={@hops == []}>
-                <td colspan="13" class="text-center py-4 text-base-content/50">
+                <td colspan="11" class="text-center py-4 text-base-content/50">
                   No hop data available
                 </td>
               </tr>
@@ -237,12 +236,57 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
 
   defp format_mpls(nil), do: "-"
 
+  defp format_mpls(%{"labels" => labels}), do: format_mpls(labels)
+  defp format_mpls(%{labels: labels}), do: format_mpls(labels)
+
   defp format_mpls(labels) when is_list(labels) and labels != [] do
-    Enum.map_join(labels, ", ", fn label -> "L:#{label["label"]}" end)
+    Enum.map_join(labels, ", ", &format_mpls_label/1)
   end
 
   defp format_mpls(%{} = labels) when map_size(labels) > 0, do: inspect(labels)
   defp format_mpls(_), do: "-"
+
+  defp format_mpls_label(label) when is_map(label) do
+    mpls_label = map_value(label, "label")
+    exp = map_value(label, "exp")
+    bos = map_value(label, "s")
+    ttl = map_value(label, "ttl")
+
+    base =
+      case mpls_label do
+        nil -> "L:?"
+        v -> "L:#{v}"
+      end
+
+    suffix =
+      []
+      |> maybe_append_mpls_part("exp", exp)
+      |> maybe_append_mpls_part("s", bos)
+      |> maybe_append_mpls_part("ttl", ttl)
+      |> Enum.join(" ")
+
+    if suffix == "", do: base, else: "#{base} (#{suffix})"
+  end
+
+  defp format_mpls_label(_), do: "L:?"
+
+  defp maybe_append_mpls_part(parts, _key, nil), do: parts
+  defp maybe_append_mpls_part(parts, key, value), do: parts ++ ["#{key}=#{value}"]
+
+  defp map_value(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) || map_get_existing_atom_key(map, key)
+  end
+
+  defp map_value(_map, _key), do: nil
+
+  defp map_get_existing_atom_key(map, key) when is_map(map) and is_binary(key) do
+    atom_key = String.to_existing_atom(key)
+    Map.get(map, atom_key)
+  rescue
+    _ -> nil
+  end
+
+  defp map_get_existing_atom_key(_map, _key), do: nil
 
   defp hop_row_class(hop) do
     cond do
@@ -252,6 +296,35 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       true -> ""
     end
   end
+
+  defp status_label(trace) when is_map(trace) do
+    reached? = trace["target_reached"] == true
+    protocol = trace["protocol"] |> to_string() |> String.downcase()
+    total_hops = trace["total_hops"] || 0
+
+    cond do
+      reached? ->
+        "Reached"
+
+      protocol == "tcp" and is_integer(total_hops) and total_hops > 0 ->
+        "No Terminal Reply"
+
+      true ->
+        "Unreachable"
+    end
+  end
+
+  defp status_label(_), do: "Unreachable"
+
+  defp status_class(trace) when is_map(trace) do
+    case status_label(trace) do
+      "Reached" -> "text-success"
+      "No Terminal Reply" -> "text-warning"
+      _ -> "text-error"
+    end
+  end
+
+  defp status_class(_), do: "text-error"
 
   defp loss_class(nil), do: ""
   defp loss_class(pct) when pct > 50, do: "text-error font-bold"

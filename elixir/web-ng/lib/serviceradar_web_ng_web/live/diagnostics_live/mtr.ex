@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Observability.MtrPubSub
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
-  alias ServiceRadar.Observability.MtrPubSub
 
   @default_limit 25
   @max_limit 200
@@ -430,17 +430,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   </div>
                 </td>
                 <td>
-                  <span
-                    :if={trace["target_reached"]}
-                    class="badge badge-success badge-sm w-28 justify-center"
-                  >
-                    Reached
-                  </span>
-                  <span
-                    :if={!trace["target_reached"]}
-                    class="badge badge-error badge-sm w-28 justify-center"
-                  >
-                    Unreachable
+                  <span class={["badge badge-sm w-32 justify-center", trace_status_class(trace)]}>
+                    {trace_status_label(trace)}
                   </span>
                 </td>
                 <td class="text-center">{trace["total_hops"]}</td>
@@ -681,6 +672,35 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   defp pending_status_class(:acknowledged), do: "badge-info"
   defp pending_status_class(:running), do: "badge-warning"
   defp pending_status_class(_), do: "badge-ghost"
+
+  defp trace_status_label(trace) when is_map(trace) do
+    reached? = trace["target_reached"] == true
+    protocol = trace["protocol"] |> to_string() |> String.downcase()
+    total_hops = trace["total_hops"] || 0
+
+    cond do
+      reached? ->
+        "Reached"
+
+      protocol == "tcp" and is_integer(total_hops) and total_hops > 0 ->
+        "No Terminal Reply"
+
+      true ->
+        "Unreachable"
+    end
+  end
+
+  defp trace_status_label(_), do: "Unreachable"
+
+  defp trace_status_class(trace) when is_map(trace) do
+    case trace_status_label(trace) do
+      "Reached" -> "badge-success"
+      "No Terminal Reply" -> "badge-warning"
+      _ -> "badge-error"
+    end
+  end
+
+  defp trace_status_class(_), do: "badge-error"
 
   defp parse_page(nil), do: 1
 
