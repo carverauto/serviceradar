@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
     {:ok,
      socket
      |> assign(:page_title, "MTR Trace")
+     |> assign(:page_path, "/diagnostics/mtr")
      |> assign(:trace, nil)
      |> assign(:hops, [])
      |> assign(:hop_sparklines, %{})
@@ -20,12 +21,17 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
 
   @impl true
   def handle_params(%{"trace_id" => trace_id}, _uri, socket) do
-    {:noreply, load_trace(socket, trace_id)}
+    socket =
+      socket
+      |> assign(:page_path, "/diagnostics/mtr/#{trace_id}")
+      |> load_trace(trace_id)
+
+    {:noreply, socket}
   end
 
   defp load_trace(socket, trace_id) do
     trace_query = """
-    SELECT id, time, agent_id, gateway_id, check_id, check_name, device_id,
+    SELECT id::text AS id, time, agent_id, gateway_id, check_id, check_name, device_id,
            target, target_ip, target_reached, total_hops, protocol,
            ip_version, packet_size, partition, error
     FROM mtr_traces
@@ -67,7 +73,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="p-6 space-y-6">
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={%{enabled: false, page_path: @page_path}}>
+      <div class="p-6 space-y-6">
       <div class="flex items-center gap-3">
         <.link navigate={~p"/diagnostics/mtr"} class="btn btn-sm btn-ghost">
           <svg
@@ -203,7 +210,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
           </table>
         </div>
       </div>
-    </div>
+      </div>
+    </Layouts.app>
     """
   end
 

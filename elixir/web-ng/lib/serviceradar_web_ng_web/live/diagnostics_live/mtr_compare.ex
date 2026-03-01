@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     {:ok,
      socket
      |> assign(:page_title, "MTR Path Comparison")
+     |> assign(:page_path, "/diagnostics/mtr/compare")
      |> assign(:recent_traces, [])
      |> assign(:trace_a, nil)
      |> assign(:trace_b, nil)
@@ -44,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
   defp load_recent_traces(socket) do
     query = """
-    SELECT id, time, agent_id, target, target_ip, target_reached,
+    SELECT id::text AS id, time, agent_id, target, target_ip, target_reached,
            total_hops, protocol
     FROM mtr_traces
     ORDER BY time DESC
@@ -81,7 +82,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
   defp load_trace_with_hops(trace_id) do
     trace_query = """
-    SELECT id, time, agent_id, target, target_ip, target_reached,
+    SELECT id::text AS id, time, agent_id, target, target_ip, target_reached,
            total_hops, protocol, ip_version
     FROM mtr_traces
     WHERE id = $1
@@ -137,7 +138,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="p-6 space-y-6">
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={%{enabled: false, page_path: @page_path}}>
+      <div class="p-6 space-y-6">
       <div class="flex items-center gap-3">
         <.link navigate={~p"/diagnostics/mtr"} class="btn btn-sm btn-ghost">
           <svg
@@ -249,7 +251,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           </table>
         </div>
       </div>
-    </div>
+      </div>
+    </Layouts.app>
     """
   end
 

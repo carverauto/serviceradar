@@ -9,6 +9,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   alias ServiceRadar.AgentCommands.PubSub
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Observability.MtrMetricsIngestor
+  alias ServiceRadar.Observability.MtrPubSub
 
   require Logger
 
@@ -163,6 +164,13 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
       case MtrMetricsIngestor.ingest(mtr_payload, status) do
         :ok ->
+          _ =
+            MtrPubSub.broadcast_ingest(%{
+              command_id: Map.get(data, :command_id),
+              target: target,
+              agent_id: Map.get(data, :agent_id)
+            })
+
           :ok
 
         {:error, reason} ->

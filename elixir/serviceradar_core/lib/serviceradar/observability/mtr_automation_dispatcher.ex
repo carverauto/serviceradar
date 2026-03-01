@@ -8,7 +8,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.Observability.{MtrDispatchWindow, MtrVantageSelector}
+  alias ServiceRadar.Observability.{MtrDispatchWindow, MtrVantageSelector, SRQLRunner}
   alias ServiceRadar.ProcessRegistry
 
   require Ash.Query
@@ -32,24 +32,48 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     limit = selector_int(selector, "limit", @default_target_limit)
     ips = selector_list(selector, "ips")
     device_uids = selector_list(selector, "device_uids")
+    srql_query = selector_string(selector, "srql_query")
 
-    query =
-      Device
-      |> Ash.Query.for_read(:read, %{include_deleted: false})
-      |> Ash.Query.filter(expr(is_managed == true and not is_nil(ip)))
-      |> maybe_filter_uids(device_uids)
-      |> maybe_filter_ips(ips)
-      |> Ash.Query.limit(limit)
+    if is_binary(srql_query) and srql_query != "" do
+      baseline_targets_from_srql(srql_query, limit)
+    else
+      query =
+        Device
+        |> Ash.Query.for_read(:read, %{include_deleted: false})
+        |> Ash.Query.filter(expr(is_managed == true and not is_nil(ip)))
+        |> maybe_filter_uids(device_uids)
+        |> maybe_filter_ips(ips)
+        |> Ash.Query.limit(limit)
 
-    case Ash.read(query, actor: actor) do
-      {:ok, %Ash.Page.Keyset{results: results}} ->
-        Enum.map(results, &device_to_target_ctx/1)
+      case Ash.read(query, actor: actor) do
+        {:ok, %Ash.Page.Keyset{results: results}} ->
+          Enum.map(results, &device_to_target_ctx/1)
 
-      {:ok, results} when is_list(results) ->
-        Enum.map(results, &device_to_target_ctx/1)
+        {:ok, results} when is_list(results) ->
+          Enum.map(results, &device_to_target_ctx/1)
+
+        {:error, reason} ->
+          Logger.warning("MTR baseline target query failed", reason: inspect(reason))
+          []
+      end
+    end
+  end
+
+  defp baseline_targets_from_srql(srql_query, limit) do
+    query = normalize_srql_target_query(srql_query, limit)
+
+    case SRQLRunner.query(query, limit: limit) do
+      {:ok, rows} when is_list(rows) ->
+        rows
+        |> Enum.map(&row_to_target_ctx/1)
+        |> Enum.reject(&is_nil/1)
 
       {:error, reason} ->
-        Logger.warning("MTR baseline target query failed", reason: inspect(reason))
+        Logger.warning("MTR baseline SRQL query failed",
+          query: srql_query,
+          reason: inspect(reason)
+        )
+
         []
     end
   end
@@ -67,6 +91,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     transition_class = Keyword.get(opts, :transition_class, transition_class(mode))
 
     with {:ok, target_ctx} <- normalize_target_ctx(target_ctx),
+         true <- target_matches_policy_scope?(target_ctx, policy),
          {:ok, selected_agents} <- select_agents(target_ctx, policy, mode),
          false <- cooldown_active?(target_ctx, mode, transition_class),
          {:ok, _} <-
@@ -149,12 +174,55 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
   defp select_agents(target_ctx, policy, :baseline) do
     candidates = candidate_agents(target_ctx)
-    MtrVantageSelector.select_baseline_vantages(target_ctx, policy, candidates)
+
+    with {:ok, preferred} <- select_preferred_agents(policy, candidates) do
+      if preferred == [] do
+        MtrVantageSelector.select_baseline_vantages(target_ctx, policy, candidates)
+      else
+        {:ok, preferred}
+      end
+    end
   end
 
   defp select_agents(target_ctx, policy, mode) when mode in [:incident, :recovery] do
     candidates = candidate_agents(target_ctx)
-    MtrVantageSelector.select_incident_vantages(target_ctx, policy, candidates)
+
+    with {:ok, preferred} <- select_preferred_agents(policy, candidates) do
+      if preferred == [] do
+        MtrVantageSelector.select_incident_vantages(target_ctx, policy, candidates)
+      else
+        {:ok, preferred}
+      end
+    end
+  end
+
+  defp select_preferred_agents(policy, candidates) do
+    selector = Map.get(policy, :target_selector, %{}) || %{}
+    preferred = selector_list(selector, "agent_ids")
+    preferred_single = selector_string(selector, "agent_id")
+
+    preferred =
+      if is_binary(preferred_single) and preferred_single != "" do
+        Enum.uniq([preferred_single | preferred])
+      else
+        preferred
+      end
+
+    if preferred == [] do
+      {:ok, []}
+    else
+      selected =
+        candidates
+        |> Enum.filter(fn candidate -> candidate.agent_id in preferred end)
+        |> Enum.map(& &1.agent_id)
+        |> Enum.uniq()
+
+      if selected == [] do
+        {:error, :preferred_agent_unavailable}
+      else
+        {:ok, selected}
+      end
+    end
   end
 
   defp dispatch_to_agents(
@@ -311,6 +379,41 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
   defp normalize_target_ctx(_), do: {:error, :invalid_target_context}
 
+  defp target_matches_policy_scope?(target_ctx, policy) do
+    selector = Map.get(policy, :target_selector, %{}) || %{}
+    srql_query = selector_string(selector, "srql_query")
+
+    if is_binary(srql_query) and srql_query != "" do
+      target_device_uid = blank_to_nil(Map.get(target_ctx, :target_device_uid))
+      target_ip = blank_to_nil(Map.get(target_ctx, :target_ip))
+
+      constraint =
+        cond do
+          is_binary(target_device_uid) and target_device_uid != "" ->
+            ~s(uid:"#{target_device_uid}")
+
+          is_binary(target_ip) and target_ip != "" ->
+            ~s(ip:"#{target_ip}")
+
+          true ->
+            nil
+        end
+
+      if is_nil(constraint) do
+        true
+      else
+        query = normalize_srql_target_query("#{srql_query} #{constraint}", 1)
+
+        case SRQLRunner.query(query, limit: 1) do
+          {:ok, [_ | _]} -> true
+          _ -> false
+        end
+      end
+    else
+      true
+    end
+  end
+
   defp cooldown_active?(target_ctx, mode, transition_class) do
     actor = SystemActor.system(:mtr_automation)
     trigger_mode = trigger_mode(mode)
@@ -415,6 +518,30 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     }
   end
 
+  defp row_to_target_ctx(row) when is_map(row) do
+    target_ip = blank_to_nil(Map.get(row, "ip") || Map.get(row, "target_ip"))
+    target = blank_to_nil(Map.get(row, "hostname")) || target_ip
+    device_uid = blank_to_nil(Map.get(row, "uid") || Map.get(row, "device_uid") || Map.get(row, "id"))
+    partition_id = normalize_partition(Map.get(row, "partition_id") || Map.get(row, "partition"))
+    gateway_id = blank_to_nil(Map.get(row, "gateway_id"))
+    target_key = target_key(device_uid, target_ip, :device, device_uid)
+
+    if is_binary(target_key) and target_key != "" and is_binary(target_ip) and target_ip != "" do
+      %{
+        target: target,
+        target_ip: target_ip,
+        target_device_uid: device_uid,
+        partition_id: partition_id,
+        gateway_id: gateway_id,
+        target_key: target_key
+      }
+    else
+      nil
+    end
+  end
+
+  defp row_to_target_ctx(_), do: nil
+
   defp maybe_filter_uids(query, []), do: query
 
   defp maybe_filter_uids(query, uids) do
@@ -488,6 +615,12 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     end
   end
 
+  defp selector_string(selector, key) do
+    selector
+    |> selector_value(key)
+    |> blank_to_nil()
+  end
+
   defp selector_value(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, String.to_atom(key))
   rescue
@@ -495,6 +628,29 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   end
 
   defp selector_value(_, _), do: nil
+
+  defp normalize_srql_target_query(query, limit) when is_binary(query) do
+    query =
+      query
+      |> String.trim()
+      |> normalize_srql_entity_prefix()
+
+    if String.contains?(query, " limit:") or String.starts_with?(query, "limit:") do
+      query
+    else
+      "#{query} limit:#{limit}"
+    end
+  end
+
+  defp normalize_srql_entity_prefix(""), do: "in:devices"
+
+  defp normalize_srql_entity_prefix(query) when is_binary(query) do
+    if String.starts_with?(query, "in:") do
+      query
+    else
+      "in:devices " <> query
+    end
+  end
 
   defp metadata_value(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, String.to_atom(key))

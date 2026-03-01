@@ -414,6 +414,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
       live("/settings/networks/device-enrichment", Settings.DeviceEnrichmentRulesLive, :index)
       live("/settings/networks/bmp", Settings.BmpLive.Index, :index)
+      live("/settings/networks/mtr", Settings.MtrProfilesLive.Index, :index)
+      live("/settings/networks/mtr/new", Settings.MtrProfilesLive.Index, :new_profile)
+      live("/settings/networks/mtr/:id/edit", Settings.MtrProfilesLive.Index, :edit_profile)
 
       # Flow settings (directionality + enrichment configuration)
       live("/settings/flows", Settings.NetflowLive.Index, :index)

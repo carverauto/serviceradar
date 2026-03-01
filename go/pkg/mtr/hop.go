@@ -172,6 +172,74 @@ func (h *HopResult) AddSample(rtt time.Duration) {
 	}
 }
 
+// AddResponse records a probe response for a probe that was already counted
+// as sent when dispatched by the tracer.
+func (h *HopResult) AddResponse(rtt time.Duration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if rtt < 0 {
+		return
+	}
+
+	us := rtt.Microseconds()
+	h.Received++
+	h.Last = us
+
+	if h.Received == 1 {
+		h.Best = us
+		h.Worst = us
+	} else {
+		if us < h.Best {
+			h.Best = us
+		}
+		if us > h.Worst {
+			h.Worst = us
+		}
+	}
+
+	// Welford's online algorithm for mean and variance.
+	n := float64(h.Received)
+	delta := float64(us) - h.mean
+	h.mean += delta / n
+	delta2 := float64(us) - h.mean
+	h.m2 += delta * delta2
+
+	// Jitter calculation.
+	if h.Received > 1 {
+		j := abs64(us - h.prevRTT)
+
+		h.jitterSum += float64(j)
+		h.jitterCount++
+
+		if j > h.jitterWorst {
+			h.jitterWorst = j
+		}
+
+		// RFC 1889 interarrival jitter:
+		//   J(i) = J(i-1) + (|D(i-1,i)| - J(i-1)) / 16
+		h.jitterInterarrival += (float64(j) - h.jitterInterarrival) / 16.0
+	}
+
+	h.prevRTT = us
+
+	// Ring buffer.
+	h.ringBuf[h.ringPos] = us
+	h.ringPos++
+	if h.ringPos >= h.ringSize {
+		h.ringPos = 0
+		h.ringFull = true
+	}
+}
+
+// FinalizeTimeouts marks all in-flight probes as completed timeouts.
+func (h *HopResult) FinalizeTimeouts() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.InFlight = 0
+}
+
 // AddAddress records a responding IP for this hop.
 // The first address becomes the primary; subsequent unique addresses
 // are appended to ECMPAddrs.

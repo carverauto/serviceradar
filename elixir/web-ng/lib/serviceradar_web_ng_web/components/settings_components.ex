@@ -254,6 +254,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         active: String.starts_with?(path, "/settings/networks/bmp")
       },
       %{
+        label: "MTR",
+        navigate: ~p"/settings/networks/mtr",
+        active: String.starts_with?(path, "/settings/networks/mtr")
+      },
+      %{
         label: "SNMP",
         navigate: ~p"/settings/snmp",
         active: String.starts_with?(path, "/settings/snmp")
@@ -271,7 +276,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       not String.starts_with?(path, "/settings/networks/discovery") and
       not String.starts_with?(path, "/settings/networks/integrations") and
       not String.starts_with?(path, "/settings/networks/device-enrichment") and
-      not String.starts_with?(path, "/settings/networks/bmp")
+      not String.starts_with?(path, "/settings/networks/bmp") and
+      not String.starts_with?(path, "/settings/networks/mtr")
   end
 
   defp show_network_tab?(_label, nil), do: true

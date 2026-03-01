@@ -163,6 +163,9 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 	}
 	<-recvDone
 
+	// Mark unanswered probes as timed out before computing loss snapshots.
+	t.finalizeTimeouts()
+
 	// Enrich results.
 	t.enrichResults()
 
@@ -322,7 +325,7 @@ func (t *Tracer) handleResponse(resp *ICMPResponse) {
 	hop.InFlight--
 	hop.mu.Unlock()
 
-	hop.AddSample(rtt)
+	hop.AddResponse(rtt)
 	hop.AddAddress(resp.SrcAddr)
 
 	// Parse MPLS labels from ICMP extension objects.
@@ -396,6 +399,14 @@ func (t *Tracer) buildResult() *TraceResult {
 		PacketSize:    t.opts.PacketSize,
 		Hops:          hops,
 		Timestamp:     time.Now().Unix(),
+	}
+}
+
+func (t *Tracer) finalizeTimeouts() {
+	for _, hop := range t.hops {
+		if hop != nil {
+			hop.FinalizeTimeouts()
+		}
 	}
 }
 

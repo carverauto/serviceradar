@@ -3,7 +3,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.AgentRegistry
-  alias ServiceRadar.Repo
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
+  alias ServiceRadar.Observability.MtrPubSub
 
   @default_limit 50
 
@@ -11,12 +12,15 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:commands")
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, MtrPubSub.topic())
     end
 
     {:ok,
      socket
      |> assign(:page_title, "MTR Diagnostics")
+     |> assign(:page_path, "/diagnostics/mtr")
      |> assign(:traces, [])
+     |> assign(:pending_jobs, [])
      |> assign(:limit, @default_limit)
      |> assign(:filter_target, "")
      |> assign(:filter_agent, "")
@@ -31,7 +35,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
   @impl true
   def handle_params(_params, _uri, socket) do
-    {:noreply, load_traces(socket)}
+    {:noreply, refresh_diagnostics(socket)}
   end
 
   @impl true
@@ -40,11 +44,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
      socket
      |> assign(:filter_target, target || "")
      |> assign(:filter_agent, agent || "")
-     |> load_traces()}
-  end
-
-  def handle_event("refresh", _params, socket) do
-    {:noreply, load_traces(socket)}
+     |> refresh_diagnostics()}
   end
 
   def handle_event("open_mtr_modal", _params, socket) do
@@ -86,9 +86,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
           {:ok, command_id} ->
             {:noreply,
              socket
-             |> assign(:mtr_running, true)
+             |> assign(:show_mtr_modal, false)
+             |> assign(:mtr_running, false)
              |> assign(:mtr_error, nil)
-             |> assign(:mtr_command_id, command_id)}
+             |> assign(:mtr_command_id, command_id)
+             |> put_flash(:info, "MTR trace queued")
+             |> refresh_diagnostics()}
 
           {:error, {:agent_offline, _}} ->
             {:noreply, assign(socket, :mtr_error, "Agent is offline")}
@@ -100,78 +103,66 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   end
 
   @impl true
-  def handle_info({:command_result, %{command_id: cmd_id} = _result}, socket)
-      when cmd_id == socket.assigns.mtr_command_id do
+  def handle_info({:command_result, %{command_type: "mtr.run"}}, socket) do
     {:noreply,
      socket
      |> assign(:mtr_running, false)
-     |> assign(:show_mtr_modal, false)
-     |> assign(:mtr_command_id, nil)
-     |> put_flash(:info, "MTR trace completed")
-     |> load_traces()}
+     |> refresh_diagnostics()}
   end
+
+  def handle_info({:mtr_trace_ingested, _event}, socket) do
+    {:noreply, refresh_diagnostics(socket)}
+  end
+
+  def handle_info({:command_ack, %{command_type: "mtr.run"}}, socket),
+    do: {:noreply, refresh_diagnostics(socket)}
+
+  def handle_info({:command_progress, %{command_type: "mtr.run"}}, socket),
+    do: {:noreply, refresh_diagnostics(socket)}
 
   def handle_info({:command_result, _}, socket), do: {:noreply, socket}
   def handle_info({:command_ack, _}, socket), do: {:noreply, socket}
   def handle_info({:command_progress, _}, socket), do: {:noreply, socket}
 
+  defp refresh_diagnostics(socket) do
+    socket
+    |> load_traces()
+    |> load_pending_jobs()
+  end
+
   defp load_traces(socket) do
-    target = String.trim(socket.assigns.filter_target)
-    agent = String.trim(socket.assigns.filter_agent)
-    limit = socket.assigns.limit
-
-    {where_clause, params} = build_where(target, agent)
-
-    query = """
-    SELECT id, time, agent_id, check_name, device_id, target, target_ip,
-           target_reached, total_hops, protocol, ip_version, error
-    FROM mtr_traces
-    #{where_clause}
-    ORDER BY time DESC
-    LIMIT $#{length(params) + 1}
-    """
-
-    case Repo.query(query, params ++ [limit]) do
-      {:ok, %{rows: rows, columns: columns}} ->
-        traces = Enum.map(rows, fn row -> Enum.zip(columns, row) |> Map.new() end)
+    case MtrData.list_traces(
+           target_filter: socket.assigns.filter_target,
+           agent_filter: socket.assigns.filter_agent,
+           limit: socket.assigns.limit
+         ) do
+      {:ok, traces} ->
         assign(socket, :traces, traces)
 
-      {:error, _reason} ->
+      {:error, _} ->
         assign(socket, :traces, [])
     end
   end
 
-  defp build_where(target, agent) do
-    conditions = []
-    params = []
-    idx = 1
+  defp load_pending_jobs(socket) do
+    case MtrData.list_pending_jobs(
+           socket.assigns.current_scope,
+           target_filter: socket.assigns.filter_target,
+           agent_filter: socket.assigns.filter_agent
+         ) do
+      {:ok, jobs} ->
+        assign(socket, :pending_jobs, jobs)
 
-    {conditions, params, idx} =
-      if target != "" do
-        {conditions ++ ["(target ILIKE $#{idx} OR target_ip ILIKE $#{idx})"],
-         params ++ ["%#{target}%"], idx + 1}
-      else
-        {conditions, params, idx}
-      end
-
-    {conditions, params, _idx} =
-      if agent != "" do
-        {conditions ++ ["agent_id ILIKE $#{idx}"], params ++ ["%#{agent}%"], idx + 1}
-      else
-        {conditions, params, idx}
-      end
-
-    if conditions == [] do
-      {"", params}
-    else
-      {"WHERE " <> Enum.join(conditions, " AND "), params}
+      {:error, _} ->
+        assign(socket, :pending_jobs, [])
     end
   end
 
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="p-6 space-y-6">
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={%{enabled: false, page_path: @page_path}}>
+      <div class="p-6 space-y-6">
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-2xl font-bold">MTR Diagnostics</h1>
@@ -212,23 +203,6 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
             </svg>
             Run MTR
           </button>
-          <button type="button" phx-click="refresh" class="btn btn-sm btn-outline">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            Refresh
-          </button>
         </div>
       </div>
 
@@ -266,6 +240,34 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
             </tr>
           </thead>
           <tbody>
+            <tr :for={job <- @pending_jobs} class="hover opacity-80">
+              <td class="whitespace-nowrap text-xs">
+                {format_time(job.inserted_at)}
+              </td>
+              <td>
+                <div class="font-mono text-sm">{job.payload["target"] || "-"}</div>
+              </td>
+              <td>
+                <span class={["badge badge-sm", pending_status_class(job.status)]}>
+                  {job.status |> to_string() |> String.replace("_", " ") |> String.upcase()}
+                </span>
+              </td>
+              <td class="text-center">-</td>
+              <td>
+                <span class="badge badge-ghost badge-sm">
+                  {String.upcase((job.payload || %{})["protocol"] || "icmp")}
+                </span>
+              </td>
+              <td class="text-xs font-mono max-w-[120px] truncate" title={job.agent_id}>
+                {job.agent_id}
+              </td>
+              <td class="text-xs max-w-[120px] truncate" title={job.command_type}>
+                pending
+              </td>
+              <td class="text-xs text-base-content/50">
+                {job.id}
+              </td>
+            </tr>
             <tr :for={trace <- @traces} class="hover">
               <td class="whitespace-nowrap text-xs">
                 {format_time(trace["time"])}
@@ -308,7 +310,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 </.link>
               </td>
             </tr>
-            <tr :if={@traces == []}>
+            <tr :if={@pending_jobs == [] and @traces == []}>
               <td colspan="8" class="text-center py-8 text-base-content/50">
                 No MTR traces found. Traces will appear once agents run MTR checks.
               </td>
@@ -338,7 +340,6 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   placeholder="e.g. 8.8.8.8 or google.com"
                   class="input input-bordered"
                   required
-                  disabled={@mtr_running}
                 />
               </div>
 
@@ -350,7 +351,6 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   name="mtr[agent_id]"
                   class="select select-bordered"
                   required
-                  disabled={@mtr_running}
                 >
                   <option value="">Select an agent...</option>
                   <%= for agent <- @mtr_agents do %>
@@ -366,29 +366,19 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 <label class="label">
                   <span class="label-text">Protocol</span>
                 </label>
-                <select name="mtr[protocol]" class="select select-bordered" disabled={@mtr_running}>
+                <select name="mtr[protocol]" class="select select-bordered">
                   <option value="icmp" selected>ICMP</option>
                   <option value="udp">UDP</option>
                   <option value="tcp">TCP</option>
                 </select>
               </div>
 
-              <div :if={@mtr_running} class="flex items-center gap-2 mb-4">
-                <span class="loading loading-spinner loading-sm"></span>
-                <span class="text-sm">Running trace...</span>
-              </div>
-
               <div class="modal-action">
-                <button
-                  type="button"
-                  phx-click="close_mtr_modal"
-                  class="btn"
-                  disabled={@mtr_running}
-                >
+                <button type="button" phx-click="close_mtr_modal" class="btn">
                   Cancel
                 </button>
-                <button type="submit" class="btn btn-primary" disabled={@mtr_running}>
-                  Run Trace
+                <button type="submit" class="btn btn-primary">
+                  Queue Trace
                 </button>
               </div>
             </.form>
@@ -396,7 +386,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
           <div class="modal-backdrop" phx-click="close_mtr_modal"></div>
         </div>
       <% end %>
-    </div>
+      </div>
+    </Layouts.app>
     """
   end
 
@@ -426,4 +417,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   end
 
   defp format_time(_), do: "-"
+
+  defp pending_status_class(:queued), do: "badge-ghost"
+  defp pending_status_class(:sent), do: "badge-info"
+  defp pending_status_class(:acknowledged), do: "badge-info"
+  defp pending_status_class(:running), do: "badge-warning"
+  defp pending_status_class(_), do: "badge-ghost"
 end
