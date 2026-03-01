@@ -13,6 +13,9 @@ import GodViewBinaryStream from "./god_view/GodViewBinaryStream"
 import GodViewControlsState from "./god_view/GodViewControlsState"
 import TimeseriesChart from "./charts/TimeseriesChart"
 import TimeseriesCombinedChart from "./charts/TimeseriesCombinedChart"
+import FlowSparkline from "./charts/FlowSparkline"
+import FlowDonut from "./charts/FlowDonut"
+import BandwidthGauge from "./charts/BandwidthGauge"
 
 export default {
   BulkEditTagsToggle,
@@ -30,4 +33,7 @@ export default {
   GodViewControlsState,
   TimeseriesChart,
   TimeseriesCombinedChart,
+  FlowSparkline,
+  FlowDonut,
+  BandwidthGauge,
 }

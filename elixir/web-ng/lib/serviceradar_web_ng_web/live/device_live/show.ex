@@ -2788,7 +2788,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <span class="text-sm font-semibold">Flows</span>
           <span class="text-xs text-base-content/50">({length(@flows)} rows)</span>
         </div>
-        <.link navigate={~p"/flows?q=#{@query}"} class="text-xs text-primary hover:underline">
+        <.link navigate={~p"/flows/visualize?q=#{@query}"} class="text-xs text-primary hover:underline">
           Open full flows view
         </.link>
       </div>
@@ -2840,7 +2840,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                     <td class="text-right">
                       <.link
                         navigate={
-                          ~p"/flows?#{%{"q" => flow_drilldown_query(flow), "open" => "first"}}"
+                          ~p"/flows/visualize?#{%{"q" => flow_drilldown_query(flow), "open" => "first"}}"
                         }
                         class="btn btn-ghost btn-xs"
                       >

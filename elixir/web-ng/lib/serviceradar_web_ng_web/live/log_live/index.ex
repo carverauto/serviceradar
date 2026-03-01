@@ -134,8 +134,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
       to =
         case nav_params do
-          %{} = p when map_size(p) > 0 -> "/flows?" <> URI.encode_query(p)
-          _ -> "/flows"
+          %{} = p when map_size(p) > 0 -> "/flows/visualize?" <> URI.encode_query(p)
+          _ -> "/flows/visualize"
         end
 
       {:noreply, push_navigate(socket, to: to)}

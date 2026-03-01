@@ -136,7 +136,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   def handle_event("srql_submit", params, socket) do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_submit", params,
-       fallback_path: "/flows",
+       fallback_path: "/flows/visualize",
        extra_params: srql_submit_extra_params(socket)
      )}
   end
@@ -145,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_toggle", %{},
        entity: "flows",
-       fallback_path: "/flows"
+       fallback_path: "/flows/visualize"
      )}
   end
 
@@ -161,7 +161,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_run", %{},
        entity: "flows",
-       fallback_path: "/flows",
+       fallback_path: "/flows/visualize",
        extra_params: srql_submit_extra_params(socket)
      )}
   end
@@ -863,7 +863,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   flows={@flows}
                   rdns_map={@rdns_map}
                   geo_iso2_map={@geo_iso2_map}
-                  base_path="/flows"
+                  base_path="/flows/visualize"
                   query={Map.get(@srql, :query) || ""}
                   limit={@limit}
                   nf_param={nf_param(@netflow_viz_state)}
@@ -873,7 +873,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   <.ui_pagination
                     prev_cursor={Map.get(@flows_pagination, "prev_cursor")}
                     next_cursor={Map.get(@flows_pagination, "next_cursor")}
-                    base_path="/flows"
+                    base_path="/flows/visualize"
                     query={Map.get(@srql, :query) || ""}
                     limit={@limit}
                     result_count={length(@flows || [])}
@@ -2611,7 +2611,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> Map.merge(extra_params)
       |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
 
-    "/flows?" <> URI.encode_query(params)
+    "/flows/visualize?" <> URI.encode_query(params)
   end
 
   defp merge_nf_state(%{} = current, %{} = incoming) do
