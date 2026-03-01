@@ -74,15 +74,18 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     Ash.transaction(
       [MtrTrace, MtrHop],
       fn ->
-        Enum.reduce_while(results, :ok, fn result, _acc ->
-          reduce_insert_result(result, agent_id, gateway_id, partition, now, actor)
+        Enum.reduce_while(results, :ok, fn result, :ok ->
+          case insert_single_result(result, agent_id, gateway_id, partition, now, actor) do
+            :ok ->
+              {:cont, :ok}
+
+            {:error, reason} ->
+              Ash.DataLayer.rollback([MtrTrace, MtrHop], reason)
+          end
         end)
       end
     )
     |> case do
-      {:ok, {:error, reason}} ->
-        {:error, reason}
-
       {:ok, _} ->
         :ok
 
@@ -91,13 +94,6 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
       {:error, reason, _stacktrace} ->
         {:error, reason}
-    end
-  end
-
-  defp reduce_insert_result(result, agent_id, gateway_id, partition, now, actor) do
-    case insert_single_result(result, agent_id, gateway_id, partition, now, actor) do
-      :ok -> {:cont, :ok}
-      {:error, reason} -> {:halt, {:error, reason}}
     end
   end
 

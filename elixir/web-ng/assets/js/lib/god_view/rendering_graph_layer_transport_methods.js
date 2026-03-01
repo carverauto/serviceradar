@@ -249,11 +249,13 @@ export const godViewRenderingGraphLayerTransportMethods = {
         ]
       : []
 
-    const mtrPathEdgeData = this.state.topologyLayers.mtr_paths
+    const topologyLayers = this.state.topologyLayers || {}
+
+    const mtrPathEdgeData = topologyLayers.mtr_paths
       ? this.buildMtrPathEdgeData(nodeData)
       : []
 
-    const mtrPathLayers = this.state.topologyLayers.mtr_paths && mtrPathEdgeData.length > 0
+    const mtrPathLayers = topologyLayers.mtr_paths && mtrPathEdgeData.length > 0
       ? [
           new ArcLayer({
             id: "god-view-mtr-paths",

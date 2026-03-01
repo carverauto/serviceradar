@@ -121,7 +121,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     agent_filter = normalize_string(Keyword.get(opts, :agent_filter, ""))
 
     if is_nil(scope) do
-      {:ok, []}
+      {:error, :missing_scope}
     else
       query =
         AgentCommand
@@ -158,35 +158,45 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
   def build_trends(_), do: %{hops: [], latency: []}
 
-  def get_trace_detail(trace_id) when is_binary(trace_id) and trace_id != "" do
-    trace_query = """
-    SELECT id::text AS id, time, agent_id, gateway_id, check_id, check_name, device_id,
-           target, target_ip, target_reached, total_hops, protocol,
-           ip_version, packet_size, partition, error
-    FROM mtr_traces
-    WHERE id::text = $1
-    LIMIT 1
-    """
-
-    hops_query = """
-    SELECT hop_number, addr, hostname, ecmp_addrs, asn, asn_org,
-           mpls_labels, sent, received, loss_pct,
-           last_us, avg_us, min_us, max_us, stddev_us,
-           jitter_us, jitter_worst_us, jitter_interarrival_us
-    FROM mtr_hops
-    WHERE trace_id::text = $1
-    ORDER BY hop_number ASC
-    """
-
-    with {:ok, %{rows: [trace_row], columns: trace_cols}} <- Repo.query(trace_query, [trace_id]),
-         trace <- Enum.zip(trace_cols, trace_row) |> Map.new(),
-         {:ok, %{rows: hop_rows, columns: hop_cols}} <- Repo.query(hops_query, [trace_id]) do
-      hops = Enum.map(hop_rows, fn row -> Enum.zip(hop_cols, row) |> Map.new() end)
-      {:ok, trace, hops}
+  def get_trace_detail(scope, trace_id) when is_binary(trace_id) and trace_id != "" do
+    if is_nil(scope) do
+      {:error, :missing_scope}
     else
-      {:ok, %{rows: []}} -> {:error, :not_found}
-      {:error, reason} -> {:error, reason}
+      trace_query = """
+      SELECT id::text AS id, time, agent_id, gateway_id, check_id, check_name, device_id,
+             target, target_ip, target_reached, total_hops, protocol,
+             ip_version, packet_size, partition, error
+      FROM mtr_traces
+      WHERE id::text = $1
+      LIMIT 1
+      """
+
+      hops_query = """
+      SELECT hop_number, addr, hostname, ecmp_addrs, asn, asn_org,
+             mpls_labels, sent, received, loss_pct,
+             last_us, avg_us, min_us, max_us, stddev_us,
+             jitter_us, jitter_worst_us, jitter_interarrival_us
+      FROM mtr_hops
+      WHERE trace_id::text = $1
+      ORDER BY hop_number ASC
+      """
+
+      with {:ok, %{rows: [trace_row], columns: trace_cols}} <- Repo.query(trace_query, [trace_id]),
+           trace <- Enum.zip(trace_cols, trace_row) |> Map.new(),
+           {:ok, %{rows: hop_rows, columns: hop_cols}} <- Repo.query(hops_query, [trace_id]) do
+        hops = Enum.map(hop_rows, fn row -> Enum.zip(hop_cols, row) |> Map.new() end)
+        {:ok, trace, hops}
+      else
+        {:ok, %{rows: []}} -> {:error, :not_found}
+        {:error, reason} -> {:error, reason}
+      end
     end
+  end
+
+  def get_trace_detail(_scope, _trace_id), do: {:error, :invalid_trace_id}
+
+  def get_trace_detail(trace_id) when is_binary(trace_id) and trace_id != "" do
+    get_trace_detail(%{}, trace_id)
   end
 
   def get_trace_detail(_), do: {:error, :invalid_trace_id}

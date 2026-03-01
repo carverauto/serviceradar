@@ -798,22 +798,15 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   end
 
   defp build_count_query(normalized) when is_binary(normalized) do
-    has_stats? = Regex.match?(~r/(^|\s)stats:/i, normalized)
-
     normalized =
       normalized
       |> String.replace(~r/(^|\s)limit:\S+/i, "")
+      |> String.replace(~r/(^|\s)stats:"[^"]*"/i, "")
+      |> String.replace(~r/(^|\s)stats:\S+/i, "")
       |> String.replace(~r/\s+/, " ")
       |> String.trim()
 
-    normalized
-    |> then(fn q ->
-      if has_stats? do
-        q
-      else
-        "#{q} stats:\"count() as total\""
-      end
-    end)
+    "#{normalized} stats:\"count() as total\""
     |> Kernel.<>(" limit:1")
   end
 

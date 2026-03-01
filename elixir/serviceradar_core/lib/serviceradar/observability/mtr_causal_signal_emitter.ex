@@ -18,7 +18,7 @@ defmodule ServiceRadar.Observability.MtrCausalSignalEmitter do
     event_identity = Ecto.UUID.generate()
     envelope = build_normalized_envelope(consensus_result, context, outcomes, event_identity)
     row = build_ocsf_event_row(envelope)
-    attrs = Map.drop(row, [:created_at])
+    attrs = Map.drop(row, [:created_at, "created_at"])
     actor = SystemActor.system(:mtr_causal_signal_emitter)
 
     case OcsfEvent

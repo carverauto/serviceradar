@@ -10,6 +10,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability.{MtrDispatchWindow, MtrVantageSelector, SRQLRunner}
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadar.Repo
 
   require Ash.Query
   require Logger
@@ -394,51 +395,51 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
          incident_correlation_id,
          source_agent_ids
        ) do
-    actor = SystemActor.system(:mtr_automation)
     cooldown_until = DateTime.add(now, cooldown_seconds, :second)
 
-    query =
-      MtrDispatchWindow
-      |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(
-        expr(
-          target_key == ^target_key and
-            trigger_mode == ^trigger_mode and
-            transition_class == ^transition_class and
-            partition_id == ^partition_id
-        )
-      )
-      |> Ash.Query.limit(1)
+    sql = """
+    INSERT INTO platform.mtr_dispatch_windows (
+      target_key,
+      trigger_mode,
+      transition_class,
+      partition_id,
+      last_dispatched_at,
+      cooldown_until,
+      incident_correlation_id,
+      source_agent_ids,
+      dispatch_count
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1)
+    ON CONFLICT (
+      target_key,
+      trigger_mode,
+      COALESCE(transition_class, ''),
+      COALESCE(partition_id, '')
+    )
+    DO UPDATE SET
+      last_dispatched_at = EXCLUDED.last_dispatched_at,
+      cooldown_until = EXCLUDED.cooldown_until,
+      incident_correlation_id = EXCLUDED.incident_correlation_id,
+      source_agent_ids = EXCLUDED.source_agent_ids,
+      dispatch_count = platform.mtr_dispatch_windows.dispatch_count + 1,
+      updated_at = now()
+    RETURNING id
+    """
 
-    case Ash.read(query, actor: actor) do
-      {:ok, [window]} ->
-        MtrDispatchWindow.update_window(
-          window,
-          %{
-            last_dispatched_at: now,
-            cooldown_until: cooldown_until,
-            incident_correlation_id: incident_correlation_id,
-            source_agent_ids: source_agent_ids,
-            dispatch_count: (window.dispatch_count || 0) + 1
-          },
-          actor: actor
-        )
+    params = [
+      target_key,
+      trigger_mode,
+      transition_class,
+      partition_id,
+      now,
+      cooldown_until,
+      incident_correlation_id,
+      List.wrap(source_agent_ids)
+    ]
 
-      {:ok, []} ->
-        MtrDispatchWindow.create_window(
-          %{
-            target_key: target_key,
-            trigger_mode: trigger_mode,
-            transition_class: transition_class,
-            partition_id: partition_id,
-            last_dispatched_at: now,
-            cooldown_until: cooldown_until,
-            incident_correlation_id: incident_correlation_id,
-            source_agent_ids: source_agent_ids,
-            dispatch_count: 1
-          },
-          actor: actor
-        )
+    case Repo.query(sql, params) do
+      {:ok, _result} ->
+        {:ok, :upserted}
 
       {:error, reason} ->
         {:error, reason}

@@ -717,7 +717,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event("view_mtr_trace", %{"id" => trace_id}, socket) do
-    case MtrData.get_trace_detail(trace_id) do
+    case MtrData.get_trace_detail(socket.assigns.current_scope, trace_id) do
       {:ok, trace, hops} ->
         {:noreply,
          socket
@@ -739,103 +739,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:show_mtr_trace_modal, false)
      |> assign(:selected_mtr_trace, nil)
      |> assign(:selected_mtr_hops, [])}
-  end
-
-  defp validate_device_ip(device_ip) when is_binary(device_ip) and device_ip != "", do: :ok
-  defp validate_device_ip(_), do: {:error, "No device IP available for MTR"}
-
-  defp first_connected_agent_id() do
-    case list_connected_agents() do
-      [first | _] ->
-        agent_id = Map.get(first, :agent_id) || Map.get(first, "agent_id")
-
-        if is_binary(agent_id) and String.trim(agent_id) != "" do
-          {:ok, agent_id}
-        else
-          {:error, "Connected agent is missing an agent_id"}
-        end
-
-      [] ->
-        {:error, "No agents connected"}
-    end
-  end
-
-  defp list_connected_agents() do
-    try do
-      ServiceRadar.AgentRegistry.find_agents()
-    rescue
-      _ -> []
-    end
-  end
-
-  defp queue_mtr_trace(socket, device_ip) do
-    with :ok <- validate_device_ip(device_ip) do
-      target_ctx = build_mtr_target_ctx(socket, device_ip)
-
-      case dispatch_with_automation_policy(target_ctx) do
-        {:ok, [agent_id | _]} ->
-          {:ok, agent_id}
-
-        {:error, _} ->
-          with {:ok, agent_id} <- first_connected_agent_id() do
-            dispatch_direct_mtr_trace(socket, agent_id, device_ip)
-          end
-      end
-    end
-  end
-
-  defp dispatch_direct_mtr_trace(socket, agent_id, device_ip) do
-    payload = %{"target" => device_ip, "protocol" => "icmp"}
-    context = %{"device_uid" => socket.assigns.device_uid, "target_ip" => device_ip}
-
-    case AgentCommandBus.dispatch(agent_id, "mtr.run", payload, context: context) do
-      {:ok, _command_id} ->
-        {:ok, agent_id}
-
-      {:error, reason} ->
-        {:error, "Failed to run MTR: #{inspect(reason)}"}
-    end
-  end
-
-  defp dispatch_with_automation_policy(target_ctx) do
-    case MtrPolicy.list_enabled() do
-      {:ok, policies} when is_list(policies) ->
-        dispatch_with_first_matching_policy(policies, target_ctx)
-
-      _ ->
-        {:error, :no_enabled_policy}
-    end
-  end
-
-  defp dispatch_with_first_matching_policy([], _target_ctx), do: {:error, :no_matching_policy}
-
-  defp dispatch_with_first_matching_policy([policy | rest], target_ctx) do
-    policy =
-      policy
-      |> Map.put_new(:baseline_canary_vantages, 0)
-      |> Map.put_new("baseline_canary_vantages", 0)
-
-    case MtrAutomationDispatcher.dispatch_for_mode(target_ctx, policy, :baseline) do
-      {:ok, selected_agents} when is_list(selected_agents) and selected_agents != [] ->
-        {:ok, selected_agents}
-
-      _ ->
-        dispatch_with_first_matching_policy(rest, target_ctx)
-    end
-  end
-
-  defp build_mtr_target_ctx(socket, target_ip) do
-    device_row = socket.assigns[:device_row] || %{}
-    partition_id = device_row["partition"] || device_row["partition_id"] || "default"
-
-    %{
-      target: target_ip,
-      target_ip: target_ip,
-      target_device_uid: socket.assigns.device_uid,
-      partition_id: partition_id,
-      gateway_id: device_row["gateway_id"],
-      target_key: "device:#{socket.assigns.device_uid}"
-    }
   end
 
   # ---------------------------------------------------------------------------
@@ -984,6 +887,103 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  defp validate_device_ip(device_ip) when is_binary(device_ip) and device_ip != "", do: :ok
+  defp validate_device_ip(_), do: {:error, "No device IP available for MTR"}
+
+  defp first_connected_agent_id() do
+    case list_connected_agents() do
+      [first | _] ->
+        agent_id = Map.get(first, :agent_id) || Map.get(first, "agent_id")
+
+        if is_binary(agent_id) and String.trim(agent_id) != "" do
+          {:ok, agent_id}
+        else
+          {:error, "Connected agent is missing an agent_id"}
+        end
+
+      [] ->
+        {:error, "No agents connected"}
+    end
+  end
+
+  defp list_connected_agents() do
+    try do
+      ServiceRadar.AgentRegistry.find_agents()
+    rescue
+      _ -> []
+    end
+  end
+
+  defp queue_mtr_trace(socket, device_ip) do
+    with :ok <- validate_device_ip(device_ip) do
+      target_ctx = build_mtr_target_ctx(socket, device_ip)
+
+      case dispatch_with_automation_policy(target_ctx) do
+        {:ok, [agent_id | _]} ->
+          {:ok, agent_id}
+
+        {:error, _} ->
+          with {:ok, agent_id} <- first_connected_agent_id() do
+            dispatch_direct_mtr_trace(socket, agent_id, device_ip)
+          end
+      end
+    end
+  end
+
+  defp dispatch_direct_mtr_trace(socket, agent_id, device_ip) do
+    payload = %{"target" => device_ip, "protocol" => "icmp"}
+    context = %{"device_uid" => socket.assigns.device_uid, "target_ip" => device_ip}
+
+    case AgentCommandBus.dispatch(agent_id, "mtr.run", payload, context: context) do
+      {:ok, _command_id} ->
+        {:ok, agent_id}
+
+      {:error, reason} ->
+        {:error, "Failed to run MTR: #{inspect(reason)}"}
+    end
+  end
+
+  defp dispatch_with_automation_policy(target_ctx) do
+    case MtrPolicy.list_enabled() do
+      {:ok, policies} when is_list(policies) ->
+        dispatch_with_first_matching_policy(policies, target_ctx)
+
+      _ ->
+        {:error, :no_enabled_policy}
+    end
+  end
+
+  defp dispatch_with_first_matching_policy([], _target_ctx), do: {:error, :no_matching_policy}
+
+  defp dispatch_with_first_matching_policy([policy | rest], target_ctx) do
+    policy =
+      policy
+      |> Map.put_new(:baseline_canary_vantages, 0)
+      |> Map.put_new("baseline_canary_vantages", 0)
+
+    case MtrAutomationDispatcher.dispatch_for_mode(target_ctx, policy, :baseline) do
+      {:ok, selected_agents} when is_list(selected_agents) and selected_agents != [] ->
+        {:ok, selected_agents}
+
+      _ ->
+        dispatch_with_first_matching_policy(rest, target_ctx)
+    end
+  end
+
+  defp build_mtr_target_ctx(socket, target_ip) do
+    device_row = socket.assigns[:device_row] || %{}
+    partition_id = device_row["partition"] || device_row["partition_id"] || "default"
+
+    %{
+      target: target_ip,
+      target_ip: target_ip,
+      target_device_uid: socket.assigns.device_uid,
+      partition_id: partition_id,
+      gateway_id: device_row["gateway_id"],
+      target_key: "device:#{socket.assigns.device_uid}"
+    }
+  end
 
   defp normalize_interface_metrics_layout(layout) do
     case to_string(layout || "") do
