@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
            target, target_ip, target_reached, total_hops, protocol,
            ip_version, packet_size, partition, error
     FROM mtr_traces
-    WHERE id = $1
+    WHERE id::text = $1
     LIMIT 1
     """
 
@@ -93,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
            last_us, avg_us, min_us, max_us, stddev_us,
            jitter_us, jitter_worst_us, jitter_interarrival_us
     FROM mtr_hops
-    WHERE trace_id = $1
+    WHERE trace_id::text = $1
     ORDER BY hop_number ASC
     """
 
@@ -133,11 +133,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     {conditions, params, _idx} =
       case {device_uid, device_ip} do
         {uid, ip} when is_binary(uid) and uid != "" and is_binary(ip) and ip != "" ->
-          {conditions ++ ["(device_id = $#{idx} OR target_ip = $#{idx + 1})"],
+          {conditions ++ ["(device_id::text = $#{idx} OR target_ip = $#{idx + 1})"],
            params ++ [uid, ip], idx + 2}
 
         {uid, _ip} when is_binary(uid) and uid != "" ->
-          {conditions ++ ["device_id = $#{idx}"], params ++ [uid], idx + 1}
+          {conditions ++ ["device_id::text = $#{idx}"], params ++ [uid], idx + 1}
 
         {_uid, ip} when is_binary(ip) and ip != "" ->
           {conditions ++ ["target_ip = $#{idx}"], params ++ [ip], idx + 1}
@@ -162,7 +162,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     query = """
     SELECT DISTINCT ON (trace_id) trace_id::text, avg_us
     FROM mtr_hops
-    WHERE trace_id IN (#{placeholders})
+    WHERE trace_id::text IN (#{placeholders})
       AND addr IS NOT NULL
     ORDER BY trace_id, hop_number DESC
     """

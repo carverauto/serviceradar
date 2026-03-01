@@ -85,7 +85,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     SELECT id::text AS id, time, agent_id, target, target_ip, target_reached,
            total_hops, protocol, ip_version
     FROM mtr_traces
-    WHERE id = $1
+    WHERE id::text = $1
     LIMIT 1
     """
 
@@ -93,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     SELECT hop_number, addr, hostname, asn, asn_org, loss_pct,
            avg_us, min_us, max_us
     FROM mtr_hops
-    WHERE trace_id = $1
+    WHERE trace_id::text = $1
     ORDER BY hop_number ASC
     """
 

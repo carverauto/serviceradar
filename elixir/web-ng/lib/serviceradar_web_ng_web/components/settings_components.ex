@@ -246,11 +246,6 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         active: String.starts_with?(path, "/settings/flows")
       },
       %{
-        label: "Discovery",
-        navigate: ~p"/settings/networks/discovery",
-        active: String.starts_with?(path, "/settings/networks/discovery")
-      },
-      %{
         label: "BMP",
         navigate: ~p"/settings/networks/bmp",
         active: String.starts_with?(path, "/settings/networks/bmp")

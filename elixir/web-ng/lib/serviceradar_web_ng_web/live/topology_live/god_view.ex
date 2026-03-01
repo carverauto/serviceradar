@@ -13,8 +13,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   @impl true
   def mount(_params, _session, socket) do
     if FeatureFlags.god_view_enabled?() do
-      {:ok,
-       socket
+      socket =
+        socket
        |> assign(:page_title, "Network Topology")
        |> assign(:current_path, "/topology")
        |> assign(:snapshot_url, ~p"/topology/snapshot/latest")
@@ -49,10 +49,19 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
          backbone: true,
          inferred: false,
          endpoints: false,
-         mtr_paths: false
+         mtr_paths: true
        })
        |> assign(:pipeline_stats, %{})
-       |> assign(:controls_collapsed, true)}
+       |> assign(:controls_collapsed, true)
+
+      socket =
+        if connected?(socket) do
+          push_mtr_path_data(socket)
+        else
+          socket
+        end
+
+      {:ok, socket}
     else
       {:ok,
        socket

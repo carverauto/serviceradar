@@ -14,6 +14,7 @@ require (
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/nats-io/jwt/v2 v2.8.0
 	github.com/nats-io/nats.go v1.48.0
+	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/rs/zerolog v1.34.0
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/spiffe/go-spiffe/v2 v2.6.0
@@ -42,7 +43,6 @@ require (
 require (
 	github.com/clipperhouse/displaywidth v0.9.0 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect
-	github.com/oschwald/maxminddb-golang v1.13.1 // indirect
 )
 
 require (

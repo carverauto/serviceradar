@@ -35,7 +35,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
            target, target_ip, target_reached, total_hops, protocol,
            ip_version, packet_size, partition, error
     FROM mtr_traces
-    WHERE id = $1
+    WHERE id::text = $1
     LIMIT 1
     """
 
@@ -45,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
            last_us, avg_us, min_us, max_us, stddev_us,
            jitter_us, jitter_worst_us, jitter_interarrival_us
     FROM mtr_hops
-    WHERE trace_id = $1
+    WHERE trace_id::text = $1
     ORDER BY hop_number ASC
     """
 
