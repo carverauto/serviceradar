@@ -388,6 +388,10 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/services/check", ServiceLive.Show, :show)
       live("/topology", TopologyLive.GodView, :index)
       live("/spatial", SpatialLive.Index, :index)
+
+      # MTR Diagnostics
+      live("/diagnostics/mtr", DiagnosticsLive.Mtr, :index)
+      live("/diagnostics/mtr/:trace_id", DiagnosticsLive.MtrTrace, :show)
       live("/settings/profile", UserLive.Settings, :edit)
       live("/settings/api-credentials", UserLive.ApiCredentials, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)

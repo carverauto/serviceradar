@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: MTR Trace Execution
-The agent SHALL execute MTR (My Traceroute) path analysis to a configured target, sending probes with incrementing TTL values from 1 to maxHops, collecting ICMP Time Exceeded and Echo Reply responses to build a hop-by-hop view of the network path.
+The agent SHALL execute MTR (My Traceroute) path analysis to a configured target, sending probes with incrementing TTL values from 1 to maxHops, collecting ICMP Time Exceeded and Echo Reply responses to build a hop-by-hop view of the network path. Both IPv4 and IPv6 targets SHALL be supported from day one.
 
 #### Scenario: Successful trace to reachable target
 - **WHEN** an MTR check is configured with target "10.0.0.1" and max_hops 30
@@ -19,6 +19,11 @@ The agent SHALL execute MTR (My Traceroute) path analysis to a configured target
 - **THEN** the trace records all responding intermediate hops
 - **AND** the result indicates the target was not reached
 - **AND** the final hop status reflects the ICMP Destination Unreachable code
+
+#### Scenario: IPv6 target trace
+- **WHEN** the target resolves to an IPv6 address
+- **THEN** IPv6 raw sockets and ICMPv6 packets are used
+- **AND** hop-by-hop behavior is identical to IPv4 traces
 
 ### Requirement: Multi-Protocol Probing
 The agent SHALL support ICMP, UDP, and TCP probe protocols for MTR traces, allowing operators to diagnose path behavior under different protocol handling by intermediate routers and firewalls.
@@ -43,12 +48,12 @@ The agent SHALL calculate and report running statistics for each hop, including 
 
 #### Scenario: Statistics after multiple probe cycles
 - **WHEN** 10 probes have been sent to each hop
-- **THEN** each hop reports: loss%, sent count, received count, last/avg/min/max RTT in milliseconds, standard deviation, and jitter
+- **THEN** each hop reports: loss%, sent count, received count, last/avg/min/max RTT in microseconds, standard deviation, and jitter
 
 #### Scenario: Jitter calculation
 - **WHEN** consecutive probe responses are received for a hop
 - **THEN** jitter is calculated as the absolute difference between consecutive RTTs
-- **AND** average jitter and worst jitter are tracked across all probes
+- **AND** average jitter, worst jitter, and RFC 1889 interarrival jitter are tracked
 
 #### Scenario: Loss calculation excludes in-flight probes
 - **WHEN** probes are still in-flight (awaiting response within timeout)
@@ -62,6 +67,33 @@ The agent SHALL detect and record multiple responding IP addresses per hop to id
 - **WHEN** different probes at the same TTL receive responses from different IP addresses
 - **THEN** all responding addresses are recorded for that hop
 - **AND** statistics are tracked per-address within the hop
+
+### Requirement: MPLS Label Extraction
+The agent SHALL parse RFC 4884 ICMP extension objects from Time Exceeded responses to extract MPLS Incoming Label Stack entries, recording label value, experimental bits, bottom-of-stack flag, and TTL for each label in the stack.
+
+#### Scenario: MPLS labels present in ICMP response
+- **WHEN** an ICMP Time Exceeded response contains RFC 4884 extension objects with class=1 (MPLS) c-type=1
+- **THEN** each label entry (20-bit label, 3-bit exp, 1-bit S, 8-bit TTL) is extracted
+- **AND** the MPLS label stack is included in the hop result
+
+#### Scenario: No MPLS extensions present
+- **WHEN** an ICMP Time Exceeded response does not contain RFC 4884 extensions
+- **THEN** the MPLS labels field is empty/null for that hop
+- **AND** all other hop data is unaffected
+
+### Requirement: ASN Enrichment at Collection Time
+The agent SHALL enrich each hop IP address with Autonomous System Number (ASN) and organization name by performing a local GeoLite2 MMDB lookup at trace completion, storing the complete enriched dataset so downstream consumers require no additional enrichment.
+
+#### Scenario: ASN enrichment with MMDB available
+- **WHEN** a trace completes and GeoLite2-ASN.mmdb is available at the configured path
+- **THEN** each hop IP is looked up in the MMDB database
+- **AND** the hop result includes `asn` (number) and `asn_org` (organization name) fields
+
+#### Scenario: MMDB unavailable graceful degradation
+- **WHEN** the GeoLite2-ASN.mmdb file is not available or unreadable
+- **THEN** the agent logs a warning at startup
+- **AND** traces complete normally with ASN fields left empty
+- **AND** no external API calls are made as fallback
 
 ### Requirement: DNS Resolution
 The agent SHALL perform asynchronous reverse DNS resolution for hop IP addresses, providing hostnames alongside IP addresses in results without blocking the probe loop.
@@ -77,11 +109,11 @@ The agent SHALL perform asynchronous reverse DNS resolution for hop IP addresses
 - **AND** only IP addresses are included in hop results
 
 ### Requirement: MTR Check Configuration
-The agent SHALL accept MTR check configuration via the standard `AgentCheckConfig` mechanism with check_type "mtr", supporting target, interval, timeout, and MTR-specific settings.
+The agent SHALL accept MTR check configuration via the standard `AgentCheckConfig` mechanism with check_type "mtr", supporting target, interval, timeout, and MTR-specific settings including ASN database path.
 
 #### Scenario: Minimal configuration
 - **WHEN** an MTR check is configured with only target and check_type
-- **THEN** the agent uses defaults: max_hops=30, probes_per_hop=10, protocol=icmp, probe_interval_ms=100, packet_size=64, dns_resolve=true
+- **THEN** the agent uses defaults: max_hops=30, probes_per_hop=10, protocol=icmp, probe_interval_ms=100, packet_size=64, dns_resolve=true, asn_db_path=/usr/share/GeoIP/GeoLite2-ASN.mmdb
 
 #### Scenario: Custom configuration
 - **WHEN** MTR settings specify max_hops=15, probes_per_hop=5, protocol=udp
@@ -93,6 +125,7 @@ The agent SHALL support on-demand MTR trace execution via the ControlStream comm
 #### Scenario: On-demand trace via control stream
 - **WHEN** a `mtr.run` command is received via ControlStream with a target address
 - **THEN** the agent executes a single MTR trace to the specified target
+- **AND** results are enriched with ASN, DNS, and MPLS data
 - **AND** results are returned via the control stream response
 
 ### Requirement: Privilege Handling
@@ -107,22 +140,82 @@ The agent SHALL handle network privilege requirements gracefully, using raw sock
 - **THEN** SOCK_DGRAM ICMP sockets are used for ICMP-only probing
 - **AND** UDP and TCP probe modes report an error indicating insufficient privileges
 
-### Requirement: IPv4 and IPv6 Support
-The agent SHALL support both IPv4 and IPv6 targets for MTR traces, automatically detecting the address family from the target address or DNS resolution result.
-
-#### Scenario: IPv4 target
-- **WHEN** the target resolves to an IPv4 address
-- **THEN** IPv4 raw sockets and ICMPv4 packets are used
-
-#### Scenario: IPv6 target
-- **WHEN** the target resolves to an IPv6 address
-- **THEN** IPv6 raw sockets and ICMPv6 packets are used
-
 ### Requirement: Result Reporting
-The agent SHALL report MTR trace results through the standard gateway push pipeline as structured JSON, including per-hop statistics, path metadata, and execution context (agent ID, gateway ID, timestamps).
+The agent SHALL report MTR trace results through the standard gateway push pipeline as structured JSON, including per-hop statistics with MPLS labels, ASN data, hostnames, and execution context (agent ID, gateway ID, timestamps). The result payload SHALL be self-contained — no downstream enrichment required.
 
 #### Scenario: Periodic result push
 - **WHEN** a scheduled MTR check completes a probe cycle
-- **THEN** the full trace result is marshaled to JSON
+- **THEN** the full enriched trace result is marshaled to JSON
 - **AND** pushed to the gateway via PushStatus as a GatewayServiceStatus message
-- **AND** the result includes all hop data, target reachability, and timing metadata
+- **AND** the result includes all hop data with ASN, MPLS, hostname, target reachability, and timing metadata
+
+### Requirement: TimescaleDB Storage
+The core system SHALL store MTR trace results in TimescaleDB hypertables (`mtr_traces` for trace metadata, `mtr_hops` for per-hop time-series data) in the `platform` schema, enabling historical path analysis and time-series queries.
+
+#### Scenario: Trace ingestion into hypertables
+- **WHEN** an MTR trace result is received by the core system
+- **THEN** a row is inserted into `mtr_traces` with trace metadata (target, protocol, hop count, reachability)
+- **AND** one row per hop is inserted into `mtr_hops` with full statistics, MPLS labels (JSONB), ASN, hostname
+
+#### Scenario: Historical query by target
+- **WHEN** a user queries MTR history for a specific target over a time range
+- **THEN** the system returns trace results ordered by timestamp
+- **AND** hop-by-hop data is available for each trace in the range
+
+### Requirement: Apache AGE Path Projection
+The core system SHALL project MTR trace paths into the `platform_graph` Apache AGE graph as `MTR_PATH` edges between vertices, correlating hop IPs with existing Device vertices when possible and creating HopNode vertices for unknown hops.
+
+#### Scenario: Path projected into AGE graph
+- **WHEN** an MTR trace is ingested
+- **THEN** for each consecutive hop pair, a `MTR_PATH` edge is created/updated in `platform_graph`
+- **AND** hop IPs matching existing Device vertices reuse those vertices
+- **AND** hop IPs not matching any Device get a HopNode vertex
+
+#### Scenario: Stale path pruning
+- **WHEN** an `MTR_PATH` edge has not been updated within the configured TTL (default 24 hours)
+- **THEN** the edge is removed from the graph during the next pruning cycle
+
+### Requirement: God View MTR Overlay
+The web UI SHALL provide an MTR path overlay layer in the God View topology visualization, rendering MTR-discovered paths as animated directional edges with latency and loss visual encoding.
+
+#### Scenario: MTR overlay enabled
+- **WHEN** the operator enables the MTR overlay layer in God View controls
+- **THEN** MTR_PATH edges from `platform_graph` are rendered as animated directional arcs
+- **AND** edge color represents latency (green for low, yellow for medium, red for high)
+- **AND** edge thickness represents packet loss percentage
+
+#### Scenario: Hop detail on hover
+- **WHEN** the operator hovers over an MTR path edge in God View
+- **THEN** a tooltip displays full hop statistics (RTT min/avg/max, loss%, jitter, MPLS labels, ASN)
+
+### Requirement: MTR Results Page
+The web UI SHALL provide a dedicated MTR diagnostics page listing recent traces with drill-down to hop-by-hop detail, path comparison, and on-demand trace execution.
+
+#### Scenario: Recent traces list
+- **WHEN** the operator navigates to the MTR diagnostics page
+- **THEN** a table of recent MTR traces is displayed with target, source agent, hop count, reachability, and timestamp
+- **AND** traces are filterable by target, agent, and time range
+
+#### Scenario: Trace detail drill-down
+- **WHEN** the operator selects a trace from the list
+- **THEN** a hop-by-hop table is displayed with: hop number, IP, hostname, ASN/org, loss%, avg/min/max RTT, jitter, MPLS labels
+- **AND** per-hop latency sparklines show recent trend
+
+#### Scenario: Path comparison
+- **WHEN** the operator selects two traces to the same target
+- **THEN** changed hops are highlighted (IP changes, new hops, missing hops)
+- **AND** latency differences per hop are shown
+
+### Requirement: Device Detail MTR Tab
+The web UI SHALL include an MTR tab on the device detail page showing all traces involving the device and providing a quick action to run an on-demand trace.
+
+#### Scenario: Device MTR history
+- **WHEN** the operator views the MTR tab on a device detail page
+- **THEN** all traces where the device IP appears as source, target, or intermediate hop are listed
+- **AND** historical path and latency trends are charted over time
+
+#### Scenario: On-demand trace from device page
+- **WHEN** the operator clicks "Run MTR" on a device detail page
+- **THEN** a modal appears to select source agent and protocol
+- **AND** submitting triggers an `mtr.run` command via ControlStream
+- **AND** results are displayed inline when the trace completes

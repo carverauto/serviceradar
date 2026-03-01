@@ -1,0 +1,190 @@
+defmodule ServiceRadar.Observability.MtrGraph do
+  @moduledoc """
+  Projects MTR trace results into the Apache AGE platform_graph as MTR_PATH edges.
+
+  Each trace creates a chain of edges connecting consecutive responding hops:
+
+      (source:Device)-[:MTR_PATH]->(hop1:MtrHop)-[:MTR_PATH]->(hop2:MtrHop)->...->(target)
+
+  Hop nodes that match known device IPs are linked to existing Device nodes.
+  Unknown hops use MtrHop nodes keyed by IP address.
+
+  Stale MTR_PATH edges are pruned after a configurable interval (default 24 hours).
+  """
+
+  require Logger
+
+  alias ServiceRadar.Graph
+  alias ServiceRadar.Repo
+
+  @stale_hours 24
+
+  @doc """
+  Projects a list of MTR check results into the graph.
+
+  Each result should have a "trace" key containing the full trace with "hops".
+  """
+  @spec project_traces(list(map()), map()) :: :ok
+  def project_traces(results, status) when is_list(results) do
+    agent_id = status[:agent_id] || "unknown"
+    observed_at = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    # Collect all hop IPs across all traces for batch device lookup
+    all_ips =
+      results
+      |> Enum.flat_map(fn result ->
+        hops = get_in(result, ["trace", "hops"]) || []
+        Enum.map(hops, fn hop -> hop["addr"] end)
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    ip_to_device = resolve_device_ips(all_ips)
+
+    Enum.each(results, fn result ->
+      trace = result["trace"] || %{}
+      hops = trace["hops"] || []
+
+      if length(hops) >= 2 do
+        project_single_trace(hops, agent_id, observed_at, ip_to_device)
+      end
+    end)
+  rescue
+    e ->
+      Logger.warning("MTR graph projection failed: #{inspect(e)}")
+      :ok
+  end
+
+  def project_traces(_results, _status), do: :ok
+
+  @doc """
+  Removes MTR_PATH edges that haven't been observed within the stale window.
+  """
+  @spec prune_stale_edges(integer()) :: :ok
+  def prune_stale_edges(stale_hours \\ @stale_hours) do
+    cutoff =
+      DateTime.utc_now()
+      |> DateTime.add(-stale_hours * 3600, :second)
+      |> DateTime.to_iso8601()
+
+    cypher = """
+    MATCH ()-[r:MTR_PATH]->()
+    WHERE r.last_observed_at < '#{Graph.escape(cutoff)}'
+    DELETE r
+    """
+
+    case Graph.execute(cypher) do
+      :ok ->
+        Logger.debug("Pruned stale MTR_PATH edges older than #{stale_hours}h")
+
+      {:error, reason} ->
+        Logger.warning("Failed to prune stale MTR_PATH edges: #{inspect(reason)}")
+    end
+
+    :ok
+  end
+
+  defp project_single_trace(hops, agent_id, observed_at, ip_to_device) do
+    responding_hops =
+      hops
+      |> Enum.filter(fn hop -> is_binary(hop["addr"]) and hop["addr"] != "" end)
+      |> Enum.sort_by(fn hop -> hop["hop_number"] || 0 end)
+
+    if length(responding_hops) < 2 do
+      :ok
+    else
+      responding_hops
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.each(fn [from_hop, to_hop] ->
+        project_edge(from_hop, to_hop, agent_id, observed_at, ip_to_device)
+      end)
+    end
+  end
+
+  defp project_edge(from_hop, to_hop, agent_id, observed_at, ip_to_device) do
+    {from_label, from_id} = node_identity(from_hop, ip_to_device)
+    {to_label, to_id} = node_identity(to_hop, ip_to_device)
+
+    from_asn = from_hop["asn"] || %{}
+    to_asn = to_hop["asn"] || %{}
+
+    cypher = """
+    MERGE (a:#{from_label} {id: '#{Graph.escape(from_id)}'})
+    SET a.addr = '#{Graph.escape(from_hop["addr"])}'
+    #{set_prop("a", "hostname", from_hop["hostname"])}
+    #{set_prop("a", "asn", from_asn["asn"])}
+    #{set_prop("a", "asn_org", from_asn["org"])}
+    MERGE (b:#{to_label} {id: '#{Graph.escape(to_id)}'})
+    SET b.addr = '#{Graph.escape(to_hop["addr"])}'
+    #{set_prop("b", "hostname", to_hop["hostname"])}
+    #{set_prop("b", "asn", to_asn["asn"])}
+    #{set_prop("b", "asn_org", to_asn["org"])}
+    MERGE (a)-[r:MTR_PATH]->(b)
+    SET r.first_observed_at = coalesce(r.first_observed_at, '#{Graph.escape(observed_at)}')
+    SET r.last_observed_at = '#{Graph.escape(observed_at)}'
+    SET r.ingestor = 'mtr_v1'
+    SET r.agent_id = '#{Graph.escape(agent_id)}'
+    SET r.from_hop = #{from_hop["hop_number"] || 0}
+    SET r.to_hop = #{to_hop["hop_number"] || 0}
+    SET r.avg_us = #{to_hop["avg_us"] || 0}
+    SET r.loss_pct = #{to_hop["loss_pct"] || 0.0}
+    SET r.jitter_us = #{to_hop["jitter_us"] || 0}
+    """
+
+    case Graph.execute(cypher) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("MTR graph edge upsert failed: #{inspect(reason)}")
+    end
+  end
+
+  # If the hop IP matches a known device, use Device label with device UID.
+  # Otherwise fall back to MtrHop label keyed by IP.
+  defp node_identity(hop, ip_to_device) do
+    addr = hop["addr"]
+
+    case Map.get(ip_to_device, addr) do
+      nil -> {"MtrHop", "mtr:#{addr || "unknown"}"}
+      device_uid -> {"Device", device_uid}
+    end
+  end
+
+  # Batch-resolve hop IPs to device UIDs via the devices table.
+  # Returns a map of %{"10.0.0.1" => "device-uid-123", ...}
+  defp resolve_device_ips([]), do: %{}
+
+  defp resolve_device_ips(ips) do
+    placeholders = Enum.map_join(1..length(ips), ", ", fn i -> "$#{i}" end)
+
+    query = """
+    SELECT ip, uid FROM devices
+    WHERE ip IN (#{placeholders})
+      AND ip IS NOT NULL
+    """
+
+    case Repo.query(query, ips) do
+      {:ok, %{rows: rows}} ->
+        Map.new(rows, fn [ip, uid] -> {ip, uid} end)
+
+      {:error, reason} ->
+        Logger.debug("Device IP lookup for MTR correlation failed: #{inspect(reason)}")
+        %{}
+    end
+  end
+
+  defp set_prop(_var, _prop, nil), do: ""
+  defp set_prop(_var, _prop, ""), do: ""
+  defp set_prop(_var, _prop, 0), do: ""
+
+  defp set_prop(var, prop, value) when is_integer(value) do
+    "SET #{var}.#{prop} = #{value}"
+  end
+
+  defp set_prop(var, prop, value) when is_float(value) do
+    "SET #{var}.#{prop} = #{value}"
+  end
+
+  defp set_prop(var, prop, value) do
+    "SET #{var}.#{prop} = '#{Graph.escape(value)}'"
+  end
+end

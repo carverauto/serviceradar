@@ -101,6 +101,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:ip_aliases, [])
      |> assign(:ip_alias_error, nil)
      |> assign(:show_stale_aliases, false)
+     # MTR diagnostics tab
+     |> assign(:mtr_traces, [])
+     |> assign(:mtr_running, false)
      # Tab state for device details
      |> assign(:active_tab, "details")}
   end
@@ -179,7 +182,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp maybe_refresh_current_device(socket, _uid), do: {:noreply, socket}
 
   defp normalize_requested_tab(url_tab, fallback_tab) do
-    if url_tab in ["details", "interfaces", "flows", "profiles", "sysmon"],
+    if url_tab in ["details", "interfaces", "flows", "profiles", "sysmon", "mtr"],
       do: url_tab,
       else: fallback_tab
   end
@@ -619,11 +622,60 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         ~p"/devices/#{socket.assigns.device_uid}?tab=#{tab}"
       end
 
+    socket =
+      if tab == "mtr" do
+        load_mtr_traces(socket)
+      else
+        socket
+      end
+
     {:noreply,
      socket
      |> assign(:active_tab, tab)
      |> assign(:srql, srql)
      |> push_patch(to: path, replace: true)}
+  end
+
+  def handle_event("refresh_mtr", _params, socket) do
+    {:noreply, load_mtr_traces(socket)}
+  end
+
+  def handle_event("run_mtr", _params, socket) do
+    device_ip = get_device_ip(socket.assigns.results)
+
+    if is_nil(device_ip) or device_ip == "" do
+      {:noreply, put_flash(socket, :error, "No device IP available for MTR")}
+    else
+      # Find a connected agent to run the trace
+      agents =
+        try do
+          ServiceRadar.AgentRegistry.find_agents()
+        rescue
+          _ -> []
+        end
+
+      case agents do
+        [] ->
+          {:noreply, put_flash(socket, :error, "No agents connected")}
+
+        [first | _] ->
+          agent_id =
+            Map.get(first, :agent_id) || Map.get(first, "agent_id") || ""
+
+          payload = %{"target" => device_ip, "protocol" => "icmp"}
+
+          case ServiceRadar.Edge.AgentCommandBus.dispatch(agent_id, "mtr.run", payload) do
+            {:ok, _command_id} ->
+              {:noreply,
+               socket
+               |> assign(:mtr_running, true)
+               |> put_flash(:info, "MTR trace dispatched to #{agent_id}")}
+
+            {:error, reason} ->
+              {:noreply, put_flash(socket, :error, "Failed to run MTR: #{inspect(reason)}")}
+          end
+      end
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -1345,6 +1397,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <li :if={@active_tab == "flows"} class="text-base-content/70">Flows</li>
             <li :if={@active_tab == "profiles"} class="text-base-content/70">Profiles</li>
             <li :if={@active_tab == "sysmon"} class="text-base-content/70">System Monitor</li>
+            <li :if={@active_tab == "mtr"} class="text-base-content/70">MTR Diagnostics</li>
           </ul>
         </nav>
 
@@ -1888,7 +1941,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           
     <!-- Tabs Navigation (show if sysmon, interfaces, or flows are present) -->
           <div
-            :if={(@sysmon_presence or @has_ifaces or @has_flows) and is_map(@device_row)}
+            :if={(@sysmon_presence or @has_ifaces or @has_flows or @active_tab == "mtr") and is_map(@device_row)}
             class="tabs tabs-box"
           >
             <button
@@ -1925,6 +1978,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               class={["tab", @active_tab == "profiles" && "tab-active"]}
             >
               <.icon name="hero-cog-6-tooth" class="size-4 mr-1.5" /> Profiles
+            </button>
+            <button
+              type="button"
+              phx-click="switch_tab"
+              phx-value-tab="mtr"
+              class={["tab", @active_tab == "mtr" && "tab-active"]}
+            >
+              <.icon name="hero-signal" class="size-4 mr-1.5" /> MTR
             </button>
           </div>
           
@@ -2066,6 +2127,112 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 available_profiles={@available_profiles}
                 device_uid={@device_uid}
               />
+            </div>
+          </div>
+
+    <!-- MTR Diagnostics Tab Content -->
+          <div :if={@active_tab == "mtr"}>
+            <div class="space-y-4">
+              <div class="flex items-center justify-between">
+                <h3 class="text-lg font-semibold">MTR Traces</h3>
+                <div class="flex gap-2">
+                  <button
+                    type="button"
+                    phx-click="run_mtr"
+                    class="btn btn-sm btn-primary"
+                    disabled={@mtr_running}
+                  >
+                    <span :if={@mtr_running} class="loading loading-spinner loading-xs"></span>
+                    <svg
+                      :if={!@mtr_running}
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M13 10V3L4 14h7v7l9-11h-7z"
+                      />
+                    </svg>
+                    Run MTR
+                  </button>
+                  <button
+                    type="button"
+                    phx-click="refresh_mtr"
+                    class="btn btn-sm btn-outline"
+                  >
+                    Refresh
+                  </button>
+                  <.link
+                    navigate={~p"/diagnostics/mtr"}
+                    class="btn btn-sm btn-ghost"
+                  >
+                    View All
+                  </.link>
+                </div>
+              </div>
+
+              <div class="overflow-x-auto">
+                <table class="table table-sm table-zebra">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Target</th>
+                      <th>Status</th>
+                      <th>Hops</th>
+                      <th>Protocol</th>
+                      <th>Check</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr :for={trace <- @mtr_traces} class="hover">
+                      <td class="whitespace-nowrap text-xs">
+                        {format_mtr_time(trace["time"])}
+                      </td>
+                      <td class="font-mono text-sm">{trace["target"]}</td>
+                      <td>
+                        <span
+                          :if={trace["target_reached"]}
+                          class="badge badge-success badge-sm"
+                        >
+                          Reached
+                        </span>
+                        <span
+                          :if={!trace["target_reached"]}
+                          class="badge badge-error badge-sm"
+                        >
+                          Unreachable
+                        </span>
+                      </td>
+                      <td class="text-center">{trace["total_hops"]}</td>
+                      <td>
+                        <span class="badge badge-ghost badge-sm">
+                          {String.upcase(trace["protocol"] || "icmp")}
+                        </span>
+                      </td>
+                      <td class="text-xs">{trace["check_name"] || "-"}</td>
+                      <td>
+                        <.link
+                          navigate={~p"/diagnostics/mtr/#{trace["id"]}"}
+                          class="btn btn-xs btn-ghost"
+                        >
+                          View
+                        </.link>
+                      </td>
+                    </tr>
+                    <tr :if={@mtr_traces == []}>
+                      <td colspan="7" class="text-center py-8 text-base-content/50">
+                        No MTR traces found for this device.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -5172,6 +5339,77 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp format_alias_time(_), do: "—"
+
+  # ---------------------------------------------------------------------------
+  # MTR Traces
+  # ---------------------------------------------------------------------------
+
+  defp load_mtr_traces(socket) do
+    device_uid = socket.assigns.device_uid
+    device_ip = get_device_ip(socket.assigns.results)
+
+    if is_nil(device_uid) and is_nil(device_ip) do
+      assign(socket, :mtr_traces, [])
+    else
+      {where, params} = build_mtr_where(device_uid, device_ip)
+
+      query = """
+      SELECT id, time, agent_id, check_name, target, target_ip,
+             target_reached, total_hops, protocol, ip_version, error
+      FROM mtr_traces
+      #{where}
+      ORDER BY time DESC
+      LIMIT 20
+      """
+
+      case ServiceRadar.Repo.query(query, params) do
+        {:ok, %{rows: rows, columns: columns}} ->
+          traces = Enum.map(rows, fn row -> Enum.zip(columns, row) |> Map.new() end)
+          assign(socket, :mtr_traces, traces)
+
+        {:error, _reason} ->
+          assign(socket, :mtr_traces, [])
+      end
+    end
+  end
+
+  defp build_mtr_where(device_uid, device_ip) do
+    conds = []
+    params = []
+    idx = 1
+
+    {conds, params, idx} =
+      if device_uid do
+        {conds ++ ["device_id = $#{idx}"], params ++ [device_uid], idx + 1}
+      else
+        {conds, params, idx}
+      end
+
+    {conds, params, _idx} =
+      if device_ip do
+        {conds ++ ["target_ip = $#{idx}"], params ++ [device_ip], idx + 1}
+      else
+        {conds, params, idx}
+      end
+
+    if conds == [] do
+      {"", []}
+    else
+      {"WHERE " <> Enum.join(conds, " OR "), params}
+    end
+  end
+
+  defp format_mtr_time(nil), do: "-"
+
+  defp format_mtr_time(%DateTime{} = dt) do
+    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  end
+
+  defp format_mtr_time(%NaiveDateTime{} = ndt) do
+    Calendar.strftime(ndt, "%Y-%m-%d %H:%M:%S")
+  end
+
+  defp format_mtr_time(_), do: "-"
 
   defp get_device_ip(results) do
     case List.first(Enum.filter(results, &is_map/1)) do

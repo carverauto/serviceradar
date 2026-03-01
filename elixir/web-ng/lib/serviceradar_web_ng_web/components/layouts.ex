@@ -172,6 +172,17 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
+                  href={~p"/diagnostics/mtr"}
+                  label="Diagnostics"
+                  icon="hero-signal"
+                  active={
+                    @current_path &&
+                      String.starts_with?(@current_path, "/diagnostics")
+                  }
+                />
+              </li>
+              <li>
+                <.sidebar_link
                   href={~p"/observability"}
                   label="Observability"
                   icon="hero-presentation-chart-line"

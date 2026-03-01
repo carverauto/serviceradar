@@ -33,6 +33,7 @@ const controlStreamReconnectDelay = 5 * time.Second
 const (
 	commandTypeMapperRun = "mapper.run_job"
 	commandTypeSweepRun  = "sweep.run_group"
+	commandTypeMtrRun    = "mtr.run"
 )
 
 var errControlStreamClosed = errors.New("control stream closed")
@@ -44,6 +45,12 @@ type mapperRunPayload struct {
 
 type sweepRunPayload struct {
 	SweepGroupID string `json:"sweep_group_id"`
+}
+
+type mtrRunPayload struct {
+	Target   string `json:"target"`
+	Protocol string `json:"protocol,omitempty"`
+	MaxHops  int    `json:"max_hops,omitempty"`
 }
 
 type controlStreamSender struct {
@@ -228,6 +235,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleMapperRun(ctx, cmd, sender)
 		case commandTypeSweepRun:
 			p.handleSweepRun(ctx, cmd, sender)
+		case commandTypeMtrRun:
+			p.handleMtrRun(ctx, cmd, sender)
 		default:
 			_ = sender.Send(commandResult(cmd, false, "unsupported command", nil))
 		}
@@ -346,6 +355,47 @@ func (p *PushLoop) runSweepGroup(ctx context.Context, groupID string) error {
 		Msg("No sweep runner available for on-demand sweep")
 
 	return errSweepRunnerUnavailable
+}
+
+func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
+	payload := mtrRunPayload{}
+	if len(cmd.PayloadJson) > 0 {
+		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
+			_ = sender.Send(commandResult(cmd, false, "invalid mtr payload", nil))
+			return
+		}
+	}
+
+	if payload.Target == "" {
+		_ = sender.Send(commandResult(cmd, false, "missing target", nil))
+		return
+	}
+
+	trace, err := runOnDemandMtr(ctx, payload.Target, p.logger)
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))
+		return
+	}
+
+	traceJSON, err := json.Marshal(trace)
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, "failed to marshal trace", nil))
+		return
+	}
+
+	resultPayload := map[string]any{
+		"target": payload.Target,
+		"trace":  json.RawMessage(traceJSON),
+	}
+
+	p.logger.Info().
+		Str("command_id", cmd.CommandId).
+		Str("target", payload.Target).
+		Bool("target_reached", trace.TargetReached).
+		Int("total_hops", trace.TotalHops).
+		Msg("On-demand MTR trace completed")
+
+	_ = sender.Send(commandResult(cmd, true, "mtr trace completed", resultPayload))
 }
 
 func commandExpired(cmd *proto.CommandRequest) bool {
