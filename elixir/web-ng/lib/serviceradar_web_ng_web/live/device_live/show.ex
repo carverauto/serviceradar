@@ -41,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       DevicePubSub.subscribe()
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:commands")
     end
 
     srql = %{
@@ -105,6 +106,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:mtr_traces, [])
      |> assign(:mtr_trends, %{hops: [], latency: []})
      |> assign(:mtr_running, false)
+     |> assign(:mtr_command_id, nil)
      # Tab state for device details
      |> assign(:active_tab, "details")}
   end
@@ -152,6 +154,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_info({:device_deleted, uid}, socket) do
     maybe_refresh_current_device(socket, uid)
   end
+
+  def handle_info(
+        {:command_result, %{command_id: command_id, command_type: "mtr.run"} = result},
+        socket
+      )
+      when command_id == socket.assigns.mtr_command_id do
+    socket =
+      socket
+      |> assign(:mtr_running, false)
+      |> assign(:mtr_command_id, nil)
+
+    socket =
+      if Map.get(result, :success) do
+        socket
+        |> load_mtr_traces()
+        |> put_flash(:info, "MTR trace completed")
+      else
+        put_flash(
+          socket,
+          :error,
+          "MTR trace failed: #{Map.get(result, :message) || "unknown error"}"
+        )
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:command_result, _result}, socket), do: {:noreply, socket}
+  def handle_info({:command_ack, _ack}, socket), do: {:noreply, socket}
+  def handle_info({:command_progress, _progress}, socket), do: {:noreply, socket}
 
   defp normalize_cursor(nil), do: nil
   defp normalize_cursor(""), do: nil
@@ -678,9 +710,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     payload = %{"target" => device_ip, "protocol" => "icmp"}
 
     case ServiceRadar.Edge.AgentCommandBus.dispatch(agent_id, "mtr.run", payload) do
-      {:ok, _command_id} ->
+      {:ok, command_id} ->
         socket
         |> assign(:mtr_running, true)
+        |> assign(:mtr_command_id, command_id)
         |> put_flash(:info, "MTR trace dispatched to #{agent_id}")
 
       {:error, reason} ->

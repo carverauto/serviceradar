@@ -23,7 +23,8 @@
 -define(DEFAULT_RETRY_MAX_ATTEMPTS, 5).
 -define(DEFAULT_RETRY_BASE_DELAY_MS, 200).
 -define(DEFAULT_RETRY_MAX_DELAY_MS, 5000).
--define(RESTART_COOLDOWN_MS, 30000).
+-define(RESTART_COOLDOWN_MS, 120000).
+-define(ENSURE_COOLDOWN_MS, 10000).
 
 init(Opts) ->
     %% Reuse upstream env/app-env merge logic for endpoint/headers/protocol.
@@ -92,6 +93,7 @@ export_grpc_with_retry(_GrpcServiceModule, _Metadata, _RequestMap, _Channel, _En
     failed_retryable;
 export_grpc_with_retry(GrpcServiceModule, Metadata, RequestMap, Channel, Endpoints, Compression,
                        Attempts, BaseDelay, MaxDelay, TimeoutMs) ->
+    maybe_ensure_channel_for_export(Channel, Endpoints, Compression),
     GrpcCtx = ctx:with_deadline_after(TimeoutMs, millisecond),
     GrpcCtx1 = grpcbox_metadata:append_to_outgoing_ctx(GrpcCtx, Metadata),
     Res = GrpcServiceModule:export(GrpcCtx1, RequestMap, #{channel => Channel}),
@@ -168,7 +170,7 @@ maybe_restart_channel(_, _Channel, _Endpoints, _Compression) ->
 
 restart_channel(Channel, Endpoints, Compression) ->
     Now = erlang:monotonic_time(millisecond),
-    case allow_channel_restart(Channel, Now) of
+    case allow_channel_restart(Endpoints, Now) of
         true ->
             do_restart_channel(Channel, Endpoints, Compression);
         false ->
@@ -206,7 +208,7 @@ do_restart_channel(Channel, Endpoints, Compression) ->
 
 ensure_channel_started(Channel, Endpoints, Compression) ->
     Now = erlang:monotonic_time(millisecond),
-    case allow_channel_ensure(Channel, Now) of
+    case allow_channel_ensure(Endpoints, Now) of
         true ->
             do_ensure_channel_started(Channel, Endpoints, Compression);
         false ->
@@ -239,8 +241,8 @@ do_ensure_channel_started(Channel, Endpoints, Compression) ->
             end
     end.
 
-allow_channel_restart(Channel, Now) ->
-    Key = {?MODULE, otlp_channel_restart_ts, Channel},
+allow_channel_restart(Endpoints, Now) ->
+    Key = {?MODULE, otlp_channel_restart_ts, endpoint_key(Endpoints)},
     Last = persistent_term_get(Key),
     case Last of
         undefined ->
@@ -253,14 +255,14 @@ allow_channel_restart(Channel, Now) ->
             false
     end.
 
-allow_channel_ensure(Channel, Now) ->
-    Key = {?MODULE, otlp_channel_ensure_ts, Channel},
+allow_channel_ensure(Endpoints, Now) ->
+    Key = {?MODULE, otlp_channel_ensure_ts, endpoint_key(Endpoints)},
     Last = persistent_term_get(Key),
     case Last of
         undefined ->
             persistent_term:put(Key, Now),
             true;
-        Ts when is_integer(Ts), (Now - Ts) >= ?RESTART_COOLDOWN_MS ->
+        Ts when is_integer(Ts), (Now - Ts) >= ?ENSURE_COOLDOWN_MS ->
             persistent_term:put(Key, Now),
             true;
         _ ->
@@ -273,6 +275,14 @@ persistent_term_get(Key) ->
     catch
         error:badarg -> undefined
     end.
+
+endpoint_key(Endpoints) when is_list(Endpoints) ->
+    lists:sort(
+      [{maps:get(scheme, Endpoint, undefined),
+        maps:get(host, Endpoint, undefined),
+        maps:get(port, Endpoint, undefined)} || Endpoint <- Endpoints]);
+endpoint_key(_) ->
+    [].
 
 channel_opts(undefined) -> #{};
 channel_opts(gzip) -> #{encoding => gzip};
@@ -298,6 +308,20 @@ maybe_stop_channel(Channel) ->
             end;
         false ->
             ok
+    end.
+
+maybe_ensure_channel_for_export(Channel, Endpoints, Compression) ->
+    case channel_ready(Channel) of
+        true -> ok;
+        false -> ensure_channel_started(Channel, Endpoints, Compression)
+    end.
+
+channel_ready(Channel) ->
+    try grpcbox_channel:is_ready(Channel) of
+        true -> true;
+        _ -> false
+    catch
+        _:_ -> false
     end.
 
 gproc_ready() ->

@@ -916,7 +916,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp format_capacity(_), do: "UNK"
 
   defp apply_causal_states(nodes, indexed_edges) when is_list(nodes) and is_list(indexed_edges) do
-    routing_overrides = routing_causal_node_indexes(nodes)
+    causal_overrides = routing_causal_node_overrides(nodes)
 
     signals =
       Enum.with_index(nodes)
@@ -928,15 +928,23 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
             _ -> 2
           end
 
-        if MapSet.member?(routing_overrides, idx), do: 1, else: base_signal
+        case Map.get(causal_overrides, idx) do
+          %{signal: signal} when signal in [0, 1, 2] -> signal
+          _ -> base_signal
+        end
       end)
 
     case Native.evaluate_causal_states_with_reasons(signals, indexed_edges) do
       rows when is_list(rows) and length(rows) == length(nodes) ->
-        Enum.zip(nodes, rows)
-        |> Enum.map(fn {node, row} ->
-          state = causal_row_value(row, :state, 3)
-          reason = causal_row_value(row, :reason, "causal_reason_unavailable")
+        Enum.zip(Enum.with_index(nodes), rows)
+        |> Enum.map(fn {{node, idx}, row} ->
+          base_state = causal_row_value(row, :state, 3)
+          override = Map.get(causal_overrides, idx)
+          state = override_state(base_state, override)
+
+          reason =
+            override_reason(causal_row_value(row, :reason, "causal_reason_unavailable"), override)
+
           root_index = causal_row_value(row, :root_index, -1)
           parent_index = causal_row_value(row, :parent_index, -1)
           hop_distance = causal_row_value(row, :hop_distance, -1)
@@ -960,13 +968,17 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       _ ->
         states = Native.evaluate_causal_states(signals, indexed_edges)
 
-        Enum.zip(nodes, states)
-        |> Enum.map(fn {node, state} ->
+        Enum.zip(Enum.with_index(nodes), states)
+        |> Enum.map(fn {{node, idx}, state} ->
+          override = Map.get(causal_overrides, idx)
+          state = override_state(state, override)
+          reason = override_reason("fallback_state_only_engine_result", override)
+
           details_json =
             merge_causal_reason_details(
               Map.get(node, :details_json),
               state,
-              "fallback_state_only_engine_result",
+              reason,
               -1,
               -1,
               -1
@@ -982,7 +994,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp apply_causal_states(nodes, _), do: nodes
 
-  defp routing_causal_node_indexes(nodes) when is_list(nodes) do
+  defp routing_causal_node_overrides(nodes) when is_list(nodes) do
     indexed_keys =
       nodes
       |> Enum.with_index()
@@ -994,18 +1006,25 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       end)
 
     fetch_recent_routing_causal_events()
-    |> Enum.reduce(MapSet.new(), fn event, matched ->
+    |> Enum.reduce(%{}, fn event, overrides ->
+      event_override = event_overlay_override(event)
+
       event_correlation_keys(event)
-      |> Enum.reduce(matched, fn key, key_acc ->
-        case Map.get(indexed_keys, key) do
-          nil -> key_acc
-          node_indexes -> MapSet.union(key_acc, node_indexes)
-        end
+      |> Enum.reduce(overrides, fn key, key_acc ->
+        matched_indexes =
+          case Map.get(indexed_keys, key) do
+            nil -> []
+            node_indexes -> MapSet.to_list(node_indexes)
+          end
+
+        Enum.reduce(matched_indexes, key_acc, fn idx, idx_acc ->
+          Map.put_new(idx_acc, idx, event_override)
+        end)
       end)
     end)
   end
 
-  defp routing_causal_node_indexes(_), do: MapSet.new()
+  defp routing_causal_node_overrides(_), do: %{}
 
   defp node_correlation_keys(node) when is_map(node) do
     details =
@@ -1041,6 +1060,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     topology_keys =
       case map_value(routing, "topology_keys") do
         values when is_list(values) -> values
+        values when is_map(values) -> Map.values(values)
         _ -> []
       end
 
@@ -1050,6 +1070,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       map_value(routing, "router_id"),
       map_value(routing, "router_ip"),
       map_value(routing, "peer_ip"),
+      map_value(routing, "target_device_uid"),
+      map_value(routing, "target_ip"),
       map_value(source_identity, "device_uid"),
       map_value(source_identity, "router_id"),
       map_value(source_identity, "router_ip"),
@@ -1073,7 +1095,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     max_events = causal_overlay_max_events()
 
     bmp_events = fetch_recent_bmp_routing_events(cutoff, source_limit)
-    ocsf_events = fetch_recent_ocsf_routing_events(cutoff, source_limit)
+    ocsf_events = fetch_recent_ocsf_causal_events(cutoff, source_limit)
 
     (bmp_events ++ ocsf_events)
     |> dedupe_recent_causal_events()
@@ -1104,17 +1126,19 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     _ -> []
   end
 
-  defp fetch_recent_ocsf_routing_events(cutoff, limit) do
+  defp fetch_recent_ocsf_causal_events(cutoff, limit) do
     query =
       from(e in "ocsf_events",
         where: e.time >= ^cutoff,
         where:
           fragment(
-            "(?->>'signal_type' = 'bmp') OR (?->>'primary_domain' = 'routing')",
+            "(?->>'signal_type' = 'mtr') OR (((?->>'signal_type' = 'bmp') OR (?->>'primary_domain' = 'routing')) AND coalesce(?, 0) >= ?)",
             e.metadata,
-            e.metadata
+            e.metadata,
+            e.metadata,
+            e.severity_id,
+            ^routing_causal_severity_threshold()
           ),
-        where: coalesce(e.severity_id, 0) >= ^routing_causal_severity_threshold(),
         order_by: [desc: e.time],
         limit: ^limit,
         select: %{
@@ -1166,6 +1190,32 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp source_rank("ocsf_events"), do: 1
   defp source_rank(_), do: 0
 
+  defp event_overlay_override(event) when is_map(event) do
+    metadata = map_value(event, :metadata) || %{}
+    signal_type = normalize_id(map_value(metadata, "signal_type"))
+    event_type = normalize_id(map_value(metadata, "event_type"))
+
+    case {signal_type, event_type} do
+      {"mtr", "target_outage"} ->
+        %{signal: 1, forced_state: 0, reason: "mtr_target_outage"}
+
+      {"mtr", "path_scoped_issue"} ->
+        %{signal: 1, forced_state: 1, reason: "mtr_path_scoped_issue"}
+
+      {"mtr", "degraded_path"} ->
+        %{signal: 1, forced_state: 1, reason: "mtr_degraded_path"}
+
+      {"mtr", "healthy"} ->
+        %{signal: 0, forced_state: 2, reason: "mtr_healthy"}
+
+      _ ->
+        %{signal: 1, forced_state: nil, reason: "routing_causal_overlay"}
+    end
+  end
+
+  defp event_overlay_override(_),
+    do: %{signal: 1, forced_state: nil, reason: "routing_causal_overlay"}
+
   defp causal_event_dedupe_key(event) when is_map(event) do
     event_identity = map_value(event, :event_identity)
     metadata = map_value(event, :metadata) || %{}
@@ -1216,6 +1266,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp causal_row_value(_row, _key, default), do: default
+
+  defp override_state(_base_state, %{forced_state: forced}) when forced in [0, 1, 2, 3],
+    do: forced
+
+  defp override_state(base_state, _), do: base_state
+
+  defp override_reason(_base_reason, %{reason: reason}) when is_binary(reason) and reason != "",
+    do: reason
+
+  defp override_reason(base_reason, _), do: base_reason
 
   defp merge_causal_reason_details(
          details_json,

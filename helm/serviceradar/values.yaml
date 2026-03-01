@@ -93,6 +93,13 @@ core:
   kubernetesNodeBasename: "serviceradar_core"
   ashObanSchedulerEnabled: true
   logPromotionConsumerEnabled: true
+  mtrAutomation:
+    enabled: false
+    baselineEnabled: false
+    triggerEnabled: false
+    consensusEnabled: false
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
   # Extra environment variables for the core-elx pod.
   extraEnv: {}
   database:

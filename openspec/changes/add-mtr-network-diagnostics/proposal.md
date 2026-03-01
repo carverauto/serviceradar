@@ -32,10 +32,31 @@ Ref: [GitHub Issue #1896](https://github.com/carverauto/serviceradar/issues/1896
 - **Device detail MTR tab** — MTR traces to/from a specific device, historical path comparison
 - **On-demand MTR trigger** — UI action to run ad-hoc MTR from any agent to any target
 
+### Operationalization Decisions (2026-03)
+
+- **As-built scope today**
+  - On-demand traces (`mtr.run`) from diagnostics/device UI.
+  - Scheduled traces only when `ServiceCheck(check_type=:mtr)` exists.
+  - Historical storage in `mtr_traces`/`mtr_hops`.
+  - Topology overlay uses projected `MTR_PATH` edges.
+- **Gap vs operator outcome**
+  - No automatic baseline traces for managed devices.
+  - No automatic event-triggered traces on state transitions.
+  - No normalized MTR-derived causal signal envelope for DeepCausality ingestion.
+- **Policy update**
+  - Do not run all 3 protocols by default for every cycle.
+  - Baseline mode defaults to ICMP (aligns with common `mtr` CLI expectations and lower overhead).
+  - UDP/TCP are escalation probes for causal uncertainty, policy-driven checks, or explicit operator request.
+  - Baseline mode does not run from all agents by default; it uses a primary assigned vantage per target plus optional canary vantages.
+  - Incident mode can temporarily fan out to a bounded multi-agent cohort for disambiguation.
+- **New integration objective**
+  - Treat MTR as a first-class causal signal source that can update topology atmosphere classes
+    (`root_cause`, `affected`, `healthy`, `unknown`) without forcing structural layout recomputation.
+
 ## Impact
 
 - Affected specs: NEW `mtr-diagnostics` capability spec
-- Affected specs (modified): `agent-configuration` (new check type), `age-graph` (new MTR_PATH edge type), `build-web-ui` (new MTR views)
+- Affected specs (modified): `agent-configuration` (new check type), `age-graph` (new MTR_PATH edge type), `build-web-ui` (new MTR views), `observability-signals` / `topology-causal-overlays` (MTR-derived causal envelope and overlay contract)
 - Affected code:
   - `go/pkg/mtr/` — New package (tracer, probes, statistics, DNS, MPLS, ASN enrichment)
   - `go/pkg/agent/push_loop.go` — MTR check scheduling and result collection

@@ -105,7 +105,11 @@ compose-upgrade: ## Pull images and recreate containers without destroying volum
 	@docker compose up -d --force-recreate
 
 .PHONY: build
-build: ## Build the full workspace with Bazel (remote)
+build: ## Build all OCI images with Bazel (remote)
+	@bazel build --config=remote $$(bazel query 'kind(oci_image, //docker/images:*)')
+
+.PHONY: build-workspace
+build-workspace: ## Build the full workspace with Bazel (remote)
 	@bazel build --config=remote //...
 
 .PHONY: build-web-ng

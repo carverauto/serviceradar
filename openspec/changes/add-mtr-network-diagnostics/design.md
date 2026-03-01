@@ -68,7 +68,8 @@ Reimplementation follows the reference C MTR logic:
    - TCP: Match by source port binding
 
 3. **Statistics** (incremental, matching reference MTR):
-   - Loss% = `100 * (1 - received / (sent - in_flight))`
+   - Loss% is `0` when `(sent - in_flight) <= 0`; otherwise
+     `100 * (1 - received / (sent - in_flight))`
    - Mean: Welford's online algorithm
    - StdDev: `sqrt(variance / (n-1))`
    - Jitter: `|current_rtt - previous_rtt|`, avg/worst tracked
@@ -182,6 +183,234 @@ case "mtr.run":
     // Run single MTR trace with enrichment
     // Send results back via control stream response
 ```
+
+### Automated Vantage Selection Algorithm (Draft)
+
+Goal: choose where automated MTR runs come from without defaulting to "all agents", while preserving enough cross-vantage evidence for causal classification.
+
+#### Policy Inputs
+
+```yaml
+mtr_policy:
+  baseline:
+    enabled: true
+    interval_sec: 300
+    protocol: icmp
+    canary_vantages: 0            # default no extra baseline canaries
+  incident:
+    enabled: true
+    fanout_max_agents: 3          # primary + up to 2 additional
+    cooldown_sec: 600
+    recovery_capture: true
+  consensus:
+    quorum_mode: majority         # majority | unanimous | threshold
+    quorum_threshold: 0.66        # used when quorum_mode=threshold
+    min_agents: 2                 # enable cross-vantage semantics at >=2
+```
+
+#### Candidate Set
+
+For target `t` (managed device/service endpoint), compute candidate agents:
+1. Same partition as target (hard filter).
+2. Assigned/affine gateway first (soft preference).
+3. Agent must be connected/healthy and advertise `mtr` capability.
+4. Optional policy constraints (tags, region, role).
+
+#### Primary Vantage Scoring
+
+For each candidate `a`, compute:
+
+`score(a,t) = w_affinity*A + w_health*H + w_freshness*F + w_capacity*C - w_rtt*R`
+
+Where:
+- `A` (affinity): 1.0 same assigned gateway, 0.6 same partition, else 0.
+- `H` (health): 1.0 connected healthy, 0.5 degraded, 0 otherwise.
+- `F` (freshness): decays with age of last successful MTR to `t`.
+- `C` (capacity): inverse of queue depth / in-flight diagnostic load.
+- `R` (control-plane latency penalty): normalized command RTT.
+
+Defaults:
+- `w_affinity=0.40`, `w_health=0.25`, `w_freshness=0.15`, `w_capacity=0.15`, `w_rtt=0.05`
+
+Primary vantage = highest score.
+If tie: stable tie-break on `agent_id` for deterministic behavior.
+
+#### Baseline Selection
+
+Baseline run set:
+- Always include primary.
+- Include up to `baseline.canary_vantages` additional agents by descending score, excluding same-host duplicates.
+- Default `canary_vantages=0` (single-vantage baseline).
+
+#### Incident Fanout Selection
+
+On degrade/unavailable transition:
+1. Check per-target cooldown (skip if active).
+2. Start with primary.
+3. Add next-best candidates up to `incident.fanout_max_agents`.
+4. Prefer diversity across gateway/zone when available.
+
+This creates a bounded cohort for disambiguation without probe storms.
+
+### Multi-Agent Consensus Algorithm (Draft)
+
+Goal: convert potentially conflicting agent results into causal evidence classes.
+
+#### Per-Agent Outcome Classification
+
+For each agent trace result `r(a,t)`:
+- `SUCCESS`: target reached and loss/latency below anomaly thresholds.
+- `ANOMALOUS_REACHABLE`: target reached but path anomaly (loss spike, latency spike, path divergence).
+- `UNREACHABLE`: target not reached or hard failure.
+
+#### Weighted Vote
+
+Each agent contributes weight:
+
+`vote_weight(a) = 0.5*H + 0.3*A + 0.2*F`
+
+Where `H`, `A`, `F` are health/affinity/freshness components from selection phase.
+
+Compute weighted fractions across cohort:
+- `p_unreachable`
+- `p_anomalous`
+- `p_success`
+
+#### Consensus Decision
+
+Given quorum policy:
+- `TARGET_OUTAGE`:
+  - majority mode: `p_unreachable > 0.5`
+  - unanimous mode: all agents unreachable
+  - threshold mode: `p_unreachable >= quorum_threshold`
+- `PATH_SCOPED_ISSUE`:
+  - mixed unreachable/success with at least one success and one unreachable.
+- `DEGRADED_PATH`:
+  - reachable majority with anomalous path metrics above threshold.
+- `HEALTHY`:
+  - success dominates and anomaly thresholds not exceeded.
+
+#### Causal Mapping
+
+- `TARGET_OUTAGE` -> elevate target node toward `root_cause`.
+- `PATH_SCOPED_ISSUE` -> mark related path edges / vantage-specific nodes as `affected`; avoid global outage claim.
+- `DEGRADED_PATH` -> target `affected`, candidate upstream path edges `affected`.
+- `HEALTHY` -> contribute stabilizing evidence.
+
+Confidence score:
+
+`confidence = max(p_unreachable, p_anomalous, p_success) * coverage_factor`
+
+Where `coverage_factor` increases with cohort size up to configured cap.
+
+### Implementation Notes
+
+- Selector and consensus should be pure functions over policy + snapshots to support deterministic tests.
+- Persist cohort membership and per-agent outcomes with incident correlation IDs for auditability.
+- Enforce rate limits at dispatch boundary (global, per-agent, per-target).
+- Do not recompute topology coordinates from consensus changes; emit overlay/casual state updates only.
+
+## Concrete Implementation Plan (Tasks 17.1-17.8)
+
+This section maps the draft algorithms to concrete modules and delivery steps in `serviceradar_core` and `web-ng`.
+
+### Phase A: Policy + Data Contracts
+
+1. Add Ash resources (platform schema):
+   - `ServiceRadar.Observability.MtrPolicy`
+   - `ServiceRadar.Observability.MtrDispatchWindow` (cooldown/dedupe ledger per target/event class)
+   - `ServiceRadar.Observability.MtrConsensusSnapshot` (optional persisted summary per incident correlation id)
+2. Extend existing MTR trace metadata contract:
+   - Ensure traces carry `source_agent_id`, `target_device_uid` (when known), `trigger_mode` (`baseline|incident|manual`), and `incident_correlation_id` (optional).
+3. Add migration(s) for new policy/ledger tables in `elixir/serviceradar_core/priv/repo/migrations/` using `platform` prefix.
+
+### Phase B: Vantage Selection Engine
+
+1. New pure selector module:
+   - `ServiceRadar.Observability.MtrVantageSelector`
+2. Public functions:
+   - `select_baseline_vantages(target_ctx, policy, candidate_agents) :: {:ok, [agent_id]} | {:error, term}`
+   - `select_incident_vantages(target_ctx, policy, candidate_agents) :: {:ok, [agent_id]} | {:error, term}`
+   - `score_candidates(target_ctx, policy, candidate_agents) :: [%{agent_id: String.t(), score: float()}]`
+3. Candidate inputs:
+   - Agent health/status and capabilities from registry/infrastructure state
+   - Target partition/gateway affinity and device context
+   - Current queue pressure / in-flight command counts
+4. Determinism:
+   - Stable tie-break by `agent_id`
+   - No side effects in scoring function
+
+### Phase C: Automated Dispatch Orchestration
+
+1. Baseline scheduler worker:
+   - `ServiceRadar.Observability.MtrBaselineScheduler` (GenServer or Oban recurring job)
+   - Reads enabled policies, computes due targets, resolves primary/canary vantages, dispatches `mtr.run`.
+2. State-change trigger worker:
+   - `ServiceRadar.Observability.MtrStateTriggerWorker` subscribes to `ServiceRadar.Infrastructure.HealthPubSub.topic()` (`serviceradar:health_events`).
+   - On eligible transitions (`healthy -> degraded/unavailable`, optional recovery), checks cooldown ledger and dispatches bounded incident fanout.
+3. Dispatch path:
+   - Reuse `ServiceRadar.Edge.AgentCommandBus.dispatch/4`.
+   - Include correlation context in command metadata (`incident_correlation_id`, `trigger_mode`, `target_device_uid`).
+4. Cooldown + dedupe:
+   - `MtrDispatchWindow` keyed by `(target, trigger_mode, transition_class)` with TTL/cooldown enforcement.
+
+### Phase D: Consensus + Causal Emission
+
+1. New pure evaluator:
+   - `ServiceRadar.Observability.MtrConsensusEvaluator`
+2. Public functions:
+   - `classify(outcomes, policy) :: %{classification: atom(), confidence: float(), evidence: map()}`
+   - `aggregate_weighted_votes(outcomes, policy) :: %{p_unreachable: float(), p_anomalous: float(), p_success: float()}`
+3. Outcome ingestion:
+   - Subscribe to `{:command_result, ...}` for `mtr.run` (via existing command PubSub/status flow) and/or trace insert notifications.
+   - Build cohort outcome set by `incident_correlation_id`.
+4. Causal envelope emission:
+   - Emit normalized MTR-derived causal signals into the existing causal pipeline contract (aligned with `EventWriter.Processors.CausalSignals` envelope style).
+   - Include topology join keys: `target_device_uid`, `target_ip`, `source_agent_id`, `partition_id`, and path identifiers.
+
+### Phase E: Topology Atmosphere Integration
+
+1. Add MTR signal class mapping in overlay pipeline:
+   - Map consensus classifications (`target_outage`, `path_scoped_issue`, `degraded_path`, `healthy`) to God-View causal classes.
+2. Ensure overlay-only update semantics:
+   - Atmosphere/casual class updates must not trigger coordinate recomputation when topology revision is unchanged.
+3. UI explainability:
+   - Show per-agent cohort evidence for mixed outcomes ("agent A unreachable, agents B/C reachable").
+
+### Phase F: Wiring and Supervision
+
+1. Add workers to application tree (feature-flagged):
+   - `MtrBaselineScheduler`
+   - `MtrStateTriggerWorker`
+   - Optional `MtrConsensusWorker` if evaluation is asynchronous.
+2. Config flags:
+   - `:mtr_automation_enabled`
+   - `:mtr_incident_fanout_max_agents`
+   - `:mtr_incident_cooldown_sec`
+   - `:mtr_consensus_mode` / `:mtr_consensus_threshold`
+
+### Test Matrix (Minimum)
+
+1. Selector unit tests (`MtrVantageSelector`):
+   - Affinity preference, degraded agent penalties, deterministic tie-breaks.
+2. Trigger tests (`MtrStateTriggerWorker`):
+   - Transition edge detection, cooldown suppression, recovery capture behavior.
+3. Dispatch tests:
+   - Correct `mtr.run` payload/context and fanout bounds.
+4. Consensus evaluator tests:
+   - Mixed reachability classification (`path_scoped_issue`), quorum-based outage escalation.
+5. Integration tests:
+   - End-to-end degraded transition -> dispatch cohort -> trace ingestion -> consensus -> causal signal emitted.
+6. Overlay regression:
+   - Causal class updates with stable topology coordinates for unchanged topology revision.
+
+### Suggested Implementation Order
+
+1. Phase A (policy + schema) and Phase B (selector) first.
+2. Phase C trigger/dispatch wiring with feature flags.
+3. Phase D consensus evaluator and causal emission.
+4. Phase E overlay mapping + explainability.
+5. Complete test matrix before enabling automation defaults.
 
 ### CNPG Schema
 

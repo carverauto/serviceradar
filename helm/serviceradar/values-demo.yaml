@@ -164,7 +164,30 @@ gobgp:
     pullPolicy: IfNotPresent
 
 core:
+  # MTR automation rollout profiles:
+  # Baseline-only (recommended first):
+  #   enabled: true
+  #   baselineEnabled: true
+  #   triggerEnabled: false
+  #   consensusEnabled: false
+  # Incident-capture enabled:
+  #   enabled: true
+  #   baselineEnabled: true
+  #   triggerEnabled: true
+  #   consensusEnabled: false
+  # Full automation (with causal consensus):
+  #   enabled: true
+  #   baselineEnabled: true
+  #   triggerEnabled: true
+  #   consensusEnabled: true
   logPromotionConsumerEnabled: true
+  mtrAutomation:
+    enabled: true
+    baselineEnabled: true
+    triggerEnabled: false
+    consensusEnabled: false
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
   deviceEnrichment:
     rulesDir: "/var/lib/serviceradar/rules/device-enrichment"
     filesystemOverrides:

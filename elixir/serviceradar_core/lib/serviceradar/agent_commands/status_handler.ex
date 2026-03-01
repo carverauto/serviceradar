@@ -8,6 +8,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub
   alias ServiceRadar.Edge.AgentCommand
+  alias ServiceRadar.Observability.MtrMetricsIngestor
 
   require Logger
 
@@ -33,6 +34,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   end
 
   def handle_info({:command_result, data}, state) do
+    maybe_ingest_mtr_result(data)
     persist_result(data, state.actor)
     {:noreply, state}
   end
@@ -130,4 +132,50 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   defp terminal_status?(status) do
     status in [:completed, :failed, :expired, :canceled, :offline]
   end
+
+  defp maybe_ingest_mtr_result(%{command_type: "mtr.run", success: true} = data) do
+    payload = Map.get(data, :payload)
+    trace = payload_trace(payload)
+
+    if is_map(payload) and is_map(trace) do
+      target = payload["target"] || trace["target"] || trace["target_ip"] || ""
+      timestamp = trace["timestamp"] || Map.get(data, :timestamp)
+
+      mtr_payload = %{
+        "results" => [
+          %{
+            "check_id" => Map.get(data, :command_id),
+            "check_name" => "on-demand",
+            "target" => target,
+            "available" => trace["target_reached"] == true,
+            "trace" => trace,
+            "timestamp" => timestamp,
+            "error" => nil
+          }
+        ]
+      }
+
+      status = %{
+        agent_id: Map.get(data, :agent_id),
+        gateway_id: Map.get(data, :gateway_id) || Map.get(data, :gateway_node),
+        partition: Map.get(data, :partition_id)
+      }
+
+      case MtrMetricsIngestor.ingest(mtr_payload, status) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("AgentCommandStatusHandler: failed to ingest on-demand MTR result",
+            command_id: Map.get(data, :command_id),
+            reason: inspect(reason)
+          )
+      end
+    end
+  end
+
+  defp maybe_ingest_mtr_result(_data), do: :ok
+
+  defp payload_trace(%{"trace" => trace}) when is_map(trace), do: trace
+  defp payload_trace(_payload), do: nil
 end

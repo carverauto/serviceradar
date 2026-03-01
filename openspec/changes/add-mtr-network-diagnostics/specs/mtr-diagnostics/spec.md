@@ -57,7 +57,8 @@ The agent SHALL calculate and report running statistics for each hop, including 
 
 #### Scenario: Loss calculation excludes in-flight probes
 - **WHEN** probes are still in-flight (awaiting response within timeout)
-- **THEN** loss percentage is calculated as `100 * (1 - received / (sent - in_flight))`
+- **THEN** loss percentage is `0` when `(sent - in_flight) <= 0`; otherwise it is
+  `100 * (1 - received / (sent - in_flight))`
 - **AND** in-flight probes are not counted as lost
 
 ### Requirement: ECMP Path Detection
@@ -219,3 +220,80 @@ The web UI SHALL include an MTR tab on the device detail page showing all traces
 - **THEN** a modal appears to select source agent and protocol
 - **AND** submitting triggers an `mtr.run` command via ControlStream
 - **AND** results are displayed inline when the trace completes
+
+### Requirement: Managed Device Baseline Traces
+The system SHALL support policy-driven baseline MTR collection for managed devices, where baseline protocol defaults to ICMP and execution cadence is bounded to avoid probe storms.
+
+#### Scenario: Baseline policy targets managed devices
+- **WHEN** a baseline MTR policy is enabled for managed devices
+- **THEN** managed devices are eligible for scheduled MTR checks without manual per-device ad-hoc commands
+- **AND** baseline traces are written to `mtr_traces` and `mtr_hops` with `device_id`/`device_uid` linkage
+
+#### Scenario: Baseline defaults to ICMP
+- **WHEN** no protocol override is specified by policy
+- **THEN** baseline traces run with ICMP protocol
+- **AND** UDP/TCP are not auto-executed in baseline mode
+
+### Requirement: State-Change Triggered MTR Capture
+The system SHALL support event-driven MTR captures when tracked entities transition to degraded or unavailable states, with per-entity cooldown and deduplication.
+
+#### Scenario: Device transitions to degraded
+- **WHEN** a managed device state transitions from healthy to degraded
+- **THEN** the system enqueues a bounded on-demand MTR capture from an assigned/nearest agent to the device target
+- **AND** duplicate triggers inside the configured cooldown window are suppressed
+
+#### Scenario: Recovery transition capture
+- **WHEN** a managed device transitions from degraded/unavailable back to healthy
+- **THEN** the system MAY capture a recovery MTR trace for before/after comparison
+- **AND** recovery captures obey the same cooldown controls
+
+### Requirement: MTR-Derived Causal Signal Envelope
+The system SHALL normalize MTR outcomes into a causal signal envelope suitable for DeepCausality ingestion, preserving routing/path context and join keys into topology.
+
+#### Scenario: MTR anomaly emits causal signal
+- **WHEN** an MTR trace indicates hop loss/latency/path-change anomaly beyond configured thresholds
+- **THEN** a normalized causal signal is emitted with source provenance, severity, event identity, and topology correlation keys
+- **AND** raw MTR context (trace/hop details) remains queryable for drill-down
+
+#### Scenario: Healthy baseline emits stabilizing signal
+- **WHEN** baseline MTR traces remain within policy thresholds
+- **THEN** the normalized signal stream reflects healthy evidence without generating false root-cause escalation
+
+### Requirement: Topology Overlay and Causal-State Integration
+God View SHALL consume MTR-derived causal signals as atmosphere updates layered over canonical topology, without forcing structural coordinate recomputation when topology revision is unchanged.
+
+#### Scenario: Causal class update from MTR signal
+- **WHEN** MTR-derived causal signals change node/edge causal class assignments
+- **THEN** God View updates causal visual classes (`root_cause`, `affected`, `healthy`, `unknown`)
+- **AND** topology coordinates remain stable when graph revision has not changed
+
+#### Scenario: Operator escalation to UDP/TCP
+- **WHEN** an operator or policy requests protocol escalation for a target
+- **THEN** additional UDP and/or TCP traces are executed and associated to the same incident context
+- **AND** resulting causal evidence is merged with ICMP baseline evidence for classification
+
+### Requirement: Agent Vantage Selection Strategy
+The system SHALL select source agents for automated MTR by policy, defaulting to a primary assigned vantage per target and bounded optional secondary vantages, instead of running from all agents.
+
+#### Scenario: Baseline uses primary vantage
+- **WHEN** baseline automated MTR is scheduled for a managed device
+- **THEN** the system selects one primary source agent according to assignment policy (partition/gateway affinity and agent health)
+- **AND** baseline collection runs from that primary vantage unless policy explicitly enables additional canaries
+
+#### Scenario: Incident fanout is bounded
+- **WHEN** a state-change trigger indicates degraded/unavailable behavior
+- **THEN** the system MAY fan out MTR to a bounded cohort of additional agents
+- **AND** fanout size is constrained by policy limits to prevent probe storms
+
+### Requirement: Multi-Agent Reachability Consensus
+The system SHALL treat differing results across source agents as causal evidence and SHALL classify outcomes using explicit consensus semantics.
+
+#### Scenario: One agent fails while others succeed
+- **WHEN** one source agent reports target unreachable and peer agents report target reachable
+- **THEN** the system classifies this as a path- or vantage-scoped issue rather than a global target outage
+- **AND** causal outputs include per-agent evidence and confidence weighting
+
+#### Scenario: Broad failure across cohort
+- **WHEN** all or quorum-defined majority of source agents report unreachable or severe path loss
+- **THEN** the system elevates target-level causal severity
+- **AND** the affected/root-cause classification reflects cross-vantage consensus

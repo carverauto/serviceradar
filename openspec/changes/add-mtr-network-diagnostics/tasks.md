@@ -120,3 +120,27 @@
 - [x] 16.2 Add `:mtr` to ServiceCheck type enum and AgentConfigGenerator type mapping
 - [x] 16.3 MTR config flows via existing gateway→agent pipeline (no manual config needed)
 - [x] 16.4 MMDB path configured via env var on agent container (ASN_DB_PATH)
+
+## 17. Operationalization: Managed + Causal Integration
+
+- [ ] 17.1 Add managed-device baseline MTR policy model (scope, cadence, cooldown, protocol strategy) and wire to check generation.
+- [ ] 17.2 Implement automatic event-triggered MTR dispatch on degraded/unavailable transitions with dedupe/cooldown.
+- [ ] 17.3 Normalize MTR anomalies into causal signal envelope for DeepCausality ingestion with topology join keys.
+- [ ] 17.4 Integrate MTR-derived causal classes into God View atmosphere updates without topology coordinate churn.
+- [ ] 17.5 Add policy-level protocol escalation controls (ICMP baseline, UDP/TCP escalation paths).
+- [ ] 17.6 Add integration tests for baseline scheduling, transition-triggered traces, and causal overlay updates.
+- [ ] 17.7 Implement agent-vantage selector (primary assignment + bounded canary/fanout cohort) for automated MTR dispatch.
+- [ ] 17.8 Implement multi-agent consensus evaluator for MTR outcomes (path-scoped vs target-scoped severity classification).
+
+## 18. Concrete Delivery Checklist
+
+- [x] 18.1 Add Ash resources and migrations for `MtrPolicy` and `MtrDispatchWindow` (`platform` schema).
+- [x] 18.2 Implement `ServiceRadar.Observability.MtrVantageSelector` pure scoring/selection functions with deterministic tie-breaks.
+- [x] 18.3 Implement `ServiceRadar.Observability.MtrBaselineScheduler` and wire feature-flagged supervision.
+- [x] 18.4 Implement `ServiceRadar.Observability.MtrStateTriggerWorker` subscribed to `serviceradar:health_events`.
+- [x] 18.5 Dispatch `mtr.run` with incident/baseline context (`incident_correlation_id`, `trigger_mode`, target identifiers).
+- [x] 18.6 Implement `ServiceRadar.Observability.MtrConsensusEvaluator` and cohort vote aggregation.
+- [x] 18.7 Emit normalized MTR-derived causal signal envelopes with topology join keys.
+- [x] 18.8 Map consensus outcomes to topology atmosphere classes without coordinate recomputation.
+- [x] 18.9 Add selector/trigger/consensus unit tests and end-to-end integration tests.
+- [x] 18.10 Enable automation defaults behind config flags and document rollout/rollback switches.

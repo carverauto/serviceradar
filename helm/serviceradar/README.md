@@ -93,6 +93,26 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 - The chart does not generate image pull secrets; create `ghcr-io-cred` (or override `image.registryPullSecret`).
 - The SPIRE controller manager sidecar can be disabled with `--set spire.controllerManager.enabled=false` if you do not need webhook-managed entries.
 
+### MTR Automation Rollout
+
+Use `core.mtrAutomation` to stage automated MTR behavior on core-elx:
+
+```yaml
+core:
+  mtrAutomation:
+    enabled: false
+    baselineEnabled: false
+    triggerEnabled: false
+    consensusEnabled: false
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
+```
+
+Recommended staged enablement:
+1. Baseline only: `enabled=true`, `baselineEnabled=true`, `triggerEnabled=false`, `consensusEnabled=false`
+2. Add state-triggered dispatch: `triggerEnabled=true`
+3. Add consensus + causal emission: `consensusEnabled=true`
+
 ## Network Requirements
 
 ### In-Cluster

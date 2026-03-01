@@ -82,7 +82,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
   defp insert_single_result(result, agent_id, gateway_id, partition, now) when is_map(result) do
     trace = result["trace"] || %{}
-    trace_id = Ash.UUID.generate()
+    trace_id = Ecto.UUID.bingenerate()
     trace_time = parse_trace_time(trace["timestamp"] || result["timestamp"]) || now
 
     trace_row = %{
@@ -176,7 +176,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       )
       """,
       [
-        Ash.UUID.generate(),
+        Ecto.UUID.bingenerate(),
         trace_time,
         trace_id,
         hop["hop_number"] || 0,
