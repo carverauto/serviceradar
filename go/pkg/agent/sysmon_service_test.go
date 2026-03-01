@@ -370,7 +370,7 @@ func TestSysmonServiceConfigSource(t *testing.T) {
 	source := svc.GetConfigSource()
 	assert.NotEmpty(t, source)
 	// Source should be one of: local:*, cache:*, default, or test (when using TestConfig)
-	assert.True(t, source == "default" || source == "test" ||
+	assert.True(t, source == configSourceDefault || source == "test" ||
 		len(source) > 6 && (source[:6] == "local:" || source[:6] == "cache:"),
 		"unexpected config source: %s", source)
 
@@ -596,7 +596,7 @@ func TestCacheFallbackWhenLocalUnavailable(t *testing.T) {
 	switch {
 	case strings.HasPrefix(source2, "cache:"):
 		assert.Equal(t, hash1, hash2, "cached config hash should match previously cached custom config hash")
-	case source2 == "default":
+	case source2 == configSourceDefault:
 		assert.NotEqual(t, hash1, hash2, "default config hash should differ from cached custom config hash")
 	default:
 		t.Fatalf("unexpected config source %q; expected cache:* or default", source2)
