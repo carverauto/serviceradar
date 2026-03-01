@@ -18,9 +18,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::bundle::MtlsBundle;
-use crate::error::{Error, Result};
-use crate::token::TokenPayload;
+use crate::types::bundle::MtlsBundle;
+use crate::errors::{Error, Result};
+use crate::types::token::TokenPayload;
 
 /// Response from the package download endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]

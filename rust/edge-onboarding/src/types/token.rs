@@ -22,7 +22,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
+use crate::errors::{Error, Result};
 
 const TOKEN_PREFIX: &str = "edgepkg-v1:";
 
