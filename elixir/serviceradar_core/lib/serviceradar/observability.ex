@@ -76,6 +76,11 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.ProcessMetric
     resource ServiceRadar.Observability.ProcessMetricHourly
     resource ServiceRadar.Observability.TimeseriesMetricHourly
+    # MTR resources - map to TimescaleDB hypertables with migrate?: false
+    resource ServiceRadar.Observability.MtrTrace
+    resource ServiceRadar.Observability.MtrHop
+    resource ServiceRadar.Observability.MtrPolicy
+    resource ServiceRadar.Observability.MtrDispatchWindow
     # OTel resources - these map to existing TimescaleDB hypertables/views
     # with migrate?: false so Ash doesn't try to manage the schema
     resource ServiceRadar.Observability.OtelMetric

@@ -8,6 +8,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub
   alias ServiceRadar.Edge.AgentCommand
+  alias ServiceRadar.Observability.MtrMetricsIngestor
+  alias ServiceRadar.Observability.MtrPubSub
 
   require Logger
 
@@ -33,6 +35,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   end
 
   def handle_info({:command_result, data}, state) do
+    maybe_ingest_mtr_result(data)
     persist_result(data, state.actor)
     {:noreply, state}
   end
@@ -130,4 +133,100 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   defp terminal_status?(status) do
     status in [:completed, :failed, :expired, :canceled, :offline]
   end
+
+  defp maybe_ingest_mtr_result(data) when is_map(data) do
+    command_type = map_get_any(data, [:command_type, "command_type"], "")
+    success = map_get_any(data, [:success, "success"], false)
+
+    if to_string(command_type) == "mtr.run" and success == true do
+      payload = map_get_any(data, [:payload, "payload"], nil)
+      trace = payload_trace(payload)
+
+      if is_map(payload) and is_map(trace),
+        do: ingest_mtr_result(data, payload, trace)
+    end
+  end
+
+  defp maybe_ingest_mtr_result(_data), do: :ok
+
+  defp ingest_mtr_result(data, payload, trace) do
+    target = first_target(payload, trace)
+
+    timestamp =
+      map_get_any(trace, ["timestamp", :timestamp], nil) ||
+        map_get_any(data, [:timestamp, "timestamp"], nil)
+
+    mtr_payload = build_ingest_payload(data, trace, target, timestamp)
+    status = build_ingest_status(data)
+
+    case MtrMetricsIngestor.ingest(mtr_payload, status) do
+      :ok ->
+        _ =
+          MtrPubSub.broadcast_ingest(%{
+            command_id: Map.get(data, :command_id),
+            target: target,
+            agent_id: Map.get(data, :agent_id)
+          })
+
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "AgentCommandStatusHandler: failed to ingest on-demand MTR result: #{inspect(reason)}",
+          command_id: Map.get(data, :command_id),
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp first_target(payload, trace) do
+    map_get_any(payload, ["target", :target], nil) ||
+      map_get_any(trace, ["target", :target, "target_ip", :target_ip], nil) ||
+      ""
+  end
+
+  defp build_ingest_payload(data, trace, target, timestamp) do
+    %{
+      "results" => [
+        %{
+          "check_id" => map_get_any(data, [:command_id, "command_id"], nil),
+          "check_name" => "on-demand",
+          "target" => target,
+          "available" => map_get_any(trace, ["target_reached", :target_reached], false) == true,
+          "trace" => trace,
+          "timestamp" => timestamp,
+          "error" => nil
+        }
+      ]
+    }
+  end
+
+  defp build_ingest_status(data) do
+    %{
+      agent_id: map_get_any(data, [:agent_id, "agent_id"], nil),
+      gateway_id:
+        map_get_any(data, [:gateway_id, "gateway_id", :gateway_node, "gateway_node"], nil),
+      partition: map_get_any(data, [:partition_id, "partition_id"], nil)
+    }
+  end
+
+  defp payload_trace(payload) when is_map(payload) do
+    case map_get_any(payload, ["trace", :trace], nil) do
+      trace when is_map(trace) -> trace
+      _ -> nil
+    end
+  end
+
+  defp payload_trace(_payload), do: nil
+
+  defp map_get_any(map, keys, default) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, default, fn key ->
+      case Map.get(map, key) do
+        nil -> nil
+        value -> value
+      end
+    end)
+  end
+
+  defp map_get_any(_map, _keys, default), do: default
 end

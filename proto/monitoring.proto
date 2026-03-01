@@ -429,7 +429,7 @@ message SysmonConfig {
 // AgentCheckConfig defines a single check for the agent to perform.
 message AgentCheckConfig {
   string check_id = 1;              // Unique check identifier
-  string check_type = 2;            // Type: "icmp", "tcp", "http", "grpc", "process", "sweep"
+  string check_type = 2;            // Type: "icmp", "tcp", "http", "grpc", "process", "sweep", "mtr"
   string name = 3;                  // Human-readable name
   bool enabled = 4;                 // Whether check is active
   int32 interval_sec = 5;           // Check interval in seconds
@@ -552,4 +552,72 @@ enum SNMPDataType {
   SNMP_DATA_TYPE_STRING = 5;        // Text value
   SNMP_DATA_TYPE_FLOAT = 6;         // Floating point value
   SNMP_DATA_TYPE_TIMETICKS = 7;     // Time value in hundredths of a second
+}
+
+// ============================================================================
+// MTR (My Traceroute) Diagnostic Messages
+// ============================================================================
+
+// MtrMplsLabel represents a single MPLS label stack entry extracted from
+// RFC 4884 ICMP extension objects.
+message MtrMplsLabel {
+  int32 label = 1;                   // 20-bit MPLS label
+  int32 exp = 2;                     // 3-bit experimental/traffic class
+  bool s = 3;                        // Bottom-of-stack flag
+  int32 ttl = 4;                     // MPLS TTL
+}
+
+// MtrAsnInfo holds Autonomous System information for a hop IP,
+// enriched from GeoLite2 MMDB at collection time.
+message MtrAsnInfo {
+  int32 asn = 1;                     // Autonomous System Number
+  string org = 2;                    // Organization name
+}
+
+// MtrHopResult contains per-hop statistics from an MTR trace.
+message MtrHopResult {
+  int32 hop_number = 1;              // TTL distance (1-indexed)
+  string addr = 2;                   // Primary responding IP address
+  string hostname = 3;               // Reverse-DNS hostname
+  repeated string ecmp_addrs = 4;    // Additional ECMP responding IPs
+  MtrAsnInfo asn = 5;                // Autonomous System information
+  repeated MtrMplsLabel mpls_labels = 6; // MPLS label stack from ICMP extensions
+  int32 sent = 7;                    // Total probes sent
+  int32 received = 8;                // Probe responses received
+  double loss_pct = 9;               // Packet loss percentage
+  int64 last_us = 10;                // Most recent RTT (microseconds)
+  int64 avg_us = 11;                 // Mean RTT (microseconds)
+  int64 min_us = 12;                 // Minimum RTT (microseconds)
+  int64 max_us = 13;                 // Maximum RTT (microseconds)
+  int64 stddev_us = 14;              // Standard deviation of RTT (microseconds)
+  int64 jitter_us = 15;              // Average jitter (microseconds)
+  int64 jitter_worst_us = 16;        // Worst observed jitter (microseconds)
+  int64 jitter_interarrival_us = 17; // RFC 1889 interarrival jitter (microseconds)
+}
+
+// MtrTraceResult is the complete result of an MTR trace.
+message MtrTraceResult {
+  string target = 1;                 // Target hostname or IP
+  string target_ip = 2;              // Resolved target IP address
+  bool target_reached = 3;           // Whether the target responded
+  int32 total_hops = 4;              // Number of hops in the trace
+  string protocol = 5;               // Probe protocol: "icmp", "udp", "tcp"
+  int32 ip_version = 6;              // IP version: 4 or 6
+  int32 packet_size = 7;             // Probe packet size in bytes
+  repeated MtrHopResult hops = 8;    // Per-hop results
+  string agent_id = 9;               // Agent that ran the trace
+  string gateway_id = 10;            // Gateway receiving the results
+  int64 timestamp = 11;              // Trace completion timestamp (unix nanos)
+}
+
+// MtrCheckResult wraps an MTR trace with check metadata for scheduled checks.
+message MtrCheckResult {
+  string check_id = 1;               // Check configuration ID
+  string check_name = 2;             // Human-readable check name
+  string target = 3;                 // Target hostname or IP
+  string device_id = 4;              // Associated device ID
+  bool available = 5;                // Whether the target was reached
+  MtrTraceResult trace = 6;          // Full trace result
+  int64 timestamp = 7;               // Result timestamp (unix nanos)
+  string error = 8;                  // Error message if trace failed
 }

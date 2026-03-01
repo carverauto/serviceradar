@@ -350,7 +350,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/sysmon">
         <.settings_nav current_path="/settings/sysmon" current_scope={@current_scope} />
-        <.agents_nav current_path="/settings/sysmon" current_scope={@current_scope} />
+        <.edge_nav current_path="/settings/sysmon" current_scope={@current_scope} />
 
         <div class="space-y-4">
           <!-- Content based on form state -->

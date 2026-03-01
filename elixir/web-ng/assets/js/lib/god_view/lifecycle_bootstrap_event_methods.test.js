@@ -117,7 +117,31 @@ describe("lifecycle_bootstrap_event_methods", () => {
     handlers["god_view:set_topology_layers"]({layers: {backbone: true, inferred: true, endpoints: false}})
 
     expect(state.layers).toEqual({mantle: false, crust: true, atmosphere: false, security: true})
-    expect(state.topologyLayers).toEqual({backbone: true, inferred: true, endpoints: false})
+    expect(state.topologyLayers).toEqual({backbone: true, inferred: true, endpoints: false, mtr_paths: true})
     expect(deps.renderGraph).toHaveBeenCalledTimes(2)
+  })
+
+  it("registerLayerEvents preserves mtr_paths when omitted in payload", () => {
+    const handlers = {}
+    const state = {
+      topologyLayers: {backbone: true, inferred: false, endpoints: true, mtr_paths: true},
+      lastGraph: {nodes: []},
+      handleEvent: vi.fn((name, fn) => {
+        handlers[name] = fn
+      }),
+    }
+    const deps = {renderGraph: vi.fn()}
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapEventLayerMethods))
+
+    ctx.registerLayerEvents()
+    handlers["god_view:set_topology_layers"]({layers: {backbone: false, inferred: true, endpoints: false}})
+
+    expect(state.topologyLayers).toEqual({
+      backbone: false,
+      inferred: true,
+      endpoints: false,
+      mtr_paths: true,
+    })
   })
 })

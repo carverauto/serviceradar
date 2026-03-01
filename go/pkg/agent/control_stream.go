@@ -21,9 +21,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
 )
@@ -33,7 +35,11 @@ const controlStreamReconnectDelay = 5 * time.Second
 const (
 	commandTypeMapperRun = "mapper.run_job"
 	commandTypeSweepRun  = "sweep.run_group"
+	commandTypeMtrRun    = "mtr.run"
 )
+
+const defaultOnDemandMtrDeadline = 45 * time.Second
+const defaultMaxConcurrentOnDemandMtr = 2
 
 var errControlStreamClosed = errors.New("control stream closed")
 
@@ -44,6 +50,12 @@ type mapperRunPayload struct {
 
 type sweepRunPayload struct {
 	SweepGroupID string `json:"sweep_group_id"`
+}
+
+type mtrRunPayload struct {
+	Target   string `json:"target"`
+	Protocol string `json:"protocol,omitempty"`
+	MaxHops  int    `json:"max_hops,omitempty"`
 }
 
 type controlStreamSender struct {
@@ -228,6 +240,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleMapperRun(ctx, cmd, sender)
 		case commandTypeSweepRun:
 			p.handleSweepRun(ctx, cmd, sender)
+		case commandTypeMtrRun:
+			p.handleMtrRun(ctx, cmd, sender)
 		default:
 			_ = sender.Send(commandResult(cmd, false, "unsupported command", nil))
 		}
@@ -346,6 +360,124 @@ func (p *PushLoop) runSweepGroup(ctx context.Context, groupID string) error {
 		Msg("No sweep runner available for on-demand sweep")
 
 	return errSweepRunnerUnavailable
+}
+
+func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
+	if !p.tryAcquireOnDemandMtrSlot() {
+		_ = sender.Send(commandResult(cmd, false, "agent busy: too many concurrent mtr traces", nil))
+		return
+	}
+	defer p.releaseOnDemandMtrSlot()
+
+	payload := mtrRunPayload{}
+	if len(cmd.PayloadJson) > 0 {
+		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
+			_ = sender.Send(commandResult(cmd, false, "invalid mtr payload", nil))
+			return
+		}
+	}
+
+	if payload.Target == "" {
+		_ = sender.Send(commandResult(cmd, false, "missing target", nil))
+		return
+	}
+
+	runTimeout := commandTimeoutCap(cmd)
+	if runTimeout <= 0 {
+		_ = sender.Send(commandResult(cmd, false, "command deadline exceeded", nil))
+		return
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, runTimeout)
+	defer cancel()
+
+	opts := onDemandMtrOptions(payload)
+	trace, err := runOnDemandMtr(runCtx, opts, p.logger)
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))
+		return
+	}
+
+	traceJSON, err := json.Marshal(trace)
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, "failed to marshal trace", nil))
+		return
+	}
+
+	resultPayload := map[string]any{
+		"target": payload.Target,
+		"trace":  json.RawMessage(traceJSON),
+	}
+
+	p.logger.Info().
+		Str("command_id", cmd.CommandId).
+		Str("target", payload.Target).
+		Bool("target_reached", trace.TargetReached).
+		Int("total_hops", trace.TotalHops).
+		Msg("On-demand MTR trace completed")
+
+	_ = sender.Send(commandResult(cmd, true, "mtr trace completed", resultPayload))
+}
+
+func (p *PushLoop) tryAcquireOnDemandMtrSlot() bool {
+	if p == nil || p.mtrOnDemandSem == nil {
+		return true
+	}
+
+	select {
+	case p.mtrOnDemandSem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *PushLoop) releaseOnDemandMtrSlot() {
+	if p == nil || p.mtrOnDemandSem == nil {
+		return
+	}
+
+	select {
+	case <-p.mtrOnDemandSem:
+	default:
+	}
+}
+
+func onDemandMtrOptions(payload mtrRunPayload) mtr.Options {
+	target := strings.TrimSpace(payload.Target)
+	opts := mtr.DefaultOptions(target)
+
+	if protocol := strings.TrimSpace(payload.Protocol); protocol != "" {
+		opts.Protocol = mtr.ParseProtocol(strings.ToLower(protocol))
+	}
+
+	if payload.MaxHops > 0 {
+		opts.MaxHops = clampInt(payload.MaxHops, mtrMaxHopsUpperBound)
+	}
+
+	return opts
+}
+
+func commandTimeoutCap(cmd *proto.CommandRequest) time.Duration {
+	if defaultOnDemandMtrDeadline <= 0 {
+		return 0
+	}
+
+	if cmd == nil || cmd.TtlSeconds <= 0 || cmd.CreatedAt <= 0 {
+		return defaultOnDemandMtrDeadline
+	}
+
+	expiry := time.Unix(cmd.CreatedAt, 0).Add(time.Duration(cmd.TtlSeconds) * time.Second)
+	remaining := time.Until(expiry)
+	if remaining <= 0 {
+		return 0
+	}
+
+	if remaining < defaultOnDemandMtrDeadline {
+		return remaining
+	}
+
+	return defaultOnDemandMtrDeadline
 }
 
 func commandExpired(cmd *proto.CommandRequest) bool {

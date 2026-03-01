@@ -9,12 +9,14 @@ const godViewRenderingGraphLayerCoreMethods = {
       crustLayers,
       atmosphereLayers,
       securityLayers,
+      mtrPathLayers,
     } = this.buildTransportAndEffectLayers(effective, nodeData, edgeData, rootPulseNodes)
 
     return [
       ...baseLayers,
       ...mantleLayers,
       ...crustLayers,
+      ...(mtrPathLayers || []),
       ...this.buildNodeAndLabelLayers(effective, nodeData, edgeLabelData),
       ...securityLayers,
       ...atmosphereLayers,

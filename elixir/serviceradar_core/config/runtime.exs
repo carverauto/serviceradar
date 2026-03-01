@@ -120,6 +120,24 @@ if config_env() == :prod do
   config :serviceradar_core,
     topology_v2_contract_consumption_enabled: topology_v2_contract_consumption_enabled
 
+  parse_bool = fn env_name, default ->
+    case System.get_env(env_name) do
+      nil -> default
+      value -> String.downcase(value) in ["1", "true", "yes", "on"]
+    end
+  end
+
+  mtr_automation_enabled = parse_bool.("MTR_AUTOMATION_ENABLED", false)
+
+  config :serviceradar_core,
+    mtr_automation_enabled: mtr_automation_enabled,
+    mtr_automation_baseline_enabled:
+      parse_bool.("MTR_AUTOMATION_BASELINE_ENABLED", mtr_automation_enabled),
+    mtr_automation_trigger_enabled:
+      parse_bool.("MTR_AUTOMATION_TRIGGER_ENABLED", mtr_automation_enabled),
+    mtr_automation_consensus_enabled:
+      parse_bool.("MTR_AUTOMATION_CONSENSUS_ENABLED", mtr_automation_enabled)
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

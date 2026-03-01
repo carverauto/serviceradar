@@ -13,6 +13,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
   - `:snmp` - SNMP query check
   - `:grpc` - gRPC health check
   - `:dns` - DNS resolution check
+  - `:mtr` - MTR traceroute check
   - `:custom` - Custom script/check
 
   ## Check Results
@@ -275,7 +276,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
     attribute :check_type, :atom do
       allow_nil? false
       public? true
-      constraints one_of: [:ping, :http, :tcp, :snmp, :grpc, :dns, :custom]
+      constraints one_of: [:ping, :http, :tcp, :snmp, :grpc, :dns, :mtr, :custom]
       description "Type of check to perform"
     end
 

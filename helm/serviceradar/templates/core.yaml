@@ -17,6 +17,7 @@
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $database := default (dict) $coreVals.database -}}
 {{- $syncIngestor := default (dict) $coreVals.syncIngestor -}}
+{{- $mtrAutomation := default (dict) $coreVals.mtrAutomation -}}
 {{- $deviceEnrichment := default (dict) $coreVals.deviceEnrichment -}}
 {{- $deviceEnrichmentRulesDir := default "/var/lib/serviceradar/rules/device-enrichment" $deviceEnrichment.rulesDir -}}
 {{- $deviceEnrichmentFsOverrides := default (dict) $deviceEnrichment.filesystemOverrides -}}
@@ -307,6 +308,18 @@ spec:
         {{- end }}
         - name: LOG_PROMOTION_CONSUMER_ENABLED
           value: {{ default false $coreVals.logPromotionConsumerEnabled | quote }}
+        - name: MTR_AUTOMATION_ENABLED
+          value: {{ default false $mtrAutomation.enabled | quote }}
+        - name: MTR_AUTOMATION_BASELINE_ENABLED
+          value: {{ default false $mtrAutomation.baselineEnabled | quote }}
+        - name: MTR_AUTOMATION_TRIGGER_ENABLED
+          value: {{ default false $mtrAutomation.triggerEnabled | quote }}
+        - name: MTR_AUTOMATION_CONSENSUS_ENABLED
+          value: {{ default false $mtrAutomation.consensusEnabled | quote }}
+        - name: MTR_BASELINE_TICK_MS
+          value: {{ default 60000 $mtrAutomation.baselineTickMs | quote }}
+        - name: MTR_CONSENSUS_COHORT_RETENTION_MS
+          value: {{ default 300000 $mtrAutomation.consensusCohortRetentionMs | quote }}
         - name: CLOAK_KEY
           valueFrom:
             secretKeyRef:

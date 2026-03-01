@@ -46,7 +46,6 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     [
       cluster_tab(path, current_scope),
       network_tab(path, current_scope),
-      agents_tab(path, current_scope),
       events_tab(path, current_scope),
       edge_ops_tab(path, current_scope),
       jobs_tab(path, current_scope),
@@ -84,19 +83,6 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       RBAC.can?(current_scope, "settings.snmp_profiles.manage")
   end
 
-  defp agents_tab(path, current_scope) do
-    %{
-      label: "Agents",
-      navigate: ~p"/settings/sysmon",
-      active:
-        String.starts_with?(path, "/settings/sysmon") or
-          String.starts_with?(path, "/settings/agents") or
-          String.starts_with?(path, "/admin/edge-packages") or
-          String.starts_with?(path, "/admin/plugins"),
-      show: can_agents_tab?(current_scope)
-    }
-  end
-
   defp can_agents_tab?(current_scope) do
     RBAC.can?(current_scope, "settings.sysmon_profiles.manage") or
       RBAC.can?(current_scope, "settings.edge.manage") or
@@ -125,9 +111,17 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       active:
         String.starts_with?(path, "/admin/collectors") or
           String.starts_with?(path, "/admin/edge-sites") or
-          String.starts_with?(path, "/admin/nats"),
-      show: RBAC.can?(current_scope, "settings.edge.manage")
+          String.starts_with?(path, "/admin/nats") or
+          String.starts_with?(path, "/settings/sysmon") or
+          String.starts_with?(path, "/settings/agents") or
+          String.starts_with?(path, "/admin/edge-packages") or
+          String.starts_with?(path, "/admin/plugins"),
+      show: can_edge_ops_tab?(current_scope)
     }
+  end
+
+  defp can_edge_ops_tab?(current_scope) do
+    RBAC.can?(current_scope, "settings.edge.manage") or can_agents_tab?(current_scope)
   end
 
   defp jobs_tab(path, current_scope) do
@@ -210,12 +204,25 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   attr(:current_scope, :map, default: nil)
 
   def network_nav(assigns) do
-    assigns = assign(assigns, :tabs, network_tabs(assigns.current_path, assigns[:current_scope]))
+    path = assigns.current_path || ""
+
+    assigns =
+      assigns
+      |> assign(:tabs, network_tabs(path, assigns[:current_scope]))
+      |> assign(
+        :discovery_tabs,
+        discovery_tabs(path, assigns[:current_scope])
+      )
 
     ~H"""
-    <div class={["flex flex-wrap items-center gap-2 mb-4", @class]}>
-      <.ui_tabs tabs={@tabs} class="flex-wrap" size="sm" />
-    </div>
+    <section class={["space-y-2 mb-4", @class]}>
+      <div class="flex flex-wrap items-center gap-2">
+        <.ui_tabs tabs={@tabs} class="flex-wrap" size="sm" />
+      </div>
+      <div :if={@discovery_tabs != []} class="flex flex-wrap items-center gap-2">
+        <.ui_tabs tabs={@discovery_tabs} class="flex-wrap" size="sm" />
+      </div>
+    </section>
     """
   end
 
@@ -229,9 +236,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp network_tabs_with_state(path) do
     [
       %{
-        label: "Sweep Profiles",
+        label: "Discovery",
         navigate: ~p"/settings/networks",
-        active: sweep_profiles_active?(path)
+        active: discovery_active?(path)
       },
       %{
         label: "Network Flows",
@@ -239,24 +246,14 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         active: String.starts_with?(path, "/settings/flows")
       },
       %{
-        label: "Discovery",
-        navigate: ~p"/settings/networks/discovery",
-        active: String.starts_with?(path, "/settings/networks/discovery")
-      },
-      %{
-        label: "Device Enrichment",
-        navigate: ~p"/settings/networks/device-enrichment",
-        active: String.starts_with?(path, "/settings/networks/device-enrichment")
-      },
-      %{
         label: "BMP",
         navigate: ~p"/settings/networks/bmp",
         active: String.starts_with?(path, "/settings/networks/bmp")
       },
       %{
-        label: "SNMP",
-        navigate: ~p"/settings/snmp",
-        active: String.starts_with?(path, "/settings/snmp")
+        label: "MTR",
+        navigate: ~p"/settings/networks/mtr",
+        active: String.starts_with?(path, "/settings/networks/mtr")
       },
       %{
         label: "Integrations",
@@ -266,12 +263,55 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     ]
   end
 
-  defp sweep_profiles_active?(path) do
-    String.starts_with?(path, "/settings/networks") and
-      not String.starts_with?(path, "/settings/networks/discovery") and
+  defp discovery_tabs(current_path, current_scope) do
+    path = current_path || ""
+
+    tabs =
+      if discovery_active?(path) do
+        [
+          %{
+            label: "Sweep Profiles",
+            navigate: ~p"/settings/networks",
+            active: sweep_profiles_active?(path)
+          },
+          %{
+            label: "Discovery Jobs",
+            navigate: ~p"/settings/networks/discovery",
+            active: String.starts_with?(path, "/settings/networks/discovery")
+          },
+          %{
+            label: "Device Enrichment",
+            navigate: ~p"/settings/networks/device-enrichment",
+            active: String.starts_with?(path, "/settings/networks/device-enrichment")
+          },
+          %{
+            label: "SNMP",
+            navigate: ~p"/settings/snmp",
+            active: String.starts_with?(path, "/settings/snmp")
+          }
+        ]
+      else
+        []
+      end
+
+    tabs |> Enum.filter(&show_discovery_tab?(&1.label, current_scope))
+  end
+
+  defp discovery_active?(path) do
+    (String.starts_with?(path, "/settings/networks") or
+       String.starts_with?(path, "/settings/snmp")) and
       not String.starts_with?(path, "/settings/networks/integrations") and
+      not String.starts_with?(path, "/settings/networks/bmp") and
+      not String.starts_with?(path, "/settings/networks/mtr") and
+      not String.starts_with?(path, "/settings/flows")
+  end
+
+  defp sweep_profiles_active?(path) do
+    discovery_active?(path) and
+      String.starts_with?(path, "/settings/networks") and
+      not String.starts_with?(path, "/settings/networks/discovery") and
       not String.starts_with?(path, "/settings/networks/device-enrichment") and
-      not String.starts_with?(path, "/settings/networks/bmp")
+      not String.starts_with?(path, "/settings/snmp")
   end
 
   defp show_network_tab?(_label, nil), do: true
@@ -280,8 +320,19 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     permission =
       case label do
         "Integrations" -> "settings.integrations.manage"
+        "Network Flows" -> "settings.netflow.manage"
+        _ -> "settings.networks.manage"
+      end
+
+    RBAC.can?(scope, permission)
+  end
+
+  defp show_discovery_tab?(_label, nil), do: true
+
+  defp show_discovery_tab?(label, scope) do
+    permission =
+      case label do
         "SNMP" -> "settings.snmp_profiles.manage"
-        "NetFlow" -> "settings.netflow.manage"
         _ -> "settings.networks.manage"
       end
 
@@ -343,9 +394,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   # Edge Ops section sub-navigation
   attr(:current_path, :string, required: true)
   attr(:class, :any, default: nil)
+  attr(:current_scope, :map, default: nil)
 
   def edge_nav(assigns) do
-    assigns = assign(assigns, :tabs, edge_tabs(assigns.current_path))
+    assigns =
+      assign(assigns, :tabs, edge_tabs(assigns.current_path, assigns[:current_scope]))
 
     ~H"""
     <div class={["flex flex-wrap items-center gap-2", @class]}>
@@ -354,20 +407,53 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     """
   end
 
-  def edge_tabs(current_path) do
+  def edge_tabs(current_path, current_scope \\ nil) do
     path = current_path || ""
+
+    can_sysmon =
+      if current_scope,
+        do: RBAC.can?(current_scope, "settings.sysmon_profiles.manage"),
+        else: false
+
+    can_edge = if current_scope, do: RBAC.can?(current_scope, "settings.edge.manage"), else: false
+    can_plugins = if current_scope, do: RBAC.can?(current_scope, "plugins.view"), else: false
 
     [
       %{
         label: "Edge Sites",
         navigate: ~p"/admin/edge-sites",
-        active: String.starts_with?(path, "/admin/edge-sites")
+        active: String.starts_with?(path, "/admin/edge-sites"),
+        show: can_edge or is_nil(current_scope)
       },
       %{
         label: "Data Collectors",
         navigate: ~p"/admin/collectors",
-        active: String.starts_with?(path, "/admin/collectors")
+        active: String.starts_with?(path, "/admin/collectors"),
+        show: can_edge or is_nil(current_scope)
+      },
+      %{
+        label: "Host Health",
+        navigate: ~p"/settings/sysmon",
+        active: String.starts_with?(path, "/settings/sysmon"),
+        show: can_sysmon
+      },
+      %{
+        label: "Agent Deploy",
+        navigate: ~p"/settings/agents/deploy",
+        active:
+          String.starts_with?(path, "/settings/agents/deploy") or
+            String.starts_with?(path, "/admin/edge-packages"),
+        show: can_edge
+      },
+      %{
+        label: "Plugins",
+        navigate: ~p"/settings/agents/plugins",
+        active:
+          String.starts_with?(path, "/settings/agents/plugins") or
+            String.starts_with?(path, "/admin/plugins"),
+        show: can_plugins
       }
     ]
+    |> Enum.filter(&Map.get(&1, :show, true))
   end
 end
