@@ -43,7 +43,11 @@ export default {
         ? parsed
             .map((s) => {
               const obj = s && typeof s === "object" ? s : {}
-              return { ...obj, value: Number(obj.value) || 0 }
+              return {
+                label: typeof obj.label === "string" ? obj.label : "",
+                color: typeof obj.color === "string" ? obj.color : undefined,
+                value: Number(obj.value) || 0,
+              }
             })
             .filter((s) => Number.isFinite(s.value) && s.value > 0)
         : []

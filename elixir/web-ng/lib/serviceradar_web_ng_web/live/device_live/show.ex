@@ -860,6 +860,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply,
      socket
      |> assign(:srql, srql)
+     |> assign(:flow_zoom_range, nil)
+     |> assign(:flow_active_facets, %{})
      |> assign(:device_flows, flows)
      |> assign(:flows_pagination, pagination)
      |> assign(:flows_error, flows_error)

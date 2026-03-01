@@ -110,7 +110,7 @@ pub(super) const FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR: &str =
     "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
 
 pub(super) const FLOW_TCP_FLAGS_LABEL_EXPR: &str =
-    "UNNEST(COALESCE(tcp_flags_labels, ARRAY[]::text[]))";
+    "COALESCE(array_to_string(tcp_flags_labels, ','), 'Unknown')";
 
 pub(super) const FLOW_DURATION_BUCKET_EXPR: &str = r#"CASE
   WHEN start_time IS NULL OR end_time IS NULL THEN 'unknown'

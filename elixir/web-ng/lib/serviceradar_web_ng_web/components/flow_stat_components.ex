@@ -177,7 +177,8 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
             :for={{row, idx} <- Enum.with_index(@rows, 1)}
             class={[@on_row_click && "cursor-pointer hover:bg-base-200/60"]}
             phx-click={@on_row_click}
-            phx-value-row-idx={idx - 1}
+            phx-value-row-idx={@on_row_click && (idx - 1)}
+            phx-value-row={@on_row_click && Jason.encode!(row)}
           >
             <td class="text-center text-base-content/50 font-mono text-xs">{idx}</td>
             <td :for={col <- @columns} class="text-sm">
@@ -249,8 +250,8 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
   # ---------------------------------------------------------------------------
 
   attr :id, :string, required: true
-  attr :current_bps, :float, required: true
-  attr :capacity_bps, :float, required: true
+  attr :current_bps, :number, required: true
+  attr :capacity_bps, :number, required: true
   attr :label, :string, default: nil
   attr :class, :any, default: nil
 
