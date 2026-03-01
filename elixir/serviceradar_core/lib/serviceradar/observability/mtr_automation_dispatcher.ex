@@ -809,16 +809,22 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
         value
 
       :error ->
-        Enum.find_value(map, fn
-          {k, v} when is_atom(k) ->
-            if Atom.to_string(k) == key, do: v, else: nil
-
-          _ -> nil
-        end)
+        find_atom_key_value(map, key)
     end
   end
 
   defp selector_value(_, _), do: nil
+
+  defp find_atom_key_value(map, key) do
+    Enum.find_value(map, fn
+      {k, v} when is_atom(k) -> atom_key_value(k, key, v)
+      _ -> nil
+    end)
+  end
+
+  defp atom_key_value(atom_key, key, value) do
+    if Atom.to_string(atom_key) == key, do: value, else: nil
+  end
 
   defp normalize_srql_target_query(query, limit) when is_binary(query) do
     query =
