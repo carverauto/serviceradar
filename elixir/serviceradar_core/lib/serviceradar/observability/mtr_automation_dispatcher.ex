@@ -233,7 +233,12 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     if is_binary(target) and target != "" do
       trigger_mode = trigger_mode(mode)
       partition_id = normalize_partition(Map.get(target_ctx, :partition_id))
-      payload = %{"target" => target, "protocol" => normalize_protocol(Map.get(policy, :baseline_protocol))}
+
+      payload = %{
+        "target" => target,
+        "protocol" => normalize_protocol(Map.get(policy, :baseline_protocol))
+      }
+
       context = dispatch_context(target_ctx, trigger_mode, incident_correlation_id)
       actor = SystemActor.system(:mtr_automation)
       now = DateTime.utc_now()
@@ -314,12 +319,22 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     target_device_uid = read_ctx_value(ctx, :target_device_uid)
     partition_id = normalize_partition(read_ctx_value(ctx, :partition_id))
     gateway_id = read_ctx_value(ctx, :gateway_id)
-    target_key = read_ctx_value(ctx, :target_key) || target_key(target_device_uid, target_ip, nil, nil)
+
+    target_key =
+      read_ctx_value(ctx, :target_key) || target_key(target_device_uid, target_ip, nil, nil)
 
     if missing_target_context?(target_key, target, target_ip) do
       {:error, :missing_target}
     else
-      {:ok, normalized_target_ctx(target, target_ip, target_device_uid, partition_id, gateway_id, target_key)}
+      {:ok,
+       normalized_target_ctx(
+         target,
+         target_ip,
+         target_device_uid,
+         partition_id,
+         gateway_id,
+         target_key
+       )}
     end
   end
 
@@ -511,27 +526,30 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     device_map = Map.new(devices, fn device -> {blank_to_nil(device.uid), device} end)
 
     targets
-    |> Enum.filter(fn target ->
-      case Map.get(target, :target_device_uid) do
-        uid when is_binary(uid) and uid != "" ->
-          case Map.get(device_map, uid) do
-            nil ->
-              false
+    |> Enum.filter(&target_allowed?(&1, device_map, exclude_armis?))
+  end
 
-            device ->
-              managed_ok = device.is_managed == true and is_binary(blank_to_nil(device.ip))
-              armis_ok = not (exclude_armis? and armis_source?(device))
-              managed_ok and armis_ok
-          end
+  defp target_allowed?(target, device_map, exclude_armis?) do
+    case Map.get(target, :target_device_uid) do
+      uid when is_binary(uid) and uid != "" ->
+        device_allowed?(Map.get(device_map, uid), exclude_armis?)
 
-        _ ->
-          true
-      end
-    end)
+      _ ->
+        true
+    end
+  end
+
+  defp device_allowed?(nil, _exclude_armis?), do: false
+
+  defp device_allowed?(device, exclude_armis?) do
+    managed_ok = device.is_managed == true and is_binary(blank_to_nil(device.ip))
+    armis_ok = not (exclude_armis? and armis_source?(device))
+    managed_ok and armis_ok
   end
 
   defp srql_excludes_armis?(query) when is_binary(query) do
     normalized = query |> String.downcase() |> String.replace(~r/\s+/, "")
+
     String.contains?(normalized, "!discovery_sources:(armis)") or
       String.contains?(normalized, "!discovery_sources:armis")
   end
@@ -644,7 +662,14 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     is_nil(target_key) or (is_nil(target) and is_nil(target_ip))
   end
 
-  defp normalized_target_ctx(target, target_ip, target_device_uid, partition_id, gateway_id, target_key) do
+  defp normalized_target_ctx(
+         target,
+         target_ip,
+         target_device_uid,
+         partition_id,
+         gateway_id,
+         target_key
+       ) do
     %{
       target: target || target_ip,
       target_ip: target_ip || target,
