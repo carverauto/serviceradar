@@ -391,6 +391,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       # MTR Diagnostics
       live("/diagnostics/mtr", DiagnosticsLive.Mtr, :index)
+      live("/diagnostics/mtr/compare", DiagnosticsLive.MtrCompare, :compare)
       live("/diagnostics/mtr/:trace_id", DiagnosticsLive.MtrTrace, :show)
       live("/settings/profile", UserLive.Settings, :edit)
       live("/settings/api-credentials", UserLive.ApiCredentials, :index)

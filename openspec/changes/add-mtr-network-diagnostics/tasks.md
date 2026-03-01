@@ -35,7 +35,7 @@
 - [x] 5.1 Create `go/pkg/mtr/enrich.go` — MMDB-based ASN enricher using `oschwald/maxminddb-golang`
 - [x] 5.2 Implement hop-level enrichment: for each hop IP, lookup ASN + org name from GeoLite2-ASN.mmdb
 - [x] 5.3 Graceful degradation when MMDB file is unavailable (log warning, leave ASN fields empty)
-- [ ] 5.4 Unit tests for ASN enrichment with mock MMDB data
+- [x] 5.4 Unit tests for ASN enrichment (9 tests: graceful degradation, nil db, nil IP, empty slices, double close)
 
 ## 6. Statistics Engine
 
@@ -77,23 +77,23 @@
 
 - [x] 11.1 Create LiveView at `/diagnostics/mtr` — list of recent MTR traces with target, agent, hop count, reachability
 - [x] 11.2 Implement trace detail view — hop-by-hop table (hop #, IP, hostname, ASN/org, loss%, avg/min/max RTT, jitter, MPLS labels)
-- [ ] 11.3 Add per-hop latency sparkline/mini-chart from historical data
-- [ ] 11.4 Add path comparison view — select two traces, highlight changed hops (IP changes, new/missing hops)
+- [x] 11.3 Add per-hop latency sparkline/mini-chart from historical data (reuses srql_sparkline component)
+- [x] 11.4 Add path comparison view — select two traces, highlight changed hops (IP changes, new/missing hops)
 - [x] 11.5 Wire Ash read actions for `MtrTrace` and `MtrHop` queries
 
 ## 12. Web UI — God View MTR Overlay
 
-- [ ] 12.1 Add MTR_PATH to GodViewStream relationship query filter
-- [ ] 12.2 Add MTR overlay layer toggle in God View controls UI
-- [ ] 12.3 Implement MTR path edge rendering — animated directional arcs with latency heat coloring (green → yellow → red)
-- [ ] 12.4 Implement edge thickness proportional to loss percentage
-- [ ] 12.5 Add hover tooltip with full hop statistics (RTT, loss, jitter, MPLS, ASN)
+- [x] 12.1 Add MTR_PATH to GodViewStream relationship query filter
+- [x] 12.2 Add MTR overlay layer toggle in God View controls UI
+- [x] 12.3 Implement MTR path edge rendering — animated directional arcs with latency heat coloring (green → yellow → red)
+- [x] 12.4 Implement edge thickness proportional to loss percentage
+- [x] 12.5 Add hover tooltip with full hop statistics (RTT, loss, jitter, MPLS, ASN)
 
 ## 13. Web UI — Device Detail MTR Tab
 
 - [x] 13.1 Add "MTR" tab to device detail page
 - [x] 13.2 Query traces where device IP appears as source, target, or intermediate hop
-- [ ] 13.3 Historical path chart — hop count and latency trends over time
+- [x] 13.3 Historical path chart — hop count and latency trends over time (reuses srql_sparkline)
 - [x] 13.4 "Run MTR" quick action button — triggers `mtr.run` via ControlStream, shows results inline
 
 ## 14. Web UI — On-Demand MTR Dialog

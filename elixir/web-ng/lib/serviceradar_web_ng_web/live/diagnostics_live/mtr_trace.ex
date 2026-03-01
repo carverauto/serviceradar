@@ -1,7 +1,11 @@
 defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_sparkline: 1]
+
   alias ServiceRadar.Repo
+
+  @sparkline_points 20
 
   @impl true
   def mount(_params, _session, socket) do
@@ -10,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
      |> assign(:page_title, "MTR Trace")
      |> assign(:trace, nil)
      |> assign(:hops, [])
+     |> assign(:hop_sparklines, %{})
      |> assign(:error, nil)}
   end
 
@@ -42,10 +47,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
          trace <- Enum.zip(cols, row) |> Map.new(),
          {:ok, %{rows: hop_rows, columns: hop_cols}} <- Repo.query(hops_query, [trace_id]) do
       hops = Enum.map(hop_rows, fn row -> Enum.zip(hop_cols, row) |> Map.new() end)
+      sparklines = load_hop_sparklines(hops)
 
       socket
       |> assign(:trace, trace)
       |> assign(:hops, hops)
+      |> assign(:hop_sparklines, sparklines)
       |> assign(:page_title, "MTR Trace: #{trace["target"]}")
       |> assign(:error, nil)
     else
@@ -139,6 +146,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                 <th class="text-right">Max</th>
                 <th class="text-right">StdDev</th>
                 <th class="text-right">Jitter</th>
+                <th class="w-24">Trend</th>
                 <th>MPLS</th>
               </tr>
             </thead>
@@ -175,12 +183,15 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                 <td class="text-right font-mono text-sm">{format_us(hop["max_us"])}</td>
                 <td class="text-right font-mono text-sm">{format_us(hop["stddev_us"])}</td>
                 <td class="text-right font-mono text-sm">{format_us(hop["jitter_us"])}</td>
+                <td>
+                  <.srql_sparkline points={Map.get(@hop_sparklines, hop["addr"], [])} />
+                </td>
                 <td class="text-xs">
                   {format_mpls(hop["mpls_labels"])}
                 </td>
               </tr>
               <tr :if={@hops == []}>
-                <td colspan="12" class="text-center py-4 text-base-content/50">
+                <td colspan="13" class="text-center py-4 text-base-content/50">
                   No hop data available
                 </td>
               </tr>
@@ -247,4 +258,47 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   defp loss_class(pct) when pct > 10, do: "text-warning"
   defp loss_class(pct) when pct > 0, do: "text-warning/70"
   defp loss_class(_), do: "text-success"
+
+  # ---------------------------------------------------------------------------
+  # Sparklines
+  # ---------------------------------------------------------------------------
+
+  defp load_hop_sparklines(hops) do
+    addrs =
+      hops
+      |> Enum.map(& &1["addr"])
+      |> Enum.reject(&is_nil/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    if addrs == [] do
+      %{}
+    else
+      placeholders = Enum.map_join(1..length(addrs), ", ", fn i -> "$#{i}" end)
+
+      query = """
+      SELECT addr, time, avg_us
+      FROM (
+        SELECT addr, avg_us, time,
+               ROW_NUMBER() OVER (PARTITION BY addr ORDER BY time DESC) AS rn
+        FROM mtr_hops
+        WHERE addr IN (#{placeholders})
+          AND avg_us IS NOT NULL AND avg_us > 0
+      ) sub
+      WHERE rn <= #{@sparkline_points}
+      ORDER BY addr, time ASC
+      """
+
+      case Repo.query(query, addrs) do
+        {:ok, %{rows: rows}} ->
+          rows
+          |> Enum.group_by(fn [addr, _time, _val] -> addr end, fn [_addr, time, val] ->
+            {time, val}
+          end)
+
+        {:error, _} ->
+          %{}
+      end
+    end
+  end
 end

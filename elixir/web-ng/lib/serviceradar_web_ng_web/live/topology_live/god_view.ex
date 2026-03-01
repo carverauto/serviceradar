@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
 
   require Logger
 
+  alias ServiceRadarWebNG.Graph, as: AgeGraph
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
   alias ServiceRadarWebNGWeb.FeatureFlags
 
@@ -47,7 +48,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
        |> assign(:topology_layers, %{
          backbone: true,
          inferred: false,
-         endpoints: false
+         endpoints: false,
+         mtr_paths: false
        })
        |> assign(:pipeline_stats, %{})
        |> assign(:controls_collapsed, true)}
@@ -149,15 +151,27 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
       case layer do
         "backbone" -> :backbone
         "inferred" -> :inferred
+        "mtr_paths" -> :mtr_paths
         _ -> :endpoints
       end
 
     layers = Map.update!(socket.assigns.topology_layers, key, &(!&1))
 
-    {:noreply,
-     socket
-     |> assign(:topology_layers, layers)
-     |> push_event("god_view:set_topology_layers", %{layers: stringify_filter_keys(layers)})}
+    socket =
+      socket
+      |> assign(:topology_layers, layers)
+      |> push_event("god_view:set_topology_layers", %{layers: stringify_filter_keys(layers)})
+
+    socket =
+      if key == :mtr_paths do
+        if layers.mtr_paths,
+          do: push_mtr_path_data(socket),
+          else: push_event(socket, "god_view:mtr_path_data", %{paths: []})
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   def handle_event("toggle_controls_panel", _params, socket) do
@@ -496,7 +510,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
                     <div class="text-[10px] uppercase tracking-wide text-base-content/60 mb-1">
                       Topology
                     </div>
-                    <div class="grid grid-cols-3 gap-1">
+                    <div class="grid grid-cols-2 gap-1">
                       <button
                         type="button"
                         class={overlay_filter_button_class(@topology_layers.backbone)}
@@ -523,6 +537,15 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
                         title="Endpoint attachments"
                       >
                         Endpoints
+                      </button>
+                      <button
+                        type="button"
+                        class={overlay_filter_button_class(@topology_layers.mtr_paths)}
+                        phx-click="toggle_topology_layer"
+                        phx-value-layer="mtr_paths"
+                        title="MTR traceroute paths"
+                      >
+                        MTR
                       </button>
                     </div>
                   </div>
@@ -645,6 +668,107 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
       </div>
     </Layouts.app>
     """
+  end
+
+  defp push_mtr_path_data(socket) do
+    push_event(socket, "god_view:mtr_path_data", %{paths: load_mtr_paths()})
+  end
+
+  defp load_mtr_paths do
+    cypher = """
+    MATCH (a:Device)-[r:MTR_PATH]->(b:Device)
+    WHERE a.id IS NOT NULL AND b.id IS NOT NULL
+      AND a.id STARTS WITH 'sr:' AND b.id STARTS WITH 'sr:'
+    RETURN {
+      source: a.id,
+      target: b.id,
+      source_addr: coalesce(a.addr, ''),
+      target_addr: coalesce(b.addr, ''),
+      avg_us: coalesce(r.avg_us, 0),
+      loss_pct: coalesce(r.loss_pct, 0.0),
+      jitter_us: coalesce(r.jitter_us, 0),
+      from_hop: coalesce(r.from_hop, 0),
+      to_hop: coalesce(r.to_hop, 0),
+      agent_id: coalesce(r.agent_id, '')
+    }
+    LIMIT 500
+    """
+
+    case AgeGraph.query(cypher) do
+      {:ok, rows} when is_list(rows) ->
+        rows
+        |> Enum.map(&normalize_mtr_path_row/1)
+        |> Enum.reject(&is_nil/1)
+
+      _ ->
+        []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp normalize_mtr_path_row(%{} = row) do
+    row =
+      if map_size(row) == 1 do
+        [{_k, v}] = Map.to_list(row)
+        if is_map(v), do: v, else: row
+      else
+        row
+      end
+
+    source = Map.get(row, "source") || Map.get(row, :source)
+    target = Map.get(row, "target") || Map.get(row, :target)
+
+    if is_binary(source) and is_binary(target) do
+      %{
+        source: source,
+        target: target,
+        source_addr: mtr_str(row, "source_addr"),
+        target_addr: mtr_str(row, "target_addr"),
+        avg_us: mtr_int(row, "avg_us"),
+        loss_pct: mtr_float(row, "loss_pct"),
+        jitter_us: mtr_int(row, "jitter_us"),
+        from_hop: mtr_int(row, "from_hop"),
+        to_hop: mtr_int(row, "to_hop"),
+        agent_id: mtr_str(row, "agent_id")
+      }
+    else
+      nil
+    end
+  end
+
+  defp normalize_mtr_path_row(_), do: nil
+
+  defp mtr_str(row, key) do
+    to_string(Map.get(row, key) || Map.get(row, String.to_existing_atom(key), ""))
+  rescue
+    _ -> ""
+  end
+
+  defp mtr_int(row, key) do
+    val = Map.get(row, key) || Map.get(row, String.to_existing_atom(key), 0)
+
+    case val do
+      v when is_integer(v) -> v
+      v when is_float(v) -> round(v)
+      v when is_binary(v) -> String.to_integer(v)
+      _ -> 0
+    end
+  rescue
+    _ -> 0
+  end
+
+  defp mtr_float(row, key) do
+    val = Map.get(row, key) || Map.get(row, String.to_existing_atom(key), 0.0)
+
+    case val do
+      v when is_float(v) -> v
+      v when is_integer(v) -> v * 1.0
+      v when is_binary(v) -> String.to_float(v)
+      _ -> 0.0
+    end
+  rescue
+    _ -> 0.0
   end
 
   defp stringify_filter_keys(filters) do

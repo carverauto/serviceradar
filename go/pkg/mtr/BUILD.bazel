@@ -27,6 +27,7 @@ go_library(
 go_test(
     name = "mtr_test",
     srcs = [
+        "enrich_test.go",
         "hop_test.go",
         "mpls_test.go",
         "options_test.go",

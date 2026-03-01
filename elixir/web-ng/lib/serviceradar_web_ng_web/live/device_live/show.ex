@@ -2,7 +2,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
-  import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
+  import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1, srql_sparkline: 1]
   import Bitwise
   require Ash.Query
   require Logger
@@ -103,6 +103,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:show_stale_aliases, false)
      # MTR diagnostics tab
      |> assign(:mtr_traces, [])
+     |> assign(:mtr_trends, %{hops: [], latency: []})
      |> assign(:mtr_running, false)
      # Tab state for device details
      |> assign(:active_tab, "details")}
@@ -2173,6 +2174,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   >
                     View All
                   </.link>
+                </div>
+              </div>
+
+              <div
+                :if={@mtr_trends.hops != [] or @mtr_trends.latency != []}
+                class="grid grid-cols-2 gap-4"
+              >
+                <div class="card bg-base-200 p-3">
+                  <div class="text-xs text-base-content/60 mb-1">Hop Count Trend</div>
+                  <.srql_sparkline points={@mtr_trends.hops} />
+                </div>
+                <div class="card bg-base-200 p-3">
+                  <div class="text-xs text-base-content/60 mb-1">Last Hop Latency Trend</div>
+                  <.srql_sparkline points={@mtr_trends.latency} />
                 </div>
               </div>
 
@@ -5365,11 +5380,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       case ServiceRadar.Repo.query(query, params) do
         {:ok, %{rows: rows, columns: columns}} ->
           traces = Enum.map(rows, fn row -> Enum.zip(columns, row) |> Map.new() end)
-          assign(socket, :mtr_traces, traces)
+          trends = build_mtr_trends(traces)
+
+          socket
+          |> assign(:mtr_traces, traces)
+          |> assign(:mtr_trends, trends)
 
         {:error, _reason} ->
-          assign(socket, :mtr_traces, [])
+          socket
+          |> assign(:mtr_traces, [])
+          |> assign(:mtr_trends, %{hops: [], latency: []})
       end
+    end
+  end
+
+  defp build_mtr_trends(traces) do
+    # Build sparkline-compatible {time, value} tuples from traces (newest first, reverse for chronological)
+    sorted = Enum.reverse(traces)
+
+    hops =
+      Enum.map(sorted, fn t ->
+        {t["time"], t["total_hops"] || 0}
+      end)
+
+    # For latency, query the last hop's avg_us from each trace
+    latency = load_last_hop_latencies(sorted)
+
+    %{hops: hops, latency: latency}
+  end
+
+  defp load_last_hop_latencies([]), do: []
+
+  defp load_last_hop_latencies(traces) do
+    trace_ids = Enum.map(traces, & &1["id"])
+    placeholders = Enum.map_join(1..length(trace_ids), ", ", fn i -> "$#{i}" end)
+
+    query = """
+    SELECT DISTINCT ON (trace_id) trace_id, avg_us
+    FROM mtr_hops
+    WHERE trace_id IN (#{placeholders})
+      AND addr IS NOT NULL
+    ORDER BY trace_id, hop_number DESC
+    """
+
+    case ServiceRadar.Repo.query(query, trace_ids) do
+      {:ok, %{rows: rows}} ->
+        latency_map = Map.new(rows, fn [tid, avg] -> {tid, avg || 0} end)
+
+        Enum.map(traces, fn t ->
+          {t["time"], Map.get(latency_map, t["id"], 0)}
+        end)
+
+      {:error, _} ->
+        []
     end
   end
 
