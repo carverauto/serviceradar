@@ -971,7 +971,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         </div>
         <div class="flex-1 min-w-0">
           <div class={["text-2xl font-bold", tone_value(@tone)]}>
-            {format_number(@value)}
+            {format_compact_number(@value)}
           </div>
           <div class="text-sm text-base-content/60">
             {@title}
@@ -1005,14 +1005,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp tone_value("warning"), do: "text-warning"
   defp tone_value("success"), do: "text-success"
   defp tone_value(_), do: "text-base-content"
-
-  defp format_number(n) when is_integer(n) and n >= 1000 do
-    n |> Integer.to_string() |> add_commas()
-  end
-
-  defp format_number(n) when is_integer(n), do: Integer.to_string(n)
-  defp format_number(n) when is_float(n), do: n |> trunc() |> format_number()
-  defp format_number(_), do: "0"
 
   defp format_compact_number(n) when is_float(n), do: n |> trunc() |> format_compact_number()
 
@@ -1048,15 +1040,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     |> :erlang.float_to_binary(decimals: decimals)
     |> String.trim_trailing("0")
     |> String.trim_trailing(".")
-  end
-
-  defp add_commas(str) do
-    str
-    |> String.reverse()
-    |> String.graphemes()
-    |> Enum.chunk_every(3)
-    |> Enum.join(",")
-    |> String.reverse()
   end
 
   attr :availability, :map, required: true
@@ -1142,7 +1125,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               <span class="w-3 h-3 rounded-full bg-success" />
               <span class="text-sm">Online</span>
             </div>
-            <span class="font-semibold">{format_number(@online)}</span>
+            <span class="font-semibold">{format_compact_number(@online)}</span>
           </.link>
           <.link
             href={~p"/devices?#{%{q: "in:devices is_available:false sort:last_seen:desc limit:20"}}"}
@@ -1152,7 +1135,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               <span class="w-3 h-3 rounded-full bg-error" />
               <span class="text-sm">Offline</span>
             </div>
-            <span class="font-semibold">{format_number(@offline)}</span>
+            <span class="font-semibold">{format_compact_number(@offline)}</span>
           </.link>
 
           <.link
@@ -1892,7 +1875,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       phx-click={JS.navigate(@href)}
     >
       <td class={severity_text_class(@color)}>{@label}</td>
-      <td class={["text-center font-bold", severity_text_class(@color)]}>{format_number(@count)}</td>
+      <td class={["text-center font-bold", severity_text_class(@color)]}>{format_compact_number(@count)}</td>
       <td class={["text-center text-xs", severity_text_class(@color)]}>{@pct}%</td>
     </tr>
     """
