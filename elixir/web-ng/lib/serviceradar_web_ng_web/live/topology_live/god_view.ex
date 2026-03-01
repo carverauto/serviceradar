@@ -800,16 +800,24 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   end
 
   defp mtr_float(row, key) do
-    val = Map.get(row, key) || Map.get(row, String.to_existing_atom(key), 0.0)
+    val = mtr_get(row, key)
 
     case val do
-      v when is_float(v) -> v
-      v when is_integer(v) -> v * 1.0
-      v when is_binary(v) -> String.to_float(v)
-      _ -> 0.0
+      v when is_float(v) ->
+        v
+
+      v when is_integer(v) ->
+        v * 1.0
+
+      v when is_binary(v) ->
+        case Float.parse(v) do
+          {f, _} -> f
+          :error -> 0.0
+        end
+
+      _ ->
+        0.0
     end
-  rescue
-    _ -> 0.0
   end
 
   defp stringify_filter_keys(filters) do

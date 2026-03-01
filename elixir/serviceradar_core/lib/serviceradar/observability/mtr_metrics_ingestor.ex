@@ -104,11 +104,15 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
   defp insert_single_result(result, agent_id, gateway_id, partition, now, actor)
        when is_map(result) do
-    trace = result["trace"] || %{}
+    trace = map_get_any(result, ["trace", :trace], %{})
 
     target_value =
       first_present(
-        [trace["target_ip"], trace["target"], result["target"]],
+        [
+          map_get_any(trace, ["target_ip", :target_ip], nil),
+          map_get_any(trace, ["target", :target], nil),
+          map_get_any(result, ["target", :target], nil)
+        ],
         ""
       )
 
@@ -120,7 +124,13 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
              result
              |> build_trace_row(trace, trace_id, trace_time, agent_id, gateway_id, partition)
              |> insert_trace(actor),
-           :ok <- insert_trace_hops(trace["hops"] || [], trace_id, trace_time, actor) do
+           :ok <-
+             insert_trace_hops(
+               map_get_any(trace, ["hops", :hops], []),
+               trace_id,
+               trace_time,
+               actor
+             ) do
         :ok
       end
     else
@@ -146,7 +156,10 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   end
 
   defp trace_time(result, trace, now) do
-    parse_trace_time(trace["timestamp"] || result["timestamp"]) || now
+    parse_trace_time(
+      map_get_any(trace, ["timestamp", :timestamp], nil) ||
+        map_get_any(result, ["timestamp", :timestamp], nil)
+    ) || now
   end
 
   defp build_trace_row(result, trace, trace_id, trace_time, agent_id, gateway_id, partition) do
@@ -239,6 +252,17 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   end
 
   defp insert_hop(_hop, _trace_id, _trace_time, _actor), do: {:ok, nil}
+
+  defp map_get_any(map, keys, default) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, default, fn key ->
+      case Map.get(map, key) do
+        nil -> nil
+        value -> value
+      end
+    end)
+  end
+
+  defp map_get_any(_map, _keys, default), do: default
 
   defp parse_trace_time(nil), do: nil
 

@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     "agent_id" => "agent_id",
     "protocol" => "protocol",
     "check_name" => "check_name",
-    "device_id" => "device_id",
+    "device_id" => "device_id::text",
     "target_reached" => "target_reached",
     "error" => "error"
   }

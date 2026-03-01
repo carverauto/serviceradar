@@ -791,7 +791,13 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
       normalized ->
         srql_module = srql_module()
-        full_query = "#{normalized} stats:\"count() as total\""
+
+        full_query =
+          if String.contains?(normalized, " stats:") or String.starts_with?(normalized, "stats:") do
+            normalized
+          else
+            "#{normalized} stats:\"count() as total\""
+          end
 
         case srql_module.query(full_query, %{scope: scope}) do
           {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) -> count

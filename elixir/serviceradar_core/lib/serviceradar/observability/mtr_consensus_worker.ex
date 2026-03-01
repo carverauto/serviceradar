@@ -116,7 +116,7 @@ defmodule ServiceRadar.Observability.MtrConsensusWorker do
     min_agents =
       (consensus_result[:evidence] || %{}) |> Map.get(:consensus, %{}) |> Map.get(:min_agents, 2)
 
-    enough_data = length(outcomes) >= min_agents
+    enough_data = length(outcomes) >= max(min_agents, 1)
 
     if enough_data and classification != :insufficient_evidence do
       identity =

@@ -328,7 +328,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
           targetAddr: String(path.target_addr || ""),
           sourceId: path.source,
           targetId: path.target,
-          interactionKey: `mtr:${path.source}:${path.target}:${path.agent_id || ""}:${path.from_hop ?? ""}:${path.to_hop ?? ""}`,
+          interactionKey: `mtr:${String(path.source ?? "")}:${String(path.target ?? "")}:${String(path.agent_id ?? "")}:${String(path.from_hop ?? "")}:${String(path.to_hop ?? "")}`,
         }
       })
       .filter(Boolean)
@@ -338,7 +338,8 @@ export const godViewRenderingGraphLayerTransportMethods = {
     const ms = avgUs / 1000
     const pulse = (Math.sin(this.state.animationPhase * Math.PI * 2) + 1) * 0.5
     const alphaBoost = 0.85 + (pulse * 0.15)
-    const scale = Math.max(0, Math.min(1, Number(alphaScale ?? 1.0)))
+    const rawScale = Number(alphaScale ?? 1.0)
+    const scale = Number.isFinite(rawScale) ? Math.max(0, Math.min(1, rawScale)) : 1.0
     const alpha = Math.max(0, Math.min(255, Math.round(200 * scale * alphaBoost)))
 
     if (ms <= 5) return [76, 175, 80, alpha]

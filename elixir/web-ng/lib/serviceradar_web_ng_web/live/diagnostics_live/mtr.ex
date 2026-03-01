@@ -151,7 +151,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
             {:noreply,
              socket
              |> assign(:show_mtr_modal, false)
-             |> assign(:mtr_running, false)
+             |> assign(:mtr_running, true)
              |> assign(:mtr_error, nil)
              |> assign(:mtr_command_id, command_id)
              |> put_flash(:info, "MTR trace queued")

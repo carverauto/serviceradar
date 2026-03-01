@@ -5615,7 +5615,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp msg_matches_device?(candidate, expected)
        when is_binary(candidate) and is_binary(expected) do
-    String.trim(candidate) != "" and candidate == expected
+    candidate = String.trim(candidate)
+    expected = String.trim(expected)
+
+    candidate != "" and candidate == expected
   end
 
   defp msg_matches_device?(_, _), do: false
