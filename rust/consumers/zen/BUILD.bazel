@@ -43,6 +43,15 @@ rust_binary(
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
 
+rust_binary(
+    name = "zen_put_rule",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/bin/put_rule.rs",
+    edition = "2021",
+    deps = all_crate_deps(normal = True),
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
+
 rust_test(
     name = "zen_lib_test",
     crate = ":zen_lib",
