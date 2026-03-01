@@ -57,22 +57,28 @@ faker:
       poolHeadroomPercent: 0
 
 core:
-  # MTR automation rollout profiles:
-  # Baseline-only (recommended first):
+  # MTR automation rollout profiles (copy/paste into mtrAutomation):
+  # baseline_only:
   #   enabled: true
   #   baselineEnabled: true
   #   triggerEnabled: false
   #   consensusEnabled: false
-  # Incident-capture enabled:
+  #   baselineTickMs: 60000
+  #   consensusCohortRetentionMs: 300000
+  # trigger_capture:
   #   enabled: true
   #   baselineEnabled: true
   #   triggerEnabled: true
   #   consensusEnabled: false
-  # Full automation (with causal consensus):
+  #   baselineTickMs: 60000
+  #   consensusCohortRetentionMs: 300000
+  # full_consensus:
   #   enabled: true
   #   baselineEnabled: true
   #   triggerEnabled: true
   #   consensusEnabled: true
+  #   baselineTickMs: 60000
+  #   consensusCohortRetentionMs: 300000
   mtrAutomation:
     enabled: true
     baselineEnabled: true

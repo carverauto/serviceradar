@@ -45,25 +45,66 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
   defp run_policy(policy) do
     targets = MtrAutomationDispatcher.baseline_targets(policy)
 
-    Enum.each(targets, fn target_ctx ->
-      case MtrAutomationDispatcher.dispatch_for_mode(target_ctx, policy, :baseline) do
-        {:ok, _selected_agents} ->
-          :ok
+    stats =
+      Enum.reduce(targets, init_dispatch_stats(), fn target_ctx, acc ->
+        case MtrAutomationDispatcher.dispatch_for_mode(target_ctx, policy, :baseline) do
+          {:ok, _selected_agents} ->
+            Map.update!(acc, :dispatched, &(&1 + 1))
 
-        {:error, :cooldown_active} ->
-          :ok
+          {:error, :cooldown_active} ->
+            Map.update!(acc, :cooldown, &(&1 + 1))
 
-        {:error, :no_candidates} ->
-          :ok
+          {:error, :no_candidates} ->
+            Map.update!(acc, :no_candidates, &(&1 + 1))
 
-        {:error, reason} ->
-          Logger.debug("MTR baseline dispatch skipped",
-            policy: Map.get(policy, :name),
-            target_key: Map.get(target_ctx, :target_key),
-            reason: inspect(reason)
-          )
-      end
+          {:error, reason} ->
+            reason_key = dispatch_reason_key(reason)
+
+            acc
+            |> Map.update!(:failed, &(&1 + 1))
+            |> update_reason_count(reason_key)
+        end
+      end)
+
+    log_dispatch_summary("MTR baseline dispatch summary", Map.get(policy, :name), length(targets), stats)
+  end
+
+  defp init_dispatch_stats do
+    %{
+      dispatched: 0,
+      cooldown: 0,
+      no_candidates: 0,
+      failed: 0,
+      reasons: %{}
+    }
+  end
+
+  defp update_reason_count(stats, reason_key) do
+    Map.update!(stats, :reasons, fn reasons ->
+      Map.update(reasons, reason_key, 1, &(&1 + 1))
     end)
+  end
+
+  defp dispatch_reason_key(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp dispatch_reason_key({kind, _, _}) when is_atom(kind), do: Atom.to_string(kind)
+  defp dispatch_reason_key({kind, _}) when is_atom(kind), do: Atom.to_string(kind)
+  defp dispatch_reason_key(reason), do: inspect(reason)
+
+  defp log_dispatch_summary(prefix, policy_name, target_count, stats) do
+    Logger.info(
+      "#{prefix} policy=#{policy_name || "unknown"} " <>
+        "targets=#{target_count} dispatched=#{stats.dispatched} cooldown=#{stats.cooldown} " <>
+        "no_candidates=#{stats.no_candidates} failed=#{stats.failed} " <>
+        "reasons=#{format_reason_counts(stats.reasons)}"
+    )
+  end
+
+  defp format_reason_counts(reasons) when map_size(reasons) == 0, do: "none"
+
+  defp format_reason_counts(reasons) do
+    reasons
+    |> Enum.sort_by(fn {key, _count} -> key end)
+    |> Enum.map_join(",", fn {key, count} -> "#{key}:#{count}" end)
   end
 
   defp tick_interval_ms do

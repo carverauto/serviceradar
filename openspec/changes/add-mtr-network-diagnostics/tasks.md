@@ -123,14 +123,14 @@
 
 ## 17. Operationalization: Managed + Causal Integration
 
-- [ ] 17.1 Add managed-device baseline MTR policy model (scope, cadence, cooldown, protocol strategy) and wire to check generation.
-- [ ] 17.2 Implement automatic event-triggered MTR dispatch on degraded/unavailable transitions with dedupe/cooldown.
-- [ ] 17.3 Normalize MTR anomalies into causal signal envelope for DeepCausality ingestion with topology join keys.
-- [ ] 17.4 Integrate MTR-derived causal classes into God View atmosphere updates without topology coordinate churn.
-- [ ] 17.5 Add policy-level protocol escalation controls (ICMP baseline, UDP/TCP escalation paths).
-- [ ] 17.6 Add integration tests for baseline scheduling, transition-triggered traces, and causal overlay updates.
-- [ ] 17.7 Implement agent-vantage selector (primary assignment + bounded canary/fanout cohort) for automated MTR dispatch.
-- [ ] 17.8 Implement multi-agent consensus evaluator for MTR outcomes (path-scoped vs target-scoped severity classification).
+- [x] 17.1 Add managed-device baseline MTR policy model (scope, cadence, cooldown, protocol strategy) and wire to check generation.
+- [x] 17.2 Implement automatic event-triggered MTR dispatch on degraded/unavailable transitions with dedupe/cooldown.
+- [x] 17.3 Normalize MTR anomalies into causal signal envelope for DeepCausality ingestion with topology join keys.
+- [x] 17.4 Integrate MTR-derived causal classes into God View atmosphere updates without topology coordinate churn.
+- [x] 17.5 Add policy-level protocol escalation controls (ICMP baseline, UDP/TCP escalation paths).
+- [x] 17.6 Add integration tests for baseline scheduling, transition-triggered traces, and causal overlay updates.
+- [x] 17.7 Implement agent-vantage selector (primary assignment + bounded canary/fanout cohort) for automated MTR dispatch.
+- [x] 17.8 Implement multi-agent consensus evaluator for MTR outcomes (path-scoped vs target-scoped severity classification).
 
 ## 18. Concrete Delivery Checklist
 

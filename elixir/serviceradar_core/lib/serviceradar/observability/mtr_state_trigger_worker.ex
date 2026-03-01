@@ -52,16 +52,24 @@ defmodule ServiceRadar.Observability.MtrStateTriggerWorker do
 
     case MtrPolicy.list_enabled() do
       {:ok, policies} when is_list(policies) ->
-        Enum.each(
-          policies,
-          &dispatch_policy(&1, target_ctx, mode, incident_correlation_id, transition_class)
-        )
+        policies
+        |> Enum.reduce(init_dispatch_stats(), fn policy, acc ->
+          update_dispatch_stats(
+            acc,
+            dispatch_policy(policy, target_ctx, mode, incident_correlation_id, transition_class)
+          )
+        end)
+        |> log_dispatch_summary(mode, transition_class, Map.get(target_ctx, :target_key))
 
       {:ok, %Ash.Page.Keyset{results: policies}} ->
-        Enum.each(
-          policies,
-          &dispatch_policy(&1, target_ctx, mode, incident_correlation_id, transition_class)
-        )
+        policies
+        |> Enum.reduce(init_dispatch_stats(), fn policy, acc ->
+          update_dispatch_stats(
+            acc,
+            dispatch_policy(policy, target_ctx, mode, incident_correlation_id, transition_class)
+          )
+        end)
+        |> log_dispatch_summary(mode, transition_class, Map.get(target_ctx, :target_key))
 
       {:error, reason} ->
         Logger.warning("MTR trigger worker failed to load policies", reason: inspect(reason))
@@ -70,7 +78,7 @@ defmodule ServiceRadar.Observability.MtrStateTriggerWorker do
 
   defp dispatch_policy(policy, target_ctx, mode, incident_correlation_id, transition_class) do
     if mode == :recovery and Map.get(policy, :recovery_capture) != true do
-      :ok
+      :recovery_disabled
     else
       target_ctx = merge_policy_partition(target_ctx, policy)
 
@@ -82,23 +90,69 @@ defmodule ServiceRadar.Observability.MtrStateTriggerWorker do
              transition_class: transition_class
            ) do
         {:ok, _selected_agents} ->
-          :ok
+          :dispatched
 
         {:error, :cooldown_active} ->
-          :ok
+          :cooldown
 
         {:error, :no_candidates} ->
-          :ok
+          :no_candidates
 
         {:error, reason} ->
-          Logger.debug("MTR state-trigger dispatch skipped",
-            mode: Atom.to_string(mode),
-            policy: Map.get(policy, :name),
-            target_key: Map.get(target_ctx, :target_key),
-            reason: inspect(reason)
-          )
+          {:failed, dispatch_reason_key(reason)}
       end
     end
+  end
+
+  defp init_dispatch_stats do
+    %{
+      dispatched: 0,
+      cooldown: 0,
+      no_candidates: 0,
+      recovery_disabled: 0,
+      failed: 0,
+      reasons: %{}
+    }
+  end
+
+  defp update_dispatch_stats(stats, :dispatched), do: Map.update!(stats, :dispatched, &(&1 + 1))
+  defp update_dispatch_stats(stats, :cooldown), do: Map.update!(stats, :cooldown, &(&1 + 1))
+
+  defp update_dispatch_stats(stats, :no_candidates),
+    do: Map.update!(stats, :no_candidates, &(&1 + 1))
+
+  defp update_dispatch_stats(stats, :recovery_disabled),
+    do: Map.update!(stats, :recovery_disabled, &(&1 + 1))
+
+  defp update_dispatch_stats(stats, {:failed, reason_key}) do
+    stats
+    |> Map.update!(:failed, &(&1 + 1))
+    |> Map.update!(:reasons, fn reasons -> Map.update(reasons, reason_key, 1, &(&1 + 1)) end)
+  end
+
+  defp update_dispatch_stats(stats, _), do: stats
+
+  defp dispatch_reason_key(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp dispatch_reason_key({kind, _, _}) when is_atom(kind), do: Atom.to_string(kind)
+  defp dispatch_reason_key({kind, _}) when is_atom(kind), do: Atom.to_string(kind)
+  defp dispatch_reason_key(reason), do: inspect(reason)
+
+  defp log_dispatch_summary(stats, mode, transition_class, target_key) do
+    Logger.info(
+      "MTR trigger dispatch summary " <>
+        "mode=#{mode} transition_class=#{transition_class} target_key=#{target_key} " <>
+        "dispatched=#{stats.dispatched} cooldown=#{stats.cooldown} " <>
+        "no_candidates=#{stats.no_candidates} recovery_disabled=#{stats.recovery_disabled} " <>
+        "failed=#{stats.failed} reasons=#{format_reason_counts(stats.reasons)}"
+    )
+  end
+
+  defp format_reason_counts(reasons) when map_size(reasons) == 0, do: "none"
+
+  defp format_reason_counts(reasons) do
+    reasons
+    |> Enum.sort_by(fn {key, _count} -> key end)
+    |> Enum.map_join(",", fn {key, count} -> "#{key}:#{count}" end)
   end
 
   defp merge_policy_partition(target_ctx, policy) do

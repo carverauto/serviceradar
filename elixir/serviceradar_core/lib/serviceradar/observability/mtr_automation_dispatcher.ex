@@ -506,10 +506,16 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
         true
 
       {:error, reason} ->
-        Logger.warning("MTR automated dispatch failed",
-          trigger_mode: trigger_mode,
-          agent_id: agent_id,
-          reason: inspect(reason)
+        Logger.error(
+          "MTR automated dispatch failed " <>
+            "trigger_mode=#{trigger_mode} " <>
+            "agent_id=#{agent_id} " <>
+            "target=#{Map.get(payload, "target")} " <>
+            "protocol=#{Map.get(payload, "protocol")} " <>
+            "partition_id=#{partition_id} " <>
+            "target_key=#{Map.get(context, "target_key")} " <>
+            "incident_correlation_id=#{Map.get(context, "incident_correlation_id")} " <>
+            "reason=#{inspect(reason)}"
         )
 
         false
@@ -753,7 +759,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
   defp normalize_partition(value) do
     case blank_to_nil(value) do
-      nil -> ""
+      nil -> "default"
       partition -> partition
     end
   end

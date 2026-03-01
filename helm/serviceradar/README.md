@@ -109,9 +109,39 @@ core:
 ```
 
 Recommended staged enablement:
-1. Baseline only: `enabled=true`, `baselineEnabled=true`, `triggerEnabled=false`, `consensusEnabled=false`
-2. Add state-triggered dispatch: `triggerEnabled=true`
-3. Add consensus + causal emission: `consensusEnabled=true`
+1. Baseline only:
+```yaml
+core:
+  mtrAutomation:
+    enabled: true
+    baselineEnabled: true
+    triggerEnabled: false
+    consensusEnabled: false
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
+```
+2. Trigger capture:
+```yaml
+core:
+  mtrAutomation:
+    enabled: true
+    baselineEnabled: true
+    triggerEnabled: true
+    consensusEnabled: false
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
+```
+3. Full consensus:
+```yaml
+core:
+  mtrAutomation:
+    enabled: true
+    baselineEnabled: true
+    triggerEnabled: true
+    consensusEnabled: true
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
+```
 
 ## Network Requirements
 
