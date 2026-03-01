@@ -25,12 +25,16 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 )
 
-var errNoTargetAddresses = errors.New("no addresses found for target")
+var (
+	errNoTargetAddresses       = errors.New("no addresses found for target")
+	errTCPProbesNotImplemented = errors.New("tcp probes not implemented")
+)
 
 // probeRecord tracks an in-flight probe.
 type probeRecord struct {
@@ -60,13 +64,21 @@ type Tracer struct {
 	icmpID   int
 
 	// target reached flag
-	targetReached bool
+	targetReached atomic.Bool
 }
 
 // NewTracer creates a new MTR tracer with the given options.
-func NewTracer(opts Options, log logger.Logger) (*Tracer, error) {
+func NewTracer(ctx context.Context, opts Options, log logger.Logger) (*Tracer, error) {
+	if opts.Protocol == ProtocolTCP {
+		return nil, errTCPProbesNotImplemented
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	// Resolve target.
-	ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip", opts.Target)
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", opts.Target)
 	if err != nil {
 		return nil, fmt.Errorf("resolve target %q: %w", opts.Target, err)
 	}
@@ -205,9 +217,10 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 
 			seq := t.allocateSeq()
 			ttl := hopIdx + 1
+			probeKey := seq
 
 			t.probesMu.Lock()
-			t.probes[seq] = &probeRecord{
+			t.probes[probeKey] = &probeRecord{
 				hopIndex: hopIdx,
 				seq:      seq,
 				sentAt:   time.Now(),
@@ -222,17 +235,24 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 
 			switch t.opts.Protocol {
 			case ProtocolUDP:
-				sendErr = t.sock.SendUDP(t.targetIP, ttl, MinPort+seq%1000, DefaultUDPBasePort+seq%1000, t.makePayload()) //nolint:mnd
-			case ProtocolICMP, ProtocolTCP:
+				// UDP correlation uses the quoted destination port from ICMP errors.
+				// Encode the full probe sequence into destination port to avoid key mismatch.
+				srcPort := MinPort + seq%1000 //nolint:mnd
+				dstPort := seq
+				probeKey = dstPort
+				sendErr = t.sock.SendUDP(t.targetIP, ttl, srcPort, dstPort, t.makePayload())
+			case ProtocolICMP:
 				sendErr = t.sock.SendICMP(t.targetIP, ttl, t.icmpID, seq, t.makePayload())
+			case ProtocolTCP:
+				sendErr = errTCPProbesNotImplemented
 			}
 
 			if sendErr != nil {
 				t.logger.Debug().Err(sendErr).Int("ttl", ttl).Int("cycle", cycle).Msg("send probe failed")
 				// Roll back optimistic probe accounting on send failures.
 				t.probesMu.Lock()
-				if probe, ok := t.probes[seq]; ok {
-					delete(t.probes, seq)
+				if probe, ok := t.probes[probeKey]; ok {
+					delete(t.probes, probeKey)
 					hop := t.hops[probe.hopIndex]
 					hop.mu.Lock()
 					if hop.Sent > 0 {
@@ -248,7 +268,7 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			}
 
 			// Check if target was reached in a previous cycle.
-			if t.targetReached {
+			if t.isTargetReached() {
 				// Only probe up to the hop where target was reached.
 				hop := t.hops[hopIdx]
 				hop.mu.RLock()
@@ -353,7 +373,7 @@ func (t *Tracer) handleResponse(resp *ICMPResponse) {
 
 	// Check if target was reached.
 	if resp.SrcAddr.Equal(t.targetIP) {
-		t.targetReached = true
+		t.setTargetReached(true)
 	}
 
 	// Async DNS resolution.
@@ -408,7 +428,7 @@ func (t *Tracer) buildResult() *TraceResult {
 	return &TraceResult{
 		Target:        t.opts.Target,
 		TargetIP:      t.targetIP.String(),
-		TargetReached: t.targetReached,
+		TargetReached: t.isTargetReached(),
 		TotalHops:     totalHops,
 		Protocol:      t.opts.Protocol.String(),
 		IPVersion:     t.ipVersion,
@@ -457,4 +477,12 @@ func isTimeoutError(err error) bool {
 	}
 
 	return false
+}
+
+func (t *Tracer) isTargetReached() bool {
+	return t.targetReached.Load()
+}
+
+func (t *Tracer) setTargetReached(v bool) {
+	t.targetReached.Store(v)
 }

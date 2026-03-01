@@ -24,7 +24,7 @@ func TestTracer_LoopbackTrace(t *testing.T) {
 	opts.ProbesPerHop = 3
 	opts.DNSResolve = false
 
-	tracer, err := NewTracer(opts, log)
+	tracer, err := NewTracer(ctx, opts, log)
 	if err != nil {
 		t.Skipf("Cannot create tracer (may need root/cap_net_raw): %v", err)
 	}
@@ -67,7 +67,7 @@ func TestTracer_LoopbackIPv6(t *testing.T) {
 	opts.ProbesPerHop = 3
 	opts.DNSResolve = false
 
-	tracer, err := NewTracer(opts, log)
+	tracer, err := NewTracer(ctx, opts, log)
 	if err != nil {
 		t.Skipf("Cannot create IPv6 tracer (may not be supported): %v", err)
 	}

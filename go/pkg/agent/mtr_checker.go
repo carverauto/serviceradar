@@ -34,23 +34,29 @@ const (
 	mtrCheckType   = "mtr"
 	mtrServiceName = "mtr_traces"
 	mtrServiceType = "mtr"
+
+	// Safety caps for remotely supplied MTR config.
+	mtrMaxHopsUpperBound         = 64
+	mtrProbesPerHopUpperBound    = 20
+	mtrProbeIntervalMsUpperBound = 10_000
+	mtrPacketSizeUpperBound      = 1500
 )
 
 type mtrCheckConfig struct {
-	ID             string
-	Name           string
-	Target         string
-	DeviceID       string
-	Interval       time.Duration
-	Timeout        time.Duration
-	Enabled        bool
-	MaxHops        int
-	ProbesPerHop   int
-	Protocol       mtr.Protocol
+	ID              string
+	Name            string
+	Target          string
+	DeviceID        string
+	Interval        time.Duration
+	Timeout         time.Duration
+	Enabled         bool
+	MaxHops         int
+	ProbesPerHop    int
+	Protocol        mtr.Protocol
 	ProbeIntervalMs int
-	PacketSize     int
-	DNSResolve     bool
-	ASNDBPath      string
+	PacketSize      int
+	DNSResolve      bool
+	ASNDBPath       string
 }
 
 type mtrCheckResult struct {
@@ -188,7 +194,7 @@ func (p *PushLoop) runMtrCheck(ctx context.Context, check *mtrCheckConfig) mtrCh
 		RingBufferSize: mtr.DefaultRingBufferSize,
 	}
 
-	tracer, err := mtr.NewTracer(opts, p.logger)
+	tracer, err := mtr.NewTracer(checkCtx, opts, p.logger)
 	if err != nil {
 		return mtrCheckResult{
 			CheckID:   check.ID,
@@ -231,16 +237,14 @@ func (p *PushLoop) runMtrCheck(ctx context.Context, check *mtrCheckConfig) mtrCh
 }
 
 // runOnDemandMtr executes a single MTR trace for an on-demand request.
-func runOnDemandMtr(ctx context.Context, target string, log logger.Logger) (*mtr.TraceResult, error) {
-	opts := mtr.DefaultOptions(target)
-
-	tracer, err := mtr.NewTracer(opts, log)
+func runOnDemandMtr(ctx context.Context, opts mtr.Options, log logger.Logger) (*mtr.TraceResult, error) {
+	tracer, err := mtr.NewTracer(ctx, opts, log)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
 		if closeErr := tracer.Close(); closeErr != nil {
-			log.Warn().Err(closeErr).Str("target", target).Msg("Failed to close on-demand MTR tracer")
+			log.Warn().Err(closeErr).Str("target", opts.Target).Msg("Failed to close on-demand MTR tracer")
 		}
 	}()
 
@@ -328,13 +332,13 @@ func parseMtrCheckConfig(check *proto.AgentCheckConfig) *mtrCheckConfig {
 
 		if v, ok := check.Settings["max_hops"]; ok {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				cfg.MaxHops = n
+				cfg.MaxHops = clampInt(n, 1, mtrMaxHopsUpperBound)
 			}
 		}
 
 		if v, ok := check.Settings["probes_per_hop"]; ok {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				cfg.ProbesPerHop = n
+				cfg.ProbesPerHop = clampInt(n, 1, mtrProbesPerHopUpperBound)
 			}
 		}
 
@@ -344,13 +348,13 @@ func parseMtrCheckConfig(check *proto.AgentCheckConfig) *mtrCheckConfig {
 
 		if v, ok := check.Settings["probe_interval_ms"]; ok {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				cfg.ProbeIntervalMs = n
+				cfg.ProbeIntervalMs = clampInt(n, 1, mtrProbeIntervalMsUpperBound)
 			}
 		}
 
 		if v, ok := check.Settings["packet_size"]; ok {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				cfg.PacketSize = n
+				cfg.PacketSize = clampInt(n, 1, mtrPacketSizeUpperBound)
 			}
 		}
 
@@ -364,4 +368,16 @@ func parseMtrCheckConfig(check *proto.AgentCheckConfig) *mtrCheckConfig {
 	}
 
 	return cfg
+}
+
+func clampInt(v, minV, maxV int) int {
+	if v < minV {
+		return minV
+	}
+
+	if v > maxV {
+		return maxV
+	}
+
+	return v
 }

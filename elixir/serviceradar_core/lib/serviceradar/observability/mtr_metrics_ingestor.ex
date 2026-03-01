@@ -30,8 +30,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
   require Logger
 
-  alias ServiceRadar.Observability.MtrGraph
-  alias ServiceRadar.Repo
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Observability.{MtrGraph, MtrHop, MtrTrace}
 
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) or is_list(payload) do
@@ -69,12 +69,24 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   defp normalize_results(_), do: []
 
   defp insert_results(results, agent_id, gateway_id, partition, now) do
-    Repo.transaction(fn ->
-      Enum.each(results, fn result ->
-        insert_single_result(result, agent_id, gateway_id, partition, now)
-      end)
-    end)
+    actor = SystemActor.system(:mtr_metrics_ingestor)
+
+    Ash.transaction(
+      [MtrTrace, MtrHop],
+      fn ->
+        Enum.reduce_while(results, :ok, fn result, _acc ->
+          case insert_single_result(result, agent_id, gateway_id, partition, now, actor) do
+            :ok -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
+      end,
+      actor: actor
+    )
     |> case do
+      {:ok, {:error, reason}} ->
+        {:error, reason}
+
       {:ok, _} ->
         :ok
 
@@ -86,55 +98,35 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     end
   end
 
-  defp insert_single_result(result, agent_id, gateway_id, partition, now) when is_map(result) do
+  defp insert_single_result(result, agent_id, gateway_id, partition, now, actor)
+       when is_map(result) do
     trace = result["trace"] || %{}
-    trace_id = Ecto.UUID.bingenerate()
+    trace_id = Ecto.UUID.generate()
     trace_time = trace_time(result, trace, now)
 
-    result
-    |> build_trace_row(trace, trace_id, trace_time, agent_id, gateway_id, partition)
-    |> insert_trace()
-
-    insert_trace_hops(trace["hops"] || [], trace_id, trace_time)
+    with {:ok, _trace} <-
+           result
+           |> build_trace_row(trace, trace_id, trace_time, agent_id, gateway_id, partition)
+           |> insert_trace(actor),
+         :ok <- insert_trace_hops(trace["hops"] || [], trace_id, trace_time, actor) do
+      :ok
+    end
   end
 
-  defp insert_single_result(_result, _agent_id, _gateway_id, _partition, _now), do: :ok
+  defp insert_single_result(_result, _agent_id, _gateway_id, _partition, _now, _actor), do: :ok
 
-  defp insert_trace(row) do
-    Repo.query!(
-      """
-      INSERT INTO mtr_traces (
-        id, time, agent_id, gateway_id, check_id, check_name, device_id,
-        target, target_ip, target_reached, total_hops, protocol,
-        ip_version, packet_size, partition, error
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
-      )
-      """,
-      [
-        row.id,
-        row.time,
-        row.agent_id,
-        row.gateway_id,
-        row.check_id,
-        row.check_name,
-        row.device_id,
-        row.target,
-        row.target_ip,
-        row.target_reached,
-        row.total_hops,
-        row.protocol,
-        row.ip_version,
-        row.packet_size,
-        row.partition,
-        row.error
-      ]
-    )
+  defp insert_trace(row, actor) do
+    MtrTrace
+    |> Ash.Changeset.for_create(:create, row)
+    |> Ash.create(actor: actor)
   end
 
-  defp insert_hops(hops, trace_id, trace_time) do
-    Enum.each(hops, fn hop ->
-      insert_hop(hop, trace_id, trace_time)
+  defp insert_hops(hops, trace_id, trace_time, actor) do
+    Enum.reduce_while(hops, :ok, fn hop, _acc ->
+      case insert_hop(hop, trace_id, trace_time, actor) do
+        {:ok, _hop} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
     end)
   end
 
@@ -163,8 +155,10 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     }
   end
 
-  defp insert_trace_hops([], _trace_id, _trace_time), do: :ok
-  defp insert_trace_hops(hops, trace_id, trace_time), do: insert_hops(hops, trace_id, trace_time)
+  defp insert_trace_hops([], _trace_id, _trace_time, _actor), do: :ok
+
+  defp insert_trace_hops(hops, trace_id, trace_time, actor),
+    do: insert_hops(hops, trace_id, trace_time, actor)
 
   defp first_present(values, default) when is_list(values) do
     Enum.find_value(values, default, fn
@@ -181,55 +175,46 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     end)
   end
 
-  defp insert_hop(hop, trace_id, trace_time) when is_map(hop) do
+  defp insert_hop(hop, trace_id, trace_time, actor) when is_map(hop) do
     ecmp_addrs = hop["ecmp_addrs"] || []
     asn_info = hop["asn"] || %{}
     mpls_labels = hop["mpls_labels"]
 
-    mpls_json =
+    mpls_payload =
       if is_list(mpls_labels) and mpls_labels != [] do
-        Jason.encode!(mpls_labels)
+        %{"labels" => mpls_labels}
       end
 
-    Repo.query!(
-      """
-      INSERT INTO mtr_hops (
-        id, time, trace_id, hop_number, addr, hostname, ecmp_addrs,
-        asn, asn_org, mpls_labels, sent, received, loss_pct,
-        last_us, avg_us, min_us, max_us, stddev_us,
-        jitter_us, jitter_worst_us, jitter_interarrival_us
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13,
-        $14, $15, $16, $17, $18, $19, $20, $21
-      )
-      """,
-      [
-        Ecto.UUID.bingenerate(),
-        trace_time,
-        trace_id,
-        hop["hop_number"] || 0,
-        hop["addr"],
-        hop["hostname"],
-        ecmp_addrs,
-        parse_asn(asn_info["asn"]),
-        asn_info["org"],
-        mpls_json,
-        hop["sent"] || 0,
-        hop["received"] || 0,
-        hop["loss_pct"] || 0.0,
-        hop["last_us"],
-        hop["avg_us"],
-        hop["min_us"],
-        hop["max_us"],
-        hop["stddev_us"],
-        hop["jitter_us"],
-        hop["jitter_worst_us"],
-        hop["jitter_interarrival_us"]
-      ]
-    )
+    attrs = %{
+      id: Ecto.UUID.generate(),
+      time: trace_time,
+      trace_id: trace_id,
+      hop_number: hop["hop_number"] || 0,
+      addr: hop["addr"],
+      hostname: hop["hostname"],
+      ecmp_addrs: ecmp_addrs,
+      asn: parse_asn(asn_info["asn"]),
+      asn_org: asn_info["org"],
+      mpls_labels: mpls_payload,
+      sent: hop["sent"] || 0,
+      received: hop["received"] || 0,
+      loss_pct: hop["loss_pct"] || 0.0,
+      last_us: hop["last_us"],
+      avg_us: hop["avg_us"],
+      min_us: hop["min_us"],
+      max_us: hop["max_us"],
+      stddev_us: hop["stddev_us"],
+      jitter_us: hop["jitter_us"],
+      jitter_worst_us: hop["jitter_worst_us"],
+      jitter_interarrival_us: hop["jitter_interarrival_us"]
+    }
+
+    MtrHop
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(actor: actor)
   end
 
-  defp insert_hop(_hop, _trace_id, _trace_time), do: :ok
+  defp insert_hop(_hop, _trace_id, _trace_time, _actor), do: {:ok, nil}
 
   defp parse_trace_time(nil), do: nil
 

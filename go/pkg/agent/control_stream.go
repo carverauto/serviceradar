@@ -21,9 +21,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
 )
@@ -35,6 +37,8 @@ const (
 	commandTypeSweepRun  = "sweep.run_group"
 	commandTypeMtrRun    = "mtr.run"
 )
+
+const defaultOnDemandMtrDeadline = 45 * time.Second
 
 var errControlStreamClosed = errors.New("control stream closed")
 
@@ -371,7 +375,17 @@ func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, 
 		return
 	}
 
-	trace, err := runOnDemandMtr(ctx, payload.Target, p.logger)
+	runTimeout := commandTimeoutCap(cmd, defaultOnDemandMtrDeadline)
+	if runTimeout <= 0 {
+		_ = sender.Send(commandResult(cmd, false, "command deadline exceeded", nil))
+		return
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, runTimeout)
+	defer cancel()
+
+	opts := onDemandMtrOptions(payload)
+	trace, err := runOnDemandMtr(runCtx, opts, p.logger)
 	if err != nil {
 		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))
 		return
@@ -396,6 +410,43 @@ func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, 
 		Msg("On-demand MTR trace completed")
 
 	_ = sender.Send(commandResult(cmd, true, "mtr trace completed", resultPayload))
+}
+
+func onDemandMtrOptions(payload mtrRunPayload) mtr.Options {
+	target := strings.TrimSpace(payload.Target)
+	opts := mtr.DefaultOptions(target)
+
+	if protocol := strings.TrimSpace(payload.Protocol); protocol != "" {
+		opts.Protocol = mtr.ParseProtocol(strings.ToLower(protocol))
+	}
+
+	if payload.MaxHops > 0 {
+		opts.MaxHops = clampInt(payload.MaxHops, 1, mtrMaxHopsUpperBound)
+	}
+
+	return opts
+}
+
+func commandTimeoutCap(cmd *proto.CommandRequest, capDuration time.Duration) time.Duration {
+	if capDuration <= 0 {
+		return 0
+	}
+
+	if cmd == nil || cmd.TtlSeconds <= 0 || cmd.CreatedAt <= 0 {
+		return capDuration
+	}
+
+	expiry := time.Unix(cmd.CreatedAt, 0).Add(time.Duration(cmd.TtlSeconds) * time.Second)
+	remaining := time.Until(expiry)
+	if remaining <= 0 {
+		return 0
+	}
+
+	if remaining < capDuration {
+		return remaining
+	}
+
+	return capDuration
 }
 
 func commandExpired(cmd *proto.CommandRequest) bool {

@@ -22,14 +22,14 @@ func TestParseMtrCheckConfig_ValidConfig(t *testing.T) {
 		TimeoutSec:  30,
 		Target:      "8.8.8.8",
 		Settings: map[string]string{
-			"device_uid":       "dev-123",
-			"max_hops":         "20",
-			"probes_per_hop":   "5",
-			"protocol":         "udp",
+			"device_uid":        "dev-123",
+			"max_hops":          "20",
+			"probes_per_hop":    "5",
+			"protocol":          "udp",
 			"probe_interval_ms": "100",
-			"packet_size":      "64",
-			"dns_resolve":      "true",
-			"asn_db_path":      "/data/GeoLite2-ASN.mmdb",
+			"packet_size":       "64",
+			"dns_resolve":       "true",
+			"asn_db_path":       "/data/GeoLite2-ASN.mmdb",
 		},
 	}
 
@@ -186,6 +186,30 @@ func TestParseMtrCheckConfig_DeviceIDFallback(t *testing.T) {
 	cfg := parseMtrCheckConfig(check)
 	require.NotNil(t, cfg)
 	assert.Equal(t, "dev-456", cfg.DeviceID)
+}
+
+func TestParseMtrCheckConfig_ClampsResourceIntensiveSettings(t *testing.T) {
+	t.Parallel()
+
+	check := &proto.AgentCheckConfig{
+		CheckId:   "mtr-clamped",
+		CheckType: "mtr",
+		Enabled:   true,
+		Target:    "8.8.8.8",
+		Settings: map[string]string{
+			"max_hops":          "9999",
+			"probes_per_hop":    "9999",
+			"probe_interval_ms": "999999",
+			"packet_size":       "65535",
+		},
+	}
+
+	cfg := parseMtrCheckConfig(check)
+	require.NotNil(t, cfg)
+	assert.Equal(t, mtrMaxHopsUpperBound, cfg.MaxHops)
+	assert.Equal(t, mtrProbesPerHopUpperBound, cfg.ProbesPerHop)
+	assert.Equal(t, mtrProbeIntervalMsUpperBound, cfg.ProbeIntervalMs)
+	assert.Equal(t, mtrPacketSizeUpperBound, cfg.PacketSize)
 }
 
 func TestMtrCheckerState_NewState(t *testing.T) {
