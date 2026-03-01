@@ -39,45 +39,13 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::Path;
-use thiserror::Error;
 
-#[derive(Error, Debug)]
-pub enum BootstrapError {
-    #[error("failed to read config file: {0}")]
-    ReadFile(#[from] std::io::Error),
+pub mod errors;
+pub mod types;
 
-    #[error("failed to parse JSON: {0}")]
-    JsonParse(#[from] serde_json::Error),
+pub use errors::{BootstrapError, Result};
+pub use types::{BootstrapOptions, ConfigFormat};
 
-    #[error("failed to parse TOML: {0}")]
-    TomlParse(#[from] toml::de::Error),
-
-    #[error("overlay error: {0}")]
-    Kv(#[from] kvutil::KvError),
-
-    #[error("config format mismatch: expected {expected}, got {actual}")]
-    FormatMismatch { expected: String, actual: String },
-
-    #[error("missing config: no file at {path}")]
-    MissingConfig { path: String },
-}
-
-pub type Result<T> = std::result::Result<T, BootstrapError>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfigFormat {
-    Json,
-    Toml,
-}
-
-impl ConfigFormat {
-    pub fn as_str(&self) -> &str {
-        match self {
-            ConfigFormat::Json => "json",
-            ConfigFormat::Toml => "toml",
-        }
-    }
-}
 
 /// Derive a trimmed pinned config path from the `PINNED_CONFIG_PATH` environment variable.
 pub fn pinned_path_from_env() -> Option<String> {
@@ -87,21 +55,6 @@ pub fn pinned_path_from_env() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Options for bootstrapping a service configuration.
-#[derive(Debug, Clone)]
-pub struct BootstrapOptions {
-    /// Service name (e.g., "flowgger", "trapd")
-    pub service_name: String,
-
-    /// Path to the on-disk config file
-    pub config_path: String,
-
-    /// Config format (JSON or TOML)
-    pub format: ConfigFormat,
-
-    /// Optional pinned config path to overlay last (overrides defaults)
-    pub pinned_path: Option<String>,
-}
 
 /// Main bootstrap coordinator.
 pub struct Bootstrap {
