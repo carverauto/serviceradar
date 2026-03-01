@@ -115,7 +115,7 @@ func NewTracer(ctx context.Context, opts Options, log logger.Logger) (*Tracer, e
 		ipVersion: ipVersion,
 		hops:      make([]*HopResult, opts.MaxHops),
 		probes:    make(map[int]*probeRecord),
-		nextSeq:   MinPort,
+		nextSeq:   nextProbeSeqStart(),
 		icmpID:    nextICMPID(),
 	}, nil
 }
@@ -393,9 +393,11 @@ func (t *Tracer) matchProbeResponse(resp *ICMPResponse) (int, bool) {
 			return 0, false
 		}
 
-		// Quoted ICMP errors should match ICMP ID and destination.
+		// Quoted ICMP errors should match destination. Some routers do not quote
+		// Echo ID consistently; only enforce ID when present/non-zero.
 		if (resp.Type == 11 || resp.Type == 3 || resp.Type == 1) &&
-			(resp.InnerID != t.icmpID || !t.matchTargetAddr(resp.InnerDstAddr)) {
+			(!t.matchTargetAddr(resp.InnerDstAddr) ||
+				(resp.InnerID != 0 && resp.InnerID != t.icmpID)) {
 			return 0, false
 		}
 
@@ -540,6 +542,21 @@ func nextICMPID() int {
 	}
 
 	return id
+}
+
+func nextProbeSeqStart() int {
+	span := MaxPort - MinPort + 1
+	if span <= 0 {
+		return MinPort
+	}
+
+	offset := int(time.Now().UnixNano() % int64(span))
+	start := MinPort + offset
+	if start < MinPort || start > MaxPort {
+		return MinPort
+	}
+
+	return start
 }
 
 func (t *Tracer) makePayload() []byte {
