@@ -791,9 +791,11 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
       normalized ->
         srql_module = srql_module()
+        normalized_downcased = String.downcase(normalized)
 
         full_query =
-          if String.contains?(normalized, " stats:") or String.starts_with?(normalized, "stats:") do
+          if String.contains?(normalized_downcased, " stats:") or
+               String.starts_with?(normalized_downcased, "stats:") do
             normalized
           else
             "#{normalized} stats:\"count() as total\""

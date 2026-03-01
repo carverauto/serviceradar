@@ -328,7 +328,16 @@ export const godViewRenderingGraphLayerTransportMethods = {
           targetAddr: String(path.target_addr || ""),
           sourceId: path.source,
           targetId: path.target,
-          interactionKey: `mtr:${String(path.source ?? "")}:${String(path.target ?? "")}:${String(path.agent_id ?? "")}:${String(path.from_hop ?? "")}:${String(path.to_hop ?? "")}`,
+          interactionKey: [
+            "mtr",
+            String(path.source ?? ""),
+            String(path.target ?? ""),
+            String(path.agent_id ?? ""),
+            String(Number.isFinite(fromHop) ? fromHop : ""),
+            String(Number.isFinite(toHop) ? toHop : ""),
+          ]
+            .map((segment) => encodeURIComponent(segment))
+            .join(":"),
         }
       })
       .filter(Boolean)

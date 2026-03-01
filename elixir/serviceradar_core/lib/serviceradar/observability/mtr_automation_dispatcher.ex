@@ -232,7 +232,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
     if is_binary(target) and target != "" do
       trigger_mode = trigger_mode(mode)
-      partition_id = normalize_partition(Map.get(target_ctx, :partition_id))
+      partition_id = blank_to_nil(Map.get(target_ctx, :partition_id))
 
       payload = %{
         "target" => target,
@@ -264,7 +264,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
           transition_class: transition_class,
           incident_correlation_id: incident_correlation_id,
           trigger_mode: trigger_mode,
-          partition_id: partition_id,
+          partition_id: partition_id || "default",
           now: now
         }
       )
@@ -274,13 +274,13 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   end
 
   defp candidate_agents(target_ctx) do
-    target_partition = normalize_partition(Map.get(target_ctx, :partition_id))
+    target_partition = blank_to_nil(Map.get(target_ctx, :partition_id))
 
     ProcessRegistry.select_by_type(:agent_control)
     |> Enum.map(&session_to_candidate/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.filter(fn candidate ->
-      target_partition == "" or candidate.partition_id == target_partition
+      is_nil(target_partition) or candidate.partition_id == target_partition
     end)
   end
 
@@ -317,7 +317,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     target = read_ctx_value(ctx, :target)
     target_ip = read_ctx_value(ctx, :target_ip)
     target_device_uid = read_ctx_value(ctx, :target_device_uid)
-    partition_id = normalize_partition(read_ctx_value(ctx, :partition_id))
+    partition_id = read_ctx_value(ctx, :partition_id)
     gateway_id = read_ctx_value(ctx, :gateway_id)
 
     target_key =

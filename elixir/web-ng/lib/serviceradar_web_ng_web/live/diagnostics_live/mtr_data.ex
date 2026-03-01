@@ -345,13 +345,18 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   defp match_device?(_job, nil, nil), do: true
 
   defp match_device?(job, device_uid, device_ip) do
+    device_uid =
+      if is_binary(device_uid) and String.trim(device_uid) == "", do: nil, else: device_uid
+
+    device_ip = if is_binary(device_ip) and String.trim(device_ip) == "", do: nil, else: device_ip
+
     context = Map.get(job, :context, %{})
     payload = Map.get(job, :payload, %{})
     context_device_uid = fetch_map(context, "device_uid") |> to_string_safe()
     payload_target = fetch_map(payload, "target") |> to_string_safe()
 
-    uid_match? = device_uid && context_device_uid == device_uid
-    ip_match? = device_ip && payload_target == device_ip
+    uid_match? = is_binary(device_uid) and context_device_uid == device_uid
+    ip_match? = is_binary(device_ip) and payload_target == device_ip
     uid_match? || ip_match?
   end
 

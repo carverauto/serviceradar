@@ -142,8 +142,13 @@ defmodule ServiceRadar.Observability.MtrCausalSignalEmitter do
     context_ids =
       get(context, [:source_agent_ids, "source_agent_ids"])
       |> List.wrap()
-      |> Enum.reject(&is_nil/1)
-      |> Enum.map(&to_string/1)
+      |> Enum.flat_map(fn
+        v when is_binary(v) -> [String.trim(v)]
+        v when is_atom(v) -> [v |> Atom.to_string() |> String.trim()]
+        v when is_integer(v) -> [Integer.to_string(v)]
+        v when is_float(v) -> [Float.to_string(v)]
+        _ -> []
+      end)
       |> Enum.reject(&(&1 == ""))
 
     outcome_ids =
