@@ -197,8 +197,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   def handle_event("drill_down_port", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
          row when not is_nil(row) <- Enum.at(socket.assigns.top_ports, i),
-         port when not is_nil(port) <- row.port do
-      {:noreply, drill_down(socket, "dst_endpoint_port:#{srql_quote(to_string(port))}")}
+         port when not is_nil(port) <- row.port,
+         {:ok, port_int} <- safe_parse_int(to_string(port)),
+         true <- port_int > 0 do
+      {:noreply, drill_down(socket, "dst_endpoint_port:#{srql_quote(to_string(port_int))}")}
     else
       _ -> {:noreply, socket}
     end

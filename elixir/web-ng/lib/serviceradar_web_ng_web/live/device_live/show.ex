@@ -1575,25 +1575,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         results
         |> Enum.map(fn row ->
           raw_t = row["timestamp"] || row["bucket"] || row["time_bucket"]
-
-          t =
-            cond do
-              is_integer(raw_t) -> raw_t
-              is_float(raw_t) -> trunc(raw_t)
-              is_binary(raw_t) ->
-                case DateTime.from_iso8601(raw_t) do
-                  {:ok, dt, _} -> DateTime.to_unix(dt, :millisecond)
-                  _ -> nil
-                end
-              true -> nil
-            end
-
-          %{t: t, v: to_safe_number(row["value"] || row["bytes_total"] || 0)}
+          %{t: parse_timestamp_ms(raw_t), v: to_safe_number(row["value"] || row["bytes_total"] || 0)}
         end)
         |> Enum.reject(&is_nil(&1.t))
 
       _ ->
         []
+    end
+  end
+
+  defp parse_timestamp_ms(%DateTime{} = dt), do: DateTime.to_unix(dt, :millisecond)
+
+  defp parse_timestamp_ms(%NaiveDateTime{} = ndt),
+    do: ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
+
+  defp parse_timestamp_ms(raw) when is_integer(raw),
+    do: if(raw < 1_000_000_000_000, do: raw * 1000, else: raw)
+
+  defp parse_timestamp_ms(raw) when is_float(raw) do
+    ms = trunc(raw)
+    if ms < 1_000_000_000_000, do: ms * 1000, else: ms
+  end
+
+  defp parse_timestamp_ms(raw) when is_binary(raw) do
+    with :error <- parse_iso8601_ms(raw),
+         :error <- parse_naive_iso8601_ms(raw),
+         do: nil
+  end
+
+  defp parse_timestamp_ms(_), do: nil
+
+  defp parse_iso8601_ms(str) do
+    case DateTime.from_iso8601(str) do
+      {:ok, dt, _} -> DateTime.to_unix(dt, :millisecond)
+      _ -> :error
+    end
+  end
+
+  defp parse_naive_iso8601_ms(str) do
+    case NaiveDateTime.from_iso8601(str) do
+      {:ok, ndt} -> ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
+      _ -> :error
     end
   end
 

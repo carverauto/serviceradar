@@ -2,7 +2,7 @@ defmodule ServiceRadar.Repo.Migrations.AddPacketsInOutColumns do
   use Ecto.Migration
 
   @disable_ddl_transaction true
-  @disable_migration_lock true
+  @disable_migration_lock false
 
   def up do
     # PG11+ handles ADD COLUMN ... DEFAULT constant NOT NULL as a fast
