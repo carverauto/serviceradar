@@ -33,7 +33,6 @@ import (
 
 var (
 	errNoTargetAddresses = errors.New("no addresses found for target")
-	icmpIDCounter        atomic.Uint32
 )
 
 // probeRecord tracks an in-flight probe.
@@ -411,7 +410,7 @@ func (t *Tracer) matchProbeResponse(resp *ICMPResponse) (int, bool) {
 }
 
 func (t *Tracer) matchTargetAddr(addr net.IP) bool {
-	if addr == nil || len(addr) == 0 {
+	if len(addr) == 0 {
 		return false
 	}
 
@@ -532,10 +531,10 @@ func (t *Tracer) allocateSeq() int {
 }
 
 func nextICMPID() int {
-	// Use a process-unique base and increment atomically per tracer instance.
-	next := icmpIDCounter.Add(1)
-	base := uint32(os.Getpid() & 0xFFFF) //nolint:mnd
-	id := int((base + next) & 0xFFFF)
+	// Derive a per-instance identifier from pid + current time without globals.
+	now := uint64(time.Now().UnixNano())
+	pid := uint64(os.Getpid() & 0xFFFF) //nolint:mnd
+	id := int((now ^ (pid << 16)) & 0xFFFF)
 	if id == 0 {
 		id = 1
 	}
