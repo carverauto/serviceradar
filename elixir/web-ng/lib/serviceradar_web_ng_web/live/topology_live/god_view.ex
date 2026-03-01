@@ -758,13 +758,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   defp mtr_get(row, key) when is_map(row) and is_binary(key) do
     case Map.get(row, key) do
       nil ->
-        Enum.find_value(row, fn
-          {k, v} when is_atom(k) ->
-            if Atom.to_string(k) == key, do: v, else: nil
-
-          _ ->
-            nil
-        end)
+        mtr_atom_key_value(row, key)
 
       value ->
         value
@@ -772,6 +766,17 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   end
 
   defp mtr_get(_row, _key), do: nil
+
+  defp mtr_atom_key_value(row, key) do
+    Enum.find_value(row, fn
+      {k, v} when is_atom(k) -> mtr_atom_match(k, key, v)
+      _ -> nil
+    end)
+  end
+
+  defp mtr_atom_match(k, key, value) do
+    if Atom.to_string(k) == key, do: value, else: nil
+  end
 
   defp mtr_int(row, key) do
     val = mtr_get(row, key)
