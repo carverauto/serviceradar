@@ -67,10 +67,7 @@ func (e *Enricher) LookupASN(ip net.IP) ASNInfo {
 		return ASNInfo{}
 	}
 
-	return ASNInfo{
-		ASN: record.ASN,
-		Org: record.Org,
-	}
+	return ASNInfo(record)
 }
 
 // EnrichHops adds ASN information to each hop result in place.

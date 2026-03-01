@@ -200,7 +200,11 @@ func (p *PushLoop) runMtrCheck(ctx context.Context, check *mtrCheckConfig) mtrCh
 			Error:     err.Error(),
 		}
 	}
-	defer tracer.Close()
+	defer func() {
+		if closeErr := tracer.Close(); closeErr != nil {
+			p.logger.Warn().Err(closeErr).Str("target", check.Target).Msg("Failed to close MTR tracer")
+		}
+	}()
 
 	trace, err := tracer.Run(checkCtx)
 	if err != nil {
@@ -234,7 +238,11 @@ func runOnDemandMtr(ctx context.Context, target string, log logger.Logger) (*mtr
 	if err != nil {
 		return nil, err
 	}
-	defer tracer.Close()
+	defer func() {
+		if closeErr := tracer.Close(); closeErr != nil {
+			log.Warn().Err(closeErr).Str("target", target).Msg("Failed to close on-demand MTR tracer")
+		}
+	}()
 
 	return tracer.Run(ctx)
 }

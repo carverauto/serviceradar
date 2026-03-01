@@ -137,7 +137,7 @@ func (r *DNSResolver) cacheResult(ip, hostname string) {
 }
 
 func reverseLookup(ip string) string {
-	names, err := net.LookupAddr(ip)
+	names, err := net.DefaultResolver.LookupAddr(context.Background(), ip)
 	if err != nil || len(names) == 0 {
 		return ""
 	}

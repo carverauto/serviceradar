@@ -1,10 +1,27 @@
 import {Deck, OrthographicView} from "@deck.gl/core"
 
 export const godViewLifecycleDomSetupMethods = {
+  sanitizeNavigationHref(rawHref) {
+    if (typeof rawHref !== "string") return null
+    const href = rawHref.trim()
+    if (href === "") return null
+    if (typeof window === "undefined" || !window.location) return null
+
+    try {
+      const url = new window.URL(href, window.location.origin)
+      const isHttp = url.protocol === "http:" || url.protocol === "https:"
+      if (!isHttp) return null
+      if (url.origin !== window.location.origin) return null
+      return url.pathname + url.search + url.hash
+    } catch (_error) {
+      return null
+    }
+  },
   navigateToHref(href) {
-    if (typeof href !== "string" || href.trim() === "") return
+    const safeHref = this.sanitizeNavigationHref(href)
+    if (!safeHref) return
     if (typeof window !== "undefined" && window.location && typeof window.location.assign === "function") {
-      window.location.assign(href)
+      window.location.assign(safeHref)
     }
   },
   handleDetailsPanelClick(event) {

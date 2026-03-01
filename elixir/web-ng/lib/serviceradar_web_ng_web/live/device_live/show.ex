@@ -644,38 +644,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_event("run_mtr", _params, socket) do
     device_ip = get_device_ip(socket.assigns.results)
 
-    if is_nil(device_ip) or device_ip == "" do
-      {:noreply, put_flash(socket, :error, "No device IP available for MTR")}
+    with :ok <- validate_device_ip(device_ip),
+         {:ok, agent_id} <- first_connected_agent_id() do
+      {:noreply, dispatch_mtr_trace(socket, agent_id, device_ip)}
     else
-      # Find a connected agent to run the trace
-      agents =
-        try do
-          ServiceRadar.AgentRegistry.find_agents()
-        rescue
-          _ -> []
-        end
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, reason)}
+    end
+  end
 
-      case agents do
-        [] ->
-          {:noreply, put_flash(socket, :error, "No agents connected")}
+  defp validate_device_ip(device_ip) when is_binary(device_ip) and device_ip != "", do: :ok
+  defp validate_device_ip(_), do: {:error, "No device IP available for MTR"}
 
-        [first | _] ->
-          agent_id =
-            Map.get(first, :agent_id) || Map.get(first, "agent_id") || ""
+  defp first_connected_agent_id() do
+    case list_connected_agents() do
+      [first | _] ->
+        {:ok, Map.get(first, :agent_id) || Map.get(first, "agent_id") || ""}
 
-          payload = %{"target" => device_ip, "protocol" => "icmp"}
+      [] ->
+        {:error, "No agents connected"}
+    end
+  end
 
-          case ServiceRadar.Edge.AgentCommandBus.dispatch(agent_id, "mtr.run", payload) do
-            {:ok, _command_id} ->
-              {:noreply,
-               socket
-               |> assign(:mtr_running, true)
-               |> put_flash(:info, "MTR trace dispatched to #{agent_id}")}
+  defp list_connected_agents() do
+    try do
+      ServiceRadar.AgentRegistry.find_agents()
+    rescue
+      _ -> []
+    end
+  end
 
-            {:error, reason} ->
-              {:noreply, put_flash(socket, :error, "Failed to run MTR: #{inspect(reason)}")}
-          end
-      end
+  defp dispatch_mtr_trace(socket, agent_id, device_ip) do
+    payload = %{"target" => device_ip, "protocol" => "icmp"}
+
+    case ServiceRadar.Edge.AgentCommandBus.dispatch(agent_id, "mtr.run", payload) do
+      {:ok, _command_id} ->
+        socket
+        |> assign(:mtr_running, true)
+        |> put_flash(:info, "MTR trace dispatched to #{agent_id}")
+
+      {:error, reason} ->
+        put_flash(socket, :error, "Failed to run MTR: #{inspect(reason)}")
     end
   end
 
@@ -1942,7 +1951,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           
     <!-- Tabs Navigation (show if sysmon, interfaces, or flows are present) -->
           <div
-            :if={(@sysmon_presence or @has_ifaces or @has_flows or @active_tab == "mtr") and is_map(@device_row)}
+            :if={
+              (@sysmon_presence or @has_ifaces or @has_flows or @active_tab == "mtr") and
+                is_map(@device_row)
+            }
             class="tabs tabs-box"
           >
             <button
@@ -2130,7 +2142,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               />
             </div>
           </div>
-
+          
     <!-- MTR Diagnostics Tab Content -->
           <div :if={@active_tab == "mtr"}>
             <div class="space-y-4">
@@ -5379,7 +5391,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       case ServiceRadar.Repo.query(query, params) do
         {:ok, %{rows: rows, columns: columns}} ->
-          traces = Enum.map(rows, fn row -> Enum.zip(columns, row) |> Map.new() end)
+          traces = rows_to_maps(rows, columns)
           trends = build_mtr_trends(traces)
 
           socket
@@ -5392,6 +5404,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           |> assign(:mtr_trends, %{hops: [], latency: []})
       end
     end
+  end
+
+  defp rows_to_maps(rows, columns) do
+    Enum.map(rows, &Map.new(Enum.zip(columns, &1)))
   end
 
   defp build_mtr_trends(traces) do

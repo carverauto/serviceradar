@@ -20,6 +20,7 @@ package mtr
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -28,6 +29,8 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 )
+
+var errNoTargetAddresses = errors.New("no addresses found for target")
 
 // probeRecord tracks an in-flight probe.
 type probeRecord struct {
@@ -50,11 +53,11 @@ type Tracer struct {
 	ipVersion int
 
 	// probe state
-	hops      []*HopResult
-	probes    map[int]*probeRecord // seq -> probe
-	probesMu  sync.Mutex
-	nextSeq   int
-	icmpID    int
+	hops     []*HopResult
+	probes   map[int]*probeRecord // seq -> probe
+	probesMu sync.Mutex
+	nextSeq  int
+	icmpID   int
 
 	// target reached flag
 	targetReached bool
@@ -63,13 +66,13 @@ type Tracer struct {
 // NewTracer creates a new MTR tracer with the given options.
 func NewTracer(opts Options, log logger.Logger) (*Tracer, error) {
 	// Resolve target.
-	ips, err := net.LookupIP(opts.Target)
+	ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip", opts.Target)
 	if err != nil {
 		return nil, fmt.Errorf("resolve target %q: %w", opts.Target, err)
 	}
 
 	if len(ips) == 0 {
-		return nil, fmt.Errorf("no addresses for target %q", opts.Target)
+		return nil, fmt.Errorf("%w %q", errNoTargetAddresses, opts.Target)
 	}
 
 	// Prefer IPv4 unless only IPv6 is available.
@@ -120,7 +123,11 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 	}
 
 	t.sock = sock
-	defer t.sock.Close()
+	defer func() {
+		if closeErr := t.sock.Close(); closeErr != nil {
+			t.logger.Debug().Err(closeErr).Msg("close probe socket")
+		}
+	}()
 
 	// Initialize DNS resolver if enabled.
 	if t.opts.DNSResolve {
@@ -151,7 +158,9 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 	<-drainCtx.Done()
 
 	// Signal receiver to stop.
-	t.sock.Close()
+	if err := t.sock.Close(); err != nil {
+		t.logger.Debug().Err(err).Msg("close probe socket for receiver shutdown")
+	}
 	<-recvDone
 
 	// Enrich results.
@@ -194,7 +203,7 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			switch t.opts.Protocol {
 			case ProtocolUDP:
 				sendErr = t.sock.SendUDP(t.targetIP, ttl, MinPort+seq%1000, DefaultUDPBasePort+seq%1000, t.makePayload()) //nolint:mnd
-			default:
+			case ProtocolICMP, ProtocolTCP:
 				sendErr = t.sock.SendICMP(t.targetIP, ttl, t.icmpID, seq, t.makePayload())
 			}
 
@@ -359,7 +368,7 @@ func (t *Tracer) enrichResults() {
 
 // buildResult constructs the final TraceResult from accumulated hop data.
 func (t *Tracer) buildResult() *TraceResult {
-	var hops []HopSnapshot
+	hops := make([]HopSnapshot, 0, len(t.hops))
 
 	totalHops := 0
 

@@ -170,7 +170,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                   <span :if={hop["asn"]} class="badge badge-ghost badge-sm">
                     AS{hop["asn"]}
                   </span>
-                  <span :if={hop["asn_org"]} class="block text-base-content/50 truncate max-w-[120px]" title={hop["asn_org"]}>
+                  <span
+                    :if={hop["asn_org"]}
+                    class="block text-base-content/50 truncate max-w-[120px]"
+                    title={hop["asn_org"]}
+                  >
                     {hop["asn_org"]}
                   </span>
                 </td>
@@ -234,13 +238,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   defp format_pct(_), do: "-"
 
   defp format_mpls(nil), do: "-"
+
   defp format_mpls(labels) when is_list(labels) and labels != [] do
-    labels
-    |> Enum.map(fn label ->
-      "L:#{label["label"]}"
-    end)
-    |> Enum.join(", ")
+    Enum.map_join(labels, ", ", fn label -> "L:#{label["label"]}" end)
   end
+
   defp format_mpls(%{} = labels) when map_size(labels) > 0, do: inspect(labels)
   defp format_mpls(_), do: "-"
 
@@ -267,8 +269,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
     addrs =
       hops
       |> Enum.map(& &1["addr"])
-      |> Enum.reject(&is_nil/1)
-      |> Enum.reject(&(&1 == ""))
+      |> Enum.reject(&(is_nil(&1) or &1 == ""))
       |> Enum.uniq()
 
     if addrs == [] do
@@ -291,14 +292,18 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
 
       case Repo.query(query, addrs) do
         {:ok, %{rows: rows}} ->
-          rows
-          |> Enum.group_by(fn [addr, _time, _val] -> addr end, fn [_addr, time, val] ->
-            {time, val}
-          end)
+          group_hop_sparkline_rows(rows)
 
         {:error, _} ->
           %{}
       end
     end
   end
+
+  defp group_hop_sparkline_rows(rows) do
+    Enum.group_by(rows, &sparkline_group_key/1, &sparkline_group_value/1)
+  end
+
+  defp sparkline_group_key([addr, _time, _val]), do: addr
+  defp sparkline_group_value([_addr, time, val]), do: {time, val}
 end

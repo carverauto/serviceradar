@@ -14,6 +14,7 @@ go_library(
         "mapper_service.go",
         "multi_sweep_service.go",
         "mock_agent.go",
+        "mtr_checker.go",
         "plugin_runtime.go",
         "push_loop.go",
         "server.go",
@@ -37,6 +38,7 @@ go_library(
         "//go/pkg/hashutil",
         "//go/pkg/logger",
         "//go/pkg/mapper",
+        "//go/pkg/mtr",
         "//go/pkg/models",
         "//go/pkg/scan",
         "//go/pkg/sweeper",
@@ -58,6 +60,7 @@ go_library(
 go_test(
     name = "agent_test",
     srcs = [
+        "mtr_config_test.go",
         "server_test.go",
         "sweep_test_helpers_test.go",
         "sweep_performance_test.go",
