@@ -110,6 +110,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flow_top_ports_json, "[]")
      |> assign(:flow_facets, %{protocols: [], directions: [], services: []})
      |> assign(:flow_active_facets, %{})
+     |> assign(:flow_active_topn, nil)
      |> assign(:ip_aliases, [])
      |> assign(:ip_alias_error, nil)
      |> assign(:show_stale_aliases, false)
@@ -821,7 +822,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      assign(socket, :interface_metrics_layout, normalize_interface_metrics_layout(layout))}
   end
 
-  def handle_event("topn_filter", %{"field" => field, "value" => value, "device-uid" => uid}, socket) do
+  @allowed_flow_filter_fields ~w(
+    src_endpoint_ip dst_endpoint_ip dst_endpoint_port protocol_name
+    protocol_group direction_label dst_service_label app sampler_address
+    src_port dst_port
+  )
+
+  def handle_event("topn_filter", %{"field" => field, "value" => value, "device-uid" => uid}, socket)
+      when field in @allowed_flow_filter_fields do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
     query = "in:flows device_id:\"#{escape_value(uid)}\" #{field}:\"#{escape_value(value)}\" time:last_24h sort:time:desc"
@@ -843,10 +851,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      socket
      |> assign(:device_flows, flows)
      |> assign(:flows_pagination, pagination)
+     |> assign(:flows_error, flows_error)
+     |> assign(:flow_active_topn, %{field: field, value: value})}
+  end
+
+  def handle_event("topn_filter", _params, socket), do: {:noreply, socket}
+
+  def handle_event("clear_topn_filter", _params, socket) do
+    uid = socket.assigns.device_uid
+    scope = socket.assigns.current_scope
+    srql_mod = srql_module()
+
+    {flows, pagination, flows_error} = load_flows(srql_mod, uid, scope, nil)
+
+    {:noreply,
+     socket
+     |> assign(:flow_active_topn, nil)
+     |> assign(:device_flows, flows)
+     |> assign(:flows_pagination, pagination)
      |> assign(:flows_error, flows_error)}
   end
 
-  def handle_event("facet_toggle", %{"field" => field, "value" => value, "device-uid" => uid}, socket) do
+  def handle_event("facet_toggle", %{"field" => field, "value" => value, "device-uid" => uid}, socket)
+      when field in @allowed_flow_filter_fields do
     active = socket.assigns.flow_active_facets
 
     # Toggle: if same facet+value is active, remove it; otherwise set it
@@ -860,6 +887,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flow_active_facets, updated)
      |> reload_flows_with_facets(uid, updated)}
   end
+
+  def handle_event("facet_toggle", _params, socket), do: {:noreply, socket}
 
   def handle_event("facet_clear", _params, socket) do
     uid = socket.assigns.device_uid
@@ -1050,7 +1079,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     srql_mod = srql_module()
 
     facet_tokens =
-      Enum.map_join(facets, " ", fn {field, value} ->
+      facets
+      |> Enum.filter(fn {field, _} -> field in @allowed_flow_filter_fields end)
+      |> Enum.map_join(" ", fn {field, value} ->
         "#{field}:\"#{escape_value(value)}\""
       end)
 
@@ -1134,24 +1165,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp load_device_flow_summary(srql_mod, scope, base) do
-    query = "#{base} stats:bytes_total,packets_total,count,count_distinct(src_endpoint_ip)"
+    queries = [
+      {"#{base} stats:sum(bytes_total) as total_bytes", :total_bytes, "total_bytes"},
+      {"#{base} stats:sum(packets_total) as total_packets", :total_packets, "total_packets"},
+      {"#{base} stats:count(*) as flow_count", :flow_count, "flow_count"},
+      {"#{base} stats:count_distinct(src_endpoint_ip) as unique_talkers", :unique_talkers, "unique_talkers"}
+    ]
 
-    case srql_mod.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [%{"payload" => p} | _]}} ->
-        %{
-          total_bytes: flow_stat_number(p, "bytes_total"),
-          total_packets: flow_stat_number(p, "packets_total"),
-          flow_count: flow_stat_number(p, "count"),
-          unique_talkers: flow_stat_number(p, "count_distinct_src_endpoint_ip")
-        }
+    queries
+    |> Enum.map(fn {q, key, alias_field} ->
+      Task.async(fn ->
+        val =
+          case srql_mod.query(q, %{scope: scope}) do
+            {:ok, %{"results" => [%{"payload" => p} | _]}} -> flow_stat_number(p, alias_field)
+            _ -> 0
+          end
 
-      _ ->
-        %{}
-    end
+        {key, val}
+      end)
+    end)
+    |> Task.yield_many(10_000)
+    |> Enum.map(fn {task, result} ->
+      case result do
+        {:ok, value} -> value
+        _ -> Task.shutdown(task, :brutal_kill) && nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Map.new()
   end
 
   defp load_device_flow_top_n(srql_mod, scope, base, group_field) do
-    query = "#{base} stats:bytes_total by #{group_field} sort:bytes_total:desc limit:10"
+    query = "#{base} stats:sum(bytes_total) as bytes_total by #{group_field} sort:bytes_total:desc limit:10"
 
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
@@ -2354,6 +2399,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               top_ports_json={@flow_top_ports_json}
               facets={@flow_facets}
               active_facets={@flow_active_facets}
+              active_topn={@flow_active_topn}
             />
           </div>
           
@@ -3089,6 +3135,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr :top_ports_json, :string, default: "[]"
   attr :facets, :map, default: %{protocols: [], directions: [], services: []}
   attr :active_facets, :map, default: %{}
+  attr :active_topn, :map, default: nil
 
   defp flows_tab_content(assigns) do
     max_bytes =
@@ -3255,6 +3302,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             device_uid={@device_uid}
           />
         </div>
+      </div>
+
+      <%!-- Active top-N filter indicator --%>
+      <div :if={@active_topn} class="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 text-sm">
+        <.icon name="hero-funnel-solid" class="size-4 text-primary" />
+        <span class="text-base-content/70">Filtered by</span>
+        <span class="font-semibold">{@active_topn.field}:</span>
+        <span class="badge badge-primary badge-sm">{@active_topn.value}</span>
+        <button phx-click="clear_topn_filter" class="ml-auto btn btn-ghost btn-xs text-error">
+          <.icon name="hero-x-mark-mini" class="size-3.5" /> Clear
+        </button>
       </div>
 
       <%!-- Flow table --%>

@@ -1280,6 +1280,11 @@ fn should_route_flow_stats_to_cagg(
         return None;
     }
 
+    // 3b. sum(*) is not valid — only count(*) can be rewritten to CAGGs
+    if matches!(spec.agg_field, FlowAggField::Star) && matches!(spec.agg_func, FlowAggFunc::Sum) {
+        return None;
+    }
+
     // 4. Group-by fields must match an available CAGG dimension
     let is_long_window = span >= chrono::Duration::hours(24);
 
@@ -1417,7 +1422,7 @@ fn build_grouped_stats_query(
         binds.clear();
         if let Some(TimeRange { start, end }) = &plan.time_range {
             where_parts.push(format!(
-                "f.{time_col} >= (?::timestamptz AT TIME ZONE 'UTC') AND f.{time_col} <= (?::timestamptz AT TIME ZONE 'UTC')"
+                "f.{time_col} >= (?::timestamptz AT TIME ZONE 'UTC') AND f.{time_col} < (?::timestamptz AT TIME ZONE 'UTC')"
             ));
             binds.push(FlowSqlBindValue::Timestamp(*start));
             binds.push(FlowSqlBindValue::Timestamp(*end));

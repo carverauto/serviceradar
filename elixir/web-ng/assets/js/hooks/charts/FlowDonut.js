@@ -36,15 +36,21 @@ export default {
     const legendEl = this.el.querySelector("[data-legend]")
     if (!canvas) return
 
-    const slices = JSON.parse(this.el.dataset.slices || "[]")
+    let slices = []
+    try {
+      slices = JSON.parse(this.el.dataset.slices || "[]")
+    } catch (_e) {
+      slices = []
+    }
     if (slices.length === 0) return
 
-    const total = slices.reduce((s, d) => s + d.value, 0)
+    const total = slices.reduce((s, d) => s + (Number(d.value) || 0), 0)
     if (total === 0) return
 
     const dpr = window.devicePixelRatio || 1
     const container = canvas.parentElement
-    const size = Math.min(container.clientWidth, container.clientHeight)
+    const size = Math.max(0, Math.floor(Math.min(container.clientWidth, container.clientHeight)))
+    if (size === 0) return
 
     canvas.width = size * dpr
     canvas.height = size * dpr
@@ -52,6 +58,7 @@ export default {
     canvas.style.height = `${size}px`
 
     const ctx = canvas.getContext("2d")
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.scale(dpr, dpr)
     ctx.clearRect(0, 0, size, size)
 

@@ -27,13 +27,19 @@ export default {
     const canvas = this.el.querySelector("canvas")
     if (!canvas) return
 
-    const points = JSON.parse(this.el.dataset.points || "[]")
+    let points = []
+    try {
+      points = JSON.parse(this.el.dataset.points || "[]")
+    } catch (_e) {
+      points = []
+    }
     if (points.length < 2) return
 
     const dpr = window.devicePixelRatio || 1
     const rect = this.el.getBoundingClientRect()
-    const w = rect.width
-    const h = rect.height
+    const w = Math.max(0, Math.floor(rect.width))
+    const h = Math.max(0, Math.floor(rect.height))
+    if (w === 0 || h === 0) return
 
     canvas.width = w * dpr
     canvas.height = h * dpr
@@ -41,6 +47,7 @@ export default {
     canvas.style.height = `${h}px`
 
     const ctx = canvas.getContext("2d")
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.scale(dpr, dpr)
     ctx.clearRect(0, 0, w, h)
 

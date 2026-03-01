@@ -524,7 +524,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp load_top_n(srql_mod, scope, base, group_field, value_field) do
-    query = "#{base} stats:#{value_field},packets_total by #{group_field} sort:#{value_field}:desc limit:#{@top_n}"
+    query = "#{base} stats:sum(#{value_field}) as #{value_field} by #{group_field} sort:#{value_field}:desc limit:#{@top_n}"
 
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
@@ -535,7 +535,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
             protocol: get_field(p, group_field),
             port: get_field(p, group_field),
             bytes: to_number(get_field(p, value_field)),
-            packets: to_number(get_field(p, "packets_total"))
+            packets: 0
           }
         end)
 
@@ -545,7 +545,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp load_top_conversations(srql_mod, scope, base, sort_field) do
-    query = "#{base} stats:bytes_total,packets_total by src_endpoint_ip,dst_endpoint_ip sort:#{sort_field}:desc limit:#{@top_n}"
+    query = "#{base} stats:sum(#{sort_field}) as #{sort_field} by src_endpoint_ip,dst_endpoint_ip sort:#{sort_field}:desc limit:#{@top_n}"
 
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
@@ -553,8 +553,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
           %{
             src_ip: get_field(p, "src_endpoint_ip"),
             dst_ip: get_field(p, "dst_endpoint_ip"),
-            bytes: to_number(get_field(p, "bytes_total")),
-            packets: to_number(get_field(p, "packets_total"))
+            bytes: to_number(get_field(p, sort_field)),
+            packets: 0
           }
         end)
 
@@ -614,20 +614,34 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp load_summary(srql_mod, scope, base) do
-    query = "#{base} stats:bytes_total,packets_total,count,count_distinct(src_endpoint_ip)"
+    queries = [
+      {"#{base} stats:sum(bytes_total) as total_bytes", :total_bytes, "total_bytes"},
+      {"#{base} stats:sum(packets_total) as total_packets", :total_packets, "total_packets"},
+      {"#{base} stats:count(*) as flow_count", :flow_count, "flow_count"},
+      {"#{base} stats:count_distinct(src_endpoint_ip) as unique_talkers", :unique_talkers, "unique_talkers"}
+    ]
 
-    case srql_mod.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [%{"payload" => p} | _]}} ->
-        %{
-          total_bytes: to_number(get_field(p, "bytes_total")),
-          total_packets: to_number(get_field(p, "packets_total")),
-          flow_count: to_number(get_field(p, "count")),
-          unique_talkers: to_number(get_field(p, "count_distinct_src_endpoint_ip"))
-        }
+    queries
+    |> Enum.map(fn {q, key, alias} ->
+      Task.async(fn ->
+        val =
+          case srql_mod.query(q, %{scope: scope}) do
+            {:ok, %{"results" => [%{"payload" => p} | _]}} -> to_number(get_field(p, alias))
+            _ -> 0
+          end
 
-      _ ->
-        %{}
-    end
+        {key, val}
+      end)
+    end)
+    |> Task.yield_many(10_000)
+    |> Enum.map(fn {task, result} ->
+      case result do
+        {:ok, value} -> value
+        _ -> Task.shutdown(task, :brutal_kill) && nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Map.new()
   end
 
   defp load_timeseries(srql_mod, scope, base, tw) do
@@ -649,7 +663,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp load_top_interfaces(srql_mod, scope, base) do
-    query = "#{base} stats:bytes_total,packets_total by sampler_address sort:bytes_total:desc limit:5"
+    query = "#{base} stats:sum(bytes_total) as bytes_total by sampler_address sort:bytes_total:desc limit:5"
 
     interface_rows =
       case srql_mod.query(query, %{scope: scope}) do
@@ -658,7 +672,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
             %{
               sampler: get_field(p, "sampler_address"),
               bytes: to_number(get_field(p, "bytes_total")),
-              packets: to_number(get_field(p, "packets_total"))
+              packets: 0
             }
           end)
 
