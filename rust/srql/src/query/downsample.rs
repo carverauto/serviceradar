@@ -57,7 +57,14 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
     let use_hourly_cagg = super::should_route_plan_to_hourly_cagg(plan)
         && cagg_safe_shape
         && match plan.entity {
-            Entity::Flows => matches!(downsample.agg, DownsampleAgg::Sum | DownsampleAgg::Count),
+            Entity::Flows => {
+                downsample.bucket_seconds >= 300
+                    && matches!(downsample.agg, DownsampleAgg::Sum | DownsampleAgg::Count)
+                    && matches!(
+                        downsample.value_field.as_deref(),
+                        None | Some("bytes_total") | Some("packets_total")
+                    )
+            }
             _ => matches!(downsample.agg, DownsampleAgg::Avg),
         };
 

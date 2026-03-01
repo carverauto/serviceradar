@@ -282,7 +282,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
         @class
       ]}
     >
-      <div class="radial-progress text-{@severity}" style={"--value:#{@pct}; --size:5rem; --thickness:6px;"} role="progressbar">
+      <div class={["radial-progress", "text-#{@severity}"]} style={"--value:#{@pct}; --size:5rem; --thickness:6px;"} role="progressbar">
         <span class="text-sm font-bold">{@pct}%</span>
       </div>
       <div :if={@label} class="text-xs font-medium text-base-content/70">{@label}</div>

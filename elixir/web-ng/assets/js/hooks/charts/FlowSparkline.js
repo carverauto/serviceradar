@@ -29,7 +29,8 @@ export default {
 
     let points = []
     try {
-      points = JSON.parse(this.el.dataset.points || "[]")
+      const parsed = JSON.parse(this.el.dataset.points || "[]")
+      points = Array.isArray(parsed) ? parsed : []
     } catch (_e) {
       points = []
     }
@@ -47,6 +48,7 @@ export default {
     canvas.style.height = `${h}px`
 
     const ctx = canvas.getContext("2d")
+    if (!ctx) return
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.scale(dpr, dpr)
     ctx.clearRect(0, 0, w, h)

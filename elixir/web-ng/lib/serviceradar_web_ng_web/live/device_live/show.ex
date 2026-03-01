@@ -830,7 +830,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   )
 
   def handle_event("topn_filter", %{"field" => field, "value" => value, "device-uid" => uid}, socket)
-      when field in @allowed_flow_filter_fields do
+      when field in @allowed_flow_filter_fields and uid == socket.assigns.device_uid do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
     query = "in:flows device_id:\"#{escape_value(uid)}\" #{field}:\"#{escape_value(value)}\" time:last_24h sort:time:desc"
@@ -901,12 +901,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event("chart_zoom", %{"start" => start, "end" => end_t}, socket) do
-    uid = socket.assigns.device_uid
-    scope = socket.assigns.current_scope
-    srql_mod = srql_module()
-    zoomed_base = "in:flows device_id:\"#{escape_value(uid)}\" time:[#{start},#{end_t}]"
-    query = "#{zoomed_base} sort:time:desc"
-    opts = %{scope: scope, limit: @flows_limit, cursor: nil}
+    with {:ok, start_dt, _} <- DateTime.from_iso8601(start),
+         {:ok, end_dt, _} <- DateTime.from_iso8601(end_t),
+         :lt <- DateTime.compare(start_dt, end_dt) do
+      safe_start = DateTime.to_iso8601(start_dt)
+      safe_end = DateTime.to_iso8601(end_dt)
+      uid = socket.assigns.device_uid
+      scope = socket.assigns.current_scope
+      srql_mod = srql_module()
+      zoomed_base = "in:flows device_id:\"#{escape_value(uid)}\" time:[#{safe_start},#{safe_end}]"
+      query = "#{zoomed_base} sort:time:desc"
+      opts = %{scope: scope, limit: @flows_limit, cursor: nil}
 
     # Reload flows table and stats in parallel for the zoomed range
     flows_task = Task.async(fn -> {:flows, load_zoomed_flows(srql_mod, query, opts)} end)
@@ -927,7 +932,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:device_flows, flows)
      |> assign(:flows_pagination, pagination)
      |> assign(:flows_error, flows_error)
-     |> assign(:flow_zoom_range, %{start: start, end: end_t})
+     |> assign(:flow_zoom_range, %{start: safe_start, end: safe_end})
      |> assign(:flow_stats, flow_stats)
      |> assign(:flow_sparkline_json, sparkline_json)
      |> assign(:flow_proto_json, proto_json)
@@ -939,6 +944,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flow_facets, facets)
      |> assign(:flow_active_facets, %{})
      |> assign(:flow_active_topn, nil)}
+    else
+      _ -> {:noreply, socket}
+    end
   end
 
   def handle_event("clear_zoom", _params, socket) do

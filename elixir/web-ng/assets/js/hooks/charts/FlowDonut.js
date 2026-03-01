@@ -38,7 +38,8 @@ export default {
 
     let slices = []
     try {
-      slices = JSON.parse(this.el.dataset.slices || "[]")
+      const parsed = JSON.parse(this.el.dataset.slices || "[]")
+      slices = Array.isArray(parsed) ? parsed : []
     } catch (_e) {
       slices = []
     }
@@ -49,6 +50,7 @@ export default {
 
     const dpr = window.devicePixelRatio || 1
     const container = canvas.parentElement
+    if (!container) return
     const size = Math.max(0, Math.floor(Math.min(container.clientWidth, container.clientHeight)))
     if (size === 0) return
 
@@ -58,6 +60,7 @@ export default {
     canvas.style.height = `${size}px`
 
     const ctx = canvas.getContext("2d")
+    if (!ctx) return
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.scale(dpr, dpr)
     ctx.clearRect(0, 0, size, size)

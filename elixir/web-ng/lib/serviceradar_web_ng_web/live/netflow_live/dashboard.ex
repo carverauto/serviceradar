@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   import ServiceRadarWebNGWeb.FlowStatComponents
 
+  alias ServiceRadar.Observability.IpGeoEnrichmentCache
+  alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.NetflowInterfaceCache
   alias ServiceRadar.Observability.NetflowLocalCidr
 
@@ -66,7 +68,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
      |> assign(:subnet_distribution, [])
      |> assign(:selected_interface, nil)
      |> assign(:iface_chart_keys_json, "[]")
-     |> assign(:iface_chart_points_json, "[]")}
+     |> assign(:iface_chart_points_json, "[]")
+     |> assign(:rdns_map, %{})
+     |> assign(:geo_iso2_map, %{})}
   end
 
   @impl true
@@ -238,8 +242,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
         <%!-- Stat cards row --%>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <.stat_card
-            title="Total Bandwidth"
-            value={display_bandwidth(@total_bytes, @unit_mode)}
+            title={if @unit_mode == "pps", do: "Total Packets", else: "Total Bandwidth"}
+            value={primary_metric(@total_bytes, @total_packets, @unit_mode)}
             unit={unit_suffix(@unit_mode)}
             loading={@loading}
           />
@@ -326,7 +330,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
             title="Top Talkers (Source IPs)"
             rows={@top_talkers}
             columns={[
-              %{key: :ip, label: "Source IP"},
+              %{key: :ip, label: "Source IP", format: &format_enriched_ip(&1.ip, @rdns_map, @geo_iso2_map)},
               %{key: :bytes, label: unit_suffix(@unit_mode), format: &format_bytes_cell(&1, @unit_mode)},
               %{key: :packets, label: "Packets"}
             ]}
@@ -338,7 +342,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
             title="Top Listeners (Dest IPs)"
             rows={@top_listeners}
             columns={[
-              %{key: :ip, label: "Dest IP"},
+              %{key: :ip, label: "Dest IP", format: &format_enriched_ip(&1.ip, @rdns_map, @geo_iso2_map)},
               %{key: :bytes, label: unit_suffix(@unit_mode), format: &format_bytes_cell(&1, @unit_mode)},
               %{key: :packets, label: "Packets"}
             ]}
@@ -350,8 +354,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
             title="Top Conversations"
             rows={@top_conversations}
             columns={[
-              %{key: :src_ip, label: "Source"},
-              %{key: :dst_ip, label: "Dest"},
+              %{key: :src_ip, label: "Source", format: &format_enriched_ip(&1.src_ip, @rdns_map, @geo_iso2_map)},
+              %{key: :dst_ip, label: "Dest", format: &format_enriched_ip(&1.dst_ip, @rdns_map, @geo_iso2_map)},
               %{key: :bytes, label: unit_suffix(@unit_mode), format: &format_bytes_cell(&1, @unit_mode)}
             ]}
             on_row_click="drill_down_conversation"
@@ -515,6 +519,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> assign(:top_interfaces, merge_p95(Map.get(results, :top_interfaces, []), Map.get(results, :p95, %{})))
     |> assign(:subnet_distribution, Map.get(results, :subnet_distribution, []))
     |> maybe_reload_interface_chart()
+    |> enrich_top_n_ips()
   end
 
   defp maybe_reload_interface_chart(%{assigns: %{selected_interface: nil}} = socket), do: socket
@@ -523,22 +528,22 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     load_interface_timeseries(socket, sampler)
   end
 
-  defp load_top_n(srql_mod, scope, base, group_field, value_field) do
-    query = "#{base} stats:sum(#{value_field}) as #{value_field} by #{group_field} sort:#{value_field}:desc limit:#{@top_n}"
+  defp load_top_n(srql_mod, scope, base, group_field, sort_field) do
+    query =
+      "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by #{group_field} sort:#{sort_field}:desc limit:#{@top_n}"
 
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
         Enum.map(results, fn %{"payload" => p} ->
           name = get_field(p, group_field)
-          val = to_number(get_field(p, value_field))
 
           %{
             ip: name,
             app: name,
             protocol: name,
             port: name,
-            bytes: if(value_field == "bytes_total", do: val, else: 0),
-            packets: if(value_field == "packets_total", do: val, else: 0)
+            bytes: to_number(get_field(p, "bytes_total")),
+            packets: to_number(get_field(p, "packets_total"))
           }
         end)
 
@@ -548,18 +553,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp load_top_conversations(srql_mod, scope, base, sort_field) do
-    query = "#{base} stats:sum(#{sort_field}) as #{sort_field} by src_endpoint_ip,dst_endpoint_ip sort:#{sort_field}:desc limit:#{@top_n}"
+    query =
+      "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by src_endpoint_ip,dst_endpoint_ip sort:#{sort_field}:desc limit:#{@top_n}"
 
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
         Enum.map(results, fn %{"payload" => p} ->
-          val = to_number(get_field(p, sort_field))
-
           %{
             src_ip: get_field(p, "src_endpoint_ip"),
             dst_ip: get_field(p, "dst_endpoint_ip"),
-            bytes: if(sort_field == "bytes_total", do: val, else: 0),
-            packets: if(sort_field == "packets_total", do: val, else: 0)
+            bytes: to_number(get_field(p, "bytes_total")),
+            packets: to_number(get_field(p, "packets_total"))
           }
         end)
 
@@ -848,6 +852,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   defp srql_quote(value), do: srql_quote(to_string(value))
 
+  defp primary_metric(_bytes, packets, "pps"), do: packets
+  defp primary_metric(bytes, _packets, "bps"), do: bytes * 8
+  defp primary_metric(bytes, _packets, _mode), do: bytes
+
   defp display_bandwidth(total_bytes, "bps"), do: total_bytes * 8
   defp display_bandwidth(total_bytes, _mode), do: total_bytes
 
@@ -864,6 +872,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   defp format_capacity_cell(row) do
     cap = row.capacity_bps || 0
     if cap > 0, do: format_si(cap * 1.0, unit: "bps"), else: "N/A"
+  end
+
+  defp format_bytes_cell(row, "pps") do
+    val = row.packets || 0
+    ServiceRadarWebNGWeb.FlowStatComponents.format_si(val, unit: "pps")
   end
 
   defp format_bytes_cell(row, unit_mode) do
@@ -908,5 +921,109 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
+
+  # ---------------------------------------------------------------------------
+  # IP enrichment (reads from pre-populated DB caches, no live lookups)
+  # ---------------------------------------------------------------------------
+
+  defp enrich_top_n_ips(socket) do
+    scope = Map.get(socket.assigns, :current_scope)
+
+    ips =
+      Enum.concat([
+        Enum.map(socket.assigns.top_talkers, & &1.ip),
+        Enum.map(socket.assigns.top_listeners, & &1.ip),
+        Enum.flat_map(socket.assigns.top_conversations, fn r -> [r.src_ip, r.dst_ip] end)
+      ])
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    if ips == [] do
+      socket
+      |> assign(:rdns_map, %{})
+      |> assign(:geo_iso2_map, %{})
+    else
+      tasks = [
+        Task.async(fn -> {:rdns, bulk_rdns(ips, scope)} end),
+        Task.async(fn -> {:geo, bulk_geo_iso2(ips, scope)} end)
+      ]
+
+      results = safe_await_many(tasks, :timer.seconds(5))
+
+      socket
+      |> assign(:rdns_map, Map.get(results, :rdns, %{}))
+      |> assign(:geo_iso2_map, Map.get(results, :geo, %{}))
+    end
+  end
+
+  defp bulk_rdns(ips, scope) do
+    query =
+      IpRdnsCache
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(ip in ^ips)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, rows} when is_list(rows) ->
+        rows
+        |> Enum.filter(fn r -> r.status == "ok" and is_binary(r.hostname) and String.trim(r.hostname) != "" end)
+        |> Map.new(fn r -> {r.ip, r.hostname} end)
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp bulk_geo_iso2(ips, scope) do
+    query =
+      IpGeoEnrichmentCache
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(ip in ^ips)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, rows} when is_list(rows) ->
+        rows
+        |> Enum.filter(fn r -> is_binary(r.country_iso2) and String.length(String.trim(r.country_iso2)) == 2 end)
+        |> Map.new(fn r -> {r.ip, String.upcase(String.trim(r.country_iso2))} end)
+
+      _ ->
+        %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  defp iso2_flag_emoji(nil), do: nil
+
+  defp iso2_flag_emoji(iso2) when is_binary(iso2) do
+    iso2 = iso2 |> String.trim() |> String.upcase()
+
+    if String.length(iso2) == 2 do
+      <<a::utf8, b::utf8>> = iso2
+
+      if a in ?A..?Z and b in ?A..?Z do
+        <<0x1F1E6 + (a - ?A)::utf8, 0x1F1E6 + (b - ?A)::utf8>>
+      end
+    end
+  end
+
+  defp iso2_flag_emoji(_), do: nil
+
+  defp format_enriched_ip(ip, rdns_map, geo_iso2_map) do
+    flag = iso2_flag_emoji(Map.get(geo_iso2_map, ip))
+    hostname = Map.get(rdns_map, ip)
+
+    parts = [flag, ip] |> Enum.reject(&is_nil/1) |> Enum.join(" ")
+
+    if hostname do
+      Phoenix.HTML.raw(
+        "<span>#{Phoenix.HTML.html_escape(parts) |> Phoenix.HTML.safe_to_string()}" <>
+          "<br/><span class=\"text-xs text-base-content/50\">#{Phoenix.HTML.html_escape(hostname) |> Phoenix.HTML.safe_to_string()}</span></span>"
+      )
+    else
+      parts
+    end
   end
 end
