@@ -1,10 +1,9 @@
-mod config;
-mod model;
-mod publisher;
+pub mod errors;
+pub mod types;
 
-use crate::config::Config;
-use crate::publisher::Publisher;
-use anyhow::{Context, Result};
+use types::config::Config;
+use types::publisher::Publisher;
+use anyhow::Context;
 use arancini_lib::process_bmp_message;
 use arancini_lib::state_store::memory::MemoryStore;
 use bytes::BytesMut;
@@ -28,11 +27,12 @@ struct Cli {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let cli = Cli::parse();
-    let cfg = Arc::new(Config::from_file(path_to_string(&cli.config)?)?);
+    let cfg_path = path_to_string(&cli.config)?;
+    let cfg = Arc::new(Config::from_file(cfg_path)?);
 
     info!(
         "starting bmp collector listen={} stream={} prefix={}",
@@ -43,8 +43,9 @@ async fn main() -> Result<()> {
     run_listener(cfg, publisher).await
 }
 
-async fn run_listener(cfg: Arc<Config>, publisher: Publisher) -> Result<()> {
-    let listener = TcpListener::bind(cfg.listen_addr_parsed()?)
+async fn run_listener(cfg: Arc<Config>, publisher: Publisher) -> anyhow::Result<()> {
+    let listen_addr = cfg.listen_addr_parsed()?;
+    let listener = TcpListener::bind(listen_addr)
         .await
         .with_context(|| format!("failed to bind BMP listener on {}", cfg.listen_addr))?;
 
@@ -68,7 +69,7 @@ async fn handle_connection(
     socket: std::net::SocketAddr,
     cfg: Arc<Config>,
     publisher: Publisher,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     let mut slot = vec![0u8; cfg.read_buffer_bytes];
     let mut frame_buffer = BytesMut::with_capacity(cfg.read_buffer_bytes);
 
@@ -114,7 +115,7 @@ fn next_packet_length(
     frame_buffer: &BytesMut,
     socket: std::net::SocketAddr,
     max_frame_size: usize,
-) -> Result<Option<usize>> {
+) -> anyhow::Result<Option<usize>> {
     if frame_buffer.len() < BMP_COMMON_HEADER_LEN {
         return Ok(None);
     }
@@ -155,7 +156,7 @@ fn next_packet_length(
     Ok(Some(packet_length))
 }
 
-fn path_to_string(path: &Path) -> Result<&str> {
+fn path_to_string(path: &Path) -> anyhow::Result<&str> {
     path.to_str()
         .ok_or_else(|| anyhow::anyhow!("config path contains non-UTF-8 characters"))
 }

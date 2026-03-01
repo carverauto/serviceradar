@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use crate::errors::{BmpError, Result};
 use std::net::SocketAddr;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,42 +38,42 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_file(path: &str) -> anyhow::Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        let cfg: Config = serde_json::from_str(&content)?;
+    pub fn from_file(path: &str) -> Result<Self> {
+        let content = std::fs::read_to_string(path).map_err(BmpError::ConfigRead)?;
+        let cfg: Config = serde_json::from_str(&content).map_err(BmpError::ConfigParse)?;
         cfg.validate()?;
         Ok(cfg)
     }
 
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> Result<()> {
         if self.listen_addr.trim().is_empty() {
-            anyhow::bail!("listen_addr is required");
+            return Err(BmpError::ConfigValidation("listen_addr is required".into()));
         }
         if self.listen_addr_parsed().is_err() {
-            anyhow::bail!("listen_addr must be a valid host:port socket address");
+            return Err(BmpError::ConfigValidation("listen_addr must be a valid host:port socket address".into()));
         }
         if self.read_buffer_bytes == 0 {
-            anyhow::bail!("read_buffer_bytes must be > 0");
+            return Err(BmpError::ConfigValidation("read_buffer_bytes must be > 0".into()));
         }
         if self.max_frame_size_bytes < 6 {
-            anyhow::bail!("max_frame_size_bytes must be >= 6");
+            return Err(BmpError::ConfigValidation("max_frame_size_bytes must be >= 6".into()));
         }
         if self.nats_url.trim().is_empty() {
-            anyhow::bail!("nats_url is required");
+            return Err(BmpError::ConfigValidation("nats_url is required".into()));
         }
         if self.stream_name.trim().is_empty() {
-            anyhow::bail!("stream_name is required");
+            return Err(BmpError::ConfigValidation("stream_name is required".into()));
         }
         if self.subject_prefix.trim().is_empty() {
-            anyhow::bail!("subject_prefix is required");
+            return Err(BmpError::ConfigValidation("subject_prefix is required".into()));
         }
         Ok(())
     }
 
-    pub fn listen_addr_parsed(&self) -> anyhow::Result<SocketAddr> {
+    pub fn listen_addr_parsed(&self) -> Result<SocketAddr> {
         self.listen_addr
             .parse()
-            .map_err(|e| anyhow::anyhow!("invalid listen_addr '{}': {}", self.listen_addr, e))
+            .map_err(|e| BmpError::InvalidAddress { addr: self.listen_addr.clone(), source: e })
     }
 
     pub fn stream_subjects_resolved(&self) -> Vec<String> {
