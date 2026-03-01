@@ -39,7 +39,7 @@ bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
 bazel_dep(
     name = "toolchains_buildbuddy",
-    version = "0.0.1",
+    version = "0.0.4",
     repo_name = "io_buildbuddy_buildbuddy_toolchain",
 )
 
@@ -170,15 +170,6 @@ use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
 
 cc_compat_ext = use_extension("@rules_cc//cc:extensions.bzl", "compatibility_proxy")
 use_repo(cc_compat_ext, "cc_compatibility_proxy")
-
-archive_override(
-    module_name = "toolchains_buildbuddy",
-    integrity = "sha256-e6gcgLHmJHvxCNNbCSQ4OrX8FbGn8TiS7XSVphM1ZU8=",
-    strip_prefix = "buildbuddy-toolchain-badf8034b2952ec613970a27f24fb140be7eaf73",
-    urls = [
-        "https://github.com/buildbuddy-io/buildbuddy-toolchain/archive/badf8034b2952ec613970a27f24fb140be7eaf73.tar.gz",
-    ],
-)
 
 # --- BuildBuddy Toolchain  ----------------------------------
 
