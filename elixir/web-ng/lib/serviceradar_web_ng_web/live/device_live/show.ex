@@ -24,6 +24,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.SysmonProfiles.SysmonProfile
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
   alias ServiceRadar.Inventory.InterfaceSettings
+  alias ServiceRadar.Observability.IpGeoEnrichmentCache
+  alias ServiceRadar.Observability.IpRdnsCache
 
   @default_limit 50
   @max_limit 200
@@ -97,6 +99,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:interface_metrics_layout, "two")
      |> assign(:device_flows, [])
      |> assign(:flows_error, nil)
+     |> assign(:rdns_map, %{})
+     |> assign(:geo_iso2_map, %{})
      |> assign(:flows_pagination, %{})
      |> assign(:has_flows, false)
      |> assign(:flow_stats, %{})
@@ -257,6 +261,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:flow_top_destinations_json, top_destinations_json)
     |> assign(:flow_top_ports_json, top_ports_json)
     |> assign(:flow_facets, facets)
+    |> enrich_flow_ips()
   end
 
   defp maybe_reload_flows_for_active_tab(socket, _active_tab, _uid, _cursor), do: socket
@@ -429,7 +434,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:healthcheck_summary, healthcheck_summary)
      |> assign(:sweep_results, sweep_results)
      |> assign(:device_snmp_credential, device_snmp_credential)
-     |> assign(:srql, srql)}
+     |> assign(:srql, srql)
+     |> enrich_flow_ips()}
   end
 
   defp normalized_device_query(params, default_query) do
@@ -853,7 +859,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:device_flows, flows)
      |> assign(:flows_pagination, pagination)
      |> assign(:flows_error, flows_error)
-     |> assign(:flow_active_topn, %{field: field, value: value})}
+     |> assign(:flow_active_topn, %{field: field, value: value})
+     |> enrich_flow_ips()}
   end
 
   def handle_event("topn_filter", _params, socket), do: {:noreply, socket}
@@ -870,11 +877,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flow_active_topn, nil)
      |> assign(:device_flows, flows)
      |> assign(:flows_pagination, pagination)
-     |> assign(:flows_error, flows_error)}
+     |> assign(:flows_error, flows_error)
+     |> enrich_flow_ips()}
   end
 
   def handle_event("facet_toggle", %{"field" => field, "value" => value, "device-uid" => uid}, socket)
-      when field in @allowed_flow_filter_fields do
+      when field in @allowed_flow_filter_fields and uid == socket.assigns.device_uid do
     active = socket.assigns.flow_active_facets
 
     # Toggle: if same facet+value is active, remove it; otherwise set it
@@ -914,8 +922,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       opts = %{scope: scope, limit: @flows_limit, cursor: nil}
 
     # Reload flows table and stats in parallel for the zoomed range
-    flows_task = Task.async(fn -> {:flows, load_zoomed_flows(srql_mod, query, opts)} end)
-    stats_task = Task.async(fn -> {:stats, load_device_flow_stats(srql_mod, uid, scope, zoomed_base)} end)
+    flows_task =
+      Task.async(fn ->
+        try do
+          {:flows, load_zoomed_flows(srql_mod, query, opts)}
+        rescue
+          _ -> {:flows, {[], %{}, "Failed to load flows for selected range"}}
+        end
+      end)
+
+    stats_task =
+      Task.async(fn ->
+        try do
+          {:stats, load_device_flow_stats(srql_mod, uid, scope, zoomed_base)}
+        rescue
+          _ ->
+            {:stats,
+             {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]",
+              %{protocols: [], directions: [], services: []}}}
+        end
+      end)
 
     results = safe_yield_many([flows_task, stats_task], 15_000)
 
@@ -943,7 +969,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flow_top_ports_json, top_ports_json)
      |> assign(:flow_facets, facets)
      |> assign(:flow_active_facets, %{})
-     |> assign(:flow_active_topn, nil)}
+     |> assign(:flow_active_topn, nil)
+     |> enrich_flow_ips()}
     else
       _ -> {:noreply, socket}
     end
@@ -983,7 +1010,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flow_top_ports_json, top_ports_json)
      |> assign(:flow_facets, facets)
      |> assign(:flow_active_facets, %{})
-     |> assign(:flow_active_topn, nil)}
+     |> assign(:flow_active_topn, nil)
+     |> enrich_flow_ips()}
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
@@ -1180,6 +1208,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:device_flows, flows)
     |> assign(:flows_pagination, pagination)
     |> assign(:flows_error, flows_error)
+    |> enrich_flow_ips()
   end
 
   defp load_device_flow_stats(srql_mod, device_uid, scope) do
@@ -3433,21 +3462,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                     <tr>
                       <td class="font-mono">{format_timestamp(flow_time(flow))}</td>
                       <td class="font-mono">
-                        <div>{flow_endpoint(flow, :src)}{flow_port(flow, :src)}</div>
+                        <% src_ip = flow_endpoint(flow, :src) %>
+                        <% src_cc = Map.get(@geo_iso2_map, src_ip) %>
+                        <% src_host = Map.get(@rdns_map, src_ip) %>
+                        <div>
+                          <span :if={src_cc}>{iso2_flag_emoji(src_cc)} </span>{src_ip}{flow_port(flow, :src)}
+                        </div>
                         <div
-                          :if={name = flow_exporter_name(flow)}
+                          :if={src_host}
+                          class="text-[10px] text-base-content/50 truncate max-w-[180px]"
+                          title={src_host}
+                        >
+                          {src_host}
+                        </div>
+                        <div
+                          :if={!src_host && flow_exporter_name(flow)}
                           class="text-[10px] text-base-content/50 truncate max-w-[140px]"
                         >
-                          {name}
+                          {flow_exporter_name(flow)}
                         </div>
                       </td>
                       <td class="font-mono">
-                        <div>{flow_endpoint(flow, :dst)}{flow_port(flow, :dst)}</div>
+                        <% dst_ip = flow_endpoint(flow, :dst) %>
+                        <% dst_cc = Map.get(@geo_iso2_map, dst_ip) %>
+                        <% dst_host = Map.get(@rdns_map, dst_ip) %>
+                        <div>
+                          <span :if={dst_cc}>{iso2_flag_emoji(dst_cc)} </span>{dst_ip}{flow_port(flow, :dst)}
+                        </div>
                         <div
-                          :if={service = flow_service_label(flow)}
+                          :if={dst_host}
+                          class="text-[10px] text-base-content/50 truncate max-w-[180px]"
+                          title={dst_host}
+                        >
+                          {dst_host}
+                        </div>
+                        <div
+                          :if={!dst_host && flow_service_label(flow)}
                           class="text-[10px] text-base-content/50 truncate max-w-[140px]"
                         >
-                          {service}
+                          {flow_service_label(flow)}
                         </div>
                       </td>
                       <td class="text-right font-mono">
@@ -3652,6 +3705,72 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp flow_endpoint(flow, :src), do: Map.get(flow, "src_endpoint_ip") || "—"
   defp flow_endpoint(flow, :dst), do: Map.get(flow, "dst_endpoint_ip") || "—"
+
+  defp enrich_flow_ips(socket) do
+    flows = socket.assigns.device_flows
+    scope = Map.get(socket.assigns, :current_scope)
+
+    ips =
+      flows
+      |> Enum.flat_map(fn flow ->
+        [Map.get(flow, "src_endpoint_ip"), Map.get(flow, "dst_endpoint_ip")]
+      end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    if ips == [] do
+      socket |> assign(:rdns_map, %{}) |> assign(:geo_iso2_map, %{})
+    else
+      rdns = bulk_rdns(ips, scope)
+      geo = bulk_geo_iso2(ips, scope)
+      socket |> assign(:rdns_map, rdns) |> assign(:geo_iso2_map, geo)
+    end
+  end
+
+  defp bulk_rdns(ips, scope) do
+    query = IpRdnsCache |> Ash.Query.for_read(:read, %{}) |> Ash.Query.filter(ip in ^ips)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, rows} when is_list(rows) ->
+        rows
+        |> Enum.filter(fn r -> r.status == "ok" and is_binary(r.hostname) and String.trim(r.hostname) != "" end)
+        |> Map.new(fn r -> {r.ip, r.hostname} end)
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp bulk_geo_iso2(ips, scope) do
+    query = IpGeoEnrichmentCache |> Ash.Query.for_read(:read, %{}) |> Ash.Query.filter(ip in ^ips)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, rows} when is_list(rows) ->
+        rows
+        |> Enum.filter(fn r -> is_binary(r.country_iso2) and String.length(String.trim(r.country_iso2)) == 2 end)
+        |> Map.new(fn r -> {r.ip, String.upcase(String.trim(r.country_iso2))} end)
+
+      _ ->
+        %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  defp iso2_flag_emoji(nil), do: nil
+
+  defp iso2_flag_emoji(iso2) when is_binary(iso2) do
+    iso2 = iso2 |> String.trim() |> String.upcase()
+
+    if String.length(iso2) == 2 do
+      <<a::utf8, b::utf8>> = iso2
+      if a in ?A..?Z and b in ?A..?Z, do: <<0x1F1E6 + (a - ?A)::utf8, 0x1F1E6 + (b - ?A)::utf8>>
+    end
+  end
+
+  defp iso2_flag_emoji(_), do: nil
 
   defp flow_protocol(flow),
     do: Map.get(flow, "protocol_name") || Map.get(flow, "protocol_num") || "—"
@@ -4417,8 +4536,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> Task.yield_many(timeout)
     |> Enum.map(fn {task, result} ->
       case result do
-        {:ok, value} -> value
-        _ -> Task.shutdown(task, :brutal_kill) && nil
+        {:ok, {key, value}} when is_atom(key) -> {key, value}
+        {:ok, _unexpected} -> nil
+        _ ->
+          Task.shutdown(task, :brutal_kill)
+          nil
       end
     end)
     |> Enum.reject(&is_nil/1)

@@ -892,8 +892,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> Task.yield_many(timeout)
     |> Enum.map(fn {task, result} ->
       case result do
-        {:ok, value} -> value
-        _ -> Task.shutdown(task, :brutal_kill) && nil
+        {:ok, {key, value}} when is_atom(key) -> {key, value}
+        {:ok, _unexpected} -> nil
+        _ ->
+          Task.shutdown(task, :brutal_kill)
+          nil
       end
     end)
     |> Enum.reject(&is_nil/1)

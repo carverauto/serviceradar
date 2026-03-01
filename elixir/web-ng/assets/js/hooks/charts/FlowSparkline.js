@@ -30,7 +30,11 @@ export default {
     let points = []
     try {
       const parsed = JSON.parse(this.el.dataset.points || "[]")
-      points = Array.isArray(parsed) ? parsed : []
+      points = Array.isArray(parsed)
+        ? parsed
+            .map((p) => ({ t: p?.t, v: Number(p?.v) }))
+            .filter((p) => Number.isFinite(p.v))
+        : []
     } catch (_e) {
       points = []
     }

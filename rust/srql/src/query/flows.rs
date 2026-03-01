@@ -1379,7 +1379,7 @@ fn build_grouped_stats_query(
     if let Some(TimeRange { start, end }) = &plan.time_range {
         // ocsf_network_activity.time is a timestamp without timezone storing UTC; normalize the bind.
         where_parts.push(
-            "f.time >= ?::timestamptz AND f.time <= ?::timestamptz"
+            "f.time >= ?::timestamptz AND f.time < ?::timestamptz"
                 .to_string(),
         );
         binds.push(FlowSqlBindValue::Timestamp(*start));
