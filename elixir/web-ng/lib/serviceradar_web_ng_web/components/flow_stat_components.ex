@@ -62,7 +62,12 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
         if abs_val >= threshold, do: {value / threshold, prefix}
       end)
 
-    formatted = :erlang.float_to_binary(scaled * 1.0, decimals: decimals)
+    formatted =
+      if prefix == "" and scaled == trunc(scaled) do
+        Integer.to_string(trunc(scaled))
+      else
+        :erlang.float_to_binary(scaled * 1.0, decimals: decimals)
+      end
 
     suffix = if unit == "", do: prefix, else: "#{prefix}#{unit}"
     String.trim("#{formatted} #{suffix}")

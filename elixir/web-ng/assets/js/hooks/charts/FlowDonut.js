@@ -80,18 +80,24 @@ export default {
       startAngle += sweep
     })
 
-    // Legend
+    // Legend (built via DOM API to avoid innerHTML XSS)
     if (legendEl) {
-      legendEl.innerHTML = slices
-        .map((s, i) => {
-          const color = s.color || DEFAULT_COLORS[i % DEFAULT_COLORS.length]
-          const pct = ((s.value / total) * 100).toFixed(1)
-          return `<span class="inline-flex items-center gap-1">
-            <span class="w-2 h-2 rounded-full inline-block" style="background:${color}"></span>
-            ${s.label} (${pct}%)
-          </span>`
-        })
-        .join("")
+      legendEl.textContent = ""
+      slices.forEach((s, i) => {
+        const color = s.color || DEFAULT_COLORS[i % DEFAULT_COLORS.length]
+        const pct = ((s.value / total) * 100).toFixed(1)
+
+        const wrapper = document.createElement("span")
+        wrapper.className = "inline-flex items-center gap-1"
+
+        const dot = document.createElement("span")
+        dot.className = "w-2 h-2 rounded-full inline-block"
+        dot.style.background = color
+
+        wrapper.appendChild(dot)
+        wrapper.appendChild(document.createTextNode(` ${s.label} (${pct}%)`))
+        legendEl.appendChild(wrapper)
+      })
     }
   },
 }

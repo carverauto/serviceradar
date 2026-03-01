@@ -103,6 +103,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flow_stats_loading, true)
      |> assign(:flow_sparkline_json, "[]")
      |> assign(:flow_proto_json, "[]")
+     |> assign(:flow_chart_keys_json, "[]")
+     |> assign(:flow_chart_points_json, "[]")
+     |> assign(:flow_top_talkers_json, "[]")
+     |> assign(:flow_top_destinations_json, "[]")
+     |> assign(:flow_top_ports_json, "[]")
+     |> assign(:flow_facets, %{protocols: [], directions: [], services: []})
+     |> assign(:flow_active_facets, %{})
      |> assign(:ip_aliases, [])
      |> assign(:ip_alias_error, nil)
      |> assign(:show_stale_aliases, false)
@@ -221,11 +228,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
 
-    flows_task = Task.async(fn -> load_flows(srql_mod, uid, scope, cursor) end)
-    stats_task = Task.async(fn -> load_device_flow_stats(srql_mod, uid, scope) end)
+    flows_task = Task.async(fn -> {:flows, load_flows(srql_mod, uid, scope, cursor)} end)
+    stats_task = Task.async(fn -> {:stats, load_device_flow_stats(srql_mod, uid, scope)} end)
 
-    [{flows, pagination, flows_error}, {flow_stats, sparkline_json, proto_json}] =
-      Task.await_many([flows_task, stats_task], 15_000)
+    results = safe_yield_many([flows_task, stats_task], 15_000)
+
+    {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
+
+    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points,
+     top_talkers_json, top_destinations_json, top_ports_json, facets} =
+      Map.get(results, :stats,
+        {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]",
+         %{protocols: [], directions: [], services: []}})
 
     socket
     |> assign(:device_flows, flows)
@@ -235,6 +249,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:flow_stats_loading, false)
     |> assign(:flow_sparkline_json, sparkline_json)
     |> assign(:flow_proto_json, proto_json)
+    |> assign(:flow_chart_keys_json, chart_keys)
+    |> assign(:flow_chart_points_json, chart_points)
+    |> assign(:flow_top_talkers_json, top_talkers_json)
+    |> assign(:flow_top_destinations_json, top_destinations_json)
+    |> assign(:flow_top_ports_json, top_ports_json)
+    |> assign(:flow_facets, facets)
   end
 
   defp maybe_reload_flows_for_active_tab(socket, _active_tab, _uid, _cursor), do: socket
@@ -310,25 +330,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     process_task =
       Task.async(fn -> {:process, load_process_metrics(srql_module, sysmon_filters, scope)} end)
 
-    # Collect all parallel results
+    # Collect all parallel results (graceful — failed tasks return defaults)
     parallel_results =
-      (parallel_tasks ++ [metrics_task, process_task])
-      |> Task.await_many(30_000)
-      |> Map.new()
+      safe_yield_many(parallel_tasks ++ [metrics_task, process_task], 30_000)
 
-    availability = parallel_results.availability
-    healthcheck_summary = parallel_results.healthcheck
-    sweep_results = parallel_results.sweep
-    {sysmon_profile_info, available_profiles} = parallel_results.profile
-    {network_interfaces, interfaces_error} = parallel_results.interfaces
-    {device_flows, flows_pagination, flows_error} = parallel_results.flows
-    {flow_stats, flow_sparkline_json, flow_proto_json} = parallel_results.flow_stats
-    discovery_jobs = parallel_results.mapper
-    interface_settings = parallel_results.iface_settings
-    device_snmp_credential = parallel_results.snmp
-    {ip_aliases, ip_alias_error} = parallel_results.aliases
-    metric_sections = parallel_results.metrics
-    process_metrics = parallel_results.process
+    empty_flow_stats =
+      {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
+
+    availability = Map.get(parallel_results, :availability, %{})
+    healthcheck_summary = Map.get(parallel_results, :healthcheck, %{})
+    sweep_results = Map.get(parallel_results, :sweep, [])
+    {sysmon_profile_info, available_profiles} = Map.get(parallel_results, :profile, {nil, []})
+    {network_interfaces, interfaces_error} = Map.get(parallel_results, :interfaces, {[], nil})
+    {device_flows, flows_pagination, flows_error} = Map.get(parallel_results, :flows, {[], %{}, nil})
+    {flow_stats, flow_sparkline_json, flow_proto_json, flow_chart_keys_json, flow_chart_points_json,
+     flow_top_talkers_json, flow_top_destinations_json, flow_top_ports_json, flow_facets} =
+      Map.get(parallel_results, :flow_stats, empty_flow_stats)
+    discovery_jobs = Map.get(parallel_results, :mapper, [])
+    interface_settings = Map.get(parallel_results, :iface_settings, %{favorited: [], metrics_enabled: []})
+    device_snmp_credential = Map.get(parallel_results, :snmp, nil)
+    {ip_aliases, ip_alias_error} = Map.get(parallel_results, :aliases, {[], nil})
+    metric_sections = Map.get(parallel_results, :metrics, [])
+    process_metrics = Map.get(parallel_results, :process, [])
 
     discovery_job = pick_discovery_job(discovery_jobs)
     has_discovery_job = not is_nil(discovery_job)
@@ -376,6 +399,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flow_stats_loading, false)
      |> assign(:flow_sparkline_json, flow_sparkline_json)
      |> assign(:flow_proto_json, flow_proto_json)
+     |> assign(:flow_chart_keys_json, flow_chart_keys_json)
+     |> assign(:flow_chart_points_json, flow_chart_points_json)
+     |> assign(:flow_top_talkers_json, flow_top_talkers_json)
+     |> assign(:flow_top_destinations_json, flow_top_destinations_json)
+     |> assign(:flow_top_ports_json, flow_top_ports_json)
+     |> assign(:flow_facets, flow_facets)
      |> assign(:discovery_job, discovery_job)
      |> assign(:favorited_interfaces, favorited_interfaces)
      |> assign(:interface_metrics, interface_metrics)
@@ -792,6 +821,81 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      assign(socket, :interface_metrics_layout, normalize_interface_metrics_layout(layout))}
   end
 
+  def handle_event("topn_filter", %{"field" => field, "value" => value, "device-uid" => uid}, socket) do
+    scope = socket.assigns.current_scope
+    srql_mod = srql_module()
+    query = "in:flows device_id:\"#{escape_value(uid)}\" #{field}:\"#{escape_value(value)}\" time:last_24h sort:time:desc"
+    opts = %{scope: scope, limit: @flows_limit, cursor: nil}
+
+    {flows, pagination, flows_error} =
+      case srql_mod.query(query, opts) do
+        {:ok, %{"results" => results, "pagination" => p}} when is_list(results) ->
+          {Enum.filter(results, &is_map/1), p || %{}, nil}
+
+        {:ok, %{"results" => results}} when is_list(results) ->
+          {Enum.filter(results, &is_map/1), %{}, nil}
+
+        _ ->
+          {[], %{}, "Failed to load filtered flows"}
+      end
+
+    {:noreply,
+     socket
+     |> assign(:device_flows, flows)
+     |> assign(:flows_pagination, pagination)
+     |> assign(:flows_error, flows_error)}
+  end
+
+  def handle_event("facet_toggle", %{"field" => field, "value" => value, "device-uid" => uid}, socket) do
+    active = socket.assigns.flow_active_facets
+
+    # Toggle: if same facet+value is active, remove it; otherwise set it
+    updated =
+      if Map.get(active, field) == value,
+        do: Map.delete(active, field),
+        else: Map.put(active, field, value)
+
+    {:noreply,
+     socket
+     |> assign(:flow_active_facets, updated)
+     |> reload_flows_with_facets(uid, updated)}
+  end
+
+  def handle_event("facet_clear", _params, socket) do
+    uid = socket.assigns.device_uid
+
+    {:noreply,
+     socket
+     |> assign(:flow_active_facets, %{})
+     |> reload_flows_with_facets(uid, %{})}
+  end
+
+  def handle_event("chart_zoom", %{"start" => start, "end" => end_t}, socket) do
+    uid = socket.assigns.device_uid
+    scope = socket.assigns.current_scope
+    srql_mod = srql_module()
+    query = "in:flows device_id:\"#{escape_value(uid)}\" time:[#{start},#{end_t}] sort:time:desc"
+    opts = %{scope: scope, limit: @flows_limit, cursor: nil}
+
+    {flows, pagination, flows_error} =
+      case srql_mod.query(query, opts) do
+        {:ok, %{"results" => results, "pagination" => p}} when is_list(results) ->
+          {Enum.filter(results, &is_map/1), p || %{}, nil}
+
+        {:ok, %{"results" => results}} when is_list(results) ->
+          {Enum.filter(results, &is_map/1), %{}, nil}
+
+        _ ->
+          {[], %{}, "Failed to load flows for selected range"}
+      end
+
+    {:noreply,
+     socket
+     |> assign(:device_flows, flows)
+     |> assign(:flows_pagination, pagination)
+     |> assign(:flows_error, flows_error)}
+  end
+
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   defp normalize_interface_metrics_layout(layout) do
@@ -941,19 +1045,61 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  defp reload_flows_with_facets(socket, uid, facets) do
+    scope = socket.assigns.current_scope
+    srql_mod = srql_module()
+
+    facet_tokens =
+      Enum.map_join(facets, " ", fn {field, value} ->
+        "#{field}:\"#{escape_value(value)}\""
+      end)
+
+    query =
+      "in:flows device_id:\"#{escape_value(uid)}\" time:last_24h #{facet_tokens} sort:time:desc"
+
+    opts = %{scope: scope, limit: @flows_limit, cursor: nil}
+
+    {flows, pagination, flows_error} =
+      case srql_mod.query(query, opts) do
+        {:ok, %{"results" => results, "pagination" => p}} when is_list(results) ->
+          {Enum.filter(results, &is_map/1), p || %{}, nil}
+
+        {:ok, %{"results" => results}} when is_list(results) ->
+          {Enum.filter(results, &is_map/1), %{}, nil}
+
+        _ ->
+          {[], %{}, "Failed to load filtered flows"}
+      end
+
+    socket
+    |> assign(:device_flows, flows)
+    |> assign(:flows_pagination, pagination)
+    |> assign(:flows_error, flows_error)
+  end
+
   defp load_device_flow_stats(srql_mod, device_uid, scope) do
     base = "in:flows device_id:\"#{escape_value(device_uid)}\" time:last_24h"
 
     tasks = [
       Task.async(fn -> {:summary, load_device_flow_summary(srql_mod, scope, base)} end),
       Task.async(fn -> {:protocols, load_device_flow_top_n(srql_mod, scope, base, "protocol_name")} end),
+      Task.async(fn -> {:talkers, load_device_flow_top_n(srql_mod, scope, base, "src_endpoint_ip")} end),
+      Task.async(fn -> {:destinations, load_device_flow_top_n(srql_mod, scope, base, "dst_endpoint_ip")} end),
+      Task.async(fn -> {:ports, load_device_flow_top_n(srql_mod, scope, base, "dst_endpoint_port")} end),
+      Task.async(fn -> {:directions, load_device_flow_top_n(srql_mod, scope, base, "direction_label")} end),
+      Task.async(fn -> {:services, load_device_flow_top_n(srql_mod, scope, base, "dst_service_label")} end),
       Task.async(fn -> {:timeseries, load_device_flow_timeseries(srql_mod, scope, base)} end)
     ]
 
-    results = tasks |> Task.await_many(10_000) |> Map.new()
+    results = safe_yield_many(tasks, 10_000)
 
     summary = Map.get(results, :summary, %{})
     protocols = Map.get(results, :protocols, [])
+    talkers = Map.get(results, :talkers, [])
+    destinations = Map.get(results, :destinations, [])
+    ports = Map.get(results, :ports, [])
+    directions = Map.get(results, :directions, [])
+    services = Map.get(results, :services, [])
     timeseries = Map.get(results, :timeseries, [])
 
     proto_json =
@@ -966,7 +1112,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> Enum.map(fn %{t: t, v: v} -> %{t: t, v: v} end)
       |> Jason.encode!()
 
-    {summary, sparkline_json, proto_json}
+    chart_points =
+      timeseries
+      |> Enum.map(fn %{t: t, v: v} -> %{"t" => t, "bytes_total" => v} end)
+      |> Jason.encode!()
+
+    chart_keys = Jason.encode!(["bytes_total"])
+
+    top_talkers_json = encode_top_n(talkers)
+    top_destinations_json = encode_top_n(destinations)
+    top_ports_json = encode_top_n(ports)
+
+    facets = %{
+      protocols: Enum.map(protocols, fn row -> %{label: row[:name] || "unknown", value: row[:bytes] || 0} end),
+      directions: Enum.map(directions, fn row -> %{label: row[:name] || "unknown", value: row[:bytes] || 0} end),
+      services: Enum.map(services, fn row -> %{label: row[:name] || "unknown", value: row[:bytes] || 0} end) |> Enum.reject(&(&1.label == "unknown"))
+    }
+
+    {summary, sparkline_json, proto_json, chart_keys, chart_points,
+     top_talkers_json, top_destinations_json, top_ports_json, facets}
   end
 
   defp load_device_flow_summary(srql_mod, scope, base) do
@@ -1018,6 +1182,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       _ ->
         []
     end
+  end
+
+  defp encode_top_n(rows) do
+    rows
+    |> Enum.take(5)
+    |> Enum.map(fn row -> %{label: row[:name] || "unknown", value: row[:bytes] || 0} end)
+    |> Jason.encode!()
   end
 
   defp flow_stat_field(payload, key) when is_map(payload) do
@@ -2176,6 +2347,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               flow_stats_loading={@flow_stats_loading}
               sparkline_json={@flow_sparkline_json}
               proto_json={@flow_proto_json}
+              flow_chart_keys_json={@flow_chart_keys_json}
+              flow_chart_points_json={@flow_chart_points_json}
+              top_talkers_json={@flow_top_talkers_json}
+              top_destinations_json={@flow_top_destinations_json}
+              top_ports_json={@flow_top_ports_json}
+              facets={@flow_facets}
+              active_facets={@flow_active_facets}
             />
           </div>
           
@@ -2904,10 +3082,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr :flow_stats_loading, :boolean, default: true
   attr :sparkline_json, :string, default: "[]"
   attr :proto_json, :string, default: "[]"
+  attr :flow_chart_keys_json, :string, default: "[]"
+  attr :flow_chart_points_json, :string, default: "[]"
+  attr :top_talkers_json, :string, default: "[]"
+  attr :top_destinations_json, :string, default: "[]"
+  attr :top_ports_json, :string, default: "[]"
+  attr :facets, :map, default: %{protocols: [], directions: [], services: []}
+  attr :active_facets, :map, default: %{}
 
   defp flows_tab_content(assigns) do
+    max_bytes =
+      assigns.flows
+      |> Enum.map(&(Map.get(&1, "bytes_total") || 0))
+      |> Enum.max(fn -> 1 end)
+      |> max(1)
+
+    max_packets =
+      assigns.flows
+      |> Enum.map(&(Map.get(&1, "packets_total") || 0))
+      |> Enum.max(fn -> 1 end)
+      |> max(1)
+
     assigns =
       assigns
+      |> assign(:max_bytes, max_bytes)
+      |> assign(:max_packets, max_packets)
       |> assign_new(:total_bw, fn ->
         bytes = Map.get(assigns.flow_stats, :total_bytes, 0)
         format_si(bytes * 8, unit: "bps")
@@ -2950,6 +3149,60 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         />
       </div>
 
+      <%!-- Traffic Profile chart --%>
+      <div :if={@flow_chart_points_json != "[]"} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <.icon name="hero-chart-bar" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Traffic Profile</span>
+          <span class="text-xs text-base-content/50">(last 24h · drag to zoom)</span>
+        </div>
+        <div
+          id="device-flow-traffic-profile"
+          class="w-full"
+          style="height: 220px"
+          phx-hook="NetflowStackedAreaChart"
+          data-units="Bps"
+          data-keys={@flow_chart_keys_json}
+          data-points={@flow_chart_points_json}
+          data-colors={Jason.encode!(%{})}
+          data-overlays="[]"
+          data-zoomable="true"
+        >
+          <svg class="w-full h-full"></svg>
+        </div>
+      </div>
+
+      <%!-- Top-N widgets --%>
+      <div
+        :if={@top_talkers_json != "[]" or @top_destinations_json != "[]" or @top_ports_json != "[]"}
+        class="grid grid-cols-1 md:grid-cols-3 gap-3"
+      >
+        <.top_n_widget
+          :if={@top_talkers_json != "[]"}
+          title="Top Talkers"
+          icon="hero-user-group"
+          items_json={@top_talkers_json}
+          filter_field="src_endpoint_ip"
+          device_uid={@device_uid}
+        />
+        <.top_n_widget
+          :if={@top_destinations_json != "[]"}
+          title="Top Destinations"
+          icon="hero-server-stack"
+          items_json={@top_destinations_json}
+          filter_field="dst_endpoint_ip"
+          device_uid={@device_uid}
+        />
+        <.top_n_widget
+          :if={@top_ports_json != "[]"}
+          title="Top Ports"
+          icon="hero-hashtag"
+          items_json={@top_ports_json}
+          filter_field="dst_endpoint_port"
+          device_uid={@device_uid}
+        />
+      </div>
+
       <%!-- Protocol breakdown --%>
       <div :if={@proto_json != "[]"} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
         <div class="flex items-center gap-2 mb-3">
@@ -2958,6 +3211,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <span class="text-xs text-base-content/50">(last 24h)</span>
         </div>
         <.protocol_breakdown id="device-proto-donut" data_json={@proto_json} height={180} />
+      </div>
+
+      <%!-- Quick filters / faceting --%>
+      <div
+        :if={@facets.protocols != [] or @facets.directions != [] or @facets.services != []}
+        class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+      >
+        <div class="flex items-center gap-2 mb-3">
+          <.icon name="hero-funnel" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Quick Filters</span>
+          <button
+            :if={@active_facets != %{}}
+            phx-click="facet_clear"
+            class="ml-auto text-xs text-error hover:underline"
+          >
+            Clear all
+          </button>
+        </div>
+        <div class="flex flex-wrap gap-4">
+          <.facet_group
+            :if={@facets.protocols != []}
+            label="Protocol"
+            field="protocol_name"
+            items={@facets.protocols}
+            active_facets={@active_facets}
+            device_uid={@device_uid}
+          />
+          <.facet_group
+            :if={@facets.directions != []}
+            label="Direction"
+            field="direction_label"
+            items={@facets.directions}
+            active_facets={@active_facets}
+            device_uid={@device_uid}
+          />
+          <.facet_group
+            :if={@facets.services != []}
+            label="Service"
+            field="dst_service_label"
+            items={@facets.services}
+            active_facets={@active_facets}
+            device_uid={@device_uid}
+          />
+        </div>
       </div>
 
       <%!-- Flow table --%>
@@ -2987,7 +3284,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                     <th>Source</th>
                     <th>Destination</th>
                     <th class="text-right">Proto</th>
-                    <th class="text-right">Direction</th>
+                    <th>Interface Path</th>
                     <th class="text-right">Packets</th>
                     <th class="text-right">Bytes</th>
                     <th class="text-right"></th>
@@ -2998,25 +3295,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                     <tr>
                       <td class="font-mono">{format_timestamp(flow_time(flow))}</td>
                       <td class="font-mono">
-                        {flow_endpoint(flow, :src)}{flow_port(flow, :src)}
+                        <div>{flow_endpoint(flow, :src)}{flow_port(flow, :src)}</div>
+                        <div
+                          :if={name = flow_exporter_name(flow)}
+                          class="text-[10px] text-base-content/50 truncate max-w-[140px]"
+                        >
+                          {name}
+                        </div>
                       </td>
                       <td class="font-mono">
-                        {flow_endpoint(flow, :dst)}{flow_port(flow, :dst)}
-                      </td>
-                      <td class="text-right font-mono">
-                        {flow_protocol(flow)}
+                        <div>{flow_endpoint(flow, :dst)}{flow_port(flow, :dst)}</div>
                         <div
                           :if={service = flow_service_label(flow)}
-                          class="text-[10px] text-base-content/60"
+                          class="text-[10px] text-base-content/50 truncate max-w-[140px]"
                         >
                           {service}
                         </div>
                       </td>
                       <td class="text-right font-mono">
-                        {flow_direction(flow)}
+                        {flow_protocol(flow)}
                       </td>
-                      <td class="text-right font-mono">{Map.get(flow, "packets_total") || "—"}</td>
-                      <td class="text-right font-mono">{format_bytes(Map.get(flow, "bytes_total"))}</td>
+                      <td class="font-mono text-xs">
+                        <.flow_interface_path flow={flow} />
+                      </td>
+                      <td class="text-right font-mono">
+                        <.data_bar
+                          value={Map.get(flow, "packets_total") || 0}
+                          max={@max_packets}
+                          label={flow_format_number(Map.get(flow, "packets_total"))}
+                        />
+                      </td>
+                      <td class="text-right font-mono">
+                        <.data_bar
+                          value={Map.get(flow, "bytes_total") || 0}
+                          max={@max_bytes}
+                          label={format_bytes(Map.get(flow, "bytes_total"))}
+                        />
+                      </td>
                       <td class="text-right">
                         <.link
                           navigate={
@@ -3051,6 +3366,152 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     """
   end
 
+  # ---------------------------------------------------------------------------
+  # Top-N Widget
+  # ---------------------------------------------------------------------------
+
+  attr :title, :string, required: true
+  attr :icon, :string, required: true
+  attr :items_json, :string, required: true
+  attr :filter_field, :string, required: true
+  attr :device_uid, :string, required: true
+
+  defp top_n_widget(assigns) do
+    items =
+      case Jason.decode(assigns.items_json) do
+        {:ok, list} when is_list(list) -> list
+        _ -> []
+      end
+
+    max_value = items |> Enum.map(&Map.get(&1, "value", 0)) |> Enum.max(fn -> 1 end)
+
+    items =
+      Enum.map(items, fn item ->
+        pct = min(100, round(Map.get(item, "value", 0) / max(1, max_value) * 100))
+        Map.put(item, "pct", pct)
+      end)
+
+    assigns = assign(assigns, items: items)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+      <div class="flex items-center gap-2 mb-3">
+        <.icon name={@icon} class="size-4 text-primary" />
+        <span class="text-sm font-semibold">{@title}</span>
+        <span class="text-xs text-base-content/50">(last 24h)</span>
+      </div>
+      <div class="space-y-1.5">
+        <button
+          :for={item <- @items}
+          type="button"
+          class="w-full text-left group"
+          phx-click="topn_filter"
+          phx-value-field={@filter_field}
+          phx-value-value={item["label"]}
+          phx-value-device-uid={@device_uid}
+        >
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-mono truncate max-w-[60%] group-hover:text-primary transition-colors">
+              {item["label"]}
+            </span>
+            <span class="text-base-content/60">{format_bytes(item["value"])}</span>
+          </div>
+          <div class="w-full bg-base-200 rounded-full h-1 mt-0.5">
+            <div
+              class="bg-primary/40 group-hover:bg-primary/60 h-1 rounded-full transition-colors"
+              style={"width: #{item["pct"]}%"}
+            >
+            </div>
+          </div>
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Facet Group (clickable filter chips)
+  # ---------------------------------------------------------------------------
+
+  attr :label, :string, required: true
+  attr :field, :string, required: true
+  attr :items, :list, required: true
+  attr :active_facets, :map, required: true
+  attr :device_uid, :string, required: true
+
+  defp facet_group(assigns) do
+    active_value = Map.get(assigns.active_facets, assigns.field)
+    assigns = assign(assigns, :active_value, active_value)
+
+    ~H"""
+    <div class="flex items-center gap-1.5">
+      <span class="text-xs text-base-content/50 font-medium">{@label}:</span>
+      <button
+        :for={item <- @items}
+        type="button"
+        phx-click="facet_toggle"
+        phx-value-field={@field}
+        phx-value-value={item.label}
+        phx-value-device-uid={@device_uid}
+        class={[
+          "badge badge-sm cursor-pointer transition-colors",
+          if(@active_value == item.label,
+            do: "badge-primary",
+            else: "badge-ghost hover:badge-primary/20"
+          )
+        ]}
+      >
+        {item.label}
+      </button>
+    </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Data Bar (relative bar behind numeric values)
+  # ---------------------------------------------------------------------------
+
+  attr :value, :integer, required: true
+  attr :max, :integer, required: true
+  attr :label, :string, required: true
+
+  defp data_bar(assigns) do
+    pct = if assigns.max > 0, do: min(100, round(assigns.value / assigns.max * 100)), else: 0
+    assigns = assign(assigns, :pct, pct)
+
+    ~H"""
+    <div class="relative inline-flex items-center justify-end w-full min-w-[60px]">
+      <div
+        class="absolute inset-y-0 right-0 bg-primary/10 rounded-sm"
+        style={"width: #{@pct}%"}
+      >
+      </div>
+      <span class="relative z-10">{@label}</span>
+    </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Flow Interface Path (in_if → out_if)
+  # ---------------------------------------------------------------------------
+
+  attr :flow, :map, required: true
+
+  defp flow_interface_path(assigns) do
+    in_if = Map.get(assigns.flow, "in_if_name")
+    out_if = Map.get(assigns.flow, "out_if_name")
+    assigns = assign(assigns, in_if: in_if, out_if: out_if)
+
+    ~H"""
+    <span :if={@in_if || @out_if} class="inline-flex items-center gap-1 text-base-content/70">
+      <span :if={@in_if} class="truncate max-w-[70px]" title={@in_if}>{@in_if}</span>
+      <span :if={@in_if && @out_if} class="text-base-content/40">&rarr;</span>
+      <span :if={@out_if} class="truncate max-w-[70px]" title={@out_if}>{@out_if}</span>
+    </span>
+    <span :if={!@in_if && !@out_if} class="text-base-content/30">—</span>
+    """
+  end
+
   defp flow_endpoint(flow, :src), do: Map.get(flow, "src_endpoint_ip") || "—"
   defp flow_endpoint(flow, :dst), do: Map.get(flow, "dst_endpoint_ip") || "—"
 
@@ -3066,11 +3527,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp flow_service_label(_), do: nil
 
-  defp flow_direction(flow) when is_map(flow) do
-    Map.get(flow, "direction_label") || "—"
+  defp flow_exporter_name(flow) when is_map(flow) do
+    case Map.get(flow, "exporter_name") do
+      name when is_binary(name) and name != "" -> name
+      _ -> nil
+    end
   end
 
-  defp flow_direction(_), do: "—"
+  defp flow_exporter_name(_), do: nil
+
+  defp flow_format_number(nil), do: "—"
+  defp flow_format_number(n) when is_number(n), do: format_si(n)
+  defp flow_format_number(_), do: "—"
 
   defp flow_port(flow, :src) do
     case Map.get(flow, "src_endpoint_port") do
@@ -3803,6 +4271,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp parse_limit(_limit, default, _max), do: default
+
+  # Gracefully await a list of keyed async tasks. Each task must return {:key, value}.
+  # Returns a map of results; timed-out or crashed tasks are silently omitted.
+  defp safe_yield_many(tasks, timeout) do
+    tasks
+    |> Task.yield_many(timeout)
+    |> Enum.map(fn {task, result} ->
+      case result do
+        {:ok, value} -> value
+        _ -> Task.shutdown(task, :brutal_kill) && nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Map.new()
+  end
 
   defp escape_value(value) when is_binary(value) do
     value

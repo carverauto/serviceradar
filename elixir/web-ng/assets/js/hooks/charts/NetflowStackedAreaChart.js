@@ -181,6 +181,27 @@ export default {
       .call(d3.axisLeft(y).ticks(4).tickSizeOuter(0))
       .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
 
+    // Brush-zoom: opt-in via data-zoomable="true"
+    if (el.dataset.zoomable === "true") {
+      const brush = d3
+        .brushX()
+        .extent([
+          [0, 0],
+          [iw, ih],
+        ])
+        .on("end", (event) => {
+          if (!event.selection) return
+          const [x0, x1] = event.selection.map(x.invert)
+          d3.select(event.target).call(brush.move, null)
+          this.pushEvent("chart_zoom", {
+            start: x0.toISOString(),
+            end: x1.toISOString(),
+          })
+        })
+
+      g.append("g").attr("class", "brush").call(brush)
+    }
+
     try {
       this._tooltipCleanup?.()
     } catch (_e) {}

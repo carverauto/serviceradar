@@ -1226,6 +1226,34 @@ fn parse_stats_expr(expr: &str) -> Result<FlowStatsSpec> {
 /// Minimum time range (hours) before we consider routing flow stats to a CAGG.
 const FLOW_CAGG_ROUTING_THRESHOLD_HOURS: i64 = 6;
 
+/// Returns the filter field names that can safely be applied against a given CAGG table.
+/// Only direct dimension-column filters are allowed — expression-based filters (subqueries,
+/// CASE expressions, geo joins) reference raw-table-only structures and must fall back.
+fn cagg_filter_fields(table: &str) -> &'static [&'static str] {
+    match table {
+        "ocsf_network_activity_hourly_talkers" => {
+            &["src_endpoint_ip", "src_ip"]
+        }
+        "ocsf_network_activity_hourly_listeners" => {
+            &["dst_endpoint_ip", "dst_ip"]
+        }
+        "ocsf_network_activity_hourly_proto" => &["protocol_num", "proto"],
+        "ocsf_network_activity_hourly_ports" => {
+            &["dst_endpoint_port", "dst_port"]
+        }
+        "ocsf_network_activity_hourly_conversations" => {
+            &[
+                "src_endpoint_ip",
+                "src_ip",
+                "dst_endpoint_ip",
+                "dst_ip",
+            ]
+        }
+        // Traffic CAGGs (5m, 1h, 1d) have no dimension columns
+        _ => &[],
+    }
+}
+
 /// Returns `Some((cagg_table, ts_col))` when a flow stats query can be served
 /// entirely from a pre-aggregated continuous aggregate.
 fn should_route_flow_stats_to_cagg(
@@ -1252,12 +1280,7 @@ fn should_route_flow_stats_to_cagg(
         return None;
     }
 
-    // 4. No non-time filters (CAGGs don't have filter columns like device_id, sampler_address)
-    if !plan.filters.is_empty() {
-        return None;
-    }
-
-    // 5. Group-by fields must match an available CAGG dimension
+    // 4. Group-by fields must match an available CAGG dimension
     let is_long_window = span >= chrono::Duration::hours(24);
 
     let table: &'static str = match spec.group_by.as_slice() {
@@ -1286,6 +1309,19 @@ fn should_route_flow_stats_to_cagg(
         }
         _ => return None, // Unsupported group-by combination
     };
+
+    // 5. All filters must target columns that exist in the selected CAGG.
+    // Only simple dimension-column filters are safe; expression-based filters
+    // (device_id, exporter_name, app, geo, CIDR, etc.) reference raw-table-only
+    // columns/subqueries and would produce wrong results or SQL errors.
+    let allowed_filters = cagg_filter_fields(table);
+    if !plan
+        .filters
+        .iter()
+        .all(|f| allowed_filters.contains(&f.field.as_str()))
+    {
+        return None;
+    }
 
     Some((table, "bucket"))
 }
@@ -1375,8 +1411,8 @@ fn build_grouped_stats_query(
     };
 
     // For CAGG-routed queries, rewrite time predicates to use the bucket column
+    // and re-add only the dimension-safe filters validated by should_route_flow_stats_to_cagg.
     if cagg_route.is_some() {
-        // Rebuild where_parts with bucket column instead of f.time
         where_parts.clear();
         binds.clear();
         if let Some(TimeRange { start, end }) = &plan.time_range {
@@ -1386,7 +1422,10 @@ fn build_grouped_stats_query(
             binds.push(FlowSqlBindValue::Timestamp(*start));
             binds.push(FlowSqlBindValue::Timestamp(*end));
         }
-        // No non-time filters for CAGG queries (validated in should_route_flow_stats_to_cagg)
+        // Re-add dimension filters (safe columns validated by cagg_filter_fields)
+        for filter in &plan.filters {
+            where_parts.push(build_stats_filter_clause(filter, &mut binds)?);
+        }
         where_sql = if where_parts.is_empty() {
             String::new()
         } else {

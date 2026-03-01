@@ -19,7 +19,7 @@
 - [x] 2.4 Add refresh policies (1h: every hour, 1d: every day, listeners/conversations: 5min)
 - [x] 2.5 Create hourly listeners CAGG (by dst_endpoint_ip)
 - [x] 2.6 Create hourly conversations CAGG (by src_endpoint_ip + dst_endpoint_ip)
-- [ ] 2.7 Add 95th percentile aggregate function (query-time calculation — Phase 4)
+- [x] 2.7 Add 95th percentile aggregate function (query-time calculation in Elixir)
 
 ## 3. Dashboard Homepage
 

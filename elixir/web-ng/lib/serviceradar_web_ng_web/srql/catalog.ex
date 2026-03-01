@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "flows",
       label: "Flows",
-      route: "/flows",
+      route: "/flows/visualize",
       default_time: "last_24h",
       default_sort_field: "time",
       default_sort_dir: "desc",
