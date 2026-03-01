@@ -5517,6 +5517,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           _ -> []
         end
 
+      pending_jobs = MtrData.suppress_completed_pending_jobs(pending_jobs, traces)
+
       socket
       |> assign(:mtr_traces, traces)
       |> assign(:mtr_pending_jobs, pending_jobs)

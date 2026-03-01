@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     {where_clause, params} = build_trace_where(target_filter, agent_filter, device_uid, device_ip)
 
     query = """
-    SELECT id::text AS id, time, agent_id, check_name, device_id, target, target_ip,
+    SELECT id::text AS id, time, agent_id, check_id, check_name, device_id, target, target_ip,
            target_reached, total_hops, protocol, ip_version, error
     FROM mtr_traces
     #{where_clause}
@@ -109,6 +109,23 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   end
 
   def get_trace_detail(_), do: {:error, :invalid_trace_id}
+
+  def suppress_completed_pending_jobs(pending_jobs, traces)
+      when is_list(pending_jobs) and is_list(traces) do
+    completed_command_ids =
+      traces
+      |> Enum.map(&Map.get(&1, "check_id"))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&to_string/1)
+      |> MapSet.new()
+
+    Enum.reject(pending_jobs, fn job ->
+      job_id = Map.get(job, :id) || Map.get(job, "id")
+      is_binary(job_id) and MapSet.member?(completed_command_ids, job_id)
+    end)
+  end
+
+  def suppress_completed_pending_jobs(pending_jobs, _traces), do: pending_jobs
 
   defp build_trace_where(target_filter, agent_filter, device_uid, device_ip) do
     conditions = []

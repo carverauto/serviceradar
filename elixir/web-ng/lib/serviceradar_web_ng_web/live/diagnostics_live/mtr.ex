@@ -102,6 +102,26 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     end
   end
 
+  def handle_event("run_again", %{"target" => target, "agent_id" => agent_id} = params, socket) do
+    protocol = Map.get(params, "protocol", "icmp")
+    payload = %{"target" => target, "protocol" => protocol}
+
+    case AgentCommandBus.dispatch(agent_id, "mtr.run", payload) do
+      {:ok, command_id} ->
+        {:noreply,
+         socket
+         |> assign(:mtr_command_id, command_id)
+         |> put_flash(:info, "MTR trace queued")
+         |> refresh_diagnostics()}
+
+      {:error, {:agent_offline, _}} ->
+        {:noreply, put_flash(socket, :error, "Agent is offline")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to dispatch: #{inspect(reason)}")}
+    end
+  end
+
   @impl true
   def handle_info({:command_result, %{command_type: "mtr.run"}}, socket) do
     {:noreply,
@@ -151,7 +171,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
            agent_filter: socket.assigns.filter_agent
          ) do
       {:ok, jobs} ->
-        assign(socket, :pending_jobs, jobs)
+        assign(
+          socket,
+          :pending_jobs,
+          MtrData.suppress_completed_pending_jobs(jobs, socket.assigns.traces)
+        )
 
       {:error, _} ->
         assign(socket, :pending_jobs, [])
@@ -301,7 +325,32 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
               <td class="text-xs max-w-[120px] truncate" title={trace["check_name"]}>
                 {trace["check_name"] || "-"}
               </td>
-              <td>
+              <td class="flex items-center gap-1">
+                <button
+                  type="button"
+                  class="btn btn-xs btn-ghost"
+                  phx-click="run_again"
+                  phx-value-target={trace["target"] || ""}
+                  phx-value-agent_id={trace["agent_id"] || ""}
+                  phx-value-protocol={trace["protocol"] || "icmp"}
+                  title="Run again"
+                  aria-label="Run MTR trace again"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-3.5 w-3.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M4 4v6h6M20 20v-6h-6M20 9A8 8 0 006.34 5.34L4 8m16 8l-2.34 2.66A8 8 0 013.99 15"
+                    />
+                  </svg>
+                </button>
                 <.link
                   navigate={~p"/diagnostics/mtr/#{trace["id"]}"}
                   class="btn btn-xs btn-ghost"
