@@ -374,7 +374,8 @@ export const godViewRenderingGraphLayerTransportMethods = {
   },
 
   mtrLossWidth(lossPct) {
-    const loss = Math.max(0, Math.min(100, Number(lossPct || 0)))
+    const raw = Number(lossPct)
+    const loss = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0
     return 2.5 + (loss / 100) * 9.5
   },
 

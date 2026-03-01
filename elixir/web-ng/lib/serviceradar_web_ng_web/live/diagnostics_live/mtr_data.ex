@@ -120,22 +120,26 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     target_filter = normalize_string(Keyword.get(opts, :target_filter, ""))
     agent_filter = normalize_string(Keyword.get(opts, :agent_filter, ""))
 
-  query =
-    AgentCommand
-    |> Ash.Query.for_read(:read, %{})
-    |> Ash.Query.filter(expr(command_type == "mtr.run" and status in ^pending_states))
-    |> Ash.Query.sort(inserted_at: :desc)
-    |> Ash.Query.limit(500)
+    if is_nil(scope) do
+      {:ok, []}
+    else
+      query =
+        AgentCommand
+        |> Ash.Query.for_read(:read, %{})
+        |> Ash.Query.filter(expr(command_type == "mtr.run" and status in ^pending_states))
+        |> Ash.Query.sort(inserted_at: :desc)
+        |> Ash.Query.limit(500)
 
-    with {:ok, jobs} <- read_all(query, scope) do
-      jobs
-      |> Enum.filter(fn job ->
-        match_target?(job, target_filter) and
-          match_agent?(job, agent_filter) and
-          match_device?(job, device_uid, device_ip)
-      end)
-      |> Enum.take(25)
-      |> then(&{:ok, &1})
+      with {:ok, jobs} <- read_all(query, scope) do
+        jobs
+        |> Enum.filter(fn job ->
+          match_target?(job, target_filter) and
+            match_agent?(job, agent_filter) and
+            match_device?(job, device_uid, device_ip)
+        end)
+        |> Enum.take(25)
+        |> then(&{:ok, &1})
+      end
     end
   end
 

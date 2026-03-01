@@ -662,7 +662,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
           partition_id: partition_id
         )
 
-        {:ok, {:dispatched, :window_persist_failed}}
+        {:error, {:window_persist_failed, reason}}
     end
   end
 

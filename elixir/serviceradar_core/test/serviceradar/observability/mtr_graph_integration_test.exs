@@ -36,6 +36,13 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
     end
   end
 
+  setup context do
+    case context[:skip] do
+      nil -> :ok
+      reason -> {:skip, reason}
+    end
+  end
+
   setup do
     cleanup_graph(@test_node_ids)
     :ok

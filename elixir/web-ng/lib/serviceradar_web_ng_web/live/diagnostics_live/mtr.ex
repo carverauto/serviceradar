@@ -134,7 +134,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   def handle_event("run_mtr", %{"mtr" => mtr_params}, socket) do
     target = String.trim(mtr_params["target"] || "")
     agent_id = mtr_params["agent_id"] || ""
-    protocol = mtr_params["protocol"] || "icmp"
+    protocol = normalize_protocol(Map.get(mtr_params, "protocol", "icmp"))
 
     cond do
       target == "" ->
@@ -167,7 +167,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   end
 
   def handle_event("run_again", %{"target" => target, "agent_id" => agent_id} = params, socket) do
-    protocol = Map.get(params, "protocol", "icmp")
+    protocol = normalize_protocol(Map.get(params, "protocol", "icmp"))
     payload = %{"target" => target, "protocol" => protocol}
 
     case AgentCommandBus.dispatch(agent_id, "mtr.run", payload) do
@@ -229,6 +229,20 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   end
 
   defp active_mtr_command?(_socket, _command_id), do: false
+
+  defp normalize_protocol(value) do
+    value =
+      value
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    if value in ["icmp", "udp", "tcp"] do
+      value
+    else
+      "icmp"
+    end
+  end
 
   defp refresh_diagnostics(socket) do
     socket

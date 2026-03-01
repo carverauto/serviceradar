@@ -799,7 +799,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp build_count_query(normalized) when is_binary(normalized) do
     has_stats? = Regex.match?(~r/(^|\s)stats:/i, normalized)
-    has_limit? = Regex.match?(~r/(^|\s)limit:/i, normalized)
+
+    normalized =
+      normalized
+      |> String.replace(~r/(^|\s)limit:\S+/i, "")
+      |> String.replace(~r/\s+/, " ")
+      |> String.trim()
 
     normalized
     |> then(fn q ->
@@ -809,13 +814,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         "#{q} stats:\"count() as total\""
       end
     end)
-    |> then(fn q ->
-      if has_limit? do
-        q
-      else
-        "#{q} limit:1"
-      end
-    end)
+    |> Kernel.<>(" limit:1")
   end
 
   defp extract_total_count(count) when is_integer(count), do: count
@@ -1031,18 +1030,18 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   defp parse_float(nil, default, _min, _max), do: default
   defp parse_float("", default, _min, _max), do: default
 
-  defp parse_float(value, default, min, max) when is_binary(value) do
+  defp parse_float(value, default, min_val, max_val) when is_binary(value) do
     case Float.parse(value) do
-      {parsed, ""} -> parsed |> max(min) |> min(max)
+      {parsed, ""} -> parsed |> Kernel.max(min_val) |> Kernel.min(max_val)
       _ -> default
     end
   end
 
-  defp parse_float(value, _default, min, max) when is_float(value),
-    do: value |> max(min) |> min(max)
+  defp parse_float(value, _default, min_val, max_val) when is_float(value),
+    do: value |> Kernel.max(min_val) |> Kernel.min(max_val)
 
-  defp parse_float(value, _default, min, max) when is_integer(value),
-    do: (value / 1.0) |> max(min) |> min(max)
+  defp parse_float(value, _default, min_val, max_val) when is_integer(value),
+    do: (value / 1.0) |> Kernel.max(min_val) |> Kernel.min(max_val)
 
   defp parse_float(_value, default, _min, _max), do: default
 
