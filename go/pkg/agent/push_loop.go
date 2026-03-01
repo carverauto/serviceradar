@@ -124,6 +124,7 @@ type PushLoop struct {
 	lastStatusSignature       string
 	syncRuntime               *SyncRuntime
 	mtrState                  *mtrCheckerState
+	mtrOnDemandSem            chan struct{}
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -312,6 +313,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		statusHeartbeat:    heartbeat,
 		syncRuntime:        NewSyncRuntime(server, gateway, log),
 		mtrState:           newMtrCheckerState(),
+		mtrOnDemandSem:     make(chan struct{}, defaultMaxConcurrentOnDemandMtr),
 	}
 }
 

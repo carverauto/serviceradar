@@ -77,8 +77,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
         Enum.reduce_while(results, :ok, fn result, _acc ->
           reduce_insert_result(result, agent_id, gateway_id, partition, now, actor)
         end)
-      end,
-      actor: actor
+      end
     )
     |> case do
       {:ok, {:error, reason}} ->

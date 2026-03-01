@@ -39,6 +39,7 @@ const (
 )
 
 const defaultOnDemandMtrDeadline = 45 * time.Second
+const defaultMaxConcurrentOnDemandMtr = 2
 
 var errControlStreamClosed = errors.New("control stream closed")
 
@@ -362,6 +363,12 @@ func (p *PushLoop) runSweepGroup(ctx context.Context, groupID string) error {
 }
 
 func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
+	if !p.tryAcquireOnDemandMtrSlot() {
+		_ = sender.Send(commandResult(cmd, false, "agent busy: too many concurrent mtr traces", nil))
+		return
+	}
+	defer p.releaseOnDemandMtrSlot()
+
 	payload := mtrRunPayload{}
 	if len(cmd.PayloadJson) > 0 {
 		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
@@ -410,6 +417,30 @@ func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, 
 		Msg("On-demand MTR trace completed")
 
 	_ = sender.Send(commandResult(cmd, true, "mtr trace completed", resultPayload))
+}
+
+func (p *PushLoop) tryAcquireOnDemandMtrSlot() bool {
+	if p == nil || p.mtrOnDemandSem == nil {
+		return true
+	}
+
+	select {
+	case p.mtrOnDemandSem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *PushLoop) releaseOnDemandMtrSlot() {
+	if p == nil || p.mtrOnDemandSem == nil {
+		return
+	}
+
+	select {
+	case <-p.mtrOnDemandSem:
+	default:
+	}
 }
 
 func onDemandMtrOptions(payload mtrRunPayload) mtr.Options {
