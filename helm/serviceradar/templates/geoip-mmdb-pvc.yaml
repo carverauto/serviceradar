@@ -1,0 +1,20 @@
+{{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
+{{- if and ($geoipMmdb.enabled) (not $geoipMmdb.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-geoip-mmdb
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ default "1Gi" $geoipMmdb.size | quote }}
+  {{- if $geoipMmdb.storageClassName }}
+  storageClassName: {{ $geoipMmdb.storageClassName | quote }}
+  {{- end }}
+{{- end }}
+

@@ -495,15 +495,14 @@ defmodule ServiceRadar.Identity.AliasEvents do
     updates
     |> Enum.group_by(& &1.device_id)
     |> Enum.map(fn {_device_id, grouped} ->
-      # Keep the update with the latest timestamp, handling nil timestamps
-      Enum.max_by(grouped, & &1.timestamp, fn
-        nil, nil -> :eq
-        nil, _ -> :lt
-        _, nil -> :gt
-        a, b -> DateTime.compare(a, b)
-      end)
+      # Keep the newest update; nil timestamps sort oldest.
+      Enum.max_by(grouped, &sortable_timestamp(&1.timestamp), DateTime)
     end)
   end
+
+  defp sortable_timestamp(nil), do: ~U[1970-01-01 00:00:00Z]
+  defp sortable_timestamp(%DateTime{} = ts), do: ts
+  defp sortable_timestamp(_), do: ~U[1970-01-01 00:00:00Z]
 
   defp lookup_existing_alias_records(device_ids, opts) do
     actor = Keyword.get(opts, :actor)

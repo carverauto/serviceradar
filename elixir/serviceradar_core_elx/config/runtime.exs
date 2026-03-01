@@ -1,6 +1,91 @@
 import Config
 
 # =============================================================================
+# OpenTelemetry Configuration
+# =============================================================================
+# All OTEL exporter config MUST live here — runtime.exs runs before OTP apps
+# start, so the opentelemetry SDK picks up these values at boot.
+otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+if otel_endpoint do
+  ssl_opts = ServiceRadar.Telemetry.OtelSetup.ssl_options()
+
+  config :opentelemetry,
+    span_processor: :batch,
+    traces_exporter:
+      {:serviceradar_otel_exporter_traces_otlp,
+       %{
+         rpc_timeout_ms: 10_000,
+         retry_max_attempts: 5,
+         retry_base_delay_ms: 200,
+         retry_max_delay_ms: 5_000
+       }}
+
+  config :opentelemetry_exporter,
+    otlp_protocol: :grpc,
+    otlp_endpoint: otel_endpoint,
+    ssl_options: ssl_opts
+
+  # Log exporter uses the same endpoint/protocol/TLS as traces
+  config :opentelemetry_experimental,
+    otlp_protocol: :grpc,
+    otlp_endpoint: otel_endpoint,
+    ssl_options: ssl_opts
+else
+  # No endpoint configured — disable export to avoid connection errors
+  config :opentelemetry,
+    traces_exporter: :none
+end
+
+# =============================================================================
+# GeoLite2 MMDB / GeoIP Configuration
+# =============================================================================
+# The core release must configure Geolix itself at runtime so enrichment workers
+# can perform local GeoIP/ASN lookups (no external calls at query time).
+geolite_dir = System.get_env("GEOLITE_MMDB_DIR", "/var/lib/serviceradar/geoip")
+
+geolite_city_enabled =
+  System.get_env("GEOLITE_CITY_ENABLED", "false")
+  |> String.downcase()
+  |> then(&(&1 in ["1", "true", "yes", "on"]))
+
+config :serviceradar_core,
+  geolite_mmdb_dir: geolite_dir
+
+base_geolite_dbs = [
+  %{
+    id: :geolite2_asn,
+    adapter: Geolix.Adapter.MMDB2,
+    source: Path.join(geolite_dir, "GeoLite2-ASN.mmdb")
+  },
+  %{
+    id: :geolite2_country,
+    adapter: Geolix.Adapter.MMDB2,
+    source: Path.join(geolite_dir, "GeoLite2-Country.mmdb")
+  }
+]
+
+city_geolite_dbs =
+  (geolite_city_enabled &&
+     [
+       %{
+         id: :geolite2_city,
+         adapter: Geolix.Adapter.MMDB2,
+         source: Path.join(geolite_dir, "GeoLite2-City.mmdb")
+       }
+     ]) || []
+
+ipinfo_dbs = [
+  %{
+    id: :ipinfo_lite,
+    adapter: Geolix.Adapter.MMDB2,
+    source: Path.join(geolite_dir, "ipinfo_lite.mmdb")
+  }
+]
+
+config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+
+# =============================================================================
 # Cluster Configuration
 # =============================================================================
 cluster_strategy =
@@ -110,7 +195,8 @@ config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
   cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-  workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+  workload_api_socket:
+    System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
 
 if config_env() == :prod do
   cloak_key =
@@ -149,14 +235,14 @@ if config_env() == :prod do
     cloak_key: cloak_key,
     repo_enabled: System.get_env("SERVICERADAR_CORE_REPO_ENABLED", "true") in ~w(true 1 yes),
     vault_enabled: System.get_env("SERVICERADAR_CORE_VAULT_ENABLED", "true") in ~w(true 1 yes),
-    registries_enabled: System.get_env("SERVICERADAR_CORE_REGISTRIES_ENABLED", "true") in ~w(true 1 yes),
+    registries_enabled:
+      System.get_env("SERVICERADAR_CORE_REGISTRIES_ENABLED", "true") in ~w(true 1 yes),
     run_startup_migrations:
       System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes),
     cluster_enabled: cluster_enabled,
     cluster_coordinator: cluster_coordinator,
     # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
-    status_handler_enabled:
-      System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
+    status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
   plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
 
@@ -203,12 +289,20 @@ if config_env() == :prod do
 
   config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
 
+  age_graph_name =
+    System.get_env("SERVICERADAR_AGE_GRAPH_NAME") ||
+      System.get_env("AGE_GRAPH_NAME") ||
+      "platform_graph"
+
+  config :serviceradar_core, :age_graph_name, age_graph_name
+
   database_url = System.get_env("DATABASE_URL")
 
   cnpg_host = System.get_env("CNPG_HOST")
   cnpg_port = String.to_integer(System.get_env("CNPG_PORT", "5432"))
   cnpg_database = System.get_env("CNPG_DATABASE", "serviceradar")
   cnpg_username = System.get_env("CNPG_USERNAME", "serviceradar")
+
   cnpg_password =
     case System.get_env("CNPG_PASSWORD_FILE") do
       nil ->
@@ -351,7 +445,8 @@ if config_env() == :prod do
     end
 
   extra_cron_entries = [
-    {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
+    {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
+    {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance}
   ]
 
   add_cron_entries = fn config, entries ->
@@ -399,6 +494,7 @@ if config_env() == :prod do
 
   if nats_enabled do
     nats_creds_file = System.get_env("NATS_CREDS_FILE")
+
     if nats_creds_file in [nil, ""] do
       raise """
       NATS_CREDS_FILE is required when NATS_ENABLED=true.
@@ -440,11 +536,9 @@ if config_env() == :prod do
 
   if event_writer_enabled do
     event_writer_creds = System.get_env("EVENT_WRITER_NATS_CREDS_FILE")
+
     if event_writer_creds in [nil, ""] do
-      raise """
-      EVENT_WRITER_NATS_CREDS_FILE is required when EVENT_WRITER_ENABLED=true.
-      Generate or provision JWT credentials and set EVENT_WRITER_NATS_CREDS_FILE.
-      """
+      IO.puts("[EventWriter] No NATS creds file set; connecting without JWT auth")
     end
 
     nats_url = System.get_env("EVENT_WRITER_NATS_URL", "nats://localhost:4222")
@@ -483,7 +577,16 @@ if config_env() == :prod do
       consumer_name: System.get_env("EVENT_WRITER_CONSUMER_NAME", "serviceradar-event-writer"),
       streams: [
         %{
+          name: "EVENTS",
+          stream_name: "events",
+          subject: "events.>",
+          processor: ServiceRadar.EventWriter.Processors.Events,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
           name: "OTEL_METRICS",
+          stream_name: "events",
           subject: "otel.metrics.>",
           processor: ServiceRadar.EventWriter.Processors.OtelMetrics,
           batch_size: 100,
@@ -491,17 +594,49 @@ if config_env() == :prod do
         },
         %{
           name: "OTEL_TRACES",
+          stream_name: "events",
           subject: "otel.traces.>",
           processor: ServiceRadar.EventWriter.Processors.OtelTraces,
           batch_size: 100,
           batch_timeout: 1_000
         },
         %{
-          name: "LOGS",
-          subject: "logs.>",
-          processor: ServiceRadar.EventWriter.Processors.Logs,
+          name: "BMP_CAUSAL",
+          stream_name: "events",
+          subject: "bmp.events.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
           batch_size: 100,
           batch_timeout: 1_000
+        },
+        %{
+          name: "ARANCINI_CAUSAL",
+          stream_name: "ARANCINI_CAUSAL",
+          subject: "arancini.updates.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "SIEM_CAUSAL",
+          stream_name: "events",
+          subject: "siem.events.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "SFLOW_RAW",
+          subject: "flows.raw.sflow",
+          processor: ServiceRadar.EventWriter.Processors.Flows,
+          batch_size: 50,
+          batch_timeout: 500
+        },
+        %{
+          name: "NETFLOW_RAW",
+          subject: "flows.raw.netflow",
+          processor: ServiceRadar.EventWriter.Processors.Flows,
+          batch_size: 50,
+          batch_timeout: 500
         }
       ]
   end

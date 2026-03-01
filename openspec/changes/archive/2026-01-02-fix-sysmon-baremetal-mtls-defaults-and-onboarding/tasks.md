@@ -1,6 +1,6 @@
 ## 1. Sysmon default config
 - [x] 1.1 Change `cmd/checkers/sysmon/config/default_template.json` to mTLS defaults matching bare‑metal cert layout.
-- [x] 1.2 Change `packaging/sysmon/config/checkers/sysmon.json.example` to mTLS defaults (align with embedded template).
+- [x] 1.2 Change `build/packaging/sysmon/config/checkers/sysmon.json.example` to mTLS defaults (align with embedded template).
 - [ ] 1.3 Verify systemd unit + packaging still seed KV successfully; update any related docs/runbooks.
 
 ## 2. Sysmon edge onboarding hardening

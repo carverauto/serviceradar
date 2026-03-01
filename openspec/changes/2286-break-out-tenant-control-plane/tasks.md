@@ -38,12 +38,12 @@ The tenant instance code doesn't change based on deployment mode - it's always t
   - Seeders: template_seeder, rule_seeder, zen_rule_seeder, sysmon_profile_seeder
 
 - [x] **1.4 Map authorize?: false usage in production code**
-  - web-ng/lib/serviceradar_web_ng/inventory.ex:120 - hardcoded system_actor
-  - web-ng/lib/serviceradar_web_ng/infrastructure.ex:135 - hardcoded system_actor
-  - web-ng/lib/serviceradar_web_ng_web/tenant_resolver.ex:9 - @system_actor module attr
-  - web-ng/lib/serviceradar_web_ng/edge/onboarding_packages.ex:45,60,72 - authorize?: false
-  - web-ng/lib/serviceradar_web_ng/edge/onboarding_events.ex:146 - authorize?: false
-  - web-ng/lib/serviceradar_web_ng/accounts/scope.ex:42,52 - authorize?: false
+  - elixir/web-ng/lib/serviceradar_web_ng/inventory.ex:120 - hardcoded system_actor
+  - elixir/web-ng/lib/serviceradar_web_ng/infrastructure.ex:135 - hardcoded system_actor
+  - elixir/web-ng/lib/serviceradar_web_ng_web/tenant_resolver.ex:9 - @system_actor module attr
+  - elixir/web-ng/lib/serviceradar_web_ng/edge/onboarding_packages.ex:45,60,72 - authorize?: false
+  - elixir/web-ng/lib/serviceradar_web_ng/edge/onboarding_events.ex:146 - authorize?: false
+  - elixir/web-ng/lib/serviceradar_web_ng/accounts/scope.ex:42,52 - authorize?: false
   - 30+ occurrences in LiveView modules and API controllers
 
 - [x] **1.5 Analyze identity architecture**

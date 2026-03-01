@@ -60,7 +60,7 @@ echo "New version: $NEW_VERSION"
 echo -n "$NEW_VERSION" > "$VERSION_FILE"
 
 # Update components.json if it exists (for backward compatibility)
-COMPONENTS_FILE="${BASE_DIR}/packaging/components.json"
+COMPONENTS_FILE="${BASE_DIR}/build/packaging/components.json"
 if [ -f "$COMPONENTS_FILE" ]; then
     echo "Updating components.json..."
     # Use a temp file to avoid issues with jq in-place editing
@@ -72,6 +72,6 @@ echo ""
 echo "Version bumped to $NEW_VERSION"
 echo ""
 echo "Next steps:"
-echo "1. Commit: git add VERSION packaging/components.json && git commit -m 'Bump version to $NEW_VERSION'"
+echo "1. Commit: git add VERSION build/packaging/components.json && git commit -m 'Bump version to $NEW_VERSION'"
 echo "2. Tag: git tag v$NEW_VERSION"
 echo "3. Push: git push && git push --tags"

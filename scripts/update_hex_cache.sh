@@ -22,7 +22,7 @@ else
     "elixir/serviceradar_core"
     "elixir/serviceradar_core_elx"
     "elixir/serviceradar_agent_gateway"
-    "web-ng"
+    "elixir/web-ng"
   )
 fi
 

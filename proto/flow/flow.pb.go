@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.10
 // 	protoc        v3.14.0
-// source: flow/flow.proto
+// source: proto/flow/flow.proto
 
 package flowpb
 
@@ -60,11 +60,11 @@ func (x FlowMessage_FlowType) String() string {
 }
 
 func (FlowMessage_FlowType) Descriptor() protoreflect.EnumDescriptor {
-	return file_flow_flow_proto_enumTypes[0].Descriptor()
+	return file_proto_flow_flow_proto_enumTypes[0].Descriptor()
 }
 
 func (FlowMessage_FlowType) Type() protoreflect.EnumType {
-	return &file_flow_flow_proto_enumTypes[0]
+	return &file_proto_flow_flow_proto_enumTypes[0]
 }
 
 func (x FlowMessage_FlowType) Number() protoreflect.EnumNumber {
@@ -73,7 +73,7 @@ func (x FlowMessage_FlowType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FlowMessage_FlowType.Descriptor instead.
 func (FlowMessage_FlowType) EnumDescriptor() ([]byte, []int) {
-	return file_flow_flow_proto_rawDescGZIP(), []int{0, 0}
+	return file_proto_flow_flow_proto_rawDescGZIP(), []int{0, 0}
 }
 
 // Encapsulation
@@ -146,11 +146,11 @@ func (x FlowMessage_LayerStack) String() string {
 }
 
 func (FlowMessage_LayerStack) Descriptor() protoreflect.EnumDescriptor {
-	return file_flow_flow_proto_enumTypes[1].Descriptor()
+	return file_proto_flow_flow_proto_enumTypes[1].Descriptor()
 }
 
 func (FlowMessage_LayerStack) Type() protoreflect.EnumType {
-	return &file_flow_flow_proto_enumTypes[1]
+	return &file_proto_flow_flow_proto_enumTypes[1]
 }
 
 func (x FlowMessage_LayerStack) Number() protoreflect.EnumNumber {
@@ -159,7 +159,7 @@ func (x FlowMessage_LayerStack) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FlowMessage_LayerStack.Descriptor instead.
 func (FlowMessage_LayerStack) EnumDescriptor() ([]byte, []int) {
-	return file_flow_flow_proto_rawDescGZIP(), []int{0, 1}
+	return file_proto_flow_flow_proto_rawDescGZIP(), []int{0, 1}
 }
 
 type FlowMessage struct {
@@ -173,6 +173,10 @@ type FlowMessage struct {
 	// Found inside packet
 	TimeFlowStartNs uint64 `protobuf:"varint,111,opt,name=time_flow_start_ns,json=timeFlowStartNs,proto3" json:"time_flow_start_ns,omitempty"`
 	TimeFlowEndNs   uint64 `protobuf:"varint,112,opt,name=time_flow_end_ns,json=timeFlowEndNs,proto3" json:"time_flow_end_ns,omitempty"`
+	BytesIn         uint64 `protobuf:"varint,113,opt,name=bytes_in,json=bytesIn,proto3" json:"bytes_in,omitempty"`
+	BytesOut        uint64 `protobuf:"varint,114,opt,name=bytes_out,json=bytesOut,proto3" json:"bytes_out,omitempty"`
+	PacketsIn       uint64 `protobuf:"varint,115,opt,name=packets_in,json=packetsIn,proto3" json:"packets_in,omitempty"`
+	PacketsOut      uint64 `protobuf:"varint,116,opt,name=packets_out,json=packetsOut,proto3" json:"packets_out,omitempty"`
 	// Size of the sampled packet
 	Bytes   uint64 `protobuf:"varint,9,opt,name=bytes,proto3" json:"bytes,omitempty"`
 	Packets uint64 `protobuf:"varint,10,opt,name=packets,proto3" json:"packets,omitempty"`
@@ -231,13 +235,15 @@ type FlowMessage struct {
 	LayerSize                  []uint32                 `protobuf:"varint,104,rep,packed,name=layer_size,json=layerSize,proto3" json:"layer_size,omitempty"`
 	Ipv6RoutingHeaderAddresses [][]byte                 `protobuf:"bytes,105,rep,name=ipv6_routing_header_addresses,json=ipv6RoutingHeaderAddresses,proto3" json:"ipv6_routing_header_addresses,omitempty"` // SRv6
 	Ipv6RoutingHeaderSegLeft   uint32                   `protobuf:"varint,106,opt,name=ipv6_routing_header_seg_left,json=ipv6RoutingHeaderSegLeft,proto3" json:"ipv6_routing_header_seg_left,omitempty"`    // SRv6
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	// Human-readable protocol name (e.g., "TCP", "UDP", "ICMP")
+	ProtocolName  string `protobuf:"bytes,107,opt,name=protocol_name,json=protocolName,proto3" json:"protocol_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FlowMessage) Reset() {
 	*x = FlowMessage{}
-	mi := &file_flow_flow_proto_msgTypes[0]
+	mi := &file_proto_flow_flow_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -249,7 +255,7 @@ func (x *FlowMessage) String() string {
 func (*FlowMessage) ProtoMessage() {}
 
 func (x *FlowMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_flow_proto_msgTypes[0]
+	mi := &file_proto_flow_flow_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -262,7 +268,7 @@ func (x *FlowMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowMessage.ProtoReflect.Descriptor instead.
 func (*FlowMessage) Descriptor() ([]byte, []int) {
-	return file_flow_flow_proto_rawDescGZIP(), []int{0}
+	return file_proto_flow_flow_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *FlowMessage) GetType() FlowMessage_FlowType {
@@ -310,6 +316,34 @@ func (x *FlowMessage) GetTimeFlowStartNs() uint64 {
 func (x *FlowMessage) GetTimeFlowEndNs() uint64 {
 	if x != nil {
 		return x.TimeFlowEndNs
+	}
+	return 0
+}
+
+func (x *FlowMessage) GetBytesIn() uint64 {
+	if x != nil {
+		return x.BytesIn
+	}
+	return 0
+}
+
+func (x *FlowMessage) GetBytesOut() uint64 {
+	if x != nil {
+		return x.BytesOut
+	}
+	return 0
+}
+
+func (x *FlowMessage) GetPacketsIn() uint64 {
+	if x != nil {
+		return x.PacketsIn
+	}
+	return 0
+}
+
+func (x *FlowMessage) GetPacketsOut() uint64 {
+	if x != nil {
+		return x.PacketsOut
 	}
 	return 0
 }
@@ -615,11 +649,18 @@ func (x *FlowMessage) GetIpv6RoutingHeaderSegLeft() uint32 {
 	return 0
 }
 
-var File_flow_flow_proto protoreflect.FileDescriptor
+func (x *FlowMessage) GetProtocolName() string {
+	if x != nil {
+		return x.ProtocolName
+	}
+	return ""
+}
 
-const file_flow_flow_proto_rawDesc = "" +
+var File_proto_flow_flow_proto protoreflect.FileDescriptor
+
+const file_proto_flow_flow_proto_rawDesc = "" +
 	"\n" +
-	"\x0fflow/flow.proto\x12\x06flowpb\"\x9e\x0f\n" +
+	"\x15proto/flow/flow.proto\x12\x06flowpb\"\xbb\x10\n" +
 	"\vFlowMessage\x120\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x1c.flowpb.FlowMessage.FlowTypeR\x04type\x12(\n" +
 	"\x10time_received_ns\x18n \x01(\x04R\x0etimeReceivedNs\x12!\n" +
@@ -627,7 +668,13 @@ const file_flow_flow_proto_rawDesc = "" +
 	"\rsampling_rate\x18\x03 \x01(\x04R\fsamplingRate\x12'\n" +
 	"\x0fsampler_address\x18\v \x01(\fR\x0esamplerAddress\x12+\n" +
 	"\x12time_flow_start_ns\x18o \x01(\x04R\x0ftimeFlowStartNs\x12'\n" +
-	"\x10time_flow_end_ns\x18p \x01(\x04R\rtimeFlowEndNs\x12\x14\n" +
+	"\x10time_flow_end_ns\x18p \x01(\x04R\rtimeFlowEndNs\x12\x19\n" +
+	"\bbytes_in\x18q \x01(\x04R\abytesIn\x12\x1b\n" +
+	"\tbytes_out\x18r \x01(\x04R\bbytesOut\x12\x1d\n" +
+	"\n" +
+	"packets_in\x18s \x01(\x04R\tpacketsIn\x12\x1f\n" +
+	"\vpackets_out\x18t \x01(\x04R\n" +
+	"packetsOut\x12\x14\n" +
 	"\x05bytes\x18\t \x01(\x04R\x05bytes\x12\x18\n" +
 	"\apackets\x18\n" +
 	" \x01(\x04R\apackets\x12\x19\n" +
@@ -676,7 +723,8 @@ const file_flow_flow_proto_rawDesc = "" +
 	"\n" +
 	"layer_size\x18h \x03(\rR\tlayerSize\x12A\n" +
 	"\x1dipv6_routing_header_addresses\x18i \x03(\fR\x1aipv6RoutingHeaderAddresses\x12>\n" +
-	"\x1cipv6_routing_header_seg_left\x18j \x01(\rR\x18ipv6RoutingHeaderSegLeft\"S\n" +
+	"\x1cipv6_routing_header_seg_left\x18j \x01(\rR\x18ipv6RoutingHeaderSegLeft\x12#\n" +
+	"\rprotocol_name\x18k \x01(\tR\fprotocolName\"S\n" +
 	"\bFlowType\x12\x0f\n" +
 	"\vFLOWUNKNOWN\x10\x00\x12\v\n" +
 	"\aSFLOW_5\x10\x01\x12\x0e\n" +
@@ -709,25 +757,25 @@ const file_flow_flow_proto_rawDesc = "" +
 	"\x06Custom\x10cB6Z4github.com/carverauto/serviceradar/proto/flow;flowpbb\x06proto3"
 
 var (
-	file_flow_flow_proto_rawDescOnce sync.Once
-	file_flow_flow_proto_rawDescData []byte
+	file_proto_flow_flow_proto_rawDescOnce sync.Once
+	file_proto_flow_flow_proto_rawDescData []byte
 )
 
-func file_flow_flow_proto_rawDescGZIP() []byte {
-	file_flow_flow_proto_rawDescOnce.Do(func() {
-		file_flow_flow_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_flow_flow_proto_rawDesc), len(file_flow_flow_proto_rawDesc)))
+func file_proto_flow_flow_proto_rawDescGZIP() []byte {
+	file_proto_flow_flow_proto_rawDescOnce.Do(func() {
+		file_proto_flow_flow_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_flow_flow_proto_rawDesc), len(file_proto_flow_flow_proto_rawDesc)))
 	})
-	return file_flow_flow_proto_rawDescData
+	return file_proto_flow_flow_proto_rawDescData
 }
 
-var file_flow_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_flow_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
-var file_flow_flow_proto_goTypes = []any{
+var file_proto_flow_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_proto_flow_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_proto_flow_flow_proto_goTypes = []any{
 	(FlowMessage_FlowType)(0),   // 0: flowpb.FlowMessage.FlowType
 	(FlowMessage_LayerStack)(0), // 1: flowpb.FlowMessage.LayerStack
 	(*FlowMessage)(nil),         // 2: flowpb.FlowMessage
 }
-var file_flow_flow_proto_depIdxs = []int32{
+var file_proto_flow_flow_proto_depIdxs = []int32{
 	0, // 0: flowpb.FlowMessage.type:type_name -> flowpb.FlowMessage.FlowType
 	1, // 1: flowpb.FlowMessage.layer_stack:type_name -> flowpb.FlowMessage.LayerStack
 	2, // [2:2] is the sub-list for method output_type
@@ -737,27 +785,27 @@ var file_flow_flow_proto_depIdxs = []int32{
 	0, // [0:2] is the sub-list for field type_name
 }
 
-func init() { file_flow_flow_proto_init() }
-func file_flow_flow_proto_init() {
-	if File_flow_flow_proto != nil {
+func init() { file_proto_flow_flow_proto_init() }
+func file_proto_flow_flow_proto_init() {
+	if File_proto_flow_flow_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_flow_flow_proto_rawDesc), len(file_flow_flow_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_flow_flow_proto_rawDesc), len(file_proto_flow_flow_proto_rawDesc)),
 			NumEnums:      2,
 			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_flow_flow_proto_goTypes,
-		DependencyIndexes: file_flow_flow_proto_depIdxs,
-		EnumInfos:         file_flow_flow_proto_enumTypes,
-		MessageInfos:      file_flow_flow_proto_msgTypes,
+		GoTypes:           file_proto_flow_flow_proto_goTypes,
+		DependencyIndexes: file_proto_flow_flow_proto_depIdxs,
+		EnumInfos:         file_proto_flow_flow_proto_enumTypes,
+		MessageInfos:      file_proto_flow_flow_proto_msgTypes,
 	}.Build()
-	File_flow_flow_proto = out.File
-	file_flow_flow_proto_goTypes = nil
-	file_flow_flow_proto_depIdxs = nil
+	File_proto_flow_flow_proto = out.File
+	file_proto_flow_flow_proto_goTypes = nil
+	file_proto_flow_flow_proto_depIdxs = nil
 }

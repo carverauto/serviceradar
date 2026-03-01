@@ -1,0 +1,23 @@
+[package]
+name = "god_view_nif"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "god_view_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+arrow-array = "58"
+arrow-ipc =  "58"
+arrow-schema =  "58"
+deep_causality = "0.13"
+deep_causality_sparse = "0.1"
+deep_causality_tensor = "0.4"
+deep_causality_topology = "0.5"
+roaring = "0.11"
+rustler = "0.37"
+serde_json = "1.0"
+ultragraph = "0.8"
+
+[workspace]

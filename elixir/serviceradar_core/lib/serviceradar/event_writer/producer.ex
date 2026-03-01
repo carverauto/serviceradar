@@ -29,11 +29,15 @@ defmodule ServiceRadar.EventWriter.Producer do
   require Logger
 
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.NATS.JetstreamConsumer
 
   @behaviour Broadway.Producer
 
   @fetch_interval 100
   @reconnect_delay 5_000
+  @ack_wait_ns 30_000_000_000
+  @max_ack_pending 5_000
+  @max_deliver 10
 
   defstruct [
     :config,
@@ -133,14 +137,17 @@ defmodule ServiceRadar.EventWriter.Producer do
     {:noreply, [], %{state | connected: false, conn: nil, consumer_context: nil}}
   end
 
-  # Handle incoming NATS messages from Gnat subscriptions
+  # Handle incoming NATS messages from JetStream durable consumer delivery subjects.
   def handle_info({:msg, %{body: body, topic: subject, reply_to: reply_to} = msg}, state) do
+    headers = Map.get(msg, :headers, %{})
+    original_subject = extract_original_subject(subject, headers)
+
     broadway_event = %{
       data: body,
       metadata: %{
-        subject: subject,
+        subject: original_subject,
         reply_to: reply_to,
-        headers: Map.get(msg, :headers, %{}),
+        headers: headers,
         received_at: DateTime.utc_now()
       },
       ack_data: %{
@@ -175,7 +182,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
       settings ->
         with {:ok, conn} <- Gnat.start_link(settings),
-             {:ok, consumer_context} <- setup_jetstream_consumer(conn, config) do
+             {:ok, consumer_context} <- setup_jetstream_consumers(conn, config) do
           Process.monitor(conn)
           Process.unlink(conn)
           {:ok, conn, consumer_context}
@@ -262,39 +269,53 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   defp normalize(value), do: value
 
-  defp setup_jetstream_consumer(conn, config) do
-    # For now, we'll use a simplified approach that subscribes to multiple subjects
-    # A full JetStream pull consumer implementation would use the jetstream library
-    # to create durable consumers with explicit ack
+  defp setup_jetstream_consumers(conn, config) do
+    consumers =
+      Enum.map(config.streams, fn stream ->
+        durable_name = durable_name(config.consumer_name, stream.name)
+        deliver_subject = deliver_subject(config.consumer_name, stream.name)
 
-    # Get all subjects from configured streams
-    subjects =
-      config.streams
-      |> Enum.map(& &1.subject)
+        with {:ok, ensured} <-
+               JetstreamConsumer.ensure_durable(conn,
+                 stream_name: Map.get(stream, :stream_name) || stream.name,
+                 consumer_name: durable_name,
+                 filter_subject: stream.subject,
+                 deliver_subject: deliver_subject,
+                 description: "EventWriter consumer for #{stream.name}",
+                 ack_policy: :explicit,
+                 ack_wait: @ack_wait_ns,
+                 deliver_policy: :all,
+                 max_ack_pending: @max_ack_pending,
+                 max_deliver: @max_deliver
+               ),
+             {:ok, sid} <- Gnat.sub(conn, self(), deliver_subject) do
+          Logger.info("EventWriter JetStream consumer ready",
+            stream: ensured.stream_name,
+            durable: durable_name,
+            filter_subject: stream.subject,
+            deliver_subject: deliver_subject,
+            sid: sid
+          )
 
-    consumer_context = %{
-      conn: conn,
-      subjects: subjects,
-      consumer_name: config.consumer_name,
-      subscriptions: []
-    }
-
-    # Subscribe to each subject
-    subscriptions =
-      Enum.map(subjects, fn subject ->
-        case Gnat.sub(conn, self(), subject) do
-          {:ok, sid} ->
-            Logger.debug("Subscribed to #{subject}", sid: sid)
-            {subject, sid}
-
+          %{stream: ensured.stream_name, durable: durable_name, sid: sid, subject: stream.subject}
+        else
           {:error, reason} ->
-            Logger.error("Failed to subscribe to #{subject}: #{inspect(reason)}")
+            Logger.error("Failed to initialize EventWriter durable consumer",
+              stream: stream.name,
+              filter_subject: stream.subject,
+              reason: inspect(reason)
+            )
+
             nil
         end
       end)
       |> Enum.reject(&is_nil/1)
 
-    {:ok, %{consumer_context | subscriptions: subscriptions}}
+    if consumers == [] do
+      {:error, :no_consumers_initialized}
+    else
+      {:ok, %{conn: conn, consumer_name: config.consumer_name, consumers: consumers}}
+    end
   end
 
   defp fetch_messages(state) do
@@ -328,4 +349,81 @@ defmodule ServiceRadar.EventWriter.Producer do
     # No reply_to means we can't ack (core NATS, not JetStream)
     fn _ -> :ok end
   end
+
+  defp durable_name(base, stream_name) do
+    suffix =
+      stream_name
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9]+/, "-")
+      |> String.trim("-")
+
+    "#{base}-#{suffix}"
+  end
+
+  defp deliver_subject(base, stream_name) do
+    suffix =
+      stream_name
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9]+/, "_")
+      |> String.trim("_")
+
+    "_INBOX.serviceradar.event_writer.#{base}.#{suffix}"
+  end
+
+  defp extract_original_subject(topic, headers) do
+    find_header_value(headers, "nats-subject") ||
+      find_header_value(headers, "nats-subject-token") ||
+      topic
+  end
+
+  defp find_header_value(headers, key) when is_map(headers) do
+    headers
+    |> Enum.find_value(fn {k, v} ->
+      if normalize_header_key(k) == key do
+        normalize_header_value(v)
+      else
+        nil
+      end
+    end)
+  end
+
+  defp find_header_value(headers, key) when is_list(headers) do
+    headers
+    |> Enum.find_value(fn
+      {k, v} ->
+        if normalize_header_key(k) == key do
+          normalize_header_value(v)
+        else
+          nil
+        end
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp find_header_value(_headers, _key), do: nil
+
+  defp normalize_header_key(key) when is_binary(key), do: String.downcase(key)
+
+  defp normalize_header_key(key) when is_atom(key),
+    do: key |> Atom.to_string() |> String.downcase()
+
+  defp normalize_header_key(key) when is_list(key), do: key |> to_string() |> String.downcase()
+  defp normalize_header_key(_), do: ""
+
+  defp normalize_header_value(value) when is_binary(value), do: value
+
+  defp normalize_header_value(value) when is_list(value) do
+    case value do
+      [first | _] when is_binary(first) -> first
+      [first | _] when is_list(first) -> to_string(first)
+      _ -> to_string(value)
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp normalize_header_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_header_value(value), do: to_string(value)
 end

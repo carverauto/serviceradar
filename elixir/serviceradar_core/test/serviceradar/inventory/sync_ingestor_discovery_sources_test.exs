@@ -10,8 +10,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
 
   @moduletag :integration
 
+  require Ash.Query
+
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, SyncIngestor}
+  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, SyncIngestor}
   alias ServiceRadar.TestSupport
 
   setup_all do
@@ -165,6 +167,84 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
 
       # Should only have one "armis" entry, not duplicated
       assert device.discovery_sources == ["armis"]
+    end
+
+    test "mapper scanner agent_id is not used as device identifier", %{actor: actor} do
+      scanner_agent_id = "mapper-agent-#{System.unique_integer([:positive])}"
+      ip_a = "10.0.7.#{unique_octet()}"
+      ip_b = "10.0.8.#{unique_octet()}"
+
+      update_a = %{
+        "ip" => ip_a,
+        "mac" => "AA:BB:CC:DD:EE:#{mac_suffix()}",
+        "hostname" => "mapper-a",
+        "source" => "mapper",
+        "metadata" => %{"agent_id" => scanner_agent_id}
+      }
+
+      update_b = %{
+        "ip" => ip_b,
+        "mac" => "AA:BB:CC:DD:EE:#{mac_suffix()}",
+        "hostname" => "mapper-b",
+        "source" => "mapper",
+        "metadata" => %{"agent_id" => scanner_agent_id}
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([update_a], actor: actor)
+      assert :ok = SyncIngestor.ingest_updates([update_b], actor: actor)
+
+      {:ok, devices_a} =
+        Device
+        |> Ash.Query.filter(ip == ^ip_a)
+        |> Ash.read(actor: actor)
+
+      {:ok, devices_b} =
+        Device
+        |> Ash.Query.filter(ip == ^ip_b)
+        |> Ash.read(actor: actor)
+
+      assert length(devices_a) == 1
+      assert length(devices_b) == 1
+      refute hd(devices_a).uid == hd(devices_b).uid
+
+      query =
+        DeviceIdentifier
+        |> Ash.Query.for_read(:lookup, %{
+          identifier_type: :agent_id,
+          identifier_value: scanner_agent_id,
+          partition: "default"
+        })
+
+      assert {:ok, []} = Ash.read(query, actor: actor)
+    end
+
+    test "single batch with same IP resolves to one active device", %{actor: actor} do
+      ip = "10.0.9.#{unique_octet()}"
+      armis_id = "armis-batch-#{System.unique_integer([:positive])}"
+
+      armis_update = %{
+        "ip" => ip,
+        "mac" => "AA:BB:CC:DD:EE:#{mac_suffix()}",
+        "hostname" => "same-ip-armis",
+        "source" => "armis",
+        "metadata" => %{"armis_device_id" => armis_id}
+      }
+
+      mapper_update = %{
+        "ip" => ip,
+        "hostname" => "same-ip-mapper",
+        "source" => "mapper",
+        "metadata" => %{}
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([armis_update, mapper_update], actor: actor)
+
+      {:ok, devices} =
+        Device
+        |> Ash.Query.filter(ip == ^ip and is_nil(deleted_at))
+        |> Ash.read(actor: actor)
+
+      assert length(devices) == 1
     end
   end
 

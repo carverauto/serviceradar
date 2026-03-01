@@ -238,7 +238,7 @@ EOF
 generate_cert "core" "core.serviceradar" "DNS:core,DNS:core-elx,DNS:core.serviceradar,DNS:serviceradar-core,DNS:agent-gateway.serviceradar,DNS:agent.serviceradar,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # NATS - messaging backbone, many services connect to it
-generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:flowgger.serviceradar,DNS:otel.serviceradar,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:log-collector.serviceradar,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Services that agent connects to
 generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:agent.serviceradar,DNS:zen.serviceradar,DNS:core.serviceradar,DNS:localhost,IP:127.0.0.1"
@@ -249,7 +249,6 @@ generate_cert "gateway" "agent-gateway.serviceradar" "DNS:gateway,DNS:agent-gate
 generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "web" "web.serviceradar" "DNS:web,DNS:web.serviceradar,DNS:serviceradar-web-ng,DNS:web-ng,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
 generate_cert "db-event-writer" "db-event-writer.serviceradar" "DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:serviceradar-db-event-writer,DNS:localhost,IP:127.0.0.1"
-
 CNPG_SAN="DNS:cnpg,DNS:cnpg-rw,DNS:cnpg.serviceradar,DNS:cnpg-rw.serviceradar,DNS:serviceradar-cnpg,DNS:localhost,IP:127.0.0.1"
 if [ -n "${CNPG_CERT_EXTRA_IPS:-}" ]; then
     for ip in $(echo "$CNPG_CERT_EXTRA_IPS" | tr ',' ' '); do
@@ -261,13 +260,57 @@ generate_cert "cnpg" "cnpg.serviceradar" "${CNPG_SAN}"
 # Client cert for DB auth (CN must match DB username)
 generate_cert "db-client" "serviceradar" "DNS:serviceradar,DNS:localhost,IP:127.0.0.1"
 
+# Client cert for DB superuser tasks (CN must match DB username)
+generate_cert "db-superuser" "postgres" "DNS:postgres,DNS:localhost,IP:127.0.0.1"
+
 # Client cert intended for developers connecting from outside the Docker network
 generate_cert "workstation" "workstation.serviceradar" "DNS:workstation,DNS:workstation.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Other services
 generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:rperf-client.serviceradar,DNS:serviceradar-rperf-client,DNS:agent.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "otel" "otel.serviceradar" "DNS:otel,DNS:otel.serviceradar,DNS:serviceradar-otel,DNS:localhost,IP:127.0.0.1"
-generate_cert "flowgger" "flowgger.serviceradar" "DNS:flowgger,DNS:flowgger.serviceradar,DNS:serviceradar-flowgger,DNS:localhost,IP:127.0.0.1"
+generate_cert "log-collector" "log-collector.serviceradar" "DNS:log-collector,DNS:log-collector.serviceradar,DNS:serviceradar-log-collector,DNS:localhost,IP:127.0.0.1"
+generate_cert "flow-collector" "flow-collector.serviceradar" "DNS:flow-collector,DNS:flow-collector.serviceradar,DNS:serviceradar-flow-collector,DNS:localhost,IP:127.0.0.1"
+generate_cert "bmp-collector" "bmp-collector.serviceradar" "DNS:bmp-collector,DNS:bmp-collector.serviceradar,DNS:serviceradar-bmp-collector,DNS:localhost,IP:127.0.0.1"
+
+# Alias flow client cert names for collector defaults.
+if [ -f "$CERT_DIR/flow-collector.pem" ] && [ -f "$CERT_DIR/flow-collector-key.pem" ]; then
+    if [ ! -f "$CERT_DIR/flow-client.crt" ]; then
+        cp "$CERT_DIR/flow-collector.pem" "$CERT_DIR/flow-client.crt"
+        chmod 644 "$CERT_DIR/flow-client.crt"
+    fi
+    if [ ! -f "$CERT_DIR/flow-client.key" ]; then
+        cp "$CERT_DIR/flow-collector-key.pem" "$CERT_DIR/flow-client.key"
+        chmod 600 "$CERT_DIR/flow-client.key"
+    fi
+fi
+if [ -f "$CERT_DIR/flow-collector.pem" ] && [ ! -f "$CERT_DIR/netflow-collector.pem" ]; then
+    cp "$CERT_DIR/flow-collector.pem" "$CERT_DIR/netflow-collector.pem"
+    chmod 644 "$CERT_DIR/netflow-collector.pem"
+fi
+if [ -f "$CERT_DIR/flow-collector-key.pem" ] && [ ! -f "$CERT_DIR/netflow-collector-key.pem" ]; then
+    cp "$CERT_DIR/flow-collector-key.pem" "$CERT_DIR/netflow-collector-key.pem"
+    chmod 600 "$CERT_DIR/netflow-collector-key.pem"
+fi
+if [ -f "$CERT_DIR/log-collector.pem" ] && [ ! -f "$CERT_DIR/flowgger.pem" ]; then
+    cp "$CERT_DIR/log-collector.pem" "$CERT_DIR/flowgger.pem"
+    chmod 644 "$CERT_DIR/flowgger.pem"
+fi
+if [ -f "$CERT_DIR/log-collector-key.pem" ] && [ ! -f "$CERT_DIR/flowgger-key.pem" ]; then
+    cp "$CERT_DIR/log-collector-key.pem" "$CERT_DIR/flowgger-key.pem"
+    chmod 600 "$CERT_DIR/flowgger-key.pem"
+fi
+if [ -f "$CERT_DIR/log-collector.pem" ] && [ ! -f "$CERT_DIR/otel.pem" ]; then
+    cp "$CERT_DIR/log-collector.pem" "$CERT_DIR/otel.pem"
+    chmod 644 "$CERT_DIR/otel.pem"
+fi
+if [ -f "$CERT_DIR/log-collector-key.pem" ] && [ ! -f "$CERT_DIR/otel-key.pem" ]; then
+    cp "$CERT_DIR/log-collector-key.pem" "$CERT_DIR/otel-key.pem"
+    chmod 600 "$CERT_DIR/otel-key.pem"
+fi
+if [ -f "$CERT_DIR/root.pem" ] && [ ! -f "$CERT_DIR/ca.crt" ]; then
+    cp "$CERT_DIR/root.pem" "$CERT_DIR/ca.crt"
+    chmod 644 "$CERT_DIR/ca.crt"
+fi
 
 # Edge / checker
 generate_cert "sysmon-osx" "sysmon-osx.serviceradar" "DNS:sysmon-osx,DNS:sysmon-osx.serviceradar,DNS:serviceradar-sysmon-osx,DNS:sysmon-osx-checker,DNS:localhost,IP:127.0.0.1"

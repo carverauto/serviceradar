@@ -8,12 +8,14 @@ use crate::{
         scope_version as col_scope_version, service_instance as col_service_instance,
         service_name as col_service_name, service_version as col_service_version,
         severity_number as col_severity_number, severity_text as col_severity_text,
-        span_id as col_span_id, timestamp as col_timestamp, trace_id as col_trace_id,
+        source as col_source, span_id as col_span_id, trace_id as col_trace_id,
     },
     time::TimeRange,
 };
 use chrono::{DateTime, Utc};
 use diesel::deserialize::QueryableByName;
+use diesel::dsl::sql;
+use diesel::expression::SqlLiteral;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
@@ -115,11 +117,19 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     }
 }
 
+fn effective_timestamp_expr() -> SqlLiteral<Timestamptz> {
+    sql::<Timestamptz>("timestamp")
+}
+
 fn build_query(plan: &QueryPlan) -> Result<LogsQuery<'static>> {
     let mut query = logs.into_boxed::<Pg>();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        query = query.filter(col_timestamp.ge(*start).and(col_timestamp.le(*end)));
+        query = query.filter(
+            effective_timestamp_expr()
+                .ge(*start)
+                .and(effective_timestamp_expr().le(*end)),
+        );
     }
 
     for filter in &plan.filters {
@@ -208,9 +218,8 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
             Ok(())
         }
         "trace_id" | "span_id" | "service_name" | "service_version" | "service_instance"
-        | "scope_name" | "scope_version" | "severity_text" | "severity" | "level" | "body" => {
-            collect_text_params(params, filter)
-        }
+        | "source" | "scope_name" | "scope_version" | "severity_text" | "severity" | "level"
+        | "body" | "message" => collect_text_params(params, filter),
         "severity_number" => match filter.op {
             FilterOp::Eq | FilterOp::NotEq => {
                 let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
@@ -445,6 +454,9 @@ fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Result<LogsQue
         "service_instance" => {
             query = apply_text_filter!(query, filter, col_service_instance)?;
         }
+        "source" => {
+            query = apply_text_filter!(query, filter, col_source)?;
+        }
         "scope_name" => {
             query = apply_text_filter!(query, filter, col_scope_name)?;
         }
@@ -454,7 +466,7 @@ fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Result<LogsQue
         "severity_text" | "severity" | "level" => {
             query = apply_text_filter!(query, filter, col_severity_text)?;
         }
-        "body" => {
+        "body" | "message" => {
             query = apply_text_filter!(query, filter, col_body)?;
         }
         "severity_number" => match filter.op {
@@ -510,8 +522,8 @@ fn apply_ordering<'a>(mut query: LogsQuery<'a>, order: &[OrderClause]) -> LogsQu
             applied = true;
             match clause.field.as_str() {
                 "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_timestamp.asc()),
-                    OrderDirection::Desc => query.order(col_timestamp.desc()),
+                    OrderDirection::Asc => query.order(effective_timestamp_expr().asc()),
+                    OrderDirection::Desc => query.order(effective_timestamp_expr().desc()),
                 },
                 "severity_number" => match clause.direction {
                     OrderDirection::Asc => query.order(col_severity_number.asc()),
@@ -522,8 +534,8 @@ fn apply_ordering<'a>(mut query: LogsQuery<'a>, order: &[OrderClause]) -> LogsQu
         } else {
             match clause.field.as_str() {
                 "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_timestamp.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_timestamp.desc()),
+                    OrderDirection::Asc => query.then_order_by(effective_timestamp_expr().asc()),
+                    OrderDirection::Desc => query.then_order_by(effective_timestamp_expr().desc()),
                 },
                 "severity_number" => match clause.direction {
                     OrderDirection::Asc => query.then_order_by(col_severity_number.asc()),
@@ -536,7 +548,7 @@ fn apply_ordering<'a>(mut query: LogsQuery<'a>, order: &[OrderClause]) -> LogsQu
 
     if !applied {
         query = query
-            .order(col_timestamp.desc())
+            .order(effective_timestamp_expr().desc())
             .then_order_by(col_severity_number.desc());
     }
 
@@ -675,12 +687,13 @@ fn resolve_group_field(field: &str) -> Result<&'static str> {
         "service_name" | "service" | "name" => Ok("service_name"),
         "service_version" | "version" => Ok("service_version"),
         "service_instance" | "instance" => Ok("service_instance"),
+        "source" => Ok("source"),
         "scope_name" | "scope" => Ok("scope_name"),
         "scope_version" => Ok("scope_version"),
         "severity_text" | "severity" | "level" => Ok("severity_text"),
         "trace_id" => Ok("trace_id"),
         "span_id" => Ok("span_id"),
-        "body" => Ok("body"),
+        "body" | "message" => Ok("body"),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported field '{other}' for group_uniq_array"
         ))),
@@ -694,10 +707,11 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlB
         "service_name" | "service" => build_text_clause("service_name", filter),
         "service_version" => build_text_clause("service_version", filter),
         "service_instance" => build_text_clause("service_instance", filter),
+        "source" => build_text_clause("source", filter),
         "scope_name" => build_text_clause("scope_name", filter),
         "scope_version" => build_text_clause("scope_version", filter),
         "severity_text" | "severity" | "level" => build_text_clause("severity_text", filter),
-        "body" => build_text_clause("body", filter),
+        "body" | "message" => build_text_clause("body", filter),
         "severity_number" => build_numeric_clause("severity_number", filter),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for logs stats: '{other}'"
@@ -877,6 +891,7 @@ mod tests {
             stats: Some(crate::parser::StatsSpec::from_raw(stats)),
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         }
     }
 
@@ -898,6 +913,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         };
 
         let result = build_query(&plan);
@@ -911,6 +927,66 @@ mod tests {
             }
             Ok(_) => panic!("expected error for unknown filter field"),
         }
+    }
+
+    #[test]
+    fn message_filter_is_supported() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(24);
+        let plan = QueryPlan {
+            entity: Entity::Logs,
+            filters: vec![Filter {
+                field: "message".into(),
+                op: FilterOp::Like,
+                value: FilterValue::Scalar("%earlyoom%".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let result = build_query(&plan);
+        assert!(result.is_ok(), "message filter should be supported");
+    }
+
+    #[test]
+    fn stats_query_accepts_message_filter() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(24);
+        let plan = QueryPlan {
+            entity: Entity::Logs,
+            filters: vec![Filter {
+                field: "message".into(),
+                op: FilterOp::Like,
+                value: FilterValue::Scalar("%earlyoom%".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw("count() as total")),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let stats_sql = build_stats_query(&plan).expect("stats query should parse");
+        let stats_sql = stats_sql.expect("stats SQL expected");
+        assert!(
+            stats_sql.sql.to_lowercase().contains("body ilike"),
+            "message filter should map to body: {}",
+            stats_sql.sql
+        );
+        assert_eq!(
+            stats_sql.binds.len(),
+            3,
+            "time range + message filter binds expected"
+        );
     }
 
     #[test]
@@ -931,6 +1007,7 @@ mod tests {
             stats: Some(crate::parser::StatsSpec::from_raw("count() as total")),
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         };
 
         let result = build_stats_query(&plan);
@@ -960,6 +1037,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: Some("severity".to_string()),
+            include_deleted: false,
         };
 
         let result = build_rollup_stats_query(&plan).expect("should build rollup_stats query");
@@ -1002,6 +1080,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: Some("severity".to_string()),
+            include_deleted: false,
         };
 
         let result = build_rollup_stats_query(&plan).expect("should build rollup_stats query");
@@ -1030,6 +1109,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: Some("unknown".to_string()),
+            include_deleted: false,
         };
 
         let result = build_rollup_stats_query(&plan);

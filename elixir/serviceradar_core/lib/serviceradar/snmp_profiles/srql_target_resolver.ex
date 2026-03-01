@@ -76,8 +76,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
           {:error, reason}
       end
     else
-      Logger.warning("SNMPSrqlTargetResolver: invalid device_uid format: #{inspect(device_uid)}")
-      {:error, :invalid_device_uid}
+      Logger.debug("SNMPSrqlTargetResolver: skipping invalid device_uid #{inspect(device_uid)}")
+      {:ok, nil}
     end
   end
 

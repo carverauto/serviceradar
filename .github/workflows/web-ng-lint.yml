@@ -22,13 +22,13 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'web-ng/**'
+      - 'elixir/web-ng/**'
       - '.github/workflows/web-ng-lint.yml'
       - '.tool-versions'
   pull_request:
     branches: [ main ]
     paths:
-      - 'web-ng/**'
+      - 'elixir/web-ng/**'
       - '.github/workflows/web-ng-lint.yml'
       - '.tool-versions'
 
@@ -38,7 +38,7 @@ jobs:
     runs-on: arc-runner-set
     defaults:
       run:
-        working-directory: web-ng
+        working-directory: elixir/web-ng
 
     steps:
       - uses: actions/checkout@v6
@@ -54,3 +54,25 @@ jobs:
 
       - name: Run Credo
         run: mix credo --all
+
+  assets_js:
+    name: Assets JS (Bun)
+    runs-on: arc-runner-set
+    defaults:
+      run:
+        working-directory: elixir/web-ng/assets
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install assets dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run ESLint
+        run: bun run lint
+
+      - name: Run Vitest
+        run: bun run test

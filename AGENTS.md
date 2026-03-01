@@ -27,26 +27,26 @@ ServiceRadar is a multi-component system made up of Go services (core, sync, reg
 
 ## Repository Layout
 
-- `cmd/` – Go binaries (core, sync, agent, faker, kv, etc.).
-- `pkg/` – Shared Go packages: identity map, registry, sync integrations, database clients.
+- `go/cmd/` – Go binaries (agent, cli, data-services, faker, db-event-writer, tools).
+- `go/pkg/` – Shared Go packages: identity map, registry, sync integrations, database clients.
 - `rust/srql/` – SRQL translator/service backed by Diesel + CNPG.
 - `docs/docs/` – User and architecture documentation (notably `architecture.md`, `agents.md`).
 - `k8s/demo/` – Demo cluster manifests (faker, core, sync, CNPG, etc.).
 - `docker/`, `docker/images/` – Container builds and push targets.
 - `web/` – Next.js UI and API routes.
-- `web-ng/` – Phoenix (next-gen) UI/API monolith.
+- `elixir/web-ng/` – Phoenix (next-gen) UI/API monolith.
 - `proto/` – Protobuf definitions and generated Go code.
 
 ## Per-Directory Agent Guides
 
 This file applies repo-wide, but subdirectories may include their own `AGENTS.md` with more specific rules; always read and follow the closest one to the code you are editing.
 
-- `web-ng/AGENTS.md` – Phoenix/Elixir/LiveView/Ecto/HEEx guidelines (must follow for any `web-ng/**` changes).
+- `elixir/web-ng/AGENTS.md` – Phoenix/Elixir/LiveView/Ecto/HEEx guidelines (must follow for any `elixir/web-ng/**` changes).
 
 ## Build & Test Commands
 
 - General Go lint/test: `make lint`, `make test`.
-- Focused Go packages: `go test ./pkg/...`.
+- Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
 - Bazel tests/images: `bazel test --config=remote //...`, `bazel run //docker/images:<target>_push`.
 - Web (Next.js) lint/build: `cd web && npm install && npm run lint && npm run build` (if needed).
@@ -76,7 +76,8 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 
 - Build and push images: `make build` then `make push_all`.
 - Capture the tag: `git rev-parse HEAD` and set `appTag: "sha-<sha>"` in `helm/serviceradar/values.yaml`.
-- Deploy to demo: `helm upgrade --install serviceradar helm/serviceradar -n demo -f helm/serviceradar/values.yaml --atomic`.
+- Deploy to demo: `helm upgrade --install serviceradar helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --atomic`.
+  - `values-demo.yaml` carries the `external-dns` annotation for `demo-gw.serviceradar.cloud`; using only `values.yaml` will drop the DNS record.
 - Sanity check: `kubectl get pods -n demo` and `helm status serviceradar -n demo`.
 
 ## Docker Compose Refresh
@@ -113,7 +114,7 @@ Note: `.local-dev-certs/` is already in `.gitignore`.
 ### 3. Run Phoenix Locally
 
 ```bash
-cd web-ng
+cd elixir/web-ng
 CNPG_HOST=localhost CNPG_PORT=5455 CNPG_SSL_MODE=verify-full \
   CNPG_CERT_DIR=/home/<user>/serviceradar/.local-dev-certs \
   CNPG_TLS_SERVER_NAME=cnpg \
@@ -141,7 +142,7 @@ CNPG_HOST=localhost CNPG_PORT=5455 CNPG_SSL_MODE=verify-full \
 
 ## Web-NG Remote Dev (CNPG)
 
-Use this playbook to run `web-ng/` on a workstation while connecting to the existing CNPG instance running on the docker host (example: `192.168.2.134`).
+Use this playbook to run `elixir/web-ng/` on a workstation while connecting to the existing CNPG instance running on the docker host (example: `192.168.2.134`).
 
 ### 1. Publish CNPG on the docker host
 
@@ -167,7 +168,7 @@ Use this playbook to run `web-ng/` on a workstation while connecting to the exis
 ### 4. Run Phoenix from your workstation
 
 ```bash
-cd web-ng
+cd elixir/web-ng
 export CNPG_HOST=192.168.2.134
 export CNPG_PORT=5455
 export CNPG_DATABASE=serviceradar

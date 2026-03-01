@@ -7,6 +7,7 @@ defmodule ServiceRadar.Identity.User do
   ## Roles
 
   - `:viewer` - Read-only access to instance data
+  - `:helpdesk` - Read-only access plus alert response capabilities
   - `:operator` - Can create and modify resources
   - `:admin` - Full instance management including user management
 
@@ -14,14 +15,18 @@ defmodule ServiceRadar.Identity.User do
 
   Users can authenticate via:
   - Password (with bcrypt hashing)
-  - OAuth2 (future: Google, GitHub)
+  - OIDC (Google, Azure AD, Okta)
+  - SAML 2.0 (enterprise IdPs)
+  - Gateway JWT (Kong, Ambassador)
+
+  Authentication is handled by Guardian + Ueberauth, not AshAuthentication.
   """
 
   use Ash.Resource,
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshAuthentication]
+    notifiers: [ServiceRadar.Identity.UserNotifier],
+    authorizers: [Ash.Policy.Authorizer]
 
   postgres do
     table "ng_users"
@@ -29,45 +34,21 @@ defmodule ServiceRadar.Identity.User do
     schema "platform"
   end
 
-  authentication do
-    tokens do
-      enabled? true
-      token_resource ServiceRadar.Identity.Token
-      require_token_presence_for_authentication? true
-
-      signing_secret fn _, _ ->
-        Application.fetch_env(:serviceradar_web_ng, :token_signing_secret)
-      end
-    end
-
-    strategies do
-      password :password do
-        identity_field :email
-        hashed_password_field :hashed_password
-
-        hash_provider AshAuthentication.BcryptProvider
-        registration_enabled? false
-
-        resettable do
-          sender ServiceRadar.Identity.Senders.SendPasswordResetEmail
-        end
-      end
-    end
-
-    add_ons do
-      confirmation :confirm_email do
-        monitor_fields [:email]
-        require_interaction? true
-        sender ServiceRadar.Identity.Senders.SendConfirmationEmail
-        # Auto-confirm for these actions:
-        # - update_email: Uses token-based verification in the Accounts context
-        auto_confirm_actions [:update_email]
-      end
-    end
-  end
-
   code_interface do
     define :get_by_email, action: :by_email, args: [:email]
+    define :get_by_id, action: :by_id, args: [:id]
+    define :authenticate, action: :authenticate, args: [:email, :password]
+    define :register_with_password
+    define :provision_sso_user
+    define :update
+    define :change_password
+    define :record_authentication
+    define :record_login
+    define :deactivate
+    define :reactivate
+    define :update_role
+    define :update_role_profile, action: :update_role_profile
+    define :admin_set_password, action: :admin_set_password
   end
 
   actions do
@@ -79,15 +60,70 @@ defmodule ServiceRadar.Identity.User do
       filter expr(email == ^arg(:email))
     end
 
-    read :admins do
-      filter expr(role == :admin)
+    read :by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
     end
 
-    read :get_by_subject do
-      description "Get a user by the subject claim in a JWT"
-      argument :subject, :string, allow_nil?: false
+    read :admins do
+      filter expr(role == :admin and status == :active)
+    end
+
+    # Password authentication action
+    # Returns user if credentials valid, error otherwise
+    read :authenticate do
+      description "Authenticate a user with email and password"
+      argument :email, :ci_string, allow_nil?: false
+      argument :password, :string, allow_nil?: false, sensitive?: true
       get? true
-      prepare AshAuthentication.Preparations.FilterBySubject
+      filter expr(email == ^arg(:email) and status == :active)
+
+      prepare fn query, _context ->
+        Ash.Query.after_action(query, fn _query, results ->
+          case results do
+            [user] ->
+              password = Ash.Query.get_argument(query, :password)
+
+              if verify_password(password, user.hashed_password) do
+                {:ok, [user]}
+              else
+                {:ok, []}
+              end
+
+            [] ->
+              # Prevent timing attacks
+              Bcrypt.no_user_verify()
+              {:ok, []}
+          end
+        end)
+      end
+    end
+
+    create :create do
+      description "Create a new user (admin or system use)"
+      accept [:email, :display_name, :role, :role_profile_id]
+
+      argument :password, :string do
+        allow_nil? true
+        sensitive? true
+        constraints min_length: 12
+      end
+
+      # Hash password if provided
+      change fn changeset, _context ->
+        case Ash.Changeset.get_argument(changeset, :password) do
+          nil ->
+            changeset
+
+          "" ->
+            changeset
+
+          password ->
+            hashed = Bcrypt.hash_pwd_salt(password)
+            Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
+        end
+      end
     end
 
     create :register_with_password do
@@ -107,10 +143,61 @@ defmodule ServiceRadar.Identity.User do
         sensitive? true
       end
 
-      validate AshAuthentication.Strategy.Password.PasswordConfirmationValidation
+      # Validate password confirmation matches
+      validate fn changeset, _context ->
+        password = Ash.Changeset.get_argument(changeset, :password)
+        confirmation = Ash.Changeset.get_argument(changeset, :password_confirmation)
 
-      change AshAuthentication.Strategy.Password.HashPasswordChange
-      change AshAuthentication.GenerateTokenChange
+        if password == confirmation do
+          :ok
+        else
+          {:error, field: :password_confirmation, message: "does not match password"}
+        end
+      end
+
+      # Hash the password
+      change fn changeset, _context ->
+        password = Ash.Changeset.get_argument(changeset, :password)
+
+        if password do
+          hashed = Bcrypt.hash_pwd_salt(password)
+          Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
+        else
+          changeset
+        end
+      end
+    end
+
+    # JIT provisioning for SSO users
+    create :provision_sso_user do
+      description "Create a user from SSO claims (JIT provisioning)"
+      accept [:email, :display_name]
+
+      argument :role, :atom do
+        allow_nil? true
+        default :viewer
+        constraints one_of: [:viewer, :helpdesk, :operator, :admin]
+      end
+
+      argument :external_id, :string do
+        allow_nil? false
+        description "IdP subject identifier"
+      end
+
+      argument :provider, :atom do
+        allow_nil? false
+        constraints one_of: [:oidc, :saml, :gateway]
+      end
+
+      # Set default role and mark as confirmed (SSO = verified email)
+      change set_attribute(:role, arg(:role))
+      change set_attribute(:status, :active)
+      change set_attribute(:confirmed_at, &DateTime.utc_now/0)
+
+      change fn changeset, _context ->
+        external_id = Ash.Changeset.get_argument(changeset, :external_id)
+        Ash.Changeset.force_change_attribute(changeset, :external_id, external_id)
+      end
     end
 
     update :update do
@@ -126,6 +213,14 @@ defmodule ServiceRadar.Identity.User do
 
     update :update_role do
       accept [:role]
+      require_atomic? false
+      change ServiceRadar.Identity.Changes.DisallowLastAdminLockout
+      change ServiceRadar.Identity.Changes.InvalidateUserRbacCache
+    end
+
+    update :update_role_profile do
+      accept [:role_profile_id]
+      change ServiceRadar.Identity.Changes.InvalidateUserRbacCache
     end
 
     update :change_password do
@@ -207,51 +302,121 @@ defmodule ServiceRadar.Identity.User do
         end
       end
     end
+
+    update :admin_set_password do
+      description "Set a user's password without requiring the current password (admin-only flow)"
+      require_atomic? false
+
+      argument :password, :string do
+        allow_nil? false
+        sensitive? true
+        constraints min_length: 12
+      end
+
+      change fn changeset, _context ->
+        password = Ash.Changeset.get_argument(changeset, :password)
+        hashed = Bcrypt.hash_pwd_salt(password)
+        Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
+      end
+    end
+
+    update :record_authentication do
+      description "Record authentication timestamp for sudo mode"
+      change set_attribute(:authenticated_at, &DateTime.utc_now/0)
+    end
+
+    update :record_login do
+      description "Record user login timestamp and method"
+
+      argument :auth_method, :atom do
+        allow_nil? false
+        constraints one_of: [:password, :oidc, :saml, :gateway, :api_token, :oauth_client]
+      end
+
+      change set_attribute(:last_login_at, &DateTime.utc_now/0)
+      change set_attribute(:last_auth_method, arg(:auth_method))
+    end
+
+    update :deactivate do
+      description "Deactivate a user account and revoke access"
+      require_atomic? false
+      change ServiceRadar.Identity.Changes.DisallowLastAdminLockout
+      change set_attribute(:status, :inactive)
+    end
+
+    update :reactivate do
+      description "Reactivate a user account"
+      change set_attribute(:status, :active)
+    end
   end
 
   policies do
-    # Allow authentication actions without an actor
-    bypass AshAuthentication.Checks.AshAuthenticationInteraction do
-      authorize_if always()
-    end
-
     # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Users can read themselves or admins can read any user
+    # Public reads used by authentication flows (no actor available yet)
+    policy action([:by_email, :authenticate]) do
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
+
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
+    end
+
+    # Read access:
+    # - Admins (settings.auth.manage) can read any user
+    # - Users can read themselves
     policy action_type(:read) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
+
       authorize_if expr(id == ^actor(:id))
-      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Registration is restricted to system/admin actors (bootstrap or admin workflow).
+    # Public registration (no actor available)
     policy action(:register_with_password) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :system)
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
     end
 
-    # Users can update their own non-role fields
-    policy action(:update) do
+    # Admin-managed user creation
+    policy action(:create) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
+    end
+
+    # JIT provisioning is performed as a SystemActor in the web layer.
+    # Allow admins to use it intentionally; deny regular users.
+    policy action(:provision_sso_user) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
+    end
+
+    # Self-service updates and audit markers
+    policy action([
+             :update,
+             :update_email,
+             :change_password,
+             :record_authentication,
+             :record_login
+           ]) do
       authorize_if expr(id == ^actor(:id))
+
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
     end
 
-    policy action(:update_email) do
-      authorize_if expr(id == ^actor(:id))
+    # Admin-only user management
+    policy action([
+             :update_role,
+             :update_role_profile,
+             :admin_set_password,
+             :deactivate,
+             :reactivate
+           ]) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
     end
-
-    policy action(:change_password) do
-      authorize_if expr(id == ^actor(:id))
-    end
-
-    # Only admins can change roles
-    policy action(:update_role) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-  end
-
-  changes do
   end
 
   attributes do
@@ -279,8 +444,27 @@ defmodule ServiceRadar.Identity.User do
       allow_nil? false
       default :viewer
       public? true
-      constraints one_of: [:viewer, :operator, :admin]
+      constraints one_of: [:viewer, :helpdesk, :operator, :admin]
       description "User's role for authorization"
+    end
+
+    attribute :role_profile_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Role profile assignment for RBAC"
+    end
+
+    attribute :status, :atom do
+      allow_nil? false
+      default :active
+      public? true
+      constraints one_of: [:active, :inactive]
+      description "User account status"
+    end
+
+    attribute :external_id, :string do
+      public? false
+      description "External IdP subject identifier (for SSO users)"
     end
 
     attribute :confirmed_at, :utc_datetime do
@@ -293,11 +477,26 @@ defmodule ServiceRadar.Identity.User do
       description "When the user last authenticated (for sudo mode)"
     end
 
+    attribute :last_login_at, :utc_datetime do
+      public? true
+      description "When the user last logged in"
+    end
+
+    attribute :last_auth_method, :atom do
+      public? true
+      constraints one_of: [:password, :oidc, :saml, :gateway, :api_token, :oauth_client]
+      description "Last authentication method used by the user"
+    end
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
 
   relationships do
+    belongs_to :role_profile, ServiceRadar.Identity.RoleProfile do
+      allow_nil? true
+      attribute_writable? true
+    end
   end
 
   calculations do
@@ -319,8 +518,13 @@ defmodule ServiceRadar.Identity.User do
   end
 
   identities do
-    # Email identity required by AshAuthentication for password strategies.
-    # Email uniqueness is enforced per instance schema.
+    # Email uniqueness is enforced per instance schema
     identity :email, [:email]
   end
+
+  # Helper function for password verification
+  defp verify_password(nil, _hash), do: false
+  defp verify_password(_password, nil), do: false
+  defp verify_password(_password, ""), do: false
+  defp verify_password(password, hash), do: Bcrypt.verify_pass(password, hash)
 end

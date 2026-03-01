@@ -91,8 +91,33 @@ macro_rules! apply_eq_filter {
     }};
 }
 
+/// Normalizes a MAC address value by stripping non-hex characters and lowercasing.
+///
+/// When `allow_wildcards` is true, `%` and `_` (SQL LIKE wildcards) are preserved.
+/// E.g. `"0E-EA-14-32-D2-78"` → `"0eea1432d278"`, `"%0e:ea%"` → `"%0eea%"`.
+pub(crate) fn normalize_mac_value(raw: &str, allow_wildcards: bool) -> Result<String> {
+    let mut normalized = String::with_capacity(raw.len());
+
+    for ch in raw.chars() {
+        if ch.is_ascii_hexdigit() {
+            normalized.push(ch.to_ascii_lowercase());
+        } else if allow_wildcards && (ch == '%' || ch == '_') {
+            normalized.push(ch);
+        }
+    }
+
+    if normalized.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "mac filter expects hex digits".into(),
+        ));
+    }
+
+    Ok(normalized)
+}
+
 mod agents;
 mod alerts;
+mod bmp_events;
 mod cpu_metrics;
 mod device_graph;
 mod device_updates;
@@ -100,6 +125,7 @@ mod devices;
 mod disk_metrics;
 mod downsample;
 mod events;
+mod flows;
 mod gateways;
 mod graph_cypher;
 mod interfaces;
@@ -121,11 +147,14 @@ use crate::{
     parser::{self, Entity, Filter, OrderClause, QueryAst},
     time::TimeRange,
 };
-use chrono::Utc;
+use chrono::{Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use tracing::error;
+
+const CAGG_ROUTING_THRESHOLD_HOURS: i64 = 6;
+const CAGG_MAX_TIME_RANGE_DAYS: i64 = 395;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "t", content = "v", rename_all = "snake_case")]
@@ -177,8 +206,12 @@ impl QueryEngine {
                 Entity::Devices => devices::execute(&mut conn, &plan).await?,
                 Entity::DeviceUpdates => device_updates::execute(&mut conn, &plan).await?,
                 Entity::DeviceGraph => device_graph::execute(&mut conn, &plan).await?,
-                Entity::GraphCypher => graph_cypher::execute(&mut conn, &plan).await?,
+                Entity::GraphCypher => {
+                    graph_cypher::execute(&mut conn, &plan, &self.config.age_graph_name).await?
+                }
                 Entity::Events => events::execute(&mut conn, &plan).await?,
+                Entity::BmpEvents => bmp_events::execute(&mut conn, &plan).await?,
+                Entity::Flows => flows::execute(&mut conn, &plan).await?,
                 Entity::Interfaces => interfaces::execute(&mut conn, &plan).await?,
                 Entity::Logs => logs::execute(&mut conn, &plan).await?,
                 Entity::Gateways => gateways::execute(&mut conn, &plan).await?,
@@ -244,13 +277,15 @@ fn build_query_plan(
         .transpose()?
         .unwrap_or(0)
         .max(0);
+    let max_time_range_days = max_time_range_days_for_ast(&ast);
     let time_range = ast
         .time_filter
-        .map(|spec| spec.resolve(Utc::now()))
+        .map(|spec| spec.resolve_with_max_days(Utc::now(), max_time_range_days))
         .transpose()?;
 
     let (filters, order, downsample) =
         normalize_device_aliases(&ast.entity, ast.filters, ast.order, ast.downsample);
+    let (filters, include_deleted) = extract_include_deleted(filters)?;
 
     Ok(QueryPlan {
         entity: ast.entity,
@@ -262,6 +297,7 @@ fn build_query_plan(
         stats: ast.stats,
         downsample,
         rollup_stats: ast.rollup_stats,
+        include_deleted,
     })
 }
 
@@ -316,6 +352,152 @@ fn normalize_device_aliases(
     });
 
     (filters, order, downsample)
+}
+
+pub(super) fn supports_hourly_cagg(entity: &Entity) -> bool {
+    matches!(
+        entity,
+        Entity::CpuMetrics
+            | Entity::MemoryMetrics
+            | Entity::DiskMetrics
+            | Entity::ProcessMetrics
+            | Entity::TimeseriesMetrics
+            | Entity::SnmpMetrics
+            | Entity::RperfMetrics
+    )
+}
+
+pub(super) fn cagg_table_for_entity(entity: &Entity) -> Option<&'static str> {
+    match entity {
+        Entity::CpuMetrics => Some("cpu_metrics_hourly"),
+        Entity::MemoryMetrics => Some("memory_metrics_hourly"),
+        Entity::DiskMetrics => Some("disk_metrics_hourly"),
+        Entity::ProcessMetrics => Some("process_metrics_hourly"),
+        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
+            Some("timeseries_metrics_hourly")
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn cagg_column_for_entity(
+    entity: &Entity,
+    agg_fn: &str,
+    field: &str,
+) -> Option<&'static str> {
+    let agg = agg_fn.trim().to_ascii_lowercase();
+    let field = field.trim().to_ascii_lowercase();
+
+    match entity {
+        Entity::CpuMetrics => match (agg.as_str(), field.as_str()) {
+            ("avg", "usage_percent") => Some("avg_usage_percent"),
+            ("max", "usage_percent") => Some("max_usage_percent"),
+            _ => None,
+        },
+        Entity::MemoryMetrics => match (agg.as_str(), field.as_str()) {
+            ("avg", "usage_percent") => Some("avg_usage_percent"),
+            ("max", "usage_percent") => Some("max_usage_percent"),
+            ("avg", "used_bytes") => Some("avg_used_bytes"),
+            ("avg", "available_bytes") => Some("avg_available_bytes"),
+            _ => None,
+        },
+        Entity::DiskMetrics => match (agg.as_str(), field.as_str()) {
+            ("avg", "usage_percent") => Some("avg_usage_percent"),
+            ("max", "usage_percent") => Some("max_usage_percent"),
+            ("avg", "used_bytes") => Some("avg_used_bytes"),
+            ("avg", "available_bytes") => Some("avg_available_bytes"),
+            _ => None,
+        },
+        Entity::ProcessMetrics => match (agg.as_str(), field.as_str()) {
+            ("avg", "cpu_usage") => Some("avg_cpu_usage"),
+            ("max", "cpu_usage") => Some("max_cpu_usage"),
+            ("avg", "memory_usage") => Some("avg_memory_usage"),
+            ("max", "memory_usage") => Some("max_memory_usage"),
+            _ => None,
+        },
+        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
+            match (agg.as_str(), field.as_str()) {
+                ("avg", "value") => Some("avg_value"),
+                ("min", "value") => Some("min_value"),
+                ("max", "value") => Some("max_value"),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn is_hourly_cagg_eligible_query(entity: &Entity, has_stats: bool, has_downsample: bool) -> bool {
+    supports_hourly_cagg(entity) && (has_stats || has_downsample)
+}
+
+fn max_time_range_days_for_ast(ast: &QueryAst) -> i64 {
+    if is_hourly_cagg_eligible_query(&ast.entity, ast.stats.is_some(), ast.downsample.is_some()) {
+        CAGG_MAX_TIME_RANGE_DAYS
+    } else {
+        90
+    }
+}
+
+pub(super) fn should_route_to_hourly_cagg(
+    entity: &Entity,
+    time_range: Option<&TimeRange>,
+    has_stats: bool,
+    has_downsample: bool,
+) -> bool {
+    if !is_hourly_cagg_eligible_query(entity, has_stats, has_downsample) {
+        return false;
+    }
+
+    let Some(time_range) = time_range else {
+        return false;
+    };
+
+    time_range
+        .end
+        .signed_duration_since(time_range.start)
+        .ge(&ChronoDuration::hours(CAGG_ROUTING_THRESHOLD_HOURS))
+}
+
+pub(super) fn should_route_plan_to_hourly_cagg(plan: &QueryPlan) -> bool {
+    should_route_to_hourly_cagg(
+        &plan.entity,
+        plan.time_range.as_ref(),
+        plan.stats.is_some(),
+        plan.downsample.is_some(),
+    )
+}
+
+fn extract_include_deleted(filters: Vec<Filter>) -> Result<(Vec<Filter>, bool)> {
+    let mut include_deleted = false;
+    let mut remaining = Vec::with_capacity(filters.len());
+
+    for filter in filters {
+        if filter.field.eq_ignore_ascii_case("include_deleted") {
+            if !matches!(filter.op, crate::parser::FilterOp::Eq) {
+                return Err(ServiceError::InvalidRequest(
+                    "include_deleted only supports equality".into(),
+                ));
+            }
+
+            let raw = filter.value.as_scalar()?;
+            include_deleted = parse_bool_str(raw)?;
+        } else {
+            remaining.push(filter);
+        }
+    }
+
+    Ok((remaining, include_deleted))
+}
+
+fn parse_bool_str(value: &str) -> Result<bool> {
+    match value.to_lowercase().as_str() {
+        "true" | "1" | "yes" | "y" => Ok(true),
+        "false" | "0" | "no" | "n" => Ok(false),
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "invalid boolean value '{value}'"
+        ))),
+    }
 }
 
 fn normalize_device_field(entity: &Entity, field: &str) -> Option<String> {
@@ -539,8 +721,10 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Devices => devices::to_sql_and_params(&plan)?,
             Entity::DeviceUpdates => device_updates::to_sql_and_params(&plan)?,
             Entity::DeviceGraph => device_graph::to_sql_and_params(&plan)?,
-            Entity::GraphCypher => graph_cypher::to_sql_and_params(&plan)?,
+            Entity::GraphCypher => graph_cypher::to_sql_and_params(&plan, &config.age_graph_name)?,
             Entity::Events => events::to_sql_and_params(&plan)?,
+            Entity::BmpEvents => bmp_events::to_sql_and_params(&plan)?,
+            Entity::Flows => flows::to_sql_and_params(&plan)?,
             Entity::Interfaces => interfaces::to_sql_and_params(&plan)?,
             Entity::Logs => logs::to_sql_and_params(&plan)?,
             Entity::Gateways => gateways::to_sql_and_params(&plan)?,
@@ -582,7 +766,6 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
 mod tests {
     use super::{devices, gateways, interfaces, *};
     use crate::parser::{self, FilterOp, FilterValue, OrderDirection};
-    use chrono::Duration as ChronoDuration;
     use std::time::Duration as StdDuration;
 
     #[test]
@@ -795,6 +978,7 @@ mod tests {
         AppConfig {
             listen_addr: "127.0.0.1:0".parse().unwrap(),
             database_url: "postgres://example/db".to_string(),
+            age_graph_name: "platform_graph".to_string(),
             max_pool_size: 1,
             pg_ssl_root_cert: None,
             pg_ssl_cert: None,
@@ -978,9 +1162,56 @@ mod tests {
         let sql = response.sql.to_lowercase();
 
         assert!(
-            sql.contains("avg(used_bytes)"),
-            "expected downsample to use used_bytes, got: {}",
+            sql.contains("avg(used_bytes)") || sql.contains("avg(avg_used_bytes)"),
+            "expected downsample to use used_bytes or avg_used_bytes, got: {}",
             response.sql
+        );
+    }
+
+    #[test]
+    fn translate_flows_downsample_emits_time_bucket_query() {
+        let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+        let request = QueryRequest {
+            query: "in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total limit:25"
+                .to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = translate_request(&config, request).expect("translation should succeed");
+        let sql = response.sql.to_lowercase();
+
+        assert!(
+            sql.contains("from ocsf_network_activity"),
+            "expected flows downsample to query ocsf_network_activity, got: {}",
+            response.sql
+        );
+        assert!(
+            sql.contains("to_timestamp(floor("),
+            "expected floor-based time bucketing in SQL, got: {}",
+            response.sql
+        );
+        assert!(
+            sql.contains("sum(bytes_total)"),
+            "expected sum(bytes_total), got: {}",
+            response.sql
+        );
+        assert!(
+            sql.contains("group by 1, 2"),
+            "expected group by bucket+series, got: {}",
+            response.sql
+        );
+
+        let viz = response.viz.expect("viz metadata should be present");
+        assert_eq!(viz.columns.len(), 3);
+        assert!(
+            viz.suggestions
+                .iter()
+                .any(|s| matches!(s.kind, viz::VizKind::Timeseries)),
+            "expected timeseries suggestion, got: {:?}",
+            viz.suggestions
         );
     }
 
@@ -1135,6 +1366,156 @@ mod tests {
             "error should mention unsupported field, got: {err}"
         );
     }
+
+    #[test]
+    fn cagg_routing_threshold_boundary() {
+        let now = chrono::Utc::now();
+        let under = TimeRange {
+            start: now - ChronoDuration::hours(5) - ChronoDuration::minutes(59),
+            end: now,
+        };
+        let at = TimeRange {
+            start: now - ChronoDuration::hours(6),
+            end: now,
+        };
+
+        assert!(!should_route_to_hourly_cagg(
+            &Entity::CpuMetrics,
+            Some(&under),
+            true,
+            false
+        ));
+        assert!(should_route_to_hourly_cagg(
+            &Entity::CpuMetrics,
+            Some(&at),
+            true,
+            false
+        ));
+    }
+
+    #[test]
+    fn aggregate_metric_query_allows_one_year_timeframe() {
+        let config = test_config();
+        let query = "in:cpu_metrics time:last_1y stats:avg(usage_percent) as avg_usage";
+        let ast = parser::parse(query).expect("query should parse");
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let plan = build_query_plan(&config, &request, ast)
+            .expect("stats metric query should allow extended range");
+        let range = plan.time_range.expect("time range should exist");
+        assert!(
+            range.end.signed_duration_since(range.start) >= ChronoDuration::days(365),
+            "expected ~1 year range, got: {:?}",
+            range.end.signed_duration_since(range.start)
+        );
+    }
+
+    #[test]
+    fn plain_metric_query_still_rejects_one_year_timeframe() {
+        let config = test_config();
+        let query = "in:cpu_metrics time:last_1y";
+        let ast = parser::parse(query).expect("query should parse");
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let err = build_query_plan(&config, &request, ast)
+            .expect_err("plain query should still enforce 90 day limit");
+        assert!(
+            err.to_string().contains("cannot exceed 90 days"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn cagg_column_mappings_cover_metric_entities() {
+        assert_eq!(
+            cagg_column_for_entity(&Entity::CpuMetrics, "avg", "usage_percent"),
+            Some("avg_usage_percent")
+        );
+        assert_eq!(
+            cagg_column_for_entity(&Entity::MemoryMetrics, "avg", "used_bytes"),
+            Some("avg_used_bytes")
+        );
+        assert_eq!(
+            cagg_column_for_entity(&Entity::DiskMetrics, "max", "usage_percent"),
+            Some("max_usage_percent")
+        );
+        assert_eq!(
+            cagg_column_for_entity(&Entity::ProcessMetrics, "avg", "cpu_usage"),
+            Some("avg_cpu_usage")
+        );
+        assert_eq!(
+            cagg_column_for_entity(&Entity::TimeseriesMetrics, "min", "value"),
+            Some("min_value")
+        );
+        assert_eq!(
+            cagg_column_for_entity(&Entity::TimeseriesMetrics, "sum", "value"),
+            None
+        );
+    }
+
+    #[test]
+    fn cpu_stats_without_group_by_translates_and_routes_to_cagg() {
+        let config = test_config();
+        let request = QueryRequest {
+            query: "in:cpu_metrics time:last_7d stats:avg(usage_percent) as avg_usage".into(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response =
+            translate_request(&config, request).expect("ungrouped cpu stats should translate");
+        let sql = response.sql.to_lowercase();
+        assert!(
+            sql.contains("from cpu_metrics_hourly"),
+            "expected CAGG source for large-window stats query, got: {}",
+            response.sql
+        );
+        assert!(
+            !sql.contains("group by device_id"),
+            "ungrouped query should not force device grouping, got: {}",
+            response.sql
+        );
+    }
+
+    #[test]
+    fn cpu_stats_without_alias_translates_and_routes_to_cagg() {
+        let config = test_config();
+        let request = QueryRequest {
+            query: "in:cpu_metrics time:last_7d stats:avg(usage_percent)".into(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response =
+            translate_request(&config, request).expect("alias-less cpu stats should translate");
+        let sql = response.sql.to_lowercase();
+        assert!(
+            sql.contains("from cpu_metrics_hourly"),
+            "expected CAGG source for large-window stats query, got: {}",
+            response.sql
+        );
+        assert!(
+            !sql.contains("group by device_id"),
+            "ungrouped query should not force device grouping, got: {}",
+            response.sql
+        );
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1149,6 +1530,7 @@ pub struct QueryPlan {
     pub downsample: Option<crate::parser::DownsampleSpec>,
     /// Rollup stats type for querying pre-computed CAGGs (e.g., "severity", "summary", "availability")
     pub rollup_stats: Option<String>,
+    pub include_deleted: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]

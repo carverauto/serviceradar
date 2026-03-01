@@ -37,19 +37,11 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.FlowEnrichment
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Observability.FlowPubSub
 
   require Logger
-
-  @direction_map %{
-    "ingress" => {"Inbound", 1},
-    "inbound" => {"Inbound", 1},
-    "in" => {"Inbound", 1},
-    "egress" => {"Outbound", 2},
-    "outbound" => {"Outbound", 2},
-    "out" => {"Outbound", 2},
-    "lateral" => {"Lateral", 3}
-  }
 
   @impl true
   def table_name, do: "ocsf_network_activity"
@@ -100,168 +92,129 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
            returning: false
          ) do
       {count, _} ->
+        FlowPubSub.broadcast_ingest(%{count: count})
         {:ok, count}
     end
   end
 
   # DB connection's search_path determines the schema
+  # Produces a flat row matching the ocsf_network_activity table columns.
   defp parse_netflow(json, nats_metadata) do
     time = FieldParser.parse_timestamp(json["timestamp"])
     activity_id = OCSF.activity_network_traffic()
 
-    # Get protocol info
     protocol_num = json["protocol"]
     protocol_name = OCSF.protocol_name(protocol_num)
+    flow = parse_netflow_fields(json)
 
-    # Build source endpoint
-    src_endpoint =
-      OCSF.build_network_endpoint(
-        ip: FieldParser.get_field(json, "src_addr", "srcAddr") || json["sourceAddress"],
-        port: FieldParser.get_field(json, "src_port", "srcPort") || json["sourcePort"]
-      )
+    enrichment =
+      FlowEnrichment.enrich(%{
+        protocol_num: protocol_num,
+        tcp_flags: json["tcp_flags"],
+        dst_port: safe_int(flow.dst_port),
+        bytes_in: flow.bytes_in,
+        bytes_out: flow.bytes_out,
+        src_ip: flow.src_ip,
+        dst_ip: flow.dst_ip,
+        src_mac: flow.src_mac,
+        dst_mac: flow.dst_mac
+      })
 
-    # Build destination endpoint
-    dst_endpoint =
-      OCSF.build_network_endpoint(
-        ip: FieldParser.get_field(json, "dst_addr", "dstAddr") || json["destinationAddress"],
-        port: FieldParser.get_field(json, "dst_port", "dstPort") || json["destinationPort"]
-      )
-
-    # Build traffic statistics
-    traffic = build_traffic_stats(json)
-
-    # Build observables
-    observables = build_flow_observables(json)
-
-    # Determine direction
-    {direction, direction_id} = parse_direction(json)
-
-    %{
-      # Primary key components
-      id: UUID.uuid4(),
-      time: time,
-
-      # OCSF Classification (required)
-      class_uid: OCSF.class_network_activity(),
-      category_uid: OCSF.category_network_activity(),
-      type_uid: OCSF.type_uid(OCSF.class_network_activity(), activity_id),
-      activity_id: activity_id,
-      severity_id: OCSF.severity_informational(),
-
-      # Content
-      message: build_traffic_message(json, protocol_name),
-      severity: OCSF.severity_name(OCSF.severity_informational()),
-      activity_name: OCSF.network_activity_name(activity_id),
-
-      # Action (allowed for observed traffic)
-      action_id: OCSF.action_allowed(),
-      action: "Allowed",
-
-      # Status
-      status_id: OCSF.status_success(),
-      status: "Success",
-      status_code: nil,
-      status_detail: nil,
-
-      # OCSF Metadata
-      metadata:
+    # Build full OCSF payload for the JSONB column
+    ocsf_payload = %{
+      "class_uid" => OCSF.class_network_activity(),
+      "category_uid" => OCSF.category_network_activity(),
+      "activity_id" => activity_id,
+      "type_uid" => OCSF.type_uid(OCSF.class_network_activity(), activity_id),
+      "severity_id" => OCSF.severity_informational(),
+      "message" => build_traffic_message(json, protocol_name),
+      "src_endpoint" => %{"ip" => flow.src_ip, "port" => flow.src_port},
+      "dst_endpoint" => %{"ip" => flow.dst_ip, "port" => flow.dst_port},
+      "traffic" => %{"bytes" => flow.octets, "packets" => flow.packets},
+      "protocol_name" => protocol_name,
+      "protocol_num" => protocol_num,
+      "enrichment" => %{
+        "protocol_source" => enrichment.protocol_source,
+        "tcp_flags_labels" => enrichment.tcp_flags_labels,
+        "dst_service_label" => enrichment.dst_service_label,
+        "direction_label" => enrichment.direction_label,
+        "src_hosting_provider" => enrichment.src_hosting_provider,
+        "dst_hosting_provider" => enrichment.dst_hosting_provider,
+        "src_mac_vendor" => enrichment.src_mac_vendor,
+        "dst_mac_vendor" => enrichment.dst_mac_vendor
+      },
+      "metadata" =>
         OCSF.build_metadata(
           product_name: "NetFlowCollector",
           correlation_uid: nats_metadata[:subject]
         ),
+      "sampler_address" => FieldParser.get_field(json, "sampler_address", "samplerAddress"),
+      "unmapped" => extract_unmapped(json)
+    }
 
-      # Observables
-      observables: observables,
-
-      # Endpoints
-      src_endpoint: src_endpoint,
-      dst_endpoint: dst_endpoint,
-
-      # Connection info
-      connection_info: %{
-        sampler_address: FieldParser.get_field(json, "sampler_address", "samplerAddress"),
-        input_snmp: FieldParser.get_field(json, "input_snmp", "inputSnmp"),
-        output_snmp: FieldParser.get_field(json, "output_snmp", "outputSnmp")
-      },
-
-      # Traffic statistics
-      traffic: traffic,
-
-      # Protocol
-      protocol_name: protocol_name,
+    # Flat row matching ocsf_network_activity table columns
+    %{
+      time: time,
+      class_uid: OCSF.class_network_activity(),
+      category_uid: OCSF.category_network_activity(),
+      activity_id: activity_id,
+      type_uid: OCSF.type_uid(OCSF.class_network_activity(), activity_id),
+      severity_id: OCSF.severity_informational(),
+      src_endpoint_ip: flow.src_ip,
+      src_endpoint_port: safe_int(flow.src_port),
+      src_as_number: safe_int(json["src_as"]),
+      dst_endpoint_ip: flow.dst_ip,
+      dst_endpoint_port: safe_int(flow.dst_port),
+      dst_as_number: safe_int(json["dst_as"]),
       protocol_num: protocol_num,
-
-      # Direction
-      direction: direction,
-      direction_id: direction_id,
-
-      # Duration (not typically in NetFlow v5, may be in IPFIX)
-      duration: nil,
-
-      # Device (the flow exporter/router)
-      device:
-        OCSF.build_device(
-          uid: FieldParser.get_field(json, "device_id", "deviceId"),
-          name: FieldParser.get_field(json, "device_id", "deviceId")
-        ),
-
-      # Actor (the gateway/collector)
-      actor:
-        OCSF.build_actor(
-          app_name: "ServiceRadar NetFlow Collector",
-          app_ver: "1.0.0"
-        ),
-
-      # Scan-specific fields (not applicable for NetFlow)
-      scan_type: nil,
-      ports_scanned: [],
-      ports_open: [],
-      icmp_available: nil,
-      response_time_ns: nil,
-
-      # Unmapped data
-      unmapped: extract_unmapped(json),
-
-      # Raw data
-      raw_data: nil,
-
-      # Gateway/Agent tracking
-      gateway_id: FieldParser.get_field(json, "gateway_id", "gatewayId"),
-      agent_id: FieldParser.get_field(json, "agent_id", "agentId"),
-
-      # Record timestamp
+      protocol_name: protocol_name,
+      protocol_source: enrichment.protocol_source,
+      tcp_flags: json["tcp_flags"],
+      tcp_flags_labels: enrichment.tcp_flags_labels,
+      tcp_flags_source: enrichment.tcp_flags_source,
+      dst_service_label: enrichment.dst_service_label,
+      dst_service_source: enrichment.dst_service_source,
+      bytes_total: flow.octets,
+      packets_total: flow.packets,
+      bytes_in: flow.bytes_in || 0,
+      bytes_out: flow.bytes_out || 0,
+      direction_label: enrichment.direction_label,
+      direction_source: enrichment.direction_source,
+      src_hosting_provider: enrichment.src_hosting_provider,
+      src_hosting_provider_source: enrichment.src_hosting_provider_source,
+      dst_hosting_provider: enrichment.dst_hosting_provider,
+      dst_hosting_provider_source: enrichment.dst_hosting_provider_source,
+      src_mac: enrichment.src_mac,
+      dst_mac: enrichment.dst_mac,
+      src_mac_vendor: enrichment.src_mac_vendor,
+      src_mac_vendor_source: enrichment.src_mac_vendor_source,
+      dst_mac_vendor: enrichment.dst_mac_vendor,
+      dst_mac_vendor_source: enrichment.dst_mac_vendor_source,
+      sampler_address: FieldParser.get_field(json, "sampler_address", "samplerAddress"),
+      ocsf_payload: ocsf_payload,
+      partition: "default",
       created_at: DateTime.utc_now()
     }
   end
 
-  defp build_traffic_stats(json) do
-    octets = json["octets"] || json["bytes"]
-    packets = json["packets"]
-
-    OCSF.build_traffic(
-      bytes: octets,
-      packets: packets
-    )
+  defp parse_netflow_fields(json) do
+    %{
+      src_ip: endpoint_field(json, "src_addr", "srcAddr", "sourceAddress"),
+      src_port: endpoint_field(json, "src_port", "srcPort", "sourcePort"),
+      dst_ip: endpoint_field(json, "dst_addr", "dstAddr", "destinationAddress"),
+      dst_port: endpoint_field(json, "dst_port", "dstPort", "destinationPort"),
+      src_mac: flow_value(json, "src_mac", "srcMac", "sourceMac"),
+      dst_mac: flow_value(json, "dst_mac", "dstMac", "destinationMac"),
+      octets: first_present(json, ["octets", "bytes"], 0),
+      packets: first_present(json, ["packets"], 0),
+      bytes_in: safe_int(first_present(json, ["bytes_in", "bytesIn"])),
+      bytes_out: safe_int(first_present(json, ["bytes_out", "bytesOut"]))
+    }
   end
 
-  defp build_flow_observables(json) do
-    src_ip = flow_value(json, "src_addr", "srcAddr", "sourceAddress")
-    dst_ip = flow_value(json, "dst_addr", "dstAddr", "destinationAddress")
-    src_port = flow_value(json, "src_port", "srcPort", "sourcePort")
-    dst_port = flow_value(json, "dst_port", "dstPort", "destinationPort")
-
-    []
-    |> maybe_add(src_ip, &OCSF.ip_observable/1)
-    |> maybe_add(dst_ip, &OCSF.ip_observable/1)
-    |> maybe_add(src_port, &OCSF.port_observable/1)
-    |> maybe_add(dst_port, &OCSF.port_observable/1)
-  end
-
-  defp parse_direction(json) do
-    direction = FieldParser.get_field(json, "flow_direction", "flowDirection")
-
-    Map.get(@direction_map, direction, {nil, 0})
-  end
+  defp safe_int(nil), do: nil
+  defp safe_int(v) when is_integer(v), do: v
+  defp safe_int(_), do: nil
 
   defp build_traffic_message(json, protocol_name) do
     src_ip = flow_value(json, "src_addr", "srcAddr", "sourceAddress")
@@ -298,6 +251,8 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       flow_direction flowDirection src_addr srcAddr sourceAddress
       dst_addr dstAddr destinationAddress src_port srcPort sourcePort
       dst_port dstPort destinationPort protocol packets octets bytes
+      bytes_in bytesIn bytes_out bytesOut tcp_flags tcpFlags
+      src_mac srcMac sourceMac dst_mac dstMac destinationMac
       sampler_address samplerAddress input_snmp inputSnmp output_snmp outputSnmp
       metadata
     )
@@ -314,7 +269,11 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
     json[snake_key] || json[camel_key] || json[fallback_key] || default
   end
 
-  defp maybe_add(list, nil, _builder), do: list
-  defp maybe_add(list, "", _builder), do: list
-  defp maybe_add(list, value, builder), do: [builder.(value) | list]
+  defp endpoint_field(json, snake_key, camel_key, fallback_key) do
+    FieldParser.get_field(json, snake_key, camel_key) || json[fallback_key]
+  end
+
+  defp first_present(json, keys, default \\ nil) do
+    Enum.find_value(keys, default, &Map.get(json, &1))
+  end
 end

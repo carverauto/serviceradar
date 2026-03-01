@@ -8,10 +8,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
   use ExUnit.Case, async: false
 
+  require Ash.Query
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.{Device, DeviceIdentifier}
 
   @moduletag :integration
 
@@ -48,7 +50,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert is_binary(device_uid)
 
       # Verify device was created
-      {:ok, device} = Device.get_by_uid(device_uid, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
       assert device.hostname == "test-host-#{agent_id}"
       assert device.ip == "192.168.1.100"
       assert device.agent_id == agent_id
@@ -88,7 +90,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert device_uid1 == device_uid2
 
       # Verify device was updated
-      {:ok, device} = Device.get_by_uid(device_uid2, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid2, false, actor: actor)
       assert device.hostname == "test-host-updated"
       assert device.ip == "192.168.1.102"
       assert "sysmon" in device.discovery_sources
@@ -110,7 +112,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, device_uid} =
         AgentGatewaySync.ensure_device_for_agent(agent_id_no_sysmon, attrs_no_sysmon)
 
-      {:ok, device} = Device.get_by_uid(device_uid, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
       assert "agent" in device.discovery_sources
       refute "sysmon" in device.discovery_sources
     end
@@ -129,8 +131,70 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
 
-      {:ok, device} = Device.get_by_uid(device_uid, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
       assert "sysmon" in device.discovery_sources
+    end
+
+    test "registers agent_id in device_identifiers", %{
+      unique_id: unique_id,
+      actor: actor
+    } do
+      agent_id = "agent-id-reg-#{unique_id}"
+
+      attrs = %{
+        hostname: "host-id-reg",
+        source_ip: "10.99.#{rem(unique_id, 255)}.1",
+        partition: "default",
+        capabilities: ["sysmon"]
+      }
+
+      {:ok, _device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+
+      # Verify agent_id was registered as a strong identifier
+      query =
+        DeviceIdentifier
+        |> Ash.Query.for_read(:lookup, %{
+          identifier_type: :agent_id,
+          identifier_value: agent_id,
+          partition: "default"
+        })
+
+      assert {:ok, [identifier]} = Ash.read(query, actor: actor)
+      assert identifier.confidence == :strong
+    end
+
+    test "re-enrollment from different IP resolves to same device", %{
+      unique_id: unique_id,
+      actor: actor
+    } do
+      agent_id = "agent-reip-#{unique_id}"
+
+      # First enrollment from IP A
+      attrs_a = %{
+        hostname: "k8s-pod-a",
+        source_ip: "10.42.#{rem(unique_id, 255)}.10",
+        partition: "default",
+        capabilities: ["sysmon"]
+      }
+
+      {:ok, device_uid_a} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs_a)
+
+      # Second enrollment from different IP B (simulating pod restart)
+      attrs_b = %{
+        hostname: "k8s-pod-b",
+        source_ip: "10.42.#{rem(unique_id, 255)}.20",
+        partition: "default",
+        capabilities: ["sysmon"]
+      }
+
+      {:ok, device_uid_b} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs_b)
+
+      # Should resolve to the same device despite different IPs
+      assert device_uid_a == device_uid_b
+
+      # Verify device is updated with new IP
+      {:ok, device} = Device.get_by_uid(device_uid_b, false, actor: actor)
+      assert device.ip == "10.42.#{rem(unique_id, 255)}.20"
     end
   end
 

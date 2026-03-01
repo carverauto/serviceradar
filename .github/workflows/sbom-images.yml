@@ -38,12 +38,10 @@ jobs:
             repo: ghcr.io/carverauto/serviceradar-poller
           - name: serviceradar-sync
             repo: ghcr.io/carverauto/serviceradar-sync
-          - name: serviceradar-flowgger
-            repo: ghcr.io/carverauto/serviceradar-flowgger
+          - name: serviceradar-log-collector
+            repo: ghcr.io/carverauto/serviceradar-log-collector
           - name: serviceradar-trapd
             repo: ghcr.io/carverauto/serviceradar-trapd
-          - name: serviceradar-otel
-            repo: ghcr.io/carverauto/serviceradar-otel
           - name: serviceradar-srql
             repo: ghcr.io/carverauto/serviceradar-srql
           - name: serviceradar-db-event-writer

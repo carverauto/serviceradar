@@ -39,7 +39,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
           bucket_seconds: 60,
           cooldown_seconds: 60,
           renotify_seconds: 3600
-        }, actor: actor)
+        },
+        actor: actor
+      )
       |> Ash.create()
 
     base_time = DateTime.utc_now()

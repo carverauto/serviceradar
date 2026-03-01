@@ -29,14 +29,13 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   use Oban.Worker,
     queue: :monitoring,
     max_attempts: 3,
-    unique: [period: 60, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.SweepJobs.ObanSupport
-  alias UUID
 
   require Logger
   require Ash.Query
@@ -88,7 +87,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         limit: 1
       )
 
-    ServiceRadar.Repo.exists?(query)
+    ServiceRadar.Repo.exists?(query, prefix: ObanSupport.prefix())
   end
 
   @impl Oban.Worker
@@ -517,7 +516,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     status_id = override_int(config_value(event_config, :status_id)) || OCSF.status_success()
 
     %{
-      id: UUID.uuid4(),
+      id: Ecto.UUID.bingenerate(),
       time: DateTime.utc_now(),
       class_uid: class_uid,
       category_uid: category_uid,

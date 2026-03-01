@@ -41,8 +41,10 @@ defmodule ServiceRadar.SNMPProfiles.Changes.EncryptCredentials do
 
   defp build_encrypted_payload(changeset) do
     with {:ok, payload} <- encrypt_field(changeset, :community, :community_encrypted, %{}),
-         {:ok, payload} <- encrypt_field(changeset, :auth_password, :auth_password_encrypted, payload),
-         {:ok, payload} <- encrypt_field(changeset, :priv_password, :priv_password_encrypted, payload) do
+         {:ok, payload} <-
+           encrypt_field(changeset, :auth_password, :auth_password_encrypted, payload),
+         {:ok, payload} <-
+           encrypt_field(changeset, :priv_password, :priv_password_encrypted, payload) do
       {:ok, payload}
     end
   end

@@ -26,7 +26,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
   ## Configuration
 
-  The generated NATS leaf config follows `packaging/nats/config/nats-leaf.conf`:
+  The generated NATS leaf config follows `build/packaging/nats/config/nats-leaf.conf`:
   - JetStream enabled with domain "edge"
   - mTLS for upstream connection
   - NATS account credentials

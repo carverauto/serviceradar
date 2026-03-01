@@ -75,10 +75,49 @@ generate_cert "gateway" "serviceradar-agent-gateway" "DNS:serviceradar-agent-gat
 generate_cert "rperf-client" "serviceradar-rperf-client" "DNS:serviceradar-rperf-client,DNS:rperf-client,DNS:serviceradar-rperf,DNS:localhost,IP:127.0.0.1"
 generate_cert "db-event-writer" "serviceradar-db-event-writer" "DNS:serviceradar-db-event-writer,DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "zen" "serviceradar-zen" "DNS:serviceradar-zen,DNS:zen,DNS:zen.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "flowgger" "serviceradar-flowgger" "DNS:serviceradar-flowgger,DNS:flowgger,DNS:flowgger.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "otel" "serviceradar-otel" "DNS:serviceradar-otel,DNS:otel,DNS:otel.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "log-collector" "serviceradar-log-collector" "DNS:serviceradar-log-collector,DNS:log-collector,DNS:log-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "flow-collector" "serviceradar-flow-collector" "DNS:serviceradar-flow-collector,DNS:flow-collector,DNS:flow-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "bmp-collector" "serviceradar-bmp-collector" "DNS:serviceradar-bmp-collector,DNS:bmp-collector,DNS:bmp-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "trapd" "serviceradar-trapd" "DNS:serviceradar-trapd,DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "client" "serviceradar-debug-client" "DNS:serviceradar-tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
+if [ -f "$CERT_DIR/root.pem" ] && [ ! -f "$CERT_DIR/ca.crt" ]; then
+  cp "$CERT_DIR/root.pem" "$CERT_DIR/ca.crt"
+  chmod 644 "$CERT_DIR/ca.crt"
+fi
+if [ -f "$CERT_DIR/flow-collector.pem" ] && [ -f "$CERT_DIR/flow-collector-key.pem" ]; then
+  if [ ! -f "$CERT_DIR/flow-client.crt" ]; then
+    cp "$CERT_DIR/flow-collector.pem" "$CERT_DIR/flow-client.crt"
+    chmod 644 "$CERT_DIR/flow-client.crt"
+  fi
+  if [ ! -f "$CERT_DIR/flow-client.key" ]; then
+    cp "$CERT_DIR/flow-collector-key.pem" "$CERT_DIR/flow-client.key"
+    chmod 600 "$CERT_DIR/flow-client.key"
+  fi
+fi
+if [ -f "$CERT_DIR/flow-collector.pem" ] && [ ! -f "$CERT_DIR/netflow-collector.pem" ]; then
+  cp "$CERT_DIR/flow-collector.pem" "$CERT_DIR/netflow-collector.pem"
+  chmod 644 "$CERT_DIR/netflow-collector.pem"
+fi
+if [ -f "$CERT_DIR/flow-collector-key.pem" ] && [ ! -f "$CERT_DIR/netflow-collector-key.pem" ]; then
+  cp "$CERT_DIR/flow-collector-key.pem" "$CERT_DIR/netflow-collector-key.pem"
+  chmod 600 "$CERT_DIR/netflow-collector-key.pem"
+fi
+if [ -f "$CERT_DIR/log-collector.pem" ] && [ ! -f "$CERT_DIR/flowgger.pem" ]; then
+  cp "$CERT_DIR/log-collector.pem" "$CERT_DIR/flowgger.pem"
+  chmod 644 "$CERT_DIR/flowgger.pem"
+fi
+if [ -f "$CERT_DIR/log-collector-key.pem" ] && [ ! -f "$CERT_DIR/flowgger-key.pem" ]; then
+  cp "$CERT_DIR/log-collector-key.pem" "$CERT_DIR/flowgger-key.pem"
+  chmod 600 "$CERT_DIR/flowgger-key.pem"
+fi
+if [ -f "$CERT_DIR/log-collector.pem" ] && [ ! -f "$CERT_DIR/otel.pem" ]; then
+  cp "$CERT_DIR/log-collector.pem" "$CERT_DIR/otel.pem"
+  chmod 644 "$CERT_DIR/otel.pem"
+fi
+if [ -f "$CERT_DIR/log-collector-key.pem" ] && [ ! -f "$CERT_DIR/otel-key.pem" ]; then
+  cp "$CERT_DIR/log-collector-key.pem" "$CERT_DIR/otel-key.pem"
+  chmod 600 "$CERT_DIR/otel-key.pem"
+fi
 if [ ! -f "$CERT_DIR/cnpg-client.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; then
   openssl ecparam -name prime256v1 -genkey -noout -out "$CERT_DIR/cnpg-client-key.pem"
   cat > "$CERT_DIR/cnpg-client.conf" <<EOF

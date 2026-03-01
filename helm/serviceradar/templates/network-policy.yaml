@@ -1,0 +1,92 @@
+{{- $np := default (dict) .Values.networkPolicy -}}
+{{- if $np.enabled -}}
+{{- $egress := default (dict) $np.egress -}}
+{{- $allowDNS := default false $egress.allowDNS -}}
+{{- $allowKubeAPI := default false $egress.allowKubeAPIServer -}}
+{{- $allowDefaultNs := default false $egress.allowDefaultNamespace -}}
+{{- $allowSameNs := default false $egress.allowSameNamespace -}}
+{{- $allowedCIDRs := default (list) $egress.allowedCIDRs -}}
+{{- $hasCIDRs := gt (len $allowedCIDRs) 0 -}}
+{{- $kubeAPICIDRs := list -}}
+{{- if $allowKubeAPI -}}
+  {{- $kubeSvc := (lookup "v1" "Service" "default" "kubernetes") -}}
+  {{- if and $kubeSvc $kubeSvc.spec.clusterIP -}}
+    {{- if contains ":" $kubeSvc.spec.clusterIP -}}
+      {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/128" $kubeSvc.spec.clusterIP) -}}
+    {{- else -}}
+      {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/32" $kubeSvc.spec.clusterIP) -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $kubeEps := (lookup "v1" "Endpoints" "default" "kubernetes") -}}
+  {{- if $kubeEps -}}
+    {{- range $subset := $kubeEps.subsets -}}
+      {{- range $addr := $subset.addresses -}}
+        {{- if contains ":" $addr.ip -}}
+          {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/128" $addr.ip) -}}
+        {{- else -}}
+          {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/32" $addr.ip) -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- $hasKubeAPICIDRs := gt (len $kubeAPICIDRs) 0 -}}
+{{- $podSelector := dict "matchLabels" (dict "app.kubernetes.io/part-of" "serviceradar") -}}
+{{- if $np.podSelectorMatchAll -}}
+  {{- $podSelector = dict -}}
+{{- else if hasKey $np "podSelector" -}}
+  {{- $podSelector = $np.podSelector -}}
+{{- end -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-egress
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+{{- toYaml $podSelector | nindent 4 }}
+  policyTypes:
+    - Egress
+  egress:
+{{- if or $allowDNS $allowKubeAPI $allowDefaultNs $allowSameNs $hasCIDRs $hasKubeAPICIDRs }}
+{{- if $allowDNS }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+{{- end }}
+{{- if $allowDefaultNs }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: "default"
+{{- end }}
+{{- if and $allowKubeAPI $hasKubeAPICIDRs }}
+{{- range $cidr := $kubeAPICIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+{{- end }}
+{{- end }}
+{{- if $allowSameNs }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+{{- end }}
+{{- range $cidr := $allowedCIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+{{- end }}
+{{- else }}
+    []
+{{- end }}
+{{- end }}

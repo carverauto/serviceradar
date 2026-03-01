@@ -87,7 +87,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     ]
 
     assert {:ok, stats} =
-             SweepResultsIngestor.ingest_results(results, execution_id, nil,
+             SweepResultsIngestor.ingest_results(results, execution_id,
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
@@ -97,7 +97,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert stats.hosts_total == 2
     assert stats.hosts_available == 1
     assert stats.hosts_failed == 1
-    assert stats.devices_created == 1
+    assert stats.devices_created == 0
     assert stats.devices_updated == 1
 
     assert {:ok, [existing_device]} =
@@ -109,13 +109,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert "sweep" in existing_device.discovery_sources
     assert "netbox" in existing_device.discovery_sources
 
-    assert {:ok, [new_device]} =
+    assert {:ok, []} =
              Device
              |> Ash.Query.filter(ip == ^new_ip)
              |> Ash.read(actor: actor)
-
-    refute new_device.is_available
-    assert Enum.sort(new_device.discovery_sources) == ["sweep"]
 
     assert {:ok, host_results} =
              SweepHostResult

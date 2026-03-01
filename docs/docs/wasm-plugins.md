@@ -7,7 +7,11 @@ title: Wasm Plugin Checkers
 
 ServiceRadar supports sandboxed Wasm-based plugins for custom checkers. Plugins are uploaded or imported through the web UI, reviewed for capabilities and allowlists, and then assigned to agents. Agents run plugins in an embedded Wasm runtime with strict resource limits and a capability-based host ABI.
 
-Use Wasm plugins for new custom checks. For legacy gRPC checkers, see [Custom Checkers (gRPC)](./custom-checkers.md).
+The current edge model is push-based: the agent streams results to `agent-gateway`. External "pull" checkers are not part of the primary architecture; prefer Wasm plugins or first-party collectors that publish into the normal pipelines.
+
+Wasm is also how ServiceRadar ships certain first-party checks. For example, the Dusk checker runs as a Wasm plugin executed by `serviceradar-agent` (it is not a standalone service).
+
+Wasm plugins are one part of the edge runtime. The agent also runs embedded engines (sync integrations, SNMP polling, discovery/mapping, mDNS) alongside plugins.
 
 ## Package Format
 
@@ -165,6 +169,128 @@ Permissions:
 ## SDK and Authoring
 
 Plugins compile to `wasm32-wasi` and export a zero-argument entrypoint function that matches the manifest `entrypoint`. Host functions are imported from the `env` module.
+
+SDKs:
+
+- Go SDK: `carverauto/serviceradar-sdk-go`
+- Rust SDK: planned (not yet generally available)
+
+### Go (TinyGo) With The ServiceRadar SDK
+
+If you're writing plugins in Go, use the Go SDK repo: `carverauto/serviceradar-sdk-go`.
+
+This gives you a higher-level API over the host ABI:
+
+- `sdk.Execute(func() (*sdk.Result, error) { ... })` for structured execution + error handling
+- `sdk.LoadConfig(&cfg)` to decode assignment config JSON
+- `sdk.HTTP` / `sdk.TCPDial` / `sdk.UDPSendTo` wrappers (proxy + allowlists enforced by the agent)
+- result builders (`sdk.NewResult()`, `sdk.Ok()`, metrics, labels, widgets)
+
+#### Example: HTTP Latency Check (Go SDK)
+
+`main.go`:
+
+```go
+//go:build tinygo
+
+package main
+
+import (
+	"fmt"
+
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
+)
+
+type Config struct {
+	URL    string  `json:"url"`
+	WarnMS float64 `json:"warn_ms"`
+	CritMS float64 `json:"crit_ms"`
+}
+
+//export run_check
+func run_check() {
+	_ = sdk.Execute(func() (*sdk.Result, error) {
+		cfg := Config{URL: "https://example.com/health"}
+		_ = sdk.LoadConfig(&cfg)
+
+		resp, err := sdk.HTTP.Get(cfg.URL)
+		if err != nil {
+			res := sdk.Critical("http request failed")
+			res.EmitEvent(sdk.SeverityCritical, "http request failed", "http_request_failed")
+			res.RequestImmediateAlert("http_request_failed")
+			return res, nil
+		}
+
+		latencyMS := float64(resp.Duration.Milliseconds())
+		thresholds := sdk.Thresholds(cfg.WarnMS, cfg.CritMS)
+
+		res := sdk.NewResult()
+		res.SetSummary(fmt.Sprintf("http %d in %.0fms", resp.Status, latencyMS))
+		res.ApplyThresholds(latencyMS, thresholds.Warn, thresholds.Crit)
+		res.AddMetric("latency_ms", latencyMS, "ms", thresholds)
+		res.AddStatCard("Latency", fmt.Sprintf("%.0fms", latencyMS), toneForStatus(res.Status))
+
+		return res, nil
+	})
+}
+
+func main() {}
+
+func toneForStatus(status sdk.Status) string {
+	switch status {
+	case sdk.StatusOK:
+		return "success"
+	case sdk.StatusCritical:
+		return "critical"
+	case sdk.StatusWarning:
+		return "warning"
+	case sdk.StatusUnknown:
+		return "neutral"
+	default:
+		return "success"
+	}
+}
+```
+
+`plugin.yaml`:
+
+```yaml
+id: http-check
+name: HTTP Check
+version: 0.1.0
+entrypoint: run_check
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - http_request
+resources:
+  requested_memory_mb: 64
+  requested_cpu_ms: 2000
+permissions:
+  allowed_domains:
+    - example.com
+  allowed_ports:
+    - 443
+```
+
+Build with TinyGo:
+
+```bash
+tinygo build -o plugin.wasm -target=wasi ./
+```
+
+More examples live in the SDK repo under `examples/`:
+
+- `examples/http-check`
+- `examples/tcp-check`
+- `examples/udp-check`
+- `examples/widgets-check`
+
+### Minimal Host ABI Example (No SDK)
+
+If you want to avoid the SDK, you can use direct host imports.
 
 Minimal TinyGo example:
 

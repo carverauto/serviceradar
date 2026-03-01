@@ -32,7 +32,7 @@ Traps complement polling by pushing urgent events:
 2. Expose the trap listener service in Kubernetes with a `LoadBalancer` or NodePort, or map it locally in Docker Compose.
 3. Confirm delivery with `tcpdump` or `kubectl logs` on the trap receiver pod.
 
-`serviceradar-trapd` is stateless; see `helm/serviceradar/files/serviceradar-config.yaml` or `packaging/trapd/config/trapd.json` for base settings you can override through file edits or a pinned overlay.
+`serviceradar-trapd` is stateless; see `helm/serviceradar/files/serviceradar-config.yaml` or `build/packaging/trapd/config/trapd.json` for base settings you can override through file edits or a pinned overlay.
 
 ## Trap Processing Pipeline
 
@@ -42,7 +42,7 @@ Traps complement polling by pushing urgent events:
 
 ## Default Trap Rules
 
-- `snmp_severity` normalizes the severity field to a known value if the trap does not supply one. Review the JSON under `packaging/zen/rules/snmp_severity.json`.
+- `snmp_severity` normalizes the severity field to a known value if the trap does not supply one. Review the JSON under `build/packaging/zen/rules/snmp_severity.json`.
 - `passthrough` is available for cases where you only need the `.processed` suffix without transformations; it copies the input event unchanged.
 
 These and the syslog-focused rules share the same GoRules/zen runtime. Use the Rule Builder UI to manage them; see the [Rule Builder](./rule-builder.md) guide.
@@ -50,11 +50,11 @@ These and the syslog-focused rules share the same GoRules/zen runtime. Use the R
 ## Managing Rules
 
 - Use **Settings → Events** to manage Zen normalization rules for SNMP traps.
-- Rules live in the `serviceradar-datasvc` bucket under `agents/<agent-id>/<stream>/<subject>/<rule>.json`. For the demo stack that becomes `agents/default-agent/events/logs.snmp/snmp_severity.json`.
-- Update or add rules with the `zen-put-rule` helper inside the `serviceradar-tools` container. Example:
+- In normal operation, rule distribution is handled by the control plane. You should not need to write NATS keys by hand.
+- For advanced debugging, you can update or add rules with the `zen-put-rule` helper inside the `serviceradar-tools` container. Example:
 
   ```bash
-  kubectl -n demo exec deploy/serviceradar-tools -- \
+  kubectl -n <namespace> exec deploy/serviceradar-tools -- \
     zen-put-rule --agent default-agent --stream events \
     --subject logs.snmp --rule snmp_severity \
     --file /etc/serviceradar/zen/rules/snmp_severity.json
@@ -218,36 +218,3 @@ The status includes:
 - Number of active targets
 - Config source (remote, local file, or cached)
 - Config hash for change detection
-
-### Migration from Standalone SNMP Checker
-
-The standalone `snmp-checker` service is no longer shipped. Use the embedded SNMP service in `serviceradar-agent`.
-
-If you were previously using the standalone `snmp-checker` service, follow these steps to migrate to the embedded agent SNMP:
-
-1. **Create SNMP Profiles in the UI**
-   - Navigate to **Settings → SNMP Profiles**
-   - Create a new profile with your polling settings
-   - Add targets with your existing host/community configurations
-
-2. **Convert OID Configuration**
-   - Your existing OID configurations from `snmp-checker` config files can be added as custom OIDs on targets
-   - Or create custom OID templates if you have reusable OID sets
-
-3. **Deploy Updated Agents**
-   - Update agent deployments to the latest version
-   - The embedded SNMP service will automatically receive configuration from the control plane
-
-4. **Verify Operation**
-   - Check agent logs for SNMP polling activity
-   - Verify metrics are being collected in the UI
-
-5. **Remove Standalone Service**
-   - Remove any legacy `snmp-checker` deployments or systemd units
-   - Remove any associated configuration files
-
-**Key Differences:**
-- Configuration is now managed via the UI instead of JSON files
-- SRQL-based targeting replaces static device-to-profile mappings
-- Credentials are encrypted at rest in the database
-- Config changes propagate automatically to agents

@@ -66,4 +66,66 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
 
     assert alert_count > 0
   end
+
+  test "matches event_type filter before promoting logs" do
+    actor = %{id: "system", role: :admin}
+    message = "event_type-match-#{Ash.UUID.generate()}"
+
+    {:ok, _rule} =
+      EventRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "event-type-match-#{Ash.UUID.generate()}",
+          source_type: :log,
+          source: %{},
+          match: %{"subject_prefix" => "logs.test", "event_type" => "sweep.missed"},
+          event: %{"message" => message, "log_name" => "test.event_type"}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    baseline =
+      SQL.query!(Repo, "SELECT COUNT(*) FROM ocsf_events WHERE message = $1", [message])
+      |> Map.fetch!(:rows)
+      |> List.first()
+      |> List.first()
+
+    matching_log = %{
+      id: Ash.UUID.generate(),
+      timestamp: DateTime.utc_now(),
+      severity_text: "INFO",
+      severity_number: 11,
+      body: "Sweep missed",
+      service_name: "test",
+      attributes: %{
+        "event_type" => "sweep.missed",
+        "serviceradar" => %{"ingest" => %{"subject" => "logs.test.processed"}}
+      },
+      resource_attributes: %{},
+      created_at: DateTime.utc_now()
+    }
+
+    non_matching_log = %{
+      matching_log
+      | id: Ash.UUID.generate(),
+        attributes: %{
+          "event_type" => "sweep.ok",
+          "serviceradar" => %{"ingest" => %{"subject" => "logs.test.processed"}}
+        }
+    }
+
+    assert {:ok, 1} = LogPromotion.promote([matching_log])
+    assert {:ok, 0} = LogPromotion.promote([non_matching_log])
+
+    assert %Result{rows: [[count]]} =
+             SQL.query!(
+               Repo,
+               "SELECT COUNT(*) FROM ocsf_events WHERE message = $1",
+               [message]
+             )
+
+    assert count == baseline + 1
+  end
 end

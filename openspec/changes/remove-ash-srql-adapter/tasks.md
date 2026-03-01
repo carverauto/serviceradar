@@ -2,8 +2,8 @@
 
 ## 1. Delete Ash Adapter Code
 
-- [x] 1.1 Delete `web-ng/lib/serviceradar_web_ng/srql/ash_adapter.ex`
-- [x] 1.2 Delete `web-ng/test/serviceradar_web_ng/srql/ash_adapter_test.exs`
+- [x] 1.1 Delete `elixir/web-ng/lib/serviceradar_web_ng/srql/ash_adapter.ex`
+- [x] 1.2 Delete `elixir/web-ng/test/serviceradar_web_ng/srql/ash_adapter_test.exs`
 
 ## 2. Simplify SRQL Module
 

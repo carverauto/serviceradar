@@ -30,7 +30,7 @@ RUN go mod download
 COPY . .
 
 # Build the agent binary
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-w -s" -o bin/serviceradar-agent cmd/agent/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-w -s" -o bin/serviceradar-agent go/cmd/agent/main.go
 
 # Runtime stage
 FROM alpine:latest

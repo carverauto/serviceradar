@@ -147,7 +147,7 @@ pool_size = if pool_size, do: parse_int.(pool_size), else: nil
 queue_target = if queue_target, do: parse_int.(queue_target), else: nil
 queue_interval = if queue_interval, do: parse_int.(queue_interval), else: nil
 
-search_path = System.get_env("CNPG_SEARCH_PATH", "platform, ag_catalog")
+search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
 
 repo_config =
   if db_url do
@@ -192,8 +192,12 @@ repo_config =
     ]
   end
 
-config :serviceradar_core, ServiceRadar.Repo,
-  Keyword.put(repo_config, :parameters, [search_path: search_path])
+config :serviceradar_core,
+       ServiceRadar.Repo,
+       repo_config
+       |> Keyword.put(:parameters, search_path: search_path)
+       |> Keyword.put(:types, ServiceRadar.PostgresTypes)
+       |> Keyword.put(:migration_default_prefix, "platform")
 
 # Disable cluster in tests by default
 config :serviceradar_core,
@@ -227,8 +231,8 @@ config :serviceradar_core,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.DuskProfiles,
-    ServiceRadar.Plugins
+    ServiceRadar.Plugins,
+    ServiceRadar.Spatial
   ]
 
 # Reduce log noise in tests

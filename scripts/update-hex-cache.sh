@@ -10,7 +10,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 echo "Updating Hex dependencies for all Elixir projects..."
 
 # Get deps for all Elixir projects
-for project in web-ng elixir/serviceradar_core elixir/serviceradar_agent_gateway elixir/datasvc; do
+for project in elixir/web-ng elixir/serviceradar_core elixir/serviceradar_agent_gateway elixir/datasvc; do
     if [ -d "$REPO_ROOT/$project" ] && [ -f "$REPO_ROOT/$project/mix.exs" ]; then
         echo "  -> $project"
         (cd "$REPO_ROOT/$project" && mix deps.get --quiet)

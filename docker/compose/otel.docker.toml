@@ -1,4 +1,4 @@
-# ServiceRadar OTEL Collector Configuration for Docker Deployment
+# ServiceRadar OTEL Collector Configuration for Docker Deployment (used by log-collector)
 
 [server]
 # Address to bind the OTEL collector to
@@ -32,11 +32,11 @@ max_age_secs = 1800
 
 # mTLS configuration for NATS
 [nats.tls]
-cert_file = "/etc/serviceradar/certs/otel.pem"
-key_file = "/etc/serviceradar/certs/otel-key.pem"
+cert_file = "/etc/serviceradar/certs/log-collector.pem"
+key_file = "/etc/serviceradar/certs/log-collector-key.pem"
 ca_file = "/etc/serviceradar/certs/root.pem"
 
 [grpc_tls]
-cert_file = "/etc/serviceradar/certs/otel.pem"
-key_file = "/etc/serviceradar/certs/otel-key.pem"
+cert_file = "/etc/serviceradar/certs/log-collector.pem"
+key_file = "/etc/serviceradar/certs/log-collector-key.pem"
 ca_file = "/etc/serviceradar/certs/root.pem"

@@ -28,22 +28,14 @@ Templates are account-scoped presets. Each account starts with default templates
 and can edit or add new ones. Use templates to prefill new rules, then tweak
 the specifics before saving.
 
-### KV Sync Behavior
+### Distribution Behavior
 
-Every Zen rule is compiled into a GoRules JSON decision model and written to the
-datasvc KV bucket using the key pattern:
+Rules are managed in the control plane and distributed automatically to the
+components that need them (for example the zen consumer pipeline).
 
-```
-agents/<agent-id>/<stream>/<subject>/<rule>.json
-```
-
-Defaults today are:
-
-- `agent-id`: `default-agent`
-- `stream`: `events`
-
-On startup, core-elx re-publishes all active rules so zen can reload without
-manual CLI steps.
+In normal operation, you should not need to manipulate NATS keys or internal
+storage directly. Use the UI and confirm effects by watching consumer lag and
+pipeline output (see [Tools Pod](./tools.md)).
 
 ## Response Rules
 

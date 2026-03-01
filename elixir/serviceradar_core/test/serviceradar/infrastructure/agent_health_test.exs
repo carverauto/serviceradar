@@ -39,7 +39,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "New Agent",
             host: "192.168.1.10",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       assert agent.is_healthy == true
@@ -55,7 +57,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "Connected Agent",
             host: "192.168.1.11",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       assert agent.is_healthy == true
@@ -73,7 +77,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "Degrade Test Agent",
             host: "192.168.1.12",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       assert agent.is_healthy == true
@@ -100,7 +106,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "Restore Test Agent",
             host: "192.168.1.13",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, degraded} =
@@ -130,7 +138,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "Unavailable Test Agent",
             host: "192.168.1.14",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, unavailable} =
@@ -153,7 +163,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "Connect Health Test",
             host: "192.168.1.15",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Establish connection
@@ -179,7 +191,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "Healthy Agent",
             host: "192.168.1.20",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Create a degraded (unhealthy) agent
@@ -192,7 +206,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "Degraded Agent",
             host: "192.168.1.21",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, degraded_agent} =
@@ -246,7 +262,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "Heartbeat Agent",
             host: "192.168.1.30",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       original_seen = agent.last_seen_time
@@ -274,7 +292,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "Heartbeat Health Agent",
             host: "192.168.1.31",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       assert agent.is_healthy == true
@@ -309,7 +329,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "First Seen Agent",
             host: "192.168.1.32",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       original_first_seen = agent.first_seen_time
@@ -335,7 +357,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "Modified Time Agent",
             host: "192.168.1.33",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Sleep to ensure measurable time difference
@@ -368,7 +392,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "Cycle Test Agent",
             host: "192.168.1.40",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       assert agent.status == :connecting
@@ -441,7 +467,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
             name: "Disconnect Test Agent",
             host: "192.168.1.41",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       assert agent.status == :connected

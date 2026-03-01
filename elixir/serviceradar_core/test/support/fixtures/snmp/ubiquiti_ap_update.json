@@ -1,0 +1,10 @@
+{
+  "source": "mapper",
+  "hostname": "U6LR",
+  "metadata": {
+    "sys_object_id": ".1.3.6.1.4.1.41112",
+    "sys_descr": "U6-LR 6.7.31.15618",
+    "sys_name": "U6LR",
+    "ip_forwarding": "1"
+  }
+}

@@ -16,6 +16,16 @@ defmodule ServiceRadar.SweepJobs.ObanSupport do
     _ -> false
   end
 
+  @spec prefix() :: binary()
+  def prefix do
+    case Application.get_env(:serviceradar_core, Oban) do
+      config when is_list(config) -> Keyword.get(config, :prefix, "platform")
+      _ -> "platform"
+    end
+  rescue
+    _ -> "platform"
+  end
+
   @spec safe_insert(Oban.Job.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def safe_insert(job) do
     if available?() do

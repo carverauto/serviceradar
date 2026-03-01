@@ -1,4 +1,8 @@
 use super::{BindParam, QueryPlan};
+use crate::query::flows::{
+    FLOW_APP_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_IN_IF_NAME_EXPR, FLOW_IN_IF_SPEED_BPS_EXPR,
+    FLOW_OUT_IF_NAME_EXPR, FLOW_OUT_IF_SPEED_BPS_EXPR, FLOW_PROTOCOL_GROUP_EXPR,
+};
 use crate::{
     error::{Result, ServiceError},
     parser::{DownsampleAgg, Entity, Filter, FilterOp},
@@ -48,7 +52,13 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
         ServiceError::InvalidRequest("downsample requires bucket:<duration>".into())
     })?;
 
-    let (table, ts_col, forced_metric_type) = match plan.entity {
+    let cagg_safe_shape =
+        plan.filters.is_empty() && downsample.series.as_deref().unwrap_or("").trim().is_empty();
+    let use_hourly_cagg = super::should_route_plan_to_hourly_cagg(plan)
+        && matches!(downsample.agg, DownsampleAgg::Avg)
+        && cagg_safe_shape;
+
+    let (raw_table, raw_ts_col, forced_metric_type) = match plan.entity {
         Entity::TimeseriesMetrics => ("timeseries_metrics", "timestamp", None),
         Entity::SnmpMetrics => ("timeseries_metrics", "timestamp", Some("snmp")),
         Entity::RperfMetrics => ("timeseries_metrics", "timestamp", Some("rperf")),
@@ -56,14 +66,30 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
         Entity::MemoryMetrics => ("memory_metrics", "timestamp", None),
         Entity::DiskMetrics => ("disk_metrics", "timestamp", None),
         Entity::ProcessMetrics => ("process_metrics", "timestamp", None),
+        Entity::Flows => ("ocsf_network_activity", "time", None),
         _ => {
             return Err(ServiceError::InvalidRequest(
-                "downsample is only supported for metric entities".into(),
+                "downsample is only supported for metric entities and flows".into(),
             ))
         }
     };
 
-    let value_col = resolve_value_column(plan.entity.clone(), downsample.value_field.as_deref())?;
+    let table = if use_hourly_cagg {
+        super::cagg_table_for_entity(&plan.entity).unwrap_or(raw_table)
+    } else {
+        raw_table
+    };
+    let ts_col = if use_hourly_cagg {
+        "bucket"
+    } else {
+        raw_ts_col
+    };
+
+    let value_col = resolve_value_column(
+        plan.entity.clone(),
+        downsample.value_field.as_deref(),
+        use_hourly_cagg,
+    )?;
 
     let time_range = plan.time_range.as_ref().ok_or_else(|| {
         ServiceError::InvalidRequest("downsample queries require time:<range>".into())
@@ -186,9 +212,56 @@ fn build_bind_values(plan: &QueryPlan) -> Result<Vec<SqlBindValue>> {
     Ok(binds)
 }
 
-fn resolve_value_column(entity: Entity, value_field: Option<&str>) -> Result<&'static str> {
+fn resolve_value_column(
+    entity: Entity,
+    value_field: Option<&str>,
+    use_hourly_cagg: bool,
+) -> Result<&'static str> {
     let value_field = value_field.map(|value| value.trim().to_lowercase());
     let field = value_field.as_deref();
+
+    if use_hourly_cagg {
+        return match entity {
+            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => match field {
+                None | Some("value") => Ok("avg_value"),
+                Some(other) => Err(ServiceError::InvalidRequest(format!(
+                    "unsupported value_field '{other}' for timeseries_metrics_hourly"
+                ))),
+            },
+            Entity::CpuMetrics => match field {
+                None | Some("usage_percent") => Ok("avg_usage_percent"),
+                Some(other) => Err(ServiceError::InvalidRequest(format!(
+                    "unsupported value_field '{other}' for cpu_metrics_hourly"
+                ))),
+            },
+            Entity::MemoryMetrics => match field {
+                None | Some("usage_percent") => Ok("avg_usage_percent"),
+                Some("used_bytes") => Ok("avg_used_bytes"),
+                Some("available_bytes") => Ok("avg_available_bytes"),
+                Some(other) => Err(ServiceError::InvalidRequest(format!(
+                    "unsupported value_field '{other}' for memory_metrics_hourly"
+                ))),
+            },
+            Entity::DiskMetrics => match field {
+                None | Some("usage_percent") => Ok("avg_usage_percent"),
+                Some("used_bytes") => Ok("avg_used_bytes"),
+                Some("available_bytes") => Ok("avg_available_bytes"),
+                Some(other) => Err(ServiceError::InvalidRequest(format!(
+                    "unsupported value_field '{other}' for disk_metrics_hourly"
+                ))),
+            },
+            Entity::ProcessMetrics => match field {
+                None | Some("cpu_usage") => Ok("avg_cpu_usage"),
+                Some("memory_usage") => Ok("avg_memory_usage"),
+                Some(other) => Err(ServiceError::InvalidRequest(format!(
+                    "unsupported value_field '{other}' for process_metrics_hourly"
+                ))),
+            },
+            _ => Err(ServiceError::InvalidRequest(
+                "hourly CAGG routing is only supported for metric entities".into(),
+            )),
+        };
+    }
 
     match entity {
         Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => match field {
@@ -229,8 +302,17 @@ fn resolve_value_column(entity: Entity, value_field: Option<&str>) -> Result<&'s
                 "unsupported value_field '{other}' for process_metrics"
             ))),
         },
+        Entity::Flows => match field {
+            None | Some("bytes_total") => Ok("bytes_total"),
+            Some("packets_total") => Ok("packets_total"),
+            Some("bytes_in") => Ok("bytes_in"),
+            Some("bytes_out") => Ok("bytes_out"),
+            Some(other) => Err(ServiceError::InvalidRequest(format!(
+                "unsupported value_field '{other}' for flows (supported: bytes_total|packets_total|bytes_in|bytes_out)"
+            ))),
+        },
         _ => Err(ServiceError::InvalidRequest(
-            "downsample is only supported for metric entities".into(),
+            "downsample is only supported for metric entities and flows".into(),
         )),
     }
 }
@@ -320,9 +402,30 @@ fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
                 )))
             }
         },
+        Entity::Flows => match series.as_str() {
+            "src_endpoint_ip" | "src_ip" => "src_endpoint_ip".to_string(),
+            "dst_endpoint_ip" | "dst_ip" => "dst_endpoint_ip".to_string(),
+            "protocol_name" => "protocol_name".to_string(),
+            "protocol_num" | "proto" => "protocol_num::text".to_string(),
+            "protocol_group" | "proto_group" => format!("({})", FLOW_PROTOCOL_GROUP_EXPR),
+            "app" => format!("({})", FLOW_APP_EXPR),
+            "dst_endpoint_port" | "dst_port" => "dst_endpoint_port::text".to_string(),
+            "src_endpoint_port" | "src_port" => "src_endpoint_port::text".to_string(),
+            "sampler_address" => "sampler_address".to_string(),
+            "exporter_name" => format!("({})", FLOW_EXPORTER_NAME_EXPR),
+            "in_if_name" => format!("({})", FLOW_IN_IF_NAME_EXPR),
+            "out_if_name" => format!("({})", FLOW_OUT_IF_NAME_EXPR),
+            "in_if_speed_bps" => format!("({})::text", FLOW_IN_IF_SPEED_BPS_EXPR),
+            "out_if_speed_bps" => format!("({})::text", FLOW_OUT_IF_SPEED_BPS_EXPR),
+            other => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "unsupported series field '{other}' for {table}"
+                )))
+            }
+        },
         _ => {
             return Err(ServiceError::InvalidRequest(
-                "downsample is only supported for metric entities".into(),
+                "downsample is only supported for metric entities and flows".into(),
             ))
         }
     };
@@ -360,10 +463,37 @@ fn filter_clause(
         Entity::MemoryMetrics => memory_filter_clause(filter),
         Entity::DiskMetrics => disk_filter_clause(filter),
         Entity::ProcessMetrics => process_filter_clause(filter),
+        Entity::Flows => flows_filter_clause(filter),
         _ => Err(ServiceError::InvalidRequest(
-            "downsample is only supported for metric entities".into(),
+            "downsample is only supported for metric entities and flows".into(),
         )),
     }
+}
+
+fn flows_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
+    match filter.field.as_str() {
+        "src_endpoint_ip" | "src_ip" => text_clause("src_endpoint_ip", filter),
+        "dst_endpoint_ip" | "dst_ip" => text_clause("dst_endpoint_ip", filter),
+        "protocol_name" => text_clause("protocol_name", filter),
+        "sampler_address" => text_clause("sampler_address", filter),
+        "exporter_name" => expr_text_clause(FLOW_EXPORTER_NAME_EXPR, filter),
+        "in_if_name" => expr_text_clause(FLOW_IN_IF_NAME_EXPR, filter),
+        "out_if_name" => expr_text_clause(FLOW_OUT_IF_NAME_EXPR, filter),
+        "in_if_speed_bps" => expr_text_clause(FLOW_IN_IF_SPEED_BPS_EXPR, filter),
+        "out_if_speed_bps" => expr_text_clause(FLOW_OUT_IF_SPEED_BPS_EXPR, filter),
+        "protocol_group" | "proto_group" => expr_text_clause(FLOW_PROTOCOL_GROUP_EXPR, filter),
+        "app" => expr_text_clause(FLOW_APP_EXPR, filter),
+        "protocol_num" | "proto" => int_clause("protocol_num", filter, false),
+        "src_endpoint_port" | "src_port" => int_clause("src_endpoint_port", filter, false),
+        "dst_endpoint_port" | "dst_port" => int_clause("dst_endpoint_port", filter, false),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for downsample flows: '{other}'"
+        ))),
+    }
+}
+
+fn expr_text_clause(expr: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
+    text_clause(&format!("({expr})"), filter)
 }
 
 fn text_clause(column: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {

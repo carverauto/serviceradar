@@ -1,3 +1,139 @@
+# ServiceRadar v1.1.3
+
+Release hardening for web-ng MixRelease builds, plus GodView JS architecture/test cleanup.
+
+## Whats New
+
+**1.1.3**
+- Hardened Bazel `mix release` packaging for web-ng, including dependency patching and improved Bun asset install behavior in remote release builds.
+- Fixed Ash domain configuration drift by registering `ServiceRadar.Spatial` in core/web-ng configured domain lists used during release compilation.
+- Added a local release preflight target (`make web-ng-release-check`) to validate `//elixir/web-ng:release_tar` before CI.
+- Refactored GodView JS context APIs toward clearer namespacing/composition and expanded contract/drift tests for graph/layout/rendering behavior.
+- Tightened JS quality workflow with Bun + Vitest + ESLint alignment across lint/test/precommit paths.
+
+# ServiceRadar v1.1.2
+
+Arancini-backed BMP ingest, BMP observability workflows, and EventWriter JetStream durability improvements.
+
+## Whats New
+
+**1.1.2**
+- Switched BMP ingest to Arancini and aligned deployment/runtime defaults for `ghcr.io/carverauto/arancini:v0.7.2`.
+- Added `bmp_events` SRQL support and a dedicated Observability BMP page for routing-focused investigation.
+- Added/validated BMP routing investigative indexes and retention behavior for `platform.bmp_routing_events`.
+- Hardened EventWriter JetStream durable consumer behavior for causal streams and reduced unhandled/default processor noise.
+- Updated release/deployment defaults to use the corrected Arancini image label flow instead of transient branch tags.
+
+# ServiceRadar v1.1.1
+
+Mapper/DIRE robustness hardening, SNMP enrichment rule improvements, topology projection fixes, and device enrollment profile updates.
+
+## Whats New
+
+**1.1.1**
+- Added SNMP fingerprint normalization and rule-driven enrichment improvements for vendor/type/model inference, including Ubiquiti-specific router/switch/AP detection refinements.
+- Improved DIRE ingest behavior for duplicate-IP/device identity handling and strengthened test coverage for bulk upsert conflict recovery paths.
+- Fixed Apache AGE topology projection compatibility issues and improved mapper interface/link graph ingestion reliability.
+- Added robust tests for mapper topology confidence handling, stale-link pruning, and idempotent link updates.
+- Improved device enrollment profile behavior and related platform integration paths for more consistent onboarding outcomes.
+
+# ServiceRadar v1.1.0
+
+DIRE device deduplication fixes, OpenTelemetry tracing, and gateway hardening.
+
+## Whats New
+
+**1.1.0**
+- Fixed DIRE agent deduplication: `agent_id` is now registered in `device_identifiers` during both agent enrollment (`AgentGatewaySync`) and sync ingestion (`SyncIngestor`), preventing duplicate devices when agents restart with new IPs.
+- Data cleanup migration consolidates duplicate agent devices (e.g. 37+ k8s-agent records) into a single canonical device and backfills missing `agent_id` identifiers.
+- Fixed mapper interface ingestion: `lookup_device_uids_by_ip` now prefers `sr:` device UIDs when multiple devices share an IP, preventing interfaces from being assigned to the wrong device.
+- Fixed binary UUID conversion in DIRE identity reconciler to prevent crashes during device resolution.
+- Added OpenTelemetry tracing support for Elixir applications with trace summary refresh.
+- Hardened gateway proxy authentication and authorization checks.
+- Fixed sweep processor availability checks and missing sweep group ID handling.
+- Fixed GRPC channel restart logic (`restart_channel/3`) for agent gateway connections.
+- Fixed OTEL trace summary materialized view refresh failures.
+
+# ServiceRadar v1.0.92
+
+Performance and reliability improvements for the observability dashboard and RBAC system.
+
+## Whats New
+
+**1.0.92**
+- RBAC permission lookups now use a tiered cache: in-memory ETS first, then database failover — eliminating redundant DB round-trips on every request.
+- Observability page queries are dramatically faster: replaced coalesce(observed_timestamp, timestamp) with direct timestamp filtering, enabling TimescaleDB chunk exclusion and index usage instead of full sequential scans.
+- Added NATS ingest notifier for live dashboard refresh: a lightweight GenServer subscribes to processed log/flow subjects and bridges notifications to PubSub with debounce, so the observability page updates automatically when new data arrives.
+- Fixed device creation via the UI by removing the pre-read race and handling unique UID conflicts cleanly.
+- Fixed device delete and restore actions (proper deleted_by/reason handling plus stale-record recovery).
+- Added error logging for device create/delete/restore failures so issues show up in server logs.
+- Updated the netflow collector to parser 0.9.0 with cached flows, capped pending flows, and refreshed test fixtures.
+
+# ServiceRadar v1.0.91
+
+Docker compose stability fixes for agent enrollment and core-elx builds.
+
+## Whats New
+
+**1.0.91**
+- Docker compose agent now resolves the gateway consistently via `agent-gateway.serviceradar`, preventing enrollment failures.
+- Core-elx Docker build includes the Rust workspace and updated toolchain so SRQL NIFs compile reliably.
+- Startup migrations now set the database search_path before running and avoid changing ownership on AGE sequences owned by tables.
+
+# ServiceRadar v1.0.90
+
+Netflow visibility and log-to-event promotion are now live.
+
+## Whats New
+
+**1.0.90**
+- Netflow ingestion and flow observability pipeline are enabled.
+- Log promotion rules now generate OCSF events for analytics and alerting.
+
+# ServiceRadar v1.0.89
+
+Edge onboarding gateway defaults and mTLS SNI fixes.
+
+## Whats New
+
+**1.0.89**
+- Edge onboarding bundles now derive gateway addresses from the base site URL (e.g., demo.serviceradar.cloud -> demo-gw.serviceradar.cloud:50052).
+- Gateway TLS server_name defaults to serviceradar-agent-gateway to match the gateway certificate and avoid mTLS SNI failures.
+
+# ServiceRadar v1.0.88
+
+WASM plugin runtime fix for TinyGo-compiled plugins.
+
+## Whats New
+
+**1.0.88**
+- Fixed WASI clock_time_get nil pointer crash when TinyGo plugins call time.Now(). The issue was caused by TinyGo's _start function calling proc_exit(0), which closed the module and cleared the Sys context before the plugin entrypoint could run.
+- Module config now uses WithStartFunctions() to disable automatic _start execution, keeping WASI clock functions operational.
+
+# ServiceRadar v1.0.87
+
+Database connectivity and AGE graph permission fixes.
+
+## Whats New
+
+**1.0.87**
+- Fixed PostgreSQL search_path configuration that caused "relation does not exist" errors for device tables. The search_path was incorrectly stored as a single quoted identifier instead of separate schema names.
+- Added auto-detection and correction of misconfigured search_path on startup migrations.
+- Fixed Apache AGE graph schema privileges so the app role can execute Cypher queries for interface topology.
+
+# ServiceRadar v1.0.86
+
+Docker startup reliability and TLS infrastructure improvements.
+
+## Whats New
+
+**1.0.86**
+- Fixed Postgrex type compilation for Bazel builds (removed defmodule wrapper around Postgrex.Types.define/3).
+- Startup migrations now sync Ecto schema_migrations to Ash ash_schema_migrations, fixing 503 errors after DB migrations complete.
+- Wildcard TLS certificate infrastructure added for serviceradar.cloud subdomains, avoiding Let's Encrypt rate limits on namespace recreation.
+- Helm ingress template now supports default SSL cert fallback when secretName is empty.
+- Startup migrations refactored to satisfy Credo complexity rules.
+
 # ServiceRadar v1.0.85
 
 Edge onboarding reliability and packaging fixes.

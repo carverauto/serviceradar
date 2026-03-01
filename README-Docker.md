@@ -103,8 +103,10 @@ The stack automatically handles certificate generation and configuration:
 3. **cert-permissions-fixer** - Sets proper certificate ownership (one-shot)
 4. **config-updater** - Writes the bootstrap admin password (one-shot)
 5. **nats** - Message broker with mTLS
-6. **datasvc, core-elx, agent-gateway, agent** - Core services
-7. **checkers, web-ng, etc.** - Additional services
+6. **datasvc** - Internal coordination service (planned to be phased out)
+7. **core-elx, agent-gateway, web-ng** - Control plane services
+8. **zen, log-promotion, db-event-writer** - Bulk ingestion consumers
+9. **agent** - Edge agent (collectors + embedded engines + Wasm plugins)
 
 ## Test Your Setup
 
@@ -140,6 +142,18 @@ PGSSLCERT=/path/to/workstation.pem \
 PGSSLKEY=/path/to/workstation-key.pem \
 PGPASSWORD="${APP_PASSWORD}" \
 psql -h localhost -p 5455 -U serviceradar -d serviceradar
+```
+
+## Device Enrichment Rule Overrides
+
+`core-elx` supports filesystem override rules at `/var/lib/serviceradar/rules/device-enrichment`.
+By default Compose binds `./docker/compose/rules/device-enrichment` into that path (read-only).
+
+```bash
+# Optional: use a custom host directory for overrides
+export DEVICE_ENRICHMENT_RULES_DIR_HOST=/path/to/rules
+docker compose up -d --force-recreate core-elx
+docker compose logs core-elx | grep "Device enrichment rules loaded"
 ```
 
 ## What's Next?

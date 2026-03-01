@@ -314,7 +314,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       authorize_if actor_attribute_equals(:role, :operator)
       authorize_if actor_attribute_equals(:role, :admin)
       # Allow AshOban scheduler (no actor) to execute
-      authorize_if always()
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
     end
   end
 

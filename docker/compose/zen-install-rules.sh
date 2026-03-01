@@ -51,13 +51,34 @@ install_rule() {
     local key="$3"
 
     if [ -f "$file" ]; then
-        echo "Installing $key rule for $subject..."
-        zen-put-rule \
-            --config "$CONFIG_PATH" \
-            --file "$file" \
-            --subject "$subject" \
-            --key "$key"
-        echo "✓ $key rule installed"
+        local attempt=1
+        local max_attempts=6
+        local delay=2
+
+        while [ "$attempt" -le "$max_attempts" ]; do
+            echo "Installing $key rule for $subject (attempt ${attempt}/${max_attempts})..."
+            if zen-put-rule \
+                --config "$CONFIG_PATH" \
+                --file "$file" \
+                --subject "$subject" \
+                --key "$key"; then
+                echo "✓ $key rule installed"
+                return 0
+            fi
+
+            echo "✗ Failed to install $key (attempt ${attempt})"
+            attempt=$((attempt + 1))
+            if [ "$attempt" -le "$max_attempts" ]; then
+                echo "Retrying in ${delay}s..."
+                sleep "$delay"
+                delay=$((delay * 2))
+                if [ "$delay" -gt 30 ]; then
+                    delay=30
+                fi
+            fi
+        done
+
+        return 1
     else
         echo "Warning: $(basename "$file") not found; skipping $key"
     fi
@@ -67,5 +88,6 @@ install_rule "$DATA_DIR/strip_full_message.json" "logs.syslog" "strip_full_messa
 install_rule "$DATA_DIR/cef_severity.json" "logs.syslog" "cef_severity"
 install_rule "$DATA_DIR/snmp_severity.json" "logs.snmp" "snmp_severity"
 install_rule "$DATA_DIR/passthrough.json" "logs.otel" "passthrough"
+install_rule "$DATA_DIR/netflow_to_ocsf.json" "flows.raw.netflow" "netflow_to_ocsf"
 
 echo "✅ Initial zen rules installation completed successfully"

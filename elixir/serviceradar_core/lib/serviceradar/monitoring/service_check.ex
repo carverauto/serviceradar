@@ -226,32 +226,32 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Read access: authenticated users with appropriate roles
+    # Read access: authenticated users with permission
     policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "services.view"}
     end
 
-    # Create/update checks: Operators/admins
-    policy action([:create, :update, :enable, :disable]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+    # Create checks
+    policy action(:create) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "services.create"}
+    end
+
+    # Update checks
+    policy action([:update, :enable, :disable, :reassign_device]) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "services.update"}
     end
 
     # Record results: Operators/admins
     policy action([:record_result, :reset_failures]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "services.run"}
     end
 
     # Execute action: Operators/admins, or AshOban (no actor)
     policy action(:execute) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-
-      # Allow AshOban scheduler (no actor) to execute checks
-      authorize_if always()
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "services.run"}
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
     end
   end
 

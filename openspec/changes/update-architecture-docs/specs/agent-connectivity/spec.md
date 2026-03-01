@@ -1,3 +1,18 @@
+## ADDED Requirements
+### Requirement: Bidirectional Command Bus
+The agent-gateway SHALL expose a bidirectional gRPC command bus stream for agent-control-plane signaling. The command bus MUST run over the existing mTLS connection and MUST support both server-to-agent commands and agent-to-server acknowledgements/telemetry.
+
+#### Scenario: Server issues a command
+- **GIVEN** an agent is connected to agent-gateway over mTLS
+- **WHEN** the control plane issues a command for that agent
+- **THEN** the command is delivered over the command bus stream
+- **AND** the agent responds with an acknowledgement or result message
+
+#### Scenario: Agent reports command execution outcome
+- **GIVEN** an agent receives a command
+- **WHEN** it completes execution
+- **THEN** it reports success/failure and any associated payload on the same stream
+
 ## MODIFIED Requirements
 ### Requirement: Agent-initiated control plane connection
 Agents MUST initiate outbound gRPC connections to the platform control plane using mTLS. The control plane MUST NOT require inbound connections to the agent for routine monitoring operation. The control plane MUST validate the client certificate chain against the platform root CA and MUST reject connections whose issuer CA does not match a stored platform workload scope.

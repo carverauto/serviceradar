@@ -5,11 +5,21 @@ defmodule ServiceRadar.Identity.Senders.SendPasswordResetEmail do
   Uses Swoosh for email delivery via the configured mailer.
   """
 
-  use AshAuthentication.Sender
   import Swoosh.Email
 
-  @impl true
-  def send(user, token, _opts) do
+  @doc """
+  Sends a password reset email to the user.
+
+  ## Parameters
+    - user: The user struct with email and display_name
+    - token: The reset token to include in the URL
+    - opts: Additional options (currently unused)
+
+  ## Returns
+    - {:ok, email} on success
+    - {:error, reason} on failure
+  """
+  def send(user, token, _opts \\ []) do
     url = build_reset_url(token)
 
     email_string = to_string(user.email)
@@ -44,6 +54,6 @@ defmodule ServiceRadar.Identity.Senders.SendPasswordResetEmail do
 
   defp build_reset_url(token) do
     base_url = Application.get_env(:serviceradar_web_ng, :base_url, "http://localhost:4000")
-    "#{base_url}/auth/user/password/reset?token=#{token}"
+    "#{base_url}/auth/password-reset/#{token}"
   end
 end

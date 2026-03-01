@@ -109,6 +109,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     service_name = resolve_service_name(status)
     service_type = resolve_service_type(status)
     partition = status[:partition] || "default"
+
     service_id =
       ServiceIdentity.service_id(%{
         agent_id: status[:agent_id],
@@ -154,12 +155,20 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
              upsert_identity: :unique_timeseries_metric,
              upsert_fields: []
            ) do
-        %Ash.BulkResult{status: :success} -> :ok
+        %Ash.BulkResult{status: :success} ->
+          :ok
+
         %Ash.BulkResult{status: :error, errors: errors} = result ->
           {:error, errors || result}
-        {:ok, _} -> :ok
-        {:error, error} -> {:error, error}
-        other -> {:error, other}
+
+        {:ok, _} ->
+          :ok
+
+        {:error, error} ->
+          {:error, error}
+
+        other ->
+          {:error, other}
       end
     end
   end

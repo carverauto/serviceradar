@@ -4,4 +4,4 @@
 - [x] 1.3 Add/extend unit tests for SPIFFE error classification and retry behavior.
 
 ## 2. Validation
-- [x] 2.1 Run `cargo test` in `cmd/consumers/zen` or the relevant workspace to cover the new logic.
+- [x] 2.1 Run `cargo test` in `rust/consumers/zen` or the relevant workspace to cover the new logic.

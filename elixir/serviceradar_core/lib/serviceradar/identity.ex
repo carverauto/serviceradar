@@ -4,14 +4,22 @@ defmodule ServiceRadar.Identity do
 
   This domain is responsible for:
   - User management and profiles
-  - Authentication (password, OAuth2)
-  - API token management
-  - Session management
+  - Authentication (password, OIDC, SAML, Gateway JWT)
+  - API token management via OAuth2 client credentials
+  - Session management via Guardian JWT
 
   ## Resources
 
   - `ServiceRadar.Identity.User` - User accounts
   - `ServiceRadar.Identity.ApiToken` - API tokens for programmatic access
+  - `ServiceRadar.Identity.OAuthClient` - OAuth2 client credentials for self-service API access
+  - `ServiceRadar.Identity.AuthSettings` - Instance-level SSO configuration
+  - `ServiceRadar.Identity.AuthorizationSettings` - Default role and role mapping configuration
+
+  ## Authentication
+
+  Authentication is handled by Guardian (JWT tokens) and Ueberauth (OIDC/SAML).
+  See `ServiceRadarWebNG.Auth.Guardian` for token management.
 
   ## Authorization
 
@@ -30,14 +38,18 @@ defmodule ServiceRadar.Identity do
 
   resources do
     resource ServiceRadar.Identity.User
-    resource ServiceRadar.Identity.Token
+    resource ServiceRadar.Identity.RoleProfile
+    resource ServiceRadar.Identity.UserAuthEvent
     resource ServiceRadar.Identity.ApiToken
+    resource ServiceRadar.Identity.OAuthClient
     resource ServiceRadar.Identity.DeviceAliasState
+    resource ServiceRadar.Identity.AuthSettings
+    resource ServiceRadar.Identity.AuthorizationSettings
   end
 
   authorization do
-    # Don't globally require actor since AshAuthentication hooks may make
-    # internal calls without actor. Authorization is still enforced via policies.
+    # Don't globally require actor since internal system operations may need
+    # to run without an actor. Authorization is still enforced via policies.
     require_actor? false
     authorize :by_default
   end

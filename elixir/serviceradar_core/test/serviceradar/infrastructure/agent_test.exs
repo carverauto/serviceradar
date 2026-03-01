@@ -40,7 +40,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             host: "192.168.1.100",
             port: 50_051,
             capabilities: ["icmp", "tcp", "http"]
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       assert agent.uid == agent_uid
@@ -67,7 +69,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             host: "10.0.0.50",
             port: 50_051,
             spiffe_identity: spiffe_id
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       assert agent.spiffe_identity == spiffe_id
@@ -87,7 +91,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             name: "Pre-connected Agent",
             host: "192.168.1.101",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       assert agent.status == :connected
@@ -109,7 +115,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             name: "Initial Agent",
             host: "192.168.1.101",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, updated} =
@@ -121,7 +129,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             name: "Updated Agent",
             host: "192.168.1.200",
             port: 50_052
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       assert updated.uid == agent.uid
@@ -147,7 +157,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             name: "State Machine Test Agent",
             host: "192.168.1.102",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, agent: agent}
@@ -266,7 +278,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             name: "Heartbeat Test Agent",
             host: "192.168.1.103",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       original_last_seen = agent.last_seen_time
@@ -297,7 +311,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             host: "192.168.1.104",
             port: 50_051,
             capabilities: ["icmp"]
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, updated} =
@@ -325,7 +341,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             host: "192.168.1.110",
             port: 50_051,
             capabilities: ["icmp", "tcp"]
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, connecting_agent} =
@@ -337,7 +355,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             name: "Connecting Query Agent",
             host: "192.168.1.111",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, connected_agent: connected_agent, connecting_agent: connecting_agent}

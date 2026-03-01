@@ -14,6 +14,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   @spec issue_agent_bundle(String.t(), String.t(), atom() | String.t(), keyword()) ::
           {:ok, map()} | {:error, atom() | term()}
   def issue_agent_bundle(component_id, partition_id, component_type \\ :agent, opts \\ [])
+
+  def issue_agent_bundle(component_id, partition_id, component_type, opts)
       when is_binary(component_id) and is_binary(partition_id) do
     component_type = normalize_component_type(component_type)
 

@@ -59,11 +59,11 @@ defmodule ServiceRadar.Repo.Migrations.UpdateSnmpCredentialResolution do
     execute """
     WITH selected AS (
       SELECT *
-      FROM #{prefix()}.mapper_snmp_credentials
+      FROM #{prefix() || "platform"}.mapper_snmp_credentials
       ORDER BY inserted_at ASC
       LIMIT 1
     )
-    UPDATE #{prefix()}.snmp_profiles
+    UPDATE #{prefix() || "platform"}.snmp_profiles
     SET version = selected.version,
         community_encrypted = selected.encrypted_community,
         username = selected.username,
@@ -72,10 +72,10 @@ defmodule ServiceRadar.Repo.Migrations.UpdateSnmpCredentialResolution do
         priv_protocol = selected.privacy_protocol,
         priv_password_encrypted = selected.encrypted_privacy_password
     FROM selected
-    WHERE #{prefix()}.snmp_profiles.is_default = true
-      AND #{prefix()}.snmp_profiles.community_encrypted IS NULL
-      AND #{prefix()}.snmp_profiles.auth_password_encrypted IS NULL
-      AND #{prefix()}.snmp_profiles.priv_password_encrypted IS NULL
+    WHERE #{prefix() || "platform"}.snmp_profiles.is_default = true
+      AND #{prefix() || "platform"}.snmp_profiles.community_encrypted IS NULL
+      AND #{prefix() || "platform"}.snmp_profiles.auth_password_encrypted IS NULL
+      AND #{prefix() || "platform"}.snmp_profiles.priv_password_encrypted IS NULL
     """
 
     drop_if_exists unique_index(:mapper_snmp_credentials, [:mapper_job_id],

@@ -18,22 +18,37 @@ FROM hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
+    curl \
     git \
     pkg-config \
     protobuf-compiler \
     libssl-dev \
   && rm -rf /var/lib/apt/lists/*
 
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 WORKDIR /app
 
-# Copy shared library first (dependency)
+# Copy Rust workspace manifests for path deps
+COPY Cargo.toml Cargo.lock ./
+
+# Copy shared libraries first (path deps)
+COPY elixir/connection ./elixir/connection
+COPY elixir/serviceradar_srql ./elixir/serviceradar_srql
 COPY elixir/serviceradar_core ./elixir/serviceradar_core
+COPY elixir/vendor ./elixir/vendor
 
 # Copy core-elx source
 COPY elixir/serviceradar_core_elx ./elixir/serviceradar_core_elx
 
 # Copy proto files for gRPC compilation
 COPY proto ./proto
+
+# Copy SRQL Rust crate for Rustler builds
+COPY rust/srql ./rust/srql
+COPY rust/kvutil ./rust/kvutil
 
 WORKDIR /app/elixir/serviceradar_core_elx
 
@@ -80,11 +95,11 @@ RUN useradd -m -s /bin/bash serviceradar
 WORKDIR /app
 
 # Copy release from build stage
-COPY --from=build /app/elixir/serviceradar_core_elx/_build/prod/rel/serviceradar_core_elx ./
+COPY --from=build --chown=serviceradar:serviceradar /app/elixir/serviceradar_core_elx/_build/prod/rel/serviceradar_core_elx ./
 
 # Create directories for certs and logs
 RUN mkdir -p /etc/serviceradar/certs /var/log/serviceradar \
-  && chown -R serviceradar:serviceradar /app /etc/serviceradar /var/log/serviceradar
+  && chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar
 
 USER serviceradar
 

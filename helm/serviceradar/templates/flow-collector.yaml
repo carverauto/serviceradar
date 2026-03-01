@@ -1,0 +1,232 @@
+{{- if .Values.flowCollector.enabled }}
+{{- $data := default (dict) .Values.flowCollector.data -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-flow-collector-config
+data:
+  flow-collector.json: |
+    {{- toJson .Values.flowCollector.config | nindent 4 }}
+---
+{{- if and ($data.enabled | default true) (not $data.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-flow-collector-data
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ default "1Gi" $data.size | quote }}
+  {{- if $data.storageClassName }}
+  storageClassName: {{ $data.storageClassName | quote }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-flow-collector
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-flow-collector
+  template:
+    metadata:
+      labels:
+        app: serviceradar-flow-collector
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      serviceAccountName: {{ .Values.spire.flowCollectorServiceAccount | default "serviceradar-flow-collector" }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: flow-collector
+        image: ghcr.io/carverauto/serviceradar-flow-collector:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "flowCollector") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        ports:
+        {{- if .Values.flowCollector.service.ports.netflow.enabled }}
+        - name: netflow
+          containerPort: {{ .Values.flowCollector.service.ports.netflow.targetPort | default 2055 }}
+          protocol: {{ .Values.flowCollector.service.ports.netflow.protocol | default "UDP" }}
+        {{- end }}
+        {{- if .Values.flowCollector.service.ports.sflow.enabled }}
+        - name: sflow
+          containerPort: {{ .Values.flowCollector.service.ports.sflow.targetPort | default 6343 }}
+          protocol: {{ .Values.flowCollector.service.ports.sflow.protocol | default "UDP" }}
+        {{- end }}
+        {{- if .Values.flowCollector.service.ports.ipfix.enabled }}
+        - name: ipfix
+          containerPort: {{ .Values.flowCollector.service.ports.ipfix.targetPort | default 4739 }}
+          protocol: {{ .Values.flowCollector.service.ports.ipfix.protocol | default "UDP" }}
+        {{- end }}
+        {{- if .Values.flowCollector.service.ports.metrics.enabled }}
+        - name: metrics
+          containerPort: {{ .Values.flowCollector.service.ports.metrics.targetPort | default 50046 }}
+          protocol: {{ .Values.flowCollector.service.ports.metrics.protocol | default "TCP" }}
+        {{- end }}
+        args:
+        - "--config"
+        - "/etc/serviceradar/flow-collector.json"
+        env:
+        - name: RUST_LOG
+          value: "info"
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f flow-collector > /dev/null"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f flow-collector > /dev/null"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.flowCollector.resources | nindent 10 }}
+        securityContext:
+          capabilities:
+            add: ["NET_BIND_SERVICE"]
+        volumeMounts:
+        - name: flow-collector-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+        - name: flow-collector-data
+          mountPath: /var/lib/serviceradar
+        - name: logs
+          mountPath: /var/log/serviceradar
+      initContainers:
+      - name: wait-for-cert-files
+        image: alpine:3.20
+        command: ["/bin/sh", "-ec"]
+        args:
+        - |
+          for file in /etc/serviceradar/certs/flow-collector.pem /etc/serviceradar/certs/flow-collector-key.pem /etc/serviceradar/certs/root.pem; do
+            i=0
+            until [ -f "${file}" ]; do
+              i=$((i+1))
+              if [ "${i}" -ge 90 ]; then
+                echo "Timed out waiting for ${file}" >&2
+                exit 1
+              fi
+              sleep 2
+            done
+          done
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+      - name: wait-for-nats-creds
+        image: alpine:3.20
+        command: ["/bin/sh", "-ec"]
+        args:
+        - |
+          i=0
+          until [ -f /etc/serviceradar/creds/platform.creds ]; do
+            i=$((i+1))
+            if [ "${i}" -ge 90 ]; then
+              echo "Timed out waiting for /etc/serviceradar/creds/platform.creds" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+        volumeMounts:
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+      volumes:
+      - name: flow-collector-config
+        configMap:
+          name: serviceradar-flow-collector-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: nats-creds
+        secret:
+          secretName: serviceradar-nats-creds
+      - name: flow-collector-data
+        {{- if $data.existingClaim }}
+        persistentVolumeClaim:
+          claimName: {{ $data.existingClaim | quote }}
+        {{- else if ($data.enabled | default true) }}
+        persistentVolumeClaim:
+          claimName: serviceradar-flow-collector-data
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-flow-collector
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+  {{- with .Values.flowCollector.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.flowCollector.service.type | default "ClusterIP" }}
+  {{- with .Values.flowCollector.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- if .Values.flowCollector.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.flowCollector.service.loadBalancerIP | quote }}
+  {{- end }}
+  selector:
+    app: serviceradar-flow-collector
+  ports:
+  {{- if .Values.flowCollector.service.ports.netflow.enabled }}
+  - name: netflow
+    port: {{ .Values.flowCollector.service.ports.netflow.port | default 2055 }}
+    targetPort: {{ .Values.flowCollector.service.ports.netflow.targetPort | default 2055 }}
+    protocol: {{ .Values.flowCollector.service.ports.netflow.protocol | default "UDP" }}
+  {{- end }}
+  {{- if .Values.flowCollector.service.ports.sflow.enabled }}
+  - name: sflow
+    port: {{ .Values.flowCollector.service.ports.sflow.port | default 6343 }}
+    targetPort: {{ .Values.flowCollector.service.ports.sflow.targetPort | default 6343 }}
+    protocol: {{ .Values.flowCollector.service.ports.sflow.protocol | default "UDP" }}
+  {{- end }}
+  {{- if .Values.flowCollector.service.ports.ipfix.enabled }}
+  - name: ipfix
+    port: {{ .Values.flowCollector.service.ports.ipfix.port | default 4739 }}
+    targetPort: {{ .Values.flowCollector.service.ports.ipfix.targetPort | default 4739 }}
+    protocol: {{ .Values.flowCollector.service.ports.ipfix.protocol | default "UDP" }}
+  {{- end }}
+  {{- if .Values.flowCollector.service.ports.metrics.enabled }}
+  - name: metrics
+    port: {{ .Values.flowCollector.service.ports.metrics.port | default 50046 }}
+    targetPort: {{ .Values.flowCollector.service.ports.metrics.targetPort | default 50046 }}
+    protocol: {{ .Values.flowCollector.service.ports.metrics.protocol | default "TCP" }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.spire.flowCollectorServiceAccount | default "serviceradar-flow-collector" }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+{{- end }}

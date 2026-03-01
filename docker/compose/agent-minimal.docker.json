@@ -4,14 +4,15 @@
   "agent_name": "agent",
   "host_ip": "agent",
   "partition": "default",
-  "gateway_addr": "agent-gateway:50052",
+  "gateway_addr": "agent-gateway.serviceradar:50052",
   "push_interval": "30s",
   "status_debounce_interval": "30s",
   "status_heartbeat_interval": "5m",
+  "sync_runtime_enabled": true,
   "gateway_security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "agent-gateway",
+    "server_name": "agent-gateway.serviceradar",
     "role": "client",
     "tls": {
       "cert_file": "core.pem",

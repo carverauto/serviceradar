@@ -610,3 +610,112 @@ The web-ng device detail page SHALL display IP alias records for the device, inc
 - **THEN** stale or archived aliases SHALL be hidden by default
 - **AND** the user may toggle to show them
 
+### Requirement: SNMP profile list shows target counts
+The web-ng SNMP Profiles list SHALL display a target count for each profile based on executing the normalized SRQL `target_query`. When a count cannot be computed, the UI SHALL show "Unknown" instead of a misleading zero and surface the error state.
+
+#### Scenario: List shows computed target counts
+- **GIVEN** an admin viewing Settings → SNMP Profiles
+- **WHEN** the list renders
+- **THEN** each profile row shows "N targets" based on the SRQL target query
+
+#### Scenario: Invalid query shows unknown
+- **GIVEN** a profile with an invalid SRQL `target_query`
+- **WHEN** the list renders
+- **THEN** the targets column shows "Unknown"
+- **AND** the UI indicates that the query could not be evaluated
+
+### Requirement: Target preview labels align with targeting mode
+The SNMP profile editor SHALL label target preview counts as device targets and indicate whether the SRQL query targets devices or interfaces. Empty or missing queries SHALL default to device targeting.
+
+#### Scenario: Empty query defaults to device targeting
+- **GIVEN** an SNMP profile with no `target_query`
+- **WHEN** the editor renders the preview count
+- **THEN** the UI indicates device targeting and displays the device target count
+
+#### Scenario: Interface targeting indicator
+- **GIVEN** an SNMP profile with `target_query: "in:interfaces type:ethernet"`
+- **WHEN** the editor renders the preview count
+- **THEN** the UI indicates interface targeting while still reporting device target counts
+
+### Requirement: God-View directional flow rendering uses real telemetry only
+God-View SHALL render bidirectional edge particles only from real directional edge telemetry fields and SHALL NOT synthesize reverse-direction flow from aggregate edge metrics.
+
+#### Scenario: Directional telemetry for both sides
+- **GIVEN** a topology edge payload with A→B and B→A directional rates
+- **WHEN** God-View renders atmosphere packet flow
+- **THEN** the renderer SHALL draw both directional streams using those real directional values
+
+#### Scenario: Directional telemetry on one side only
+- **GIVEN** a topology edge payload with only one directional side populated
+- **WHEN** God-View renders atmosphere packet flow
+- **THEN** the renderer SHALL draw only the available direction
+- **AND** SHALL NOT synthesize a reverse stream from aggregate values
+
+#### Scenario: No directional telemetry fields present
+- **GIVEN** a topology edge payload that includes only aggregate flow metrics
+- **WHEN** God-View renders atmosphere packet flow
+- **THEN** the renderer SHALL use single-stream aggregate behavior
+- **AND** SHALL NOT invent directional lanes
+
+#### Scenario: Telemetry-ineligible topology edge
+- **GIVEN** a topology edge payload marked telemetry-ineligible due to missing interface attribution or required counters
+- **WHEN** God-View renders atmosphere packet flow
+- **THEN** the renderer SHALL avoid showing misleading packet activity for that edge
+- **AND** SHALL preserve structural edge visibility for topology context
+
+### Requirement: God-View packet stream density and tube coverage parity
+God-View SHALL render packet streams with dense tube-aligned coverage comparable to the approved deckgl PoC visual profile while preserving zoom-tier readability.
+
+#### Scenario: Mid-zoom density and tube fill
+- **GIVEN** topology edges with active telemetry at mid zoom
+- **WHEN** packet layers are rendered
+- **THEN** particle density SHALL fill the edge tube without appearing sparse
+- **AND** particle spread SHALL remain near the visual edge tube boundary without visibly overflowing it
+
+#### Scenario: Zoomed-out readability
+- **GIVEN** the user zooms far out
+- **WHEN** packet layers are rendered
+- **THEN** particle visibility and spread SHALL avoid neon-line saturation artifacts
+- **AND** edge structures SHALL remain legible as topology links
+
+#### Scenario: Zoomed-in readability
+- **GIVEN** the user zooms far in
+- **WHEN** packet layers are rendered
+- **THEN** particles SHALL remain visibly distinct and readable
+- **AND** zoom scaling SHALL not reduce particles below a practical visibility floor
+
+### Requirement: NetFlow visualize route canonicalization
+The web-ng UI SHALL treat `/flows` as the canonical route for `ServiceRadarWebNGWeb.NetflowLive.Visualize`. All in-page NetFlow navigation generated from that LiveView (including `push_patch`, SRQL builder submit/apply paths, pagination links, and table links) MUST resolve to `/flows` so patches stay within the active root view.
+
+#### Scenario: NetFlow chart/state updates patch within the active LiveView
+- **GIVEN** an authenticated user is on the NetFlow visualize page
+- **WHEN** they change visualize state, run a query, or paginate results
+- **THEN** the LiveView patches to a `/flows` URL
+- **AND** the session does not raise a `cannot push_patch/2` root-view mismatch
+
+#### Scenario: Legacy netflow aliases are removed
+- **GIVEN** a user opens `/netflow` or `/netflows`
+- **WHEN** the request is handled
+- **THEN** the application does not serve a NetFlow LiveView at those paths
+- **AND** NetFlow visualization is available only at `/flows`
+
+### Requirement: God-View node detail card shows node identity and network context
+The God-View deck.gl node-detail surfaces (click selection card and node tooltip) SHALL render node identity and network context from the topology payload when those fields are present, including `id`, `ip`, `type`, `vendor`, `model`, `last_seen`, `asn`, and geographic location fields.
+
+#### Scenario: Node detail card includes IP and metadata
+- **GIVEN** a God-View node payload includes `details.ip` and other metadata fields
+- **WHEN** an operator clicks that node in the deck.gl canvas
+- **THEN** the node detail card SHALL display the node IP address and available metadata values
+- **AND** the tooltip for that same node SHALL show the same IP/type context
+
+#### Scenario: Missing fields render explicit fallback values
+- **GIVEN** a God-View node payload is missing one or more detail metadata fields
+- **WHEN** an operator opens node details from the deck.gl canvas
+- **THEN** the node detail card SHALL remain visible
+- **AND** each missing field SHALL render an explicit fallback value (for example `unknown` or `—`) rather than rendering blank/undefined content
+
+#### Scenario: Regression coverage for detail metadata mapping
+- **GIVEN** automated God-View frontend tests are executed
+- **WHEN** node-detail rendering logic is validated
+- **THEN** tests SHALL fail if IP or required mapped detail fields are dropped from the rendered detail card for payloads that include those fields
+

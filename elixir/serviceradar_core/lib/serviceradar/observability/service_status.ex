@@ -35,6 +35,7 @@ defmodule ServiceRadar.Observability.ServiceStatus do
 
     create :create do
       primary? true
+
       accept [
         :timestamp,
         :gateway_id,

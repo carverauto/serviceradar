@@ -212,11 +212,8 @@ mod tests {
     #[tokio::test]
     async fn test_load_from_disk_json() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(
-            file,
-            r#"{{\"listen_addr\": \"0.0.0.0:8080\", \"log_level\": \"info\"}}"#
-        )
-        .unwrap();
+        file.write_all(br#"{"listen_addr": "0.0.0.0:8080", "log_level": "info"}"#)
+            .unwrap();
 
         let opts = BootstrapOptions {
             service_name: "test".to_string(),
@@ -238,8 +235,8 @@ mod tests {
         writeln!(
             file,
             r#"
-listen_addr = \"0.0.0.0:9090\"
-log_level = \"debug\"
+listen_addr = "0.0.0.0:9090"
+log_level = "debug"
 "#
         )
         .unwrap();

@@ -219,35 +219,6 @@ defmodule ServiceRadar.ResultsRouter do
     end
   end
 
-  defp sweep_results(results) when is_list(results) do
-    execution_id =
-      results
-      |> List.first()
-      |> case do
-        nil -> nil
-        first -> first["execution_id"] || first["executionId"]
-      end
-      |> normalize_uuid()
-
-    execution_id =
-      if execution_id == nil do
-        Ash.UUID.generate()
-      else
-        execution_id
-      end
-
-    sweep_group_id =
-      results
-      |> List.first()
-      |> case do
-        nil -> nil
-        first -> first["sweep_group_id"] || first["sweepGroupId"]
-      end
-      |> normalize_uuid()
-
-    {:ok, results, execution_id, sweep_group_id}
-  end
-
   defp sweep_results(_payload), do: {:error, :unsupported_payload}
 
   defp execution_id_from_payload(payload, sweep_group_id, last_sweep_time) do
@@ -311,8 +282,7 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp parse_sweep_group_id(payload) do
     value =
-      payload["sweep_group_id"] ||
-        payload["sweepGroupId"]
+      payload["sweep_group_id"]
 
     normalize_uuid(value)
   end
@@ -325,8 +295,7 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp parse_last_sweep(payload) do
     value =
-      payload["last_sweep"] ||
-        payload["lastSweep"]
+      payload["last_sweep"]
 
     parse_time(value)
   end
@@ -356,29 +325,23 @@ defmodule ServiceRadar.ResultsRouter do
   defp parse_total_hosts(payload) when is_map(payload) do
     payload
     |> Map.get("total_hosts")
-    |> fallback_value(payload["totalHosts"])
-    |> fallback_value(payload["total_targets"])
-    |> fallback_value(payload["totalTargets"])
     |> parse_integer()
   end
 
   defp parse_total_hosts(_payload), do: nil
 
   defp parse_scanner_metrics(payload) when is_map(payload) do
-    value = payload["scanner_stats"] || payload["scannerStats"]
+    value = payload["scanner_stats"]
 
     if is_map(value), do: value, else: nil
   end
 
   defp parse_scanner_metrics(_payload), do: nil
 
-  defp fallback_value(nil, fallback), do: fallback
-  defp fallback_value(value, _fallback), do: value
-
   defp build_sweep_result(host, last_sweep_time, network) when is_map(host) do
     with host_ip when is_binary(host_ip) and host_ip != "" <- host_ip(host) do
       icmp_status = icmp_status(host)
-      port_scan_results = build_port_scan_results(port_results(host))
+      canonical_port_results = build_port_scan_results(port_results(host))
 
       base = %{
         "host_ip" => host_ip,
@@ -387,8 +350,8 @@ defmodule ServiceRadar.ResultsRouter do
         "icmp_available" => icmp_available(host, icmp_status),
         "icmp_response_time_ns" => icmp_response_time_ns(host, icmp_status),
         "icmp_packet_loss" => icmp_packet_loss(icmp_status),
-        "tcp_ports_open" => open_ports(port_scan_results),
-        "port_scan_results" => port_scan_results,
+        "port_results" => canonical_port_results,
+        "error" => host["error"],
         "last_sweep_time" => last_sweep_time
       }
 
@@ -401,17 +364,19 @@ defmodule ServiceRadar.ResultsRouter do
   defp build_sweep_result(_host, _last_sweep_time, _network), do: nil
 
   defp host_ip(host) do
-    value = host["host"] || host["host_ip"] || host["hostIp"] || host["ip"]
+    value = host["host"]
 
     if is_binary(value) and value != "" do
       value
     end
   end
 
-  defp port_results(host), do: host["port_results"] || host["portResults"] || []
+  defp port_results(host) when is_map(host), do: host["port_results"] || []
+
+  defp port_results(_host), do: []
 
   defp icmp_status(host) do
-    status = host["icmp_status"] || host["icmpStatus"]
+    status = host["icmp_status"]
 
     if is_map(status) and map_size(status) > 0 do
       status
@@ -420,14 +385,14 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp icmp_available(host, icmp_status) do
     if icmp_status do
-      icmp_status["available"] || icmp_status[:available] || false
+      icmp_status["available"] || false
     else
-      host["available"] || host[:available] || false
+      host["available"] || false
     end
   end
 
   defp host_available(host, icmp_status) do
-    case host["available"] || host[:available] do
+    case host["available"] do
       value when is_boolean(value) -> value
       _ -> icmp_available(host, icmp_status)
     end
@@ -435,20 +400,14 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp icmp_response_time_ns(host, icmp_status) do
     (icmp_status &&
-       parse_duration_ns(icmp_status["round_trip"] || icmp_status["roundTrip"])) ||
-      parse_duration_ns(host["response_time"] || host["responseTime"])
+       parse_duration_ns(icmp_status["round_trip"])) ||
+      parse_duration_ns(host["response_time"])
   end
 
   defp icmp_packet_loss(icmp_status) do
     if icmp_status do
-      icmp_status["packet_loss"] || icmp_status["packetLoss"]
+      icmp_status["packet_loss"]
     end
-  end
-
-  defp open_ports(port_scan_results) do
-    port_scan_results
-    |> Enum.filter(& &1["available"])
-    |> Enum.map(& &1["port"])
   end
 
   defp maybe_put_network(base, network) do
@@ -468,11 +427,8 @@ defmodule ServiceRadar.ResultsRouter do
       if port do
         entry = %{
           "port" => port,
-          "available" => result["available"] || result[:available] || false,
-          "response_time_ns" =>
-            parse_duration_ns(
-              result["response_time"] || result["responseTime"] || result[:response_time]
-            )
+          "available" => result["available"] || false,
+          "response_time_ns" => parse_duration_ns(result["response_time"])
         }
 
         [entry | acc]

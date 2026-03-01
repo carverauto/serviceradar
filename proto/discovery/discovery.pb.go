@@ -815,18 +815,19 @@ func (x *ResultsResponse) GetMetadata() map[string]string {
 
 // DiscoveredDevice represents a discovered network device
 type DiscoveredDevice struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ip            string                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`                                                                                       // IP address of the device
-	Mac           string                 `protobuf:"bytes,2,opt,name=mac,proto3" json:"mac,omitempty"`                                                                                     // MAC address of the device (if available)
-	Hostname      string                 `protobuf:"bytes,3,opt,name=hostname,proto3" json:"hostname,omitempty"`                                                                           // Hostname of the device
-	SysDescr      string                 `protobuf:"bytes,4,opt,name=sys_descr,json=sysDescr,proto3" json:"sys_descr,omitempty"`                                                           // System description
-	SysObjectId   string                 `protobuf:"bytes,5,opt,name=sys_object_id,json=sysObjectId,proto3" json:"sys_object_id,omitempty"`                                                // System object ID
-	SysContact    string                 `protobuf:"bytes,6,opt,name=sys_contact,json=sysContact,proto3" json:"sys_contact,omitempty"`                                                     // System contact
-	SysLocation   string                 `protobuf:"bytes,7,opt,name=sys_location,json=sysLocation,proto3" json:"sys_location,omitempty"`                                                  // System location
-	Uptime        int64                  `protobuf:"varint,8,opt,name=uptime,proto3" json:"uptime,omitempty"`                                                                              // System uptime in seconds
-	Metadata      map[string]string      `protobuf:"bytes,9,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Additional metadata
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Ip              string                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`                                                                                       // IP address of the device
+	Mac             string                 `protobuf:"bytes,2,opt,name=mac,proto3" json:"mac,omitempty"`                                                                                     // MAC address of the device (if available)
+	Hostname        string                 `protobuf:"bytes,3,opt,name=hostname,proto3" json:"hostname,omitempty"`                                                                           // Hostname of the device
+	SysDescr        string                 `protobuf:"bytes,4,opt,name=sys_descr,json=sysDescr,proto3" json:"sys_descr,omitempty"`                                                           // System description
+	SysObjectId     string                 `protobuf:"bytes,5,opt,name=sys_object_id,json=sysObjectId,proto3" json:"sys_object_id,omitempty"`                                                // System object ID
+	SysContact      string                 `protobuf:"bytes,6,opt,name=sys_contact,json=sysContact,proto3" json:"sys_contact,omitempty"`                                                     // System contact
+	SysLocation     string                 `protobuf:"bytes,7,opt,name=sys_location,json=sysLocation,proto3" json:"sys_location,omitempty"`                                                  // System location
+	Uptime          int64                  `protobuf:"varint,8,opt,name=uptime,proto3" json:"uptime,omitempty"`                                                                              // System uptime in seconds
+	Metadata        map[string]string      `protobuf:"bytes,9,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Additional metadata
+	SnmpFingerprint *SNMPFingerprint       `protobuf:"bytes,10,opt,name=snmp_fingerprint,json=snmpFingerprint,proto3" json:"snmp_fingerprint,omitempty"`                                     // Normalized SNMP fingerprint signals
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *DiscoveredDevice) Reset() {
@@ -922,6 +923,525 @@ func (x *DiscoveredDevice) GetMetadata() map[string]string {
 	return nil
 }
 
+func (x *DiscoveredDevice) GetSnmpFingerprint() *SNMPFingerprint {
+	if x != nil {
+		return x.SnmpFingerprint
+	}
+	return nil
+}
+
+type SNMPFingerprint struct {
+	state            protoimpl.MessageState           `protogen:"open.v1"`
+	System           *SNMPSystemFingerprint           `protobuf:"bytes,1,opt,name=system,proto3" json:"system,omitempty"`                                                                                                                       // Standard system-level identity fields
+	Bridge           *SNMPBridgeFingerprint           `protobuf:"bytes,2,opt,name=bridge,proto3" json:"bridge,omitempty"`                                                                                                                       // Standard bridge identity fields
+	Vlan             *SNMPVLANFingerprint             `protobuf:"bytes,3,opt,name=vlan,proto3" json:"vlan,omitempty"`                                                                                                                           // VLAN/PVID evidence summary
+	InterfaceSummary *SNMPInterfaceSummaryFingerprint `protobuf:"bytes,4,opt,name=interface_summary,json=interfaceSummary,proto3" json:"interface_summary,omitempty"`                                                                           // Interface summary evidence
+	ExtractionErrors map[string]string                `protobuf:"bytes,5,rep,name=extraction_errors,json=extractionErrors,proto3" json:"extraction_errors,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Non-fatal extraction issues by field/table
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *SNMPFingerprint) Reset() {
+	*x = SNMPFingerprint{}
+	mi := &file_discovery_discovery_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SNMPFingerprint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SNMPFingerprint) ProtoMessage() {}
+
+func (x *SNMPFingerprint) ProtoReflect() protoreflect.Message {
+	mi := &file_discovery_discovery_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SNMPFingerprint.ProtoReflect.Descriptor instead.
+func (*SNMPFingerprint) Descriptor() ([]byte, []int) {
+	return file_discovery_discovery_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *SNMPFingerprint) GetSystem() *SNMPSystemFingerprint {
+	if x != nil {
+		return x.System
+	}
+	return nil
+}
+
+func (x *SNMPFingerprint) GetBridge() *SNMPBridgeFingerprint {
+	if x != nil {
+		return x.Bridge
+	}
+	return nil
+}
+
+func (x *SNMPFingerprint) GetVlan() *SNMPVLANFingerprint {
+	if x != nil {
+		return x.Vlan
+	}
+	return nil
+}
+
+func (x *SNMPFingerprint) GetInterfaceSummary() *SNMPInterfaceSummaryFingerprint {
+	if x != nil {
+		return x.InterfaceSummary
+	}
+	return nil
+}
+
+func (x *SNMPFingerprint) GetExtractionErrors() map[string]string {
+	if x != nil {
+		return x.ExtractionErrors
+	}
+	return nil
+}
+
+type SNMPSystemFingerprint struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SysName       string                 `protobuf:"bytes,1,opt,name=sys_name,json=sysName,proto3" json:"sys_name,omitempty"`
+	SysDescr      string                 `protobuf:"bytes,2,opt,name=sys_descr,json=sysDescr,proto3" json:"sys_descr,omitempty"`
+	SysObjectId   string                 `protobuf:"bytes,3,opt,name=sys_object_id,json=sysObjectId,proto3" json:"sys_object_id,omitempty"`
+	SysContact    string                 `protobuf:"bytes,4,opt,name=sys_contact,json=sysContact,proto3" json:"sys_contact,omitempty"`
+	SysLocation   string                 `protobuf:"bytes,5,opt,name=sys_location,json=sysLocation,proto3" json:"sys_location,omitempty"`
+	IpForwarding  int32                  `protobuf:"varint,6,opt,name=ip_forwarding,json=ipForwarding,proto3" json:"ip_forwarding,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SNMPSystemFingerprint) Reset() {
+	*x = SNMPSystemFingerprint{}
+	mi := &file_discovery_discovery_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SNMPSystemFingerprint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SNMPSystemFingerprint) ProtoMessage() {}
+
+func (x *SNMPSystemFingerprint) ProtoReflect() protoreflect.Message {
+	mi := &file_discovery_discovery_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SNMPSystemFingerprint.ProtoReflect.Descriptor instead.
+func (*SNMPSystemFingerprint) Descriptor() ([]byte, []int) {
+	return file_discovery_discovery_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *SNMPSystemFingerprint) GetSysName() string {
+	if x != nil {
+		return x.SysName
+	}
+	return ""
+}
+
+func (x *SNMPSystemFingerprint) GetSysDescr() string {
+	if x != nil {
+		return x.SysDescr
+	}
+	return ""
+}
+
+func (x *SNMPSystemFingerprint) GetSysObjectId() string {
+	if x != nil {
+		return x.SysObjectId
+	}
+	return ""
+}
+
+func (x *SNMPSystemFingerprint) GetSysContact() string {
+	if x != nil {
+		return x.SysContact
+	}
+	return ""
+}
+
+func (x *SNMPSystemFingerprint) GetSysLocation() string {
+	if x != nil {
+		return x.SysLocation
+	}
+	return ""
+}
+
+func (x *SNMPSystemFingerprint) GetIpForwarding() int32 {
+	if x != nil {
+		return x.IpForwarding
+	}
+	return 0
+}
+
+type SNMPBridgeFingerprint struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	BridgeBaseMac          string                 `protobuf:"bytes,1,opt,name=bridge_base_mac,json=bridgeBaseMac,proto3" json:"bridge_base_mac,omitempty"`
+	BridgePortCount        int32                  `protobuf:"varint,2,opt,name=bridge_port_count,json=bridgePortCount,proto3" json:"bridge_port_count,omitempty"`
+	StpForwardingPortCount int32                  `protobuf:"varint,3,opt,name=stp_forwarding_port_count,json=stpForwardingPortCount,proto3" json:"stp_forwarding_port_count,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *SNMPBridgeFingerprint) Reset() {
+	*x = SNMPBridgeFingerprint{}
+	mi := &file_discovery_discovery_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SNMPBridgeFingerprint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SNMPBridgeFingerprint) ProtoMessage() {}
+
+func (x *SNMPBridgeFingerprint) ProtoReflect() protoreflect.Message {
+	mi := &file_discovery_discovery_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SNMPBridgeFingerprint.ProtoReflect.Descriptor instead.
+func (*SNMPBridgeFingerprint) Descriptor() ([]byte, []int) {
+	return file_discovery_discovery_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SNMPBridgeFingerprint) GetBridgeBaseMac() string {
+	if x != nil {
+		return x.BridgeBaseMac
+	}
+	return ""
+}
+
+func (x *SNMPBridgeFingerprint) GetBridgePortCount() int32 {
+	if x != nil {
+		return x.BridgePortCount
+	}
+	return 0
+}
+
+func (x *SNMPBridgeFingerprint) GetStpForwardingPortCount() int32 {
+	if x != nil {
+		return x.StpForwardingPortCount
+	}
+	return 0
+}
+
+type SNMPPVIDCount struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Pvid          int32                  `protobuf:"varint,1,opt,name=pvid,proto3" json:"pvid,omitempty"`
+	Count         int32                  `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SNMPPVIDCount) Reset() {
+	*x = SNMPPVIDCount{}
+	mi := &file_discovery_discovery_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SNMPPVIDCount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SNMPPVIDCount) ProtoMessage() {}
+
+func (x *SNMPPVIDCount) ProtoReflect() protoreflect.Message {
+	mi := &file_discovery_discovery_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SNMPPVIDCount.ProtoReflect.Descriptor instead.
+func (*SNMPPVIDCount) Descriptor() ([]byte, []int) {
+	return file_discovery_discovery_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SNMPPVIDCount) GetPvid() int32 {
+	if x != nil {
+		return x.Pvid
+	}
+	return 0
+}
+
+func (x *SNMPPVIDCount) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+type SNMPVLANPortEvidence struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	VlanId           int32                  `protobuf:"varint,1,opt,name=vlan_id,json=vlanId,proto3" json:"vlan_id,omitempty"`
+	EgressPortsHex   string                 `protobuf:"bytes,2,opt,name=egress_ports_hex,json=egressPortsHex,proto3" json:"egress_ports_hex,omitempty"`
+	UntaggedPortsHex string                 `protobuf:"bytes,3,opt,name=untagged_ports_hex,json=untaggedPortsHex,proto3" json:"untagged_ports_hex,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *SNMPVLANPortEvidence) Reset() {
+	*x = SNMPVLANPortEvidence{}
+	mi := &file_discovery_discovery_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SNMPVLANPortEvidence) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SNMPVLANPortEvidence) ProtoMessage() {}
+
+func (x *SNMPVLANPortEvidence) ProtoReflect() protoreflect.Message {
+	mi := &file_discovery_discovery_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SNMPVLANPortEvidence.ProtoReflect.Descriptor instead.
+func (*SNMPVLANPortEvidence) Descriptor() ([]byte, []int) {
+	return file_discovery_discovery_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *SNMPVLANPortEvidence) GetVlanId() int32 {
+	if x != nil {
+		return x.VlanId
+	}
+	return 0
+}
+
+func (x *SNMPVLANPortEvidence) GetEgressPortsHex() string {
+	if x != nil {
+		return x.EgressPortsHex
+	}
+	return ""
+}
+
+func (x *SNMPVLANPortEvidence) GetUntaggedPortsHex() string {
+	if x != nil {
+		return x.UntaggedPortsHex
+	}
+	return ""
+}
+
+type SNMPVLANFingerprint struct {
+	state            protoimpl.MessageState  `protogen:"open.v1"`
+	VlanIdsSeen      []int32                 `protobuf:"varint,1,rep,packed,name=vlan_ids_seen,json=vlanIdsSeen,proto3" json:"vlan_ids_seen,omitempty"`
+	PvidDistribution []*SNMPPVIDCount        `protobuf:"bytes,2,rep,name=pvid_distribution,json=pvidDistribution,proto3" json:"pvid_distribution,omitempty"`
+	PortEvidence     []*SNMPVLANPortEvidence `protobuf:"bytes,3,rep,name=port_evidence,json=portEvidence,proto3" json:"port_evidence,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *SNMPVLANFingerprint) Reset() {
+	*x = SNMPVLANFingerprint{}
+	mi := &file_discovery_discovery_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SNMPVLANFingerprint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SNMPVLANFingerprint) ProtoMessage() {}
+
+func (x *SNMPVLANFingerprint) ProtoReflect() protoreflect.Message {
+	mi := &file_discovery_discovery_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SNMPVLANFingerprint.ProtoReflect.Descriptor instead.
+func (*SNMPVLANFingerprint) Descriptor() ([]byte, []int) {
+	return file_discovery_discovery_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *SNMPVLANFingerprint) GetVlanIdsSeen() []int32 {
+	if x != nil {
+		return x.VlanIdsSeen
+	}
+	return nil
+}
+
+func (x *SNMPVLANFingerprint) GetPvidDistribution() []*SNMPPVIDCount {
+	if x != nil {
+		return x.PvidDistribution
+	}
+	return nil
+}
+
+func (x *SNMPVLANFingerprint) GetPortEvidence() []*SNMPVLANPortEvidence {
+	if x != nil {
+		return x.PortEvidence
+	}
+	return nil
+}
+
+type SNMPInterfaceTypeCount struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IfType        int32                  `protobuf:"varint,1,opt,name=if_type,json=ifType,proto3" json:"if_type,omitempty"`
+	Count         int32                  `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SNMPInterfaceTypeCount) Reset() {
+	*x = SNMPInterfaceTypeCount{}
+	mi := &file_discovery_discovery_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SNMPInterfaceTypeCount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SNMPInterfaceTypeCount) ProtoMessage() {}
+
+func (x *SNMPInterfaceTypeCount) ProtoReflect() protoreflect.Message {
+	mi := &file_discovery_discovery_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SNMPInterfaceTypeCount.ProtoReflect.Descriptor instead.
+func (*SNMPInterfaceTypeCount) Descriptor() ([]byte, []int) {
+	return file_discovery_discovery_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *SNMPInterfaceTypeCount) GetIfType() int32 {
+	if x != nil {
+		return x.IfType
+	}
+	return 0
+}
+
+func (x *SNMPInterfaceTypeCount) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+type SNMPInterfaceSummaryFingerprint struct {
+	state                 protoimpl.MessageState    `protogen:"open.v1"`
+	InterfaceCount        int32                     `protobuf:"varint,1,opt,name=interface_count,json=interfaceCount,proto3" json:"interface_count,omitempty"`
+	IfTypeCounts          []*SNMPInterfaceTypeCount `protobuf:"bytes,2,rep,name=if_type_counts,json=ifTypeCounts,proto3" json:"if_type_counts,omitempty"`
+	BridgeLikeNameCount   int32                     `protobuf:"varint,3,opt,name=bridge_like_name_count,json=bridgeLikeNameCount,proto3" json:"bridge_like_name_count,omitempty"`
+	WirelessLikeNameCount int32                     `protobuf:"varint,4,opt,name=wireless_like_name_count,json=wirelessLikeNameCount,proto3" json:"wireless_like_name_count,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *SNMPInterfaceSummaryFingerprint) Reset() {
+	*x = SNMPInterfaceSummaryFingerprint{}
+	mi := &file_discovery_discovery_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SNMPInterfaceSummaryFingerprint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SNMPInterfaceSummaryFingerprint) ProtoMessage() {}
+
+func (x *SNMPInterfaceSummaryFingerprint) ProtoReflect() protoreflect.Message {
+	mi := &file_discovery_discovery_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SNMPInterfaceSummaryFingerprint.ProtoReflect.Descriptor instead.
+func (*SNMPInterfaceSummaryFingerprint) Descriptor() ([]byte, []int) {
+	return file_discovery_discovery_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *SNMPInterfaceSummaryFingerprint) GetInterfaceCount() int32 {
+	if x != nil {
+		return x.InterfaceCount
+	}
+	return 0
+}
+
+func (x *SNMPInterfaceSummaryFingerprint) GetIfTypeCounts() []*SNMPInterfaceTypeCount {
+	if x != nil {
+		return x.IfTypeCounts
+	}
+	return nil
+}
+
+func (x *SNMPInterfaceSummaryFingerprint) GetBridgeLikeNameCount() int32 {
+	if x != nil {
+		return x.BridgeLikeNameCount
+	}
+	return 0
+}
+
+func (x *SNMPInterfaceSummaryFingerprint) GetWirelessLikeNameCount() int32 {
+	if x != nil {
+		return x.WirelessLikeNameCount
+	}
+	return 0
+}
+
 // InterfaceMetric represents an available SNMP metric for an interface
 type InterfaceMetric struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
@@ -938,7 +1458,7 @@ type InterfaceMetric struct {
 
 func (x *InterfaceMetric) Reset() {
 	*x = InterfaceMetric{}
-	mi := &file_discovery_discovery_proto_msgTypes[9]
+	mi := &file_discovery_discovery_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -950,7 +1470,7 @@ func (x *InterfaceMetric) String() string {
 func (*InterfaceMetric) ProtoMessage() {}
 
 func (x *InterfaceMetric) ProtoReflect() protoreflect.Message {
-	mi := &file_discovery_discovery_proto_msgTypes[9]
+	mi := &file_discovery_discovery_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -963,7 +1483,7 @@ func (x *InterfaceMetric) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterfaceMetric.ProtoReflect.Descriptor instead.
 func (*InterfaceMetric) Descriptor() ([]byte, []int) {
-	return file_discovery_discovery_proto_rawDescGZIP(), []int{9}
+	return file_discovery_discovery_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *InterfaceMetric) GetName() string {
@@ -1038,7 +1558,7 @@ type DiscoveredInterface struct {
 
 func (x *DiscoveredInterface) Reset() {
 	*x = DiscoveredInterface{}
-	mi := &file_discovery_discovery_proto_msgTypes[10]
+	mi := &file_discovery_discovery_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1050,7 +1570,7 @@ func (x *DiscoveredInterface) String() string {
 func (*DiscoveredInterface) ProtoMessage() {}
 
 func (x *DiscoveredInterface) ProtoReflect() protoreflect.Message {
-	mi := &file_discovery_discovery_proto_msgTypes[10]
+	mi := &file_discovery_discovery_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1063,7 +1583,7 @@ func (x *DiscoveredInterface) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiscoveredInterface.ProtoReflect.Descriptor instead.
 func (*DiscoveredInterface) Descriptor() ([]byte, []int) {
-	return file_discovery_discovery_proto_rawDescGZIP(), []int{10}
+	return file_discovery_discovery_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *DiscoveredInterface) GetDeviceIp() string {
@@ -1184,7 +1704,7 @@ type TopologyLink struct {
 
 func (x *TopologyLink) Reset() {
 	*x = TopologyLink{}
-	mi := &file_discovery_discovery_proto_msgTypes[11]
+	mi := &file_discovery_discovery_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1196,7 +1716,7 @@ func (x *TopologyLink) String() string {
 func (*TopologyLink) ProtoMessage() {}
 
 func (x *TopologyLink) ProtoReflect() protoreflect.Message {
-	mi := &file_discovery_discovery_proto_msgTypes[11]
+	mi := &file_discovery_discovery_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1209,7 +1729,7 @@ func (x *TopologyLink) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TopologyLink.ProtoReflect.Descriptor instead.
 func (*TopologyLink) Descriptor() ([]byte, []int) {
-	return file_discovery_discovery_proto_rawDescGZIP(), []int{11}
+	return file_discovery_discovery_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *TopologyLink) GetProtocol() string {
@@ -1367,7 +1887,7 @@ const file_discovery_discovery_proto_rawDesc = "" +
 	"\bmetadata\x18\b \x03(\v2(.discovery.ResultsResponse.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf1\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb8\x03\n" +
 	"\x10DiscoveredDevice\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\tR\x02ip\x12\x10\n" +
 	"\x03mac\x18\x02 \x01(\tR\x03mac\x12\x1a\n" +
@@ -1378,10 +1898,52 @@ const file_discovery_discovery_proto_rawDesc = "" +
 	"sysContact\x12!\n" +
 	"\fsys_location\x18\a \x01(\tR\vsysLocation\x12\x16\n" +
 	"\x06uptime\x18\b \x01(\x03R\x06uptime\x12E\n" +
-	"\bmetadata\x18\t \x03(\v2).discovery.DiscoveredDevice.MetadataEntryR\bmetadata\x1a;\n" +
+	"\bmetadata\x18\t \x03(\v2).discovery.DiscoveredDevice.MetadataEntryR\bmetadata\x12E\n" +
+	"\x10snmp_fingerprint\x18\n" +
+	" \x01(\v2\x1a.discovery.SNMPFingerprintR\x0fsnmpFingerprint\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc8\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb6\x03\n" +
+	"\x0fSNMPFingerprint\x128\n" +
+	"\x06system\x18\x01 \x01(\v2 .discovery.SNMPSystemFingerprintR\x06system\x128\n" +
+	"\x06bridge\x18\x02 \x01(\v2 .discovery.SNMPBridgeFingerprintR\x06bridge\x122\n" +
+	"\x04vlan\x18\x03 \x01(\v2\x1e.discovery.SNMPVLANFingerprintR\x04vlan\x12W\n" +
+	"\x11interface_summary\x18\x04 \x01(\v2*.discovery.SNMPInterfaceSummaryFingerprintR\x10interfaceSummary\x12]\n" +
+	"\x11extraction_errors\x18\x05 \x03(\v20.discovery.SNMPFingerprint.ExtractionErrorsEntryR\x10extractionErrors\x1aC\n" +
+	"\x15ExtractionErrorsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdc\x01\n" +
+	"\x15SNMPSystemFingerprint\x12\x19\n" +
+	"\bsys_name\x18\x01 \x01(\tR\asysName\x12\x1b\n" +
+	"\tsys_descr\x18\x02 \x01(\tR\bsysDescr\x12\"\n" +
+	"\rsys_object_id\x18\x03 \x01(\tR\vsysObjectId\x12\x1f\n" +
+	"\vsys_contact\x18\x04 \x01(\tR\n" +
+	"sysContact\x12!\n" +
+	"\fsys_location\x18\x05 \x01(\tR\vsysLocation\x12#\n" +
+	"\rip_forwarding\x18\x06 \x01(\x05R\fipForwarding\"\xa6\x01\n" +
+	"\x15SNMPBridgeFingerprint\x12&\n" +
+	"\x0fbridge_base_mac\x18\x01 \x01(\tR\rbridgeBaseMac\x12*\n" +
+	"\x11bridge_port_count\x18\x02 \x01(\x05R\x0fbridgePortCount\x129\n" +
+	"\x19stp_forwarding_port_count\x18\x03 \x01(\x05R\x16stpForwardingPortCount\"9\n" +
+	"\rSNMPPVIDCount\x12\x12\n" +
+	"\x04pvid\x18\x01 \x01(\x05R\x04pvid\x12\x14\n" +
+	"\x05count\x18\x02 \x01(\x05R\x05count\"\x87\x01\n" +
+	"\x14SNMPVLANPortEvidence\x12\x17\n" +
+	"\avlan_id\x18\x01 \x01(\x05R\x06vlanId\x12(\n" +
+	"\x10egress_ports_hex\x18\x02 \x01(\tR\x0eegressPortsHex\x12,\n" +
+	"\x12untagged_ports_hex\x18\x03 \x01(\tR\x10untaggedPortsHex\"\xc6\x01\n" +
+	"\x13SNMPVLANFingerprint\x12\"\n" +
+	"\rvlan_ids_seen\x18\x01 \x03(\x05R\vvlanIdsSeen\x12E\n" +
+	"\x11pvid_distribution\x18\x02 \x03(\v2\x18.discovery.SNMPPVIDCountR\x10pvidDistribution\x12D\n" +
+	"\rport_evidence\x18\x03 \x03(\v2\x1f.discovery.SNMPVLANPortEvidenceR\fportEvidence\"G\n" +
+	"\x16SNMPInterfaceTypeCount\x12\x17\n" +
+	"\aif_type\x18\x01 \x01(\x05R\x06ifType\x12\x14\n" +
+	"\x05count\x18\x02 \x01(\x05R\x05count\"\x81\x02\n" +
+	"\x1fSNMPInterfaceSummaryFingerprint\x12'\n" +
+	"\x0finterface_count\x18\x01 \x01(\x05R\x0einterfaceCount\x12G\n" +
+	"\x0eif_type_counts\x18\x02 \x03(\v2!.discovery.SNMPInterfaceTypeCountR\fifTypeCounts\x123\n" +
+	"\x16bridge_like_name_count\x18\x03 \x01(\x05R\x13bridgeLikeNameCount\x127\n" +
+	"\x18wireless_like_name_count\x18\x04 \x01(\x05R\x15wirelessLikeNameCount\"\xc8\x01\n" +
 	"\x0fInterfaceMetric\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03oid\x18\x02 \x01(\tR\x03oid\x12\x1b\n" +
@@ -1452,61 +2014,79 @@ func file_discovery_discovery_proto_rawDescGZIP() []byte {
 }
 
 var file_discovery_discovery_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_discovery_discovery_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_discovery_discovery_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_discovery_discovery_proto_goTypes = []any{
-	(DiscoveryStatus)(0),                  // 0: discovery.DiscoveryStatus
-	(DiscoveryRequest_DiscoveryType)(0),   // 1: discovery.DiscoveryRequest.DiscoveryType
-	(SNMPCredentials_SNMPVersion)(0),      // 2: discovery.SNMPCredentials.SNMPVersion
-	(*GetLatestCachedResultsRequest)(nil), // 3: discovery.GetLatestCachedResultsRequest
-	(*StatusRequest)(nil),                 // 4: discovery.StatusRequest
-	(*StatusResponse)(nil),                // 5: discovery.StatusResponse
-	(*DiscoveryRequest)(nil),              // 6: discovery.DiscoveryRequest
-	(*SNMPCredentials)(nil),               // 7: discovery.SNMPCredentials
-	(*DiscoveryResponse)(nil),             // 8: discovery.DiscoveryResponse
-	(*ResultsRequest)(nil),                // 9: discovery.ResultsRequest
-	(*ResultsResponse)(nil),               // 10: discovery.ResultsResponse
-	(*DiscoveredDevice)(nil),              // 11: discovery.DiscoveredDevice
-	(*InterfaceMetric)(nil),               // 12: discovery.InterfaceMetric
-	(*DiscoveredInterface)(nil),           // 13: discovery.DiscoveredInterface
-	(*TopologyLink)(nil),                  // 14: discovery.TopologyLink
-	nil,                                   // 15: discovery.DiscoveryRequest.OptionsEntry
-	nil,                                   // 16: discovery.SNMPCredentials.TargetSpecificEntry
-	nil,                                   // 17: discovery.ResultsResponse.MetadataEntry
-	nil,                                   // 18: discovery.DiscoveredDevice.MetadataEntry
-	nil,                                   // 19: discovery.DiscoveredInterface.MetadataEntry
-	nil,                                   // 20: discovery.TopologyLink.MetadataEntry
-	(*wrapperspb.UInt64Value)(nil),        // 21: google.protobuf.UInt64Value
+	(DiscoveryStatus)(0),                    // 0: discovery.DiscoveryStatus
+	(DiscoveryRequest_DiscoveryType)(0),     // 1: discovery.DiscoveryRequest.DiscoveryType
+	(SNMPCredentials_SNMPVersion)(0),        // 2: discovery.SNMPCredentials.SNMPVersion
+	(*GetLatestCachedResultsRequest)(nil),   // 3: discovery.GetLatestCachedResultsRequest
+	(*StatusRequest)(nil),                   // 4: discovery.StatusRequest
+	(*StatusResponse)(nil),                  // 5: discovery.StatusResponse
+	(*DiscoveryRequest)(nil),                // 6: discovery.DiscoveryRequest
+	(*SNMPCredentials)(nil),                 // 7: discovery.SNMPCredentials
+	(*DiscoveryResponse)(nil),               // 8: discovery.DiscoveryResponse
+	(*ResultsRequest)(nil),                  // 9: discovery.ResultsRequest
+	(*ResultsResponse)(nil),                 // 10: discovery.ResultsResponse
+	(*DiscoveredDevice)(nil),                // 11: discovery.DiscoveredDevice
+	(*SNMPFingerprint)(nil),                 // 12: discovery.SNMPFingerprint
+	(*SNMPSystemFingerprint)(nil),           // 13: discovery.SNMPSystemFingerprint
+	(*SNMPBridgeFingerprint)(nil),           // 14: discovery.SNMPBridgeFingerprint
+	(*SNMPPVIDCount)(nil),                   // 15: discovery.SNMPPVIDCount
+	(*SNMPVLANPortEvidence)(nil),            // 16: discovery.SNMPVLANPortEvidence
+	(*SNMPVLANFingerprint)(nil),             // 17: discovery.SNMPVLANFingerprint
+	(*SNMPInterfaceTypeCount)(nil),          // 18: discovery.SNMPInterfaceTypeCount
+	(*SNMPInterfaceSummaryFingerprint)(nil), // 19: discovery.SNMPInterfaceSummaryFingerprint
+	(*InterfaceMetric)(nil),                 // 20: discovery.InterfaceMetric
+	(*DiscoveredInterface)(nil),             // 21: discovery.DiscoveredInterface
+	(*TopologyLink)(nil),                    // 22: discovery.TopologyLink
+	nil,                                     // 23: discovery.DiscoveryRequest.OptionsEntry
+	nil,                                     // 24: discovery.SNMPCredentials.TargetSpecificEntry
+	nil,                                     // 25: discovery.ResultsResponse.MetadataEntry
+	nil,                                     // 26: discovery.DiscoveredDevice.MetadataEntry
+	nil,                                     // 27: discovery.SNMPFingerprint.ExtractionErrorsEntry
+	nil,                                     // 28: discovery.DiscoveredInterface.MetadataEntry
+	nil,                                     // 29: discovery.TopologyLink.MetadataEntry
+	(*wrapperspb.UInt64Value)(nil),          // 30: google.protobuf.UInt64Value
 }
 var file_discovery_discovery_proto_depIdxs = []int32{
 	1,  // 0: discovery.DiscoveryRequest.type:type_name -> discovery.DiscoveryRequest.DiscoveryType
 	7,  // 1: discovery.DiscoveryRequest.credentials:type_name -> discovery.SNMPCredentials
-	15, // 2: discovery.DiscoveryRequest.options:type_name -> discovery.DiscoveryRequest.OptionsEntry
+	23, // 2: discovery.DiscoveryRequest.options:type_name -> discovery.DiscoveryRequest.OptionsEntry
 	2,  // 3: discovery.SNMPCredentials.version:type_name -> discovery.SNMPCredentials.SNMPVersion
-	16, // 4: discovery.SNMPCredentials.target_specific:type_name -> discovery.SNMPCredentials.TargetSpecificEntry
+	24, // 4: discovery.SNMPCredentials.target_specific:type_name -> discovery.SNMPCredentials.TargetSpecificEntry
 	0,  // 5: discovery.ResultsResponse.status:type_name -> discovery.DiscoveryStatus
 	11, // 6: discovery.ResultsResponse.devices:type_name -> discovery.DiscoveredDevice
-	13, // 7: discovery.ResultsResponse.interfaces:type_name -> discovery.DiscoveredInterface
-	14, // 8: discovery.ResultsResponse.topology:type_name -> discovery.TopologyLink
-	17, // 9: discovery.ResultsResponse.metadata:type_name -> discovery.ResultsResponse.MetadataEntry
-	18, // 10: discovery.DiscoveredDevice.metadata:type_name -> discovery.DiscoveredDevice.MetadataEntry
-	21, // 11: discovery.DiscoveredInterface.if_speed:type_name -> google.protobuf.UInt64Value
-	19, // 12: discovery.DiscoveredInterface.metadata:type_name -> discovery.DiscoveredInterface.MetadataEntry
-	12, // 13: discovery.DiscoveredInterface.available_metrics:type_name -> discovery.InterfaceMetric
-	20, // 14: discovery.TopologyLink.metadata:type_name -> discovery.TopologyLink.MetadataEntry
-	7,  // 15: discovery.SNMPCredentials.TargetSpecificEntry.value:type_name -> discovery.SNMPCredentials
-	4,  // 16: discovery.DiscoveryService.GetStatus:input_type -> discovery.StatusRequest
-	6,  // 17: discovery.DiscoveryService.StartDiscovery:input_type -> discovery.DiscoveryRequest
-	9,  // 18: discovery.DiscoveryService.GetDiscoveryResults:input_type -> discovery.ResultsRequest
-	3,  // 19: discovery.DiscoveryService.GetLatestCachedResults:input_type -> discovery.GetLatestCachedResultsRequest
-	5,  // 20: discovery.DiscoveryService.GetStatus:output_type -> discovery.StatusResponse
-	8,  // 21: discovery.DiscoveryService.StartDiscovery:output_type -> discovery.DiscoveryResponse
-	10, // 22: discovery.DiscoveryService.GetDiscoveryResults:output_type -> discovery.ResultsResponse
-	10, // 23: discovery.DiscoveryService.GetLatestCachedResults:output_type -> discovery.ResultsResponse
-	20, // [20:24] is the sub-list for method output_type
-	16, // [16:20] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	21, // 7: discovery.ResultsResponse.interfaces:type_name -> discovery.DiscoveredInterface
+	22, // 8: discovery.ResultsResponse.topology:type_name -> discovery.TopologyLink
+	25, // 9: discovery.ResultsResponse.metadata:type_name -> discovery.ResultsResponse.MetadataEntry
+	26, // 10: discovery.DiscoveredDevice.metadata:type_name -> discovery.DiscoveredDevice.MetadataEntry
+	12, // 11: discovery.DiscoveredDevice.snmp_fingerprint:type_name -> discovery.SNMPFingerprint
+	13, // 12: discovery.SNMPFingerprint.system:type_name -> discovery.SNMPSystemFingerprint
+	14, // 13: discovery.SNMPFingerprint.bridge:type_name -> discovery.SNMPBridgeFingerprint
+	17, // 14: discovery.SNMPFingerprint.vlan:type_name -> discovery.SNMPVLANFingerprint
+	19, // 15: discovery.SNMPFingerprint.interface_summary:type_name -> discovery.SNMPInterfaceSummaryFingerprint
+	27, // 16: discovery.SNMPFingerprint.extraction_errors:type_name -> discovery.SNMPFingerprint.ExtractionErrorsEntry
+	15, // 17: discovery.SNMPVLANFingerprint.pvid_distribution:type_name -> discovery.SNMPPVIDCount
+	16, // 18: discovery.SNMPVLANFingerprint.port_evidence:type_name -> discovery.SNMPVLANPortEvidence
+	18, // 19: discovery.SNMPInterfaceSummaryFingerprint.if_type_counts:type_name -> discovery.SNMPInterfaceTypeCount
+	30, // 20: discovery.DiscoveredInterface.if_speed:type_name -> google.protobuf.UInt64Value
+	28, // 21: discovery.DiscoveredInterface.metadata:type_name -> discovery.DiscoveredInterface.MetadataEntry
+	20, // 22: discovery.DiscoveredInterface.available_metrics:type_name -> discovery.InterfaceMetric
+	29, // 23: discovery.TopologyLink.metadata:type_name -> discovery.TopologyLink.MetadataEntry
+	7,  // 24: discovery.SNMPCredentials.TargetSpecificEntry.value:type_name -> discovery.SNMPCredentials
+	4,  // 25: discovery.DiscoveryService.GetStatus:input_type -> discovery.StatusRequest
+	6,  // 26: discovery.DiscoveryService.StartDiscovery:input_type -> discovery.DiscoveryRequest
+	9,  // 27: discovery.DiscoveryService.GetDiscoveryResults:input_type -> discovery.ResultsRequest
+	3,  // 28: discovery.DiscoveryService.GetLatestCachedResults:input_type -> discovery.GetLatestCachedResultsRequest
+	5,  // 29: discovery.DiscoveryService.GetStatus:output_type -> discovery.StatusResponse
+	8,  // 30: discovery.DiscoveryService.StartDiscovery:output_type -> discovery.DiscoveryResponse
+	10, // 31: discovery.DiscoveryService.GetDiscoveryResults:output_type -> discovery.ResultsResponse
+	10, // 32: discovery.DiscoveryService.GetLatestCachedResults:output_type -> discovery.ResultsResponse
+	29, // [29:33] is the sub-list for method output_type
+	25, // [25:29] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_discovery_discovery_proto_init() }
@@ -1520,7 +2100,7 @@ func file_discovery_discovery_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_discovery_discovery_proto_rawDesc), len(file_discovery_discovery_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   18,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

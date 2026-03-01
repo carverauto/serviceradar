@@ -79,6 +79,7 @@ defmodule ServiceRadar.Inventory.Interface do
         :duplex,
         :metadata,
         :available_metrics,
+        :partition,
         :created_at
       ]
     end
@@ -138,13 +139,20 @@ defmodule ServiceRadar.Inventory.Interface do
     end
 
     policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.update"}
     end
 
     # Read access for authenticated users
     policy action_type(:read) do
-      authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.view"}
+    end
+
+    policy action_type(:update) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.update"}
+    end
+
+    policy action_type(:destroy) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.delete"}
     end
   end
 
@@ -185,6 +193,12 @@ defmodule ServiceRadar.Inventory.Interface do
     attribute :gateway_id, :string do
       public? true
       description "Gateway that discovered this interface"
+    end
+
+    attribute :partition, :string do
+      default "default"
+      public? true
+      description "Discovery partition"
     end
 
     attribute :device_ip, :string do

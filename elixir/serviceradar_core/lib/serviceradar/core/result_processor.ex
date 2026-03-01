@@ -296,7 +296,7 @@ defmodule ServiceRadar.Core.ResultProcessor do
     if Enum.empty?(unique_ips) do
       %{}
     else
-      DeviceLookup.batch_lookup_by_ip(unique_ips, opts)
+      DeviceLookup.batch_lookup_by_ip(unique_ips, Keyword.put(opts, :include_deleted, true))
     end
   end
 

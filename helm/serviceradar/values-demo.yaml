@@ -1,34 +1,125 @@
-# Demo (Production) Environment Values
+# Demo Environment Values
 # Consumed by ArgoCD via Helm `valueFiles`.
 
 namespace: demo
 
+topologySpread:
+  enabled: true
+  maxSkew: 2
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: ScheduleAnyway
+
 global:
-  imagePullPolicy: IfNotPresent
+  imageTag: "latest"
+  imagePullPolicy: Always
 
 image:
   registryPullSecret: ghcr-io-cred
+
+natsCreds:
+  autoGenerate: true
+
+agentGateway:
+  enabled: true
+  service:
+    type: LoadBalancer
+    port: 50052
+    externalTrafficPolicy: Local
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
+      external-dns.alpha.kubernetes.io/hostname: "demo-gw.serviceradar.cloud."
+
+agent:
+  hostNetwork: false
+  pushInterval: "30s"
+  statusDebounceInterval: "30s"
+  statusHeartbeatInterval: "5m"
+  resources:
+    limits:
+      memory: 4Gi
+  checkersStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/checkers"
+    existingClaim: ""
+    size: 2Gi
+    storageClassName: ""
 
 ingress:
   enabled: true
   host: demo.serviceradar.cloud
   className: nginx
-  annotations:
-    metallb.universe.tf/allow-shared-ip: "true"
-    metallb.universe.tf/address-pool: k3s-pool
-    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
-    nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
-    nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
-    nginx.ingress.kubernetes.io/proxy-busy-buffers-size: "256k"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
   tls:
     enabled: true
-    secretName: serviceradar-prod-tls
-    clusterIssuer: carverauto-issuer
+    # Use the wildcard cert from ingress-nginx namespace via default SSL cert.
+    # Do NOT set clusterIssuer - it triggers cert-manager which hits rate limits
+    # when namespaces are frequently recreated.
+    secretName: ""
+    clusterIssuer: ""
+networkPolicy:
+  enabled: true
+  podSelectorMatchAll: true
+  egress:
+    allowDNS: true
+    allowKubeAPIServer: true
+    allowDefaultNamespace: true
+    allowSameNamespace: true
+    allowedCIDRs:
+      - "10.0.0.0/8"
+      - "192.168.0.0/16"
+      # Allow GeoLite MMDB + rezmoss provider CIDR refresh from raw.githubusercontent.com
+      # (resolved on 2026-02-28 to 185.199.108.133-111.133, summarized as 185.199.108.0/22).
+      # Kubernetes NetworkPolicy can't allow by DNS name, so we allow the minimal known CIDR for this host.
+      - "185.199.108.0/22"
+      # Allow IEEE OUI refresh from standards-oui.ieee.org
+      # (resolved on 2026-02-28 to 140.98.223.27).
+      - "140.98.223.27/32"
+      # Allow ARIN Whois-RWS ASN lookups from web-ng flow details modal.
+      # whois.arin.net resolves (2026-02-28) to:
+      # - 199.5.26.46
+      # - 199.71.0.46
+      # - 199.212.0.46
+      - "199.5.26.46/32"
+      - "199.71.0.46/32"
+      - "199.212.0.46/32"
+      # Allow RIPE Stat Whois API endpoint used for non-ARIN ASN fallback.
+      # stat.ripe.net resolves (2026-02-28) to:
+      # - 193.0.6.150
+      # - 2001:67c:2e8:22::c100:696
+      - "193.0.6.150/32"
+      - "2001:67c:2e8:22::c100:696/128"
+      # Allow ipinfo lite MMDB refresh from ipinfo.io. (Resolved as 34.117.59.81 on 2026-02-07.)
+      # Note: this is a best-effort allowlist and may need adjustment if ipinfo changes their IPs.
+      - "34.117.0.0/16"
+      # ipinfo MMDB download currently redirects to dl.assets.ipinfo.io (Cloudflare).
+      # Allow the observed /24s (resolved on 2026-02-07 to 104.18.22.73 and 104.18.23.73).
+      # Note: Cloudflare anycast can change; if downloads fail again, re-resolve and update.
+      - "104.18.22.0/24"
+      - "104.18.23.0/24"
+  calicoLogDenied:
+    enabled: true
+    selector: "all()"
+    order: 1000
+
+geoipMmdb:
+  enabled: true
+  basePath: "/var/lib/serviceradar/geoip"
+  existingClaim: ""
+  size: 1Gi
+  storageClassName: ""
 
 webNg:
+  extraEnv:
+    # City MMDB is large; we only enable it in demo where we can allocate more memory.
+    GEOLITE_CITY_ENABLED: "true"
+  resources:
+    limits:
+      cpu: "2"
+      memory: 4Gi
+    requests:
+      cpu: "500m"
+      memory: 2Gi
+  devRoutes: "true"
+  localMailer: "true"
   publicUrl: "https://demo.serviceradar.cloud"
   pluginStorage:
     enabled: true
@@ -38,20 +129,18 @@ webNg:
     storageClassName: ""
     downloadTtlSeconds: 86400
 
-agent:
-  pushInterval: "30s"
-  statusDebounceInterval: "30s"
-  statusHeartbeatInterval: "5m"
-  checkersStorage:
-    enabled: true
-    basePath: "/var/lib/serviceradar/checkers"
-    existingClaim: ""
-    size: 2Gi
-    storageClassName: ""
-
 faker:
+  gobgp:
+    enabled: false
+    # Keep latest for demo iterations; pin to a digest/tag if reproducibility
+    # requirements tighten.
+    image:
+      repository: docker.io/osrg/gobgp
+      tag: latest
+      pullPolicy: IfNotPresent
+    binDir: /opt/gobgp
   simulation:
-    totalDevices: 50000
+    totalDevices: 1000
     ipShuffle:
       enabled: true
       interval: "10m"
@@ -59,24 +148,141 @@ faker:
       warmupCycles: 2
       allowExpansion: false
       poolHeadroomPercent: 0
+    bgp:
+      enabled: false
+      manageDaemon: false
+      gobgpApiAddress: "serviceradar-gobgp:50051"
+      gobgpBinary: "/opt/gobgp/gobgpd"
+      gobgpCliBinary: "/opt/gobgp/gobgp"
+      bmpCollectorAddress: "serviceradar-bmp-collector:11019"
 
-cnpg:
-  clientCASecret: serviceradar-cnpg-client-ca
-  clientCAFromCerts: true
-  requireClientCert: true
+gobgp:
+  enabled: true
+  image:
+    repository: docker.io/osrg/gobgp
+    tag: latest
+    pullPolicy: IfNotPresent
+
+core:
+  logPromotionConsumerEnabled: true
+  deviceEnrichment:
+    rulesDir: "/var/lib/serviceradar/rules/device-enrichment"
+    filesystemOverrides:
+      # Keep enabled in demo so override mounts are consistently wired on upgrades.
+      # Provide existingConfigMap/existingSecret/existingClaim when you want custom rules.
+      enabled: true
+  extraEnv:
+    EVENT_WRITER_ENABLED: "true"
+    EVENT_WRITER_NATS_CREDS_FILE: "/etc/serviceradar/creds/platform.creds"
+    EVENT_WRITER_NATS_URL: "tls://serviceradar-nats:4222"
+    EVENT_WRITER_NATS_TLS: "true"
+    # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
+    GEOLITE_CITY_ENABLED: "true"
+
+zenRulesBootstrap:
+  # Disabled in demo for now: this post-upgrade hook job is currently failing
+  # and keeps Helm upgrades stuck in pending-upgrade.
+  enabled: false
+
+# Temporarily disabled client CA for initial testing - there's a circular dependency
+# where CNPG needs the client CA secret, but the job that creates it
+# runs post-install and needs CNPG to be running first.
+# cnpg:
+#   clientCASecret: serviceradar-cnpg-client-ca
+#   clientCAFromCerts: true
+#   requireClientCert: true
 
 spire:
   enabled: true
   trustDomain: carverauto.dev
   clusterName: carverauto-cluster
+  agent:
+    hostNetwork: false
   postgres:
     enabled: true
     clusterName: cnpg
     instances: 3
     storageSize: 100Gi
 
+trapd:
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
+    loadBalancerIP: "23.138.124.26"
+    externalTrafficPolicy: Local
+
 flowgger:
   externalService:
     enabled: true
     annotations:
       metallb.universe.tf/address-pool: k3s-pool
+    loadBalancerIP: "23.138.124.24"
+    externalTrafficPolicy: Local
+
+flowCollector:
+  enabled: true
+  service:
+    type: LoadBalancer
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
+    loadBalancerIP: "23.138.124.25"
+    externalTrafficPolicy: Local
+    ports:
+      netflow:
+        enabled: true
+        port: 2055
+        targetPort: 2055
+        protocol: UDP
+      sflow:
+        enabled: true
+        port: 6343
+        targetPort: 6343
+        protocol: UDP
+      ipfix:
+        enabled: false
+        port: 4739
+        targetPort: 4739
+        protocol: UDP
+      metrics:
+        enabled: false
+        port: 50046
+        targetPort: 50046
+        protocol: TCP
+
+certs:
+  regenerator:
+    # Ensure new collector certs (including bmp-collector.pem) are created
+    # in existing demo cert volumes during upgrades.
+    enabled: true
+
+bmpCollector:
+  enabled: true
+  image:
+    tag: "v0.7.2@sha256:dc95fc7007cf427090beef7d91e252f5ac78475be25b9bf4d11a97a9627e057c"
+  args:
+    - "--bmp-address=0.0.0.0:11019"
+    - "--kafka-disable"
+    - "--nats-enable"
+    - "--nats-server=nats://serviceradar-nats:4222"
+    - "--nats-subject=arancini.updates"
+    - "--nats-tls-required"
+    - "--nats-tls-ca-cert-path=/etc/serviceradar/certs/root.pem"
+    - "--nats-tls-client-cert-path=/etc/serviceradar/certs/bmp-collector.pem"
+    - "--nats-tls-client-key-path=/etc/serviceradar/certs/bmp-collector-key.pem"
+    - "--curation-state-path=/var/lib/serviceradar/state.bin"
+    - "--curation-snapshot-backend=local"
+    - "-vvv"
+  config:
+    stream_max_bytes: 1073741824
+    # Workaround: NATS verify_and_map currently fails to match the
+    # serviceradar-bmp-collector DN in demo.
+    # Use the known-good debug client mTLS identity for NATS auth.
+    nats_tls_client_cert_path: "/etc/serviceradar/certs/client.pem"
+    nats_tls_client_key_path: "/etc/serviceradar/certs/client-key.pem"
+  service:
+    type: LoadBalancer
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
+    loadBalancerIP: "23.138.124.27"
+    externalTrafficPolicy: Local

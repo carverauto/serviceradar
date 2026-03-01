@@ -1,0 +1,21 @@
+[Unit]
+Description=ServiceRadar Flow Collector (NetFlow/IPFIX + sFlow)
+After=network-online.target
+
+[Service]
+Type=simple
+Environment="RUST_LOG=info"
+ExecStart=/usr/local/bin/serviceradar-flow-collector --config /etc/serviceradar/flow-collector.json
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s SIGINT $MAINPID
+User=serviceradar
+Group=serviceradar
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/serviceradar/flow-collector.log
+StandardError=append:/var/log/serviceradar/flow-collector-error.log
+LimitNOFILE=800000
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

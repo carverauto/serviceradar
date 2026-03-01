@@ -1,0 +1,117 @@
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Build wait-for-port helper used by entrypoint scripts
+FROM golang:1.25-alpine AS waitforport-builder
+
+RUN apk add --no-cache git
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY go/cmd/tools/waitforport ./go/cmd/tools/waitforport
+RUN CGO_ENABLED=0 GOOS=linux go build -o /wait-for-port ./go/cmd/tools/waitforport
+
+# Multi-stage build for ServiceRadar Log Collector (Rust)
+FROM rust:latest AS builder
+
+# Build from workspace root so workspace dependencies resolve
+WORKDIR /usr/src
+
+# Install dependencies for building (prost-build requires protoc)
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace manifests first
+COPY Cargo.toml ./
+COPY Cargo.lock ./
+
+# Copy workspace members needed for build (cargo resolves the full workspace)
+COPY rust/kvutil ./rust/kvutil
+COPY rust/config-bootstrap ./rust/config-bootstrap
+COPY rust/flowgger ./rust/flowgger
+COPY rust/otel ./rust/otel
+COPY rust/log-collector ./rust/log-collector
+COPY rust/trapd ./rust/trapd
+COPY rust/consumers/zen ./rust/consumers/zen
+COPY rust/edge-onboarding ./rust/edge-onboarding
+COPY rust/bmp-collector ./rust/bmp-collector
+COPY rust/rperf-client ./rust/rperf-client
+COPY rust/flow-collector ./rust/flow-collector
+COPY rust/srql ./rust/srql
+COPY proto ./proto
+
+# Build arguments for version info
+ARG VERSION=dev
+ARG BUILD_ID=docker
+
+# Build unified log collector with all features
+RUN cargo build -p serviceradar-log-collector --release
+
+# Runtime stage - use Ubuntu 24.04 for compatibility across architectures
+FROM ubuntu:24.04
+
+ARG TARGETARCH
+
+# Install runtime dependencies and architecture-appropriate grpcurl binary
+RUN apt-get update && \
+    apt-get install -y \
+        ca-certificates \
+        curl \
+        jq \
+        netcat-openbsd \
+        wget \
+        libssl-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && ARCHIVE_NAME="linux_x86_64" && \
+       if [ "$TARGETARCH" = "arm64" ]; then ARCHIVE_NAME="linux_arm64"; elif [ "$TARGETARCH" = "amd64" ]; then ARCHIVE_NAME="linux_x86_64"; fi && \
+       curl -sSL https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_${ARCHIVE_NAME}.tar.gz \
+        | tar -xz -C /usr/local/bin grpcurl \
+    && chmod +x /usr/local/bin/grpcurl
+
+# Create non-root user
+RUN groupadd -r -g 1001 serviceradar && useradd -r -u 1001 -g serviceradar --create-home --home /var/lib/serviceradar serviceradar
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /etc/serviceradar /var/log/serviceradar && \
+    chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
+
+# Copy binary from builder
+COPY --from=builder /usr/src/target/release/serviceradar-log-collector /usr/local/bin/serviceradar-log-collector
+RUN chmod +x /usr/local/bin/serviceradar-log-collector
+
+COPY --from=waitforport-builder /wait-for-port /usr/local/bin/wait-for-port
+RUN chmod +x /usr/local/bin/wait-for-port
+
+# Copy entrypoint script
+COPY docker/compose/entrypoint-log-collector.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Switch to non-root user
+USER serviceradar
+
+# Set working directory
+WORKDIR /var/lib/serviceradar
+
+# Expose syslog UDP, Flowgger gRPC, and OTEL gRPC ports
+EXPOSE 514/udp
+EXPOSE 4317
+EXPOSE 50044
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["serviceradar-log-collector"]

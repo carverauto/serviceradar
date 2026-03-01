@@ -86,6 +86,10 @@ defmodule ServiceRadar.Observability.LogPromotion do
         returning: false
       )
 
+    if count > 0 do
+      ServiceRadar.Events.PubSub.broadcast_event(%{count: count})
+    end
+
     :telemetry.execute(
       [:serviceradar, :log_promotion, :events_created],
       %{count: count},
@@ -107,23 +111,27 @@ defmodule ServiceRadar.Observability.LogPromotion do
   end
 
   defp rule_matches?(log, %EventRule{match: match}) when is_map(match) do
-    if match["always"] == true do
-      true
-    else
-      subject = ingest_subject(log)
-      attributes = Map.get(log, :attributes) || %{}
-      resource_attributes = Map.get(log, :resource_attributes) || %{}
-
-      match_subject_prefix(subject, match) and
-        match_service_name(log, match) and
-        match_severity(log, match) and
-        match_body(log, match) and
-        match_map(attributes, match["attribute_equals"]) and
-        match_map(resource_attributes, match["resource_attribute_equals"])
-    end
+    match["always"] == true or rule_matches_all?(log, match)
   end
 
   defp rule_matches?(_log, _rule), do: false
+
+  defp rule_matches_all?(log, match) do
+    subject = ingest_subject(log)
+    attributes = Map.get(log, :attributes) || %{}
+    resource_attributes = Map.get(log, :resource_attributes) || %{}
+
+    [
+      match_subject_prefix(subject, match),
+      match_service_name(log, match),
+      match_severity(log, match),
+      match_body(log, match),
+      match_event_type(attributes, match),
+      match_map(attributes, match["attribute_equals"]),
+      match_map(resource_attributes, match["resource_attribute_equals"])
+    ]
+    |> Enum.all?()
+  end
 
   defp match_subject_prefix(_subject, match) when map_size(match) == 0, do: false
 
@@ -188,6 +196,23 @@ defmodule ServiceRadar.Observability.LogPromotion do
     end
   end
 
+  defp match_event_type(attributes, match) do
+    case match["event_type"] do
+      nil ->
+        true
+
+      expected ->
+        actual =
+          get_nested_value(attributes, "event_type") ||
+            get_nested_value(attributes, "event.type") ||
+            Map.get(attributes, "event_type") ||
+            Map.get(attributes, :event_type) ||
+            Map.get(attributes, "event.type")
+
+        match_value(actual, expected)
+    end
+  end
+
   defp match_map(_source, nil), do: true
   defp match_map(_source, %{} = match) when map_size(match) == 0, do: true
 
@@ -235,7 +260,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
     status_id = event_status_id(event_overrides)
 
     %{
-      id: UUID.uuid4(),
+      id: Ecto.UUID.bingenerate(),
       time: log_time,
       class_uid: class_uid,
       category_uid: category_uid,

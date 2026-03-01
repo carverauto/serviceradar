@@ -1,6 +1,8 @@
-## ADDED Requirements
-### Requirement: Edge components do not depend on KV configuration
-Edge agents and embedded checkers SHALL obtain dynamic configuration via gRPC from the control plane, and collectors SHALL read configuration from local filesystem files (config.json/yaml). These components MUST NOT require KV availability for startup or runtime configuration refresh.
+## MODIFIED Requirements
+### Requirement: No KV-backed service configuration
+ServiceRadar components MUST NOT depend on NATS KV (nats-kv) or any KV-backed configuration distribution mechanism for startup, runtime configuration, or secrets. Agents SHALL obtain dynamic configuration via gRPC from the control plane, and collectors SHALL read configuration from local filesystem files (JSON/YAML) or from agent-delivered config when embedded.
+
+Zen and core-elx MAY use datasvc internally for rule synchronization, but operators MUST NOT be required to manage rules via direct KV manipulation as part of normal operation.
 
 #### Scenario: Agent starts without KV access
 - **GIVEN** an agent with no KV endpoint configured
@@ -12,14 +14,9 @@ Edge agents and embedded checkers SHALL obtain dynamic configuration via gRPC fr
 - **GIVEN** a collector with `config.json` on disk
 - **WHEN** it starts
 - **THEN** it loads configuration from the filesystem
-- **AND** does not attempt to watch or seed KV
+- **AND** it does not attempt KV reads/watches
 
-## MODIFIED Requirements
-### Requirement: Docker Compose KV bootstrap
-Docker Compose deployments SHALL start KV-managed platform services with KV-backed configuration enabled so defaults are seeded into datasvc and watcher telemetry is published on first boot. Edge agents, checkers, and filesystem-configured collectors SHALL NOT be required to seed KV during Compose startup.
-
-#### Scenario: Compose seeds KV on first boot
-- **GIVEN** the Docker Compose stack starts against an empty `serviceradar-datasvc` bucket
-- **WHEN** core, gateway, datasvc, and other KV-managed platform services initialize
-- **THEN** each service writes its default config to its KV key without overwriting existing values
-- **AND** watcher snapshots appear under `watchers/<service>/<instance>.json` so the Settings → Watcher Telemetry UI lists those compose services
+#### Scenario: Rules do not require manual KV operations
+- **GIVEN** an operator updates normalization rules or alert rules in the UI/API
+- **WHEN** the platform persists and distributes the update
+- **THEN** zen receives updated rule state without requiring the operator to write KV keys directly

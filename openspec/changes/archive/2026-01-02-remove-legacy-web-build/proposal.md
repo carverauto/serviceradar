@@ -10,4 +10,4 @@ The legacy `serviceradar-web` Next.js app is no longer used, but it is still bui
 
 ## Impact
 - Affected specs: build-web-ui
-- Affected code: `web/BUILD.bazel`, `docker/images/**`, `packaging/**`, `docker-compose*.yml`, `helm/serviceradar/**`, `k8s/**`, `docs/**`
+- Affected code: `web/BUILD.bazel`, `docker/images/**`, `build/packaging/**`, `docker-compose*.yml`, `helm/serviceradar/**`, `k8s/**`, `docs/**`

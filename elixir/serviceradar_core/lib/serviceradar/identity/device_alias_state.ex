@@ -62,6 +62,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     define :create_detected, action: :detect
     define :record_sighting, action: :record_sighting
     define :confirm, action: :confirm
+    define :confirm_from_sweep, action: :confirm_from_sweep
     define :mark_stale, action: :mark_stale
     define :replace_alias, action: :replace, args: [:replaced_by_id]
     define :archive, action: :archive
@@ -142,6 +143,31 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
 
       change transition_state(:confirmed)
       change set_attribute(:last_seen_at, &DateTime.utc_now/0)
+    end
+
+    update :confirm_from_sweep do
+      description "Promote detected alias to confirmed via sweep match (bypass threshold)"
+      # Non-atomic due to metadata merge function
+      require_atomic? false
+      accept [:metadata]
+
+      change transition_state(:confirmed)
+      change set_attribute(:last_seen_at, &DateTime.utc_now/0)
+
+      change fn changeset, _context ->
+        current_count = Ash.Changeset.get_attribute(changeset, :sighting_count) || 0
+        existing_metadata = Ash.Changeset.get_attribute(changeset, :metadata) || %{}
+        new_metadata = Ash.Changeset.get_argument(changeset, :metadata) || %{}
+
+        merged =
+          Map.merge(existing_metadata, new_metadata)
+          |> Map.put("confirmed_by", "sweep_match")
+          |> Map.put("confirmed_at", DateTime.to_iso8601(DateTime.utc_now()))
+
+        changeset
+        |> Ash.Changeset.change_attribute(:sighting_count, current_count + 1)
+        |> Ash.Changeset.change_attribute(:metadata, merged)
+      end
     end
 
     update :update_metadata do

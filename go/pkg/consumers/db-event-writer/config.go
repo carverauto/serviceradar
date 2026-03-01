@@ -1,0 +1,125 @@
+package dbeventwriter
+
+import (
+	"errors"
+	"strings"
+
+	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/models"
+)
+
+var (
+	ErrMissingListenAddr     = errors.New("listen_addr is required")
+	ErrMissingNATSURL        = errors.New("nats_url is required")
+	ErrMissingNATSCredsFile  = errors.New("nats_creds_file is required for NATS JWT auth")
+	ErrMissingStreamName     = errors.New("stream_name is required")
+	ErrMissingConsumerName   = errors.New("consumer_name is required")
+	ErrMissingTableName      = errors.New("table is required")
+	ErrMissingCNPGConfig     = errors.New("cnpg configuration is required")
+	ErrInvalidJSON           = errors.New("failed to unmarshal JSON configuration")
+	ErrStreamSubjectRequired = errors.New("stream subject is required")
+	ErrStreamTableRequired   = errors.New("stream table is required")
+)
+
+// StreamConfig holds configuration for a specific stream/table pair
+type StreamConfig struct {
+	Subject string `json:"subject"`
+	Table   string `json:"table"`
+}
+
+// DBEventWriterConfig holds configuration for the DB event writer consumer.
+// In single-instance-per-deployment architecture, each deployment is isolated.
+// CNPG credentials set the search_path for schema isolation.
+type DBEventWriterConfig struct {
+	ListenAddr    string                 `json:"listen_addr"`
+	NATSURL       string                 `json:"nats_url" hot:"rebuild"`
+	NATSCredsFile string                 `json:"nats_creds_file,omitempty" hot:"rebuild"`
+	Subject       string                 `json:"subject"` // Legacy field for backward compatibility
+	StreamName    string                 `json:"stream_name" hot:"rebuild"`
+	ConsumerName  string                 `json:"consumer_name" hot:"rebuild"`
+	Domain        string                 `json:"domain" hot:"rebuild"`
+	Table         string                 `json:"table"`                 // Legacy field for backward compatibility
+	Streams       []StreamConfig         `json:"streams" hot:"rebuild"` // New multi-stream configuration
+	Security      *models.SecurityConfig `json:"security" hot:"rebuild"`
+	NATSSecurity  *models.SecurityConfig `json:"nats_security"`
+	CNPG          *models.CNPGDatabase   `json:"cnpg"`
+	Logging       *logger.Config         `json:"logging"` // Logger configuration including OTEL settings
+}
+
+// Validate checks the configuration for required fields.
+func (c *DBEventWriterConfig) Validate() error {
+	var errs []error
+
+	if c.ListenAddr == "" {
+		errs = append(errs, ErrMissingListenAddr)
+	}
+
+	if c.NATSURL == "" {
+		errs = append(errs, ErrMissingNATSURL)
+	}
+
+	// NATSCredsFile is only required when using JWT auth, not mTLS
+	if strings.TrimSpace(c.NATSCredsFile) == "" && !c.usesMTLSForNATS() {
+		errs = append(errs, ErrMissingNATSCredsFile)
+	}
+
+	if c.StreamName == "" {
+		errs = append(errs, ErrMissingStreamName)
+	}
+
+	if c.ConsumerName == "" {
+		errs = append(errs, ErrMissingConsumerName)
+	}
+
+	// Check if using legacy single stream config or new multi-stream config
+	if len(c.Streams) > 0 {
+		// New multi-stream configuration
+		for _, stream := range c.Streams {
+			if stream.Subject == "" {
+				errs = append(errs, ErrStreamSubjectRequired)
+			}
+
+			if stream.Table == "" {
+				errs = append(errs, ErrStreamTableRequired)
+			}
+		}
+	} else if c.Table == "" {
+		// Legacy single stream configuration
+		errs = append(errs, ErrMissingTableName)
+	}
+
+	if c.CNPG == nil ||
+		strings.TrimSpace(c.CNPG.Host) == "" ||
+		strings.TrimSpace(c.CNPG.Username) == "" ||
+		strings.TrimSpace(c.CNPG.Database) == "" {
+		errs = append(errs, ErrMissingCNPGConfig)
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
+}
+
+// usesMTLSForNATS returns true if the configuration uses mTLS for NATS instead of JWT auth
+func (c *DBEventWriterConfig) usesMTLSForNATS() bool {
+	return c.NATSSecurity != nil && c.NATSSecurity.Mode == models.SecurityModeMTLS
+}
+
+// GetStreams returns the stream configurations, handling both legacy and new formats
+func (c *DBEventWriterConfig) GetStreams() []StreamConfig {
+	if len(c.Streams) > 0 {
+		return c.Streams
+	}
+
+	// Legacy configuration - create single stream from legacy fields
+	if c.Subject != "" && c.Table != "" {
+		return []StreamConfig{{
+			Subject: c.Subject,
+			Table:   c.Table,
+		}}
+	}
+
+	return nil
+}

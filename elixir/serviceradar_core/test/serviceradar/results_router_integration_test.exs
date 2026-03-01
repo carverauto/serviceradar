@@ -68,7 +68,7 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
     assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
 
     assert {:ok, device} =
-             Device.get_by_uid(expected_id, actor: actor)
+             Device.get_by_uid(expected_id, false, actor: actor)
 
     assert device.ip == ip
     assert device.hostname == "edge-#{ip_octet}"

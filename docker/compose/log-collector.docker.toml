@@ -1,0 +1,14 @@
+# ServiceRadar Unified Log Collector — Docker Deployment
+# This config enables both syslog (Flowgger) and OTEL collectors,
+# pointing to their respective native config files.
+
+[flowgger]
+enabled = true
+config_file = "/etc/serviceradar/flowgger.toml"
+
+[otel]
+enabled = true
+config_file = "/etc/serviceradar/otel.toml"
+
+[health]
+listen_addr = "0.0.0.0:50044"
