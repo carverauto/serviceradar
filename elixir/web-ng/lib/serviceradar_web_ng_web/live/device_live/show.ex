@@ -835,8 +835,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     src_port dst_port
   )
 
-  def handle_event("topn_filter", %{"field" => field, "value" => value, "device-uid" => uid}, socket)
-      when field in @allowed_flow_filter_fields and uid == socket.assigns.device_uid do
+  def handle_event("topn_filter", %{"field" => field, "value" => value}, socket)
+      when field in @allowed_flow_filter_fields do
+    uid = socket.assigns.device_uid
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
     query = "in:flows device_id:\"#{escape_value(uid)}\" #{field}:\"#{escape_value(value)}\" time:last_24h sort:time:desc"
@@ -854,8 +855,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           {[], %{}, "Failed to load filtered flows"}
       end
 
+    srql = socket.assigns.srql |> Map.put(:query, query) |> Map.put(:draft, query)
+
     {:noreply,
      socket
+     |> assign(:srql, srql)
      |> assign(:device_flows, flows)
      |> assign(:flows_pagination, pagination)
      |> assign(:flows_error, flows_error)
@@ -872,8 +876,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     {flows, pagination, flows_error} = load_flows(srql_mod, uid, scope, nil)
 
+    default_query = default_flows_query(uid)
+    srql = socket.assigns.srql |> Map.put(:query, default_query) |> Map.put(:draft, default_query)
+
     {:noreply,
      socket
+     |> assign(:srql, srql)
      |> assign(:flow_active_topn, nil)
      |> assign(:device_flows, flows)
      |> assign(:flows_pagination, pagination)
@@ -881,8 +889,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> enrich_flow_ips()}
   end
 
-  def handle_event("facet_toggle", %{"field" => field, "value" => value, "device-uid" => uid}, socket)
-      when field in @allowed_flow_filter_fields and uid == socket.assigns.device_uid do
+  def handle_event("facet_toggle", %{"field" => field, "value" => value}, socket)
+      when field in @allowed_flow_filter_fields do
+    uid = socket.assigns.device_uid
     active = socket.assigns.flow_active_facets
 
     # Toggle: if same facet+value is active, remove it; otherwise set it
@@ -3307,7 +3316,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           class="w-full"
           style="height: 220px"
           phx-hook="NetflowStackedAreaChart"
-          data-units="Bps"
+          data-units="bytes"
           data-keys={@flow_chart_keys_json}
           data-points={@flow_chart_points_json}
           data-colors={Jason.encode!(%{})}
@@ -3329,7 +3338,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           icon="hero-user-group"
           items_json={@top_talkers_json}
           filter_field="src_endpoint_ip"
-          device_uid={@device_uid}
         />
         <.top_n_widget
           :if={@top_destinations_json != "[]"}
@@ -3337,7 +3345,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           icon="hero-server-stack"
           items_json={@top_destinations_json}
           filter_field="dst_endpoint_ip"
-          device_uid={@device_uid}
         />
         <.top_n_widget
           :if={@top_ports_json != "[]"}
@@ -3345,7 +3352,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           icon="hero-hashtag"
           items_json={@top_ports_json}
           filter_field="dst_endpoint_port"
-          device_uid={@device_uid}
         />
       </div>
 
@@ -3382,7 +3388,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             field="protocol_name"
             items={@facets.protocols}
             active_facets={@active_facets}
-            device_uid={@device_uid}
           />
           <.facet_group
             :if={@facets.directions != []}
@@ -3390,7 +3395,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             field="direction_label"
             items={@facets.directions}
             active_facets={@active_facets}
-            device_uid={@device_uid}
           />
           <.facet_group
             :if={@facets.services != []}
@@ -3398,7 +3402,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             field="dst_service_label"
             items={@facets.services}
             active_facets={@active_facets}
-            device_uid={@device_uid}
           />
         </div>
       </div>
@@ -3565,7 +3568,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr :icon, :string, required: true
   attr :items_json, :string, required: true
   attr :filter_field, :string, required: true
-  attr :device_uid, :string, required: true
 
   defp top_n_widget(assigns) do
     items =
@@ -3599,7 +3601,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           phx-click="topn_filter"
           phx-value-field={@filter_field}
           phx-value-value={item["label"]}
-          phx-value-device-uid={@device_uid}
         >
           <div class="flex items-center justify-between text-xs">
             <span class="font-mono truncate max-w-[60%] group-hover:text-primary transition-colors">
@@ -3628,7 +3629,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr :field, :string, required: true
   attr :items, :list, required: true
   attr :active_facets, :map, required: true
-  attr :device_uid, :string, required: true
 
   defp facet_group(assigns) do
     active_value = Map.get(assigns.active_facets, assigns.field)
@@ -3643,7 +3643,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         phx-click="facet_toggle"
         phx-value-field={@field}
         phx-value-value={item.label}
-        phx-value-device-uid={@device_uid}
         class={[
           "badge badge-sm cursor-pointer transition-colors",
           if(@active_value == item.label,
@@ -3705,8 +3704,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr :flow, :map, required: true
 
   defp flow_interface_path(assigns) do
-    in_if = Map.get(assigns.flow, "in_if_name")
-    out_if = Map.get(assigns.flow, "out_if_name")
+    conn_info = get_in(assigns.flow, ["ocsf_payload", "connection_info"]) || %{}
+    in_snmp = conn_info["input_snmp"]
+    out_snmp = conn_info["output_snmp"]
+
+    in_if = Map.get(assigns.flow, "in_if_name") || snmp_id_label(in_snmp)
+    out_if = Map.get(assigns.flow, "out_if_name") || snmp_id_label(out_snmp)
     assigns = assign(assigns, in_if: in_if, out_if: out_if)
 
     ~H"""
@@ -3718,6 +3721,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     <span :if={!@in_if && !@out_if} class="text-base-content/30">—</span>
     """
   end
+
+  defp snmp_id_label(nil), do: nil
+  defp snmp_id_label(id) when is_integer(id), do: "if#{id}"
+  defp snmp_id_label(id) when is_binary(id) and id != "", do: "if#{id}"
+  defp snmp_id_label(_), do: nil
 
   defp flow_endpoint(flow, :src), do: Map.get(flow, "src_endpoint_ip") || "—"
   defp flow_endpoint(flow, :dst), do: Map.get(flow, "dst_endpoint_ip") || "—"

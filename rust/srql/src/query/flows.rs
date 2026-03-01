@@ -1485,7 +1485,10 @@ fn build_grouped_stats_query(
     }
 
     // For CAGG-routed count(*), rewrite to SUM(flow_count)
-    let agg_sql = if cagg_route.is_some() && matches!(spec.agg_func, FlowAggFunc::Count) {
+    let agg_sql = if cagg_route.is_some()
+        && matches!(spec.agg_func, FlowAggFunc::Count)
+        && matches!(spec.agg_field, FlowAggField::Star)
+    {
         "SUM(flow_count)".to_string()
     } else if matches!(spec.agg_func, FlowAggFunc::CountDistinct) {
         if matches!(spec.agg_field, FlowAggField::Star) {

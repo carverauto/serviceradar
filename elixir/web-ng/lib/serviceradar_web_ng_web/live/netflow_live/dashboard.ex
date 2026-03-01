@@ -83,9 +83,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       qs = URI.encode_query(params)
       {:noreply, push_navigate(socket, to: "/flows/visualize?#{qs}", replace: true)}
     else
-      tw = Map.get(params, "tw", socket.assigns.time_window)
-      um = Map.get(params, "unit", socket.assigns.unit_mode)
-      mm = Map.get(params, "metric", socket.assigns.metric_mode)
+      tw = validate_param(Map.get(params, "tw"), @time_windows, socket.assigns.time_window)
+      um = validate_param(Map.get(params, "unit"), @unit_modes, socket.assigns.unit_mode)
+      mm = validate_param(Map.get(params, "metric"), @metric_modes, socket.assigns.metric_mode)
 
       socket =
         socket
@@ -112,43 +112,57 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   def handle_event("drill_down_talker", %{"row-idx" => idx}, socket) do
-    row = Enum.at(socket.assigns.top_talkers, String.to_integer(idx))
-    if row, do: {:noreply, drill_down(socket, "src_ip:#{srql_quote(row.ip)}")}, else: {:noreply, socket}
+    with {:ok, i} <- safe_parse_int(idx),
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_talkers, i) do
+      {:noreply, drill_down(socket, "src_ip:#{srql_quote(row.ip)}")}
+    else
+      _ -> {:noreply, socket}
+    end
   end
 
   def handle_event("drill_down_listener", %{"row-idx" => idx}, socket) do
-    row = Enum.at(socket.assigns.top_listeners, String.to_integer(idx))
-    if row, do: {:noreply, drill_down(socket, "dst_ip:#{srql_quote(row.ip)}")}, else: {:noreply, socket}
+    with {:ok, i} <- safe_parse_int(idx),
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_listeners, i) do
+      {:noreply, drill_down(socket, "dst_ip:#{srql_quote(row.ip)}")}
+    else
+      _ -> {:noreply, socket}
+    end
   end
 
   def handle_event("drill_down_conversation", %{"row-idx" => idx}, socket) do
-    row = Enum.at(socket.assigns.top_conversations, String.to_integer(idx))
-
-    if row do
+    with {:ok, i} <- safe_parse_int(idx),
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_conversations, i) do
       {:noreply, drill_down(socket, "src_ip:#{srql_quote(row.src_ip)} dst_ip:#{srql_quote(row.dst_ip)}")}
     else
-      {:noreply, socket}
+      _ -> {:noreply, socket}
     end
   end
 
   def handle_event("drill_down_app", %{"row-idx" => idx}, socket) do
-    row = Enum.at(socket.assigns.top_apps, String.to_integer(idx))
-    if row, do: {:noreply, drill_down(socket, "app:#{srql_quote(row.app)}")}, else: {:noreply, socket}
+    with {:ok, i} <- safe_parse_int(idx),
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_apps, i) do
+      {:noreply, drill_down(socket, "app:#{srql_quote(row.app)}")}
+    else
+      _ -> {:noreply, socket}
+    end
   end
 
   def handle_event("drill_down_protocol", %{"row-idx" => idx}, socket) do
-    row = Enum.at(socket.assigns.top_protocols, String.to_integer(idx))
-
-    if row do
+    with {:ok, i} <- safe_parse_int(idx),
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_protocols, i) do
       {:noreply, drill_down(socket, "protocol_name:#{srql_quote(row.protocol)}")}
     else
-      {:noreply, socket}
+      _ -> {:noreply, socket}
     end
   end
 
   def handle_event("drill_down_port", %{"row-idx" => idx}, socket) do
-    row = Enum.at(socket.assigns.top_ports, String.to_integer(idx))
-    if row, do: {:noreply, drill_down(socket, "dst_endpoint_port:#{row.port}")}, else: {:noreply, socket}
+    with {:ok, i} <- safe_parse_int(idx),
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_ports, i) do
+      {:noreply, drill_down(socket, "dst_endpoint_port:#{row.port}")}
+    else
+      _ -> {:noreply, socket}
+    end
   end
 
   def handle_event("select_interface", %{"sampler" => ""}, socket) do
@@ -646,13 +660,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   defp load_interface_timeseries(socket, sampler) do
     tw = socket.assigns.time_window
+    um = socket.assigns.unit_mode
     scope = Map.get(socket.assigns, :current_scope)
     srql_mod = srql_module()
     bucket = timeseries_bucket(tw)
+    bucket_secs = bucket_seconds(bucket)
     base = "in:flows time:last_#{tw} sampler_address:#{srql_quote(sampler)}"
 
     {in_field, out_field} =
-      if socket.assigns.unit_mode == "pps",
+      if um == "pps",
         do: {"packets_in", "packets_out"},
         else: {"bytes_in", "bytes_out"}
 
@@ -665,13 +681,20 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     ingress = Map.get(results, :ingress, [])
     egress = Map.get(results, :egress, [])
 
+    # Convert per-bucket sums to per-second rates.
+    # For "bps" mode, also multiply by 8 to convert bytes → bits
+    # (nfFormatRateValue expects bits for "bps", bytes for "Bps", packets for "pps").
+    rate_factor = if(um == "bps", do: 8, else: 1) / max(bucket_secs, 1)
+
+    to_rate = fn v -> Float.round(v * rate_factor, 2) end
+
     # Merge into stacked-area chart format: [{t, ingress, egress}, ...]
-    egress_map = Map.new(egress, fn %{t: t, v: v} -> {t, v} end)
+    egress_map = Map.new(egress, fn %{t: t, v: v} -> {t, to_rate.(v)} end)
 
     points =
       ingress
       |> Enum.map(fn %{t: t, v: v} ->
-        %{"t" => t, "ingress" => v, "egress" => Map.get(egress_map, t, 0)}
+        %{"t" => t, "ingress" => to_rate.(v), "egress" => Map.get(egress_map, t, 0)}
       end)
       |> Jason.encode!()
 
@@ -687,10 +710,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
-        Enum.map(results, fn %{"payload" => p} ->
+        Enum.map(results, fn row ->
           %{
-            t: get_field(p, "bucket") || get_field(p, "time_bucket"),
-            v: to_number(get_field(p, value_field))
+            t: row["timestamp"] || row["bucket"] || row["time_bucket"],
+            v: to_number(row["value"] || row[value_field] || 0)
           }
         end)
 
@@ -727,10 +750,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
-        Enum.map(results, fn %{"payload" => p} ->
+        Enum.map(results, fn row ->
           %{
-            t: get_field(p, "bucket") || get_field(p, "time_bucket"),
-            v: to_number(get_field(p, "bytes_total"))
+            t: row["timestamp"] || row["bucket"] || row["time_bucket"],
+            v: to_number(row["value"] || row["bytes_total"] || 0)
           }
         end)
 
@@ -905,11 +928,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
-        Enum.map(results, fn %{"payload" => p} ->
-          count = to_number(get_field(p, "count") || get_field(p, "flow_count") || 0)
+        Enum.map(results, fn row ->
+          count = to_number(row["value"] || row["count"] || row["flow_count"] || 0)
 
           %{
-            t: get_field(p, "bucket") || get_field(p, "time_bucket"),
+            t: row["timestamp"] || row["bucket"] || row["time_bucket"],
             v: if(bucket_secs > 0, do: Float.round(count / bucket_secs, 2), else: count)
           }
         end)
@@ -934,6 +957,23 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       _ ->
         []
     end
+  end
+
+  defp safe_parse_int(val) when is_integer(val), do: {:ok, val}
+
+  defp safe_parse_int(val) when is_binary(val) do
+    case Integer.parse(val) do
+      {i, ""} -> {:ok, i}
+      _ -> :error
+    end
+  end
+
+  defp safe_parse_int(_), do: :error
+
+  defp validate_param(nil, _allowed, default), do: default
+
+  defp validate_param(value, allowed, default) do
+    if Enum.any?(allowed, fn {k, _} -> k == value end), do: value, else: default
   end
 
   defp bucket_seconds("1m"), do: 60
