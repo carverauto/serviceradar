@@ -17,9 +17,13 @@
 //! Integration tests for edge_onboarding crate.
 
 use edge_onboarding::{
-    try_onboard, ComponentType, DeploymentType, MtlsBootstrapConfig, OnboardingResult,
-    SecurityConfig, SecurityMode,
+    try_onboard, DeploymentType,
 };
+use edge_onboarding::types::component_type::ComponentType;
+use edge_onboarding::types::mtls_bootstrap_config::MtlsBootstrapConfig;
+use edge_onboarding::types::onboarding_result::OnboardingResult;
+use edge_onboarding::types::config_types::security_config::SecurityConfig;
+use edge_onboarding::types::security_mode::SecurityMode;
 
 #[test]
 fn test_component_type_as_str() {

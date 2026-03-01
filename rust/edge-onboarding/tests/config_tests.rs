@@ -17,8 +17,10 @@
 //! Tests for configuration generation.
 
 use edge_onboarding::{
-    generate_checker_config, DeploymentType, PackageResponse, SecurityConfig, SecurityMode,
+    generate_checker_config, DeploymentType, PackageResponse,
 };
+use edge_onboarding::types::config_types::security_config::SecurityConfig;
+use edge_onboarding::types::security_mode::SecurityMode;
 
 #[test]
 fn test_generate_checker_config_defaults() {

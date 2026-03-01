@@ -41,96 +41,30 @@
 //! }
 //! ```
 
-mod bundle;
-mod config;
-mod deployment;
-mod download;
-mod error;
-mod token;
+pub use types::bundle::{install_mtls_bundle, load_bundle_from_path, MtlsBundle};
+pub use types::config_generator::generate_checker_config;
+pub use types::deployment::{detect_deployment, DeploymentType};
+pub use types::download::{download_package, PackageResponse};
+pub use errors::{Error, Result};
+pub use types::token::{encode_token, parse_token, TokenPayload};
 
-pub use bundle::{install_mtls_bundle, load_bundle_from_path, MtlsBundle};
-pub use config::{
-    generate_checker_config, CheckerConfig, FilesystemConfig, SecurityConfig, SecurityMode,
-};
-pub use deployment::{detect_deployment, DeploymentType};
-pub use download::{download_package, PackageResponse};
-pub use error::{Error, Result};
-pub use token::{encode_token, parse_token, TokenPayload};
+pub mod errors;
+pub mod types;
+pub mod traits;
+
+pub use types::config_types::checker_config::CheckerConfig;
+
 
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-
-/// Component type for edge onboarding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ComponentType {
-    Gateway,
-    Agent,
-    Checker,
-    Sync,
-}
-
-impl ComponentType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ComponentType::Gateway => "gateway",
-            ComponentType::Agent => "agent",
-            ComponentType::Checker => "checker",
-            ComponentType::Sync => "sync",
-        }
-    }
-
-    pub fn config_filename(&self) -> &'static str {
-        match self {
-            ComponentType::Gateway => "gateway.json",
-            ComponentType::Agent => "agent.json",
-            ComponentType::Checker => "checker.json",
-            ComponentType::Sync => "sync.json",
-        }
-    }
-}
-
-/// Result of successful edge onboarding.
-#[derive(Debug)]
-pub struct OnboardingResult {
-    /// Path to the generated configuration file.
-    pub config_path: String,
-
-    /// Raw configuration data.
-    pub config_data: Vec<u8>,
-
-    /// Assigned SPIFFE ID (if using SPIRE).
-    pub spiffe_id: Option<String>,
-
-    /// Package ID from the onboarding token.
-    pub package_id: String,
-
-    /// Deployment type detected.
-    pub deployment_type: DeploymentType,
-
-    /// Directory where certificates are installed.
-    pub cert_dir: String,
-}
-
-/// Configuration for mTLS bootstrap.
-#[derive(Debug, Clone)]
-pub struct MtlsBootstrapConfig {
-    /// The edgepkg-v1 token containing package ID and download token.
-    pub token: String,
-
-    /// Core API host for mTLS bundle download (e.g., http://core:8090).
-    /// Used as fallback if the token doesn't contain an API URL.
-    pub host: Option<String>,
-
-    /// Optional path to a pre-fetched mTLS bundle.
-    pub bundle_path: Option<String>,
-
-    /// Directory to write mTLS certificates. Defaults to /etc/serviceradar/certs.
-    pub cert_dir: Option<String>,
-
-    /// Service name (used for cert file naming). Defaults to "sysmon".
-    pub service_name: Option<String>,
-}
+use types::{bundle, config_types};
+pub use types::component_type::ComponentType;
+pub use types::mtls_bootstrap_config::MtlsBootstrapConfig;
+pub use types::onboarding_result::OnboardingResult;
+pub use types::config_types::security_config::SecurityConfig;
+pub use types::config_types::filesystem_config::FilesystemConfig;
+pub use types::security_mode::SecurityMode;
 
 /// Try to perform edge onboarding based on environment variables.
 ///
@@ -334,7 +268,7 @@ fn generate_checker_config_mtls(
         listen_addr: "0.0.0.0:50083".to_string(),
         security: Some(security.clone()),
         poll_interval: 30,
-        filesystems: vec![config::FilesystemConfig {
+        filesystems: vec![config_types::filesystem_config::FilesystemConfig {
             name: "/".to_string(),
             fs_type: "ext4".to_string(),
             monitor: true,

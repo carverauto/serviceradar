@@ -23,8 +23,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::path::PathBuf;
 
-use crate::config::SecurityConfig;
-use crate::error::{Error, Result};
+use crate::types::config_types::security_config::SecurityConfig;
+use crate::errors::{Error, Result};
+use crate::SecurityMode;
 
 #[cfg(unix)]
 fn maybe_chown_cert_files(paths: &[PathBuf]) -> Result<()> {
@@ -146,7 +147,7 @@ pub fn install_mtls_bundle(
     );
 
     Ok(SecurityConfig {
-        mode: Some(crate::config::SecurityMode::Mtls),
+        mode: Some(SecurityMode::Mtls),
         tls_enabled: Some(true),
         cert_dir: Some(cert_dir.display().to_string()),
         cert_file: Some(cert_filename),
