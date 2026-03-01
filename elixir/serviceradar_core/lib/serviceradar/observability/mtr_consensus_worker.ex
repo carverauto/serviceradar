@@ -255,14 +255,35 @@ defmodule ServiceRadar.Observability.MtrConsensusWorker do
 
   defp hop_avg_rtt_ms(hop) do
     case {hop["avg_rtt_ms"], hop["avg_rtt_us"]} do
-      {ms, _us} when is_number(ms) -> to_float(ms, 0.0)
-      {_ms, us} when is_number(us) -> to_float(us, 0.0) / 1000.0
+      {ms, _us} when not is_nil(ms) -> to_float(ms, 0.0)
+      {_ms, us} when not is_nil(us) -> to_float(us, 0.0) / 1000.0
       _ -> 0.0
     end
   end
 
   defp to_float(value, _default) when is_float(value), do: value
   defp to_float(value, _default) when is_integer(value), do: value / 1.0
+
+  defp to_float(value, default) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      value == "" ->
+        default
+
+      match?({_, ""}, Float.parse(value)) ->
+        {parsed, ""} = Float.parse(value)
+        parsed
+
+      match?({_, ""}, Integer.parse(value)) ->
+        {parsed, ""} = Integer.parse(value)
+        parsed / 1.0
+
+      true ->
+        default
+    end
+  end
+
   defp to_float(_value, default), do: default
 
   defp get(map, keys) when is_map(map) and is_list(keys),

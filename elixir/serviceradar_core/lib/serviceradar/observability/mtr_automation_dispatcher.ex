@@ -662,7 +662,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
           partition_id: partition_id
         )
 
-        {:error, {:dispatch_window_write_failed, reason}}
+        {:ok, {:dispatched, :window_persist_failed}}
     end
   end
 
@@ -803,10 +803,18 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     |> blank_to_nil()
   end
 
-  defp selector_value(map, key) when is_map(map) do
+  defp selector_value(map, key) when is_map(map) and is_binary(key) do
     case Map.fetch(map, key) do
-      {:ok, value} -> value
-      :error -> map_get_existing_atom_key(map, key)
+      {:ok, value} ->
+        value
+
+      :error ->
+        Enum.find_value(map, fn
+          {k, v} when is_atom(k) ->
+            if Atom.to_string(k) == key, do: v, else: nil
+
+          _ -> nil
+        end)
     end
   end
 

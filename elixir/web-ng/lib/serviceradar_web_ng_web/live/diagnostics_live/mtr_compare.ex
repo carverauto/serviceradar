@@ -39,7 +39,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     if a != "" and b != "" and a != b do
       {:noreply, push_patch(socket, to: ~p"/diagnostics/mtr/compare?a=#{a}&b=#{b}")}
     else
-      {:noreply, assign(socket, :error, "Select two different traces to compare")}
+      {:noreply,
+       socket
+       |> assign(:error, "Select two different traces to compare")
+       |> assign(:trace_a, nil)
+       |> assign(:trace_b, nil)
+       |> assign(:hops_a, [])
+       |> assign(:hops_b, [])
+       |> assign(:diff, [])}
     end
   end
 

@@ -785,41 +785,50 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   defp count_target_devices(_scope, ""), do: nil
 
   defp count_target_devices(scope, target_query) when is_binary(target_query) do
-    case normalize_target_query(target_query) do
-      nil ->
-        nil
-
-      normalized ->
-        srql_module = srql_module()
-        has_stats? = Regex.match?(~r/(^|\s)stats:/i, normalized)
-
-        full_query =
-          if has_stats? do
-            "#{normalized} limit:1"
-          else
-            "#{normalized} stats:\"count() as total\" limit:1"
-          end
-
-        case srql_module.query(full_query, %{scope: scope}) do
-          {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) ->
-            count
-
-          {:ok, %{"results" => [%{"total" => count} | _]}} when is_float(count) ->
-            trunc(count)
-
-          {:ok, %{"results" => [%{"total" => count} | _]}} when is_binary(count) ->
-            case Integer.parse(count) do
-              {parsed, ""} -> parsed
-              _ -> nil
-            end
-
-          _ ->
-            nil
-        end
+    with normalized when is_binary(normalized) <- normalize_target_query(target_query),
+         full_query <- build_count_query(normalized),
+         {:ok, %{"results" => [%{"total" => count} | _]}} <-
+           srql_module().query(full_query, %{scope: scope}) do
+      extract_total_count(count)
+    else
+      _ -> nil
     end
   rescue
     _ -> nil
   end
+
+  defp build_count_query(normalized) when is_binary(normalized) do
+    has_stats? = Regex.match?(~r/(^|\s)stats:/i, normalized)
+    has_limit? = Regex.match?(~r/(^|\s)limit:/i, normalized)
+
+    normalized
+    |> then(fn q ->
+      if has_stats? do
+        q
+      else
+        "#{q} stats:\"count() as total\""
+      end
+    end)
+    |> then(fn q ->
+      if has_limit? do
+        q
+      else
+        "#{q} limit:1"
+      end
+    end)
+  end
+
+  defp extract_total_count(count) when is_integer(count), do: count
+  defp extract_total_count(count) when is_float(count), do: trunc(count)
+
+  defp extract_total_count(count) when is_binary(count) do
+    case Integer.parse(count) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp extract_total_count(_count), do: nil
 
   defp resolve_target_device_uids(_scope, nil, _limit), do: []
   defp resolve_target_device_uids(_scope, "", _limit), do: []

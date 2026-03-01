@@ -187,11 +187,17 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   end
 
   @impl true
-  def handle_info({:command_result, %{command_type: "mtr.run"}}, socket) do
-    {:noreply,
-     socket
-     |> assign(:mtr_running, false)
-     |> schedule_refresh()}
+  def handle_info({:command_result, %{command_type: "mtr.run"} = msg}, socket) do
+    command_id = Map.get(msg, :command_id) || Map.get(msg, "command_id")
+
+    if active_mtr_command?(socket, command_id) do
+      {:noreply,
+       socket
+       |> assign(:mtr_running, false)
+       |> schedule_refresh()}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:mtr_trace_ingested, _event}, socket) do
@@ -215,6 +221,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   def handle_info({:command_ack, _}, socket), do: {:noreply, socket}
   def handle_info({:command_progress, _}, socket), do: {:noreply, socket}
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  defp active_mtr_command?(socket, command_id)
+       when is_binary(command_id) and command_id != "" do
+    current_command_id = socket.assigns[:mtr_command_id]
+    is_binary(current_command_id) and current_command_id == command_id
+  end
+
+  defp active_mtr_command?(_socket, _command_id), do: false
 
   defp refresh_diagnostics(socket) do
     socket

@@ -120,12 +120,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     target_filter = normalize_string(Keyword.get(opts, :target_filter, ""))
     agent_filter = normalize_string(Keyword.get(opts, :agent_filter, ""))
 
-    query =
-      AgentCommand
-      |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(expr(command_type == "mtr.run" and status in ^pending_states))
-      |> Ash.Query.sort(inserted_at: :desc)
-      |> Ash.Query.limit(100)
+  query =
+    AgentCommand
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.Query.filter(expr(command_type == "mtr.run" and status in ^pending_states))
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.limit(500)
 
     with {:ok, jobs} <- read_all(query, scope) do
       jobs
@@ -383,6 +383,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   defp fetch_map(map, key) when is_map(map) and is_binary(key) do
     case key do
       "target" -> Map.get(map, "target") || Map.get(map, :target)
+      "target_ip" -> Map.get(map, "target_ip") || Map.get(map, :target_ip)
       "device_uid" -> Map.get(map, "device_uid") || Map.get(map, :device_uid)
       _ -> Map.get(map, key)
     end

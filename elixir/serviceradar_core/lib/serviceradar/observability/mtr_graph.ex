@@ -197,6 +197,8 @@ defmodule ServiceRadar.Observability.MtrGraph do
   defp hop_float(_hop, _key, default), do: default
 
   defp parse_int(value, default) when is_binary(value) do
+    value = String.trim(value)
+
     case Integer.parse(value) do
       {n, ""} -> n
       _ -> default
@@ -206,6 +208,8 @@ defmodule ServiceRadar.Observability.MtrGraph do
   defp parse_int(_value, default), do: default
 
   defp parse_float(value, default) when is_binary(value) do
+    value = String.trim(value)
+
     case Float.parse(value) do
       {n, ""} -> n
       _ -> default

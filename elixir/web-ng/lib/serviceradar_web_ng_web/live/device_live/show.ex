@@ -185,12 +185,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_info(msg, socket) do
     Logger.debug(fn ->
-      "[DeviceLive.Show] unhandled message: " <>
-        inspect(msg, limit: 50, printable_limit: 2_000, charlists: :as_lists)
+      "[DeviceLive.Show] unhandled message summary: " <> inspect(summarize_unhandled_msg(msg))
     end)
 
     {:noreply, socket}
   end
+
+  defp summarize_unhandled_msg(msg) when is_tuple(msg) do
+    %{kind: :tuple, tuple_size: tuple_size(msg), first: elem(msg, 0)}
+  end
+
+  defp summarize_unhandled_msg(msg) when is_map(msg) do
+    %{kind: :map, map_size: map_size(msg)}
+  end
+
+  defp summarize_unhandled_msg(msg) when is_list(msg) do
+    %{kind: :list, length: length(msg)}
+  end
+
+  defp summarize_unhandled_msg(msg), do: %{kind: :other, type: msg |> term_type() |> to_string()}
+
+  defp term_type(term) when is_atom(term), do: :atom
+  defp term_type(term) when is_binary(term), do: :binary
+  defp term_type(term) when is_boolean(term), do: :boolean
+  defp term_type(term) when is_float(term), do: :float
+  defp term_type(term) when is_function(term), do: :function
+  defp term_type(term) when is_integer(term), do: :integer
+  defp term_type(term) when is_pid(term), do: :pid
+  defp term_type(term) when is_port(term), do: :port
+  defp term_type(term) when is_reference(term), do: :reference
+  defp term_type(term) when is_bitstring(term), do: :bitstring
+  defp term_type(_term), do: :unknown
 
   defp normalize_cursor(nil), do: nil
   defp normalize_cursor(""), do: nil
