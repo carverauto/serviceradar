@@ -12,17 +12,18 @@ export const godViewLifecycleDomSetupMethods = {
       const isHttp = url.protocol === "http:" || url.protocol === "https:"
       if (!isHttp) return null
       if (url.origin !== window.location.origin) return null
-      return url.pathname + url.search + url.hash
+      return url
     } catch (_error) {
       return null
     }
   },
   navigateToHref(href) {
-    const safeHref = this.sanitizeNavigationHref(href)
-    if (!safeHref) return
-    if (typeof window !== "undefined" && window.location && typeof window.location.assign === "function") {
-      window.location.assign(safeHref)
-    }
+    const safeUrl = this.sanitizeNavigationHref(href)
+    if (!safeUrl) return
+    if (typeof window === "undefined" || !window.location) return
+    window.location.pathname = safeUrl.pathname
+    window.location.search = safeUrl.search
+    window.location.hash = safeUrl.hash
   },
   handleDetailsPanelClick(event) {
     const deviceLink = event.target?.closest?.("[data-device-href]")
