@@ -154,7 +154,7 @@ next_delay(Cur, Max) ->
 maybe_restart_channel(no_endpoints, Channel, Endpoints, Compression) ->
     restart_channel(Channel, Endpoints, Compression);
 maybe_restart_channel(undefined_channel, Channel, Endpoints, Compression) ->
-    restart_channel(Channel, Endpoints, Compression);
+    ensure_channel_started(Channel, Endpoints, Compression);
 maybe_restart_channel({stream_down, _}, Channel, Endpoints, Compression) ->
     restart_channel(Channel, Endpoints, Compression);
 maybe_restart_channel({error, {stream_down, _}}, Channel, Endpoints, Compression) ->
@@ -162,43 +162,116 @@ maybe_restart_channel({error, {stream_down, _}}, Channel, Endpoints, Compression
 maybe_restart_channel({error, no_endpoints}, Channel, Endpoints, Compression) ->
     restart_channel(Channel, Endpoints, Compression);
 maybe_restart_channel({error, undefined_channel}, Channel, Endpoints, Compression) ->
-    restart_channel(Channel, Endpoints, Compression);
+    ensure_channel_started(Channel, Endpoints, Compression);
 maybe_restart_channel(_, _Channel, _Endpoints, _Compression) ->
     ok.
 
 restart_channel(Channel, Endpoints, Compression) ->
     Now = erlang:monotonic_time(millisecond),
-    Key = {otlp_channel_restart_ts, Channel},
-    case erlang:get(Key) of
-        undefined ->
-            erlang:put(Key, Now),
+    case allow_channel_restart(Channel, Now) of
+        true ->
             do_restart_channel(Channel, Endpoints, Compression);
-        Last when (Now - Last) >= ?RESTART_COOLDOWN_MS ->
-            erlang:put(Key, Now),
-            do_restart_channel(Channel, Endpoints, Compression);
-        _ ->
+        false ->
             ok
     end.
 
 do_restart_channel(Channel, Endpoints, Compression) ->
     EndpointTuples = grpcbox_endpoints(Endpoints),
     ChannelOpts = channel_opts(Compression),
-    ?LOG_INFO("OTLP grpc channel has no endpoints; restarting channel=~p endpoints=~p",
-              [Channel, length(EndpointTuples)]),
-    maybe_stop_channel(Channel),
-    timer:sleep(100),
-    try grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts) of
-        {ok, _Pid} ->
-            ok;
-        {error, {already_started, _Pid}} ->
-            ok;
-        Error ->
-            ?LOG_WARNING("OTLP grpc channel restart failed: ~p", [Error]),
+    case EndpointTuples of
+        [] ->
+            ?LOG_WARNING("OTLP grpc channel restart skipped: no valid endpoints configured channel=~p",
+                         [Channel]),
             ok
+    ;
+        _ ->
+            ?LOG_INFO("OTLP grpc channel has no endpoints; restarting channel=~p endpoints=~p",
+                      [Channel, length(EndpointTuples)]),
+            maybe_stop_channel(Channel),
+            timer:sleep(100),
+            try grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts) of
+                {ok, _Pid} ->
+                    ok;
+                {error, {already_started, _Pid}} ->
+                    ok;
+                Error ->
+                    ?LOG_WARNING("OTLP grpc channel restart failed: ~p", [Error]),
+                    ok
+            catch
+                _:Reason ->
+                    ?LOG_WARNING("OTLP grpc channel restart threw exception: ~p", [Reason]),
+                    ok
+            end
+    end.
+
+ensure_channel_started(Channel, Endpoints, Compression) ->
+    Now = erlang:monotonic_time(millisecond),
+    case allow_channel_ensure(Channel, Now) of
+        true ->
+            do_ensure_channel_started(Channel, Endpoints, Compression);
+        false ->
+            ok
+    end.
+
+do_ensure_channel_started(Channel, Endpoints, Compression) ->
+    EndpointTuples = grpcbox_endpoints(Endpoints),
+    ChannelOpts = channel_opts(Compression),
+    case EndpointTuples of
+        [] ->
+            ?LOG_WARNING("OTLP grpc channel ensure skipped: no valid endpoints configured channel=~p",
+                         [Channel]),
+            ok;
+        _ ->
+            ?LOG_INFO("OTLP grpc channel undefined; starting channel=~p endpoints=~p",
+                      [Channel, length(EndpointTuples)]),
+            try grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts) of
+                {ok, _Pid} ->
+                    ok;
+                {error, {already_started, _Pid}} ->
+                    ok;
+                Error ->
+                    ?LOG_WARNING("OTLP grpc channel ensure failed: ~p", [Error]),
+                    ok
+            catch
+                _:Reason ->
+                    ?LOG_WARNING("OTLP grpc channel ensure threw exception: ~p", [Reason]),
+                    ok
+            end
+    end.
+
+allow_channel_restart(Channel, Now) ->
+    Key = {?MODULE, otlp_channel_restart_ts, Channel},
+    Last = persistent_term_get(Key),
+    case Last of
+        undefined ->
+            persistent_term:put(Key, Now),
+            true;
+        Ts when is_integer(Ts), (Now - Ts) >= ?RESTART_COOLDOWN_MS ->
+            persistent_term:put(Key, Now),
+            true;
+        _ ->
+            false
+    end.
+
+allow_channel_ensure(Channel, Now) ->
+    Key = {?MODULE, otlp_channel_ensure_ts, Channel},
+    Last = persistent_term_get(Key),
+    case Last of
+        undefined ->
+            persistent_term:put(Key, Now),
+            true;
+        Ts when is_integer(Ts), (Now - Ts) >= ?RESTART_COOLDOWN_MS ->
+            persistent_term:put(Key, Now),
+            true;
+        _ ->
+            false
+    end.
+
+persistent_term_get(Key) ->
+    try persistent_term:get(Key) of
+        Value -> Value
     catch
-        _:Reason ->
-            ?LOG_WARNING("OTLP grpc channel restart threw exception: ~p", [Reason]),
-            ok
+        error:badarg -> undefined
     end.
 
 channel_opts(undefined) -> #{};
@@ -219,7 +292,10 @@ maybe_stop_channel(Channel) ->
     case gproc_ready() of
         true ->
             %% stop by channel name, not pid
-            try grpcbox_channel:stop(Channel, {shutdown, force_delete}) catch _:_ -> ok end;
+            try grpcbox_channel:stop(Channel, shutdown)
+            catch _:_ ->
+                try grpcbox_channel:stop(Channel) catch _:_ -> ok end
+            end;
         false ->
             ok
     end.
