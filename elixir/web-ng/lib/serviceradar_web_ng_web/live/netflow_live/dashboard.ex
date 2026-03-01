@@ -636,26 +636,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     ]
 
     queries
-    |> Enum.map(fn {q, key, alias} ->
-      Task.async(fn ->
-        val =
-          case srql_mod.query(q, %{scope: scope}) do
-            {:ok, %{"results" => [%{"payload" => p} | _]}} -> to_number(get_field(p, alias))
-            _ -> 0
-          end
+    |> Enum.map(fn {q, key, field_alias} ->
+      Task.async(fn -> {key, query_single_stat(srql_mod, scope, q, field_alias)} end)
+    end)
+    |> safe_await_many(10_000)
+  end
 
-        {key, val}
-      end)
-    end)
-    |> Task.yield_many(10_000)
-    |> Enum.map(fn {task, result} ->
-      case result do
-        {:ok, value} -> value
-        _ -> Task.shutdown(task, :brutal_kill) && nil
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
-    |> Map.new()
+  defp query_single_stat(srql_mod, scope, query, field_alias) do
+    case srql_mod.query(query, %{scope: scope}) do
+      {:ok, %{"results" => [%{"payload" => p} | _]}} -> to_number(get_field(p, field_alias))
+      _ -> 0
+    end
   end
 
   defp load_timeseries(srql_mod, scope, base, tw) do
@@ -715,22 +706,23 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
          |> Ash.Query.for_read(:read)
          |> Ash.read(scope: scope) do
       {:ok, entries} ->
-        # Group by sampler_address, take the highest speed interface per sampler
         entries
         |> Enum.group_by(& &1.sampler_address)
-        |> Map.new(fn {sampler, ifaces} ->
-          best = Enum.max_by(ifaces, & (&1.if_speed_bps || 0), fn -> hd(ifaces) end)
-
-          {sampler,
-           %{
-             name: best.if_name || best.if_description || sampler,
-             speed_bps: best.if_speed_bps || 0
-           }}
-        end)
+        |> Map.new(&best_interface_for_sampler/1)
 
       _ ->
         %{}
     end
+  end
+
+  defp best_interface_for_sampler({sampler, ifaces}) do
+    best = Enum.max_by(ifaces, &(&1.if_speed_bps || 0), fn -> hd(ifaces) end)
+
+    {sampler,
+     %{
+       name: best.if_name || best.if_description || sampler,
+       speed_bps: best.if_speed_bps || 0
+     }}
   end
 
   defp load_interface_p95(srql_mod, scope) do
@@ -741,20 +733,22 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       {:ok, %{"results" => results}} when is_list(results) ->
         results
         |> Enum.group_by(fn %{"payload" => p} -> get_field(p, "sampler_address") end)
-        |> Map.new(fn {sampler, rows} ->
-          values =
-            rows
-            |> Enum.map(fn %{"payload" => p} -> to_number(get_field(p, "bytes_total")) end)
-            |> Enum.reject(&is_nil/1)
-
-          # Convert bytes/hour to bits/sec: bytes_per_hour * 8 / 3600
-          p95_bps = percentile_95(values) * 8 / 3600
-          {sampler, p95_bps}
-        end)
+        |> Map.new(&compute_sampler_p95/1)
 
       _ ->
         %{}
     end
+  end
+
+  defp compute_sampler_p95({sampler, rows}) do
+    values =
+      rows
+      |> Enum.map(fn %{"payload" => p} -> to_number(get_field(p, "bytes_total")) end)
+      |> Enum.reject(&is_nil/1)
+
+    # Convert bytes/hour to bits/sec: bytes_per_hour * 8 / 3600
+    p95_bps = percentile_95(values) * 8 / 3600
+    {sampler, p95_bps}
   end
 
   defp merge_p95(interfaces, p95_map) do
@@ -789,25 +783,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       cidrs
       |> Enum.take(10)
       |> Task.async_stream(
-        fn cidr ->
-          cidr_str = to_string(cidr.cidr)
-          query = "#{base} src_cidr:#{srql_quote(cidr_str)} stats:sum(bytes_total) as bytes_total"
-
-          bytes =
-            case srql_mod.query(query, %{scope: scope}) do
-              {:ok, %{"results" => [%{"payload" => p} | _]}} ->
-                to_number(get_field(p, "bytes_total"))
-
-              _ ->
-                0
-            end
-
-          %{
-            cidr: cidr_str,
-            label: cidr.label || cidr_str,
-            bytes: bytes
-          }
-        end,
+        &query_cidr_bytes(&1, srql_mod, scope, base),
         max_concurrency: 5,
         timeout: 15_000,
         on_timeout: :kill_task
@@ -818,6 +794,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       end)
       |> Enum.sort_by(& &1.bytes, :desc)
     end
+  end
+
+  defp query_cidr_bytes(cidr, srql_mod, scope, base) do
+    cidr_str = to_string(cidr.cidr)
+    query = "#{base} src_cidr:#{srql_quote(cidr_str)} stats:sum(bytes_total) as bytes_total"
+
+    bytes = query_single_stat(srql_mod, scope, query, "bytes_total")
+
+    %{cidr: cidr_str, label: cidr.label || cidr_str, bytes: bytes}
   end
 
   # --------------------------------------------------------------------------

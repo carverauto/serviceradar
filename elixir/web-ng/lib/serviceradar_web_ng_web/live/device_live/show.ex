@@ -1251,25 +1251,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     queries
     |> Enum.map(fn {q, key, alias_field} ->
-      Task.async(fn ->
-        val =
-          case srql_mod.query(q, %{scope: scope}) do
-            {:ok, %{"results" => [%{"payload" => p} | _]}} -> flow_stat_number(p, alias_field)
-            _ -> 0
-          end
+      Task.async(fn -> {key, query_single_stat(srql_mod, scope, q, alias_field)} end)
+    end)
+    |> safe_yield_many(10_000)
+  end
 
-        {key, val}
-      end)
-    end)
-    |> Task.yield_many(10_000)
-    |> Enum.map(fn {task, result} ->
-      case result do
-        {:ok, value} -> value
-        _ -> Task.shutdown(task, :brutal_kill) && nil
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
-    |> Map.new()
+  defp query_single_stat(srql_mod, scope, query, alias_field) do
+    case srql_mod.query(query, %{scope: scope}) do
+      {:ok, %{"results" => [%{"payload" => p} | _]}} -> flow_stat_number(p, alias_field)
+      _ -> 0
+    end
   end
 
   defp load_device_flow_top_n(srql_mod, scope, base, group_field) do
