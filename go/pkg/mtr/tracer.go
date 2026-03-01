@@ -186,8 +186,39 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 				return
 			}
 
+			// Evaluate unknown-hop cutoff from completed historical probes only.
+			// Do not treat a hop as unknown immediately after dispatching a fresh probe.
+			hop := t.hops[hopIdx]
+			hop.mu.RLock()
+			unknown := hop.Sent > 0 && hop.Received == 0 && hop.InFlight == 0
+			hop.mu.RUnlock()
+
+			if unknown {
+				consecutiveUnknown++
+			} else {
+				consecutiveUnknown = 0
+			}
+
+			if consecutiveUnknown >= t.opts.MaxUnknownHops {
+				break
+			}
+
 			seq := t.allocateSeq()
 			ttl := hopIdx + 1
+
+			var sendErr error
+
+			switch t.opts.Protocol {
+			case ProtocolUDP:
+				sendErr = t.sock.SendUDP(t.targetIP, ttl, MinPort+seq%1000, DefaultUDPBasePort+seq%1000, t.makePayload()) //nolint:mnd
+			case ProtocolICMP, ProtocolTCP:
+				sendErr = t.sock.SendICMP(t.targetIP, ttl, t.icmpID, seq, t.makePayload())
+			}
+
+			if sendErr != nil {
+				t.logger.Debug().Err(sendErr).Int("ttl", ttl).Int("cycle", cycle).Msg("send probe failed")
+				continue
+			}
 
 			t.probesMu.Lock()
 			t.probes[seq] = &probeRecord{
@@ -201,19 +232,6 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			t.hops[hopIdx].mu.Unlock()
 			t.probesMu.Unlock()
 
-			var sendErr error
-
-			switch t.opts.Protocol {
-			case ProtocolUDP:
-				sendErr = t.sock.SendUDP(t.targetIP, ttl, MinPort+seq%1000, DefaultUDPBasePort+seq%1000, t.makePayload()) //nolint:mnd
-			case ProtocolICMP, ProtocolTCP:
-				sendErr = t.sock.SendICMP(t.targetIP, ttl, t.icmpID, seq, t.makePayload())
-			}
-
-			if sendErr != nil {
-				t.logger.Debug().Err(sendErr).Int("ttl", ttl).Int("cycle", cycle).Msg("send probe failed")
-			}
-
 			// Check if target was reached in a previous cycle.
 			if t.targetReached {
 				// Only probe up to the hop where target was reached.
@@ -225,20 +243,6 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 				if reached {
 					break
 				}
-			}
-
-			// Track consecutive non-responding hops.
-			hop := t.hops[hopIdx]
-			hop.mu.RLock()
-			if hop.Received == 0 && hop.Sent > 0 {
-				consecutiveUnknown++
-			} else {
-				consecutiveUnknown = 0
-			}
-			hop.mu.RUnlock()
-
-			if consecutiveUnknown >= t.opts.MaxUnknownHops {
-				break
 			}
 
 			// Inter-probe delay.

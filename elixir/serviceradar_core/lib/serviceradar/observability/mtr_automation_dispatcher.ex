@@ -67,6 +67,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
         rows
         |> Enum.map(&row_to_target_ctx/1)
         |> Enum.reject(&is_nil/1)
+        |> enforce_managed_baseline_targets(srql_query)
 
       {:error, reason} ->
         Logger.warning("MTR baseline SRQL query failed",
@@ -467,6 +468,82 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   end
 
   defp row_to_target_ctx(_), do: nil
+
+  defp enforce_managed_baseline_targets(targets, srql_query) when is_list(targets) do
+    device_uids =
+      targets
+      |> Enum.map(&Map.get(&1, :target_device_uid))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    if device_uids == [] do
+      targets
+    else
+      actor = SystemActor.system(:mtr_automation)
+      exclude_armis? = srql_excludes_armis?(srql_query)
+
+      query =
+        Device
+        |> Ash.Query.for_read(:read, %{include_deleted: false})
+        |> Ash.Query.filter(expr(uid in ^device_uids and is_managed == true and not is_nil(ip)))
+
+      case Ash.read(query, actor: actor) do
+        {:ok, %Ash.Page.Keyset{results: devices}} ->
+          filter_targets_by_devices(targets, devices, exclude_armis?)
+
+        {:ok, devices} when is_list(devices) ->
+          filter_targets_by_devices(targets, devices, exclude_armis?)
+
+        {:error, reason} ->
+          Logger.warning("MTR baseline SRQL managed-device enforcement failed",
+            reason: inspect(reason)
+          )
+
+          targets
+      end
+    end
+  end
+
+  defp enforce_managed_baseline_targets(targets, _srql_query), do: targets
+
+  defp filter_targets_by_devices(targets, devices, exclude_armis?) do
+    device_map = Map.new(devices, fn device -> {blank_to_nil(device.uid), device} end)
+
+    targets
+    |> Enum.filter(fn target ->
+      case Map.get(target, :target_device_uid) do
+        uid when is_binary(uid) and uid != "" ->
+          case Map.get(device_map, uid) do
+            nil ->
+              false
+
+            device ->
+              managed_ok = device.is_managed == true and is_binary(blank_to_nil(device.ip))
+              armis_ok = not (exclude_armis? and armis_source?(device))
+              managed_ok and armis_ok
+          end
+
+        _ ->
+          true
+      end
+    end)
+  end
+
+  defp srql_excludes_armis?(query) when is_binary(query) do
+    normalized = query |> String.downcase() |> String.replace(~r/\s+/, "")
+    String.contains?(normalized, "!discovery_sources:(armis)") or
+      String.contains?(normalized, "!discovery_sources:armis")
+  end
+
+  defp srql_excludes_armis?(_), do: false
+
+  defp armis_source?(device) do
+    device
+    |> Map.get(:discovery_sources, [])
+    |> List.wrap()
+    |> Enum.any?(fn source -> to_string(source) == "armis" end)
+  end
 
   defp maybe_filter_uids(query, []), do: query
 
