@@ -58,6 +58,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SNMPProfiles.CredentialResolver
@@ -156,7 +157,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     profile_targets = load_profile_targets(profile, actor)
 
     # 2. Execute target_query to find matching devices
-    devices = execute_target_query(profile.target_query, actor)
+    target_query = normalize_target_query(profile.target_query, profile.is_default)
+    devices = execute_target_query(target_query, actor)
 
     # 3. Load OIDs from profile's templates
     oids = load_template_oids(profile.oid_template_ids, actor)
@@ -223,6 +225,36 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     end
   end
 
+  defp normalize_target_query(target_query, is_default) do
+    cond do
+      target_query in [nil, ""] and is_default ->
+        "in:devices"
+
+      target_query in [nil, ""] ->
+        nil
+
+      true ->
+        normalize_target_query(target_query)
+    end
+  end
+
+  defp normalize_target_query(query) when is_binary(query) do
+    query = String.trim(query)
+
+    cond do
+      query == "" ->
+        "in:devices"
+
+      String.starts_with?(query, "in:") ->
+        query
+
+      true ->
+        "in:devices " <> query
+    end
+  end
+
+  defp normalize_target_query(_), do: nil
+
   # Execute query based on entity type
   defp execute_parsed_query("interfaces", ast, actor) do
     # Query interfaces, then extract unique devices
@@ -235,7 +267,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       |> Ash.Query.distinct(:device_id)
       |> Ash.Query.load(:device)
 
-    case Ash.read(query, actor: actor) do
+    case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, interfaces} ->
         # Extract unique devices
         interfaces
@@ -258,8 +290,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> apply_device_filters(filters)
 
-    case Ash.read(query, actor: actor) do
-      {:ok, devices} -> devices
+    case Page.unwrap(Ash.read(query, actor: actor)) do
+      {:ok, devices} ->
+        devices
+
       {:error, reason} ->
         Logger.warning("SNMPCompiler: failed to query devices - #{inspect(reason)}")
         []
@@ -426,16 +460,53 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       Logger.debug("SNMPCompiler: skipping device #{device.uid} (no OIDs)")
       nil
     else
-    # Get host address - prefer IP, fall back to hostname
-    host = device.ip || device.hostname
+      # If device has a management device, use its IP for polling
+      host = resolve_polling_host(device, actor)
 
-    if missing_host?(host) do
-      Logger.debug("SNMPCompiler: skipping device #{device.uid} (no IP or hostname)")
-      nil
-    else
-      compile_device_target_with_host(device, profile, oids, actor, host)
+      if missing_host?(host) do
+        Logger.debug("SNMPCompiler: skipping device #{device.uid} (no IP or hostname)")
+        nil
+      else
+        compile_device_target_with_host(device, profile, oids, actor, host)
+      end
     end
+  end
+
+  defp resolve_polling_host(%{management_device_id: mgmt_id} = device, actor)
+       when is_binary(mgmt_id) and mgmt_id != "" do
+    case Device
+         |> Ash.Query.filter(uid == ^mgmt_id)
+         |> Ash.Query.for_read(:read, %{}, actor: actor)
+         |> Ash.Query.limit(1)
+         |> Ash.read(actor: actor) do
+      {:ok, [mgmt_device | _]} ->
+        mgmt_ip = mgmt_device.ip || mgmt_device.hostname
+
+        if missing_host?(mgmt_ip) do
+          Logger.warning(
+            "SNMPCompiler: management device #{mgmt_id} for #{device.uid} has no IP, falling back to device IP"
+          )
+
+          device.ip || device.hostname
+        else
+          Logger.debug(
+            "SNMPCompiler: using management device #{mgmt_id} IP #{mgmt_ip} for #{device.uid}"
+          )
+
+          mgmt_ip
+        end
+
+      _ ->
+        Logger.warning(
+          "SNMPCompiler: management device #{mgmt_id} not found for #{device.uid}, falling back to device IP"
+        )
+
+        device.ip || device.hostname
     end
+  end
+
+  defp resolve_polling_host(device, _actor) do
+    device.ip || device.hostname
   end
 
   defp compile_device_target_with_host(device, profile, oids, actor, host) do
@@ -511,6 +582,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       target.oid_configs
       |> Enum.map(&oid_config_to_map/1)
       |> Enum.reject(&is_nil/1)
+      |> ensure_packet_counter_oids()
 
     if oids == [] do
       nil
@@ -544,6 +616,94 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   defp oid_config_to_map(_), do: nil
+
+  # Backfill packet counter OIDs at compile time so existing interface selections that
+  # only persisted octet counters begin emitting packet metrics without manual edits.
+  defp ensure_packet_counter_oids(oids) when is_list(oids) do
+    additions =
+      oids
+      |> Enum.map(&derive_packet_oid/1)
+      |> Enum.reject(&is_nil/1)
+
+    (oids ++ additions)
+    |> Enum.reduce(%{}, fn oid, acc ->
+      key = "#{Map.get(oid, "name")}::#{Map.get(oid, "oid")}"
+      Map.put_new(acc, key, oid)
+    end)
+    |> Map.values()
+  end
+
+  defp derive_packet_oid(%{"name" => name, "oid" => oid})
+       when is_binary(name) and is_binary(oid) do
+    with {base_oid, if_index} <- split_oid_index(oid),
+         packet_name when is_binary(packet_name) <- packet_metric_name(name),
+         packet_base when is_binary(packet_base) <- packet_metric_base_oid(base_oid) do
+      %{
+        "oid" => "#{packet_base}.#{if_index}",
+        "name" => packet_name,
+        "data_type" => "counter",
+        "scale" => 1.0,
+        "delta" => true
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp derive_packet_oid(_), do: nil
+
+  defp split_oid_index(oid) when is_binary(oid) do
+    oid = String.trim(oid)
+
+    case Regex.run(~r/^(.*)\.(\d+)$/, oid) do
+      [_, base, idx] ->
+        case Integer.parse(idx) do
+          {if_index, ""} -> {base, if_index}
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp packet_metric_name(name) do
+    cond do
+      String.starts_with?(name, "ifInOctets") ->
+        String.replace_prefix(name, "ifInOctets", "ifInUcastPkts")
+
+      String.starts_with?(name, "ifOutOctets") ->
+        String.replace_prefix(name, "ifOutOctets", "ifOutUcastPkts")
+
+      String.starts_with?(name, "ifHCInOctets") ->
+        String.replace_prefix(name, "ifHCInOctets", "ifHCInUcastPkts")
+
+      String.starts_with?(name, "ifHCOutOctets") ->
+        String.replace_prefix(name, "ifHCOutOctets", "ifHCOutUcastPkts")
+
+      true ->
+        nil
+    end
+  end
+
+  defp packet_metric_base_oid(base_oid) do
+    cond do
+      String.ends_with?(base_oid, ".1.3.6.1.2.1.2.2.1.10") ->
+        ".1.3.6.1.2.1.2.2.1.11"
+
+      String.ends_with?(base_oid, ".1.3.6.1.2.1.2.2.1.16") ->
+        ".1.3.6.1.2.1.2.2.1.17"
+
+      String.ends_with?(base_oid, ".1.3.6.1.2.1.31.1.1.1.6") ->
+        ".1.3.6.1.2.1.31.1.1.1.7"
+
+      String.ends_with?(base_oid, ".1.3.6.1.2.1.31.1.1.1.10") ->
+        ".1.3.6.1.2.1.31.1.1.1.11"
+
+      true ->
+        nil
+    end
+  end
 
   defp target_credential(%SNMPTarget{} = target) do
     %{

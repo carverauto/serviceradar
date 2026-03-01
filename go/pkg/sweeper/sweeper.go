@@ -1,0 +1,1949 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package sweeper
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/scan"
+)
+
+// Option configures a NetworkSweeper instance.
+type Option func(*NetworkSweeper)
+
+const (
+	defaultInterval      = 5 * time.Minute
+	scanTimeout          = 20 * time.Minute // Timeout for individual scan operations - increased for large-scale TCP scanning
+	defaultResultTimeout = 500 * time.Millisecond
+)
+
+// DeviceRegistryService interface for device registry operations
+type DeviceRegistryService interface {
+	ProcessSweepResult(ctx context.Context, result *models.SweepResult) error
+	UpdateDevice(ctx context.Context, update *models.DeviceUpdate) error
+	GetDevice(ctx context.Context, deviceID string) (*models.OCSFDevice, error)
+	GetDevicesByIP(ctx context.Context, ip string) ([]*models.OCSFDevice, error)
+	ListDevices(ctx context.Context, limit, offset int) ([]*models.OCSFDevice, error)
+}
+
+// NetworkSweeper implements both Sweeper and SweepService interfaces.
+type NetworkSweeper struct {
+	config            *models.Config
+	icmpScanner       scan.Scanner
+	tcpScanner        scan.Scanner // SYN scanner (fast but breaks conntrack)
+	tcpConnectScanner scan.Scanner // TCP connect scanner (safe for conntrack)
+	store             Store
+	processor         ResultProcessor
+	deviceRegistry    DeviceRegistryService
+	logger            logger.Logger
+	mu                sync.RWMutex
+	runMu             sync.Mutex
+	done              chan struct{}
+	stopped           bool
+	lastSweep         time.Time
+	// Device result aggregation for multi-IP devices
+	deviceResults map[string]*DeviceResultAggregator
+	resultsMu     sync.Mutex
+	tickerReset   chan struct{}
+}
+
+// DeviceResultAggregator aggregates scan results for a device with multiple IPs
+type DeviceResultAggregator struct {
+	DeviceID    string
+	Results     []*models.Result
+	ExpectedIPs []string
+	Metadata    map[string]interface{}
+	AgentID     string
+	GatewayID   string
+	Partition   string
+	mu          sync.Mutex
+}
+
+var (
+	errNilConfig = fmt.Errorf("config cannot be nil")
+)
+
+const (
+	defaultTotalTargetLimitPercentage = 10
+	defaultEffectiveConcurrency       = 5
+
+	// Concurrency upper bounds to prevent resource exhaustion
+	maxSYNConcurrency     = 2048 // SYN scanning can handle higher concurrency efficiently
+	maxConnectConcurrency = 500  // TCP connect() is more resource intensive
+)
+
+// NewNetworkSweeper creates a new scanner for network sweeping.
+func NewNetworkSweeper(
+	config *models.Config,
+	store Store,
+	processor ResultProcessor,
+	deviceRegistry DeviceRegistryService,
+	log logger.Logger,
+	opts ...Option) (*NetworkSweeper, error) {
+	if config == nil {
+		return nil, errNilConfig
+	}
+
+	icmpScanner := initializeICMPScanner(config, log)
+	tcpScanner := initializeTCPScanner(config, log)
+	tcpConnectScanner := initializeTCPConnectScanner(config, log)
+
+	// Default interval if not set
+	if config.Interval == 0 {
+		config.Interval = defaultInterval
+	}
+
+	log.Info().Dur("interval", config.Interval).Msg("Creating NetworkSweeper")
+
+	ns := &NetworkSweeper{
+		config:            config,
+		icmpScanner:       icmpScanner,
+		tcpScanner:        tcpScanner,
+		tcpConnectScanner: tcpConnectScanner,
+		store:             store,
+		processor:         processor,
+		deviceRegistry:    deviceRegistry,
+		logger:            log,
+		done:              nil,
+		deviceResults:     make(map[string]*DeviceResultAggregator),
+		tickerReset:       make(chan struct{}, 1),
+	}
+
+	ns.ensureControlChannels()
+
+	for _, opt := range opts {
+		opt(ns)
+	}
+
+	return ns, nil
+}
+
+// initializeICMPScanner creates an ICMP scanner if needed based on config
+func initializeICMPScanner(config *models.Config, log logger.Logger) scan.Scanner {
+	if !needsICMPScanning(config) {
+		return nil
+	}
+
+	// Build options for ICMP scanner
+	var opts []scan.ICMPSweeperOption
+	if config.ICMPCount > 0 {
+		opts = append(opts, scan.WithICMPCount(config.ICMPCount))
+	}
+
+	icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, log, opts...)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to create ICMP scanner, ICMP scanning will be disabled")
+		return nil
+	}
+
+	return icmpScanner
+}
+
+// needsICMPScanning checks if ICMP scanning is needed based on config
+func needsICMPScanning(config *models.Config) bool {
+	// Check global sweep modes
+	for _, mode := range config.SweepModes {
+		if mode == models.ModeICMP {
+			return true
+		}
+	}
+
+	// Check device target sweep modes
+	for _, deviceTarget := range config.DeviceTargets {
+		for _, mode := range deviceTarget.SweepModes {
+			if mode == models.ModeICMP {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// needsTCPConnectScanning checks if TCP connect scanning is needed based on config
+func needsTCPConnectScanning(config *models.Config) bool {
+	// Check global sweep modes
+	for _, mode := range config.SweepModes {
+		if mode == models.ModeTCPConnect {
+			return true
+		}
+	}
+
+	// Check device target sweep modes
+	for _, deviceTarget := range config.DeviceTargets {
+		for _, mode := range deviceTarget.SweepModes {
+			if mode == models.ModeTCPConnect {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// configureSYNScannerOptions configures SYN scanner options from config
+func configureSYNScannerOptions(config *models.Config, log logger.Logger) *scan.SYNScannerOptions {
+	opts := &scan.SYNScannerOptions{}
+
+	// Use TCPSettings.MaxBatch if configured
+	if config.TCPSettings.MaxBatch > 0 {
+		opts.SendBatchSize = config.TCPSettings.MaxBatch
+		log.Debug().Int("tcp_max_batch", config.TCPSettings.MaxBatch).Msg("Using configured TCP max batch size for SYN scanner")
+	}
+
+	// Use configured route discovery host for locked-down environments
+	if config.TCPSettings.RouteDiscoveryHost != "" {
+		opts.RouteDiscoveryHost = config.TCPSettings.RouteDiscoveryHost
+		log.Debug().Str("route_discovery_host", config.TCPSettings.RouteDiscoveryHost).
+			Msg("Using configured route discovery host for local IP detection")
+	}
+
+	// Configure ring buffer settings
+	configureRingBufferSettings(config, opts, log)
+
+	// Configure network interface for multi-homed hosts
+	if config.TCPSettings.Interface != "" {
+		opts.Interface = config.TCPSettings.Interface
+		log.Debug().Str("interface", opts.Interface).Msg("Using configured network interface")
+	}
+
+	// Configure NAT/firewall compatibility options
+	if config.TCPSettings.SuppressRSTReply {
+		opts.SuppressRSTReply = true
+
+		log.Debug().Msg("RST reply suppression enabled for firewall compatibility")
+	}
+
+	// Configure global memory limit for ring buffers
+	if config.TCPSettings.GlobalRingMemoryMB > 0 {
+		opts.GlobalRingMemoryMB = config.TCPSettings.GlobalRingMemoryMB
+		log.Debug().Int("global_ring_memory_mb", opts.GlobalRingMemoryMB).
+			Msg("Using configured global ring buffer memory limit")
+	}
+
+	return opts
+}
+
+// configureRingBufferSettings configures ring buffer settings for SYN scanner
+func configureRingBufferSettings(config *models.Config, opts *scan.SYNScannerOptions, log logger.Logger) {
+	// Configure ring buffer block size
+	if config.TCPSettings.RingBlockSize > 0 {
+		if config.TCPSettings.RingBlockSize <= int(^uint32(0)) {
+			opts.RingBlockSize = uint32(config.TCPSettings.RingBlockSize) // #nosec G115 - bounds check above ensures no overflow
+		} else {
+			opts.RingBlockSize = ^uint32(0) // Use max uint32 value if overflow would occur
+		}
+
+		log.Debug().Uint32("ring_block_size", opts.RingBlockSize).Msg("Using configured ring buffer block size")
+	}
+
+	// Configure ring readers and poll timeout tunables
+	if config.TCPSettings.RingReaders > 0 {
+		opts.RingReaders = config.TCPSettings.RingReaders
+		log.Debug().Int("ring_readers", opts.RingReaders).Msg("Using configured ring reader count")
+	}
+
+	if config.TCPSettings.RingPollTimeoutMs > 0 {
+		opts.RingPollTimeoutMs = config.TCPSettings.RingPollTimeoutMs
+		log.Debug().Int("ring_poll_timeout_ms", opts.RingPollTimeoutMs).Msg("Using configured ring poll timeout")
+	}
+
+	// Configure ring buffer block count
+	if config.TCPSettings.RingBlockCount > 0 {
+		if config.TCPSettings.RingBlockCount <= int(^uint32(0)) {
+			opts.RingBlockCount = uint32(config.TCPSettings.RingBlockCount) // #nosec G115 - bounds check above ensures no overflow
+		} else {
+			opts.RingBlockCount = ^uint32(0) // Use max uint32 value if overflow would occur
+		}
+
+		log.Debug().Uint32("ring_block_count", opts.RingBlockCount).Msg("Using configured ring buffer block count")
+	}
+}
+
+// initializeTCPScanner creates and configures the TCP scanner with graceful fallback
+func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner {
+	// Prefer TCP-specific settings if set; otherwise fall back to global settings
+	baseTimeout := config.TCPSettings.Timeout
+	if baseTimeout == 0 {
+		baseTimeout = config.Timeout
+	}
+
+	baseConcurrency := config.TCPSettings.Concurrency
+	if baseConcurrency <= 0 {
+		baseConcurrency = calculateEffectiveConcurrency(config, log)
+	}
+
+	log.Debug().Dur("baseTimeout", baseTimeout).Int("baseConcurrency", baseConcurrency).
+		Msg("Using TCP-specific settings for scanner initialization")
+
+	// Try SYN scanner first for optimal performance
+	opts := configureSYNScannerOptions(config, log)
+
+	// Apply SYN concurrency upper bound
+	synConcurrency := baseConcurrency
+	if synConcurrency > maxSYNConcurrency {
+		synConcurrency = maxSYNConcurrency
+		log.Info().Int("originalConcurrency", baseConcurrency).Int("clampedConcurrency", synConcurrency).
+			Msg("Clamped SYN scanner concurrency to prevent resource exhaustion")
+	}
+
+	synScanner, err := scan.NewSYNScanner(config.TCPSettings.Timeout, synConcurrency, log, opts)
+	if err != nil {
+		// SYN scanner failed (non-Linux, container without CAP_NET_RAW, etc.)
+		// Gracefully fall back to TCP connect() scanner
+		log.Warn().Err(err).Msg("SYN scanner unavailable; falling back to TCP connect() scanner")
+	} else {
+		log.Info().Int("concurrency", synConcurrency).Msg("Using SYN scanning for improved TCP port detection performance")
+		return synScanner
+	}
+
+	// Apply connect scanner concurrency upper bound (more restrictive)
+	connectConcurrency := baseConcurrency
+	if connectConcurrency > maxConnectConcurrency {
+		connectConcurrency = maxConnectConcurrency
+		log.Info().Int("originalConcurrency", baseConcurrency).Int("clampedConcurrency", connectConcurrency).
+			Msg("Clamped TCP connect scanner concurrency to prevent resource exhaustion")
+	}
+
+	tcpScanner := scan.NewTCPSweeper(baseTimeout, connectConcurrency, log)
+	log.Info().Int("concurrency", connectConcurrency).Msg("Using TCP connect() scanning (slower but more compatible)")
+
+	return tcpScanner
+}
+
+// initializeTCPConnectScanner creates a TCP connect scanner for safe scanning
+func initializeTCPConnectScanner(config *models.Config, log logger.Logger) scan.Scanner {
+	if !needsTCPConnectScanning(config) {
+		return nil
+	}
+
+	// Prefer TCP-specific settings if set; otherwise fall back to global settings
+	baseTimeout := config.TCPSettings.Timeout
+	if baseTimeout == 0 {
+		baseTimeout = config.Timeout
+	}
+
+	baseConcurrency := config.TCPSettings.Concurrency
+	if baseConcurrency <= 0 {
+		baseConcurrency = calculateEffectiveConcurrency(config, log)
+	}
+
+	// Apply connect scanner concurrency upper bound (more restrictive than SYN)
+	connectConcurrency := baseConcurrency
+	if connectConcurrency > maxConnectConcurrency {
+		connectConcurrency = maxConnectConcurrency
+		log.Info().Int("originalConcurrency", baseConcurrency).Int("clampedConcurrency", connectConcurrency).
+			Msg("Clamped TCP connect scanner concurrency to prevent resource exhaustion")
+	}
+
+	tcpConnectScanner := scan.NewTCPSweeper(baseTimeout, connectConcurrency, log)
+	log.Info().Int("concurrency", connectConcurrency).Msg("Using TCP connect() scanning (safe for conntrack)")
+
+	return tcpConnectScanner
+}
+
+// calculateEffectiveConcurrency adjusts concurrency based on target count
+func calculateEffectiveConcurrency(config *models.Config, log logger.Logger) int {
+	totalTargets := estimateTargetCount(config)
+	effectiveConcurrency := config.Concurrency
+
+	if totalTargets > 0 && effectiveConcurrency > totalTargets/10 {
+		effectiveConcurrency = totalTargets / defaultTotalTargetLimitPercentage // Limit to 10% of targets
+		if effectiveConcurrency < defaultEffectiveConcurrency {
+			effectiveConcurrency = defaultEffectiveConcurrency // Minimum concurrency
+		}
+
+		log.Debug().Int("adjustedConcurrency", effectiveConcurrency).Int("totalTargets", totalTargets).Msg("Adjusted concurrency for targets")
+	}
+
+	return effectiveConcurrency
+}
+
+// Start begins periodic sweeping.
+func (s *NetworkSweeper) Start(ctx context.Context) error {
+	s.logger.Info().Dur("interval", s.config.Interval).Msg("Starting network sweeper")
+
+	done := s.ensureControlChannels()
+
+	select {
+	case <-done:
+		s.logger.Info().Msg("Sweep already stopped, skipping start")
+		return nil
+	default:
+	}
+
+	s.ensureScannersInitialized()
+
+	initialCtx, initialCancel := context.WithTimeout(ctx, scanTimeout)
+	if err := s.runSweepWithLock(initialCtx); err != nil {
+		initialCancel()
+
+		s.logger.Error().Err(err).Msg("Initial sweep failed")
+	} else {
+		s.logger.Info().Msg("Initial sweep completed successfully")
+	}
+
+	initialCancel()
+
+	s.mu.Lock()
+	s.lastSweep = time.Now()
+	s.mu.Unlock()
+
+	ticker := time.NewTicker(s.config.Interval)
+	defer ticker.Stop()
+
+	s.logger.Debug().Dur("interval", s.config.Interval).Msg("Entering sweep loop")
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Info().Msg("Context canceled, stopping sweeper")
+
+			return ctx.Err()
+		case <-done:
+			s.logger.Info().Msg("Received done signal, stopping sweeper")
+
+			return nil
+		case <-s.tickerReset:
+			s.mu.RLock()
+			newInterval := s.config.Interval
+			s.mu.RUnlock()
+			s.logger.Info().Dur("newInterval", newInterval).Msg("Resetting sweep ticker due to interval change")
+			ticker.Reset(newInterval)
+		case t := <-ticker.C:
+			s.logger.Debug().Time("tickTime", t).Msg("Ticker fired, starting periodic sweep")
+
+			sweepCtx, sweepCancel := context.WithTimeout(ctx, scanTimeout)
+			if err := s.runSweepWithLock(sweepCtx); err != nil {
+				s.logger.Error().Err(err).Msg("Periodic sweep failed")
+			} else {
+				s.logger.Debug().Msg("Periodic sweep completed successfully")
+			}
+
+			sweepCancel()
+
+			s.mu.Lock()
+			s.lastSweep = time.Now()
+			s.mu.Unlock()
+		}
+	}
+}
+
+// RunOnce triggers a single sweep cycle immediately.
+func (s *NetworkSweeper) RunOnce(ctx context.Context) error {
+	done := s.ensureControlChannels()
+
+	select {
+	case <-done:
+		s.logger.Info().Msg("Sweep already stopped, skipping run-once")
+		return nil
+	default:
+	}
+
+	s.ensureScannersInitialized()
+
+	sweepCtx, sweepCancel := context.WithTimeout(ctx, scanTimeout)
+	defer sweepCancel()
+
+	if err := s.runSweepWithLock(sweepCtx); err != nil {
+		s.logger.Error().Err(err).Msg("Run-once sweep failed")
+		return err
+	}
+
+	s.mu.Lock()
+	s.lastSweep = time.Now()
+	s.mu.Unlock()
+
+	return nil
+}
+
+// Stop gracefully stops sweeping.
+func (s *NetworkSweeper) Stop() error {
+	s.logger.Info().Msg("Stopping network sweeper")
+
+	var done chan struct{}
+	alreadyStopped := false
+	var icmpScanner scan.Scanner
+	var tcpScanner scan.Scanner
+	var tcpConnectScanner scan.Scanner
+
+	s.mu.Lock()
+	alreadyStopped = s.stopped
+	s.stopped = true
+	done = s.done
+	icmpScanner = s.icmpScanner
+	s.icmpScanner = nil
+	tcpScanner = s.tcpScanner
+	s.tcpScanner = nil
+	tcpConnectScanner = s.tcpConnectScanner
+	s.tcpConnectScanner = nil
+	s.mu.Unlock()
+
+	switch {
+	case done == nil:
+		s.logger.Debug().Msg("Sweep service already stopped")
+	case alreadyStopped:
+		s.logger.Debug().Msg("Sweep service already stopped")
+	default:
+		close(done)
+	}
+
+	if icmpScanner != nil {
+		if err := icmpScanner.Stop(); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop ICMP scanner")
+		}
+	}
+
+	if tcpScanner != nil {
+		if err := tcpScanner.Stop(); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop TCP scanner")
+		}
+	}
+
+	if tcpConnectScanner != nil {
+		if err := tcpConnectScanner.Stop(); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop TCP connect scanner")
+		}
+	}
+
+	return nil
+}
+
+func (s *NetworkSweeper) ensureControlChannels() chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.done == nil {
+		s.done = make(chan struct{})
+		if s.stopped {
+			close(s.done)
+		}
+	}
+
+	return s.done
+}
+
+func (s *NetworkSweeper) ensureScannersInitialized() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.icmpScanner == nil {
+		s.icmpScanner = initializeICMPScanner(s.config, s.logger)
+	}
+
+	if s.tcpScanner == nil {
+		s.tcpScanner = initializeTCPScanner(s.config, s.logger)
+	}
+
+	if s.tcpConnectScanner == nil {
+		s.tcpConnectScanner = initializeTCPConnectScanner(s.config, s.logger)
+	}
+}
+
+// GetStatus returns current sweep status.
+func (s *NetworkSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, error) {
+	summary, err := s.store.GetSweepSummary(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.RLock()
+	lastSweep := s.lastSweep
+	s.mu.RUnlock()
+
+	if !lastSweep.IsZero() {
+		summary.LastSweep = lastSweep.Unix()
+	}
+
+	return summary, nil
+}
+
+// GetResults retrieves sweep results based on filter.
+func (s *NetworkSweeper) GetResults(ctx context.Context, filter *models.ResultFilter) ([]models.Result, error) {
+	s.logger.Debug().Interface("filter", filter).Msg("Getting results with filter")
+
+	return s.store.GetResults(ctx, filter)
+}
+
+// GetConfig returns current sweeper configuration.
+func (s *NetworkSweeper) GetConfig() models.Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return *s.config
+}
+
+// GetScannerStats returns aggregated scanner statistics from the TCP SYN scanner.
+// Returns nil if the scanner doesn't support statistics.
+func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Check if the TCP scanner supports stats (SYN scanner does)
+	if statsProvider, ok := s.tcpScanner.(scan.StatsProvider); ok {
+		scanStats := statsProvider.GetStats()
+
+		// Calculate drop rate
+		var rxDropRate float64
+		if scanStats.PacketsRecv > 0 {
+			rxDropRate = float64(scanStats.PacketsDropped) / float64(scanStats.PacketsRecv) * 100.0
+		}
+
+		return &models.ScannerStats{
+			PacketsSent:         scanStats.PacketsSent,
+			PacketsRecv:         scanStats.PacketsRecv,
+			PacketsDropped:      scanStats.PacketsDropped,
+			RingBlocksProcessed: scanStats.RingBlocksProcessed,
+			RingBlocksDropped:   scanStats.RingBlocksDropped,
+			RetriesAttempted:    scanStats.RetriesAttempted,
+			RetriesSuccessful:   scanStats.RetriesSuccessful,
+			PortsAllocated:      scanStats.PortsAllocated,
+			PortsReleased:       scanStats.PortsReleased,
+			PortExhaustionCount: scanStats.PortExhaustion,
+			RateLimitDeferrals:  scanStats.RateLimitDeferrals,
+			RxDropRatePercent:   rxDropRate,
+		}
+	}
+
+	return nil
+}
+
+// preserveIntValue preserves an existing int value if the new value is zero.
+// Returns true if the value was preserved.
+func preserveIntValue(newVal *int, existingVal int) bool {
+	if *newVal == 0 && existingVal > 0 {
+		*newVal = existingVal
+		return true
+	}
+
+	return false
+}
+
+// preserveDurationValue preserves an existing time.Duration value if the new value is zero.
+// Returns true if the value was preserved.
+func preserveDurationValue(newVal *time.Duration, existingVal time.Duration) bool {
+	if *newVal == 0 && existingVal > 0 {
+		*newVal = existingVal
+		return true
+	}
+
+	return false
+}
+
+// preserveBoolValue preserves an existing bool value if the new value is false.
+// Returns true if the value was preserved.
+func preserveBoolValue(newVal *bool, existingVal bool) bool {
+	if !*newVal && existingVal {
+		*newVal = existingVal
+		return true
+	}
+
+	return false
+}
+
+// preserveSliceValues preserves existing slice values if the new slice is empty.
+// Returns true if values were preserved.
+func preserveSliceValues[T any](newSlice *[]T, existingSlice []T) bool {
+	if len(*newSlice) == 0 && len(existingSlice) > 0 {
+		*newSlice = existingSlice
+		return true
+	}
+
+	return false
+}
+
+// preserveField is a generic function that preserves a field value and records the field name
+// if preservation occurred.
+func preserveField(preservedFields *[]string, fieldName string, preserved bool) {
+	if preserved {
+		*preservedFields = append(*preservedFields, fieldName)
+	}
+}
+
+// preserveConfigFields handles preservation of multiple fields of the same type
+func preserveConfigFields(preservedFields *[]string, fieldMap map[string]bool) {
+	for fieldName, preserved := range fieldMap {
+		preserveField(preservedFields, fieldName, preserved)
+	}
+}
+
+// UpdateConfig updates sweeper configuration.
+func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.logger.Info().
+		Int("networks", len(config.Networks)).
+		Int("deviceTargets", len(config.DeviceTargets)).
+		Int("ports", len(config.Ports)).
+		Msg("Updating sweeper config")
+
+	// Preserve existing non-zero values when new config has zero values
+	// This allows minimal configs from sync service (with only networks) to work properly
+	preservedFields := []string{}
+
+	// Always update networks (this is what sync service sends)
+	// Networks field is handled by direct assignment below
+
+	// Preserve basic configuration fields
+	preserveConfigFields(&preservedFields, map[string]bool{
+		"ports":       preserveSliceValues(&config.Ports, s.config.Ports),
+		"sweep_modes": preserveSliceValues(&config.SweepModes, s.config.SweepModes),
+	})
+
+	// Preserve duration fields
+	preserveConfigFields(&preservedFields, map[string]bool{
+		"interval":     preserveDurationValue(&config.Interval, s.config.Interval),
+		"timeout":      preserveDurationValue(&config.Timeout, s.config.Timeout),
+		"max_lifetime": preserveDurationValue(&config.MaxLifetime, s.config.MaxLifetime),
+		"idle_timeout": preserveDurationValue(&config.IdleTimeout, s.config.IdleTimeout),
+	})
+
+	// Preserve integer fields
+	preserveConfigFields(&preservedFields, map[string]bool{
+		"concurrency": preserveIntValue(&config.Concurrency, s.config.Concurrency),
+		"icmp_count":  preserveIntValue(&config.ICMPCount, s.config.ICMPCount),
+		"max_idle":    preserveIntValue(&config.MaxIdle, s.config.MaxIdle),
+	})
+
+	// Preserve ICMP settings
+	preserveConfigFields(&preservedFields, map[string]bool{
+		"icmp_rate_limit": preserveIntValue(&config.ICMPSettings.RateLimit, s.config.ICMPSettings.RateLimit),
+		"icmp_timeout":    preserveDurationValue(&config.ICMPSettings.Timeout, s.config.ICMPSettings.Timeout),
+		"icmp_max_batch":  preserveIntValue(&config.ICMPSettings.MaxBatch, s.config.ICMPSettings.MaxBatch),
+	})
+
+	// Preserve TCP settings
+	preserveConfigFields(&preservedFields, map[string]bool{
+		"tcp_concurrency": preserveIntValue(&config.TCPSettings.Concurrency, s.config.TCPSettings.Concurrency),
+		"tcp_timeout":     preserveDurationValue(&config.TCPSettings.Timeout, s.config.TCPSettings.Timeout),
+		"tcp_max_batch":   preserveIntValue(&config.TCPSettings.MaxBatch, s.config.TCPSettings.MaxBatch),
+	})
+
+	// Preserve additional settings
+	preserveConfigFields(&preservedFields, map[string]bool{
+		"icmp_rate_limit_global": preserveIntValue(&config.ICMPRateLimit, s.config.ICMPRateLimit),
+		"high_perf_icmp":         preserveBoolValue(&config.EnableHighPerformanceICMP, s.config.EnableHighPerformanceICMP),
+	})
+
+	if len(preservedFields) > 0 {
+		s.logger.Debug().Strs("preserved_fields", preservedFields).Msg("Preserved existing config values from zero/nil values")
+	}
+
+	oldInterval := s.config.Interval
+	s.config = config
+
+	if config.Interval != oldInterval {
+		select {
+		case s.tickerReset <- struct{}{}:
+		default:
+			// Signal already pending
+		}
+	}
+
+	// Re-check if we need ICMP scanner based on updated config
+	needsICMP := false
+
+	// Check global sweep modes
+	for _, mode := range config.SweepModes {
+		if mode == models.ModeICMP {
+			needsICMP = true
+			break
+		}
+	}
+
+	// Also check device target sweep modes
+	if !needsICMP {
+		for _, deviceTarget := range config.DeviceTargets {
+			for _, mode := range deviceTarget.SweepModes {
+				if mode == models.ModeICMP {
+					needsICMP = true
+					break
+				}
+			}
+
+			if needsICMP {
+				break
+			}
+		}
+	}
+
+	// Initialize ICMP scanner if needed and not already initialized
+	if needsICMP && s.icmpScanner == nil {
+		var opts []scan.ICMPSweeperOption
+		if config.ICMPCount > 0 {
+			opts = append(opts, scan.WithICMPCount(config.ICMPCount))
+		}
+		icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, s.logger, opts...)
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to create ICMP scanner during config update, ICMP scanning will be disabled")
+		} else {
+			s.icmpScanner = icmpScanner
+			s.logger.Info().Int("icmpCount", config.ICMPCount).Msg("Initialized ICMP scanner based on updated config")
+		}
+	}
+
+	return nil
+}
+
+// estimateTargetCount calculates the total number of targets.
+// Includes both global networks/modes and device-specific targets.
+func estimateTargetCount(config *models.Config) int {
+	total := 0
+
+	// Count targets from global networks and sweep modes
+	for _, network := range config.Networks {
+		ips, err := scan.ExpandCIDR(network)
+		if err != nil {
+			continue
+		}
+
+		if containsMode(config.SweepModes, models.ModeICMP) {
+			total += len(ips)
+		}
+
+		if containsMode(config.SweepModes, models.ModeTCP) {
+			total += len(ips) * len(config.Ports)
+		}
+
+		if containsMode(config.SweepModes, models.ModeTCPConnect) {
+			total += len(ips) * len(config.Ports)
+		}
+	}
+
+	// Count targets from device-specific configurations
+	for _, deviceTarget := range config.DeviceTargets {
+		ips, err := scan.ExpandCIDR(deviceTarget.Network)
+		if err != nil {
+			continue
+		}
+
+		// Use device-specific sweep modes if available, otherwise fall back to global
+		sweepModes := deviceTarget.SweepModes
+		if len(sweepModes) == 0 {
+			sweepModes = config.SweepModes
+		}
+
+		if containsMode(sweepModes, models.ModeICMP) {
+			total += len(ips)
+		}
+
+		if containsMode(sweepModes, models.ModeTCP) {
+			// DeviceTarget doesn't have its own ports, use global ports
+			total += len(ips) * len(config.Ports)
+		}
+
+		if containsMode(sweepModes, models.ModeTCPConnect) {
+			// DeviceTarget doesn't have its own ports, use global ports
+			total += len(ips) * len(config.Ports)
+		}
+	}
+
+	return total
+}
+
+// StoreOptionsForConfig returns memory store options tuned to the sweep config.
+// It avoids large preallocations when there are few or zero targets.
+func StoreOptionsForConfig(config *models.Config) []InMemoryStoreOption {
+	if config == nil {
+		return nil
+	}
+
+	targets := estimateTargetCount(config)
+	if targets == 0 {
+		return []InMemoryStoreOption{WithoutPreallocation()}
+	}
+
+	if targets < defaultMaxResults {
+		return []InMemoryStoreOption{WithMaxResults(targets)}
+	}
+
+	return nil
+}
+
+// scanAndProcess runs a scan and processes its results.
+func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
+	scanner scan.Scanner, targets []models.Target, scanType string) error {
+	defer wg.Done()
+
+	s.logger.Debug().Str("scanType", scanType).Msg("Running scan")
+
+	results, err := scanner.Scan(ctx, targets)
+	if err != nil {
+		s.logger.Error().Err(err).Str("scanType", scanType).Msg("Scan failed")
+
+		return err
+	}
+
+	return s.processResultsStream(ctx, results, scanType)
+}
+
+// processResultsStream processes results from a scanner stream with batching.
+func (s *NetworkSweeper) processResultsStream(ctx context.Context, results <-chan models.Result, scanType string) error {
+	count := 0
+	success := 0
+
+	// Batch processing configuration
+	const batchSize = 1000
+
+	resultBatch := make([]models.Result, 0, batchSize)
+
+	// Process results as they arrive, respecting context timeout
+	for {
+		select {
+		case result, ok := <-results:
+			if !ok {
+				return s.handleStreamComplete(ctx, resultBatch, scanType, count, success)
+			}
+
+			count, success = s.processSingleResult(&result, &resultBatch, count, success)
+			if err := s.processBatchIfFull(ctx, &resultBatch, scanType, count, success); err != nil {
+				return err
+			}
+
+		case <-ctx.Done():
+			return s.handleContextDone(ctx, resultBatch, scanType, count, success)
+		}
+	}
+}
+
+// handleStreamComplete handles completion when the results channel is closed.
+func (s *NetworkSweeper) handleStreamComplete(ctx context.Context, resultBatch []models.Result, scanType string, count, success int) error {
+	// Channel closed, process final batch if any
+	if len(resultBatch) > 0 {
+		if err := s.processBatchedResults(ctx, resultBatch); err != nil {
+			s.logger.Error().Err(err).Str("scanType", scanType).Msg("Failed to process final result batch")
+		}
+	}
+
+	s.logger.Info().
+		Str("scanType", scanType).
+		Int("totalResults", count).
+		Int("successful", success).
+		Msg("Scan complete - all results received")
+
+	return nil
+}
+
+// processSingleResult processes a single result and updates counters.
+func (*NetworkSweeper) processSingleResult(result *models.Result, resultBatch *[]models.Result,
+	count, success int) (newCount, newSuccess int) {
+	count++
+
+	if result.Available {
+		success++
+	}
+
+	// Add to batch
+	*resultBatch = append(*resultBatch, *result)
+
+	return count, success
+}
+
+// processBatchIfFull processes a batch if it's full and resets the slice.
+func (s *NetworkSweeper) processBatchIfFull(ctx context.Context, resultBatch *[]models.Result, scanType string, count, success int) error {
+	const batchSize = 1000
+
+	// Process batch when it's full
+	if len(*resultBatch) >= batchSize {
+		if err := s.processBatchedResults(ctx, *resultBatch); err != nil {
+			s.logger.Error().Err(err).Str("scanType", scanType).Msg("Failed to process result batch")
+
+			return err
+		}
+
+		// Reset batch slice but keep capacity to avoid reallocation
+		*resultBatch = (*resultBatch)[:0]
+
+		// Progress logging is noisy at scale; keep at debug level only
+		s.logger.Debug().Str("scanType", scanType).Int("processed", count).Int("successful", success).Msg("Scan progress")
+	}
+
+	return nil
+}
+
+// handleContextDone handles completion when context is canceled/timeout.
+func (s *NetworkSweeper) handleContextDone(ctx context.Context, resultBatch []models.Result, scanType string, count, success int) error {
+	// Timeout reached, process any remaining batch
+	if len(resultBatch) > 0 {
+		if err := s.processBatchedResults(ctx, resultBatch); err != nil {
+			s.logger.Error().Err(err).Str("scanType", scanType).Msg("Failed to process remaining result batch")
+		}
+	}
+
+	s.logger.Info().Str("scanType", scanType).Int("totalResults", count).Int("successful", success).Msg("Scan complete - timeout reached")
+
+	return nil
+}
+
+func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+	return s.runSweep(ctx)
+}
+
+func (s *NetworkSweeper) runSweep(ctx context.Context) error {
+	// Clear previous results so availability reflects the current sweep only
+	// This prevents stale positives from lingering across sweeps when targets change
+	if s.store != nil {
+		// Using age=0 clears all stored results
+		_ = s.store.PruneResults(context.Background(), 0)
+	}
+
+	targets, err := s.generateTargets()
+	if err != nil {
+		return fmt.Errorf("failed to generate targets: %w", err)
+	}
+
+	// Prepare device result aggregators for multi-IP devices
+	s.prepareDeviceAggregators(targets)
+
+	var icmpTargets, tcpTargets, tcpConnectTargets []models.Target
+
+	for _, t := range targets {
+		switch t.Mode {
+		case models.ModeICMP:
+			icmpTargets = append(icmpTargets, t)
+		case models.ModeTCP:
+			tcpTargets = append(tcpTargets, t)
+		case models.ModeTCPConnect:
+			tcpConnectTargets = append(tcpConnectTargets, t)
+		}
+	}
+
+	s.mu.RLock()
+	icmpScanner := s.icmpScanner
+	tcpScanner := s.tcpScanner
+	tcpConnectScanner := s.tcpConnectScanner
+	s.mu.RUnlock()
+
+	s.logger.Info().
+		Int("icmpTargets", len(icmpTargets)).
+		Int("tcpTargets", len(tcpTargets)).
+		Int("tcpConnectTargets", len(tcpConnectTargets)).
+		Bool("icmpScannerAvailable", icmpScanner != nil).
+		Bool("tcpScannerAvailable", tcpScanner != nil).
+		Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
+		Msg("Starting sweep")
+
+	var wg sync.WaitGroup
+
+	errChan := make(chan error, 3) // Buffer for ICMP, TCP, and TCP connect errors
+
+	if len(icmpTargets) > 0 && icmpScanner != nil {
+		wg.Add(1)
+
+		go func() {
+			if err := s.scanAndProcess(ctx, &wg, icmpScanner, icmpTargets, "icmp"); err != nil {
+				errChan <- err
+			}
+		}()
+	} else if len(icmpTargets) > 0 {
+		s.logger.Warn().Int("icmpTargets", len(icmpTargets)).Msg("ICMP targets found but ICMP scanner is not available, skipping ICMP scan")
+	}
+
+	if len(tcpTargets) > 0 && tcpScanner != nil {
+		wg.Add(1)
+
+		go func() {
+			if err := s.scanAndProcess(ctx, &wg, tcpScanner, tcpTargets, "tcp"); err != nil {
+				errChan <- err
+			}
+		}()
+	} else if len(tcpTargets) > 0 {
+		s.logger.Warn().Int("tcpTargets", len(tcpTargets)).Msg("TCP targets found but TCP scanner is not available, skipping TCP scan")
+	}
+
+	if len(tcpConnectTargets) > 0 && tcpConnectScanner != nil {
+		wg.Add(1)
+
+		go func() {
+			if err := s.scanAndProcess(ctx, &wg, tcpConnectScanner, tcpConnectTargets, "tcp_connect"); err != nil {
+				errChan <- err
+			}
+		}()
+	} else if len(tcpConnectTargets) > 0 {
+		s.logger.Warn().Int("tcpConnectTargets", len(tcpConnectTargets)).Msg("TCP connect targets found but TCP connect scanner is not available, skipping TCP connect scan")
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// Check for any errors
+	for err := range errChan {
+		return err
+	}
+
+	// Finalize and process aggregated device results
+	s.finalizeDeviceAggregators(ctx)
+
+	s.logger.Info().Msg("Sweep completed successfully")
+
+	return nil
+}
+
+// processResult processes a single scan result.
+func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Result) error {
+	ctx, cancel := context.WithTimeout(ctx, defaultResultTimeout)
+	defer cancel()
+
+	// Process basic result handling
+	if err := s.processBasicResult(ctx, result); err != nil {
+		return err
+	}
+
+	// Check if this result should be aggregated for a multi-IP device
+	if s.shouldAggregateResult(result) {
+		s.addResultToAggregator(result)
+		return nil // Don't process immediately through device registry
+	}
+
+	// Process through unified device registry for all results (both available and unavailable)
+	if s.deviceRegistry != nil {
+		if err := s.processDeviceRegistry(result); err != nil {
+			// Log error but don't fail the entire operation
+			s.logger.Error().Err(err).Str("host", result.Target.Host).Msg("Failed to process sweep result through device registry")
+		}
+	}
+
+	return nil
+}
+
+// processBasicResult handles the basic processing and saving of the result.
+func (s *NetworkSweeper) processBasicResult(ctx context.Context, result *models.Result) error {
+	// Process through existing pipeline
+	if err := s.processor.Process(result); err != nil {
+		return fmt.Errorf("processor error: %w", err)
+	}
+
+	if err := s.store.SaveResult(ctx, result); err != nil {
+		return fmt.Errorf("store error: %w", err)
+	}
+
+	return nil
+}
+
+const (
+	defaultName = "default"
+)
+
+// extractAgentInfo extracts agent/gateway/partition information from config and metadata.
+func (s *NetworkSweeper) extractAgentInfo(result *models.Result) (agentID, gatewayID, partition string) {
+	// Get agent/gateway info from config first, then try metadata
+	agentID = defaultName
+	gatewayID = defaultName
+	partition = defaultName
+
+	// Use config values if available
+	if s.config.AgentID != "" {
+		agentID = s.config.AgentID
+	}
+
+	if s.config.GatewayID != "" {
+		gatewayID = s.config.GatewayID
+	}
+
+	if s.config.Partition != "" {
+		partition = s.config.Partition
+	}
+
+	// Extract from metadata if available (metadata can override config)
+	if result.Target.Metadata != nil {
+		if id, ok := result.Target.Metadata["agent_id"].(string); ok && id != "" {
+			agentID = id
+		}
+
+		if id, ok := result.Target.Metadata["gateway_id"].(string); ok && id != "" {
+			gatewayID = id
+		}
+
+		if p, ok := result.Target.Metadata["partition"].(string); ok && p != "" {
+			partition = p
+		}
+	}
+
+	return agentID, gatewayID, partition
+}
+
+// createDeviceUpdate creates a DeviceUpdate from a Result.
+func (*NetworkSweeper) createDeviceUpdate(result *models.Result, agentID, gatewayID, partition string) *models.DeviceUpdate {
+	// Always generate a valid device ID with partition
+	deviceID := fmt.Sprintf("%s:%s", partition, result.Target.Host)
+
+	return &models.DeviceUpdate{
+		AgentID:     agentID,
+		GatewayID:   gatewayID,
+		Partition:   partition,
+		DeviceID:    deviceID,
+		Source:      models.DiscoverySourceSweep,
+		IP:          result.Target.Host,
+		Timestamp:   result.LastSeen,
+		IsAvailable: result.Available,
+		Metadata:    make(map[string]string),
+		Confidence:  models.GetSourceConfidence(models.DiscoverySourceSweep),
+	}
+}
+
+// convertMetadataToStringMap converts metadata to a string map.
+func convertMetadataToStringMap(deviceUpdate *models.DeviceUpdate, metadata map[string]interface{}) {
+	if metadata == nil {
+		return
+	}
+
+	for key, value := range metadata {
+		if strVal, ok := value.(string); ok {
+			deviceUpdate.Metadata[key] = strVal
+		} else {
+			deviceUpdate.Metadata[key] = fmt.Sprintf("%v", value)
+		}
+	}
+}
+
+// addAdditionalMetadata adds additional metadata to the DeviceUpdate.
+func addAdditionalMetadata(deviceUpdate *models.DeviceUpdate, result *models.Result) {
+	// Add sweep mode to metadata
+	deviceUpdate.Metadata["sweep_mode"] = string(result.Target.Mode)
+	if result.Target.Port > 0 {
+		deviceUpdate.Metadata["port"] = fmt.Sprintf("%d", result.Target.Port)
+	}
+
+	// Add timing metadata
+	deviceUpdate.Metadata["response_time"] = result.RespTime.String()
+	deviceUpdate.Metadata["packet_loss"] = fmt.Sprintf("%.2f", result.PacketLoss)
+}
+
+// processDeviceRegistry processes the sweep result through the device registry.
+func (s *NetworkSweeper) processDeviceRegistry(result *models.Result) error {
+	agentID, gatewayID, partition := s.extractAgentInfo(result)
+	deviceUpdate := s.createDeviceUpdate(result, agentID, gatewayID, partition)
+
+	// Convert metadata to string map
+	convertMetadataToStringMap(deviceUpdate, result.Target.Metadata)
+
+	// Add additional metadata
+	addAdditionalMetadata(deviceUpdate, result)
+
+	// Use background context to avoid cancellation
+	bgCtx := context.Background()
+
+	return s.deviceRegistry.UpdateDevice(bgCtx, deviceUpdate)
+}
+
+// generateTargetsForNetwork creates targets for a legacy network configuration
+func (s *NetworkSweeper) generateTargetsForNetwork(network string) ([]models.Target, int, error) {
+	ips, err := scan.ExpandCIDR(network)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to expand CIDR %s: %w", network, err)
+	}
+
+	var targets []models.Target
+
+	metadata := map[string]interface{}{
+		"network":     network,
+		"total_hosts": len(ips),
+		"source":      "legacy_networks",
+	}
+
+	for _, ip := range ips {
+		targets = append(targets, s.createTargetsForIP(ip, s.config.SweepModes, metadata)...)
+	}
+
+	return targets, len(ips), nil
+}
+
+// generateTargetsForDeviceTarget creates targets for a device target configuration
+func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.DeviceTarget) (targets []models.Target, hostCount int) {
+	// Always expand and use the primary network (e.g., a single /32).
+	// We intentionally ignore any additional IP lists in metadata (e.g., "all_ips").
+	ips, err := scan.ExpandCIDR(deviceTarget.Network)
+	if err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("network", deviceTarget.Network).
+			Str("query_label", deviceTarget.QueryLabel).
+			Msg("Failed to expand device target CIDR, skipping")
+
+		return targets, hostCount
+	}
+
+	targetIPs := ips
+
+	metadata := map[string]interface{}{
+		"network":     deviceTarget.Network,
+		"total_hosts": len(targetIPs),
+		"source":      deviceTarget.Source,
+		"query_label": deviceTarget.QueryLabel,
+	}
+
+	// Add device target metadata to the scan metadata (for tracking only)
+	for k, v := range deviceTarget.Metadata {
+		metadata[k] = v
+	}
+
+	// Use device-specific sweep modes if available, otherwise fall back to global
+	sweepModes := deviceTarget.SweepModes
+	if len(sweepModes) == 0 {
+		s.logger.Debug().
+			Str("device", deviceTarget.Network).
+			Msg("Device target has no sweep modes, using global config")
+
+		sweepModes = s.config.SweepModes
+	}
+
+	s.logger.Debug().
+		Str("device", deviceTarget.Network).
+		Strs("sweep_modes", func() []string {
+			modes := make([]string, 0, len(sweepModes))
+			for _, m := range sweepModes {
+				modes = append(modes, string(m))
+			}
+			return modes
+		}()).
+		Int("ip_count", len(targetIPs)).
+		Int("port_count", len(s.config.Ports)).
+		Msg("Generating targets for device")
+
+	for _, ip := range targetIPs {
+		targets = append(targets, s.createTargetsForIP(ip, sweepModes, metadata)...)
+	}
+
+	hostCount = len(targetIPs)
+
+	return targets, hostCount
+}
+
+// createTargetsForIP creates targets for a specific IP using the given sweep modes
+func (s *NetworkSweeper) createTargetsForIP(ip string, sweepModes []models.SweepMode, metadata map[string]interface{}) []models.Target {
+	var targets []models.Target
+
+	if containsMode(sweepModes, models.ModeICMP) {
+		target := scan.TargetFromIP(ip, models.ModeICMP)
+		target.Metadata = metadata
+		targets = append(targets, target)
+	}
+
+	if containsMode(sweepModes, models.ModeTCP) {
+		for _, port := range s.config.Ports {
+			target := scan.TargetFromIP(ip, models.ModeTCP, port)
+			target.Metadata = metadata
+			targets = append(targets, target)
+		}
+	}
+
+	if containsMode(sweepModes, models.ModeTCPConnect) {
+		for _, port := range s.config.Ports {
+			target := scan.TargetFromIP(ip, models.ModeTCPConnect, port)
+			target.Metadata = metadata
+			targets = append(targets, target)
+		}
+	}
+
+	return targets
+}
+
+// generateTargets creates scan targets from the configuration.
+func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
+	var targets []models.Target
+
+	totalHostCount := 0
+
+	// Process legacy networks with global sweep modes (for backward compatibility)
+	for _, network := range s.config.Networks {
+		networkTargets, hostCount, err := s.generateTargetsForNetwork(network)
+		if err != nil {
+			return nil, err
+		}
+
+		targets = append(targets, networkTargets...)
+		totalHostCount += hostCount
+	}
+
+	// Process device targets with per-device sweep modes (from sync service)
+	for _, deviceTarget := range s.config.DeviceTargets {
+		deviceTargets, hostCount := s.generateTargetsForDeviceTarget(&deviceTarget)
+
+		targets = append(targets, deviceTargets...)
+		totalHostCount += hostCount
+	}
+
+	s.logger.Info().
+		Int("targetsGenerated", len(targets)).
+		Int("networkCount", len(s.config.Networks)).
+		Int("deviceTargetCount", len(s.config.DeviceTargets)).
+		Int("totalHosts", totalHostCount).
+		Ints("configuredPorts", s.config.Ports).
+		Strs("globalSweepModes", func() []string {
+			modes := make([]string, 0, len(s.config.SweepModes))
+			for _, m := range s.config.SweepModes {
+				modes = append(modes, string(m))
+			}
+			return modes
+		}()).
+		Msg("Generated targets from networks and device targets")
+
+	return targets, nil
+}
+
+// containsMode checks if a mode is in a slice of modes.
+func containsMode(modes []models.SweepMode, mode models.SweepMode) bool {
+	for _, m := range modes {
+		if m == mode {
+			return true
+		}
+	}
+
+	return false
+}
+
+// processBatchedResults processes a batch of results efficiently
+func (s *NetworkSweeper) processBatchedResults(ctx context.Context, batch []models.Result) error {
+	if len(batch) == 0 {
+		return nil
+	}
+
+	// Pre-allocate context with timeout for the entire batch
+	batchCtx, cancel := context.WithTimeout(ctx, time.Duration(len(batch))*defaultResultTimeout)
+	defer cancel()
+
+	// Track batch statistics
+	errors := 0
+	aggregated := 0
+	deviceRegistryUpdates := 0
+
+	// Process each result in the batch
+	for i := range batch {
+		result := &batch[i]
+
+		// Process basic result handling (store, processor)
+		if err := s.processBasicResult(batchCtx, result); err != nil {
+			s.logger.Error().Err(err).
+				Str("host", result.Target.Host).
+				Msg("Failed to process basic result in batch")
+
+			errors++
+
+			continue
+		}
+
+		// Check if this result should be aggregated for a multi-IP device
+		if s.shouldAggregateResult(result) {
+			s.addResultToAggregator(result)
+
+			aggregated++
+
+			continue // Don't process immediately through device registry
+		}
+
+		// Process through unified device registry for non-aggregated results
+		if s.deviceRegistry != nil {
+			if err := s.processDeviceRegistry(result); err != nil {
+				s.logger.Error().Err(err).
+					Str("host", result.Target.Host).
+					Msg("Failed to process result through device registry in batch")
+
+				errors++
+
+				continue
+			}
+
+			deviceRegistryUpdates++
+		}
+	}
+
+	// Log only on errors to reduce log volume at scale
+	if errors > 0 {
+		s.logger.Warn().
+			Int("batchSize", len(batch)).
+			Int("errors", errors).
+			Int("aggregated", aggregated).
+			Int("deviceRegistryUpdates", deviceRegistryUpdates).
+			Msg("Batch result processing completed with errors")
+	}
+
+	return nil
+}
+
+// prepareDeviceAggregators initializes result aggregators for devices with multiple IPs
+func (s *NetworkSweeper) prepareDeviceAggregators(targets []models.Target) {
+	s.resultsMu.Lock()
+	defer s.resultsMu.Unlock()
+
+	// Clear previous aggregators
+	s.deviceResults = make(map[string]*DeviceResultAggregator)
+
+	// Group targets by device
+	deviceTargets := make(map[string][]models.Target)
+	deviceMetadata := make(map[string]map[string]interface{})
+
+	for _, target := range targets {
+		deviceID := s.extractDeviceID(target)
+		if deviceID != "" {
+			deviceTargets[deviceID] = append(deviceTargets[deviceID], target)
+
+			if len(deviceMetadata[deviceID]) == 0 && target.Metadata != nil {
+				deviceMetadata[deviceID] = target.Metadata
+			}
+		}
+	}
+
+	// Create aggregators for devices with multiple IPs
+	for deviceID, targets := range deviceTargets {
+		if len(targets) <= 1 {
+			continue
+		}
+
+		expectedIPs := make([]string, 0, len(targets))
+		for _, t := range targets {
+			expectedIPs = append(expectedIPs, t.Host)
+		}
+
+		agentID, gatewayID, partition := s.extractAgentInfoFromMetadata(deviceMetadata[deviceID])
+
+		s.deviceResults[deviceID] = &DeviceResultAggregator{
+			DeviceID:    deviceID,
+			Results:     make([]*models.Result, 0, len(targets)),
+			ExpectedIPs: expectedIPs,
+			Metadata:    deviceMetadata[deviceID],
+			AgentID:     agentID,
+			GatewayID:   gatewayID,
+			Partition:   partition,
+		}
+
+		s.logger.Debug().
+			Str("deviceID", deviceID).
+			Strs("expectedIPs", expectedIPs).
+			Msg("Created device result aggregator for multi-IP device")
+	}
+}
+
+// extractDeviceID extracts a unique device identifier from target metadata
+func (*NetworkSweeper) extractDeviceID(target models.Target) string {
+	if target.Metadata == nil {
+		return ""
+	}
+
+	// Try armis_device_id first
+	if armisID, ok := target.Metadata["armis_device_id"]; ok {
+		switch v := armisID.(type) {
+		case string:
+			if v != "" {
+				return "armis:" + v
+			}
+		case int:
+			return fmt.Sprintf("armis:%d", v)
+		case int64:
+			return fmt.Sprintf("armis:%d", v)
+		case float64:
+			return fmt.Sprintf("armis:%d", int64(v))
+		}
+	}
+
+	// Try integration_id
+	if integrationID, ok := target.Metadata["integration_id"]; ok {
+		switch v := integrationID.(type) {
+		case string:
+			if v != "" {
+				return "integration:" + v
+			}
+		case int:
+			return fmt.Sprintf("integration:%d", v)
+		case int64:
+			return fmt.Sprintf("integration:%d", v)
+		case float64:
+			return fmt.Sprintf("integration:%d", int64(v))
+		}
+	}
+
+	return ""
+}
+
+// extractAgentInfoFromMetadata extracts agent info from metadata
+func (s *NetworkSweeper) extractAgentInfoFromMetadata(metadata map[string]interface{}) (agentID, gatewayID, partition string) {
+	agentID = defaultName
+	gatewayID = defaultName
+	partition = defaultName
+
+	if s.config.AgentID != "" {
+		agentID = s.config.AgentID
+	}
+
+	if s.config.GatewayID != "" {
+		gatewayID = s.config.GatewayID
+	}
+
+	if s.config.Partition != "" {
+		partition = s.config.Partition
+	}
+
+	if metadata != nil {
+		if id, ok := metadata["agent_id"].(string); ok && id != "" {
+			agentID = id
+		}
+
+		if id, ok := metadata["gateway_id"].(string); ok && id != "" {
+			gatewayID = id
+		}
+
+		if p, ok := metadata["partition"].(string); ok && p != "" {
+			partition = p
+		}
+	}
+
+	return agentID, gatewayID, partition
+}
+
+// shouldAggregateResult checks if a result should be aggregated
+func (s *NetworkSweeper) shouldAggregateResult(result *models.Result) bool {
+	deviceID := s.extractDeviceID(result.Target)
+	if deviceID == "" {
+		return false
+	}
+
+	s.resultsMu.Lock()
+	defer s.resultsMu.Unlock()
+
+	_, exists := s.deviceResults[deviceID]
+
+	return exists
+}
+
+// addResultToAggregator adds a result to the appropriate aggregator
+func (s *NetworkSweeper) addResultToAggregator(result *models.Result) {
+	deviceID := s.extractDeviceID(result.Target)
+	if deviceID == "" {
+		return
+	}
+
+	s.resultsMu.Lock()
+	defer s.resultsMu.Unlock()
+
+	if aggregator, exists := s.deviceResults[deviceID]; exists {
+		aggregator.mu.Lock()
+		aggregator.Results = append(aggregator.Results, result)
+		aggregator.mu.Unlock()
+
+		s.logger.Debug().
+			Str("deviceID", deviceID).
+			Str("ip", result.Target.Host).
+			Bool("available", result.Available).
+			Msg("Added result to device aggregator")
+	}
+}
+
+// finalizeDeviceAggregators processes all aggregated results and updates devices
+func (s *NetworkSweeper) finalizeDeviceAggregators(ctx context.Context) {
+	s.resultsMu.Lock()
+
+	aggregators := make([]*DeviceResultAggregator, 0, len(s.deviceResults))
+
+	for _, aggregator := range s.deviceResults {
+		aggregators = append(aggregators, aggregator)
+	}
+
+	s.resultsMu.Unlock()
+
+	for _, aggregator := range aggregators {
+		s.processAggregatedResults(ctx, aggregator)
+	}
+}
+
+// processAggregatedResults processes the aggregated results for a device
+func (s *NetworkSweeper) processAggregatedResults(_ context.Context, aggregator *DeviceResultAggregator) {
+	aggregator.mu.Lock()
+	defer aggregator.mu.Unlock()
+
+	if len(aggregator.Results) == 0 {
+		s.logger.Debug().
+			Str("groupKey", aggregator.DeviceID).
+			Int("expectedIPs", len(aggregator.ExpectedIPs)).
+			Msg("No results collected for device aggregator")
+
+		return
+	}
+
+	// Find the primary IP result (first available, or first if none available)
+	var primaryResult *models.Result
+
+	for _, result := range aggregator.Results {
+		if result.Available {
+			primaryResult = result
+			break
+		}
+	}
+
+	if primaryResult == nil {
+		primaryResult = aggregator.Results[0]
+	}
+
+	// Create device update based on primary result
+	deviceID := fmt.Sprintf("%s:%s", aggregator.Partition, primaryResult.Target.Host)
+	deviceUpdate := &models.DeviceUpdate{
+		AgentID:     aggregator.AgentID,
+		GatewayID:   aggregator.GatewayID,
+		Partition:   aggregator.Partition,
+		DeviceID:    deviceID,
+		Source:      models.DiscoverySourceSweep,
+		IP:          primaryResult.Target.Host,
+		Timestamp:   primaryResult.LastSeen,
+		IsAvailable: primaryResult.Available,
+		Metadata:    make(map[string]string),
+		Confidence:  models.GetSourceConfidence(models.DiscoverySourceSweep),
+	}
+
+	// Convert original metadata to string map
+	convertMetadataToStringMap(deviceUpdate, aggregator.Metadata)
+
+	// Add aggregated scan results to metadata
+	s.addAggregatedScanResults(deviceUpdate, aggregator.Results)
+
+	// Use background context to avoid cancellation
+	bgCtx := context.Background()
+
+	// Only update device registry if it's configured
+	if s.deviceRegistry != nil {
+		if err := s.deviceRegistry.UpdateDevice(bgCtx, deviceUpdate); err != nil {
+			s.logger.Error().
+				Err(err).
+				Str("deviceID", aggregator.DeviceID).
+				Msg("Failed to update device with aggregated scan results")
+		} else {
+			s.logger.Info().
+				Str("deviceID", aggregator.DeviceID).
+				Int("resultCount", len(aggregator.Results)).
+				Str("primaryIP", primaryResult.Target.Host).
+				Bool("deviceAvailable", primaryResult.Available).
+				Msg("Successfully updated device with aggregated scan results")
+		}
+	} else {
+		s.logger.Debug().
+			Str("deviceID", aggregator.DeviceID).
+			Msg("Device registry not configured, skipping device update")
+	}
+}
+
+// addAggregatedScanResults adds scan results for all IPs to device metadata
+func (*NetworkSweeper) addAggregatedScanResults(deviceUpdate *models.DeviceUpdate, results []*models.Result) {
+	const aggDetailThreshold = 100 // keep tests with small sets passing; production large sets skip details
+
+	total := len(results)
+	if total == 0 {
+		setEmptyResults(deviceUpdate)
+		return
+	}
+
+	if total > aggDetailThreshold {
+		setCountsOnlyResults(deviceUpdate, results, total)
+		return
+	}
+
+	setDetailedResults(deviceUpdate, results, total)
+}
+
+// setEmptyResults sets metadata for empty results
+func setEmptyResults(deviceUpdate *models.DeviceUpdate) {
+	deviceUpdate.Metadata["scan_result_count"] = "0"
+	deviceUpdate.Metadata["scan_available_count"] = "0"
+	deviceUpdate.Metadata["scan_unavailable_count"] = "0"
+	deviceUpdate.Metadata["scan_availability_percent"] = "0.0"
+	deviceUpdate.IsAvailable = false
+}
+
+// setCountsOnlyResults sets metadata for large result sets (counts only)
+func setCountsOnlyResults(deviceUpdate *models.DeviceUpdate, results []*models.Result, total int) {
+	availableCount := 0
+
+	for _, r := range results {
+		if r.Available {
+			availableCount++
+		}
+	}
+
+	unavailableCount := total - availableCount
+	deviceUpdate.Metadata["scan_result_count"] = fmt.Sprintf("%d", total)
+	deviceUpdate.Metadata["scan_available_count"] = fmt.Sprintf("%d", availableCount)
+	deviceUpdate.Metadata["scan_unavailable_count"] = fmt.Sprintf("%d", unavailableCount)
+	deviceUpdate.Metadata["scan_detail_truncated"] = "true"
+	deviceUpdate.Metadata["scan_availability_percent"] = fmt.Sprintf("%.1f", float64(availableCount)/float64(total)*100)
+	deviceUpdate.IsAvailable = availableCount > 0
+}
+
+// setDetailedResults sets detailed metadata for small result sets
+func setDetailedResults(deviceUpdate *models.DeviceUpdate, results []*models.Result, total int) {
+	builders := initializeBuilders(total)
+	states := &buildStates{
+		firstIP:          true,
+		firstAvailable:   true,
+		firstUnavailable: true,
+		firstICMP:        true,
+		firstTCP:         true,
+	}
+	availableCount := 0
+
+	for _, result := range results {
+		processIPLists(result, builders, states)
+
+		if result.Available {
+			availableCount++
+		}
+
+		processScanDetails(result, builders, states)
+	}
+
+	setBuiltMetadata(deviceUpdate, builders, total, availableCount)
+}
+
+// buildStates tracks first-time flags for string building
+type buildStates struct {
+	firstIP, firstAvailable, firstUnavailable, firstICMP, firstTCP bool
+}
+
+// scanBuilders holds string builders for different result categories
+type scanBuilders struct {
+	allIPs, availableIPs, unavailableIPs, icmp, tcp *strings.Builder
+}
+
+// initializeBuilders creates and pre-allocates string builders
+func initializeBuilders(total int) *scanBuilders {
+	builders := &scanBuilders{
+		allIPs:         &strings.Builder{},
+		availableIPs:   &strings.Builder{},
+		unavailableIPs: &strings.Builder{},
+		icmp:           &strings.Builder{},
+		tcp:            &strings.Builder{},
+	}
+
+	// Pre-allocate builders with estimated capacity
+	builders.allIPs.Grow(total * 13)
+	builders.availableIPs.Grow(total * 13 / 2)
+	builders.unavailableIPs.Grow(total * 13 / 2)
+	builders.icmp.Grow(total * 60 / 2)
+	builders.tcp.Grow(total * 60 / 2)
+
+	return builders
+}
+
+// processIPLists builds IP lists based on availability
+func processIPLists(result *models.Result, builders *scanBuilders, states *buildStates) {
+	// Build all IPs list
+	if !states.firstIP {
+		builders.allIPs.WriteByte(',')
+	}
+
+	builders.allIPs.WriteString(result.Target.Host)
+
+	if states.firstIP {
+		states.firstIP = false
+	}
+
+	if result.Available {
+		if !states.firstAvailable {
+			builders.availableIPs.WriteByte(',')
+		}
+
+		builders.availableIPs.WriteString(result.Target.Host)
+
+		if states.firstAvailable {
+			states.firstAvailable = false
+		}
+	} else {
+		if !states.firstUnavailable {
+			builders.unavailableIPs.WriteByte(',')
+		}
+
+		builders.unavailableIPs.WriteString(result.Target.Host)
+
+		if states.firstUnavailable {
+			states.firstUnavailable = false
+		}
+	}
+}
+
+// processScanDetails builds detailed scan result strings
+func processScanDetails(result *models.Result, builders *scanBuilders, states *buildStates) {
+	switch result.Target.Mode {
+	case models.ModeICMP:
+		buildICMPDetails(result, builders.icmp, &states.firstICMP)
+	case models.ModeTCP:
+		buildTCPDetails(result, builders.tcp, &states.firstTCP)
+	case models.ModeTCPConnect:
+		buildTCPDetails(result, builders.tcp, &states.firstTCP)
+	}
+}
+
+// buildScanDetails builds scan details for either ICMP or TCP
+func buildScanDetails(result *models.Result, builder *strings.Builder, protocol string, firstFlag *bool) {
+	if !*firstFlag {
+		builder.WriteByte(';')
+	}
+
+	builder.WriteString(result.Target.Host)
+	builder.WriteByte(':')
+	builder.WriteString(protocol)
+	builder.WriteString(":available=")
+
+	if result.Available {
+		builder.WriteString("true")
+	} else {
+		builder.WriteString("false")
+	}
+
+	builder.WriteString(":response_time=")
+	builder.WriteString(result.RespTime.String())
+	builder.WriteString(":packet_loss=")
+	fmt.Fprintf(builder, "%.2f", result.PacketLoss)
+
+	if *firstFlag {
+		*firstFlag = false
+	}
+}
+
+// buildICMPDetails builds ICMP scan details
+func buildICMPDetails(result *models.Result, builder *strings.Builder, firstICMP *bool) {
+	buildScanDetails(result, builder, "icmp", firstICMP)
+}
+
+// buildTCPDetails builds TCP scan details
+func buildTCPDetails(result *models.Result, builder *strings.Builder, firstTCP *bool) {
+	buildScanDetails(result, builder, "tcp", firstTCP)
+}
+
+// setBuiltMetadata assigns built strings to device metadata
+func setBuiltMetadata(deviceUpdate *models.DeviceUpdate, builders *scanBuilders, total, availableCount int) {
+	deviceUpdate.Metadata["scan_all_ips"] = builders.allIPs.String()
+	deviceUpdate.Metadata["scan_available_ips"] = builders.availableIPs.String()
+	deviceUpdate.Metadata["scan_unavailable_ips"] = builders.unavailableIPs.String()
+	deviceUpdate.Metadata["scan_result_count"] = fmt.Sprintf("%d", total)
+	deviceUpdate.Metadata["scan_available_count"] = fmt.Sprintf("%d", availableCount)
+	deviceUpdate.Metadata["scan_unavailable_count"] = fmt.Sprintf("%d", total-availableCount)
+
+	if builders.icmp.Len() > 0 {
+		deviceUpdate.Metadata["scan_icmp_results"] = builders.icmp.String()
+	}
+
+	if builders.tcp.Len() > 0 {
+		deviceUpdate.Metadata["scan_tcp_results"] = builders.tcp.String()
+	}
+
+	deviceUpdate.Metadata["scan_availability_percent"] = fmt.Sprintf("%.1f", float64(availableCount)/float64(total)*100)
+	deviceUpdate.IsAvailable = availableCount > 0
+}

@@ -1,0 +1,233 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package db
+
+import (
+	"context"
+	"fmt"
+	"net/url"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/models"
+)
+
+const (
+	cnpgSSLModeDisable    = "disable"
+	cnpgSSLModeVerifyFull = "verify-full"
+)
+
+func resolveCNPGSSLMode(cfg *models.CNPGDatabase) (string, error) {
+	if cfg == nil {
+		return "", ErrCNPGConfigMissing
+	}
+
+	sslMode := strings.TrimSpace(cfg.SSLMode)
+	if sslMode == "" && cfg.ExtraRuntimeParams != nil {
+		sslMode = strings.TrimSpace(cfg.ExtraRuntimeParams["sslmode"])
+	}
+
+	if sslMode == "" {
+		if cfg.TLS != nil {
+			sslMode = cnpgSSLModeVerifyFull
+		} else {
+			sslMode = cnpgSSLModeDisable
+		}
+	}
+
+	sslMode = strings.ToLower(sslMode)
+	if cfg.TLS != nil && sslMode == cnpgSSLModeDisable {
+		return "", ErrCNPGTLSDisabled
+	}
+
+	return sslMode, nil
+}
+
+func resolveCNPGTLSPath(cfg *models.CNPGDatabase, path string) string {
+	if cfg == nil || path == "" {
+		return path
+	}
+
+	if filepath.IsAbs(path) || cfg.CertDir == "" {
+		return path
+	}
+
+	return filepath.Join(cfg.CertDir, path)
+}
+
+func buildCNPGConnURL(cfg *models.CNPGDatabase) (url.URL, error) {
+	if cfg == nil {
+		return url.URL{}, ErrCNPGConfigMissing
+	}
+
+	connURL := url.URL{
+		Scheme: "postgres",
+		Host:   fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		Path:   "/" + cfg.Database,
+	}
+
+	if cfg.Username != "" {
+		if cfg.Password != "" {
+			connURL.User = url.UserPassword(cfg.Username, cfg.Password)
+		} else {
+			connURL.User = url.User(cfg.Username)
+		}
+	}
+
+	query := connURL.Query()
+
+	if cfg.ApplicationName != "" {
+		query.Set("application_name", cfg.ApplicationName)
+	}
+
+	for k, v := range cfg.ExtraRuntimeParams {
+		if k == "" {
+			continue
+		}
+
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+
+		switch strings.ToLower(k) {
+		case "sslmode", "sslcert", "sslkey", "sslrootcert":
+			continue
+		default:
+			query.Set(k, v)
+		}
+	}
+
+	sslMode, err := resolveCNPGSSLMode(cfg)
+	if err != nil {
+		return url.URL{}, err
+	}
+	query.Set("sslmode", sslMode)
+
+	if cfg.TLS != nil {
+		caFile := resolveCNPGTLSPath(cfg, cfg.TLS.CAFile)
+
+		// CA file is required for TLS verification (verify-ca, verify-full modes)
+		if caFile == "" {
+			return url.URL{}, ErrCNPGLackingTLSFiles
+		}
+
+		query.Set("sslrootcert", caFile)
+
+		// Client cert and key are optional (only required if server demands client auth)
+		certFile := resolveCNPGTLSPath(cfg, cfg.TLS.CertFile)
+		keyFile := resolveCNPGTLSPath(cfg, cfg.TLS.KeyFile)
+
+		if certFile != "" && keyFile != "" {
+			query.Set("sslcert", certFile)
+			query.Set("sslkey", keyFile)
+		}
+	}
+
+	connURL.RawQuery = query.Encode()
+
+	return connURL, nil
+}
+
+// NewCNPGPool dials the configured CNPG cluster and returns a pgx pool that can
+// be used for Timescale-backed reads/writes.
+func NewCNPGPool(ctx context.Context, cfg *models.CNPGDatabase, log logger.Logger) (*pgxpool.Pool, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	cnpg := *cfg
+	if cnpg.Port == 0 {
+		cnpg.Port = 5432
+	}
+
+	connURL, err := buildCNPGConnURL(&cnpg)
+	if err != nil {
+		return nil, err
+	}
+
+	poolConfig, err := pgxpool.ParseConfig(connURL.String())
+	if err != nil {
+		return nil, fmt.Errorf("cnpg: failed to parse connection string: %w", err)
+	}
+
+	if cnpg.MaxConnections > 0 {
+		poolConfig.MaxConns = cnpg.MaxConnections
+	}
+
+	if cnpg.MinConnections > 0 {
+		poolConfig.MinConns = cnpg.MinConnections
+	}
+
+	if cnpg.MaxConnLifetime > 0 {
+		poolConfig.MaxConnLifetime = time.Duration(cnpg.MaxConnLifetime)
+	}
+
+	if cnpg.HealthCheckPeriod > 0 {
+		poolConfig.HealthCheckPeriod = time.Duration(cnpg.HealthCheckPeriod)
+	}
+
+	if poolConfig.ConnConfig.RuntimeParams == nil {
+		poolConfig.ConnConfig.RuntimeParams = make(map[string]string)
+	}
+
+	for k, v := range cnpg.ExtraRuntimeParams {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+
+		switch strings.ToLower(k) {
+		case "sslmode", "sslcert", "sslkey", "sslrootcert":
+			continue
+		}
+
+		poolConfig.ConnConfig.RuntimeParams[k] = v
+	}
+
+	if cnpg.StatementTimeout > 0 {
+		timeout := time.Duration(cnpg.StatementTimeout) / time.Millisecond
+		poolConfig.ConnConfig.RuntimeParams["statement_timeout"] = fmt.Sprintf("%d", timeout)
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		return nil, fmt.Errorf("cnpg: failed to initialize pool: %w", err)
+	}
+
+	if log != nil {
+		log.Info().
+			Str("host", cnpg.Host).
+			Int("port", cnpg.Port).
+			Int32("max_conns", poolConfig.MaxConns).
+			Msg("connected to CNPG/Timescale cluster")
+	}
+
+	return pool, nil
+}
+
+func newCNPGPool(ctx context.Context, config *models.CoreServiceConfig, log logger.Logger) (*pgxpool.Pool, error) {
+	if config == nil || config.CNPG == nil {
+		return nil, nil
+	}
+
+	return NewCNPGPool(ctx, config.CNPG, log)
+}

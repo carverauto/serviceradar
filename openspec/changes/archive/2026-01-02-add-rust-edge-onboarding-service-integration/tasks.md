@@ -37,7 +37,7 @@
 
 ## 5. Systemd service file updates
 
-- [ ] 5.1 Update `packaging/sysmon/systemd/serviceradar-sysmon-checker.service`:
+- [ ] 5.1 Update `build/packaging/sysmon/systemd/serviceradar-sysmon-checker.service`:
   - Support config path override via environment variable
   - Use `StandardOutput=journal` instead of file (simpler, avoids missing dir issues)
   - Consider `DynamicUser=yes` or document `serviceradar` user requirement
@@ -45,7 +45,7 @@
 
 ## 6. RPM/DEB postinst script updates
 
-- [ ] 6.1 Update `packaging/sysmon/scripts/postinstall.sh`:
+- [ ] 6.1 Update `build/packaging/sysmon/scripts/postinstall.sh`:
   - Create `/var/log/serviceradar/` directory
   - Create `/etc/serviceradar/checkers/` directory
   - Create `/etc/serviceradar/certs/` directory

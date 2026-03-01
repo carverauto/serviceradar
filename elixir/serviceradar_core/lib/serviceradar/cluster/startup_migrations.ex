@@ -11,7 +11,10 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
   require Logger
 
-  @migrations_complete_marker "/tmp/serviceradar_migrations_complete"
+  @default_marker_path "/tmp/serviceradar_migrations_complete"
+  @default_search_path "platform, public, ag_catalog"
+  @default_app_user "serviceradar"
+  @max_migration_repair_attempts 500
 
   def child_spec(_opts) do
     %{
@@ -50,20 +53,34 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
     write_migrations_marker()
 
+    if migration_only?() do
+      Logger.info("[StartupMigrations] Migration-only mode enabled; shutting down")
+      System.stop(0)
+    end
+
     :ok
   end
 
   defp run_migrations! do
-    ensure_platform_schema!()
-    sync_platform_schema_migrations!()
+    ensure_app_database_exists!(app_database())
 
-    Ecto.Migrator.run(
-      ServiceRadar.Repo,
-      Application.app_dir(:serviceradar_core, "priv/repo/migrations"),
-      :up,
-      all: true,
-      prefix: "platform"
-    )
+    app_user = app_user()
+    app_password = app_password!()
+
+    bootstrap_app_role!(app_user, app_password)
+    ensure_platform_schema!(app_user)
+    sync_platform_schema_migrations!()
+    ensure_database_search_path!(app_user, app_database(), search_path())
+    set_session_search_path!(search_path())
+
+    run_migrations_with_repair!()
+
+    # Sync to ash_schema_migrations after migrations complete.
+    # Ash Framework uses this table to track migrations via Repo config.
+    sync_ash_schema_migrations!()
+
+    ensure_platform_ownership!(app_user)
+    ensure_ag_catalog_privileges!(app_user)
   end
 
   defp migrations_enabled? do
@@ -73,7 +90,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
   defp repo_enabled? do
     Application.get_env(:serviceradar_core, :repo_enabled, true) &&
-      Process.whereis(ServiceRadar.Repo)
+      Process.whereis(ServiceRadar.Repo) != nil
   end
 
   defp oban_enabled? do
@@ -123,14 +140,21 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     raise RuntimeError, "public schema has ServiceRadar tables: #{tables}"
   end
 
-  defp ensure_platform_schema! do
+  defp ensure_platform_schema!(app_user) do
     if repo_enabled?() do
       ServiceRadar.Repo.query!("CREATE SCHEMA IF NOT EXISTS platform")
+      ServiceRadar.Repo.query!("ALTER SCHEMA platform OWNER TO #{quote_ident(app_user)}")
+    end
+  end
+
+  defp set_session_search_path!(path) do
+    if repo_enabled?() do
+      ServiceRadar.Repo.query!("SET search_path TO #{path}")
     end
   end
 
   defp clear_migrations_marker do
-    case File.rm(@migrations_complete_marker) do
+    case File.rm(migrations_marker_path()) do
       :ok -> :ok
       {:error, :enoent} -> :ok
       {:error, reason} -> Logger.warning("Failed to clear migrations marker: #{inspect(reason)}")
@@ -138,10 +162,419 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   defp write_migrations_marker do
-    case File.write(@migrations_complete_marker, "#{DateTime.utc_now()}\n") do
+    case File.write(migrations_marker_path(), "#{DateTime.utc_now()}\n") do
       :ok -> :ok
       {:error, reason} -> Logger.warning("Failed to write migrations marker: #{inspect(reason)}")
     end
+  end
+
+  defp migrations_marker_path do
+    System.get_env("SERVICERADAR_MIGRATIONS_MARKER_PATH", @default_marker_path)
+  end
+
+  defp migration_only? do
+    System.get_env("SERVICERADAR_MIGRATION_ONLY", "false") in ~w(true 1 yes)
+  end
+
+  defp app_user do
+    System.get_env("CNPG_APP_USER") ||
+      sanitize_app_user(System.get_env("CNPG_USERNAME")) ||
+      @default_app_user
+  end
+
+  defp sanitize_app_user(nil), do: nil
+  defp sanitize_app_user(""), do: nil
+  defp sanitize_app_user("postgres"), do: nil
+  defp sanitize_app_user(value), do: value
+
+  defp app_database do
+    System.get_env("CNPG_DATABASE", "serviceradar")
+  end
+
+  defp search_path do
+    System.get_env("CNPG_SEARCH_PATH", @default_search_path)
+  end
+
+  defp app_password! do
+    password =
+      read_password_file(System.get_env("CNPG_APP_PASSWORD_FILE")) ||
+        read_password_file(System.get_env("CNPG_PASSWORD_FILE")) ||
+        System.get_env("CNPG_APP_PASSWORD") ||
+        System.get_env("CNPG_PASSWORD")
+
+    if password in [nil, ""] do
+      raise RuntimeError,
+            "missing CNPG app password (CNPG_APP_PASSWORD[_FILE] or CNPG_PASSWORD[_FILE])"
+    end
+
+    password
+  end
+
+  defp read_password_file(nil), do: nil
+
+  defp read_password_file(path) do
+    case File.read(path) do
+      {:ok, value} ->
+        value = String.trim(value)
+        if value == "", do: nil, else: value
+
+      {:error, _} ->
+        nil
+    end
+  end
+
+  defp bootstrap_app_role!(app_user, app_password) do
+    if repo_enabled?() do
+      if role_exists?(app_user) do
+        ServiceRadar.Repo.query!(
+          "ALTER ROLE #{quote_ident(app_user)} WITH PASSWORD #{quote_literal(app_password)}"
+        )
+      else
+        ServiceRadar.Repo.query!(
+          "CREATE ROLE #{quote_ident(app_user)} LOGIN PASSWORD #{quote_literal(app_password)}"
+        )
+      end
+
+      ServiceRadar.Repo.query!(
+        "ALTER DATABASE #{quote_ident(app_database())} OWNER TO #{quote_ident(app_user)}"
+      )
+    end
+  end
+
+  defp ensure_database_search_path!(app_user, database, search_path) do
+    if repo_enabled?() do
+      # First, fix any existing misconfigured search_path (with quoted identifier)
+      fix_search_path!(app_user, database)
+
+      # Format the search_path as a proper comma-separated list of identifiers.
+      # Each schema name is quoted individually to handle any special characters.
+      formatted_path = format_search_path(search_path)
+
+      ServiceRadar.Repo.query!(
+        "ALTER DATABASE #{quote_ident(database)} SET search_path TO #{formatted_path}"
+      )
+
+      ServiceRadar.Repo.query!(
+        "ALTER ROLE #{quote_ident(app_user)} SET search_path TO #{formatted_path}"
+      )
+    end
+  end
+
+  # Format search_path as comma-separated quoted identifiers.
+  # Input: "platform, public, ag_catalog"
+  # Output: "platform", "public", "ag_catalog"
+  defp format_search_path(search_path) do
+    search_path
+    |> String.split(",")
+    |> Enum.map_join(", ", fn schema -> schema |> String.trim() |> quote_ident() end)
+  end
+
+  # Fix existing misconfigured search_path where the entire value was stored as a single
+  # quoted identifier (e.g., "platform, public, ag_catalog" with quotes in the value).
+  defp fix_search_path!(app_user, database) do
+    # Check if the current search_path has the bug (contains literal double quotes)
+    case ServiceRadar.Repo.query!("SELECT current_setting('search_path')") do
+      %{rows: [[current_path]]} when is_binary(current_path) ->
+        if String.starts_with?(current_path, "\"") do
+          Logger.warning(
+            "[StartupMigrations] Detected misconfigured search_path: #{inspect(current_path)}. " <>
+              "Resetting to fix quoted identifier issue."
+          )
+
+          # Reset to default then re-apply correctly
+          ServiceRadar.Repo.query!("ALTER DATABASE #{quote_ident(database)} RESET search_path")
+          ServiceRadar.Repo.query!("ALTER ROLE #{quote_ident(app_user)} RESET search_path")
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp ensure_ag_catalog_privileges!(app_user) do
+    if repo_enabled?() and schema_exists?("ag_catalog") do
+      # AGE privileges must be granted by superuser since the schemas may be owned by postgres.
+      # Use admin connection for all AGE-related grants.
+      with_admin_connection(fn conn ->
+        Postgrex.query!(conn, "GRANT USAGE ON SCHEMA ag_catalog TO #{quote_ident(app_user)}", [])
+
+        Postgrex.query!(
+          conn,
+          "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
+          []
+        )
+
+        Postgrex.query!(
+          conn,
+          "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
+          []
+        )
+
+        Postgrex.query!(
+          conn,
+          "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
+          []
+        )
+
+        # Also grant privileges on the AGE graph schema (configured graph name).
+        # AGE creates a schema for each graph to store vertex/edge labels.
+        graph_name = Application.get_env(:serviceradar_core, :age_graph_name, "platform_graph")
+        ensure_age_graph_privileges!(conn, app_user, graph_name)
+      end)
+    end
+  end
+
+  # Grant privileges on an AGE graph schema using an admin connection.
+  # AGE creates a schema with the same name as the graph to store vertex/edge tables.
+  # The schema is owned by whoever ran create_graph(), which may be postgres superuser.
+  defp ensure_age_graph_privileges!(conn, app_user, graph_name) do
+    # Check if schema exists using the admin connection
+    case Postgrex.query!(conn, "SELECT 1 FROM pg_namespace WHERE nspname = $1", [graph_name]) do
+      %{rows: []} ->
+        Logger.debug(
+          "[StartupMigrations] AGE graph schema #{graph_name} does not exist; skipping privileges"
+        )
+
+      _ ->
+        Logger.info("[StartupMigrations] Granting privileges on AGE graph schema #{graph_name}")
+
+        Postgrex.query!(
+          conn,
+          "GRANT USAGE, CREATE ON SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}",
+          []
+        )
+
+        Postgrex.query!(
+          conn,
+          "GRANT ALL ON ALL TABLES IN SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}",
+          []
+        )
+
+        Postgrex.query!(
+          conn,
+          "GRANT ALL ON ALL SEQUENCES IN SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}",
+          []
+        )
+
+        # Set default privileges for future objects created in this graph
+        Postgrex.query!(
+          conn,
+          "ALTER DEFAULT PRIVILEGES IN SCHEMA #{quote_ident(graph_name)} GRANT ALL ON TABLES TO #{quote_ident(app_user)}",
+          []
+        )
+
+        Postgrex.query!(
+          conn,
+          "ALTER DEFAULT PRIVILEGES IN SCHEMA #{quote_ident(graph_name)} GRANT ALL ON SEQUENCES TO #{quote_ident(app_user)}",
+          []
+        )
+
+        # Ensure ownership matches app user to satisfy AGE label-table ownership requirements.
+        ensure_age_graph_ownership!(conn, app_user, graph_name)
+    end
+  end
+
+  defp ensure_age_graph_ownership!(conn, app_user, graph_name) do
+    Logger.info("[StartupMigrations] Ensuring ownership for AGE graph schema #{graph_name}")
+
+    Postgrex.query!(
+      conn,
+      "ALTER SCHEMA #{quote_ident(graph_name)} OWNER TO #{quote_ident(app_user)}",
+      []
+    )
+
+    %{rows: table_rows} =
+      Postgrex.query!(
+        conn,
+        "SELECT c.relname\n" <>
+          "FROM pg_class c\n" <>
+          "JOIN pg_namespace n ON n.oid = c.relnamespace\n" <>
+          "WHERE n.nspname = $1\n" <>
+          "AND c.relkind IN ('r', 'p')",
+        [graph_name]
+      )
+
+    Enum.each(table_rows, fn [relname] ->
+      Postgrex.query!(
+        conn,
+        "ALTER TABLE #{quote_ident(graph_name)}.#{quote_ident(relname)} OWNER TO #{quote_ident(app_user)}",
+        []
+      )
+    end)
+
+    # Skip sequences owned by tables; PostgreSQL forbids changing their owner directly.
+    %{rows: seq_rows} =
+      Postgrex.query!(
+        conn,
+        "SELECT c.relname\n" <>
+          "FROM pg_class c\n" <>
+          "JOIN pg_namespace n ON n.oid = c.relnamespace\n" <>
+          "WHERE n.nspname = $1\n" <>
+          "AND c.relkind = 'S'\n" <>
+          "AND NOT EXISTS (\n" <>
+          "  SELECT 1 FROM pg_depend d\n" <>
+          "  WHERE d.objid = c.oid\n" <>
+          "  AND d.deptype = 'a'\n" <>
+          ")",
+        [graph_name]
+      )
+
+    Enum.each(seq_rows, fn [relname] ->
+      Postgrex.query!(
+        conn,
+        "ALTER SEQUENCE #{quote_ident(graph_name)}.#{quote_ident(relname)} OWNER TO #{quote_ident(app_user)}",
+        []
+      )
+    end)
+  end
+
+  # Execute a function with a temporary admin (superuser) database connection.
+  # Used for operations that require elevated privileges (e.g., granting on schemas owned by postgres).
+  defp with_admin_connection(fun) do
+    {admin_user, admin_password} = admin_credentials!()
+
+    opts = [
+      hostname: System.get_env("CNPG_HOST", "localhost"),
+      port: parse_int(System.get_env("CNPG_PORT"), 5432),
+      username: admin_user,
+      password: admin_password,
+      database: app_database(),
+      ssl: admin_ssl_opts()
+    ]
+
+    case Postgrex.start_link(opts) do
+      {:ok, conn} ->
+        try do
+          fun.(conn)
+        after
+          GenServer.stop(conn)
+        end
+
+      {:error, reason} ->
+        Logger.error(
+          "[StartupMigrations] Failed to connect as admin for AGE privileges: #{inspect(reason)}"
+        )
+
+        raise RuntimeError, "Failed to connect as admin: #{inspect(reason)}"
+    end
+  end
+
+  defp ensure_platform_ownership!(app_user) do
+    if repo_enabled?() do
+      ServiceRadar.Repo.query!("ALTER SCHEMA platform OWNER TO #{quote_ident(app_user)}")
+
+      objects =
+        ServiceRadar.Repo.query!(
+          "SELECT c.oid, c.relname, c.relkind\n" <>
+            "FROM pg_class c\n" <>
+            "JOIN pg_namespace n ON n.oid = c.relnamespace\n" <>
+            "WHERE n.nspname = 'platform'\n" <>
+            "AND c.relkind IN ('r', 'S', 'v', 'm')"
+        ).rows
+
+      Enum.each(objects, &update_object_ownership(&1, app_user))
+    end
+  end
+
+  defp update_object_ownership([oid, name, kind], app_user) do
+    case ownership_statement(oid, name, kind, app_user) do
+      nil -> :ok
+      statement -> execute_ownership_update(statement, name)
+    end
+  end
+
+  defp ownership_statement(_oid, name, "r", app_user) do
+    "ALTER TABLE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+  end
+
+  defp ownership_statement(oid, name, "S", app_user) do
+    if sequence_owned_by_table?(oid),
+      do: nil,
+      else:
+        "ALTER SEQUENCE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+  end
+
+  defp ownership_statement(_oid, name, "v", app_user) do
+    # TimescaleDB continuous aggregates are exposed as relkind 'v' but must be altered as
+    # materialized views (ALTER VIEW isn't supported).
+    if continuous_aggregate_view?(name) do
+      "ALTER MATERIALIZED VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+    else
+      "ALTER VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+    end
+  end
+
+  defp ownership_statement(_oid, name, "m", app_user) do
+    "ALTER MATERIALIZED VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+  end
+
+  defp ownership_statement(_oid, _name, _kind, _app_user), do: nil
+
+  defp execute_ownership_update(statement, name) do
+    ServiceRadar.Repo.query!(statement)
+  rescue
+    error ->
+      Logger.warning(
+        "[StartupMigrations] Skipping ownership update for #{name}: #{Exception.message(error)}"
+      )
+  end
+
+  defp continuous_aggregate_view?(name) when is_binary(name) do
+    if repo_enabled?() do
+      try do
+        %{rows: rows} =
+          ServiceRadar.Repo.query!(
+            "SELECT 1 FROM timescaledb_information.continuous_aggregates\n" <>
+              "WHERE view_schema = 'platform' AND view_name = $1\n" <>
+              "LIMIT 1",
+            [name]
+          )
+
+        rows != []
+      rescue
+        _ -> false
+      end
+    else
+      false
+    end
+  end
+
+  defp sequence_owned_by_table?(sequence_oid) do
+    case ServiceRadar.Repo.query!(
+           "SELECT 1\n" <>
+             "FROM pg_depend d\n" <>
+             "JOIN pg_class c ON c.oid = d.refobjid\n" <>
+             "WHERE d.objid = $1\n" <>
+             "AND d.deptype = 'a'\n" <>
+             "AND c.relkind = 'r'\n" <>
+             "LIMIT 1",
+           [sequence_oid]
+         ) do
+      %{rows: []} -> false
+      _ -> true
+    end
+  end
+
+  defp role_exists?(role_name) do
+    case ServiceRadar.Repo.query!("SELECT 1 FROM pg_roles WHERE rolname = $1", [role_name]) do
+      %{rows: []} -> false
+      _ -> true
+    end
+  end
+
+  defp schema_exists?(schema_name) do
+    case ServiceRadar.Repo.query!("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schema_name]) do
+      %{rows: []} -> false
+      _ -> true
+    end
+  end
+
+  defp quote_ident(value) do
+    ~s("#{String.replace(value, "\"", "\"\"")}")
+  end
+
+  defp quote_literal(value) do
+    "'#{String.replace(value, "'", "''")}'"
   end
 
   defp sync_platform_schema_migrations! do
@@ -157,13 +590,253 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
             "ON CONFLICT (version) DO NOTHING"
         )
       end
+
+      # Ash Framework uses ash_schema_migrations as the migration source.
+      # Sync from schema_migrations to ensure both tables stay in sync.
+      sync_ash_schema_migrations!()
     end
+  end
+
+  defp sync_ash_schema_migrations! do
+    # Create ash_schema_migrations if it doesn't exist
+    ServiceRadar.Repo.query!("""
+    CREATE TABLE IF NOT EXISTS platform.ash_schema_migrations (
+      version bigint NOT NULL PRIMARY KEY,
+      inserted_at timestamp(0) without time zone
+    )
+    """)
+
+    # Sync any migrations from schema_migrations that aren't in ash_schema_migrations.
+    # Only sync if platform.schema_migrations exists (it won't on fresh installs before migrations run).
+    if table_exists?("platform.schema_migrations") do
+      ServiceRadar.Repo.query!("""
+      INSERT INTO platform.ash_schema_migrations (version, inserted_at)
+      SELECT version, inserted_at FROM platform.schema_migrations
+      ON CONFLICT (version) DO NOTHING
+      """)
+    end
+  end
+
+  defp run_migrations_with_repair! do
+    migrations_path = Application.app_dir(:serviceradar_core, "priv/repo/migrations")
+    do_run_migrations_with_repair!(migrations_path, @max_migration_repair_attempts)
+  end
+
+  defp do_run_migrations_with_repair!(_migrations_path, 0) do
+    raise RuntimeError,
+          "migration self-repair exhausted #{@max_migration_repair_attempts} attempts"
+  end
+
+  defp do_run_migrations_with_repair!(migrations_path, attempts_left) do
+    case next_pending_migration_version(migrations_path) do
+      nil ->
+        :ok
+
+      version ->
+        try do
+          Ecto.Migrator.run(
+            ServiceRadar.Repo,
+            migrations_path,
+            :up,
+            step: 1,
+            prefix: "platform"
+          )
+        rescue
+          error in Postgrex.Error ->
+            if duplicate_ddl_error?(error) do
+              Logger.warning(
+                "[StartupMigrations] Duplicate DDL while running migration #{version}; " <>
+                  "marking as applied and continuing: #{postgres_error_summary(error)}"
+              )
+
+              mark_platform_migration_applied!(version)
+            else
+              reraise error, __STACKTRACE__
+            end
+        end
+
+        do_run_migrations_with_repair!(migrations_path, attempts_left - 1)
+    end
+  end
+
+  defp next_pending_migration_version(migrations_path) do
+    migrated_versions =
+      ServiceRadar.Repo
+      |> Ecto.Migrator.migrated_versions(prefix: "platform")
+      |> MapSet.new()
+
+    migrations_path
+    |> Path.join("*.exs")
+    |> Path.wildcard()
+    |> Enum.map(&migration_version_from_file/1)
+    |> Enum.reject(&MapSet.member?(migrated_versions, &1))
+    |> Enum.sort()
+    |> List.first()
+  end
+
+  defp migration_version_from_file(path) do
+    path
+    |> Path.basename()
+    |> String.split("_", parts: 2)
+    |> hd()
+    |> String.to_integer()
+  end
+
+  defp duplicate_ddl_error?(%Postgrex.Error{postgres: %{code: code}}) do
+    code in [:duplicate_column, :duplicate_table, :duplicate_object, :duplicate_function] or
+      code in ["42701", "42P07", "42710", "42723"]
+  end
+
+  defp duplicate_ddl_error?(_), do: false
+
+  defp postgres_error_summary(%Postgrex.Error{postgres: %{code: code, message: message}}),
+    do: "#{code} #{message}"
+
+  defp postgres_error_summary(error), do: inspect(error)
+
+  defp mark_platform_migration_applied!(version) when is_integer(version) do
+    ServiceRadar.Repo.query!(
+      """
+      INSERT INTO platform.schema_migrations (version, inserted_at)
+      VALUES ($1, NOW())
+      ON CONFLICT (version) DO NOTHING
+      """,
+      [version]
+    )
   end
 
   defp table_exists?(qualified_table) do
     case ServiceRadar.Repo.query!("SELECT to_regclass($1)", [qualified_table]) do
       %{rows: [[nil]]} -> false
       %{rows: [[_]]} -> true
+    end
+  end
+
+  defp ensure_app_database_exists!(database) do
+    admin_database = System.get_env("CNPG_ADMIN_DATABASE", "postgres")
+    {admin_user, admin_password} = admin_credentials!()
+    attempts = parse_int(System.get_env("SERVICERADAR_DB_BOOTSTRAP_ATTEMPTS"), 30)
+    delay_ms = parse_int(System.get_env("SERVICERADAR_DB_BOOTSTRAP_DELAY_MS"), 2000)
+
+    with_retry(attempts, delay_ms, fn ->
+      opts = [
+        hostname: System.get_env("CNPG_HOST", "localhost"),
+        port: parse_int(System.get_env("CNPG_PORT"), 5432),
+        username: admin_user,
+        password: admin_password,
+        database: admin_database,
+        ssl: admin_ssl_opts()
+      ]
+
+      case Postgrex.start_link(opts) do
+        {:ok, conn} ->
+          try do
+            %{rows: rows} =
+              Postgrex.query!(conn, "SELECT 1 FROM pg_database WHERE datname = $1", [database])
+
+            if rows == [] do
+              Logger.info("[StartupMigrations] Creating database #{database}")
+              Postgrex.query!(conn, "CREATE DATABASE #{quote_ident(database)}")
+            else
+              Logger.info("[StartupMigrations] Database #{database} already exists; skipping")
+            end
+
+            :ok
+          rescue
+            e in [DBConnection.ConnectionError, Postgrex.Error] ->
+              {:retry, e}
+          after
+            GenServer.stop(conn)
+          end
+
+        {:error, reason} ->
+          {:retry, reason}
+      end
+    end)
+  end
+
+  defp admin_credentials! do
+    admin_user = System.get_env("CNPG_USERNAME")
+
+    admin_password =
+      read_password_file(System.get_env("CNPG_PASSWORD_FILE")) ||
+        System.get_env("CNPG_PASSWORD")
+
+    cond do
+      admin_user not in [nil, ""] and admin_password not in [nil, ""] ->
+        {admin_user, admin_password}
+
+      admin_user in [nil, ""] and admin_password not in [nil, ""] ->
+        {app_user(), admin_password}
+
+      true ->
+        Logger.warning(
+          "[StartupMigrations] CNPG superuser credentials missing; falling back to app credentials"
+        )
+
+        {app_user(), app_password!()}
+    end
+  end
+
+  defp admin_ssl_opts do
+    case System.get_env("CNPG_SSL_MODE", "require") do
+      "disable" ->
+        false
+
+      mode ->
+        verify =
+          if mode in ["verify-full", "verify-ca"],
+            do: :verify_peer,
+            else: :verify_none
+
+        opts =
+          [verify: verify]
+          |> maybe_put(:cacertfile, System.get_env("CNPG_CA_FILE"))
+          |> maybe_put(:certfile, System.get_env("CNPG_CERT_FILE"))
+          |> maybe_put(:keyfile, System.get_env("CNPG_KEY_FILE"))
+          |> maybe_put(
+            :server_name_indication,
+            System.get_env("CNPG_TLS_SERVER_NAME") |> to_sni()
+          )
+
+        if opts == [], do: true, else: opts
+    end
+  end
+
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, _key, ""), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp to_sni(nil), do: nil
+  defp to_sni(""), do: nil
+  defp to_sni(value), do: String.to_charlist(value)
+
+  defp parse_int(nil, default), do: default
+  defp parse_int("", default), do: default
+
+  defp parse_int(value, default) do
+    case Integer.parse(value) do
+      {int, ""} -> int
+      _ -> default
+    end
+  end
+
+  defp with_retry(attempts, delay_ms, fun) when attempts > 0 do
+    case fun.() do
+      :ok ->
+        :ok
+
+      {:retry, reason} ->
+        if attempts == 1 do
+          raise RuntimeError, "failed to connect to admin database: #{inspect(reason)}"
+        else
+          Logger.warning(
+            "[StartupMigrations] Admin DB not ready; retrying in #{delay_ms}ms (#{attempts - 1} left)"
+          )
+
+          Process.sleep(delay_ms)
+          with_retry(attempts - 1, delay_ms, fun)
+        end
     end
   end
 end

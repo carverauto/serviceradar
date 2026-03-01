@@ -1,0 +1,142 @@
+{{- if .Values.bmpCollector.enabled }}
+{{- $data := default (dict) .Values.bmpCollector.data -}}
+{{- if and ($data.enabled | default true) (not $data.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-bmp-collector-data
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ default "1Gi" $data.size | quote }}
+  {{- if $data.storageClassName }}
+  storageClassName: {{ $data.storageClassName | quote }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-bmp-collector
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-bmp-collector
+  template:
+    metadata:
+      labels:
+        app: serviceradar-bmp-collector
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      serviceAccountName: {{ .Values.spire.bmpCollectorServiceAccount | default "serviceradar-bmp-collector" }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: bmp-collector
+        image: {{ .Values.bmpCollector.image.repository }}:{{ .Values.bmpCollector.image.tag }}
+        imagePullPolicy: {{ .Values.bmpCollector.image.pullPolicy | default (include "serviceradar.imagePullPolicy" .) }}
+        ports:
+        {{- if .Values.bmpCollector.service.ports.bmp.enabled }}
+        - name: bmp
+          containerPort: {{ .Values.bmpCollector.service.ports.bmp.targetPort | default 11019 }}
+          protocol: {{ .Values.bmpCollector.service.ports.bmp.protocol | default "TCP" }}
+        {{- end }}
+        {{- with .Values.bmpCollector.args }}
+        args:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        env:
+        - name: RUST_LOG
+          value: "info"
+        livenessProbe:
+          tcpSocket:
+            port: bmp
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: bmp
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.bmpCollector.resources | nindent 10 }}
+        securityContext:
+          capabilities:
+            add: ["NET_BIND_SERVICE"]
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+        - name: bmp-collector-data
+          mountPath: /var/lib/serviceradar
+        - name: logs
+          mountPath: /var/log/serviceradar
+      volumes:
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: nats-creds
+        secret:
+          secretName: serviceradar-nats-creds
+      - name: bmp-collector-data
+        {{- if $data.existingClaim }}
+        persistentVolumeClaim:
+          claimName: {{ $data.existingClaim | quote }}
+        {{- else if ($data.enabled | default true) }}
+        persistentVolumeClaim:
+          claimName: serviceradar-bmp-collector-data
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-bmp-collector
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+  {{- with .Values.bmpCollector.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.bmpCollector.service.type | default "ClusterIP" }}
+  {{- with .Values.bmpCollector.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- if .Values.bmpCollector.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.bmpCollector.service.loadBalancerIP | quote }}
+  {{- end }}
+  selector:
+    app: serviceradar-bmp-collector
+  ports:
+  {{- if .Values.bmpCollector.service.ports.bmp.enabled }}
+  - name: bmp
+    port: {{ .Values.bmpCollector.service.ports.bmp.port | default 11019 }}
+    targetPort: {{ .Values.bmpCollector.service.ports.bmp.targetPort | default 11019 }}
+    protocol: {{ .Values.bmpCollector.service.ports.bmp.protocol | default "TCP" }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.spire.bmpCollectorServiceAccount | default "serviceradar-bmp-collector" }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+{{- end }}

@@ -1,5 +1,13 @@
 namespace: demo
 
+# Pod topology spread constraints.
+# When enabled, the scheduler distributes serviceradar pods across nodes.
+topologySpread:
+  enabled: false
+  # maxSkew: 2
+  # topologyKey: kubernetes.io/hostname
+  # whenUnsatisfiable: ScheduleAnyway
+
 # Global settings that apply across all services
 global:
   # Override all ServiceRadar image tags at once. Defaults to "latest" so
@@ -20,9 +28,13 @@ image:
     agent: *appTag
     agentGateway: *appTag
     dbEventWriter: *appTag
+    logCollector: *appTag
+    # Deprecated: otel and flowgger are now merged into logCollector
     otel: *appTag
     trapd: *appTag
     flowgger: *appTag
+    flowCollector: *appTag
+    bmpCollector: *appTag
     zen: *appTag
     rperfClient: *appTag
     faker: *appTag
@@ -45,6 +57,13 @@ natsCreds:
   platform: ""
   system: ""
   operator: ""
+nats:
+  persistence:
+    size: 30Gi
+certs:
+  regenerator:
+    # Disable by default to avoid unexpected cert rotation.
+    enabled: false
 checkerTemplates:
   # KV-backed checker template seeding is deprecated; leave disabled.
   enabled: false
@@ -55,6 +74,17 @@ zenRulesBootstrap:
   # Force reinstall rules even if they already exist in KV.
   # Use this to recover from corrupted rules.
   forceReinstall: false
+# OpenTelemetry exporter configuration for Elixir services (core-elx, web-ng, agent-gateway).
+# Points to the OTEL collector deployed in the same namespace.
+otelExporter:
+  enabled: true
+  # OTLP/gRPC endpoint (uses the unified log-collector service)
+  endpoint: "https://serviceradar-log-collector:4317"
+  # TLS certificate directory (SPIFFE-issued certs)
+  certDir: "/etc/serviceradar/certs"
+  # Trace sampling ratio (0.0 - 1.0). 1.0 = sample everything.
+  samplingRatio: "1.0"
+
 core:
   # KV watch/reload is no longer supported for service configuration.
   configWatchEnabled: false
@@ -62,6 +92,9 @@ core:
   kubernetesSelector: "app=serviceradar-core"
   kubernetesNodeBasename: "serviceradar_core"
   ashObanSchedulerEnabled: true
+  logPromotionConsumerEnabled: true
+  # Extra environment variables for the core-elx pod.
+  extraEnv: {}
   database:
     poolSize: 40
     queueTargetMs: 2000
@@ -74,6 +107,16 @@ core:
     maxInflight: 2
     queueMaxChunks: 10
     async: true
+  deviceEnrichment:
+    rulesDir: "/var/lib/serviceradar/rules/device-enrichment"
+    filesystemOverrides:
+      enabled: false
+      existingConfigMap: ""
+      existingSecret: ""
+      existingClaim: ""
+  migrations:
+    enabled: true
+    markerPath: /var/lib/serviceradar/migrations/complete
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -112,6 +155,15 @@ core:
       pauseOnDrift: true
       alertOnDrift: true
 faker:
+  gobgp:
+    # When enabled, an initContainer copies gobgpd/gobgp binaries into a shared volume
+    # mounted into the faker container.
+    enabled: false
+    image:
+      repository: docker.io/osrg/gobgp
+      tag: latest
+      pullPolicy: IfNotPresent
+    binDir: /opt/gobgp
   simulation:
     totalDevices: 50000
     ipShuffle:
@@ -121,6 +173,156 @@ faker:
       warmupCycles: 2
       allowExpansion: false
       poolHeadroomPercent: 0
+    bgp:
+      enabled: false
+      seed: 40164200
+      publishInterval: "15s"
+      outageInterval: "2m"
+      outageDurationMin: "20s"
+      outageDurationMax: "45s"
+      manageDaemon: true
+      gobgpApiAddress: "127.0.0.1:50051"
+      gobgpBinary: "gobgpd"
+      gobgpCliBinary: "gobgp"
+      bmpCollectorAddress: "serviceradar-bmp-collector:11019"
+      routerId: "204.209.51.59"
+      maxPrefixesPerTick: 3
+      localAsn: 401642
+      advertisedPrefixes:
+        - "23.138.124.0/24"
+        - "2602:f678::/48"
+      peers:
+        - name: "k8s-cp1-control"
+          ip: "10.0.2.2"
+          peer_asn: 401642
+          description: "k8s-cp1-control"
+        - name: "k8s-cp2-control"
+          ip: "10.0.2.3"
+          peer_asn: 401642
+          description: "k8s-cp2-control"
+        - name: "k8s-cp3-control"
+          ip: "10.0.2.4"
+          peer_asn: 401642
+          description: "k8s-cp3-control"
+        - name: "k8s-cp1-worker1"
+          ip: "10.0.2.5"
+          peer_asn: 401642
+          description: "k8s-cp1-worker1"
+        - name: "k8s-cp1-worker2"
+          ip: "10.0.2.6"
+          peer_asn: 401642
+          description: "k8s-cp1-worker2"
+        - name: "k8s-cp1-worker3"
+          ip: "10.0.2.7"
+          peer_asn: 401642
+          description: "k8s-cp1-worker3"
+        - name: "k8s-cp2-worker1"
+          ip: "10.0.2.8"
+          peer_asn: 401642
+          description: "k8s-cp2-worker1"
+        - name: "k8s-cp2-worker2"
+          ip: "10.0.2.9"
+          peer_asn: 401642
+          description: "k8s-cp2-worker2"
+        - name: "k8s-cp2-worker3"
+          ip: "10.0.2.10"
+          peer_asn: 401642
+          description: "k8s-cp2-worker3"
+        - name: "k8s-cp3-worker1"
+          ip: "10.0.2.11"
+          peer_asn: 401642
+          description: "k8s-cp3-worker1"
+        - name: "k8s-cp3-worker2"
+          ip: "10.0.2.12"
+          peer_asn: 401642
+          description: "k8s-cp3-worker2"
+        - name: "k8s-cp3-worker3"
+          ip: "10.0.2.13"
+          peer_asn: 401642
+          description: "k8s-cp3-worker3"
+        - name: "isp-ipv4"
+          ip: "204.209.51.58"
+          peer_asn: 10242
+          description: "ISP-IPv4"
+        - name: "k8s-cp1-control-ipv6"
+          ip: "2602:f678:0:ff::2"
+          peer_asn: 401642
+          description: "k8s-cp1-control-ipv6"
+        - name: "k8s-cp2-control-ipv6"
+          ip: "2602:f678:0:ff::3"
+          peer_asn: 401642
+          description: "k8s-cp2-control-ipv6"
+        - name: "k8s-cp3-control-ipv6"
+          ip: "2602:f678:0:ff::4"
+          peer_asn: 401642
+          description: "k8s-cp3-control-ipv6"
+        - name: "k8s-cp1-worker1-ipv6"
+          ip: "2602:f678:0:ff::5"
+          peer_asn: 401642
+          description: "k8s-cp1-worker1-ipv6"
+        - name: "k8s-cp1-worker2-ipv6"
+          ip: "2602:f678:0:ff::6"
+          peer_asn: 401642
+          description: "k8s-cp1-worker2-ipv6"
+        - name: "k8s-cp1-worker3-ipv6"
+          ip: "2602:f678:0:ff::7"
+          peer_asn: 401642
+          description: "k8s-cp1-worker3-ipv6"
+        - name: "k8s-cp2-worker1-ipv6"
+          ip: "2602:f678:0:ff::8"
+          peer_asn: 401642
+          description: "k8s-cp2-worker1-ipv6"
+        - name: "k8s-cp2-worker2-ipv6"
+          ip: "2602:f678:0:ff::9"
+          peer_asn: 401642
+          description: "k8s-cp2-worker2-ipv6"
+        - name: "k8s-cp2-worker3-ipv6"
+          ip: "2602:f678:0:ff::10"
+          peer_asn: 401642
+          description: "k8s-cp2-worker3-ipv6"
+        - name: "k8s-cp3-worker1-ipv6"
+          ip: "2602:f678:0:ff::11"
+          peer_asn: 401642
+          description: "k8s-cp3-worker1-ipv6"
+        - name: "k8s-cp3-worker2-ipv6"
+          ip: "2602:f678:0:ff::12"
+          peer_asn: 401642
+          description: "k8s-cp3-worker2-ipv6"
+        - name: "k8s-cp3-worker3-ipv6"
+          ip: "2602:f678:0:ff::13"
+          peer_asn: 401642
+          description: "k8s-cp3-worker3-ipv6"
+        - name: "isp-ipv6"
+          ip: "2605:8400:ff:142::"
+          peer_asn: 10242
+          description: "ISP-IPv6"
+gobgp:
+  enabled: false
+  image:
+    repository: docker.io/osrg/gobgp
+    tag: latest
+    pullPolicy: IfNotPresent
+  api:
+    host: "0.0.0.0"
+    port: 50051
+  bgp:
+    localAsn: 401642
+    routerId: "204.209.51.59"
+  bmp:
+    address: "serviceradar-bmp-collector"
+    port: 11019
+  # By default we reuse faker BGP peers to keep topology aligned.
+  peers: []
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+  service:
+    type: ClusterIP
+    annotations: {}
 coreClient:
   address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
   secMode: spiffe
@@ -151,12 +353,34 @@ cnpg:
   clientCASecret: ""
   clientCAFromCerts: false
   requireClientCert: false
+
+# Shared storage for GeoLite2 MMDB files used by GeoIP/ASN enrichment.
+# This must be mounted wherever enrichment jobs run (core) and anywhere that
+# might need local lookups (web-ng). Enrichment should never do external API calls
+# at query time.
+geoipMmdb:
+  enabled: true
+  basePath: "/var/lib/serviceradar/geoip"
+  existingClaim: ""
+  size: 1Gi
+  storageClassName: ""
 webNg:
   host: ""
   publicUrl: ""
+  godViewEnabled: "true"
   checkOrigin: "false"
   devRoutes: "false"
   localMailer: "false"
+  # Extra environment variables for the web-ng pod.
+  extraEnv: {}
+  # Resource requests/limits for web-ng.
+  resources:
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
   gatewayAddress: ""
   natsUrl: ""
   coreAddress: ""
@@ -183,6 +407,7 @@ webNg:
     downloadTtlSeconds: 86400
 agent:
   agentId: "k8s-agent"
+  hostNetwork: true
   gatewayAddress: ""
   partitionId: "default"
   pushInterval: "30s"
@@ -215,9 +440,10 @@ agentGateway:
   kubernetesNodeBasename: "serviceradar_agent_gateway"
   service:
     port: 50052
-    type: ClusterIP
+    type: LoadBalancer
     nodePort: null
     loadBalancerIP: ""
+    externalTrafficPolicy: Cluster
     annotations: {}
   resources:
     limits:
@@ -233,13 +459,15 @@ dbEventWriter:
   configSource: file
   kvBootstrap:
     enabled: true
-flowgger:
+logCollector:
   # External service configuration for syslog/NetFlow ingestion from outside the cluster.
   # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
   externalService:
     enabled: false
     # Service type: LoadBalancer, NodePort, or ClusterIP
     type: LoadBalancer
+    # Only advertise from nodes with local endpoints (required for Calico BGP)
+    externalTrafficPolicy: Cluster
     # Annotations for load balancer configuration (MetalLB, cloud providers, etc.)
     # Example for MetalLB: metallb.universe.tf/address-pool: k3s-pool
     # Example for AWS NLB: service.beta.kubernetes.io/aws-load-balancer-type: nlb
@@ -258,8 +486,114 @@ flowgger:
         port: 2055
         targetPort: 2055
         protocol: UDP
+trapd:
+  # External service configuration for SNMP trap ingestion from outside the cluster.
+  # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
+  externalService:
+    enabled: false
+    type: LoadBalancer
+    externalTrafficPolicy: Cluster
+    annotations: {}
+    loadBalancerIP: ""
+    ports:
+      snmp:
+        enabled: true
+        port: 162
+        targetPort: 162
+        protocol: UDP
+flowCollector:
+  enabled: false
+  config:
+    nats_url: "tls://serviceradar-nats:4222"
+    nats_creds_file: "/etc/serviceradar/creds/platform.creds"
+    stream_name: "events"
+    channel_size: 10000
+    batch_size: 100
+    publish_timeout_ms: 5000
+    listeners:
+      - protocol: "sflow"
+        listen_addr: "0.0.0.0:6343"
+        subject: "flows.raw.sflow"
+      - protocol: "netflow"
+        listen_addr: "0.0.0.0:2055"
+        subject: "flows.raw.netflow"
+    security:
+      mode: "mtls"
+      cert_dir: "/etc/serviceradar/certs"
+      tls:
+        cert_file: "flow-collector.pem"
+        key_file: "flow-collector-key.pem"
+        ca_file: "ca.crt"
+  data:
+    enabled: true
+    existingClaim: ""
+    size: 1Gi
+    storageClassName: ""
+  service:
+    type: ClusterIP
+    annotations: {}
+    loadBalancerIP: ""
+    externalTrafficPolicy: Cluster
+    ports:
+      netflow:
+        enabled: true
+        port: 2055
+        targetPort: 2055
+        protocol: UDP
+      sflow:
+        enabled: true
+        port: 6343
+        targetPort: 6343
+        protocol: UDP
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+bmpCollector:
+  enabled: false
+  image:
+    repository: ghcr.io/carverauto/arancini
+    tag: "v0.7.2"
+    pullPolicy: IfNotPresent
+  args:
+    - "--bmp-address=0.0.0.0:11019"
+    - "--kafka-disable"
+    - "--nats-enable"
+    - "--nats-server=nats://serviceradar-nats:4222"
+    - "--nats-subject=arancini.updates"
+    - "--nats-tls-required"
+    - "--nats-tls-ca-cert-path=/etc/serviceradar/certs/root.pem"
+    - "--nats-tls-client-cert-path=/etc/serviceradar/certs/bmp-collector.pem"
+    - "--nats-tls-client-key-path=/etc/serviceradar/certs/bmp-collector-key.pem"
+    - "--curation-state-path=/var/lib/serviceradar/state.bin"
+  data:
+    enabled: true
+    existingClaim: ""
+    size: 1Gi
+    storageClassName: ""
+  service:
+    type: ClusterIP
+    annotations: {}
+    loadBalancerIP: ""
+    externalTrafficPolicy: Cluster
+    ports:
+      bmp:
+        enabled: true
+        port: 11019
+        targetPort: 11019
+        protocol: TCP
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
 configSync:
-  flowgger:
+  logCollector:
     enabled: true
     seed: true
     watch: false
@@ -268,14 +602,6 @@ configSync:
     extraArgs: ""
     extraEnv: {}
   trapd:
-    enabled: true
-    seed: true
-    watch: false
-    kvKey: ""
-    role: ""
-    extraArgs: ""
-    extraEnv: {}
-  otel:
     enabled: true
     seed: true
     watch: false
@@ -304,12 +630,16 @@ spire:
   serviceradarAgentServiceAccount: serviceradar-agent
   socketHostPath: ""
   joinTokenTTL: 15m
+  logCollectorServiceAccount: serviceradar-log-collector
+  # Deprecated: otel and flowgger are now merged into logCollector
   otelServiceAccount: serviceradar-otel
   zenServiceAccount: serviceradar-zen
   dbEventWriterServiceAccount: serviceradar-db-event-writer
   rperfCheckerServiceAccount: serviceradar-rperf-checker
   flowggerServiceAccount: serviceradar-flowgger
   trapdServiceAccount: serviceradar-trapd
+  flowCollectorServiceAccount: serviceradar-flow-collector
+  bmpCollectorServiceAccount: serviceradar-bmp-collector
   bundleConfigMap: spire-bundle
   server:
     image: ghcr.io/spiffe/spire-server:1.11.2
@@ -325,6 +655,7 @@ spire:
     image: ghcr.io/spiffe/spire-agent:1.11.2
     logLevel: DEBUG
     waitForImage: cgr.dev/chainguard/wait-for-it
+    hostNetwork: true
   tokenAudience: spire-server
   additionalAgentNamespaces: []
   postgres:
@@ -341,7 +672,7 @@ spire:
     # Existing secrets are reused; delete the secret to rotate.
     image: ghcr.io/carverauto/serviceradar-cnpg
     imageTag: ""
-    imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3@sha256:882fdd3f4905342a6ffa347ee988840eafa4f8e8b234a26e6e8cb72ec71b8eb8
+    imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr5
     imagePullSecrets: []
     sharedPreloadLibraries:
       - timescaledb
@@ -350,6 +681,8 @@ spire:
     extensionsSQL:
       - CREATE EXTENSION IF NOT EXISTS timescaledb;
       - CREATE EXTENSION IF NOT EXISTS age;
+      - CREATE EXTENSION IF NOT EXISTS postgis;
+      - CREATE EXTENSION IF NOT EXISTS vector;
       - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
   controllerManager:
     enabled: true
@@ -384,6 +717,22 @@ ingress:
     enabled: false
     secretName: ""
     clusterIssuer: ""
+networkPolicy:
+  enabled: false
+  podSelectorMatchAll: false
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: serviceradar
+  egress:
+    allowDNS: true
+    allowKubeAPIServer: true
+    allowDefaultNamespace: true
+    allowSameNamespace: true
+    allowedCIDRs: []
+  calicoLogDenied:
+    enabled: false
+    selector: "app.kubernetes.io/part-of == 'serviceradar'"
+    order: 1000
 secrets:
   autoGenerate: true
   existingSecretName: serviceradar-secrets

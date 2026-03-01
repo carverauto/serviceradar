@@ -18,8 +18,10 @@ spec:
     metadata:
       labels:
         app: serviceradar-datasvc
+        app.kubernetes.io/part-of: serviceradar
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ $datasvcSA }}
       containers:
       - name: datasvc

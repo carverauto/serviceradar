@@ -13,8 +13,8 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 
 # Set up RPM build environment
 WORKDIR /root/rpmbuild
-COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
-COPY packaging/rperf/systemd/serviceradar-rperf.service SOURCES/rperf/systemd/
+COPY build/packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
+COPY build/packaging/rperf/systemd/serviceradar-rperf.service SOURCES/rperf/systemd/
 
 # Build the RPM
 # Sanitize VERSION for RPM (remove pre-release suffixes like -pre1)

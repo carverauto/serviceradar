@@ -30,7 +30,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: 3600, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.{ObanSupport, SweepGroupExecution, SweepHostResult}
@@ -74,7 +74,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
         limit: 1
       )
 
-    Repo.exists?(query)
+    Repo.exists?(query, prefix: ObanSupport.prefix())
   end
 
   @impl Oban.Worker

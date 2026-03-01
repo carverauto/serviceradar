@@ -22,11 +22,10 @@
 {{- end -}}
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
-{{- $otelSA := .Values.spire.otelServiceAccount | default "serviceradar-otel" -}}
+{{- $logCollectorSA := .Values.spire.logCollectorServiceAccount | default "serviceradar-log-collector" -}}
 {{- $zenSA := .Values.spire.zenServiceAccount | default "serviceradar-zen" -}}
 {{- $dbEventWriterSA := .Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer" -}}
 {{- $rperfCheckerSA := .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" -}}
-{{- $flowggerSA := .Values.spire.flowggerServiceAccount | default "serviceradar-flowgger" -}}
 {{- $trapdSA := .Values.spire.trapdServiceAccount | default "serviceradar-trapd" -}}
 {{- $serverVals := default (dict) .Values.spire.server -}}
 {{- $spireServerService := default "spire-server" $serverVals.serviceName -}}
@@ -278,7 +277,7 @@ data:
         "time_format": "",
         "otel": {
           "enabled": true,
-          "endpoint": "serviceradar-otel:4317",
+          "endpoint": "serviceradar-log-collector:4317",
           "service_name": "serviceradar-core",
           "batch_timeout": "5s",
           "insecure": false,
@@ -287,7 +286,7 @@ data:
             "cert_file": "/etc/serviceradar/certs/core.pem",
             "key_file": "/etc/serviceradar/certs/core-key.pem",
             "ca_file": "/etc/serviceradar/certs/root.pem",
-            "server_name": "serviceradar-otel",
+            "server_name": "serviceradar-log-collector",
             "skip_verify": false
           }
         }
@@ -324,6 +323,7 @@ data:
         "push_interval": "{{ default "30s" $agentVals.pushInterval }}",
         "status_debounce_interval": "{{ default "30s" $agentVals.statusDebounceInterval }}",
         "status_heartbeat_interval": "{{ default "5m" $agentVals.statusHeartbeatInterval }}",
+        "sync_runtime_enabled": {{- if hasKey $agentVals "syncRuntimeEnabled" -}}{{ $agentVals.syncRuntimeEnabled }}{{- else -}}true{{- end }},
         "kv_address": "serviceradar-datasvc:50057",
         "kv_security": {
           "mode": "spiffe",
@@ -500,13 +500,13 @@ data:
       {
         "name": "flowgger",
         "type": "grpc",
-        "address": "serviceradar-flowgger:50044",
+        "address": "serviceradar-log-collector:50044",
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$flowggerSA}}",
+          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$logCollectorSA}}",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
           "tls": {
             "cert_file": "agent.pem",
@@ -590,7 +590,7 @@ data:
           "time_format": "",
           "otel": {
             "enabled": true,
-            "endpoint": "serviceradar-otel:4317",
+            "endpoint": "serviceradar-log-collector:4317",
             "service_name": "serviceradar-zen",
             "batch_timeout": "5s",
             "insecure": false,
@@ -599,7 +599,7 @@ data:
               "cert_file": "/etc/serviceradar/certs/zen.pem",
               "key_file": "/etc/serviceradar/certs/zen-key.pem",
               "ca_file": "/etc/serviceradar/certs/root.pem",
-              "server_name": "serviceradar-otel"
+              "server_name": "serviceradar-log-collector"
             }
           }
         }
@@ -833,6 +833,17 @@ data:
             }
           },
           {
+            user: "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["logs.syslog", "otel.>", "logs.otel", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
             user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
@@ -859,6 +870,39 @@ data:
             permissions: {
               publish: {
                 allow: ["logs.snmp", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-flow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["flows.raw.>", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-netflow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["flows.raw.>", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-bmp-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["arancini.updates", "arancini.updates.>", "$JS.API.STREAM.INFO.ARANCINI_CAUSAL", "$JS.API.STREAM.CREATE.ARANCINI_CAUSAL", "$JS.API.>"]
               }
               subscribe: {
                 allow: ["$JS.API.>", "_INBOX.>"]
@@ -916,13 +960,13 @@ data:
       
       # mTLS configuration for NATS
       [nats.tls]
-      cert_file = "/etc/serviceradar/certs/otel.pem"
-      key_file = "/etc/serviceradar/certs/otel-key.pem"
+      cert_file = "/etc/serviceradar/certs/log-collector.pem"
+      key_file = "/etc/serviceradar/certs/log-collector-key.pem"
       ca_file = "/etc/serviceradar/certs/root.pem"
       
       [grpc_tls]
-      cert_file = "/etc/serviceradar/certs/otel.pem"
-      key_file = "/etc/serviceradar/certs/otel-key.pem"
+      cert_file = "/etc/serviceradar/certs/log-collector.pem"
+      key_file = "/etc/serviceradar/certs/log-collector-key.pem"
       ca_file = "/etc/serviceradar/certs/root.pem"
   
   trapd.json: |
@@ -953,13 +997,13 @@ data:
         },
         "otel": {
           "enabled": true,
-          "endpoint": "serviceradar-otel:4317",
+          "endpoint": "serviceradar-log-collector:4317",
           "service_name": "serviceradar-trapd",
           "tls": {
             "cert_file": "/etc/serviceradar/certs/trapd.pem",
             "key_file": "/etc/serviceradar/certs/trapd-key.pem",
             "ca_file": "/etc/serviceradar/certs/root.pem",
-            "server_name": "serviceradar-otel"
+            "server_name": "serviceradar-log-collector"
           }
         }
       }
@@ -987,6 +1031,24 @@ data:
             "allow_expansion": {{ .Values.faker.simulation.ipShuffle.allowExpansion | default false }},
             "pool_headroom_percent": {{ .Values.faker.simulation.ipShuffle.poolHeadroomPercent | default 0 }},
             "log_changes": true
+          },
+          "bgp": {
+            "enabled": {{ .Values.faker.simulation.bgp.enabled | default false }},
+            "seed": {{ .Values.faker.simulation.bgp.seed | default 40164200 }},
+            "publish_interval": "{{ .Values.faker.simulation.bgp.publishInterval | default "15s" }}",
+            "outage_interval": "{{ .Values.faker.simulation.bgp.outageInterval | default "2m" }}",
+            "outage_duration_min": "{{ .Values.faker.simulation.bgp.outageDurationMin | default "20s" }}",
+            "outage_duration_max": "{{ .Values.faker.simulation.bgp.outageDurationMax | default "45s" }}",
+            "manage_daemon": {{- if hasKey .Values.faker.simulation.bgp "manageDaemon" }} {{ .Values.faker.simulation.bgp.manageDaemon }} {{- else }} true {{- end }},
+            "gobgp_api_address": "{{ .Values.faker.simulation.bgp.gobgpApiAddress | default "127.0.0.1:50051" }}",
+            "gobgp_binary": "{{ .Values.faker.simulation.bgp.gobgpBinary | default "gobgpd" }}",
+            "gobgp_cli_binary": "{{ .Values.faker.simulation.bgp.gobgpCliBinary | default "gobgp" }}",
+            "bmp_collector_address": "{{ .Values.faker.simulation.bgp.bmpCollectorAddress | default "serviceradar-bmp-collector:11019" }}",
+            "router_id": "{{ .Values.faker.simulation.bgp.routerId | default "204.209.51.59" }}",
+            "max_prefixes_per_tick": {{ .Values.faker.simulation.bgp.maxPrefixesPerTick | default 3 }},
+            "local_asn": {{ .Values.faker.simulation.bgp.localAsn | default 401642 }},
+            "advertised_prefixes": {{ toJson (.Values.faker.simulation.bgp.advertisedPrefixes | default (list "23.138.124.0/24" "2602:f678::/48")) }},
+            "peers": {{ toJson (.Values.faker.simulation.bgp.peers | default (list)) }}
           }
         },
         "storage": {
@@ -1072,7 +1134,7 @@ data:
         "rbac": {
           "roles": [
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}", "role": "admin"},
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $otelSA }}", "role": "reader"},
+            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $logCollectorSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $agentSA }}", "role": "writer"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $dbEventWriterSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $zenSA }}", "role": "reader"},

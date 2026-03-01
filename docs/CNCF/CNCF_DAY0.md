@@ -189,7 +189,7 @@ docker compose up -d
 | **SNMPv1/v2c/v3** | Full | Bulk operations, MIB parsing |
 | **Syslog (RFC 3164/5424)** | Full | TCP/UDP, TLS encryption |
 | **SNMP Traps** | Full | v1/v2c/v3 trap reception |
-| **NetFlow/IPFIX** | Via goflow2+ | Template caching, aggregation |
+| **NetFlow/IPFIX** | Native collectors | Dedicated netflow/bmp collectors with stream processing |
 | **Cisco CDP/LLDP** | Full | Auto-discovery, topology mapping |
 
 **Observability ecosystem:**
@@ -297,7 +297,6 @@ Device → Checker (plugin) → Agent (proxy) → Gateway (aggregator) → NATS 
 |-------------|-----------|---------|
 | Flowgger | https://github.com/awslabs/flowgger | High-performance syslog/GELF receiver |
 | Risotto | https://github.com/nxthdr/risotto | IPAM and network visualization |
-| GoFlow2+ | https://github.com/mfreeman451/goflow2 | NetFlow/IPFIX collection |
 | ZenEngine | https://github.com/gorules/zen | Stateless business rule engine |
 
 #### Identity and Access Management

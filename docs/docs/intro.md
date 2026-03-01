@@ -44,11 +44,9 @@ For a detailed explanation of the architecture, please see the [Architecture](./
 ServiceRadar is designed with security in mind:
 
 1. **mTLS Authentication** - Secure communication between components using mutual TLS
-2. **User Authentication** - Local user login with bcrypt password hashing
-3. **JWT Session Management** - Secure, expirable tokens for web sessions
-4. **Role-Based Access** - Different components have different security roles
-5. **CORS Configuration** - Control which domains can access your API
-6. **Caddy Reverse Proxy** - Secure web access with configurable firewall rules
+2. **User Authentication** - Password login, Direct SSO (OIDC/SAML), or gateway-proxied JWT auth
+3. **Session Management** - Secure, expirable sessions for the web UI and API access
+4. **Role-Based Access** - Instance-scoped roles and permissions for administrative actions
 
 For more details, see the [TLS Security](./tls-security.md) and [Authentication Configuration](./auth-configuration.md) documentation.
 
@@ -60,16 +58,16 @@ Navigate through our documentation to get ServiceRadar up and running:
 - **[Docker Setup Guide](./docker-setup.md)** - Complete Docker deployment guide with automatic configuration
 - **[Device Configuration](./device-configuration.md)** - Configure network devices for SNMP, Syslog, and trap collection
 
-### Manual Installation
-1. **[Installation Guide](./installation.md)** - Install edge agents and optional checkers
-2. **[Configuration Basics](./configuration.md)** - Configure your ServiceRadar deployment
-3. **[TLS Security](./tls-security.md)** - Secure your ServiceRadar communications
-4. **[Authentication Configuration](./auth-configuration.md)** - Set up user authentication
-5. **[Web UI Configuration](./web-ui.md)** - Set up the web interface and dashboard
-6. **[Sync Runtime Configuration](./sync.md)** - Integrate with external systems
+### Deploy + Secure
+1. **[Kubernetes (Helm)](./helm-configuration.md)** - Production-style deployments
+2. **[TLS / mTLS](./tls-security.md)** - Secure service-to-service and agent connectivity
+3. **[Authentication](./auth-configuration.md)** - Users, sessions, and SSO integration
 
 ### Advanced Topics
-7. **[Architecture](./architecture.md)** - Understand the system architecture
-8. **[Custom Checkers](./custom-checkers.md)** - Create custom checkers for specific services
+4. **[Architecture](./architecture.md)** - Understand the system architecture
+5. **[Edge Model](./edge-model.md)** - Agent lifecycle, config flow, and command bus
+6. **[Data Pipeline](./data-pipeline.md)** - JetStream consumers and CNPG persistence
+7. **[Tools Pod](./tools.md)** - Preconfigured operational CLI environment
+8. **[Wasm Plugins](./wasm-plugins.md)** - Sandboxed plugin system and SDKs
 
 **Recommended**: Start with the [Docker Setup Guide](./docker-setup.md) for the fastest and most reliable deployment experience.

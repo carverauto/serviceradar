@@ -15,20 +15,14 @@ ServiceRadar ingests Armis device intelligence to enrich inventory, surface unma
 ## Enabling the Integration
 
 1. Create an Armis integration source in **Integrations → New Source** and provide the API URL, client ID, and secret.
-2. Ensure a sync-capable agent is connected. Watch `kubectl logs deploy/serviceradar-agent -n demo` for `armis_sync` messages confirming pagination progress.
+2. Ensure a sync-capable agent is connected. If running in Kubernetes, watch `kubectl logs deploy/serviceradar-agent -n <namespace>` for `armis_sync` messages confirming pagination progress.
 3. Confirm imported devices in the registry via `srql`:
    `in:devices source:armis sort:risk_score:desc limit:20`.
-
-## Demo and Testing
-
-- The [Armis Faker](./agents.md#armis-faker-service) synthesizes data sets for local or CI demos. Mount the `serviceradar-faker-data` PVC to persist generated inventories.
-- Resetting Faker? Follow the Agents runbook to truncate CNPG tables and replay canonical devices.
 
 ## Alerting and Enrichment
 
 - Sync attaches Armis risk scores and device tags; combine them with SNMP status to prioritize outages.
 - Use the [Service Port Map](./service-port-map.md) to overlay Armis risk data on topology diagrams.
-- Export curated Armis datasets to third-party tools through the [MCP integration](./mcp-integration.md).
 
 ## Troubleshooting
 

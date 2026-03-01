@@ -397,8 +397,8 @@ fn apply_filter<'a>(mut query: ServicesQuery<'a>, filter: &Filter) -> Result<Ser
             let value = filter.value.as_scalar()?;
             let uuid = parse_uuid(value)?;
             query = match filter.op {
-                FilterOp::Eq => query.filter(col_service_id.eq(uuid)),
-                FilterOp::NotEq => query.filter(col_service_id.ne(uuid)),
+                FilterOp::Eq => query.filter(col_service_id.eq(Some(uuid))),
+                FilterOp::NotEq => query.filter(col_service_id.ne(Some(uuid))),
                 _ => {
                     return Err(ServiceError::InvalidRequest(
                         "service_id filter only supports equality comparisons".into(),
@@ -573,6 +573,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         };
 
         let result = build_query(&plan);

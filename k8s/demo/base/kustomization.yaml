@@ -13,9 +13,9 @@ resources:
 - serviceradar-db-event-writer.yaml
 - serviceradar-zen.yaml
 - serviceradar-zen-rules.yaml
+- serviceradar-zen-rules-bootstrap.yaml
 - identity-prometheus-rules.yaml
-- serviceradar-flowgger.yaml
-- serviceradar-otel.yaml
+- serviceradar-flow-collector.yaml
 - serviceradar-trapd.yaml
 - serviceradar-tools.yaml
 - serviceradar-rperf-checker.yaml

@@ -2,7 +2,7 @@
 
 ## Why
 
-The Ash SRQL adapter (`web-ng/lib/serviceradar_web_ng/srql/ash_adapter.ex`) is a code smell that duplicates logic already present in the Rust SRQL implementation:
+The Ash SRQL adapter (`elixir/web-ng/lib/serviceradar_web_ng/srql/ash_adapter.ex`) is a code smell that duplicates logic already present in the Rust SRQL implementation:
 
 1. **Duplicated type handling**: The Elixir adapter re-implements boolean field detection, array field handling, and operator translation that already exists in Rust's `query/*.rs` modules.
 
@@ -17,7 +17,7 @@ The Ash SRQL adapter (`web-ng/lib/serviceradar_web_ng/srql/ash_adapter.ex`) is a
 ## What Changes
 
 ### Remove Ash Adapter for SRQL Reads
-- Delete `web-ng/lib/serviceradar_web_ng/srql/ash_adapter.ex`
+- Delete `elixir/web-ng/lib/serviceradar_web_ng/srql/ash_adapter.ex`
 - Remove feature flag `ash_srql_adapter` from config
 - Update `ServiceRadarWebNG.SRQL` to always use the SQL path (Rust NIF)
 - Remove Ash adapter tests
@@ -36,10 +36,10 @@ The Ash SRQL adapter (`web-ng/lib/serviceradar_web_ng/srql/ash_adapter.ex`) is a
 
 - **Affected specs**: `srql`
 - **Affected code**:
-  - `web-ng/lib/serviceradar_web_ng/srql/ash_adapter.ex` - DELETE
-  - `web-ng/lib/serviceradar_web_ng/srql.ex` - Simplify
-  - `web-ng/config/config.exs` - Remove feature flag
-  - `web-ng/test/serviceradar_web_ng/srql/ash_adapter_test.exs` - DELETE
+  - `elixir/web-ng/lib/serviceradar_web_ng/srql/ash_adapter.ex` - DELETE
+  - `elixir/web-ng/lib/serviceradar_web_ng/srql.ex` - Simplify
+  - `elixir/web-ng/config/config.exs` - Remove feature flag
+  - `elixir/web-ng/test/serviceradar_web_ng/srql/ash_adapter_test.exs` - DELETE
 
 ## Benefits
 

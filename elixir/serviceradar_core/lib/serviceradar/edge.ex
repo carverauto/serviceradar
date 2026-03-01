@@ -19,6 +19,7 @@ defmodule ServiceRadar.Edge do
   - `ServiceRadar.Edge.CollectorPackage` - Collector-specific deployment packages
   - `ServiceRadar.Edge.EdgeSite` - Edge deployment locations
   - `ServiceRadar.Edge.NatsLeafServer` - NATS leaf server configurations
+  - `ServiceRadar.Edge.AgentCommand` - On-demand agent command lifecycle records
 
   ## Package State Machine
 
@@ -47,6 +48,7 @@ defmodule ServiceRadar.Edge do
     resource ServiceRadar.Edge.CollectorPackage
     resource ServiceRadar.Edge.EdgeSite
     resource ServiceRadar.Edge.NatsLeafServer
+    resource ServiceRadar.Edge.AgentCommand
   end
 
   authorization do

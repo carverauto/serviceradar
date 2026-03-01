@@ -22,10 +22,25 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       filter expr(agent_uid == ^arg(:agent_uid))
     end
 
+    read :by_policy do
+      argument :policy_id, :string, allow_nil?: false
+      filter expr(source == :policy and policy_id == ^arg(:policy_id))
+    end
+
+    read :by_source_key do
+      argument :source, :atom, allow_nil?: false
+      argument :source_key, :string, allow_nil?: false
+      get? true
+      filter expr(source == ^arg(:source) and source_key == ^arg(:source_key))
+    end
+
     create :create do
       accept [
         :agent_uid,
         :plugin_package_id,
+        :source,
+        :source_key,
+        :policy_id,
         :enabled,
         :interval_seconds,
         :timeout_seconds,
@@ -41,6 +56,9 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
 
     update :update do
       accept [
+        :source,
+        :source_key,
+        :policy_id,
         :enabled,
         :interval_seconds,
         :timeout_seconds,
@@ -60,15 +78,18 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     end
 
     policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.plugins.manage"}
     end
 
     policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.plugins.manage"}
     end
 
     policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.plugins.manage"}
     end
 
     policy action_type(:read) do
@@ -86,6 +107,23 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
 
     attribute :plugin_package_id, :uuid do
       allow_nil? false
+      public? true
+    end
+
+    attribute :source, :atom do
+      allow_nil? false
+      public? true
+      default :manual
+      constraints one_of: [:manual, :policy]
+    end
+
+    attribute :source_key, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :policy_id, :string do
+      allow_nil? true
       public? true
     end
 
@@ -140,6 +178,6 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
   end
 
   identities do
-    identity :unique_agent_package, [:agent_uid, :plugin_package_id]
+    identity :unique_source_key, [:source, :source_key]
   end
 end

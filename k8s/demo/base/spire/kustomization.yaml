@@ -29,3 +29,4 @@ resources:
   - spire-clusterspiffeid-rperf-checker.yaml
   - spire-clusterspiffeid-flowgger.yaml
   - spire-clusterspiffeid-trapd.yaml
+  - spire-clusterspiffeid-flow-collector.yaml

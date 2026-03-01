@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
   ## Identifier Types
 
   Strong identifiers (in priority order):
+  - `agent_id` - ServiceRadar agent ID (mTLS-validated, stable across pod restarts)
   - `armis_device_id` - Armis platform device ID
   - `integration_id` - Generic integration ID
   - `netbox_device_id` - NetBox device ID
@@ -28,7 +29,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
-  @identifier_types [:armis_device_id, :integration_id, :netbox_device_id, :mac, :ip]
+  @identifier_types [:agent_id, :armis_device_id, :integration_id, :netbox_device_id, :mac, :ip]
   @confidence_levels [:strong, :medium, :weak]
 
   postgres do
@@ -261,6 +262,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
               :integer,
               expr(
                 cond do
+                  identifier_type == :agent_id -> 0
                   identifier_type == :armis_device_id -> 1
                   identifier_type == :integration_id -> 2
                   identifier_type == :netbox_device_id -> 3

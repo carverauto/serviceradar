@@ -73,6 +73,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 | Entity::MemoryMetrics
                 | Entity::DiskMetrics
                 | Entity::ProcessMetrics
+                | Entity::Flows
         )
     {
         return Some(VizMeta {
@@ -285,6 +286,34 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 col("subject", ColumnType::Text, None),
                 col("severity", ColumnType::Text, None),
                 col("short_message", ColumnType::Text, None),
+                col(
+                    "created_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
+        Entity::BmpEvents => VizMeta {
+            columns: vec![
+                col("time", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("event_type", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("severity_id", ColumnType::Int, None),
+                col("router_id", ColumnType::Text, None),
+                col("router_ip", ColumnType::Text, None),
+                col("peer_ip", ColumnType::Text, None),
+                col("peer_asn", ColumnType::Int, None),
+                col("local_asn", ColumnType::Int, None),
+                col("prefix", ColumnType::Text, None),
+                col("message", ColumnType::Text, None),
+                col("metadata", ColumnType::Jsonb, None),
+                col("raw_data", ColumnType::Text, None),
                 col(
                     "created_at",
                     ColumnType::Timestamptz,
@@ -660,6 +689,46 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 y: None,
                 series: None,
             }],
+        },
+        Entity::Flows => VizMeta {
+            columns: vec![
+                col("time", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),
+                col("src_endpoint_ip", ColumnType::Text, None),
+                col("src_endpoint_port", ColumnType::Int, None),
+                col("dst_endpoint_ip", ColumnType::Text, None),
+                col("dst_endpoint_port", ColumnType::Int, None),
+                col("protocol_num", ColumnType::Int, None),
+                col("protocol_name", ColumnType::Text, None),
+                col("bytes_total", ColumnType::Int, Some(ColumnSemantic::Value)),
+                col(
+                    "packets_total",
+                    ColumnType::Int,
+                    Some(ColumnSemantic::Value),
+                ),
+                col("bytes_in", ColumnType::Int, Some(ColumnSemantic::Value)),
+                col("bytes_out", ColumnType::Int, Some(ColumnSemantic::Value)),
+                col("sampler_address", ColumnType::Text, None),
+                col("exporter_name", ColumnType::Text, None),
+                col("in_if_name", ColumnType::Text, None),
+                col("out_if_name", ColumnType::Text, None),
+                col("in_if_speed_bps", ColumnType::Int, None),
+                col("out_if_speed_bps", ColumnType::Int, None),
+                col("ocsf_payload", ColumnType::Jsonb, None),
+            ],
+            suggestions: vec![
+                VizSuggestion {
+                    kind: VizKind::Table,
+                    x: None,
+                    y: None,
+                    series: None,
+                },
+                VizSuggestion {
+                    kind: VizKind::Timeseries,
+                    x: Some("time".to_string()),
+                    y: Some("bytes_total".to_string()),
+                    series: Some("src_endpoint_ip".to_string()),
+                },
+            ],
         },
     })
 }

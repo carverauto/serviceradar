@@ -73,6 +73,7 @@ defmodule ServiceRadar.EventWriter.Config do
 
   @type stream_config :: %{
           name: String.t(),
+          stream_name: String.t() | nil,
           subject: String.t(),
           processor: module(),
           batch_size: pos_integer() | nil,
@@ -124,6 +125,7 @@ defmodule ServiceRadar.EventWriter.Config do
     [
       %{
         name: "EVENTS",
+        stream_name: "events",
         subject: "events.>",
         processor: ServiceRadar.EventWriter.Processors.Events,
         batch_size: 100,
@@ -131,6 +133,7 @@ defmodule ServiceRadar.EventWriter.Config do
       },
       %{
         name: "OTEL_METRICS",
+        stream_name: "events",
         subject: "otel.metrics.>",
         processor: ServiceRadar.EventWriter.Processors.OtelMetrics,
         batch_size: 100,
@@ -138,17 +141,49 @@ defmodule ServiceRadar.EventWriter.Config do
       },
       %{
         name: "OTEL_TRACES",
+        stream_name: "events",
         subject: "otel.traces.>",
         processor: ServiceRadar.EventWriter.Processors.OtelTraces,
         batch_size: 100,
         batch_timeout: 1_000
       },
       %{
-        name: "LOGS",
-        subject: "logs.>",
-        processor: ServiceRadar.EventWriter.Processors.Logs,
+        name: "BMP_CAUSAL",
+        stream_name: "events",
+        subject: "bmp.events.>",
+        processor: ServiceRadar.EventWriter.Processors.CausalSignals,
         batch_size: 100,
         batch_timeout: 1_000
+      },
+      %{
+        name: "ARANCINI_CAUSAL",
+        stream_name: "ARANCINI_CAUSAL",
+        subject: "arancini.updates.>",
+        processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      %{
+        name: "SIEM_CAUSAL",
+        stream_name: "events",
+        subject: "siem.events.>",
+        processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      %{
+        name: "SFLOW_RAW",
+        subject: "flows.raw.sflow",
+        processor: ServiceRadar.EventWriter.Processors.Flows,
+        batch_size: 50,
+        batch_timeout: 500
+      },
+      %{
+        name: "NETFLOW_RAW",
+        subject: "flows.raw.netflow",
+        processor: ServiceRadar.EventWriter.Processors.Flows,
+        batch_size: 50,
+        batch_timeout: 500
       }
     ]
   end

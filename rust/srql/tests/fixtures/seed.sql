@@ -332,6 +332,7 @@ WITH base AS (
 )
 INSERT INTO logs (
         timestamp,
+        observed_timestamp,
         trace_id,
         span_id,
         severity_text,
@@ -347,6 +348,7 @@ INSERT INTO logs (
         created_at
     )
 SELECT base.now_ts - INTERVAL '1 minute',
+    NULL,
     'trace-1',
     'span-1',
     'INFO',
@@ -362,7 +364,8 @@ SELECT base.now_ts - INTERVAL '1 minute',
     base.now_ts
 FROM base
 UNION ALL
-SELECT base.now_ts - INTERVAL '5 minutes',
+SELECT base.now_ts - INTERVAL '2 hours',
+    base.now_ts - INTERVAL '30 seconds',
     'trace-2',
     'span-2',
     'ERROR',
@@ -430,14 +433,14 @@ SET LOCAL search_path = ag_catalog, public, "$user";
 DO $$
 BEGIN
     BEGIN
-        PERFORM ag_catalog.create_graph('serviceradar');
+        PERFORM ag_catalog.create_graph('platform_graph');
     EXCEPTION
         WHEN others THEN NULL;
     END;
 
     BEGIN
-        EXECUTE format('GRANT USAGE ON SCHEMA %I TO PUBLIC', 'serviceradar');
-        EXECUTE format('GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I TO PUBLIC', 'serviceradar');
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO PUBLIC', 'platform_graph');
+        EXECUTE format('GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I TO PUBLIC', 'platform_graph');
     EXCEPTION
         WHEN insufficient_privilege THEN NULL;
         WHEN others THEN NULL;
@@ -452,58 +455,58 @@ BEGIN
     END;
 
     BEGIN
-        PERFORM ag_catalog.create_vlabel('serviceradar', 'Device');
+        PERFORM ag_catalog.create_vlabel('platform_graph', 'Device');
     EXCEPTION
         WHEN others THEN NULL;
     END;
     BEGIN
-        PERFORM ag_catalog.create_vlabel('serviceradar', 'Collector');
+        PERFORM ag_catalog.create_vlabel('platform_graph', 'Collector');
     EXCEPTION
         WHEN others THEN NULL;
     END;
     BEGIN
-        PERFORM ag_catalog.create_vlabel('serviceradar', 'Service');
+        PERFORM ag_catalog.create_vlabel('platform_graph', 'Service');
     EXCEPTION
         WHEN others THEN NULL;
     END;
     BEGIN
-        PERFORM ag_catalog.create_vlabel('serviceradar', 'Interface');
+        PERFORM ag_catalog.create_vlabel('platform_graph', 'Interface');
     EXCEPTION
         WHEN others THEN NULL;
     END;
     BEGIN
-        PERFORM ag_catalog.create_vlabel('serviceradar', 'Capability');
+        PERFORM ag_catalog.create_vlabel('platform_graph', 'Capability');
     EXCEPTION
         WHEN others THEN NULL;
     END;
 
     BEGIN
-        PERFORM ag_catalog.create_elabel('serviceradar', 'HOSTS_SERVICE');
+        PERFORM ag_catalog.create_elabel('platform_graph', 'HOSTS_SERVICE');
     EXCEPTION
         WHEN others THEN NULL;
     END;
     BEGIN
-        PERFORM ag_catalog.create_elabel('serviceradar', 'TARGETS');
+        PERFORM ag_catalog.create_elabel('platform_graph', 'TARGETS');
     EXCEPTION
         WHEN others THEN NULL;
     END;
     BEGIN
-        PERFORM ag_catalog.create_elabel('serviceradar', 'HAS_INTERFACE');
+        PERFORM ag_catalog.create_elabel('platform_graph', 'HAS_INTERFACE');
     EXCEPTION
         WHEN others THEN NULL;
     END;
     BEGIN
-        PERFORM ag_catalog.create_elabel('serviceradar', 'REPORTED_BY');
+        PERFORM ag_catalog.create_elabel('platform_graph', 'REPORTED_BY');
     EXCEPTION
         WHEN others THEN NULL;
     END;
     BEGIN
-        PERFORM ag_catalog.create_elabel('serviceradar', 'PROVIDES_CAPABILITY');
+        PERFORM ag_catalog.create_elabel('platform_graph', 'PROVIDES_CAPABILITY');
     EXCEPTION
         WHEN others THEN NULL;
     END;
 
-    PERFORM * FROM ag_catalog.cypher('serviceradar', $_cypher$
+    PERFORM * FROM ag_catalog.cypher('platform_graph', $_cypher$
         MERGE (d:Device {id: 'device-alpha', hostname: 'alpha-edge'})
         MERGE (c:Collector {id: 'serviceradar:agent:agent-1'})
         MERGE (svc:Service {id: 'serviceradar:service:ssh@agent-1', type: 'ssh'})
@@ -586,7 +589,7 @@ BEGIN
         } AS result
     $cypher$, include_topology, collector_only, p_device_id);
 
-    EXECUTE 'SELECT result FROM ag_catalog.cypher(''serviceradar'', ' ||
+    EXECUTE 'SELECT result FROM ag_catalog.cypher(''platform_graph'', ' ||
             chr(36) || chr(36) || cypher_sql || chr(36) || chr(36) ||
             ') AS (result ag_catalog.agtype)'
     INTO cypher_result;
@@ -645,7 +648,7 @@ BEGIN
             } AS result
         $cypher$, include_topology, collector_only, p_device_id, p_device_id);
 
-        EXECUTE 'SELECT result FROM ag_catalog.cypher(''serviceradar'', ' ||
+        EXECUTE 'SELECT result FROM ag_catalog.cypher(''platform_graph'', ' ||
                 chr(36) || chr(36) || cypher_sql || chr(36) || chr(36) ||
                 ') AS (result ag_catalog.agtype)'
         INTO cypher_result;
@@ -695,7 +698,7 @@ BEGIN
             } AS result
         $cypher$, include_topology, collector_only, p_device_id);
 
-        EXECUTE 'SELECT result FROM ag_catalog.cypher(''serviceradar'', ' ||
+        EXECUTE 'SELECT result FROM ag_catalog.cypher(''platform_graph'', ' ||
                 chr(36) || chr(36) || cypher_sql || chr(36) || chr(36) ||
                 ') AS (result ag_catalog.agtype)'
         INTO cypher_result;

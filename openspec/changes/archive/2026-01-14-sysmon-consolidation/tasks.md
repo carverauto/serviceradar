@@ -122,6 +122,6 @@
 - [x] 6.5 Remove `cmd/checkers/sysmon/` (Rust)
 - [x] 6.6 Remove `cmd/checkers/sysmon-osx/` (Go)
 - [x] 6.7 Remove `pkg/checker/sysmonosx/` (legacy Go package)
-- [x] 6.8 Remove `packaging/sysmon*` directories and Bazel targets
+- [x] 6.8 Remove `build/packaging/sysmon*` directories and Bazel targets
 - [x] 6.9 Update GitHub workflow files to remove sysmon references
 - [x] 6.10 Migrate macOS codesign/notarization infrastructure to agent packaging

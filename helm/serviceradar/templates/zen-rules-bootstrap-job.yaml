@@ -68,17 +68,34 @@ spec:
                   return 0
                 fi
 
-                echo "Installing rule: $key for subject: $subject"
-                if /usr/local/bin/zen-put-rule \
-                    --config "$CONFIG_PATH" \
-                    --file "$file" \
-                    --subject "$subject" \
-                    --key "$key"; then
-                  echo "✓ Rule $key installed successfully"
-                else
-                  echo "✗ Failed to install rule $key"
-                  return 1
-                fi
+                local attempt=1
+                local max_attempts=6
+                local delay=2
+
+                while [ "$attempt" -le "$max_attempts" ]; do
+                  echo "Installing rule: $key for subject: $subject (attempt ${attempt}/${max_attempts})"
+                  if /usr/local/bin/zen-put-rule \
+                      --config "$CONFIG_PATH" \
+                      --file "$file" \
+                      --subject "$subject" \
+                      --key "$key"; then
+                    echo "✓ Rule $key installed successfully"
+                    return 0
+                  fi
+
+                  echo "✗ Failed to install rule $key (attempt ${attempt})"
+                  attempt=$((attempt + 1))
+                  if [ "$attempt" -le "$max_attempts" ]; then
+                    echo "Retrying in ${delay}s..."
+                    sleep "$delay"
+                    delay=$((delay * 2))
+                    if [ "$delay" -gt 30 ]; then
+                      delay=30
+                    fi
+                  fi
+                done
+
+                return 1
               }
 
               # Install default rules

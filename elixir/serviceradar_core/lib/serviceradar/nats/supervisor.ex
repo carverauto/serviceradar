@@ -52,6 +52,7 @@ defmodule ServiceRadar.NATS.Supervisor do
   @impl true
   def init(_opts) do
     config = Application.get_env(:serviceradar_core, ServiceRadar.NATS.Connection, [])
+    _ = ensure_ssl_started(config)
 
     case build_connection_settings(config) do
       {:ok, connection_settings} ->
@@ -72,6 +73,23 @@ defmodule ServiceRadar.NATS.Supervisor do
         Logger.error("Failed to build NATS connection settings: #{inspect(reason)}")
         # Start with empty children - will not have NATS
         Supervisor.init([], strategy: :one_for_one)
+    end
+  end
+
+  defp ensure_ssl_started(config) do
+    tls = Keyword.get(config, :tls, false)
+
+    if tls == true or is_list(tls) do
+      case Application.ensure_all_started(:ssl) do
+        {:ok, _} ->
+          :ok
+
+        {:error, {app, reason}} ->
+          Logger.error("Failed to start #{app} for NATS TLS", reason: inspect(reason))
+          {:error, reason}
+      end
+    else
+      :ok
     end
   end
 

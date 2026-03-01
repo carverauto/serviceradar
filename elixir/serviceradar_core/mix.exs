@@ -35,6 +35,8 @@ defmodule ServiceRadarCore.MixProject do
         :public_key,
         :swoosh,
         :telemetry,
+        :opentelemetry,
+        :opentelemetry_experimental,
         :ash_state_machine
       ],
       mod: {ServiceRadar.Application, []}
@@ -52,10 +54,10 @@ defmodule ServiceRadarCore.MixProject do
       # Ash Framework
       {:ash, "~> 3.4"},
       {:ash_postgres, "~> 2.4"},
-      {:ash_authentication, "~> 4.3"},
       {:ash_oban, "~> 0.4"},
       {:ash_state_machine, "~> 0.2"},
       {:ash_json_api, "~> 1.4"},
+      {:open_api_spex, "~> 3.16"},
       {:ash_admin, "~> 0.12"},
       {:ash_cloak, "~> 0.1"},
       {:cloak, "~> 1.1"},
@@ -87,18 +89,43 @@ defmodule ServiceRadarCore.MixProject do
       {:telemetry, "~> 1.0"},
       {:telemetry_metrics, "~> 1.0"},
 
+      # OpenTelemetry SDK, API, and OTLP exporter
+      {:opentelemetry, "~> 1.7"},
+      {:opentelemetry_api, "~> 1.5"},
+      {:opentelemetry_exporter, "~> 1.10"},
+
+      # OpenTelemetry auto-instrumentation libraries
+      {:opentelemetry_phoenix, "~> 2.0"},
+      {:opentelemetry_bandit, "~> 0.2"},
+      {:opentelemetry_ecto, "~> 1.2"},
+      {:opentelemetry_oban, path: "../vendor/opentelemetry_oban", override: true},
+      # Override: opentelemetry_oban declares ~> 0.2 but works fine with 1.27;
+      # upstream fix pending (open-telemetry/opentelemetry-erlang-contrib#528).
+      {:opentelemetry_semantic_conventions, "~> 1.27", override: true},
+
+      # OTLP log export via OTP :logger handler
+      {:opentelemetry_experimental, "~> 0.5"},
+      {:opentelemetry_api_experimental, "~> 0.5"},
+
       # Utilities
       {:jason, "~> 1.4"},
       {:ex_json_schema, "~> 0.10"},
       {:elixir_uuid, "~> 1.2"},
       {:file_system, "~> 1.0"},
       {:yaml_elixir, "~> 2.12"},
+      {:req, "~> 0.5"},
+      # Bundle CA certs for minimal containers (core-elx/web-ng releases) so HTTPS works.
+      {:castore, "~> 1.0"},
+      {:geolix_adapter_mmdb2, "~> 0.6.0"},
 
       # Policy SAT solver for Ash policies
       {:simple_sat, "~> 0.1"},
 
       # Email (for auth senders)
       {:swoosh, "~> 1.5"},
+
+      # Password hashing (for authentication)
+      {:bcrypt_elixir, "~> 3.0"},
 
       # Development & Testing
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},

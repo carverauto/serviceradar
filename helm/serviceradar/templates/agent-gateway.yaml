@@ -34,6 +34,7 @@ spec:
         app.kubernetes.io/part-of: serviceradar
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ $gatewaySA }}
       containers:
       - name: agent-gateway
@@ -44,6 +45,8 @@ spec:
           containerPort: {{ default 50052 $gateway.service.port }}
           protocol: TCP
         env:
+        - name: ELIXIR_ERL_OPTIONS
+          value: "+fnu"
         - name: GATEWAY_PARTITION_ID
           value: {{ default "default" $gateway.partitionId | quote }}
         - name: GATEWAY_ID
@@ -88,6 +91,20 @@ spec:
           value: {{ $clusterCoreNodeBasename | quote }}
         - name: GATEWAY_CERT_DIR
           value: "/etc/serviceradar/certs"
+        {{- with $.Values.otelExporter }}
+        {{- if .enabled }}
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: {{ .endpoint | quote }}
+        - name: OTEL_CERT_DIR
+          value: {{ default "/etc/serviceradar/certs" .certDir | quote }}
+        - name: OTEL_CERT_NAME
+          value: "gateway"
+        - name: OTEL_SERVICE_NAME
+          value: "serviceradar-agent-gateway"
+        - name: OTEL_TRACES_SAMPLER_ARG
+          value: {{ default "1.0" .samplingRatio | quote }}
+        {{- end }}
+        {{- end }}
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
@@ -134,6 +151,9 @@ spec:
   selector:
     app: serviceradar-agent-gateway
   type: {{ default "ClusterIP" $gateway.service.type }}
+  {{- with $gateway.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
   {{- if and (eq (default "ClusterIP" $gateway.service.type) "LoadBalancer") $gateway.service.loadBalancerIP }}
   loadBalancerIP: {{ $gateway.service.loadBalancerIP | quote }}
   {{- end }}

@@ -10,6 +10,7 @@ use std::{
 pub struct AppConfig {
     pub listen_addr: SocketAddr,
     pub database_url: String,
+    pub age_graph_name: String,
     pub max_pool_size: u32,
     pub pg_ssl_root_cert: Option<String>,
     pub pg_ssl_cert: Option<String>,
@@ -36,6 +37,8 @@ struct RawConfig {
     srql_database_url: Option<String>,
     #[serde(default)]
     database_url: Option<String>,
+    #[serde(default)]
+    srql_age_graph_name: Option<String>,
     #[serde(default = "default_pool_size")]
     srql_max_pool_size: u32,
     #[serde(default)]
@@ -97,6 +100,11 @@ impl AppConfig {
             .or_else(|| env::var("DATABASE_URL").ok())
             .context("SRQL_DATABASE_URL or DATABASE_URL must be set")?;
 
+        let age_graph_name = raw
+            .srql_age_graph_name
+            .or_else(|| env::var("AGE_GRAPH_NAME").ok())
+            .unwrap_or_else(|| "platform_graph".to_string());
+
         let allowed_origins = raw.srql_allowed_origins.and_then(|csv| {
             let trimmed: Vec<_> = csv
                 .split(',')
@@ -119,6 +127,7 @@ impl AppConfig {
         Ok(Self {
             listen_addr,
             database_url,
+            age_graph_name,
             max_pool_size: raw.srql_max_pool_size,
             pg_ssl_root_cert: env::var("PGSSLROOTCERT").ok(),
             pg_ssl_cert: env::var("PGSSLCERT").ok(),
@@ -142,6 +151,7 @@ impl AppConfig {
         Self {
             listen_addr: "127.0.0.1:0".parse().expect("valid socket addr"),
             database_url,
+            age_graph_name: "platform_graph".to_string(),
             max_pool_size: default_pool_size(),
             pg_ssl_root_cert: None,
             pg_ssl_cert: None,

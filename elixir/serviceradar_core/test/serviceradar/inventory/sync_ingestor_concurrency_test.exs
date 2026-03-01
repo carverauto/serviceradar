@@ -65,7 +65,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
 
     # DB connection's search_path determines the schema
     assert {:ok, device} =
-             Device.get_by_uid(expected_id, actor: actor)
+             Device.get_by_uid(expected_id, false, actor: actor)
 
     assert device.uid == expected_id
 

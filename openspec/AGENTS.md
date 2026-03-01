@@ -481,10 +481,10 @@ CNPG_PUBLIC_BIND=0.0.0.0 docker compose up -d
 
 ### Elixir Web App (web-ng)
 
-The Phoenix LiveView app in `web-ng/` connects to CNPG. To run locally:
+The Phoenix LiveView app in `elixir/web-ng/` connects to CNPG. To run locally:
 
 ```bash
-cd web-ng
+cd elixir/web-ng
 
 # Connect to local docker stack
 CNPG_HOST=localhost CNPG_PORT=5455 mix phx.server

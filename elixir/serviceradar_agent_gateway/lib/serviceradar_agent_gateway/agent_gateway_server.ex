@@ -38,7 +38,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
-  alias ServiceRadarAgentGateway.{AgentRegistryProxy, Config, StatusProcessor}
+  alias ServiceRadarAgentGateway.{AgentRegistryProxy, Config, ControlStreamSession, StatusProcessor}
 
   # Default heartbeat interval for agents
   @default_heartbeat_interval_sec 30
@@ -190,30 +190,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           "Sending config to agent: agent_id=#{agent_id}, version=#{config.config_version}, checks=#{length(config.checks)}"
         )
 
-        # Convert checks to proto format
-        proto_checks = ServiceRadar.Edge.AgentConfigGenerator.to_proto_checks(config.checks)
-
-        proto_plugins =
-          ServiceRadar.Edge.AgentConfigGenerator.to_proto_plugin_config(
-            config.plugins || [],
-            Map.get(config, :plugin_engine_limits, %{})
-          )
-
-        config_json = Map.get(config, :config_json, <<>>)
-
-        %Monitoring.AgentConfigResponse{
-          not_modified: false,
-          config_version: config.config_version,
-          config_timestamp: config.config_timestamp,
-          heartbeat_interval_sec: config.heartbeat_interval_sec,
-          config_poll_interval_sec: config.config_poll_interval_sec,
-          checks: proto_checks,
-          config_json: config_json,
-          sysmon_config: Map.get(config, :sysmon_config),
-          snmp_config: Map.get(config, :snmp_config),
-          dusk_config: Map.get(config, :dusk_config),
-          plugin_config: proto_plugins
-        }
+        ServiceRadar.Edge.AgentConfigGenerator.to_proto_response(config)
 
       {:ok, {:error, reason}} ->
         Logger.warning(
@@ -309,9 +286,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
             acc + 1
           rescue
             e in GRPC.RPCError ->
-              Logger.warning(
-                "Dropping invalid service status from agent #{metadata.agent_id}: #{e.status} #{e.message}"
-              )
+              log_invalid_service_status(metadata, service, e)
 
               acc
 
@@ -464,9 +439,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
             process_service_status(service, metadata)
           rescue
             e in GRPC.RPCError ->
-              Logger.warning(
-                "Dropping invalid service status from agent #{metadata.agent_id}: #{e.status} #{e.message}"
-              )
+              log_invalid_service_status(metadata, service, e)
 
             e ->
               Logger.warning(
@@ -497,6 +470,78 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     Logger.info("Completed streaming status reception: #{total_services} total services")
 
     %Monitoring.GatewayStatusResponse{received: true}
+  end
+
+  @doc """
+  Handle the bidirectional control stream from an agent.
+  """
+  @spec control_stream(Enumerable.t(), GRPC.Server.Stream.t()) :: :ok
+  def control_stream(request_stream, stream) do
+    identity = extract_identity_from_stream(stream)
+
+    session_pid =
+      Enum.reduce_while(request_stream, {:awaiting_hello, nil}, fn message, state ->
+        case state do
+          {:awaiting_hello, nil} ->
+            case message.payload do
+              {:hello, %Monitoring.ControlStreamHello{} = hello} ->
+                agent_id =
+                  case hello.agent_id do
+                    nil -> ""
+                    value -> value |> to_string() |> String.trim()
+                  end
+
+                if agent_id == "" do
+                  raise GRPC.RPCError,
+                    status: :invalid_argument,
+                    message: "agent_id is required"
+                end
+
+                {identity, _component_type} = resolve_component_type!(identity, agent_id)
+                enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+
+                partition_id = resolve_partition(identity, hello.partition)
+                capabilities = normalize_capabilities(hello.capabilities || [])
+
+                {:ok, session} = ControlStreamSession.start_link(stream: stream)
+
+                case ControlStreamSession.register(session, agent_id, partition_id, capabilities) do
+                  :ok ->
+                    Logger.info(
+                      "Control stream established: agent_id=#{agent_id}, partition=#{partition_id}"
+                    )
+
+                    {:cont, {:ready, session}}
+
+                  {:error, reason} ->
+                    Logger.warning(
+                      "Failed to register control stream for agent #{agent_id}: #{inspect(reason)}"
+                    )
+
+                    raise GRPC.RPCError, status: :internal, message: "control stream registration failed"
+                end
+
+              _ ->
+                raise GRPC.RPCError,
+                  status: :failed_precondition,
+                  message: "control stream requires hello as the first message"
+            end
+
+          {:ready, session} ->
+            ControlStreamSession.handle_message(session, message)
+            {:cont, {:ready, session}}
+        end
+      end)
+      |> case do
+        {:ready, session} -> session
+        {:awaiting_hello, _} -> nil
+      end
+
+    if is_pid(session_pid) do
+      GenServer.stop(session_pid, :normal)
+    end
+
+    :ok
   end
 
   # Process a single service status and forward to the core
@@ -615,16 +660,42 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp normalize_partition(_partition), do: "default"
 
+  defp log_invalid_service_status(metadata, service, %GRPC.RPCError{} = error) do
+    Logger.warning(
+      "Dropping invalid service status from agent #{metadata.agent_id}: #{error.status} #{error.message} " <>
+        "#{inspect(service_log_fields(service))}"
+    )
+  end
+
+  defp service_log_fields(service) do
+    %{
+      service_name: normalize_log_value(service.service_name),
+      service_type: normalize_log_value(service.service_type),
+      source: normalize_log_value(service.source),
+      available: service.available,
+      response_time: service.response_time,
+      message_bytes: message_size(service.message)
+    }
+  end
+
+  defp normalize_log_value(nil), do: nil
+  defp normalize_log_value(value) when is_binary(value), do: String.trim(value)
+  defp normalize_log_value(value), do: to_string(value)
+
+  defp message_size(value) when is_binary(value), do: byte_size(value)
+  defp message_size(_), do: 0
+
   defp normalize_message(msg, source) do
     max_bytes =
       case source do
         "results" -> @max_results_message_bytes
         "sysmon-metrics" -> @max_sysmon_message_bytes
+        "snmp-metrics" -> @max_results_message_bytes
         _ -> @max_status_message_bytes
       end
 
     if byte_size(msg) > max_bytes do
-      if source in ["results", "sysmon-metrics"] do
+      if source in ["results", "sysmon-metrics", "snmp-metrics"] do
         raise GRPC.RPCError,
           status: :resource_exhausted,
           message: "payload exceeds max size"
@@ -947,26 +1018,25 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp core_nodes do
-    all_nodes = [Node.self() | Node.list()] |> Enum.uniq()
+    # IMPORTANT: Exclude Node.self() - gateway has no database access and must
+    # never execute database-dependent operations locally. All such operations
+    # must be forwarded to core-elx nodes via RPC.
+    remote_nodes = Node.list()
 
-    # First try to find nodes with ClusterHealth (preferred)
-    coordinators = find_nodes_with_process(all_nodes, ServiceRadar.ClusterHealth)
+    # Only look for nodes with ClusterHealth (core coordinator process).
+    # We do NOT fall back to Repo-based detection because the gateway should
+    # never be selected as a core node target.
+    coordinators = find_nodes_with_process(remote_nodes, ServiceRadar.ClusterHealth)
 
-    if coordinators != [] do
-      coordinators
-    else
-      # Fall back to nodes with Repo
-      repo_nodes = find_nodes_with_process(all_nodes, ServiceRadar.Repo)
-
-      if repo_nodes == [] and length(all_nodes) > 1 do
-        Logger.warning("No core nodes found",
-          connected_nodes: Node.list(),
-          checked_nodes: all_nodes
-        )
-      end
-
-      repo_nodes
+    if coordinators == [] and remote_nodes != [] do
+      Logger.warning(
+        "No core-elx nodes found with ClusterHealth. " <>
+          "Config compilation and other DB operations will fail until core is available.",
+        connected_nodes: remote_nodes
+      )
     end
+
+    coordinators
   end
 
 

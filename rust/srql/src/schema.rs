@@ -82,6 +82,9 @@ diesel::table! {
         discovery_sources -> Nullable<Array<Text>>,
         is_available -> Nullable<Bool>,
         metadata -> Nullable<Jsonb>,
+        deleted_at -> Nullable<Timestamptz>,
+        deleted_by -> Nullable<Text>,
+        deleted_reason -> Nullable<Text>,
     }
 }
 
@@ -133,6 +136,63 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    bmp_routing_events (time, id) {
+        time -> Timestamptz,
+        id -> Uuid,
+        event_type -> Text,
+        severity_id -> Nullable<Int4>,
+        router_id -> Nullable<Text>,
+        router_ip -> Nullable<Text>,
+        peer_ip -> Nullable<Text>,
+        peer_asn -> Nullable<Int8>,
+        local_asn -> Nullable<Int8>,
+        prefix -> Nullable<Text>,
+        message -> Nullable<Text>,
+        metadata -> Jsonb,
+        raw_data -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    ocsf_events (time, id) {
+        time -> Timestamptz,
+        id -> Uuid,
+        class_uid -> Int4,
+        category_uid -> Int4,
+        type_uid -> Int4,
+        activity_id -> Int4,
+        activity_name -> Nullable<Text>,
+        severity_id -> Nullable<Int4>,
+        severity -> Nullable<Text>,
+        message -> Nullable<Text>,
+        status_id -> Nullable<Int4>,
+        status -> Nullable<Text>,
+        status_code -> Nullable<Text>,
+        status_detail -> Nullable<Text>,
+        metadata -> Jsonb,
+        observables -> Jsonb,
+        trace_id -> Nullable<Text>,
+        span_id -> Nullable<Text>,
+        actor -> Jsonb,
+        device -> Jsonb,
+        src_endpoint -> Jsonb,
+        dst_endpoint -> Jsonb,
+        log_name -> Nullable<Text>,
+        log_provider -> Nullable<Text>,
+        log_level -> Nullable<Text>,
+        log_version -> Nullable<Text>,
+        unmapped -> Jsonb,
+        raw_data -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     logs (timestamp, id) {
         timestamp -> Timestamptz,
         observed_timestamp -> Nullable<Timestamptz>,
@@ -144,6 +204,7 @@ diesel::table! {
         severity_number -> Nullable<Int4>,
         body -> Nullable<Text>,
         event_name -> Nullable<Text>,
+        source -> Nullable<Text>,
         service_name -> Nullable<Text>,
         service_version -> Nullable<Text>,
         service_instance -> Nullable<Text>,
@@ -415,6 +476,56 @@ diesel::table! {
         hostname -> Nullable<Text>,
         available -> Nullable<Bool>,
         metadata -> Nullable<Jsonb>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    ocsf_network_activity (time) {
+        time -> Timestamptz,
+        class_uid -> Int4,
+        category_uid -> Int4,
+        activity_id -> Int4,
+        type_uid -> Int4,
+        severity_id -> Int4,
+        start_time -> Nullable<Timestamptz>,
+        end_time -> Nullable<Timestamptz>,
+        src_endpoint_ip -> Nullable<Text>,
+        src_endpoint_port -> Nullable<Int4>,
+        src_as_number -> Nullable<Int4>,
+        dst_endpoint_ip -> Nullable<Text>,
+        dst_endpoint_port -> Nullable<Int4>,
+        dst_as_number -> Nullable<Int4>,
+        protocol_num -> Nullable<Int4>,
+        protocol_name -> Nullable<Text>,
+        protocol_source -> Nullable<Text>,
+        tcp_flags -> Nullable<Int4>,
+        tcp_flags_labels -> Nullable<Array<Text>>,
+        tcp_flags_source -> Nullable<Text>,
+        dst_service_label -> Nullable<Text>,
+        dst_service_source -> Nullable<Text>,
+        bytes_total -> Int8,
+        packets_total -> Int8,
+        bytes_in -> Int8,
+        bytes_out -> Int8,
+        direction_label -> Nullable<Text>,
+        direction_source -> Nullable<Text>,
+        src_hosting_provider -> Nullable<Text>,
+        src_hosting_provider_source -> Nullable<Text>,
+        dst_hosting_provider -> Nullable<Text>,
+        dst_hosting_provider_source -> Nullable<Text>,
+        src_mac -> Nullable<Text>,
+        dst_mac -> Nullable<Text>,
+        src_mac_vendor -> Nullable<Text>,
+        src_mac_vendor_source -> Nullable<Text>,
+        dst_mac_vendor -> Nullable<Text>,
+        dst_mac_vendor_source -> Nullable<Text>,
+        sampler_address -> Nullable<Text>,
+        ocsf_payload -> Jsonb,
+        partition -> Nullable<Text>,
         created_at -> Timestamptz,
     }
 }

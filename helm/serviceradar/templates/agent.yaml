@@ -4,6 +4,10 @@
 {{- $agentStorage := default (dict) (get $agentVals "checkersStorage") -}}
 {{- $agentLimits := default (dict) $agentResources.limits -}}
 {{- $agentRequests := default (dict) $agentResources.requests -}}
+{{- $agentHostNetwork := true -}}
+{{- if hasKey $agentVals "hostNetwork" -}}
+  {{- $agentHostNetwork = $agentVals.hostNetwork -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,12 +23,14 @@ spec:
     metadata:
       labels:
         app: serviceradar-agent
+        app.kubernetes.io/part-of: serviceradar
       annotations:
         checksum/serviceradar-config: {{ include (print $.Template.BasePath "/serviceradar-config.yaml") . | sha256sum }}
     spec:
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ $agentSA }}
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      hostNetwork: {{ $agentHostNetwork }}
+      dnsPolicy: {{ ternary "ClusterFirstWithHostNet" "ClusterFirst" $agentHostNetwork }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       initContainers:
         - name: init-checkers

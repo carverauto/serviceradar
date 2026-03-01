@@ -243,11 +243,14 @@ defmodule ServiceRadar.Events.AuditWriter do
   defp build_actor(nil), do: nil
 
   defp build_actor(actor) when is_map(actor) do
+    actor_id = Map.get(actor, :id) || Map.get(actor, "id")
+    actor_email = Map.get(actor, :email) || Map.get(actor, "email")
+
     user =
       %{}
-      |> maybe_put(:uid, actor[:id] || actor["id"] |> to_string_safe())
-      |> maybe_put(:email_addr, actor[:email] || actor["email"])
-      |> maybe_put(:name, actor[:email] || actor["email"])
+      |> maybe_put(:uid, to_string_safe(actor_id))
+      |> maybe_put(:email_addr, actor_email)
+      |> maybe_put(:name, actor_email)
 
     if map_size(user) > 0, do: %{user: user}, else: nil
   end

@@ -1,0 +1,12 @@
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: serviceradar-flow-collector
+spec:
+  spiffeIDTemplate: spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-flow-collector
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: $(SERVICERADAR_NAMESPACE)
+  podSelector:
+    matchLabels:
+      app: serviceradar-flow-collector

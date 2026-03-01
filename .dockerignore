@@ -6,10 +6,9 @@ release-artifacts
 *.md
 *.lock
 !Cargo.lock
-!cmd/flowgger/Cargo.lock
-!cmd/trapd/Cargo.lock
-!cmd/otel/Cargo.lock
-!cmd/consumers/zen/Cargo.lock
-!cmd/checkers/rperf-client/Cargo.lock
-!cmd/ebpf/profiler/profiler/Cargo.lock
+!rust/flowgger/Cargo.lock
+!rust/trapd/Cargo.lock
+!rust/otel/Cargo.lock
+!rust/consumers/zen/Cargo.lock
+!rust/rperf-client/Cargo.lock
 demo-staging

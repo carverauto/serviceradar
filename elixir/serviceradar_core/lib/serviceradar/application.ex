@@ -55,6 +55,7 @@ defmodule ServiceRadar.Application do
   def start(_type, _args) do
     ensure_started(:telemetry)
     ensure_started(:ash_state_machine)
+    ensure_started(:ssl)
 
     children =
       [
@@ -69,6 +70,12 @@ defmodule ServiceRadar.Application do
 
         # PubSub for cluster events (always needed)
         {Phoenix.PubSub, name: ServiceRadar.PubSub},
+
+        # RBAC permission cache (shared ETS, must start after PubSub)
+        ServiceRadar.Identity.RBAC.Cache,
+
+        # Minimal HTTP client for background jobs (GeoLite downloads, optional ipinfo refresh)
+        finch_child(),
 
         # Local registry for process lookups (gateways, agents)
         {Registry, keys: :unique, name: ServiceRadar.LocalRegistry},
@@ -104,6 +111,9 @@ defmodule ServiceRadar.Application do
         # Status handler (legacy) for agent-gateway push results
         status_handler_child(),
 
+        # Agent command status handler (persists command lifecycle updates)
+        command_status_handler_child(),
+
         # Health check runner supervisor (high-frequency gRPC checks)
         health_check_runner_supervisor_child(),
 
@@ -128,8 +138,24 @@ defmodule ServiceRadar.Application do
         # Job schedule defaults
         job_schedule_seeder_child(),
 
+        # Device cleanup settings defaults
+        device_cleanup_settings_seeder_child(),
+
         # Default SNMP profile seed
         snmp_profile_seeder_child(),
+
+        # Default RBAC role profiles seed
+        role_profile_seeder_child(),
+
+        # NetFlow enrichment background maintenance (scheduled on coordinator only)
+        ip_enrichment_scheduler_child(),
+        geolite_mmdb_scheduler_child(),
+        ipinfo_mmdb_scheduler_child(),
+        netflow_enrichment_dataset_scheduler_child(),
+        netflow_security_scheduler_child(),
+        netflow_cache_scheduler_child(),
+        topology_state_scheduler_child(),
+        plugin_target_policy_scheduler_child(),
 
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
@@ -139,6 +165,12 @@ defmodule ServiceRadar.Application do
 
         # Cluster infrastructure (only if clustering is enabled)
         cluster_children(),
+
+        # Log promotion consumer for processed logs
+        log_promotion_consumer_child(),
+
+        # NATS ingest notification → PubSub bridge (lightweight, no ack needed)
+        nats_ingest_notifier_child(),
 
         # EventWriter for NATS JetStream → CNPG consumption (optional)
         event_writer_child()
@@ -181,6 +213,36 @@ defmodule ServiceRadar.Application do
     end
   end
 
+  defp finch_child do
+    if Application.get_env(:serviceradar_core, :http_client_enabled, true) do
+      base = [name: ServiceRadar.Finch]
+
+      # Our release images are intentionally minimal and may not include OS CA bundles.
+      # Configure Finch with CAStore so background HTTPS fetches (GeoLite, threat intel, ipinfo)
+      # work reliably in Kubernetes.
+      opts =
+        case Code.ensure_loaded?(CAStore) and function_exported?(CAStore, :file_path, 0) do
+          true ->
+            Keyword.put(base, :pools, %{
+              default: [
+                conn_opts: [
+                  transport_opts: [
+                    cacertfile: CAStore.file_path()
+                  ]
+                ]
+              ]
+            })
+
+          false ->
+            base
+        end
+
+      {Finch, opts}
+    else
+      nil
+    end
+  end
+
   defp oban_child do
     oban_enabled = Application.get_env(:serviceradar_core, :oban_enabled, true)
 
@@ -196,8 +258,24 @@ defmodule ServiceRadar.Application do
   end
 
   defp sweep_schedule_reconciler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
       ServiceRadar.SweepJobs.SweepScheduleReconciler
+    else
+      nil
+    end
+  end
+
+  defp netflow_security_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+      ServiceRadar.Observability.NetflowSecurityScheduler
+    else
+      nil
+    end
+  end
+
+  defp netflow_cache_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+      ServiceRadar.Observability.NetflowCacheScheduler
     else
       nil
     end
@@ -206,6 +284,14 @@ defmodule ServiceRadar.Application do
   defp startup_migrations_child do
     if Application.get_env(:serviceradar_core, :run_startup_migrations, false) do
       ServiceRadar.Cluster.StartupMigrations
+    else
+      nil
+    end
+  end
+
+  defp plugin_target_policy_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+      ServiceRadar.Plugins.PluginTargetPolicyScheduler
     else
       nil
     end
@@ -273,6 +359,14 @@ defmodule ServiceRadar.Application do
     end
   end
 
+  defp command_status_handler_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      ServiceRadar.AgentCommands.StatusHandler
+    else
+      nil
+    end
+  end
+
   defp results_router_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.ResultsRouter
@@ -298,7 +392,8 @@ defmodule ServiceRadar.Application do
   end
 
   defp template_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Observability.TemplateSeeder
     else
       nil
@@ -306,7 +401,8 @@ defmodule ServiceRadar.Application do
   end
 
   defp zen_rule_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Observability.ZenRuleSeeder
     else
       nil
@@ -322,7 +418,8 @@ defmodule ServiceRadar.Application do
   end
 
   defp rule_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Observability.RuleSeeder
     else
       nil
@@ -330,19 +427,91 @@ defmodule ServiceRadar.Application do
   end
 
   defp job_schedule_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Jobs.JobScheduleSeeder
     else
       nil
     end
   end
 
+  defp device_cleanup_settings_seeder_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
+      ServiceRadar.Inventory.DeviceCleanupSettingsSeeder
+    else
+      nil
+    end
+  end
+
   defp snmp_profile_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.SNMPProfiles.SNMPProfileSeeder
     else
       nil
     end
+  end
+
+  defp role_profile_seeder_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
+      ServiceRadar.Identity.RoleProfileSeeder
+    else
+      nil
+    end
+  end
+
+  defp ip_enrichment_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+      ServiceRadar.Observability.IpEnrichmentScheduler
+    else
+      nil
+    end
+  end
+
+  defp geolite_mmdb_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+      ServiceRadar.Observability.GeoLiteMmdbScheduler
+    else
+      nil
+    end
+  end
+
+  defp ipinfo_mmdb_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+      ServiceRadar.Observability.IpinfoMmdbScheduler
+    else
+      nil
+    end
+  end
+
+  defp netflow_enrichment_dataset_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+      ServiceRadar.Observability.NetflowEnrichmentDatasetScheduler
+    else
+      nil
+    end
+  end
+
+  defp topology_state_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+      ServiceRadar.NetworkDiscovery.TopologyStateScheduler
+    else
+      nil
+    end
+  end
+
+  # Only one node should be responsible for inserting periodic/scheduled jobs.
+  # In clustered deployments, that's the cluster coordinator (core-elx).
+  # In non-clustered deployments, schedule locally.
+  defp job_scheduler_node? do
+    cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, false)
+
+    cluster_coordinator =
+      Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
+
+    if cluster_enabled, do: cluster_coordinator, else: true
   end
 
   defp datasvc_enabled? do
@@ -475,6 +644,22 @@ defmodule ServiceRadar.Application do
 
     if enabled and ServiceRadar.SPIFFE.certs_available?() do
       ServiceRadar.SPIFFE.CertMonitor
+    else
+      nil
+    end
+  end
+
+  defp log_promotion_consumer_child do
+    if ServiceRadar.Observability.LogPromotionConsumer.enabled?() do
+      ServiceRadar.Observability.LogPromotionConsumer
+    else
+      nil
+    end
+  end
+
+  defp nats_ingest_notifier_child do
+    if nats_enabled?() do
+      ServiceRadar.Observability.NatsIngestNotifier
     else
       nil
     end

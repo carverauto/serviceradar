@@ -2,11 +2,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   @moduledoc """
   Ingests sweep results and updates device inventory.
 
-  Processes sweep results from gateway/agents and:
+  Processes sweep results from agents and:
   - Stores SweepHostResult records for each scanned host
   - Updates SweepGroupExecution statistics
   - Updates device availability status in inventory
-  - Creates new device records for unknown hosts
   - Adds "sweep" to discovery_sources array
 
   ## Message Format
@@ -38,11 +37,20 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.DeviceLookup
+  alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Identity.{DeviceAliasState, DeviceLookup}
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
-  alias ServiceRadar.SweepJobs.{SweepGroupExecution, SweepHostResult, SweepPubSub}
 
+  alias ServiceRadar.SweepJobs.{
+    SweepGroup,
+    SweepGroupExecution,
+    SweepHostResult,
+    SweepMonitorWorker,
+    SweepPubSub
+  }
+
+  require Ash.Query
   import Ecto.Query
 
   # Process in chunks to balance memory vs DB efficiency
@@ -97,7 +105,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         start_time = System.monotonic_time(:millisecond)
 
         results
-        |> process_batches(execution_id, actor)
+        |> process_batches(execution_id, sweep_group_id, actor)
         |> finalize_results(
           execution_id,
           sweep_group_id,
@@ -161,7 +169,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp process_batches(results, execution_id, actor) do
+  defp process_batches(results, execution_id, sweep_group_id, actor) do
     batches =
       results
       |> Enum.chunk_every(@batch_size)
@@ -180,7 +188,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     Enum.reduce_while(batches, {:ok, initial_stats}, fn {batch, batch_num}, {:ok, acc_stats} ->
       batch_start = System.monotonic_time(:millisecond)
 
-      case process_batch(batch, execution_id, actor) do
+      case process_batch(batch, execution_id, sweep_group_id, actor) do
         {:ok, batch_stats} ->
           batch_elapsed = System.monotonic_time(:millisecond) - batch_start
 
@@ -242,41 +250,64 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     {:ok, final_stats}
   end
 
-  defp finalize_results({:error, _} = error, _execution_id, _sweep_group_id, _scanner_metrics, _actor, _total_count, _start_time, _opts) do
+  defp finalize_results(
+         {:error, _} = error,
+         _execution_id,
+         _sweep_group_id,
+         _scanner_metrics,
+         _actor,
+         _total_count,
+         _start_time,
+         _opts
+       ) do
     error
   end
 
-  defp process_batch(results, execution_id, actor) do
+  defp process_batch(results, execution_id, sweep_group_id, actor) do
     # Step 1: Extract all IPs for bulk device lookup
     ips = Enum.map(results, &extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    # Step 2: Batch lookup existing devices by IP
+    # Step 2: Batch lookup existing devices by IP (confirmed aliases only)
     # DB connection's search_path determines the schema
-    device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor)
+    device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor, include_deleted: true)
 
     # Step 3: Find IPs without existing devices
     known_ips = Map.keys(device_map)
     unknown_ips = ips -- known_ips
 
-    # Step 4: Create device records for unknown hosts
-    created_devices = create_unknown_devices(unknown_ips, results)
+    # Step 4: Check detected aliases for unknown IPs (fallback before skipping)
+    detected_alias_map =
+      DeviceLookup.lookup_detected_aliases_by_ip(unknown_ips, actor: actor, include_deleted: true)
 
-    # Step 5: Merge known and created devices
-    all_devices = Map.merge(device_map, created_devices)
+    detected_ips = Map.keys(detected_alias_map)
 
-    # Step 6: Build host result records
+    # Step 4a: Confirm detected aliases that matched sweep results
+    confirm_detected_aliases(detected_alias_map, execution_id, actor)
+
+    # Step 4b: Extract device records from detected aliases
+    detected_device_map =
+      Enum.map(detected_alias_map, fn {ip, {record, _alias}} -> {ip, record} end)
+      |> Map.new()
+
+    # Step 5: Merge all device sources (skip truly unknown hosts)
+    all_devices =
+      device_map
+      |> Map.merge(detected_device_map)
+
+    # Step 7: Build host result records
     {host_results, stats} = build_host_results(results, execution_id, all_devices)
 
-    # Step 7: Bulk insert host results
+    # Step 8: Bulk insert host results
     case bulk_insert_host_results(host_results) do
       :ok ->
-        # Step 8: Update device availability
-        update_device_availability(results, all_devices)
+        # Step 9: Update device availability
+        update_device_availability(results, all_devices, sweep_group_id, actor)
 
         final_stats =
           stats
-          |> Map.put(:devices_created, length(Map.keys(created_devices)))
-          |> Map.put(:devices_updated, length(known_ips))
+          |> Map.put(:devices_created, 0)
+          |> Map.put(:devices_updated, length(known_ips) + length(detected_ips))
+          |> Map.put(:aliases_confirmed, length(detected_ips))
 
         {:ok, final_stats}
 
@@ -285,83 +316,30 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp extract_ip(result) do
-    result["host_ip"] || result["hostIp"] || result["ip"]
-  end
+  defp confirm_detected_aliases(detected_alias_map, execution_id, actor) do
+    Enum.each(detected_alias_map, fn {ip, {_record, alias_state}} ->
+      metadata = %{"sweep_execution_id" => execution_id, "sweep_ip" => ip}
 
-  defp create_unknown_devices([], _results), do: %{}
+      case DeviceAliasState.confirm_from_sweep(alias_state, %{metadata: metadata}, actor: actor) do
+        {:ok, _confirmed} ->
+          Logger.debug(
+            "SweepResultsIngestor: Confirmed detected alias #{ip} for device #{alias_state.device_id}"
+          )
 
-  defp create_unknown_devices(unknown_ips, results) do
-    # Build lookup of result data by IP
-    result_by_ip =
-      results
-      |> Enum.map(fn r -> {extract_ip(r), r} end)
-      |> Enum.reject(fn {ip, _} -> is_nil(ip) end)
-      |> Map.new()
-
-    timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    device_records = build_unknown_device_records(unknown_ips, result_by_ip, timestamp)
-    insert_unknown_device_records(device_records, timestamp)
-  end
-
-  defp generate_device_uid(ip) do
-    "sweep-#{ip}-#{:erlang.phash2(ip)}"
-  end
-
-  defp build_unknown_device_records(unknown_ips, result_by_ip, timestamp) do
-    Enum.map(unknown_ips, fn ip ->
-      result = Map.get(result_by_ip, ip, %{})
-      hostname = result["hostname"]
-
-      %{
-        uid: generate_device_uid(ip),
-        type_id: 0,
-        type: "Unknown",
-        name: hostname || ip,
-        hostname: hostname,
-        ip: ip,
-        discovery_sources: ["sweep"],
-        is_available: result_available?(result),
-        first_seen_time: timestamp,
-        last_seen_time: timestamp,
-        created_time: timestamp,
-        modified_time: timestamp,
-        metadata: %{}
-      }
+        {:error, reason} ->
+          Logger.warning(
+            "SweepResultsIngestor: Failed to confirm alias #{ip}: #{inspect(reason)}"
+          )
+      end
     end)
   end
 
-  defp insert_unknown_device_records([], _timestamp), do: %{}
-
-  defp insert_unknown_device_records(device_records, timestamp) do
-    # DB connection's search_path determines the schema
-    case Repo.insert_all(
-           Device,
-           device_records,
-           on_conflict: {:replace, [:last_seen_time, :is_available, :modified_time]},
-           conflict_target: :uid,
-           returning: [:uid, :ip]
-         ) do
-      {_count, created} ->
-        created
-        |> Enum.map(&device_map_entry(&1, timestamp))
-        |> Map.new()
-    end
+  defp extract_ip(result) do
+    result["host_ip"]
   end
 
-  defp device_map_entry(device, timestamp) do
-    {device.ip,
-     %{
-       canonical_device_id: device.uid,
-       partition: "default",
-       metadata_hash: nil,
-       attributes: %{},
-       updated_at: timestamp
-     }}
-  end
-
-  defp build_host_results(results, execution_id, device_map) do
+  @doc false
+  def build_host_results(results, execution_id, device_map) do
     initial_stats = %{
       hosts_total: 0,
       hosts_available: 0,
@@ -387,7 +365,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp result_available?(result) do
-    result["available"] || result["icmp_available"] || result["icmpAvailable"] || false
+    result["available"] || false
   end
 
   defp host_status(_result, true), do: :available
@@ -418,21 +396,43 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp response_time_ms(result) do
-    case parse_integer(result["icmp_response_time_ns"] || result["icmpResponseTimeNs"]) do
+    # Try multiple field names for response time (different Go structs use different names)
+    raw_value =
+      result["icmp_response_time_ns"] ||
+        result["icmpResponseTimeNs"] ||
+        result["response_time"]
+
+    case parse_integer(raw_value) do
       nil -> nil
+      0 -> nil
+      # Round up to at least 1ms for any non-zero response time
+      # Sub-millisecond times (common for local subnet) would otherwise become 0
+      value when value < 1_000_000 -> 1
       value -> div(value, 1_000_000)
     end
   end
 
   defp open_ports(result) do
-    result["tcp_ports_open"] || result["tcpPortsOpen"] ||
-      []
-      |> List.wrap()
-      |> Enum.map(&parse_integer/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.filter(&valid_port?/1)
-      |> Enum.uniq()
-      |> Enum.sort()
+    ports_from_port_results =
+      case result["port_results"] do
+        nil ->
+          []
+
+        port_results when is_list(port_results) ->
+          port_results
+          |> Enum.filter(fn pr -> pr["available"] == true end)
+          |> Enum.map(fn pr -> pr["port"] end)
+
+        _ ->
+          []
+      end
+
+    ports_from_port_results
+    |> Enum.map(&parse_integer/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.filter(&valid_port?/1)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   defp parse_integer(value) when is_integer(value), do: value
@@ -458,7 +458,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp build_modes_results(result) do
-    icmp = if result_available?(result), do: "success", else: "failed"
+    icmp_status = result["icmp_status"]
+
+    icmp =
+      cond do
+        is_map(icmp_status) && icmp_status["available"] == true -> "success"
+        is_map(icmp_status) -> "failed"
+        true -> "no_response"
+      end
+
     tcp = if Enum.empty?(open_ports(result)), do: "no_response", else: "success"
 
     %{"icmp" => icmp, "tcp" => tcp}
@@ -468,25 +476,43 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp bulk_insert_host_results(records) do
     # DB connection's search_path determines the schema
+    # Insert records with ON CONFLICT handling that preserves non-zero response_time_ms
+    #
+    # The response_time_ms preservation uses: COALESCE(NULLIF(EXCLUDED.response_time_ms, 0), existing)
+    # - If new value is 0: NULLIF returns NULL, COALESCE falls back to existing
+    # - If new value is non-zero: NULLIF returns it, COALESCE uses the new value
+    # - This prevents sweep results with 0ms from overwriting valid response times
+    on_conflict_query =
+      from(r in SweepHostResult,
+        update: [
+          set: [
+            hostname: fragment("EXCLUDED.hostname"),
+            status: fragment("EXCLUDED.status"),
+            response_time_ms:
+              fragment(
+                "COALESCE(NULLIF(EXCLUDED.response_time_ms, 0), ?)",
+                r.response_time_ms
+              ),
+            open_ports: fragment("EXCLUDED.open_ports"),
+            sweep_modes_results: fragment("EXCLUDED.sweep_modes_results"),
+            device_id: fragment("EXCLUDED.device_id"),
+            error_message: fragment("EXCLUDED.error_message")
+          ]
+        ]
+      )
+
     case Repo.insert_all(
            SweepHostResult,
            records,
-           on_conflict:
-             {:replace,
-              [
-                :hostname,
-                :status,
-                :response_time_ms,
-                :sweep_modes_results,
-                :open_ports,
-                :error_message,
-                :device_id
-              ]},
+           on_conflict: on_conflict_query,
            conflict_target: [:execution_id, :ip],
            returning: false
          ) do
       {count, _} ->
-        Logger.debug("SweepResultsIngestor: Inserted #{count} host results")
+        Logger.debug(
+          "SweepResultsIngestor: Inserted #{count} host results (preserving non-zero response times)"
+        )
+
         :ok
     end
   rescue
@@ -495,7 +521,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:error, e}
   end
 
-  defp update_device_availability(results, device_map) do
+  # Default threshold: require 2 consecutive failures before marking unavailable
+  @unavailable_threshold 2
+
+  defp update_device_availability(results, device_map, sweep_group_id, actor) do
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
     available_ips = result_ips_for_status(results, true)
@@ -504,13 +533,86 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     available_uids = device_uids_for_ips(available_ips, device_map)
     unavailable_uids = device_uids_for_ips(unavailable_ips, device_map)
 
+    restore_deleted_devices(Enum.uniq(available_uids ++ unavailable_uids), actor)
+
     # DB connection's search_path determines the schema
-    update_device_statuses(available_uids, true, timestamp)
-    update_device_statuses(unavailable_uids, false, timestamp)
+    # Mark available devices (resets failure count)
+    update_device_statuses_available(available_uids, timestamp)
+
+    # Apply hysteresis for unavailable devices
+    # Only mark unavailable after consecutive failure threshold is exceeded
+    # "Available wins" window is based on sweep interval
+    update_device_statuses_with_hysteresis(unavailable_uids, timestamp, sweep_group_id)
 
     maybe_add_sweep_source(Enum.uniq(available_uids ++ unavailable_uids))
 
     :ok
+  end
+
+  defp restore_deleted_devices([], _actor), do: :ok
+
+  defp restore_deleted_devices(device_uids, actor) do
+    case load_deleted_devices(device_uids, actor) do
+      {:ok, devices} ->
+        devices
+        |> eligible_restore_uids()
+        |> restore_eligible_devices(actor)
+
+      {:error, reason} ->
+        Logger.warning("SweepResultsIngestor: Restore lookup failed", error: inspect(reason))
+        :ok
+    end
+  end
+
+  defp load_deleted_devices(device_uids, actor) do
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
+    |> Ash.Query.filter(uid in ^device_uids and not is_nil(deleted_at))
+    |> Ash.read(actor: actor)
+    |> Page.unwrap()
+  end
+
+  defp eligible_restore_uids(devices) do
+    devices
+    |> Enum.filter(&restore_eligible?/1)
+    |> Enum.map(& &1.uid)
+  end
+
+  defp restore_eligible_devices([], _actor), do: :ok
+
+  defp restore_eligible_devices(eligible_uids, actor) do
+    restore_query =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid in ^eligible_uids)
+
+    case Ash.bulk_update(restore_query, :restore, %{},
+           actor: actor,
+           return_records?: false,
+           return_errors?: true
+         ) do
+      %Ash.BulkResult{status: :success} ->
+        :ok
+
+      %Ash.BulkResult{status: :partial_success, errors: errors} ->
+        Logger.warning("SweepResultsIngestor: Partial restore failures", errors: inspect(errors))
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        Logger.warning("SweepResultsIngestor: Restore failed", errors: inspect(errors))
+
+      other ->
+        Logger.warning("SweepResultsIngestor: Restore unexpected result", result: inspect(other))
+    end
+  end
+
+  defp restore_eligible?(device) do
+    sources =
+      device.discovery_sources
+      |> List.wrap()
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&to_string/1)
+
+    Enum.any?(sources, fn source -> String.downcase(source) != "sweep" and source != "" end)
   end
 
   defp result_ips_for_status(results, desired) do
@@ -528,33 +630,124 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp update_device_statuses([], _available, _timestamp), do: :ok
+  # Mark devices as available and reset consecutive failure count
+  defp update_device_statuses_available([], _timestamp), do: :ok
 
-  defp update_device_statuses(device_uids, true, timestamp) do
+  defp update_device_statuses_available(device_uids, timestamp) do
     # DB connection's search_path determines the schema
-    from(d in Device,
-      where: d.uid in ^device_uids
-    )
-    |> Repo.update_all(
-      set: [
-        is_available: true,
-        last_seen_time: timestamp,
-        modified_time: timestamp
-      ]
-    )
+    # Reset consecutive failure count to 0 when device becomes available
+    sql = """
+    UPDATE ocsf_devices
+    SET
+      is_available = true,
+      last_seen_time = $2,
+      modified_time = $2,
+      metadata = jsonb_set(
+        COALESCE(metadata, '{}'::jsonb),
+        '{sweep_consecutive_failures}',
+        '0'
+      )
+    WHERE uid = ANY($1)
+    """
+
+    case Repo.query(sql, [device_uids, timestamp]) do
+      {:ok, %{num_rows: count}} ->
+        Logger.debug(
+          "SweepResultsIngestor: Marked #{count} devices as available (reset failure count)"
+        )
+
+      {:error, reason} ->
+        Logger.error("SweepResultsIngestor: Failed to mark devices available: #{inspect(reason)}")
+    end
   end
 
-  defp update_device_statuses(device_uids, false, timestamp) do
+  # Default window for "available wins" when sweep interval cannot be determined
+  @default_available_wins_window_seconds 60
+
+  # Apply hysteresis for unavailable devices
+  # Only marks device as unavailable after threshold consecutive failures
+  # "Available wins" - skips devices recently marked available by another sweep
+  defp update_device_statuses_with_hysteresis([], _timestamp, _sweep_group_id), do: :ok
+
+  defp update_device_statuses_with_hysteresis(device_uids, timestamp, sweep_group_id) do
     # DB connection's search_path determines the schema
-    from(d in Device,
-      where: d.uid in ^device_uids
-    )
-    |> Repo.update_all(
-      set: [
-        is_available: false,
-        modified_time: timestamp
-      ]
-    )
+    #
+    # Hysteresis logic using metadata.sweep_consecutive_failures:
+    # 1. Increment failure count
+    # 2. Only set is_available=false if failure count >= threshold
+    #
+    # "Available wins" logic:
+    # - Skip devices that are currently available AND were updated recently
+    # - The window is based on the sweep interval (from sweep group config)
+    # - This prevents multi-agent conflicts where one agent sees the device
+    #   and another doesn't, causing availability flapping
+    #
+    # This prevents transient network issues from causing availability flapping
+    available_wins_window = get_available_wins_window(sweep_group_id)
+
+    available_wins_cutoff =
+      timestamp
+      |> DateTime.add(-available_wins_window, :second)
+
+    sql = """
+    UPDATE ocsf_devices
+    SET
+      metadata = jsonb_set(
+        COALESCE(metadata, '{}'::jsonb),
+        '{sweep_consecutive_failures}',
+        to_jsonb(COALESCE((metadata->>'sweep_consecutive_failures')::int, 0) + 1)
+      ),
+      is_available = CASE
+        WHEN COALESCE((metadata->>'sweep_consecutive_failures')::int, 0) + 1 >= $2
+        THEN false
+        ELSE is_available
+      END,
+      modified_time = $3
+    WHERE uid = ANY($1)
+      -- "Available wins" - skip devices recently marked available by another sweep
+      -- This prevents multi-agent flapping when one agent can reach device and another can't
+      AND NOT (is_available = true AND last_seen_time > $4)
+    """
+
+    case Repo.query(sql, [device_uids, @unavailable_threshold, timestamp, available_wins_cutoff]) do
+      {:ok, %{num_rows: count}} ->
+        skipped = length(device_uids) - count
+
+        if skipped > 0 do
+          Logger.info(
+            "SweepResultsIngestor: Applied hysteresis to #{count} devices, " <>
+              "skipped #{skipped} recently-available devices (available wins, window: #{available_wins_window}s)"
+          )
+        else
+          Logger.debug(
+            "SweepResultsIngestor: Applied hysteresis to #{count} devices (threshold: #{@unavailable_threshold})"
+          )
+        end
+
+      {:error, reason} ->
+        Logger.error("SweepResultsIngestor: Failed to apply hysteresis: #{inspect(reason)}")
+    end
+  end
+
+  # Get the "available wins" window based on the sweep group's configured interval
+  defp get_available_wins_window(nil), do: @default_available_wins_window_seconds
+  defp get_available_wins_window(""), do: @default_available_wins_window_seconds
+
+  defp get_available_wins_window(sweep_group_id) do
+    case Repo.get(SweepGroup, sweep_group_id) do
+      nil ->
+        Logger.debug(
+          "SweepResultsIngestor: Sweep group #{sweep_group_id} not found, using default window"
+        )
+
+        @default_available_wins_window_seconds
+
+      %SweepGroup{interval: interval} when is_binary(interval) ->
+        SweepMonitorWorker.parse_interval_to_seconds(interval)
+
+      _ ->
+        @default_available_wins_window_seconds
+    end
   end
 
   defp maybe_add_sweep_source([]), do: :ok
@@ -717,6 +910,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists")
       :ok
     else
+      # Check for multi-agent conflicts before creating execution
+      detect_multi_agent_conflict(sweep_group_id, agent_id)
+
       # Create execution record if we have a sweep_group_id
       if sweep_group_id && sweep_group_id != "" do
         create_execution(
@@ -734,6 +930,43 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         {:error, :missing_sweep_group_id}
       end
     end
+  end
+
+  # Detect when multiple agents are submitting results for the same sweep group
+  # This can cause availability flapping as agents overwrite each other's results
+  defp detect_multi_agent_conflict(nil, _agent_id), do: :ok
+  defp detect_multi_agent_conflict("", _agent_id), do: :ok
+  defp detect_multi_agent_conflict(_sweep_group_id, nil), do: :ok
+  defp detect_multi_agent_conflict(_sweep_group_id, ""), do: :ok
+
+  defp detect_multi_agent_conflict(sweep_group_id, agent_id) do
+    # Check for recent executions from different agents in the last hour
+    one_hour_ago = DateTime.utc_now() |> DateTime.add(-3600, :second)
+
+    recent_agents =
+      from(e in SweepGroupExecution,
+        where:
+          e.sweep_group_id == ^sweep_group_id and
+            e.started_at > ^one_hour_ago and
+            not is_nil(e.agent_id) and
+            e.agent_id != "",
+        select: e.agent_id,
+        distinct: true
+      )
+      |> Repo.all()
+
+    other_agents = Enum.reject(recent_agents, &(&1 == agent_id))
+
+    if not Enum.empty?(other_agents) do
+      Logger.warning(
+        "SweepResultsIngestor: MULTI-AGENT CONFLICT DETECTED for sweep group #{sweep_group_id}. " <>
+          "Agent '#{agent_id}' is submitting results, but other agents have also submitted recently: #{inspect(other_agents)}. " <>
+          "This can cause availability flapping as agents overwrite each other's results. " <>
+          "Consider assigning the sweep group to a single agent, or using agent-specific sweep groups."
+      )
+    end
+
+    :ok
   end
 
   defp create_execution(
@@ -835,7 +1068,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       hosts_available: stats1.hosts_available + stats2.hosts_available,
       hosts_failed: stats1.hosts_failed + stats2.hosts_failed,
       devices_updated: stats1.devices_updated + Map.get(stats2, :devices_updated, 0),
-      devices_created: stats1.devices_created + Map.get(stats2, :devices_created, 0)
+      devices_created: stats1.devices_created + Map.get(stats2, :devices_created, 0),
+      aliases_confirmed:
+        Map.get(stats1, :aliases_confirmed, 0) + Map.get(stats2, :aliases_confirmed, 0)
     }
   end
 

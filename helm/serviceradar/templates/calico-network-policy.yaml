@@ -1,0 +1,131 @@
+{{- $np := default (dict) .Values.networkPolicy -}}
+{{- $calico := default (dict) $np.calicoLogDenied -}}
+{{- if $calico.enabled -}}
+{{- $egress := default (dict) $np.egress -}}
+{{- $allowDNS := default false $egress.allowDNS -}}
+{{- $allowKubeAPI := default false $egress.allowKubeAPIServer -}}
+{{- $allowDefaultNs := default false $egress.allowDefaultNamespace -}}
+{{- $allowSameNs := default false $egress.allowSameNamespace -}}
+{{- $allowedCIDRs := default (list) $egress.allowedCIDRs -}}
+{{- $hasCIDRs := gt (len $allowedCIDRs) 0 -}}
+{{- $allowedCIDRsV4 := list -}}
+{{- $allowedCIDRsV6 := list -}}
+{{- range $cidr := $allowedCIDRs -}}
+  {{- if contains ":" $cidr -}}
+    {{- $allowedCIDRsV6 = append $allowedCIDRsV6 $cidr -}}
+  {{- else -}}
+    {{- $allowedCIDRsV4 = append $allowedCIDRsV4 $cidr -}}
+  {{- end -}}
+{{- end -}}
+{{- $hasCIDRsV4 := gt (len $allowedCIDRsV4) 0 -}}
+{{- $hasCIDRsV6 := gt (len $allowedCIDRsV6) 0 -}}
+{{- $kubeAPICIDRs := list -}}
+{{- $kubeAPICIDRsV4 := list -}}
+{{- $kubeAPICIDRsV6 := list -}}
+{{- if $allowKubeAPI -}}
+  {{- $kubeSvc := (lookup "v1" "Service" "default" "kubernetes") -}}
+  {{- if and $kubeSvc $kubeSvc.spec.clusterIP -}}
+    {{- if contains ":" $kubeSvc.spec.clusterIP -}}
+      {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/128" $kubeSvc.spec.clusterIP) -}}
+    {{- else -}}
+      {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/32" $kubeSvc.spec.clusterIP) -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $kubeEps := (lookup "v1" "Endpoints" "default" "kubernetes") -}}
+  {{- if $kubeEps -}}
+    {{- range $subset := $kubeEps.subsets -}}
+      {{- range $addr := $subset.addresses -}}
+        {{- if contains ":" $addr.ip -}}
+          {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/128" $addr.ip) -}}
+        {{- else -}}
+          {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/32" $addr.ip) -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- range $cidr := $kubeAPICIDRs -}}
+  {{- if contains ":" $cidr -}}
+    {{- $kubeAPICIDRsV6 = append $kubeAPICIDRsV6 $cidr -}}
+  {{- else -}}
+    {{- $kubeAPICIDRsV4 = append $kubeAPICIDRsV4 $cidr -}}
+  {{- end -}}
+{{- end -}}
+{{- $hasKubeAPICIDRs := gt (len $kubeAPICIDRs) 0 -}}
+{{- $hasKubeAPICIDRsV4 := gt (len $kubeAPICIDRsV4) 0 -}}
+{{- $hasKubeAPICIDRsV6 := gt (len $kubeAPICIDRsV6) 0 -}}
+{{- $selector := default "app.kubernetes.io/part-of == 'serviceradar'" $calico.selector -}}
+---
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-egress-log-deny
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  selector: {{ $selector | quote }}
+  types:
+    - Egress
+{{- if $calico.order }}
+  order: {{ $calico.order }}
+{{- end }}
+  egress:
+{{- if $allowDNS }}
+    - action: Allow
+      protocol: UDP
+      destination:
+        namespaceSelector: {{ printf "kubernetes.io/metadata.name == '%s'" "kube-system" | quote }}
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        namespaceSelector: {{ printf "kubernetes.io/metadata.name == '%s'" "kube-system" | quote }}
+        ports:
+          - 53
+{{- end }}
+{{- if and $allowKubeAPI $hasKubeAPICIDRsV4 }}
+    - action: Allow
+      destination:
+        nets:
+{{- range $cidr := $kubeAPICIDRsV4 }}
+          - {{ $cidr | quote }}
+{{- end }}
+{{- end }}
+{{- if and $allowKubeAPI $hasKubeAPICIDRsV6 }}
+    - action: Allow
+      destination:
+        nets:
+{{- range $cidr := $kubeAPICIDRsV6 }}
+          - {{ $cidr | quote }}
+{{- end }}
+{{- end }}
+{{- if $allowDefaultNs }}
+    - action: Allow
+      destination:
+        namespaceSelector: {{ printf "kubernetes.io/metadata.name == '%s'" "default" | quote }}
+{{- end }}
+{{- if $allowSameNs }}
+    - action: Allow
+      destination:
+        namespaceSelector: {{ printf "kubernetes.io/metadata.name == '%s'" .Release.Namespace | quote }}
+{{- end }}
+{{- if $hasCIDRsV4 }}
+    - action: Allow
+      destination:
+        nets:
+{{- range $cidr := $allowedCIDRsV4 }}
+          - {{ $cidr | quote }}
+{{- end }}
+{{- end }}
+{{- if $hasCIDRsV6 }}
+    - action: Allow
+      destination:
+        nets:
+{{- range $cidr := $allowedCIDRsV6 }}
+          - {{ $cidr | quote }}
+{{- end }}
+{{- end }}
+    - action: Log
+    - action: Deny
+{{- end }}

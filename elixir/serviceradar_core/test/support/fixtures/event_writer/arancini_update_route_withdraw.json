@@ -1,0 +1,11 @@
+{
+  "time_received_ns": "2026-02-16T12:01:01Z",
+  "time_bmp_header_ns": "2026-02-16T12:01:00Z",
+  "router_addr": "10.0.0.2",
+  "peer_addr": "192.0.2.11",
+  "peer_asn": 64514,
+  "prefix_addr": "203.0.114.0",
+  "prefix_len": 24,
+  "announced": false,
+  "synthetic": true
+}

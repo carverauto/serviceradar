@@ -4,10 +4,10 @@ use crate::{
     models::DeviceRow,
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
     schema::ocsf_devices::dsl::{
-        agent_id as col_agent_id, device_type as col_device_type,
+        agent_id as col_agent_id, deleted_at as col_deleted_at, device_type as col_device_type,
         first_seen_time as col_first_seen_time, gateway_id as col_gateway_id,
         hostname as col_hostname, ip as col_ip, is_available as col_is_available,
-        last_seen_time as col_last_seen_time, mac as col_mac, model as col_model, ocsf_devices,
+        last_seen_time as col_last_seen_time, model as col_model, ocsf_devices,
         risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
         vendor_name as col_vendor_name,
     },
@@ -18,7 +18,7 @@ use diesel::dsl::{not, sql};
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
-use diesel::sql_types::{Array, BigInt, Bool, Jsonb, Nullable, Text, Timestamptz};
+use diesel::sql_types::{Array, BigInt, Bool, Inet, Jsonb, Nullable, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
@@ -246,6 +246,10 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 fn build_query(plan: &QueryPlan) -> Result<DeviceQuery<'static>> {
     let mut query = ocsf_devices.into_boxed::<Pg>();
 
+    if !plan.include_deleted && !has_deleted_filter(&plan.filters) {
+        query = query.filter(col_deleted_at.is_null());
+    }
+
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(
             col_last_seen_time
@@ -341,6 +345,10 @@ fn build_grouped_stats_query(
     let mut binds = Vec::new();
     let mut clauses = Vec::new();
 
+    if !plan.include_deleted && !has_deleted_filter(&plan.filters) {
+        clauses.push("deleted_at IS NULL".to_string());
+    }
+
     // Time range filter
     if let Some(TimeRange { start, end }) = &plan.time_range {
         clauses.push("last_seen_time >= ?".to_string());
@@ -433,7 +441,7 @@ fn build_grouped_stats_filter_clause(
         "uid" => build_grouped_text_clause("uid", filter, &mut binds)?,
         "hostname" => build_grouped_text_clause("hostname", filter, &mut binds)?,
         "ip" => build_grouped_text_clause("ip", filter, &mut binds)?,
-        "mac" => build_grouped_text_clause("mac", filter, &mut binds)?,
+        "mac" => build_grouped_mac_clause(filter, &mut binds)?,
         "gateway_id" => build_grouped_text_clause("gateway_id", filter, &mut binds)?,
         "agent_id" => build_grouped_text_clause("agent_id", filter, &mut binds)?,
         "type" | "device_type" => build_grouped_text_clause("device_type", filter, &mut binds)?,
@@ -465,6 +473,30 @@ fn build_grouped_stats_filter_clause(
                 _ => {
                     return Err(ServiceError::InvalidRequest(
                         "is_available filter only supports equality".into(),
+                    ))
+                }
+            }
+        }
+        "deleted" => {
+            let value = parse_bool(filter.value.as_scalar()?)?;
+            match filter.op {
+                FilterOp::Eq => {
+                    if value {
+                        "deleted_at IS NOT NULL".to_string()
+                    } else {
+                        "deleted_at IS NULL".to_string()
+                    }
+                }
+                FilterOp::NotEq => {
+                    if value {
+                        "deleted_at IS NULL".to_string()
+                    } else {
+                        "deleted_at IS NOT NULL".to_string()
+                    }
+                }
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "deleted filter only supports equality".into(),
                     ))
                 }
             }
@@ -577,6 +609,10 @@ fn build_stats_query(
 ) -> Result<DeviceStatsQuery<'static>> {
     let mut query = ocsf_devices.into_boxed::<Pg>();
 
+    if !plan.include_deleted && !has_deleted_filter(&plan.filters) {
+        query = query.filter(col_deleted_at.is_null());
+    }
+
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(
             col_last_seen_time
@@ -610,12 +646,7 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
             query = apply_ip_filter(query, filter)?;
         }
         "mac" => {
-            query = apply_text_filter_no_lists!(
-                query,
-                filter,
-                col_mac,
-                "mac filter does not support lists"
-            )?;
+            query = apply_mac_filter(query, filter)?;
         }
         "gateway_id" => {
             query = apply_eq_filter!(
@@ -698,6 +729,32 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
                 "risk_level filter only supports equality"
             )?;
         }
+        "deleted" => {
+            let value = parse_bool(filter.value.as_scalar()?)?;
+            let matches_deleted = col_deleted_at.is_not_null();
+            let matches_active = col_deleted_at.is_null();
+            query = match filter.op {
+                FilterOp::Eq => {
+                    if value {
+                        query.filter(matches_deleted)
+                    } else {
+                        query.filter(matches_active)
+                    }
+                }
+                FilterOp::NotEq => {
+                    if value {
+                        query.filter(matches_active)
+                    } else {
+                        query.filter(matches_deleted)
+                    }
+                }
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "deleted filter only supports equality".into(),
+                    ));
+                }
+            };
+        }
         "tags" => {
             query = apply_tags_filter(query, filter)?;
         }
@@ -767,6 +824,12 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
     Ok(query)
 }
 
+fn has_deleted_filter(filters: &[Filter]) -> bool {
+    filters
+        .iter()
+        .any(|filter| filter.field.eq_ignore_ascii_case("deleted"))
+}
+
 fn apply_ip_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<DeviceQuery<'a>> {
     match filter.op {
         FilterOp::Eq | FilterOp::NotEq => {
@@ -807,6 +870,89 @@ fn apply_ip_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<Device
     apply_text_filter_no_lists!(query, filter, col_ip, "ip filter does not support lists")
 }
 
+/// Normalized MAC filter for the Diesel typed query path.
+/// Strips separators from both column and value so any format matches.
+fn apply_mac_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<DeviceQuery<'a>> {
+    let norm_col = "lower(regexp_replace(mac, '[^0-9a-fA-F]', '', 'g'))";
+
+    match filter.op {
+        FilterOp::Eq => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, false)?;
+            Ok(query.filter(sql::<Bool>(&format!("{norm_col} = ")).bind::<Text, _>(normalized)))
+        }
+        FilterOp::NotEq => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, false)?;
+            Ok(query
+                .filter(sql::<Bool>(&format!("(mac IS NULL OR {norm_col} <> ")).bind::<Text, _>(normalized).sql(")")))
+        }
+        FilterOp::Like => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, true)?;
+            Ok(query.filter(sql::<Bool>(&format!("{norm_col} LIKE ")).bind::<Text, _>(normalized)))
+        }
+        FilterOp::NotLike => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, true)?;
+            Ok(query
+                .filter(sql::<Bool>(&format!("(mac IS NULL OR {norm_col} NOT LIKE ")).bind::<Text, _>(normalized).sql(")")))
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "mac filter only supports equality and LIKE operators".into(),
+        )),
+    }
+}
+
+/// Normalized MAC clause for the grouped stats raw-SQL path.
+fn build_grouped_mac_clause(
+    filter: &Filter,
+    binds: &mut Vec<DeviceSqlBindValue>,
+) -> Result<String> {
+    let norm_col = "lower(regexp_replace(mac, '[^0-9a-fA-F]', '', 'g'))";
+
+    match filter.op {
+        FilterOp::Eq => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, false)?;
+            binds.push(DeviceSqlBindValue::Text(normalized));
+            Ok(format!("{norm_col} = ?"))
+        }
+        FilterOp::NotEq => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, false)?;
+            binds.push(DeviceSqlBindValue::Text(normalized));
+            Ok(format!("(mac IS NULL OR {norm_col} <> ?)"))
+        }
+        FilterOp::Like => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, true)?;
+            binds.push(DeviceSqlBindValue::Text(normalized));
+            Ok(format!("{norm_col} LIKE ?"))
+        }
+        FilterOp::NotLike => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, true)?;
+            binds.push(DeviceSqlBindValue::Text(normalized));
+            Ok(format!("(mac IS NULL OR {norm_col} NOT LIKE ?)"))
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "mac filter only supports equality and LIKE operators".into(),
+        )),
+    }
+}
+
+/// Collects normalized MAC bind params for the count/non-grouped stats path.
+fn collect_mac_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, false)?;
+            params.push(BindParam::Text(normalized));
+            Ok(())
+        }
+        FilterOp::Like | FilterOp::NotLike => {
+            let normalized = super::normalize_mac_value(filter.value.as_scalar()?, true)?;
+            params.push(BindParam::Text(normalized));
+            Ok(())
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "mac filter only supports equality and LIKE operators".into(),
+        )),
+    }
+}
+
 fn collect_text_params(
     params: &mut Vec<BindParam>,
     filter: &Filter,
@@ -838,7 +984,8 @@ fn collect_text_params(
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
         "uid" => collect_text_params(params, filter, true),
-        "hostname" | "mac" => collect_text_params(params, filter, false),
+        "hostname" => collect_text_params(params, filter, false),
+        "mac" => collect_mac_params(params, filter),
         "ip" => collect_ip_params(params, filter),
         "gateway_id" | "agent_id" | "type" | "device_type" | "vendor_name" | "model"
         | "risk_level" => {
@@ -872,6 +1019,10 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         }
         "is_available" => {
             params.push(BindParam::Bool(parse_bool(filter.value.as_scalar()?)?));
+            Ok(())
+        }
+        "deleted" => {
+            let _ = parse_bool(filter.value.as_scalar()?)?;
             Ok(())
         }
         "discovery_sources" => {
@@ -1020,55 +1171,162 @@ fn parse_ip_range(value: &str) -> Result<Option<(String, String)>> {
 
 fn apply_ordering<'a>(mut query: DeviceQuery<'a>, order: &[OrderClause]) -> DeviceQuery<'a> {
     let mut applied = false;
+    let mut saw_is_available = false;
+    let mut saw_ip = false;
+
     for clause in order {
-        query = if !applied {
-            applied = true;
-            match clause.field.as_str() {
-                "uid" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_uid.asc()),
-                    OrderDirection::Desc => query.order(col_uid.desc()),
-                },
-                // Support both OCSF and legacy time field names
-                "first_seen_time" | "first_seen" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_first_seen_time.asc()),
-                    OrderDirection::Desc => query.order(col_first_seen_time.desc()),
-                },
-                "last_seen_time" | "last_seen" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_last_seen_time.asc()),
-                    OrderDirection::Desc => query.order(col_last_seen_time.desc()),
-                },
-                "type_id" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_type_id.asc()),
-                    OrderDirection::Desc => query.order(col_type_id.desc()),
-                },
-                _ => query,
-            }
+        let (updated, did_apply) = if applied {
+            apply_secondary_order(query, clause)
         } else {
-            match clause.field.as_str() {
-                "uid" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_uid.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_uid.desc()),
-                },
-                "first_seen_time" | "first_seen" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_first_seen_time.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_first_seen_time.desc()),
-                },
-                "last_seen_time" | "last_seen" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_last_seen_time.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_last_seen_time.desc()),
-                },
-                _ => query,
-            }
+            apply_primary_order(query, clause)
         };
+
+        query = updated;
+        if did_apply {
+            applied = true;
+        }
+
+        match clause.field.as_str() {
+            "is_available" => saw_is_available = true,
+            "ip" => saw_ip = true,
+            _ => {}
+        }
     }
 
     if !applied {
         query = query
-            .order(col_last_seen_time.desc())
-            .then_order_by(col_uid.desc());
+            .order(sql::<Bool>("coalesce(is_available, false)").desc())
+            .then_order_by(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").asc())
+            .then_order_by(col_uid.asc());
+    } else if saw_is_available && !saw_ip {
+        query = query
+            .then_order_by(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").asc())
+            .then_order_by(col_uid.asc());
+    } else {
+        query = query.then_order_by(col_uid.asc());
     }
 
     query
+}
+
+fn apply_primary_order<'a>(
+    query: DeviceQuery<'a>,
+    clause: &OrderClause,
+) -> (DeviceQuery<'a>, bool) {
+    match clause.field.as_str() {
+        "is_available" => (
+            match clause.direction {
+                OrderDirection::Asc => {
+                    query.order(sql::<Bool>("coalesce(is_available, false)").asc())
+                }
+                OrderDirection::Desc => {
+                    query.order(sql::<Bool>("coalesce(is_available, false)").desc())
+                }
+            },
+            true,
+        ),
+        "ip" => (
+            match clause.direction {
+                OrderDirection::Asc => {
+                    query.order(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").asc())
+                }
+                OrderDirection::Desc => {
+                    query.order(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").desc())
+                }
+            },
+            true,
+        ),
+        "uid" => (
+            match clause.direction {
+                OrderDirection::Asc => query.order(col_uid.asc()),
+                OrderDirection::Desc => query.order(col_uid.desc()),
+            },
+            true,
+        ),
+        // Support both OCSF and legacy time field names
+        "first_seen_time" | "first_seen" => (
+            match clause.direction {
+                OrderDirection::Asc => query.order(col_first_seen_time.asc()),
+                OrderDirection::Desc => query.order(col_first_seen_time.desc()),
+            },
+            true,
+        ),
+        "last_seen_time" | "last_seen" => (
+            match clause.direction {
+                OrderDirection::Asc => query.order(col_last_seen_time.asc()),
+                OrderDirection::Desc => query.order(col_last_seen_time.desc()),
+            },
+            true,
+        ),
+        "type_id" => (
+            match clause.direction {
+                OrderDirection::Asc => query.order(col_type_id.asc()),
+                OrderDirection::Desc => query.order(col_type_id.desc()),
+            },
+            true,
+        ),
+        _ => (query, false),
+    }
+}
+
+fn apply_secondary_order<'a>(
+    query: DeviceQuery<'a>,
+    clause: &OrderClause,
+) -> (DeviceQuery<'a>, bool) {
+    match clause.field.as_str() {
+        "is_available" => (
+            match clause.direction {
+                OrderDirection::Asc => {
+                    query.then_order_by(sql::<Bool>("coalesce(is_available, false)").asc())
+                }
+                OrderDirection::Desc => {
+                    query.then_order_by(sql::<Bool>("coalesce(is_available, false)").desc())
+                }
+            },
+            true,
+        ),
+        "ip" => (
+            match clause.direction {
+                OrderDirection::Asc => {
+                    query.then_order_by(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").asc())
+                }
+                OrderDirection::Desc => {
+                    query.then_order_by(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").desc())
+                }
+            },
+            true,
+        ),
+        "uid" => (
+            match clause.direction {
+                OrderDirection::Asc => query.then_order_by(col_uid.asc()),
+                OrderDirection::Desc => query.then_order_by(col_uid.desc()),
+            },
+            true,
+        ),
+        // Support both OCSF and legacy time field names
+        "first_seen_time" | "first_seen" => (
+            match clause.direction {
+                OrderDirection::Asc => query.then_order_by(col_first_seen_time.asc()),
+                OrderDirection::Desc => query.then_order_by(col_first_seen_time.desc()),
+            },
+            true,
+        ),
+        "last_seen_time" | "last_seen" => (
+            match clause.direction {
+                OrderDirection::Asc => query.then_order_by(col_last_seen_time.asc()),
+                OrderDirection::Desc => query.then_order_by(col_last_seen_time.desc()),
+            },
+            true,
+        ),
+        "type_id" => (
+            match clause.direction {
+                OrderDirection::Asc => query.then_order_by(col_type_id.asc()),
+                OrderDirection::Desc => query.then_order_by(col_type_id.desc()),
+            },
+            true,
+        ),
+        _ => (query, false),
+    }
 }
 
 fn parse_bool(raw: &str) -> Result<bool> {

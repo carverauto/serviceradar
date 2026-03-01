@@ -132,6 +132,6 @@ fi
 
 "${BAZEL_BINARY}" run "${BAZEL_FLAGS[@]}" //docker/images:push_all -- --tag "${TAG}" "${PUSH_ARGS[@]}"
 
-"${BAZEL_BINARY}" run "${BAZEL_FLAGS[@]}" //release:publish_packages -- --tag "${TAG}" "${RELEASE_ARGS[@]}"
+"${BAZEL_BINARY}" run "${BAZEL_FLAGS[@]}" //build/release:publish_packages -- --tag "${TAG}" "${RELEASE_ARGS[@]}"
 
 echo "Release workflow completed for ${TAG}" >&2

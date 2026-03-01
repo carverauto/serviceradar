@@ -107,7 +107,8 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   defp cleanup_target(settings, opts) do
     with {:ok, interface} <- load_interface(settings, opts),
          {:ok, profile} <- load_default_profile(opts),
-         host when is_binary(host) and host != "" <- resolve_target_host(settings, interface, opts),
+         host when is_binary(host) and host != "" <-
+           resolve_target_host(settings, interface, opts),
          {:ok, target} <- find_target(profile.id, host, opts) do
       sync_target_oids(settings, interface, target, opts)
       prune_empty_target(target, opts)
@@ -131,7 +132,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   end
 
   defp load_device_host(device_id, opts) do
-    case Device.get_by_uid(device_id, opts) do
+    case Device.get_by_uid(device_id, false, opts) do
       {:ok, device} -> device.ip || device.hostname || device.name
       {:error, _} -> nil
     end
@@ -354,10 +355,29 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   defp normalize_selected(metrics, true) when is_list(metrics) do
     metrics
     |> Enum.map(&normalize_metric_name/1)
+    |> expand_packet_metrics()
     |> Enum.uniq()
   end
 
   defp normalize_selected(_metrics, _enabled), do: []
+
+  # Always include packet counters alongside byte counters so link PPS can be derived
+  # without requiring manual per-interface metric selection in the UI.
+  defp expand_packet_metrics(selected) when is_list(selected) do
+    selected
+    |> maybe_add_metric("ifInOctets", "ifInUcastPkts")
+    |> maybe_add_metric("ifOutOctets", "ifOutUcastPkts")
+    |> maybe_add_metric("ifHCInOctets", "ifHCInUcastPkts")
+    |> maybe_add_metric("ifHCOutOctets", "ifHCOutUcastPkts")
+  end
+
+  defp maybe_add_metric(selected, source, target) do
+    if source in selected and target not in selected do
+      [target | selected]
+    else
+      selected
+    end
+  end
 
   defp normalize_metrics(metrics) when is_list(metrics) do
     metrics
@@ -380,7 +400,8 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
       %{
         oid: "#{oid}.#{if_index}",
         name: metric_oid_name(metric_name, interface.interface_uid),
-        data_type: normalize_data_type(Map.get(metric, "data_type") || Map.get(metric, :data_type)),
+        data_type:
+          normalize_data_type(Map.get(metric, "data_type") || Map.get(metric, :data_type)),
         scale: 1.0,
         delta: metric_delta?(metric)
       }

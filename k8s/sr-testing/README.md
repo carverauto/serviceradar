@@ -68,4 +68,4 @@ bazel test //tests/kvseeding:kvseeding_test \
 ## Next Steps
 
 - Wire KV seeding integration tests to target `sr-testing-nats`.
-- Add per-service test cases that start with an empty KV bucket and assert the initial seed matches the defaults shipped in `packaging/`.
+- Add per-service test cases that start with an empty KV bucket and assert the initial seed matches the defaults shipped in `build/packaging/`.

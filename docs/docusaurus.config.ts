@@ -83,11 +83,6 @@ const config: Config = {
         },
         {to: '/blog', label: 'Blog', position: 'left'},
         {
-          href: 'https://demo.serviceradar.cloud',
-          label: 'Demo',
-          position: 'left',
-        },
-        {
           href: 'https://github.com/carverauto/serviceradar',
           label: 'GitHub',
           position: 'right',

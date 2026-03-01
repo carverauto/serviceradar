@@ -23,8 +23,8 @@ config :serviceradar_core,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.DuskProfiles,
-    ServiceRadar.Plugins
+    ServiceRadar.Plugins,
+    ServiceRadar.Spatial
   ]
 
 # Mailer configuration
@@ -116,6 +116,12 @@ config :serviceradar_core, :plugin_storage,
 
 config :serviceradar_core,
   run_startup_migrations: false
+
+config :serviceradar_core,
+  age_graph_name: "platform_graph"
+
+config :serviceradar_core,
+  topology_v2_contract_consumption_enabled: true
 
 # Sweep SRQL paging configuration
 config :serviceradar_core,

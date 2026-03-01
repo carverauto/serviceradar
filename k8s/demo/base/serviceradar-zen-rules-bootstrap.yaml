@@ -1,0 +1,136 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-zen-rules-bootstrap
+  labels:
+    app: serviceradar-zen-rules-bootstrap
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: serviceradar-zen-rules-bootstrap
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: serviceradar-zen
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      initContainers:
+        - name: wait-for-nats
+          image: ghcr.io/carverauto/serviceradar-tools:latest
+          imagePullPolicy: Always
+          command: ["/usr/local/bin/wait-for-port"]
+          args:
+            - "--host"
+            - "serviceradar-nats"
+            - "--port"
+            - "4222"
+            - "--attempts"
+            - "30"
+            - "--interval"
+            - "2s"
+      containers:
+        - name: zen-rules-bootstrap
+          image: ghcr.io/carverauto/serviceradar-zen:latest
+          imagePullPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+
+              RULES_DIR="/etc/serviceradar/rules"
+              CONFIG_PATH="/etc/serviceradar/zen.json"
+
+              install_rule() {
+                local file="$1"
+                local subject="$2"
+                local key="$3"
+
+                if [ ! -f "$file" ]; then
+                  echo "Warning: Rule file $file not found, skipping"
+                  return 0
+                fi
+
+                local attempt=1
+                local max_attempts=6
+                local delay=2
+
+                while [ "$attempt" -le "$max_attempts" ]; do
+                  echo "Installing rule: $key for subject: $subject (attempt ${attempt}/${max_attempts})"
+                  if /usr/local/bin/zen-put-rule \
+                      --config "$CONFIG_PATH" \
+                      --file "$file" \
+                      --subject "$subject" \
+                      --key "$key"; then
+                    echo "✓ Rule $key installed successfully"
+                    return 0
+                  fi
+
+                  echo "✗ Failed to install rule $key (attempt ${attempt})"
+                  attempt=$((attempt + 1))
+                  if [ "$attempt" -le "$max_attempts" ]; then
+                    echo "Retrying in ${delay}s..."
+                    sleep "$delay"
+                    delay=$((delay * 2))
+                    if [ "$delay" -gt 30 ]; then
+                      delay=30
+                    fi
+                  fi
+                done
+
+                return 1
+              }
+
+              install_rule "${RULES_DIR}/strip_full_message.json" "logs.syslog" "strip_full_message"
+              install_rule "${RULES_DIR}/cef_severity.json" "logs.syslog" "cef_severity"
+              install_rule "${RULES_DIR}/snmp_severity.json" "logs.snmp" "snmp_severity"
+              install_rule "${RULES_DIR}/passthrough.json" "logs.otel" "passthrough"
+              echo "✅ Zen rules bootstrap completed successfully"
+          env:
+            - name: CONFIG_PATH
+              value: "/etc/serviceradar/zen.json"
+            - name: NATS_URL
+              value: "tls://serviceradar-nats:4222"
+            - name: KV_URL
+              value: "serviceradar-datasvc:50057"
+            - name: NATS_TLS
+              value: "true"
+            - name: USE_TLS
+              value: "true"
+            - name: RUST_LOG
+              value: "info"
+          volumeMounts:
+            - name: zen-rules
+              mountPath: /etc/serviceradar/rules
+              readOnly: true
+            - name: serviceradar-config
+              mountPath: /etc/serviceradar
+            - name: cert-data
+              mountPath: /etc/serviceradar/certs
+              readOnly: true
+            - name: nats-creds
+              mountPath: /etc/serviceradar/creds
+              readOnly: true
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
+      volumes:
+        - name: zen-rules
+          configMap:
+            name: serviceradar-zen-rules
+        - name: serviceradar-config
+          configMap:
+            name: serviceradar-config
+        - name: cert-data
+          persistentVolumeClaim:
+            claimName: serviceradar-cert-data
+        - name: nats-creds
+          secret:
+            secretName: serviceradar-nats-creds
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate

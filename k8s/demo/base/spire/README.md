@@ -57,10 +57,10 @@ Manifests in this directory bootstrap SPIFFE/SPIRE inside the `demo` Kubernetes 
    Updates to the manifests are picked up automatically; reapplying the
    kustomization is idempotent.
 
-## CNPG rebuild with TimescaleDB + AGE
+## CNPG rebuild with TimescaleDB + AGE + PostGIS
 
 The SPIRE manifests now rely on the custom `ghcr.io/carverauto/serviceradar-cnpg`
-image, which ships PostgreSQL 16.6 along with the TimescaleDB and Apache AGE
+image, which ships PostgreSQL 16.6 along with TimescaleDB, Apache AGE, and PostGIS
 extensions. Follow this workflow whenever you need a clean rebuild (for example
 when refreshing the demo cluster or cutting over from the stock CloudNativePG
 image):
@@ -89,12 +89,12 @@ image):
 3. **Verify the extensions**
 
    Once the cluster is Ready, exec into one of the pods and check
-   `pg_extension` for TimescaleDB and AGE:
+   `pg_extension` for TimescaleDB, AGE, and PostGIS:
 
    ```bash
    kubectl exec -n demo cnpg-1 -- \
      psql -U spire -d spire \
-       -c "SELECT extname FROM pg_extension WHERE extname IN ('timescaledb','age');"
+       -c "SELECT extname FROM pg_extension WHERE extname IN ('timescaledb','age','postgis','vector');"
    ```
 
    Both rows should be present. If either extension is missing, re-run the

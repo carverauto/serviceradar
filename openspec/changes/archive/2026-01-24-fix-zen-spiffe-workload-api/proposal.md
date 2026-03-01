@@ -11,5 +11,5 @@ Zen logs repeated "SPIFFE Workload API unavailable" warnings when SPIRE returns 
 
 ## Impact
 - Affected specs: `edge-architecture`
-- Affected code: `cmd/consumers/zen/src/spiffe.rs`, related tests
+- Affected code: `rust/consumers/zen/src/spiffe.rs`, related tests
 - No API or schema changes expected

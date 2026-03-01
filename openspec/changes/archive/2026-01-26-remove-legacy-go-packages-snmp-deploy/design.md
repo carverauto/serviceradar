@@ -19,7 +19,7 @@ The SNMP checker runs as an embedded collector inside `serviceradar-agent`, but 
   - Mitigation: Search build files, Docker/Helm, and CI scripts; run targeted builds/tests.
 
 ## Migration Plan
-- Remove packaging/deployment artifacts.
+- Remove build/packaging/deployment artifacts.
 - Update build definitions.
 - Validate that `serviceradar-agent` still builds and that no Docker/Helm references to SNMP checker remain.
 

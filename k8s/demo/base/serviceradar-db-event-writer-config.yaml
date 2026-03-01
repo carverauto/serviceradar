@@ -19,6 +19,10 @@ data:
           "table": "ocsf_events"
         },
         {
+          "subject": "flows.raw.netflow.processed",
+          "table": "ocsf_network_activity"
+        },
+        {
           "subject": "logs.syslog.processed", 
           "table": "logs"
         },
@@ -92,7 +96,7 @@ data:
         "time_format": "",
         "otel": {
           "enabled": true,
-          "endpoint": "serviceradar-otel:4317",
+          "endpoint": "serviceradar-log-collector:4317",
           "service_name": "serviceradar-db-event-writer",
           "batch_timeout": "5s",
           "insecure": false,

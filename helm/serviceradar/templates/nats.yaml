@@ -11,7 +11,11 @@ spec:
     metadata:
       labels:
         app: serviceradar-nats
+        app.kubernetes.io/part-of: serviceradar
+      annotations:
+        checksum/serviceradar-config: {{ include (print $.Template.BasePath "/serviceradar-config.yaml") . | sha256sum }}
     spec:
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
       containers:
       - name: nats
         image: nats:{{ .Values.image.tags.nats | default "latest" }}
@@ -91,4 +95,4 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
+      storage: {{ default "30Gi" (default (dict) .Values.nats.persistence).size }}

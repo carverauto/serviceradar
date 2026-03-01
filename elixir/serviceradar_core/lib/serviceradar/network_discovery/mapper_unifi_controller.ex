@@ -36,6 +36,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperUnifiController do
         :insecure_skip_verify,
         :mapper_job_id
       ]
+
+      change ServiceRadar.NetworkDiscovery.Changes.NormalizeUnifiBaseUrl
     end
 
     update :update do
@@ -45,6 +47,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperUnifiController do
         :api_key,
         :insecure_skip_verify
       ]
+
+      change ServiceRadar.NetworkDiscovery.Changes.NormalizeUnifiBaseUrl
     end
 
     read :by_job do

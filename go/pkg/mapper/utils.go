@@ -1,0 +1,414 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package mapper
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"strings"
+	"time"
+
+	"github.com/gosnmp/gosnmp"
+)
+
+// Utility functions for the discovery package
+
+const (
+	defaultResultRetentionDivisor = 2
+)
+
+// cleanupRoutine periodically cleans up completed jobs.
+func (e *DiscoveryEngine) cleanupRoutine(ctx context.Context) {
+	ticker := time.NewTicker(
+		e.config.ResultRetention / defaultResultRetentionDivisor) // Clean more frequently than retention
+	defer ticker.Stop()
+
+	e.logger.Info().Msg("Discovery results cleanup routine started")
+
+	for {
+		select {
+		case <-ctx.Done(): // Main context canceled
+			e.logger.Info().Msg("Cleanup routine stopping due to main context cancellation")
+			return
+		case <-e.done: // Engine stopping
+			e.logger.Info().Msg("Cleanup routine stopping due to engine shutdown")
+			return
+		case <-ticker.C:
+			e.cleanupCompletedJobs()
+		}
+	}
+}
+
+// cleanupCompletedJobs removes old completed jobs.
+func (e *DiscoveryEngine) cleanupCompletedJobs() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.logger.Debug().Dur("retention", e.config.ResultRetention).Msg("Cleaning up completed jobs")
+
+	cutoff := time.Now().Add(-e.config.ResultRetention)
+	removed := 0
+
+	for id, results := range e.completedJobs {
+		if results.Status.EndTime.Before(cutoff) {
+			delete(e.completedJobs, id)
+
+			removed++
+		}
+	}
+
+	e.logger.Debug().Int("removed_count", removed).Msg("Removed expired completed jobs")
+}
+
+// createSNMPClient creates an SNMP client for the given target and credentials
+func (e *DiscoveryEngine) createSNMPClient(targetIP string, credentials *SNMPCredentials) (*gosnmp.GoSNMP, error) {
+	// Check if there are target-specific credentials
+	if credentials.TargetSpecific != nil {
+		if targetCreds, ok := credentials.TargetSpecific[targetIP]; ok {
+			credentials = targetCreds
+		}
+	}
+
+	client := &gosnmp.GoSNMP{
+		Target:             targetIP,
+		Port:               161, // Default SNMP port
+		Timeout:            e.config.Timeout,
+		Retries:            e.config.Retries,
+		MaxOids:            gosnmp.MaxOids,
+		MaxRepetitions:     10,
+		ExponentialTimeout: true,
+	}
+
+	// Configure client based on SNMP version
+	err := e.configureClientVersion(client, credentials)
+	if err != nil {
+		return nil, err
+	}
+
+	return client, nil
+}
+
+// configureClientVersion sets up the SNMP client based on the version in the credentials
+func (e *DiscoveryEngine) configureClientVersion(client *gosnmp.GoSNMP, credentials *SNMPCredentials) error {
+	switch credentials.Version {
+	case SNMPVersion1:
+		client.Version = gosnmp.Version1
+		client.Community = credentials.Community
+	case SNMPVersion2c:
+		client.Version = gosnmp.Version2c
+		client.Community = credentials.Community
+	case SNMPVersion3:
+		client.Version = gosnmp.Version3
+
+		// Set SNMPv3 security parameters
+		usm := &gosnmp.UsmSecurityParameters{
+			UserName: credentials.Username,
+		}
+
+		// Configure authentication and privacy
+		e.configureV3Authentication(usm, credentials)
+		e.configureV3Privacy(usm, credentials)
+
+		client.SecurityParameters = usm
+		client.MsgFlags = gosnmp.AuthPriv
+	default:
+		return fmt.Errorf("%w for version: %s", ErrUnsupportedSNMPVersion, credentials.Version)
+	}
+
+	return nil
+}
+
+// configureV3Authentication sets up the authentication protocol for SNMPv3
+func (*DiscoveryEngine) configureV3Authentication(usm *gosnmp.UsmSecurityParameters, credentials *SNMPCredentials) {
+	switch strings.ToUpper(credentials.AuthProtocol) {
+	case "MD5":
+		usm.AuthenticationProtocol = gosnmp.MD5
+		usm.AuthenticationPassphrase = credentials.AuthPassword
+	case "SHA":
+		usm.AuthenticationProtocol = gosnmp.SHA
+		usm.AuthenticationPassphrase = credentials.AuthPassword
+	case "SHA224":
+		usm.AuthenticationProtocol = gosnmp.SHA224
+		usm.AuthenticationPassphrase = credentials.AuthPassword
+	case "SHA256":
+		usm.AuthenticationProtocol = gosnmp.SHA256
+		usm.AuthenticationPassphrase = credentials.AuthPassword
+	case "SHA384":
+		usm.AuthenticationProtocol = gosnmp.SHA384
+		usm.AuthenticationPassphrase = credentials.AuthPassword
+	case "SHA512":
+		usm.AuthenticationProtocol = gosnmp.SHA512
+		usm.AuthenticationPassphrase = credentials.AuthPassword
+	}
+}
+
+// configureV3Privacy sets up the privacy protocol for SNMPv3
+func (*DiscoveryEngine) configureV3Privacy(usm *gosnmp.UsmSecurityParameters, credentials *SNMPCredentials) {
+	switch strings.ToUpper(credentials.PrivacyProtocol) {
+	case "DES":
+		usm.PrivacyProtocol = gosnmp.DES
+		usm.PrivacyPassphrase = credentials.PrivacyPassword
+	case "AES":
+		usm.PrivacyProtocol = gosnmp.AES
+		usm.PrivacyPassphrase = credentials.PrivacyPassword
+	case "AES192":
+		usm.PrivacyProtocol = gosnmp.AES192
+		usm.PrivacyPassphrase = credentials.PrivacyPassword
+	case "AES256":
+		usm.PrivacyProtocol = gosnmp.AES256
+		usm.PrivacyPassphrase = credentials.PrivacyPassword
+	}
+}
+
+// processSingleIP processes a single IP address
+func (e *DiscoveryEngine) processSingleIP(ipStr string, seen map[string]bool) string {
+	ip := net.ParseIP(ipStr)
+
+	if ip == nil {
+		e.logger.Warn().Str("ip", ipStr).Msg("Invalid IP")
+
+		return ""
+	}
+
+	ipStr = ip.String()
+
+	if !seen[ipStr] {
+		seen[ipStr] = true
+		return ipStr
+	}
+
+	return ""
+}
+
+// incrementIP increments an IP address by 1
+func incrementIP(ip net.IP) {
+	for j := len(ip) - 1; j >= 0; j-- {
+		ip[j]++
+
+		if ip[j] > 0 {
+			break
+		}
+	}
+}
+
+const (
+	defaultHostBitsCheckMin = 8
+)
+
+// collectIPsFromRange collects IPs from a CIDR range, limiting if necessary
+func (e *DiscoveryEngine) collectIPsFromRange(ip net.IP, ipNet *net.IPNet, hostBits int, seen map[string]bool) []string {
+	var targets []string
+
+	if hostBits > defaultHostBitsCheckMin { // More than 256 hosts
+		e.logger.Warn().Str("cidr", ipNet.String()).Int("host_bits", hostBits).
+			Msg("CIDR range too large, limiting scan")
+
+		// Only scan first 256 IPs
+		count := 0
+		ipCopy := make(net.IP, len(ip))
+
+		copy(ipCopy, ip)
+
+		for ip := ipCopy.Mask(ipNet.Mask); ipNet.Contains(ip) && count < defaultMaxIPRange; incrementIP(ip) {
+			// Use a local copy so we don't mutate the caller's IP while iterating.
+			ipStr := ip.String()
+
+			if !seen[ipStr] {
+				targets = append(targets, ipStr)
+				seen[ipStr] = true
+				count++
+			}
+		}
+	} else {
+		// Process all IPs in the range
+		ipCopy := make(net.IP, len(ip))
+		copy(ipCopy, ip)
+
+		for ip := ipCopy.Mask(ipNet.Mask); ipNet.Contains(ip); incrementIP(ip) {
+			ipStr := ip.String()
+
+			if !seen[ipStr] {
+				targets = append(targets, ipStr)
+				seen[ipStr] = true
+			}
+		}
+	}
+
+	return targets
+}
+
+// filterNetworkAndBroadcast removes network and broadcast addresses from the targets
+func filterNetworkAndBroadcast(targets []string, ip net.IP, ipNet *net.IPNet) []string {
+	ipv4 := ip.To4()
+	if ipv4 == nil {
+		return targets
+	}
+
+	mask := ipNet.Mask
+	if len(mask) != net.IPv4len {
+		ones, _ := mask.Size()
+		mask = net.CIDRMask(ones, 8*net.IPv4len)
+	}
+
+	// Skip first and last IP if they exist in the targets
+	networkIP := ipv4.Mask(mask).String()
+
+	// Calculate broadcast IP
+	broadcastIP := make(net.IP, net.IPv4len)
+	copy(broadcastIP, ipv4.Mask(mask))
+
+	for i := range broadcastIP {
+		broadcastIP[i] |= ^mask[i]
+	}
+
+	broadcastIPStr := broadcastIP.String()
+
+	// Create a new slice without network and broadcast IPs
+	filteredTargets := make([]string, 0, len(targets))
+
+	for _, target := range targets {
+		if target != networkIP && target != broadcastIPStr {
+			filteredTargets = append(filteredTargets, target)
+		}
+	}
+
+	return filteredTargets
+}
+
+// expandSeeds expands CIDR ranges and individual IPs into a list of IPs
+func (e *DiscoveryEngine) expandSeeds(seeds []string) []string {
+	var targets []string
+
+	seen := make(map[string]bool) // To avoid duplicates
+
+	for _, seed := range seeds {
+		// Check if the seed is a CIDR notation
+		if strings.Contains(seed, "/") {
+			cidrTargets := e.expandCIDR(seed, seen)
+			targets = append(targets, cidrTargets...)
+		} else {
+			// It's a single IP
+			if ipTarget := e.processSingleIP(seed, seen); ipTarget != "" {
+				targets = append(targets, ipTarget)
+			}
+		}
+	}
+
+	return targets
+}
+
+const (
+	// 31 - broadcast
+	defaultBroadCastMask = 31
+	defaultCountCheckMin = 2
+)
+
+// expandCIDR expands a CIDR notation into individual IP addresses
+func (e *DiscoveryEngine) expandCIDR(cidr string, seen map[string]bool) []string {
+	var targets []string
+
+	ip, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		e.logger.Warn().Str("cidr", cidr).Err(err).Msg("Invalid CIDR")
+
+		return targets
+	}
+
+	// Check if range is too large
+	ones, bits := ipNet.Mask.Size()
+	hostBits := bits - ones
+
+	// Collect IPs based on range size
+	targets = e.collectIPsFromRange(ip, ipNet, hostBits, seen)
+
+	// Filter out network and broadcast addresses if needed
+	if ip.To4() != nil && ones < defaultBroadCastMask && len(targets) > defaultCountCheckMin {
+		targets = filterNetworkAndBroadcast(targets, ip, ipNet)
+	}
+
+	return targets
+}
+
+// GenerateDeviceID creates a device identifier from a MAC address.
+func GenerateDeviceID(mac string) string {
+	if mac == "" {
+		return ""
+	}
+
+	return "mac-" + NormalizeMAC(mac)
+}
+
+// GenerateDeviceIDFromIP creates a device identifier from an IP address when MAC is not available.
+func GenerateDeviceIDFromIP(ip string) string {
+	if ip == "" {
+		return ""
+	}
+
+	return "ip-" + ip // Fallback for devices without MAC
+}
+
+// NormalizeMAC normalizes a MAC address for consistent formatting
+func NormalizeMAC(mac string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(mac, ":", ""), "-", ""))
+}
+
+// addAlternateIP stores an alternate IP in the given metadata map under both
+// the legacy alt_ip:<ip> key and the alias-friendly ip_alias:<ip> key. The
+// updated map is returned for convenience.
+func addAlternateIP(metadata map[string]string, ip string) map[string]string {
+	if ip == "" {
+		return metadata
+	}
+
+	if metadata == nil {
+		metadata = make(map[string]string)
+	}
+
+	// Use exact-match metadata key for alt IPs (legacy)
+	altKey := "alt_ip:" + ip
+	if _, exists := metadata[altKey]; !exists {
+		metadata[altKey] = "1"
+	}
+
+	// Alias-friendly key consumed by core aliasing logic
+	aliasKey := "ip_alias:" + ip
+	if _, exists := metadata[aliasKey]; !exists {
+		metadata[aliasKey] = ""
+	}
+
+	return metadata
+}
+
+// addAlternateMAC stores an alternate MAC in metadata under a stable key.
+func addAlternateMAC(metadata map[string]string, mac string) map[string]string {
+	norm := NormalizeMAC(mac)
+	if norm == "" {
+		return metadata
+	}
+
+	if metadata == nil {
+		metadata = make(map[string]string)
+	}
+
+	key := "alt_mac:" + norm
+	if _, exists := metadata[key]; !exists {
+		metadata[key] = "1"
+	}
+
+	return metadata
+}

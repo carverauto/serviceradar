@@ -47,7 +47,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             partition: "default",
             interval: "15m",
             target_query: "ip:10.0.0.0/8"
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       assert group.target_query == "in:devices ip:10.0.0.0/8"
@@ -69,7 +71,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             partition: "default",
             interval: "15m",
             target_query: "in:devices tags.env:prod"
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       assert group.target_query == "in:devices tags.env:prod"
@@ -88,7 +92,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             partition: "default",
             interval: "15m",
             target_query: ""
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       assert group.target_query == nil
@@ -109,7 +115,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             uid: "device-match-1-#{unique_id}",
             ip: "10.0.1.100",
             hostname: "server1"
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, matching_device2} =
@@ -120,7 +128,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             uid: "device-match-2-#{unique_id}",
             ip: "10.0.2.50",
             hostname: "server2"
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, _non_matching_device} =
@@ -131,7 +141,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             uid: "device-nomatch-#{unique_id}",
             ip: "192.168.1.100",
             hostname: "external"
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Create sweep group with CIDR query
@@ -145,7 +157,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             interval: "15m",
             target_query: "in:devices ip:10.0.0.0/8",
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Get compiled config
@@ -180,7 +194,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             ip: "10.0.1.1",
             hostname: "prod-server",
             tags: %{"env" => "prod", "tier" => "1"}
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, _dev_device} =
@@ -192,7 +208,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             ip: "10.0.2.1",
             hostname: "dev-server",
             tags: %{"env" => "dev"}
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Create sweep group targeting prod
@@ -206,7 +224,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             interval: "15m",
             target_query: "in:devices tags.env:prod",
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, entry} = ConfigServer.get_config(:sweep, "default", nil)
@@ -233,7 +253,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             uid: "device-combined-#{unique_id}",
             ip: "10.0.1.50",
             hostname: "combined-server"
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       static_targets = ["192.168.100.0/24", "172.16.0.1"]
@@ -249,7 +271,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             target_query: "in:devices ip:10.0.0.0/8",
             static_targets: static_targets,
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, entry} = ConfigServer.get_config(:sweep, "default", nil)
@@ -283,7 +307,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             target_query: nil,
             static_targets: static_targets,
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, entry} = ConfigServer.get_config(:sweep, "default", nil)
@@ -315,7 +341,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             interval: "15m",
             static_targets: ["10.0.0.1"],
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, _datacenter_group} =
@@ -328,7 +356,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             interval: "15m",
             static_targets: ["192.168.1.1"],
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Get config for default partition
@@ -364,7 +394,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             interval: "15m",
             static_targets: ["10.0.0.99"],
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Create partition-wide group (nil agent_id)
@@ -379,7 +411,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             interval: "15m",
             static_targets: ["10.0.0.1"],
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Get config for specific agent
@@ -410,7 +444,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             interval: "15m",
             static_targets: ["10.0.0.99"],
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Get config for different agent
@@ -436,7 +472,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             sweep_modes: ["icmp", "tcp"],
             concurrency: 100,
             timeout: "5s"
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Create group using the profile
@@ -451,7 +489,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             profile_id: profile.id,
             static_targets: ["10.0.0.0/24"],
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, entry} = ConfigServer.get_config(:sweep, "default", nil)
@@ -481,7 +521,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
             interval: "15m",
             static_targets: ["10.0.0.1"],
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, entry1} = ConfigServer.get_config(:sweep, "default", nil)

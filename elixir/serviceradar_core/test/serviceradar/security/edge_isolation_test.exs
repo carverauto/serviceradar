@@ -171,7 +171,9 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
             name: "Security Test Agent",
             host: "192.168.1.50",
             port: 50_051
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Verify agent has gRPC connection details

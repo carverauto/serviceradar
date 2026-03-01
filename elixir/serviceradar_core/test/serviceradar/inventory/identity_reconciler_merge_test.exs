@@ -7,6 +7,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
 
   @moduletag :integration
 
+  require Ash.Query
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.{Device, IdentityReconciler, Interface}
   alias ServiceRadar.TestSupport
@@ -18,6 +20,25 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
 
   setup do
     actor = SystemActor.system(:identity_reconciler_merge_test)
+    handler_id = "identity-reconciler-merge-test-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        [
+          [:serviceradar, :identity_reconciler, :merge, :executed],
+          [:serviceradar, :identity_reconciler, :merge, :failed]
+        ],
+        fn event, measurements, metadata, pid ->
+          send(pid, {:telemetry_event, event, measurements, metadata})
+        end,
+        self()
+      )
+
+    on_exit(fn ->
+      :telemetry.detach(handler_id)
+    end)
+
     {:ok, actor: actor}
   end
 
@@ -37,8 +58,16 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
 
     assert :ok = IdentityReconciler.merge_devices(from_uid, to_uid, actor: actor)
 
-    assert {:error, _} = Device.get_by_uid(from_uid, actor: actor)
-    assert {:ok, _} = Device.get_by_uid(to_uid, actor: actor)
+    assert_receive {:telemetry_event, [:serviceradar, :identity_reconciler, :merge, :executed],
+                    %{count: 1}, telemetry_metadata}
+
+    assert telemetry_metadata.reason == "identity_resolution"
+    assert telemetry_metadata.manual_override == false
+    assert telemetry_metadata.from_device_id == from_uid
+    assert telemetry_metadata.to_device_id == to_uid
+
+    assert {:error, _} = Device.get_by_uid(from_uid, false, actor: actor)
+    assert {:ok, _} = Device.get_by_uid(to_uid, false, actor: actor)
 
     assert {:ok, interfaces} = list_interfaces(actor, to_uid)
     assert length(interfaces) == 2
@@ -52,6 +81,26 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
            end)
 
     assert {:ok, []} = list_interfaces(actor, from_uid)
+  end
+
+  test "manual merge reason emits manual override telemetry", %{actor: actor} do
+    from_uid = "sr:" <> Ecto.UUID.generate()
+    to_uid = "sr:" <> Ecto.UUID.generate()
+
+    assert {:ok, _from_device} = create_device(actor, from_uid, "merge-from-manual")
+    assert {:ok, _to_device} = create_device(actor, to_uid, "merge-to-manual")
+
+    assert :ok =
+             IdentityReconciler.merge_devices(from_uid, to_uid,
+               actor: actor,
+               reason: "manual_merge"
+             )
+
+    assert_receive {:telemetry_event, [:serviceradar, :identity_reconciler, :merge, :executed],
+                    %{count: 1}, telemetry_metadata}
+
+    assert telemetry_metadata.reason == "manual_merge"
+    assert telemetry_metadata.manual_override == true
   end
 
   defp create_device(actor, uid, hostname) do

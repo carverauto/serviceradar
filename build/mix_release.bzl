@@ -85,6 +85,18 @@ patch_file(
     ],
 )
 
+# Patch opentelemetry_api_experimental charlist deprecations under Elixir 1.19.
+patch_file(
+    Path("deps/opentelemetry_api_experimental/mix.exs"),
+    [
+        (":file.consult('rebar.config')", ':file.consult(~c"rebar.config")'),
+        (
+            ":file.consult('src/opentelemetry_api_experimental.app.src')",
+            ':file.consult(~c"src/opentelemetry_api_experimental.app.src")',
+        ),
+    ],
+)
+
 # Patch protobuf to avoid struct-update typing warnings under Elixir 1.19.
 patch_file(
     Path("deps/protobuf/lib/protobuf/dsl.ex"),
@@ -189,6 +201,15 @@ patch_file(
     ],
 )
 
+# Patch permit to avoid struct-update typing warnings under Elixir 1.19.
+patch_file(
+    Path("deps/permit/lib/permit/permissions/disjunctive_normal_form.ex"),
+    [
+        ("def add_clauses(dnf, clauses) do\\n", "def add_clauses(%DNF{} = dnf, clauses) do\\n"),
+        ("def add_clauses(dnf, clause) do\\n", "def add_clauses(%DNF{} = dnf, clause) do\\n"),
+    ],
+)
+
 # Patch protobuf extension.ex for Context struct updates
 patch_file(
     Path("deps/protobuf/lib/protobuf/protoc/generator/extension.ex"),
@@ -219,6 +240,260 @@ patch_file(
     Path("deps/protobuf/lib/protobuf/dsl.ex"),
     [
         ("  defp cal_json_name(props), do: %FieldProps{props | json_name: props.name}\\n", "  defp cal_json_name(%FieldProps{} = props), do: %FieldProps{props | json_name: props.name}\\n"),
+    ],
+)
+
+# Patch delta_crdt warnings/errors under Elixir 1.19.
+patch_file(
+    Path("deps/delta_crdt/lib/delta_crdt.ex"),
+    [
+        ("Logger.warn(", "Logger.warning("),
+    ],
+)
+patch_file(
+    Path("deps/delta_crdt/lib/delta_crdt/aw_lww_map.ex"),
+    [
+        ("Logger.warn(", "Logger.warning("),
+    ],
+)
+def patch_delta_crdt_causal(path):
+    if not path.exists():
+        return
+    text = path.read_text()
+    original = text
+    reverse_target = "diff = reverse_diff(diff)"
+    if reverse_target in text:
+        text = text.replace(reverse_target, "diff = %Diff{} = reverse_diff(diff)")
+    target_fq = "%DeltaCrdt.CausalCrdt.Diff{diff | continuation: truncate(continuation, state.max_sync_size)}"
+    if target_fq in text:
+        replacement_fq = (
+            "diff = case diff do\\n"
+            "      %DeltaCrdt.CausalCrdt.Diff{} = diff -> diff\\n"
+            "      _ -> diff\\n"
+            "    end\\n"
+            "    %DeltaCrdt.CausalCrdt.Diff{diff | continuation: truncate(continuation, state.max_sync_size)}"
+        )
+        text = text.replace(target_fq, replacement_fq)
+    target_alias = "%Diff{diff | continuation: truncate(continuation, state.max_sync_size)}"
+    if target_alias in text:
+        replacement_alias = (
+            "diff = case diff do\\n"
+            "      %Diff{} = diff -> diff\\n"
+            "      _ -> diff\\n"
+            "    end\\n"
+            "    %Diff{diff | continuation: truncate(continuation, state.max_sync_size)}"
+        )
+        text = text.replace(target_alias, replacement_alias)
+    if text != original:
+        path.write_text(text)
+
+patch_delta_crdt_causal(Path("deps/delta_crdt/lib/delta_crdt/causal_crdt.ex"))
+
+# Patch delta_crdt reverse_diff to pattern-match the struct (Elixir 1.19 warnings).
+patch_file(
+    Path("deps/delta_crdt/lib/delta_crdt/causal_crdt.ex"),
+    [
+        ("  defp reverse_diff(diff) do\\n", "  defp reverse_diff(%Diff{} = diff) do\\n"),
+    ],
+)
+
+# Patch grpc struct updates for Elixir 1.19 typing warnings.
+patch_file(
+    Path("deps/grpc/lib/grpc/protoc/generator.ex"),
+    [
+        (
+            "  defp generate_module_definitions(ctx, %Google.Protobuf.FileDescriptorProto{} = desc) do\\n",
+            "  defp generate_module_definitions(%Context{} = ctx, %Google.Protobuf.FileDescriptorProto{} = desc) do\\n",
+        ),
+    ],
+)
+patch_file(
+    Path("deps/grpc/lib/grpc/protoc/cli.ex"),
+    [
+        ('  defp parse_param("plugins=" <> plugins, ctx) do\\n', '  defp parse_param("plugins=" <> plugins, %Context{} = ctx) do\\n'),
+        ('  defp parse_param("gen_descriptors=" <> value, ctx) do\\n', '  defp parse_param("gen_descriptors=" <> value, %Context{} = ctx) do\\n'),
+        ('  defp parse_param("package_prefix=" <> package, ctx) do\\n', '  defp parse_param("package_prefix=" <> package, %Context{} = ctx) do\\n'),
+        ('  defp parse_param("transform_module=" <> module, ctx) do\\n', '  defp parse_param("transform_module=" <> module, %Context{} = ctx) do\\n'),
+        ('  defp parse_param("one_file_per_module=" <> value, ctx) do\\n', '  defp parse_param("one_file_per_module=" <> value, %Context{} = ctx) do\\n'),
+    ],
+)
+patch_file(
+    Path("deps/grpc/lib/grpc/client/connection.ex"),
+    [
+        (
+            "  defp build_balanced_state(base_state, addresses, config, lb_policy_opt, norm_opts, adapter) do\\n",
+            "  defp build_balanced_state(%__MODULE__{} = base_state, addresses, config, lb_policy_opt, norm_opts, adapter) do\\n",
+        ),
+        (
+            "  defp build_direct_state(base_state, norm_target, norm_opts, adapter) do\\n",
+            "  defp build_direct_state(%__MODULE__{} = base_state, norm_target, norm_opts, adapter) do\\n",
+        ),
+        (
+            "  defp build_real_channels(addresses, virtual_channel, norm_opts, adapter) do\\n",
+            "  defp build_real_channels(addresses, %Channel{} = virtual_channel, norm_opts, adapter) do\\n",
+        ),
+        (
+            "  defp connect_real_channel(vc, host, port, opts, adapter) do\\n",
+            "  defp connect_real_channel(%Channel{} = vc, host, port, opts, adapter) do\\n",
+        ),
+    ],
+)
+
+# Patch OpenApiSpex cast helpers for Elixir 1.19 typing warnings.
+patch_file(
+    Path("deps/open_api_spex/lib/open_api_spex/cast/all_of.ex"),
+    [
+        (
+            "  defp cast_all_of(%{schema: %{allOf: [%Schema{} = schema | remaining]}} = ctx, acc) do\\n",
+            "  defp cast_all_of(%Cast{schema: %{allOf: [%Schema{} = schema | remaining]}} = ctx, acc) do\\n",
+        ),
+        (
+            "  defp cast_all_of(%{schema: %{allOf: [nested_schema | remaining]} = schema} = ctx, result) do\\n",
+            "  defp cast_all_of(%Cast{schema: %{allOf: [nested_schema | remaining]} = schema} = ctx, result) do\\n",
+        ),
+    ],
+)
+patch_file(
+    Path("deps/open_api_spex/lib/open_api_spex/cast/one_of.ex"),
+    [
+        (
+            "  def cast(%_{schema: %{type: _, oneOf: []}} = ctx) do\\n",
+            "  def cast(%Cast{schema: %{type: _, oneOf: []}} = ctx) do\\n",
+        ),
+        (
+            "  def cast(%{schema: %{type: _, oneOf: schemas}} = ctx) do\\n",
+            "  def cast(%Cast{schema: %{type: _, oneOf: schemas}} = ctx) do\\n",
+        ),
+        (
+            "    castable_schemas =\\n"
+            "      Enum.reduce(schemas, {ctx, [], []}, fn schema, {ctx, results, error_schemas} ->\\n",
+            "    castable_schemas =\\n"
+            "      Enum.reduce(schemas, {ctx, [], []}, fn schema, {%Cast{} = ctx, results, error_schemas} ->\\n",
+        ),
+    ],
+)
+
+patch_file(
+    Path("deps/open_api_spex/lib/open_api_spex/cast/any_of.ex"),
+    [
+        (
+            "  defp cast_any_of(%_{schema: %{anyOf: []}} = ctx, failed_schemas, :__not_casted) do\\n",
+            "  defp cast_any_of(%Cast{schema: %{anyOf: []}} = ctx, failed_schemas, :__not_casted) do\\n",
+        ),
+        (
+            "  defp cast_any_of(\\n"
+            "         %{schema: %{anyOf: [%Schema{} = schema | remaining]}} = ctx,\\n",
+            "  defp cast_any_of(\\n"
+            "         %Cast{schema: %{anyOf: [%Schema{} = schema | remaining]}} = ctx,\\n",
+        ),
+        (
+            "    new_ctx = put_in(ctx.schema.anyOf, remaining)\\n",
+            "    new_ctx = %Cast{} = put_in(ctx.schema.anyOf, remaining)\\n",
+        ),
+        (
+            "  defp cast_any_of(\\n"
+            "         %{schema: %{anyOf: [nested_schema | remaining]} = schema} = ctx,\\n",
+            "  defp cast_any_of(\\n"
+            "         %Cast{schema: %{anyOf: [nested_schema | remaining]} = schema} = ctx,\\n",
+        ),
+        (
+            '  defp cast_any_of(%_{schema: %{anyOf: [], "x-struct": module}} = ctx, _failed_schemas, acc)\\n',
+            '  defp cast_any_of(%Cast{schema: %{anyOf: [], "x-struct": module}} = ctx, _failed_schemas, acc)\\n',
+        ),
+        (
+            "  defp cast_any_of(%_{schema: %{anyOf: []}} = ctx, _failed_schemas, acc) do\\n",
+            "  defp cast_any_of(%Cast{schema: %{anyOf: []}} = ctx, _failed_schemas, acc) do\\n",
+        ),
+    ],
+)
+
+patch_file(
+    Path("deps/jetstream/lib/jetstream/api/object.ex"),
+    [
+        (
+            "    with {:ok, meta} <- info(conn, bucket_name, object_name),\\n",
+            "    with {:ok, %Meta{} = meta} <- info(conn, bucket_name, object_name),\\n",
+        ),
+    ],
+)
+
+patch_file(
+    Path("deps/ash_state_machine/lib/ash_state_machine.ex"),
+    [
+        (
+            "    defstruct [:action, :from, :to, :__identifier__]\\n",
+            "    defstruct [:action, :from, :to, :__identifier__, __spark_metadata__: nil]\\n",
+        ),
+    ],
+)
+
+patch_file(
+    Path("deps/ash_postgres/lib/resource_generator/spec.ex"),
+    [
+        (
+            "defmodule AshPostgres.ResourceGenerator.Spec do\\n",
+            "defmodule AshPostgres.ResourceGenerator.Spec do\\n"
+            "  @compile {:no_warn_undefined, Igniter.Inflex}\\n"
+            "  @compile {:no_warn_undefined, Owl.IO}\\n",
+        ),
+    ],
+)
+
+patch_file(
+    Path("deps/broadway_dashboard/lib/broadway_dashboard.ex"),
+    [
+        (
+            "            {:ok, push_redirect(socket, to: to)}\\n",
+            "            {:ok, push_navigate(socket, to: to)}\\n",
+        ),
+    ],
+)
+
+patch_file(
+    Path("deps/ash_json_api/lib/ash_json_api/plug/parser.ex"),
+    [
+        (
+            "         {:ok, data, acc, conn},\\n",
+            "         {:ok, data, acc, %Plug.Conn{} = conn},\\n",
+        ),
+    ],
+)
+
+patch_file(
+    Path("deps/sweet_xml/lib/sweet_xml.ex"),
+    [
+        (
+            "  def add_namespace(xpath, prefix, uri) do\\n",
+            "  def add_namespace(%SweetXpath{} = xpath, prefix, uri) do\\n",
+        ),
+    ],
+)
+
+patch_file(
+    Path("deps/samly/lib/samly/sp_handler.ex"),
+    [
+        (
+            "    with {:ok, assertion} <- Helper.decode_idp_auth_resp(sp, saml_encoding, saml_response),\\n",
+            "    with {:ok, %Assertion{} = assertion} <- Helper.decode_idp_auth_resp(sp, saml_encoding, saml_response),\\n",
+        ),
+    ],
+)
+
+patch_file(
+    Path("deps/samly/lib/samly/idp_data.ex"),
+    [
+        (
+            "  defp save_idp_config(idp_data, %{id: id, sp_id: sp_id} = opts_map)\\n",
+            "  defp save_idp_config(%IdpData{} = idp_data, %{id: id, sp_id: sp_id} = opts_map)\\n",
+        ),
+        (
+            "  defp update_esaml_recs(idp_data, service_providers, opts_map) do\\n",
+            "  defp update_esaml_recs(%IdpData{} = idp_data, service_providers, opts_map) do\\n",
+        ),
+        (
+            "  defp from_xml(metadata_xml, idp_data) when is_binary(metadata_xml) do\\n",
+            "  defp from_xml(metadata_xml, %IdpData{} = idp_data) when is_binary(metadata_xml) do\\n",
+        ),
     ],
 )
 PY
@@ -281,10 +556,12 @@ copy_dir() {{
   local src="$1"
   local dest="$2"
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a "$src" "$dest"
+    # Bazel presents source files as symlinks in execroot; dereference them
+    # so Mix writes (e.g. mix.lock updates) stay inside the writable WORKDIR.
+    rsync -aL "$src" "$dest"
   else
     mkdir -p "$dest"
-    cp -a "${{src%/}}/." "$dest"
+    cp -aL "${{src%/}}/." "$dest"
   fi
 }}
 
@@ -382,6 +659,10 @@ rm -rf /tmp/elixir/serviceradar_srql
 ln -s "$WORKDIR/elixir/serviceradar_srql" /tmp/elixir/serviceradar_srql
 rm -rf /tmp/serviceradar_core
 ln -s "$WORKDIR/elixir/serviceradar_core" /tmp/serviceradar_core
+rm -rf /tmp/serviceradar_srql
+ln -s "$WORKDIR/elixir/serviceradar_srql" /tmp/serviceradar_srql
+rm -rf /tmp/datasvc
+ln -s "$WORKDIR/elixir/datasvc" /tmp/datasvc
 
 cd "$WORKDIR"
 chmod -R u+w .
@@ -429,14 +710,20 @@ if [ "{run_assets}" = "true" ]; then
   fi
   if [ -f assets/package.json ]; then
     if [ -f assets/bun.lockb ] || [ -f assets/bun.lock ]; then
-      (cd assets && bun install --frozen-lockfile)
+      if ! (cd assets && bun install --frozen-lockfile); then
+        echo "warning: frozen bun lockfile check failed in assets; retrying without --frozen-lockfile in release sandbox" >&2
+        (cd assets && bun install)
+      fi
     else
       (cd assets && bun install)
     fi
   fi
   if [ -f assets/component/package.json ]; then
     if [ -f assets/component/bun.lockb ] || [ -f assets/component/bun.lock ]; then
-      (cd assets/component && bun install --frozen-lockfile)
+      if ! (cd assets/component && bun install --frozen-lockfile); then
+        echo "warning: frozen bun lockfile check failed in assets/component; retrying without --frozen-lockfile in release sandbox" >&2
+        (cd assets/component && bun install)
+      fi
     else
       (cd assets/component && bun install)
     fi

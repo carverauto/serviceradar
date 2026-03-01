@@ -1,0 +1,29 @@
+[Unit]
+Description=ServiceRadar Log Collector (syslog/GELF + OTEL)
+After=network-online.target
+
+[Service]
+Type=simple
+Environment="RUST_LOG=info"
+Environment="CONFIG_SOURCE=file"
+Environment="KV_ADDRESS=127.0.0.1:50057"
+Environment="KV_SEC_MODE=mtls"
+Environment="KV_CERT_DIR=/etc/serviceradar/certs"
+Environment="KV_CERT_FILE=/etc/serviceradar/certs/log-collector.pem"
+Environment="KV_KEY_FILE=/etc/serviceradar/certs/log-collector-key.pem"
+Environment="KV_CA_FILE=/etc/serviceradar/certs/root.pem"
+EnvironmentFile=-/etc/serviceradar/kv-overrides.env
+ExecStart=/usr/local/bin/serviceradar-log-collector --config /etc/serviceradar/log-collector.toml
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s SIGINT $MAINPID
+User=serviceradar
+Group=serviceradar
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/serviceradar/log-collector.log
+StandardError=append:/var/log/serviceradar/log-collector-error.log
+LimitNOFILE=800000
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

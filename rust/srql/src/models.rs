@@ -110,6 +110,9 @@ pub struct DeviceRow {
     pub discovery_sources: Option<Vec<String>>,
     pub is_available: Option<bool>,
     pub metadata: Option<serde_json::Value>,
+    pub deleted_at: Option<DateTime<Utc>>,
+    pub deleted_by: Option<String>,
+    pub deleted_reason: Option<String>,
 }
 
 impl DeviceRow {
@@ -166,49 +169,141 @@ impl DeviceRow {
             "discovery_sources": self.discovery_sources.unwrap_or_default(),
             "is_available": self.is_available.unwrap_or(false),
             "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "deleted_at": self.deleted_at,
+            "deleted_by": self.deleted_by,
+            "deleted_reason": self.deleted_reason,
         })
     }
 }
 
 #[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::events)]
+#[diesel(table_name = crate::schema::bmp_routing_events)]
+pub struct BmpRoutingEventRow {
+    pub time: DateTime<Utc>,
+    pub id: Uuid,
+    pub event_type: String,
+    pub severity_id: Option<i32>,
+    pub router_id: Option<String>,
+    pub router_ip: Option<String>,
+    pub peer_ip: Option<String>,
+    pub peer_asn: Option<i64>,
+    pub local_asn: Option<i64>,
+    pub prefix: Option<String>,
+    pub message: Option<String>,
+    pub metadata: serde_json::Value,
+    pub raw_data: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl BmpRoutingEventRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "time": self.time,
+            "event_timestamp": self.time,
+            "id": self.id.to_string(),
+            "event_type": self.event_type,
+            "severity_id": self.severity_id,
+            "router_id": self.router_id,
+            "router_ip": self.router_ip,
+            "peer_ip": self.peer_ip,
+            "peer_asn": self.peer_asn,
+            "local_asn": self.local_asn,
+            "prefix": self.prefix,
+            "message": self.message,
+            "metadata": self.metadata,
+            "raw_data": self.raw_data,
+            "created_at": self.created_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::ocsf_events)]
 pub struct EventRow {
-    pub event_timestamp: DateTime<Utc>,
-    pub specversion: Option<String>,
-    pub id: String,
-    pub source: Option<String>,
-    pub event_type: Option<String>,
-    pub datacontenttype: Option<String>,
-    pub subject: Option<String>,
-    pub remote_addr: Option<String>,
-    pub host: Option<String>,
-    pub level: Option<i32>,
+    pub time: DateTime<Utc>,
+    pub id: Uuid,
+    pub class_uid: i32,
+    pub category_uid: i32,
+    pub type_uid: i32,
+    pub activity_id: i32,
+    pub activity_name: Option<String>,
+    pub severity_id: Option<i32>,
     pub severity: Option<String>,
-    pub short_message: Option<String>,
-    pub version: Option<String>,
+    pub message: Option<String>,
+    pub status_id: Option<i32>,
+    pub status: Option<String>,
+    pub status_code: Option<String>,
+    pub status_detail: Option<String>,
+    pub metadata: serde_json::Value,
+    pub observables: serde_json::Value,
+    pub trace_id: Option<String>,
+    pub span_id: Option<String>,
+    pub actor: serde_json::Value,
+    pub device: serde_json::Value,
+    pub src_endpoint: serde_json::Value,
+    pub dst_endpoint: serde_json::Value,
+    pub log_name: Option<String>,
+    pub log_provider: Option<String>,
+    pub log_level: Option<String>,
+    pub log_version: Option<String>,
+    pub unmapped: serde_json::Value,
     pub raw_data: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
 impl EventRow {
     pub fn into_json(self) -> serde_json::Value {
+        let id = self.id.to_string();
+        let host = extract_device_host(&self.device);
+
         serde_json::json!({
-            "event_timestamp": self.event_timestamp,
-            "specversion": self.specversion,
-            "id": self.id,
-            "source": self.source,
-            "type": self.event_type,
-            "datacontenttype": self.datacontenttype,
-            "subject": self.subject,
-            "remote_addr": self.remote_addr,
-            "host": self.host,
-            "level": self.level,
+            "time": self.time,
+            "event_timestamp": self.time,
+            "id": id,
+            "class_uid": self.class_uid,
+            "category_uid": self.category_uid,
+            "type_uid": self.type_uid,
+            "activity_id": self.activity_id,
+            "activity_name": self.activity_name,
+            "severity_id": self.severity_id,
             "severity": self.severity,
-            "short_message": self.short_message,
-            "version": self.version,
+            "message": self.message,
+            "status_id": self.status_id,
+            "status": self.status,
+            "status_code": self.status_code,
+            "status_detail": self.status_detail,
+            "metadata": self.metadata,
+            "observables": self.observables,
+            "trace_id": self.trace_id,
+            "span_id": self.span_id,
+            "actor": self.actor,
+            "device": self.device,
+            "src_endpoint": self.src_endpoint,
+            "dst_endpoint": self.dst_endpoint,
+            "log_name": self.log_name,
+            "log_provider": self.log_provider,
+            "log_level": self.log_level,
+            "log_version": self.log_version,
+            "unmapped": self.unmapped,
             "raw_data": self.raw_data,
+            "host": host,
+            "source": self.log_provider,
+            "short_message": self.message,
+            "created_at": self.created_at,
         })
     }
+}
+
+fn extract_device_host(device: &serde_json::Value) -> Option<String> {
+    let obj = device.as_object()?;
+    for key in ["hostname", "name", "host"] {
+        if let Some(value) = obj.get(key).and_then(|v| v.as_str()) {
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone, Queryable, Serialize)]
@@ -260,6 +355,7 @@ pub struct LogRow {
     pub severity_number: Option<i32>,
     pub body: Option<String>,
     pub event_name: Option<String>,
+    pub source: Option<String>,
     pub service_name: Option<String>,
     pub service_version: Option<String>,
     pub service_instance: Option<String>,
@@ -284,6 +380,7 @@ impl LogRow {
             "severity_number": self.severity_number,
             "body": self.body,
             "event_name": self.event_name,
+            "source": self.source,
             "service_name": self.service_name,
             "service_version": self.service_version,
             "service_instance": self.service_instance,

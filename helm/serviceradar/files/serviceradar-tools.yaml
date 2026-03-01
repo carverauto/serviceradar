@@ -12,6 +12,7 @@ spec:
     metadata:
       labels:
         app: serviceradar-tools
+        app.kubernetes.io/part-of: serviceradar
     spec:
       initContainers:
       - name: init-debug-tools

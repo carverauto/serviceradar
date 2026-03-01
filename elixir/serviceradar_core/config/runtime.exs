@@ -3,6 +3,50 @@ import Config
 # Runtime configuration for production deployments.
 # This file is executed at runtime, not compile time.
 
+# GeoLite2 MMDB configuration (all environments)
+geolite_dir = System.get_env("GEOLITE_MMDB_DIR", "/var/lib/serviceradar/geoip")
+
+geolite_city_enabled =
+  System.get_env("GEOLITE_CITY_ENABLED", "false")
+  |> String.downcase()
+  |> then(&(&1 in ["1", "true", "yes", "on"]))
+
+config :serviceradar_core,
+  geolite_mmdb_dir: geolite_dir
+
+base_geolite_dbs = [
+  %{
+    id: :geolite2_asn,
+    adapter: Geolix.Adapter.MMDB2,
+    source: Path.join(geolite_dir, "GeoLite2-ASN.mmdb")
+  },
+  %{
+    id: :geolite2_country,
+    adapter: Geolix.Adapter.MMDB2,
+    source: Path.join(geolite_dir, "GeoLite2-Country.mmdb")
+  }
+]
+
+city_geolite_dbs =
+  (geolite_city_enabled &&
+     [
+       %{
+         id: :geolite2_city,
+         adapter: Geolix.Adapter.MMDB2,
+         source: Path.join(geolite_dir, "GeoLite2-City.mmdb")
+       }
+     ]) || []
+
+ipinfo_dbs = [
+  %{
+    id: :ipinfo_lite,
+    adapter: Geolix.Adapter.MMDB2,
+    source: Path.join(geolite_dir, "ipinfo_lite.mmdb")
+  }
+]
+
+config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+
 if config_env() == :prod do
   # AshCloak encryption key (required for PII encryption)
   cloak_key =
@@ -61,6 +105,21 @@ if config_env() == :prod do
 
   config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
 
+  age_graph_name =
+    System.get_env("SERVICERADAR_AGE_GRAPH_NAME") ||
+      System.get_env("AGE_GRAPH_NAME") ||
+      "platform_graph"
+
+  config :serviceradar_core, :age_graph_name, age_graph_name
+
+  topology_v2_contract_consumption_enabled =
+    System.get_env("SERVICERADAR_TOPOLOGY_V2_CONSUMPTION_ENABLED", "true")
+    |> String.downcase()
+    |> then(&(&1 in ["1", "true", "yes", "on"]))
+
+  config :serviceradar_core,
+    topology_v2_contract_consumption_enabled: topology_v2_contract_consumption_enabled
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """
@@ -86,7 +145,7 @@ if config_env() == :prod do
   end
 
   pool_size = parse_int.(System.get_env("POOL_SIZE") || "10") || 10
-  search_path = System.get_env("CNPG_SEARCH_PATH", "platform, ag_catalog")
+  search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
 
   database_timeout =
     System.get_env("DATABASE_TIMEOUT_MS")
@@ -109,7 +168,8 @@ if config_env() == :prod do
     ssl: ssl_opts,
     socket_options: maybe_ipv6,
     pool_size: pool_size,
-    parameters: [search_path: search_path]
+    parameters: [search_path: search_path],
+    types: ServiceRadar.PostgresTypes
   ]
 
   queue_target =
@@ -140,7 +200,9 @@ if config_env() == :prod do
       if database_timeout, do: Keyword.put(opts, :timeout, database_timeout), else: opts
     end)
     |> then(fn opts ->
-      if database_pool_timeout, do: Keyword.put(opts, :pool_timeout, database_pool_timeout), else: opts
+      if database_pool_timeout,
+        do: Keyword.put(opts, :pool_timeout, database_pool_timeout),
+        else: opts
     end)
 
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
@@ -215,6 +277,13 @@ if config_env() == :prod do
   config :serviceradar_core,
     sync_ingestor_queue_max_chunks: sync_ingestor_queue_max_chunks || 10
 
+  config :serviceradar_core,
+    device_enrichment_rules_dir:
+      System.get_env(
+        "DEVICE_ENRICHMENT_RULES_DIR",
+        "/var/lib/serviceradar/rules/device-enrichment"
+      )
+
   plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
 
   plugin_storage_overrides =
@@ -235,8 +304,12 @@ if config_env() == :prod do
     end)
     |> then(fn acc ->
       case System.get_env("PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS") do
-        nil -> acc
-        "" -> acc
+        nil ->
+          acc
+
+        "" ->
+          acc
+
         value ->
           case Integer.parse(value) do
             {parsed, ""} -> Keyword.put(acc, :download_ttl_seconds, parsed)
@@ -255,6 +328,7 @@ if config_env() == :prod do
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
+    prefix: System.get_env("OBAN_SCHEMA", "platform"),
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
       alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
@@ -309,6 +383,11 @@ if config_env() == :prod do
     password: {:system, "NATS_PASSWORD"},
     creds_file: nats_creds_file,
     tls: nats_tls_config
+
+  log_promotion_enabled =
+    System.get_env("LOG_PROMOTION_CONSUMER_ENABLED", "true") in ~w(true 1 yes)
+
+  config :serviceradar_core, :log_promotion_consumer_enabled, log_promotion_enabled
 
   # EventWriter configuration (NATS JetStream → CNPG consumer)
   # Enable with EVENT_WRITER_ENABLED=true
@@ -382,11 +461,39 @@ if config_env() == :prod do
           batch_timeout: 1_000
         },
         %{
-          name: "LOGS",
-          subject: "logs.>",
-          processor: ServiceRadar.EventWriter.Processors.Logs,
+          name: "BMP_CAUSAL",
+          subject: "bmp.events.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
           batch_size: 100,
           batch_timeout: 1_000
+        },
+        %{
+          name: "ARANCINI_CAUSAL",
+          subject: "arancini.updates.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "SIEM_CAUSAL",
+          subject: "siem.events.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "SFLOW_RAW",
+          subject: "flows.raw.sflow",
+          processor: ServiceRadar.EventWriter.Processors.Flows,
+          batch_size: 50,
+          batch_timeout: 500
+        },
+        %{
+          name: "NETFLOW_RAW",
+          subject: "flows.raw.netflow",
+          processor: ServiceRadar.EventWriter.Processors.Flows,
+          batch_size: 50,
+          batch_timeout: 500
         }
       ]
   end

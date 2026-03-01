@@ -2,7 +2,6 @@
   import_deps: [
     :ash,
     :ash_postgres,
-    :ash_authentication,
     :ash_oban,
     :ash_state_machine,
     :ash_json_api,

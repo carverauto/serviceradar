@@ -2,12 +2,11 @@ name: Rust Tests
 on:
   push:
     paths:
-      - 'cmd/checkers/rperf-client/**'
-      - 'cmd/checkers/rperf-server/**'
-      - 'cmd/trapd/**'
-      - 'cmd/consumers/zen/**'
-      - 'cmd/otel/**'
-      - 'cmd/flowgger/**'
+      - 'rust/rperf-client/**'
+      - 'rust/rperf-server/**'
+      - 'rust/trapd/**'
+      - 'rust/consumers/zen/**'
+      - 'rust/log-collector/**'
       - 'rust/srql/**'
       - '.github/workflows/tests-rust.yml'
 
@@ -24,11 +23,11 @@ jobs:
     strategy:
       matrix:
         project:
-          - cmd/checkers/rperf-client
-          - cmd/trapd
-          - cmd/consumers/zen
-          - cmd/otel
-          - cmd/flowgger
+          - rust/rperf-client
+          - rust/rperf-server
+          - rust/trapd
+          - rust/consumers/zen
+          - rust/log-collector
           - rust/srql
     steps:
       - name: Checkout

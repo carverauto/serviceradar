@@ -16,6 +16,7 @@ pub enum Entity {
     DeviceGraph,
     GraphCypher,
     Events,
+    BmpEvents,
     Logs,
     Services,
     Gateways,
@@ -29,6 +30,7 @@ pub enum Entity {
     SnmpMetrics,
     TraceSummaries,
     Traces,
+    Flows,
     Alerts,
 }
 
@@ -218,7 +220,10 @@ pub fn parse(input: &str) -> Result<QueryAst> {
                 order.extend(parse_order(value.as_scalar()?));
             }
             "time" | "timeframe" => {
-                time_filter = Some(parse_time_value(value.as_scalar()?)?);
+                // `parse_value` treats bracketed ranges like `[start,end]` as a list, but the SRQL
+                // time parser supports bracketed absolute ranges as a scalar string.
+                // Use the raw token value so both presets (`last_1h`) and absolute ranges work.
+                time_filter = Some(parse_time_value(raw_value)?);
             }
             "bucket" | "downsample" => {
                 downsample_bucket_seconds = Some(parse_bucket_seconds(value.as_scalar()?)?);
@@ -367,6 +372,7 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "device_updates" | "device_update" | "updates" => Ok(Entity::DeviceUpdates),
         "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "events" | "activity" => Ok(Entity::Events),
+        "bmp_events" | "bmp_event" | "bmp_routing_events" => Ok(Entity::BmpEvents),
         "logs" => Ok(Entity::Logs),
         "services" | "service" => Ok(Entity::Services),
         "gateways" | "gateway" => Ok(Entity::Gateways),
@@ -382,6 +388,7 @@ fn parse_entity(raw: &str) -> Result<Entity> {
             Ok(Entity::TraceSummaries)
         }
         "otel_traces" | "traces" | "trace_spans" => Ok(Entity::Traces),
+        "flows" | "flow" | "network_activity" => Ok(Entity::Flows),
         "alerts" | "alert" => Ok(Entity::Alerts),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
@@ -892,6 +899,14 @@ mod tests {
     fn parses_interfaces_entity() {
         let ast = parse("in:interfaces time:last_24h").unwrap();
         assert!(matches!(ast.entity, Entity::Interfaces));
+    }
+
+    #[test]
+    fn parses_bmp_events_entity() {
+        let ast = parse("in:bmp_events router_ip:10.42.68.85 time:last_24h").unwrap();
+        assert!(matches!(ast.entity, Entity::BmpEvents));
+        assert_eq!(ast.filters.len(), 1);
+        assert_eq!(ast.filters[0].field, "router_ip");
     }
 
     #[test]

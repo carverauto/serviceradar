@@ -11,9 +11,10 @@ GHCR_PUSH_TARGETS = [
     {"image": "agent_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent"},
     {"image": "db_event_writer_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-db-event-writer"},
     {"image": "datasvc_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-datasvc"},
-    {"image": "flowgger_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-flowgger"},
+    {"image": "log_collector_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-log-collector"},
     {"image": "trapd_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-trapd"},
-    {"image": "otel_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-otel"},
+    {"image": "flow_collector_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-flow-collector"},
+    {"image": "bmp_collector_image_amd64", "repository": "ghcr.io/carverauto/arancini"},
     {"image": "rperf_client_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-rperf-client"},
     {"image": "agent_gateway_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent-gateway"},
     {"image": "faker_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-faker"},
@@ -25,7 +26,7 @@ GHCR_PUSH_TARGETS = [
     {
         "image": "cnpg_image_amd64",
         "repository": "ghcr.io/carverauto/serviceradar-cnpg",
-        "static_tags": ["16.6.0-sr3"],
+        "static_tags": ["16.6.0-sr5"],
     },
 ]
 

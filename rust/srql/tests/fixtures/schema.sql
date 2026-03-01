@@ -88,6 +88,40 @@ CREATE TABLE events (
     PRIMARY KEY (event_timestamp, id)
 );
 
+DROP TABLE IF EXISTS ocsf_events;
+CREATE TABLE ocsf_events (
+    time          TIMESTAMPTZ NOT NULL,
+    id            UUID        NOT NULL,
+    class_uid     INT         NOT NULL,
+    category_uid  INT         NOT NULL,
+    type_uid      INT         NOT NULL,
+    activity_id   INT         NOT NULL,
+    activity_name TEXT,
+    severity_id   INT,
+    severity      TEXT,
+    message       TEXT,
+    status_id     INT,
+    status        TEXT,
+    status_code   TEXT,
+    status_detail TEXT,
+    metadata      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    observables   JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    trace_id      TEXT,
+    span_id       TEXT,
+    actor         JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    device        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    src_endpoint  JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    dst_endpoint  JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    log_name      TEXT,
+    log_provider  TEXT,
+    log_level     TEXT,
+    log_version   TEXT,
+    unmapped      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    raw_data      TEXT,
+    created_at    TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (time, id)
+);
+
 DROP TABLE IF EXISTS logs;
 CREATE TABLE logs (
     timestamp           TIMESTAMPTZ NOT NULL,

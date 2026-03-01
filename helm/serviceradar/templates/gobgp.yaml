@@ -1,0 +1,117 @@
+{{- if .Values.gobgp.enabled }}
+{{- $peers := .Values.gobgp.peers | default .Values.faker.simulation.bgp.peers | default (list) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-gobgp-config
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+data:
+  gobgpd.toml: |
+    [global.config]
+      as = {{ .Values.gobgp.bgp.localAsn | default 401642 }}
+      router-id = "{{ .Values.gobgp.bgp.routerId | default "204.209.51.59" }}"
+
+    [[bmp-servers]]
+      [bmp-servers.config]
+        address = "{{ .Values.gobgp.bmp.address | default "serviceradar-bmp-collector" }}"
+        port = {{ .Values.gobgp.bmp.port | default 11019 }}
+        route-monitoring-policy = "all"
+        statistics-timeout = 600
+
+{{- range $peer := $peers }}
+    [[neighbors]]
+      [neighbors.config]
+        neighbor-address = "{{ $peer.ip }}"
+        peer-as = {{ (default $peer.peer_asn $peer.peerAsn) }}
+{{- if $peer.description }}
+        description = "{{ $peer.description }}"
+{{- end }}
+      [[neighbors.afi-safis]]
+        [neighbors.afi-safis.config]
+{{- if contains ":" $peer.ip }}
+          afi-safi-name = "ipv6-unicast"
+{{- else }}
+          afi-safi-name = "ipv4-unicast"
+{{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-gobgp
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-gobgp
+  template:
+    metadata:
+      labels:
+        app: serviceradar-gobgp
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      containers:
+      - name: gobgpd
+        image: {{ .Values.gobgp.image.repository }}:{{ .Values.gobgp.image.tag }}
+        imagePullPolicy: {{ .Values.gobgp.image.pullPolicy | default (include "serviceradar.imagePullPolicy" .) }}
+        command:
+        - /bin/sh
+        - -ec
+        - |
+          exec gobgpd \
+            --config-file /etc/gobgp/gobgpd.toml \
+            --api-hosts {{ .Values.gobgp.api.host | default "0.0.0.0" }}:{{ .Values.gobgp.api.port | default 50051 }}
+        ports:
+        - name: grpc
+          containerPort: {{ .Values.gobgp.api.port | default 50051 }}
+          protocol: TCP
+        livenessProbe:
+          tcpSocket:
+            port: grpc
+          initialDelaySeconds: 20
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: grpc
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.gobgp.resources | nindent 10 }}
+        volumeMounts:
+        - name: gobgp-config
+          mountPath: /etc/gobgp
+          readOnly: true
+      volumes:
+      - name: gobgp-config
+        configMap:
+          name: serviceradar-gobgp-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-gobgp
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+  {{- with .Values.gobgp.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.gobgp.service.type | default "ClusterIP" }}
+  selector:
+    app: serviceradar-gobgp
+  ports:
+  - name: grpc
+    port: {{ .Values.gobgp.api.port | default 50051 }}
+    targetPort: grpc
+    protocol: TCP
+{{- end }}

@@ -65,11 +65,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: flowgger
+  name: log-collector
   namespace: demo
 spec:
   type: ExternalName
-  externalName: serviceradar-flowgger.demo.svc.cluster.local
+  externalName: serviceradar-log-collector.demo.svc.cluster.local
 ---
 apiVersion: v1
 kind: Service
@@ -88,12 +88,3 @@ metadata:
 spec:
   type: ExternalName
   externalName: serviceradar-rperf-client.demo.svc.cluster.local
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: otel
-  namespace: demo
-spec:
-  type: ExternalName
-  externalName: serviceradar-otel.demo.svc.cluster.local

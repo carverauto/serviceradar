@@ -59,14 +59,18 @@ defmodule ServiceRadar.Identity.Users do
   @spec get_by_email_and_password(String.t(), String.t(), keyword()) :: User.t() | nil
   def get_by_email_and_password(email, password, opts \\ [])
       when is_binary(email) and is_binary(password) do
-    user = get_by_email(email, opts)
+    actor = Keyword.get(opts, :actor)
+    authorize? = Keyword.get(opts, :authorize?, true)
 
-    if user && valid_password?(user, password) do
-      user
-    else
-      # Perform a dummy password check to prevent timing attacks
-      unless user, do: Bcrypt.no_user_verify()
-      nil
+    case User.authenticate(email, password, actor: actor, authorize?: authorize?) do
+      {:ok, %User{} = user} ->
+        user
+
+      {:ok, nil} ->
+        nil
+
+      {:error, _} ->
+        nil
     end
   end
 
@@ -139,7 +143,7 @@ defmodule ServiceRadar.Identity.Users do
   @spec update_email(User.t(), map(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def update_email(user, attrs, opts \\ []) do
     actor = Keyword.get(opts, :actor, user)
-    authorize? = Keyword.get(opts, :authorize?, false)
+    authorize? = Keyword.get(opts, :authorize?, true)
 
     user
     |> Ash.Changeset.for_update(:update_email, attrs, actor: actor, authorize?: authorize?)
@@ -154,7 +158,7 @@ defmodule ServiceRadar.Identity.Users do
   @spec update_password(User.t(), map(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def update_password(user, attrs, opts \\ []) do
     actor = Keyword.get(opts, :actor, user)
-    authorize? = Keyword.get(opts, :authorize?, false)
+    authorize? = Keyword.get(opts, :authorize?, true)
 
     # Filter to only valid arguments for change_password action
     valid_keys = [
@@ -192,6 +196,48 @@ defmodule ServiceRadar.Identity.Users do
   end
 
   @doc """
+  Deactivates a user account and revokes access.
+  """
+  @spec deactivate(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def deactivate(user, opts \\ []) do
+    actor = Keyword.get(opts, :actor)
+    authorize? = Keyword.get(opts, :authorize?, true)
+
+    user
+    |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor, authorize?: authorize?)
+    |> Ash.update()
+  end
+
+  @doc """
+  Reactivates a user account.
+  """
+  @spec reactivate(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def reactivate(user, opts \\ []) do
+    actor = Keyword.get(opts, :actor)
+    authorize? = Keyword.get(opts, :authorize?, true)
+
+    user
+    |> Ash.Changeset.for_update(:reactivate, %{}, actor: actor, authorize?: authorize?)
+    |> Ash.update()
+  end
+
+  @doc """
+  Records a user login and authentication method.
+  """
+  @spec record_login(User.t(), atom(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def record_login(user, auth_method, opts \\ []) do
+    actor = Keyword.get(opts, :actor, user)
+    authorize? = Keyword.get(opts, :authorize?, true)
+
+    user
+    |> Ash.Changeset.for_update(:record_login, %{auth_method: auth_method},
+      actor: actor,
+      authorize?: authorize?
+    )
+    |> Ash.update()
+  end
+
+  @doc """
   Confirms a user's email address.
   """
   @spec confirm(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
@@ -213,6 +259,7 @@ defmodule ServiceRadar.Identity.Users do
   ## Options
 
     * `:role` - Filter by role
+    * `:status` - Filter by status
     * `:limit` - Maximum number of results (default: 100)
     * `:actor` - The actor performing the query
 
@@ -223,10 +270,12 @@ defmodule ServiceRadar.Identity.Users do
     authorize? = Keyword.get(opts, :authorize?, false)
     limit = Keyword.get(opts, :limit, 100)
     role = Keyword.get(opts, :role)
+    status = Keyword.get(opts, :status)
 
     User
     |> Ash.Query.for_read(:read, %{}, actor: actor, authorize?: authorize?)
     |> maybe_filter_role(role)
+    |> maybe_filter_status(status)
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.Query.limit(limit)
     |> Ash.read()
@@ -239,5 +288,12 @@ defmodule ServiceRadar.Identity.Users do
   defp maybe_filter_role(query, role) do
     import Ash.Expr
     Ash.Query.filter(query, expr(role == ^role))
+  end
+
+  defp maybe_filter_status(query, nil), do: query
+
+  defp maybe_filter_status(query, status) do
+    import Ash.Expr
+    Ash.Query.filter(query, expr(status == ^status))
   end
 end

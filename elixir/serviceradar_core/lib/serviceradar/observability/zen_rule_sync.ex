@@ -221,13 +221,25 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
   defp transient_error?(reason) do
     case reason do
-      :datasvc_unavailable -> true
-      :not_connected -> true
-      :not_started -> true
-      :timeout -> true
-      {:call_failed, _} -> true
-      %GRPC.RPCError{status: status} when status in [:unavailable, :deadline_exceeded, :cancelled] ->
+      :datasvc_unavailable ->
         true
+
+      :not_connected ->
+        true
+
+      :not_started ->
+        true
+
+      :timeout ->
+        true
+
+      {:call_failed, _} ->
+        true
+
+      %GRPC.RPCError{status: status}
+      when status in [:unavailable, :deadline_exceeded, :cancelled] ->
+        true
+
       _ ->
         false
     end

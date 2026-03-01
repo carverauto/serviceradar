@@ -60,7 +60,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             interval_seconds: 60,
             timeout_seconds: 10,
             agent_uid: agent_uid
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
@@ -88,7 +90,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             target: "10.0.0.1",
             port: 22,
             agent_uid: agent_uid
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Create check then disable it
@@ -102,7 +106,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             target: "10.0.0.2",
             port: 22,
             agent_uid: agent_uid
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Disable the check
@@ -227,7 +233,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             check_type: :ping,
             target: "10.0.0.100",
             agent_uid: agent_uid
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Get config again
@@ -314,7 +322,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             interval: "15m",
             static_targets: ["10.0.0.1"],
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       ConfigServer.invalidate(:sweep)
@@ -359,7 +369,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             interval: "15m",
             static_targets: ["192.168.1.0/24"],
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Create sweep group in default partition (should NOT be included)
@@ -373,7 +385,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             interval: "15m",
             static_targets: ["10.0.0.1"],
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       ConfigServer.invalidate(:sweep)
@@ -409,7 +423,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             ip: "10.100.50.25",
             hostname: "target-server",
             tags: %{"env" => "prod", "tier" => "1"}
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Create sweep group with SRQL targeting
@@ -423,7 +439,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             interval: "15m",
             target_query: "in:devices ip:10.100.0.0/16 tags.env:prod",
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       ConfigServer.invalidate(:sweep)
@@ -461,7 +479,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             target_query: "in:devices ip:10.0.0.0/8",
             static_targets: ["192.168.1.1"],
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       ConfigServer.invalidate(:sweep)
@@ -504,7 +524,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             interval: "15m",
             static_targets: ["10.0.99.1"],
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       # Create partition-wide sweep group
@@ -519,7 +541,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             interval: "15m",
             static_targets: ["10.0.1.1"],
             enabled: true
-          }, actor: actor)
+          },
+          actor: actor
+        )
         |> Ash.create()
 
       ConfigServer.invalidate(:sweep)
