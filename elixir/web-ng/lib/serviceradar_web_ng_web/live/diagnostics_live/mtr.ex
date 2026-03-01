@@ -146,7 +146,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
       true ->
         payload = %{"target" => target, "protocol" => protocol}
 
-        case AgentCommandBus.dispatch(agent_id, "mtr.run", payload) do
+        case AgentCommandBus.dispatch(agent_id, "mtr.run", payload, required_capability: "mtr") do
           {:ok, command_id} ->
             {:noreply,
              socket

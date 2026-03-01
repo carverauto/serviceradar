@@ -211,11 +211,12 @@ defmodule ServiceRadar.Observability.MtrVantageSelector do
     base = @default_weights
 
     custom = %{
-      affinity: get_float(policy, [:w_affinity, "w_affinity"], base.affinity),
-      health: get_float(policy, [:w_health, "w_health"], base.health),
-      freshness: get_float(policy, [:w_freshness, "w_freshness"], base.freshness),
-      capacity: get_float(policy, [:w_capacity, "w_capacity"], base.capacity),
-      rtt_penalty: get_float(policy, [:w_rtt_penalty, "w_rtt_penalty"], base.rtt_penalty)
+      affinity: max(get_float(policy, [:w_affinity, "w_affinity"], base.affinity), 0.0),
+      health: max(get_float(policy, [:w_health, "w_health"], base.health), 0.0),
+      freshness: max(get_float(policy, [:w_freshness, "w_freshness"], base.freshness), 0.0),
+      capacity: max(get_float(policy, [:w_capacity, "w_capacity"], base.capacity), 0.0),
+      rtt_penalty:
+        max(get_float(policy, [:w_rtt_penalty, "w_rtt_penalty"], base.rtt_penalty), 0.0)
     }
 
     total =
