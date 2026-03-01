@@ -1,4 +1,5 @@
 load("//build:mix_release.bzl", "mix_release")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -45,8 +46,11 @@ sh_test(
         "//proto:kv_proto_src",
         "//rust/kvutil:srcs",
         "//rust/srql:srcs",
+        "//elixir/connection:srcs",
         "//elixir/serviceradar_core:srcs",
+        "//elixir/serviceradar_srql:srcs",
         "//elixir/datasvc:srcs",
+        "//elixir/vendor/opentelemetry_oban:srcs",
     ],
     local = True,
     tags = [
