@@ -17,7 +17,7 @@ use crate::opentelemetry::proto::collector::trace::v1::trace_service_server::Tra
 
 /// Creates a ServiceRadar collector with the given NATS configuration
 pub async fn create_collector(
-    nats_config: Option<crate::nats_output::NATSConfig>,
+    nats_config: Option<crate::types::nats::NATSConfig>,
 ) -> Result<ServiceRadarCollector, Box<dyn std::error::Error>> {
     debug!("Creating ServiceRadar collector");
 
@@ -100,7 +100,7 @@ async fn metrics_handler(req: Request<Incoming>) -> Result<Response<Full<Bytes>>
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/metrics") => {
             debug!("Serving metrics endpoint");
-            match crate::metrics::get_metrics_text() {
+            match crate::metrics_settings::get_metrics_text() {
                 Ok(metrics) => Ok(Response::builder()
                     .status(StatusCode::OK)
                     .header("content-type", "text/plain; version=0.0.4; charset=utf-8")
