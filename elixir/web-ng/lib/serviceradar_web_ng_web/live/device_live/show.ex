@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
+  import ServiceRadarWebNGWeb.FlowStatComponents
   import Bitwise
   require Ash.Query
   require Logger
@@ -98,6 +99,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flows_error, nil)
      |> assign(:flows_pagination, %{})
      |> assign(:has_flows, false)
+     |> assign(:flow_stats, %{})
+     |> assign(:flow_stats_loading, true)
+     |> assign(:flow_sparkline_json, "[]")
+     |> assign(:flow_proto_json, "[]")
      |> assign(:ip_aliases, [])
      |> assign(:ip_alias_error, nil)
      |> assign(:show_stale_aliases, false)
@@ -213,13 +218,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp maybe_reload_flows_for_active_tab(socket, "flows", uid, cursor) do
-    {flows, pagination, flows_error} =
-      load_flows(srql_module(), uid, socket.assigns.current_scope, cursor)
+    scope = socket.assigns.current_scope
+    srql_mod = srql_module()
+
+    flows_task = Task.async(fn -> load_flows(srql_mod, uid, scope, cursor) end)
+    stats_task = Task.async(fn -> load_device_flow_stats(srql_mod, uid, scope) end)
+
+    [{flows, pagination, flows_error}, {flow_stats, sparkline_json, proto_json}] =
+      Task.await_many([flows_task, stats_task], 15_000)
 
     socket
     |> assign(:device_flows, flows)
     |> assign(:flows_pagination, pagination)
     |> assign(:flows_error, flows_error)
+    |> assign(:flow_stats, flow_stats)
+    |> assign(:flow_stats_loading, false)
+    |> assign(:flow_sparkline_json, sparkline_json)
+    |> assign(:flow_proto_json, proto_json)
   end
 
   defp maybe_reload_flows_for_active_tab(socket, _active_tab, _uid, _cursor), do: socket
@@ -277,6 +292,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       Task.async(fn ->
         {:flows, load_flows(srql_module, uid, scope, normalize_cursor(Map.get(params, "cursor")))}
       end),
+      Task.async(fn -> {:flow_stats, load_device_flow_stats(srql_module, uid, scope)} end),
       Task.async(fn -> {:mapper, load_mapper_jobs_for_device(scope, device_row)} end),
       Task.async(fn -> {:iface_settings, load_interface_settings(scope, uid)} end),
       Task.async(fn -> {:snmp, load_device_snmp_credential(scope, uid)} end),
@@ -306,6 +322,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {sysmon_profile_info, available_profiles} = parallel_results.profile
     {network_interfaces, interfaces_error} = parallel_results.interfaces
     {device_flows, flows_pagination, flows_error} = parallel_results.flows
+    {flow_stats, flow_sparkline_json, flow_proto_json} = parallel_results.flow_stats
     discovery_jobs = parallel_results.mapper
     interface_settings = parallel_results.iface_settings
     device_snmp_credential = parallel_results.snmp
@@ -355,6 +372,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flows_error, flows_error)
      |> assign(:flows_pagination, flows_pagination)
      |> assign(:has_flows, has_flows)
+     |> assign(:flow_stats, flow_stats)
+     |> assign(:flow_stats_loading, false)
+     |> assign(:flow_sparkline_json, flow_sparkline_json)
+     |> assign(:flow_proto_json, flow_proto_json)
      |> assign(:discovery_job, discovery_job)
      |> assign(:favorited_interfaces, favorited_interfaces)
      |> assign(:interface_metrics, interface_metrics)
@@ -917,6 +938,103 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:error, reason} ->
         Logger.warning("Failed to load device flows for #{device_uid}: #{inspect(reason)}")
         {[], %{}, "Failed to load flows data"}
+    end
+  end
+
+  defp load_device_flow_stats(srql_mod, device_uid, scope) do
+    base = "in:flows device_id:\"#{escape_value(device_uid)}\" time:last_24h"
+
+    tasks = [
+      Task.async(fn -> {:summary, load_device_flow_summary(srql_mod, scope, base)} end),
+      Task.async(fn -> {:protocols, load_device_flow_top_n(srql_mod, scope, base, "protocol_name")} end),
+      Task.async(fn -> {:timeseries, load_device_flow_timeseries(srql_mod, scope, base)} end)
+    ]
+
+    results = tasks |> Task.await_many(10_000) |> Map.new()
+
+    summary = Map.get(results, :summary, %{})
+    protocols = Map.get(results, :protocols, [])
+    timeseries = Map.get(results, :timeseries, [])
+
+    proto_json =
+      protocols
+      |> Enum.map(fn row -> %{label: row[:name] || "unknown", value: row[:bytes] || 0} end)
+      |> Jason.encode!()
+
+    sparkline_json =
+      timeseries
+      |> Enum.map(fn %{t: t, v: v} -> %{t: t, v: v} end)
+      |> Jason.encode!()
+
+    {summary, sparkline_json, proto_json}
+  end
+
+  defp load_device_flow_summary(srql_mod, scope, base) do
+    query = "#{base} stats:bytes_total,packets_total,count,count_distinct(src_endpoint_ip)"
+
+    case srql_mod.query(query, %{scope: scope}) do
+      {:ok, %{"results" => [%{"payload" => p} | _]}} ->
+        %{
+          total_bytes: flow_stat_number(p, "bytes_total"),
+          total_packets: flow_stat_number(p, "packets_total"),
+          flow_count: flow_stat_number(p, "count"),
+          unique_talkers: flow_stat_number(p, "count_distinct_src_endpoint_ip")
+        }
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp load_device_flow_top_n(srql_mod, scope, base, group_field) do
+    query = "#{base} stats:bytes_total by #{group_field} sort:bytes_total:desc limit:10"
+
+    case srql_mod.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) ->
+        Enum.map(results, fn %{"payload" => p} ->
+          %{
+            name: flow_stat_field(p, group_field),
+            bytes: flow_stat_number(p, "bytes_total")
+          }
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp load_device_flow_timeseries(srql_mod, scope, base) do
+    query = "#{base} downsample:5m:bytes_total:sum"
+
+    case srql_mod.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) ->
+        Enum.map(results, fn %{"payload" => p} ->
+          %{
+            t: flow_stat_field(p, "bucket") || flow_stat_field(p, "time_bucket"),
+            v: flow_stat_number(p, "bytes_total")
+          }
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp flow_stat_field(payload, key) when is_map(payload) do
+    Map.get(payload, key) || Map.get(payload, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> Map.get(payload, key)
+  end
+
+  defp flow_stat_number(payload, key) do
+    case flow_stat_field(payload, key) do
+      n when is_number(n) -> n
+      s when is_binary(s) ->
+        case Float.parse(s) do
+          {f, _} -> f
+          :error -> 0
+        end
+      _ -> 0
     end
   end
 
@@ -2054,6 +2172,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               device_uid={@device_uid}
               query={default_flows_query(@device_uid)}
               limit={@flows_limit}
+              flow_stats={@flow_stats}
+              flow_stats_loading={@flow_stats_loading}
+              sparkline_json={@flow_sparkline_json}
+              proto_json={@flow_proto_json}
             />
           </div>
           
@@ -2778,93 +2900,152 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr :device_uid, :string, required: true
   attr :query, :string, required: true
   attr :limit, :integer, required: true
+  attr :flow_stats, :map, default: %{}
+  attr :flow_stats_loading, :boolean, default: true
+  attr :sparkline_json, :string, default: "[]"
+  attr :proto_json, :string, default: "[]"
 
   defp flows_tab_content(assigns) do
+    assigns =
+      assigns
+      |> assign_new(:total_bw, fn ->
+        bytes = Map.get(assigns.flow_stats, :total_bytes, 0)
+        format_si(bytes * 8, unit: "bps")
+      end)
+      |> assign_new(:total_packets, fn ->
+        format_si(Map.get(assigns.flow_stats, :total_packets, 0), unit: "pps")
+      end)
+
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
-          <.icon name="hero-arrows-right-left" class="size-4 text-primary" />
-          <span class="text-sm font-semibold">Flows</span>
-          <span class="text-xs text-base-content/50">({length(@flows)} rows)</span>
-        </div>
-        <.link navigate={~p"/flows/visualize?q=#{@query}"} class="text-xs text-primary hover:underline">
-          Open full flows view
-        </.link>
+    <div class="space-y-4">
+      <%!-- Stats overview row --%>
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <.stat_card
+          title="Total Bandwidth"
+          value={@total_bw}
+          loading={@flow_stats_loading}
+        >
+          <:sparkline>
+            <.traffic_sparkline
+              id="device-flow-sparkline"
+              data_json={@sparkline_json}
+              height={28}
+            />
+          </:sparkline>
+        </.stat_card>
+        <.stat_card
+          title="Total Packets"
+          value={@total_packets}
+          loading={@flow_stats_loading}
+        />
+        <.stat_card
+          title="Active Flows"
+          value={format_si(Map.get(@flow_stats, :flow_count, 0))}
+          loading={@flow_stats_loading}
+        />
+        <.stat_card
+          title="Unique Sources"
+          value={format_si(Map.get(@flow_stats, :unique_talkers, 0))}
+          loading={@flow_stats_loading}
+        />
       </div>
 
-      <div class="p-4">
-        <div :if={is_binary(@error)} class="mb-3 text-xs text-error">{@error}</div>
+      <%!-- Protocol breakdown --%>
+      <div :if={@proto_json != "[]"} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <.icon name="hero-chart-pie" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Protocol Breakdown</span>
+          <span class="text-xs text-base-content/50">(last 24h)</span>
+        </div>
+        <.protocol_breakdown id="device-proto-donut" data_json={@proto_json} height={180} />
+      </div>
 
-        <%= if @flows == [] and is_nil(@error) do %>
-          <div class="text-sm text-base-content/60">No flows found for this device.</div>
-        <% else %>
-          <div class="overflow-x-auto">
-            <table class="table table-xs w-full">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Source</th>
-                  <th>Destination</th>
-                  <th class="text-right">Proto</th>
-                  <th class="text-right">Direction</th>
-                  <th class="text-right">Packets</th>
-                  <th class="text-right">Bytes</th>
-                  <th class="text-right"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <%= for flow <- @flows do %>
+      <%!-- Flow table --%>
+      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+        <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <.icon name="hero-arrows-right-left" class="size-4 text-primary" />
+            <span class="text-sm font-semibold">Recent Flows</span>
+            <span class="text-xs text-base-content/50">({length(@flows)} rows)</span>
+          </div>
+          <.link navigate={~p"/flows/visualize?q=#{@query}"} class="text-xs text-primary hover:underline">
+            Open full flows view
+          </.link>
+        </div>
+
+        <div class="p-4">
+          <div :if={is_binary(@error)} class="mb-3 text-xs text-error">{@error}</div>
+
+          <%= if @flows == [] and is_nil(@error) do %>
+            <div class="text-sm text-base-content/60">No flows found for this device.</div>
+          <% else %>
+            <div class="overflow-x-auto">
+              <table class="table table-xs w-full">
+                <thead>
                   <tr>
-                    <td class="font-mono">{format_timestamp(flow_time(flow))}</td>
-                    <td class="font-mono">
-                      {flow_endpoint(flow, :src)}{flow_port(flow, :src)}
-                    </td>
-                    <td class="font-mono">
-                      {flow_endpoint(flow, :dst)}{flow_port(flow, :dst)}
-                    </td>
-                    <td class="text-right font-mono">
-                      {flow_protocol(flow)}
-                      <div
-                        :if={service = flow_service_label(flow)}
-                        class="text-[10px] text-base-content/60"
-                      >
-                        {service}
-                      </div>
-                    </td>
-                    <td class="text-right font-mono">
-                      {flow_direction(flow)}
-                    </td>
-                    <td class="text-right font-mono">{Map.get(flow, "packets_total") || "—"}</td>
-                    <td class="text-right font-mono">{format_bytes(Map.get(flow, "bytes_total"))}</td>
-                    <td class="text-right">
-                      <.link
-                        navigate={
-                          ~p"/flows/visualize?#{%{"q" => flow_drilldown_query(flow), "open" => "first"}}"
-                        }
-                        class="btn btn-ghost btn-xs"
-                      >
-                        Details
-                      </.link>
-                    </td>
+                    <th>Time</th>
+                    <th>Source</th>
+                    <th>Destination</th>
+                    <th class="text-right">Proto</th>
+                    <th class="text-right">Direction</th>
+                    <th class="text-right">Packets</th>
+                    <th class="text-right">Bytes</th>
+                    <th class="text-right"></th>
                   </tr>
-                <% end %>
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  <%= for flow <- @flows do %>
+                    <tr>
+                      <td class="font-mono">{format_timestamp(flow_time(flow))}</td>
+                      <td class="font-mono">
+                        {flow_endpoint(flow, :src)}{flow_port(flow, :src)}
+                      </td>
+                      <td class="font-mono">
+                        {flow_endpoint(flow, :dst)}{flow_port(flow, :dst)}
+                      </td>
+                      <td class="text-right font-mono">
+                        {flow_protocol(flow)}
+                        <div
+                          :if={service = flow_service_label(flow)}
+                          class="text-[10px] text-base-content/60"
+                        >
+                          {service}
+                        </div>
+                      </td>
+                      <td class="text-right font-mono">
+                        {flow_direction(flow)}
+                      </td>
+                      <td class="text-right font-mono">{Map.get(flow, "packets_total") || "—"}</td>
+                      <td class="text-right font-mono">{format_bytes(Map.get(flow, "bytes_total"))}</td>
+                      <td class="text-right">
+                        <.link
+                          navigate={
+                            ~p"/flows/visualize?#{%{"q" => flow_drilldown_query(flow), "open" => "first"}}"
+                          }
+                          class="btn btn-ghost btn-xs"
+                        >
+                          Details
+                        </.link>
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
 
-          <div class="pt-3 border-t border-base-200 mt-3">
-            <.ui_pagination
-              prev_cursor={Map.get(@pagination, "prev_cursor")}
-              next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path={"/devices/#{@device_uid}"}
-              query={@query}
-              limit={@limit}
-              result_count={length(@flows)}
-              extra_params={%{"tab" => "flows"}}
-            />
-          </div>
-        <% end %>
+            <div class="pt-3 border-t border-base-200 mt-3">
+              <.ui_pagination
+                prev_cursor={Map.get(@pagination, "prev_cursor")}
+                next_cursor={Map.get(@pagination, "next_cursor")}
+                base_path={"/devices/#{@device_uid}"}
+                query={@query}
+                limit={@limit}
+                result_count={length(@flows)}
+                extra_params={%{"tab" => "flows"}}
+              />
+            </div>
+          <% end %>
+        </div>
       </div>
     </div>
     """

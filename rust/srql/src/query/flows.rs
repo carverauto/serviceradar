@@ -1223,6 +1223,73 @@ fn parse_stats_expr(expr: &str) -> Result<FlowStatsSpec> {
     })
 }
 
+/// Minimum time range (hours) before we consider routing flow stats to a CAGG.
+const FLOW_CAGG_ROUTING_THRESHOLD_HOURS: i64 = 6;
+
+/// Returns `Some((cagg_table, ts_col))` when a flow stats query can be served
+/// entirely from a pre-aggregated continuous aggregate.
+fn should_route_flow_stats_to_cagg(
+    plan: &QueryPlan,
+    spec: &FlowStatsSpec,
+) -> Option<(&'static str, &'static str)> {
+    // 1. Must have a time range >= threshold
+    let time_range = plan.time_range.as_ref()?;
+    let span = time_range.end.signed_duration_since(time_range.start);
+    if span < chrono::Duration::hours(FLOW_CAGG_ROUTING_THRESHOLD_HOURS) {
+        return None;
+    }
+
+    // 2. Agg field must exist in CAGGs
+    if !matches!(
+        spec.agg_field,
+        FlowAggField::BytesTotal | FlowAggField::PacketsTotal | FlowAggField::Star
+    ) {
+        return None;
+    }
+
+    // 3. Agg function must be Sum or Count (CAGGs store SUMs, not raw values)
+    if !matches!(spec.agg_func, FlowAggFunc::Sum | FlowAggFunc::Count) {
+        return None;
+    }
+
+    // 4. No non-time filters (CAGGs don't have filter columns like device_id, sampler_address)
+    if !plan.filters.is_empty() {
+        return None;
+    }
+
+    // 5. Group-by fields must match an available CAGG dimension
+    let is_long_window = span >= chrono::Duration::hours(24);
+
+    let table: &'static str = match spec.group_by.as_slice() {
+        [] => {
+            if is_long_window {
+                "flow_traffic_1h"
+            } else {
+                "ocsf_network_activity_5m_traffic"
+            }
+        }
+        [FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp)] => {
+            "ocsf_network_activity_hourly_talkers"
+        }
+        [FlowGroupSpec::Field(FlowGroupField::DstEndpointIp)] => {
+            "ocsf_network_activity_hourly_listeners"
+        }
+        [FlowGroupSpec::Field(FlowGroupField::ProtocolNum)] => {
+            "ocsf_network_activity_hourly_proto"
+        }
+        [FlowGroupSpec::Field(FlowGroupField::DstEndpointPort)] => {
+            "ocsf_network_activity_hourly_ports"
+        }
+        [FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp), FlowGroupSpec::Field(FlowGroupField::DstEndpointIp)]
+        | [FlowGroupSpec::Field(FlowGroupField::DstEndpointIp), FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp)] => {
+            "ocsf_network_activity_hourly_conversations"
+        }
+        _ => return None, // Unsupported group-by combination
+    };
+
+    Some((table, "bucket"))
+}
+
 fn build_grouped_stats_query(
     plan: &QueryPlan,
     spec: &FlowStatsSpec,
@@ -1280,7 +1347,7 @@ fn build_grouped_stats_query(
         where_parts.push(build_stats_filter_clause(filter, &mut binds)?);
     }
 
-    let where_sql = if where_parts.is_empty() {
+    let mut where_sql = if where_parts.is_empty() {
         String::new()
     } else {
         format!(" WHERE {}", where_parts.join(" AND "))
@@ -1298,7 +1365,41 @@ fn build_grouped_stats_query(
         );
     }
 
-    let agg_sql = if matches!(spec.agg_func, FlowAggFunc::CountDistinct) {
+    // Check if this query can be served from a CAGG
+    let cagg_route = should_route_flow_stats_to_cagg(plan, spec);
+
+    let (from_table, time_col) = if let Some((cagg_table, ts_col)) = cagg_route {
+        (cagg_table, ts_col)
+    } else {
+        ("ocsf_network_activity", "time")
+    };
+
+    // For CAGG-routed queries, rewrite time predicates to use the bucket column
+    if cagg_route.is_some() {
+        // Rebuild where_parts with bucket column instead of f.time
+        where_parts.clear();
+        binds.clear();
+        if let Some(TimeRange { start, end }) = &plan.time_range {
+            where_parts.push(format!(
+                "f.{time_col} >= (?::timestamptz AT TIME ZONE 'UTC') AND f.{time_col} <= (?::timestamptz AT TIME ZONE 'UTC')"
+            ));
+            binds.push(FlowSqlBindValue::Timestamp(*start));
+            binds.push(FlowSqlBindValue::Timestamp(*end));
+        }
+        // No non-time filters for CAGG queries (validated in should_route_flow_stats_to_cagg)
+        where_sql = if where_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", where_parts.join(" AND "))
+        };
+        // No geo joins for CAGG queries
+        join_sql = String::new();
+    }
+
+    // For CAGG-routed count(*), rewrite to SUM(flow_count)
+    let agg_sql = if cagg_route.is_some() && matches!(spec.agg_func, FlowAggFunc::Count) {
+        "SUM(flow_count)".to_string()
+    } else if matches!(spec.agg_func, FlowAggFunc::CountDistinct) {
         if matches!(spec.agg_field, FlowAggField::Star) {
             return Err(ServiceError::InvalidRequest(
                 "count_distinct(*) is not supported".into(),
@@ -1335,7 +1436,7 @@ fn build_grouped_stats_query(
         let group_by_sql = group_exprs.join(", ");
 
         let inner = format!(
-            "SELECT {select_groups}, {agg_sql} AS agg_value FROM ocsf_network_activity f{join_sql}{where_sql} GROUP BY {group_by_sql}"
+            "SELECT {select_groups}, {agg_sql} AS agg_value FROM {from_table} f{join_sql}{where_sql} GROUP BY {group_by_sql}"
         );
 
         let order_sql = build_stats_order_sql(plan, &group_keys, Some(&spec.alias))?;
@@ -1358,7 +1459,7 @@ fn build_grouped_stats_query(
         )
     } else {
         let inner = format!(
-            "SELECT {agg_sql} AS agg_value FROM ocsf_network_activity f{join_sql}{where_sql}"
+            "SELECT {agg_sql} AS agg_value FROM {from_table} f{join_sql}{where_sql}"
         );
         format!(
             "SELECT jsonb_build_object('{alias}', agg_value) AS result FROM ({inner}) t LIMIT 1",

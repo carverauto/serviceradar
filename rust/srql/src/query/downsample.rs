@@ -55,8 +55,11 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
     let cagg_safe_shape =
         plan.filters.is_empty() && downsample.series.as_deref().unwrap_or("").trim().is_empty();
     let use_hourly_cagg = super::should_route_plan_to_hourly_cagg(plan)
-        && matches!(downsample.agg, DownsampleAgg::Avg)
-        && cagg_safe_shape;
+        && cagg_safe_shape
+        && match plan.entity {
+            Entity::Flows => matches!(downsample.agg, DownsampleAgg::Sum | DownsampleAgg::Count),
+            _ => matches!(downsample.agg, DownsampleAgg::Avg),
+        };
 
     let (raw_table, raw_ts_col, forced_metric_type) = match plan.entity {
         Entity::TimeseriesMetrics => ("timeseries_metrics", "timestamp", None),
@@ -75,7 +78,11 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
     };
 
     let table = if use_hourly_cagg {
-        super::cagg_table_for_entity(&plan.entity).unwrap_or(raw_table)
+        if matches!(plan.entity, Entity::Flows) {
+            flow_cagg_for_bucket(downsample.bucket_seconds)
+        } else {
+            super::cagg_table_for_entity(&plan.entity).unwrap_or(raw_table)
+        }
     } else {
         raw_table
     };
@@ -164,7 +171,15 @@ LIMIT ? OFFSET ?"#,
     }
 
     // Standard aggregation (non-rate)
-    let agg_expr = agg_expr(downsample.agg, value_col);
+    // For flow CAGGs, COUNT(*) must become SUM(flow_count) since rows are pre-aggregated.
+    let agg_expr = if use_hourly_cagg
+        && matches!(plan.entity, Entity::Flows)
+        && matches!(downsample.agg, DownsampleAgg::Count)
+    {
+        "SUM(flow_count)".to_string()
+    } else {
+        agg_expr(downsample.agg, value_col)
+    };
 
     // Use standard PostgreSQL floor-based bucketing instead of TimescaleDB's time_bucket
     // This floors the timestamp to the nearest bucket boundary
@@ -257,8 +272,15 @@ fn resolve_value_column(
                     "unsupported value_field '{other}' for process_metrics_hourly"
                 ))),
             },
+            Entity::Flows => match field {
+                None | Some("bytes_total") => Ok("bytes_total"),
+                Some("packets_total") => Ok("packets_total"),
+                Some(other) => Err(ServiceError::InvalidRequest(format!(
+                    "unsupported value_field '{other}' for flow CAGG (supported: bytes_total|packets_total)"
+                ))),
+            },
             _ => Err(ServiceError::InvalidRequest(
-                "hourly CAGG routing is only supported for metric entities".into(),
+                "hourly CAGG routing is only supported for metric entities and flows".into(),
             )),
         };
     }
@@ -745,6 +767,20 @@ impl SqlBindValue {
             SqlBindValue::Timestamp(value) => BindParam::timestamptz(value),
             SqlBindValue::BigInt(value) => BindParam::Int(value),
         }
+    }
+}
+
+/// Select the best flow CAGG tier based on the requested bucket size.
+fn flow_cagg_for_bucket(bucket_seconds: i64) -> &'static str {
+    const ONE_HOUR: i64 = 3600;
+    const ONE_DAY: i64 = 86400;
+
+    if bucket_seconds >= ONE_DAY {
+        "flow_traffic_1d"
+    } else if bucket_seconds >= ONE_HOUR {
+        "flow_traffic_1h"
+    } else {
+        "ocsf_network_activity_5m_traffic"
     }
 }
 

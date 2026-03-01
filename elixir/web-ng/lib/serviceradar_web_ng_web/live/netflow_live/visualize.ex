@@ -867,6 +867,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   query={Map.get(@srql, :query) || ""}
                   limit={@limit}
                   nf_param={nf_param(@netflow_viz_state)}
+                  unit_mode={Map.get(@netflow_viz_state, "units", "Bps")}
                 />
 
                 <div class="pt-3 border-t border-base-200">
@@ -908,6 +909,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   attr(:query, :string, required: true)
   attr(:limit, :integer, required: true)
   attr(:nf_param, :string, default: nil)
+  attr(:unit_mode, :string, default: "Bps")
 
   defp flows_table(assigns) do
     ~H"""
@@ -931,7 +933,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
               Source
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-28 text-right">
-              Packets / Bytes
+              {flows_table_traffic_header(@unit_mode)}
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-10 text-right">
             </th>
@@ -1071,15 +1073,31 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono align-top">
                 <% packets = flow_get(flow, ["packets_total", "packets"]) %>
-                <% {bytes_val, bytes_unit} =
-                  format_bytes_parts(flow_get(flow, ["bytes_total", "bytes"])) %>
-                <div class="flex flex-col items-end leading-tight">
-                  <div>{packets || "—"}</div>
-                  <div class="flex items-baseline gap-1 text-[10px] text-base-content/60">
-                    <span>{bytes_val}</span>
-                    <span :if={bytes_unit != ""} class="uppercase">{bytes_unit}</span>
-                  </div>
-                </div>
+                <% raw_bytes = flow_get(flow, ["bytes_total", "bytes"]) %>
+                <%= case @unit_mode do %>
+                  <% "pps" -> %>
+                    <div class="flex flex-col items-end leading-tight">
+                      <div>{packets || "—"}</div>
+                    </div>
+                  <% "bps" -> %>
+                    <% {bits_val, bits_unit} = format_bits_parts(raw_bytes) %>
+                    <div class="flex flex-col items-end leading-tight">
+                      <div>{packets || "—"}</div>
+                      <div class="flex items-baseline gap-1 text-[10px] text-base-content/60">
+                        <span>{bits_val}</span>
+                        <span :if={bits_unit != ""} class="uppercase">{bits_unit}</span>
+                      </div>
+                    </div>
+                  <% _ -> %>
+                    <% {bytes_val, bytes_unit} = format_bytes_parts(raw_bytes) %>
+                    <div class="flex flex-col items-end leading-tight">
+                      <div>{packets || "—"}</div>
+                      <div class="flex items-baseline gap-1 text-[10px] text-base-content/60">
+                        <span>{bytes_val}</span>
+                        <span :if={bytes_unit != ""} class="uppercase">{bytes_unit}</span>
+                      </div>
+                    </div>
+                <% end %>
               </td>
               <td class="whitespace-nowrap text-xs text-right">
                 <.ui_dropdown align="end">
@@ -3879,6 +3897,34 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   defp format_flow_time_short(other), do: to_string(other || "")
+
+  defp flows_table_traffic_header("pps"), do: "Packets"
+  defp flows_table_traffic_header("bps"), do: "Packets / Bits"
+  defp flows_table_traffic_header(_), do: "Packets / Bytes"
+
+  defp format_bits_parts(nil), do: {"—", ""}
+  defp format_bits_parts(""), do: {"—", ""}
+
+  defp format_bits_parts(value) do
+    bits = to_int(value) * 8
+    abs_bits = abs(bits)
+
+    cond do
+      abs_bits >= 1024 * 1024 * 1024 ->
+        {format_float(bits / (1024 * 1024 * 1024)), "Gb"}
+
+      abs_bits >= 1024 * 1024 ->
+        {format_float(bits / (1024 * 1024)), "Mb"}
+
+      abs_bits >= 1024 ->
+        {format_float(bits / 1024), "Kb"}
+
+      true ->
+        {Integer.to_string(bits), "b"}
+    end
+  rescue
+    _ -> {"—", ""}
+  end
 
   defp format_bytes_parts(nil), do: {"—", ""}
   defp format_bytes_parts(""), do: {"—", ""}
