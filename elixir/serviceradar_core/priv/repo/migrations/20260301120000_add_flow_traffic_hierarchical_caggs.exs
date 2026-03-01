@@ -39,6 +39,18 @@ defmodule ServiceRadar.Repo.Migrations.AddFlowTrafficHierarchicalCaggs do
       SUM(flow_count)::bigint AS flow_count
     FROM #{@traffic_5m}
     GROUP BY 1
+    WITH NO DATA
+    """)
+
+    execute("""
+    DO $$
+    BEGIN
+      BEGIN
+        CALL refresh_continuous_aggregate('#{@traffic_1h}', now() - INTERVAL '7 days', now());
+      EXCEPTION WHEN others THEN NULL;
+      END;
+    END;
+    $$;
     """)
 
     execute("""
@@ -57,6 +69,18 @@ defmodule ServiceRadar.Repo.Migrations.AddFlowTrafficHierarchicalCaggs do
       SUM(flow_count)::bigint AS flow_count
     FROM #{@traffic_1h}
     GROUP BY 1
+    WITH NO DATA
+    """)
+
+    execute("""
+    DO $$
+    BEGIN
+      BEGIN
+        CALL refresh_continuous_aggregate('#{@traffic_1d}', now() - INTERVAL '30 days', now());
+      EXCEPTION WHEN others THEN NULL;
+      END;
+    END;
+    $$;
     """)
 
     execute("""
@@ -76,6 +100,18 @@ defmodule ServiceRadar.Repo.Migrations.AddFlowTrafficHierarchicalCaggs do
       COALESCE(COUNT(*), 0)::bigint AS flow_count
     FROM #{@source_table}
     GROUP BY 1, 2
+    WITH NO DATA
+    """)
+
+    execute("""
+    DO $$
+    BEGIN
+      BEGIN
+        CALL refresh_continuous_aggregate('#{@listeners_view}', now() - INTERVAL '7 days', now());
+      EXCEPTION WHEN others THEN NULL;
+      END;
+    END;
+    $$;
     """)
 
     execute("""
@@ -101,6 +137,18 @@ defmodule ServiceRadar.Repo.Migrations.AddFlowTrafficHierarchicalCaggs do
       COALESCE(COUNT(*), 0)::bigint AS flow_count
     FROM #{@source_table}
     GROUP BY 1, 2, 3
+    WITH NO DATA
+    """)
+
+    execute("""
+    DO $$
+    BEGIN
+      BEGIN
+        CALL refresh_continuous_aggregate('#{@conversations_view}', now() - INTERVAL '7 days', now());
+      EXCEPTION WHEN others THEN NULL;
+      END;
+    END;
+    $$;
     """)
 
     execute("""

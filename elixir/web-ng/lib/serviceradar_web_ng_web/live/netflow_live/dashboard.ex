@@ -70,7 +70,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
      |> assign(:iface_chart_keys_json, "[]")
      |> assign(:iface_chart_points_json, "[]")
      |> assign(:rdns_map, %{})
-     |> assign(:geo_iso2_map, %{})}
+     |> assign(:geo_iso2_map, %{})
+     |> assign(:tcp_flags_json, "[]")
+     |> assign(:flow_rate_points_json, "[]")
+     |> assign(:duration_dist_json, "[]")}
   end
 
   @impl true
@@ -410,6 +413,49 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               height={180}
             />
           </div>
+
+          <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+            <h3 class="text-sm font-semibold text-base-content mb-2">TCP Flag Distribution</h3>
+            <div :if={@loading} class="flex items-center justify-center py-8">
+              <span class="loading loading-spinner loading-md"></span>
+            </div>
+            <.protocol_breakdown
+              :if={not @loading}
+              id="dashboard-tcp-flags"
+              data_json={@tcp_flags_json}
+              height={180}
+            />
+          </div>
+
+          <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+            <h3 class="text-sm font-semibold text-base-content mb-2">Flow Rate (flows/sec)</h3>
+            <div :if={@loading} class="flex items-center justify-center py-8">
+              <span class="loading loading-spinner loading-md"></span>
+            </div>
+            <div
+              :if={not @loading}
+              id="flow-rate-sparkline"
+              phx-hook="FlowSparkline"
+              data-points={@flow_rate_points_json}
+              data-color="oklch(0.65 0.24 150)"
+              class="h-[120px] w-full"
+            >
+              <canvas></canvas>
+            </div>
+          </div>
+
+          <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+            <h3 class="text-sm font-semibold text-base-content mb-2">Flow Duration Distribution</h3>
+            <div :if={@loading} class="flex items-center justify-center py-8">
+              <span class="loading loading-spinner loading-md"></span>
+            </div>
+            <.protocol_breakdown
+              :if={not @loading}
+              id="dashboard-duration-dist"
+              data_json={@duration_dist_json}
+              height={180}
+            />
+          </div>
         </div>
 
         <%!-- Capacity Planning Section --%>
@@ -483,7 +529,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       Task.async(fn -> {:timeseries, load_timeseries(srql_mod, scope, base, tw)} end),
       Task.async(fn -> {:top_interfaces, load_top_interfaces(srql_mod, scope, base)} end),
       Task.async(fn -> {:subnet_distribution, load_subnet_distribution(srql_mod, scope, base)} end),
-      Task.async(fn -> {:p95, load_interface_p95(srql_mod, scope)} end)
+      Task.async(fn -> {:p95, load_interface_p95(srql_mod, scope)} end),
+      Task.async(fn -> {:tcp_flags, load_tcp_flag_distribution(srql_mod, scope, base)} end),
+      Task.async(fn -> {:flow_rate, load_flow_rate_timeseries(srql_mod, scope, base, tw)} end),
+      Task.async(fn -> {:duration_dist, load_duration_distribution(srql_mod, scope, base)} end)
     ]
 
     results = safe_await_many(tasks, :timer.seconds(15))
@@ -502,6 +551,26 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       |> Enum.map(fn %{t: t, v: v} -> %{t: t, v: v} end)
       |> Jason.encode!()
 
+    tcp_flags_json =
+      results
+      |> Map.get(:tcp_flags, [])
+      |> Enum.map(fn row -> %{label: row.label, value: row.count} end)
+      |> Jason.encode!()
+
+    flow_rate_points_json =
+      results
+      |> Map.get(:flow_rate, [])
+      |> Jason.encode!()
+
+    duration_bucket_order = %{"<1s" => 0, "1-10s" => 1, "10-60s" => 2, "1-5m" => 3, ">5m" => 4, "unknown" => 5}
+
+    duration_dist_json =
+      results
+      |> Map.get(:duration_dist, [])
+      |> Enum.sort_by(fn row -> Map.get(duration_bucket_order, row.bucket, 99) end)
+      |> Enum.map(fn row -> %{label: row.bucket, value: row.count} end)
+      |> Jason.encode!()
+
     socket
     |> assign(:loading, false)
     |> assign(:top_talkers, Map.get(results, :top_talkers, []))
@@ -518,6 +587,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> assign(:proto_breakdown_json, proto_breakdown)
     |> assign(:top_interfaces, merge_p95(Map.get(results, :top_interfaces, []), Map.get(results, :p95, %{})))
     |> assign(:subnet_distribution, Map.get(results, :subnet_distribution, []))
+    |> assign(:tcp_flags_json, tcp_flags_json)
+    |> assign(:flow_rate_points_json, flow_rate_points_json)
+    |> assign(:duration_dist_json, duration_dist_json)
     |> maybe_reload_interface_chart()
     |> enrich_top_n_ips()
   end
@@ -611,7 +683,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp load_iface_downsample(srql_mod, scope, base, bucket, value_field) do
-    query = "#{base} downsample:#{bucket}:#{value_field}:sum"
+    query = "#{base} bucket:#{bucket} agg:sum value_field:#{value_field}"
 
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
@@ -651,7 +723,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   defp load_timeseries(srql_mod, scope, base, tw) do
     bucket = timeseries_bucket(tw)
-    query = "#{base} downsample:#{bucket}:bytes_total:sum"
+    query = "#{base} bucket:#{bucket} agg:sum value_field:bytes_total"
 
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
@@ -727,7 +799,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   defp load_interface_p95(srql_mod, scope) do
     base_30d = "in:flows time:last_30d"
-    query = "#{base_30d} downsample:1h:bytes_total:sum by sampler_address"
+    query = "#{base_30d} bucket:1h agg:sum value_field:bytes_total series:sampler_address"
 
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
@@ -808,6 +880,68 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   # --------------------------------------------------------------------------
   # Helpers
   # --------------------------------------------------------------------------
+
+  defp load_tcp_flag_distribution(srql_mod, scope, base) do
+    query = "#{base} stats:count(*) as count by tcp_flags_label sort:count:desc limit:10"
+
+    case srql_mod.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) ->
+        Enum.map(results, fn %{"payload" => p} ->
+          %{
+            label: get_field(p, "tcp_flags_label") || "unknown",
+            count: to_number(get_field(p, "count"))
+          }
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp load_flow_rate_timeseries(srql_mod, scope, base, tw) do
+    bucket = timeseries_bucket(tw)
+    bucket_secs = bucket_seconds(bucket)
+    query = "#{base} bucket:#{bucket} agg:count"
+
+    case srql_mod.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) ->
+        Enum.map(results, fn %{"payload" => p} ->
+          count = to_number(get_field(p, "count") || get_field(p, "flow_count") || 0)
+
+          %{
+            t: get_field(p, "bucket") || get_field(p, "time_bucket"),
+            v: if(bucket_secs > 0, do: Float.round(count / bucket_secs, 2), else: count)
+          }
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp load_duration_distribution(srql_mod, scope, base) do
+    query = "#{base} stats:count(*) as count by duration_bucket"
+
+    case srql_mod.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) ->
+        Enum.map(results, fn %{"payload" => p} ->
+          %{
+            bucket: get_field(p, "duration_bucket") || "unknown",
+            count: to_number(get_field(p, "count"))
+          }
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp bucket_seconds("1m"), do: 60
+  defp bucket_seconds("5m"), do: 300
+  defp bucket_seconds("15m"), do: 900
+  defp bucket_seconds("1h"), do: 3_600
+  defp bucket_seconds("6h"), do: 21_600
+  defp bucket_seconds(_), do: 300
 
   defp time_window_seconds("1h"), do: 3_600
   defp time_window_seconds("6h"), do: 21_600

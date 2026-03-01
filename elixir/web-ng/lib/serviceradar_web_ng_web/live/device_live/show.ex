@@ -1310,7 +1310,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp load_device_flow_timeseries(srql_mod, scope, base) do
-    query = "#{base} downsample:5m:bytes_total:sum"
+    query = "#{base} bucket:5m agg:sum value_field:bytes_total"
 
     case srql_mod.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
@@ -3667,8 +3667,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr :label, :string, required: true
 
   defp data_bar(assigns) do
-    pct = if assigns.max > 0, do: min(100, round(assigns.value / assigns.max * 100)), else: 0
-    assigns = assign(assigns, :pct, pct)
+    value =
+      case assigns.value do
+        n when is_number(n) -> n
+        s when is_binary(s) -> flow_stat_number(%{"n" => s}, "n")
+        _ -> 0
+      end
+      |> max(0)
+
+    maxv =
+      case assigns.max do
+        n when is_number(n) -> n
+        s when is_binary(s) -> flow_stat_number(%{"n" => s}, "n")
+        _ -> 0
+      end
+      |> max(0)
+
+    pct = if maxv > 0, do: min(100, round(value / maxv * 100)), else: 0
+    assigns = assign(assigns, value: value, max: maxv, pct: pct)
 
     ~H"""
     <div class="relative inline-flex items-center justify-end w-full min-w-[60px]">
@@ -3719,13 +3735,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == ""))
       |> Enum.uniq()
+      |> Enum.take(200)
 
     if ips == [] do
       socket |> assign(:rdns_map, %{}) |> assign(:geo_iso2_map, %{})
     else
-      rdns = bulk_rdns(ips, scope)
-      geo = bulk_geo_iso2(ips, scope)
-      socket |> assign(:rdns_map, rdns) |> assign(:geo_iso2_map, geo)
+      tasks = [
+        Task.async(fn -> {:rdns, bulk_rdns(ips, scope)} end),
+        Task.async(fn -> {:geo, bulk_geo_iso2(ips, scope)} end)
+      ]
+
+      results = safe_yield_many(tasks, 3_000)
+
+      socket
+      |> assign(:rdns_map, Map.get(results, :rdns, %{}))
+      |> assign(:geo_iso2_map, Map.get(results, :geo, %{}))
     end
   end
 
@@ -3741,6 +3765,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       _ ->
         %{}
     end
+  rescue
+    _ -> %{}
   end
 
   defp bulk_geo_iso2(ips, scope) do

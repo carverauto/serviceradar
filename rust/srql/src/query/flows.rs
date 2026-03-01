@@ -109,6 +109,18 @@ pub(super) const FLOW_IN_IF_SPEED_BPS_GROUP_EXPR: &str =
 pub(super) const FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR: &str =
     "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
 
+pub(super) const FLOW_TCP_FLAGS_LABEL_EXPR: &str =
+    "UNNEST(COALESCE(tcp_flags_labels, ARRAY[]::text[]))";
+
+pub(super) const FLOW_DURATION_BUCKET_EXPR: &str = r#"CASE
+  WHEN start_time IS NULL OR end_time IS NULL THEN 'unknown'
+  WHEN EXTRACT(EPOCH FROM (end_time - start_time)) < 1 THEN '<1s'
+  WHEN EXTRACT(EPOCH FROM (end_time - start_time)) < 10 THEN '1-10s'
+  WHEN EXTRACT(EPOCH FROM (end_time - start_time)) < 60 THEN '10-60s'
+  WHEN EXTRACT(EPOCH FROM (end_time - start_time)) < 300 THEN '1-5m'
+  ELSE '>5m'
+END"#;
+
 // Application classification for flows.
 //
 // This is a derived label used by SRQL (`app:` filter, `by app` group-by, and downsample series).
@@ -910,6 +922,8 @@ enum FlowGroupField {
     App,
     SrcCountryIso2,
     DstCountryIso2,
+    TcpFlagsLabel,
+    DurationBucket,
 }
 
 impl FlowGroupField {
@@ -933,6 +947,8 @@ impl FlowGroupField {
             "app" => Some(Self::App),
             "src_country_iso2" | "src_country" => Some(Self::SrcCountryIso2),
             "dst_country_iso2" | "dst_country" => Some(Self::DstCountryIso2),
+            "tcp_flags_label" | "tcp_flag" => Some(Self::TcpFlagsLabel),
+            "duration_bucket" | "duration" => Some(Self::DurationBucket),
             _ => None,
         }
     }
@@ -957,6 +973,8 @@ impl FlowGroupField {
             Self::App => "app",
             Self::SrcCountryIso2 => "src_country_iso2",
             Self::DstCountryIso2 => "dst_country_iso2",
+            Self::TcpFlagsLabel => "tcp_flags_label",
+            Self::DurationBucket => "duration_bucket",
         }
     }
 
@@ -980,6 +998,8 @@ impl FlowGroupField {
             Self::App => FLOW_APP_EXPR,
             Self::SrcCountryIso2 => "COALESCE(src_geo.country_iso2, 'Unknown')",
             Self::DstCountryIso2 => "COALESCE(dst_geo.country_iso2, 'Unknown')",
+            Self::TcpFlagsLabel => FLOW_TCP_FLAGS_LABEL_EXPR,
+            Self::DurationBucket => FLOW_DURATION_BUCKET_EXPR,
         }
     }
 }

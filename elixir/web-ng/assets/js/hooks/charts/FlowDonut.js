@@ -41,7 +41,10 @@ export default {
       const parsed = JSON.parse(this.el.dataset.slices || "[]")
       slices = Array.isArray(parsed)
         ? parsed
-            .map((s) => ({ ...s, value: Number(s?.value) || 0 }))
+            .map((s) => {
+              const obj = s && typeof s === "object" ? s : {}
+              return { ...obj, value: Number(obj.value) || 0 }
+            })
             .filter((s) => Number.isFinite(s.value) && s.value > 0)
         : []
     } catch (_e) {
