@@ -981,6 +981,38 @@ http_file(
 )
 
 http_file(
+    name = "alpine_inetutils_telnet_apk",
+    sha256 = "75e4ddbbd4f2f59558ca2603f38ef22cc48bb8f0b20f2f232a7e8ed1a40e07f6",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/community/x86_64/inetutils-telnet-2.5-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libcap2_apk",
+    sha256 = "38e69c9b966e0db15915c107a01c46cb6f0758fe0ef92001d40fc3987e06b74d",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libcap2-2.70-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libbsd_apk",
+    sha256 = "8936afde94982d1152fab86d45e8ced56004ef9c21c78719b86c056a8b25769d",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libbsd-0.12.2-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libmd_apk",
+    sha256 = "831be0b851d8dbf0cb9e9412cba2e799d24cebea966660bb863426c6d18e88eb",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libmd-1.1.0-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_bash_apk",
     sha256 = "132bb6f77fcad208b44b54d1fd73cb5e02cfea18f884b399f8de0e38b5134a93",
     urls = [

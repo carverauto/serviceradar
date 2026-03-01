@@ -2,6 +2,7 @@
 
 load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
+load("//docker/images:apk.bzl", "apk_rootfs_amd64")
 load("//docker/images:push_targets.bzl", "declare_ghcr_push_targets")
 
 exports_files([
@@ -144,6 +145,26 @@ else
 fi
 tar -czf "$@" -C "$${TMP}/rootfs" .
 """,
+)
+
+apk_rootfs_amd64(
+    name = "inetutils_telnet",
+    apk_target = "@alpine_inetutils_telnet_apk//file",
+)
+
+apk_rootfs_amd64(
+    name = "libcap2",
+    apk_target = "@alpine_libcap2_apk//file",
+)
+
+apk_rootfs_amd64(
+    name = "libbsd",
+    apk_target = "@alpine_libbsd_apk//file",
+)
+
+apk_rootfs_amd64(
+    name = "libmd",
+    apk_target = "@alpine_libmd_apk//file",
 )
 
 genrule(
@@ -386,8 +407,12 @@ genrule(
     name = "alpine_netutils_rootfs_amd64",
     srcs = [
         ":apk_iputils_ping_rootfs_amd64.tar",
+        ":apk_libcap2_rootfs_amd64.tar",
+        ":apk_libmd_rootfs_amd64.tar",
+        ":apk_libbsd_rootfs_amd64.tar",
         ":apk_nmap_rootfs_amd64.tar",
         ":apk_netcat_rootfs_amd64.tar",
+        ":apk_inetutils_telnet_rootfs_amd64.tar",
     ],
     outs = ["alpine_netutils_rootfs_amd64.tar"],
     cmd = """
