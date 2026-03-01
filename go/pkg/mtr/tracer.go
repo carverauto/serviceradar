@@ -32,8 +32,7 @@ import (
 )
 
 var (
-	errNoTargetAddresses       = errors.New("no addresses found for target")
-	errTCPProbesNotImplemented = errors.New("tcp probes not implemented")
+	errNoTargetAddresses = errors.New("no addresses found for target")
 )
 
 // probeRecord tracks an in-flight probe.
@@ -69,10 +68,6 @@ type Tracer struct {
 
 // NewTracer creates a new MTR tracer with the given options.
 func NewTracer(ctx context.Context, opts Options, log logger.Logger) (*Tracer, error) {
-	if opts.Protocol == ProtocolTCP {
-		return nil, errTCPProbesNotImplemented
-	}
-
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -248,7 +243,11 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			case ProtocolICMP:
 				sendErr = t.sock.SendICMP(t.targetIP, ttl, t.icmpID, seq, t.makePayload())
 			case ProtocolTCP:
-				sendErr = errTCPProbesNotImplemented
+				// TCP correlation uses the quoted destination port from ICMP errors.
+				srcPort := MinPort + seq%1000 //nolint:mnd
+				dstPort := seq
+				probeKey = dstPort
+				sendErr = t.sock.SendTCP(t.targetIP, ttl, srcPort, dstPort)
 			}
 
 			if sendErr != nil {

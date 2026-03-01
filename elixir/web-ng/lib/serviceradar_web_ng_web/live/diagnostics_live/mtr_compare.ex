@@ -1,7 +1,11 @@
 defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadar.Repo
+  import Ash.Expr
+
+  alias ServiceRadar.Observability.{MtrHop, MtrTrace}
+
+  require Ash.Query
 
   @impl true
   def mount(_params, _session, socket) do
@@ -51,27 +55,29 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   end
 
   defp load_recent_traces(socket) do
-    query = """
-    SELECT id::text AS id, time, agent_id, target, target_ip, target_reached,
-           total_hops, protocol
-    FROM mtr_traces
-    ORDER BY time DESC
-    LIMIT 50
-    """
+    query =
+      MtrTrace
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.sort(time: :desc)
+      |> Ash.Query.limit(50)
 
-    case Repo.query(query, []) do
-      {:ok, %{rows: rows, columns: cols}} ->
-        traces = Enum.map(rows, fn row -> Enum.zip(cols, row) |> Map.new() end)
-        assign(socket, :recent_traces, traces)
+    case Ash.read(query, scope: socket.assigns.current_scope) do
+      {:ok, %Ash.Page.Keyset{results: results}} ->
+        assign(socket, :recent_traces, Enum.map(results, &trace_to_compare_map/1))
 
-      {:error, _} ->
+      {:ok, results} when is_list(results) ->
+        assign(socket, :recent_traces, Enum.map(results, &trace_to_compare_map/1))
+
+      {:error, _reason} ->
         assign(socket, :recent_traces, [])
     end
   end
 
   defp load_comparison(socket, trace_id_a, trace_id_b) do
-    with {:ok, trace_a, hops_a} <- load_trace_with_hops(trace_id_a),
-         {:ok, trace_b, hops_b} <- load_trace_with_hops(trace_id_b) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, trace_a, hops_a} <- load_trace_with_hops(trace_id_a, scope),
+         {:ok, trace_b, hops_b} <- load_trace_with_hops(trace_id_b, scope) do
       diff = compute_diff(hops_a, hops_b)
 
       socket
@@ -87,32 +93,74 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     end
   end
 
-  defp load_trace_with_hops(trace_id) do
-    trace_query = """
-    SELECT id::text AS id, time, agent_id, target, target_ip, target_reached,
-           total_hops, protocol, ip_version
-    FROM mtr_traces
-    WHERE id::text = $1
-    LIMIT 1
-    """
-
-    hops_query = """
-    SELECT hop_number, addr, hostname, asn, asn_org, loss_pct,
-           avg_us, min_us, max_us
-    FROM mtr_hops
-    WHERE trace_id::text = $1
-    ORDER BY hop_number ASC
-    """
-
-    with {:ok, %{rows: [row], columns: cols}} <- Repo.query(trace_query, [trace_id]),
-         {:ok, %{rows: hop_rows, columns: hop_cols}} <- Repo.query(hops_query, [trace_id]) do
-      trace = Enum.zip(cols, row) |> Map.new()
-      hops = Enum.map(hop_rows, fn r -> Enum.zip(hop_cols, r) |> Map.new() end)
-      {:ok, trace, hops}
+  defp load_trace_with_hops(trace_id, scope) do
+    with {:ok, trace_uuid} <- Ecto.UUID.cast(trace_id),
+         {:ok, trace} <- read_trace(trace_uuid, scope),
+         {:ok, hops} <- read_trace_hops(trace_uuid, scope) do
+      {:ok, trace_to_compare_map(trace), Enum.map(hops, &hop_to_compare_map/1)}
     else
-      {:ok, %{rows: []}} -> {:error, "Trace not found"}
+      :error -> {:error, "Invalid trace id"}
+      {:error, :not_found} -> {:error, "Trace not found"}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp read_trace(trace_uuid, scope) do
+    query =
+      MtrTrace
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(expr(id == ^trace_uuid))
+      |> Ash.Query.limit(1)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, %Ash.Page.Keyset{results: [trace | _]}} -> {:ok, trace}
+      {:ok, [trace | _]} -> {:ok, trace}
+      {:ok, %Ash.Page.Keyset{results: []}} -> {:error, :not_found}
+      {:ok, []} -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp read_trace_hops(trace_uuid, scope) do
+    query =
+      MtrHop
+      |> Ash.Query.for_read(:by_trace, %{trace_id: trace_uuid})
+      |> Ash.Query.sort(hop_number: :asc)
+      |> Ash.Query.limit(256)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, %Ash.Page.Keyset{results: results}} -> {:ok, results}
+      {:ok, results} when is_list(results) -> {:ok, results}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp trace_to_compare_map(trace) do
+    %{
+      "id" => trace.id && to_string(trace.id),
+      "time" => trace.time,
+      "agent_id" => trace.agent_id,
+      "target" => trace.target,
+      "target_ip" => trace.target_ip,
+      "target_reached" => trace.target_reached,
+      "total_hops" => trace.total_hops,
+      "protocol" => trace.protocol,
+      "ip_version" => trace.ip_version
+    }
+  end
+
+  defp hop_to_compare_map(hop) do
+    %{
+      "hop_number" => hop.hop_number,
+      "addr" => hop.addr,
+      "hostname" => hop.hostname,
+      "asn" => hop.asn,
+      "asn_org" => hop.asn_org,
+      "loss_pct" => hop.loss_pct,
+      "avg_us" => hop.avg_us,
+      "min_us" => hop.min_us,
+      "max_us" => hop.max_us
+    }
   end
 
   # Build a unified diff list: [{hop_number, hop_a, hop_b, status}]

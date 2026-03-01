@@ -1,9 +1,12 @@
 defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   use ServiceRadarWebNGWeb, :live_view
 
+  import Ash.Expr
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_sparkline: 1]
 
-  alias ServiceRadar.Repo
+  alias ServiceRadar.Observability.{MtrHop, MtrTrace}
+
+  require Ash.Query
 
   @sparkline_points 20
 
@@ -30,39 +33,26 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   end
 
   defp load_trace(socket, trace_id) do
-    trace_query = """
-    SELECT id::text AS id, time, agent_id, gateway_id, check_id, check_name, device_id,
-           target, target_ip, target_reached, total_hops, protocol,
-           ip_version, packet_size, partition, error
-    FROM mtr_traces
-    WHERE id::text = $1
-    LIMIT 1
-    """
+    scope = socket.assigns.current_scope
 
-    hops_query = """
-    SELECT hop_number, addr, hostname, ecmp_addrs, asn, asn_org,
-           mpls_labels, sent, received, loss_pct,
-           last_us, avg_us, min_us, max_us, stddev_us,
-           jitter_us, jitter_worst_us, jitter_interarrival_us
-    FROM mtr_hops
-    WHERE trace_id::text = $1
-    ORDER BY hop_number ASC
-    """
-
-    with {:ok, %{rows: [row], columns: cols}} <- Repo.query(trace_query, [trace_id]),
-         trace <- Enum.zip(cols, row) |> Map.new(),
-         {:ok, %{rows: hop_rows, columns: hop_cols}} <- Repo.query(hops_query, [trace_id]) do
-      hops = Enum.map(hop_rows, fn row -> Enum.zip(hop_cols, row) |> Map.new() end)
-      sparklines = load_hop_sparklines(hops)
+    with {:ok, trace_uuid} <- Ecto.UUID.cast(trace_id),
+         {:ok, trace} <- read_trace(trace_uuid, scope),
+         {:ok, hops} <- read_trace_hops(trace_uuid, scope) do
+      trace_map = trace_to_map(trace)
+      hop_maps = Enum.map(hops, &hop_to_map/1)
+      sparklines = load_hop_sparklines(hop_maps, scope)
 
       socket
-      |> assign(:trace, trace)
-      |> assign(:hops, hops)
+      |> assign(:trace, trace_map)
+      |> assign(:hops, hop_maps)
       |> assign(:hop_sparklines, sparklines)
-      |> assign(:page_title, "MTR Trace: #{trace["target"]}")
+      |> assign(:page_title, "MTR Trace: #{trace_map["target"]}")
       |> assign(:error, nil)
     else
-      {:ok, %{rows: []}} ->
+      :error ->
+        assign(socket, :error, "Invalid trace id")
+
+      {:error, :not_found} ->
         assign(socket, :error, "Trace not found")
 
       {:error, reason} ->
@@ -273,7 +263,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   # Sparklines
   # ---------------------------------------------------------------------------
 
-  defp load_hop_sparklines(hops) do
+  defp load_hop_sparklines(hops, scope) do
     addrs =
       hops
       |> Enum.map(& &1["addr"])
@@ -283,35 +273,123 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
     if addrs == [] do
       %{}
     else
-      placeholders = Enum.map_join(1..length(addrs), ", ", fn i -> "$#{i}" end)
+      # Read recent valid latency points and cap per-address in Elixir.
+      limit = max(length(addrs) * @sparkline_points * 4, 200)
 
-      query = """
-      SELECT addr, time, avg_us
-      FROM (
-        SELECT addr, avg_us, time,
-               ROW_NUMBER() OVER (PARTITION BY addr ORDER BY time DESC) AS rn
-        FROM mtr_hops
-        WHERE addr IN (#{placeholders})
-          AND avg_us IS NOT NULL AND avg_us > 0
-      ) sub
-      WHERE rn <= #{@sparkline_points}
-      ORDER BY addr, time ASC
-      """
+      query =
+        MtrHop
+        |> Ash.Query.for_read(:read, %{})
+        |> Ash.Query.filter(expr(addr in ^addrs and not is_nil(avg_us) and avg_us > 0))
+        |> Ash.Query.sort(time: :desc)
+        |> Ash.Query.limit(limit)
 
-      case Repo.query(query, addrs) do
-        {:ok, %{rows: rows}} ->
-          group_hop_sparkline_rows(rows)
+      case Ash.read(query, scope: scope) do
+        {:ok, %Ash.Page.Keyset{results: results}} ->
+          results
+          |> build_sparklines_from_hops()
 
-        {:error, _} ->
+        {:ok, results} when is_list(results) ->
+          results
+          |> build_sparklines_from_hops()
+
+        {:error, _reason} ->
           %{}
       end
     end
   end
 
-  defp group_hop_sparkline_rows(rows) do
-    Enum.group_by(rows, &sparkline_group_key/1, &sparkline_group_value/1)
+  defp read_trace(trace_uuid, scope) do
+    query =
+      MtrTrace
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(expr(id == ^trace_uuid))
+      |> Ash.Query.limit(1)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, %Ash.Page.Keyset{results: [trace | _]}} -> {:ok, trace}
+      {:ok, [trace | _]} -> {:ok, trace}
+      {:ok, %Ash.Page.Keyset{results: []}} -> {:error, :not_found}
+      {:ok, []} -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
-  defp sparkline_group_key([addr, _time, _val]), do: addr
-  defp sparkline_group_value([_addr, time, val]), do: {time, val}
+  defp read_trace_hops(trace_uuid, scope) do
+    query =
+      MtrHop
+      |> Ash.Query.for_read(:by_trace, %{trace_id: trace_uuid})
+      |> Ash.Query.sort(hop_number: :asc)
+      |> Ash.Query.limit(256)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, %Ash.Page.Keyset{results: results}} -> {:ok, results}
+      {:ok, results} when is_list(results) -> {:ok, results}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp trace_to_map(trace) do
+    %{
+      "id" => trace.id && to_string(trace.id),
+      "time" => trace.time,
+      "agent_id" => trace.agent_id,
+      "gateway_id" => trace.gateway_id,
+      "check_id" => trace.check_id,
+      "check_name" => trace.check_name,
+      "device_id" => trace.device_id,
+      "target" => trace.target,
+      "target_ip" => trace.target_ip,
+      "target_reached" => trace.target_reached,
+      "total_hops" => trace.total_hops,
+      "protocol" => trace.protocol,
+      "ip_version" => trace.ip_version,
+      "packet_size" => trace.packet_size,
+      "partition" => trace.partition,
+      "error" => trace.error
+    }
+  end
+
+  defp hop_to_map(hop) do
+    %{
+      "hop_number" => hop.hop_number,
+      "addr" => hop.addr,
+      "hostname" => hop.hostname,
+      "ecmp_addrs" => hop.ecmp_addrs,
+      "asn" => hop.asn,
+      "asn_org" => hop.asn_org,
+      "mpls_labels" => hop.mpls_labels,
+      "sent" => hop.sent,
+      "received" => hop.received,
+      "loss_pct" => hop.loss_pct,
+      "last_us" => hop.last_us,
+      "avg_us" => hop.avg_us,
+      "min_us" => hop.min_us,
+      "max_us" => hop.max_us,
+      "stddev_us" => hop.stddev_us,
+      "jitter_us" => hop.jitter_us,
+      "jitter_worst_us" => hop.jitter_worst_us,
+      "jitter_interarrival_us" => hop.jitter_interarrival_us
+    }
+  end
+
+  defp build_sparklines_from_hops(hops) do
+    hops
+    |> Enum.group_by(& &1.addr)
+    |> Enum.reduce(%{}, fn
+      {nil, _}, acc ->
+        acc
+
+      {"", _}, acc ->
+        acc
+
+      {addr, rows}, acc ->
+        points =
+          rows
+          |> Enum.take(@sparkline_points)
+          |> Enum.reverse()
+          |> Enum.map(fn row -> {row.time, row.avg_us} end)
+
+        Map.put(acc, addr, points)
+    end)
+  end
 end

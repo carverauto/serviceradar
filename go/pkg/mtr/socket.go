@@ -44,7 +44,7 @@ type ICMPResponse struct {
 	InnerID int
 
 	// InnerSeq is the ICMP sequence number from the original Echo Request
-	// (for ICMP probes), or the destination port (for UDP).
+	// (for ICMP probes), or the destination port (for UDP/TCP probes).
 	InnerSeq int
 
 	// RecvTime is when the response was received.
@@ -65,6 +65,9 @@ type RawSocket interface {
 
 	// SendUDP sends a UDP packet with the specified TTL.
 	SendUDP(dst net.IP, ttl int, srcPort, dstPort int, payload []byte) error
+
+	// SendTCP sends a TCP SYN probe with the specified TTL.
+	SendTCP(dst net.IP, ttl int, srcPort, dstPort int) error
 
 	// Receive reads the next ICMP response, blocking up to deadline.
 	Receive(deadline time.Time) (*ICMPResponse, error)
