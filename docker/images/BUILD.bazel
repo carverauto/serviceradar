@@ -147,6 +147,138 @@ tar -czf "$@" -C "$${TMP}/rootfs" .
 )
 
 genrule(
+    name = "apk_inetutils_telnet_rootfs_amd64",
+    srcs = ["@alpine_inetutils_telnet_apk//file"],
+    outs = ["apk_inetutils_telnet_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+APK=$(location @alpine_inetutils_telnet_apk//file)
+TMP=$(@D)/inetutils_telnet_extract
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
+tar -xzf "$${APK}" -C "$${TMP}/extracted"
+DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
+if [ -n "$${DATA_TAR}" ]; then
+  case "$${DATA_TAR}" in
+    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+  esac
+else
+  shopt -s nullglob
+  for entry in "$${TMP}/extracted"/*; do
+    base=`basename "$${entry}"`
+    case "$${base}" in
+      .SIGN*|.PKGINFO) continue ;;
+    esac
+    cp -a "$${entry}" "$${TMP}/rootfs/"
+  done
+fi
+tar -czf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
+    name = "apk_libcap2_rootfs_amd64",
+    srcs = ["@alpine_libcap2_apk//file"],
+    outs = ["apk_libcap2_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+APK=$(location @alpine_libcap2_apk//file)
+TMP=$(@D)/libcap2_extract
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
+tar -xzf "$${APK}" -C "$${TMP}/extracted"
+DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
+if [ -n "$${DATA_TAR}" ]; then
+  case "$${DATA_TAR}" in
+    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+  esac
+else
+  shopt -s nullglob
+  for entry in "$${TMP}/extracted"/*; do
+    base=`basename "$${entry}"`
+    case "$${base}" in
+      .SIGN*|.PKGINFO) continue ;;
+    esac
+    cp -a "$${entry}" "$${TMP}/rootfs/"
+  done
+fi
+tar -czf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
+    name = "apk_libbsd_rootfs_amd64",
+    srcs = ["@alpine_libbsd_apk//file"],
+    outs = ["apk_libbsd_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+APK=$(location @alpine_libbsd_apk//file)
+TMP=$(@D)/libbsd_extract
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
+tar -xzf "$${APK}" -C "$${TMP}/extracted"
+DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
+if [ -n "$${DATA_TAR}" ]; then
+  case "$${DATA_TAR}" in
+    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+  esac
+else
+  shopt -s nullglob
+  for entry in "$${TMP}/extracted"/*; do
+    base=`basename "$${entry}"`
+    case "$${base}" in
+      .SIGN*|.PKGINFO) continue ;;
+    esac
+    cp -a "$${entry}" "$${TMP}/rootfs/"
+  done
+fi
+tar -czf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
+    name = "apk_libmd_rootfs_amd64",
+    srcs = ["@alpine_libmd_apk//file"],
+    outs = ["apk_libmd_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+APK=$(location @alpine_libmd_apk//file)
+TMP=$(@D)/libmd_extract
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
+tar -xzf "$${APK}" -C "$${TMP}/extracted"
+DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
+if [ -n "$${DATA_TAR}" ]; then
+  case "$${DATA_TAR}" in
+    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+  esac
+else
+  shopt -s nullglob
+  for entry in "$${TMP}/extracted"/*; do
+    base=`basename "$${entry}"`
+    case "$${base}" in
+      .SIGN*|.PKGINFO) continue ;;
+    esac
+    cp -a "$${entry}" "$${TMP}/rootfs/"
+  done
+fi
+tar -czf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
     name = "apk_bash_rootfs_amd64",
     srcs = ["@alpine_bash_apk//file"],
     outs = ["apk_bash_rootfs_amd64.tar"],
@@ -386,8 +518,12 @@ genrule(
     name = "alpine_netutils_rootfs_amd64",
     srcs = [
         ":apk_iputils_ping_rootfs_amd64.tar",
+        ":apk_libcap2_rootfs_amd64.tar",
+        ":apk_libmd_rootfs_amd64.tar",
+        ":apk_libbsd_rootfs_amd64.tar",
         ":apk_nmap_rootfs_amd64.tar",
         ":apk_netcat_rootfs_amd64.tar",
+        ":apk_inetutils_telnet_rootfs_amd64.tar",
     ],
     outs = ["alpine_netutils_rootfs_amd64.tar"],
     cmd = """
