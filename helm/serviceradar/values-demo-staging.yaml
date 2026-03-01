@@ -76,8 +76,8 @@ core:
   mtrAutomation:
     enabled: true
     baselineEnabled: true
-    triggerEnabled: false
-    consensusEnabled: false
+    triggerEnabled: true
+    consensusEnabled: true
     baselineTickMs: 60000
     consensusCohortRetentionMs: 300000
 

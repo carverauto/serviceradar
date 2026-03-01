@@ -272,7 +272,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 <div class="font-mono text-sm">{job.payload["target"] || "-"}</div>
               </td>
               <td>
-                <span class={["badge badge-sm", pending_status_class(job.status)]}>
+                <span class={["badge badge-sm w-28 justify-center", pending_status_class(job.status)]}>
                   {job.status |> to_string() |> String.replace("_", " ") |> String.upcase()}
                 </span>
               </td>
@@ -303,10 +303,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 </div>
               </td>
               <td>
-                <span :if={trace["target_reached"]} class="badge badge-success badge-sm">
+                <span :if={trace["target_reached"]} class="badge badge-success badge-sm w-28 justify-center">
                   Reached
                 </span>
-                <span :if={!trace["target_reached"]} class="badge badge-error badge-sm">
+                <span
+                  :if={!trace["target_reached"]}
+                  class="badge badge-error badge-sm w-28 justify-center"
+                >
                   Unreachable
                 </span>
               </td>
