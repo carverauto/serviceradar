@@ -35,6 +35,44 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   @top_n 10
 
+  # Well-known port → application name mapping for Top Ports display.
+  # Covers the most common services; extend as needed.
+  @well_known_ports %{
+    "20" => "FTP-Data",
+    "21" => "FTP",
+    "22" => "SSH",
+    "23" => "Telnet",
+    "25" => "SMTP",
+    "53" => "DNS",
+    "67" => "DHCP",
+    "68" => "DHCP",
+    "80" => "HTTP",
+    "110" => "POP3",
+    "123" => "NTP",
+    "143" => "IMAP",
+    "161" => "SNMP",
+    "162" => "SNMP-Trap",
+    "443" => "HTTPS",
+    "465" => "SMTPS",
+    "514" => "Syslog",
+    "587" => "SMTP-Sub",
+    "636" => "LDAPS",
+    "993" => "IMAPS",
+    "995" => "POP3S",
+    "1433" => "MSSQL",
+    "1521" => "Oracle",
+    "2049" => "NFS",
+    "3306" => "MySQL",
+    "3389" => "RDP",
+    "5432" => "PostgreSQL",
+    "5900" => "VNC",
+    "6379" => "Redis",
+    "8080" => "HTTP-Alt",
+    "8443" => "HTTPS-Alt",
+    "9200" => "Elasticsearch",
+    "27017" => "MongoDB"
+  }
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: schedule_refresh()
@@ -407,7 +445,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
             title="Top Ports (Destination)"
             rows={@top_ports}
             columns={[
-              %{key: :port, label: "Port"},
+              %{key: :port, label: "Port", format: &format_port_cell/1},
               %{key: :bytes, label: unit_suffix(@unit_mode), format: &format_bytes_cell(&1, @unit_mode)},
               %{key: :packets, label: "Packets"}
             ]}
@@ -1022,6 +1060,20 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   defp unit_suffix("Bps"), do: "B/s"
   defp unit_suffix("pps"), do: "pps"
   defp unit_suffix(_), do: ""
+
+  defp format_port_cell(row) do
+    port = to_string(row.port)
+    app = Map.get(@well_known_ports, port)
+
+    if app do
+      Phoenix.HTML.raw(
+        "#{Phoenix.HTML.html_escape(port) |> Phoenix.HTML.safe_to_string()}" <>
+          " <span class=\"text-xs text-base-content/50\">(#{Phoenix.HTML.html_escape(app) |> Phoenix.HTML.safe_to_string()})</span>"
+      )
+    else
+      port
+    end
+  end
 
   defp format_p95_cell(row) do
     p95 = Map.get(row, :p95_bps, 0)

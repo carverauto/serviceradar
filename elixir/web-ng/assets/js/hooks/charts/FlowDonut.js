@@ -43,9 +43,17 @@ export default {
         ? parsed
             .map((s) => {
               const obj = s && typeof s === "object" ? s : {}
+              const safeColor =
+                typeof obj.color === "string" &&
+                /^(#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|rgb(a)?\(|hsl(a)?\(|oklch\()/.test(
+                  obj.color.trim(),
+                ) &&
+                !obj.color.toLowerCase().includes("url(")
+                  ? obj.color.trim()
+                  : undefined
               return {
                 label: typeof obj.label === "string" ? obj.label : "",
-                color: typeof obj.color === "string" ? obj.color : undefined,
+                color: safeColor,
                 value: Number(obj.value) || 0,
               }
             })

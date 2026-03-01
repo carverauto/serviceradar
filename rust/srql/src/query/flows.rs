@@ -1324,7 +1324,13 @@ fn should_route_flow_stats_to_cagg(
         return None;
     }
 
-    // 3b. sum(*) is not valid — only count(*) can be rewritten to CAGGs
+    // 3b. Only count(*) can be safely rewritten to CAGGs (SUM(flow_count));
+    // count(field) would count pre-aggregated rows/buckets, not underlying flows.
+    if matches!(spec.agg_func, FlowAggFunc::Count) && !matches!(spec.agg_field, FlowAggField::Star) {
+        return None;
+    }
+
+    // 3c. sum(*) is not valid
     if matches!(spec.agg_field, FlowAggField::Star) && matches!(spec.agg_func, FlowAggFunc::Sum) {
         return None;
     }

@@ -45,7 +45,8 @@ defmodule ServiceRadar.Repo.Migrations.AddFlowTrafficHierarchicalCaggs do
     execute("""
     DO $$
     BEGIN
-      IF to_regprocedure('refresh_continuous_aggregate(regclass,timestamptz,timestamptz)') IS NOT NULL THEN
+      IF to_regprocedure('refresh_continuous_aggregate(regclass,timestamptz,timestamptz)') IS NOT NULL
+         OR to_regprocedure('refresh_continuous_aggregate(regclass,timestamp without time zone,timestamp without time zone)') IS NOT NULL THEN
         CALL refresh_continuous_aggregate('#{@traffic_1h}', now() - INTERVAL '7 days', now());
       END IF;
     END;
@@ -74,7 +75,8 @@ defmodule ServiceRadar.Repo.Migrations.AddFlowTrafficHierarchicalCaggs do
     execute("""
     DO $$
     BEGIN
-      IF to_regprocedure('refresh_continuous_aggregate(regclass,timestamptz,timestamptz)') IS NOT NULL THEN
+      IF to_regprocedure('refresh_continuous_aggregate(regclass,timestamptz,timestamptz)') IS NOT NULL
+         OR to_regprocedure('refresh_continuous_aggregate(regclass,timestamp without time zone,timestamp without time zone)') IS NOT NULL THEN
         CALL refresh_continuous_aggregate('#{@traffic_1d}', now() - INTERVAL '30 days', now());
       END IF;
     END;
@@ -104,7 +106,8 @@ defmodule ServiceRadar.Repo.Migrations.AddFlowTrafficHierarchicalCaggs do
     execute("""
     DO $$
     BEGIN
-      IF to_regprocedure('refresh_continuous_aggregate(regclass,timestamptz,timestamptz)') IS NOT NULL THEN
+      IF to_regprocedure('refresh_continuous_aggregate(regclass,timestamptz,timestamptz)') IS NOT NULL
+         OR to_regprocedure('refresh_continuous_aggregate(regclass,timestamp without time zone,timestamp without time zone)') IS NOT NULL THEN
         CALL refresh_continuous_aggregate('#{@listeners_view}', now() - INTERVAL '7 days', now());
       END IF;
     END;
@@ -140,7 +143,8 @@ defmodule ServiceRadar.Repo.Migrations.AddFlowTrafficHierarchicalCaggs do
     execute("""
     DO $$
     BEGIN
-      IF to_regprocedure('refresh_continuous_aggregate(regclass,timestamptz,timestamptz)') IS NOT NULL THEN
+      IF to_regprocedure('refresh_continuous_aggregate(regclass,timestamptz,timestamptz)') IS NOT NULL
+         OR to_regprocedure('refresh_continuous_aggregate(regclass,timestamp without time zone,timestamp without time zone)') IS NOT NULL THEN
         CALL refresh_continuous_aggregate('#{@conversations_view}', now() - INTERVAL '7 days', now());
       END IF;
     END;

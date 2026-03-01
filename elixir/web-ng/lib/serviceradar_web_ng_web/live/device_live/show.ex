@@ -932,56 +932,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       query = "#{zoomed_base} sort:time:desc"
       opts = %{scope: scope, limit: @flows_limit, cursor: nil}
 
-    # Reload flows table and stats in parallel for the zoomed range
-    flows_task =
-      Task.async(fn ->
-        try do
-          {:flows, load_zoomed_flows(srql_mod, query, opts)}
-        rescue
-          _ -> {:flows, {[], %{}, "Failed to load flows for selected range"}}
-        end
-      end)
+      # Reload flows table and stats in parallel for the zoomed range
+      flows_task =
+        Task.async(fn ->
+          try do
+            {:flows, load_zoomed_flows(srql_mod, query, opts)}
+          rescue
+            _ -> {:flows, {[], %{}, "Failed to load flows for selected range"}}
+          end
+        end)
 
-    stats_task =
-      Task.async(fn ->
-        try do
-          {:stats, load_device_flow_stats(srql_mod, uid, scope, zoomed_base)}
-        rescue
-          _ ->
-            {:stats,
-             {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]",
-              %{protocols: [], directions: [], services: []}}}
-        end
-      end)
+      stats_task =
+        Task.async(fn ->
+          try do
+            {:stats, load_device_flow_stats(srql_mod, uid, scope, zoomed_base)}
+          rescue
+            _ ->
+              {:stats,
+               {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]",
+                %{protocols: [], directions: [], services: []}}}
+          end
+        end)
 
-    results = safe_yield_many([flows_task, stats_task], 15_000)
+      results = safe_yield_many([flows_task, stats_task], 15_000)
 
-    {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
+      {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
 
-    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points,
-     top_talkers_json, top_destinations_json, top_ports_json, facets} =
-      Map.get(results, :stats,
-        {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]",
-         %{protocols: [], directions: [], services: []}})
+      {flow_stats, sparkline_json, proto_json, chart_keys, chart_points,
+       top_talkers_json, top_destinations_json, top_ports_json, facets} =
+        Map.get(results, :stats,
+          {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]",
+           %{protocols: [], directions: [], services: []}})
 
-    {:noreply,
-     socket
-     |> assign(:device_flows, flows)
-     |> assign(:flows_pagination, pagination)
-     |> assign(:flows_error, flows_error)
-     |> assign(:flow_zoom_range, %{start: safe_start, end: safe_end})
-     |> assign(:flow_stats, flow_stats)
-     |> assign(:flow_sparkline_json, sparkline_json)
-     |> assign(:flow_proto_json, proto_json)
-     |> assign(:flow_chart_keys_json, chart_keys)
-     |> assign(:flow_chart_points_json, chart_points)
-     |> assign(:flow_top_talkers_json, top_talkers_json)
-     |> assign(:flow_top_destinations_json, top_destinations_json)
-     |> assign(:flow_top_ports_json, top_ports_json)
-     |> assign(:flow_facets, facets)
-     |> assign(:flow_active_facets, %{})
-     |> assign(:flow_active_topn, nil)
-     |> enrich_flow_ips()}
+      {:noreply,
+       socket
+       |> assign(:device_flows, flows)
+       |> assign(:flows_pagination, pagination)
+       |> assign(:flows_error, flows_error)
+       |> assign(:flow_zoom_range, %{start: safe_start, end: safe_end})
+       |> assign(:flow_stats, flow_stats)
+       |> assign(:flow_sparkline_json, sparkline_json)
+       |> assign(:flow_proto_json, proto_json)
+       |> assign(:flow_chart_keys_json, chart_keys)
+       |> assign(:flow_chart_points_json, chart_points)
+       |> assign(:flow_top_talkers_json, top_talkers_json)
+       |> assign(:flow_top_destinations_json, top_destinations_json)
+       |> assign(:flow_top_ports_json, top_ports_json)
+       |> assign(:flow_facets, facets)
+       |> assign(:flow_active_facets, %{})
+       |> assign(:flow_active_topn, nil)
+       |> enrich_flow_ips()}
     else
       _ -> {:noreply, socket}
     end
@@ -3663,8 +3663,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   # Data Bar (relative bar behind numeric values)
   # ---------------------------------------------------------------------------
 
-  attr :value, :integer, required: true
-  attr :max, :integer, required: true
+  attr :value, :any, required: true
+  attr :max, :any, required: true
   attr :label, :string, required: true
 
   defp data_bar(assigns) do
