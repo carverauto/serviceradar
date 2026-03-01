@@ -1,6 +1,7 @@
-use crate::config::Config;
-use crate::model;
-use anyhow::{Context, Result};
+use crate::types::config::Config;
+use crate::types;
+use crate::errors::Result;
+use anyhow::Context;
 use arancini_lib::sender::UpdateSender;
 use arancini_lib::update::Update;
 use async_nats::ConnectOptions;
@@ -13,6 +14,7 @@ use std::sync::Arc;
 use std::sync::Once;
 use std::time::Duration;
 use tokio::time::timeout;
+use crate::types::to_payload;
 
 #[derive(Clone)]
 pub struct Publisher {
@@ -29,7 +31,8 @@ impl Publisher {
             options = options
                 .credentials_file(creds_file)
                 .await
-                .with_context(|| format!("failed loading NATS creds file {}", creds_file))?;
+                .with_context(|| format!("failed loading NATS creds file {}", creds_file))
+                .map_err(crate::errors::BmpError::Other)?;
         }
 
         let has_tls_material = config.nats_tls_ca_cert_path.is_some()
@@ -53,7 +56,8 @@ impl Publisher {
         let client = options
             .connect(&config.nats_url)
             .await
-            .with_context(|| format!("failed connecting to NATS {}", config.nats_url))?;
+            .with_context(|| format!("failed connecting to NATS {}", config.nats_url))
+            .map_err(crate::errors::BmpError::Other)?;
 
         let js = if let Some(domain) = &config.nats_domain {
             jetstream::with_domain(client, domain)
@@ -68,8 +72,11 @@ impl Publisher {
 
     async fn publish_update(&self, update: Update) -> Result<()> {
         let subject = subject_for_update(&self.config.subject_prefix, &update);
-        let payload = serde_json::to_vec(&model::to_payload(&update))?;
-        let ack = self.js.publish(subject.clone(), payload.into()).await?;
+        let payload = serde_json::to_vec(&to_payload::to_payload(&update))
+            .map_err(|e| crate::errors::BmpError::Other(e.into()))?;
+        let ack = self.js.publish(subject.clone(), payload.into())
+            .await
+            .map_err(|e| crate::errors::BmpError::NatsPublish(e.to_string()))?;
 
         timeout(Duration::from_millis(self.config.publish_timeout_ms), ack)
             .await
@@ -78,7 +85,9 @@ impl Publisher {
                     "publish ack timeout for subject {} after {}ms",
                     subject, self.config.publish_timeout_ms
                 )
-            })??;
+            })
+            .map_err(|e| crate::errors::BmpError::Other(e))?
+            .map_err(|e| crate::errors::BmpError::NatsPublish(e.to_string()))?;
 
         debug!(
             "published arancini update router={} peer={} prefix={}/{} to {}",
@@ -121,8 +130,12 @@ impl UpdateSender for Publisher {
     fn send<'a>(
         &'a self,
         update: Update,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
-        Box::pin(async move { self.publish_update(update).await })
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            self.publish_update(update)
+                .await
+                .map_err(|e| anyhow::anyhow!(e))
+        })
     }
 }
 
@@ -186,7 +199,7 @@ async fn ensure_stream(config: &Config, js: &jetstream::Context) -> Result<()> {
 
     match js.get_stream(&config.stream_name).await {
         Ok(mut stream) => {
-            let info = stream.info().await?;
+            let info = stream.info().await.map_err(|e| crate::errors::BmpError::NatsStream(e.to_string()))?;
             let mut updated_subjects = info.config.subjects.clone();
             let mut changed = false;
 
@@ -200,7 +213,7 @@ async fn ensure_stream(config: &Config, js: &jetstream::Context) -> Result<()> {
             if changed {
                 let mut cfg = info.config.clone();
                 cfg.subjects = updated_subjects;
-                js.update_stream(cfg).await?;
+                js.update_stream(cfg).await.map_err(|e| crate::errors::BmpError::NatsStream(e.to_string()))?;
             }
         }
         Err(_) => {
@@ -212,7 +225,7 @@ async fn ensure_stream(config: &Config, js: &jetstream::Context) -> Result<()> {
                 max_age: Duration::from_secs(24 * 60 * 60),
                 ..Default::default()
             };
-            js.get_or_create_stream(cfg).await?;
+            js.get_or_create_stream(cfg).await.map_err(|e| crate::errors::BmpError::NatsStream(e.to_string()))?;
         }
     }
 

@@ -1,47 +1,8 @@
 use arancini_lib::update::Update;
-use serde::Serialize;
+use crate::types::update_attrs::UpdateAttrs;
+use crate::types::update_payload::UpdatePayload;
 
-#[derive(Debug, Serialize)]
-pub struct UpdatePayload<'a> {
-    pub time_received_ns: String,
-    pub time_bmp_header_ns: String,
-    pub router_addr: String,
-    pub router_port: u16,
-    pub peer_addr: String,
-    pub peer_bgp_id: String,
-    pub peer_asn: u32,
-    pub prefix_addr: String,
-    pub prefix_len: u8,
-    pub is_post_policy: bool,
-    pub is_adj_rib_out: bool,
-    pub announced: bool,
-    pub synthetic: bool,
-    pub attrs: UpdateAttrs<'a>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct UpdateAttrs<'a> {
-    pub origin: &'a str,
-    pub as_path: &'a [u32],
-    pub next_hop: Option<String>,
-    pub multi_exit_discriminator: Option<u32>,
-    pub local_preference: Option<u32>,
-    pub only_to_customer: Option<u32>,
-    pub atomic_aggregate: bool,
-    pub aggregator_asn: Option<u32>,
-    pub aggregator_bgp_id: Option<u32>,
-    pub communities: &'a [(u32, u16)],
-    pub extended_communities: &'a [(u8, u8, Vec<u8>)],
-    pub large_communities: &'a [(u32, u32, u32)],
-    pub originator_id: Option<u32>,
-    pub cluster_list: &'a [u32],
-    pub mp_reach_afi: Option<u16>,
-    pub mp_reach_safi: Option<u8>,
-    pub mp_unreach_afi: Option<u16>,
-    pub mp_unreach_safi: Option<u8>,
-}
-
-pub fn to_payload(update: &Update) -> UpdatePayload<'_> {
+pub(crate) fn to_payload(update: &Update) -> UpdatePayload<'_> {
     UpdatePayload {
         time_received_ns: update.time_received_ns.to_rfc3339(),
         time_bmp_header_ns: update.time_bmp_header_ns.to_rfc3339(),
