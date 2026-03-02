@@ -4060,7 +4060,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <span class="text-sm font-semibold">Recent Flows</span>
             <span class="text-xs text-base-content/50">({length(@flows)} rows)</span>
           </div>
-          <.link navigate={~p"/flows?q=#{@query}"} class="text-xs text-primary hover:underline">
+          <.link
+            navigate={
+              ~p"/observability?#{%{"tab" => "netflows", "view" => "explorer", "q" => @query}}"
+            }
+            class="text-xs text-primary hover:underline"
+          >
             Open full flows view
           </.link>
         </div>
@@ -4159,7 +4164,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       </td>
                       <td class="text-right">
                         <.link
-                          navigate={~p"/flows?#{%{"q" => flow_drilldown_query(flow)}}"}
+                          navigate={
+                            ~p"/observability?#{%{"tab" => "netflows", "view" => "explorer", "q" => flow_drilldown_query(flow)}}"
+                          }
                           class="btn btn-ghost btn-xs"
                         >
                           Details
@@ -4485,17 +4492,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp flow_drilldown_query(flow) when is_map(flow) do
     tokens =
       ["in:flows", "time:last_24h"]
-      |> maybe_add_flow_token("src_endpoint_ip", Map.get(flow, "src_endpoint_ip"))
-      |> maybe_add_flow_token("dst_endpoint_ip", Map.get(flow, "dst_endpoint_ip"))
-      |> maybe_add_flow_token("src_endpoint_port", Map.get(flow, "src_endpoint_port"))
-      |> maybe_add_flow_token("dst_endpoint_port", Map.get(flow, "dst_endpoint_port"))
-      |> maybe_add_flow_token("protocol_num", Map.get(flow, "protocol_num"))
-      |> Kernel.++(["sort:time:desc", "limit:1"])
+      |> maybe_add_flow_token("src_ip", Map.get(flow, "src_endpoint_ip"))
+      |> maybe_add_flow_token("dst_ip", Map.get(flow, "dst_endpoint_ip"))
+      |> maybe_add_flow_token("src_port", Map.get(flow, "src_endpoint_port"))
+      |> maybe_add_flow_token("dst_port", Map.get(flow, "dst_endpoint_port"))
+      |> maybe_add_flow_token("proto", Map.get(flow, "protocol_num"))
+      |> Kernel.++(["sort:time:desc"])
 
     Enum.join(tokens, " ")
   end
 
-  defp flow_drilldown_query(_), do: "in:flows time:last_24h sort:time:desc limit:1"
+  defp flow_drilldown_query(_), do: "in:flows time:last_24h sort:time:desc"
 
   defp maybe_add_flow_token(tokens, _field, nil), do: tokens
   defp maybe_add_flow_token(tokens, _field, ""), do: tokens
@@ -4506,7 +4513,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     if value == "" do
       tokens
     else
-      tokens ++ ["#{field}:#{value}"]
+      tokens ++ ["#{field}:#{flow_query_value(value)}"]
+    end
+  end
+
+  defp flow_query_value(value) when is_binary(value) do
+    if String.contains?(value, [" ", ":", "\""]) do
+      ~s|"#{String.replace(value, "\"", "\\\"")}"|
+    else
+      value
     end
   end
 
