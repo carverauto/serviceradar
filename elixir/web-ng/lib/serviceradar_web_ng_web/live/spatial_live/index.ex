@@ -37,15 +37,15 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
 
             <div class="absolute bottom-4 left-4 z-20 pointer-events-auto flex gap-2 rounded bg-base-100/90 px-3 py-2 text-xs shadow-md border border-base-300">
               <div class="flex items-center gap-1">
-                <span class="inline-block w-3 h-3 rounded-full bg-cyan-400 opacity-80"></span>
+                <span class="inline-block w-3 h-3 rounded-full bg-cyber-cyan opacity-80"></span>
                 <span>Strong Signal</span>
               </div>
               <div class="flex items-center gap-1 ml-2">
-                <span class="inline-block w-3 h-3 rounded-full bg-red-500 opacity-80"></span>
+                <span class="inline-block w-3 h-3 rounded-full bg-cyber-magenta opacity-80"></span>
                 <span>Weak Signal</span>
               </div>
               <div class="flex items-center gap-1 ml-4">
-                <span class="text-gray-400">Drag to Pan | Scroll to Zoom | Option+Drag to Orbit</span>
+                <span class="text-base-content/50">Drag to Pan | Scroll to Zoom | Option+Drag to Orbit</span>
               </div>
             </div>
           </div>

@@ -62,7 +62,7 @@ export default {
     const color = nfColorScale(keys, colors)
 
     const strokeForKey = (k) => {
-      if (String(k).startsWith("prev:")) return "#94a3b8"
+      if (String(k).startsWith("prev:")) return "#A1A1AA"
       if (String(k).startsWith("rev:")) return color(String(k).slice(4))
       return color(k)
     }
