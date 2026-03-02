@@ -18,6 +18,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
+  alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.Stats
 
   require Logger
@@ -114,6 +116,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   def handle_params(params, uri, socket) do
     path = uri |> to_string() |> URI.parse() |> Map.get(:path)
     tab = normalize_tab(Map.get(params, "tab"), path)
+    params = maybe_apply_netflow_nf_state(params, tab)
     {entity, _list_key} = tab_entity(tab)
     {default_limit, _max_limit} = tab_limits(tab)
     params = maybe_default_netflows_query(params, tab)
@@ -124,6 +127,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     netflow_sankey_prefix = parse_netflow_sankey_prefix(Map.get(params, "sankey_prefix"))
     netflow_stack_mode = parse_netflow_stack_mode(Map.get(params, "stack"))
     netflow_view = parse_netflow_view(Map.get(params, "view"))
+    netflow_viz_state = extract_netflow_viz_state(params)
 
     same_tab_query_change =
       socket.assigns[:_initial_load_done] && tab == socket.assigns[:_loaded_tab]
@@ -141,6 +145,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:netflow_sankey_prefix, netflow_sankey_prefix)
         |> assign(:netflow_stack_mode, netflow_stack_mode)
         |> assign(:netflow_view, netflow_view)
+        |> assign(:netflow_viz_state, netflow_viz_state)
         |> ensure_srql_entity(entity, default_limit)
       else
         socket
@@ -182,6 +187,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:netflow_sankey, %{edges: [], sources: [], mids: [], dests: []})
         |> assign(:netflow_stack_mode, netflow_stack_mode)
         |> assign(:netflow_view, netflow_view)
+        |> assign(:netflow_viz_state, netflow_viz_state)
         |> ensure_srql_entity(entity, default_limit)
       end
 
@@ -494,6 +500,51 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp maybe_default_netflows_query(params, _tab), do: params
+
+  defp maybe_apply_netflow_nf_state(params, tab) when is_map(params) and tab == "netflows" do
+    nf_raw = Map.get(params, "nf")
+
+    case NFState.decode_param(nf_raw) do
+      {:ok, state} when is_map(state) ->
+        query =
+          Map.get(params, "q")
+          |> NFQuery.flows_base_query(@default_netflow_window)
+          |> NFQuery.flows_replace_time(Map.get(state, "time", @default_netflow_window))
+
+        view =
+          case Map.get(state, "graph") do
+            "sankey" -> "topology"
+            "grid" -> "talkers"
+            _ -> Map.get(params, "view")
+          end
+
+        stack_mode =
+          case NFQuery.downsample_series_field_from_dims(Map.get(state, "dims", [])) do
+            "src_ip" -> "talkers"
+            "dst_ip" -> "talkers"
+            _ -> Map.get(params, "stack")
+          end
+
+        params
+        |> Map.put("q", query)
+        |> maybe_put_param("view", view)
+        |> maybe_put_param("stack", stack_mode)
+
+      _ ->
+        params
+    end
+  end
+
+  defp maybe_apply_netflow_nf_state(params, _tab), do: params
+
+  defp extract_netflow_viz_state(params) when is_map(params) do
+    case NFState.decode_param(Map.get(params, "nf")) do
+      {:ok, %{} = state} -> state
+      _ -> NFState.default()
+    end
+  end
+
+  defp extract_netflow_viz_state(_params), do: NFState.default()
 
   defp load_netflow_context(flow, scope) when is_map(flow) do
     user = scope && scope.user
@@ -6473,24 +6524,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp extract_stats_rows(_), do: []
 
-  defp netflow_base_query(nil), do: "in:flows time:#{@default_netflow_window}"
-  defp netflow_base_query(""), do: "in:flows time:#{@default_netflow_window}"
-
-  defp netflow_base_query(query) when is_binary(query) do
-    query = String.trim(query)
-
-    cond do
-      query == "" ->
-        "in:flows time:#{@default_netflow_window}"
-
-      # All NetFlow charts (especially multi-dimension stats like Sankey) require an explicit time window.
-      Regex.match?(~r/(?:^|\s)time:/, query) ->
-        query
-
-      true ->
-        query <> " time:#{@default_netflow_window}"
-    end
-  end
+  defp netflow_base_query(query),
+    do: NFQuery.flows_base_query(to_string(query || ""), @default_netflow_window)
 
   defp load_netflow_rdns_map(flows, top_talkers, scope) when is_list(flows) do
     user = scope && scope.user
@@ -6554,16 +6589,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp sanitize_srql_for_stats(query) when is_binary(query) do
-    query
-    |> String.replace(~r/(?:^|\s)sort:\S+/, " ")
-    |> String.replace(~r/(?:^|\s)limit:\S+/, " ")
-    |> String.replace(~r/(?:^|\s)cursor:\S+/, " ")
-    |> String.replace(~r/(?:^|\s)stats:\"[^\"]*\"/, " ")
-    |> String.replace(~r/(?:^|\s)stats:\S+/, " ")
-    |> String.replace(~r/\s+/, " ")
-    |> String.trim()
-  end
+  defp sanitize_srql_for_stats(query),
+    do: NFQuery.flows_sanitize_for_stats(to_string(query || ""))
 
   defp load_netflow_timeseries(srql_module, current_query, scope) do
     base_query =
