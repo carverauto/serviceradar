@@ -206,9 +206,9 @@ export default {
         label.toLowerCase().startsWith("source") ? "source" : label.toLowerCase().startsWith("dest") ? "dest" : null
 
       const markerColor =
-        side === "source" ? "#22c55e" : // green-500
-        side === "dest" ? "#ef4444" : // red-500
-        "#64748b" // slate-500
+        side === "source" ? "#00E676" :
+        side === "dest" ? "#FF2A7A" :
+        "#52525B"
 
       const marker = new mapboxgl.Marker({color: markerColor}).setLngLat([lng, lat])
       if (popup) marker.setPopup(popup)
@@ -263,7 +263,7 @@ export default {
           type: "line",
           source: sourceId,
           paint: {
-            "line-color": "#0ea5e9", // sky-500
+            "line-color": "#00D8FF",
             "line-width": 3,
             "line-opacity": 0.75,
           },

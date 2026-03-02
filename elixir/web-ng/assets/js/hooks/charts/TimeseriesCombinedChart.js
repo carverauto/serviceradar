@@ -65,7 +65,7 @@ export default {
           if (!point) return null
           return {
             label: series.label || "series",
-            color: series.color || "#999",
+            color: series.color || "#A1A1AA",
             unit: series.unit || "number",
             dt: point.dt,
             value: formatValue(point.v, series.unit || "number"),

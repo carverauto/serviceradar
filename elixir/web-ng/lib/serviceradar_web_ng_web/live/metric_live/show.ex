@@ -197,7 +197,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
       <svg viewBox="0 0 200 60" class="w-full h-16">
         <polyline
           fill="none"
-          stroke="#8be9fd"
+          stroke="#00D8FF"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
