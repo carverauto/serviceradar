@@ -286,8 +286,7 @@ defmodule ServiceRadarWebNG.SRQL do
 
   defp decode_params(_), do: {:error, :invalid_srql_params}
 
-  defp decode_param(%{"t" => "text", "v" => value}) when is_binary(value),
-    do: decode_cidr_text_param(value)
+  defp decode_param(%{"t" => "text", "v" => value}) when is_binary(value), do: {:ok, value}
 
   defp decode_param(%{"t" => "bool", "v" => value}) when is_boolean(value), do: {:ok, value}
   defp decode_param(%{"t" => "int", "v" => value}) when is_integer(value), do: {:ok, value}
@@ -336,17 +335,6 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   defp decode_param(_), do: {:error, :invalid_srql_param}
-
-  defp decode_cidr_text_param(value) when is_binary(value) do
-    if String.contains?(value, "/") do
-      case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
-        {:ok, inet} -> {:ok, inet}
-        _ -> {:ok, value}
-      end
-    else
-      {:ok, value}
-    end
-  end
 
   defp normalize_request(%{"query" => query} = request) when is_binary(query) do
     limit = parse_limit(Map.get(request, "limit"))

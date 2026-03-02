@@ -4603,6 +4603,37 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               </div>
 
               <div class="p-4">
+                <div class="text-xs uppercase tracking-wider text-base-content/50">Map</div>
+                <%= if @mapbox && @mapbox.enabled &&
+                      is_binary(Map.get(@mapbox, :access_token)) &&
+                      String.trim(Map.get(@mapbox, :access_token)) != "" &&
+                      @map_markers != [] do %>
+                  <div class="mt-2 rounded-lg overflow-hidden border border-base-200 bg-base-200/30">
+                    <div
+                      id={netflow_map_dom_id(@flow)}
+                      class="h-80 w-full"
+                      phx-hook="MapboxFlowMap"
+                      phx-update="ignore"
+                      data-enabled="true"
+                      data-access-token={Map.get(@mapbox, :access_token) || ""}
+                      data-style-light={
+                        Map.get(@mapbox, :style_light) || "mapbox://styles/mapbox/light-v11"
+                      }
+                      data-style-dark={
+                        Map.get(@mapbox, :style_dark) || "mapbox://styles/mapbox/dark-v11"
+                      }
+                      data-markers={Jason.encode!(@map_markers)}
+                    >
+                    </div>
+                  </div>
+                <% else %>
+                  <div class="mt-2 text-sm text-base-content/60">
+                    Mapbox is disabled or no GeoIP coordinates are available for this flow.
+                  </div>
+                <% end %>
+              </div>
+
+              <div class="p-4">
                 <div class="text-xs uppercase tracking-wider text-base-content/50">Traffic</div>
                 <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
@@ -4679,36 +4710,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
           <.ui_panel class="lg:col-span-1">
             <div>
-              <div class="text-xs uppercase tracking-wider text-base-content/50">Map</div>
-              <%= if @mapbox && @mapbox.enabled &&
-                    is_binary(Map.get(@mapbox, :access_token)) &&
-                    String.trim(Map.get(@mapbox, :access_token)) != "" &&
-                    @map_markers != [] do %>
-                <div class="mt-2 rounded-lg overflow-hidden border border-base-200 bg-base-200/30">
-                  <div
-                    id={netflow_map_dom_id(@flow)}
-                    class="h-56 w-full"
-                    phx-hook="MapboxFlowMap"
-                    phx-update="ignore"
-                    data-enabled="true"
-                    data-access-token={Map.get(@mapbox, :access_token) || ""}
-                    data-style-light={
-                      Map.get(@mapbox, :style_light) || "mapbox://styles/mapbox/light-v11"
-                    }
-                    data-style-dark={
-                      Map.get(@mapbox, :style_dark) || "mapbox://styles/mapbox/dark-v11"
-                    }
-                    data-markers={Jason.encode!(@map_markers)}
-                  >
-                  </div>
-                </div>
-              <% else %>
-                <div class="mt-2 text-sm text-base-content/60">
-                  Mapbox is disabled or no GeoIP coordinates are available for this flow.
-                </div>
-              <% end %>
-
-              <div class="mt-3 text-xs uppercase tracking-wider text-base-content/50">
+              <div class="text-xs uppercase tracking-wider text-base-content/50">
                 Security and Enrichment
               </div>
 
