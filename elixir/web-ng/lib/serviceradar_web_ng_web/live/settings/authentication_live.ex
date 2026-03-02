@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
+  alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
   alias ServiceRadarWebNGWeb.SettingsComponents
 
   @modes [
@@ -952,31 +953,43 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   end
 
   defp test_oidc_discovery(url) do
-    case Req.get(url, receive_timeout: 10_000) do
-      {:ok, %{status: 200, body: body}} when is_map(body) ->
-        # Check for required OIDC endpoints
-        required = ["authorization_endpoint", "token_endpoint", "issuer"]
-        found = Enum.filter(required, &Map.has_key?(body, &1))
+    with {:ok, _uri} <- OutboundURLPolicy.validate(url),
+         {:ok, response} <- Req.get(url, OutboundURLPolicy.req_opts()) do
+      case response do
+        %{status: 200, body: body} when is_map(body) ->
+          # Check for required OIDC endpoints
+          required = ["authorization_endpoint", "token_endpoint", "issuer"]
+          found = Enum.filter(required, &Map.has_key?(body, &1))
 
-        if length(found) == length(required) do
-          {:ok, found}
-        else
-          missing = required -- found
-          {:error, "Missing required endpoints: #{Enum.join(missing, ", ")}"}
-        end
+          if length(found) == length(required) do
+            {:ok, found}
+          else
+            missing = required -- found
+            {:error, "Missing required endpoints: #{Enum.join(missing, ", ")}"}
+          end
 
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        # Try to parse as JSON
-        case Jason.decode(body) do
-          {:ok, parsed} ->
-            test_oidc_discovery_body(parsed)
+        %{status: 200, body: body} when is_binary(body) ->
+          # Try to parse as JSON
+          case Jason.decode(body) do
+            {:ok, parsed} ->
+              test_oidc_discovery_body(parsed)
 
-          {:error, _} ->
-            {:error, "Response is not valid JSON"}
-        end
+            {:error, _} ->
+              {:error, "Response is not valid JSON"}
+          end
 
-      {:ok, %{status: status}} ->
-        {:error, "HTTP #{status} response"}
+        %{status: status} ->
+          {:error, "HTTP #{status} response"}
+      end
+    else
+      {:error, :disallowed_scheme} ->
+        {:error, "URL must use HTTPS"}
+
+      {:error, :disallowed_host} ->
+        {:error, "URL host is not allowed"}
+
+      {:error, :invalid_url} ->
+        {:error, "URL is invalid"}
 
       {:error, %{reason: reason}} ->
         {:error, "Connection failed: #{inspect(reason)}"}
@@ -999,12 +1012,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   end
 
   defp test_saml_metadata_url(url) do
-    case Req.get(url, receive_timeout: 10_000) do
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        test_saml_metadata_xml(body)
+    with {:ok, _uri} <- OutboundURLPolicy.validate(url),
+         {:ok, response} <- Req.get(url, OutboundURLPolicy.req_opts()) do
+      case response do
+        %{status: 200, body: body} when is_binary(body) ->
+          test_saml_metadata_xml(body)
 
-      {:ok, %{status: status}} ->
-        {:error, "HTTP #{status} response"}
+        %{status: status} ->
+          {:error, "HTTP #{status} response"}
+      end
+    else
+      {:error, :disallowed_scheme} ->
+        {:error, "URL must use HTTPS"}
+
+      {:error, :disallowed_host} ->
+        {:error, "URL host is not allowed"}
+
+      {:error, :invalid_url} ->
+        {:error, "URL is invalid"}
 
       {:error, %{reason: reason}} ->
         {:error, "Connection failed: #{inspect(reason)}"}

@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
   require Logger
 
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
+  alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
 
   @doc """
   Returns true if SAML is enabled and configured.
@@ -93,8 +94,15 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
       {:ok, metadata} ->
         config = %{
           idp_metadata: metadata,
+          idp_entity_id: extract_idp_entity_id(metadata),
           sp_entity_id: settings.saml_sp_entity_id || get_sp_entity_id(),
           acs_url: get_acs_url(),
+          assertion_max_validity_seconds:
+            Application.get_env(
+              :serviceradar_web_ng,
+              :saml_assertion_max_validity_seconds,
+              300
+            ),
           claim_mappings:
             settings.claim_mappings ||
               %{
@@ -139,12 +147,24 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
   defp get_idp_metadata(_), do: {:error, :no_idp_metadata}
 
   defp fetch_metadata(url) do
-    case Req.get(url) do
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        {:ok, body}
+    with {:ok, _uri} <- OutboundURLPolicy.validate(url),
+         {:ok, response} <- Req.get(url, OutboundURLPolicy.req_opts()) do
+      case response do
+        %{status: 200, body: body} when is_binary(body) ->
+          {:ok, body}
 
-      {:ok, %{status: status}} ->
-        Logger.error("Failed to fetch SAML IdP metadata: status=#{status}")
+        %{status: status} ->
+          Logger.error("Failed to fetch SAML IdP metadata: status=#{status}")
+          {:error, :metadata_fetch_failed}
+      end
+    else
+      {:error, :disallowed_scheme} ->
+        {:error, :metadata_fetch_failed}
+
+      {:error, :disallowed_host} ->
+        {:error, :metadata_fetch_failed}
+
+      {:error, :invalid_url} ->
         {:error, :metadata_fetch_failed}
 
       {:error, reason} ->
@@ -152,4 +172,28 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
         {:error, :metadata_fetch_failed}
     end
   end
+
+  defp extract_idp_entity_id({:xml, xml}) when is_binary(xml) do
+    try do
+      import SweetXml
+
+      entity_id =
+        xpath(
+          xml,
+          ~x"//md:EntityDescriptor/@entityID"s,
+          namespace_conformant: true,
+          namespaces: [md: "urn:oasis:names:tc:SAML:2.0:metadata"]
+        )
+
+      if is_binary(entity_id) and String.trim(entity_id) != "" do
+        String.trim(entity_id)
+      else
+        nil
+      end
+    rescue
+      _ -> nil
+    end
+  end
+
+  defp extract_idp_entity_id(_), do: nil
 end

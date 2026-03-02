@@ -122,6 +122,9 @@ config :serviceradar_web_ng, :plugin_verification,
   require_gpg_for_github: false,
   allow_unsigned_uploads: true
 
+config :serviceradar_web_ng, :allow_insecure_metadata_urls, false
+config :serviceradar_web_ng, :saml_assertion_max_validity_seconds, 300
+
 # Oban job processing configuration
 # web-ng only processes jobs, it does NOT schedule them
 # core-elx is the Oban coordinator and handles all scheduled/cron jobs
