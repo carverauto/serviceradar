@@ -98,7 +98,10 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLAssertionValidator do
   end
 
   defp parse_dt(value) when is_binary(value) and value != "" do
-    DateTime.from_iso8601(value)
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _offset} -> {:ok, dt}
+      {:error, _} = err -> err
+    end
   end
 
   defp parse_dt(_), do: :error
