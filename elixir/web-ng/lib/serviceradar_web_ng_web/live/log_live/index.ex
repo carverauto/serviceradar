@@ -4526,18 +4526,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <dialog class="modal modal-open" phx-window-keydown="netflow_close" phx-key="escape">
-      <div class="modal-box max-w-[92rem] w-11/12 p-0">
-        <% patch_opts =
-          netflow_patch_opts(
-            @compact?,
-            @talker_cidr,
-            @compare_mode,
-            @geo_side,
-            @sankey_prefix,
-            @stack_mode,
-            @graph_mode,
-            @view
-          ) %>
+      <div class="modal-box max-w-[96rem] w-[96vw] h-[92vh] p-0 overflow-hidden">
         <div class="flex items-start justify-between gap-4 border-b border-base-200 px-5 py-4">
           <div class="min-w-0">
             <div class="text-sm font-semibold">Flow details</div>
@@ -4550,7 +4539,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </.ui_icon_button>
         </div>
 
-        <div class="grid grid-cols-1 gap-4 p-4 lg:grid-cols-3">
+        <div class="grid h-[calc(92vh-5rem)] grid-cols-1 gap-3 p-3 lg:grid-cols-3">
           <.ui_panel class="lg:col-span-2" body_class="p-0">
             <div class="divide-y divide-base-200">
               <div class="p-4">
@@ -4582,16 +4571,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       <.ui_button
                         size="xs"
                         variant="ghost"
-                        patch={
-                          netflow_filter_patch(
-                            @base_path,
-                            @query,
-                            @limit,
-                            "src_ip",
-                            @src_ip,
-                            patch_opts
-                          )
-                        }
+                        phx-click="netflow_modal_filter"
+                        phx-value-field="src_ip"
+                        phx-value-value={@src_ip}
                       >
                         Filter src
                       </.ui_button>
@@ -4627,16 +4609,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       <.ui_button
                         size="xs"
                         variant="ghost"
-                        patch={
-                          netflow_filter_patch(
-                            @base_path,
-                            @query,
-                            @limit,
-                            "dst_ip",
-                            @dst_ip,
-                            patch_opts
-                          )
-                        }
+                        phx-click="netflow_modal_filter"
+                        phx-value-field="dst_ip"
+                        phx-value-value={@dst_ip}
                       >
                         Filter dst
                       </.ui_button>
@@ -4644,16 +4619,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                         :if={@dst_port}
                         size="xs"
                         variant="ghost"
-                        patch={
-                          netflow_filter_patch(
-                            @base_path,
-                            @query,
-                            @limit,
-                            "dst_port",
-                            to_string(@dst_port),
-                            patch_opts
-                          )
-                        }
+                        phx-click="netflow_modal_filter"
+                        phx-value-field="dst_port"
+                        phx-value-value={to_string(@dst_port)}
                       >
                         Filter port
                       </.ui_button>
@@ -4664,16 +4632,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
               <div class="p-4">
                 <div class="text-xs uppercase tracking-wider text-base-content/50">Traffic</div>
-                <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
-                      Protocol
-                    </div>
-                    <div class="mt-1">
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">Flow</div>
+                    <div class="mt-1 flex flex-wrap items-center gap-2">
                       <.netflow_protocol_badge
                         protocol={netflow_protocol_num(@flow)}
                         name={netflow_protocol_name(@flow)}
                       />
+                      <.netflow_flow_type_badge flow_type={netflow_flow_type(@flow)} />
                     </div>
                     <div
                       :if={is_binary(@direction_label) and @direction_label != ""}
@@ -4683,25 +4650,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     </div>
                   </div>
                   <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
-                      Version
-                    </div>
-                    <div class="mt-1">
-                      <.netflow_flow_type_badge flow_type={netflow_flow_type(@flow)} />
-                    </div>
-                  </div>
-                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
-                      Packets
-                    </div>
-                    <div class="mt-1 font-mono text-sm">
-                      {format_netflow_number(netflow_packets(@flow))}
-                    </div>
-                  </div>
-                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">Bytes</div>
-                    <div class="mt-1 font-mono text-sm">
-                      {format_netflow_bytes(netflow_bytes(@flow))}
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">Volume</div>
+                    <div class="mt-1 flex items-center gap-4">
+                      <div>
+                        <div class="text-[10px] text-base-content/60">Packets</div>
+                        <div class="font-mono text-sm">{format_netflow_number(netflow_packets(@flow))}</div>
+                      </div>
+                      <div>
+                        <div class="text-[10px] text-base-content/60">Bytes</div>
+                        <div class="font-mono text-sm">{format_netflow_bytes(netflow_bytes(@flow))}</div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -4738,47 +4696,42 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   </div>
                 </div>
 
-                <div class="mt-4">
-                  <div class="text-xs uppercase tracking-wider text-base-content/50">Map</div>
-
-                  <%= if @mapbox && @mapbox.enabled &&
-                        is_binary(Map.get(@mapbox, :access_token)) &&
-                        String.trim(Map.get(@mapbox, :access_token)) != "" &&
-                        @map_markers != [] do %>
-                    <div class="mt-2 rounded-lg overflow-hidden border border-base-200 bg-base-200/30">
-                      <div
-                        id={netflow_map_dom_id(@flow)}
-                        class="h-72 w-full"
-                        phx-hook="MapboxFlowMap"
-                        phx-update="ignore"
-                        data-enabled="true"
-                        data-access-token={Map.get(@mapbox, :access_token) || ""}
-                        data-style-light={
-                          Map.get(@mapbox, :style_light) || "mapbox://styles/mapbox/light-v11"
-                        }
-                        data-style-dark={
-                          Map.get(@mapbox, :style_dark) || "mapbox://styles/mapbox/dark-v11"
-                        }
-                        data-markers={Jason.encode!(@map_markers)}
-                      >
-                      </div>
-                    </div>
-                    <div class="mt-1 text-xs text-base-content/60">
-                      Tip: click markers for details.
-                    </div>
-                  <% else %>
-                    <div class="mt-2 text-sm text-base-content/60">
-                      Mapbox is disabled or no GeoIP coordinates are available for this flow.
-                    </div>
-                  <% end %>
-                </div>
               </div>
             </div>
           </.ui_panel>
 
           <.ui_panel class="lg:col-span-1">
             <div>
-              <div class="text-xs uppercase tracking-wider text-base-content/50">
+              <div class="text-xs uppercase tracking-wider text-base-content/50">Map</div>
+              <%= if @mapbox && @mapbox.enabled &&
+                    is_binary(Map.get(@mapbox, :access_token)) &&
+                    String.trim(Map.get(@mapbox, :access_token)) != "" &&
+                    @map_markers != [] do %>
+                <div class="mt-2 rounded-lg overflow-hidden border border-base-200 bg-base-200/30">
+                  <div
+                    id={netflow_map_dom_id(@flow)}
+                    class="h-56 w-full"
+                    phx-hook="MapboxFlowMap"
+                    phx-update="ignore"
+                    data-enabled="true"
+                    data-access-token={Map.get(@mapbox, :access_token) || ""}
+                    data-style-light={
+                      Map.get(@mapbox, :style_light) || "mapbox://styles/mapbox/light-v11"
+                    }
+                    data-style-dark={
+                      Map.get(@mapbox, :style_dark) || "mapbox://styles/mapbox/dark-v11"
+                    }
+                    data-markers={Jason.encode!(@map_markers)}
+                  >
+                  </div>
+                </div>
+              <% else %>
+                <div class="mt-2 text-sm text-base-content/60">
+                  Mapbox is disabled or no GeoIP coordinates are available for this flow.
+                </div>
+              <% end %>
+
+              <div class="mt-3 text-xs uppercase tracking-wider text-base-content/50">
                 Security and Enrichment
               </div>
 
