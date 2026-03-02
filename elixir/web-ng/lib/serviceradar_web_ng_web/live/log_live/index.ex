@@ -453,6 +453,45 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  def handle_event("netflow_modal_filter", %{"field" => field_raw, "value" => value_raw}, socket) do
+    field = to_string(field_raw || "") |> String.trim()
+    value = to_string(value_raw || "") |> String.trim()
+
+    if field != "" and value != "" do
+      base_path = socket.assigns.srql[:page_path] || "/observability"
+      query = socket.assigns.srql[:query] || ""
+      limit = socket.assigns.limit
+
+      href =
+        netflow_filter_patch(
+          base_path,
+          query,
+          limit,
+          field,
+          value,
+          netflow_patch_opts(
+            Map.get(socket.assigns, :netflow_compact?, false),
+            Map.get(socket.assigns, :netflow_talker_cidr),
+            Map.get(socket.assigns, :netflow_compare_mode, "off"),
+            Map.get(socket.assigns, :netflow_geo_side, "dst"),
+            Map.get(socket.assigns, :netflow_sankey_prefix, 24),
+            Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode),
+            Map.get(socket.assigns, :netflow_graph_mode, "stacked"),
+            Map.get(socket.assigns, :netflow_view, "overview")
+          )
+        )
+
+      {:noreply,
+       socket
+       |> assign(:selected_netflow, nil)
+       |> assign(:netflow_context, nil)
+       |> assign(:netflow_arin_lookup, %{})
+       |> push_patch(to: href)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("srql_submit", params, socket) do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_submit", params,
@@ -591,9 +630,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
         params
         |> Map.put("q", query)
-        |> maybe_put_param("view", view)
-        |> maybe_put_param("stack", stack_mode)
-        |> maybe_put_param("graph", graph_mode)
+        |> maybe_put_new_param("view", view)
+        |> maybe_put_new_param("stack", stack_mode)
+        |> maybe_put_new_param("graph", graph_mode)
 
       _ ->
         params
@@ -1377,93 +1416,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           @graph_mode,
           @view
         ) %>
-      <.ui_panel class="p-2">
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="text-[10px] uppercase tracking-wider text-base-content/50">Flow Views</span>
-          <.ui_button
-            size="xs"
-            variant="ghost"
-            active={@view == "overview"}
-            class="rounded-full"
-            patch={
-              netflow_talker_cidr_patch(
-                @base_path,
-                @query,
-                @limit,
-                Map.put(patch_opts, :view, "overview")
-              )
-            }
-          >
-            Overview
-          </.ui_button>
-          <.ui_button
-            size="xs"
-            variant="ghost"
-            active={@view == "traffic"}
-            class="rounded-full"
-            patch={
-              netflow_talker_cidr_patch(
-                @base_path,
-                @query,
-                @limit,
-                Map.put(patch_opts, :view, "traffic")
-              )
-            }
-          >
-            Traffic
-          </.ui_button>
-          <.ui_button
-            size="xs"
-            variant="ghost"
-            active={@view == "talkers"}
-            class="rounded-full"
-            patch={
-              netflow_talker_cidr_patch(
-                @base_path,
-                @query,
-                @limit,
-                Map.put(patch_opts, :view, "talkers")
-              )
-            }
-          >
-            Talkers & Ports
-          </.ui_button>
-          <.ui_button
-            size="xs"
-            variant="ghost"
-            active={@view == "topology"}
-            class="rounded-full"
-            patch={
-              netflow_talker_cidr_patch(
-                @base_path,
-                @query,
-                @limit,
-                Map.put(patch_opts, :view, "topology")
-              )
-            }
-          >
-            Topology
-          </.ui_button>
-          <.ui_button
-            size="xs"
-            variant="ghost"
-            active={@view == "explorer"}
-            class="rounded-full"
-            patch={
-              netflow_talker_cidr_patch(
-                @base_path,
-                @query,
-                @limit,
-                Map.put(patch_opts, :view, "explorer")
-              )
-            }
-          >
-            Explorer
-          </.ui_button>
-        </div>
-      </.ui_panel>
-
-      <.ui_panel :if={@view == "overview"} class="p-3">
+      <.ui_panel class="p-3">
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <.link
             patch={
@@ -1474,7 +1427,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 Map.put(patch_opts, :view, "traffic")
               )
             }
-            class="rounded-xl border border-base-200 bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30"
+            class={[
+              "rounded-xl border bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30",
+              @view == "traffic" && "border-primary/50 bg-primary/5",
+              @view != "traffic" && "border-base-200"
+            ]}
           >
             <div class="text-sm font-semibold">Traffic Analysis</div>
             <div class="mt-1 text-xs text-base-content/60">
@@ -1490,7 +1447,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 Map.put(patch_opts, :view, "talkers")
               )
             }
-            class="rounded-xl border border-base-200 bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30"
+            class={[
+              "rounded-xl border bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30",
+              @view == "talkers" && "border-primary/50 bg-primary/5",
+              @view != "talkers" && "border-base-200"
+            ]}
           >
             <div class="text-sm font-semibold">Talkers & Ports</div>
             <div class="mt-1 text-xs text-base-content/60">
@@ -1506,7 +1467,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 Map.put(patch_opts, :view, "topology")
               )
             }
-            class="rounded-xl border border-base-200 bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30"
+            class={[
+              "rounded-xl border bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30",
+              @view == "topology" && "border-primary/50 bg-primary/5",
+              @view != "topology" && "border-base-200"
+            ]}
           >
             <div class="text-sm font-semibold">Topology</div>
             <div class="mt-1 text-xs text-base-content/60">Sankey flow path and geo distribution</div>
@@ -1520,7 +1485,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 Map.put(patch_opts, :view, "explorer")
               )
             }
-            class="rounded-xl border border-base-200 bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30"
+            class={[
+              "rounded-xl border bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30",
+              @view == "explorer" && "border-primary/50 bg-primary/5",
+              @view != "explorer" && "border-base-200"
+            ]}
           >
             <div class="text-sm font-semibold">Flow Explorer</div>
             <div class="mt-1 text-xs text-base-content/60">
@@ -1848,62 +1817,64 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </.ui_panel>
       </div>
 
-      <.ui_panel :if={@view in ["traffic", "topology"]} class="p-3">
-        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div class="text-xs uppercase tracking-wider text-base-content/50">Compare</div>
-            <div class="mt-2 flex flex-wrap items-center gap-2">
-              <.ui_button
-                size="xs"
-                variant="ghost"
-                active={@compare_mode == "off"}
-                class="rounded-full"
-                patch={
-                  netflow_talker_cidr_patch(
-                    @base_path,
-                    @query,
-                    @limit,
-                    Map.put(patch_opts, :compare_mode, "off")
-                  )
-                }
-              >
-                Off
-              </.ui_button>
-              <.ui_button
-                size="xs"
-                variant="ghost"
-                active={@compare_mode == "previous"}
-                class="rounded-full"
-                patch={
-                  netflow_talker_cidr_patch(
-                    @base_path,
-                    @query,
-                    @limit,
-                    Map.put(patch_opts, :compare_mode, "previous")
-                  )
-                }
-              >
-                Previous Window
-              </.ui_button>
-              <.ui_button
-                size="xs"
-                variant="ghost"
-                active={@compare_mode == "yesterday"}
-                class="rounded-full"
-                patch={
-                  netflow_talker_cidr_patch(
-                    @base_path,
-                    @query,
-                    @limit,
-                    Map.put(patch_opts, :compare_mode, "yesterday")
-                  )
-                }
-              >
-                Yesterday
-              </.ui_button>
-            </div>
+      <.ui_panel :if={@view == "traffic" and @graph_mode in ["lines", "grid"]} class="p-3">
+        <div>
+          <div class="text-xs uppercase tracking-wider text-base-content/50">Compare</div>
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <.ui_button
+              size="xs"
+              variant="ghost"
+              active={@compare_mode == "off"}
+              class="rounded-full"
+              patch={
+                netflow_talker_cidr_patch(
+                  @base_path,
+                  @query,
+                  @limit,
+                  Map.put(patch_opts, :compare_mode, "off")
+                )
+              }
+            >
+              Off
+            </.ui_button>
+            <.ui_button
+              size="xs"
+              variant="ghost"
+              active={@compare_mode == "previous"}
+              class="rounded-full"
+              patch={
+                netflow_talker_cidr_patch(
+                  @base_path,
+                  @query,
+                  @limit,
+                  Map.put(patch_opts, :compare_mode, "previous")
+                )
+              }
+            >
+              Previous Window
+            </.ui_button>
+            <.ui_button
+              size="xs"
+              variant="ghost"
+              active={@compare_mode == "yesterday"}
+              class="rounded-full"
+              patch={
+                netflow_talker_cidr_patch(
+                  @base_path,
+                  @query,
+                  @limit,
+                  Map.put(patch_opts, :compare_mode, "yesterday")
+                )
+              }
+            >
+              Yesterday
+            </.ui_button>
           </div>
+        </div>
+      </.ui_panel>
 
+      <.ui_panel :if={@view == "topology"} class="p-3">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div class="text-xs uppercase tracking-wider text-base-content/50">Geo</div>
             <div class="mt-2 flex flex-wrap items-center gap-2">
@@ -1994,6 +1965,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 }
               >
                 Reset Edge Filter
+              </.ui_button>
+              <.ui_button
+                size="xs"
+                variant="ghost"
+                class="rounded-full"
+                patch={
+                  netflow_talker_cidr_patch(
+                    @base_path,
+                    @query
+                    |> strip_filter("src_cidr")
+                    |> strip_filter("dst_cidr")
+                    |> strip_filter("dst_port")
+                    |> strip_filter("src_country_iso2")
+                    |> strip_filter("dst_country_iso2"),
+                    @limit,
+                    patch_opts
+                  )
+                }
+              >
+                Reset Topology
               </.ui_button>
             </div>
           </div>
@@ -3232,6 +3223,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp maybe_put_param(params, _key, nil), do: params
   defp maybe_put_param(params, _key, ""), do: params
   defp maybe_put_param(params, key, value), do: Map.put(params, key, value)
+
+  defp maybe_put_new_param(params, _key, nil), do: params
+  defp maybe_put_new_param(params, _key, ""), do: params
+
+  defp maybe_put_new_param(params, key, value) do
+    if Map.get(params, key) in [nil, ""] do
+      Map.put(params, key, value)
+    else
+      params
+    end
+  end
 
   defp color_class("error"), do: "text-error"
   defp color_class("warning"), do: "text-warning"
