@@ -14,6 +14,7 @@ import GodViewControlsState from "./god_view/GodViewControlsState"
 import TimeseriesChart from "./charts/TimeseriesChart"
 import TimeseriesCombinedChart from "./charts/TimeseriesCombinedChart"
 import FlowSparkline from "./charts/FlowSparkline"
+import FlowRateChart from "./charts/FlowRateChart"
 import FlowDonut from "./charts/FlowDonut"
 import BandwidthGauge from "./charts/BandwidthGauge"
 
@@ -34,6 +35,7 @@ export default {
   TimeseriesChart,
   TimeseriesCombinedChart,
   FlowSparkline,
+  FlowRateChart,
   FlowDonut,
   BandwidthGauge,
 }

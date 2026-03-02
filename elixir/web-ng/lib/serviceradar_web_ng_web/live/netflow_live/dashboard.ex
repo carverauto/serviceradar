@@ -8,7 +8,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   alias ServiceRadar.Observability.NetflowInterfaceCache
   alias ServiceRadar.Observability.NetflowLocalCidr
 
-
   require Ash.Query
   require Logger
 
@@ -31,6 +30,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   @metric_modes [
     {"bytes", "By Bytes"},
     {"packets", "By Packets"}
+  ]
+
+  @sections [
+    {"overview", "Overview"},
+    {"topn", "Top Lists"},
+    {"traffic", "Traffic"},
+    {"capacity", "Capacity"},
+    {"all", "Show All"}
   ]
 
   @top_n 10
@@ -85,6 +92,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
      |> assign(:srql, srql)
      |> assign(:time_window, "1h")
      |> assign(:time_windows, @time_windows)
+     |> assign(:section, "overview")
+     |> assign(:sections, @sections)
+     |> assign(:query, nil)
      |> assign(:unit_mode, "bps")
      |> assign(:unit_modes, @unit_modes)
      |> assign(:loading, true)
@@ -116,37 +126,45 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    # Backward compat: redirect /flows?nf=... to /flows/visualize?nf=...
-    if Map.has_key?(params, "nf") do
-      qs = URI.encode_query(params)
-      {:noreply, push_navigate(socket, to: "/flows/visualize?#{qs}", replace: true)}
-    else
-      tw = validate_param(Map.get(params, "tw"), @time_windows, socket.assigns.time_window)
-      um = validate_param(Map.get(params, "unit"), @unit_modes, socket.assigns.unit_mode)
-      mm = validate_param(Map.get(params, "metric"), @metric_modes, socket.assigns.metric_mode)
+    tw = validate_param(Map.get(params, "tw"), @time_windows, socket.assigns.time_window)
+    um = validate_param(Map.get(params, "unit"), @unit_modes, socket.assigns.unit_mode)
+    mm = validate_param(Map.get(params, "metric"), @metric_modes, socket.assigns.metric_mode)
+    section = validate_param(Map.get(params, "section"), @sections, socket.assigns.section)
+    query = normalize_optional_query(Map.get(params, "q"))
 
-      socket =
-        socket
-        |> assign(:time_window, tw)
-        |> assign(:unit_mode, um)
-        |> assign(:metric_mode, mm)
-        |> load_dashboard_stats()
+    socket =
+      socket
+      |> assign(:time_window, tw)
+      |> assign(:unit_mode, um)
+      |> assign(:metric_mode, mm)
+      |> assign(:section, section)
+      |> assign(:query, query)
+      |> load_dashboard_stats()
 
-      {:noreply, socket}
-    end
+    {:noreply, socket}
   end
 
   @impl true
   def handle_event("change_time_window", %{"tw" => tw}, socket) do
-    {:noreply, push_patch(socket, to: ~p"/flows?#{%{tw: tw, unit: socket.assigns.unit_mode, metric: socket.assigns.metric_mode}}")}
+    {:noreply, push_patch(socket, to: ~p"/flows?#{patch_params(socket, %{tw: tw})}")}
   end
 
   def handle_event("change_unit_mode", %{"unit" => um}, socket) do
-    {:noreply, push_patch(socket, to: ~p"/flows?#{%{tw: socket.assigns.time_window, unit: um, metric: socket.assigns.metric_mode}}")}
+    {:noreply, push_patch(socket, to: ~p"/flows?#{patch_params(socket, %{unit: um})}")}
   end
 
   def handle_event("change_metric_mode", %{"metric" => mm}, socket) do
-    {:noreply, push_patch(socket, to: ~p"/flows?#{%{tw: socket.assigns.time_window, unit: socket.assigns.unit_mode, metric: mm}}")}
+    {:noreply, push_patch(socket, to: ~p"/flows?#{patch_params(socket, %{metric: mm})}")}
+  end
+
+  def handle_event("change_section", %{"section" => section}, socket) do
+    section = validate_param(section, @sections, socket.assigns.section)
+
+    {:noreply, push_patch(socket, to: ~p"/flows?#{patch_params(socket, %{section: section})}")}
+  end
+
+  def handle_event("clear_query", _params, socket) do
+    {:noreply, push_patch(socket, to: ~p"/flows?#{patch_params(socket, %{q: nil})}")}
   end
 
   def handle_event("drill_down_talker", %{"row-idx" => idx}, socket) do
@@ -170,7 +188,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   def handle_event("drill_down_conversation", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
          row when not is_nil(row) <- Enum.at(socket.assigns.top_conversations, i) do
-      {:noreply, drill_down(socket, "src_ip:#{srql_quote(row.src_ip)} dst_ip:#{srql_quote(row.dst_ip)}")}
+      {:noreply,
+       drill_down(socket, "src_ip:#{srql_quote(row.src_ip)} dst_ip:#{srql_quote(row.dst_ip)}")}
     else
       _ -> {:noreply, socket}
     end
@@ -257,88 +276,108 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
             </div>
 
             <%!-- Units selector --%>
-            <select
-              class="select select-xs select-bordered"
-              phx-change="change_unit_mode"
-              name="unit"
-            >
-              <option
-                :for={{mode, label} <- @unit_modes}
-                value={mode}
-                selected={mode == @unit_mode}
+            <form phx-change="change_unit_mode">
+              <select
+                class="select select-xs select-bordered"
+                name="unit"
               >
-                {label}
-              </option>
-            </select>
+                <option
+                  :for={{mode, label} <- @unit_modes}
+                  value={mode}
+                  selected={mode == @unit_mode}
+                >
+                  {label}
+                </option>
+              </select>
+            </form>
 
             <%!-- Metric mode selector --%>
-            <select
-              class="select select-xs select-bordered"
-              phx-change="change_metric_mode"
-              name="metric"
-            >
-              <option
-                :for={{mode, label} <- @metric_modes}
-                value={mode}
-                selected={mode == @metric_mode}
+            <form phx-change="change_metric_mode">
+              <select
+                class="select select-xs select-bordered"
+                name="metric"
               >
-                {label}
-              </option>
-            </select>
-
-            <%!-- Link to visualize page --%>
-            <.link
-              navigate={~p"/flows/visualize"}
-              class="btn btn-xs btn-ghost gap-1"
-            >
-              <.icon name="hero-chart-bar-mini" class="w-3.5 h-3.5" />
-              Visualize
-            </.link>
+                <option
+                  :for={{mode, label} <- @metric_modes}
+                  value={mode}
+                  selected={mode == @metric_mode}
+                >
+                  {label}
+                </option>
+              </select>
+            </form>
           </div>
         </div>
 
-        <%!-- Stat cards row --%>
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <.stat_card
-            title={if @unit_mode == "pps", do: "Total Packets", else: "Total Bandwidth"}
-            value={primary_metric(@total_bytes, @total_packets, @unit_mode)}
-            unit={unit_suffix(@unit_mode)}
-            loading={@loading}
-          />
-          <.stat_card
-            title="Total Packets"
-            value={@total_packets}
-            unit="pps"
-            loading={@loading}
-          />
-          <.stat_card
-            title="Active Flows"
-            value={@active_flows}
-            loading={@loading}
-          />
-          <.stat_card
-            title="Unique Talkers"
-            value={@unique_talkers}
-            loading={@loading}
-          />
+        <div :if={@query} class="alert alert-info py-2 px-3 text-xs">
+          <.icon name="hero-funnel-mini" class="w-4 h-4 shrink-0" />
+          <span class="truncate">
+            Active flow filter: <code class="font-mono">{@query}</code>
+          </span>
+          <button class="btn btn-ghost btn-xs" phx-click="clear_query">Clear</button>
         </div>
 
-        <%!-- Traffic over time sparkline --%>
-        <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
-          <h3 class="text-sm font-semibold text-base-content mb-2">Traffic Over Time</h3>
-          <div :if={@loading} class="flex items-center justify-center py-8">
-            <span class="loading loading-spinner loading-md"></span>
+        <div class="flex flex-wrap gap-2">
+          <button
+            :for={{section_key, section_label} <- @sections}
+            class={[
+              "btn btn-xs",
+              if(@section == section_key, do: "btn-primary", else: "btn-outline")
+            ]}
+            phx-click="change_section"
+            phx-value-section={section_key}
+          >
+            {section_label}
+          </button>
+        </div>
+
+        <%!-- Overview section --%>
+        <div :if={section_visible?(@section, "overview")} class="space-y-4">
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <.stat_card
+              title={if @unit_mode == "pps", do: "Total Packets", else: "Total Bandwidth"}
+              value={primary_metric(@total_bytes, @total_packets, @unit_mode)}
+              unit={unit_suffix(@unit_mode)}
+              loading={@loading}
+            />
+            <.stat_card
+              title="Total Packets"
+              value={@total_packets}
+              unit="pps"
+              loading={@loading}
+            />
+            <.stat_card
+              title="Active Flows"
+              value={@active_flows}
+              loading={@loading}
+            />
+            <.stat_card
+              title="Unique Talkers"
+              value={@unique_talkers}
+              loading={@loading}
+            />
           </div>
-          <.traffic_sparkline
-            :if={not @loading}
-            id="dashboard-traffic-sparkline"
-            data_json={@sparkline_json}
-            height={80}
-          />
+
+          <%!-- Traffic over time sparkline --%>
+          <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+            <h3 class="text-sm font-semibold text-base-content mb-2">Traffic Over Time</h3>
+            <div :if={@loading} class="flex items-center justify-center py-8">
+              <span class="loading loading-spinner loading-md"></span>
+            </div>
+            <.traffic_sparkline
+              :if={not @loading}
+              id="dashboard-traffic-sparkline"
+              data_json={@sparkline_json}
+              height={80}
+            />
+          </div>
         </div>
 
         <%!-- Per-interface ingress/egress chart --%>
-        <div :if={@top_interfaces != []} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+        <div
+          :if={section_visible?(@section, "traffic") and @top_interfaces != []}
+          class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+        >
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
               <.icon name="hero-arrows-right-left" class="size-4 text-primary" />
@@ -382,14 +421,26 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
           <% end %>
         </div>
 
-        <%!-- Top-N tables grid --%>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <%!-- Top-N and chart panels --%>
+        <div
+          :if={section_visible?(@section, "topn") or section_visible?(@section, "traffic")}
+          class="grid grid-cols-1 lg:grid-cols-2 gap-4"
+        >
           <.top_n_table
+            :if={section_visible?(@section, "topn")}
             title="Top Talkers (Source IPs)"
             rows={@top_talkers}
             columns={[
-              %{key: :ip, label: "Source IP", format: &format_enriched_ip(&1.ip, @rdns_map, @geo_iso2_map)},
-              %{key: :bytes, label: unit_suffix(@unit_mode), format: &format_bytes_cell(&1, @unit_mode)},
+              %{
+                key: :ip,
+                label: "Source IP",
+                format: &format_enriched_ip(&1.ip, @rdns_map, @geo_iso2_map)
+              },
+              %{
+                key: :bytes,
+                label: primary_metric_col_label(@unit_mode, @metric_mode),
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode)
+              },
               %{key: :packets, label: "Packets"}
             ]}
             on_row_click="drill_down_talker"
@@ -397,11 +448,20 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
           />
 
           <.top_n_table
+            :if={section_visible?(@section, "topn")}
             title="Top Listeners (Dest IPs)"
             rows={@top_listeners}
             columns={[
-              %{key: :ip, label: "Dest IP", format: &format_enriched_ip(&1.ip, @rdns_map, @geo_iso2_map)},
-              %{key: :bytes, label: unit_suffix(@unit_mode), format: &format_bytes_cell(&1, @unit_mode)},
+              %{
+                key: :ip,
+                label: "Dest IP",
+                format: &format_enriched_ip(&1.ip, @rdns_map, @geo_iso2_map)
+              },
+              %{
+                key: :bytes,
+                label: primary_metric_col_label(@unit_mode, @metric_mode),
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode)
+              },
               %{key: :packets, label: "Packets"}
             ]}
             on_row_click="drill_down_listener"
@@ -409,23 +469,41 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
           />
 
           <.top_n_table
+            :if={section_visible?(@section, "topn")}
             title="Top Conversations"
             rows={@top_conversations}
             columns={[
-              %{key: :src_ip, label: "Source", format: &format_enriched_ip(&1.src_ip, @rdns_map, @geo_iso2_map)},
-              %{key: :dst_ip, label: "Dest", format: &format_enriched_ip(&1.dst_ip, @rdns_map, @geo_iso2_map)},
-              %{key: :bytes, label: unit_suffix(@unit_mode), format: &format_bytes_cell(&1, @unit_mode)}
+              %{
+                key: :src_ip,
+                label: "Source",
+                format: &format_enriched_ip(&1.src_ip, @rdns_map, @geo_iso2_map)
+              },
+              %{
+                key: :dst_ip,
+                label: "Dest",
+                format: &format_enriched_ip(&1.dst_ip, @rdns_map, @geo_iso2_map)
+              },
+              %{
+                key: :bytes,
+                label: primary_metric_col_label(@unit_mode, @metric_mode),
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode)
+              }
             ]}
             on_row_click="drill_down_conversation"
             loading={@loading}
           />
 
           <.top_n_table
+            :if={section_visible?(@section, "topn")}
             title="Top Applications"
             rows={@top_apps}
             columns={[
               %{key: :app, label: "Application"},
-              %{key: :bytes, label: unit_suffix(@unit_mode), format: &format_bytes_cell(&1, @unit_mode)},
+              %{
+                key: :bytes,
+                label: primary_metric_col_label(@unit_mode, @metric_mode),
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode)
+              },
               %{key: :packets, label: "Packets"}
             ]}
             on_row_click="drill_down_app"
@@ -433,11 +511,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
           />
 
           <.top_n_table
+            :if={section_visible?(@section, "topn")}
             title="Top Protocols"
             rows={@top_protocols}
             columns={[
               %{key: :protocol, label: "Protocol"},
-              %{key: :bytes, label: unit_suffix(@unit_mode), format: &format_bytes_cell(&1, @unit_mode)},
+              %{
+                key: :bytes,
+                label: primary_metric_col_label(@unit_mode, @metric_mode),
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode)
+              },
               %{key: :packets, label: "Packets"}
             ]}
             on_row_click="drill_down_protocol"
@@ -445,18 +528,26 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
           />
 
           <.top_n_table
+            :if={section_visible?(@section, "topn")}
             title="Top Ports (Destination)"
             rows={@top_ports}
             columns={[
               %{key: :port, label: "Port", format: &format_port_cell/1},
-              %{key: :bytes, label: unit_suffix(@unit_mode), format: &format_bytes_cell(&1, @unit_mode)},
+              %{
+                key: :bytes,
+                label: primary_metric_col_label(@unit_mode, @metric_mode),
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode)
+              },
               %{key: :packets, label: "Packets"}
             ]}
             on_row_click="drill_down_port"
             loading={@loading}
           />
 
-          <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+          <div
+            :if={section_visible?(@section, "traffic")}
+            class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+          >
             <h3 class="text-sm font-semibold text-base-content mb-2">Protocol Distribution</h3>
             <div :if={@loading} class="flex items-center justify-center py-8">
               <span class="loading loading-spinner loading-md"></span>
@@ -469,7 +560,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
             />
           </div>
 
-          <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+          <div
+            :if={section_visible?(@section, "traffic")}
+            class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+          >
             <h3 class="text-sm font-semibold text-base-content mb-2">TCP Flag Distribution</h3>
             <div :if={@loading} class="flex items-center justify-center py-8">
               <span class="loading loading-spinner loading-md"></span>
@@ -482,24 +576,30 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
             />
           </div>
 
-          <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+          <div
+            :if={section_visible?(@section, "traffic")}
+            class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+          >
             <h3 class="text-sm font-semibold text-base-content mb-2">Flow Rate (flows/sec)</h3>
             <div :if={@loading} class="flex items-center justify-center py-8">
               <span class="loading loading-spinner loading-md"></span>
             </div>
             <div
               :if={not @loading}
-              id="flow-rate-sparkline"
-              phx-hook="FlowSparkline"
+              id="flow-rate-chart"
+              phx-hook="FlowRateChart"
               data-points={@flow_rate_points_json}
               data-color="oklch(0.65 0.24 150)"
-              class="h-[120px] w-full"
+              class="h-[180px] w-full"
             >
               <canvas></canvas>
             </div>
           </div>
 
-          <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+          <div
+            :if={section_visible?(@section, "traffic")}
+            class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+          >
             <h3 class="text-sm font-semibold text-base-content mb-2">Flow Duration Distribution</h3>
             <div :if={@loading} class="flex items-center justify-center py-8">
               <span class="loading loading-spinner loading-md"></span>
@@ -514,8 +614,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
         </div>
 
         <%!-- Capacity Planning Section --%>
-        <div :if={@top_interfaces != [] or @subnet_distribution != []} class="space-y-4">
-          <h2 class="text-sm font-bold text-base-content uppercase tracking-wide">Capacity Planning</h2>
+        <div
+          :if={
+            section_visible?(@section, "capacity") and
+              (@top_interfaces != [] or @subnet_distribution != [])
+          }
+          class="space-y-4"
+        >
+          <h2 class="text-sm font-bold text-base-content uppercase tracking-wide">
+            Capacity Planning
+          </h2>
 
           <%!-- Interface bandwidth gauges --%>
           <div :if={@top_interfaces != []} class="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -536,7 +644,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
             columns={[
               %{key: :label, label: "Interface"},
               %{key: :sampler, label: "Exporter"},
-              %{key: :bytes, label: unit_suffix(@unit_mode), format: &format_bytes_cell(&1, @unit_mode)},
+              %{
+                key: :bytes,
+                label: unit_suffix(@unit_mode),
+                format: &format_bytes_cell(&1, @unit_mode)
+              },
               %{key: :p95_bps, label: "95th % (30d)", format: &format_p95_cell/1},
               %{key: :capacity_bps, label: "Capacity", format: &format_capacity_cell/1}
             ]}
@@ -551,7 +663,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
             columns={[
               %{key: :label, label: "Subnet"},
               %{key: :cidr, label: "CIDR"},
-              %{key: :bytes, label: unit_suffix(@unit_mode), format: &format_bytes_cell(&1, @unit_mode)}
+              %{
+                key: :bytes,
+                label: unit_suffix(@unit_mode),
+                format: &format_bytes_cell(&1, @unit_mode)
+              }
             ]}
             loading={@loading}
           />
@@ -570,20 +686,32 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     mm = socket.assigns.metric_mode
     scope = Map.get(socket.assigns, :current_scope)
     srql_mod = srql_module()
-    base = "in:flows time:last_#{tw}"
+    base = base_flow_query(socket.assigns.query, tw)
     sort_field = if mm == "packets", do: "packets_total", else: "bytes_total"
 
     tasks = [
-      Task.async(fn -> {:top_talkers, load_top_n(srql_mod, scope, base, "src_endpoint_ip", sort_field)} end),
-      Task.async(fn -> {:top_listeners, load_top_n(srql_mod, scope, base, "dst_endpoint_ip", sort_field)} end),
-      Task.async(fn -> {:top_conversations, load_top_conversations(srql_mod, scope, base, sort_field)} end),
+      Task.async(fn ->
+        {:top_talkers, load_top_n(srql_mod, scope, base, "src_endpoint_ip", sort_field)}
+      end),
+      Task.async(fn ->
+        {:top_listeners, load_top_n(srql_mod, scope, base, "dst_endpoint_ip", sort_field)}
+      end),
+      Task.async(fn ->
+        {:top_conversations, load_top_conversations(srql_mod, scope, base, sort_field)}
+      end),
       Task.async(fn -> {:top_apps, load_top_n(srql_mod, scope, base, "app", sort_field)} end),
-      Task.async(fn -> {:top_protocols, load_top_n(srql_mod, scope, base, "protocol_name", sort_field)} end),
-      Task.async(fn -> {:top_ports, load_top_n(srql_mod, scope, base, "dst_endpoint_port", sort_field)} end),
+      Task.async(fn ->
+        {:top_protocols, load_top_n(srql_mod, scope, base, "protocol_name", sort_field)}
+      end),
+      Task.async(fn ->
+        {:top_ports, load_top_n(srql_mod, scope, base, "dst_endpoint_port", sort_field)}
+      end),
       Task.async(fn -> {:summary, load_summary(srql_mod, scope, base)} end),
       Task.async(fn -> {:timeseries, load_timeseries(srql_mod, scope, base, tw)} end),
       Task.async(fn -> {:top_interfaces, load_top_interfaces(srql_mod, scope, base)} end),
-      Task.async(fn -> {:subnet_distribution, load_subnet_distribution(srql_mod, scope, base)} end),
+      Task.async(fn ->
+        {:subnet_distribution, load_subnet_distribution(srql_mod, scope, base)}
+      end),
       Task.async(fn -> {:p95, load_interface_p95(srql_mod, scope)} end),
       Task.async(fn -> {:tcp_flags, load_tcp_flag_distribution(srql_mod, scope, base)} end),
       Task.async(fn -> {:flow_rate, load_flow_rate_timeseries(srql_mod, scope, base, tw)} end),
@@ -617,7 +745,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       |> Map.get(:flow_rate, [])
       |> Jason.encode!()
 
-    duration_bucket_order = %{"<1s" => 0, "1-10s" => 1, "10-60s" => 2, "1-5m" => 3, ">5m" => 4, "unknown" => 5}
+    duration_bucket_order = %{
+      "<1s" => 0,
+      "1-10s" => 1,
+      "10-60s" => 2,
+      "1-5m" => 3,
+      ">5m" => 4,
+      "unknown" => 5
+    }
 
     duration_dist_json =
       results
@@ -640,14 +775,38 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> assign(:unique_talkers, Map.get(summary, :unique_talkers, 0))
     |> assign(:sparkline_json, sparkline_json)
     |> assign(:proto_breakdown_json, proto_breakdown)
-    |> assign(:top_interfaces, merge_p95(Map.get(results, :top_interfaces, []), Map.get(results, :p95, %{})))
+    |> assign(
+      :top_interfaces,
+      merge_p95(Map.get(results, :top_interfaces, []), Map.get(results, :p95, %{}))
+    )
     |> assign(:subnet_distribution, Map.get(results, :subnet_distribution, []))
     |> assign(:tcp_flags_json, tcp_flags_json)
     |> assign(:flow_rate_points_json, flow_rate_points_json)
     |> assign(:duration_dist_json, duration_dist_json)
+    |> ensure_selected_interface()
     |> maybe_reload_interface_chart()
     |> enrich_top_n_ips()
   end
+
+  defp ensure_selected_interface(%{assigns: %{top_interfaces: []}} = socket),
+    do: assign(socket, :selected_interface, nil)
+
+  defp ensure_selected_interface(
+         %{assigns: %{selected_interface: selected, top_interfaces: top_interfaces}} = socket
+       ) do
+    samplers = MapSet.new(top_interfaces, & &1.sampler)
+
+    cond do
+      is_binary(selected) and MapSet.member?(samplers, selected) ->
+        socket
+
+      true ->
+        assign(socket, :selected_interface, top_interfaces |> List.first() |> Map.get(:sampler))
+    end
+  end
+
+  defp section_visible?("all", _section), do: true
+  defp section_visible?(current, section), do: current == section
 
   defp maybe_reload_interface_chart(%{assigns: %{selected_interface: nil}} = socket), do: socket
 
@@ -659,44 +818,39 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     query =
       "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by #{group_field} sort:#{sort_field}:desc limit:#{@top_n}"
 
-    case srql_mod.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        Enum.map(results, fn %{"payload" => p} ->
-          name = get_field(p, group_field)
+    srql_mod
+    |> srql_results(query, scope)
+    |> Enum.map(fn row ->
+      p = row_payload(row)
+      name = get_field(p, group_field)
 
-          %{
-            ip: name,
-            app: name,
-            protocol: name,
-            port: name,
-            bytes: to_number(get_field(p, "bytes_total")),
-            packets: to_number(get_field(p, "packets_total"))
-          }
-        end)
-
-      _ ->
-        []
-    end
+      %{
+        ip: name,
+        app: name,
+        protocol: name,
+        port: name,
+        bytes: to_number(get_field(p, "bytes_total")),
+        packets: to_number(get_field(p, "packets_total"))
+      }
+    end)
   end
 
   defp load_top_conversations(srql_mod, scope, base, sort_field) do
     query =
       "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by src_endpoint_ip,dst_endpoint_ip sort:#{sort_field}:desc limit:#{@top_n}"
 
-    case srql_mod.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        Enum.map(results, fn %{"payload" => p} ->
-          %{
-            src_ip: get_field(p, "src_endpoint_ip"),
-            dst_ip: get_field(p, "dst_endpoint_ip"),
-            bytes: to_number(get_field(p, "bytes_total")),
-            packets: to_number(get_field(p, "packets_total"))
-          }
-        end)
+    srql_mod
+    |> srql_results(query, scope)
+    |> Enum.map(fn row ->
+      p = row_payload(row)
 
-      _ ->
-        []
-    end
+      %{
+        src_ip: get_field(p, "src_endpoint_ip"),
+        dst_ip: get_field(p, "dst_endpoint_ip"),
+        bytes: to_number(get_field(p, "bytes_total")),
+        packets: to_number(get_field(p, "packets_total"))
+      }
+    end)
   end
 
   defp load_interface_timeseries(socket, sampler) do
@@ -708,14 +862,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     bucket_secs = bucket_seconds(bucket)
     base = "in:flows time:last_#{tw} sampler_address:#{srql_quote(sampler)}"
 
-    {in_field, out_field} =
-      if um == "pps",
-        do: {"packets_in", "packets_out"},
-        else: {"bytes_in", "bytes_out"}
+    value_field = if(um == "pps", do: "packets_total", else: "bytes_total")
 
     tasks = [
-      Task.async(fn -> {:ingress, load_iface_downsample(srql_mod, scope, base, bucket, in_field)} end),
-      Task.async(fn -> {:egress, load_iface_downsample(srql_mod, scope, base, bucket, out_field)} end)
+      Task.async(fn ->
+        {:ingress,
+         load_iface_downsample(srql_mod, scope, "#{base} direction:ingress", bucket, value_field)}
+      end),
+      Task.async(fn ->
+        {:egress,
+         load_iface_downsample(srql_mod, scope, "#{base} direction:egress", bucket, value_field)}
+      end)
     ]
 
     results = safe_await_many(tasks, :timer.seconds(10))
@@ -729,13 +886,21 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
     to_rate = fn v -> Float.round(v * rate_factor, 2) end
 
-    # Merge into stacked-area chart format: [{t, ingress, egress}, ...]
+    # Merge into stacked-area chart format using the union of ingress/egress timestamps.
+    ingress_map = Map.new(ingress, fn %{t: t, v: v} -> {t, to_rate.(v)} end)
     egress_map = Map.new(egress, fn %{t: t, v: v} -> {t, to_rate.(v)} end)
 
     points =
-      ingress
-      |> Enum.map(fn %{t: t, v: v} ->
-        %{"t" => t, "ingress" => to_rate.(v), "egress" => Map.get(egress_map, t, 0)}
+      Map.keys(ingress_map)
+      |> Enum.concat(Map.keys(egress_map))
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.map(fn t ->
+        %{
+          "t" => t,
+          "ingress" => Map.get(ingress_map, t, 0),
+          "egress" => Map.get(egress_map, t, 0)
+        }
       end)
       |> Jason.encode!()
 
@@ -768,7 +933,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       {"#{base} stats:sum(bytes_total) as total_bytes", :total_bytes, "total_bytes"},
       {"#{base} stats:sum(packets_total) as total_packets", :total_packets, "total_packets"},
       {"#{base} stats:count(*) as flow_count", :flow_count, "flow_count"},
-      {"#{base} stats:count_distinct(src_endpoint_ip) as unique_talkers", :unique_talkers, "unique_talkers"}
+      {"#{base} stats:count_distinct(src_endpoint_ip) as unique_talkers", :unique_talkers,
+       "unique_talkers"}
     ]
 
     queries
@@ -779,10 +945,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp query_single_stat(srql_mod, scope, query, field_alias) do
-    case srql_mod.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [%{"payload" => p} | _]}} -> to_number(get_field(p, field_alias))
-      _ -> 0
-    end
+    srql_mod
+    |> srql_results(query, scope)
+    |> List.first()
+    |> row_payload()
+    |> get_field(field_alias)
+    |> to_number()
   end
 
   defp load_timeseries(srql_mod, scope, base, tw) do
@@ -804,22 +972,21 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp load_top_interfaces(srql_mod, scope, base) do
-    query = "#{base} stats:sum(bytes_total) as bytes_total by sampler_address sort:bytes_total:desc limit:5"
+    query =
+      "#{base} stats:sum(bytes_total) as bytes_total by sampler_address sort:bytes_total:desc limit:5"
 
     interface_rows =
-      case srql_mod.query(query, %{scope: scope}) do
-        {:ok, %{"results" => results}} when is_list(results) ->
-          Enum.map(results, fn %{"payload" => p} ->
-            %{
-              sampler: get_field(p, "sampler_address"),
-              bytes: to_number(get_field(p, "bytes_total")),
-              packets: 0
-            }
-          end)
+      srql_mod
+      |> srql_results(query, scope)
+      |> Enum.map(fn row ->
+        p = row_payload(row)
 
-        _ ->
-          []
-      end
+        %{
+          sampler: get_field(p, "sampler_address"),
+          bytes: to_number(get_field(p, "bytes_total")),
+          packets: 0
+        }
+      end)
 
     # Enrich with interface cache for speed/name
     cache_map = load_interface_cache_map(scope)
@@ -842,6 +1009,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
          |> Ash.Query.for_read(:read)
          |> Ash.read(scope: scope) do
       {:ok, entries} ->
+        entries = ash_results(entries)
+
         entries
         |> Enum.group_by(& &1.sampler_address)
         |> Map.new(&best_interface_for_sampler/1)
@@ -865,21 +1034,25 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     base_30d = "in:flows time:last_30d"
     query = "#{base_30d} bucket:1h agg:sum value_field:bytes_total series:sampler_address"
 
-    case srql_mod.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        results
-        |> Enum.group_by(fn %{"payload" => p} -> get_field(p, "sampler_address") end)
-        |> Map.new(&compute_sampler_p95/1)
-
-      _ ->
-        %{}
-    end
+    srql_mod
+    |> srql_results(query, scope)
+    |> Enum.group_by(fn row ->
+      row
+      |> row_payload()
+      |> get_field("sampler_address")
+    end)
+    |> Map.new(&compute_sampler_p95/1)
   end
 
   defp compute_sampler_p95({sampler, rows}) do
     values =
       rows
-      |> Enum.map(fn %{"payload" => p} -> to_number(get_field(p, "bytes_total")) end)
+      |> Enum.map(fn row ->
+        row
+        |> row_payload()
+        |> get_field("bytes_total")
+        |> to_number()
+      end)
       |> Enum.reject(&is_nil/1)
 
     # Convert bytes/hour to bits/sec: bytes_per_hour * 8 / 3600
@@ -908,7 +1081,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
            |> Ash.Query.for_read(:list)
            |> Ash.Query.filter(enabled == true)
            |> Ash.read(scope: scope) do
-        {:ok, entries} -> entries
+        {:ok, entries} -> ash_results(entries)
         _ -> []
       end
 
@@ -928,15 +1101,19 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
         {:ok, result} -> [result]
         _ -> []
       end)
+      |> Enum.reject(&((&1.bytes || 0) <= 0))
       |> Enum.sort_by(& &1.bytes, :desc)
     end
   end
 
   defp query_cidr_bytes(cidr, srql_mod, scope, base) do
     cidr_str = to_string(cidr.cidr)
-    query = "#{base} src_cidr:#{srql_quote(cidr_str)} stats:sum(bytes_total) as bytes_total"
+    src_query = "#{base} src_cidr:#{srql_quote(cidr_str)} stats:sum(bytes_total) as bytes_total"
+    dst_query = "#{base} dst_cidr:#{srql_quote(cidr_str)} stats:sum(bytes_total) as bytes_total"
 
-    bytes = query_single_stat(srql_mod, scope, query, "bytes_total")
+    src_bytes = query_single_stat(srql_mod, scope, src_query, "bytes_total")
+    dst_bytes = query_single_stat(srql_mod, scope, dst_query, "bytes_total")
+    bytes = src_bytes + dst_bytes
 
     %{cidr: cidr_str, label: cidr.label || cidr_str, bytes: bytes}
   end
@@ -948,18 +1125,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   defp load_tcp_flag_distribution(srql_mod, scope, base) do
     query = "#{base} stats:count(*) as count by tcp_flags_label sort:count:desc limit:10"
 
-    case srql_mod.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        Enum.map(results, fn %{"payload" => p} ->
-          %{
-            label: get_field(p, "tcp_flags_label") || "unknown",
-            count: to_number(get_field(p, "count"))
-          }
-        end)
+    srql_mod
+    |> srql_results(query, scope)
+    |> Enum.map(fn row ->
+      p = row_payload(row)
 
-      _ ->
-        []
-    end
+      %{
+        label: get_field(p, "tcp_flags_label") || "unknown",
+        count: to_number(get_field(p, "count"))
+      }
+    end)
   end
 
   defp load_flow_rate_timeseries(srql_mod, scope, base, tw) do
@@ -986,18 +1161,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   defp load_duration_distribution(srql_mod, scope, base) do
     query = "#{base} stats:count(*) as count by duration_bucket"
 
-    case srql_mod.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        Enum.map(results, fn %{"payload" => p} ->
-          %{
-            bucket: get_field(p, "duration_bucket") || "unknown",
-            count: to_number(get_field(p, "count"))
-          }
-        end)
+    srql_mod
+    |> srql_results(query, scope)
+    |> Enum.map(fn row ->
+      p = row_payload(row)
 
-      _ ->
-        []
-    end
+      %{
+        bucket: get_field(p, "duration_bucket") || "unknown",
+        count: to_number(get_field(p, "count"))
+      }
+    end)
   end
 
   defp safe_parse_int(val) when is_integer(val), do: {:ok, val}
@@ -1015,6 +1188,45 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   defp validate_param(value, allowed, default) do
     if Enum.any?(allowed, fn {k, _} -> k == value end), do: value, else: default
+  end
+
+  defp normalize_optional_query(nil), do: nil
+
+  defp normalize_optional_query(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalize_optional_query(_), do: nil
+
+  defp base_flow_query(nil, tw), do: "in:flows time:last_#{tw}"
+
+  defp base_flow_query(query, tw) when is_binary(query) do
+    query
+    |> String.trim()
+    |> ensure_flow_entity()
+    |> ensure_flow_time_window(tw)
+  end
+
+  defp ensure_flow_entity(query) do
+    if String.contains?(query, "in:flows"), do: query, else: "in:flows #{query}"
+  end
+
+  defp ensure_flow_time_window(query, tw) do
+    if Regex.match?(~r/\btime:/, query), do: query, else: "#{query} time:last_#{tw}"
+  end
+
+  defp patch_params(socket, overrides) do
+    %{
+      tw: socket.assigns.time_window,
+      unit: socket.assigns.unit_mode,
+      metric: socket.assigns.metric_mode,
+      section: socket.assigns.section,
+      q: socket.assigns.query
+    }
+    |> Map.merge(overrides)
+    |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+    |> Map.new()
   end
 
   defp bucket_seconds("1m"), do: 60
@@ -1039,8 +1251,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   defp timeseries_bucket(_), do: "5m"
 
   defp drill_down(socket, filter) do
-    q = "in:flows time:last_#{socket.assigns.time_window} #{filter}"
-    push_navigate(socket, to: ~p"/flows/visualize?#{%{q: q}}")
+    base = base_flow_query(socket.assigns.query, socket.assigns.time_window)
+    q = "#{base} #{filter}"
+    push_patch(socket, to: ~p"/flows?#{patch_params(socket, %{q: q, section: "topn"})}")
   end
 
   # Escape a value for safe interpolation into an SRQL filter expression.
@@ -1098,11 +1311,39 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     ServiceRadarWebNGWeb.FlowStatComponents.format_si(val, unit: unit_suffix(unit_mode))
   end
 
+  defp format_primary_cell(row, _unit_mode, "packets") do
+    val = row.packets || 0
+    ServiceRadarWebNGWeb.FlowStatComponents.format_si(val, unit: "pps")
+  end
+
+  defp format_primary_cell(row, unit_mode, _metric_mode), do: format_bytes_cell(row, unit_mode)
+
+  defp primary_metric_col_label("pps", _metric_mode), do: "Packets/sec"
+  defp primary_metric_col_label(_unit_mode, "packets"), do: "Packets"
+  defp primary_metric_col_label(unit_mode, _metric_mode), do: unit_suffix(unit_mode)
+
   defp get_field(payload, key) when is_map(payload) do
     Map.get(payload, key) || Map.get(payload, String.to_existing_atom(key))
   rescue
     ArgumentError -> Map.get(payload, key)
   end
+
+  defp get_field(_payload, _key), do: nil
+
+  defp row_payload(%{"payload" => payload}) when is_map(payload), do: payload
+  defp row_payload(%{} = row), do: row
+  defp row_payload(_), do: %{}
+
+  defp srql_results(srql_mod, query, scope) do
+    case srql_mod.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) -> results
+      _ -> []
+    end
+  end
+
+  defp ash_results(%Ash.Page.Keyset{results: results}) when is_list(results), do: results
+  defp ash_results(results) when is_list(results), do: results
+  defp ash_results(_), do: []
 
   defp to_number(nil), do: 0
   defp to_number(n) when is_number(n), do: n
@@ -1121,8 +1362,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> Task.yield_many(timeout)
     |> Enum.map(fn {task, result} ->
       case result do
-        {:ok, {key, value}} when is_atom(key) -> {key, value}
-        {:ok, _unexpected} -> nil
+        {:ok, {key, value}} when is_atom(key) ->
+          {key, value}
+
+        {:ok, _unexpected} ->
+          nil
+
         _ ->
           Task.shutdown(task, :brutal_kill)
           nil
@@ -1183,9 +1428,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       |> Ash.Query.filter(ip in ^ips)
 
     case Ash.read(query, scope: scope) do
-      {:ok, rows} when is_list(rows) ->
+      {:ok, rows} ->
+        rows = ash_results(rows)
+
         rows
-        |> Enum.filter(fn r -> r.status == "ok" and is_binary(r.hostname) and String.trim(r.hostname) != "" end)
+        |> Enum.filter(fn r ->
+          r.status == "ok" and is_binary(r.hostname) and String.trim(r.hostname) != ""
+        end)
         |> Map.new(fn r -> {r.ip, r.hostname} end)
 
       _ ->
@@ -1200,9 +1449,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       |> Ash.Query.filter(ip in ^ips)
 
     case Ash.read(query, scope: scope) do
-      {:ok, rows} when is_list(rows) ->
+      {:ok, rows} ->
+        rows = ash_results(rows)
+
         rows
-        |> Enum.filter(fn r -> is_binary(r.country_iso2) and String.length(String.trim(r.country_iso2)) == 2 end)
+        |> Enum.filter(fn r ->
+          is_binary(r.country_iso2) and String.length(String.trim(r.country_iso2)) == 2
+        end)
         |> Map.new(fn r -> {r.ip, String.upcase(String.trim(r.country_iso2))} end)
 
       _ ->

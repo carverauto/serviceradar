@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "flows",
       label: "Flows",
-      route: "/flows/visualize",
+      route: "/flows",
       default_time: "last_24h",
       default_sort_field: "time",
       default_sort_dir: "desc",
@@ -161,7 +161,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_agg: "sum",
       default_value_field: "bytes_total",
       default_series_field: "app",
-      value_fields: ["bytes_total", "packets_total", "bytes_in", "bytes_out", "packets_in", "packets_out"],
+      value_fields: [
+        "bytes_total",
+        "packets_total",
+        "bytes_in",
+        "bytes_out",
+        "packets_in",
+        "packets_out"
+      ],
       series_fields: [
         "protocol_group",
         "protocol_name",

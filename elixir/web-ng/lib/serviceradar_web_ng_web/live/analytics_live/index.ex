@@ -1875,7 +1875,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       phx-click={JS.navigate(@href)}
     >
       <td class={severity_text_class(@color)}>{@label}</td>
-      <td class={["text-center font-bold", severity_text_class(@color)]}>{format_compact_number(@count)}</td>
+      <td class={["text-center font-bold", severity_text_class(@color)]}>
+        {format_compact_number(@count)}
+      </td>
       <td class={["text-center text-xs", severity_text_class(@color)]}>{@pct}%</td>
     </tr>
     """

@@ -311,7 +311,13 @@ pub fn parse(input: &str) -> Result<QueryAst> {
                         "stats expression must be <= {MAX_STATS_EXPR_LEN} characters"
                     )));
                 }
-                stats = Some(parse_stats_expr(&expr));
+                stats = match stats {
+                    None => Some(parse_stats_expr(&expr)),
+                    Some(existing) => {
+                        let merged = merge_stats_exprs(existing.as_raw(), &expr)?;
+                        Some(parse_stats_expr(&merged))
+                    }
+                };
             }
             "rollup_stats" => {
                 let stat_type = value.as_scalar()?.trim().to_lowercase();
@@ -461,10 +467,58 @@ fn normalize_optional_string(raw: &str) -> Option<String> {
     }
 }
 
+fn split_stats_group_by(expr: &str) -> (String, Option<String>) {
+    let trimmed = expr.trim();
+    let lower = trimmed.to_lowercase();
+
+    if let Some(idx) = lower.find(" by ") {
+        let aggs = trimmed[..idx].trim().to_string();
+        let group_by = trimmed[idx + 4..].trim().to_string();
+        let group_by = if group_by.is_empty() {
+            None
+        } else {
+            Some(group_by)
+        };
+        (aggs, group_by)
+    } else {
+        (trimmed.to_string(), None)
+    }
+}
+
+fn merge_stats_exprs(existing: &str, next: &str) -> Result<String> {
+    let (existing_aggs, existing_by) = split_stats_group_by(existing);
+    let (next_aggs, next_by) = split_stats_group_by(next);
+
+    if existing_aggs.is_empty() || next_aggs.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "stats expression must include at least one aggregation".into(),
+        ));
+    }
+
+    let merged_by = match (existing_by, next_by) {
+        (Some(left), Some(right)) if !left.eq_ignore_ascii_case(&right) => {
+            return Err(ServiceError::InvalidRequest(
+                "conflicting 'by' clauses across stats expressions".into(),
+            ));
+        }
+        (Some(left), Some(_)) => Some(left),
+        (Some(left), None) => Some(left),
+        (None, Some(right)) => Some(right),
+        (None, None) => None,
+    };
+
+    let merged = format!("{existing_aggs}, {next_aggs}");
+    Ok(match merged_by {
+        Some(group_by) => format!("{merged} by {group_by}"),
+        None => merged,
+    })
+}
+
 /// Parse a stats expression like "count() as total" or "sum(field) as total, avg(field) as average"
 fn parse_stats_expr(raw: &str) -> StatsSpec {
     let raw = raw.trim().trim_matches('"').trim_matches('\'');
-    let aggregations = raw
+    let (agg_expr, _group_by) = split_stats_group_by(raw);
+    let aggregations = agg_expr
         .split(',')
         .filter_map(|part| parse_single_stats_agg(part.trim()))
         .collect();
@@ -887,6 +941,32 @@ mod tests {
             StatsAggType::Count
         ));
         assert!(matches!(stats.aggregations[1].agg_type, StatsAggType::Sum));
+    }
+
+    #[test]
+    fn parses_repeated_stats_tokens_by_merging_aggregations() {
+        let ast = parse(
+            "in:flows stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by src_endpoint_ip",
+        )
+        .unwrap();
+
+        let stats = ast.stats.as_ref().unwrap();
+        assert_eq!(
+            stats.raw,
+            "sum(bytes_total) as bytes_total, sum(packets_total) as packets_total by src_endpoint_ip"
+        );
+        assert_eq!(stats.aggregations.len(), 2);
+        assert_eq!(stats.aggregations[0].alias, "bytes_total");
+        assert_eq!(stats.aggregations[1].alias, "packets_total");
+    }
+
+    #[test]
+    fn rejects_repeated_stats_tokens_with_conflicting_group_by() {
+        let err = parse(
+            "in:flows stats:sum(bytes_total) as bytes_total by src_endpoint_ip stats:sum(packets_total) as packets_total by dst_endpoint_ip",
+        )
+        .unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
     }
 
     #[test]

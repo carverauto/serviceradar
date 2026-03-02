@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNG.SRQL do
 
     result =
       with {:ok, translation} <- translate(query, limit, cursor, direction, mode) do
-        execute_translation(translation)
+        execute_translation(Map.put(translation, "_query", query))
       end
 
     status = if match?({:ok, _}, result), do: :ok, else: :error
@@ -122,7 +122,11 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   defp build_response(translation, %Postgrex.Result{columns: columns, rows: rows}) do
-    results = build_results(columns, rows)
+    results =
+      columns
+      |> build_results(rows)
+      |> enrich_downsample_aliases(translation)
+
     viz = extract_viz(translation)
     pagination = build_pagination(translation, results)
 
@@ -202,6 +206,51 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
+  defp enrich_downsample_aliases(results, translation)
+       when is_list(results) and is_map(translation) do
+    query = Map.get(translation, "_query")
+    series_field = extract_query_token(query, "series")
+
+    value_field =
+      extract_query_token(query, "value_field") || extract_query_token(query, "value-field")
+
+    if is_nil(series_field) and is_nil(value_field) do
+      results
+    else
+      Enum.map(results, fn
+        %{} = row ->
+          row
+          |> maybe_alias("series", series_field)
+          |> maybe_alias("value", value_field)
+
+        other ->
+          other
+      end)
+    end
+  end
+
+  defp enrich_downsample_aliases(results, _translation), do: results
+
+  defp extract_query_token(query, key) when is_binary(query) and is_binary(key) do
+    regex = ~r/(?:^|\s)#{Regex.escape(key)}:([^\s]+)/i
+
+    case Regex.run(regex, query, capture: :all_but_first) do
+      [value] ->
+        value
+        |> String.trim()
+        |> String.trim("\"")
+        |> case do
+          "" -> nil
+          v -> v
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_query_token(_, _), do: nil
+
   defp normalize_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp normalize_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
   defp normalize_value(%Date{} = value), do: Date.to_iso8601(value)
@@ -237,7 +286,9 @@ defmodule ServiceRadarWebNG.SRQL do
 
   defp decode_params(_), do: {:error, :invalid_srql_params}
 
-  defp decode_param(%{"t" => "text", "v" => value}) when is_binary(value), do: {:ok, value}
+  defp decode_param(%{"t" => "text", "v" => value}) when is_binary(value),
+    do: decode_cidr_text_param(value)
+
   defp decode_param(%{"t" => "bool", "v" => value}) when is_boolean(value), do: {:ok, value}
   defp decode_param(%{"t" => "int", "v" => value}) when is_integer(value), do: {:ok, value}
 
@@ -276,7 +327,26 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
+  defp decode_param(%{"t" => type, "v" => value})
+       when type in ["inet", "cidr"] and is_binary(value) do
+    case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
+      {:ok, inet} -> {:ok, inet}
+      _ -> {:error, :invalid_inet_param}
+    end
+  end
+
   defp decode_param(_), do: {:error, :invalid_srql_param}
+
+  defp decode_cidr_text_param(value) when is_binary(value) do
+    if String.contains?(value, "/") do
+      case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
+        {:ok, inet} -> {:ok, inet}
+        _ -> {:ok, value}
+      end
+    else
+      {:ok, value}
+    end
+  end
 
   defp normalize_request(%{"query" => query} = request) when is_binary(query) do
     limit = parse_limit(Map.get(request, "limit"))

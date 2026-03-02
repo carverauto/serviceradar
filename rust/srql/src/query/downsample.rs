@@ -2,6 +2,7 @@ use super::{BindParam, QueryPlan};
 use crate::query::flows::{
     FLOW_APP_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_IN_IF_NAME_EXPR, FLOW_IN_IF_SPEED_BPS_EXPR,
     FLOW_OUT_IF_NAME_EXPR, FLOW_OUT_IF_SPEED_BPS_EXPR, FLOW_PROTOCOL_GROUP_EXPR,
+    FLOW_DIRECTION_EXPR,
 };
 use crate::{
     error::{Result, ServiceError},
@@ -514,6 +515,7 @@ fn flows_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
         "out_if_speed_bps" => expr_text_clause(FLOW_OUT_IF_SPEED_BPS_EXPR, filter),
         "protocol_group" | "proto_group" => expr_text_clause(FLOW_PROTOCOL_GROUP_EXPR, filter),
         "app" => expr_text_clause(FLOW_APP_EXPR, filter),
+        "direction" => expr_text_clause(FLOW_DIRECTION_EXPR, filter),
         "protocol_num" | "proto" => int_clause("protocol_num", filter, false),
         "src_endpoint_port" | "src_port" => int_clause("src_endpoint_port", filter, false),
         "dst_endpoint_port" | "dst_port" => int_clause("dst_endpoint_port", filter, false),

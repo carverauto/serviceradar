@@ -159,7 +159,10 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
         <span class="loading loading-spinner loading-md"></span>
       </div>
 
-      <div :if={not @loading and @rows == []} class="px-4 py-8 text-center text-base-content/50 text-sm">
+      <div
+        :if={not @loading and @rows == []}
+        class="px-4 py-8 text-center text-base-content/50 text-sm"
+      >
         {@empty_message}
       </div>
 
@@ -177,13 +180,13 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
             :for={{row, idx} <- Enum.with_index(@rows, 1)}
             class={[@on_row_click && "cursor-pointer hover:bg-base-200/60"]}
             phx-click={@on_row_click}
-            phx-value-row-idx={@on_row_click && (idx - 1)}
+            phx-value-row-idx={@on_row_click && idx - 1}
             phx-value-row={
               @on_row_click &&
-                (case Jason.encode(row) do
-                   {:ok, json} -> json
-                   _ -> "{}"
-                 end)
+                case Jason.encode(row) do
+                  {:ok, json} -> json
+                  _ -> "{}"
+                end
             }
           >
             <td class="text-center text-base-content/50 font-mono text-xs">{idx}</td>
@@ -289,7 +292,11 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
         @class
       ]}
     >
-      <div class={["radial-progress", "text-#{@severity}"]} style={"--value:#{@pct}; --size:5rem; --thickness:6px;"} role="progressbar">
+      <div
+        class={["radial-progress", "text-#{@severity}"]}
+        style={"--value:#{@pct}; --size:5rem; --thickness:6px;"}
+        role="progressbar"
+      >
         <span class="text-sm font-bold">{@pct}%</span>
       </div>
       <div :if={@label} class="text-xs font-medium text-base-content/70">{@label}</div>
