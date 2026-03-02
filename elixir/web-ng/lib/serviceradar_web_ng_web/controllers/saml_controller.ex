@@ -129,7 +129,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
     cond do
       # Validate CSRF token
-      stored_csrf_token && csrf_token != stored_csrf_token ->
+      stored_csrf_token && !Plug.Crypto.secure_compare(csrf_token || "", stored_csrf_token) ->
         Logger.warning("SAML CSRF token mismatch")
 
         Hooks.on_auth_failed(:csrf_validation_failed, %{

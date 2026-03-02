@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
     longpoll: [connect_info: [session: @session_options, uri: true]]
 
   socket "/socket", ServiceRadarWebNGWeb.UserSocket,
-    websocket: true,
+    websocket: [connect_info: [session: @session_options]],
     longpoll: false
 
   # Serve at "/" the static files from "priv/static" directory.

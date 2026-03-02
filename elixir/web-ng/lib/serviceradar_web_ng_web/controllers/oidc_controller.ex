@@ -110,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
       |> delete_session(:oidc_nonce)
 
     # Validate state (CSRF protection)
-    if state != stored_state do
+    if !Plug.Crypto.secure_compare(state || "", stored_state || "") do
       Logger.warning("OIDC callback state mismatch")
 
       Hooks.on_auth_failed(:invalid_state, %{

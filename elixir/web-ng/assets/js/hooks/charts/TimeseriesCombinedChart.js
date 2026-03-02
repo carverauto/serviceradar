@@ -6,6 +6,14 @@ export default {
     const hoverLine = el.querySelector("[data-hover-line]")
     const seriesData = JSON.parse(el.dataset.series || "[]")
 
+    const escapeHtml = (s) =>
+      String(s || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;")
+
     if (!svg || !tooltip || !hoverLine || seriesData.length === 0) return
 
     const svgContainer = svg.parentElement
@@ -78,12 +86,12 @@ export default {
       const timeLabel = rows.find((row) => row.dt)?.dt || ""
       const lines = rows
         .map((row) => {
-          const bullet = `<span style="color:${row.color}">&bull;</span>`
-          return `<div>${bullet} ${row.label}: ${row.value}</div>`
+          const bullet = `<span style="color:${escapeHtml(row.color)}">&bull;</span>`
+          return `<div>${bullet} ${escapeHtml(row.label)}: ${escapeHtml(row.value)}</div>`
         })
         .join("")
 
-      tooltip.innerHTML = `${lines}<div class="text-[10px] text-base-content/60 mt-1">${timeLabel}</div>`
+      tooltip.innerHTML = `${lines}<div class="text-[10px] text-base-content/60 mt-1">${escapeHtml(timeLabel)}</div>`
       tooltip.classList.remove("hidden")
       hoverLine.classList.remove("hidden")
 

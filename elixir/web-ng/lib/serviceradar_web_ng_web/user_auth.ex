@@ -31,7 +31,8 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   broadcasting disconnects on logout.
   """
   def log_in_user(conn, user, params \\ %{}) do
-    return_to = get_session(conn, :user_return_to) || params["return_to"] || ~p"/analytics"
+    raw_return_to = get_session(conn, :user_return_to) || params["return_to"] || ~p"/analytics"
+    return_to = sanitize_return_path(raw_return_to)
     session_started_at = DateTime.utc_now() |> DateTime.to_unix()
     max_age_seconds = session_absolute_timeout_seconds()
 
@@ -489,6 +490,26 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   defp oban_access?(_), do: false
+
+  # Validates that a return-to path is a safe, relative path within the application.
+  # Prevents open redirect attacks via absolute URLs, protocol-relative URLs, or
+  # data/javascript scheme URIs.
+  defp sanitize_return_path(path) when is_binary(path) do
+    trimmed = String.trim(path)
+
+    cond do
+      # Must start with a single forward slash (relative path)
+      not String.starts_with?(trimmed, "/") -> ~p"/analytics"
+      # Block protocol-relative URLs (//evil.com)
+      String.starts_with?(trimmed, "//") -> ~p"/analytics"
+      # Block backslash variants (\\evil.com works in some browsers)
+      String.contains?(trimmed, "\\") -> ~p"/analytics"
+      # Safe relative path
+      true -> trimmed
+    end
+  end
+
+  defp sanitize_return_path(_), do: ~p"/analytics"
 
   defp oban_running? do
     case Oban.Registry.whereis(Oban) do
