@@ -150,16 +150,16 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     [input]
     type = "udp"
-    listen = "#{input_listen}"
-    format = "#{input_format}"
-    rfc3164_timezone = "#{input_timezone}"
+    listen = #{encode_toml_value(input_listen)}
+    format = #{encode_toml_value(input_format)}
+    rfc3164_timezone = #{encode_toml_value(input_timezone)}
 
     [output]
     type = "nats"
     format = "gelf"
     framing = "noop"
-    partition = "#{site}"
-    nats_url = "#{nats_url}"
+    partition = #{encode_toml_value(site)}
+    nats_url = #{encode_toml_value(nats_url)}
     nats_subject = "logs.syslog"
     nats_stream = "events"
     nats_tls_ca_file = "/etc/serviceradar/certs/ca-chain.pem"
@@ -195,7 +195,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     port = #{grpc_port}
 
     [nats]
-    url = "#{nats_url}"
+    url = #{encode_toml_value(nats_url)}
     subject = "otel"
     logs_subject = "logs.otel"
     stream = "events"
@@ -316,11 +316,15 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     collector_type = to_string(package.collector_type)
     config_file = config_filename(package)
 
+    s_collector_type = sanitize_shell_arg(collector_type)
+    s_package_id = sanitize_shell_arg(package.id)
+    s_service_name = "serviceradar-#{s_collector_type}"
+
     """
     #!/bin/bash
     # ServiceRadar Collector Update Script
-    # Collector: #{collector_type}
-    # Package ID: #{package.id}
+    # Collector: #{s_collector_type}
+    # Package ID: #{s_package_id}
     # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
     #
     # This script updates credentials, certificates, and configuration for an
@@ -329,8 +333,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     set -e
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    COLLECTOR_TYPE="#{collector_type}"
-    SERVICE_NAME="serviceradar-$COLLECTOR_TYPE"
+    COLLECTOR_TYPE="#{s_collector_type}"
+    SERVICE_NAME="#{s_service_name}"
     CONFIG_DIR="/etc/serviceradar"
     CERTS_DIR="$CONFIG_DIR/certs"
     CREDS_DIR="$CONFIG_DIR/creds"
@@ -397,6 +401,15 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     echo "View logs:"
     echo "  journalctl -u $SERVICE_NAME -f"
     """
+  end
+
+  defp sanitize_shell_arg(value) when is_binary(value) do
+    String.replace(value, "\"", "-")
+  end
+
+  defp encode_toml_value(value) do
+    # Jason encoding works well for TOML strings/numbers/booleans
+    Jason.encode!(value)
   end
 
   defp generate_readme(package) do

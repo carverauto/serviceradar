@@ -1043,9 +1043,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     try do
       import SweetXml
 
+      # Use safe parser
+      doc = safe_sweetxml_parse(xml)
+
       # Try to extract entity ID
       entity_id =
-        xml
+        doc
         |> xpath(
           ~x"//md:EntityDescriptor/@entityID"s,
           namespace_conformant: true,
@@ -1055,7 +1058,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       # Fallback without namespace
       entity_id =
         if entity_id == "" do
-          xpath(xml, ~x"//EntityDescriptor/@entityID"s)
+          xpath(doc, ~x"//EntityDescriptor/@entityID"s)
         else
           entity_id
         end
@@ -1070,6 +1073,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         Logger.error("SAML metadata parse error: #{inspect(e)}")
         {:error, "Failed to parse XML metadata"}
     end
+  end
+
+  defp safe_sweetxml_parse(xml_string) do
+    options = [
+      quiet: true,
+      xmerl_options: [
+        external_entities: :none,
+        dtd_nodes: :none
+      ]
+    ]
+
+    SweetXml.parse(xml_string, options)
   end
 
   defp load_or_create_settings(user) do

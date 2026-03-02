@@ -177,9 +177,12 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
     try do
       import SweetXml
 
+      # Use safe parser
+      doc = safe_sweetxml_parse(xml)
+
       entity_id =
         xpath(
-          xml,
+          doc,
           ~x"//md:EntityDescriptor/@entityID"s,
           namespace_conformant: true,
           namespaces: [md: "urn:oasis:names:tc:SAML:2.0:metadata"]
@@ -196,4 +199,16 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
   end
 
   defp extract_idp_entity_id(_), do: nil
+
+  defp safe_sweetxml_parse(xml_string) do
+    options = [
+      quiet: true,
+      xmerl_options: [
+        external_entities: :none,
+        dtd_nodes: :none
+      ]
+    ]
+
+    SweetXml.parse(xml_string, options)
+  end
 end

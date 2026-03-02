@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   @default_absolute_timeout_seconds 30 * 24 * 60 * 60
   @session_started_key :session_started_at
   @user_token_key "user_token"
+  @sudo_at_key "sudo_authenticated_at"
 
   @doc """
   Logs the user in by creating a Guardian session token.
@@ -41,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
         conn
         |> put_session(@user_token_key, token)
         |> put_session(@session_started_key, session_started_at)
+        |> put_session(@sudo_at_key, session_started_at)
         |> delete_session(:user_return_to)
         |> put_session(:live_socket_id, "users_sessions:#{user.id}")
         |> configure_session(renew: true, max_age: max_age_seconds)
@@ -377,11 +379,49 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     end
   end
 
-  # Sudo mode is not implemented with Guardian JWT tokens.
-  # For now, this just requires authentication. In the future, this could
-  # verify a recent authentication timestamp in the JWT claims.
-  def on_mount(:require_sudo_mode, params, session, socket) do
-    on_mount(:require_authenticated, params, session, socket)
+  def on_mount(:require_sudo_mode, _params, session, socket) do
+    case session[@user_token_key] do
+      token when is_binary(token) ->
+        case Guardian.verify_token(token, token_type: "access") do
+          {:ok, user, _claims} ->
+            sudo_at_unix = session[@sudo_at_key]
+
+            if sudo_at_unix &&
+                 ServiceRadarWebNG.Accounts.sudo_mode?(
+                   user,
+                   DateTime.from_unix!(sudo_at_unix)
+                 ) do
+              {:cont, socket}
+            else
+              socket =
+                socket
+                |> Phoenix.LiveView.put_flash(:error, "Confirm password to continue.")
+                |> Phoenix.LiveView.redirect(to: ~p"/settings/profile")
+
+              {:halt, socket}
+            end
+
+          _ ->
+            {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/users/log-in")}
+        end
+
+      _ ->
+        {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/users/log-in")}
+    end
+  end
+
+  @doc """
+  Sets the sudo authentication timestamp in the session.
+  """
+  def put_sudo_mode(conn) do
+    put_session(conn, @sudo_at_key, DateTime.utc_now() |> DateTime.to_unix())
+  end
+
+  @doc """
+  Clears the sudo authentication timestamp from the session.
+  """
+  def delete_sudo_mode(conn) do
+    delete_session(conn, @sudo_at_key)
   end
 
   defp mount_current_scope(socket, session) do
@@ -494,6 +534,27 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   # Validates that a return-to path is a safe, relative path within the application.
   # Prevents open redirect attacks via absolute URLs, protocol-relative URLs, or
   # data/javascript scheme URIs.
+  @doc """
+  Plug for routes that require the user to be in sudo mode (recently authenticated).
+  """
+  def require_sudo_mode(conn, _opts) do
+    user = conn.assigns.current_scope && conn.assigns.current_scope.user
+    sudo_at_unix = get_session(conn, @sudo_at_key)
+
+    if user && sudo_at_unix &&
+         ServiceRadarWebNG.Accounts.sudo_mode?(
+           user,
+           DateTime.from_unix!(sudo_at_unix)
+         ) do
+      conn
+    else
+      conn
+      |> put_flash(:error, "Confirm password to continue.")
+      |> redirect(to: ~p"/settings/profile")
+      |> halt()
+    end
+  end
+
   defp sanitize_return_path(path) when is_binary(path) do
     trimmed = String.trim(path)
 

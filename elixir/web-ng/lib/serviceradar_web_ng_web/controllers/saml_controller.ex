@@ -226,12 +226,14 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
   defp extract_sso_url_from_metadata(xml) do
     # Parse IdP metadata to extract SSO URL
-    # This uses SweetXml which is a dependency of Samly
     try do
       import SweetXml
 
+      # Use safe parser
+      doc = safe_sweetxml_parse(xml)
+
       sso_url =
-        xml
+        doc
         |> xpath(
           ~x"//md:SingleSignOnService[@Binding='urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect']/@Location"s,
           namespace_conformant: true,
@@ -243,7 +245,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       else
         # Try without namespace prefix
         sso_url_alt =
-          xml
+          doc
           |> xpath(
             ~x"//SingleSignOnService[@Binding='urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect']/@Location"s
           )
@@ -289,8 +291,8 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   defp validate_saml_response(saml_response_b64) do
     with {:ok, saml_response_xml} <- Base.decode64(saml_response_b64),
          {:ok, config} <- SAMLStrategy.get_config(),
-         :ok <- validate_xml_signature(saml_response_xml, config),
-         {:ok, assertion} <- parse_saml_assertion(saml_response_xml),
+         {:ok, verified_element} <- validate_xml_signature(saml_response_xml, config),
+         {:ok, assertion} <- parse_saml_assertion(verified_element),
          :ok <- SAMLAssertionValidator.validate(assertion, config) do
       {:ok, assertion}
     else
@@ -308,8 +310,8 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     with {:ok, certs} when certs != [] <- get_idp_certificates(config),
          :ok <- validate_certificate_pinning(certs, config),
          fingerprints <- build_trusted_fingerprints(certs),
-         :ok <- validate_signature_with_fingerprints(xml, fingerprints) do
-      :ok
+         {:ok, verified_element} <- validate_signature_with_fingerprints(xml, fingerprints) do
+      {:ok, verified_element}
     else
       {:ok, []} ->
         Logger.warning("No IdP certificates found for signature validation")
@@ -421,10 +423,13 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     try do
       import SweetXml
 
+      # Use safe parser
+      doc = safe_sweetxml_parse(xml)
+
       # Extract X509 certificates from IdP metadata
       # These are typically in ds:X509Certificate elements
       certs =
-        xml
+        doc
         |> xpath(
           ~x"//md:KeyDescriptor[@use='signing']/ds:KeyInfo/ds:X509Data/ds:X509Certificate/text()"ls,
           namespace_conformant: true,
@@ -439,7 +444,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
         if Enum.empty?(certs) do
           # Try alternative path without use attribute
           xpath(
-            xml,
+            doc,
             ~x"//md:KeyDescriptor/ds:KeyInfo/ds:X509Data/ds:X509Certificate/text()"ls,
             namespace_conformant: true,
             namespaces: [
@@ -454,7 +459,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       # Second fallback: try without namespace prefixes
       certs =
         if Enum.empty?(certs) do
-          xpath(xml, ~x"//X509Certificate/text()"ls)
+          xpath(doc, ~x"//X509Certificate/text()"ls)
         else
           certs
         end
@@ -493,9 +498,9 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   defp validate_signature_with_fingerprints(xml_string, fingerprints)
        when is_binary(xml_string) do
     try do
-      # Parse XML using xmerl
-      xml_charlist = String.to_charlist(xml_string)
-      {doc, _} = :xmerl_scan.string(xml_charlist, [])
+      # Parse XML safely using xmerl (disable external entities)
+      {doc, _} = safe_xmerl_scan(xml_string)
+
       signed_elements = signed_elements(doc)
 
       case signed_elements do
@@ -504,7 +509,10 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
           {:error, :no_signature}
 
         elements ->
-          verify_signed_elements(elements, fingerprints)
+          case verify_signed_elements(elements, fingerprints) do
+            {:ok, verified_element} -> {:ok, verified_element}
+            {:error, reason} -> {:error, reason}
+          end
       end
     rescue
       e ->
@@ -520,26 +528,31 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       {"ds", ~c"http://www.w3.org/2000/09/xmldsig#"}
     ]
 
-    response_signed =
-      :xmerl_xpath.string(~c"//saml2p:Response[ds:Signature]", doc, namespace: namespaces)
-
+    # Prioritize Assertion signatures to prevent XSW where Response is signed but Assertion is spoofed
     assertion_signed =
       :xmerl_xpath.string(~c"//saml2:Assertion[ds:Signature]", doc, namespace: namespaces)
 
-    (response_signed ++ assertion_signed)
+    response_signed =
+      :xmerl_xpath.string(~c"//saml2p:Response[ds:Signature]", doc, namespace: namespaces)
+
+    (assertion_signed ++ response_signed)
     |> Enum.uniq()
   end
 
   defp verify_signed_elements(elements, fingerprints) do
-    results =
-      Enum.map(elements, fn element ->
-        :xmerl_dsig.verify(element, fingerprints)
+    # Return the first element that verifies successfully
+    verified =
+      Enum.find_value(elements, fn element ->
+        case :xmerl_dsig.verify(element, fingerprints) do
+          :ok -> element
+          _ -> nil
+        end
       end)
 
-    if Enum.any?(results, &(&1 == :ok)) do
-      :ok
+    if verified do
+      {:ok, verified}
     else
-      Logger.warning("SAML signature verification failed", verify_results: inspect(results))
+      Logger.warning("SAML signature verification failed")
       {:error, :invalid_signature}
     end
   end
@@ -564,52 +577,33 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   defp cert_der(der) when is_binary(der), do: der
   defp cert_der(_), do: nil
 
-  defp parse_saml_assertion(xml) do
+  defp parse_saml_assertion(node) do
     try do
       import SweetXml
 
-      # Extract assertion data
-      # Note: This is a simplified parser - production should use Samly's full validation
+      # Extract assertion data relative to the verified node
+      namespaces = [
+        saml: "urn:oasis:names:tc:SAML:2.0:assertion",
+        samlp: "urn:oasis:names:tc:SAML:2.0:protocol"
+      ]
+
+      # Note: We use relative paths (.) to ensure we only look within the verified assertion node
       assertion = %{
-        subject_name_id:
-          xpath(
-            xml,
-            ~x"//saml:Subject/saml:NameID/text()"s
-            |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")
-          ),
-        issuer:
-          xpath(
-            xml,
-            ~x"//saml:Assertion/saml:Issuer/text()"s
-            |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")
-          ),
-        attributes: parse_attributes(xml),
+        subject_name_id: xpath(node, ~x"./saml:Subject/saml:NameID/text()"s, namespaces: namespaces),
+        issuer: xpath(node, ~x"./saml:Issuer/text()"s, namespaces: namespaces),
+        attributes: parse_attributes(node, namespaces),
         conditions: %{
-          not_before:
-            xpath(
-              xml,
-              ~x"//saml:Conditions/@NotBefore"s
-              |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")
-            ),
-          not_on_or_after:
-            xpath(
-              xml,
-              ~x"//saml:Conditions/@NotOnOrAfter"s
-              |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")
-            ),
+          not_before: xpath(node, ~x"./saml:Conditions/@NotBefore"s, namespaces: namespaces),
+          not_on_or_after: xpath(node, ~x"./saml:Conditions/@NotOnOrAfter"s, namespaces: namespaces),
           audience:
-            xpath(
-              xml,
-              ~x"//saml:Conditions/saml:AudienceRestriction/saml:Audience/text()"s
-              |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")
+            xpath(node, ~x"./saml:Conditions/saml:AudienceRestriction/saml:Audience/text()"s,
+              namespaces: namespaces
             )
         },
         subject_confirmation: %{
           recipient:
-            xpath(
-              xml,
-              ~x"//saml:SubjectConfirmation/saml:SubjectConfirmationData/@Recipient"s
-              |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")
+            xpath(node, ~x"./saml:SubjectConfirmation/saml:SubjectConfirmationData/@Recipient"s,
+              namespaces: namespaces
             )
         }
       }
@@ -619,16 +613,15 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
         if assertion.subject_name_id == "" do
           %{
             assertion
-            | subject_name_id: xpath(xml, ~x"//Subject/NameID/text()"s),
+            | subject_name_id: xpath(node, ~x"./Subject/NameID/text()"s),
               conditions: %{
-                not_before: xpath(xml, ~x"//Conditions/@NotBefore"s),
-                not_on_or_after: xpath(xml, ~x"//Conditions/@NotOnOrAfter"s),
-                audience: xpath(xml, ~x"//Conditions/AudienceRestriction/Audience/text()"s)
+                not_before: xpath(node, ~x"./Conditions/@NotBefore"s),
+                not_on_or_after: xpath(node, ~x"./Conditions/@NotOnOrAfter"s),
+                audience: xpath(node, ~x"./Conditions/AudienceRestriction/Audience/text()"s)
               },
-              issuer: xpath(xml, ~x"//Assertion/Issuer/text()"s),
+              issuer: xpath(node, ~x"./Issuer/text()"s),
               subject_confirmation: %{
-                recipient:
-                  xpath(xml, ~x"//SubjectConfirmation/SubjectConfirmationData/@Recipient"s)
+                recipient: xpath(node, ~x"./SubjectConfirmation/SubjectConfirmationData/@Recipient"s)
               }
           }
         else
@@ -647,27 +640,28 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     end
   end
 
-  defp parse_attributes(xml) do
+  defp parse_attributes(node, namespaces) do
     import SweetXml
 
-    # Try namespaced first
+    # Use relative path statement
     attrs =
-      xml
+      node
       |> xpath(
-        ~x"//saml:AttributeStatement/saml:Attribute"l
-        |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion"),
-        name: ~x"./@Name"s,
-        value:
-          ~x"./saml:AttributeValue/text()"s
-          |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")
+        ~x"./saml:AttributeStatement/saml:Attribute"l,
+        namespaces: namespaces
       )
+      |> Enum.map(fn attr ->
+        name = xpath(attr, ~x"./@Name"s, namespaces: namespaces)
+        value = xpath(attr, ~x"./saml:AttributeValue/text()"s, namespaces: namespaces)
+        %{name: name, value: value}
+      end)
 
     # Fallback to non-namespaced
     attrs =
       if Enum.empty?(attrs) do
-        xml
+        node
         |> xpath(
-          ~x"//AttributeStatement/Attribute"l,
+          ~x"./AttributeStatement/Attribute"l,
           name: ~x"./@Name"s,
           value: ~x"./AttributeValue/text()"s
         )
@@ -676,8 +670,32 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       end
 
     Enum.reduce(attrs, %{}, fn %{name: name, value: value}, acc ->
-      Map.put(acc, name, value)
+      if name && name != "", do: Map.put(acc, name, value), else: acc
     end)
+  end
+
+  # Safe XML parsing helpers to prevent XXE
+
+  defp safe_xmerl_scan(xml_string) do
+    xml_charlist = String.to_charlist(xml_string)
+
+    :xmerl_scan.string(xml_charlist, [
+      {:quiet, true},
+      {:external_entities, :none},
+      {:validation, false}
+    ])
+  end
+
+  defp safe_sweetxml_parse(xml_string) do
+    options = [
+      quiet: true,
+      xmerl_options: [
+        external_entities: :none,
+        dtd_nodes: :none
+      ]
+    ]
+
+    SweetXml.parse(xml_string, options)
   end
 
   defp handle_successful_assertion(conn, assertion, relay_state) do

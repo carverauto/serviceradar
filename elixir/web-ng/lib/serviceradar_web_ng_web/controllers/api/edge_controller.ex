@@ -163,12 +163,9 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
 
   Lists audit events for a package.
   """
-  def events(conn, %{"id" => id, "limit" => limit}) do
-    events_list(conn, id, String.to_integer(limit))
-  end
-
-  def events(conn, %{"id" => id}) do
-    events_list(conn, id, 50)
+  def events(conn, %{"id" => id} = params) do
+    limit = parse_int(params["limit"]) || 50
+    events_list(conn, id, limit)
   end
 
   defp events_list(conn, package_id, limit) do
@@ -476,16 +473,6 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     |> Enum.reject(&(&1 == ""))
   end
 
-  defp parse_int(nil), do: nil
-  defp parse_int(""), do: nil
-
-  defp parse_int(str) when is_binary(str) do
-    case Integer.parse(str) do
-      {n, _} when n > 0 -> n
-      _ -> nil
-    end
-  end
-
   defp get_user_actor(conn) do
     case conn.assigns[:current_scope] do
       %Scope{user: user} when not is_nil(user) ->
@@ -583,9 +570,19 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     }
   end
 
-  defp format_datetime(nil), do: nil
-
   defp format_datetime(%DateTime{} = dt) do
     DateTime.to_iso8601(dt)
   end
+
+  defp parse_int(nil), do: nil
+  defp parse_int(""), do: nil
+
+  defp parse_int(str) when is_binary(str) do
+    case Integer.parse(str) do
+      {n, _} when n > 0 -> n
+      _ -> nil
+    end
+  end
+
+  defp parse_int(n) when is_integer(n), do: n
 end
