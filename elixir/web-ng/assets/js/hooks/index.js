@@ -9,10 +9,16 @@ import NetflowStackedAreaChart from "./charts/NetflowStackedAreaChart"
 import NetflowStacked100Chart from "./charts/NetflowStacked100Chart"
 import NetflowLineSeriesChart from "./charts/NetflowLineSeriesChart"
 import NetflowGridChart from "./charts/NetflowGridChart"
+import NetflowTrafficTooltip from "./charts/NetflowTrafficTooltip"
+import NetflowTalkersIcicle from "./charts/NetflowTalkersIcicle"
 import GodViewBinaryStream from "./god_view/GodViewBinaryStream"
 import GodViewControlsState from "./god_view/GodViewControlsState"
 import TimeseriesChart from "./charts/TimeseriesChart"
 import TimeseriesCombinedChart from "./charts/TimeseriesCombinedChart"
+import FlowSparkline from "./charts/FlowSparkline"
+import FlowRateChart from "./charts/FlowRateChart"
+import FlowDonut from "./charts/FlowDonut"
+import BandwidthGauge from "./charts/BandwidthGauge"
 
 export default {
   BulkEditTagsToggle,
@@ -26,8 +32,14 @@ export default {
   NetflowStacked100Chart,
   NetflowLineSeriesChart,
   NetflowGridChart,
+  NetflowTrafficTooltip,
+  NetflowTalkersIcicle,
   GodViewBinaryStream,
   GodViewControlsState,
   TimeseriesChart,
   TimeseriesCombinedChart,
+  FlowSparkline,
+  FlowRateChart,
+  FlowDonut,
+  BandwidthGauge,
 }

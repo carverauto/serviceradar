@@ -18,6 +18,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
+  alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.Stats
 
   require Logger
@@ -56,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:netflows, [])
      |> assign(:selected_netflow, nil)
      |> assign(:netflow_context, nil)
+     |> assign(:netflow_arin_lookup, %{})
      |> assign(:netflow_top_talkers, [])
      |> assign(:netflow_top_ports, [])
      |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
@@ -80,6 +83,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:netflow_sankey, %{edges: [], sources: [], mids: [], dests: []})
      |> assign(:netflow_sankey_edges_json, "[]")
      |> assign(:netflow_stack_mode, @default_netflow_stack_mode)
+     |> assign(:netflow_graph_mode, "stacked")
+     |> assign(:netflow_view, "overview")
+     |> assign(:netflow_auto_open, false)
      |> assign(:sparklines, %{})
      |> assign(:summary, %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0})
      |> assign(:event_summary, empty_event_summary())
@@ -113,111 +119,99 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   def handle_params(params, uri, socket) do
     path = uri |> to_string() |> URI.parse() |> Map.get(:path)
     tab = normalize_tab(Map.get(params, "tab"), path)
+    params = maybe_apply_netflow_nf_state(params, tab)
+    {entity, _list_key} = tab_entity(tab)
+    {default_limit, _max_limit} = tab_limits(tab)
+    params = maybe_default_netflows_query(params, tab)
+    netflow_compact? = truthy_param?(Map.get(params, "compact"))
+    netflow_talker_cidr = parse_netflow_talker_cidr(Map.get(params, "talker_cidr"))
+    netflow_compare_mode = parse_netflow_compare_mode(Map.get(params, "compare"))
+    netflow_geo_side = parse_netflow_geo_side(Map.get(params, "geo"))
+    netflow_sankey_prefix = parse_netflow_sankey_prefix(Map.get(params, "sankey_prefix"))
+    netflow_stack_mode = parse_netflow_stack_mode(Map.get(params, "stack"))
+    netflow_view = parse_netflow_view(Map.get(params, "view"))
+    netflow_auto_open = tab == "netflows" and truthy_param?(Map.get(params, "open_flow"))
+    netflow_viz_state = extract_netflow_viz_state(params)
 
-    # Flow analytics has moved to a dedicated /flows page. Preserve SRQL `q`
-    # and best-effort preserve flow-specific options so bookmarks keep working.
-    if path == "/observability" and tab == "netflows" do
-      nav_params =
-        params
-        |> Map.drop(["tab"])
-        |> Map.take([
-          "q",
-          "limit",
-          "compact",
-          "talker_cidr",
-          "compare",
-          "geo",
-          "sankey_prefix",
-          "stack"
-        ])
-        |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+    netflow_graph_mode =
+      parse_netflow_graph_mode(Map.get(params, "graph") || Map.get(netflow_viz_state, "graph"))
 
-      to =
-        case nav_params do
-          %{} = p when map_size(p) > 0 -> "/flows?" <> URI.encode_query(p)
-          _ -> "/flows"
-        end
+    same_tab_query_change =
+      socket.assigns[:_initial_load_done] && tab == socket.assigns[:_loaded_tab]
 
-      {:noreply, push_navigate(socket, to: to)}
-    else
-      {entity, _list_key} = tab_entity(tab)
-      {default_limit, _max_limit} = tab_limits(tab)
-      params = maybe_default_netflows_query(params, tab)
-      netflow_compact? = truthy_param?(Map.get(params, "compact"))
-      netflow_talker_cidr = parse_netflow_talker_cidr(Map.get(params, "talker_cidr"))
-      netflow_compare_mode = parse_netflow_compare_mode(Map.get(params, "compare"))
-      netflow_geo_side = parse_netflow_geo_side(Map.get(params, "geo"))
-      netflow_sankey_prefix = parse_netflow_sankey_prefix(Map.get(params, "sankey_prefix"))
-      netflow_stack_mode = parse_netflow_stack_mode(Map.get(params, "stack"))
+    # For same-tab query changes (stat card clicks), keep current data visible.
+    # For tab switches and initial loads, reset to empty defaults.
+    socket =
+      if same_tab_query_change do
+        socket
+        |> assign(:active_tab, tab)
+        |> assign(:netflow_compact?, netflow_compact?)
+        |> assign(:netflow_talker_cidr, netflow_talker_cidr)
+        |> assign(:netflow_compare_mode, netflow_compare_mode)
+        |> assign(:netflow_geo_side, netflow_geo_side)
+        |> assign(:netflow_sankey_prefix, netflow_sankey_prefix)
+        |> assign(:netflow_stack_mode, netflow_stack_mode)
+        |> assign(:netflow_graph_mode, netflow_graph_mode)
+        |> assign(:netflow_view, netflow_view)
+        |> assign(:netflow_auto_open, netflow_auto_open)
+        |> assign(:netflow_viz_state, netflow_viz_state)
+        |> ensure_srql_entity(entity, default_limit)
+      else
+        socket
+        |> assign(:active_tab, tab)
+        |> assign(:logs, [])
+        |> assign(:traces, [])
+        |> assign(:metrics, [])
+        |> assign(:events, [])
+        |> assign(:alerts, [])
+        |> assign(:netflows, [])
+        |> assign(:selected_netflow, nil)
+        |> assign(:netflow_context, nil)
+        |> assign(:netflow_arin_lookup, %{})
+        |> assign(:netflow_top_talkers, [])
+        |> assign(:netflow_top_ports, [])
+        |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
+        |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
+        |> assign(:netflow_timeseries_stacked, %{bucket_seconds: 300, points: []})
+        |> assign(:netflow_protocol_activity, %{
+          bucket_seconds: 300,
+          keys: [],
+          points: [],
+          colors: %{}
+        })
+        |> assign(:netflow_app_activity, %{
+          bucket_seconds: 300,
+          keys: [],
+          points: [],
+          colors: %{}
+        })
+        |> assign(:netflow_frequent_talkers_packets, [])
+        |> assign(:netflow_frequent_talkers_bytes, [])
+        |> assign(:netflow_rdns_map, %{})
+        |> assign(:netflow_compact?, netflow_compact?)
+        |> assign(:netflow_talker_cidr, netflow_talker_cidr)
+        |> assign(:netflow_compare_mode, netflow_compare_mode)
+        |> assign(:netflow_geo_side, netflow_geo_side)
+        |> assign(:netflow_geo_heatmap, [])
+        |> assign(:netflow_sankey_prefix, netflow_sankey_prefix)
+        |> assign(:netflow_sankey, %{edges: [], sources: [], mids: [], dests: []})
+        |> assign(:netflow_stack_mode, netflow_stack_mode)
+        |> assign(:netflow_graph_mode, netflow_graph_mode)
+        |> assign(:netflow_view, netflow_view)
+        |> assign(:netflow_auto_open, netflow_auto_open)
+        |> assign(:netflow_viz_state, netflow_viz_state)
+        |> ensure_srql_entity(entity, default_limit)
+      end
 
-      same_tab_query_change =
-        socket.assigns[:_initial_load_done] && tab == socket.assigns[:_loaded_tab]
+    socket =
+      if connected?(socket) do
+        dispatch_tab_load(socket, tab, params, uri)
+      else
+        # Disconnected mount — skip entirely (static HTML is replaced by WebSocket)
+        socket
+      end
 
-      # For same-tab query changes (stat card clicks), keep current data visible.
-      # For tab switches and initial loads, reset to empty defaults.
-      socket =
-        if same_tab_query_change do
-          socket
-          |> assign(:active_tab, tab)
-          |> assign(:netflow_compact?, netflow_compact?)
-          |> assign(:netflow_talker_cidr, netflow_talker_cidr)
-          |> assign(:netflow_compare_mode, netflow_compare_mode)
-          |> assign(:netflow_geo_side, netflow_geo_side)
-          |> assign(:netflow_sankey_prefix, netflow_sankey_prefix)
-          |> assign(:netflow_stack_mode, netflow_stack_mode)
-          |> ensure_srql_entity(entity, default_limit)
-        else
-          socket
-          |> assign(:active_tab, tab)
-          |> assign(:logs, [])
-          |> assign(:traces, [])
-          |> assign(:metrics, [])
-          |> assign(:events, [])
-          |> assign(:alerts, [])
-          |> assign(:netflows, [])
-          |> assign(:selected_netflow, nil)
-          |> assign(:netflow_context, nil)
-          |> assign(:netflow_top_talkers, [])
-          |> assign(:netflow_top_ports, [])
-          |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
-          |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
-          |> assign(:netflow_timeseries_stacked, %{bucket_seconds: 300, points: []})
-          |> assign(:netflow_protocol_activity, %{
-            bucket_seconds: 300,
-            keys: [],
-            points: [],
-            colors: %{}
-          })
-          |> assign(:netflow_app_activity, %{
-            bucket_seconds: 300,
-            keys: [],
-            points: [],
-            colors: %{}
-          })
-          |> assign(:netflow_frequent_talkers_packets, [])
-          |> assign(:netflow_frequent_talkers_bytes, [])
-          |> assign(:netflow_rdns_map, %{})
-          |> assign(:netflow_compact?, netflow_compact?)
-          |> assign(:netflow_talker_cidr, netflow_talker_cidr)
-          |> assign(:netflow_compare_mode, netflow_compare_mode)
-          |> assign(:netflow_geo_side, netflow_geo_side)
-          |> assign(:netflow_geo_heatmap, [])
-          |> assign(:netflow_sankey_prefix, netflow_sankey_prefix)
-          |> assign(:netflow_sankey, %{edges: [], sources: [], mids: [], dests: []})
-          |> assign(:netflow_stack_mode, netflow_stack_mode)
-          |> ensure_srql_entity(entity, default_limit)
-        end
-
-      socket =
-        if connected?(socket) do
-          dispatch_tab_load(socket, tab, params, uri)
-        else
-          # Disconnected mount — skip entirely (static HTML is replaced by WebSocket)
-          socket
-        end
-
-      {:noreply, socket}
-    end
+    {:noreply, socket}
   end
 
   @impl true
@@ -240,11 +234,48 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     {:noreply,
      socket
      |> assign(:selected_netflow, selected)
-     |> assign(:netflow_context, ctx)}
+     |> assign(:netflow_context, ctx)
+     |> assign(:netflow_arin_lookup, %{})}
   end
 
   def handle_event("netflow_close", _params, socket) do
-    {:noreply, socket |> assign(:selected_netflow, nil) |> assign(:netflow_context, nil)}
+    {:noreply,
+     socket
+     |> assign(:selected_netflow, nil)
+     |> assign(:netflow_context, nil)
+     |> assign(:netflow_arin_lookup, %{})}
+  end
+
+  def handle_event("netflow_lookup_asn", %{"asn" => asn_raw}, socket) do
+    asn =
+      case Integer.parse(to_string(asn_raw || "")) do
+        {n, ""} when n > 0 -> n
+        _ -> nil
+      end
+
+    if is_integer(asn) do
+      lookup = %{asn: asn, loading: true, data: nil, error: nil}
+      socket = assign(socket, :netflow_arin_lookup, lookup)
+
+      lookup =
+        case fetch_arin_asn(asn) do
+          {:ok, data} ->
+            %{asn: asn, loading: false, data: data, error: nil}
+
+          {:error, reason} ->
+            %{asn: asn, loading: false, data: nil, error: arin_error_text(reason)}
+        end
+
+      {:noreply, assign(socket, :netflow_arin_lookup, lookup)}
+    else
+      {:noreply,
+       assign(socket, :netflow_arin_lookup, %{
+         asn: nil,
+         loading: false,
+         data: nil,
+         error: "Invalid ASN."
+       })}
+    end
   end
 
   def handle_event("netflow_bucket", %{"start" => start_raw, "end" => end_raw}, socket) do
@@ -257,9 +288,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     geo_side = Map.get(socket.assigns, :netflow_geo_side, "dst")
     sankey_prefix = Map.get(socket.assigns, :netflow_sankey_prefix, 24)
     stack_mode = Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
+    graph_mode = Map.get(socket.assigns, :netflow_graph_mode, "stacked")
+    view = Map.get(socket.assigns, :netflow_view, "overview")
 
     patch_opts =
-      netflow_patch_opts(compact?, talker_cidr, compare_mode, geo_side, sankey_prefix, stack_mode)
+      netflow_patch_opts(
+        compact?,
+        talker_cidr,
+        compare_mode,
+        geo_side,
+        sankey_prefix,
+        stack_mode,
+        graph_mode,
+        view
+      )
 
     with {:ok, start_dt, _} <- DateTime.from_iso8601(to_string(start_raw)),
          {:ok, end_dt, _} <- DateTime.from_iso8601(to_string(end_raw)) do
@@ -293,9 +335,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     geo_side = Map.get(socket.assigns, :netflow_geo_side, "dst")
     sankey_prefix = Map.get(socket.assigns, :netflow_sankey_prefix, 24)
     stack_mode = Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
+    graph_mode = Map.get(socket.assigns, :netflow_graph_mode, "stacked")
+    view = Map.get(socket.assigns, :netflow_view, "overview")
 
     patch_opts =
-      netflow_patch_opts(compact?, talker_cidr, compare_mode, geo_side, sankey_prefix, stack_mode)
+      netflow_patch_opts(
+        compact?,
+        talker_cidr,
+        compare_mode,
+        geo_side,
+        sankey_prefix,
+        stack_mode,
+        graph_mode,
+        view
+      )
 
     field = if geo_side == "src", do: "src_country_iso2", else: "dst_country_iso2"
     country = to_string(country || "") |> String.trim() |> String.upcase()
@@ -331,6 +384,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     geo_side = Map.get(socket.assigns, :netflow_geo_side, "dst")
     sankey_prefix = Map.get(socket.assigns, :netflow_sankey_prefix, 24)
     stack_mode = Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
+    graph_mode = Map.get(socket.assigns, :netflow_graph_mode, "stacked")
+    view = Map.get(socket.assigns, :netflow_view, "overview")
 
     port =
       case Integer.parse(to_string(port_raw || "")) do
@@ -361,11 +416,72 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           compare_mode,
           geo_side,
           sankey_prefix,
-          stack_mode
+          stack_mode,
+          graph_mode,
+          view
         )
       )
 
     {:noreply, push_patch(socket, to: href)}
+  end
+
+  def handle_event(
+        "netflow_icicle_node",
+        %{"kind" => kind_raw, "value" => value_raw},
+        socket
+      ) do
+    kind = to_string(kind_raw || "") |> String.trim() |> String.downcase()
+    value = to_string(value_raw || "") |> String.trim()
+
+    {field, normalized} =
+      case kind do
+        "src" ->
+          {"src_ip", value}
+
+        "dst" ->
+          {"dst_ip", value}
+
+        "port" ->
+          port =
+            case Integer.parse(value) do
+              {n, ""} when n > 0 -> Integer.to_string(n)
+              _ -> ""
+            end
+
+          {"dst_port", port}
+
+        _ ->
+          {"", ""}
+      end
+
+    if field != "" and normalized != "" do
+      base_path = socket.assigns.srql[:page_path] || "/observability"
+      query = socket.assigns.srql[:query] || ""
+      limit = socket.assigns.limit
+
+      href =
+        netflow_filter_patch(
+          base_path,
+          query,
+          limit,
+          field,
+          normalized,
+          netflow_patch_opts(
+            Map.get(socket.assigns, :netflow_compact?, false),
+            Map.get(socket.assigns, :netflow_talker_cidr),
+            Map.get(socket.assigns, :netflow_compare_mode, "off"),
+            Map.get(socket.assigns, :netflow_geo_side, "dst"),
+            Map.get(socket.assigns, :netflow_sankey_prefix, 24),
+            Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode),
+            Map.get(socket.assigns, :netflow_graph_mode, "stacked"),
+            Map.get(socket.assigns, :netflow_view, "overview")
+          )
+        )
+
+      {:noreply, push_patch(socket, to: href)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("netflow_stack_series", %{"field" => field, "value" => value}, socket) do
@@ -388,11 +504,53 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             Map.get(socket.assigns, :netflow_compare_mode, "off"),
             Map.get(socket.assigns, :netflow_geo_side, "dst"),
             Map.get(socket.assigns, :netflow_sankey_prefix, 24),
-            Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
+            Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode),
+            Map.get(socket.assigns, :netflow_graph_mode, "stacked"),
+            Map.get(socket.assigns, :netflow_view, "overview")
           )
         )
 
       {:noreply, push_patch(socket, to: href)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("netflow_modal_filter", %{"field" => field_raw, "value" => value_raw}, socket) do
+    field = to_string(field_raw || "") |> String.trim()
+    value = to_string(value_raw || "") |> String.trim()
+
+    if field != "" and value != "" do
+      base_path = socket.assigns.srql[:page_path] || "/observability"
+      query = socket.assigns.srql[:query] || ""
+      limit = socket.assigns.limit
+
+      patch_opts =
+        netflow_patch_opts(
+          Map.get(socket.assigns, :netflow_compact?, false),
+          Map.get(socket.assigns, :netflow_talker_cidr),
+          Map.get(socket.assigns, :netflow_compare_mode, "off"),
+          Map.get(socket.assigns, :netflow_geo_side, "dst"),
+          Map.get(socket.assigns, :netflow_sankey_prefix, 24),
+          Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode),
+          Map.get(socket.assigns, :netflow_graph_mode, "stacked"),
+          Map.get(socket.assigns, :netflow_view, "overview")
+        )
+
+      params =
+        query
+        |> upsert_query_filter(field, value)
+        |> netflow_params(limit, patch_opts)
+        |> Map.put(:open_flow, "1")
+
+      href = base_path <> "?" <> URI.encode_query(params)
+
+      {:noreply,
+       socket
+       |> assign(:selected_netflow, nil)
+       |> assign(:netflow_context, nil)
+       |> assign(:netflow_arin_lookup, %{})
+       |> push_patch(to: href)}
     else
       {:noreply, socket}
     end
@@ -420,7 +578,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   def handle_event("srql_builder_run", _params, socket) do
-    extra_params = %{"tab" => socket.assigns.active_tab}
+    extra_params = srql_submit_extra_params(socket)
 
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_run", %{},
@@ -457,6 +615,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp normalize_netflow_stack_param(mode) when mode in ["ports", "talkers"], do: mode
   defp normalize_netflow_stack_param(_), do: nil
 
+  defp normalize_netflow_graph_param(mode)
+       when mode in ["stacked", "stacked100", "lines", "grid", "sankey"],
+       do: mode
+
+  defp normalize_netflow_graph_param(_), do: nil
+
+  defp normalize_netflow_view_param(view)
+       when view in ["overview", "traffic", "topology", "talkers", "explorer", "all"],
+       do: view
+
+  defp normalize_netflow_view_param(_), do: nil
+
   defp srql_submit_extra_params(socket) do
     if socket.assigns.active_tab == "netflows" do
       %{
@@ -472,7 +642,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         "geo" => normalize_netflow_geo_param(Map.get(socket.assigns, :netflow_geo_side)),
         "sankey_prefix" =>
           normalize_netflow_sankey_prefix_param(Map.get(socket.assigns, :netflow_sankey_prefix)),
-        "stack" => normalize_netflow_stack_param(Map.get(socket.assigns, :netflow_stack_mode))
+        "stack" => normalize_netflow_stack_param(Map.get(socket.assigns, :netflow_stack_mode)),
+        "graph" => normalize_netflow_graph_param(Map.get(socket.assigns, :netflow_graph_mode)),
+        "view" => normalize_netflow_view_param(Map.get(socket.assigns, :netflow_view))
       }
       |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
       |> Map.new()
@@ -490,6 +662,57 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp maybe_default_netflows_query(params, _tab), do: params
+
+  defp maybe_apply_netflow_nf_state(params, tab) when is_map(params) and tab == "netflows" do
+    nf_raw = Map.get(params, "nf")
+
+    case NFState.decode_param(nf_raw) do
+      {:ok, state} when is_map(state) ->
+        query =
+          Map.get(params, "q")
+          |> NFQuery.flows_base_query(@default_netflow_window)
+          |> NFQuery.flows_replace_time(Map.get(state, "time", @default_netflow_window))
+
+        view =
+          case Map.get(state, "graph") do
+            "sankey" -> "topology"
+            "grid" -> "talkers"
+            _ -> Map.get(params, "view")
+          end
+
+        stack_mode =
+          case NFQuery.downsample_series_field_from_dims(Map.get(state, "dims", [])) do
+            "src_ip" -> "talkers"
+            "dst_ip" -> "talkers"
+            _ -> Map.get(params, "stack")
+          end
+
+        graph_mode =
+          state
+          |> Map.get("graph")
+          |> normalize_netflow_graph_param()
+
+        params
+        |> Map.put("q", query)
+        |> maybe_put_new_param("view", view)
+        |> maybe_put_new_param("stack", stack_mode)
+        |> maybe_put_new_param("graph", graph_mode)
+
+      _ ->
+        params
+    end
+  end
+
+  defp maybe_apply_netflow_nf_state(params, _tab), do: params
+
+  defp extract_netflow_viz_state(params) when is_map(params) do
+    case NFState.decode_param(Map.get(params, "nf")) do
+      {:ok, %{} = state} -> state
+      _ -> NFState.default()
+    end
+  end
+
+  defp extract_netflow_viz_state(_params), do: NFState.default()
 
   defp load_netflow_context(flow, scope) when is_map(flow) do
     user = scope && scope.user
@@ -723,7 +946,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <div class="space-y-4">
-          <div class="flex items-start justify-between gap-4">
+          <div :if={@active_tab != "netflows"} class="flex items-start justify-between gap-4">
             <div class="min-w-0">
               <div class="text-xl font-semibold">Observability</div>
               <div class="text-sm text-base-content/60">
@@ -732,7 +955,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             </div>
           </div>
 
-          <.observability_tabs active={@active_tab} />
+          <.observability_tabs :if={@active_tab != "netflows"} active={@active_tab} />
 
           <.log_summary :if={@active_tab == "logs"} summary={@summary} />
           <.event_summary :if={@active_tab == "events"} summary={@event_summary} />
@@ -763,14 +986,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             sankey={@netflow_sankey}
             netflow_sankey_edges_json={@netflow_sankey_edges_json}
             stack_mode={@netflow_stack_mode}
+            graph_mode={@netflow_graph_mode}
             base_path={Map.get(@srql, :page_path) || "/observability"}
             query={Map.get(@srql, :query, "")}
             limit={@limit}
             compact?={@netflow_compact?}
             talker_cidr={@netflow_talker_cidr}
+            view={@netflow_view}
           />
 
-          <.ui_panel>
+          <.ui_panel :if={@active_tab != "netflows" or @netflow_view in ["explorer", "all"]}>
             <:header>
               <div class="min-w-0">
                 <div class="text-sm font-semibold">{panel_title(@active_tab)}</div>
@@ -790,6 +1015,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 geo_side={@netflow_geo_side}
                 sankey_prefix={@netflow_sankey_prefix}
                 stack_mode={@netflow_stack_mode}
+                graph_mode={@netflow_graph_mode}
+                view={@netflow_view}
               />
             </:header>
 
@@ -814,7 +1041,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             />
             <.alerts_table :if={@active_tab == "alerts"} id="alerts" alerts={@alerts} />
             <.netflows_table
-              :if={@active_tab == "netflows"}
+              :if={@active_tab == "netflows" and @netflow_view in ["explorer", "all"]}
               flows={@netflows}
               rdns_map={@netflow_rdns_map}
               base_path={Map.get(@srql, :page_path) || "/observability"}
@@ -826,6 +1053,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               geo_side={@netflow_geo_side}
               sankey_prefix={@netflow_sankey_prefix}
               stack_mode={@netflow_stack_mode}
+              graph_mode={@netflow_graph_mode}
+              view={@netflow_view}
             />
 
             <div class="mt-4 pt-4 border-t border-base-200">
@@ -871,6 +1100,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                         if(@netflow_stack_mode in ["ports", "talkers"],
                           do: @netflow_stack_mode,
                           else: nil
+                        ),
+                      graph:
+                        if(
+                          @netflow_graph_mode in ["stacked", "stacked100", "lines", "grid", "sankey"],
+                          do: @netflow_graph_mode,
+                          else: nil
+                        ),
+                      view:
+                        if(
+                          @netflow_view in [
+                            "overview",
+                            "traffic",
+                            "topology",
+                            "talkers",
+                            "explorer",
+                            "all"
+                          ],
+                          do: @netflow_view,
+                          else: nil
                         )
                     }
                     |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
@@ -896,6 +1144,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             geo_side={@netflow_geo_side}
             sankey_prefix={@netflow_sankey_prefix}
             stack_mode={@netflow_stack_mode}
+            graph_mode={@netflow_graph_mode}
+            view={@netflow_view}
+            arin_lookup={@netflow_arin_lookup}
           />
         </div>
       </div>
@@ -1188,11 +1439,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:sankey, :map, default: %{edges: [], sources: [], mids: [], dests: []})
   attr(:netflow_sankey_edges_json, :string, default: "[]")
   attr(:stack_mode, :string, default: @default_netflow_stack_mode)
+  attr(:graph_mode, :string, default: "stacked")
   attr(:base_path, :string, required: true)
   attr(:query, :string, required: true)
   attr(:limit, :integer, required: true)
   attr(:compact?, :boolean, default: false)
   attr(:talker_cidr, :integer, default: nil)
+  attr(:view, :string, default: "overview")
 
   defp netflow_summary(assigns) do
     # This function is sometimes called directly (not as a component) with a
@@ -1215,7 +1468,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:total_bytes, Map.get(summary, :total_bytes, 0))
 
     ~H"""
-    <div class="space-y-4">
+    <div class="space-y-3">
       <% patch_opts =
         netflow_patch_opts(
           @compact?,
@@ -1223,75 +1476,254 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           @compare_mode,
           @geo_side,
           @sankey_prefix,
-          @stack_mode
+          @stack_mode,
+          @graph_mode,
+          @view
         ) %>
-      <.ui_panel class="p-0" body_class="p-0">
-        <div class="p-4 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
-          <div class="text-xs uppercase tracking-wider text-base-content/50">Traffic Over Time</div>
-          <div class="text-xs text-base-content/60 font-mono">
-            bucket: {format_bucket(@timeseries.bucket_seconds)}
-          </div>
-        </div>
-        <div class="p-3">
-          <.netflow_timeseries_chart
-            points={@timeseries.points}
-            compare_points={Map.get(@timeseries_compare, :points, [])}
-            bucket_seconds={@timeseries.bucket_seconds}
-            compare_mode={@compare_mode}
-          />
-        </div>
-        <div class="px-3 pb-3">
-          <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <div class="text-xs uppercase tracking-wider text-base-content/50">
-              Top (Stacked)
+      <.ui_panel class="p-3">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <.link
+            patch={
+              netflow_talker_cidr_patch(
+                @base_path,
+                @query,
+                @limit,
+                Map.put(patch_opts, :view, "traffic")
+              )
+            }
+            class={[
+              "rounded-xl border bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30",
+              @view == "traffic" && "border-primary/50 bg-primary/5",
+              @view != "traffic" && "border-base-200"
+            ]}
+          >
+            <div class="text-sm font-semibold">Traffic Analysis</div>
+            <div class="mt-1 text-xs text-base-content/60">
+              Rate trends, protocol/app activity, stacked series
             </div>
-            <div class="flex flex-wrap items-center gap-1">
-              <.ui_button
-                size="xs"
-                variant="ghost"
-                active={@stack_mode == "ports"}
-                class="rounded-full"
-                patch={
-                  netflow_talker_cidr_patch(
-                    @base_path,
-                    @query,
-                    @limit,
-                    Map.put(patch_opts, :stack_mode, "ports")
-                  )
-                }
-              >
-                Ports
-              </.ui_button>
-              <.ui_button
-                size="xs"
-                variant="ghost"
-                active={@stack_mode == "talkers"}
-                class="rounded-full"
-                patch={
-                  netflow_talker_cidr_patch(
-                    @base_path,
-                    @query,
-                    @limit,
-                    Map.put(patch_opts, :stack_mode, "talkers")
-                  )
-                }
-              >
-                Talkers
-              </.ui_button>
+          </.link>
+          <.link
+            patch={
+              netflow_talker_cidr_patch(
+                @base_path,
+                @query,
+                @limit,
+                Map.put(patch_opts, :view, "talkers")
+              )
+            }
+            class={[
+              "rounded-xl border bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30",
+              @view == "talkers" && "border-primary/50 bg-primary/5",
+              @view != "talkers" && "border-base-200"
+            ]}
+          >
+            <div class="text-sm font-semibold">Talkers & Ports</div>
+            <div class="mt-1 text-xs text-base-content/60">
+              Heavy hitters, frequent talkers, top destinations
             </div>
-          </div>
-          <.netflow_timeseries_stacked_area_chart
-            id="netflow-top-stacked"
-            points={Map.get(@timeseries_stacked, :points, [])}
-            keys={Map.get(@timeseries_stacked, :keys, [])}
-            mode={@stack_mode}
-          />
+          </.link>
+          <.link
+            patch={
+              netflow_talker_cidr_patch(
+                @base_path,
+                @query,
+                @limit,
+                Map.put(patch_opts, :view, "topology")
+              )
+            }
+            class={[
+              "rounded-xl border bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30",
+              @view == "topology" && "border-primary/50 bg-primary/5",
+              @view != "topology" && "border-base-200"
+            ]}
+          >
+            <div class="text-sm font-semibold">Topology</div>
+            <div class="mt-1 text-xs text-base-content/60">Sankey flow path and geo distribution</div>
+          </.link>
+          <.link
+            patch={
+              netflow_talker_cidr_patch(
+                @base_path,
+                @query,
+                @limit,
+                Map.put(patch_opts, :view, "explorer")
+              )
+            }
+            class={[
+              "rounded-xl border bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30",
+              @view == "explorer" && "border-primary/50 bg-primary/5",
+              @view != "explorer" && "border-base-200"
+            ]}
+          >
+            <div class="text-sm font-semibold">Flow Explorer</div>
+            <div class="mt-1 text-xs text-base-content/60">
+              Raw records table with SRQL-driven filtering
+            </div>
+          </.link>
         </div>
       </.ui_panel>
 
-      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <.ui_panel :if={@view in ["overview", "traffic"]} class="p-0" body_class="p-0">
+        <div class="p-3 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
+          <div class="text-xs uppercase tracking-wider text-base-content/50">Traffic Over Time</div>
+          <div class="flex flex-wrap items-center gap-1">
+            <.ui_button
+              size="xs"
+              variant="ghost"
+              active={@graph_mode == "lines"}
+              class="rounded-full"
+              patch={
+                netflow_talker_cidr_patch(
+                  @base_path,
+                  @query,
+                  @limit,
+                  Map.put(patch_opts, :graph_mode, "lines")
+                )
+              }
+            >
+              Lines
+            </.ui_button>
+            <.ui_button
+              size="xs"
+              variant="ghost"
+              active={@graph_mode == "grid"}
+              class="rounded-full"
+              patch={
+                netflow_talker_cidr_patch(
+                  @base_path,
+                  @query,
+                  @limit,
+                  Map.put(patch_opts, :graph_mode, "grid")
+                )
+              }
+            >
+              Grid
+            </.ui_button>
+            <.ui_button
+              size="xs"
+              variant="ghost"
+              active={@graph_mode == "stacked"}
+              class="rounded-full"
+              patch={
+                netflow_talker_cidr_patch(
+                  @base_path,
+                  @query,
+                  @limit,
+                  Map.put(patch_opts, :graph_mode, "stacked")
+                )
+              }
+            >
+              Stacked
+            </.ui_button>
+            <.ui_button
+              size="xs"
+              variant="ghost"
+              active={@graph_mode == "stacked100"}
+              class="rounded-full"
+              patch={
+                netflow_talker_cidr_patch(
+                  @base_path,
+                  @query,
+                  @limit,
+                  Map.put(patch_opts, :graph_mode, "stacked100")
+                )
+              }
+            >
+              100%
+            </.ui_button>
+            <.ui_button
+              size="xs"
+              variant="ghost"
+              active={@graph_mode == "sankey"}
+              class="rounded-full"
+              patch={
+                netflow_talker_cidr_patch(
+                  @base_path,
+                  @query,
+                  @limit,
+                  patch_opts
+                  |> Map.put(:graph_mode, "sankey")
+                  |> Map.put(:view, "topology")
+                )
+              }
+            >
+              Sankey
+            </.ui_button>
+            <span class="text-xs text-base-content/60 font-mono">
+              bucket: {format_bucket(@timeseries.bucket_seconds)}
+            </span>
+          </div>
+        </div>
+        <div class="p-3">
+          <%= if @graph_mode in ["stacked", "stacked100"] do %>
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <div class="text-xs uppercase tracking-wider text-base-content/50">Series</div>
+              <div class="flex flex-wrap items-center gap-1">
+                <.ui_button
+                  size="xs"
+                  variant="ghost"
+                  active={@stack_mode == "ports"}
+                  class="rounded-full"
+                  patch={
+                    netflow_talker_cidr_patch(
+                      @base_path,
+                      @query,
+                      @limit,
+                      Map.put(patch_opts, :stack_mode, "ports")
+                    )
+                  }
+                >
+                  Ports
+                </.ui_button>
+                <.ui_button
+                  size="xs"
+                  variant="ghost"
+                  active={@stack_mode == "talkers"}
+                  class="rounded-full"
+                  patch={
+                    netflow_talker_cidr_patch(
+                      @base_path,
+                      @query,
+                      @limit,
+                      Map.put(patch_opts, :stack_mode, "talkers")
+                    )
+                  }
+                >
+                  Talkers
+                </.ui_button>
+              </div>
+            </div>
+            <.netflow_timeseries_stacked_area_chart
+              id="netflow-top-stacked"
+              points={
+                if(
+                  @graph_mode == "stacked100",
+                  do:
+                    netflow_stacked_percent_points(
+                      Map.get(@timeseries_stacked, :points, []),
+                      Map.get(@timeseries_stacked, :keys, [])
+                    ),
+                  else: Map.get(@timeseries_stacked, :points, [])
+                )
+              }
+              keys={Map.get(@timeseries_stacked, :keys, [])}
+              mode={@stack_mode}
+            />
+          <% else %>
+            <.netflow_timeseries_chart
+              points={@timeseries.points}
+              compare_points={Map.get(@timeseries_compare, :points, [])}
+              bucket_seconds={@timeseries.bucket_seconds}
+              compare_mode={@compare_mode}
+              mode={@graph_mode}
+            />
+          <% end %>
+        </div>
+      </.ui_panel>
+
+      <div :if={@view == "traffic"} class="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <.ui_panel class="p-0" body_class="p-0">
-          <div class="p-4 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
+          <div class="p-3 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
             <div class="text-xs uppercase tracking-wider text-base-content/50">
               Activity By Protocol
             </div>
@@ -1314,7 +1746,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </.ui_panel>
 
         <.ui_panel class="p-0" body_class="p-0">
-          <div class="p-4 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
+          <div class="p-3 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
             <div class="text-xs uppercase tracking-wider text-base-content/50">
               Activity By Application
             </div>
@@ -1322,211 +1754,99 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               top: {length(Map.get(@app_activity, :keys, []))}
             </div>
           </div>
-          <div class="p-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr,200px] lg:items-start">
-            <div>
-              <.netflow_timeseries_stacked_area_chart
-                id="netflow-app-stacked"
-                points={Map.get(@app_activity, :points, [])}
-                keys={Map.get(@app_activity, :keys, [])}
-                colors={Map.get(@app_activity, :colors, %{})}
-                series_field="app"
-                mode="apps"
-              />
-            </div>
-            <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-              <div class="text-xs uppercase tracking-wider text-base-content/50">Legend</div>
-              <div class="mt-2 space-y-2">
-                <%= for k <- Map.get(@app_activity, :keys, []) do %>
-                  <div class="flex items-center gap-2 text-xs">
-                    <span
-                      class="inline-block h-3 w-3 rounded"
-                      style={"background: #{Map.get(Map.get(@app_activity, :colors, %{}), k, "#999")}"}
-                    />
-                    <span class="truncate" title={k}>{k}</span>
-                  </div>
-                <% end %>
-                <%= if Enum.empty?(Map.get(@app_activity, :keys, [])) do %>
-                  <div class="text-xs text-base-content/60">No app series in this window.</div>
-                <% end %>
-              </div>
-              <div class="mt-3 text-xs text-base-content/60">
-                Tip: click a series to filter flows.
-              </div>
-            </div>
+          <div class="p-3">
+            <.netflow_timeseries_stacked_area_chart
+              id="netflow-app-stacked"
+              points={Map.get(@app_activity, :points, [])}
+              keys={Map.get(@app_activity, :keys, [])}
+              colors={Map.get(@app_activity, :colors, %{})}
+              series_field="app"
+              mode="apps"
+            />
           </div>
         </.ui_panel>
       </div>
 
-      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <.ui_panel class="p-4">
+      <.ui_panel :if={@view == "talkers"} class="p-0" body_class="p-0">
+        <div class="p-3 border-b border-base-200 bg-base-200/30 flex items-center justify-between gap-3">
           <div class="text-xs uppercase tracking-wider text-base-content/50">
-            Frequent Talkers (Packet Count)
+            Frequent Talkers Icicle (src → dst → port)
           </div>
-          <div class="mt-3 overflow-x-auto">
-            <table class="table table-sm">
-              <thead>
-                <tr>
-                  <th>Talker</th>
-                  <th class="text-right">Packets</th>
-                </tr>
-              </thead>
-              <tbody>
-                <%= for row <- @frequent_talkers_packets do %>
-                  <% ip = Map.get(row, :ip) %>
-                  <tr>
-                    <td class="font-mono text-xs">
-                      <.link
-                        :if={is_binary(ip) and String.trim(ip) != ""}
-                        patch={
-                          netflow_talker_cidr_patch(
-                            @base_path,
-                            upsert_query_filter(@query, "src_ip", ip),
-                            @limit,
-                            patch_opts
-                          )
-                        }
-                        class="link link-hover"
-                      >
-                        {ip}
-                      </.link>
-                      <span :if={not (is_binary(ip) and String.trim(ip) != "")}>—</span>
-                      <div
-                        :if={is_binary(ip) and Map.get(@rdns_map, ip)}
-                        class="text-[11px] text-base-content/60 truncate"
-                      >
-                        {Map.get(@rdns_map, ip)}
-                      </div>
-                    </td>
-                    <td class="text-right font-mono text-xs">
-                      {format_netflow_number(Map.get(row, :packets, 0))}
-                    </td>
-                  </tr>
-                <% end %>
-                <%= if Enum.empty?(@frequent_talkers_packets) do %>
-                  <tr>
-                    <td colspan="2" class="text-sm text-base-content/60">
-                      No talker samples in this window.
-                    </td>
-                  </tr>
-                <% end %>
-              </tbody>
-            </table>
+          <div class="text-[11px] text-base-content/60">
+            Click block to filter · click same depth to zoom out
           </div>
-        </.ui_panel>
+        </div>
+        <div class="p-3">
+          <div
+            id="netflow-talkers-icicle"
+            class="w-full h-72"
+            phx-hook="NetflowTalkersIcicle"
+            phx-update="ignore"
+            data-edges={@netflow_sankey_edges_json || "[]"}
+          >
+            <svg class="w-full h-full" role="img" aria-label="Frequent talkers icicle chart"></svg>
+          </div>
+        </div>
+      </.ui_panel>
 
-        <.ui_panel class="p-4">
-          <div class="text-xs uppercase tracking-wider text-base-content/50">
-            Frequent Talkers (Byte Volume)
+      <.ui_panel :if={@view == "traffic" and @graph_mode in ["lines", "grid"]} class="p-3">
+        <div>
+          <div class="text-xs uppercase tracking-wider text-base-content/50">Compare</div>
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <.ui_button
+              size="xs"
+              variant="ghost"
+              active={@compare_mode == "off"}
+              class="rounded-full"
+              patch={
+                netflow_talker_cidr_patch(
+                  @base_path,
+                  @query,
+                  @limit,
+                  Map.put(patch_opts, :compare_mode, "off")
+                )
+              }
+            >
+              Off
+            </.ui_button>
+            <.ui_button
+              size="xs"
+              variant="ghost"
+              active={@compare_mode == "previous"}
+              class="rounded-full"
+              patch={
+                netflow_talker_cidr_patch(
+                  @base_path,
+                  @query,
+                  @limit,
+                  Map.put(patch_opts, :compare_mode, "previous")
+                )
+              }
+            >
+              Previous Window
+            </.ui_button>
+            <.ui_button
+              size="xs"
+              variant="ghost"
+              active={@compare_mode == "yesterday"}
+              class="rounded-full"
+              patch={
+                netflow_talker_cidr_patch(
+                  @base_path,
+                  @query,
+                  @limit,
+                  Map.put(patch_opts, :compare_mode, "yesterday")
+                )
+              }
+            >
+              Yesterday
+            </.ui_button>
           </div>
-          <div class="mt-3 overflow-x-auto">
-            <table class="table table-sm">
-              <thead>
-                <tr>
-                  <th>Talker</th>
-                  <th class="text-right">Bytes</th>
-                </tr>
-              </thead>
-              <tbody>
-                <%= for row <- @frequent_talkers_bytes do %>
-                  <% ip = Map.get(row, :ip) %>
-                  <tr>
-                    <td class="font-mono text-xs">
-                      <.link
-                        :if={is_binary(ip) and String.trim(ip) != ""}
-                        patch={
-                          netflow_talker_cidr_patch(
-                            @base_path,
-                            upsert_query_filter(@query, "src_ip", ip),
-                            @limit,
-                            patch_opts
-                          )
-                        }
-                        class="link link-hover"
-                      >
-                        {ip}
-                      </.link>
-                      <span :if={not (is_binary(ip) and String.trim(ip) != "")}>—</span>
-                      <div
-                        :if={is_binary(ip) and Map.get(@rdns_map, ip)}
-                        class="text-[11px] text-base-content/60 truncate"
-                      >
-                        {Map.get(@rdns_map, ip)}
-                      </div>
-                    </td>
-                    <td class="text-right font-mono text-xs">
-                      {format_netflow_bytes(Map.get(row, :bytes, 0))}
-                    </td>
-                  </tr>
-                <% end %>
-                <%= if Enum.empty?(@frequent_talkers_bytes) do %>
-                  <tr>
-                    <td colspan="2" class="text-sm text-base-content/60">
-                      No talker samples in this window.
-                    </td>
-                  </tr>
-                <% end %>
-              </tbody>
-            </table>
-          </div>
-        </.ui_panel>
-      </div>
+        </div>
+      </.ui_panel>
 
-      <.ui_panel class="p-4">
+      <.ui_panel :if={@view == "topology"} class="p-3">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div class="text-xs uppercase tracking-wider text-base-content/50">Compare</div>
-            <div class="mt-2 flex flex-wrap items-center gap-2">
-              <.ui_button
-                size="xs"
-                variant="ghost"
-                active={@compare_mode == "off"}
-                class="rounded-full"
-                patch={
-                  netflow_talker_cidr_patch(
-                    @base_path,
-                    @query,
-                    @limit,
-                    Map.put(patch_opts, :compare_mode, "off")
-                  )
-                }
-              >
-                Off
-              </.ui_button>
-              <.ui_button
-                size="xs"
-                variant="ghost"
-                active={@compare_mode == "previous"}
-                class="rounded-full"
-                patch={
-                  netflow_talker_cidr_patch(
-                    @base_path,
-                    @query,
-                    @limit,
-                    Map.put(patch_opts, :compare_mode, "previous")
-                  )
-                }
-              >
-                Previous Window
-              </.ui_button>
-              <.ui_button
-                size="xs"
-                variant="ghost"
-                active={@compare_mode == "yesterday"}
-                class="rounded-full"
-                patch={
-                  netflow_talker_cidr_patch(
-                    @base_path,
-                    @query,
-                    @limit,
-                    Map.put(patch_opts, :compare_mode, "yesterday")
-                  )
-                }
-              >
-                Yesterday
-              </.ui_button>
-            </div>
-          </div>
-
           <div>
             <div class="text-xs uppercase tracking-wider text-base-content/50">Geo</div>
             <div class="mt-2 flex flex-wrap items-center gap-2">
@@ -1600,13 +1920,54 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               >
                 /16
               </.ui_button>
+              <.ui_button
+                size="xs"
+                variant="ghost"
+                class="rounded-full"
+                patch={
+                  netflow_talker_cidr_patch(
+                    @base_path,
+                    @query
+                    |> strip_filter("src_cidr")
+                    |> strip_filter("dst_cidr")
+                    |> strip_filter("dst_port"),
+                    @limit,
+                    patch_opts
+                  )
+                }
+              >
+                Reset Edge Filter
+              </.ui_button>
+              <.ui_button
+                size="xs"
+                variant="ghost"
+                class="rounded-full"
+                patch={
+                  netflow_talker_cidr_patch(
+                    @base_path,
+                    @query
+                    |> strip_filter("src_cidr")
+                    |> strip_filter("dst_cidr")
+                    |> strip_filter("dst_port")
+                    |> strip_filter("src_country_iso2")
+                    |> strip_filter("dst_country_iso2"),
+                    @limit,
+                    patch_opts
+                  )
+                }
+              >
+                Reset Topology
+              </.ui_button>
             </div>
           </div>
         </div>
       </.ui_panel>
 
-      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <.ui_panel class="p-4">
+      <div
+        :if={@view == "topology"}
+        class="grid grid-cols-1 gap-3 lg:grid-cols-3"
+      >
+        <.ui_panel class="p-3 lg:col-span-2">
           <div class="flex items-center justify-between">
             <div class="text-xs uppercase tracking-wider text-base-content/50">
               Traffic Sankey (Top Edges)
@@ -1622,7 +1983,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               data-edges={@netflow_sankey_edges_json || "[]"}
               class="w-full"
             >
-              <svg class="w-full h-64"></svg>
+              <svg class="w-full h-[34rem]"></svg>
               <div
                 :if={Map.get(@sankey, :edges, []) == []}
                 class="py-8 text-center text-sm text-base-content/60"
@@ -1633,7 +1994,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
         </.ui_panel>
 
-        <.ui_panel class="p-4">
+        <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div class="text-xs uppercase tracking-wider text-base-content/50">
               Geo Heatmap (Top Countries)
@@ -1648,8 +2009,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </.ui_panel>
       </div>
 
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <.ui_panel class="p-4">
+      <div :if={@view == "overview"} class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-base-content/60">Total Flows</p>
@@ -1659,7 +2020,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
         </.ui_panel>
 
-        <.ui_panel class="p-4">
+        <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-base-content/60">TCP Flows</p>
@@ -1669,7 +2030,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
         </.ui_panel>
 
-        <.ui_panel class="p-4">
+        <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-base-content/60">UDP Flows</p>
@@ -1679,7 +2040,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
         </.ui_panel>
 
-        <.ui_panel class="p-4">
+        <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-base-content/60">Other</p>
@@ -1689,7 +2050,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
         </.ui_panel>
 
-        <.ui_panel class="p-4">
+        <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-base-content/60">Total Bytes</p>
@@ -1700,8 +2061,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </.ui_panel>
       </div>
 
-      <.ui_panel class="p-4">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <.ui_panel :if={@view == "overview"} class="p-3">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div class="min-w-0">
             <div class="text-xs uppercase tracking-wider text-base-content/50">
               Protocol Distribution
@@ -1863,8 +2224,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </div>
       </.ui_panel>
 
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <.ui_panel class="p-4">
+      <div :if={@view == "overview"} class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-base-content/60">Avg Bandwidth</p>
@@ -1876,7 +2237,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
         </.ui_panel>
 
-        <.ui_panel class="p-4">
+        <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-base-content/60">Avg PPS</p>
@@ -1888,7 +2249,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
         </.ui_panel>
 
-        <.ui_panel class="p-4">
+        <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-base-content/60">Total Packets</p>
@@ -1901,7 +2262,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </.ui_panel>
       </div>
 
-      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div :if={@view == "talkers"} class="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <.ui_panel class="p-0" body_class="p-0">
           <div class="p-4 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
             <div class="text-xs uppercase tracking-wider text-base-content/50">Top Talkers</div>
@@ -2060,6 +2421,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
         </.ui_panel>
       </div>
+      <.ui_panel :if={@view == "explorer"} class="p-4">
+        <div class="text-sm font-medium">Flow Explorer</div>
+        <div class="text-xs text-base-content/60 mt-1">
+          Detailed flow rows are shown below in the table. Use SRQL and presets to refine the dataset.
+        </div>
+      </.ui_panel>
     </div>
     """
   end
@@ -2280,6 +2647,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:compare_points, :list, default: [])
   attr(:bucket_seconds, :integer, required: true)
   attr(:compare_mode, :string, default: "off")
+  attr(:mode, :string, default: "grid")
 
   defp netflow_timeseries_chart(assigns) do
     points = Enum.filter(assigns.points, &is_map/1)
@@ -2305,7 +2673,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       No traffic samples in this window.
     </div>
 
-    <div :if={@points != []} class="w-full">
+    <div
+      :if={@points != []}
+      id="netflow-traffic-timeseries"
+      class="w-full relative"
+      phx-hook="NetflowTrafficTooltip"
+      data-points={netflow_timeseries_tooltip_points_json(@points, @bucket_seconds)}
+      data-bucket-seconds={@bucket_seconds}
+    >
       <svg
         viewBox="0 0 1000 160"
         class="w-full h-40"
@@ -2320,20 +2695,73 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </linearGradient>
         </defs>
 
-        <%= for {point, idx} <- Enum.with_index(@points) do %>
-          {x = netflow_chart_x(idx, length(@points), 1000)}
-          {w = netflow_chart_bar_w(length(@points), 1000)}
-          {h = netflow_chart_h(Map.get(point, :bytes, 0), @max_bytes, 140)}
-          <rect
-            x={x}
-            y={150 - h}
-            width={w}
-            height={h}
-            class="fill-primary/20 hover:fill-primary/35 transition-colors cursor-pointer"
-            phx-click="netflow_bucket"
-            phx-value-start={DateTime.to_iso8601(Map.get(point, :bucket_start))}
-            phx-value-end={DateTime.to_iso8601(Map.get(point, :bucket_end))}
+        <%= for y <- [20, 50, 80, 110, 140] do %>
+          <line
+            x1="0"
+            y1={y}
+            x2="1000"
+            y2={y}
+            class="stroke-base-content/10"
+            stroke-width="1"
           />
+        <% end %>
+
+        <%= for x <- [0, 200, 400, 600, 800, 1000] do %>
+          <line
+            x1={x}
+            y1="10"
+            x2={x}
+            y2="150"
+            class="stroke-base-content/5"
+            stroke-width="1"
+          />
+        <% end %>
+
+        <text x="4" y="16" class="fill-base-content/60 text-[10px] font-mono">
+          {format_netflow_bytes(@max_bytes)}
+        </text>
+        <text x="4" y="82" class="fill-base-content/60 text-[10px] font-mono">
+          {format_netflow_bytes(trunc(@max_bytes / 2))}
+        </text>
+        <text x="4" y="150" class="fill-base-content/60 text-[10px] font-mono">0 B</text>
+        <text x="0" y="158" class="fill-base-content/60 text-[10px] font-mono">
+          {format_netflow_timestamp(%{"time" => DateTime.to_iso8601(hd(@points).bucket_start)})}
+        </text>
+        <text
+          x="500"
+          y="158"
+          text-anchor="middle"
+          class="fill-base-content/60 text-[10px] font-mono"
+        >
+          {format_netflow_timestamp(%{
+            "time" =>
+              DateTime.to_iso8601(
+                (Enum.at(@points, div(length(@points), 2)) || hd(@points)).bucket_start
+              )
+          })}
+        </text>
+        <text x="1000" y="158" text-anchor="end" class="fill-base-content/60 text-[10px] font-mono">
+          {format_netflow_timestamp(%{"time" => DateTime.to_iso8601(List.last(@points).bucket_end)})}
+        </text>
+
+        <%= if @mode != "lines" do %>
+          <%= for {point, idx} <- Enum.with_index(@points) do %>
+            {x = netflow_chart_x(idx, length(@points), 1000)}
+            {w = netflow_chart_bar_w(length(@points), 1000)}
+            {h = netflow_chart_h(Map.get(point, :bytes, 0), @max_bytes, 140)}
+            <rect
+              x={x}
+              y={150 - h}
+              width={w}
+              height={h}
+              class="fill-primary/20 hover:fill-primary/35 transition-colors cursor-pointer"
+              phx-click="netflow_bucket"
+              phx-value-start={DateTime.to_iso8601(Map.get(point, :bucket_start))}
+              phx-value-end={DateTime.to_iso8601(Map.get(point, :bucket_end))}
+            >
+              <title>{netflow_bucket_hover_title(point, @bucket_seconds)}</title>
+            </rect>
+          <% end %>
         <% end %>
 
         <polyline
@@ -2351,6 +2779,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           stroke-dasharray="4 4"
           stroke-width="2"
         />
+
+        <%= for {point, idx} <- Enum.with_index(@points) do %>
+          {cx =
+            netflow_chart_x(idx, length(@points), 1000) +
+              netflow_chart_bar_w(length(@points), 1000) / 2}
+          {cy = 150 - netflow_chart_h(Map.get(point, :bytes, 0), @max_bytes, 140)}
+          <circle
+            cx={cx}
+            cy={cy}
+            r="2.6"
+            class="fill-primary/80 stroke-base-100 cursor-pointer"
+            stroke-width="1"
+            phx-click="netflow_bucket"
+            phx-value-start={DateTime.to_iso8601(Map.get(point, :bucket_start))}
+            phx-value-end={DateTime.to_iso8601(Map.get(point, :bucket_end))}
+          >
+            <title>{netflow_bucket_hover_title(point, @bucket_seconds)}</title>
+          </circle>
+        <% end %>
       </svg>
 
       <div class="mt-2 flex items-center justify-between text-[10px] text-base-content/60 font-mono">
@@ -2406,6 +2853,77 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     </div>
     """
   end
+
+  defp netflow_stacked_percent_points(points, keys) when is_list(points) and is_list(keys) do
+    Enum.map(points, fn
+      %{"t" => _} = point ->
+        total =
+          keys
+          |> Enum.map(fn key -> to_number(Map.get(point, key, 0)) end)
+          |> Enum.sum()
+
+        if total <= 0 do
+          point
+        else
+          Enum.reduce(keys, point, fn key, acc ->
+            pct = to_number(Map.get(point, key, 0)) * 100.0 / total
+            Map.put(acc, key, Float.round(pct, 4))
+          end)
+        end
+
+      other ->
+        other
+    end)
+  end
+
+  defp netflow_stacked_percent_points(points, _keys), do: points
+
+  defp netflow_bucket_hover_title(point, bucket_seconds) when is_map(point) do
+    bytes = to_int(Map.get(point, :bytes, 0))
+    start_dt = Map.get(point, :bucket_start)
+    end_dt = Map.get(point, :bucket_end)
+    bucket = if is_integer(bucket_seconds) and bucket_seconds > 0, do: bucket_seconds, else: 1
+    avg_bps = bytes * 8.0 / bucket
+
+    start_label =
+      case start_dt do
+        %DateTime{} = dt -> DateTime.to_iso8601(dt)
+        _ -> "unknown"
+      end
+
+    end_label =
+      case end_dt do
+        %DateTime{} = dt -> DateTime.to_iso8601(dt)
+        _ -> "unknown"
+      end
+
+    "window: #{start_label} → #{end_label}\nbytes: #{format_netflow_bytes(bytes)}\navg rate: #{format_netflow_bps(avg_bps)}"
+  end
+
+  defp netflow_bucket_hover_title(_point, _bucket_seconds), do: "No data"
+
+  defp netflow_timeseries_tooltip_points_json(points, bucket_seconds)
+       when is_list(points) and is_integer(bucket_seconds) do
+    points
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(fn point ->
+      %{
+        "start" => datetime_to_iso(Map.get(point, :bucket_start)),
+        "end" => datetime_to_iso(Map.get(point, :bucket_end)),
+        "bytes" => to_int(Map.get(point, :bytes, 0)),
+        "bucket_seconds" => bucket_seconds
+      }
+    end)
+    |> Jason.encode!()
+  rescue
+    _ -> "[]"
+  end
+
+  defp netflow_timeseries_tooltip_points_json(_points, _bucket_seconds), do: "[]"
+
+  defp datetime_to_iso(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp datetime_to_iso(%NaiveDateTime{} = ndt), do: NaiveDateTime.to_iso8601(ndt)
+  defp datetime_to_iso(other), do: to_string(other || "")
 
   attr(:label, :string, required: true)
   attr(:count, :integer, required: true)
@@ -2501,6 +3019,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:geo_side, :string, default: "dst")
   attr(:sankey_prefix, :integer, default: 24)
   attr(:stack_mode, :string, default: @default_netflow_stack_mode)
+  attr(:graph_mode, :string, default: "stacked")
+  attr(:view, :string, default: "overview")
 
   defp netflow_presets(assigns) do
     query = Map.get(assigns.srql, :query) || ""
@@ -2536,6 +3056,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:geo_side, assigns.geo_side)
       |> assign(:sankey_prefix, assigns.sankey_prefix)
       |> assign(:stack_mode, assigns.stack_mode)
+      |> assign(:graph_mode, assigns.graph_mode)
+      |> assign(:view, assigns.view)
 
     ~H"""
     <div class="flex items-center justify-end gap-2">
@@ -2546,7 +3068,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           @compare_mode,
           @geo_side,
           @sankey_prefix,
-          @stack_mode
+          @stack_mode,
+          @graph_mode,
+          @view
         ) %>
       <span class="text-[10px] uppercase tracking-wider text-base-content/50">Presets</span>
       <div class="flex flex-wrap gap-1">
@@ -2671,6 +3195,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp maybe_put_param(params, _key, nil), do: params
   defp maybe_put_param(params, _key, ""), do: params
   defp maybe_put_param(params, key, value), do: Map.put(params, key, value)
+
+  defp maybe_put_new_param(params, _key, nil), do: params
+  defp maybe_put_new_param(params, _key, ""), do: params
+
+  defp maybe_put_new_param(params, key, value) do
+    if Map.get(params, key) in [nil, ""] do
+      Map.put(params, key, value)
+    else
+      params
+    end
+  end
 
   defp color_class("error"), do: "text-error"
   defp color_class("warning"), do: "text-warning"
@@ -3471,6 +4006,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:geo_side, :string, default: "dst")
   attr(:sankey_prefix, :integer, default: 24)
   attr(:stack_mode, :string, default: @default_netflow_stack_mode)
+  attr(:graph_mode, :string, default: "stacked")
+  attr(:view, :string, default: "overview")
 
   defp netflows_table(assigns) do
     ~H"""
@@ -3482,7 +4019,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           @compare_mode,
           @geo_side,
           @sankey_prefix,
-          @stack_mode
+          @stack_mode,
+          @graph_mode,
+          @view
         ) %>
       <table class={[
         "table table-zebra w-full table-fixed",
@@ -3798,6 +4337,105 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp country_flag_emoji(_), do: nil
 
+  defp flow_get(flow, keys) when is_map(flow) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      case key do
+        k when is_binary(k) -> Map.get(flow, k)
+        k when is_atom(k) -> Map.get(flow, k)
+        _ -> nil
+      end
+    end)
+  end
+
+  defp flow_get(_flow, _keys), do: nil
+
+  defp flow_get_in(data, path) when is_map(data) and is_list(path) do
+    get_in(data, Enum.map(path, &to_string/1))
+  end
+
+  defp flow_get_in(_data, _path), do: nil
+
+  defp tcp_flag_tooltip(flag) when is_binary(flag) do
+    case String.upcase(String.trim(flag)) do
+      "FIN" -> "FIN: sender finished sending data."
+      "SYN" -> "SYN: synchronize sequence numbers."
+      "RST" -> "RST: abort/reset connection."
+      "PSH" -> "PSH: push buffered data immediately."
+      "ACK" -> "ACK: acknowledgment field is valid."
+      "URG" -> "URG: urgent pointer field is valid."
+      "ECE" -> "ECE: ECN echo."
+      "CWR" -> "CWR: congestion window reduced."
+      "NS" -> "NS: ECN nonce protection flag."
+      _ -> "TCP flag."
+    end
+  end
+
+  defp tcp_flag_tooltip(_), do: "TCP flag."
+
+  defp fetch_arin_asn(asn) when is_integer(asn) and asn > 0 do
+    url = "https://whois.arin.net/rest/asn/AS#{asn}.json"
+
+    case Req.get(url, arin_http_req_opts()) do
+      {:ok, %Req.Response{status: 200, body: %{"asn" => %{} = asn_payload}}} ->
+        {:ok, normalize_arin_asn(asn_payload)}
+
+      {:ok, %Req.Response{status: 404}} ->
+        {:error, :not_found}
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, {:http_status, status}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    e -> {:error, e}
+  end
+
+  defp fetch_arin_asn(_), do: {:error, :invalid_asn}
+
+  defp arin_http_req_opts do
+    opts = [receive_timeout: 8_000, retry: false, headers: [{"accept", "application/json"}]]
+
+    if Process.whereis(ServiceRadar.Finch) do
+      Keyword.put(opts, :finch, ServiceRadar.Finch)
+    else
+      opts
+    end
+  end
+
+  defp normalize_arin_asn(%{} = asn_payload) do
+    org_ref = Map.get(asn_payload, "orgRef")
+    start_as = arin_leaf_value(Map.get(asn_payload, "startAsNumber"))
+    end_as = arin_leaf_value(Map.get(asn_payload, "endAsNumber"))
+
+    %{
+      handle: arin_leaf_value(Map.get(asn_payload, "handle")),
+      name: arin_leaf_value(Map.get(asn_payload, "name")),
+      range: arin_as_range(start_as, end_as),
+      registration_date: arin_leaf_value(Map.get(asn_payload, "registrationDate")),
+      update_date: arin_leaf_value(Map.get(asn_payload, "updateDate")),
+      ref: arin_leaf_value(Map.get(asn_payload, "ref")),
+      org_name: if(is_map(org_ref), do: Map.get(org_ref, "@name"))
+    }
+  end
+
+  defp normalize_arin_asn(_), do: %{}
+
+  defp arin_leaf_value(%{"$" => value}) when is_binary(value), do: String.trim(value)
+  defp arin_leaf_value(value) when is_binary(value), do: String.trim(value)
+  defp arin_leaf_value(_), do: nil
+
+  defp arin_as_range(start_as, end_as) when is_binary(start_as) and is_binary(end_as) do
+    if start_as == end_as, do: "AS#{start_as}", else: "AS#{start_as}-AS#{end_as}"
+  end
+
+  defp arin_as_range(_start_as, _end_as), do: nil
+
+  defp arin_error_text(:invalid_asn), do: "Invalid ASN."
+  defp arin_error_text(:not_found), do: "ASN not found in ARIN."
+  defp arin_error_text(_), do: "ASN lookup failed."
+
   attr(:flow, :map, required: true)
   attr(:context, :map, default: %{})
   attr(:base_path, :string, required: true)
@@ -3809,8 +4447,38 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:geo_side, :string, default: "dst")
   attr(:sankey_prefix, :integer, default: 24)
   attr(:stack_mode, :string, default: @default_netflow_stack_mode)
+  attr(:graph_mode, :string, default: "stacked")
+  attr(:view, :string, default: "overview")
+  attr(:arin_lookup, :map, default: %{})
 
   defp netflow_details_modal(assigns) do
+    ocsf =
+      case Map.get(assigns.flow, "ocsf_payload") do
+        %{} = payload -> payload
+        _ -> %{}
+      end
+
+    src_provider =
+      flow_get(assigns.flow, ["src_hosting_provider"]) ||
+        flow_get_in(ocsf, ["enrichment", "src_hosting_provider"])
+
+    dst_provider =
+      flow_get(assigns.flow, ["dst_hosting_provider"]) ||
+        flow_get_in(ocsf, ["enrichment", "dst_hosting_provider"])
+
+    direction_label =
+      flow_get(assigns.flow, ["direction_label"]) ||
+        flow_get_in(ocsf, ["enrichment", "direction_label"])
+
+    tcp_flags_labels =
+      flow_get(assigns.flow, ["tcp_flags_labels"]) ||
+        flow_get_in(ocsf, ["enrichment", "tcp_flags_labels"])
+
+    tcp_flags_labels =
+      if is_list(tcp_flags_labels), do: Enum.map(tcp_flags_labels, &to_string/1), else: []
+
+    tcp_flags_raw = flow_get(assigns.flow, ["tcp_flags"])
+
     assigns =
       assigns
       |> assign(:src_ip, netflow_addr(assigns.flow, :src))
@@ -3822,20 +4490,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:dst_cc, netflow_country_iso2(assigns.flow, :dst))
       |> assign(:mapbox, Map.get(assigns.context || %{}, :mapbox))
       |> assign(:map_markers, netflow_map_markers(assigns.context || %{}, assigns.flow))
+      |> assign(:src_provider, src_provider)
+      |> assign(:dst_provider, dst_provider)
+      |> assign(:direction_label, direction_label)
+      |> assign(:tcp_flags_labels, tcp_flags_labels)
+      |> assign(:tcp_flags_raw, tcp_flags_raw)
 
     ~H"""
     <dialog class="modal modal-open" phx-window-keydown="netflow_close" phx-key="escape">
-      <div class="modal-box max-w-4xl">
-        <% patch_opts =
-          netflow_patch_opts(
-            @compact?,
-            @talker_cidr,
-            @compare_mode,
-            @geo_side,
-            @sankey_prefix,
-            @stack_mode
-          ) %>
-        <div class="flex items-start justify-between gap-4">
+      <div class="modal-box max-w-[96rem] w-[96vw] h-[92vh] p-0 overflow-hidden">
+        <div class="flex items-start justify-between gap-4 border-b border-base-200 px-5 py-4">
           <div class="min-w-0">
             <div class="text-sm font-semibold">Flow details</div>
             <div class="text-xs text-base-content/70 font-mono">
@@ -3847,8 +4511,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </.ui_icon_button>
         </div>
 
-        <div class="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <.ui_panel class="lg:col-span-2" body_class="p-0">
+        <div class="grid h-[calc(92vh-5rem)] grid-cols-1 gap-3 p-3 lg:grid-cols-3">
+          <.ui_panel class="lg:col-span-2 max-h-full overflow-y-auto" body_class="p-0">
             <div class="divide-y divide-base-200">
               <div class="p-4">
                 <div class="text-xs uppercase tracking-wider text-base-content/50">Endpoints</div>
@@ -3869,20 +4533,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                         <% end %>
                       </span>
                     </div>
+                    <div
+                      :if={is_binary(@src_provider) and @src_provider != ""}
+                      class="mt-1 text-xs text-base-content/60"
+                    >
+                      Provider: <span class="font-mono">{@src_provider}</span>
+                    </div>
                     <div class="mt-2 flex flex-wrap gap-2">
                       <.ui_button
                         size="xs"
                         variant="ghost"
-                        patch={
-                          netflow_filter_patch(
-                            @base_path,
-                            @query,
-                            @limit,
-                            "src_ip",
-                            @src_ip,
-                            patch_opts
-                          )
-                        }
+                        phx-click="netflow_modal_filter"
+                        phx-value-field="src_ip"
+                        phx-value-value={@src_ip}
                       >
                         Filter src
                       </.ui_button>
@@ -3908,20 +4571,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     <div :if={@service_label} class="mt-1 text-xs text-base-content/60">
                       Service: <span class="font-mono">{@service_label}</span>
                     </div>
+                    <div
+                      :if={is_binary(@dst_provider) and @dst_provider != ""}
+                      class="mt-1 text-xs text-base-content/60"
+                    >
+                      Provider: <span class="font-mono">{@dst_provider}</span>
+                    </div>
                     <div class="mt-2 flex flex-wrap gap-2">
                       <.ui_button
                         size="xs"
                         variant="ghost"
-                        patch={
-                          netflow_filter_patch(
-                            @base_path,
-                            @query,
-                            @limit,
-                            "dst_ip",
-                            @dst_ip,
-                            patch_opts
-                          )
-                        }
+                        phx-click="netflow_modal_filter"
+                        phx-value-field="dst_ip"
+                        phx-value-value={@dst_ip}
                       >
                         Filter dst
                       </.ui_button>
@@ -3929,16 +4591,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                         :if={@dst_port}
                         size="xs"
                         variant="ghost"
-                        patch={
-                          netflow_filter_patch(
-                            @base_path,
-                            @query,
-                            @limit,
-                            "dst_port",
-                            to_string(@dst_port),
-                            patch_opts
-                          )
-                        }
+                        phx-click="netflow_modal_filter"
+                        phx-value-field="dst_port"
+                        phx-value-value={to_string(@dst_port)}
                       >
                         Filter port
                       </.ui_button>
@@ -3949,137 +4604,112 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
               <div class="p-4">
                 <div class="text-xs uppercase tracking-wider text-base-content/50">Traffic</div>
-                <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
-                      Protocol
-                    </div>
-                    <div class="mt-1">
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">Flow</div>
+                    <div class="mt-1 flex flex-wrap items-center gap-2">
                       <.netflow_protocol_badge
                         protocol={netflow_protocol_num(@flow)}
                         name={netflow_protocol_name(@flow)}
                       />
-                    </div>
-                  </div>
-                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
-                      Version
-                    </div>
-                    <div class="mt-1">
                       <.netflow_flow_type_badge flow_type={netflow_flow_type(@flow)} />
                     </div>
+                    <div
+                      :if={is_binary(@direction_label) and @direction_label != ""}
+                      class="mt-1 text-[11px] text-base-content/60"
+                    >
+                      direction: <span class="font-mono">{@direction_label}</span>
+                    </div>
                   </div>
                   <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
                     <div class="text-[10px] uppercase tracking-wider text-base-content/50">
-                      Packets
+                      Volume
                     </div>
-                    <div class="mt-1 font-mono text-sm">
-                      {format_netflow_number(netflow_packets(@flow))}
-                    </div>
-                  </div>
-                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">Bytes</div>
-                    <div class="mt-1 font-mono text-sm">
-                      {format_netflow_bytes(netflow_bytes(@flow))}
-                    </div>
-                  </div>
-                </div>
-
-                <div class="mt-4">
-                  <div class="text-xs uppercase tracking-wider text-base-content/50">Map</div>
-
-                  <%= if @mapbox && @mapbox.enabled &&
-                        is_binary(Map.get(@mapbox, :access_token)) &&
-                        String.trim(Map.get(@mapbox, :access_token)) != "" &&
-                        @map_markers != [] do %>
-                    <div class="mt-2 rounded-lg overflow-hidden border border-base-200 bg-base-200/30">
-                      <div
-                        id="netflow-flow-map"
-                        class="h-72 w-full"
-                        phx-hook="MapboxFlowMap"
-                        data-enabled="true"
-                        data-access-token={Map.get(@mapbox, :access_token) || ""}
-                        data-style-light={
-                          Map.get(@mapbox, :style_light) || "mapbox://styles/mapbox/light-v11"
-                        }
-                        data-style-dark={
-                          Map.get(@mapbox, :style_dark) || "mapbox://styles/mapbox/dark-v11"
-                        }
-                        data-markers={Jason.encode!(@map_markers)}
-                      >
+                    <div class="mt-1 flex items-center gap-4">
+                      <div>
+                        <div class="text-[10px] text-base-content/60">Packets</div>
+                        <div class="font-mono text-sm">
+                          {format_netflow_number(netflow_packets(@flow))}
+                        </div>
+                      </div>
+                      <div>
+                        <div class="text-[10px] text-base-content/60">Bytes</div>
+                        <div class="font-mono text-sm">
+                          {format_netflow_bytes(netflow_bytes(@flow))}
+                        </div>
                       </div>
                     </div>
-                    <div class="mt-1 text-xs text-base-content/60">
-                      Tip: click markers for details.
-                    </div>
-                  <% else %>
-                    <div class="mt-2 text-sm text-base-content/60">
-                      Mapbox is disabled or no GeoIP coordinates are available for this flow.
-                    </div>
-                  <% end %>
+                  </div>
                 </div>
+
+                <div
+                  :if={netflow_protocol_num(@flow) |> to_int() == 6}
+                  class="mt-3 rounded border border-base-300 bg-base-100/60 p-2"
+                >
+                  <% flag_set = MapSet.new(Enum.map(@tcp_flags_labels, &String.upcase(to_string(&1)))) %>
+                  <div class="text-[10px] uppercase tracking-wide text-base-content/50">
+                    TCP Flags
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <%= for flag <- ["CWR", "ECE", "URG", "ACK", "PSH", "RST", "SYN", "FIN"] do %>
+                      <% active = MapSet.member?(flag_set, flag) %>
+                      <span class="tooltip tooltip-top" data-tip={tcp_flag_tooltip(flag)}>
+                        <span class={[
+                          "inline-flex h-5 min-w-6 items-center justify-center rounded border px-1 text-[10px] font-mono cursor-help",
+                          if(active,
+                            do: "border-primary bg-primary/15 text-primary",
+                            else: "border-base-300 text-base-content/50"
+                          )
+                        ]}>
+                          {flag}
+                        </span>
+                      </span>
+                    <% end %>
+                  </div>
+                  <div
+                    :if={not is_nil(@tcp_flags_raw) and @tcp_flags_labels == []}
+                    class="mt-1 text-[10px] text-base-content/60"
+                  >
+                    raw mask: <span class="font-mono">{@tcp_flags_raw}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="p-4">
+                <div class="text-xs uppercase tracking-wider text-base-content/50">Map</div>
+                <%= if @mapbox && @mapbox.enabled &&
+                      is_binary(Map.get(@mapbox, :access_token)) &&
+                      String.trim(Map.get(@mapbox, :access_token)) != "" &&
+                      @map_markers != [] do %>
+                  <div class="mt-2 rounded-lg overflow-hidden border border-base-200 bg-base-200/30">
+                    <div
+                      id={netflow_map_dom_id(@flow)}
+                      class="h-64 w-full"
+                      phx-hook="MapboxFlowMap"
+                      phx-update="ignore"
+                      data-enabled="true"
+                      data-access-token={Map.get(@mapbox, :access_token) || ""}
+                      data-style-light={
+                        Map.get(@mapbox, :style_light) || "mapbox://styles/mapbox/light-v11"
+                      }
+                      data-style-dark={
+                        Map.get(@mapbox, :style_dark) || "mapbox://styles/mapbox/dark-v11"
+                      }
+                      data-markers={Jason.encode!(@map_markers)}
+                    >
+                    </div>
+                  </div>
+                <% else %>
+                  <div class="mt-2 text-sm text-base-content/60">
+                    Mapbox is disabled or no GeoIP coordinates are available for this flow.
+                  </div>
+                <% end %>
               </div>
             </div>
           </.ui_panel>
 
           <.ui_panel class="lg:col-span-1">
-            <div class="text-xs uppercase tracking-wider text-base-content/50">Quick pivots</div>
-            <div class="mt-3 space-y-2">
-              <.ui_button
-                size="sm"
-                variant="outline"
-                class="w-full justify-start"
-                patch={
-                  netflow_filter_patch(
-                    @base_path,
-                    @query,
-                    @limit,
-                    "src_ip",
-                    @src_ip,
-                    patch_opts
-                  )
-                }
-              >
-                <.icon name="hero-arrow-left-end-on-rectangle" class="size-4" /> Source traffic
-              </.ui_button>
-              <.ui_button
-                size="sm"
-                variant="outline"
-                class="w-full justify-start"
-                patch={
-                  netflow_filter_patch(
-                    @base_path,
-                    @query,
-                    @limit,
-                    "dst_ip",
-                    @dst_ip,
-                    patch_opts
-                  )
-                }
-              >
-                <.icon name="hero-arrow-right-end-on-rectangle" class="size-4" /> Destination traffic
-              </.ui_button>
-              <.ui_button
-                :if={@dst_port}
-                size="sm"
-                variant="outline"
-                class="w-full justify-start"
-                patch={
-                  netflow_filter_patch(
-                    @base_path,
-                    @query,
-                    @limit,
-                    "dst_port",
-                    to_string(@dst_port),
-                    patch_opts
-                  )
-                }
-              >
-                <.icon name="hero-funnel" class="size-4" /> Port {@dst_port}
-              </.ui_button>
-            </div>
-
-            <div class="mt-6 pt-4 border-t border-base-200">
+            <div>
               <div class="text-xs uppercase tracking-wider text-base-content/50">
                 Security and Enrichment
               </div>
@@ -4154,7 +4784,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           ", "
                         )}
                         <%= if is_integer(info.as_number) and info.as_number > 0 do %>
-                          <span class="ml-2">AS{info.as_number}</span>
+                          <button
+                            type="button"
+                            phx-click="netflow_lookup_asn"
+                            phx-value-asn={info.as_number}
+                            class={[
+                              "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-primary",
+                              Map.get(@arin_lookup || %{}, :asn) == info.as_number && "text-primary"
+                            ]}
+                          >
+                            AS{info.as_number}
+                          </button>
                         <% end %>
                         <%= if is_binary(info.as_name) and info.as_name != "" do %>
                           <span class="ml-2 text-base-content/60">{info.as_name}</span>
@@ -4176,7 +4816,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           ", "
                         )}
                         <%= if is_integer(info.as_number) and info.as_number > 0 do %>
-                          <span class="ml-2">AS{info.as_number}</span>
+                          <button
+                            type="button"
+                            phx-click="netflow_lookup_asn"
+                            phx-value-asn={info.as_number}
+                            class={[
+                              "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-primary",
+                              Map.get(@arin_lookup || %{}, :asn) == info.as_number && "text-primary"
+                            ]}
+                          >
+                            AS{info.as_number}
+                          </button>
                         <% end %>
                         <%= if is_binary(info.as_name) and info.as_name != "" do %>
                           <span class="ml-2 text-base-content/60">{info.as_name}</span>
@@ -4186,6 +4836,44 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   <% else %>
                     <div class="mt-1 text-base-content/70">
                       Dest: <span class="text-base-content/50">n/a</span>
+                    </div>
+                  <% end %>
+                </div>
+
+                <div>
+                  <div class="font-semibold">ARIN ASN lookup</div>
+                  <div class="mt-1 text-base-content/70">
+                    Click any AS number above to load ARIN details.
+                  </div>
+                  <%= if is_binary(Map.get(@arin_lookup || %{}, :error)) and Map.get(@arin_lookup || %{}, :error) != "" do %>
+                    <div class="mt-1 text-error">{Map.get(@arin_lookup, :error)}</div>
+                  <% end %>
+                  <%= if data = Map.get(@arin_lookup || %{}, :data) do %>
+                    <div class="mt-2 rounded-lg border border-base-200 bg-base-200/30 p-2 text-[11px] font-mono space-y-1">
+                      <div>
+                        {data.handle} {if is_binary(data.name), do: "- #{data.name}", else: ""}
+                      </div>
+                      <div :if={is_binary(data.org_name) and data.org_name != ""}>
+                        org: {data.org_name}
+                      </div>
+                      <div :if={is_binary(data.range) and data.range != ""}>range: {data.range}</div>
+                      <div :if={is_binary(data.registration_date) and data.registration_date != ""}>
+                        registered: {data.registration_date}
+                      </div>
+                      <div :if={is_binary(data.update_date) and data.update_date != ""}>
+                        updated: {data.update_date}
+                      </div>
+                      <div :if={is_binary(data.ref) and data.ref != ""}>
+                        whois:
+                        <a
+                          href={data.ref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="link link-hover"
+                        >
+                          {data.ref}
+                        </a>
+                      </div>
                     </div>
                   <% end %>
                 </div>
@@ -4306,7 +4994,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp netflow_protocol_num(flow), do: netflow_value(flow, ["protocol_num", "protocol"])
   defp netflow_protocol_name(flow), do: netflow_value(flow, ["protocol_name"])
 
-  defp netflow_packets(flow), do: netflow_value(flow, ["packets_total", "packets"])
+  defp netflow_packets(flow) do
+    total = flow |> netflow_value(["packets_total", "packets"]) |> to_int()
+
+    if total > 0 do
+      total
+    else
+      flow
+      |> netflow_value(["packets_in"])
+      |> to_int()
+      |> Kernel.+(to_int(netflow_value(flow, ["packets_out"])))
+    end
+  end
+
   defp netflow_bytes(flow), do: netflow_value(flow, ["bytes_total", "octets"])
 
   defp netflow_flow_type(flow) do
@@ -4378,6 +5078,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp netflow_map_markers(_context, _flow), do: []
+
+  defp netflow_map_dom_id(flow) when is_map(flow) do
+    src = to_string(netflow_addr(flow, :src) || "")
+    dst = to_string(netflow_addr(flow, :dst) || "")
+    sp = to_string(netflow_port(flow, :src) || "")
+    dp = to_string(netflow_port(flow, :dst) || "")
+    ts = to_string(Map.get(flow, "time") || Map.get(flow, :time) || "")
+    digest = :erlang.phash2({src, dst, sp, dp, ts})
+    "netflow-flow-map-#{digest}"
+  end
+
+  defp netflow_map_dom_id(_), do: "netflow-flow-map"
 
   defp maybe_add_geo_marker(markers, side, ip, geo) when is_list(markers) do
     cond do
@@ -4531,6 +5243,39 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp parse_netflow_stack_mode(_), do: @default_netflow_stack_mode
 
+  defp parse_netflow_graph_mode(nil), do: "stacked"
+  defp parse_netflow_graph_mode(""), do: "stacked"
+
+  defp parse_netflow_graph_mode(value) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      "stacked" -> "stacked"
+      "stacked100" -> "stacked100"
+      "lines" -> "lines"
+      "grid" -> "grid"
+      "sankey" -> "sankey"
+      _ -> "stacked"
+    end
+  end
+
+  defp parse_netflow_graph_mode(_), do: "stacked"
+
+  defp parse_netflow_view(nil), do: "overview"
+  defp parse_netflow_view(""), do: "overview"
+
+  defp parse_netflow_view(value) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      "overview" -> "overview"
+      "traffic" -> "traffic"
+      "topology" -> "topology"
+      "talkers" -> "talkers"
+      "explorer" -> "explorer"
+      "all" -> "all"
+      _ -> "overview"
+    end
+  end
+
+  defp parse_netflow_view(_), do: "overview"
+
   defp cidr_to_like_prefix(nil, _cidr), do: ""
   defp cidr_to_like_prefix("", _cidr), do: ""
   defp cidr_to_like_prefix("Unknown", _cidr), do: ""
@@ -4566,6 +5311,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     geo_side = Map.get(opts, :geo_side, "dst")
     sankey_prefix = Map.get(opts, :sankey_prefix, 24)
     stack_mode = Map.get(opts, :stack_mode, @default_netflow_stack_mode)
+    graph_mode = Map.get(opts, :graph_mode, "stacked")
+    view = Map.get(opts, :view, "overview")
 
     %{tab: "netflows", limit: limit}
     |> maybe_put_param(:q, query)
@@ -4589,6 +5336,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> maybe_put_param(
       :stack,
       if(stack_mode in ["ports", "talkers"], do: stack_mode, else: nil)
+    )
+    |> maybe_put_param(
+      :graph,
+      if(graph_mode in ["stacked", "stacked100", "lines", "grid", "sankey"],
+        do: graph_mode,
+        else: nil
+      )
+    )
+    |> maybe_put_param(
+      :view,
+      if(view in ["overview", "traffic", "topology", "talkers", "explorer", "all"],
+        do: view,
+        else: nil
+      )
     )
   end
 
@@ -4712,7 +5473,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     cond do
       value >= 1_000_000 -> "#{Float.round(value / 1_000_000, 2)} Mpps"
       value >= 1_000 -> "#{Float.round(value / 1_000, 1)} Kpps"
-      value >= 0 -> "#{Float.round(value, 0)} pps"
+      value >= 10 -> "#{Float.round(value, 0)} pps"
+      value >= 1 -> "#{Float.round(value, 1)} pps"
+      value > 0 -> "#{Float.round(value, 2)} pps"
+      value == 0 -> "0 pps"
       true -> "—"
     end
   end
@@ -5603,10 +6367,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp compute_netflow_summary(flows) when is_list(flows) do
     Enum.reduce(
       flows,
-      %{total: 0, tcp: 0, udp: 0, other: 0, total_bytes: 0, v5: 0, v9: 0, ipfix: 0, sflow: 0},
+      %{
+        total: 0,
+        tcp: 0,
+        udp: 0,
+        other: 0,
+        total_bytes: 0,
+        total_packets: 0,
+        v5: 0,
+        v9: 0,
+        ipfix: 0,
+        sflow: 0
+      },
       fn flow, acc ->
         protocol = flow |> netflow_protocol_num() |> to_int()
         bytes = flow |> netflow_bytes() |> to_int()
+        packets = flow |> netflow_packets() |> to_int()
         flow_type = netflow_flow_type(flow)
 
         updated =
@@ -5628,6 +6404,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         updated
         |> Map.update!(:total, &(&1 + 1))
         |> Map.update!(:total_bytes, &(&1 + bytes))
+        |> Map.update!(:total_packets, &(&1 + packets))
       end
     )
   end
@@ -5858,6 +6635,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:trace_stats, empty_trace_stats())
     |> assign(:trace_latency, empty_trace_latency())
     |> assign(:metrics_stats, empty_metrics_stats())
+    |> maybe_auto_open_netflow(scope)
   end
 
   defp apply_tab_assigns(socket, _tab, srql_module) do
@@ -5873,6 +6651,24 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:trace_stats, empty_trace_stats())
     |> assign(:trace_latency, empty_trace_latency())
     |> assign(:metrics_stats, empty_metrics_stats())
+  end
+
+  defp maybe_auto_open_netflow(socket, scope) do
+    if Map.get(socket.assigns, :netflow_auto_open, false) do
+      case List.first(Map.get(socket.assigns, :netflows, [])) do
+        %{} = flow ->
+          socket
+          |> assign(:selected_netflow, flow)
+          |> assign(:netflow_context, load_netflow_context(flow, scope))
+          |> assign(:netflow_arin_lookup, %{})
+          |> assign(:netflow_auto_open, false)
+
+        _ ->
+          assign(socket, :netflow_auto_open, false)
+      end
+    else
+      socket
+    end
   end
 
   defp dispatch_tab_load(socket, tab, params, uri) do
@@ -6007,6 +6803,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       %{total: 0} when is_list(socket.assigns.netflows) and socket.assigns.netflows != [] ->
         compute_netflow_summary(socket.assigns.netflows)
 
+      %{total_packets: 0, window_seconds: window_seconds}
+      when is_integer(window_seconds) and window_seconds > 0 and is_list(socket.assigns.netflows) and
+             socket.assigns.netflows != [] ->
+        fallback = compute_netflow_summary(socket.assigns.netflows)
+        packets = Map.get(fallback, :total_packets, 0)
+
+        summary
+        |> Map.put(:total_packets, packets)
+        |> Map.put(:avg_pps, packets * 1.0 / window_seconds)
+
       other ->
         other
     end
@@ -6139,7 +6945,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     total_query = ~s|#{base_query} stats:"count(*) as total" limit:1|
     bytes_query = ~s|#{base_query} stats:"sum(bytes_total) as total_bytes" limit:1|
-    packets_query = ~s|#{base_query} stats:"sum(packets_total) as total_packets" limit:1|
+    packets_total_query = ~s|#{base_query} stats:"sum(packets_total) as total_packets" limit:1|
+    packets_alt_query = ~s|#{base_query} stats:"sum(packets) as total_packets" limit:1|
+    packets_in_query = ~s|#{base_query} stats:"sum(packets_in) as total_packets_in" limit:1|
+    packets_out_query = ~s|#{base_query} stats:"sum(packets_out) as total_packets_out" limit:1|
 
     proto_query =
       ~s|#{base_query} stats:"count(*) as total by protocol_num" sort:total:desc limit:50|
@@ -6149,8 +6958,34 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     total_bytes =
       extract_stats_count(srql_module.query(bytes_query, %{scope: scope}), "total_bytes")
 
+    packets_total_primary =
+      extract_stats_count(
+        srql_module.query(packets_total_query, %{scope: scope}),
+        "total_packets"
+      )
+
+    packets_total_alt =
+      extract_stats_count(srql_module.query(packets_alt_query, %{scope: scope}), "total_packets")
+
+    packets_in =
+      extract_stats_count(
+        srql_module.query(packets_in_query, %{scope: scope}),
+        "total_packets_in"
+      )
+
+    packets_out =
+      extract_stats_count(
+        srql_module.query(packets_out_query, %{scope: scope}),
+        "total_packets_out"
+      )
+
     total_packets =
-      extract_stats_count(srql_module.query(packets_query, %{scope: scope}), "total_packets")
+      cond do
+        packets_total_primary > 0 -> packets_total_primary
+        packets_total_alt > 0 -> packets_total_alt
+        packets_in + packets_out > 0 -> packets_in + packets_out
+        true -> 0
+      end
 
     proto_rows = extract_stats_rows(srql_module.query(proto_query, %{scope: scope}))
 
@@ -6194,25 +7029,48 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
-    {group_token, result_key} =
-      case talker_cidr do
-        16 -> {"src_cidr:16", "src_cidr"}
-        24 -> {"src_cidr:24", "src_cidr"}
-        _ -> {"src_endpoint_ip", "src_endpoint_ip"}
+    # SRQL group-by expressions like src_cidr:24 are not consistently supported
+    # across backends; always group by raw src IP and collapse to CIDR in Elixir.
+    query =
+      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip" sort:total_bytes:desc limit:1000|
+
+    rows =
+      srql_module
+      |> apply(:query, [query, %{scope: scope}])
+      |> extract_stats_rows()
+
+    rows =
+      if talker_cidr in [16, 24] do
+        rows
+        |> Enum.reduce(%{}, fn row, acc ->
+          ip = Map.get(row, "src_endpoint_ip")
+          cidr = ip_to_cidr(ip, talker_cidr)
+          bytes = to_int(Map.get(row, "total_bytes"))
+
+          if is_binary(cidr) and cidr != "" and bytes > 0 do
+            Map.update(acc, cidr, bytes, &(&1 + bytes))
+          else
+            acc
+          end
+        end)
+        |> Enum.map(fn {cidr, bytes} -> %{ip: cidr, bytes: bytes} end)
+      else
+        rows
+        |> Enum.map(fn row ->
+          %{
+            ip: Map.get(row, "src_endpoint_ip"),
+            bytes: to_int(Map.get(row, "total_bytes"))
+          }
+        end)
       end
 
-    query =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by #{group_token}" sort:total_bytes:desc limit:#{limit}|
-
-    srql_module
-    |> apply(:query, [query, %{scope: scope}])
-    |> extract_stats_rows()
-    |> Enum.map(fn row ->
-      %{
-        ip: Map.get(row, result_key),
-        bytes: to_int(Map.get(row, "total_bytes"))
-      }
+    rows
+    |> Enum.reject(fn row ->
+      ip = row && Map.get(row, :ip)
+      not (is_binary(ip) and String.trim(ip) != "") or to_int(Map.get(row, :bytes)) <= 0
     end)
+    |> Enum.sort_by(fn row -> -to_int(Map.get(row, :bytes)) end)
+    |> Enum.take(limit)
   rescue
     _ ->
       []
@@ -6252,24 +7110,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp extract_stats_rows(_), do: []
 
-  defp netflow_base_query(nil), do: "in:flows time:#{@default_netflow_window}"
-  defp netflow_base_query(""), do: "in:flows time:#{@default_netflow_window}"
-
-  defp netflow_base_query(query) when is_binary(query) do
-    query = String.trim(query)
-
-    cond do
-      query == "" ->
-        "in:flows time:#{@default_netflow_window}"
-
-      # All NetFlow charts (especially multi-dimension stats like Sankey) require an explicit time window.
-      Regex.match?(~r/(?:^|\s)time:/, query) ->
-        query
-
-      true ->
-        query <> " time:#{@default_netflow_window}"
-    end
-  end
+  defp netflow_base_query(query),
+    do: NFQuery.flows_base_query(to_string(query || ""), @default_netflow_window)
 
   defp load_netflow_rdns_map(flows, top_talkers, scope) when is_list(flows) do
     user = scope && scope.user
@@ -6333,16 +7175,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp sanitize_srql_for_stats(query) when is_binary(query) do
-    query
-    |> String.replace(~r/(?:^|\s)sort:\S+/, " ")
-    |> String.replace(~r/(?:^|\s)limit:\S+/, " ")
-    |> String.replace(~r/(?:^|\s)cursor:\S+/, " ")
-    |> String.replace(~r/(?:^|\s)stats:\"[^\"]*\"/, " ")
-    |> String.replace(~r/(?:^|\s)stats:\S+/, " ")
-    |> String.replace(~r/\s+/, " ")
-    |> String.trim()
-  end
+  defp sanitize_srql_for_stats(query),
+    do: NFQuery.flows_sanitize_for_stats(to_string(query || ""))
 
   defp load_netflow_timeseries(srql_module, current_query, scope) do
     base_query =
@@ -7168,7 +8002,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
          compare_mode,
          geo_side,
          sankey_prefix,
-         stack_mode
+         stack_mode,
+         graph_mode,
+         view
        ) do
     %{
       compact?: compact?,
@@ -7176,7 +8012,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       compare_mode: compare_mode,
       geo_side: geo_side,
       sankey_prefix: sankey_prefix,
-      stack_mode: stack_mode
+      stack_mode: stack_mode,
+      graph_mode: graph_mode,
+      view: view
     }
   end
 

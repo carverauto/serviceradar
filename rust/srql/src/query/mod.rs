@@ -364,6 +364,7 @@ pub(super) fn supports_hourly_cagg(entity: &Entity) -> bool {
             | Entity::TimeseriesMetrics
             | Entity::SnmpMetrics
             | Entity::RperfMetrics
+            | Entity::Flows
     )
 }
 
@@ -376,6 +377,7 @@ pub(super) fn cagg_table_for_entity(entity: &Entity) -> Option<&'static str> {
         Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
             Some("timeseries_metrics_hourly")
         }
+        Entity::Flows => Some("ocsf_network_activity_5m_traffic"),
         _ => None,
     }
 }
@@ -423,6 +425,12 @@ pub(super) fn cagg_column_for_entity(
                 _ => None,
             }
         }
+        Entity::Flows => match (agg.as_str(), field.as_str()) {
+            ("sum", "bytes_total") => Some("bytes_total"),
+            ("sum", "packets_total") => Some("packets_total"),
+            ("count", "*") => Some("flow_count"),
+            _ => None,
+        },
         _ => None,
     }
 }

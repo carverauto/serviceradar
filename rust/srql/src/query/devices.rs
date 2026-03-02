@@ -882,8 +882,11 @@ fn apply_mac_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
         }
         FilterOp::NotEq => {
             let normalized = super::normalize_mac_value(filter.value.as_scalar()?, false)?;
-            Ok(query
-                .filter(sql::<Bool>(&format!("(mac IS NULL OR {norm_col} <> ")).bind::<Text, _>(normalized).sql(")")))
+            Ok(query.filter(
+                sql::<Bool>(&format!("(mac IS NULL OR {norm_col} <> "))
+                    .bind::<Text, _>(normalized)
+                    .sql(")"),
+            ))
         }
         FilterOp::Like => {
             let normalized = super::normalize_mac_value(filter.value.as_scalar()?, true)?;
@@ -891,8 +894,11 @@ fn apply_mac_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
         }
         FilterOp::NotLike => {
             let normalized = super::normalize_mac_value(filter.value.as_scalar()?, true)?;
-            Ok(query
-                .filter(sql::<Bool>(&format!("(mac IS NULL OR {norm_col} NOT LIKE ")).bind::<Text, _>(normalized).sql(")")))
+            Ok(query.filter(
+                sql::<Bool>(&format!("(mac IS NULL OR {norm_col} NOT LIKE "))
+                    .bind::<Text, _>(normalized)
+                    .sql(")"),
+            ))
         }
         _ => Err(ServiceError::InvalidRequest(
             "mac filter only supports equality and LIKE operators".into(),

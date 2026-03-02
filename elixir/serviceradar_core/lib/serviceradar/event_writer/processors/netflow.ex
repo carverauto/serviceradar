@@ -178,6 +178,8 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       packets_total: flow.packets,
       bytes_in: flow.bytes_in || 0,
       bytes_out: flow.bytes_out || 0,
+      packets_in: flow.packets_in || 0,
+      packets_out: flow.packets_out || 0,
       direction_label: enrichment.direction_label,
       direction_source: enrichment.direction_source,
       src_hosting_provider: enrichment.src_hosting_provider,
@@ -208,7 +210,9 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       octets: first_present(json, ["octets", "bytes"], 0),
       packets: first_present(json, ["packets"], 0),
       bytes_in: safe_int(first_present(json, ["bytes_in", "bytesIn"])),
-      bytes_out: safe_int(first_present(json, ["bytes_out", "bytesOut"]))
+      bytes_out: safe_int(first_present(json, ["bytes_out", "bytesOut"])),
+      packets_in: safe_int(first_present(json, ["packets_in", "packetsIn"])),
+      packets_out: safe_int(first_present(json, ["packets_out", "packetsOut"]))
     }
   end
 
@@ -251,7 +255,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       flow_direction flowDirection src_addr srcAddr sourceAddress
       dst_addr dstAddr destinationAddress src_port srcPort sourcePort
       dst_port dstPort destinationPort protocol packets octets bytes
-      bytes_in bytesIn bytes_out bytesOut tcp_flags tcpFlags
+      bytes_in bytesIn bytes_out bytesOut packets_in packetsIn packets_out packetsOut tcp_flags tcpFlags
       src_mac srcMac sourceMac dst_mac dstMac destinationMac
       sampler_address samplerAddress input_snmp inputSnmp output_snmp outputSnmp
       metadata

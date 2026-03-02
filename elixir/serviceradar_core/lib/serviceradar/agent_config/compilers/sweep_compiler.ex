@@ -363,7 +363,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   defp decode_params(_), do: {:error, :invalid_srql_params}
 
-  defp decode_param(%{"t" => "text", "v" => value}) when is_binary(value), do: {:ok, value}
+  defp decode_param(%{"t" => "text", "v" => value}) when is_binary(value),
+    do: decode_cidr_text_param(value)
   defp decode_param(%{"t" => "bool", "v" => value}) when is_boolean(value), do: {:ok, value}
   defp decode_param(%{"t" => "int", "v" => value}) when is_integer(value), do: {:ok, value}
 
@@ -400,7 +401,26 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
+  defp decode_param(%{"t" => type, "v" => value})
+       when type in ["inet", "cidr"] and is_binary(value) do
+    case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
+      {:ok, inet} -> {:ok, inet}
+      _ -> {:error, :invalid_inet_param}
+    end
+  end
+
   defp decode_param(_), do: {:error, :invalid_srql_param}
+
+  defp decode_cidr_text_param(value) when is_binary(value) do
+    if String.contains?(value, "/") do
+      case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
+        {:ok, inet} -> {:ok, inet}
+        _ -> {:ok, value}
+      end
+    else
+      {:ok, value}
+    end
+  end
 
   defp merge_ports(nil, group), do: normalize_ports_override(group.ports, [])
 

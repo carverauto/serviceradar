@@ -104,5 +104,13 @@ defmodule ServiceRadar.Observability.SRQLRunner do
     end
   end
 
+  defp decode_param(%{"t" => type, "v" => value})
+       when type in ["inet", "cidr"] and is_binary(value) do
+    case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
+      {:ok, inet} -> {:ok, inet}
+      _ -> {:error, :invalid_inet_param}
+    end
+  end
+
   defp decode_param(_), do: {:error, :invalid_srql_param}
 end

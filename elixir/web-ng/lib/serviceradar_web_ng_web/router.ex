@@ -356,6 +356,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     # Redirect /dashboard to /analytics
     get("/dashboard", PageController, :redirect_to_analytics)
     get("/users/settings", PageController, :redirect_to_settings_profile)
+    get("/flows", PageController, :redirect_to_observability_flows)
+    get("/flows/visualize", PageController, :redirect_to_observability_flows)
 
     live_session :require_authenticated_user,
       on_mount: [
@@ -380,7 +382,6 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/alerts/:alert_id", AlertLive.Show, :show)
       live("/observability", LogLive.Index, :index)
       live("/observability/bmp", BmpLive.Index, :index)
-      live("/flows", NetflowLive.Visualize, :index)
       live("/observability/metrics/:span_id", MetricLive.Show, :show)
       live("/logs", LogLive.Index, :index)
       live("/logs/:log_id", LogLive.Show, :show)
