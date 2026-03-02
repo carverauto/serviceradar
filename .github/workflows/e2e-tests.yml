@@ -190,16 +190,19 @@ jobs:
     if: always()
     steps:
       - name: Check staging results
+        env:
+          SKIP_STAGING: ${{ needs.check-skip.outputs.skip }}
+          STAGING_RESULT: ${{ needs.e2e-staging.result }}
         run: |
-          if [ "${{ needs.check-skip.outputs.skip }}" == "true" ]; then
+          if [ "${SKIP_STAGING}" = "true" ]; then
             echo "E2E tests skipped (hotfix release with [skip-staging])"
             exit 0
           fi
-          if [ "${{ needs.e2e-staging.result }}" == "failure" ]; then
+          if [ "${STAGING_RESULT}" = "failure" ]; then
             echo "Staging E2E tests failed"
             exit 1
           fi
-          if [ "${{ needs.e2e-staging.result }}" == "skipped" ]; then
+          if [ "${STAGING_RESULT}" = "skipped" ]; then
             echo "Staging E2E tests skipped"
             exit 0
           fi
