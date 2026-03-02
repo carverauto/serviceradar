@@ -686,36 +686,51 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     mm = socket.assigns.metric_mode
     scope = Map.get(socket.assigns, :current_scope)
     srql_mod = srql_module()
+    task_sup = ServiceRadarWebNG.TaskSupervisor
     base = base_flow_query(socket.assigns.query, tw)
     sort_field = if mm == "packets", do: "packets_total", else: "bytes_total"
 
     tasks = [
-      Task.async(fn ->
+      Task.Supervisor.async_nolink(task_sup, fn ->
         {:top_talkers, load_top_n(srql_mod, scope, base, "src_endpoint_ip", sort_field)}
       end),
-      Task.async(fn ->
+      Task.Supervisor.async_nolink(task_sup, fn ->
         {:top_listeners, load_top_n(srql_mod, scope, base, "dst_endpoint_ip", sort_field)}
       end),
-      Task.async(fn ->
+      Task.Supervisor.async_nolink(task_sup, fn ->
         {:top_conversations, load_top_conversations(srql_mod, scope, base, sort_field)}
       end),
-      Task.async(fn -> {:top_apps, load_top_n(srql_mod, scope, base, "app", sort_field)} end),
-      Task.async(fn ->
+      Task.Supervisor.async_nolink(task_sup, fn ->
+        {:top_apps, load_top_n(srql_mod, scope, base, "app", sort_field)}
+      end),
+      Task.Supervisor.async_nolink(task_sup, fn ->
         {:top_protocols, load_top_n(srql_mod, scope, base, "protocol_name", sort_field)}
       end),
-      Task.async(fn ->
+      Task.Supervisor.async_nolink(task_sup, fn ->
         {:top_ports, load_top_n(srql_mod, scope, base, "dst_endpoint_port", sort_field)}
       end),
-      Task.async(fn -> {:summary, load_summary(srql_mod, scope, base)} end),
-      Task.async(fn -> {:timeseries, load_timeseries(srql_mod, scope, base, tw)} end),
-      Task.async(fn -> {:top_interfaces, load_top_interfaces(srql_mod, scope, base)} end),
-      Task.async(fn ->
+      Task.Supervisor.async_nolink(task_sup, fn ->
+        {:summary, load_summary(srql_mod, scope, base)}
+      end),
+      Task.Supervisor.async_nolink(task_sup, fn ->
+        {:timeseries, load_timeseries(srql_mod, scope, base, tw)}
+      end),
+      Task.Supervisor.async_nolink(task_sup, fn ->
+        {:top_interfaces, load_top_interfaces(srql_mod, scope, base)}
+      end),
+      Task.Supervisor.async_nolink(task_sup, fn ->
         {:subnet_distribution, load_subnet_distribution(srql_mod, scope, base)}
       end),
-      Task.async(fn -> {:p95, load_interface_p95(srql_mod, scope)} end),
-      Task.async(fn -> {:tcp_flags, load_tcp_flag_distribution(srql_mod, scope, base)} end),
-      Task.async(fn -> {:flow_rate, load_flow_rate_timeseries(srql_mod, scope, base, tw)} end),
-      Task.async(fn -> {:duration_dist, load_duration_distribution(srql_mod, scope, base)} end)
+      Task.Supervisor.async_nolink(task_sup, fn -> {:p95, load_interface_p95(srql_mod, scope)} end),
+      Task.Supervisor.async_nolink(task_sup, fn ->
+        {:tcp_flags, load_tcp_flag_distribution(srql_mod, scope, base)}
+      end),
+      Task.Supervisor.async_nolink(task_sup, fn ->
+        {:flow_rate, load_flow_rate_timeseries(srql_mod, scope, base, tw)}
+      end),
+      Task.Supervisor.async_nolink(task_sup, fn ->
+        {:duration_dist, load_duration_distribution(srql_mod, scope, base)}
+      end)
     ]
 
     results = safe_await_many(tasks, :timer.seconds(15))

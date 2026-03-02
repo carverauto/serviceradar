@@ -4404,7 +4404,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:ok, rows} when is_list(rows) ->
         rows
         |> Enum.filter(fn r ->
-          r.status == "ok" and is_binary(r.hostname) and String.trim(r.hostname) != ""
+          ok? =
+            case r.status do
+              :ok -> true
+              "ok" -> true
+              s when is_binary(s) -> String.downcase(String.trim(s)) == "ok"
+              _ -> false
+            end
+
+          ok? and is_binary(r.hostname) and String.trim(r.hostname) != ""
         end)
         |> Map.new(fn r -> {r.ip, r.hostname} end)
 
