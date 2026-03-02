@@ -682,14 +682,14 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp series_color(index) do
-    # Dracula theme inspired colors
+    # Nocturne cyber accent palette
     colors = [
-      {"#50fa7b", "rgba(80,250,123,0.25)"},
-      {"#8be9fd", "rgba(139,233,253,0.25)"},
-      {"#bd93f9", "rgba(189,147,249,0.25)"},
-      {"#ff79c6", "rgba(255,121,198,0.25)"},
-      {"#ffb86c", "rgba(255,184,108,0.25)"},
-      {"#f1fa8c", "rgba(241,250,140,0.25)"}
+      {"#00E676", "rgba(0,230,118,0.25)"},
+      {"#00D8FF", "rgba(0,216,255,0.25)"},
+      {"#A855F7", "rgba(168,85,247,0.25)"},
+      {"#FF2A7A", "rgba(255,42,122,0.25)"},
+      {"#FF9A00", "rgba(255,154,0,0.25)"},
+      {"#FBBF24", "rgba(251,191,36,0.25)"}
     ]
 
     Enum.at(colors, rem(index, length(colors)))
