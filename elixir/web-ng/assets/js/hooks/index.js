@@ -10,6 +10,7 @@ import NetflowStacked100Chart from "./charts/NetflowStacked100Chart"
 import NetflowLineSeriesChart from "./charts/NetflowLineSeriesChart"
 import NetflowGridChart from "./charts/NetflowGridChart"
 import NetflowTrafficTooltip from "./charts/NetflowTrafficTooltip"
+import NetflowTalkersIcicle from "./charts/NetflowTalkersIcicle"
 import GodViewBinaryStream from "./god_view/GodViewBinaryStream"
 import GodViewControlsState from "./god_view/GodViewControlsState"
 import TimeseriesChart from "./charts/TimeseriesChart"
@@ -32,6 +33,7 @@ export default {
   NetflowLineSeriesChart,
   NetflowGridChart,
   NetflowTrafficTooltip,
+  NetflowTalkersIcicle,
   GodViewBinaryStream,
   GodViewControlsState,
   TimeseriesChart,
