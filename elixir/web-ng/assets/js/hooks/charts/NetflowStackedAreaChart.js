@@ -109,9 +109,9 @@ export default {
     // These come from SRQL (series-less) downsample queries and are keyed as `rev:*` and `prev:*`.
     if (Array.isArray(overlays) && overlays.length > 0) {
       const overlayStrokeForKey = (k) => {
-        if (String(k).startsWith("prev:")) return "#94a3b8"
-        if (String(k).startsWith("rev:")) return "#10b981"
-        return "#94a3b8"
+        if (String(k).startsWith("prev:")) return "#A1A1AA"
+        if (String(k).startsWith("rev:")) return "#00E676"
+        return "#A1A1AA"
       }
 
       const overlayDashForKey = (k) => {

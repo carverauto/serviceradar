@@ -237,7 +237,7 @@ export default {
           .text("Simplified (cycle detected)")
       }
 
-      const color = d3.scaleOrdinal().domain(["src", "mid", "dst"]).range(["#60a5fa", "#a78bfa", "#34d399"])
+      const color = d3.scaleOrdinal().domain(["src", "mid", "dst"]).range(["#00D8FF", "#A855F7", "#00E676"])
 
       const groupHidden = (grp) => hook._hiddenGroups?.has(grp)
 

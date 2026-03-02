@@ -79,11 +79,11 @@ export const godViewLifecycleDomSetupMethods = {
 
     const hudStyle = [
       "font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
-      "color: #e2e8f0",
-      "background: rgba(15, 23, 42, 0.75)",
+      "color: #F4F4F5",
+      "background: rgba(19, 19, 22, 0.85)",
       "backdrop-filter: blur(12px)",
       "-webkit-backdrop-filter: blur(12px)",
-      "border: 1px solid rgba(148, 163, 184, 0.15)",
+      "border: 1px solid rgba(39, 39, 42, 0.4)",
       "box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4)",
       "letter-spacing: 0.2px",
     ].join(";")
