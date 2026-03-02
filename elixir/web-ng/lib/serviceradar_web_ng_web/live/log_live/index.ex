@@ -4650,15 +4650,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     </div>
                   </div>
                   <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">Volume</div>
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                      Volume
+                    </div>
                     <div class="mt-1 flex items-center gap-4">
                       <div>
                         <div class="text-[10px] text-base-content/60">Packets</div>
-                        <div class="font-mono text-sm">{format_netflow_number(netflow_packets(@flow))}</div>
+                        <div class="font-mono text-sm">
+                          {format_netflow_number(netflow_packets(@flow))}
+                        </div>
                       </div>
                       <div>
                         <div class="text-[10px] text-base-content/60">Bytes</div>
-                        <div class="font-mono text-sm">{format_netflow_bytes(netflow_bytes(@flow))}</div>
+                        <div class="font-mono text-sm">
+                          {format_netflow_bytes(netflow_bytes(@flow))}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -4695,7 +4701,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     raw mask: <span class="font-mono">{@tcp_flags_raw}</span>
                   </div>
                 </div>
-
               </div>
             </div>
           </.ui_panel>
