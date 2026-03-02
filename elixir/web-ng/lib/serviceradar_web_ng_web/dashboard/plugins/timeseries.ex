@@ -682,14 +682,15 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp series_color(index) do
-    # Nocturne cyber accent palette
+    # United Blue palette — blues first, then distinguishable accents
     colors = [
-      {"#00E676", "rgba(0,230,118,0.25)"},
-      {"#00D8FF", "rgba(0,216,255,0.25)"},
-      {"#A855F7", "rgba(168,85,247,0.25)"},
-      {"#FF2A7A", "rgba(255,42,122,0.25)"},
-      {"#FF9A00", "rgba(255,154,0,0.25)"},
-      {"#FBBF24", "rgba(251,191,36,0.25)"}
+      {"#3B82F6", "rgba(59,130,246,0.25)"},
+      {"#38BDF8", "rgba(56,189,248,0.25)"},
+      {"#8B5CF6", "rgba(139,92,246,0.25)"},
+      {"#22C55E", "rgba(34,197,94,0.25)"},
+      {"#F59E0B", "rgba(245,158,11,0.25)"},
+      {"#EC4899", "rgba(236,72,153,0.25)"}
+
     ]
 
     Enum.at(colors, rem(index, length(colors)))
