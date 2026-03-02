@@ -23,8 +23,38 @@ type FlowsFromClause = FromClause<FlowsTable>;
 type FlowsQuery<'a> =
     BoxedSelectStatement<'a, <FlowsTable as AsQuery>::SqlType, FlowsFromClause, Pg>;
 
-// Directionality is persisted at ingestion time.
-pub(super) const FLOW_DIRECTION_EXPR: &str = "COALESCE(direction_label, 'unknown')";
+// Directionality derived from configured local CIDRs (fallback to persisted label when unresolved).
+pub(super) const FLOW_DIRECTION_EXPR: &str = r#"CASE
+  WHEN EXISTS (
+    SELECT 1
+    FROM netflow_local_cidrs c
+    WHERE c.enabled
+      AND (c.partition IS NULL OR c.partition = partition)
+      AND (try_inet(NULLIF(src_endpoint_ip, '')) <<= c.cidr)
+  )
+  AND EXISTS (
+    SELECT 1
+    FROM netflow_local_cidrs c
+    WHERE c.enabled
+      AND (c.partition IS NULL OR c.partition = partition)
+      AND (try_inet(NULLIF(dst_endpoint_ip, '')) <<= c.cidr)
+  ) THEN 'bidirectional'
+  WHEN EXISTS (
+    SELECT 1
+    FROM netflow_local_cidrs c
+    WHERE c.enabled
+      AND (c.partition IS NULL OR c.partition = partition)
+      AND (try_inet(NULLIF(dst_endpoint_ip, '')) <<= c.cidr)
+  ) THEN 'ingress'
+  WHEN EXISTS (
+    SELECT 1
+    FROM netflow_local_cidrs c
+    WHERE c.enabled
+      AND (c.partition IS NULL OR c.partition = partition)
+      AND (try_inet(NULLIF(src_endpoint_ip, '')) <<= c.cidr)
+  ) THEN 'egress'
+  ELSE COALESCE(direction_label, 'unknown')
+END"#;
 
 pub(super) const FLOW_PROTOCOL_GROUP_EXPR: &str =
     "CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END";
@@ -108,6 +138,18 @@ pub(super) const FLOW_IN_IF_SPEED_BPS_GROUP_EXPR: &str =
 
 pub(super) const FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR: &str =
     "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+
+pub(super) const FLOW_TCP_FLAGS_LABEL_EXPR: &str =
+    "COALESCE(array_to_string(tcp_flags_labels, ','), 'Unknown')";
+
+pub(super) const FLOW_DURATION_BUCKET_EXPR: &str = r#"CASE
+  WHEN start_time IS NULL OR end_time IS NULL THEN 'unknown'
+  WHEN EXTRACT(EPOCH FROM (end_time - start_time)) < 1 THEN '<1s'
+  WHEN EXTRACT(EPOCH FROM (end_time - start_time)) < 10 THEN '1-10s'
+  WHEN EXTRACT(EPOCH FROM (end_time - start_time)) < 60 THEN '10-60s'
+  WHEN EXTRACT(EPOCH FROM (end_time - start_time)) < 300 THEN '1-5m'
+  ELSE '>5m'
+END"#;
 
 // Application classification for flows.
 //
@@ -194,6 +236,8 @@ struct FlowRow {
     packets_total: i64,
     bytes_in: i64,
     bytes_out: i64,
+    packets_in: i64,
+    packets_out: i64,
     direction_label: Option<String>,
     direction_source: Option<String>,
     src_hosting_provider: Option<String>,
@@ -758,6 +802,14 @@ fn apply_single_order<'a>(
             OrderDirection::Asc => query.order(bytes_out.asc()),
             OrderDirection::Desc => query.order(bytes_out.desc()),
         },
+        "packets_in" => match direction {
+            OrderDirection::Asc => query.order(packets_in.asc()),
+            OrderDirection::Desc => query.order(packets_in.desc()),
+        },
+        "packets_out" => match direction {
+            OrderDirection::Asc => query.order(packets_out.asc()),
+            OrderDirection::Desc => query.order(packets_out.desc()),
+        },
         _ => query,
     }
 }
@@ -787,6 +839,14 @@ fn apply_secondary_order<'a>(
         "bytes_out" => match direction {
             OrderDirection::Asc => query.then_order_by(bytes_out.asc()),
             OrderDirection::Desc => query.then_order_by(bytes_out.desc()),
+        },
+        "packets_in" => match direction {
+            OrderDirection::Asc => query.then_order_by(packets_in.asc()),
+            OrderDirection::Desc => query.then_order_by(packets_in.desc()),
+        },
+        "packets_out" => match direction {
+            OrderDirection::Asc => query.then_order_by(packets_out.asc()),
+            OrderDirection::Desc => query.then_order_by(packets_out.desc()),
         },
         _ => query,
     }
@@ -831,10 +891,14 @@ impl FlowAggFunc {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FlowAggField {
     Star,
+    SrcEndpointIp,
+    DstEndpointIp,
     BytesTotal,
     PacketsTotal,
     BytesIn,
     BytesOut,
+    PacketsIn,
+    PacketsOut,
     SrcEndpointPort,
     DstEndpointPort,
 }
@@ -843,10 +907,14 @@ impl FlowAggField {
     fn from_str(s: &str) -> Option<Self> {
         match s {
             "*" => Some(Self::Star),
+            "src_endpoint_ip" | "src_ip" => Some(Self::SrcEndpointIp),
+            "dst_endpoint_ip" | "dst_ip" => Some(Self::DstEndpointIp),
             "bytes_total" => Some(Self::BytesTotal),
             "packets_total" => Some(Self::PacketsTotal),
             "bytes_in" => Some(Self::BytesIn),
             "bytes_out" => Some(Self::BytesOut),
+            "packets_in" => Some(Self::PacketsIn),
+            "packets_out" => Some(Self::PacketsOut),
             "src_endpoint_port" | "src_port" => Some(Self::SrcEndpointPort),
             "dst_endpoint_port" | "dst_port" => Some(Self::DstEndpointPort),
             _ => None,
@@ -856,10 +924,14 @@ impl FlowAggField {
     fn sql(&self) -> &'static str {
         match self {
             Self::Star => "*",
+            Self::SrcEndpointIp => "src_endpoint_ip",
+            Self::DstEndpointIp => "dst_endpoint_ip",
             Self::BytesTotal => "bytes_total",
             Self::PacketsTotal => "packets_total",
             Self::BytesIn => "bytes_in",
             Self::BytesOut => "bytes_out",
+            Self::PacketsIn => "packets_in",
+            Self::PacketsOut => "packets_out",
             Self::SrcEndpointPort => "src_endpoint_port",
             Self::DstEndpointPort => "dst_endpoint_port",
         }
@@ -886,6 +958,8 @@ enum FlowGroupField {
     App,
     SrcCountryIso2,
     DstCountryIso2,
+    TcpFlagsLabel,
+    DurationBucket,
 }
 
 impl FlowGroupField {
@@ -909,6 +983,8 @@ impl FlowGroupField {
             "app" => Some(Self::App),
             "src_country_iso2" | "src_country" => Some(Self::SrcCountryIso2),
             "dst_country_iso2" | "dst_country" => Some(Self::DstCountryIso2),
+            "tcp_flags_label" | "tcp_flag" => Some(Self::TcpFlagsLabel),
+            "duration_bucket" | "duration" => Some(Self::DurationBucket),
             _ => None,
         }
     }
@@ -933,6 +1009,8 @@ impl FlowGroupField {
             Self::App => "app",
             Self::SrcCountryIso2 => "src_country_iso2",
             Self::DstCountryIso2 => "dst_country_iso2",
+            Self::TcpFlagsLabel => "tcp_flags_label",
+            Self::DurationBucket => "duration_bucket",
         }
     }
 
@@ -956,6 +1034,8 @@ impl FlowGroupField {
             Self::App => FLOW_APP_EXPR,
             Self::SrcCountryIso2 => "COALESCE(src_geo.country_iso2, 'Unknown')",
             Self::DstCountryIso2 => "COALESCE(dst_geo.country_iso2, 'Unknown')",
+            Self::TcpFlagsLabel => FLOW_TCP_FLAGS_LABEL_EXPR,
+            Self::DurationBucket => FLOW_DURATION_BUCKET_EXPR,
         }
     }
 }
@@ -1020,10 +1100,15 @@ impl FlowGroupSpec {
 
 #[derive(Debug, Clone)]
 struct FlowStatsSpec {
+    aggregations: Vec<FlowAggregationSpec>,
+    group_by: Vec<FlowGroupSpec>,
+}
+
+#[derive(Debug, Clone)]
+struct FlowAggregationSpec {
     agg_func: FlowAggFunc,
     agg_field: FlowAggField,
     alias: String,
-    group_by: Vec<FlowGroupSpec>,
 }
 
 #[derive(Debug, Clone)]
@@ -1129,29 +1214,90 @@ fn to_sql_and_params_stats(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)>
 }
 
 fn parse_stats_expr(expr: &str) -> Result<FlowStatsSpec> {
-    // Parse: "sum(bytes_total) as total_bytes by src_endpoint_ip"
-    let parts: Vec<&str> = expr.split_whitespace().collect();
-
-    if parts.len() < 3 {
+    // Parse: "sum(bytes_total) as total_bytes, sum(packets_total) as packets_total by src_endpoint_ip"
+    let trimmed = expr.trim();
+    if trimmed.is_empty() {
         return Err(ServiceError::InvalidRequest(
             "stats expression must be like: sum(bytes_total) as total_bytes".into(),
         ));
     }
 
-    let func_part = parts[0];
-    let (func, field) = if let Some(open) = func_part.find('(') {
-        if let Some(close) = func_part.find(')') {
-            (&func_part[..open], &func_part[open + 1..close])
-        } else {
-            return Err(ServiceError::InvalidRequest(
-                "invalid stats expression".into(),
-            ));
-        }
+    let lower = trimmed.to_lowercase();
+    let (agg_part, group_part) = if let Some(idx) = lower.find(" by ") {
+        (&trimmed[..idx], Some(trimmed[idx + 4..].trim()))
     } else {
-        return Err(ServiceError::InvalidRequest(
-            "invalid stats expression".into(),
-        ));
+        (trimmed, None)
     };
+
+    let mut aggregations: Vec<FlowAggregationSpec> = Vec::new();
+    for segment in agg_part
+        .split(',')
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+    {
+        aggregations.push(parse_single_stats_aggregation(segment)?);
+    }
+
+    if aggregations.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "stats expression must include at least one aggregation".into(),
+        ));
+    }
+
+    // Group-by may include multiple keys separated by commas. We intentionally allow
+    // spaces after commas by consuming the remainder of the expression after "by".
+    let group_by: Vec<FlowGroupSpec> = if let Some(raw) = group_part {
+        let tokens: Vec<&str> = raw
+            .split(',')
+            .map(|t| t.trim())
+            .filter(|t| !t.is_empty())
+            .collect();
+
+        let mut out: Vec<FlowGroupSpec> = Vec::with_capacity(tokens.len());
+        for token in tokens {
+            out.push(FlowGroupSpec::parse(token)?);
+        }
+        out
+    } else {
+        Vec::new()
+    };
+
+    Ok(FlowStatsSpec {
+        aggregations,
+        group_by,
+    })
+}
+
+fn parse_single_stats_aggregation(segment: &str) -> Result<FlowAggregationSpec> {
+    let segment = segment.trim();
+    let segment_lower = segment.to_lowercase();
+    let as_idx = segment_lower.find(" as ").ok_or_else(|| {
+        ServiceError::InvalidRequest("stats expression must include 'as <alias>'".into())
+    })?;
+
+    let func_part = segment[..as_idx].trim();
+    let alias = segment[as_idx + 4..].trim();
+
+    if alias.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "stats expression missing alias after 'as'".into(),
+        ));
+    }
+
+    let open = func_part.find('(').ok_or_else(|| {
+        ServiceError::InvalidRequest("invalid stats aggregation expression".into())
+    })?;
+    let close = func_part.rfind(')').ok_or_else(|| {
+        ServiceError::InvalidRequest("invalid stats aggregation expression".into())
+    })?;
+    if close <= open {
+        return Err(ServiceError::InvalidRequest(
+            "invalid stats aggregation expression".into(),
+        ));
+    }
+
+    let func = func_part[..open].trim();
+    let field = func_part[open + 1..close].trim();
 
     let agg_func = FlowAggFunc::from_str(func).ok_or_else(|| {
         ServiceError::InvalidRequest(format!("unsupported aggregation function '{func}'"))
@@ -1179,48 +1325,118 @@ fn parse_stats_expr(expr: &str) -> Result<FlowStatsSpec> {
         ));
     }
 
-    let alias_idx = parts.iter().position(|&p| p == "as").ok_or_else(|| {
-        ServiceError::InvalidRequest("stats expression must include 'as <alias>'".into())
-    })?;
-
-    let alias = parts
-        .get(alias_idx + 1)
-        .ok_or_else(|| {
-            ServiceError::InvalidRequest("stats expression missing alias after 'as'".into())
-        })?
-        .to_string();
-
-    // Group-by may include multiple keys separated by commas. We intentionally allow
-    // spaces after commas by consuming the remainder of the expression after "by".
-    let group_by: Vec<FlowGroupSpec> = if let Some(by_idx) = parts.iter().position(|&p| p == "by") {
-        let raw = parts
-            .get(by_idx + 1..)
-            .ok_or_else(|| {
-                ServiceError::InvalidRequest("stats expression missing group-by".into())
-            })?
-            .join(" ");
-
-        let tokens: Vec<&str> = raw
-            .split(',')
-            .map(|t| t.trim())
-            .filter(|t| !t.is_empty())
-            .collect();
-
-        let mut out: Vec<FlowGroupSpec> = Vec::with_capacity(tokens.len());
-        for token in tokens {
-            out.push(FlowGroupSpec::parse(token)?);
-        }
-        out
-    } else {
-        Vec::new()
-    };
-
-    Ok(FlowStatsSpec {
+    Ok(FlowAggregationSpec {
         agg_func,
         agg_field,
-        alias,
-        group_by,
+        alias: alias.to_string(),
     })
+}
+
+/// Minimum time range (hours) before we consider routing flow stats to a CAGG.
+const FLOW_CAGG_ROUTING_THRESHOLD_HOURS: i64 = 6;
+
+/// Returns the filter field names that can safely be applied against a given CAGG table.
+/// Only direct dimension-column filters are allowed — expression-based filters (subqueries,
+/// CASE expressions, geo joins) reference raw-table-only structures and must fall back.
+fn cagg_filter_fields(table: &str) -> &'static [&'static str] {
+    match table {
+        "ocsf_network_activity_hourly_talkers" => &["src_endpoint_ip", "src_ip"],
+        "ocsf_network_activity_hourly_listeners" => &["dst_endpoint_ip", "dst_ip"],
+        "ocsf_network_activity_hourly_proto" => &["protocol_num", "proto"],
+        "ocsf_network_activity_hourly_ports" => &["dst_endpoint_port", "dst_port"],
+        "ocsf_network_activity_hourly_conversations" => {
+            &["src_endpoint_ip", "src_ip", "dst_endpoint_ip", "dst_ip"]
+        }
+        // Traffic CAGGs (5m, 1h, 1d) have no dimension columns
+        _ => &[],
+    }
+}
+
+/// Returns `Some((cagg_table, ts_col))` when a flow stats query can be served
+/// entirely from a pre-aggregated continuous aggregate.
+fn should_route_flow_stats_to_cagg(
+    plan: &QueryPlan,
+    spec: &FlowStatsSpec,
+) -> Option<(&'static str, &'static str)> {
+    // CAGG routing currently supports only one aggregate expression.
+    let agg = match spec.aggregations.as_slice() {
+        [agg] => agg,
+        _ => return None,
+    };
+
+    // 1. Must have a time range >= threshold
+    let time_range = plan.time_range.as_ref()?;
+    let span = time_range.end.signed_duration_since(time_range.start);
+    if span < chrono::Duration::hours(FLOW_CAGG_ROUTING_THRESHOLD_HOURS) {
+        return None;
+    }
+
+    // 2. Agg field must exist in CAGGs
+    if !matches!(
+        agg.agg_field,
+        FlowAggField::BytesTotal | FlowAggField::PacketsTotal | FlowAggField::Star
+    ) {
+        return None;
+    }
+
+    // 3. Agg function must be Sum or Count (CAGGs store SUMs, not raw values)
+    if !matches!(agg.agg_func, FlowAggFunc::Sum | FlowAggFunc::Count) {
+        return None;
+    }
+
+    // 3b. Only count(*) can be safely rewritten to CAGGs (SUM(flow_count));
+    // count(field) would count pre-aggregated rows/buckets, not underlying flows.
+    if matches!(agg.agg_func, FlowAggFunc::Count) && !matches!(agg.agg_field, FlowAggField::Star) {
+        return None;
+    }
+
+    // 3c. sum(*) is not valid
+    if matches!(agg.agg_field, FlowAggField::Star) && matches!(agg.agg_func, FlowAggFunc::Sum) {
+        return None;
+    }
+
+    // 4. Group-by fields must match an available CAGG dimension
+    let is_long_window = span >= chrono::Duration::hours(24);
+
+    let table: &'static str = match spec.group_by.as_slice() {
+        [] => {
+            if is_long_window {
+                "flow_traffic_1h"
+            } else {
+                "ocsf_network_activity_5m_traffic"
+            }
+        }
+        [FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp)] => {
+            "ocsf_network_activity_hourly_talkers"
+        }
+        [FlowGroupSpec::Field(FlowGroupField::DstEndpointIp)] => {
+            "ocsf_network_activity_hourly_listeners"
+        }
+        [FlowGroupSpec::Field(FlowGroupField::ProtocolNum)] => "ocsf_network_activity_hourly_proto",
+        [FlowGroupSpec::Field(FlowGroupField::DstEndpointPort)] => {
+            "ocsf_network_activity_hourly_ports"
+        }
+        [FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp), FlowGroupSpec::Field(FlowGroupField::DstEndpointIp)]
+        | [FlowGroupSpec::Field(FlowGroupField::DstEndpointIp), FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp)] => {
+            "ocsf_network_activity_hourly_conversations"
+        }
+        _ => return None, // Unsupported group-by combination
+    };
+
+    // 5. All filters must target columns that exist in the selected CAGG.
+    // Only simple dimension-column filters are safe; expression-based filters
+    // (device_id, exporter_name, app, geo, CIDR, etc.) reference raw-table-only
+    // columns/subqueries and would produce wrong results or SQL errors.
+    let allowed_filters = cagg_filter_fields(table);
+    if !plan
+        .filters
+        .iter()
+        .all(|f| allowed_filters.contains(&f.field.as_str()))
+    {
+        return None;
+    }
+
+    Some((table, "bucket"))
 }
 
 fn build_grouped_stats_query(
@@ -1246,10 +1462,7 @@ fn build_grouped_stats_query(
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
         // ocsf_network_activity.time is a timestamp without timezone storing UTC; normalize the bind.
-        where_parts.push(
-            "f.time >= (?::timestamptz AT TIME ZONE 'UTC') AND f.time <= (?::timestamptz AT TIME ZONE 'UTC')"
-                .to_string(),
-        );
+        where_parts.push("f.time >= ?::timestamptz AND f.time < ?::timestamptz".to_string());
         binds.push(FlowSqlBindValue::Timestamp(*start));
         binds.push(FlowSqlBindValue::Timestamp(*end));
     }
@@ -1280,7 +1493,7 @@ fn build_grouped_stats_query(
         where_parts.push(build_stats_filter_clause(filter, &mut binds)?);
     }
 
-    let where_sql = if where_parts.is_empty() {
+    let mut where_sql = if where_parts.is_empty() {
         String::new()
     } else {
         format!(" WHERE {}", where_parts.join(" AND "))
@@ -1298,16 +1511,61 @@ fn build_grouped_stats_query(
         );
     }
 
-    let agg_sql = if matches!(spec.agg_func, FlowAggFunc::CountDistinct) {
-        if matches!(spec.agg_field, FlowAggField::Star) {
-            return Err(ServiceError::InvalidRequest(
-                "count_distinct(*) is not supported".into(),
-            ));
-        }
-        format!("COUNT(DISTINCT {})", spec.agg_field.sql())
+    // Check if this query can be served from a CAGG
+    let cagg_route = should_route_flow_stats_to_cagg(plan, spec);
+
+    let (from_table, time_col) = if let Some((cagg_table, ts_col)) = cagg_route {
+        (cagg_table, ts_col)
     } else {
-        format!("{}({})", spec.agg_func.sql(), spec.agg_field.sql())
+        ("ocsf_network_activity", "time")
     };
+
+    // For CAGG-routed queries, rewrite time predicates to use the bucket column
+    // and re-add only the dimension-safe filters validated by should_route_flow_stats_to_cagg.
+    if cagg_route.is_some() {
+        where_parts.clear();
+        binds.clear();
+        if let Some(TimeRange { start, end }) = &plan.time_range {
+            where_parts.push(format!(
+                "f.{time_col} >= ?::timestamptz AND f.{time_col} < ?::timestamptz"
+            ));
+            binds.push(FlowSqlBindValue::Timestamp(*start));
+            binds.push(FlowSqlBindValue::Timestamp(*end));
+        }
+        // Re-add dimension filters (safe columns validated by cagg_filter_fields)
+        for filter in &plan.filters {
+            where_parts.push(build_stats_filter_clause(filter, &mut binds)?);
+        }
+        where_sql = if where_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", where_parts.join(" AND "))
+        };
+        // No geo joins for CAGG queries
+        join_sql = String::new();
+    }
+
+    let agg_sqls: Vec<String> = spec
+        .aggregations
+        .iter()
+        .map(|agg| {
+            if cagg_route.is_some()
+                && matches!(agg.agg_func, FlowAggFunc::Count)
+                && matches!(agg.agg_field, FlowAggField::Star)
+            {
+                Ok("SUM(flow_count)".to_string())
+            } else if matches!(agg.agg_func, FlowAggFunc::CountDistinct) {
+                if matches!(agg.agg_field, FlowAggField::Star) {
+                    return Err(ServiceError::InvalidRequest(
+                        "count_distinct(*) is not supported".into(),
+                    ));
+                }
+                Ok(format!("COUNT(DISTINCT {})", agg.agg_field.sql()))
+            } else {
+                Ok(format!("{}({})", agg.agg_func.sql(), agg.agg_field.sql()))
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     let outer_sql = if !spec.group_by.is_empty() {
         let mut seen: std::collections::HashSet<&'static str> = std::collections::HashSet::new();
@@ -1333,20 +1591,34 @@ fn build_grouped_stats_query(
             .join(", ");
 
         let group_by_sql = group_exprs.join(", ");
+        let select_aggs = agg_sqls
+            .iter()
+            .enumerate()
+            .map(|(idx, expr)| format!("{expr} AS agg_value_{idx}"))
+            .collect::<Vec<_>>()
+            .join(", ");
 
         let inner = format!(
-            "SELECT {select_groups}, {agg_sql} AS agg_value FROM ocsf_network_activity f{join_sql}{where_sql} GROUP BY {group_by_sql}"
+            "SELECT {select_groups}, {select_aggs} FROM {from_table} f{join_sql}{where_sql} GROUP BY {group_by_sql}"
         );
 
-        let order_sql = build_stats_order_sql(plan, &group_keys, Some(&spec.alias))?;
+        let agg_aliases: Vec<&str> = spec
+            .aggregations
+            .iter()
+            .map(|aggregation| aggregation.alias.as_str())
+            .collect();
+        let order_sql = build_stats_order_sql(plan, &group_keys, &agg_aliases)?;
 
-        let mut json_parts: Vec<String> = Vec::with_capacity(group_keys.len() * 2 + 2);
+        let mut json_parts: Vec<String> =
+            Vec::with_capacity(group_keys.len() * 2 + spec.aggregations.len() * 2);
         for (idx, key) in group_keys.iter().enumerate() {
             json_parts.push(format!("'{key}'"));
             json_parts.push(format!("group_value_{idx}"));
         }
-        json_parts.push(format!("'{}'", spec.alias));
-        json_parts.push("agg_value".to_string());
+        for (idx, agg) in spec.aggregations.iter().enumerate() {
+            json_parts.push(format!("'{}'", agg.alias));
+            json_parts.push(format!("agg_value_{idx}"));
+        }
 
         format!(
             "SELECT jsonb_build_object({json_args}) AS result FROM ({inner}) t{order_sql} LIMIT {limit} OFFSET {offset}",
@@ -1357,12 +1629,23 @@ fn build_grouped_stats_query(
             offset = plan.offset
         )
     } else {
-        let inner = format!(
-            "SELECT {agg_sql} AS agg_value FROM ocsf_network_activity f{join_sql}{where_sql}"
-        );
+        let select_aggs = agg_sqls
+            .iter()
+            .enumerate()
+            .map(|(idx, expr)| format!("{expr} AS agg_value_{idx}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let inner = format!("SELECT {select_aggs} FROM {from_table} f{join_sql}{where_sql}");
+        let json_parts = spec
+            .aggregations
+            .iter()
+            .enumerate()
+            .flat_map(|(idx, agg)| [format!("'{}'", agg.alias), format!("agg_value_{idx}")])
+            .collect::<Vec<_>>()
+            .join(", ");
         format!(
-            "SELECT jsonb_build_object('{alias}', agg_value) AS result FROM ({inner}) t LIMIT 1",
-            alias = spec.alias,
+            "SELECT jsonb_build_object({json_parts}) AS result FROM ({inner}) t LIMIT 1",
+            json_parts = json_parts,
             inner = inner
         )
     };
@@ -1376,12 +1659,12 @@ fn build_grouped_stats_query(
 fn build_stats_order_sql(
     plan: &QueryPlan,
     group_keys: &[&str],
-    agg_alias: Option<&str>,
+    agg_aliases: &[&str],
 ) -> Result<String> {
     if plan.order.is_empty() {
         // Default ordering for grouped stats: highest first.
         return Ok(if !group_keys.is_empty() {
-            " ORDER BY agg_value DESC".to_string()
+            " ORDER BY agg_value_0 DESC".to_string()
         } else {
             String::new()
         });
@@ -1389,8 +1672,8 @@ fn build_stats_order_sql(
 
     let mut parts: Vec<String> = Vec::new();
     for clause in &plan.order {
-        let expr = if agg_alias.is_some_and(|a| clause.field == a) {
-            "agg_value".to_string()
+        let expr = if let Some(idx) = agg_aliases.iter().position(|a| clause.field == *a) {
+            format!("agg_value_{idx}")
         } else if let Some(idx) = group_keys.iter().position(|k| *k == clause.field) {
             format!("group_value_{idx}")
         } else {
@@ -1739,9 +2022,10 @@ mod tests {
     fn test_parse_stats_expr() {
         let expr = "sum(bytes_total) as total_bytes by src_endpoint_ip";
         let spec = parse_stats_expr(expr).unwrap();
-        assert_eq!(spec.agg_func, FlowAggFunc::Sum);
-        assert_eq!(spec.agg_field, FlowAggField::BytesTotal);
-        assert_eq!(spec.alias, "total_bytes");
+        assert_eq!(spec.aggregations.len(), 1);
+        assert_eq!(spec.aggregations[0].agg_func, FlowAggFunc::Sum);
+        assert_eq!(spec.aggregations[0].agg_field, FlowAggField::BytesTotal);
+        assert_eq!(spec.aggregations[0].alias, "total_bytes");
         assert_eq!(spec.group_by.len(), 1);
         assert_eq!(
             spec.group_by[0],
@@ -1753,9 +2037,10 @@ mod tests {
     fn test_parse_stats_expr_no_groupby() {
         let expr = "count(*) as total_flows";
         let spec = parse_stats_expr(expr).unwrap();
-        assert_eq!(spec.agg_func, FlowAggFunc::Count);
-        assert_eq!(spec.agg_field, FlowAggField::Star);
-        assert_eq!(spec.alias, "total_flows");
+        assert_eq!(spec.aggregations.len(), 1);
+        assert_eq!(spec.aggregations[0].agg_func, FlowAggFunc::Count);
+        assert_eq!(spec.aggregations[0].agg_field, FlowAggField::Star);
+        assert_eq!(spec.aggregations[0].alias, "total_flows");
         assert!(spec.group_by.is_empty());
     }
 
@@ -1866,14 +2151,29 @@ mod tests {
     fn parse_stats_expr_supports_count_distinct() {
         let expr = "count_distinct(dst_endpoint_port) as unique_ports by src_endpoint_ip";
         let spec = parse_stats_expr(expr).unwrap();
-        assert_eq!(spec.agg_func, FlowAggFunc::CountDistinct);
-        assert_eq!(spec.agg_field, FlowAggField::DstEndpointPort);
-        assert_eq!(spec.alias, "unique_ports");
+        assert_eq!(spec.aggregations.len(), 1);
+        assert_eq!(spec.aggregations[0].agg_func, FlowAggFunc::CountDistinct);
+        assert_eq!(
+            spec.aggregations[0].agg_field,
+            FlowAggField::DstEndpointPort
+        );
+        assert_eq!(spec.aggregations[0].alias, "unique_ports");
         assert_eq!(spec.group_by.len(), 1);
         assert_eq!(
             spec.group_by[0],
             FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp)
         );
+    }
+
+    #[test]
+    fn parse_stats_expr_supports_count_distinct_src_ip() {
+        let expr = "count_distinct(src_endpoint_ip) as unique_talkers";
+        let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(spec.aggregations.len(), 1);
+        assert_eq!(spec.aggregations[0].agg_func, FlowAggFunc::CountDistinct);
+        assert_eq!(spec.aggregations[0].agg_field, FlowAggField::SrcEndpointIp);
+        assert_eq!(spec.aggregations[0].alias, "unique_talkers");
+        assert!(spec.group_by.is_empty());
     }
 
     #[test]
@@ -1961,10 +2261,55 @@ mod tests {
             "should include proto filter with binds"
         );
         assert!(
-            sql.contains("ORDER BY agg_value DESC") || sql.contains("ORDER BY agg_value DESC"),
-            "should order by agg_value, not JSON alias"
+            sql.contains("ORDER BY agg_value_0 DESC"),
+            "should order by first aggregate expression, not JSON alias"
         );
         assert_eq!(params.len(), 4, "expected time + 2 filter binds");
+    }
+
+    #[test]
+    fn parse_stats_expr_supports_multiple_aggregations() {
+        let expr =
+            "sum(bytes_total) as bytes_total, sum(packets_total) as packets_total by src_endpoint_ip";
+        let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(spec.aggregations.len(), 2);
+        assert_eq!(spec.aggregations[0].alias, "bytes_total");
+        assert_eq!(spec.aggregations[1].alias, "packets_total");
+        assert_eq!(spec.group_by.len(), 1);
+    }
+
+    #[test]
+    fn translate_grouped_stats_supports_sorting_by_secondary_aggregation_alias() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: vec![OrderClause {
+                field: "packets_total".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as bytes_total, sum(packets_total) as packets_total by src_endpoint_ip",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+        assert!(
+            sql.contains("agg_value_0") && sql.contains("agg_value_1"),
+            "expected SQL to include two aggregate columns, got: {sql}"
+        );
+        assert!(
+            sql.contains("ORDER BY agg_value_1 DESC"),
+            "expected order by packets_total alias mapped to agg_value_1, got: {sql}"
+        );
     }
 
     #[test]

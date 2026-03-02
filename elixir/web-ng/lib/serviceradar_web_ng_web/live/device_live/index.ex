@@ -2059,10 +2059,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp sysmon_profile_label(_), do: nil
 
-  defp tone_stroke("error"), do: "#FF2A7A"
-  defp tone_stroke("warning"), do: "#FF9A00"
-  defp tone_stroke("success"), do: "#00E676"
-  defp tone_stroke(_), do: "#52525B"
+  defp tone_stroke("error"), do: "#EF4444"
+  defp tone_stroke("warning"), do: "#F59E0B"
+  defp tone_stroke("success"), do: "#22C55E"
+  defp tone_stroke(_), do: "#64748B"
 
   defp format_ms(value) when is_float(value) do
     :erlang.float_to_binary(value, decimals: 1) <> "ms"

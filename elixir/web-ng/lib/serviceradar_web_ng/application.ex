@@ -50,7 +50,8 @@ defmodule ServiceRadarWebNG.Application do
     auth_children = [
       ServiceRadarWebNGWeb.Auth.ConfigCache,
       ServiceRadarWebNGWeb.Auth.RateLimiter,
-      ServiceRadarWebNGWeb.Auth.TokenRevocation
+      ServiceRadarWebNGWeb.Auth.TokenRevocation,
+      {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}
     ]
 
     endpoint_children = [

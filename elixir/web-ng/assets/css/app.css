@@ -24,40 +24,29 @@
   color: #1e293b;
 }
 
-/* Nocturne palette — cyber accent colors & glow shadows available in both themes */
-@theme {
-  --color-cyber-cyan: #00D8FF;
-  --color-cyber-cyanglow: rgba(0, 216, 255, 0.15);
-  --color-cyber-magenta: #FF2A7A;
-  --color-cyber-amber: #FF9A00;
-  --color-cyber-green: #00E676;
-  --shadow-cyan-glow: 0 0 10px rgba(0, 216, 255, 0.3);
-  --shadow-magenta-glow: 0 0 10px rgba(255, 42, 122, 0.3);
-}
-
-/* Nocturne Light — zinc-scale backgrounds, deeper accents for WCAG contrast */
+/* United Blue Light — clean white with blue accents */
 :root, [data-theme="light"] {
   color-scheme: light;
-  --color-base-100: #FAFAFA;
-  --color-base-200: #F4F4F5;
-  --color-base-300: #E4E4E7;
-  --color-base-content: #09090B;
-  --color-primary: #0891B2;
-  --color-primary-content: #F4F4F5;
-  --color-secondary: #DB2777;
-  --color-secondary-content: #F4F4F5;
-  --color-accent: #D97706;
-  --color-accent-content: #F4F4F5;
-  --color-neutral: #D4D4D8;
-  --color-neutral-content: #27272A;
-  --color-info: #0891B2;
-  --color-info-content: #F4F4F5;
-  --color-success: #059669;
-  --color-success-content: #F4F4F5;
+  --color-base-100: #FFFFFF;
+  --color-base-200: #F8FAFC;
+  --color-base-300: #E2E8F0;
+  --color-base-content: #0F172A;
+  --color-primary: #2563EB;
+  --color-primary-content: #EFF6FF;
+  --color-secondary: #3B82F6;
+  --color-secondary-content: #EFF6FF;
+  --color-accent: #0284C7;
+  --color-accent-content: #F0F9FF;
+  --color-neutral: #CBD5E1;
+  --color-neutral-content: #1E293B;
+  --color-info: #0284C7;
+  --color-info-content: #F0F9FF;
+  --color-success: #16A34A;
+  --color-success-content: #F0FDF4;
   --color-warning: #D97706;
-  --color-warning-content: #F4F4F5;
-  --color-error: #DB2777;
-  --color-error-content: #F4F4F5;
+  --color-warning-content: #FFFBEB;
+  --color-error: #DC2626;
+  --color-error-content: #FEF2F2;
   --radius-selector: 0.25rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -68,29 +57,29 @@
   --noise: 0;
 }
 
-/* Nocturne Dark — near-black void backgrounds, neon cyber accents */
+/* United Blue Dark — slate backgrounds with bright blue accents */
 [data-theme="dark"] {
   color-scheme: dark;
-  --color-base-100: #131316;
-  --color-base-200: #0E0E11;
-  --color-base-300: #09090B;
-  --color-base-content: #F4F4F5;
-  --color-primary: #00D8FF;
-  --color-primary-content: #09090B;
-  --color-secondary: #FF2A7A;
-  --color-secondary-content: #09090B;
-  --color-accent: #FF9A00;
-  --color-accent-content: #09090B;
-  --color-neutral: #27272A;
-  --color-neutral-content: #F4F4F5;
-  --color-info: #00D8FF;
-  --color-info-content: #09090B;
-  --color-success: #00E676;
-  --color-success-content: #09090B;
-  --color-warning: #FF9A00;
-  --color-warning-content: #09090B;
-  --color-error: #FF2A7A;
-  --color-error-content: #F4F4F5;
+  --color-base-100: #1E293B;
+  --color-base-200: #0F172A;
+  --color-base-300: #020617;
+  --color-base-content: #F1F5F9;
+  --color-primary: #3B82F6;
+  --color-primary-content: #EFF6FF;
+  --color-secondary: #60A5FA;
+  --color-secondary-content: #1E3A5F;
+  --color-accent: #38BDF8;
+  --color-accent-content: #0C4A6E;
+  --color-neutral: #334155;
+  --color-neutral-content: #F1F5F9;
+  --color-info: #38BDF8;
+  --color-info-content: #0C4A6E;
+  --color-success: #22C55E;
+  --color-success-content: #052E16;
+  --color-warning: #F59E0B;
+  --color-warning-content: #451A03;
+  --color-error: #EF4444;
+  --color-error-content: #FEF2F2;
   --radius-selector: 0.25rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -104,26 +93,26 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --color-base-100: #131316;
-    --color-base-200: #0E0E11;
-    --color-base-300: #09090B;
-    --color-base-content: #F4F4F5;
-    --color-primary: #00D8FF;
-    --color-primary-content: #09090B;
-    --color-secondary: #FF2A7A;
-    --color-secondary-content: #09090B;
-    --color-accent: #FF9A00;
-    --color-accent-content: #09090B;
-    --color-neutral: #27272A;
-    --color-neutral-content: #F4F4F5;
-    --color-info: #00D8FF;
-    --color-info-content: #09090B;
-    --color-success: #00E676;
-    --color-success-content: #09090B;
-    --color-warning: #FF9A00;
-    --color-warning-content: #09090B;
-    --color-error: #FF2A7A;
-    --color-error-content: #F4F4F5;
+    --color-base-100: #1E293B;
+    --color-base-200: #0F172A;
+    --color-base-300: #020617;
+    --color-base-content: #F1F5F9;
+    --color-primary: #3B82F6;
+    --color-primary-content: #EFF6FF;
+    --color-secondary: #60A5FA;
+    --color-secondary-content: #1E3A5F;
+    --color-accent: #38BDF8;
+    --color-accent-content: #0C4A6E;
+    --color-neutral: #334155;
+    --color-neutral-content: #F1F5F9;
+    --color-info: #38BDF8;
+    --color-info-content: #0C4A6E;
+    --color-success: #22C55E;
+    --color-success-content: #052E16;
+    --color-warning: #F59E0B;
+    --color-warning-content: #451A03;
+    --color-error: #EF4444;
+    --color-error-content: #FEF2F2;
     --radius-selector: 0.25rem;
     --radius-field: 0.25rem;
     --radius-box: 0.5rem;
