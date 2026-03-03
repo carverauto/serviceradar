@@ -66,6 +66,12 @@ spec:
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         command: ["/bin/sh", "-c"]
         env:
+        - name: LANG
+          value: "C.UTF-8"
+        - name: LC_ALL
+          value: "C.UTF-8"
+        - name: ELIXIR_ERL_OPTIONS
+          value: "+fnu"
         - name: CLUSTER_ENABLED
           value: "false"
         - name: SERVICERADAR_CORE_REPO_ENABLED
@@ -157,6 +163,10 @@ spec:
         - name: dist
           containerPort: 9100
         env:
+        - name: LANG
+          value: "C.UTF-8"
+        - name: LC_ALL
+          value: "C.UTF-8"
         - name: CLUSTER_ENABLED
           value: "true"
         - name: CLUSTER_STRATEGY

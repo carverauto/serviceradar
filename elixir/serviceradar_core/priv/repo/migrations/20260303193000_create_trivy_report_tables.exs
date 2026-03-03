@@ -69,7 +69,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTrivyReportTables do
       installed_version  TEXT,
       fixed_version      TEXT,
       description        TEXT,
-      references         JSONB       NOT NULL DEFAULT '[]'::jsonb,
+      "references"       JSONB       NOT NULL DEFAULT '[]'::jsonb,
       raw_finding        JSONB       NOT NULL DEFAULT '{}'::jsonb,
       fingerprint        TEXT        NOT NULL,
       created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
