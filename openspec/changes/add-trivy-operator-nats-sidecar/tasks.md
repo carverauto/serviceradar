@@ -25,7 +25,7 @@
 - [x] 4.1 Unit tests: envelope mapping, subject selection, and deterministic ID generation.
 - [x] 4.2 Unit tests: dedupe behavior for repeated informer events.
 - [x] 4.3 Integration test: publish path with NATS test server or container.
-- [ ] 4.4 Manual cluster validation with `kubectl` + `nats` CLI showing live Trivy reports published.
+- [x] 4.4 Manual cluster validation with `kubectl` + `nats` CLI showing live Trivy reports published.
 
 ## 5. Documentation
 

@@ -11,13 +11,12 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 )
 
 var (
 	errNATSConnectionClosed        = errors.New("nats connection is closed")
 	errNATSClientCertKeyPairNeeded = errors.New("NATS_CERTFILE and NATS_KEYFILE must be set together")
-	errNATSJetStreamUnavailable    = errors.New("jetstream publish context is unavailable")
+	errNATSPublisherUnavailable    = errors.New("publisher connection is unavailable")
 	errNATSCAParsingFailed         = errors.New("failed to parse CA certificate")
 )
 
@@ -28,13 +27,10 @@ type Publisher interface {
 	IsConnected() bool
 }
 
-// NATSPublisher publishes messages directly into JetStream.
+// NATSPublisher publishes messages to NATS subjects.
 type NATSPublisher struct {
-	nc *nats.Conn
-	js jetstream.JetStream
-
-	streamName string
-	connected  atomic.Bool
+	nc        *nats.Conn
+	connected atomic.Bool
 }
 
 func NewNATSPublisher(cfg Config) (*NATSPublisher, error) {
@@ -48,16 +44,8 @@ func NewNATSPublisher(cfg Config) (*NATSPublisher, error) {
 		return nil, fmt.Errorf("connect NATS: %w", err)
 	}
 
-	js, err := jetstream.New(nc)
-	if err != nil {
-		nc.Close()
-		return nil, fmt.Errorf("init JetStream client: %w", err)
-	}
-
 	publisher := &NATSPublisher{
-		nc:         nc,
-		js:         js,
-		streamName: cfg.NATSStreamName,
+		nc: nc,
 	}
 	publisher.connected.Store(nc.IsConnected())
 
@@ -65,8 +53,8 @@ func NewNATSPublisher(cfg Config) (*NATSPublisher, error) {
 }
 
 func (p *NATSPublisher) Publish(ctx context.Context, subject string, payload []byte) error {
-	if p == nil || p.nc == nil || p.js == nil {
-		return errNATSJetStreamUnavailable
+	if p == nil || p.nc == nil {
+		return errNATSPublisherUnavailable
 	}
 
 	if p.nc.IsClosed() {
@@ -74,8 +62,13 @@ func (p *NATSPublisher) Publish(ctx context.Context, subject string, payload []b
 		return errNATSConnectionClosed
 	}
 
-	_, err := p.js.Publish(ctx, subject, payload)
-	if err != nil {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	if err := p.nc.Publish(subject, payload); err != nil {
 		p.connected.Store(p.nc.IsConnected())
 		return fmt.Errorf("publish to %s: %w", subject, err)
 	}

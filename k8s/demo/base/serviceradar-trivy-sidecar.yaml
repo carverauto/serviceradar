@@ -60,6 +60,10 @@ spec:
         app: serviceradar-trivy-sidecar
         app.kubernetes.io/part-of: serviceradar
     spec:
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+        runAsGroup: 0
       serviceAccountName: serviceradar-trivy-sidecar
       imagePullSecrets:
       - name: ghcr-io-cred
