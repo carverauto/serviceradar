@@ -380,33 +380,27 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   def on_mount(:require_sudo_mode, _params, session, socket) do
-    case session[@user_token_key] do
-      token when is_binary(token) ->
-        case Guardian.verify_token(token, token_type: "access") do
-          {:ok, user, _claims} ->
-            sudo_at_unix = session[@sudo_at_key]
+    with token when is_binary(token) <- session[@user_token_key],
+         {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "access") do
+      check_sudo_mode(socket, session, user)
+    else
+      _ -> {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/users/log-in")}
+    end
+  end
 
-            if sudo_at_unix &&
-                 ServiceRadarWebNG.Accounts.sudo_mode?(
-                   user,
-                   DateTime.from_unix!(sudo_at_unix)
-                 ) do
-              {:cont, socket}
-            else
-              socket =
-                socket
-                |> Phoenix.LiveView.put_flash(:error, "Confirm password to continue.")
-                |> Phoenix.LiveView.redirect(to: ~p"/settings/profile")
+  defp check_sudo_mode(socket, session, user) do
+    sudo_at_unix = session[@sudo_at_key]
 
-              {:halt, socket}
-            end
+    if sudo_at_unix &&
+         ServiceRadarWebNG.Accounts.sudo_mode?(user, DateTime.from_unix!(sudo_at_unix)) do
+      {:cont, socket}
+    else
+      socket =
+        socket
+        |> Phoenix.LiveView.put_flash(:error, "Confirm password to continue.")
+        |> Phoenix.LiveView.redirect(to: ~p"/settings/profile")
 
-          _ ->
-            {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/users/log-in")}
-        end
-
-      _ ->
-        {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/users/log-in")}
+      {:halt, socket}
     end
   end
 

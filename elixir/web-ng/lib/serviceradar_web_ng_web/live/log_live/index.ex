@@ -2856,24 +2856,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp netflow_stacked_percent_points(points, keys) when is_list(points) and is_list(keys) do
     Enum.map(points, fn
-      %{"t" => _} = point ->
-        total =
-          keys
-          |> Enum.map(fn key -> to_number(Map.get(point, key, 0)) end)
-          |> Enum.sum()
-
-        if total <= 0 do
-          point
-        else
-          Enum.reduce(keys, point, fn key, acc ->
-            pct = to_number(Map.get(point, key, 0)) * 100.0 / total
-            Map.put(acc, key, Float.round(pct, 4))
-          end)
-        end
-
-      other ->
-        other
+      %{"t" => _} = point -> normalize_point_to_percent(point, keys)
+      other -> other
     end)
+  end
+
+  defp normalize_point_to_percent(point, keys) do
+    total =
+      keys
+      |> Enum.map(fn key -> to_number(Map.get(point, key, 0)) end)
+      |> Enum.sum()
+
+    if total <= 0 do
+      point
+    else
+      Enum.reduce(keys, point, fn key, acc ->
+        pct = to_number(Map.get(point, key, 0)) * 100.0 / total
+        Map.put(acc, key, Float.round(pct, 4))
+      end)
+    end
   end
 
   defp netflow_stacked_percent_points(points, _keys), do: points
@@ -7039,30 +7040,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> apply(:query, [query, %{scope: scope}])
       |> extract_stats_rows()
 
-    rows =
-      if talker_cidr in [16, 24] do
-        rows
-        |> Enum.reduce(%{}, fn row, acc ->
-          ip = Map.get(row, "src_endpoint_ip")
-          cidr = ip_to_cidr(ip, talker_cidr)
-          bytes = to_int(Map.get(row, "total_bytes"))
-
-          if is_binary(cidr) and cidr != "" and bytes > 0 do
-            Map.update(acc, cidr, bytes, &(&1 + bytes))
-          else
-            acc
-          end
-        end)
-        |> Enum.map(fn {cidr, bytes} -> %{ip: cidr, bytes: bytes} end)
-      else
-        rows
-        |> Enum.map(fn row ->
-          %{
-            ip: Map.get(row, "src_endpoint_ip"),
-            bytes: to_int(Map.get(row, "total_bytes"))
-          }
-        end)
-      end
+    rows = aggregate_talker_rows(rows, talker_cidr)
 
     rows
     |> Enum.reject(fn row ->
@@ -7074,6 +7052,31 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   rescue
     _ ->
       []
+  end
+
+  defp aggregate_talker_rows(rows, talker_cidr) when talker_cidr in [16, 24] do
+    rows
+    |> Enum.reduce(%{}, fn row, acc ->
+      ip = Map.get(row, "src_endpoint_ip")
+      cidr = ip_to_cidr(ip, talker_cidr)
+      bytes = to_int(Map.get(row, "total_bytes"))
+
+      if is_binary(cidr) and cidr != "" and bytes > 0 do
+        Map.update(acc, cidr, bytes, &(&1 + bytes))
+      else
+        acc
+      end
+    end)
+    |> Enum.map(fn {cidr, bytes} -> %{ip: cidr, bytes: bytes} end)
+  end
+
+  defp aggregate_talker_rows(rows, _talker_cidr) do
+    Enum.map(rows, fn row ->
+      %{
+        ip: Map.get(row, "src_endpoint_ip"),
+        bytes: to_int(Map.get(row, "total_bytes"))
+      }
+    end)
   end
 
   defp load_netflow_top_ports(srql_module, current_query, scope, limit \\ 10) do

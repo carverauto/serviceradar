@@ -241,14 +241,13 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp encode_config_yaml(config) when is_map(config) do
     # Simple but safe YAML encoder for bootstrap config
     config
-    |> Enum.map(fn
+    |> Enum.map_join("\n", fn
       {key, %{} = value} ->
         "#{key}:\n" <> do_encode_yaml_nested(value, 1)
 
       {key, value} ->
         "#{key}: #{encode_yaml_value(value)}"
     end)
-    |> Enum.join("\n")
     |> Kernel.<>("\n")
   end
 

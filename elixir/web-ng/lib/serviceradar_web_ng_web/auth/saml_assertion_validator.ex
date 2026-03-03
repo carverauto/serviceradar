@@ -10,9 +10,8 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLAssertionValidator do
 
   def validate(assertion, config, %DateTime{} = now) when is_map(assertion) and is_map(config) do
     with :ok <- validate_time_window(assertion, now, config),
-         :ok <- validate_issuer(assertion, config),
-         :ok <- validate_targets(assertion, config) do
-      :ok
+         :ok <- validate_issuer(assertion, config) do
+      validate_targets(assertion, config)
     end
   end
 
