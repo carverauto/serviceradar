@@ -118,11 +118,11 @@ build-web-ng: ## Build just the web-ng OCI image with Bazel (remote)
 
 .PHONY: push-web-ng
 push-web-ng: ## Build and push just the web-ng OCI image to GHCR (remote)
-	@./scripts/push_all_images.sh //docker/images:web_ng_image_amd64_push
+	@bazel run --config=remote --stamp //docker/images:web_ng_image_amd64_push
 
 .PHONY: push_all
 push_all: ## Build and push all OCI images to GHCR (CI only, see issue #2517)
-	@./scripts/push_all_images.sh //docker/images:push_all
+	@bazel run --config=remote --stamp //docker/images:push_all
 
 .PHONY: check-dev-image-tags
 check-dev-image-tags: ## Verify dev image tag defaults (latest + APP_TAG fallbacks)
