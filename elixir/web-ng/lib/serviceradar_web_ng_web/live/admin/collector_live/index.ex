@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   Schema context is implicit from the PostgreSQL search_path.
 
   Admin view for:
-  - Creating collector packages (flowgger, trapd, netflow, otel)
+  - Creating collector packages (flowgger, trapd, netflow, otel, falcosidekick)
   - Viewing issued NATS credentials
   - Revoking collector credentials
   """
@@ -26,7 +26,8 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     {"Syslog Collector (Flowgger)", :flowgger},
     {"SNMP Trap Receiver", :trapd},
     {"NetFlow Collector", :netflow},
-    {"OpenTelemetry Collector", :otel}
+    {"OpenTelemetry Collector", :otel},
+    {"Falcosidekick (Falco)", :falcosidekick}
   ]
 
   @impl true
@@ -770,6 +771,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
         :netflow -> {"NetFlow", "accent"}
         :sflow -> {"sFlow", "accent"}
         :otel -> {"OTel", "primary"}
+        :falcosidekick -> {"Falco", "error"}
         _ -> {to_string(type), "ghost"}
       end
 
@@ -976,5 +978,6 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   defp collector_config_filename("otel"), do: "otel.toml"
   defp collector_config_filename("trapd"), do: "trapd.json"
   defp collector_config_filename("netflow"), do: "netflow.json"
+  defp collector_config_filename("falcosidekick"), do: "falcosidekick.yaml"
   defp collector_config_filename(_), do: ""
 end

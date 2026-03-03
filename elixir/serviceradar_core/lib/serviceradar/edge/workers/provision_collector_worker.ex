@@ -211,6 +211,12 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
           subscribe_allow: []
         }
 
+      :falcosidekick ->
+        %{
+          publish_allow: ["events.falco.>"],
+          subscribe_allow: []
+        }
+
       _ ->
         %{
           publish_allow: ["events.>"],

@@ -1,0 +1,17 @@
+--- a/docs/outputs/nats.md
++++ b/docs/outputs/nats.md
+@@ -XXX,6 +XXX,8 @@
+
+ | Setting              | Env var              | Default | Required | Description                                  |
+ |---------------------|----------------------|---------|----------|----------------------------------------------|
++| `nats.credsfile`    | `NATS_CREDSFILE`     |         | No       | Path to `.creds` file (JWT + NKey seed)      |
++| `nats.cacertfile`   | `NATS_CACERTFILE`    |         | No       | Path to PEM CA certificate for TLS           |
+ | `nats.hostport`     | `NATS_HOSTPORT`      |         | Yes      | NATS server URL (e.g. `nats://host:4222`)    |
+ | `nats.subject`      | `NATS_SUBJECT`       |         | Yes      | Subject to publish events to                 |
+
+@@ -XXX,6 +XXX,8 @@
+ nats:
+   hostport: "nats://nats.example.com:4222"
+   subject: "falco.events"
++  credsfile: "/etc/falcosidekick/nats.creds"    # optional: JWT + NKey auth
++  cacertfile: "/etc/falcosidekick/ca-chain.pem"  # optional: custom CA
