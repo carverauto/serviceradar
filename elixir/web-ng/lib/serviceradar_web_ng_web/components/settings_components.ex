@@ -230,7 +230,10 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
     assigns =
       assigns
-      |> assign(:tabs, network_tabs(path, assigns[:current_scope]))
+      |> assign(
+        :tabs,
+        if(network_active?(path), do: network_tabs(path, assigns[:current_scope]), else: [])
+      )
       |> assign(
         :discovery_tabs,
         discovery_tabs(path, assigns[:current_scope])
