@@ -4,50 +4,44 @@
 
 Falco sidekick is publishing runtime detections into JetStream (`falco_events`, subjects like `falco.notice.contact_k8s_api_server_from_container`).
 
-ServiceRadar already runs an Elixir Broadway EventWriter pipeline, but the current routing and parser logic expects `events.*` payloads that are already OCSF-shaped. Falco payloads are currently unhandled and are acknowledged by the default processor without database writes.
+ServiceRadar needs a dual-path posture for Falco:
+
+- Keep raw payloads in `platform.logs` for investigation and replay.
+- Promote only higher-signal priorities to `platform.ocsf_events`.
+- Trigger immediate alerts for the highest severities.
 
 ## Goals / Non-Goals
 
 - Goals:
-  - Consume Falco JetStream subjects through Broadway.
-  - Normalize Falco payloads into OCSF Event Log Activity rows in `platform.ocsf_events`.
-  - Keep ingestion idempotent and resilient to redeliveries or malformed messages.
-  - Preserve enough original Falco context for incident investigation.
+  - Consume Falco JetStream subjects through EventWriter Broadway.
+  - Persist all Falco payloads as raw log records.
+  - Auto-promote warning+ Falco priorities into OCSF events.
+  - Auto-create alerts for critical/fatal promoted events.
+  - Keep ingestion idempotent and resilient to malformed payloads.
 - Non-Goals:
   - Changing Falco publisher format.
   - Introducing new CNPG tables or schema migrations.
-  - Building Falco-specific UI pages (existing Events UI is sufficient for this change).
+  - Building Falco-specific UI pages.
 
 ## Decisions
 
 ### 1. Reuse EventWriter Broadway Instead of New Pipeline
 
-Falco ingestion will be added as another EventWriter stream/subject route instead of building a second Broadway pipeline. This keeps deployment and operations simple and reuses existing NATS, ack, telemetry, and DB write patterns.
+Falco ingestion is implemented as an EventWriter stream/subject route, reusing existing NATS, ack, telemetry, and DB write patterns.
 
-### 2. Add Dedicated Falco Normalization Processor
+### 2. Dedicated Falco Processor Implements Dual Path
 
-Implement a Falco-specific processor module for readability and testability, then persist to `ocsf_events` using the same insert and PubSub/stateful-alert hooks used by Event Log Activity writes.
+`ServiceRadar.EventWriter.Processors.FalcoEvents` handles both storage paths in one batch:
 
-### 3. OCSF Mapping Contract
+1. Parse Falco payload.
+2. Write raw log row into `logs`.
+3. Build OCSF event candidate.
+4. Promote to `ocsf_events` only when severity threshold matches.
+5. Generate priority alerts for critical/fatal promoted events.
 
-Falco payloads map to OCSF Event Log Activity (`class_uid=1008`) with deterministic fields:
+### 3. Priority Mapping Contract
 
-- `id`: `uuid` from Falco payload when valid; deterministic fallback ID when missing.
-- `time`: payload `time` (fallback to Broadway receive timestamp).
-- `class_uid`: `1008`.
-- `category_uid`: `1`.
-- `activity_id`: `3` (`Update`).
-- `type_uid`: `100803`.
-- `activity_name`: `"Update"`.
-- `message`: Falco `output` (fallback to rule/subject).
-- `severity_id` / `severity`: mapped from Falco `priority`.
-- `status_id` / `status`: mapped from Falco `priority` using explicit policy.
-- `log_name`: JetStream subject (for example `falco.notice.*`).
-- `log_provider`: `"falco"`.
-- `metadata` / `unmapped`: include Falco fields (`rule`, `priority`, `source`, `hostname`, `tags`, `output_fields`).
-- `raw_data`: original message JSON.
-
-Priority/status mapping policy:
+Falco `priority` values map deterministically to OCSF severity/status:
 
 | Falco priority (case-insensitive) | OCSF severity_id | OCSF severity      | OCSF status_id | OCSF status |
 |-----------------------------------|------------------|--------------------|----------------|-------------|
@@ -59,37 +53,50 @@ Priority/status mapping policy:
 | `informational`, `info`, `debug`  | `1`              | `Informational`    | `1`            | `Success`   |
 | missing/unrecognized              | `0`              | `Unknown`          | `99`           | `Other`     |
 
-### 4. Subject and Stream Defaults
+### 4. Promotion Threshold Policy
 
-Use default routing values that match issue #2985:
+- **Logs path**: all valid Falco payloads are persisted.
+- **Events path**: only severity `>= 3` (`Warning` and above) is promoted to `ocsf_events`.
+- **Alert path**: only severity `>= 5` (`Critical`, `Alert`, `Emergency`) auto-creates alerts.
+
+### 5. Event and Log Correlation
+
+Promoted OCSF events carry provenance metadata linking back to the raw Falco log row (`source_log_id`) so operators can pivot from event/alert to full payload context.
+
+### 6. Subject and Stream Defaults
+
+Use defaults that match issue #2985:
 
 - stream: `falco_events`
 - subject filter: `falco.>`
 
-Allow overrides through EventWriter configuration for environments that use different naming.
+Allow overrides via EventWriter configuration.
 
-### 5. Failure Handling
+### 7. Failure Handling
 
-Malformed or unsupported Falco messages are acknowledged after being counted/logged, so poison messages do not block the pipeline. This matches current EventWriter behavior and protects ingestion continuity.
+Malformed or unsupported Falco messages are acknowledged after telemetry/logging. Poison messages do not block the pipeline.
 
 ## Risks / Trade-offs
 
-- High Falco volume can increase writes to `ocsf_events`.
-  - Mitigation: keep batch settings configurable and rely on existing idempotent insert behavior.
-- Priority-to-severity mapping may need tuning by operators.
-  - Mitigation: document mapping and keep it centralized for future adjustments.
-- Acknowledge-on-drop can hide bad payloads unless monitored.
-  - Mitigation: add explicit telemetry counters and warning logs for parse failures.
+- Full raw-log persistence increases `platform.logs` write volume.
+  - Mitigation: retain promoted-event thresholding and existing log retention controls.
+- Immediate high-severity alerting can create noise during bursts.
+  - Mitigation: tie alert creation to critical/fatal only, and rely on alert lifecycle controls.
+- Idempotency depends on stable identity/timestamp extraction.
+  - Mitigation: deterministic IDs and stable timestamp fallbacks.
 
 ## Migration Plan
 
 1. Add Falco stream/subject config and processor wiring.
 2. Deploy with EventWriter enabled.
-3. Publish sample Falco events; verify `platform.ocsf_events` writes and UI visibility.
-4. Monitor parse/drop counters and adjust mapping if needed.
+3. Publish sample Falco events; verify:
+   - `logs` receives all payloads
+   - `ocsf_events` receives warning+
+   - alerts are created for critical/fatal
+4. Monitor drop/promote/alert telemetry and tune thresholds if needed.
 
-Rollback: remove Falco stream/subject config entry to stop Falco consumption.
+Rollback: remove the Falco stream entry from EventWriter config.
 
 ## Open Questions
 
-- Should repeated identical Falco events in short windows be aggregated before insert, or left as one-row-per-event?
+- Should `Error` remain auto-promoted by default in all environments, or be deployment-configurable?

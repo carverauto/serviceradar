@@ -6,7 +6,23 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsTest do
 
   describe "table_name/0" do
     test "returns correct table name" do
-      assert FalcoEvents.table_name() == "ocsf_events"
+      assert FalcoEvents.table_name() == "logs"
+    end
+  end
+
+  describe "promotion thresholds" do
+    test "promotes warning and above to events" do
+      assert FalcoEvents.promote_to_event?(3)
+      assert FalcoEvents.promote_to_event?(6)
+      refute FalcoEvents.promote_to_event?(2)
+      refute FalcoEvents.promote_to_event?(1)
+    end
+
+    test "promotes critical and emergency to alerts" do
+      assert FalcoEvents.promote_to_alert?(5)
+      assert FalcoEvents.promote_to_alert?(6)
+      refute FalcoEvents.promote_to_alert?(4)
+      refute FalcoEvents.promote_to_alert?(3)
     end
   end
 

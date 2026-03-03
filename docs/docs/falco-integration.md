@@ -21,7 +21,10 @@ Stream Falco runtime security events into ServiceRadar via NATS JetStream using 
 
 - **Falco** detects suspicious syscalls and k8s audit events on each node.
 - **Falcosidekick** forwards events to NATS (mTLS) and exports OTLP metrics.
-- **ServiceRadar** EventWriter consumes events from `falco.>` and writes normalized OCSF rows to `platform.ocsf_events` for alerting and correlation.
+- **ServiceRadar** EventWriter uses dual-path ingestion:
+  - Writes all Falco payloads to `platform.logs` as raw records.
+  - Auto-promotes `Warning` and higher priorities to `platform.ocsf_events`.
+  - Auto-creates alerts for `Critical` and `Emergency`/`Alert` promoted events.
 
 ## Prerequisites
 
@@ -171,11 +174,25 @@ kubectl -n demo exec deploy/serviceradar-tools -- \
   nats --context serviceradar sub 'falco.>'
 ```
 
-### Verify OCSF Persistence
+### Verify Promoted OCSF Events (Warning+)
 
 ```bash
 kubectl -n demo exec cnpg-1 -- psql -U serviceradar -d serviceradar \
   -c "SELECT time, severity, status, message, log_name FROM ocsf_events WHERE log_provider = 'falco' ORDER BY time DESC LIMIT 20;"
+```
+
+### Verify Raw Log Persistence
+
+```bash
+kubectl -n demo exec cnpg-1 -- psql -U serviceradar -d serviceradar \
+  -c "SELECT timestamp, severity_text, body, source FROM logs WHERE source = 'falco' ORDER BY timestamp DESC LIMIT 20;"
+```
+
+### Verify Alert Escalation (Critical/Fatal)
+
+```bash
+kubectl -n demo exec cnpg-1 -- psql -U serviceradar -d serviceradar \
+  -c "SELECT source_event_id, source, severity, title, state FROM alerts ORDER BY created_at DESC LIMIT 20;"
 ```
 
 ### Trigger a Real Falco Event

@@ -2,8 +2,10 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   @moduledoc """
   Processor for Falco runtime security events published via NATS JetStream.
 
-  Falco payloads are normalized into OCSF Event Log Activity rows and persisted
-  to `ocsf_events` so they participate in the existing Events UI and rule flow.
+  Dual-path behavior:
+  - Persist all Falco payloads into `logs` as raw observability records.
+  - Auto-promote higher-priority Falco payloads into `ocsf_events`.
+  - Auto-create alerts for emergency/critical promoted events.
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
@@ -12,9 +14,12 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
 
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.EventWriter.{FieldParser, OCSF}
-  alias ServiceRadar.Observability.StatefulAlertEngine
+  alias ServiceRadar.Monitoring.AlertGenerator
+  alias ServiceRadar.Observability.{LogPubSub, StatefulAlertEngine}
 
   require Logger
+
+  @fallback_time DateTime.from_unix!(0)
 
   @priority_map %{
     "emergency" => {OCSF.severity_fatal(), OCSF.status_failure()},
@@ -30,40 +35,80 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     "debug" => {OCSF.severity_informational(), OCSF.status_success()}
   }
 
+  @severity_to_otel %{
+    6 => 24,
+    5 => 20,
+    4 => 17,
+    3 => 13,
+    2 => 9,
+    1 => 5,
+    0 => 1
+  }
+
   @impl true
-  def table_name, do: "ocsf_events"
+  def table_name, do: "logs"
+
+  @doc false
+  @spec promote_to_event?(non_neg_integer()) :: boolean()
+  def promote_to_event?(severity_id), do: severity_id >= OCSF.severity_medium()
+
+  @doc false
+  @spec promote_to_alert?(non_neg_integer()) :: boolean()
+  def promote_to_alert?(severity_id), do: severity_id >= OCSF.severity_critical()
 
   @impl true
   def process_batch(messages) do
-    rows =
+    entries =
       messages
-      |> Enum.map(&parse_message/1)
+      |> Enum.map(&parse_entry/1)
       |> Enum.reject(&is_nil/1)
 
-    if Enum.empty?(rows) do
+    if Enum.empty?(entries) do
       {:ok, 0}
     else
-      case ServiceRadar.Repo.insert_all(table_name(), rows,
-             on_conflict: :nothing,
-             returning: false
-           ) do
-        {count, _} ->
-          maybe_evaluate_stateful_rules(rows)
-          EventsPubSub.broadcast_event(%{count: count})
-          {:ok, count}
-      end
+      log_rows = Enum.map(entries, & &1.log_row)
+      log_count = insert_log_rows(log_rows)
+
+      promoted_rows =
+        entries
+        |> Enum.filter(fn entry -> promote_to_event?(entry.severity_id) end)
+        |> Enum.map(& &1.event_row)
+
+      {event_count, inserted_events} = insert_event_rows(promoted_rows)
+      alert_count = maybe_create_priority_alerts(inserted_events)
+
+      maybe_broadcast_logs(log_count)
+      maybe_broadcast_events(event_count)
+      maybe_evaluate_stateful_rules(inserted_events)
+
+      :telemetry.execute(
+        [:serviceradar, :event_writer, :falco, :processed],
+        %{logs_count: log_count, events_count: event_count, alerts_count: alert_count},
+        %{}
+      )
+
+      {:ok, log_count}
     end
   rescue
     e ->
-      Logger.error("Falco events batch insert failed: #{inspect(e)}")
+      Logger.error("Falco events batch processing failed: #{inspect(e)}")
       {:error, e}
   end
 
   @impl true
-  def parse_message(%{data: data, metadata: metadata}) do
-    with {:ok, payload} <- decode_payload(data, metadata),
-         {:ok, row} <- build_row(payload, metadata, data) do
-      row
+  def parse_message(%{data: _data, metadata: _metadata} = message) do
+    case parse_entry(message) do
+      %{event_row: event_row} -> event_row
+      _ -> nil
+    end
+  end
+
+  def parse_message(_), do: nil
+
+  defp parse_entry(%{data: data, metadata: metadata}) do
+    with {:ok, payload} <- decode_payload(data),
+         {:ok, entry} <- build_entry(payload, metadata, data) do
+      entry
     else
       {:error, reason} ->
         emit_drop(reason, metadata[:subject])
@@ -80,9 +125,9 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       nil
   end
 
-  def parse_message(_), do: nil
+  defp parse_entry(_), do: nil
 
-  defp decode_payload(data, _metadata) when is_binary(data) do
+  defp decode_payload(data) when is_binary(data) do
     case Jason.decode(data) do
       {:ok, payload} when is_map(payload) -> {:ok, payload}
       {:ok, _payload} -> {:error, :payload_not_map}
@@ -90,49 +135,255 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     end
   end
 
-  defp decode_payload(_data, _metadata), do: {:error, :invalid_payload}
+  defp decode_payload(_), do: {:error, :invalid_payload}
 
-  defp build_row(payload, metadata, raw_data) do
+  defp build_entry(payload, metadata, raw_data) do
     subject = normalize_subject(metadata[:subject])
+    output_fields = normalize_map(payload["output_fields"])
+
+    event_time = parse_event_time(payload["time"], output_fields)
+    event_uuid = resolve_event_id(payload, subject, raw_data)
+    log_uuid = deterministic_uuid("#{event_uuid}:log")
+
     priority = payload["priority"]
     {severity_id, status_id} = severity_status_for_priority(priority)
 
-    event_time = parse_event_time(payload["time"], metadata[:received_at])
-    event_id = resolve_event_id(payload, subject, raw_data)
-    output_fields = normalize_map(payload["output_fields"])
+    message = event_message(payload, subject)
+
+    log_row =
+      build_log_row(
+        log_uuid,
+        payload,
+        subject,
+        output_fields,
+        metadata,
+        event_time,
+        severity_id,
+        message
+      )
+
+    event_row =
+      build_event_row(
+        event_uuid,
+        log_uuid,
+        payload,
+        subject,
+        output_fields,
+        raw_data,
+        event_time,
+        severity_id,
+        status_id,
+        message
+      )
 
     {:ok,
      %{
-       id: Ecto.UUID.dump!(event_id),
-       time: event_time,
-       class_uid: OCSF.class_event_log_activity(),
-       category_uid: OCSF.category_system_activity(),
-       type_uid: OCSF.type_uid(OCSF.class_event_log_activity(), OCSF.activity_log_update()),
-       activity_id: OCSF.activity_log_update(),
-       activity_name: OCSF.log_activity_name(OCSF.activity_log_update()),
-       severity_id: severity_id,
-       severity: OCSF.severity_name(severity_id),
-       message: event_message(payload, subject),
-       status_id: status_id,
-       status: OCSF.status_name(status_id),
-       status_code: nil,
-       status_detail: nil,
-       metadata: build_metadata(payload, subject, output_fields),
-       observables: build_observables(payload, output_fields),
-       trace_id: nil,
-       span_id: nil,
-       actor: build_actor(output_fields),
-       device: build_device(payload, output_fields),
-       src_endpoint: %{},
-       dst_endpoint: %{},
-       log_name: subject,
-       log_provider: "falco",
-       log_level: normalize_string(priority),
-       log_version: "1.0",
-       unmapped: payload,
-       raw_data: normalize_raw_data(raw_data),
-       created_at: DateTime.utc_now()
+       log_row: log_row,
+       event_row: event_row,
+       severity_id: severity_id
      }}
+  end
+
+  defp build_log_row(
+         log_uuid,
+         payload,
+         subject,
+         output_fields,
+         metadata,
+         event_time,
+         severity_id,
+         message
+       ) do
+    priority = normalize_string(payload["priority"])
+
+    attributes =
+      %{
+        "falco" => %{
+          "uuid" => normalize_string(payload["uuid"]),
+          "rule" => normalize_string(payload["rule"]),
+          "priority" => priority,
+          "output" => normalize_string(payload["output"]),
+          "source" => normalize_string(payload["source"]),
+          "tags" => normalize_tags(payload["tags"]),
+          "output_fields" => output_fields
+        }
+      }
+      |> attach_ingest_metadata(metadata, subject)
+
+    resource_attributes =
+      %{}
+      |> maybe_put("host.name", normalize_string(payload["hostname"]))
+      |> maybe_put("k8s.namespace.name", normalize_string(output_fields["k8s.ns.name"]))
+      |> maybe_put("k8s.pod.name", normalize_string(output_fields["k8s.pod.name"]))
+      |> maybe_put("container.id", normalize_string(output_fields["container.id"]))
+      |> maybe_put("container.name", normalize_string(output_fields["container.name"]))
+
+    %{
+      id: Ecto.UUID.dump!(log_uuid),
+      timestamp: event_time,
+      observed_timestamp: observed_timestamp(metadata[:received_at], event_time),
+      trace_id: nil,
+      span_id: nil,
+      trace_flags: nil,
+      severity_text: priority,
+      severity_number: Map.get(@severity_to_otel, severity_id, 1),
+      body: message,
+      event_name: normalize_string(payload["rule"]),
+      source: "falco",
+      service_name: "falco",
+      service_version: nil,
+      service_instance: normalize_string(payload["hostname"]),
+      scope_name: "falcosidekick",
+      scope_version: nil,
+      scope_attributes: %{"subject" => subject},
+      attributes: attributes,
+      resource_attributes: resource_attributes,
+      created_at: DateTime.utc_now()
+    }
+  end
+
+  defp build_event_row(
+         event_uuid,
+         log_uuid,
+         payload,
+         subject,
+         output_fields,
+         raw_data,
+         event_time,
+         severity_id,
+         status_id,
+         message
+       ) do
+    metadata =
+      build_event_metadata(payload, subject, output_fields)
+      |> Map.put("serviceradar", %{
+        "source_log_id" => log_uuid,
+        "promotion" => "falco_priority_auto"
+      })
+
+    %{
+      id: Ecto.UUID.dump!(event_uuid),
+      time: event_time,
+      class_uid: OCSF.class_event_log_activity(),
+      category_uid: OCSF.category_system_activity(),
+      type_uid: OCSF.type_uid(OCSF.class_event_log_activity(), OCSF.activity_log_update()),
+      activity_id: OCSF.activity_log_update(),
+      activity_name: OCSF.log_activity_name(OCSF.activity_log_update()),
+      severity_id: severity_id,
+      severity: OCSF.severity_name(severity_id),
+      message: message,
+      status_id: status_id,
+      status: OCSF.status_name(status_id),
+      status_code: nil,
+      status_detail: nil,
+      metadata: metadata,
+      observables: build_observables(payload, output_fields),
+      trace_id: nil,
+      span_id: nil,
+      actor: build_actor(output_fields),
+      device: build_device(payload, output_fields),
+      src_endpoint: %{},
+      dst_endpoint: %{},
+      log_name: subject,
+      log_provider: "falco",
+      log_level: normalize_string(payload["priority"]),
+      log_version: "1.0",
+      unmapped: payload,
+      raw_data: normalize_raw_data(raw_data),
+      created_at: DateTime.utc_now()
+    }
+  end
+
+  defp insert_log_rows([]), do: 0
+
+  defp insert_log_rows(rows) do
+    rows_for_insert = Enum.map(rows, &encode_text_columns/1)
+
+    case ServiceRadar.Repo.insert_all("logs", rows_for_insert,
+           on_conflict: :nothing,
+           returning: false
+         ) do
+      {count, _} -> count
+    end
+  end
+
+  defp insert_event_rows([]), do: {0, []}
+
+  defp insert_event_rows(rows) do
+    case ServiceRadar.Repo.insert_all("ocsf_events", rows,
+           on_conflict: :nothing,
+           returning: [:id]
+         ) do
+      {count, inserted} ->
+        inserted_ids = MapSet.new(Enum.map(inserted, & &1.id))
+        inserted_rows = Enum.filter(rows, &MapSet.member?(inserted_ids, &1.id))
+        {count, inserted_rows}
+    end
+  end
+
+  defp maybe_create_priority_alerts(events) do
+    {created, attempted} =
+      Enum.reduce(events, {0, 0}, fn event, {created, attempted} ->
+        maybe_create_priority_alert(event, created, attempted)
+      end)
+
+    if attempted > 0 do
+      :telemetry.execute(
+        [:serviceradar, :event_writer, :falco, :alerts_created],
+        %{count: created, attempted: attempted},
+        %{}
+      )
+    end
+
+    created
+  end
+
+  defp maybe_create_priority_alert(event, created, attempted) do
+    if promote_to_alert?(event.severity_id) do
+      case AlertGenerator.from_event(event, alert: alert_override(event)) do
+        {:ok, %{} = _alert} ->
+          {created + 1, attempted + 1}
+
+        {:ok, :skipped} ->
+          {created, attempted + 1}
+
+        {:error, reason} ->
+          Logger.warning("Failed to auto-create Falco priority alert: #{inspect(reason)}")
+          {created, attempted + 1}
+      end
+    else
+      {created, attempted}
+    end
+  end
+
+  defp alert_override(event) do
+    rule = get_in(event, [:metadata, "rule"])
+    severity = normalize_string(event.severity) || "High"
+    base_title = if is_binary(rule) and rule != "", do: rule, else: "Runtime Detection"
+
+    %{
+      "title" => "Falco #{severity}: #{base_title}",
+      "description" => event.message
+    }
+  end
+
+  defp maybe_broadcast_logs(0), do: :ok
+  defp maybe_broadcast_logs(count), do: LogPubSub.broadcast_ingest(%{count: count})
+
+  defp maybe_broadcast_events(0), do: :ok
+  defp maybe_broadcast_events(count), do: EventsPubSub.broadcast_event(%{count: count})
+
+  defp maybe_evaluate_stateful_rules([]), do: :ok
+
+  defp maybe_evaluate_stateful_rules(events) do
+    case StatefulAlertEngine.evaluate_events(events) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Stateful alert evaluation failed for Falco events: #{inspect(reason)}")
+        :ok
+    end
   end
 
   defp severity_status_for_priority(priority) do
@@ -153,7 +404,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       subject || "falco event"
   end
 
-  defp build_metadata(payload, subject, output_fields) do
+  defp build_event_metadata(payload, subject, output_fields) do
     %{
       "source" => "falco",
       "subject" => subject,
@@ -218,9 +469,27 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     end
   end
 
-  defp parse_event_time(nil, %DateTime{} = received_at), do: received_at
-  defp parse_event_time(nil, _received_at), do: DateTime.utc_now()
-  defp parse_event_time(value, _received_at), do: FieldParser.parse_timestamp(value)
+  defp parse_event_time(value, output_fields) do
+    cond do
+      not is_nil(value) ->
+        FieldParser.parse_timestamp(value)
+
+      is_integer(output_fields["evt.time"]) ->
+        FieldParser.parse_timestamp(output_fields["evt.time"])
+
+      is_binary(output_fields["evt.time"]) ->
+        case Integer.parse(output_fields["evt.time"]) do
+          {int, _} -> FieldParser.parse_timestamp(int)
+          :error -> @fallback_time
+        end
+
+      true ->
+        @fallback_time
+    end
+  end
+
+  defp observed_timestamp(%DateTime{} = received_at, _event_time), do: received_at
+  defp observed_timestamp(_received_at, event_time), do: event_time
 
   defp normalize_subject(subject) when is_binary(subject), do: subject
   defp normalize_subject(_), do: "falco.unknown"
@@ -266,16 +535,62 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
 
   defp normalize_raw_data(data), do: inspect(data)
 
-  defp maybe_evaluate_stateful_rules([]), do: :ok
+  defp attach_ingest_metadata(attributes, metadata, subject) when is_map(attributes) do
+    ingest =
+      %{}
+      |> maybe_put("subject", subject)
+      |> maybe_put("reply_to", metadata[:reply_to])
+      |> maybe_put("received_at", iso8601(metadata[:received_at]))
+      |> maybe_put("source_kind", "falco")
 
-  defp maybe_evaluate_stateful_rules(rows) do
-    case StatefulAlertEngine.evaluate_events(rows) do
-      :ok ->
-        :ok
+    if map_size(ingest) == 0 do
+      attributes
+    else
+      Map.put(attributes, "serviceradar.ingest", ingest)
+    end
+  end
 
-      {:error, reason} ->
-        Logger.warning("Stateful alert evaluation failed for Falco events: #{inspect(reason)}")
-        :ok
+  defp attach_ingest_metadata(attributes, _metadata, _subject), do: attributes || %{}
+
+  defp iso8601(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp iso8601(_), do: nil
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp encode_text_columns(row) when is_map(row) do
+    row
+    |> maybe_stringify_text(:trace_id)
+    |> maybe_stringify_text(:span_id)
+    |> maybe_stringify_text(:severity_text)
+    |> maybe_stringify_text(:body)
+    |> maybe_stringify_text(:event_name)
+    |> maybe_stringify_text(:source)
+    |> maybe_stringify_text(:service_name)
+    |> maybe_stringify_text(:service_version)
+    |> maybe_stringify_text(:service_instance)
+    |> maybe_stringify_text(:scope_name)
+    |> maybe_stringify_text(:scope_version)
+    |> maybe_encode_text(:attributes)
+    |> maybe_encode_text(:resource_attributes)
+    |> maybe_encode_text(:scope_attributes)
+  end
+
+  defp maybe_encode_text(row, key) do
+    case Map.get(row, key) do
+      value when is_map(value) or is_list(value) ->
+        Map.put(row, key, FieldParser.encode_json(value))
+
+      _ ->
+        row
+    end
+  end
+
+  defp maybe_stringify_text(row, key) do
+    case Map.get(row, key) do
+      nil -> row
+      value when is_binary(value) -> row
+      value -> Map.put(row, key, to_string(value))
     end
   end
 
