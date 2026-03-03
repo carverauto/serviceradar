@@ -1814,7 +1814,7 @@
     },
     "@@rules_rust+//crate_universe:extensions.bzl%crate": {
       "general": {
-        "bzlTransitiveDigest": "SZkR0TCEciE8tgOE5hcHPOQKgmXC0pcDOnRDodhRjAk=",
+        "bzlTransitiveDigest": "KpE99dRxmyxD2+c9K8cDdKRyQ72STK8bMM8vSLvYyyc=",
         "usagesDigest": "nQ00HMIaHo7WPW5dILqkLC3FghR4LgBt4xZNB5mlf/k=",
         "recordedInputs": [
           "ENV:CARGO_BAZEL_DEBUG \\0",
@@ -1848,7 +1848,7 @@
           "FILE:@@//rust/trapd/Cargo.toml 31a062553a0a6203c8abcbbb050d88d377d2b99b5fcf4f893ba389d0fff1e9c6",
           "FILE:@@//rust/otel/Cargo.toml cc8e076f16a7271cb7f59d51ec34082b7f59b062dd4d9a30b33d648c1b6b2e7d",
           "FILE:@@//rust/log-collector/Cargo.toml ab49d44cefa1c4ae4c365cc70dca00c47a68c3e8fb60096d2e437f9e5d8d0884",
-          "FILE:@@//rust/consumers/zen/Cargo.toml b2592c4a666c3282bce64d214f9812d84c03037346d87617cc53d55f830f6f51",
+          "FILE:@@//rust/consumers/zen/Cargo.toml 9e8cc99d109bc67b3f33a358055edc36cae2e1f4fb52d3bb3f763e4b0770a960",
           "FILE:@@//rust/rperf-client/Cargo.toml 9386071803e99941253ca35eaf183fc5ea41cc1d51f2a2ea7c4c656149bf1f08",
           "FILE:@@//rust/flow-collector/Cargo.toml cdb49b43a484093f2226d16fe36266e7da2e480c61b940ad559792a2fa4e390b",
           "FILE:@@//rust/srql/Cargo.toml 8b449856e44197ca63160b171b4c8bce215b97cf5f7681a80994d24cf3e36373"
