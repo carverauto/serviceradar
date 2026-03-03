@@ -45,6 +45,15 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
               autocomplete="username"
               required
             />
+            <%= if has_password?(@current_scope.user) do %>
+              <.input
+                field={@email_form[:current_password]}
+                type="password"
+                label="Current password"
+                autocomplete="current-password"
+                required
+              />
+            <% end %>
             <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
           </.form>
         </.ui_panel>
@@ -118,7 +127,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
     {:ok, push_navigate(socket, to: ~p"/settings/profile")}
   end
 
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
     user = socket.assigns.current_scope.user
     email_ash_form = build_email_form(user)
     password_ash_form = build_password_form(user)
@@ -131,8 +140,20 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
       |> assign(:email_form, to_form(email_ash_form))
       |> assign(:password_form, to_form(password_ash_form))
       |> assign(:trigger_submit, false)
+      |> assign(:sudo_at, mount_sudo_at(session))
 
     {:ok, socket}
+  end
+
+  defp mount_sudo_at(session) do
+    case session["sudo_authenticated_at"] do
+      at when is_integer(at) -> DateTime.from_unix!(at)
+      _ -> nil
+    end
+  end
+
+  defp has_password?(user) do
+    user.hashed_password != nil && user.hashed_password != ""
   end
 
   # Build AshPhoenix.Form for email update
@@ -167,23 +188,29 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
 
   def handle_event("update_email", %{"user" => user_params}, socket) do
     user = socket.assigns.current_scope.user
-    true = Accounts.sudo_mode?(user)
 
-    ash_form =
-      socket.assigns.email_ash_form
-      |> AshPhoenix.Form.validate(user_params)
+    if Accounts.sudo_mode?(user, socket.assigns.sudo_at) do
+      ash_form =
+        socket.assigns.email_ash_form
+        |> AshPhoenix.Form.validate(user_params)
 
-    case AshPhoenix.Form.submit(ash_form, params: user_params) do
-      {:ok, _updated_user} ->
-        # Email verification could use Guardian tokens in the future
-        info = "Email updated successfully."
-        {:noreply, socket |> put_flash(:info, info)}
+      case AshPhoenix.Form.submit(ash_form, params: user_params) do
+        {:ok, _updated_user} ->
+          # Email verification could use Guardian tokens in the future
+          info = "Email updated successfully."
+          {:noreply, socket |> put_flash(:info, info)}
 
-      {:error, ash_form} ->
-        {:noreply,
-         socket
-         |> assign(:email_ash_form, ash_form)
-         |> assign(:email_form, to_form(ash_form))}
+        {:error, ash_form} ->
+          {:noreply,
+           socket
+           |> assign(:email_ash_form, ash_form)
+           |> assign(:email_form, to_form(ash_form))}
+      end
+    else
+      {:noreply,
+       socket
+       |> put_flash(:error, "Sudo mode required. Please re-authenticate.")
+       |> push_navigate(to: ~p"/settings/profile")}
     end
   end
 
@@ -200,27 +227,33 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
 
   def handle_event("update_password", %{"user" => user_params}, socket) do
     user = socket.assigns.current_scope.user
-    true = Accounts.sudo_mode?(user)
 
-    ash_form =
-      socket.assigns.password_ash_form
-      |> AshPhoenix.Form.validate(user_params)
+    if Accounts.sudo_mode?(user, socket.assigns.sudo_at) do
+      ash_form =
+        socket.assigns.password_ash_form
+        |> AshPhoenix.Form.validate(user_params)
 
-    # Important: do not submit the Ash action here.
-    # The browser POSTs to UserSessionController, which performs the password
-    # change and then revokes sessions/tokens.
-    if ash_form.valid? do
-      {:noreply,
-       socket
-       |> assign(:password_ash_form, ash_form)
-       |> assign(:password_form, to_form(ash_form))
-       |> assign(:trigger_submit, true)}
+      # Important: do not submit the Ash action here.
+      # The browser POSTs to UserSessionController, which performs the password
+      # change and then revokes sessions/tokens.
+      if ash_form.valid? do
+        {:noreply,
+         socket
+         |> assign(:password_ash_form, ash_form)
+         |> assign(:password_form, to_form(ash_form))
+         |> assign(:trigger_submit, true)}
+      else
+        {:noreply,
+         socket
+         |> assign(:password_ash_form, ash_form)
+         |> assign(:password_form, to_form(ash_form))
+         |> assign(:trigger_submit, false)}
+      end
     else
       {:noreply,
        socket
-       |> assign(:password_ash_form, ash_form)
-       |> assign(:password_form, to_form(ash_form))
-       |> assign(:trigger_submit, false)}
+       |> put_flash(:error, "Sudo mode required. Please re-authenticate.")
+       |> push_navigate(to: ~p"/settings/profile")}
     end
   end
 end

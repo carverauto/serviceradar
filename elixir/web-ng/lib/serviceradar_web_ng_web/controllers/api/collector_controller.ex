@@ -35,16 +35,20 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
     query =
       if status = params["status"] do
-        status_atom = String.to_existing_atom(status)
-        Ash.Query.filter(query, status == ^status_atom)
+        case parse_status(status) do
+          nil -> query
+          status_atom -> Ash.Query.filter(query, status == ^status_atom)
+        end
       else
         query
       end
 
     query =
       if collector_type = params["collector_type"] do
-        type_atom = String.to_existing_atom(collector_type)
-        Ash.Query.filter(query, collector_type == ^type_atom)
+        case parse_collector_type(collector_type) do
+          nil -> query
+          type_atom -> Ash.Query.filter(query, collector_type == ^type_atom)
+        end
       else
         query
       end
@@ -82,7 +86,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
       with :ok <- require_authenticated(conn),
            :ok <- require_permission(conn, "settings.edge.manage") do
         attrs = %{
-          collector_type: String.to_existing_atom(collector_type),
+          collector_type: parse_collector_type(collector_type),
           site: params["site"],
           hostname: params["hostname"],
           config_overrides: params["config_overrides"] || %{},
@@ -243,16 +247,20 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
     query =
       if status = params["status"] do
-        status_atom = String.to_existing_atom(status)
-        Ash.Query.filter(query, status == ^status_atom)
+        case parse_status(status) do
+          nil -> query
+          status_atom -> Ash.Query.filter(query, status == ^status_atom)
+        end
       else
         query
       end
 
     query =
       if collector_type = params["collector_type"] do
-        type_atom = String.to_existing_atom(collector_type)
-        Ash.Query.filter(query, collector_type == ^type_atom)
+        case parse_collector_type(collector_type) do
+          nil -> query
+          type_atom -> Ash.Query.filter(query, collector_type == ^type_atom)
+        end
       else
         query
       end
@@ -438,6 +446,10 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   end
 
   defp generate_install_script(package) do
+    # Sanitize inputs for shell script interpolation
+    site = sanitize_shell_arg(package.site || "default")
+    hostname = sanitize_shell_arg(package.hostname || "$(hostname)")
+
     """
     #!/bin/bash
     # ServiceRadar #{package.collector_type} Collector Installation Script
@@ -446,8 +458,8 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     set -e
 
     COLLECTOR_TYPE="#{package.collector_type}"
-    SITE="#{package.site || "default"}"
-    HOSTNAME="#{package.hostname || "$(hostname)"}"
+    SITE="#{site}"
+    HOSTNAME="#{hostname}"
 
     echo "Installing ServiceRadar $COLLECTOR_TYPE collector..."
 
@@ -459,6 +471,27 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     echo "  systemctl start serviceradar-$COLLECTOR_TYPE"
     """
   end
+
+  defp sanitize_shell_arg(value) when is_binary(value) do
+    # Replace double quotes to prevent breakout from SITE="..."
+    String.replace(value, "\"", "-")
+  end
+
+  defp parse_status("issued"), do: :issued
+  defp parse_status("delivered"), do: :delivered
+  defp parse_status("ready"), do: :ready
+  defp parse_status("activated"), do: :activated
+  defp parse_status("revoked"), do: :revoked
+  defp parse_status("expired"), do: :expired
+  defp parse_status("deleted"), do: :deleted
+  defp parse_status(_), do: nil
+
+  defp parse_collector_type("flowgger"), do: :flowgger
+  defp parse_collector_type("trapd"), do: :trapd
+  defp parse_collector_type("netflow"), do: :netflow
+  defp parse_collector_type("sflow"), do: :sflow
+  defp parse_collector_type("otel"), do: :otel
+  defp parse_collector_type(_), do: nil
 
   defp package_to_json(package) do
     base = %{

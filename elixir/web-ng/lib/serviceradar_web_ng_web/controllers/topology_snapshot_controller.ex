@@ -105,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
 
           conn
           |> put_status(:internal_server_error)
-          |> json(%{error: "snapshot_build_failed", reason: inspect(reason)})
+          |> json(%{error: "snapshot_build_failed"})
       end
     else
       send_resp(conn, :not_found, "Not Found")

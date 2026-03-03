@@ -1,6 +1,6 @@
 import * as d3 from "d3"
 
-import {ensureTooltip as nfEnsureTooltip} from "../../netflow_charts/util"
+import {ensureTooltip as nfEnsureTooltip, escapeHtml} from "../../netflow_charts/util"
 
 function formatBytes(value) {
   const n = Number(value || 0)
@@ -184,9 +184,9 @@ export default {
       const mx = event.clientX - rect.left
       const my = event.clientY - rect.top
       const bytes = Number(d.value || 0)
-      tooltip.innerHTML = `<div class="font-mono">${d.data?.name || "unknown"}</div>
-        <div class="text-[10px] text-base-content/70">${d.data?.kind || ""}</div>
-        <div class="mt-1 font-mono">${formatBytes(bytes)}</div>`
+      tooltip.innerHTML = `<div class="font-mono">${escapeHtml(d.data?.name || "unknown")}</div>
+        <div class="text-[10px] text-base-content/70">${escapeHtml(d.data?.kind || "")}</div>
+        <div class="mt-1 font-mono">${escapeHtml(formatBytes(bytes))}</div>`
       tooltip.classList.remove("hidden")
       const tRect = tooltip.getBoundingClientRect()
       const left = Math.max(8, Math.min(rect.width - tRect.width - 8, mx + 10))

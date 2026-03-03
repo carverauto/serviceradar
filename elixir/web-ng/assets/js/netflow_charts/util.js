@@ -214,7 +214,7 @@ export function buildLegend(container, keys, color, hiddenSet, onToggle) {
   return wrap
 }
 
-function escapeHtml(s) {
+export function escapeHtml(s) {
   return String(s || "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")

@@ -235,8 +235,8 @@ defmodule ServiceRadarWebNG.Api.CollectorEnrollController do
         config
       end
 
-    # Return as YAML
-    encode_yaml(config)
+    # Return as JSON (most YAML parsers accept JSON)
+    Jason.encode!(config)
   end
 
   defp find_package(package_id) do
@@ -290,31 +290,6 @@ defmodule ServiceRadarWebNG.Api.CollectorEnrollController do
   end
 
   defp add_collector_defaults(config, _), do: config
-
-  defp encode_yaml(map) do
-    do_encode_yaml(map, 0)
-  end
-
-  defp do_encode_yaml(map, indent) when is_map(map) do
-    prefix = String.duplicate("  ", indent)
-
-    Enum.map_join(map, "\n", fn {key, value} ->
-      "#{prefix}#{key}: #{encode_yaml_value(value, indent)}"
-    end)
-  end
-
-  defp encode_yaml_value(value, _) when is_binary(value), do: "\"#{value}\""
-  defp encode_yaml_value(value, _) when is_number(value), do: to_string(value)
-  defp encode_yaml_value(value, _) when is_boolean(value), do: to_string(value)
-  defp encode_yaml_value(nil, _), do: "null"
-
-  defp encode_yaml_value(value, indent) when is_map(value) do
-    if map_size(value) == 0, do: "{}", else: "\n" <> do_encode_yaml(value, indent + 1)
-  end
-
-  defp encode_yaml_value(value, _) when is_list(value) do
-    if value == [], do: "[]", else: "[" <> Enum.map_join(value, ", ", &inspect/1) <> "]"
-  end
 
   defp deep_merge(left, right) do
     Map.merge(left, right, fn

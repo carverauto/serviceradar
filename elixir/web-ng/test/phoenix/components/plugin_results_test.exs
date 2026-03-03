@@ -27,4 +27,24 @@ defmodule ServiceRadarWebNGWeb.Components.PluginResultsTest do
 
     refute html =~ "Hidden"
   end
+
+  test "sanitizes javascript links in markdown widget content" do
+    html =
+      render_component(&PluginResults.plugin_results/1, %{
+        display: [%{"widget" => "markdown", "content" => "[click](javascript:alert(1))"}]
+      })
+
+    refute html =~ "javascript:alert(1)"
+    assert html =~ ~s(href="#")
+  end
+
+  test "sanitizes dangerous src protocols in markdown widget content" do
+    html =
+      render_component(&PluginResults.plugin_results/1, %{
+        display: [%{"widget" => "markdown", "content" => "![x](javascript:alert(1))"}]
+      })
+
+    refute html =~ "javascript:alert(1)"
+    assert html =~ ~s(src="")
+  end
 end

@@ -4403,17 +4403,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     case Ash.read(query, scope: scope) do
       {:ok, rows} when is_list(rows) ->
         rows
-        |> Enum.filter(fn r ->
-          ok? =
-            case r.status do
-              :ok -> true
-              "ok" -> true
-              s when is_binary(s) -> String.downcase(String.trim(s)) == "ok"
-              _ -> false
-            end
-
-          ok? and is_binary(r.hostname) and String.trim(r.hostname) != ""
-        end)
+        |> Enum.filter(&rdns_row_valid?/1)
         |> Map.new(fn r -> {r.ip, r.hostname} end)
 
       _ ->
@@ -4421,6 +4411,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   rescue
     _ -> %{}
+  end
+
+  defp rdns_row_valid?(r) do
+    ok? =
+      case r.status do
+        :ok -> true
+        "ok" -> true
+        s when is_binary(s) -> String.downcase(String.trim(s)) == "ok"
+        _ -> false
+      end
+
+    ok? and is_binary(r.hostname) and String.trim(r.hostname) != ""
   end
 
   defp bulk_geo_iso2(ips, scope) do

@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   require Logger
 
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
+  alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
 
   @discovery_suffix "/.well-known/openid-configuration"
@@ -159,13 +160,25 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
             String.trim_trailing(discovery_url, "/") <> @discovery_suffix
           end
 
-        case Req.get(url) do
-          {:ok, %{status: 200, body: metadata}} ->
-            ConfigCache.put_cached(cache_key, metadata, ttl: :timer.minutes(60))
-            {:ok, metadata}
+        with {:ok, _uri} <- OutboundURLPolicy.validate(url),
+             {:ok, response} <- Req.get(url, OutboundURLPolicy.req_opts()) do
+          case response do
+            %{status: 200, body: metadata} ->
+              ConfigCache.put_cached(cache_key, metadata, ttl: :timer.minutes(60))
+              {:ok, metadata}
 
-          {:ok, %{status: status}} ->
-            Logger.error("OIDC discovery failed: status=#{status}")
+            %{status: status} ->
+              Logger.error("OIDC discovery failed: status=#{status}")
+              {:error, :discovery_failed}
+          end
+        else
+          {:error, :disallowed_scheme} ->
+            {:error, :discovery_failed}
+
+          {:error, :disallowed_host} ->
+            {:error, :discovery_failed}
+
+          {:error, :invalid_url} ->
             {:error, :discovery_failed}
 
           {:error, reason} ->
@@ -211,13 +224,25 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
         {:ok, jwks}
 
       :miss ->
-        case Req.get(jwks_uri) do
-          {:ok, %{status: 200, body: %{"keys" => keys}}} ->
-            ConfigCache.put_cached(cache_key, keys, ttl: :timer.minutes(60))
-            {:ok, keys}
+        with {:ok, _uri} <- OutboundURLPolicy.validate(jwks_uri),
+             {:ok, response} <- Req.get(jwks_uri, OutboundURLPolicy.req_opts()) do
+          case response do
+            %{status: 200, body: %{"keys" => keys}} ->
+              ConfigCache.put_cached(cache_key, keys, ttl: :timer.minutes(60))
+              {:ok, keys}
 
-          {:ok, %{status: status}} ->
-            Logger.error("JWKS fetch failed: status=#{status}")
+            %{status: status} ->
+              Logger.error("JWKS fetch failed: status=#{status}")
+              {:error, :jwks_fetch_failed}
+          end
+        else
+          {:error, :disallowed_scheme} ->
+            {:error, :jwks_fetch_failed}
+
+          {:error, :disallowed_host} ->
+            {:error, :jwks_fetch_failed}
+
+          {:error, :invalid_url} ->
             {:error, :jwks_fetch_failed}
 
           {:error, reason} ->

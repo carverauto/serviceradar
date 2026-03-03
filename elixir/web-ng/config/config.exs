@@ -122,6 +122,9 @@ config :serviceradar_web_ng, :plugin_verification,
   require_gpg_for_github: false,
   allow_unsigned_uploads: true
 
+config :serviceradar_web_ng, :allow_insecure_metadata_urls, false
+config :serviceradar_web_ng, :saml_assertion_max_validity_seconds, 300
+
 # Oban job processing configuration
 # web-ng only processes jobs, it does NOT schedule them
 # core-elx is the Oban coordinator and handles all scheduled/cron jobs
@@ -178,7 +181,7 @@ config :esbuild,
   version: "0.25.4",
   serviceradar_web_ng: [
     args:
-      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file),
+      ~w(js/app.js js/theme_init.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file),
     cd: Path.expand("../assets", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]

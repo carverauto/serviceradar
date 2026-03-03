@@ -75,16 +75,20 @@ defmodule ServiceRadarWebNG.Accounts do
   ## Settings
 
   @doc """
-  Checks whether the user is in sudo mode.
+  Returns true if the user has recently authenticated.
 
-  With Guardian JWT authentication, sudo mode is always true for authenticated users.
-  The JWT token's `iat` (issued at) claim could be used in the future to implement
-  time-based sudo mode.
+  For time-based sudo mode, we verify the `sudo_authenticated_at` timestamp
+  against the current time.
   """
-  def sudo_mode?(user, _minutes \\ -20)
+  def sudo_mode?(user, sudo_at \\ nil, minutes \\ -20)
 
-  def sudo_mode?(%{id: _}, _minutes), do: true
-  def sudo_mode?(_user, _minutes), do: false
+  def sudo_mode?(%{id: _}, %DateTime{} = sudo_at, minutes) do
+    cutoff = DateTime.utc_now() |> DateTime.add(minutes, :minute)
+    DateTime.compare(sudo_at, cutoff) != :lt
+  end
+
+  def sudo_mode?(_, _, _), do: false
+
 
   @doc """
   Returns an `%Ecto.Changeset{}` for changing the user email.

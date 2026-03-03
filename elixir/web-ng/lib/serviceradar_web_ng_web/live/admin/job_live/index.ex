@@ -111,7 +111,11 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   end
 
   def handle_event("page", %{"page" => page}, socket) do
-    page = String.to_integer(page)
+    page =
+      case Integer.parse(page) do
+        {n, _} -> n
+        _ -> 1
+      end
 
     {:noreply,
      socket
@@ -120,7 +124,11 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   end
 
   def handle_event("set_refresh_interval", %{"interval" => interval}, socket) do
-    interval = String.to_integer(interval)
+    interval =
+      case Integer.parse(interval) do
+        {n, _} -> n
+        _ -> 30
+      end
 
     socket =
       socket

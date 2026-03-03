@@ -660,29 +660,47 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   end
 
   def handle_event("remove_oid", %{"index" => index_str}, socket) do
-    index = String.to_integer(index_str)
-    oids = List.delete_at(socket.assigns.target_oids, index)
-    {:noreply, assign(socket, :target_oids, oids)}
+    index =
+      case Integer.parse(index_str) do
+        {n, _} -> n
+        _ -> nil
+      end
+
+    if index do
+      oids = List.delete_at(socket.assigns.target_oids, index)
+      {:noreply, assign(socket, :target_oids, oids)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("update_oid", %{"index" => index_str, "field" => field} = params, socket) do
-    index = String.to_integer(index_str)
-    oids = socket.assigns.target_oids
-    current_oid = Enum.at(oids, index)
-
-    # Get the new value for the changed field
-    # - For text inputs (phx-blur): fresh value is in params["value"]
-    # - For select (phx-change): fresh value is in params["value"]
-    # - For checkbox (phx-click): toggled value is in params["delta"]
-    new_value =
-      case field do
-        "delta" -> Map.get(params, "delta", "false") == "true"
-        _ -> Map.get(params, "value", "")
+    index =
+      case Integer.parse(index_str) do
+        {n, _} -> n
+        _ -> nil
       end
 
-    updated_oid = Map.put(current_oid, field, new_value)
-    updated_oids = List.replace_at(oids, index, updated_oid)
-    {:noreply, assign(socket, :target_oids, updated_oids)}
+    if index do
+      oids = socket.assigns.target_oids
+      current_oid = Enum.at(oids, index)
+
+      # Get the new value for the changed field
+      # - For text inputs (phx-blur): fresh value is in params["value"]
+      # - For select (phx-change): fresh value is in params["value"]
+      # - For checkbox (phx-click): toggled value is in params["delta"]
+      new_value =
+        case field do
+          "delta" -> Map.get(params, "delta", "false") == "true"
+          _ -> Map.get(params, "value", "")
+        end
+
+      updated_oid = Map.put(current_oid, field, new_value)
+      updated_oids = List.replace_at(oids, index, updated_oid)
+      {:noreply, assign(socket, :target_oids, updated_oids)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("open_template_browser", _params, socket) do
@@ -974,9 +992,18 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   end
 
   def handle_event("remove_template_oid", %{"index" => index_str}, socket) do
-    index = String.to_integer(index_str)
-    oids = List.delete_at(socket.assigns.custom_template_oids, index)
-    {:noreply, assign(socket, :custom_template_oids, oids)}
+    index =
+      case Integer.parse(index_str) do
+        {n, _} -> n
+        _ -> nil
+      end
+
+    if index do
+      oids = List.delete_at(socket.assigns.custom_template_oids, index)
+      {:noreply, assign(socket, :custom_template_oids, oids)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event(
@@ -984,23 +1011,32 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         %{"index" => index_str, "field" => field} = params,
         socket
       ) do
-    index = String.to_integer(index_str)
-    oids = socket.assigns.custom_template_oids
-    current_oid = Enum.at(oids, index)
-
-    # Get the new value for the changed field
-    # - For text inputs (phx-blur): fresh value is in params["value"]
-    # - For select (phx-change): fresh value is in params["value"]
-    # - For checkbox (phx-click): toggled value is in params["delta"]
-    new_value =
-      case field do
-        "delta" -> Map.get(params, "delta", "false") == "true"
-        _ -> Map.get(params, "value", "")
+    index =
+      case Integer.parse(index_str) do
+        {n, _} -> n
+        _ -> nil
       end
 
-    updated_oid = Map.put(current_oid, field, new_value)
-    updated_oids = List.replace_at(oids, index, updated_oid)
-    {:noreply, assign(socket, :custom_template_oids, updated_oids)}
+    if index do
+      oids = socket.assigns.custom_template_oids
+      current_oid = Enum.at(oids, index)
+
+      # Get the new value for the changed field
+      # - For text inputs (phx-blur): fresh value is in params["value"]
+      # - For select (phx-change): fresh value is in params["value"]
+      # - For checkbox (phx-click): toggled value is in params["delta"]
+      new_value =
+        case field do
+          "delta" -> Map.get(params, "delta", "false") == "true"
+          _ -> Map.get(params, "value", "")
+        end
+
+      updated_oid = Map.put(current_oid, field, new_value)
+      updated_oids = List.replace_at(oids, index, updated_oid)
+      {:noreply, assign(socket, :custom_template_oids, updated_oids)}
+    else
+      {:noreply, socket}
+    end
   end
 
   # Handle info callbacks

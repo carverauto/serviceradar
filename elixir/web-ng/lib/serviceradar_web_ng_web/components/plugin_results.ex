@@ -238,10 +238,85 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
     opts = %Earmark.Options{gfm: true, breaks: true, smartypants: false, escape: true}
 
     case Earmark.as_html(escaped, opts) do
-      {:ok, html, _} -> html
-      {:error, html, _} -> html
+      {:ok, html, _} -> sanitize_rendered_markdown(html)
+      {:error, html, _} -> sanitize_rendered_markdown(html)
     end
   end
+
+  defp sanitize_rendered_markdown(html) when is_binary(html) do
+    html
+    |> strip_unsafe_event_attributes()
+    |> sanitize_href_attributes()
+    |> sanitize_src_attributes()
+    |> strip_dangerous_tags()
+  end
+
+  defp sanitize_rendered_markdown(_), do: ""
+
+  defp strip_unsafe_event_attributes(html) do
+    Regex.replace(~r/\s+on[a-z0-9_-]+\s*=\s*(\"[^\"]*\"|'[^']*')/i, html, "")
+  end
+
+  defp sanitize_href_attributes(html) do
+    Regex.replace(~r/href\s*=\s*(\"[^\"]*\"|'[^']*')/i, html, fn _full, quoted ->
+      url = unquote_attr(quoted)
+
+      if safe_markdown_url?(url) do
+        "href=#{quoted}"
+      else
+        ~s(href="#")
+      end
+    end)
+  end
+
+  defp sanitize_src_attributes(html) do
+    Regex.replace(~r/src\s*=\s*(\"[^\"]*\"|'[^']*')/i, html, fn _full, quoted ->
+      url = unquote_attr(quoted)
+
+      if safe_markdown_url?(url) do
+        "src=#{quoted}"
+      else
+        ~s(src="")
+      end
+    end)
+  end
+
+  defp strip_dangerous_tags(html) do
+    html
+    |> Regex.replace(~r/<\s*script\b[^>]*>.*?<\s*\/\s*script\s*>/is, "")
+    |> Regex.replace(~r/<\s*iframe\b[^>]*>.*?<\s*\/\s*iframe\s*>/is, "")
+  end
+
+  defp unquote_attr(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.trim_leading("'")
+    |> String.trim_leading("\"")
+    |> String.trim_trailing("'")
+    |> String.trim_trailing("\"")
+    |> String.trim()
+  end
+
+  defp safe_markdown_url?(url) when is_binary(url) do
+    normalized =
+      url
+      |> String.trim()
+      |> String.downcase()
+      |> String.replace(~r/[\x00-\x20]+/u, "")
+
+    cond do
+      normalized == "" -> true
+      String.starts_with?(normalized, "#") -> true
+      String.starts_with?(normalized, "/") -> true
+      String.starts_with?(normalized, "http://") -> true
+      String.starts_with?(normalized, "https://") -> true
+      String.starts_with?(normalized, "mailto:") -> true
+      String.starts_with?(normalized, "tel:") -> true
+      true -> false
+    end
+  end
+
+  defp safe_markdown_url?(_), do: false
 
   defp status_variant(status) do
     case String.upcase(to_string(status)) do
