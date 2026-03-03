@@ -61,22 +61,35 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   def create_tarball(package, nats_creds, tls_key_pem, opts \\ []) do
     package_dir = "collector-package-#{short_id(package.id)}"
 
-    # Build the file list for the tarball
-    files = [
-      # Credentials
-      {"#{package_dir}/creds/nats.creds", nats_creds},
-      # TLS certificates
-      {"#{package_dir}/certs/collector.pem", package.tls_cert_pem},
-      {"#{package_dir}/certs/collector-key.pem", tls_key_pem},
-      {"#{package_dir}/certs/ca-chain.pem", package.ca_chain_pem},
-      # Configuration
-      {"#{package_dir}/config/#{config_filename(package)}", generate_config(package, opts)},
-      # Scripts and docs
-      {"#{package_dir}/update.sh", generate_update_script(package)},
-      {"#{package_dir}/README.md", generate_readme(package)}
-    ]
+    files =
+      case package.collector_type do
+        :falcosidekick ->
+          # Falcosidekick deploys via Helm in k8s — bundle includes Helm values,
+          # a deploy script that creates k8s secrets + runs helm upgrade,
+          # and certs named to match Falcosidekick's mTLS convention.
+          [
+            {"#{package_dir}/creds/nats.creds", nats_creds},
+            {"#{package_dir}/certs/client.pem", package.tls_cert_pem},
+            {"#{package_dir}/certs/client-key.pem", tls_key_pem},
+            {"#{package_dir}/certs/ca-chain.pem", package.ca_chain_pem},
+            {"#{package_dir}/#{config_filename(package)}", generate_config(package, opts)},
+            {"#{package_dir}/deploy.sh", generate_falcosidekick_deploy_script(package)},
+            {"#{package_dir}/README.md", generate_readme(package)}
+          ]
 
-    # Create the tarball
+        _ ->
+          # Standard collectors: systemd services on bare metal / VMs
+          [
+            {"#{package_dir}/creds/nats.creds", nats_creds},
+            {"#{package_dir}/certs/collector.pem", package.tls_cert_pem},
+            {"#{package_dir}/certs/collector-key.pem", tls_key_pem},
+            {"#{package_dir}/certs/ca-chain.pem", package.ca_chain_pem},
+            {"#{package_dir}/config/#{config_filename(package)}", generate_config(package, opts)},
+            {"#{package_dir}/update.sh", generate_update_script(package)},
+            {"#{package_dir}/README.md", generate_readme(package)}
+          ]
+      end
+
     create_tar_gz(files)
   end
 
@@ -114,6 +127,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
       :trapd -> "trapd.json"
       :netflow -> "netflow.json"
       :sflow -> "sflow.json"
+      :falcosidekick -> "falcosidekick.yaml"
       _ -> "config.toml"
     end
   end
@@ -125,6 +139,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
       :trapd -> generate_trapd_config(package, opts)
       :netflow -> generate_netflow_config(package, opts)
       :sflow -> generate_sflow_config(package, opts)
+      :falcosidekick -> generate_falcosidekick_config(package, opts)
       _ -> generate_flowgger_config(package, opts)
     end
   end
@@ -312,6 +327,146 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     Jason.encode!(config, pretty: true)
   end
 
+  defp generate_falcosidekick_config(package, opts) do
+    nats_url = get_nats_url(package, opts)
+
+    # Apply any config overrides
+    namespace =
+      get_in(package.config_overrides, ["namespace"]) || "demo"
+
+    release_name =
+      get_in(package.config_overrides, ["release_name"]) || "falcosidekick-nats-auth"
+
+    subject_template =
+      get_in(package.config_overrides, ["subject_template"]) || "falco.<priority>.<rule>"
+
+    otlp_endpoint =
+      get_in(package.config_overrides, ["otlp_endpoint"]) || "https://serviceradar-log-collector:4317"
+
+    """
+    # Falcosidekick Helm Values for ServiceRadar
+    # Package ID: #{package.id}
+    # Site: #{package.site || "default"}
+    # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    #
+    # Usage:
+    #   helm upgrade -n #{namespace} #{release_name} falcosecurity/falcosidekick \\
+    #     -f falcosidekick.yaml
+    #
+    # Or run the included deploy.sh script which creates the k8s secret
+    # and runs helm upgrade for you.
+
+    config:
+      nats:
+        hostport: "#{nats_url}"
+        mutualtls: true
+        checkcert: true
+        subjecttemplate: "#{subject_template}"
+        minimumpriority: "debug"
+      tlsclient:
+        cacertfile: /etc/serviceradar/certs/ca-chain.pem
+      mutualtlsclient:
+        cacertfile: /etc/serviceradar/certs/ca-chain.pem
+        certfile: /etc/serviceradar/certs/client.pem
+        keyfile: /etc/serviceradar/certs/client-key.pem
+      otlp:
+        metrics:
+          endpoint: "#{otlp_endpoint}"
+          protocol: grpc
+          checkcert: true
+          minimumpriority: "debug"
+          extraenvvars:
+            OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE: /etc/serviceradar/certs/ca-chain.pem
+            OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE: /etc/serviceradar/certs/client.pem
+            OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY: /etc/serviceradar/certs/client-key.pem
+
+    extraVolumes:
+      - name: serviceradar-certs
+        secret:
+          secretName: serviceradar-falcosidekick-certs
+
+    extraVolumeMounts:
+      - name: serviceradar-certs
+        mountPath: /etc/serviceradar/certs
+        readOnly: true
+    """
+  end
+
+  defp generate_falcosidekick_deploy_script(package) do
+    s_package_id = sanitize_shell_arg(package.id)
+
+    namespace =
+      get_in(package.config_overrides || %{}, ["namespace"]) || "demo"
+
+    release_name =
+      get_in(package.config_overrides || %{}, ["release_name"]) || "falcosidekick-nats-auth"
+
+    s_namespace = sanitize_shell_arg(namespace)
+    s_release = sanitize_shell_arg(release_name)
+
+    """
+    #!/bin/bash
+    # ServiceRadar Falcosidekick Deploy Script
+    # Package ID: #{s_package_id}
+    # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    #
+    # Creates a k8s TLS secret from the bundled certs, then deploys/upgrades
+    # Falcosidekick via Helm with the generated values file.
+
+    set -e
+
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    NAMESPACE="#{s_namespace}"
+    RELEASE="#{s_release}"
+    SECRET_NAME="serviceradar-falcosidekick-certs"
+
+    echo "ServiceRadar Falcosidekick Deploy"
+    echo "=================================="
+    echo "Namespace:  $NAMESPACE"
+    echo "Release:    $RELEASE"
+    echo ""
+
+    # Ensure helm repo is available
+    if ! helm repo list 2>/dev/null | grep -q falcosecurity; then
+        echo "Adding falcosecurity Helm repo..."
+        helm repo add falcosecurity https://falcosecurity.github.io/charts
+    fi
+    helm repo update falcosecurity
+
+    # Create namespace if needed
+    kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+
+    # Create or update the TLS secret from bundled certs
+    echo "Creating k8s secret $SECRET_NAME in $NAMESPACE..."
+    kubectl create secret generic "$SECRET_NAME" \\
+        --namespace "$NAMESPACE" \\
+        --from-file=ca-chain.pem="$SCRIPT_DIR/certs/ca-chain.pem" \\
+        --from-file=client.pem="$SCRIPT_DIR/certs/client.pem" \\
+        --from-file=client-key.pem="$SCRIPT_DIR/certs/client-key.pem" \\
+        --dry-run=client -o yaml | kubectl apply -f -
+
+    # Deploy / upgrade Falcosidekick with the generated values
+    echo "Deploying Falcosidekick..."
+    helm upgrade --install "$RELEASE" falcosecurity/falcosidekick \\
+        --namespace "$NAMESPACE" \\
+        -f "$SCRIPT_DIR/falcosidekick.yaml"
+
+    echo ""
+    echo "Waiting for rollout..."
+    kubectl -n "$NAMESPACE" rollout status "deploy/$RELEASE" --timeout=120s
+
+    echo ""
+    echo "Deploy complete!"
+    echo ""
+    echo "Verify:"
+    echo "  kubectl -n $NAMESPACE logs deploy/$RELEASE --tail=20"
+    echo ""
+    echo "Expected output should include:"
+    echo "  Enabled Outputs: [NATS OTLPMetrics]"
+    echo "  NATS - Publish OK"
+    """
+  end
+
   defp generate_update_script(package) do
     collector_type = to_string(package.collector_type)
     config_file = config_filename(package)
@@ -410,6 +565,105 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   defp encode_toml_value(value) do
     # Jason encoding works well for TOML strings/numbers/booleans
     Jason.encode!(value)
+  end
+
+  defp generate_readme(%{collector_type: :falcosidekick} = package) do
+    namespace =
+      get_in(package.config_overrides || %{}, ["namespace"]) || "demo"
+
+    release_name =
+      get_in(package.config_overrides || %{}, ["release_name"]) || "falcosidekick-nats-auth"
+
+    """
+    # ServiceRadar Falcosidekick Package
+
+    **Collector Type:** falcosidekick
+    **Package ID:** #{package.id}
+    **Site:** #{package.site || "default"}
+    **Created:** #{format_datetime(package.inserted_at)}
+
+    ## Prerequisites
+
+    1. A Kubernetes cluster with `kubectl` and `helm` configured
+    2. Falco installed as a DaemonSet (namespace `falco`)
+    3. The `falcosecurity` Helm repo:
+       ```bash
+       helm repo add falcosecurity https://falcosecurity.github.io/charts
+       helm repo update
+       ```
+
+    ## Quick Start
+
+    Run the deploy script — it creates the k8s secret and runs `helm upgrade`:
+
+    ```bash
+    ./deploy.sh
+    ```
+
+    ## Manual Deploy
+
+    ```bash
+    # 1. Create the TLS secret
+    kubectl create secret generic serviceradar-falcosidekick-certs \\
+      --namespace #{namespace} \\
+      --from-file=ca-chain.pem=certs/ca-chain.pem \\
+      --from-file=client.pem=certs/client.pem \\
+      --from-file=client-key.pem=certs/client-key.pem \\
+      --dry-run=client -o yaml | kubectl apply -f -
+
+    # 2. Deploy Falcosidekick
+    helm upgrade --install #{release_name} falcosecurity/falcosidekick \\
+      --namespace #{namespace} \\
+      -f falcosidekick.yaml
+    ```
+
+    ## Contents
+
+    - `creds/nats.creds` - NATS account credentials (for future .creds auth support)
+    - `certs/client.pem` - mTLS client certificate
+    - `certs/client-key.pem` - mTLS client private key (keep secure!)
+    - `certs/ca-chain.pem` - CA certificate chain
+    - `falcosidekick.yaml` - Helm values for Falcosidekick
+    - `deploy.sh` - Automated deploy script (creates secret + helm upgrade)
+
+    ## Configure Falco to Forward Events
+
+    Falco must have HTTP output enabled and pointed at Falcosidekick:
+
+    ```bash
+    helm upgrade -n falco falco falcosecurity/falco \\
+      --reuse-values \\
+      --set falco.json_output=true \\
+      --set falco.http_output.enabled=true \\
+      --set-string falco.http_output.url=http://#{release_name}.#{namespace}.svc.cluster.local:2801/
+    ```
+
+    ## Verify
+
+    ```bash
+    # Check Falcosidekick logs
+    kubectl -n #{namespace} logs deploy/#{release_name} --tail=20
+
+    # Expected: "Enabled Outputs: [NATS OTLPMetrics]"
+    # Expected: "NATS - Publish OK"
+
+    # Subscribe to Falco events
+    kubectl -n #{namespace} exec deploy/serviceradar-tools -- \\
+      nats --context serviceradar sub 'falco.>'
+    ```
+
+    ## Security Notes
+
+    - The client private key should be kept secure
+    - mTLS authenticates Falcosidekick to the NATS cluster
+    - All messages are scoped to this deployment's account
+    - Events publish to `falco.<priority>.<rule>` subjects
+
+    ## Support
+
+    Documentation: https://docs.serviceradar.cloud
+    Issues: https://github.com/carverauto/serviceradar/issues
+    """
   end
 
   defp generate_readme(package) do

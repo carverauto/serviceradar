@@ -82,7 +82,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   def create(conn, params) do
     collector_type = params["collector_type"]
 
-    if collector_type in ["flowgger", "trapd", "netflow", "sflow", "otel"] do
+    if collector_type in ["flowgger", "trapd", "netflow", "sflow", "otel", "falcosidekick"] do
       with :ok <- require_authenticated(conn),
            :ok <- require_permission(conn, "settings.edge.manage") do
         attrs = %{
@@ -112,7 +112,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
       return_error(
         conn,
         :bad_request,
-        "collector_type must be one of: flowgger, trapd, netflow, sflow, otel"
+        "collector_type must be one of: flowgger, trapd, netflow, sflow, otel, falcosidekick"
       )
     end
   end
@@ -491,6 +491,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   defp parse_collector_type("netflow"), do: :netflow
   defp parse_collector_type("sflow"), do: :sflow
   defp parse_collector_type("otel"), do: :otel
+  defp parse_collector_type("falcosidekick"), do: :falcosidekick
   defp parse_collector_type(_), do: nil
 
   defp package_to_json(package) do

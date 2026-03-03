@@ -3,14 +3,16 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   Collector-specific deployment package for edge collectors with NATS credentials.
 
   This resource manages deployment packages for collectors (flowgger, trapd,
-  netflow, otel) that include NATS credentials for event streaming.
+  netflow, sflow, otel, falcosidekick) that include NATS credentials for event streaming.
 
   ## Collector Types
 
   - `:flowgger` - Syslog collector (RFC 5424, RFC 3164)
   - `:trapd` - SNMP trap collector (v1, v2c, v3)
   - `:netflow` - NetFlow/sFlow/IPFIX collector
+  - `:sflow` - sFlow collector
   - `:otel` - OpenTelemetry collector (traces, metrics, logs)
+  - `:falcosidekick` - Falco runtime security events via Falcosidekick
 
   ## Package Lifecycle
 
@@ -340,7 +342,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     attribute :collector_type, :atom do
       allow_nil? false
       public? true
-      constraints one_of: [:flowgger, :trapd, :netflow, :otel]
+      constraints one_of: [:flowgger, :trapd, :netflow, :sflow, :otel, :falcosidekick]
       description "Type of collector"
     end
 
