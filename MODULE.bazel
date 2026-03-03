@@ -214,6 +214,11 @@ llvm_ext = use_extension(
 llvm_ext.toolchain(
     name = "llvm_toolchain",
     llvm_versions = {
+        # Fallback for hosts whose distro-specific key is not listed below
+        # (e.g. ubuntu-24.04-x86_64, debian-12-x86_64).
+        "": "17.0.4",
+        # Explicit generic Linux key to cover distros like Oracle Linux 9.
+        "linux-x86_64": "17.0.4",
         "darwin-aarch64": "17.0.4",
         "darwin-x86_64": "15.0.7",
         "ubuntu-22.04-x86_64": "17.0.4",
