@@ -122,16 +122,13 @@ defmodule ServiceRadar.Repo.Migrations.CreateTrivyReportTables do
       USING GIN (
         to_tsvector(
           'simple',
-          concat_ws(
-            ' ',
-            coalesce(report_kind, ''),
-            coalesce(resource_kind, ''),
-            coalesce(resource_namespace, ''),
-            coalesce(resource_name, ''),
-            coalesce(pod_name, ''),
-            coalesce(container_name, ''),
-            coalesce(name, '')
-          )
+          coalesce(report_kind, '') || ' ' ||
+          coalesce(resource_kind, '') || ' ' ||
+          coalesce(resource_namespace, '') || ' ' ||
+          coalesce(resource_name, '') || ' ' ||
+          coalesce(pod_name, '') || ' ' ||
+          coalesce(container_name, '') || ' ' ||
+          coalesce(name, '')
         )
       )
     """)
@@ -179,17 +176,14 @@ defmodule ServiceRadar.Repo.Migrations.CreateTrivyReportTables do
       USING GIN (
         to_tsvector(
           'simple',
-          concat_ws(
-            ' ',
-            coalesce(report_kind, ''),
-            coalesce(finding_type, ''),
-            coalesce(finding_id, ''),
-            coalesce(title, ''),
-            coalesce(description, ''),
-            coalesce(package_name, ''),
-            coalesce(resource_name, ''),
-            coalesce(pod_name, '')
-          )
+          coalesce(report_kind, '') || ' ' ||
+          coalesce(finding_type, '') || ' ' ||
+          coalesce(finding_id, '') || ' ' ||
+          coalesce(title, '') || ' ' ||
+          coalesce(description, '') || ' ' ||
+          coalesce(package_name, '') || ' ' ||
+          coalesce(resource_name, '') || ' ' ||
+          coalesce(pod_name, '')
         )
       )
     """)
