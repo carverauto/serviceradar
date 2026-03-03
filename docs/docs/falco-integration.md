@@ -21,7 +21,7 @@ Stream Falco runtime security events into ServiceRadar via NATS JetStream using 
 
 - **Falco** detects suspicious syscalls and k8s audit events on each node.
 - **Falcosidekick** forwards events to NATS (mTLS) and exports OTLP metrics.
-- **ServiceRadar** consumes events from `falco.>` subjects for alerting and correlation.
+- **ServiceRadar** EventWriter consumes events from `falco.>` and writes normalized OCSF rows to `platform.ocsf_events` for alerting and correlation.
 
 ## Prerequisites
 
@@ -169,6 +169,13 @@ Expected: `200`
 ```bash
 kubectl -n demo exec deploy/serviceradar-tools -- \
   nats --context serviceradar sub 'falco.>'
+```
+
+### Verify OCSF Persistence
+
+```bash
+kubectl -n demo exec cnpg-1 -- psql -U serviceradar -d serviceradar \
+  -c "SELECT time, severity, status, message, log_name FROM ocsf_events WHERE log_provider = 'falco' ORDER BY time DESC LIMIT 20;"
 ```
 
 ### Trigger a Real Falco Event
