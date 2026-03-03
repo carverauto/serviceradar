@@ -45,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
     [
       cluster_tab(path, current_scope),
+      discovery_tab(path, current_scope),
       network_tab(path, current_scope),
       events_tab(path, current_scope),
       edge_ops_tab(path, current_scope),
@@ -68,12 +69,24 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp network_tab(path, current_scope) do
     %{
       label: "Network",
-      navigate: ~p"/settings/networks",
-      active:
-        String.starts_with?(path, "/settings/networks") or
-          String.starts_with?(path, "/settings/snmp"),
+      navigate: ~p"/settings/flows",
+      active: network_active?(path),
       show: can_networks_tab?(current_scope)
     }
+  end
+
+  defp discovery_tab(path, current_scope) do
+    %{
+      label: "Discovery",
+      navigate: ~p"/settings/networks",
+      active: discovery_active?(path),
+      show: can_discovery_tab?(current_scope)
+    }
+  end
+
+  defp can_discovery_tab?(current_scope) do
+    RBAC.can?(current_scope, "settings.networks.manage") or
+      RBAC.can?(current_scope, "settings.snmp_profiles.manage")
   end
 
   defp can_networks_tab?(current_scope) do
@@ -107,7 +120,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp edge_ops_tab(path, current_scope) do
     %{
       label: "Edge Ops",
-      navigate: ~p"/admin/edge-sites",
+      navigate: edge_ops_tab_navigate(current_scope),
       active:
         String.starts_with?(path, "/admin/collectors") or
           String.starts_with?(path, "/admin/edge-sites") or
@@ -118,6 +131,15 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
           String.starts_with?(path, "/admin/plugins"),
       show: can_edge_ops_tab?(current_scope)
     }
+  end
+
+  defp edge_ops_tab_navigate(current_scope) do
+    cond do
+      RBAC.can?(current_scope, "settings.edge.manage") -> ~p"/settings/agents/deploy"
+      RBAC.can?(current_scope, "settings.sysmon_profiles.manage") -> ~p"/settings/sysmon"
+      RBAC.can?(current_scope, "plugins.view") -> ~p"/settings/agents/plugins"
+      true -> ~p"/admin/edge-sites"
+    end
   end
 
   defp can_edge_ops_tab?(current_scope) do
@@ -236,11 +258,6 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp network_tabs_with_state(path) do
     [
       %{
-        label: "Discovery",
-        navigate: ~p"/settings/networks",
-        active: discovery_active?(path)
-      },
-      %{
         label: "Network Flows",
         navigate: ~p"/settings/flows",
         active: String.starts_with?(path, "/settings/flows")
@@ -295,6 +312,13 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       end
 
     tabs |> Enum.filter(&show_discovery_tab?(&1.label, current_scope))
+  end
+
+  defp network_active?(path) do
+    String.starts_with?(path, "/settings/flows") or
+      String.starts_with?(path, "/settings/networks/bmp") or
+      String.starts_with?(path, "/settings/networks/mtr") or
+      String.starts_with?(path, "/settings/networks/integrations")
   end
 
   defp discovery_active?(path) do
@@ -432,18 +456,18 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         show: can_edge or is_nil(current_scope)
       },
       %{
-        label: "Host Health",
-        navigate: ~p"/settings/sysmon",
-        active: String.starts_with?(path, "/settings/sysmon"),
-        show: can_sysmon
-      },
-      %{
-        label: "Agent Deploy",
+        label: "Agents",
         navigate: ~p"/settings/agents/deploy",
         active:
           String.starts_with?(path, "/settings/agents/deploy") or
             String.starts_with?(path, "/admin/edge-packages"),
         show: can_edge
+      },
+      %{
+        label: "Host Health",
+        navigate: ~p"/settings/sysmon",
+        active: String.starts_with?(path, "/settings/sysmon"),
+        show: can_sysmon
       },
       %{
         label: "Plugins",

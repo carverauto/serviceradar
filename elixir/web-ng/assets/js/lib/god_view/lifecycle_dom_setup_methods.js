@@ -84,6 +84,10 @@ export const godViewLifecycleDomSetupMethods = {
       this.state.deck.setProps({parameters: {clearColor: this.state.visual.bg}})
     }
 
+    // Bust the particle cache so colors rebuild with new palette
+    this.state.packetFlowCache = null
+    this.state.packetFlowCacheStamp = null
+
     // Re-render current graph with new colors
     if (this.state.lastGraph) this.deps.renderGraph(this.state.lastGraph)
   },

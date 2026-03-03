@@ -23,8 +23,9 @@ export const godViewRenderingStyleEdgeTelemetryMethods = {
     const spark = pps > 0 ? Math.min(1, Math.log10(Math.max(10, pps)) / 6) : 0
     const t = Math.min(1, Math.max(util, spark))
 
-    const low = vivid ? [56, 210, 255, 88] : [48, 158, 226, 58]
-    const high = vivid ? [255, 110, 220, 142] : [196, 122, 255, 98]
+    const v = this.state.visual
+    const low = vivid ? v.crustLowVivid : v.crustLow
+    const high = vivid ? v.crustHighVivid : v.crustHigh
 
     return [
       Math.round(low[0] * (1 - t) + high[0] * t),

@@ -2,27 +2,63 @@
 const DARK_VISUAL = {
   bg: [15, 23, 42, 255],                   // slate-900 (base-200)
   mantleEdge: [51, 65, 85, 170],           // slate-700
+  mantleEdgeBase: [30, 80, 140],           // blue-tinted edge base for alpha blending
+  mantleEdgeAlphaBase: 128,                // base alpha for mantle edges
+  mantleEdgeAlphaBoost: 32,                // alpha boost from zoom
   crustArc: [0, 216, 255, 180],            // #00D8FF electric cyan (primary)
   atmosphereParticle: [34, 211, 238, 185],  // #22D3EE cyan-400 (accent)
   nodeRoot: [255, 42, 122, 255],           // #FF2A7A neon magenta (error)
   nodeAffected: [255, 154, 0, 255],        // #FF9A00 neon amber (warning)
   nodeHealthy: [0, 230, 118, 255],         // #00E676 neon green (success)
   nodeUnknown: [100, 116, 139, 255],       // slate-500
+  nodeFill: [255, 255, 255, 255],          // white center dot
+  nodeOperUp: [56, 189, 248, 230],         // sky-400 (cyan)
+  nodeOperDown: [120, 113, 108, 220],      // warm gray
+  nodeOperUnknown: [100, 116, 139, 220],   // slate-500
+  nodeStatusUp: [34, 197, 94, 230],        // green-400
+  nodeStatusDown: [239, 68, 68, 230],      // red-400
+  nodeStatusUnknown: [148, 163, 184, 220], // slate-400
+  geoGrid: [32, 62, 88],                   // dark blue-gray grid lines
+  crustLow: [48, 158, 226, 58],           // muted cyan (low utilization)
+  crustLowVivid: [56, 210, 255, 88],      // vivid cyan
+  crustHigh: [196, 122, 255, 98],         // muted purple (high utilization)
+  crustHighVivid: [255, 110, 220, 142],   // vivid magenta
+  particleCyan: [73, 231, 255, 255],      // bright cyan particle
+  particleMagenta: [244, 114, 255, 255],  // bright magenta particle
+  particleBlend: [770, 1, 1, 1],          // additive blending for glow on dark
   label: [244, 244, 245, 240],             // #F4F4F5 zinc-100
   edgeLabel: [148, 163, 184, 220],         // slate-400
   pulse: [255, 42, 122, 220],              // neon magenta
 }
 
-/* Nocturne light palette — muted accents on white backgrounds */
+/* Nocturne light palette — bold accents on white backgrounds */
 const LIGHT_VISUAL = {
   bg: [248, 250, 252, 255],                // #F8FAFC slate-50 (base-200)
   mantleEdge: [203, 213, 225, 170],        // slate-300
-  crustArc: [3, 105, 161, 180],            // #0369A1 sky-800 (primary)
-  atmosphereParticle: [8, 145, 178, 160],   // #0891B2 cyan-600 (accent)
+  mantleEdgeBase: [56, 152, 220],          // vivid sky-blue edges (clearly visible)
+  mantleEdgeAlphaBase: 190,                // strong base alpha for light bg
+  mantleEdgeAlphaBoost: 45,                // alpha boost from zoom
+  crustArc: [3, 105, 161, 240],            // #0369A1 sky-800 (primary) high alpha
+  atmosphereParticle: [2, 132, 165, 240],   // bold cyan-600 near-opaque
   nodeRoot: [220, 38, 38, 255],            // #DC2626 red-600 (error)
   nodeAffected: [217, 119, 6, 255],        // #D97706 amber-600 (warning)
   nodeHealthy: [5, 150, 105, 255],         // #059669 emerald-600 (success)
   nodeUnknown: [100, 116, 139, 255],       // slate-500
+  nodeFill: [15, 23, 42, 255],             // dark center dot
+  nodeOperUp: [3, 105, 161, 230],          // sky-800 (primary)
+  nodeOperDown: [120, 113, 108, 220],      // warm gray
+  nodeOperUnknown: [100, 116, 139, 220],   // slate-500
+  nodeStatusUp: [5, 150, 105, 230],        // emerald-600
+  nodeStatusDown: [220, 38, 38, 230],      // red-600
+  nodeStatusUnknown: [100, 116, 139, 220], // slate-500
+  geoGrid: [180, 200, 220],               // light blue-gray grid lines
+  crustLow: [14, 130, 195, 210],          // sky-700 bold (clearly visible on light)
+  crustLowVivid: [3, 115, 185, 245],      // sky-800 near-opaque
+  crustHigh: [130, 40, 220, 235],         // rich purple bold
+  crustHighVivid: [147, 51, 234, 250],    // purple-600 near-opaque
+  particleCyan: [0, 150, 220, 255],       // bold sky-blue at full alpha
+  particleMagenta: [147, 30, 210, 255],   // bold purple at full alpha
+  particleBlend: [770, 771],              // standard alpha blending for light bg
   label: [15, 23, 42, 240],               // #0F172A slate-900 (base-content)
   edgeLabel: [71, 85, 105, 220],           // slate-600
   pulse: [220, 38, 38, 220],              // red-600
