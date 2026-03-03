@@ -163,18 +163,18 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       )
 
     event_row =
-      build_event_row(
-        event_uuid,
-        log_uuid,
-        payload,
-        subject,
-        output_fields,
-        raw_data,
-        event_time,
-        severity_id,
-        status_id,
-        message
-      )
+      build_event_row(%{
+        event_uuid: event_uuid,
+        log_uuid: log_uuid,
+        payload: payload,
+        subject: subject,
+        output_fields: output_fields,
+        raw_data: raw_data,
+        event_time: event_time,
+        severity_id: severity_id,
+        status_id: status_id,
+        message: message
+      })
 
     {:ok,
      %{
@@ -242,18 +242,18 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     }
   end
 
-  defp build_event_row(
-         event_uuid,
-         log_uuid,
-         payload,
-         subject,
-         output_fields,
-         raw_data,
-         event_time,
-         severity_id,
-         status_id,
-         message
-       ) do
+  defp build_event_row(%{
+         event_uuid: event_uuid,
+         log_uuid: log_uuid,
+         payload: payload,
+         subject: subject,
+         output_fields: output_fields,
+         raw_data: raw_data,
+         event_time: event_time,
+         severity_id: severity_id,
+         status_id: status_id,
+         message: message
+       }) do
     metadata =
       build_event_metadata(payload, subject, output_fields)
       |> Map.put("serviceradar", %{
@@ -456,16 +456,14 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   defp resolve_event_id(payload, subject, raw_data) do
     uuid = normalize_string(payload["uuid"])
 
-    cond do
-      is_binary(uuid) ->
-        case Ecto.UUID.cast(uuid) do
-          {:ok, cast_uuid} -> cast_uuid
-          :error -> deterministic_uuid("#{subject}:uuid:#{String.downcase(uuid)}")
-        end
-
-      true ->
-        hash = Base.encode16(:crypto.hash(:sha256, raw_data), case: :lower)
-        deterministic_uuid("#{subject}:sha256:#{hash}")
+    if is_binary(uuid) do
+      case Ecto.UUID.cast(uuid) do
+        {:ok, cast_uuid} -> cast_uuid
+        :error -> deterministic_uuid("#{subject}:uuid:#{String.downcase(uuid)}")
+      end
+    else
+      hash = Base.encode16(:crypto.hash(:sha256, raw_data), case: :lower)
+      deterministic_uuid("#{subject}:sha256:#{hash}")
     end
   end
 
