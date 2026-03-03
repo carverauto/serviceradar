@@ -2223,7 +2223,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     <!-- View Mode -->
           <div
             :if={is_map(@device_row) and not @editing}
-            class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+            class="rounded-xl border border-base-200 bg-base-100 p-4"
           >
             <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
               <div class="card bg-base-100 border border-base-300">
@@ -2330,7 +2330,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     <!-- Edit Mode -->
           <div
             :if={is_map(@device_row) and @editing}
-            class="rounded-xl border border-primary/30 bg-base-100 shadow-sm"
+            class="rounded-xl border border-primary/30 bg-base-100"
           >
             <div class="px-4 py-3 border-b border-base-200 bg-primary/5 flex items-center justify-between">
               <div class="flex items-center gap-2">
@@ -2779,7 +2779,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               />
 
               <%= for section <- @metric_sections_to_render do %>
-                <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+                <div class="rounded-xl border border-base-200 bg-base-100">
                   <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
                     <div class="flex items-center gap-3">
                       <span class="text-sm font-semibold">{section.title}</span>
@@ -3182,7 +3182,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:has_properties, ordered_keys != [])
 
     ~H"""
-    <div :if={@has_properties} class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div :if={@has_properties} class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
         <span class="text-sm font-semibold">Device Properties</span>
         <span class="text-xs text-base-content/50">{length(@ordered_keys)} fields</span>
@@ -3404,7 +3404,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp os_info_card(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <div class="flex items-center gap-2">
           <.icon name="hero-cpu-chip" class="size-4 text-info" />
@@ -3444,7 +3444,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     assigns = assign(assigns, :ram_display, ram_display)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <div class="flex items-center gap-2">
           <.icon name="hero-server" class="size-4 text-success" />
@@ -3513,7 +3513,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp compliance_card(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <div class="flex items-center gap-2">
           <.icon name="hero-shield-check" class="size-4 text-warning" />
@@ -3618,7 +3618,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     />
 
     <%= if @interfaces == [] and is_nil(@error) do %>
-      <div class="rounded-xl border border-base-200 bg-base-100 p-6 text-center shadow-sm">
+      <div class="rounded-xl border border-base-200 bg-base-100 p-6 text-center">
         <.icon name="hero-arrows-right-left" class="size-8 text-base-content/30 mx-auto" />
         <p class="text-sm font-semibold text-base-content/80 mt-3">
           No interface data yet.
@@ -3655,7 +3655,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         </div>
       </div>
     <% else %>
-      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="rounded-xl border border-base-200 bg-base-100">
         <div class="px-4 py-3 border-b border-base-200">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
@@ -3906,7 +3906,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       <%!-- Traffic Profile chart --%>
       <div
         :if={@flow_chart_points_json != "[]"}
-        class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+        class="rounded-xl border border-base-200 bg-base-100 p-4"
       >
         <div class="flex items-center gap-2 mb-3">
           <.icon name="hero-chart-bar" class="size-4 text-primary" />
@@ -3970,7 +3970,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       <%!-- Protocol breakdown --%>
       <div
         :if={@proto_json != "[]"}
-        class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+        class="rounded-xl border border-base-200 bg-base-100 p-4"
       >
         <div class="flex items-center gap-2 mb-3">
           <.icon name="hero-chart-pie" class="size-4 text-primary" />
@@ -3983,7 +3983,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       <%!-- Quick filters / faceting --%>
       <div
         :if={@facets.protocols != [] or @facets.directions != [] or @facets.services != []}
-        class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+        class="rounded-xl border border-base-200 bg-base-100 p-4"
       >
         <div class="flex items-center gap-2 mb-3">
           <.icon name="hero-funnel" class="size-4 text-primary" />
@@ -4053,7 +4053,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       </div>
 
       <%!-- Flow table --%>
-      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="rounded-xl border border-base-200 bg-base-100">
         <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
           <div class="flex items-center gap-2">
             <.icon name="hero-arrows-right-left" class="size-4 text-primary" />
@@ -4223,7 +4223,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     assigns = assign(assigns, items: items)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-4">
       <div class="flex items-center gap-2 mb-3">
         <.icon name={@icon} class="size-4 text-primary" />
         <span class="text-sm font-semibold">{@title}</span>
@@ -4552,7 +4552,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         nil -> nil
         row -> Map.get(row, "timestamp")
       end %>
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <.icon name="hero-command-line" class="size-4 text-accent" />
@@ -4643,7 +4643,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:panel_layout_class, panel_layout_class)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm mb-4">
+    <div class="rounded-xl border border-base-200 bg-base-100 mb-4">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
         <div class="flex items-center gap-2">
           <.icon name="hero-chart-bar" class="size-4 text-primary" />
@@ -5105,7 +5105,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:has_agents, has_agents)
 
     ~H"""
-    <div :if={@has_agents} class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div :if={@has_agents} class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <div class="flex items-center gap-2">
           <.icon name="hero-cpu-chip" class="size-4 text-accent" />
@@ -6020,7 +6020,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:segments, segments)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <div class="flex items-center justify-between gap-3">
           <div>
@@ -6242,7 +6242,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:uptime_pct, uptime_pct)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
         <span class="text-sm font-semibold">Service Health (GRPC)</span>
         <div class="flex items-center gap-4 text-sm">
@@ -6512,7 +6512,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:total, length(results))
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2">
@@ -6641,7 +6641,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:toggle_label, if(assigns.show_stale, do: "Hide stale", else: "Show stale"))
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <.icon name="hero-arrow-path-rounded-square" class="size-4 text-primary" />
@@ -7139,7 +7139,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:source, source)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
         <div class="flex items-center gap-2">
           <.icon name="hero-cog-6-tooth" class="size-4 text-primary" />

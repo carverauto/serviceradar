@@ -68,7 +68,7 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   defp widget_container_class(instruction) do
     layout = Map.get(instruction, "layout") || Map.get(instruction, :layout)
 
-    base = "rounded-xl border border-base-200 bg-base-100 p-4 shadow-sm"
+    base = "rounded-xl border border-base-200 bg-base-100 p-4"
 
     case layout do
       "full" -> [base, "lg:col-span-2"]

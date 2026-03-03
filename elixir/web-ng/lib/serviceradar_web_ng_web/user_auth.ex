@@ -397,8 +397,8 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     else
       socket =
         socket
-        |> Phoenix.LiveView.put_flash(:error, "Confirm password to continue.")
-        |> Phoenix.LiveView.redirect(to: ~p"/settings/profile")
+        |> Phoenix.LiveView.put_flash(:error, "Session expired. Please sign in again to access account settings.")
+        |> Phoenix.LiveView.redirect(to: ~p"/users/log-in")
 
       {:halt, socket}
     end
@@ -543,8 +543,9 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
       conn
     else
       conn
-      |> put_flash(:error, "Confirm password to continue.")
-      |> redirect(to: ~p"/settings/profile")
+      |> put_session(:user_return_to, conn.request_path)
+      |> put_flash(:error, "Session expired. Please sign in again to access account settings.")
+      |> redirect(to: ~p"/users/log-in")
       |> halt()
     end
   end

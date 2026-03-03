@@ -167,7 +167,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
       |> assign(:informational, informational)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-4">
       <div class="flex items-center justify-between mb-3">
         <div class="text-xs text-base-content/50 uppercase tracking-wider">
           Event Severity Breakdown

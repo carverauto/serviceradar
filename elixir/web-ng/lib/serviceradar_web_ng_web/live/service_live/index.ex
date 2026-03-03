@@ -205,7 +205,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+      <div class="rounded-xl border border-base-200 bg-base-100 p-4">
         <div class="flex items-center justify-between">
           <div>
             <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">
@@ -233,7 +233,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         </div>
       </div>
 
-      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+      <div class="rounded-xl border border-base-200 bg-base-100 p-4">
         <div class="flex items-center justify-between">
           <div>
             <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Available</div>
@@ -259,7 +259,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         </div>
       </div>
 
-      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+      <div class="rounded-xl border border-base-200 bg-base-100 p-4">
         <div class="flex items-center justify-between">
           <div>
             <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Unavailable</div>
@@ -323,7 +323,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     <.link
       navigate={@card.path}
       class={[
-        "group block h-full rounded-2xl border border-base-200 bg-base-100 shadow-sm",
+        "group block h-full rounded-2xl border border-base-200 bg-base-100",
         "p-4 transition hover:-translate-y-0.5 hover:shadow-md"
       ]}
     >

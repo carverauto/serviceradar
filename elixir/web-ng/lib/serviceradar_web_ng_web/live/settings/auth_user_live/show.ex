@@ -299,7 +299,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
           </div>
 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
+            <div class="card bg-base-100 border border-base-200">
               <div class="card-body space-y-4">
                 <h2 class="card-title text-base">Profile</h2>
 
@@ -361,7 +361,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
               </div>
             </div>
 
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
+            <div class="card bg-base-100 border border-base-200">
               <div class="card-body space-y-4">
                 <div class="flex items-center justify-between gap-3">
                   <h2 class="card-title text-base">Login history</h2>

@@ -246,7 +246,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp log_summary(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-6">
       <div class="flex flex-wrap gap-x-8 gap-y-4">
         <div class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Level</span>
@@ -307,7 +307,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       |> assign(:is_json, is_json)
 
     ~H"""
-    <div :if={@body != ""} class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div :if={@body != ""} class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <span class="text-sm font-semibold">Message Body</span>
       </div>
@@ -348,7 +348,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       |> assign(:parsed_resource_attributes, parsed_resource_attributes)
 
     ~H"""
-    <div :if={@detail_fields != []} class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div :if={@detail_fields != []} class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <span class="text-sm font-semibold">Additional Metadata</span>
       </div>
@@ -390,7 +390,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       <%= if simple_attribute_map?(@attributes) do %>
         <div class="mt-2 flex flex-wrap gap-2">
           <%= for {key, value} <- flatten_attribute_values(@attributes) do %>
-            <span class="inline-flex items-center gap-2 rounded-full border border-base-200 bg-base-100 px-2.5 py-1 text-xs text-base-content/70 shadow-sm">
+            <span class="inline-flex items-center gap-2 rounded-full border border-base-200 bg-base-100 px-2.5 py-1 text-xs text-base-content/70">
               <span class="font-medium">{key}</span>
               <span class="text-base-content/40">=</span>
               <span class="font-mono text-base-content/90">{format_attribute_value(value)}</span>
@@ -404,7 +404,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
               <span class="text-xs font-medium text-base-content/70">{section}</span>
               <div class="mt-2 flex flex-wrap gap-2">
                 <%= for {key, value} <- flatten_attribute_values(values) do %>
-                  <span class="inline-flex items-center gap-2 rounded-full border border-base-200 bg-base-100 px-2.5 py-1 text-xs text-base-content/70 shadow-sm">
+                  <span class="inline-flex items-center gap-2 rounded-full border border-base-200 bg-base-100 px-2.5 py-1 text-xs text-base-content/70">
                     <span class="font-medium">{key}</span>
                     <span class="text-base-content/40">=</span>
                     <span class="font-mono text-base-content/90">

@@ -89,7 +89,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     ~H"""
     <div class={[
       "overflow-x-auto",
-      @container && "rounded-xl border border-base-200 bg-base-100 shadow-sm",
+      @container && "rounded-xl border border-base-200 bg-base-100",
       @class
     ]}>
       <table id={@id} class="table table-sm table-zebra w-full">

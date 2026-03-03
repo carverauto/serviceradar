@@ -38,7 +38,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         },
         parameters: {
           blend: true,
-          blendFunc: [770, 1, 1, 1],
+          blendFunc: this.state.visual.particleBlend,
           depthTest: false,
           depthWrite: false,
         },
@@ -80,7 +80,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         stroked: false,
         filled: true,
         pickable: true,
-        getFillColor: [255, 255, 255, 255],
+        getFillColor: this.state.visual.nodeFill,
         parameters: {
           depthTest: false,
           depthWrite: false,

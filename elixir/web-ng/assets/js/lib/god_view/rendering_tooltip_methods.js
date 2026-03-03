@@ -1,3 +1,26 @@
+import {detectThemeMode} from "./lifecycle_bootstrap_state_defaults_methods"
+
+function tooltipStyle() {
+  const dark = detectThemeMode() === "dark"
+  return {
+    backgroundColor: dark ? "rgba(19, 19, 22, 0.9)" : "rgba(255, 255, 255, 0.92)",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
+    border: dark ? "1px solid rgba(39, 39, 42, 0.4)" : "1px solid rgba(226, 232, 240, 0.6)",
+    borderRadius: "10px",
+    boxShadow: dark ? "0 8px 32px rgba(0, 0, 0, 0.5)" : "0 8px 32px rgba(0, 0, 0, 0.1)",
+    color: dark ? "#F4F4F5" : "#0F172A",
+    fontFamily: "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
+    fontSize: "12px",
+    letterSpacing: "0.2px",
+    lineHeight: "1.35",
+    maxWidth: "360px",
+    padding: "8px 10px",
+    pointerEvents: "none",
+    whiteSpace: "normal",
+  }
+}
+
 export const godViewRenderingTooltipMethods = {
   getNodeTooltip({object, layer}) {
     if (!object) return null
@@ -39,23 +62,7 @@ export const godViewRenderingTooltipMethods = {
         geo ? `<div>Geo: ${this.escapeHtml(geo)}</div>` : "",
         d.asn ? `<div>ASN: ${this.escapeHtml(d.asn)}</div>` : "",
       ].filter(Boolean).join(""),
-      style: {
-        backgroundColor: "rgba(19, 19, 22, 0.9)",
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-        border: "1px solid rgba(39, 39, 42, 0.4)",
-        borderRadius: "10px",
-        boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
-        color: "#F4F4F5",
-        fontFamily: "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
-        fontSize: "12px",
-        letterSpacing: "0.2px",
-        lineHeight: "1.35",
-        maxWidth: "360px",
-        padding: "8px 10px",
-        pointerEvents: "none",
-        whiteSpace: "normal",
-      },
+      style: tooltipStyle(),
     }
   },
   getMtrPathTooltip(object) {
@@ -79,23 +86,7 @@ export const godViewRenderingTooltipMethods = {
         `<div>Jitter: ${jitter}</div>`,
         agent ? `<div>${agent}</div>` : "",
       ].filter(Boolean).join(""),
-      style: {
-        backgroundColor: "rgba(19, 19, 22, 0.9)",
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-        border: "1px solid rgba(39, 39, 42, 0.4)",
-        borderRadius: "10px",
-        boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
-        color: "#F4F4F5",
-        fontFamily: "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
-        fontSize: "12px",
-        letterSpacing: "0.2px",
-        lineHeight: "1.35",
-        maxWidth: "360px",
-        padding: "8px 10px",
-        pointerEvents: "none",
-        whiteSpace: "normal",
-      },
+      style: tooltipStyle(),
     }
   },
   edgeLayerId(layerId) {

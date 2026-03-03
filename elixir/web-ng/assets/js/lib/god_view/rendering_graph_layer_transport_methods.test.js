@@ -10,7 +10,7 @@ describe("rendering_graph_layer_transport_methods", () => {
       layers: {mantle: true, crust: true, atmosphere: true, security: true},
       packetFlowEnabled: true,
       packetFlowShaderEnabled: true,
-      visual: {pulse: [255, 64, 64, 220]},
+      visual: {pulse: [255, 64, 64, 220], particleBlend: [770, 1, 1, 1]},
     }
     const deps = {geoGridData: vi.fn(() => [])}
     const ctx = createStateBackedContext(state, deps)

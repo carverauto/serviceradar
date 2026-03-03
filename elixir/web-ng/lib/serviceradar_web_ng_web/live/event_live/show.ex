@@ -101,7 +101,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     ~H"""
     <div
       :if={is_binary(@log_id) or is_struct(@alert)}
-      class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6"
+      class="rounded-xl border border-base-200 bg-base-100 p-6"
     >
       <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
         Related Records
@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       |> assign(:source, source)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-6">
       <div class="flex flex-wrap gap-x-8 gap-y-4">
         <div class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Severity</span>
@@ -197,7 +197,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     <%!-- Event Details --%>
     <div
       :if={@other_fields != []}
-      class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6"
+      class="rounded-xl border border-base-200 bg-base-100 p-6"
     >
       <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-4">
         Event Details

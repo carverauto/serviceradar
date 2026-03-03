@@ -458,7 +458,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         <%!-- Interface Details --%>
         <div :if={@interface && !@loading} class="space-y-6">
           <%!-- Header Card --%>
-          <div class="card bg-base-100 border border-base-200 shadow-sm">
+          <div class="card bg-base-100 border border-base-200">
             <div class="card-body">
               <div class="flex items-start justify-between">
                 <div>
@@ -495,7 +495,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           <%!-- Metrics Graphs Section (positioned at top, below header) --%>
           <div
             :if={@metrics.panels != [] || @metrics.error || @metrics.message}
-            class="card bg-base-100 border border-base-200 shadow-sm"
+            class="card bg-base-100 border border-base-200"
           >
             <div class="card-body">
               <h2 class="card-title text-lg">
@@ -535,7 +535,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           <%!-- Properties Grid --%>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <%!-- Basic Information --%>
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
+            <div class="card bg-base-100 border border-base-200">
               <div class="card-body">
                 <h2 class="card-title text-lg">
                   <.icon name="hero-information-circle" class="size-5 text-primary" />
@@ -558,7 +558,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <%!-- Network Information --%>
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
+            <div class="card bg-base-100 border border-base-200">
               <div class="card-body">
                 <h2 class="card-title text-lg">
                   <.icon name="hero-globe-alt" class="size-5 text-primary" /> Network Information
@@ -578,7 +578,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <%!-- Metrics Collection --%>
-            <div class="card bg-base-100 border border-base-200 shadow-sm lg:col-span-2">
+            <div class="card bg-base-100 border border-base-200 lg:col-span-2">
               <div class="card-body">
                 <h2 class="card-title text-lg">
                   <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics Collection

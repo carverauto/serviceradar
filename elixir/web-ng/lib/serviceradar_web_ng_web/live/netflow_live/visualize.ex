@@ -452,7 +452,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       <div class="px-4 py-4">
         <div class="flex flex-col lg:flex-row gap-4 items-start">
           <aside class="w-full lg:w-80 shrink-0">
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
+            <div class="card bg-base-100 border border-base-200">
               <div class="card-body gap-3">
                 <div class="min-w-0">
                   <div class="text-base font-semibold">Network Flows</div>
@@ -744,7 +744,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           </aside>
 
           <section class="w-full min-w-0 flex-1 flex flex-col gap-4">
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
+            <div class="card bg-base-100 border border-base-200">
               <div class="card-body gap-3">
                 <div class="flex items-center justify-between gap-3">
                   <div class="text-sm font-semibold">Chart</div>
@@ -841,7 +841,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
               </div>
             </div>
 
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
+            <div class="card bg-base-100 border border-base-200">
               <div class="card-body gap-3">
                 <div class="flex items-center justify-between gap-3">
                   <div class="flex items-baseline gap-2 min-w-0">

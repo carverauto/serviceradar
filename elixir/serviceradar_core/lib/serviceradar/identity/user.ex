@@ -221,8 +221,10 @@ defmodule ServiceRadar.Identity.User do
         cond do
           is_nil(user.hashed_password) or user.hashed_password == "" ->
             # User has no password (SSO-only), allow email update without password confirmation
-            # In a strict environment, we might require them to set a password first.
             :ok
+
+          is_nil(current_password) ->
+            {:error, field: :current_password, message: "is required"}
 
           Bcrypt.verify_pass(current_password, user.hashed_password) ->
             :ok

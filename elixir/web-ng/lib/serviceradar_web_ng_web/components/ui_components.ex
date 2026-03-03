@@ -232,7 +232,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   def ui_panel(assigns) do
     ~H"""
     <section class={[
-      "rounded-xl border border-base-200 bg-base-100 shadow-sm overflow-hidden",
+      "rounded-xl border border-base-200 bg-base-100 overflow-hidden",
       @class
     ]}>
       <header
