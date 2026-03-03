@@ -1174,7 +1174,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:debug, debug)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-4">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-3">
           <div class="text-xs text-base-content/50 uppercase tracking-wider">Log Level Breakdown</div>
@@ -1288,7 +1288,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:low, low)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-4">
       <div class="flex items-center justify-between mb-3">
         <div class="text-xs text-base-content/50 uppercase tracking-wider">
           Event Severity Breakdown
@@ -1386,7 +1386,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:suppressed, Map.get(assigns.summary, :suppressed, 0))
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-4">
       <div class="flex items-center justify-between mb-3">
         <div class="text-xs text-base-content/50 uppercase tracking-wider">
           Alert Status Overview
@@ -3226,7 +3226,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp observability_tabs(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-2">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-2">
       <div class="flex flex-wrap gap-2">
         <.tab_button id="logs" label="Logs" icon="hero-rectangle-stack" active={@active} />
         <.tab_button id="traces" label="Traces" icon="hero-clock" active={@active} />
@@ -3414,7 +3414,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     assigns = assign(assigns, :bg, bg) |> assign(:fg, fg)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-3">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-3">
       <div class="flex items-center gap-2">
         <div class={["size-8 rounded-lg flex items-center justify-center shrink-0", @bg]}>
           <.icon name={@icon} class={["size-4", @fg]} />

@@ -518,7 +518,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     assigns = assign(assigns, :renaming?, assigns.renaming_profile_id == assigns.profile.id)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <%!-- Card header --%>
       <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-base-200">
         <div class="flex items-center gap-3">

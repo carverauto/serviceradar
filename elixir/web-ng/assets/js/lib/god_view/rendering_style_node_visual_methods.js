@@ -13,9 +13,9 @@ export const godViewRenderingStyleNodeVisualMethods = {
     return this.state.visual.nodeUnknown
   },
   nodeNeutralColor(operUp) {
-    if (Number(operUp) === 1) return [56, 189, 248, 230]
-    if (Number(operUp) === 2) return [120, 113, 108, 220]
-    return [100, 116, 139, 220]
+    if (Number(operUp) === 1) return this.state.visual.nodeOperUp
+    if (Number(operUp) === 2) return this.state.visual.nodeOperDown
+    return this.state.visual.nodeOperUnknown
   },
   nodeStatusIcon(operUp) {
     if (Number(operUp) === 1) return "UP"
@@ -23,9 +23,9 @@ export const godViewRenderingStyleNodeVisualMethods = {
     return "UNK"
   },
   nodeStatusColor(operUp) {
-    if (Number(operUp) === 1) return [34, 197, 94, 230]
-    if (Number(operUp) === 2) return [239, 68, 68, 230]
-    return [148, 163, 184, 220]
+    if (Number(operUp) === 1) return this.state.visual.nodeStatusUp
+    if (Number(operUp) === 2) return this.state.visual.nodeStatusDown
+    return this.state.visual.nodeStatusUnknown
   },
   normalizeDisplayLabel(value, fallback = "node") {
     const label = String(value == null ? "" : value).trim()

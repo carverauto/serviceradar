@@ -1,4 +1,5 @@
 import {Deck, OrthographicView} from "@deck.gl/core"
+import {detectThemeMode, visualForTheme, hudStyleForTheme} from "./lifecycle_bootstrap_state_defaults_methods"
 
 export const godViewLifecycleDomSetupMethods = {
   sanitizeNavigationHref(rawHref) {
@@ -64,6 +65,32 @@ export const godViewLifecycleDomSetupMethods = {
     event.stopPropagation()
     this.deps.focusNodeByIndex(nextIndex, true)
   },
+  applyTheme() {
+    const mode = detectThemeMode()
+    this.state.visual = visualForTheme(mode)
+    const hudStyle = hudStyleForTheme(mode)
+
+    // Update container background
+    if (this.state.el) {
+      this.state.el.style.backgroundColor = `rgb(${this.state.visual.bg.slice(0, 3).join(",")})`
+    }
+
+    // Update HUD overlays
+    if (this.state.summary) this.state.summary.style.cssText = hudStyle
+    if (this.state.details) this.state.details.style.cssText = hudStyle
+
+    // Update deck.gl clear color
+    if (this.state.deck) {
+      this.state.deck.setProps({parameters: {clearColor: this.state.visual.bg}})
+    }
+
+    // Bust the particle cache so colors rebuild with new palette
+    this.state.packetFlowCache = null
+    this.state.packetFlowCacheStamp = null
+
+    // Re-render current graph with new colors
+    if (this.state.lastGraph) this.deps.renderGraph(this.state.lastGraph)
+  },
   ensureDOM() {
     if (this.state.canvas && this.state.summary) return
 
@@ -77,16 +104,7 @@ export const godViewLifecycleDomSetupMethods = {
     this.state.atmosphereOverlay.className = "pointer-events-none absolute inset-0 z-10 rounded"
     this.state.atmosphereOverlay.style.background = "transparent"
 
-    const hudStyle = [
-      "font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
-      "color: #F4F4F5",
-      "background: rgba(19, 19, 22, 0.85)",
-      "backdrop-filter: blur(12px)",
-      "-webkit-backdrop-filter: blur(12px)",
-      "border: 1px solid rgba(39, 39, 42, 0.4)",
-      "box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4)",
-      "letter-spacing: 0.2px",
-    ].join(";")
+    const hudStyle = hudStyleForTheme(detectThemeMode())
 
     this.state.summary = document.createElement("div")
     this.state.summary.className =

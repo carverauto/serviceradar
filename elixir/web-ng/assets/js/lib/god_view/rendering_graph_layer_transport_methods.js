@@ -37,8 +37,11 @@ export const godViewRenderingGraphLayerTransportMethods = {
             getSourcePosition: (d) => d.sourcePosition,
             getTargetPosition: (d) => d.targetPosition,
             getColor: (d) => {
-              const edgeAlpha = Math.round((128 + (32 * zoomParticleVisibility)) * alphaMult(d))
-              return [10, 40, 80, Math.max(24, Math.min(255, edgeAlpha))]
+              const base = this.state.visual.mantleEdgeBase
+              const alphaBase = this.state.visual.mantleEdgeAlphaBase ?? 128
+              const alphaBoost = this.state.visual.mantleEdgeAlphaBoost ?? 32
+              const edgeAlpha = Math.round((alphaBase + (alphaBoost * zoomParticleVisibility)) * alphaMult(d))
+              return [base[0], base[1], base[2], Math.max(24, Math.min(255, edgeAlpha))]
             },
             getWidth: (d) => {
               const tube = (this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * zoomScale * 1.35) + 2.0
@@ -54,7 +57,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
               depthTest: false,
             },
             updateTriggers: {
-              getColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
+              getColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey, this.state.visual.mantleEdgeBase, this.state.visual.mantleEdgeAlphaBase],
               getWidth: [zoomScale, hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
               getPolygonOffset: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
             },
@@ -116,7 +119,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
                 getFrom: (d) => d.from,
                 getTo: (d) => d.to,
                 getColor: (d) => {
-                  const color = d.color || [56, 189, 248, 120]
+                  const color = d.color || this.state.visual.atmosphereParticle
                   return [color[0], color[1], color[2], Math.round((color[3] || 0) * zoomParticleAlphaScale)]
                 },
                 getSize: (d) => Math.max(minParticleSizePx, Number(d.size || 0) * particleRenderScale),
@@ -128,7 +131,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
                 time: this.state.animationPhase,
                 parameters: {
                   blend: true,
-                  blendFunc: [770, 1, 1, 1],
+                  blendFunc: this.state.visual.particleBlend,
                   depthTest: false,
                   depthWrite: false,
                 },
@@ -151,7 +154,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
             const laneSpread = laneBucket * Math.max(0.2, (Number(particle.jitter || 0) * 0.04 * zoomSpreadScale))
             const laneOffset = Number(particle.laneOffset || 0)
             const bob = Math.sin((this.state.animationPhase * 9.0) + (Number(particle.seed || 0) * 23.0)) * 0.35
-            const color = particle.color || [56, 189, 248, 120]
+            const color = particle.color || this.state.visual.atmosphereParticle
             const alphaFade = Math.max(0, Math.sin(t * Math.PI))
             return {
               position: [x + (nx * (laneOffset + laneSpread + bob)), y + (ny * (laneOffset + laneSpread + bob)), 0],
@@ -175,7 +178,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
               getFillColor: (d) => d.color,
               parameters: {
                 blend: true,
-                blendFunc: [770, 1, 1, 1],
+                blendFunc: this.state.visual.particleBlend,
                 depthTest: false,
                 depthWrite: false,
               },
@@ -228,12 +231,13 @@ export const godViewRenderingGraphLayerTransportMethods = {
             getSourcePosition: (d) => d.sourcePosition,
             getTargetPosition: (d) => d.targetPosition,
             getColor: (d) => {
+              const g = this.state.visual.geoGrid
               const dx = Number(d.sourcePosition?.[0] || 0) - 320
               const dy = Number(d.sourcePosition?.[1] || 0) - 160
               const dist = Math.sqrt((dx * dx) + (dy * dy))
               const wave = (sweepTime - dist) % 400.0
               const alpha = wave > 0 && wave < 60 ? 110 - (wave * 1.5) : 15
-              return [32, 62, 88, Math.max(12, alpha)]
+              return [g[0], g[1], g[2], Math.max(12, alpha)]
             },
             getWidth: 1,
             widthUnits: "pixels",

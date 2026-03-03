@@ -359,7 +359,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
           </div>
 
           <%!-- Traffic over time sparkline --%>
-          <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+          <div class="rounded-xl border border-base-200 bg-base-100 p-4">
             <h3 class="text-sm font-semibold text-base-content mb-2">Traffic Over Time</h3>
             <div :if={@loading} class="flex items-center justify-center py-8">
               <span class="loading loading-spinner loading-md"></span>
@@ -376,7 +376,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
         <%!-- Per-interface ingress/egress chart --%>
         <div
           :if={section_visible?(@section, "traffic") and @top_interfaces != []}
-          class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+          class="rounded-xl border border-base-200 bg-base-100 p-4"
         >
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
@@ -546,7 +546,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
           <div
             :if={section_visible?(@section, "traffic")}
-            class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+            class="rounded-xl border border-base-200 bg-base-100 p-4"
           >
             <h3 class="text-sm font-semibold text-base-content mb-2">Protocol Distribution</h3>
             <div :if={@loading} class="flex items-center justify-center py-8">
@@ -562,7 +562,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
           <div
             :if={section_visible?(@section, "traffic")}
-            class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+            class="rounded-xl border border-base-200 bg-base-100 p-4"
           >
             <h3 class="text-sm font-semibold text-base-content mb-2">TCP Flag Distribution</h3>
             <div :if={@loading} class="flex items-center justify-center py-8">
@@ -578,7 +578,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
           <div
             :if={section_visible?(@section, "traffic")}
-            class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+            class="rounded-xl border border-base-200 bg-base-100 p-4"
           >
             <h3 class="text-sm font-semibold text-base-content mb-2">Flow Rate (flows/sec)</h3>
             <div :if={@loading} class="flex items-center justify-center py-8">
@@ -598,7 +598,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
           <div
             :if={section_visible?(@section, "traffic")}
-            class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+            class="rounded-xl border border-base-200 bg-base-100 p-4"
           >
             <h3 class="text-sm font-semibold text-base-content mb-2">Flow Duration Distribution</h3>
             <div :if={@loading} class="flex items-center justify-center py-8">

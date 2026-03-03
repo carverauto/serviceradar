@@ -75,7 +75,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
   defp alert_summary(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-6">
       <div class="flex flex-wrap gap-x-8 gap-y-4 items-start">
         <div class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Severity</span>
@@ -119,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     ~H"""
     <div
       :if={is_binary(@event_id)}
-      class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6"
+      class="rounded-xl border border-base-200 bg-base-100 p-6"
     >
       <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
         Related Records
@@ -147,7 +147,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       |> assign(:metadata, metadata)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6 space-y-6">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-6 space-y-6">
       <div>
         <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
           Alert Fields

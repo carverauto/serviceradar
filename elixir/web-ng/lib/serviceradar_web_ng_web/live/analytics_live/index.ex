@@ -1159,7 +1159,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   def critical_events_widget(assigns) do
     ~H"""
-    <div class="h-80 rounded-xl border border-base-200 bg-base-100 shadow-sm flex flex-col overflow-hidden">
+    <div class="h-80 rounded-xl border border-base-200 bg-base-100 flex flex-col overflow-hidden">
       <header class="px-4 py-3 bg-base-200/40 flex items-start justify-between gap-3 shrink-0">
         <.link href={~p"/events"} class="hover:text-primary transition-colors">
           <div class="text-sm font-semibold">Event Levels</div>
@@ -1257,7 +1257,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   def critical_logs_widget(assigns) do
     ~H"""
-    <div class="h-80 rounded-xl border border-base-200 bg-base-100 shadow-sm flex flex-col overflow-hidden">
+    <div class="h-80 rounded-xl border border-base-200 bg-base-100 flex flex-col overflow-hidden">
       <header class="px-4 py-3 bg-base-200/40 flex items-start justify-between gap-3 shrink-0">
         <.link
           href={~p"/observability?#{%{tab: "logs"}}"}
