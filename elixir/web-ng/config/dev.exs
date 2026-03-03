@@ -101,6 +101,9 @@ config :serviceradar_web_ng,
        :token_signing_secret,
        "dev_token_signing_secret_at_least_32_chars_long!"
 
+config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian,
+  secret_key: "dev_token_signing_secret_at_least_32_chars_long!"
+
 config :serviceradar_web_ng, :base_url, System.get_env("BASE_URL", "http://192.168.2.134:4000")
 
 # ## SSL Support
