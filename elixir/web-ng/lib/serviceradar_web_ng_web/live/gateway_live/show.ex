@@ -199,7 +199,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
 
   defp gateway_summary(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-6">
       <div class="flex flex-wrap gap-x-8 gap-y-4">
         <div class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Status</span>
@@ -241,7 +241,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
       |> assign(:role_steps, role_steps)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <span class="text-sm font-semibold">Gateway Role</span>
       </div>
@@ -272,7 +272,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
 
   defp node_system_info(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
         <span class="text-sm font-semibold">Node System Information</span>
         <span class="badge badge-ghost badge-sm font-mono">{@node}</span>
@@ -344,7 +344,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
 
   defp registration_info(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <span class="text-sm font-semibold">Registration Timeline</span>
       </div>

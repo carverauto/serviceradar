@@ -107,7 +107,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
 
     ~H"""
     <div class={[
-      "rounded-xl border border-base-200 bg-base-100 shadow-sm p-4 flex flex-col gap-1",
+      "rounded-xl border border-base-200 bg-base-100 p-4 flex flex-col gap-1",
       @class
     ]}>
       <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
@@ -150,7 +150,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
 
   def top_n_table(assigns) do
     ~H"""
-    <div class={["rounded-xl border border-base-200 bg-base-100 shadow-sm overflow-hidden", @class]}>
+    <div class={["rounded-xl border border-base-200 bg-base-100 overflow-hidden", @class]}>
       <div :if={@title} class="px-4 py-3 bg-base-200/40 border-b border-base-200">
         <h3 class="text-sm font-semibold text-base-content">{@title}</h3>
       </div>
@@ -244,7 +244,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
       id={@id}
       phx-hook="FlowDonut"
       data-slices={@data_json}
-      class={["rounded-xl border border-base-200 bg-base-100 shadow-sm p-4", @class]}
+      class={["rounded-xl border border-base-200 bg-base-100 p-4", @class]}
     >
       <div class="flex items-center justify-center" style={"height: #{@height}px"}>
         <canvas class="max-w-full max-h-full"></canvas>
@@ -288,7 +288,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
     <div
       id={@id}
       class={[
-        "rounded-xl border border-base-200 bg-base-100 shadow-sm p-4 flex flex-col items-center gap-2",
+        "rounded-xl border border-base-200 bg-base-100 p-4 flex flex-col items-center gap-2",
         @class
       ]}
     >

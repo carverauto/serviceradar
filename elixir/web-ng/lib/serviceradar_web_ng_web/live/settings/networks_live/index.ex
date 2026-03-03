@@ -1657,7 +1657,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   defp inventory_cleanup_panel(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-6 shadow-sm space-y-6">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-6 space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h3 class="text-lg font-semibold text-base-content">Inventory Cleanup</h3>

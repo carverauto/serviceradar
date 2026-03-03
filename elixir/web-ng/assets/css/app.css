@@ -24,24 +24,24 @@
   color: #1e293b;
 }
 
-/* United Blue Light — clean white with blue accents */
+/* Nocturne Light — clean white with cyan-blue accents */
 :root, [data-theme="light"] {
   color-scheme: light;
   --color-base-100: #FFFFFF;
   --color-base-200: #F8FAFC;
   --color-base-300: #E2E8F0;
   --color-base-content: #0F172A;
-  --color-primary: #2563EB;
-  --color-primary-content: #EFF6FF;
+  --color-primary: #0369A1;
+  --color-primary-content: #F0F9FF;
   --color-secondary: #3B82F6;
   --color-secondary-content: #EFF6FF;
-  --color-accent: #0284C7;
-  --color-accent-content: #F0F9FF;
+  --color-accent: #0891B2;
+  --color-accent-content: #ECFEFF;
   --color-neutral: #CBD5E1;
   --color-neutral-content: #1E293B;
-  --color-info: #0284C7;
+  --color-info: #0369A1;
   --color-info-content: #F0F9FF;
-  --color-success: #16A34A;
+  --color-success: #059669;
   --color-success-content: #F0FDF4;
   --color-warning: #D97706;
   --color-warning-content: #FFFBEB;
@@ -57,29 +57,29 @@
   --noise: 0;
 }
 
-/* United Blue Dark — slate backgrounds with bright blue accents */
+/* Nocturne Dark — slate backgrounds with neon cyberpunk accents */
 [data-theme="dark"] {
   color-scheme: dark;
   --color-base-100: #1E293B;
   --color-base-200: #0F172A;
   --color-base-300: #020617;
-  --color-base-content: #F1F5F9;
-  --color-primary: #3B82F6;
-  --color-primary-content: #EFF6FF;
+  --color-base-content: #F4F4F5;
+  --color-primary: #00D8FF;
+  --color-primary-content: #003040;
   --color-secondary: #60A5FA;
   --color-secondary-content: #1E3A5F;
-  --color-accent: #38BDF8;
-  --color-accent-content: #0C4A6E;
+  --color-accent: #22D3EE;
+  --color-accent-content: #083344;
   --color-neutral: #334155;
-  --color-neutral-content: #F1F5F9;
-  --color-info: #38BDF8;
-  --color-info-content: #0C4A6E;
-  --color-success: #22C55E;
-  --color-success-content: #052E16;
-  --color-warning: #F59E0B;
-  --color-warning-content: #451A03;
-  --color-error: #EF4444;
-  --color-error-content: #FEF2F2;
+  --color-neutral-content: #F4F4F5;
+  --color-info: #00D8FF;
+  --color-info-content: #003040;
+  --color-success: #00E676;
+  --color-success-content: #004D25;
+  --color-warning: #FF9A00;
+  --color-warning-content: #4D2E00;
+  --color-error: #FF2A7A;
+  --color-error-content: #4D0020;
   --radius-selector: 0.25rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -96,23 +96,23 @@
     --color-base-100: #1E293B;
     --color-base-200: #0F172A;
     --color-base-300: #020617;
-    --color-base-content: #F1F5F9;
-    --color-primary: #3B82F6;
-    --color-primary-content: #EFF6FF;
+    --color-base-content: #F4F4F5;
+    --color-primary: #00D8FF;
+    --color-primary-content: #003040;
     --color-secondary: #60A5FA;
     --color-secondary-content: #1E3A5F;
-    --color-accent: #38BDF8;
-    --color-accent-content: #0C4A6E;
+    --color-accent: #22D3EE;
+    --color-accent-content: #083344;
     --color-neutral: #334155;
-    --color-neutral-content: #F1F5F9;
-    --color-info: #38BDF8;
-    --color-info-content: #0C4A6E;
-    --color-success: #22C55E;
-    --color-success-content: #052E16;
-    --color-warning: #F59E0B;
-    --color-warning-content: #451A03;
-    --color-error: #EF4444;
-    --color-error-content: #FEF2F2;
+    --color-neutral-content: #F4F4F5;
+    --color-info: #00D8FF;
+    --color-info-content: #003040;
+    --color-success: #00E676;
+    --color-success-content: #004D25;
+    --color-warning: #FF9A00;
+    --color-warning-content: #4D2E00;
+    --color-error: #FF2A7A;
+    --color-error-content: #4D0020;
     --radius-selector: 0.25rem;
     --radius-field: 0.25rem;
     --radius-box: 0.5rem;
@@ -134,5 +134,102 @@
 
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
+
+/* Nocturne glow utilities — neon emissive effects for dark mode.
+   Use on active buttons, progress bars, status indicators, etc.
+   e.g. <div class="bg-primary glow-primary ..."> */
+
+:root, [data-theme="light"] {
+  --glow-primary: rgba(3, 105, 161, 0.2);
+  --glow-secondary: rgba(59, 130, 246, 0.2);
+  --glow-accent: rgba(8, 145, 178, 0.2);
+  --glow-success: rgba(5, 150, 105, 0.2);
+  --glow-warning: rgba(217, 119, 6, 0.2);
+  --glow-error: rgba(220, 38, 38, 0.2);
+}
+
+[data-theme="dark"] {
+  --glow-primary: rgba(0, 216, 255, 0.3);
+  --glow-secondary: rgba(96, 165, 250, 0.3);
+  --glow-accent: rgba(34, 211, 238, 0.3);
+  --glow-success: rgba(0, 230, 118, 0.3);
+  --glow-warning: rgba(255, 154, 0, 0.3);
+  --glow-error: rgba(255, 42, 122, 0.3);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --glow-primary: rgba(0, 216, 255, 0.3);
+    --glow-secondary: rgba(96, 165, 250, 0.3);
+    --glow-accent: rgba(34, 211, 238, 0.3);
+    --glow-success: rgba(0, 230, 118, 0.3);
+    --glow-warning: rgba(255, 154, 0, 0.3);
+    --glow-error: rgba(255, 42, 122, 0.3);
+  }
+}
+
+@utility glow-primary {
+  box-shadow: 0 0 12px var(--glow-primary);
+}
+@utility glow-secondary {
+  box-shadow: 0 0 12px var(--glow-secondary);
+}
+@utility glow-accent {
+  box-shadow: 0 0 12px var(--glow-accent);
+}
+@utility glow-success {
+  box-shadow: 0 0 12px var(--glow-success);
+}
+@utility glow-warning {
+  box-shadow: 0 0 12px var(--glow-warning);
+}
+@utility glow-error {
+  box-shadow: 0 0 12px var(--glow-error);
+}
+
+/* Nocturne auto-glow — automatically applies neon glow to key daisyUI
+   elements in dark mode. Keeps light mode clean and unaffected. */
+
+/* Explicit dark mode */
+[data-theme="dark"] {
+  & .badge-success { box-shadow: 0 0 8px var(--glow-success); }
+  & .badge-warning { box-shadow: 0 0 8px var(--glow-warning); }
+  & .badge-error { box-shadow: 0 0 8px var(--glow-error); }
+  & .badge-info { box-shadow: 0 0 8px var(--glow-primary); }
+
+  & .btn-primary:where(:not(.btn-soft, .btn-outline, .btn-ghost)) {
+    box-shadow: 0 0 10px var(--glow-primary);
+  }
+
+  & .radial-progress {
+    filter: drop-shadow(0 0 6px currentColor);
+  }
+
+  & .progress::-webkit-progress-value {
+    box-shadow: 0 0 8px var(--glow-primary);
+  }
+}
+
+/* System-preference dark mode (no explicit data-theme set) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    & .badge-success { box-shadow: 0 0 8px var(--glow-success); }
+    & .badge-warning { box-shadow: 0 0 8px var(--glow-warning); }
+    & .badge-error { box-shadow: 0 0 8px var(--glow-error); }
+    & .badge-info { box-shadow: 0 0 8px var(--glow-primary); }
+
+    & .btn-primary:where(:not(.btn-soft, .btn-outline, .btn-ghost)) {
+      box-shadow: 0 0 10px var(--glow-primary);
+    }
+
+    & .radial-progress {
+      filter: drop-shadow(0 0 6px currentColor);
+    }
+
+    & .progress::-webkit-progress-value {
+      box-shadow: 0 0 8px var(--glow-primary);
+    }
+  }
+}
 
 /* This file is for your main application CSS */

@@ -207,7 +207,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
   defp node_summary(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-6">
       <div class="flex flex-wrap gap-x-8 gap-y-4">
         <div class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Status</span>
@@ -263,7 +263,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
   defp node_system_info(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
         <span class="text-sm font-semibold">System Information</span>
         <span class="badge badge-ghost badge-sm font-mono">{@node}</span>
@@ -330,7 +330,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
   defp gateways_on_node(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <span class="text-sm font-semibold">Gateways on this Node</span>
         <span class="ml-2 badge badge-info badge-sm">{length(@gateways)}</span>
@@ -356,7 +356,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
   defp agents_on_node(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <span class="text-sm font-semibold">Agents on this Node</span>
         <span class="ml-2 badge badge-success badge-sm">{length(@agents)}</span>
@@ -440,7 +440,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
     assigns = assign(assigns, :role_info, role_info)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <span class="text-sm font-semibold">Node Role</span>
       </div>
