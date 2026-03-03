@@ -40,6 +40,16 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     {:unknown, ["unknownCount", "unknown", "unknown_count"]}
   ]
 
+  @finding_severity_map %{
+    "critical" => 5,
+    "high" => 4,
+    "medium" => 3,
+    "low" => 2,
+    "none" => 1,
+    "info" => 1,
+    "informational" => 1
+  }
+
   @impl true
   def table_name, do: "logs"
 
@@ -64,6 +74,15 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       log_rows = Enum.map(entries, & &1.log_row)
       log_count = insert_log_rows(log_rows)
 
+      report_rows = Enum.map(entries, & &1.report_row)
+      report_count = upsert_report_rows(report_rows)
+
+      finding_rows =
+        entries
+        |> Enum.flat_map(& &1.finding_rows)
+
+      finding_count = upsert_finding_rows(finding_rows)
+
       promoted_rows =
         entries
         |> Enum.filter(fn entry -> promote_to_event?(entry.severity_id) end)
@@ -78,7 +97,13 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
 
       :telemetry.execute(
         [:serviceradar, :event_writer, :trivy, :processed],
-        %{logs_count: log_count, events_count: event_count, alerts_count: alert_count},
+        %{
+          logs_count: log_count,
+          reports_count: report_count,
+          findings_count: finding_count,
+          events_count: event_count,
+          alerts_count: alert_count
+        },
         %{}
       )
 
@@ -174,9 +199,29 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
         context: context
       })
 
+    report_row =
+      build_report_row(%{
+        event_uuid: event_uuid,
+        log_uuid: log_uuid,
+        payload: payload,
+        event_time: event_time,
+        context: context,
+        severity: severity
+      })
+
+    finding_rows =
+      build_finding_rows(%{
+        event_uuid: event_uuid,
+        payload: payload,
+        event_time: event_time,
+        context: context
+      })
+
     {:ok,
      %{
        log_row: log_row,
+       report_row: report_row,
+       finding_rows: finding_rows,
        event_row: event_row,
        severity_id: severity_id
      }}
@@ -302,6 +347,191 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     }
   end
 
+  defp build_report_row(%{
+         event_uuid: event_uuid,
+         log_uuid: log_uuid,
+         payload: payload,
+         event_time: event_time,
+         context: context,
+         severity: severity
+       }) do
+    report = normalize_map(payload["report"])
+    report_payload = normalize_map(report["report"])
+
+    summary =
+      normalize_map(payload["summary"])
+      |> case do
+        value when map_size(value) > 0 -> value
+        _ -> normalize_map(report_payload["summary"])
+      end
+
+    now = DateTime.utc_now()
+
+    %{
+      event_uuid: Ecto.UUID.dump!(event_uuid),
+      observed_at: event_time,
+      log_uuid: Ecto.UUID.dump!(log_uuid),
+      report_kind: normalize_string(payload["report_kind"]) || "TrivyReport",
+      cluster_id: normalize_string(payload["cluster_id"]),
+      namespace: normalize_string(payload["namespace"]),
+      name: normalize_string(payload["name"]),
+      uid: normalize_string(payload["uid"]),
+      resource_version: normalize_string(payload["resource_version"]),
+      resource_kind: context["resource_kind"],
+      resource_name: context["resource_name"],
+      resource_namespace: context["resource_namespace"],
+      pod_name: context["pod_name"],
+      pod_namespace: context["pod_namespace"],
+      pod_uid: context["pod_uid"],
+      pod_ip: context["pod_ip"],
+      host_ip: context["host_ip"],
+      node_name: context["node_name"],
+      container_name: context["container_name"],
+      owner_kind: context["owner_kind"],
+      owner_name: context["owner_name"],
+      owner_uid: context["owner_uid"],
+      severity_id: severity.severity_id,
+      severity_text: severity.log_severity,
+      status_id: severity.status_id,
+      findings_count: severity.findings_count,
+      summary: summary,
+      owner_ref: normalize_map(payload["owner_ref"]),
+      correlation: normalize_map(payload["correlation"]),
+      report_metadata: normalize_map(report["metadata"]),
+      report_payload: report_payload,
+      raw_payload: payload,
+      created_at: now,
+      updated_at: now
+    }
+  end
+
+  defp build_finding_rows(%{
+         event_uuid: event_uuid,
+         payload: payload,
+         event_time: event_time,
+         context: context
+       }) do
+    report_payload = normalize_map(get_in(payload, ["report", "report"]))
+    event_uuid_bin = Ecto.UUID.dump!(event_uuid)
+    report_kind = normalize_string(payload["report_kind"]) || "TrivyReport"
+    target = report_target(report_payload, context)
+    now = DateTime.utc_now()
+
+    common =
+      %{
+        event_uuid: event_uuid_bin,
+        observed_at: event_time,
+        report_kind: report_kind,
+        cluster_id: normalize_string(payload["cluster_id"]),
+        namespace: normalize_string(payload["namespace"]),
+        resource_name: context["resource_name"],
+        pod_name: context["pod_name"],
+        pod_ip: context["pod_ip"],
+        target: target,
+        created_at: now,
+        updated_at: now
+      }
+
+    vulnerability_rows = build_vulnerability_findings(common, report_payload)
+    check_rows = build_check_findings(common, report_payload)
+    secret_rows = build_secret_findings(common, report_payload)
+
+    vulnerability_rows ++ check_rows ++ secret_rows
+  end
+
+  defp build_vulnerability_findings(common, report_payload) do
+    report_payload
+    |> Map.get("vulnerabilities", [])
+    |> normalize_list()
+    |> Enum.map(fn vulnerability ->
+      finding_id = pick_string(vulnerability, ["vulnerabilityID", "VulnerabilityID", "id"])
+      severity_text = normalize_finding_severity(vulnerability["severity"])
+      severity_id = finding_severity_id(severity_text)
+      title = pick_string(vulnerability, ["title", "Title"]) || finding_id
+      package_name = pick_string(vulnerability, ["pkgName", "PkgName", "packageName"])
+      description = pick_string(vulnerability, ["description", "Description"])
+
+      row =
+        common
+        |> Map.put(:finding_type, "vulnerability")
+        |> Map.put(:finding_id, finding_id)
+        |> Map.put(:title, title)
+        |> Map.put(:severity_text, severity_text)
+        |> Map.put(:severity_id, severity_id)
+        |> Map.put(:status, pick_string(vulnerability, ["status", "Status"]) || "open")
+        |> Map.put(:package_name, package_name)
+        |> Map.put(
+          :installed_version,
+          pick_string(vulnerability, ["installedVersion", "InstalledVersion"])
+        )
+        |> Map.put(:fixed_version, pick_string(vulnerability, ["fixedVersion", "FixedVersion"]))
+        |> Map.put(:description, description)
+        |> Map.put(:references, pick_list(vulnerability, ["references", "links"]))
+        |> Map.put(:raw_finding, normalize_map(vulnerability))
+
+      Map.put(row, :fingerprint, finding_fingerprint(row))
+    end)
+  end
+
+  defp build_check_findings(common, report_payload) do
+    report_payload
+    |> Map.get("checks", [])
+    |> normalize_list()
+    |> Enum.filter(&failing_check?/1)
+    |> Enum.map(fn check ->
+      finding_id = pick_string(check, ["checkID", "CheckID", "id"])
+      severity_text = normalize_finding_severity(check["severity"])
+      severity_id = finding_severity_id(severity_text)
+      title = pick_string(check, ["title", "checkTitle", "name"]) || finding_id || "failed_check"
+
+      row =
+        common
+        |> Map.put(:finding_type, "config_check")
+        |> Map.put(:finding_id, finding_id)
+        |> Map.put(:title, title)
+        |> Map.put(:severity_text, severity_text)
+        |> Map.put(:severity_id, severity_id)
+        |> Map.put(:status, "fail")
+        |> Map.put(:package_name, nil)
+        |> Map.put(:installed_version, nil)
+        |> Map.put(:fixed_version, nil)
+        |> Map.put(:description, pick_string(check, ["description", "messages", "message"]))
+        |> Map.put(:references, pick_list(check, ["references", "links"]))
+        |> Map.put(:raw_finding, normalize_map(check))
+
+      Map.put(row, :fingerprint, finding_fingerprint(row))
+    end)
+  end
+
+  defp build_secret_findings(common, report_payload) do
+    report_payload
+    |> Map.get("secrets", [])
+    |> normalize_list()
+    |> Enum.map(fn secret ->
+      finding_id = pick_string(secret, ["ruleID", "RuleID", "id"])
+      severity_text = normalize_finding_severity(secret["severity"])
+      severity_id = finding_severity_id(severity_text)
+      title = pick_string(secret, ["title", "category", "rule"]) || finding_id
+
+      row =
+        common
+        |> Map.put(:finding_type, "secret")
+        |> Map.put(:finding_id, finding_id)
+        |> Map.put(:title, title)
+        |> Map.put(:severity_text, severity_text)
+        |> Map.put(:severity_id, severity_id)
+        |> Map.put(:status, "open")
+        |> Map.put(:package_name, nil)
+        |> Map.put(:installed_version, nil)
+        |> Map.put(:fixed_version, nil)
+        |> Map.put(:description, pick_string(secret, ["description", "match", "message"]))
+        |> Map.put(:references, pick_list(secret, ["references", "links"]))
+        |> Map.put(:raw_finding, normalize_map(secret))
+
+      Map.put(row, :fingerprint, finding_fingerprint(row))
+    end)
+  end
+
   defp insert_log_rows([]), do: 0
 
   defp insert_log_rows(rows) do
@@ -309,6 +539,90 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
 
     case ServiceRadar.Repo.insert_all("logs", rows_for_insert,
            on_conflict: :nothing,
+           returning: false
+         ) do
+      {count, _} -> count
+    end
+  end
+
+  defp upsert_report_rows([]), do: 0
+
+  defp upsert_report_rows(rows) do
+    updatable_columns = [
+      :observed_at,
+      :log_uuid,
+      :report_kind,
+      :cluster_id,
+      :namespace,
+      :name,
+      :uid,
+      :resource_version,
+      :resource_kind,
+      :resource_name,
+      :resource_namespace,
+      :pod_name,
+      :pod_namespace,
+      :pod_uid,
+      :pod_ip,
+      :host_ip,
+      :node_name,
+      :container_name,
+      :owner_kind,
+      :owner_name,
+      :owner_uid,
+      :severity_id,
+      :severity_text,
+      :status_id,
+      :findings_count,
+      :summary,
+      :owner_ref,
+      :correlation,
+      :report_metadata,
+      :report_payload,
+      :raw_payload,
+      :updated_at
+    ]
+
+    case ServiceRadar.Repo.insert_all("trivy_reports", rows,
+           on_conflict: {:replace, updatable_columns},
+           conflict_target: [:event_uuid],
+           returning: false
+         ) do
+      {count, _} -> count
+    end
+  end
+
+  defp upsert_finding_rows([]), do: 0
+
+  defp upsert_finding_rows(rows) do
+    updatable_columns = [
+      :event_uuid,
+      :observed_at,
+      :report_kind,
+      :cluster_id,
+      :namespace,
+      :resource_name,
+      :pod_name,
+      :pod_ip,
+      :finding_type,
+      :finding_id,
+      :target,
+      :title,
+      :severity_text,
+      :severity_id,
+      :status,
+      :package_name,
+      :installed_version,
+      :fixed_version,
+      :description,
+      :references,
+      :raw_finding,
+      :updated_at
+    ]
+
+    case ServiceRadar.Repo.insert_all("trivy_findings", rows,
+           on_conflict: {:replace, updatable_columns},
+           conflict_target: [:fingerprint],
            returning: false
          ) do
       {count, _} -> count
@@ -368,7 +682,10 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     resource = get_in(event, [:metadata, "resource"])
     report_kind = get_in(event, [:metadata, "report_kind"]) || "Report"
     severity = normalize_string(event.severity) || "High"
-    target = normalize_string(resource) || normalize_string(get_in(event, [:metadata, "name"])) || "resource"
+
+    target =
+      normalize_string(resource) || normalize_string(get_in(event, [:metadata, "name"])) ||
+        "resource"
 
     %{
       "title" => "Trivy #{severity}: #{report_kind} on #{target}",
@@ -562,6 +879,84 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       ip: context["pod_ip"]
     )
   end
+
+  defp report_target(report_payload, context) do
+    artifact = normalize_map(report_payload["artifact"])
+    repository = normalize_string(artifact["repository"])
+    tag = normalize_string(artifact["tag"])
+
+    cond do
+      is_binary(repository) and is_binary(tag) -> "#{repository}:#{tag}"
+      is_binary(repository) -> repository
+      true -> resource_label(context)
+    end
+  end
+
+  defp failing_check?(check) when is_map(check) do
+    check["success"] in [false, "false", 0]
+  end
+
+  defp failing_check?(_check), do: false
+
+  defp normalize_list(value) when is_list(value), do: value
+  defp normalize_list(_), do: []
+
+  defp pick_string(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      map
+      |> Map.get(key)
+      |> normalize_string()
+    end)
+  end
+
+  defp pick_string(_map, _keys), do: nil
+
+  defp pick_list(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, [], fn key ->
+      case Map.get(map, key) do
+        value when is_list(value) -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp pick_list(_map, _keys), do: []
+
+  defp normalize_finding_severity(value) do
+    value
+    |> normalize_string()
+    |> case do
+      nil -> "UNKNOWN"
+      text -> String.upcase(text)
+    end
+  end
+
+  defp finding_severity_id(value) do
+    value
+    |> Kernel.||("")
+    |> String.downcase()
+    |> then(&Map.get(@finding_severity_map, &1, OCSF.severity_unknown()))
+  end
+
+  defp finding_fingerprint(row) do
+    fingerprint_source =
+      [
+        row.event_uuid,
+        row.finding_type,
+        row.finding_id,
+        row.title,
+        row.package_name,
+        row.target,
+        row.pod_ip
+      ]
+      |> Enum.map_join("|", &to_string_safe/1)
+
+    Base.encode16(:crypto.hash(:sha256, fingerprint_source), case: :lower)
+  end
+
+  defp to_string_safe(nil), do: ""
+  defp to_string_safe(value) when is_binary(value), do: value
+  defp to_string_safe(value), do: to_string(value)
 
   defp build_context(payload) do
     correlation = normalize_map(payload["correlation"])
