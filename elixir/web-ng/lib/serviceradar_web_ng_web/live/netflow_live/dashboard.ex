@@ -811,12 +811,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
        ) do
     samplers = MapSet.new(top_interfaces, & &1.sampler)
 
-    cond do
-      is_binary(selected) and MapSet.member?(samplers, selected) ->
-        socket
-
-      true ->
-        assign(socket, :selected_interface, top_interfaces |> List.first() |> Map.get(:sampler))
+    if is_binary(selected) and MapSet.member?(samplers, selected) do
+      socket
+    else
+      assign(socket, :selected_interface, top_interfaces |> List.first() |> Map.get(:sampler))
     end
   end
 

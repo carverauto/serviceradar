@@ -116,7 +116,12 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   @impl true
   def handle_event("history_page", %{"page" => page}, socket) do
-    page = String.to_integer(page)
+    page =
+      case Integer.parse(page) do
+        {n, _} -> n
+        _ -> 1
+      end
+
     {:noreply, assign(socket, :history_page, page)}
   end
 

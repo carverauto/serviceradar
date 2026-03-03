@@ -5,16 +5,23 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
   alias ServiceRadarWebNG.Topology.GodViewStream
   alias ServiceRadarWebNGWeb.FeatureFlags
 
+  require Logger
+
   @tick_ms 5_000
   @binary_magic "GVB1"
 
   @impl true
   def join("topology:god_view", _payload, socket) do
-    if FeatureFlags.god_view_enabled?() do
-      send(self(), :tick)
-      {:ok, socket}
-    else
-      {:error, %{reason: "god_view_disabled"}}
+    cond do
+      !Map.has_key?(socket.assigns, :current_user) ->
+        {:error, %{reason: "unauthorized"}}
+
+      !FeatureFlags.god_view_enabled?() ->
+        {:error, %{reason: "god_view_disabled"}}
+
+      true ->
+        send(self(), :tick)
+        {:ok, socket}
     end
   end
 
@@ -29,7 +36,8 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
           socket
 
         {:error, reason} ->
-          push(socket, "snapshot_error", %{reason: inspect(reason)})
+          Logger.error("God-View snapshot error: #{inspect(reason)}")
+          push(socket, "snapshot_error", %{reason: "snapshot_unavailable"})
           socket
       end
 

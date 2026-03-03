@@ -238,48 +238,56 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     config
   end
 
-  # We intentionally implement a tiny YAML serializer here rather than adding a
-  # write-capable YAML dependency. The config shape is stable and small.
   defp encode_config_yaml(config) when is_map(config) do
-    component_type = Map.fetch!(config, "component_type")
-    agent_id = Map.fetch!(config, "agent_id")
-    gateway_addr = Map.fetch!(config, "gateway_addr")
-    gateway_security = Map.fetch!(config, "gateway_security")
-    tls = Map.get(gateway_security, "tls", %{})
+    # Simple but safe YAML encoder for bootstrap config
+    config
+    |> Enum.map_join("\n", fn
+      {key, %{} = value} ->
+        "#{key}:\n" <> do_encode_yaml_nested(value, 1)
 
-    base =
-      [
-        "component_type: #{component_type}",
-        "agent_id: #{agent_id}",
-        "gateway_addr: #{gateway_addr}",
-        "gateway_security:",
-        "  mode: #{Map.get(gateway_security, "mode")}",
-        "  cert_dir: #{Map.get(gateway_security, "cert_dir")}",
-        "  server_name: #{Map.get(gateway_security, "server_name")}",
-        "  role: #{Map.get(gateway_security, "role")}",
-        "  tls:",
-        "    cert_file: #{Map.get(tls, "cert_file")}",
-        "    key_file: #{Map.get(tls, "key_file")}",
-        "    ca_file: #{Map.get(tls, "ca_file")}",
-        "    client_ca_file: #{Map.get(tls, "client_ca_file")}"
-      ]
-
-    extra =
-      []
-      |> maybe_add_yaml_kv("partition", Map.get(config, "partition"))
-      |> maybe_add_yaml_kv("host_ip", Map.get(config, "host_ip"))
-
-    (base ++ extra)
-    |> Enum.join("\n")
+      {key, value} ->
+        "#{key}: #{encode_yaml_value(value)}"
+    end)
     |> Kernel.<>("\n")
   end
 
-  defp maybe_add_yaml_kv(lines, _key, nil), do: lines
-  defp maybe_add_yaml_kv(lines, key, value), do: lines ++ ["#{key}: #{value}"]
+  defp do_encode_yaml_nested(map, indent) do
+    prefix = String.duplicate("  ", indent)
+
+    Enum.map_join(map, "\n", fn
+      {key, %{} = value} ->
+        "#{prefix}#{key}:\n" <> do_encode_yaml_nested(value, indent + 1)
+
+      {key, value} ->
+        "#{prefix}#{key}: #{encode_yaml_value(value)}"
+    end)
+  end
+
+  defp encode_yaml_value(value) when is_binary(value) do
+    # Wrap in double quotes and escape internal quotes
+    "\"#{String.replace(value, "\"", "\\\"")}\""
+  end
+
+  defp encode_yaml_value(value), do: inspect(value)
+
+  defp sanitize_shell_arg(value) when is_binary(value) do
+    String.replace(value, "\"", "-")
+  end
+
+  defp sanitize_k8s_label(value) when is_binary(value) do
+    # Kubernetes labels must be 63 chars or less and alphanumeric/dash/dot/underscore
+    value
+    |> String.replace(~r/[^a-zA-Z0-9._-]/, "-")
+    |> String.slice(0, 63)
+  end
 
   defp generate_install_script(package, opts) do
     component_type = effective_component_type(package.component_type)
     enrollment_token = onboarding_token(package, opts)
+
+    # Sanitize for shell interpolation
+    s_component_type = sanitize_shell_arg(component_type)
+    s_package_id = sanitize_shell_arg(package.id)
 
     if component_type == "agent" and is_binary(enrollment_token) do
       return_agent_enroll_script(package, enrollment_token)
@@ -287,14 +295,14 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
       """
       #!/bin/bash
       # ServiceRadar Edge Component Installer
-      # Component: #{component_type}
-      # Package ID: #{package.id}
+      # Component: #{s_component_type}
+      # Package ID: #{s_package_id}
       # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
 
       set -e
 
       SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-      COMPONENT_TYPE="#{component_type}"
+      COMPONENT_TYPE="#{s_component_type}"
       INSTALL_DIR="/opt/serviceradar"
       CONFIG_DIR="/etc/serviceradar"
       CERT_DIR="$CONFIG_DIR/certs"
@@ -582,6 +590,9 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     component_type = effective_component_type(package.component_type)
     component_id = package.component_id || package.id
 
+    s_component_type = sanitize_k8s_label(component_type)
+    s_component_id = sanitize_k8s_label(component_id)
+
     # Base64 encode the certificate data
     cert_b64 = Base.encode64(cert_pem)
     key_b64 = Base.encode64(key_pem)
@@ -593,13 +604,13 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     apiVersion: v1
     kind: Secret
     metadata:
-      name: serviceradar-#{component_type}-tls
+      name: serviceradar-#{s_component_type}-tls
       namespace: #{namespace}
       labels:
-        app.kubernetes.io/name: serviceradar-#{component_type}
-        app.kubernetes.io/component: #{component_type}
+        app.kubernetes.io/name: serviceradar-#{s_component_type}
+        app.kubernetes.io/component: #{s_component_type}
         app.kubernetes.io/part-of: serviceradar
-        serviceradar.io/component-id: "#{component_id}"
+        serviceradar.io/component-id: "#{s_component_id}"
     type: kubernetes.io/tls
     data:
       tls.crt: #{cert_b64}
@@ -611,6 +622,9 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp generate_k8s_configmap(package, _join_token, namespace, opts) do
     component_type = effective_component_type(package.component_type)
     component_id = package.component_id || package.id
+
+    s_component_type = sanitize_k8s_label(component_type)
+    s_component_id = sanitize_k8s_label(component_id)
 
     # Minimal bootstrap config - monitoring settings delivered via GetConfig
     config_yaml = generate_config_yaml(package, nil, opts)
@@ -626,13 +640,13 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     apiVersion: v1
     kind: ConfigMap
     metadata:
-      name: serviceradar-#{component_type}-config
+      name: serviceradar-#{s_component_type}-config
       namespace: #{namespace}
       labels:
-        app.kubernetes.io/name: serviceradar-#{component_type}
-        app.kubernetes.io/component: #{component_type}
+        app.kubernetes.io/name: serviceradar-#{s_component_type}
+        app.kubernetes.io/component: #{s_component_type}
         app.kubernetes.io/part-of: serviceradar
-        serviceradar.io/component-id: "#{component_id}"
+        serviceradar.io/component-id: "#{s_component_id}"
     binaryData:
       config.yaml: #{config_b64}
       config.json: #{config_json_b64}
@@ -644,34 +658,37 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     component_id = package.component_id || package.id
     grpc_port = grpc_port_for_component(component_type)
 
+    s_component_type = sanitize_k8s_label(component_type)
+    s_component_id = sanitize_k8s_label(component_id)
+
     """
     # ServiceRadar Edge Component - Deployment
     apiVersion: apps/v1
     kind: Deployment
     metadata:
-      name: serviceradar-#{component_type}
+      name: serviceradar-#{s_component_type}
       namespace: #{namespace}
       labels:
-        app.kubernetes.io/name: serviceradar-#{component_type}
-        app.kubernetes.io/component: #{component_type}
+        app.kubernetes.io/name: serviceradar-#{s_component_type}
+        app.kubernetes.io/component: #{s_component_type}
         app.kubernetes.io/part-of: serviceradar
-        serviceradar.io/component-id: "#{component_id}"
+        serviceradar.io/component-id: "#{s_component_id}"
     spec:
       replicas: 1
       selector:
         matchLabels:
-          app.kubernetes.io/name: serviceradar-#{component_type}
+          app.kubernetes.io/name: serviceradar-#{s_component_type}
       template:
         metadata:
           labels:
-            app.kubernetes.io/name: serviceradar-#{component_type}
-            app.kubernetes.io/component: #{component_type}
+            app.kubernetes.io/name: serviceradar-#{s_component_type}
+            app.kubernetes.io/component: #{s_component_type}
             app.kubernetes.io/part-of: serviceradar
         spec:
-          serviceAccountName: serviceradar-#{component_type}
+          serviceAccountName: serviceradar-#{s_component_type}
           containers:
-            - name: #{component_type}
-              image: ghcr.io/carverauto/serviceradar-#{component_type}:#{image_tag}
+            - name: #{s_component_type}
+              image: ghcr.io/carverauto/serviceradar-#{s_component_type}:#{image_tag}
               args:
                 - --config
                 - /etc/serviceradar/config/config.yaml
@@ -684,7 +701,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
                   protocol: TCP
               env:
                 - name: SERVICERADAR_COMPONENT_ID
-                  value: "#{component_id}"
+                  value: "#{s_component_id}"
                 - name: SERVICERADAR_LOG_LEVEL
                   value: "info"
               volumeMounts:
@@ -722,10 +739,10 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
           volumes:
             - name: tls-certs
               secret:
-                secretName: serviceradar-#{component_type}-tls
+                secretName: serviceradar-#{s_component_type}-tls
             - name: config
               configMap:
-                name: serviceradar-#{component_type}-config
+                name: serviceradar-#{s_component_type}-config
           securityContext:
             fsGroup: 1000
     ---
@@ -733,10 +750,10 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     apiVersion: v1
     kind: ServiceAccount
     metadata:
-      name: serviceradar-#{component_type}
+      name: serviceradar-#{s_component_type}
       namespace: #{namespace}
       labels:
-        app.kubernetes.io/name: serviceradar-#{component_type}
+        app.kubernetes.io/name: serviceradar-#{s_component_type}
         app.kubernetes.io/part-of: serviceradar
     """
   end
@@ -787,16 +804,19 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp return_agent_enroll_script(package, token) do
+    s_package_id = sanitize_shell_arg(package.id)
+    s_token = sanitize_shell_arg(token)
+
     """
     #!/bin/bash
     # ServiceRadar Agent Enrollment
-    # Package ID: #{package.id}
+    # Package ID: #{s_package_id}
     # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
 
     set -e
 
     echo "Enrolling ServiceRadar agent..."
-    /usr/local/bin/serviceradar-cli enroll --token "#{token}"
+    /usr/local/bin/serviceradar-cli enroll --token "#{s_token}"
 
     echo ""
     echo "Enrollment complete."

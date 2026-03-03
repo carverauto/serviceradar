@@ -1,7 +1,7 @@
 import * as d3 from "d3"
 import {sankey as d3Sankey, sankeyLinkHorizontal as d3SankeyLinkHorizontal} from "d3-sankey"
 
-import {ensureTooltip as nfEnsureTooltip} from "../../netflow_charts/util"
+import {ensureTooltip as nfEnsureTooltip, escapeHtml} from "../../netflow_charts/util"
 
 export default {
   mounted() {
@@ -273,10 +273,10 @@ export default {
             return `${groupLabel.mid}: ${mv || port || "-"}`
           })()
           const html = `
-	            <div class="text-[11px]"><span class="opacity-70">${groupLabel.src}:</span> <span class="font-mono">${String(s)}</span></div>
-	            <div class="mt-0.5 text-[11px] opacity-70">${midLabel}</div>
-	            <div class="mt-0.5 text-[11px]"><span class="opacity-70">${groupLabel.dst}:</span> <span class="font-mono">${String(t)}</span></div>
-	            <div class="mt-0.5 text-[11px] font-mono">${formatBytes(d?.value || 0)}</div>
+	            <div class="text-[11px]"><span class="opacity-70">${escapeHtml(groupLabel.src)}:</span> <span class="font-mono">${escapeHtml(s)}</span></div>
+	            <div class="mt-0.5 text-[11px] opacity-70">${escapeHtml(midLabel)}</div>
+	            <div class="mt-0.5 text-[11px]"><span class="opacity-70">${escapeHtml(groupLabel.dst)}:</span> <span class="font-mono">${escapeHtml(t)}</span></div>
+	            <div class="mt-0.5 text-[11px] font-mono">${escapeHtml(formatBytes(d?.value || 0))}</div>
 	          `
           showTooltip(evt, html)
         })
@@ -339,8 +339,8 @@ export default {
         .on("mousemove", (evt, d) => {
           const grp = d?.group || "src"
           const html = `
-	            <div class="text-[11px] font-mono">${String(d?.label || d?.id || "")}</div>
-	            <div class="mt-0.5 text-[11px] opacity-70">${String(groupLabel[grp] || grp)}</div>
+	            <div class="text-[11px] font-mono">${escapeHtml(d?.label || d?.id || "")}</div>
+	            <div class="mt-0.5 text-[11px] opacity-70">${escapeHtml(groupLabel[grp] || grp)}</div>
 	          `
           showTooltip(evt, html)
         })

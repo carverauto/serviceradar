@@ -206,6 +206,32 @@ defmodule ServiceRadar.Identity.User do
 
     update :update_email do
       accept [:email]
+      require_atomic? false
+
+      argument :current_password, :string do
+        allow_nil? false
+        sensitive? true
+      end
+
+      # Validate current password is correct
+      validate fn changeset, _context ->
+        current_password = Ash.Changeset.get_argument(changeset, :current_password)
+        user = changeset.data
+
+        cond do
+          is_nil(user.hashed_password) or user.hashed_password == "" ->
+            # User has no password (SSO-only), allow email update without password confirmation
+            # In a strict environment, we might require them to set a password first.
+            :ok
+
+          Bcrypt.verify_pass(current_password, user.hashed_password) ->
+            :ok
+
+          true ->
+            {:error, field: :current_password, message: "is incorrect"}
+        end
+      end
+
       # Mark email as confirmed since this action is called after token-based
       # verification in the Accounts context
       change set_attribute(:confirmed_at, &DateTime.utc_now/0)

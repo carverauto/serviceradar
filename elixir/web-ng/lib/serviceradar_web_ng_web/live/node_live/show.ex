@@ -26,46 +26,67 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
   @impl true
   def handle_params(%{"node_name" => node_name}, _uri, socket) do
-    # Parse node name and try to connect/get info
-    node_atom = String.to_atom(node_name)
-    node_type = detect_node_type(node_name)
-
-    # Check if node is reachable
-    is_connected = node_atom == Node.self() or node_atom in Node.list()
-
-    # Get system info if connected
-    node_info =
-      if is_connected do
-        fetch_node_info(node_atom)
-      else
-        nil
+    # Parse node name safely — avoid creating atoms from user input
+    node_atom =
+      try do
+        String.to_existing_atom(node_name)
+      rescue
+        ArgumentError -> nil
       end
 
-    # Get node-type-specific info
-    {gateways, agents} =
-      if is_connected do
-        {
-          get_node_gateways(node_atom),
-          get_node_agents(node_atom)
-        }
-      else
-        {[], []}
-      end
+    if is_nil(node_atom) do
+      {:noreply,
+       socket
+       |> assign(:node_name, node_name)
+       |> assign(:node, nil)
+       |> assign(:node_type, detect_node_type(node_name))
+       |> assign(:node_info, nil)
+       |> assign(:is_connected, false)
+       |> assign(:is_current, false)
+       |> assign(:gateways, [])
+       |> assign(:agents, [])
+       |> assign(:error, "Unknown node: #{node_name}")
+       |> assign(:srql, %{enabled: false, page_path: "/settings/cluster/nodes/#{node_name}"})}
+    else
+      node_type = detect_node_type(node_name)
 
-    error = if is_connected, do: nil, else: "Node is not connected to the cluster"
+      # Check if node is reachable
+      is_connected = node_atom == Node.self() or node_atom in Node.list()
 
-    {:noreply,
-     socket
-     |> assign(:node_name, node_name)
-     |> assign(:node, node_atom)
-     |> assign(:node_type, node_type)
-     |> assign(:node_info, node_info)
-     |> assign(:is_connected, is_connected)
-     |> assign(:is_current, node_atom == Node.self())
-     |> assign(:gateways, gateways)
-     |> assign(:agents, agents)
-     |> assign(:error, error)
-     |> assign(:srql, %{enabled: false, page_path: "/settings/cluster/nodes/#{node_name}"})}
+      # Get system info if connected
+      node_info =
+        if is_connected do
+          fetch_node_info(node_atom)
+        else
+          nil
+        end
+
+      # Get node-type-specific info
+      {gateways, agents} =
+        if is_connected do
+          {
+            get_node_gateways(node_atom),
+            get_node_agents(node_atom)
+          }
+        else
+          {[], []}
+        end
+
+      error = if is_connected, do: nil, else: "Node is not connected to the cluster"
+
+      {:noreply,
+       socket
+       |> assign(:node_name, node_name)
+       |> assign(:node, node_atom)
+       |> assign(:node_type, node_type)
+       |> assign(:node_info, node_info)
+       |> assign(:is_connected, is_connected)
+       |> assign(:is_current, node_atom == Node.self())
+       |> assign(:gateways, gateways)
+       |> assign(:agents, agents)
+       |> assign(:error, error)
+       |> assign(:srql, %{enabled: false, page_path: "/settings/cluster/nodes/#{node_name}"})}
+    end
   end
 
   defp detect_node_type(node_name) when is_binary(node_name) do

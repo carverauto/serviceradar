@@ -81,7 +81,11 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   end
 
   def handle_event("set_refresh_interval", %{"interval" => interval}, socket) do
-    interval = String.to_integer(interval)
+    interval =
+      case Integer.parse(interval) do
+        {n, _} -> n
+        _ -> 30
+      end
 
     socket =
       socket
@@ -118,7 +122,11 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   end
 
   def handle_event("set_chart_hours", %{"hours" => hours}, socket) do
-    hours = String.to_integer(hours)
+    hours =
+      case Integer.parse(hours) do
+        {n, _} -> n
+        _ -> 24
+      end
 
     socket =
       socket
