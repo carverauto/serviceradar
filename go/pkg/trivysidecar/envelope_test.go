@@ -41,6 +41,12 @@ func TestBuildEnvelopeIncludesOwnerAndSummary(t *testing.T) {
 
 	obj.SetName("nginx-vuln")
 	obj.SetNamespace("demo")
+	obj.SetLabels(map[string]string{
+		"trivy-operator.resource.kind":      "Pod",
+		"trivy-operator.resource.name":      "nginx-pod-123",
+		"trivy-operator.resource.namespace": "demo",
+		"trivy-operator.container.name":     "nginx",
+	})
 	obj.SetUID(types.UID("uid-1"))
 	obj.SetResourceVersion("17")
 	obj.SetOwnerReferences([]metav1.OwnerReference{{Kind: "ReplicaSet", Name: "nginx-rs", UID: "owner-uid"}})
@@ -65,5 +71,17 @@ func TestBuildEnvelopeIncludesOwnerAndSummary(t *testing.T) {
 
 	if envelope.Summary["criticalCount"] != int64(1) {
 		t.Fatalf("expected criticalCount=1, got %#v", envelope.Summary["criticalCount"])
+	}
+
+	if envelope.Correlation == nil {
+		t.Fatalf("expected correlation to be captured")
+	}
+
+	if envelope.Correlation.PodName != "nginx-pod-123" {
+		t.Fatalf("expected correlation pod_name=nginx-pod-123, got %q", envelope.Correlation.PodName)
+	}
+
+	if envelope.Correlation.ContainerName != "nginx" {
+		t.Fatalf("expected correlation container_name=nginx, got %q", envelope.Correlation.ContainerName)
 	}
 }

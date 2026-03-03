@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
@@ -17,6 +20,12 @@ import (
 )
 
 var errPublishRetriesExhausted = errors.New("publish retries exhausted")
+
+var podsGVR = schema.GroupVersionResource{
+	Group:    "",
+	Version:  "v1",
+	Resource: "pods",
+}
 
 // Service watches Trivy CRDs and forwards report revisions to NATS.
 type Service struct {
@@ -163,6 +172,8 @@ func (s *Service) processReport(ctx context.Context, reportKind ReportKind, repo
 		return err
 	}
 
+	s.enrichPodCorrelation(ctx, &envelope)
+
 	payload, err := json.Marshal(envelope)
 	if err != nil {
 		return fmt.Errorf("marshal envelope: %w", err)
@@ -175,6 +186,56 @@ func (s *Service) processReport(ctx context.Context, reportKind ReportKind, repo
 
 	s.deduper.MarkPublished(uid, resourceVersion)
 	return nil
+}
+
+func (s *Service) enrichPodCorrelation(ctx context.Context, envelope *Envelope) {
+	if s == nil || envelope == nil || envelope.Correlation == nil || s.dynamicClient == nil {
+		return
+	}
+
+	correlation := envelope.Correlation
+	if strings.TrimSpace(correlation.PodName) == "" || strings.TrimSpace(correlation.PodNamespace) == "" {
+		return
+	}
+
+	pod, err := s.dynamicClient.
+		Resource(podsGVR).
+		Namespace(correlation.PodNamespace).
+		Get(ctx, correlation.PodName, metav1.GetOptions{})
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.Printf(
+				"trivy-sidecar: failed to resolve pod identity for %s/%s: %v",
+				correlation.PodNamespace,
+				correlation.PodName,
+				err,
+			)
+		}
+
+		return
+	}
+
+	if correlation.PodUID == "" {
+		correlation.PodUID = string(pod.GetUID())
+	}
+
+	if correlation.PodIP == "" {
+		if podIP, found, _ := unstructured.NestedString(pod.Object, "status", "podIP"); found {
+			correlation.PodIP = strings.TrimSpace(podIP)
+		}
+	}
+
+	if correlation.HostIP == "" {
+		if hostIP, found, _ := unstructured.NestedString(pod.Object, "status", "hostIP"); found {
+			correlation.HostIP = strings.TrimSpace(hostIP)
+		}
+	}
+
+	if correlation.NodeName == "" {
+		if nodeName, found, _ := unstructured.NestedString(pod.Object, "spec", "nodeName"); found {
+			correlation.NodeName = strings.TrimSpace(nodeName)
+		}
+	}
 }
 
 func (s *Service) publishWithRetry(ctx context.Context, kind, subject string, payload []byte) error {

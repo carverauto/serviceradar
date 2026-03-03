@@ -679,7 +679,7 @@ spire:
     # Existing secrets are reused; delete the secret to rotate.
     image: ghcr.io/carverauto/serviceradar-cnpg
     imageTag: ""
-    imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr5
+    imageName: ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2
     imagePullSecrets: []
     sharedPreloadLibraries:
       - timescaledb

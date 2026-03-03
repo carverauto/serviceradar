@@ -2,12 +2,15 @@ package trivysidecar
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 )
 
 var errPublishFailed = errors.New("publish failed")
@@ -16,12 +19,19 @@ type fakePublisher struct {
 	calls int
 
 	failFirst int
+	payloads  [][]byte
 }
 
-func (f *fakePublisher) Publish(_ context.Context, _ string, _ []byte) error {
+func (f *fakePublisher) Publish(_ context.Context, _ string, payload []byte) error {
 	f.calls++
 	if f.calls <= f.failFirst {
 		return errPublishFailed
+	}
+
+	if len(payload) > 0 {
+		clone := make([]byte, len(payload))
+		copy(clone, payload)
+		f.payloads = append(f.payloads, clone)
 	}
 
 	return nil
@@ -97,5 +107,89 @@ func TestPublishWithRetry(t *testing.T) {
 
 	if pub.calls != 3 {
 		t.Fatalf("expected 3 publish attempts, got %d", pub.calls)
+	}
+}
+
+func TestProcessReportAddsPodIdentityToCorrelation(t *testing.T) {
+	t.Parallel()
+
+	pod := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "Pod",
+			"metadata": map[string]any{
+				"name":      "target-pod",
+				"namespace": "demo",
+				"uid":       "pod-uid-1",
+			},
+			"spec": map[string]any{
+				"nodeName": "worker-1",
+			},
+			"status": map[string]any{
+				"podIP":  "10.42.0.10",
+				"hostIP": "192.168.1.12",
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynamicClient := dynamicfake.NewSimpleDynamicClient(scheme, pod)
+
+	pub := &fakePublisher{}
+	cfg := Config{
+		ClusterID:            "cluster-a",
+		NATSSubjectPrefix:    "trivy.report",
+		PublishTimeout:       time.Second,
+		PublishMaxRetries:    0,
+		PublishRetryDelay:    10 * time.Millisecond,
+		PublishRetryMaxDelay: 20 * time.Millisecond,
+	}
+
+	svc := NewService(cfg, nil, dynamicClient, pub, NewMetrics())
+	kind := ReportKind{Kind: "VulnerabilityReport", Resource: "vulnerabilityreports", SubjectSuffix: "vulnerability", Namespaced: true}
+
+	report := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "aquasecurity.github.io/v1alpha1",
+		"kind":       "VulnerabilityReport",
+		"metadata": map[string]any{
+			"name":            "report-1",
+			"namespace":       "demo",
+			"uid":             "report-uid-1",
+			"resourceVersion": "21",
+			"labels": map[string]any{
+				"trivy-operator.resource.kind":      "Pod",
+				"trivy-operator.resource.name":      "target-pod",
+				"trivy-operator.resource.namespace": "demo",
+			},
+		},
+	}}
+
+	if err := svc.processReport(context.Background(), kind, report); err != nil {
+		t.Fatalf("processReport failed: %v", err)
+	}
+
+	if len(pub.payloads) != 1 {
+		t.Fatalf("expected one published payload, got %d", len(pub.payloads))
+	}
+
+	var envelope Envelope
+	if err := json.Unmarshal(pub.payloads[0], &envelope); err != nil {
+		t.Fatalf("unmarshal envelope failed: %v", err)
+	}
+
+	if envelope.Correlation == nil {
+		t.Fatalf("expected envelope correlation")
+	}
+
+	if envelope.Correlation.PodIP != "10.42.0.10" {
+		t.Fatalf("expected pod IP to be resolved, got %q", envelope.Correlation.PodIP)
+	}
+
+	if envelope.Correlation.NodeName != "worker-1" {
+		t.Fatalf("expected nodeName=worker-1, got %q", envelope.Correlation.NodeName)
+	}
+
+	if envelope.Correlation.PodUID != "pod-uid-1" {
+		t.Fatalf("expected pod UID to be resolved, got %q", envelope.Correlation.PodUID)
 	}
 }
