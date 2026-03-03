@@ -39,6 +39,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
+  alias ServiceRadar.Types.Cidr
 
   @srql_page_limit_default 500
 
@@ -365,6 +366,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   defp decode_param(%{"t" => "text", "v" => value}) when is_binary(value),
     do: decode_cidr_text_param(value)
+
   defp decode_param(%{"t" => "bool", "v" => value}) when is_boolean(value), do: {:ok, value}
   defp decode_param(%{"t" => "int", "v" => value}) when is_integer(value), do: {:ok, value}
 
@@ -403,7 +405,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   defp decode_param(%{"t" => type, "v" => value})
        when type in ["inet", "cidr"] and is_binary(value) do
-    case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
+    case Cidr.dump_to_native(value, []) do
       {:ok, inet} -> {:ok, inet}
       _ -> {:error, :invalid_inet_param}
     end
@@ -413,7 +415,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   defp decode_cidr_text_param(value) when is_binary(value) do
     if String.contains?(value, "/") do
-      case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
+      case Cidr.dump_to_native(value, []) do
         {:ok, inet} -> {:ok, inet}
         _ -> {:ok, value}
       end
