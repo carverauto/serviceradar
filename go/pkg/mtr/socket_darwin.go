@@ -45,6 +45,11 @@ const (
 	darwinRecvBufSize      = 1500
 )
 
+var (
+	errShortICMPHeader   = errors.New("packet too short for ICMP header")
+	errShortICMPv6Header = errors.New("packet too short for ICMPv6 header")
+)
+
 // darwinRawSocket implements RawSocket using macOS raw sockets.
 // On macOS, raw sockets include the IP header in received packets,
 // and IP header length field uses host byte order.
@@ -71,7 +76,9 @@ func newDarwinRawSocket4() (RawSocket, error) {
 
 	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
-		syscall.Close(fd)
+		if closeErr := syscall.Close(fd); closeErr != nil {
+			return nil, fmt.Errorf("create ICMP listener: %w", errors.Join(err, fmt.Errorf("close raw socket: %w", closeErr)))
+		}
 
 		return nil, fmt.Errorf("create ICMP listener: %w", err)
 	}
@@ -87,7 +94,9 @@ func newDarwinRawSocket6() (RawSocket, error) {
 
 	conn, err := icmp.ListenPacket("ip6:ipv6-icmp", "::")
 	if err != nil {
-		syscall.Close(fd)
+		if closeErr := syscall.Close(fd); closeErr != nil {
+			return nil, fmt.Errorf("create ICMPv6 listener: %w", errors.Join(err, fmt.Errorf("close raw socket: %w", closeErr)))
+		}
 
 		return nil, fmt.Errorf("create ICMPv6 listener: %w", err)
 	}
@@ -143,7 +152,7 @@ func (s *darwinRawSocket) SendICMP(dst net.IP, ttl, id, seq int, payload []byte)
 	return syscall.Sendto(s.sendFD, data, 0, sa)
 }
 
-func (s *darwinRawSocket) SendUDP(dst net.IP, ttl, srcPort, dstPort int, payload []byte) error {
+func (s *darwinRawSocket) SendUDP(dst net.IP, ttl, srcPort, dstPort int, payload []byte) (err error) {
 	var family int
 	if s.ipv6 {
 		family = syscall.AF_INET6
@@ -155,7 +164,11 @@ func (s *darwinRawSocket) SendUDP(dst net.IP, ttl, srcPort, dstPort int, payload
 	if err != nil {
 		return fmt.Errorf("create UDP socket: %w", err)
 	}
-	defer syscall.Close(fd)
+	defer func() {
+		if closeErr := syscall.Close(fd); closeErr != nil && err == nil {
+			err = fmt.Errorf("close UDP socket: %w", closeErr)
+		}
+	}()
 
 	if s.ipv6 {
 		if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_UNICAST_HOPS, ttl); err != nil {
@@ -285,7 +298,7 @@ func (s *darwinRawSocket) Receive(deadline time.Time) (*ICMPResponse, error) {
 
 func (s *darwinRawSocket) parseICMPv4(buf []byte, resp *ICMPResponse) (*ICMPResponse, error) {
 	if len(buf) < darwinICMPHeaderLen {
-		return nil, errors.New("packet too short for ICMP header")
+		return nil, errShortICMPHeader
 	}
 
 	resp.Type = int(buf[0])
@@ -343,7 +356,7 @@ func (s *darwinRawSocket) parseInnerPacketV4(resp *ICMPResponse) {
 
 func (s *darwinRawSocket) parseICMPv6(buf []byte, resp *ICMPResponse) (*ICMPResponse, error) {
 	if len(buf) < darwinICMPHeaderLen {
-		return nil, errors.New("packet too short for ICMPv6 header")
+		return nil, errShortICMPv6Header
 	}
 
 	resp.Type = int(buf[0])

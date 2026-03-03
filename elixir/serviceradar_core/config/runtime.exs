@@ -465,6 +465,14 @@ if config_env() == :prod do
           batch_timeout: 1_000
         },
         %{
+          name: "FALCO",
+          stream_name: "falco_events",
+          subject: "falco.>",
+          processor: ServiceRadar.EventWriter.Processors.FalcoEvents,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
           name: "OTEL_METRICS",
           subject: "otel.metrics.>",
           processor: ServiceRadar.EventWriter.Processors.OtelMetrics,

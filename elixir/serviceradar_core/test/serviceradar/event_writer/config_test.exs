@@ -50,6 +50,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       # Check that expected streams are present
       stream_names = Enum.map(streams, & &1.name)
       assert "EVENTS" in stream_names
+      assert "FALCO" in stream_names
       assert "OTEL_METRICS" in stream_names
       assert "OTEL_TRACES" in stream_names
       assert "BMP_CAUSAL" in stream_names
