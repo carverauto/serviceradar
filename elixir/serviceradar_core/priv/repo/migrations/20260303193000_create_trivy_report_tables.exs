@@ -4,11 +4,11 @@ defmodule ServiceRadar.Repo.Migrations.CreateTrivyReportTables do
   """
   use Ecto.Migration
 
-  @schema_prefix prefix() || "platform"
-
   def up do
+    schema_prefix = prefix() || "platform"
+
     execute("""
-    CREATE TABLE IF NOT EXISTS #{@schema_prefix}.trivy_reports (
+    CREATE TABLE IF NOT EXISTS #{schema_prefix}.trivy_reports (
       event_uuid         UUID        NOT NULL,
       observed_at        TIMESTAMPTZ NOT NULL,
       log_uuid           UUID,
@@ -48,9 +48,9 @@ defmodule ServiceRadar.Repo.Migrations.CreateTrivyReportTables do
     """)
 
     execute("""
-    CREATE TABLE IF NOT EXISTS #{@schema_prefix}.trivy_findings (
+    CREATE TABLE IF NOT EXISTS #{schema_prefix}.trivy_findings (
       finding_uuid       UUID        NOT NULL DEFAULT gen_random_uuid(),
-      event_uuid         UUID        NOT NULL REFERENCES #{@schema_prefix}.trivy_reports(event_uuid) ON DELETE CASCADE,
+      event_uuid         UUID        NOT NULL REFERENCES #{schema_prefix}.trivy_reports(event_uuid) ON DELETE CASCADE,
       observed_at        TIMESTAMPTZ NOT NULL,
       report_kind        TEXT        NOT NULL,
       cluster_id         TEXT,
@@ -81,44 +81,44 @@ defmodule ServiceRadar.Repo.Migrations.CreateTrivyReportTables do
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_reports_observed_at
-      ON #{@schema_prefix}.trivy_reports (observed_at DESC)
+      ON #{schema_prefix}.trivy_reports (observed_at DESC)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_reports_report_kind
-      ON #{@schema_prefix}.trivy_reports (report_kind)
+      ON #{schema_prefix}.trivy_reports (report_kind)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_reports_resource
-      ON #{@schema_prefix}.trivy_reports (resource_namespace, resource_kind, resource_name)
+      ON #{schema_prefix}.trivy_reports (resource_namespace, resource_kind, resource_name)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_reports_pod_ip
-      ON #{@schema_prefix}.trivy_reports (pod_ip)
+      ON #{schema_prefix}.trivy_reports (pod_ip)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_reports_severity
-      ON #{@schema_prefix}.trivy_reports (severity_id)
+      ON #{schema_prefix}.trivy_reports (severity_id)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_reports_payload_gin
-      ON #{@schema_prefix}.trivy_reports
+      ON #{schema_prefix}.trivy_reports
       USING GIN (report_payload jsonb_path_ops)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_reports_name_trgm
-      ON #{@schema_prefix}.trivy_reports
+      ON #{schema_prefix}.trivy_reports
       USING GIN (name gin_trgm_ops)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_reports_search_tsv
-      ON #{@schema_prefix}.trivy_reports
+      ON #{schema_prefix}.trivy_reports
       USING GIN (
         to_tsvector(
           'simple',
@@ -138,44 +138,44 @@ defmodule ServiceRadar.Repo.Migrations.CreateTrivyReportTables do
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_findings_event_uuid
-      ON #{@schema_prefix}.trivy_findings (event_uuid)
+      ON #{schema_prefix}.trivy_findings (event_uuid)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_findings_observed_at
-      ON #{@schema_prefix}.trivy_findings (observed_at DESC)
+      ON #{schema_prefix}.trivy_findings (observed_at DESC)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_findings_pod_ip
-      ON #{@schema_prefix}.trivy_findings (pod_ip)
+      ON #{schema_prefix}.trivy_findings (pod_ip)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_findings_severity
-      ON #{@schema_prefix}.trivy_findings (severity_id)
+      ON #{schema_prefix}.trivy_findings (severity_id)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_findings_finding_id
-      ON #{@schema_prefix}.trivy_findings (finding_id)
+      ON #{schema_prefix}.trivy_findings (finding_id)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_findings_raw_gin
-      ON #{@schema_prefix}.trivy_findings
+      ON #{schema_prefix}.trivy_findings
       USING GIN (raw_finding jsonb_path_ops)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_findings_title_trgm
-      ON #{@schema_prefix}.trivy_findings
+      ON #{schema_prefix}.trivy_findings
       USING GIN (title gin_trgm_ops)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_trivy_findings_search_tsv
-      ON #{@schema_prefix}.trivy_findings
+      ON #{schema_prefix}.trivy_findings
       USING GIN (
         to_tsvector(
           'simple',
@@ -196,25 +196,27 @@ defmodule ServiceRadar.Repo.Migrations.CreateTrivyReportTables do
   end
 
   def down do
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_findings_search_tsv")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_findings_title_trgm")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_findings_raw_gin")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_findings_finding_id")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_findings_severity")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_findings_pod_ip")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_findings_observed_at")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_findings_event_uuid")
+    schema_prefix = prefix() || "platform"
 
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_reports_search_tsv")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_reports_name_trgm")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_reports_payload_gin")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_reports_severity")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_reports_pod_ip")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_reports_resource")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_reports_report_kind")
-    execute("DROP INDEX IF EXISTS #{@schema_prefix}.idx_trivy_reports_observed_at")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_findings_search_tsv")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_findings_title_trgm")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_findings_raw_gin")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_findings_finding_id")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_findings_severity")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_findings_pod_ip")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_findings_observed_at")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_findings_event_uuid")
 
-    execute("DROP TABLE IF EXISTS #{@schema_prefix}.trivy_findings")
-    execute("DROP TABLE IF EXISTS #{@schema_prefix}.trivy_reports")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_reports_search_tsv")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_reports_name_trgm")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_reports_payload_gin")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_reports_severity")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_reports_pod_ip")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_reports_resource")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_reports_report_kind")
+    execute("DROP INDEX IF EXISTS #{schema_prefix}.idx_trivy_reports_observed_at")
+
+    execute("DROP TABLE IF EXISTS #{schema_prefix}.trivy_findings")
+    execute("DROP TABLE IF EXISTS #{schema_prefix}.trivy_reports")
   end
 end
