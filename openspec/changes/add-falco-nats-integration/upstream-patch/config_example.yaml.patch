@@ -1,0 +1,11 @@
+--- a/config_example.yaml
++++ b/config_example.yaml
+@@ -XXX,6 +XXX,8 @@
+ nats:
+   hostport: ""  # nats://nats.example.com:4222
+   subject: ""   # falco.events
++  # credsfile: ""  # path to .creds file (JWT + NKey seed), e.g. /etc/falcosidekick/nats.creds
++  # cacertfile: "" # path to PEM CA certificate, e.g. /etc/falcosidekick/ca-chain.pem
+   minimumpriority: ""
+   mutualtls: false
+   checkcert: true

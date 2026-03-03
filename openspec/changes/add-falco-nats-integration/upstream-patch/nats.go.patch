@@ -1,0 +1,28 @@
+--- a/outputs/nats.go
++++ b/outputs/nats.go
+@@ -XXX,7 +XXX,25 @@
+ func (c *Client) NatsPublish(falcopayload types.FalcoPayload) {
+ 	c.Stats.Nats.Add(Total, 1)
+
+-	nc, err := nats.Connect(c.EndpointURL.String())
++	opts := []nats.Option{}
++
++	// User credentials file (.creds) for JWT + NKey authentication
++	if c.Config.NATS.CredsFile != "" {
++		opts = append(opts, nats.UserCredentials(c.Config.NATS.CredsFile))
++	}
++
++	// Custom CA certificate for TLS verification
++	if c.Config.NATS.CaCertFile != "" {
++		opts = append(opts, nats.RootCAs(c.Config.NATS.CaCertFile))
++	}
++
++	// Existing mTLS support (unchanged)
++	if c.Config.NATS.MutualTLS {
++		// ... existing mTLS code stays as-is ...
++	}
++
++	nc, err := nats.Connect(c.EndpointURL.String(), opts...)
+ 	if err != nil {
+ 		go c.CountMetric("outputs", 1, []string{"output:nats", "status:error"})
+ 		c.Stats.Nats.Add(Error, 1)

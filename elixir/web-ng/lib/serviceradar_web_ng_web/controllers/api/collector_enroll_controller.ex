@@ -289,6 +289,14 @@ defmodule ServiceRadarWebNG.Api.CollectorEnrollController do
     })
   end
 
+  defp add_collector_defaults(config, :falcosidekick) do
+    Map.put(config, "falcosidekick", %{
+      "nats_subject" => "events.falco.raw",
+      "nats_credsfile" => "/etc/serviceradar/creds/nats.creds",
+      "nats_cacertfile" => "/etc/serviceradar/certs/ca-chain.pem"
+    })
+  end
+
   defp add_collector_defaults(config, _), do: config
 
   defp deep_merge(left, right) do
