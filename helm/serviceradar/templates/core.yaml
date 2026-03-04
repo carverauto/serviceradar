@@ -84,6 +84,16 @@ spec:
           value: "false"
         - name: SERVICERADAR_CORE_VAULT_ENABLED
           value: "false"
+        - name: SERVICE_HEARTBEAT_ENABLED
+          value: "false"
+        - name: STATUS_HANDLER_ENABLED
+          value: "false"
+        - name: DATASVC_ENABLED
+          value: "false"
+        - name: HEALTH_CHECK_RUNNER_ENABLED
+          value: "false"
+        - name: HEALTH_CHECK_REGISTRAR_ENABLED
+          value: "false"
         - name: SERVICERADAR_CORE_RUN_MIGRATIONS
           value: "true"
         - name: SERVICERADAR_MIGRATION_ONLY
