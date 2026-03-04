@@ -21,12 +21,6 @@ import (
 
 var errPublishRetriesExhausted = errors.New("publish retries exhausted")
 
-var podsGVR = schema.GroupVersionResource{
-	Group:    "",
-	Version:  "v1",
-	Resource: "pods",
-}
-
 // Service watches Trivy CRDs and forwards report revisions to NATS.
 type Service struct {
 	cfg Config
@@ -199,7 +193,7 @@ func (s *Service) enrichPodCorrelation(ctx context.Context, envelope *Envelope) 
 	}
 
 	pod, err := s.dynamicClient.
-		Resource(podsGVR).
+		Resource(podsResourceGVR()).
 		Namespace(correlation.PodNamespace).
 		Get(ctx, correlation.PodName, metav1.GetOptions{})
 	if err != nil {
@@ -235,6 +229,14 @@ func (s *Service) enrichPodCorrelation(ctx context.Context, envelope *Envelope) 
 		if nodeName, found, _ := unstructured.NestedString(pod.Object, "spec", "nodeName"); found {
 			correlation.NodeName = strings.TrimSpace(nodeName)
 		}
+	}
+}
+
+func podsResourceGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "pods",
 	}
 }
 
