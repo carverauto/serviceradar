@@ -8,6 +8,7 @@ resources:
 - ../base
 - namespace.yaml
 - service-aliases.demo.yaml
+- calico-bgpconfiguration.yaml
 - ingress.yaml
 - serviceradar-datasvc-grpc-external.yaml
 - spire-server-external.yaml

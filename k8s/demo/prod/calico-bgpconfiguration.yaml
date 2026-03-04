@@ -1,0 +1,24 @@
+apiVersion: projectcalico.org/v3
+kind: BGPConfiguration
+metadata:
+  name: default
+spec:
+  asNumber: 401642
+  nodeToNodeMeshEnabled: true
+  serviceClusterIPs:
+    - cidr: 10.43.0.0/16
+    - cidr: 2602:f678:0:200::/112
+  # Keep aggregate ranges and add explicit /32 service routes so FRR prefers
+  # host routes over the connected 23.138.124.0/27 on br104.
+  serviceLoadBalancerIPs:
+    - cidr: 23.138.124.0/27
+    - cidr: 23.138.124.2/32
+    - cidr: 23.138.124.3/32
+    - cidr: 23.138.124.18/32
+    - cidr: 23.138.124.20/32
+    - cidr: 23.138.124.22/32
+    - cidr: 23.138.124.25/32
+    - cidr: 23.138.124.26/32
+    - cidr: 23.138.124.27/32
+    - cidr: 2602:f678:0:300::/112
+    - cidr: 192.168.6.0/24
