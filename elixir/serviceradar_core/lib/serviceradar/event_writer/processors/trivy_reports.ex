@@ -50,6 +50,16 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     "informational" => 1
   }
 
+  @severity_level_map %{
+    "critical" => :critical,
+    "high" => :high,
+    "medium" => :medium,
+    "low" => :low,
+    "none" => :informational,
+    "info" => :informational,
+    "informational" => :informational
+  }
+
   @impl true
   def table_name, do: "logs"
 
@@ -994,53 +1004,61 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     owner = normalize_map(payload["owner_ref"])
 
     resource_kind =
-      normalize_string(correlation["resource_kind"]) ||
-        normalize_string(labels["trivy-operator.resource.kind"])
+      first_present([
+        correlation["resource_kind"],
+        labels["trivy-operator.resource.kind"]
+      ])
 
     resource_name =
-      normalize_string(correlation["resource_name"]) ||
-        normalize_string(labels["trivy-operator.resource.name"]) ||
-        normalize_string(payload["name"])
+      first_present([
+        correlation["resource_name"],
+        labels["trivy-operator.resource.name"],
+        payload["name"]
+      ])
 
     resource_namespace =
-      normalize_string(correlation["resource_namespace"]) ||
-        normalize_string(labels["trivy-operator.resource.namespace"]) ||
-        normalize_string(payload["namespace"])
+      first_present([
+        correlation["resource_namespace"],
+        labels["trivy-operator.resource.namespace"],
+        payload["namespace"]
+      ])
 
-    owner_kind = normalize_string(correlation["owner_kind"]) || normalize_string(owner["kind"])
-    owner_name = normalize_string(correlation["owner_name"]) || normalize_string(owner["name"])
-    owner_uid = normalize_string(correlation["owner_uid"]) || normalize_string(owner["uid"])
+    owner_kind = first_present([correlation["owner_kind"], owner["kind"]])
+    owner_name = first_present([correlation["owner_name"], owner["name"]])
+    owner_uid = first_present([correlation["owner_uid"], owner["uid"]])
 
     pod_name =
-      normalize_string(correlation["pod_name"]) ||
-        if is_pod?(resource_kind) do
-          resource_name
-        else
-          if is_pod?(owner_kind), do: owner_name, else: nil
-        end
+      first_present([
+        correlation["pod_name"],
+        infer_pod_name(resource_kind, resource_name, owner_kind, owner_name)
+      ])
 
     pod_namespace =
-      normalize_string(correlation["pod_namespace"]) ||
-        if is_binary(pod_name) and pod_name != "", do: resource_namespace, else: nil
+      first_present([
+        correlation["pod_namespace"],
+        pod_namespace_for(pod_name, resource_namespace)
+      ])
 
     pod_uid =
-      normalize_string(correlation["pod_uid"]) ||
-        if is_pod?(owner_kind), do: owner_uid, else: nil
+      first_present([
+        correlation["pod_uid"],
+        pod_uid_for(owner_kind, owner_uid)
+      ])
 
     %{
       "resource_kind" => resource_kind,
       "resource_name" => resource_name,
       "resource_namespace" => resource_namespace,
-      "container_name" => normalize_string(correlation["container_name"]),
+      "container_name" => first_present([correlation["container_name"]]),
       "owner_kind" => owner_kind,
       "owner_name" => owner_name,
       "owner_uid" => owner_uid,
       "pod_name" => pod_name,
       "pod_namespace" => pod_namespace,
       "pod_uid" => pod_uid,
-      "pod_ip" => normalize_string(correlation["pod_ip"]),
-      "host_ip" => normalize_string(correlation["host_ip"]),
-      "node_name" => normalize_string(correlation["node_name"])
+      "pod_ip" => first_present([correlation["pod_ip"]]),
+      "host_ip" => first_present([correlation["host_ip"]]),
+      "node_name" => first_present([correlation["node_name"]])
     }
   end
 
@@ -1061,16 +1079,14 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp resolve_event_id(payload, subject, raw_data) do
     event_id = normalize_string(payload["event_id"])
 
-    cond do
-      is_binary(event_id) ->
-        case Ecto.UUID.cast(event_id) do
-          {:ok, cast_uuid} -> cast_uuid
-          :error -> deterministic_uuid("#{subject}:event_id:#{String.downcase(event_id)}")
-        end
-
-      true ->
-        hash = Base.encode16(:crypto.hash(:sha256, raw_data), case: :lower)
-        deterministic_uuid("#{subject}:sha256:#{hash}")
+    if is_binary(event_id) do
+      case Ecto.UUID.cast(event_id) do
+        {:ok, cast_uuid} -> cast_uuid
+        :error -> deterministic_uuid("#{subject}:event_id:#{String.downcase(event_id)}")
+      end
+    else
+      hash = Base.encode16(:crypto.hash(:sha256, raw_data), case: :lower)
+      deterministic_uuid("#{subject}:sha256:#{hash}")
     end
   end
 
@@ -1110,8 +1126,8 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
 
   defp normalize_string(_), do: nil
 
-  defp is_pod?(value) when is_binary(value), do: String.downcase(value) == "pod"
-  defp is_pod?(_), do: false
+  defp pod?(value) when is_binary(value), do: String.downcase(value) == "pod"
+  defp pod?(_), do: false
 
   defp maybe_observable(nil, _type, _type_id), do: nil
   defp maybe_observable(value, type, type_id), do: OCSF.build_observable(value, type, type_id)
@@ -1138,24 +1154,34 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp parse_count(_), do: 0
 
   defp normalize_severity_level(value) do
-    normalized =
-      value
-      |> normalize_string()
-      |> case do
-        nil -> "unknown"
-        text -> String.downcase(text)
-      end
+    value
+    |> normalize_string()
+    |> normalize_severity_key()
+    |> then(&Map.get(@severity_level_map, &1, :unknown))
+  end
 
-    case normalized do
-      "critical" -> :critical
-      "high" -> :high
-      "medium" -> :medium
-      "low" -> :low
-      "none" -> :informational
-      "info" -> :informational
-      "informational" -> :informational
-      _ -> :unknown
+  defp normalize_severity_key(nil), do: "unknown"
+  defp normalize_severity_key(value), do: String.downcase(value)
+
+  defp first_present(values) when is_list(values) do
+    Enum.find_value(values, &normalize_string/1)
+  end
+
+  defp infer_pod_name(resource_kind, resource_name, owner_kind, owner_name) do
+    cond do
+      pod?(resource_kind) -> resource_name
+      pod?(owner_kind) -> owner_name
+      true -> nil
     end
+  end
+
+  defp pod_namespace_for(pod_name, resource_namespace) when is_binary(pod_name),
+    do: resource_namespace
+
+  defp pod_namespace_for(_pod_name, _resource_namespace), do: nil
+
+  defp pod_uid_for(owner_kind, owner_uid) do
+    if pod?(owner_kind), do: owner_uid, else: nil
   end
 
   defp increment_count(counts, key) do
