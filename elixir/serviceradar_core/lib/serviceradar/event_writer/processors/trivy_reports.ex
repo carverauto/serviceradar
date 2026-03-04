@@ -548,6 +548,8 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp upsert_report_rows([]), do: 0
 
   defp upsert_report_rows(rows) do
+    rows = dedupe_rows_by_conflict_key(rows, &Map.get(&1, :event_uuid))
+
     updatable_columns = [
       :observed_at,
       :log_uuid,
@@ -595,6 +597,8 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp upsert_finding_rows([]), do: 0
 
   defp upsert_finding_rows(rows) do
+    rows = dedupe_rows_by_conflict_key(rows, &Map.get(&1, :fingerprint))
+
     updatable_columns = [
       :event_uuid,
       :observed_at,
@@ -629,6 +633,27 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     end
   end
 
+  defp dedupe_rows_by_conflict_key(rows, key_fun)
+       when is_list(rows) and is_function(key_fun, 1) do
+    {latest_by_key, ordered_keys} =
+      Enum.reduce(rows, {%{}, []}, fn row, {acc, keys} ->
+        key = key_fun.(row)
+
+        keys =
+          if Map.has_key?(acc, key) do
+            keys
+          else
+            [key | keys]
+          end
+
+        {Map.put(acc, key, row), keys}
+      end)
+
+    ordered_keys
+    |> Enum.reverse()
+    |> Enum.map(&Map.fetch!(latest_by_key, &1))
+  end
+
   defp insert_event_rows([]), do: {0, []}
 
   defp insert_event_rows(rows) do
@@ -638,7 +663,12 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
          ) do
       {count, inserted} ->
         inserted_ids = MapSet.new(Enum.map(inserted, & &1.id))
-        inserted_rows = Enum.filter(rows, &MapSet.member?(inserted_ids, &1.id))
+
+        inserted_rows =
+          rows
+          |> Enum.filter(&MapSet.member?(inserted_ids, &1.id))
+          |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
+
         {count, inserted_rows}
     end
   end

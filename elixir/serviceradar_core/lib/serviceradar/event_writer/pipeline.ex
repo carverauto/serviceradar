@@ -61,18 +61,10 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   """
   def ack(:ack_ref, successful, failed) do
     # Acknowledge successful messages
-    Enum.each(successful, fn %{acknowledger: {_, _, ack_data}} ->
-      if ack_data[:ack_fun] do
-        ack_data.ack_fun.(:ack)
-      end
-    end)
+    Enum.each(successful, &ack_message(&1, :ack))
 
     # NACK failed messages for retry
-    Enum.each(failed, fn %{acknowledger: {_, _, ack_data}} ->
-      if ack_data[:ack_fun] do
-        ack_data.ack_fun.(:nack)
-      end
-    end)
+    Enum.each(failed, &ack_message(&1, :nack))
 
     :ok
   end
@@ -186,6 +178,45 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   end
 
   defp determine_batcher(_), do: :default
+
+  defp ack_message(%{acknowledger: {_, _, ack_data}} = message, action) do
+    case ack_data[:ack_fun] do
+      ack_fun when is_function(ack_fun, 1) ->
+        case safe_invoke_ack(ack_fun, action) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.debug("Failed to publish EventWriter ack",
+              action: action,
+              reason: inspect(reason),
+              subject: message.metadata[:subject],
+              reply_to: message.metadata[:reply_to]
+            )
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp ack_message(_message, _action), do: :ok
+
+  defp safe_invoke_ack(ack_fun, action) when is_function(ack_fun, 1) do
+    case ack_fun.(action) do
+      {:error, _reason} = error -> error
+      _ -> :ok
+    end
+  rescue
+    error ->
+      {:error, error}
+  catch
+    :exit, reason ->
+      {:error, {:exit, reason}}
+
+    kind, reason ->
+      {:error, {kind, reason}}
+  end
 
   defp batcher_rules do
     [
