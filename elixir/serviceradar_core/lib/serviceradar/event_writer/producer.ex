@@ -337,11 +337,11 @@ defmodule ServiceRadar.EventWriter.Producer do
     fn
       :ack ->
         # For JetStream, acknowledge by sending +ACK to the reply subject
-        Gnat.pub(conn, reply_to, "+ACK")
+        safe_ack_publish(conn, reply_to, "+ACK")
 
       :nack ->
         # Send -NAK to trigger redelivery
-        Gnat.pub(conn, reply_to, "-NAK")
+        safe_ack_publish(conn, reply_to, "-NAK")
     end
   end
 
@@ -349,6 +349,42 @@ defmodule ServiceRadar.EventWriter.Producer do
     # No reply_to means we can't ack (core NATS, not JetStream)
     fn _ -> :ok end
   end
+
+  defp safe_ack_publish(conn, reply_to, payload) when is_binary(reply_to) and reply_to != "" do
+    conn_ref = resolve_conn_ref(conn)
+
+    cond do
+      is_nil(conn_ref) ->
+        {:error, :nats_connection_not_available}
+
+      is_pid(conn_ref) and not Process.alive?(conn_ref) ->
+        {:error, :nats_connection_not_alive}
+
+      true ->
+        try do
+          Gnat.pub(conn_ref, reply_to, payload)
+        rescue
+          error ->
+            {:error, error}
+        catch
+          :exit, reason ->
+            {:error, {:exit, reason}}
+
+          kind, reason ->
+            {:error, {kind, reason}}
+        end
+    end
+  end
+
+  defp safe_ack_publish(_conn, _reply_to, _payload), do: {:error, :invalid_ack_payload}
+
+  defp resolve_conn_ref(conn) when is_pid(conn), do: conn
+
+  defp resolve_conn_ref(conn) when is_atom(conn) do
+    Process.whereis(conn)
+  end
+
+  defp resolve_conn_ref(conn), do: conn
 
   defp durable_name(base, stream_name) do
     suffix =

@@ -26,7 +26,7 @@ GHCR_PUSH_TARGETS = [
     {
         "image": "cnpg_image_amd64",
         "repository": "ghcr.io/carverauto/serviceradar-cnpg",
-        "static_tags": ["16.6.0-sr5"],
+        "static_tags": ["18.3.0-sr2"],
     },
 ]
 

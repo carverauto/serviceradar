@@ -73,6 +73,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
         entries
         |> Enum.filter(fn entry -> promote_to_event?(entry.severity_id) end)
         |> Enum.map(& &1.event_row)
+        |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
 
       {event_count, inserted_events} = insert_event_rows(promoted_rows)
       alert_count = maybe_create_priority_alerts(inserted_events)
@@ -316,9 +317,35 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
          ) do
       {count, inserted} ->
         inserted_ids = MapSet.new(Enum.map(inserted, & &1.id))
-        inserted_rows = Enum.filter(rows, &MapSet.member?(inserted_ids, &1.id))
+
+        inserted_rows =
+          rows
+          |> Enum.filter(&MapSet.member?(inserted_ids, &1.id))
+          |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
+
         {count, inserted_rows}
     end
+  end
+
+  defp dedupe_rows_by_conflict_key(rows, key_fun)
+       when is_list(rows) and is_function(key_fun, 1) do
+    {latest_by_key, ordered_keys} =
+      Enum.reduce(rows, {%{}, []}, fn row, {acc, keys} ->
+        key = key_fun.(row)
+
+        keys =
+          if Map.has_key?(acc, key) do
+            keys
+          else
+            [key | keys]
+          end
+
+        {Map.put(acc, key, row), keys}
+      end)
+
+    ordered_keys
+    |> Enum.reverse()
+    |> Enum.map(&Map.fetch!(latest_by_key, &1))
   end
 
   defp maybe_create_priority_alerts(events) do

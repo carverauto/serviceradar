@@ -36,6 +36,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'edge-model', label: 'Edge Model'},
         {type: 'doc', id: 'edge-agent-onboarding', label: 'Edge Onboarding'},
         {type: 'doc', id: 'falco-integration', label: 'Falco Integration'},
+        {type: 'doc', id: 'trivy-integration', label: 'Trivy Integration'},
         {type: 'doc', id: 'wasm-plugins', label: 'Wasm Plugins'},
       ],
     },

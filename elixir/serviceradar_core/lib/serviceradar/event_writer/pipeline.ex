@@ -61,18 +61,10 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   """
   def ack(:ack_ref, successful, failed) do
     # Acknowledge successful messages
-    Enum.each(successful, fn %{acknowledger: {_, _, ack_data}} ->
-      if ack_data[:ack_fun] do
-        ack_data.ack_fun.(:ack)
-      end
-    end)
+    Enum.each(successful, &ack_message(&1, :ack))
 
     # NACK failed messages for retry
-    Enum.each(failed, fn %{acknowledger: {_, _, ack_data}} ->
-      if ack_data[:ack_fun] do
-        ack_data.ack_fun.(:nack)
-      end
-    end)
+    Enum.each(failed, &ack_message(&1, :nack))
 
     :ok
   end
@@ -187,6 +179,45 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp determine_batcher(_), do: :default
 
+  defp ack_message(%{acknowledger: {_, _, ack_data}} = message, action) do
+    case ack_data[:ack_fun] do
+      ack_fun when is_function(ack_fun, 1) ->
+        case safe_invoke_ack(ack_fun, action) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.debug("Failed to publish EventWriter ack",
+              action: action,
+              reason: inspect(reason),
+              subject: message.metadata[:subject],
+              reply_to: message.metadata[:reply_to]
+            )
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp ack_message(_message, _action), do: :ok
+
+  defp safe_invoke_ack(ack_fun, action) when is_function(ack_fun, 1) do
+    case ack_fun.(action) do
+      {:error, _reason} = error -> error
+      _ -> :ok
+    end
+  rescue
+    error ->
+      {:error, error}
+  catch
+    :exit, reason ->
+      {:error, {:exit, reason}}
+
+    kind, reason ->
+      {:error, {kind, reason}}
+  end
+
   defp batcher_rules do
     [
       {:default, &ignore_logs_subject?/1},
@@ -196,6 +227,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:arancini_causal, &arancini_causal_subject?/1},
       {:siem_causal, &siem_causal_subject?/1},
       {:falco, &falco_subject?/1},
+      {:trivy, &trivy_subject?/1},
       {:otel_metrics, &String.starts_with?(&1, "otel.metrics")},
       {:otel_traces, &String.starts_with?(&1, "otel.traces")},
       {:logs, &String.starts_with?(&1, "logs.")},
@@ -239,10 +271,14 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp falco_subject?(subject),
     do: subject == "falco" or String.starts_with?(subject, "falco.")
 
+  defp trivy_subject?(subject),
+    do: subject == "trivy.report" or String.starts_with?(subject, "trivy.report.")
+
   defp get_processor(:otel_metrics), do: ServiceRadar.EventWriter.Processors.OtelMetrics
   defp get_processor(:otel_traces), do: ServiceRadar.EventWriter.Processors.OtelTraces
   defp get_processor(:events), do: ServiceRadar.EventWriter.Processors.Events
   defp get_processor(:falco), do: ServiceRadar.EventWriter.Processors.FalcoEvents
+  defp get_processor(:trivy), do: ServiceRadar.EventWriter.Processors.TrivyReports
   defp get_processor(:bmp_causal), do: ServiceRadar.EventWriter.Processors.CausalSignals
   defp get_processor(:arancini_causal), do: ServiceRadar.EventWriter.Processors.CausalSignals
   defp get_processor(:siem_causal), do: ServiceRadar.EventWriter.Processors.CausalSignals

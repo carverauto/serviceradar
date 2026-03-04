@@ -17,7 +17,7 @@ bazel_dep(name = "rules_pkg", version = "1.1.0")
 bazel_dep(name = "rules_erlang", version = "3.16.0")
 bazel_dep(name = "rules_elixir", version = "1.1.0")
 bazel_dep(name = "platforms", version = "1.0.0")
-bazel_dep(name = "bazel_features", version = "1.36.0", repo_name = "bazel_features")
+bazel_dep(name = "bazel_features", version = "1.38.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "9.0.3", repo_name = "rules_java")
 bazel_dep(name = "rules_multirun", version = "0.13.0")
 bazel_dep(name = "swiftlint", version = "0.63.2", repo_name = "SwiftLint")
@@ -34,7 +34,7 @@ bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
 bazel_dep(name = "rules_cc", version = "0.2.16")
-bazel_dep(name = "toolchains_llvm", version = "1.5.0")
+bazel_dep(name = "toolchains_llvm", version = "1.6.0")
 bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
 bazel_dep(
@@ -214,6 +214,11 @@ llvm_ext = use_extension(
 llvm_ext.toolchain(
     name = "llvm_toolchain",
     llvm_versions = {
+        # Fallback for hosts whose distro-specific key is not listed below
+        # (e.g. ubuntu-24.04-x86_64, debian-12-x86_64).
+        "": "17.0.4",
+        # Explicit generic Linux key to cover distros like Oracle Linux 9.
+        "linux-x86_64": "17.0.4",
         "darwin-aarch64": "17.0.4",
         "darwin-x86_64": "15.0.7",
         "ubuntu-22.04-x86_64": "17.0.4",
@@ -323,21 +328,13 @@ oci_ext.pull(
     ],
 )
 oci_ext.pull(
-    name = "cloudnativepg_postgresql_16_6",
+    name = "cloudnativepg_postgresql_18",
     image = "ghcr.io/cloudnative-pg/postgresql",
     platforms = [
         "linux/amd64",
     ],
     reproducible = False,
-    tag = "16.6-bookworm",
-)
-oci_ext.pull(
-    name = "serviceradar_cnpg_16_6_0_sr3",
-    digest = "sha256:882fdd3f4905342a6ffa347ee988840eafa4f8e8b234a26e6e8cb72ec71b8eb8",
-    image = "ghcr.io/carverauto/serviceradar-cnpg",
-    platforms = [
-        "linux/amd64",
-    ],
+    tag = "18-bookworm",
 )
 use_repo(
     oci_ext,
@@ -347,8 +344,8 @@ use_repo(
     "alpine_3_20_linux_amd64",
     "arc_runner",
     "arc_runner_linux_amd64",
-    "cloudnativepg_postgresql_16_6",
-    "cloudnativepg_postgresql_16_6_linux_amd64",
+    "cloudnativepg_postgresql_18",
+    "cloudnativepg_postgresql_18_linux_amd64",
     "debian_bookworm_slim",
     "debian_bookworm_slim_linux_amd64",
     "debian_testing_slim",
@@ -359,8 +356,6 @@ use_repo(
     "node_20_alpine_linux_amd64",
     "serviceradar_cert_generator",
     "serviceradar_cert_generator_linux_amd64",
-    "serviceradar_cnpg_16_6_0_sr3",
-    "serviceradar_cnpg_16_6_0_sr3_linux_amd64",
     "serviceradar_tools",
     "serviceradar_tools_linux_amd64",
     "ubuntu_jammy",
@@ -700,10 +695,10 @@ filegroup(
 )
 
 http_file(
-    name = "postgresql_server_dev_16_deb",
-    sha256 = "0599b3e7ef8ad4dc45b21afab84428d807730ed282679e974e19286f508ac8a9",
+    name = "postgresql_server_dev_18_deb",
+    sha256 = "afc115928cceca97aa93f4b803012af51ce51cef111962b8cbc72746416b6738",
     urls = [
-        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-16/postgresql-server-dev-16_16.12-1.pgdg+1_amd64.deb",
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-server-dev-18_18.3-1.pgdg12%2B1_amd64.deb",
     ],
 )
 
@@ -756,26 +751,26 @@ http_file(
 )
 
 http_file(
-    name = "postgresql_16_postgis_3_amd64_deb",
-    sha256 = "fd00a20d05bc787428bcf7064aff7d0b6e8fef97231a9520b5d8ab9db7426c2f",
+    name = "postgresql_18_postgis_3_amd64_deb",
+    sha256 = "5c06e2bb5ac73cd3d81f07a9cf44e4240a0c6e0ae8d4e8627187b6cab83d6606",
     urls = [
-        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgis/postgresql-16-postgis-3_3.6.2+dfsg-1.pgdg12+1_amd64.deb",
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgis/postgresql-18-postgis-3_3.6.2%2Bdfsg-1.pgdg12%2B1_amd64.deb",
     ],
 )
 
 http_file(
-    name = "postgresql_16_postgis_3_scripts_all_deb",
-    sha256 = "c6327e424eb268739e9a9c41547aa7dd1e2c912c8f17ca695742d943c3f8eda5",
+    name = "postgresql_18_postgis_3_scripts_all_deb",
+    sha256 = "3b311ec39868d0cc18edf6721226bc323aa33edafc53c2968f38910a4e270ef5",
     urls = [
-        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgis/postgresql-16-postgis-3-scripts_3.6.2+dfsg-1.pgdg12+1_all.deb",
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgis/postgresql-18-postgis-3-scripts_3.6.2%2Bdfsg-1.pgdg12%2B1_all.deb",
     ],
 )
 
 http_file(
-    name = "postgresql_16_pgvector_amd64_deb",
-    sha256 = "e7d4ce441c599c04d532e9596698cb97abb31ebc66825cda18c8847eb3b81d2f",
+    name = "postgresql_18_pgvector_amd64_deb",
+    sha256 = "9c945d6110e88d2bd6477da1085bf6b626a3ec3dc05faa58227fa8ab049ab428",
     urls = [
-        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/pgvector/postgresql-16-pgvector_0.8.1-2.pgdg12+1_amd64.deb",
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/pgvector/postgresql-18-pgvector_0.8.2-1.pgdg12%2B1_amd64.deb",
     ],
 )
 
@@ -1165,10 +1160,10 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 """,
-    sha256 = "57c7187a37942f1b6208e1f68caafcb7374f8bedaabad162c8760adb44ae9ffe",
-    strip_prefix = "apache-age-1.6.0",
+    sha256 = "2e503283704eb7b9d9a251cbf4bd1d186a33016e31f4617bbf37a4d60e38ae02",
+    strip_prefix = "apache-age-1.7.0",
     urls = [
-        "https://downloads.apache.org/age/PG17/1.6.0/apache-age-1.6.0-src.tar.gz",
+        "https://downloads.apache.org/age/PG18/1.7.0/apache-age-1.7.0-src.tar.gz",
     ],
 )
 

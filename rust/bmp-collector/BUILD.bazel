@@ -19,30 +19,42 @@ genrule(
     cmd = """
 set -euo pipefail
 
-# Use Bazel-provided Rust toolchain binaries instead of relying on host cargo.
-for tool in $(locations @rules_rust//rust/toolchain:current_cargo_files) \
-            $(locations @rules_rust//rust/toolchain:current_rustc_files) \
-            $(locations @rules_rust//rust/toolchain:current_rust_stdlib_files) \
-            $(locations @rules_rust//rust/toolchain:current_rustc_lib_files); do
-  tool_dir="$${tool%/*}"
-  case ":$${PATH:-}:" in
-    *:"$$tool_dir":*) ;;
-    *) PATH="$$tool_dir:$${PATH:-}" ;;
-  esac
-done
-export PATH
-if ! command -v cargo >/dev/null 2>&1; then
-  echo "cargo not found in PATH=$$PATH" >&2
+# Prefer Bazel toolchain binaries when they are runnable on the host, otherwise
+# fall back to host-installed rust tooling (needed for local macOS genrules).
+resolve_runnable_tool() {
+  tool_name="$$1"
+  shift
+  for candidate in "$$@"; do
+    if [ "$${candidate##*/}" != "$$tool_name" ]; then
+      continue
+    fi
+    if [ -x "$$candidate" ] && "$$candidate" --version >/dev/null 2>&1; then
+      printf '%s\n' "$$candidate"
+      return 0
+    fi
+  done
+
+  command -v "$$tool_name" 2>/dev/null || true
+}
+
+CARGO_BIN="$$(resolve_runnable_tool cargo \
+  $(locations @rules_rust//rust/toolchain:current_cargo_files))"
+RUSTC_BIN="$$(resolve_runnable_tool rustc \
+  $(locations @rules_rust//rust/toolchain:current_rustc_files))"
+
+if [ -z "$$CARGO_BIN" ]; then
+  echo "cargo not found or not runnable in toolchain or host PATH" >&2
   exit 127
 fi
-if ! command -v rustc >/dev/null 2>&1; then
-  echo "rustc not found in PATH=$$PATH" >&2
+if [ -z "$$RUSTC_BIN" ]; then
+  echo "rustc not found or not runnable in toolchain or host PATH" >&2
   exit 127
 fi
 
 # Make cargo/rustc resolution deterministic inside Bazel's action sandbox.
-export CARGO="$$(command -v cargo)"
-export RUSTC="$$(command -v rustc)"
+export CARGO="$$CARGO_BIN"
+export RUSTC="$$RUSTC_BIN"
+export PATH="$${CARGO_BIN%/*}:$${RUSTC_BIN%/*}:$${PATH:-}"
 
 SRC_MANIFEST="$(location Cargo.toml)"
 SRC_ROOT="$${SRC_MANIFEST%/Cargo.toml}"
@@ -62,10 +74,8 @@ cp "$$SRC_ROOT/src/publisher.rs" "$$WORKDIR/src/publisher.rs"
 # Avoid stale toolchain/cargo state between Bazel invocations.
 rm -rf "$$TARGET_DIR"
 CARGO_TARGET_DIR="$$TARGET_DIR" \\
-  cargo build --release --manifest-path "$$WORKDIR/Cargo.toml" -p serviceradar-bmp-collector
+  "$$CARGO" build --release --manifest-path "$$WORKDIR/Cargo.toml" -p serviceradar-bmp-collector
 cp "$(@D)/cargo-target/release/serviceradar-bmp-collector" "$@"
 chmod 0755 "$@"
 """,
-    local = True,
-    tags = ["local", "no-remote", "no-remote-exec"],
 )
