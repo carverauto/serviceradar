@@ -68,6 +68,7 @@ Navigate through our documentation to get ServiceRadar up and running:
 5. **[Edge Model](./edge-model.md)** - Agent lifecycle, config flow, and command bus
 6. **[Data Pipeline](./data-pipeline.md)** - JetStream consumers and CNPG persistence
 7. **[Tools Pod](./tools.md)** - Preconfigured operational CLI environment
-8. **[Wasm Plugins](./wasm-plugins.md)** - Sandboxed plugin system and SDKs
+8. **[CNPG PG18 Upgrade](./cnpg-pg18-upgrade-and-search-policy.md)** - Upgrade runbook, validation, and BM25 extension policy
+9. **[Wasm Plugins](./wasm-plugins.md)** - Sandboxed plugin system and SDKs
 
 **Recommended**: Start with the [Docker Setup Guide](./docker-setup.md) for the fastest and most reliable deployment experience.

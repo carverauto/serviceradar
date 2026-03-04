@@ -66,6 +66,12 @@ spec:
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         command: ["/bin/sh", "-c"]
         env:
+        - name: LANG
+          value: "C.UTF-8"
+        - name: LC_ALL
+          value: "C.UTF-8"
+        - name: ELIXIR_ERL_OPTIONS
+          value: "+fnu"
         - name: CLUSTER_ENABLED
           value: "false"
         - name: SERVICERADAR_CORE_REPO_ENABLED
@@ -77,6 +83,16 @@ spec:
         - name: SERVICERADAR_CORE_REGISTRIES_ENABLED
           value: "false"
         - name: SERVICERADAR_CORE_VAULT_ENABLED
+          value: "false"
+        - name: SERVICE_HEARTBEAT_ENABLED
+          value: "false"
+        - name: STATUS_HANDLER_ENABLED
+          value: "false"
+        - name: DATASVC_ENABLED
+          value: "false"
+        - name: HEALTH_CHECK_RUNNER_ENABLED
+          value: "false"
+        - name: HEALTH_CHECK_REGISTRAR_ENABLED
           value: "false"
         - name: SERVICERADAR_CORE_RUN_MIGRATIONS
           value: "true"
@@ -157,6 +173,10 @@ spec:
         - name: dist
           containerPort: 9100
         env:
+        - name: LANG
+          value: "C.UTF-8"
+        - name: LC_ALL
+          value: "C.UTF-8"
         - name: CLUSTER_ENABLED
           value: "true"
         - name: CLUSTER_STRATEGY

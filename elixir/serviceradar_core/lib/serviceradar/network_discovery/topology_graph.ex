@@ -11,6 +11,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   alias ServiceRadar.Repo
   @default_stale_minutes 180
   @telemetry_window_minutes 10
+  @canonical_rebuild_lock_key 1_104_202_506
   @packet_metric_names ["ifInUcastPkts", "ifOutUcastPkts", "ifHCInUcastPkts", "ifHCOutUcastPkts"]
   @octet_metric_names ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
   @direct_protocols MapSet.new(["lldp", "cdp", "unifi-api", "wireguard-derived"])
@@ -683,6 +684,45 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp rebuild_canonical_device_links do
+    case with_canonical_rebuild_lock(&do_rebuild_canonical_device_links/0) do
+      {:ok, {:ok, stats}} ->
+        {:ok, stats}
+
+      {:ok, {:error, reason, stats}} ->
+        {:error, reason, stats}
+
+      {:ok, {:busy, stats}} ->
+        emit_canonical_rebuild_telemetry(:completed, stats)
+        Logger.debug("Canonical topology rebuild skipped; advisory lock busy")
+        {:ok, stats}
+
+      {:error, reason} ->
+        failure_stats = lock_skipped_rebuild_stats()
+        Logger.warning("Canonical topology rebuild lock acquisition failed: #{inspect(reason)}")
+        emit_canonical_rebuild_telemetry(:failed, failure_stats, reason)
+        {:error, reason, failure_stats}
+    end
+  end
+
+  defp with_canonical_rebuild_lock(fun) when is_function(fun, 0) do
+    Repo.transaction(fn ->
+      case Repo.query("SELECT pg_try_advisory_xact_lock($1)", [@canonical_rebuild_lock_key]) do
+        {:ok, %{rows: [[true]]}} ->
+          fun.()
+
+        {:ok, %{rows: [[false]]}} ->
+          {:busy, lock_skipped_rebuild_stats()}
+
+        {:ok, _unexpected} ->
+          Repo.rollback(:unexpected_lock_response)
+
+        {:error, reason} ->
+          Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp do_rebuild_canonical_device_links do
     before_edges = canonical_edge_count()
     mapper_evidence_edges = mapper_evidence_edge_count()
     stale_cutoff = stale_cutoff_iso8601()
@@ -711,7 +751,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
           after_prune_edges: after_prune_edges,
           telemetry_refresh: telemetry_result,
           stale_cutoff: stale_cutoff,
-          self_heal_result: self_heal_result
+          self_heal_result: self_heal_result,
+          lock_skipped: false
         }
 
         emit_canonical_rebuild_telemetry(:completed, stats)
@@ -724,12 +765,30 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         failure_stats = %{
           before_edges: before_edges,
           mapper_evidence_edges: mapper_evidence_edges,
-          stale_cutoff: stale_cutoff
+          stale_cutoff: stale_cutoff,
+          lock_skipped: false
         }
 
         emit_canonical_rebuild_telemetry(:failed, failure_stats, reason)
         {:error, reason, failure_stats}
     end
+  end
+
+  defp lock_skipped_rebuild_stats do
+    before_edges = canonical_edge_count()
+    mapper_evidence_edges = mapper_evidence_edge_count()
+
+    %{
+      before_edges: before_edges,
+      mapper_evidence_edges: mapper_evidence_edges,
+      after_upsert_edges: before_edges,
+      after_prune_edges: before_edges,
+      telemetry_refresh: :skipped,
+      stale_cutoff: stale_cutoff_iso8601(),
+      self_heal_result: %{status: :skipped},
+      prune_result: :skipped,
+      lock_skipped: true
+    }
   end
 
   @doc false
