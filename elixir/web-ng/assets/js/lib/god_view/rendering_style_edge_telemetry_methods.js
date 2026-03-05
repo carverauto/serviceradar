@@ -1,3 +1,10 @@
+const DEFAULT_EDGE_VISUAL = {
+  crustLow: [48, 158, 226, 58],
+  crustLowVivid: [56, 210, 255, 88],
+  crustHigh: [196, 122, 255, 98],
+  crustHighVivid: [255, 110, 220, 142],
+}
+
 export const godViewRenderingStyleEdgeTelemetryMethods = {
   formatPps(value) {
     const n = Number(value || 0)
@@ -23,7 +30,7 @@ export const godViewRenderingStyleEdgeTelemetryMethods = {
     const spark = pps > 0 ? Math.min(1, Math.log10(Math.max(10, pps)) / 6) : 0
     const t = Math.min(1, Math.max(util, spark))
 
-    const v = this.state.visual
+    const v = this?.state?.visual || DEFAULT_EDGE_VISUAL
     const low = vivid ? v.crustLowVivid : v.crustLow
     const high = vivid ? v.crustHighVivid : v.crustHigh
 

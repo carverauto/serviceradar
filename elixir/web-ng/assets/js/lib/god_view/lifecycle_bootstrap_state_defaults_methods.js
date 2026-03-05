@@ -87,10 +87,18 @@ const LIGHT_HUD_STYLE = [
 ].join(";")
 
 export function detectThemeMode() {
-  const explicit = document.documentElement.getAttribute("data-theme")
-  if (explicit === "dark") return "dark"
-  if (explicit === "light") return "light"
-  return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light"
+  const hasDocument = typeof document !== "undefined" && document?.documentElement
+  if (hasDocument) {
+    const explicit = document.documentElement.getAttribute("data-theme")
+    if (explicit === "dark") return "dark"
+    if (explicit === "light") return "light"
+  }
+
+  const prefersDark =
+    typeof window !== "undefined" &&
+    window?.matchMedia?.("(prefers-color-scheme: dark)")?.matches
+
+  return prefersDark ? "dark" : "light"
 }
 
 export function visualForTheme(mode) {

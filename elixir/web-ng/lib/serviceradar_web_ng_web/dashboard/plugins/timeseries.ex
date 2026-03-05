@@ -690,7 +690,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       {"#22C55E", "rgba(34,197,94,0.25)"},
       {"#F59E0B", "rgba(245,158,11,0.25)"},
       {"#EC4899", "rgba(236,72,153,0.25)"}
-
     ]
 
     Enum.at(colors, rem(index, length(colors)))

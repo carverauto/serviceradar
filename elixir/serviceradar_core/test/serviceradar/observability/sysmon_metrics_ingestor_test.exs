@@ -99,4 +99,27 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestorTest do
 
     assert nil == SysmonMetricsIngestor.extract_corrupted_index_name(errors)
   end
+
+  test "chunks large record sets to avoid PostgreSQL parameter limits" do
+    large_records = Enum.map(1..2_501, &%{id: &1})
+
+    chunks = SysmonMetricsIngestor.chunk_records(large_records)
+
+    assert length(chunks) == 3
+    assert length(Enum.at(chunks, 0)) == 1_000
+    assert length(Enum.at(chunks, 1)) == 1_000
+    assert length(Enum.at(chunks, 2)) == 501
+  end
+
+  test "normalizes chunk size config values safely" do
+    assert SysmonMetricsIngestor.normalize_chunk_size(500) == 500
+    assert SysmonMetricsIngestor.normalize_chunk_size("250") == 250
+
+    assert SysmonMetricsIngestor.normalize_chunk_size(0) == 1_000
+    assert SysmonMetricsIngestor.normalize_chunk_size(-5) == 1_000
+    assert SysmonMetricsIngestor.normalize_chunk_size("0") == 1_000
+    assert SysmonMetricsIngestor.normalize_chunk_size("-7") == 1_000
+    assert SysmonMetricsIngestor.normalize_chunk_size("abc") == 1_000
+    assert SysmonMetricsIngestor.normalize_chunk_size(nil) == 1_000
+  end
 end
