@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     tokens =
       query
       |> String.trim()
-      |> String.split(~r/\s+/, trim: true)
+      |> tokenize()
 
     with {:ok, parts} <- parse_tokens(tokens),
          :ok <- reject_unknown_tokens(tokens, parts),
@@ -97,6 +97,32 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   def parse(_), do: {:error, :invalid_query}
+
+  defp tokenize(""), do: []
+
+  defp tokenize(query) when is_binary(query) do
+    {tokens, current, _in_quotes} =
+      query
+      |> String.graphemes()
+      |> Enum.reduce({[], "", false}, fn ch, {tokens, current, in_quotes} ->
+        cond do
+          ch == "\"" ->
+            {tokens, current <> ch, not in_quotes}
+
+          String.match?(ch, ~r/\s/) and not in_quotes ->
+            if current == "" do
+              {tokens, "", in_quotes}
+            else
+              {tokens ++ [current], "", in_quotes}
+            end
+
+          true ->
+            {tokens, current <> ch, in_quotes}
+        end
+      end)
+
+    if current == "", do: tokens, else: tokens ++ [current]
+  end
 
   defp normalize_state(%{} = state) do
     entity =
@@ -613,6 +639,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp parse_filter_value(negated, value) do
     value = String.trim(value)
+    value = maybe_unquote(value)
 
     cond do
       String.starts_with?(value, "(") and String.ends_with?(value, ")") ->
@@ -634,6 +661,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
         {op, String.replace(value, "\\ ", " ")}
     end
   end
+
+  defp maybe_unquote("\"" <> value) do
+    case String.ends_with?(value, "\"") do
+      true -> String.trim_trailing(value, "\"")
+      false -> "\"" <> value
+    end
+  end
+
+  defp maybe_unquote(value), do: value
 
   defp reject_unknown_tokens(tokens, parts) do
     known_prefixes = [

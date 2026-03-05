@@ -292,6 +292,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         uid,
         cursor
       )
+      |> maybe_reload_interfaces_for_active_tab(active_tab, uid)
 
     {:noreply,
      socket
@@ -339,6 +340,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp maybe_reload_flows_for_active_tab(socket, _active_tab, _uid, _cursor), do: socket
 
+  defp maybe_reload_interfaces_for_active_tab(socket, "interfaces", uid) do
+    scope = socket.assigns.current_scope
+    srql_mod = srql_module()
+
+    results =
+      safe_yield_many(
+        [
+          Task.async(fn -> {:interfaces, load_interfaces(srql_mod, uid, scope)} end),
+          Task.async(fn -> {:iface_settings, load_interface_settings(scope, uid)} end)
+        ],
+        15_000
+      )
+
+    {network_interfaces, interfaces_error} = Map.get(results, :interfaces, {[], nil})
+
+    interface_settings =
+      Map.get(results, :iface_settings, %{favorited: MapSet.new(), metrics_enabled: MapSet.new(), by_uid: %{}})
+
+    network_interfaces = apply_interface_settings(network_interfaces, interface_settings.by_uid)
+
+    interface_metrics =
+      load_interface_metrics(
+        srql_mod,
+        uid,
+        interface_settings.favorited,
+        interface_settings.metrics_enabled,
+        network_interfaces,
+        scope
+      )
+
+    has_ifaces =
+      is_binary(interfaces_error) or
+        (is_list(network_interfaces) and network_interfaces != [])
+
+    socket
+    |> assign(:network_interfaces, network_interfaces)
+    |> assign(:interfaces_error, interfaces_error)
+    |> assign(:favorited_interfaces, interface_settings.favorited)
+    |> assign(:interface_metrics, interface_metrics)
+    |> assign(:has_ifaces, has_ifaces)
+  end
+
+  defp maybe_reload_interfaces_for_active_tab(socket, _active_tab, _uid), do: socket
+
   defp srql_for_tab_if_needed("interfaces", uid, limit, srql),
     do: srql_for_tab("interfaces", uid, limit, srql)
 
@@ -378,6 +423,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     device_ip = get_device_ip(results)
     sysmon_identity = sysmon_identity(device_row, uid)
     show_stale = socket.assigns.show_stale_aliases
+    load_interfaces_data? = requested_tab == "interfaces"
+    load_flows_data? = requested_tab == "flows"
 
     # Phase 2: Run sysmon filter resolution + all independent queries in parallel
     sysmon_task =
@@ -388,16 +435,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       Task.async(fn -> {:healthcheck, load_healthcheck_summary(srql_module, uid, scope)} end),
       Task.async(fn -> {:sweep, load_sweep_results(socket.assigns.current_scope, device_ip)} end),
       Task.async(fn -> {:profile, load_sysmon_profile_info(scope, uid)} end),
-      Task.async(fn -> {:interfaces, load_interfaces(srql_module, uid, scope)} end),
-      Task.async(fn ->
-        {:flows, load_flows(srql_module, uid, scope, normalize_cursor(Map.get(params, "cursor")))}
-      end),
-      Task.async(fn -> {:flow_stats, load_device_flow_stats(srql_module, uid, scope)} end),
       Task.async(fn -> {:mapper, load_mapper_jobs_for_device(scope, device_row)} end),
-      Task.async(fn -> {:iface_settings, load_interface_settings(scope, uid)} end),
       Task.async(fn -> {:snmp, load_device_snmp_credential(scope, uid)} end),
       Task.async(fn -> {:aliases, load_ip_aliases(scope, uid, show_stale)} end)
     ]
+    parallel_tasks =
+      if load_interfaces_data? do
+        parallel_tasks ++
+          [
+            Task.async(fn -> {:interfaces, load_interfaces(srql_module, uid, scope)} end),
+            Task.async(fn -> {:iface_settings, load_interface_settings(scope, uid)} end)
+          ]
+      else
+        parallel_tasks ++
+          [
+            Task.async(fn -> {:has_ifaces, detect_has_interfaces(srql_module, uid, scope)} end)
+          ]
+      end
+
+    parallel_tasks =
+      if load_flows_data? do
+        parallel_tasks ++
+          [
+            Task.async(fn ->
+              {:flows, load_flows(srql_module, uid, scope, normalize_cursor(Map.get(params, "cursor")))}
+            end),
+            Task.async(fn -> {:flow_stats, load_device_flow_stats(srql_module, uid, scope)} end)
+          ]
+      else
+        parallel_tasks ++
+          [
+            Task.async(fn -> {:has_flows, detect_has_flows(srql_module, uid, scope)} end)
+          ]
+      end
 
     # Await sysmon filters first (needed for metric_sections + process_metrics)
     sysmon_filters = Task.await(sysmon_task, 15_000)
@@ -422,20 +492,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     healthcheck_summary = Map.get(parallel_results, :healthcheck, %{})
     sweep_results = Map.get(parallel_results, :sweep, [])
     {sysmon_profile_info, available_profiles} = Map.get(parallel_results, :profile, {nil, []})
-    {network_interfaces, interfaces_error} = Map.get(parallel_results, :interfaces, {[], nil})
+    {network_interfaces, interfaces_error} =
+      if load_interfaces_data?,
+        do: Map.get(parallel_results, :interfaces, {[], nil}),
+        else: {[], nil}
 
     {device_flows, flows_pagination, flows_error} =
-      Map.get(parallel_results, :flows, {[], %{}, nil})
+      if load_flows_data?,
+        do: Map.get(parallel_results, :flows, {[], %{}, nil}),
+        else: {[], %{}, nil}
 
     {flow_stats, flow_sparkline_json, flow_proto_json, flow_chart_keys_json,
      flow_chart_points_json, flow_top_talkers_json, flow_top_destinations_json,
      flow_top_ports_json, flow_top_protocols_json, flow_facets} =
-      Map.get(parallel_results, :flow_stats, empty_flow_stats)
+      if load_flows_data?,
+        do: Map.get(parallel_results, :flow_stats, empty_flow_stats),
+        else: empty_flow_stats
 
     discovery_jobs = Map.get(parallel_results, :mapper, [])
 
     interface_settings =
-      Map.get(parallel_results, :iface_settings, %{favorited: [], metrics_enabled: []})
+      if load_interfaces_data? do
+        Map.get(parallel_results, :iface_settings, %{favorited: MapSet.new(), metrics_enabled: MapSet.new(), by_uid: %{}})
+      else
+        %{favorited: MapSet.new(), metrics_enabled: MapSet.new(), by_uid: %{}}
+      end
 
     device_snmp_credential = Map.get(parallel_results, :snmp, nil)
     {ip_aliases, ip_alias_error} = Map.get(parallel_results, :aliases, {[], nil})
@@ -452,22 +533,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     # Load interface metrics (depends on interfaces + settings from above)
     interface_metrics =
-      load_interface_metrics(
-        srql_module,
-        uid,
-        favorited_interfaces,
-        metrics_enabled_interfaces,
-        network_interfaces,
-        scope
-      )
+      if load_interfaces_data? do
+        load_interface_metrics(
+          srql_module,
+          uid,
+          favorited_interfaces,
+          metrics_enabled_interfaces,
+          network_interfaces,
+          scope
+        )
+      else
+        nil
+      end
 
     network_interfaces = apply_interface_settings(network_interfaces, interface_settings.by_uid)
 
     has_ifaces =
-      is_binary(interfaces_error) or
-        (is_list(network_interfaces) and network_interfaces != []) or has_discovery_job
+      if load_interfaces_data? do
+        is_binary(interfaces_error) or
+          (is_list(network_interfaces) and network_interfaces != []) or has_discovery_job
+      else
+        Map.get(parallel_results, :has_ifaces, false) or has_discovery_job
+      end
 
-    has_flows = is_binary(flows_error) or (is_list(device_flows) and device_flows != [])
+    has_flows =
+      if load_flows_data? do
+        is_binary(flows_error) or (is_list(device_flows) and device_flows != [])
+      else
+        Map.get(parallel_results, :has_flows, false)
+      end
 
     active_tab = resolve_active_tab(requested_tab, has_ifaces, has_flows)
     srql = srql_for_tab_if_needed(active_tab, uid, limit, base_srql)
@@ -519,6 +613,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:device_snmp_credential, device_snmp_credential)
      |> assign(:srql, srql)
      |> enrich_flow_ips()}
+  end
+
+  defp detect_has_interfaces(srql_module, device_uid, scope) do
+    query =
+      "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d " <>
+        "limit:1"
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => [_ | _]}} -> true
+      _ -> false
+    end
+  end
+
+  defp detect_has_flows(srql_module, device_uid, scope) do
+    query =
+      "in:flows src_device_uid:\"#{escape_value(device_uid)}\" time:last_24h sort:time:desc limit:1"
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => [_ | _]}} -> true
+      _ -> false
+    end
   end
 
   defp normalized_device_query(params, default_query) do

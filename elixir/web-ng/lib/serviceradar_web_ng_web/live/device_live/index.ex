@@ -97,6 +97,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply, refresh_devices(socket)}
   end
 
+  def handle_info({:device_enrichments_loaded, token, enrichments}, socket) do
+    if socket.assigns[:device_enrichment_token] == token do
+      {:noreply,
+       assign(socket,
+         icmp_sparklines: enrichments.icmp_sparklines,
+         icmp_error: enrichments.icmp_error,
+         snmp_presence: enrichments.snmp_presence,
+         sysmon_presence: enrichments.sysmon_presence,
+         sysmon_profiles_by_device: enrichments.sysmon_profiles_by_device,
+         total_device_count: enrichments.total_device_count,
+         device_stats: enrichments.device_stats,
+         device_stats_loading: false
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
   @impl true
   def handle_event("srql_change", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
@@ -414,30 +432,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
     scope = Map.get(socket.assigns, :current_scope)
     query = Map.get(socket.assigns.srql || %{}, :query, "")
-
-    {icmp_sparklines, icmp_error} =
-      load_icmp_sparklines(srql_module(), socket.assigns.devices, scope)
-
-    {snmp_presence, sysmon_presence} =
-      load_metric_presence(srql_module(), socket.assigns.devices, scope)
-
-    sysmon_profiles_by_device = load_sysmon_profiles_for_devices(scope, socket.assigns.devices)
-
-    total_device_count = get_total_matching_count(scope, query)
     current_page = parse_page_param(params)
-    device_stats = load_device_stats(srql_module(), scope)
+    token = System.unique_integer([:positive])
 
-    assign(socket,
+    socket =
+      assign(socket,
+        device_enrichment_token: token,
+        icmp_sparklines: %{},
+        icmp_error: nil,
+        snmp_presence: %{},
+        sysmon_presence: %{},
+        sysmon_profiles_by_device: %{},
+        total_device_count: nil,
+        current_page: current_page,
+        device_stats_loading: true
+      )
+
+    if connected?(socket) do
+      start_device_enrichment_task(token, scope, query, socket.assigns.devices)
+    end
+
+    socket
+  end
+
+  defp start_device_enrichment_task(token, scope, query, devices) do
+    parent = self()
+
+    Task.start(fn ->
+      enrichments = build_device_enrichments(scope, query, devices)
+      send(parent, {:device_enrichments_loaded, token, enrichments})
+    end)
+  end
+
+  defp build_device_enrichments(scope, query, devices) do
+    srql = srql_module()
+
+    {icmp_sparklines, icmp_error} = load_icmp_sparklines(srql, devices, scope)
+    {snmp_presence, sysmon_presence} = load_metric_presence(srql, devices, scope)
+    sysmon_profiles_by_device = load_sysmon_profiles_for_devices(scope, devices)
+    total_device_count = get_total_matching_count(scope, query)
+    device_stats = load_device_stats(srql, scope)
+
+    %{
       icmp_sparklines: icmp_sparklines,
       icmp_error: icmp_error,
       snmp_presence: snmp_presence,
       sysmon_presence: sysmon_presence,
       sysmon_profiles_by_device: sysmon_profiles_by_device,
       total_device_count: total_device_count,
-      current_page: current_page,
-      device_stats: device_stats,
-      device_stats_loading: false
-    )
+      device_stats: device_stats
+    }
   end
 
   defp import_csv_preview(socket) do
@@ -2407,91 +2451,60 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   # Load device stats for cards using SRQL GROUP BY queries
   defp load_device_stats(srql_module, scope) do
-    queries = %{
-      total: ~s|in:devices stats:"count() as total"|,
-      available: ~s|in:devices is_available:true stats:"count() as count"|,
-      unavailable: ~s|in:devices is_available:false stats:"count() as count"|,
-      by_type: ~s|in:devices stats:count() as count by type|,
-      by_vendor: ~s|in:devices stats:count() as count by vendor_name|,
-      by_risk_level: ~s|in:devices stats:count() as count by risk_level|
-    }
+    query = "in:devices rollup_stats:inventory_summary"
 
-    results =
-      queries
-      |> Task.async_stream(
-        fn {key, query} -> {key, srql_module.query(query, %{scope: scope})} end,
-        ordered: false,
-        timeout: 10_000
-      )
-      |> Enum.reduce(%{}, fn
-        {:ok, {key, {:ok, result}}}, acc ->
-          Map.put(acc, key, result)
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => [%{"payload" => payload} | _]}} when is_map(payload) ->
+        stats = %{
+          total: to_stats_int(Map.get(payload, "total")),
+          available: to_stats_int(Map.get(payload, "available")),
+          unavailable: to_stats_int(Map.get(payload, "unavailable")),
+          by_type: parse_rollup_grouped_items(Map.get(payload, "by_type"), "type"),
+          by_vendor: parse_rollup_grouped_items(Map.get(payload, "by_vendor"), "vendor_name"),
+          by_risk_level: []
+        }
 
-        {:ok, {key, {:error, reason}}}, acc ->
-          Logger.warning("Device stats query #{key} failed: #{inspect(reason)}")
-          acc
+        Logger.debug("Device stats rollup parsed: #{inspect(stats)}")
+        stats
 
-        {:exit, reason}, acc ->
-          Logger.warning("Device stats query task exited: #{inspect(reason)}")
-          acc
+      {:ok, other} ->
+        Logger.warning("Device stats rollup returned unexpected payload: #{inspect(other)}")
+        default_device_stats()
 
-        other, acc ->
-          Logger.debug("Device stats unexpected result: #{inspect(other)}")
-          acc
-      end)
-
-    Logger.debug("Device stats raw results: #{inspect(results, limit: 500)}")
-
-    stats = %{
-      total: extract_stats_count(results[:total], "total"),
-      available: extract_stats_count(results[:available], "count"),
-      unavailable: extract_stats_count(results[:unavailable], "count"),
-      by_type: extract_grouped_stats(results[:by_type], "type"),
-      by_vendor: extract_grouped_stats(results[:by_vendor], "vendor_name"),
-      by_risk_level: extract_grouped_stats(results[:by_risk_level], "risk_level")
-    }
-
-    Logger.debug("Device stats parsed: #{inspect(stats)}")
-    stats
+      {:error, reason} ->
+        Logger.warning("Device stats rollup query failed: #{inspect(reason)}")
+        default_device_stats()
+    end
   rescue
     e ->
       Logger.error("Device stats loading failed: #{inspect(e)}")
+      default_device_stats()
+  end
 
+  defp default_device_stats do
+    %{
+      total: 0,
+      available: 0,
+      unavailable: 0,
+      by_type: [],
+      by_vendor: [],
+      by_risk_level: []
+    }
+  end
+
+  defp parse_rollup_grouped_items(items, key) when is_list(items) do
+    items
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(fn item ->
       %{
-        total: 0,
-        available: 0,
-        unavailable: 0,
-        by_type: [],
-        by_vendor: [],
-        by_risk_level: []
+        name: to_string(Map.get(item, key) || "Unknown"),
+        count: to_stats_int(Map.get(item, "count"))
       }
+    end)
+    |> Enum.filter(fn %{count: count} -> count > 0 end)
   end
 
-  # Handle map result (multiple columns): {"results": [{"total": 123}]}
-  defp extract_stats_count(%{"results" => [row | _]}, field) when is_map(row) do
-    value = Map.get(row, field) || Map.get(row, "count") || Map.get(row, "total")
-    to_stats_int(value)
-  end
-
-  # Handle single value result (single column): {"results": [123]}
-  defp extract_stats_count(%{"results" => [value | _]}, _field) when not is_map(value) do
-    to_stats_int(value)
-  end
-
-  # Handle payload column (grouped stats): {"results": [%{"payload" => %{...}}]}
-  defp extract_stats_count(%{"results" => [%{"payload" => payload} | _]}, field)
-       when is_map(payload) do
-    value = Map.get(payload, field) || Map.get(payload, "count") || Map.get(payload, "total")
-    to_stats_int(value)
-  end
-
-  defp extract_stats_count(%{"results" => []}, _field), do: 0
-  defp extract_stats_count(nil, _field), do: 0
-
-  defp extract_stats_count(result, field) do
-    Logger.warning("Unexpected stats count result format: #{inspect(result)}, field: #{field}")
-    0
-  end
+  defp parse_rollup_grouped_items(_, _), do: []
 
   defp to_stats_int(nil), do: 0
   defp to_stats_int(value) when is_integer(value), do: value
@@ -2506,46 +2519,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp to_stats_int(_), do: 0
-
-  defp extract_grouped_stats(%{"results" => results}, field) when is_list(results) do
-    Logger.debug(
-      "Extracting grouped stats for field '#{field}' from #{inspect(results, limit: 200)}"
-    )
-
-    extract_grouped_stats_list(results, field)
-  end
-
-  defp extract_grouped_stats(nil, _field), do: []
-
-  defp extract_grouped_stats(result, field) do
-    Logger.warning("Unexpected grouped stats result format: #{inspect(result)}, field: #{field}")
-    []
-  end
-
-  defp extract_grouped_stats_list(results, field) do
-    items =
-      results
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(fn row ->
-        # Handle both direct field and nested payload
-        data = Map.get(row, "payload", row)
-
-        %{
-          name: to_string(Map.get(data, field) || "Unknown"),
-          count: to_stats_int(Map.get(data, "count") || 0)
-        }
-      end)
-      |> Enum.filter(fn %{count: count} -> count > 0 end)
-
-    # Separate known values from "Unknown" - show known types first
-    {known, unknown} = Enum.split_with(items, fn %{name: name} -> name != "Unknown" end)
-
-    known_sorted = Enum.sort_by(known, fn %{count: count} -> -count end)
-    unknown_sorted = Enum.sort_by(unknown, fn %{count: count} -> -count end)
-
-    (known_sorted ++ unknown_sorted)
-    |> Enum.take(10)
-  end
 
   defp get_total_matching_count(scope, query) do
     srql_module = srql_module()
