@@ -20,6 +20,8 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
     ProcessMetric
   }
 
+  @default_bulk_create_chunk_size 1_000
+
   @spec ingest(map(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) and is_map(status) do
     # DB connection's search_path determines the schema
@@ -226,6 +228,22 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   defp insert_bulk([], _resource, _actor), do: :ok
 
   defp insert_bulk(records, resource, actor) do
+    records
+    |> chunk_records()
+    |> Enum.reduce_while(:ok, fn chunk, :ok ->
+      case insert_chunk(chunk, resource, actor) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  @doc false
+  def chunk_records(records) when is_list(records) do
+    Enum.chunk_every(records, bulk_create_chunk_size())
+  end
+
+  defp insert_chunk(records, resource, actor) do
     case Ash.bulk_create(records, resource, :create,
            actor: actor,
            return_errors?: true,
@@ -236,18 +254,26 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
 
       %Ash.BulkResult{status: :error, errors: errors} ->
         Logger.warning(
-          "SysmonMetricsIngestor: failed to insert #{inspect(resource)}: #{inspect(errors)}"
+          "SysmonMetricsIngestor: failed to insert #{inspect(resource)} chunk: #{inspect(errors)}"
         )
 
         maybe_reindex_and_retry(records, resource, actor, errors)
 
       {:error, reason} ->
         Logger.warning(
-          "SysmonMetricsIngestor: failed to insert #{inspect(resource)}: #{inspect(reason)}"
+          "SysmonMetricsIngestor: failed to insert #{inspect(resource)} chunk: #{inspect(reason)}"
         )
 
         maybe_reindex_and_retry(records, resource, actor, reason)
     end
+  end
+
+  defp bulk_create_chunk_size do
+    Application.get_env(
+      :serviceradar_core,
+      :sysmon_metrics_ingestor_chunk_size,
+      @default_bulk_create_chunk_size
+    )
   end
 
   @doc false
@@ -282,20 +308,9 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   end
 
   defp retry_bulk_insert(records, resource, actor, original_error) do
-    case Ash.bulk_create(records, resource, :create,
-           actor: actor,
-           return_errors?: true,
-           stop_on_error?: false
-         ) do
-      %Ash.BulkResult{status: :success} ->
+    case insert_chunk(records, resource, actor) do
+      :ok ->
         :ok
-
-      %Ash.BulkResult{status: :error, errors: retry_errors} ->
-        Logger.warning(
-          "SysmonMetricsIngestor: retry failed for #{inspect(resource)}: #{inspect(retry_errors)}"
-        )
-
-        {:error, retry_errors}
 
       {:error, retry_reason} ->
         Logger.warning(

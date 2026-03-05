@@ -2454,7 +2454,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     query = "in:devices rollup_stats:inventory_summary"
 
     case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [%{"payload" => payload} | _]}} when is_map(payload) ->
+      {:ok, %{"results" => [payload | _]}} when is_map(payload) ->
         stats = %{
           total: to_stats_int(Map.get(payload, "total")),
           available: to_stats_int(Map.get(payload, "available")),
@@ -2465,6 +2465,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         }
 
         Logger.debug("Device stats rollup parsed: #{inspect(stats)}")
+        stats
+
+      {:ok, %{"results" => [%{"payload" => payload} | _]}} when is_map(payload) ->
+        # Backward compatibility if SRQL returns wrapped payload rows.
+        stats = %{
+          total: to_stats_int(Map.get(payload, "total")),
+          available: to_stats_int(Map.get(payload, "available")),
+          unavailable: to_stats_int(Map.get(payload, "unavailable")),
+          by_type: parse_rollup_grouped_items(Map.get(payload, "by_type"), "type"),
+          by_vendor: parse_rollup_grouped_items(Map.get(payload, "by_vendor"), "vendor_name"),
+          by_risk_level: []
+        }
+
+        Logger.debug("Device stats rollup parsed (wrapped payload): #{inspect(stats)}")
         stats
 
       {:ok, other} ->
