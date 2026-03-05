@@ -106,10 +106,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
          snmp_presence: enrichments.snmp_presence,
          sysmon_presence: enrichments.sysmon_presence,
          sysmon_profiles_by_device: enrichments.sysmon_profiles_by_device,
-         total_device_count: enrichments.total_device_count,
-         device_stats: enrichments.device_stats,
-         device_stats_loading: false
+         total_device_count: enrichments.total_device_count
        )}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:device_stats_loaded, token, stats}, socket) do
+    if socket.assigns[:device_enrichment_token] == token do
+      {:noreply, assign(socket, device_stats: stats, device_stats_loading: false)}
     else
       {:noreply, socket}
     end
@@ -450,6 +456,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
     if connected?(socket) do
       start_device_enrichment_task(token, scope, query, socket.assigns.devices)
+      start_device_stats_task(token, scope)
     end
 
     socket
@@ -464,6 +471,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end)
   end
 
+  defp start_device_stats_task(token, scope) do
+    parent = self()
+
+    Task.start(fn ->
+      srql = srql_module()
+      stats = load_device_stats(srql, scope)
+      send(parent, {:device_stats_loaded, token, stats})
+    end)
+  end
+
   defp build_device_enrichments(scope, query, devices) do
     srql = srql_module()
 
@@ -471,7 +488,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {snmp_presence, sysmon_presence} = load_metric_presence(srql, devices, scope)
     sysmon_profiles_by_device = load_sysmon_profiles_for_devices(scope, devices)
     total_device_count = get_total_matching_count(scope, query)
-    device_stats = load_device_stats(srql, scope)
 
     %{
       icmp_sparklines: icmp_sparklines,
@@ -479,8 +495,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       snmp_presence: snmp_presence,
       sysmon_presence: sysmon_presence,
       sysmon_profiles_by_device: sysmon_profiles_by_device,
-      total_device_count: total_device_count,
-      device_stats: device_stats
+      total_device_count: total_device_count
     }
   end
 
