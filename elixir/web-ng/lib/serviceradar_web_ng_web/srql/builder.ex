@@ -101,19 +101,28 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   defp tokenize(""), do: []
 
   defp tokenize(query) when is_binary(query) do
-    {tokens_rev, current, _in_quotes} =
+    {tokens_rev, current, _in_quotes, _escaped} =
       query
       |> String.graphemes()
-      |> Enum.reduce({[], "", false}, fn ch, {tokens_rev, current, in_quotes} ->
+      |> Enum.reduce({[], "", false, false}, fn ch, {tokens_rev, current, in_quotes, escaped} ->
         cond do
+          escaped ->
+            {tokens_rev, current <> ch, in_quotes, false}
+
+          ch == "\\" ->
+            {tokens_rev, current <> ch, in_quotes, true}
+
           ch == "\"" ->
-            {tokens_rev, current <> ch, not in_quotes}
+            {tokens_rev, current <> ch, not in_quotes, false}
 
           String.match?(ch, ~r/\s/) and not in_quotes ->
-            push_token(tokens_rev, current, in_quotes)
+            {updated_tokens, updated_current, updated_quotes} =
+              push_token(tokens_rev, current, in_quotes)
+
+            {updated_tokens, updated_current, updated_quotes, false}
 
           true ->
-            {tokens_rev, current <> ch, in_quotes}
+            {tokens_rev, current <> ch, in_quotes, false}
         end
       end)
 

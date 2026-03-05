@@ -717,8 +717,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp detect_has_flows(srql_module, device_uid, scope) do
-    query =
-      "in:flows src_device_uid:\"#{escape_value(device_uid)}\" time:last_24h sort:time:desc limit:1"
+    query = default_flows_query(device_uid) <> " limit:1"
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => [_ | _]}} -> true

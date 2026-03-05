@@ -11,13 +11,13 @@ defmodule ServiceRadar.Repo.Migrations.AddUiSlowQueryIndexes do
     """)
 
     execute("""
-    CREATE INDEX IF NOT EXISTS idx_discovered_interfaces_device_if_index_time
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_discovered_interfaces_device_if_index_time
     ON platform.discovered_interfaces (device_id, if_index, timestamp DESC)
     """)
   end
 
   def down do
-    execute("DROP INDEX IF EXISTS platform.idx_discovered_interfaces_device_if_index_time")
-    execute("DROP INDEX IF EXISTS platform.idx_ocsf_devices_active_last_seen_uid")
+    execute("DROP INDEX CONCURRENTLY IF EXISTS platform.idx_discovered_interfaces_device_if_index_time")
+    execute("DROP INDEX CONCURRENTLY IF EXISTS platform.idx_ocsf_devices_active_last_seen_uid")
   end
 end

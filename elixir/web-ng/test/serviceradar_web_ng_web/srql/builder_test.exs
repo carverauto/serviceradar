@@ -23,4 +23,16 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     assert rebuilt =~ "in:devices"
     assert rebuilt =~ "type:Access\\ Point"
   end
+
+  test "parse supports escaped spaces in unquoted filter values" do
+    query = ~s|in:devices vendor_name:Access\ Point sort:last_seen:desc limit:20|
+
+    assert {:ok, state} = Builder.parse(query)
+    assert state["entity"] == "devices"
+
+    assert Enum.any?(state["filters"], fn filter ->
+             filter["field"] == "vendor_name" and filter["op"] == "equals" and
+               filter["value"] == "Access Point"
+           end)
+  end
 end
