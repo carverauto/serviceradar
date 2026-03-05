@@ -101,28 +101,31 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   defp tokenize(""), do: []
 
   defp tokenize(query) when is_binary(query) do
-    {tokens, current, _in_quotes} =
+    {tokens_rev, current, _in_quotes} =
       query
       |> String.graphemes()
-      |> Enum.reduce({[], "", false}, fn ch, {tokens, current, in_quotes} ->
+      |> Enum.reduce({[], "", false}, fn ch, {tokens_rev, current, in_quotes} ->
         cond do
           ch == "\"" ->
-            {tokens, current <> ch, not in_quotes}
+            {tokens_rev, current <> ch, not in_quotes}
 
           String.match?(ch, ~r/\s/) and not in_quotes ->
-            if current == "" do
-              {tokens, "", in_quotes}
-            else
-              {tokens ++ [current], "", in_quotes}
-            end
+            push_token(tokens_rev, current, in_quotes)
 
           true ->
-            {tokens, current <> ch, in_quotes}
+            {tokens_rev, current <> ch, in_quotes}
         end
       end)
 
-    if current == "", do: tokens, else: tokens ++ [current]
+    tokens_rev
+    |> finalize_tokens(current)
+    |> Enum.reverse()
   end
+
+  defp push_token(tokens_rev, "", in_quotes), do: {tokens_rev, "", in_quotes}
+  defp push_token(tokens_rev, current, in_quotes), do: {[current | tokens_rev], "", in_quotes}
+  defp finalize_tokens(tokens_rev, ""), do: tokens_rev
+  defp finalize_tokens(tokens_rev, current), do: [current | tokens_rev]
 
   defp normalize_state(%{} = state) do
     entity =
