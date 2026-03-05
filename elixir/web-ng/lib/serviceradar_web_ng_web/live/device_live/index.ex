@@ -39,6 +39,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:snmp_presence, %{})
      |> assign(:sysmon_presence, %{})
      |> assign(:sysmon_profiles_by_device, %{})
+     |> assign(:device_enrichment_task, nil)
+     |> assign(:device_stats_task, nil)
      |> assign(:limit, @default_limit)
      |> assign(:total_device_count, nil)
      |> assign(:current_page, 1)
@@ -98,26 +100,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_info({:device_enrichments_loaded, token, enrichments}, socket) do
-    if socket.assigns[:device_enrichment_token] == token do
-      {:noreply,
-       assign(socket,
-         icmp_sparklines: enrichments.icmp_sparklines,
-         icmp_error: enrichments.icmp_error,
-         snmp_presence: enrichments.snmp_presence,
-         sysmon_presence: enrichments.sysmon_presence,
-         sysmon_profiles_by_device: enrichments.sysmon_profiles_by_device,
-         total_device_count: enrichments.total_device_count
-       )}
-    else
-      {:noreply, socket}
-    end
+    # Backward compatibility path for previous message format.
+    apply_device_enrichments(socket, token, enrichments)
   end
 
   def handle_info({:device_stats_loaded, token, stats}, socket) do
-    if socket.assigns[:device_enrichment_token] == token do
-      {:noreply, assign(socket, device_stats: stats, device_stats_loading: false)}
-    else
-      {:noreply, socket}
+    # Backward compatibility path for previous message format.
+    apply_device_stats(socket, token, stats)
+  end
+
+  def handle_info({ref, {:device_enrichments_loaded, token, enrichments}}, socket) do
+    socket = clear_task_ref(socket, :device_enrichment_task, ref)
+    Process.demonitor(ref, [:flush])
+    apply_device_enrichments(socket, token, enrichments)
+  end
+
+  def handle_info({ref, {:device_stats_loaded, token, stats}}, socket) do
+    socket = clear_task_ref(socket, :device_stats_task, ref)
+    Process.demonitor(ref, [:flush])
+    apply_device_stats(socket, token, stats)
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, socket) do
+    cond do
+      task_ref(socket.assigns[:device_stats_task]) == ref ->
+        Logger.warning("Device stats task failed: #{inspect(reason)}")
+
+        {:noreply,
+         socket
+         |> assign(:device_stats_task, nil)
+         |> assign(:device_stats_loading, false)}
+
+      task_ref(socket.assigns[:device_enrichment_task]) == ref ->
+        Logger.warning("Device enrichment task failed: #{inspect(reason)}")
+        {:noreply, assign(socket, :device_enrichment_task, nil)}
+
+      true ->
+        {:noreply, socket}
     end
   end
 
@@ -442,7 +461,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     token = System.unique_integer([:positive])
 
     socket =
-      assign(socket,
+      socket
+      |> cancel_inflight_device_tasks()
+      |> assign(
         device_enrichment_token: token,
         icmp_sparklines: %{},
         icmp_error: nil,
@@ -451,34 +472,91 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         sysmon_profiles_by_device: %{},
         total_device_count: nil,
         current_page: current_page,
+        device_enrichment_task: nil,
+        device_stats_task: nil,
         device_stats_loading: true
       )
 
     if connected?(socket) do
-      start_device_enrichment_task(token, scope, query, socket.assigns.devices)
-      start_device_stats_task(token, scope)
+      socket
+      |> start_device_enrichment_task(token, scope, query, socket.assigns.devices)
+      |> start_device_stats_task(token, scope)
+    else
+      socket
     end
+  end
 
+  defp start_device_enrichment_task(socket, token, scope, query, devices) do
+    task =
+      Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
+        enrichments = build_device_enrichments(scope, query, devices)
+        {:device_enrichments_loaded, token, enrichments}
+      end)
+
+    assign(socket, :device_enrichment_task, task)
+  end
+
+  defp start_device_stats_task(socket, token, scope) do
+    task =
+      Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
+        srql = srql_module()
+        stats = load_device_stats(srql, scope)
+        {:device_stats_loaded, token, stats}
+      end)
+
+    assign(socket, :device_stats_task, task)
+  end
+
+  defp cancel_inflight_device_tasks(socket) do
     socket
+    |> cancel_task(:device_enrichment_task)
+    |> cancel_task(:device_stats_task)
   end
 
-  defp start_device_enrichment_task(token, scope, query, devices) do
-    parent = self()
+  defp cancel_task(socket, key) do
+    case Map.get(socket.assigns, key) do
+      %Task{pid: pid} = task when is_pid(pid) ->
+        Process.demonitor(task.ref, [:flush])
+        Process.exit(pid, :kill)
+        assign(socket, key, nil)
 
-    Task.start(fn ->
-      enrichments = build_device_enrichments(scope, query, devices)
-      send(parent, {:device_enrichments_loaded, token, enrichments})
-    end)
+      _ ->
+        assign(socket, key, nil)
+    end
   end
 
-  defp start_device_stats_task(token, scope) do
-    parent = self()
+  defp clear_task_ref(socket, key, ref) do
+    case Map.get(socket.assigns, key) do
+      %Task{ref: ^ref} -> assign(socket, key, nil)
+      _ -> socket
+    end
+  end
 
-    Task.start(fn ->
-      srql = srql_module()
-      stats = load_device_stats(srql, scope)
-      send(parent, {:device_stats_loaded, token, stats})
-    end)
+  defp task_ref(%Task{ref: ref}), do: ref
+  defp task_ref(_), do: nil
+
+  defp apply_device_enrichments(socket, token, enrichments) do
+    if socket.assigns[:device_enrichment_token] == token do
+      {:noreply,
+       assign(socket,
+         icmp_sparklines: enrichments.icmp_sparklines,
+         icmp_error: enrichments.icmp_error,
+         snmp_presence: enrichments.snmp_presence,
+         sysmon_presence: enrichments.sysmon_presence,
+         sysmon_profiles_by_device: enrichments.sysmon_profiles_by_device,
+         total_device_count: enrichments.total_device_count
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  defp apply_device_stats(socket, token, stats) do
+    if socket.assigns[:device_enrichment_token] == token do
+      {:noreply, assign(socket, device_stats: stats, device_stats_loading: false)}
+    else
+      {:noreply, socket}
+    end
   end
 
   defp build_device_enrichments(scope, query, devices) do

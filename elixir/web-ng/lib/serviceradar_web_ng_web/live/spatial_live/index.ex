@@ -45,7 +45,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
                 <span>Weak Signal</span>
               </div>
               <div class="flex items-center gap-1 ml-4">
-                <span class="text-base-content/50">Drag to Pan | Scroll to Zoom | Option+Drag to Orbit</span>
+                <span class="text-base-content/50">
+                  Drag to Pan | Scroll to Zoom | Option+Drag to Orbit
+                </span>
               </div>
             </div>
           </div>

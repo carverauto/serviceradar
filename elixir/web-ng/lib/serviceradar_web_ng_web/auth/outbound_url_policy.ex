@@ -95,7 +95,10 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundURLPolicy do
     case {ipv4, ipv6} do
       {{:ok, v4}, {:ok, v6}} ->
         all_addrs = v4 ++ v6
-        if Enum.any?(all_addrs, &private_or_loopback_ip?/1), do: {:error, :disallowed_host}, else: :ok
+
+        if Enum.any?(all_addrs, &private_or_loopback_ip?/1),
+          do: {:error, :disallowed_host},
+          else: :ok
 
       {{:ok, v4}, _} ->
         if Enum.any?(v4, &private_or_loopback_ip?/1), do: {:error, :disallowed_host}, else: :ok
@@ -126,8 +129,9 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundURLPolicy do
   defp private_or_loopback_ipv6?({0xFD00, _, _, _, _, _, _, _}), do: true
 
   # fc00::/7 — match any address where the top 7 bits are 1111110
-  defp private_or_loopback_ipv6?({w1, _, _, _, _, _, _, _}) when Bitwise.band(w1, 0xFE00) == 0xFC00,
-    do: true
+  defp private_or_loopback_ipv6?({w1, _, _, _, _, _, _, _})
+       when Bitwise.band(w1, 0xFE00) == 0xFC00,
+       do: true
 
   defp private_or_loopback_ipv6?(_), do: false
 

@@ -105,15 +105,50 @@ defmodule ServiceRadar.Repo.Migrations.AddDeviceInventoryRollupTables do
       new_active boolean := false;
       old_available boolean := false;
       new_available boolean := false;
+      old_type_key text := NULL;
+      new_type_key text := NULL;
+      old_vendor_key text := NULL;
+      new_vendor_key text := NULL;
     BEGIN
       IF TG_OP <> 'INSERT' THEN
         old_active := OLD.deleted_at IS NULL;
         old_available := COALESCE(OLD.is_available, false);
+        old_type_key := COALESCE(NULLIF(trim(OLD.type), ''), 'Unknown');
+        old_vendor_key := COALESCE(NULLIF(trim(OLD.vendor_name), ''), 'Unknown');
       END IF;
 
       IF TG_OP <> 'DELETE' THEN
         new_active := NEW.deleted_at IS NULL;
         new_available := COALESCE(NEW.is_available, false);
+        new_type_key := COALESCE(NULLIF(trim(NEW.type), ''), 'Unknown');
+        new_vendor_key := COALESCE(NULLIF(trim(NEW.vendor_name), ''), 'Unknown');
+      END IF;
+
+      IF TG_OP = 'UPDATE' THEN
+        IF old_active = new_active AND old_available = new_available THEN
+          IF old_active AND (old_type_key <> new_type_key OR old_vendor_key <> new_vendor_key) THEN
+            -- Type/vendor-only edits: adjust dimension tables without touching total/availability counters.
+            PERFORM #{@prefix}.update_device_inventory_counts_row(
+              0,
+              0,
+              0,
+              OLD.type,
+              OLD.vendor_name,
+              -1
+            );
+
+            PERFORM #{@prefix}.update_device_inventory_counts_row(
+              0,
+              0,
+              0,
+              NEW.type,
+              NEW.vendor_name,
+              1
+            );
+          END IF;
+
+          RETURN NEW;
+        END IF;
       END IF;
 
       IF old_active THEN

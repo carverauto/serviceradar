@@ -356,7 +356,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {network_interfaces, interfaces_error} = Map.get(results, :interfaces, {[], nil})
 
     interface_settings =
-      Map.get(results, :iface_settings, %{favorited: MapSet.new(), metrics_enabled: MapSet.new(), by_uid: %{}})
+      Map.get(results, :iface_settings, %{
+        favorited: MapSet.new(),
+        metrics_enabled: MapSet.new(),
+        by_uid: %{}
+      })
 
     network_interfaces = apply_interface_settings(network_interfaces, interface_settings.by_uid)
 
@@ -467,6 +471,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     healthcheck_summary = Map.get(parallel_results, :healthcheck, %{})
     sweep_results = Map.get(parallel_results, :sweep, [])
     {sysmon_profile_info, available_profiles} = Map.get(parallel_results, :profile, {nil, []})
+
     {network_interfaces, interfaces_error} =
       extract_interface_results(parallel_results, load_interfaces_data?)
 
@@ -623,7 +628,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     tasks ++
       [
         Task.async(fn ->
-          {:flows, load_flows(srql_module, uid, scope, normalize_cursor(Map.get(params, "cursor")))}
+          {:flows,
+           load_flows(srql_module, uid, scope, normalize_cursor(Map.get(params, "cursor")))}
         end),
         Task.async(fn -> {:flow_stats, load_device_flow_stats(srql_module, uid, scope)} end)
       ]
@@ -646,7 +652,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp extract_flow_stats_results(parallel_results, true, empty_flow_stats),
     do: Map.get(parallel_results, :flow_stats, empty_flow_stats)
 
-  defp extract_flow_stats_results(_parallel_results, false, empty_flow_stats), do: empty_flow_stats
+  defp extract_flow_stats_results(_parallel_results, false, empty_flow_stats),
+    do: empty_flow_stats
 
   defp extract_interface_settings(parallel_results, true) do
     Map.get(parallel_results, :iface_settings, %{
@@ -695,7 +702,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       (is_list(network_interfaces) and network_interfaces != []) or has_discovery_job
   end
 
-  defp determine_has_ifaces(false, _interfaces_error, _network_interfaces, has_discovery_job, probe) do
+  defp determine_has_ifaces(
+         false,
+         _interfaces_error,
+         _network_interfaces,
+         has_discovery_job,
+         probe
+       ) do
     probe or has_discovery_job
   end
 

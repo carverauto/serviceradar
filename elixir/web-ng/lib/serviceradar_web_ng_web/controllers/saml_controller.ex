@@ -589,12 +589,14 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
       # Note: We use relative paths (.) to ensure we only look within the verified assertion node
       assertion = %{
-        subject_name_id: xpath(node, ~x"./saml:Subject/saml:NameID/text()"s, namespaces: namespaces),
+        subject_name_id:
+          xpath(node, ~x"./saml:Subject/saml:NameID/text()"s, namespaces: namespaces),
         issuer: xpath(node, ~x"./saml:Issuer/text()"s, namespaces: namespaces),
         attributes: parse_attributes(node, namespaces),
         conditions: %{
           not_before: xpath(node, ~x"./saml:Conditions/@NotBefore"s, namespaces: namespaces),
-          not_on_or_after: xpath(node, ~x"./saml:Conditions/@NotOnOrAfter"s, namespaces: namespaces),
+          not_on_or_after:
+            xpath(node, ~x"./saml:Conditions/@NotOnOrAfter"s, namespaces: namespaces),
           audience:
             xpath(node, ~x"./saml:Conditions/saml:AudienceRestriction/saml:Audience/text()"s,
               namespaces: namespaces
@@ -621,7 +623,8 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
               },
               issuer: xpath(node, ~x"./Issuer/text()"s),
               subject_confirmation: %{
-                recipient: xpath(node, ~x"./SubjectConfirmation/SubjectConfirmationData/@Recipient"s)
+                recipient:
+                  xpath(node, ~x"./SubjectConfirmation/SubjectConfirmationData/@Recipient"s)
               }
           }
         else

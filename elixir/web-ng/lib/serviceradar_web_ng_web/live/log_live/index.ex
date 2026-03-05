@@ -2861,6 +2861,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end)
   end
 
+  defp netflow_stacked_percent_points(points, _keys), do: points
+
   defp normalize_point_to_percent(point, keys) do
     total =
       keys
@@ -2876,8 +2878,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       end)
     end
   end
-
-  defp netflow_stacked_percent_points(points, _keys), do: points
 
   defp netflow_bucket_hover_title(point, bucket_seconds) when is_map(point) do
     bytes = to_int(Map.get(point, :bytes, 0))
