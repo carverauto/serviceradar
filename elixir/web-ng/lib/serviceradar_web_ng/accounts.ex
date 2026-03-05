@@ -89,7 +89,6 @@ defmodule ServiceRadarWebNG.Accounts do
 
   def sudo_mode?(_, _, _), do: false
 
-
   @doc """
   Returns an `%Ecto.Changeset{}` for changing the user email.
 

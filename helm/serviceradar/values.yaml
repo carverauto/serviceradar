@@ -85,6 +85,13 @@ otelExporter:
   # Trace sampling ratio (0.0 - 1.0). 1.0 = sample everything.
   samplingRatio: "1.0"
 
+prometheusRules:
+  cnpg:
+    enabled: false
+    clusterName: cnpg
+    backendsWaitingWarning: 5
+    slowQueryLogThresholdMs: 500
+
 core:
   # KV watch/reload is no longer supported for service configuration.
   configWatchEnabled: false
@@ -685,6 +692,14 @@ spire:
       - timescaledb
       - age
       - pg_stat_statements
+    postgresqlParameters:
+      log_min_duration_statement: "500ms"
+      log_lock_waits: "on"
+      deadlock_timeout: "1s"
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.track: "all"
+      pg_stat_statements.track_planning: "on"
+      track_io_timing: "on"
     extensionsSQL:
       - CREATE EXTENSION IF NOT EXISTS timescaledb;
       - CREATE EXTENSION IF NOT EXISTS age;

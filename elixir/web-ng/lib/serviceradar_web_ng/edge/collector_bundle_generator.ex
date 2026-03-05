@@ -341,7 +341,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
       get_in(package.config_overrides, ["subject_template"]) || "falco.<priority>.<rule>"
 
     otlp_endpoint =
-      get_in(package.config_overrides, ["otlp_endpoint"]) || "https://serviceradar-log-collector:4317"
+      get_in(package.config_overrides, ["otlp_endpoint"]) ||
+        "https://serviceradar-log-collector:4317"
 
     """
     # Falcosidekick Helm Values for ServiceRadar

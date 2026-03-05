@@ -54,6 +54,7 @@
 {{- if not $extensionsSQL }}
   {{- $extensionsSQL = list "CREATE EXTENSION IF NOT EXISTS timescaledb;" "CREATE EXTENSION IF NOT EXISTS age;" "CREATE EXTENSION IF NOT EXISTS postgis;" "CREATE EXTENSION IF NOT EXISTS vector;" }}
 {{- end }}
+{{- $postgresqlParameters := $pg.postgresqlParameters }}
 ---
 apiVersion: v1
 kind: Secret
@@ -131,6 +132,12 @@ spec:
         {{- end }}
       {{- end }}
   postgresql:
+    {{- if $postgresqlParameters }}
+    parameters:
+      {{- range $k, $v := $postgresqlParameters }}
+      {{ $k | quote }}: {{ $v | quote }}
+      {{- end }}
+    {{- end }}
     {{- if $sharedPreload }}
     shared_preload_libraries:
       {{- range $lib := $sharedPreload }}

@@ -1,0 +1,72 @@
+{{- if and .Values.prometheusRules .Values.prometheusRules.cnpg .Values.prometheusRules.cnpg.enabled }}
+{{- $cfg := .Values.prometheusRules.cnpg }}
+{{- $clusterName := default "cnpg" $cfg.clusterName }}
+{{- $backendsWaitingWarning := default 5 $cfg.backendsWaitingWarning }}
+{{- $slowQueryLogThresholdMs := default 500 $cfg.slowQueryLogThresholdMs }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: serviceradar-cnpg-rules
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  groups:
+    - name: cnpg-observability
+      rules:
+        - alert: CNPGCollectorDown
+          expr: cnpg_collector_up{cluster="{{ $clusterName }}"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CNPG metrics collector is down"
+            description: "CloudNativePG collector for cluster={{`{{`}} $labels.cluster {{`}}`}} has been down for 5 minutes."
+        - alert: CNPGCollectorCollectionErrors
+          expr: cnpg_collector_last_collection_error{cluster="{{ $clusterName }}"} > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CNPG metrics collection errors detected"
+            description: "CNPG exporter is reporting collection errors for cluster={{`{{`}} $labels.cluster {{`}}`}}."
+        - alert: CNPGBackendsWaitingHigh
+          expr: cnpg_backends_waiting_total > {{ $backendsWaitingWarning }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CNPG backend waiters elevated"
+            description: "More than {{ $backendsWaitingWarning }} backends are waiting on locks/queries for 10 minutes."
+        - alert: CNPGDeadlocksDetected
+          expr: increase(cnpg_pg_stat_database_deadlocks{datname="serviceradar"}[10m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CNPG deadlocks detected in serviceradar database"
+            description: "At least one deadlock was detected in the last 10 minutes."
+        - alert: CNPGSlowQueryLoggingThresholdDrift
+          expr: cnpg_pg_settings_setting{name="log_min_duration_statement"} != {{ $slowQueryLogThresholdMs }}
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CNPG slow-query log threshold drifted from baseline"
+            description: "Expected log_min_duration_statement={{ $slowQueryLogThresholdMs }}ms, observed {{`{{`}} $value {{`}}`}}ms."
+        - alert: CNPGTrackIOTimingDisabled
+          expr: cnpg_pg_settings_setting{name="track_io_timing"} != 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CNPG track_io_timing is disabled"
+            description: "track_io_timing should be enabled for slow-query diagnosis."
+        - alert: CNPGStatStatementsPlanningDisabled
+          expr: cnpg_pg_settings_setting{name="pg_stat_statements.track_planning"} != 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CNPG pg_stat_statements planning tracking is disabled"
+            description: "pg_stat_statements.track_planning should be on."
+{{- end }}

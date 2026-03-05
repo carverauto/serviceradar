@@ -397,7 +397,10 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     else
       socket =
         socket
-        |> Phoenix.LiveView.put_flash(:error, "Session expired. Please sign in again to access account settings.")
+        |> Phoenix.LiveView.put_flash(
+          :error,
+          "Session expired. Please sign in again to access account settings."
+        )
         |> Phoenix.LiveView.redirect(to: ~p"/users/log-in")
 
       {:halt, socket}

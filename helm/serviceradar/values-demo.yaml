@@ -233,6 +233,13 @@ spire:
     instances: 3
     storageSize: 100Gi
 
+prometheusRules:
+  cnpg:
+    enabled: true
+    clusterName: cnpg
+    backendsWaitingWarning: 5
+    slowQueryLogThresholdMs: 500
+
 trapd:
   externalService:
     enabled: true

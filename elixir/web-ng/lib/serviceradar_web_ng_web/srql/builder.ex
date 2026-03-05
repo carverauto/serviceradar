@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     tokens =
       query
       |> String.trim()
-      |> String.split(~r/\s+/, trim: true)
+      |> tokenize()
 
     with {:ok, parts} <- parse_tokens(tokens),
          :ok <- reject_unknown_tokens(tokens, parts),
@@ -97,6 +97,44 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   def parse(_), do: {:error, :invalid_query}
+
+  defp tokenize(""), do: []
+
+  defp tokenize(query) when is_binary(query) do
+    {tokens_rev, current, _in_quotes, _escaped} =
+      query
+      |> String.graphemes()
+      |> Enum.reduce({[], "", false, false}, fn ch, {tokens_rev, current, in_quotes, escaped} ->
+        cond do
+          escaped ->
+            {tokens_rev, current <> ch, in_quotes, false}
+
+          ch == "\\" ->
+            {tokens_rev, current <> ch, in_quotes, true}
+
+          ch == "\"" ->
+            {tokens_rev, current <> ch, not in_quotes, false}
+
+          String.match?(ch, ~r/\s/) and not in_quotes ->
+            {updated_tokens, updated_current, updated_quotes} =
+              push_token(tokens_rev, current, in_quotes)
+
+            {updated_tokens, updated_current, updated_quotes, false}
+
+          true ->
+            {tokens_rev, current <> ch, in_quotes, false}
+        end
+      end)
+
+    tokens_rev
+    |> finalize_tokens(current)
+    |> Enum.reverse()
+  end
+
+  defp push_token(tokens_rev, "", in_quotes), do: {tokens_rev, "", in_quotes}
+  defp push_token(tokens_rev, current, in_quotes), do: {[current | tokens_rev], "", in_quotes}
+  defp finalize_tokens(tokens_rev, ""), do: tokens_rev
+  defp finalize_tokens(tokens_rev, current), do: [current | tokens_rev]
 
   defp normalize_state(%{} = state) do
     entity =
@@ -613,6 +651,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp parse_filter_value(negated, value) do
     value = String.trim(value)
+    value = maybe_unquote(value)
 
     cond do
       String.starts_with?(value, "(") and String.ends_with?(value, ")") ->
@@ -634,6 +673,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
         {op, String.replace(value, "\\ ", " ")}
     end
   end
+
+  defp maybe_unquote("\"" <> value) do
+    case String.ends_with?(value, "\"") do
+      true -> String.trim_trailing(value, "\"")
+      false -> "\"" <> value
+    end
+  end
+
+  defp maybe_unquote(value), do: value
 
   defp reject_unknown_tokens(tokens, parts) do
     known_prefixes = [

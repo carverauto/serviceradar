@@ -27,6 +27,14 @@ spec:
         - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
   postgresql:
+    parameters:
+      log_min_duration_statement: "500ms"
+      log_lock_waits: "on"
+      deadlock_timeout: "1s"
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.track: "all"
+      pg_stat_statements.track_planning: "on"
+      track_io_timing: "on"
     shared_preload_libraries:
       - timescaledb
       - age
