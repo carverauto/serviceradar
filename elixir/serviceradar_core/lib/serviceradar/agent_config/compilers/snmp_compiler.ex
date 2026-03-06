@@ -59,6 +59,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SNMPProfiles.CredentialResolver
@@ -505,9 +506,109 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     end
   end
 
-  defp resolve_polling_host(device, _actor) do
-    device.ip || device.hostname
+  defp resolve_polling_host(device, actor) do
+    canonical_host = device.ip || device.hostname
+
+    cond do
+      private_ip?(device.ip) ->
+        device.ip
+
+      true ->
+        case preferred_alias_polling_host(device, actor) do
+          nil -> canonical_host
+          alias_host -> alias_host
+        end
+    end
   end
+
+  defp preferred_alias_polling_host(%{uid: device_uid, ip: canonical_ip}, actor)
+       when is_binary(device_uid) and device_uid != "" do
+    aliases = load_active_ip_aliases(device_uid, actor)
+
+    private_alias =
+      aliases
+      |> Enum.reject(&(&1.alias_value == canonical_ip))
+      |> Enum.filter(&private_ip?(&1.alias_value))
+      |> pick_best_alias_value()
+
+    cond do
+      present?(private_alias) ->
+        private_alias
+
+      missing_host?(canonical_ip) ->
+        aliases
+        |> Enum.reject(&missing_host?(&1.alias_value))
+        |> pick_best_alias_value()
+
+      true ->
+        nil
+    end
+  end
+
+  defp preferred_alias_polling_host(_device, _actor), do: nil
+
+  defp load_active_ip_aliases(device_uid, actor) do
+    case DeviceAliasState.list_active_for_device(device_uid, actor: actor) do
+      {:ok, aliases} ->
+        Enum.filter(aliases, &(&1.alias_type == :ip))
+
+      {:error, reason} ->
+        Logger.warning(
+          "SNMPCompiler: failed to load active IP aliases for #{device_uid} - #{inspect(reason)}"
+        )
+
+        []
+    end
+  end
+
+  defp pick_best_alias_value([]), do: nil
+
+  defp pick_best_alias_value(aliases) do
+    aliases
+    |> Enum.max_by(&alias_preference_key/1, fn -> nil end)
+    |> case do
+      nil -> nil
+      alias_state -> alias_state.alias_value
+    end
+  end
+
+  defp alias_preference_key(alias_state) do
+    {
+      alias_state_state_rank(alias_state.state),
+      alias_state.sighting_count || 0,
+      datetime_rank(alias_state.last_seen_at),
+      alias_state.alias_value || ""
+    }
+  end
+
+  defp alias_state_state_rank(:updated), do: 3
+  defp alias_state_state_rank(:confirmed), do: 3
+  defp alias_state_state_rank(:detected), do: 2
+  defp alias_state_state_rank(_), do: 0
+
+  defp datetime_rank(%DateTime{} = value), do: DateTime.to_unix(value, :microsecond)
+  defp datetime_rank(_), do: 0
+
+  defp private_ip?(ip) when is_binary(ip) do
+    case :inet.parse_address(String.to_charlist(ip)) do
+      {:ok, tuple} -> private_ip_tuple?(tuple)
+      {:error, _} -> false
+    end
+  end
+
+  defp private_ip?(_), do: false
+
+  defp private_ip_tuple?({10, _, _, _}), do: true
+  defp private_ip_tuple?({127, _, _, _}), do: true
+  defp private_ip_tuple?({169, 254, _, _}), do: true
+  defp private_ip_tuple?({192, 168, _, _}), do: true
+  defp private_ip_tuple?({172, b, _, _}) when b in 16..31, do: true
+  defp private_ip_tuple?({0, _, _, _}), do: true
+  defp private_ip_tuple?({_, _, _, _}), do: false
+  defp private_ip_tuple?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
+  defp private_ip_tuple?({a, _, _, _, _, _, _, _}) when a in 0xFC00..0xFDFF, do: true
+  defp private_ip_tuple?({a, _, _, _, _, _, _, _}) when a in 0xFE80..0xFEBF, do: true
+  defp private_ip_tuple?(_), do: false
 
   defp compile_device_target_with_host(device, profile, oids, actor, host) do
     credential = resolve_device_credentials(device.uid, profile, actor)

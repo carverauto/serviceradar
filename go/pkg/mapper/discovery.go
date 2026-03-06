@@ -269,6 +269,36 @@ func (e *DiscoveryEngine) RunScheduledJob(ctx context.Context, name string) (str
 	return e.startScheduledJob(ctx, jobConfig.Name, params)
 }
 
+// RunScheduledJobWithSeeds triggers a named scheduled job immediately with an override seed set.
+func (e *DiscoveryEngine) RunScheduledJobWithSeeds(ctx context.Context, name string, seeds []string) (string, error) {
+	var jobConfig *ScheduledJob
+
+	e.mu.RLock()
+	for i := range e.config.ScheduledJobs {
+		if e.config.ScheduledJobs[i].Name == name {
+			jobConfig = e.config.ScheduledJobs[i]
+			break
+		}
+	}
+	e.mu.RUnlock()
+
+	if jobConfig == nil {
+		return "", ErrScheduledJobNotFound
+	}
+
+	params, err := e.buildDiscoveryParamsForJob(jobConfig)
+	if err != nil {
+		return "", err
+	}
+
+	overrideSeeds := normalizeOverrideSeeds(seeds)
+	if len(overrideSeeds) > 0 {
+		params.Seeds = overrideSeeds
+	}
+
+	return e.startScheduledJob(ctx, jobConfig.Name, params)
+}
+
 func (e *DiscoveryEngine) buildDiscoveryParamsForJob(jobConfig *ScheduledJob) (*DiscoveryParams, error) {
 	if jobConfig == nil {
 		return nil, ErrConfigNil
@@ -342,6 +372,28 @@ func resolveDiscoveryMode(jobConfig *ScheduledJob) string {
 	}
 
 	return ""
+}
+
+func normalizeOverrideSeeds(seeds []string) []string {
+	if len(seeds) == 0 {
+		return nil
+	}
+
+	normalized := make([]string, 0, len(seeds))
+	seen := make(map[string]struct{}, len(seeds))
+	for _, seed := range seeds {
+		seed = strings.TrimSpace(seed)
+		if seed == "" {
+			continue
+		}
+		if _, ok := seen[seed]; ok {
+			continue
+		}
+		seen[seed] = struct{}{}
+		normalized = append(normalized, seed)
+	}
+
+	return normalized
 }
 
 // startScheduledJob initiates a discovery job.
@@ -1272,6 +1324,18 @@ func topologyStageReady(transitions []DiscoveryStageTransition) bool {
 		stageCompleted(transitions, DiscoveryStageEnrich)
 }
 
+func (e *DiscoveryEngine) reconcileIdentity(job *DiscoveryJob) {
+	if job == nil {
+		return
+	}
+
+	job.mu.Lock()
+	e.deduplicateDevices(job)
+	e.deduplicateInterfaces(job)
+	job.identityReconciled = true
+	job.mu.Unlock()
+}
+
 // finalizeJobStatus updates the job status after completion
 func (e *DiscoveryEngine) reconcileIdentityAndPublishInterfaces(job *DiscoveryJob) {
 	if job == nil {
@@ -1282,13 +1346,9 @@ func (e *DiscoveryEngine) reconcileIdentityAndPublishInterfaces(job *DiscoveryJo
 	jobID := ""
 	jobCtx := context.Background()
 
-	job.mu.Lock()
-	if !job.identityReconciled {
-		e.deduplicateDevices(job)
-		e.deduplicateInterfaces(job)
-		job.identityReconciled = true
-	}
+	e.reconcileIdentity(job)
 
+	job.mu.Lock()
 	if !job.interfacesPublished && len(job.Results.Interfaces) > 0 {
 		interfaces = append(interfaces, job.Results.Interfaces...)
 		job.interfacesPublished = true
@@ -1301,6 +1361,17 @@ func (e *DiscoveryEngine) reconcileIdentityAndPublishInterfaces(job *DiscoveryJo
 
 	if len(interfaces) > 0 {
 		e.publishInterfaces(jobCtx, jobID, interfaces)
+	}
+}
+
+func recursivePollingModes(discoveryType DiscoveryType) []snmpPollingMode {
+	switch discoveryType {
+	case DiscoveryTypeFull:
+		return []snmpPollingMode{snmpPollingModeEnrichment, snmpPollingModeTopology}
+	case DiscoveryTypeTopology:
+		return []snmpPollingMode{snmpPollingModeTopology}
+	default:
+		return nil
 	}
 }
 
@@ -1886,7 +1957,7 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 	recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusCompleted, "enrichment complete")
 
 	// Hard invariant: topology resolution starts only after identity reconciliation completes.
-	e.reconcileIdentityAndPublishInterfaces(job)
+	e.reconcileIdentity(job)
 	job.mu.RLock()
 	transitions := append([]DiscoveryStageTransition(nil), job.Results.Contract.StageTransitions...)
 	job.mu.RUnlock()
@@ -1914,10 +1985,16 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 				allPotentialSNMPTargets[target] = true
 			}
 
-			if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds, snmpPollingModeTopology) {
-				recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, "recursive topology polling canceled or failed")
-				e.finalizeJobStatus(job)
-				return
+			for _, mode := range recursivePollingModes(job.Params.Type) {
+				if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds, mode) {
+					failureMessage := "recursive topology polling canceled or failed"
+					if mode == snmpPollingModeEnrichment {
+						failureMessage = "recursive enrichment polling canceled or failed"
+					}
+					recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, failureMessage)
+					e.finalizeJobStatus(job)
+					return
+				}
 			}
 		}
 	}

@@ -9,7 +9,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
+  alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
 
@@ -268,24 +270,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       ServiceRadar.TestSupport.start_core!()
       actor = SystemActor.system(:test)
 
-      # Create a profile with SRQL targeting
-      {:ok, profile} =
-        SNMPProfile
-        |> Ash.Changeset.for_create(
-          :create,
-          %{
-            name: "Mgmt Device Test Profile",
-            poll_interval: 60,
-            timeout: 5,
-            retries: 3,
-            is_default: true,
-            enabled: true
-          },
-          actor: actor
-        )
-        |> Ash.create(actor: actor)
-
-      {:ok, actor: actor, profile: profile}
+      {:ok, actor: actor}
     end
 
     @tag :integration
@@ -345,6 +330,92 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
       assert device.management_device_id == nil
       assert device.ip == "10.0.0.1"
+    end
+
+    @tag :integration
+    test "SNMP target prefers confirmed private IP alias when canonical IP is public", %{
+      actor: actor
+    } do
+      alias ServiceRadar.Inventory.Device
+
+      uid = "sr:" <> Ecto.UUID.generate()
+      public_ip = "198.51.100.#{rem(System.unique_integer([:positive]), 200) + 1}"
+      hostname = "alias-host-" <> Integer.to_string(System.unique_integer([:positive]))
+
+      {:ok, device} =
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: uid,
+          hostname: hostname,
+          ip: public_ip,
+          discovery_sources: ["mapper"]
+        })
+        |> Ash.create(actor: actor)
+
+      {:ok, template} =
+        SNMPOIDTemplate
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Alias Host Template #{System.unique_integer([:positive])}",
+            vendor: "custom",
+            category: "interface",
+            oids: [
+              %{
+                oid: ".1.3.6.1.2.1.2.2.1.10.1",
+                name: "ifInOctets",
+                data_type: "counter",
+                scale: 1.0,
+                delta: true
+              }
+            ]
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Alias Host Profile #{System.unique_integer([:positive])}",
+            poll_interval: 60,
+            timeout: 5,
+            retries: 3,
+            enabled: true,
+            target_query: ~s(in:devices hostname:"#{hostname}"),
+            oid_template_ids: [template.id],
+            version: :v2c,
+            community: "public"
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, alias_state} =
+        DeviceAliasState.create_detected(
+          %{
+            device_id: device.uid,
+            partition: "default",
+            alias_type: :ip,
+            alias_value: "192.168.10.1",
+            metadata: %{}
+          },
+          actor: actor
+        )
+
+      {:ok, _confirmed} =
+        DeviceAliasState.record_sighting(
+          alias_state,
+          %{confirm_threshold: 1},
+          actor: actor
+        )
+
+      config = SNMPCompiler.compile_profile(profile, actor)
+
+      assert config["enabled"] == true
+      assert [%{"host" => "192.168.10.1"}] = config["targets"]
     end
   end
 

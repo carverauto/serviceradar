@@ -89,6 +89,12 @@ const (
 	oidIfAlias     = ".1.3.6.1.2.1.31.1.1.1.18"
 	oidIfHighSpeed = ".1.3.6.1.2.1.31.1.1.1.15"
 
+	// Interface metric probing is best-effort. Large switches can expose hundreds of
+	// interfaces, and probing every interface inline can exceed the discovery timeout
+	// before the discovered interfaces are ever published.
+	interfaceMetricProbeBudget = 5 * time.Second
+	interfaceMetricProbeMax    = 64
+
 	// LLDP OIDs
 	oidLLDPRemTable = ".1.0.8802.1.1.2.1.4.1.1"
 	// oidLldpRemChassisId = ".1.0.8802.1.1.2.1.4.1.1.5"
@@ -865,27 +871,51 @@ func (e *DiscoveryEngine) queryInterfaces(
 		Int("speed_count", speedCount).Int("zero_speed_count", zeroSpeedCount).
 		Int("max_speed_count", maxSpeedCount).Msg("Interface discovery summary")
 
-	// Probe available metrics for each interface
-	e.probeInterfaceMetrics(client, interfaces)
+	// Probe available metrics with a tight budget so interface discovery is not
+	// blocked behind thousands of per-interface GET requests on large devices.
+	e.probeInterfaceMetrics(client, interfaces, target)
 
 	return interfaces, nil
 }
 
-// probeInterfaceMetrics probes each interface for available SNMP metrics
-func (e *DiscoveryEngine) probeInterfaceMetrics(client *gosnmp.GoSNMP, interfaces []*DiscoveredInterface) {
+// probeInterfaceMetrics probes each interface for available SNMP metrics.
+// This is best-effort only; discovered interface rows are more important than
+// complete metric capability metadata.
+func (e *DiscoveryEngine) probeInterfaceMetrics(
+	client *gosnmp.GoSNMP,
+	interfaces []*DiscoveredInterface,
+	target string,
+) {
 	if len(interfaces) == 0 {
 		return
 	}
 
-	// Limit probing to first 1000 interfaces to prevent very long discovery times
-	maxProbe := 1000
+	sort.Slice(interfaces, func(i, j int) bool {
+		return interfaces[i].IfIndex < interfaces[j].IfIndex
+	})
+
+	maxProbe := interfaceMetricProbeMax
 	if len(interfaces) > maxProbe {
-		e.logger.Warn().Int("total_interfaces", len(interfaces)).Int("probing", maxProbe).
-			Msg("Limiting metric probing to first 1000 interfaces")
+		e.logger.Warn().
+			Str("target", target).
+			Int("total_interfaces", len(interfaces)).
+			Int("probing", maxProbe).
+			Msg("Limiting interface metric probing")
 		interfaces = interfaces[:maxProbe]
 	}
 
-	for _, iface := range interfaces {
+	deadline := time.Now().Add(interfaceMetricProbeBudget)
+
+	for idx, iface := range interfaces {
+		if time.Now().After(deadline) {
+			e.logger.Warn().
+				Str("target", target).
+				Int("probed_interfaces", idx).
+				Int("remaining_interfaces", len(interfaces)-idx).
+				Msg("Stopping interface metric probing to preserve discovery latency")
+			return
+		}
+
 		iface.AvailableMetrics = e.probeMetricsForInterface(client, iface.IfIndex)
 	}
 }
