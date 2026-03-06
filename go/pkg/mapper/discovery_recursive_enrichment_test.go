@@ -38,6 +38,7 @@ func TestRecursivePollingModes(t *testing.T) {
 		[]snmpPollingMode{snmpPollingModeTopology},
 		recursivePollingModes(DiscoveryTypeTopology),
 	)
+	assert.Nil(t, recursivePollingModes(DiscoveryTypeBasic))
 	assert.Nil(t, recursivePollingModes(DiscoveryTypeInterfaces))
 }
 

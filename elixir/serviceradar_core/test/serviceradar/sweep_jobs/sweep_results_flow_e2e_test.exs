@@ -4,8 +4,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   @moduletag :integration
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.NetworkDiscovery.MapperJob
 
   alias ServiceRadar.SweepJobs.{

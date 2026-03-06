@@ -28,7 +28,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   # Process in chunks to balance memory vs DB efficiency
   @batch_size 500
-  @inventory_rollup_refresh_lock_key 2_024_030_6
+  @inventory_rollup_refresh_lock_key 20_240_306
   @vendor_tokens [
     {"cisco", "Cisco"},
     {"juniper", "Juniper"},
@@ -522,27 +522,23 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp refresh_inventory_rollups do
-    if inventory_rollups_supported?() do
-      case Repo.transaction(
-             fn ->
-               Repo.query!("SELECT pg_advisory_xact_lock($1)", [
-                 @inventory_rollup_refresh_lock_key
-               ])
+    if inventory_rollups_supported?(), do: run_inventory_rollup_refresh(), else: :ok
+  end
 
-               Repo.query!("SELECT platform.refresh_device_inventory_rollups()")
-             end,
-             timeout: :infinity
-           ) do
-        {:ok, _} ->
-          :ok
+  defp run_inventory_rollup_refresh do
+    case Repo.transaction(&refresh_inventory_rollups_in_transaction/0, timeout: :infinity) do
+      {:ok, _} ->
+        :ok
 
-        {:error, reason} ->
-          Logger.warning("SyncIngestor: Failed to refresh inventory rollups: #{inspect(reason)}")
-          {:error, reason}
-      end
-    else
-      :ok
+      {:error, reason} ->
+        Logger.warning("SyncIngestor: Failed to refresh inventory rollups: #{inspect(reason)}")
+        {:error, reason}
     end
+  end
+
+  defp refresh_inventory_rollups_in_transaction do
+    Repo.query!("SELECT pg_advisory_xact_lock($1)", [@inventory_rollup_refresh_lock_key])
+    Repo.query!("SELECT platform.refresh_device_inventory_rollups()")
   end
 
   defp inventory_rollups_supported? do

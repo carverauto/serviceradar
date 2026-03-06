@@ -39,8 +39,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.{DeviceAliasState, DeviceLookup}
-  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Repo
 
   alias ServiceRadar.SweepJobs.{

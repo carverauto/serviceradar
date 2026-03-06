@@ -224,31 +224,39 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
 
       case dispatcher.(job, actor: actor, seeds: seeds, trigger_source: "sweep") do
         {:ok, command_id} ->
-          Enum.map(decisions, fn decision ->
-            %{
-              decision
-              | status: :dispatched,
-                reason: "mapper_dispatched",
-                command_id: command_id,
-                cooldown_until: nil
-            }
-          end)
+          mark_promotions_dispatched(decisions, command_id)
 
         {:error, reason} ->
           Logger.warning(
             "Sweep mapper promotion dispatch failed for #{job.name}: #{inspect(reason)}"
           )
 
-          Enum.map(decisions, fn decision ->
-            %{
-              decision
-              | status: :failed,
-                reason: "mapper_dispatch_failed",
-                command_id: nil,
-                cooldown_until: nil
-            }
-          end)
+          mark_promotions_failed(decisions)
       end
+    end)
+  end
+
+  defp mark_promotions_dispatched(decisions, command_id) do
+    Enum.map(decisions, fn decision ->
+      %{
+        decision
+        | status: :dispatched,
+          reason: "mapper_dispatched",
+          command_id: command_id,
+          cooldown_until: nil
+      }
+    end)
+  end
+
+  defp mark_promotions_failed(decisions) do
+    Enum.map(decisions, fn decision ->
+      %{
+        decision
+        | status: :failed,
+          reason: "mapper_dispatch_failed",
+          command_id: nil,
+          cooldown_until: nil
+      }
     end)
   end
 

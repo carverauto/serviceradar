@@ -509,15 +509,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp resolve_polling_host(device, actor) do
     canonical_host = device.ip || device.hostname
 
-    cond do
-      private_ip?(device.ip) ->
-        device.ip
-
-      true ->
-        case preferred_alias_polling_host(device, actor) do
-          nil -> canonical_host
-          alias_host -> alias_host
-        end
+    if private_ip?(device.ip) do
+      device.ip
+    else
+      case preferred_alias_polling_host(device, actor) do
+        nil -> canonical_host
+        alias_host -> alias_host
+      end
     end
   end
 

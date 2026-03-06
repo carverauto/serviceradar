@@ -510,14 +510,9 @@ func (e *DiscoveryEngine) querySysInfo(
 		oidDot1dBaseBridgeAddress,
 	}
 
-	// Perform SNMP Get
-	result, err := client.Get(oids)
+	variables, err := fetchSystemVariables(client.Get, oids)
 	if err != nil {
-		return nil, fmt.Errorf("%w %w", ErrSNMPGetFailed, err)
-	}
-
-	if result.Error != gosnmp.NoError {
-		return nil, fmt.Errorf("%w %s", ErrSNMPError, result.Error)
+		return nil, err
 	}
 
 	// Create and initialize device
@@ -526,7 +521,7 @@ func (e *DiscoveryEngine) querySysInfo(
 	extractionErrors := make(map[string]string)
 
 	// Process SNMP variables
-	foundSomething := e.processSNMPVariablesWithErrors(device, result.Variables, extractionErrors)
+	foundSomething := e.processSNMPVariablesWithErrors(device, variables, extractionErrors)
 	if !foundSomething {
 		return nil, ErrNoSNMPDataReturned
 	}
@@ -547,6 +542,53 @@ func (e *DiscoveryEngine) querySysInfo(
 	e.generateDeviceID(job, device, target)
 
 	return device, nil
+}
+
+func fetchSystemVariables(
+	get func([]string) (*gosnmp.SnmpPacket, error),
+	oids []string,
+) ([]gosnmp.SnmpPDU, error) {
+	result, err := get(oids)
+	if err != nil {
+		return nil, fmt.Errorf("%w %w", ErrSNMPGetFailed, err)
+	}
+
+	if result.Error == gosnmp.NoError {
+		return result.Variables, nil
+	}
+
+	if !isSNMPPacketUnsupportedError(result.Error) {
+		return nil, fmt.Errorf("%w %s", ErrSNMPError, result.Error)
+	}
+
+	variables := make([]gosnmp.SnmpPDU, 0, len(oids))
+
+	for _, oid := range oids {
+		single, singleErr := get([]string{oid})
+		if singleErr != nil {
+			if isSNMPOIDUnsupportedError(singleErr) {
+				continue
+			}
+
+			return nil, fmt.Errorf("%w %w", ErrSNMPGetFailed, singleErr)
+		}
+
+		if single == nil {
+			continue
+		}
+
+		if single.Error != gosnmp.NoError {
+			if isSNMPPacketUnsupportedError(single.Error) {
+				continue
+			}
+
+			return nil, fmt.Errorf("%w %s", ErrSNMPError, single.Error)
+		}
+
+		variables = append(variables, single.Variables...)
+	}
+
+	return variables, nil
 }
 
 func buildSNMPFingerprintFromDevice(device *DiscoveredDevice, extractionErrors map[string]string) *SNMPFingerprint {
@@ -725,9 +767,23 @@ func isSNMPOIDUnsupportedError(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "no such object") ||
+	return strings.Contains(msg, "no such name") ||
+		strings.Contains(msg, "nosuchname") ||
+		strings.Contains(msg, "no such object") ||
+		strings.Contains(msg, "nosuchobject") ||
 		strings.Contains(msg, "no such instance") ||
+		strings.Contains(msg, "nosuchinstance") ||
 		strings.Contains(msg, "unknown object identifier")
+}
+
+func isSNMPPacketUnsupportedError(err gosnmp.SNMPError) bool {
+	msg := strings.ToLower(err.String())
+	return strings.Contains(msg, "no such name") ||
+		strings.Contains(msg, "nosuchname") ||
+		strings.Contains(msg, "no such object") ||
+		strings.Contains(msg, "nosuchobject") ||
+		strings.Contains(msg, "no such instance") ||
+		strings.Contains(msg, "nosuchinstance")
 }
 
 func parseVLANIDFromOID(oid string) (int32, bool) {

@@ -1368,6 +1368,8 @@ func recursivePollingModes(discoveryType DiscoveryType) []snmpPollingMode {
 	switch discoveryType {
 	case DiscoveryTypeFull:
 		return []snmpPollingMode{snmpPollingModeEnrichment, snmpPollingModeTopology}
+	case DiscoveryTypeBasic, DiscoveryTypeInterfaces:
+		return nil
 	case DiscoveryTypeTopology:
 		return []snmpPollingMode{snmpPollingModeTopology}
 	default:
