@@ -723,8 +723,10 @@ func (e *DiscoveryEngine) maybeExportDebugBundle(job *DiscoveryJob) {
 }
 
 func isTruthyOption(value string) bool {
+	const trueValue = "true"
+
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "1", "true", "yes", "y", "on":
+	case "1", trueValue, "yes", "y", "on":
 		return true
 	default:
 		return false

@@ -30,7 +30,11 @@ import (
 	"strings"
 )
 
-var errMikroTikUnsupportedEndpoint = errors.New("mikrotik endpoint unsupported")
+var (
+	errMikroTikUnsupportedEndpoint = errors.New("mikrotik endpoint unsupported")
+	errMikroTikAllAttemptsFailed   = errors.New("all mikrotik API attempts failed")
+	errMikroTikGetFailed           = errors.New("mikrotik GET failed")
+)
 
 type mikroTikSystemIdentity struct {
 	Name string `json:"name"`
@@ -60,38 +64,20 @@ func (e *DiscoveryEngine) createMikroTikClient(apiConfig MikroTikAPIConfig) *htt
 }
 
 func (e *DiscoveryEngine) mikrotikAPIsForJob(job *DiscoveryJob) []MikroTikAPIConfig {
-	all := e.config.MikroTikAPIs
-	if len(all) == 0 || job == nil || job.Params == nil {
-		return all
-	}
+	filtered, selectors := selectNamedBaseURLConfigs(
+		job,
+		e.config.MikroTikAPIs,
+		"mikrotik_api_names",
+		"mikrotik_api_urls",
+		func(api MikroTikAPIConfig) string { return api.Name },
+		func(api MikroTikAPIConfig) string { return api.BaseURL },
+	)
 
-	opts := job.Params.Options
-	if len(opts) == 0 {
-		return all
-	}
-
-	allowedNames := parseCSVSet(opts["mikrotik_api_names"], true)
-	allowedURLs := parseCSVSet(opts["mikrotik_api_urls"], false)
-
-	if len(allowedNames) == 0 && len(allowedURLs) == 0 {
-		return all
-	}
-
-	filtered := make([]MikroTikAPIConfig, 0, len(all))
-	for _, api := range all {
-		nameKey := strings.ToLower(strings.TrimSpace(api.Name))
-		urlKey := normalizeURLKey(api.BaseURL)
-
-		if allowedNames[nameKey] || allowedURLs[urlKey] {
-			filtered = append(filtered, api)
-		}
-	}
-
-	if len(filtered) == 0 {
+	if len(filtered) == 0 && selectors != "" {
 		e.logger.Warn().
 			Str("job_id", job.ID).
-			Str("job_name", opts["mapper_job_name"]).
-			Str("selectors", opts["mikrotik_api_names"]+"|"+opts["mikrotik_api_urls"]).
+			Str("job_name", job.Params.Options["mapper_job_name"]).
+			Str("selectors", selectors).
 			Msg("No MikroTik API matched job selectors")
 	}
 
@@ -133,7 +119,7 @@ func (e *DiscoveryEngine) queryMikroTikDevices(
 	}
 
 	if len(allDevices) == 0 && errorsEncountered == len(selectedAPIs) {
-		return nil, nil, nil, fmt.Errorf("all %d MikroTik API attempts failed", errorsEncountered)
+		return nil, nil, nil, fmt.Errorf("%w: attempts=%d", errMikroTikAllAttemptsFailed, errorsEncountered)
 	}
 
 	return allDevices, allInterfaces, allLinks, nil
@@ -228,7 +214,9 @@ func (e *DiscoveryEngine) mikrotikGET(
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return errMikroTikUnsupportedEndpoint
@@ -239,7 +227,7 @@ func (e *DiscoveryEngine) mikrotikGET(
 		if mikrotikUnsupportedEndpointStatus(resp.StatusCode, body) {
 			return errMikroTikUnsupportedEndpoint
 		}
-		return fmt.Errorf("mikrotik GET %s failed: status=%d body=%q", path, resp.StatusCode, string(body))
+		return fmt.Errorf("%w: path=%s status=%d body=%q", errMikroTikGetFailed, path, resp.StatusCode, string(body))
 	}
 
 	return json.NewDecoder(resp.Body).Decode(out)
@@ -280,10 +268,11 @@ func buildMikroTikInventory(
 	}
 
 	metadata := map[string]string{
-		"source":            "mikrotik-api",
-		"api_name":          apiConfig.Name,
-		"api_url":           apiConfig.BaseURL,
-		"vendor_name":       "MikroTik",
+		"source":      "mikrotik-api",
+		"api_name":    apiConfig.Name,
+		"api_url":     apiConfig.BaseURL,
+		"vendor_name": "MikroTik",
+		//nolint:misspell // RouterOS is the vendor product name.
 		"routeros_version":  resource.Version,
 		"architecture_name": resource.ArchitectureName,
 	}
@@ -315,8 +304,9 @@ func buildMikroTikInventory(
 		}
 
 		ifaceMetadata := map[string]string{
-			"source":        "mikrotik-api",
-			"api_name":      apiConfig.Name,
+			"source":   "mikrotik-api",
+			"api_name": apiConfig.Name,
+			//nolint:misspell // RouterOS is the vendor product name.
 			"routeros_type": stringValue(raw, "type"),
 			"running":       stringValue(raw, "running"),
 			"disabled":      stringValue(raw, "disabled"),
@@ -396,7 +386,8 @@ func buildMikroTikTopologyLinks(
 			NeighborSystemName: firstNonEmpty(stringValue(raw, "identity"), stringValue(raw, "system-name")),
 			NeighborMgmtAddr:   stringValue(raw, "address"),
 			Metadata: map[string]string{
-				"source":   "mikrotik-api-neighbor",
+				"source": "mikrotik-api-neighbor",
+				//nolint:misspell // RouterOS is the vendor product name.
 				"evidence": "routeros-ip-neighbor",
 			},
 		}

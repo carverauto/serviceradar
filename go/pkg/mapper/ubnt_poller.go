@@ -1015,39 +1015,20 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 }
 
 func (e *DiscoveryEngine) unifiAPIsForJob(job *DiscoveryJob) []UniFiAPIConfig {
-	all := e.config.UniFiAPIs
-	if len(all) == 0 || job == nil || job.Params == nil {
-		return all
-	}
+	filtered, selectors := selectNamedBaseURLConfigs(
+		job,
+		e.config.UniFiAPIs,
+		"unifi_api_names",
+		"unifi_api_urls",
+		func(api UniFiAPIConfig) string { return api.Name },
+		func(api UniFiAPIConfig) string { return api.BaseURL },
+	)
 
-	opts := job.Params.Options
-	if len(opts) == 0 {
-		return all
-	}
-
-	allowedNames := parseCSVSet(opts["unifi_api_names"], true)
-	allowedURLs := parseCSVSet(opts["unifi_api_urls"], false)
-
-	// Backward compatibility: older configs won't have scoped selectors.
-	if len(allowedNames) == 0 && len(allowedURLs) == 0 {
-		return all
-	}
-
-	filtered := make([]UniFiAPIConfig, 0, len(all))
-	for _, api := range all {
-		nameKey := strings.ToLower(strings.TrimSpace(api.Name))
-		urlKey := normalizeURLKey(api.BaseURL)
-
-		if allowedNames[nameKey] || allowedURLs[urlKey] {
-			filtered = append(filtered, api)
-		}
-	}
-
-	if len(filtered) == 0 {
+	if len(filtered) == 0 && selectors != "" {
 		e.logger.Warn().
 			Str("job_id", job.ID).
-			Str("job_name", opts["mapper_job_name"]).
-			Str("selectors", opts["unifi_api_names"]+"|"+opts["unifi_api_urls"]).
+			Str("job_name", job.Params.Options["mapper_job_name"]).
+			Str("selectors", selectors).
 			Msg("No UniFi API matched job selectors")
 	}
 

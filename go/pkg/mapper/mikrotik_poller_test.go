@@ -33,7 +33,10 @@ import (
 func TestQueryMikroTikDevices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		username, password, ok := r.BasicAuth()
-		require.True(t, ok)
+		if !assert.True(t, ok) {
+			http.Error(w, "missing auth", http.StatusUnauthorized)
+			return
+		}
 		assert.Equal(t, "admin", username)
 		assert.Equal(t, "secret", password)
 
