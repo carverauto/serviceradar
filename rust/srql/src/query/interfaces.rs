@@ -177,6 +177,44 @@ struct SqlBuildResult {
     binds: Vec<BindParam>,
 }
 
+fn interface_select_columns(alias: &str) -> String {
+    format!(
+        "{alias}.timestamp, {alias}.agent_id, {alias}.gateway_id, {alias}.device_ip, \
+        {alias}.device_id, {alias}.interface_uid, {alias}.if_index, {alias}.if_name, \
+        {alias}.if_descr, {alias}.if_alias, {alias}.if_type, {alias}.if_type_name, \
+        {alias}.interface_kind, {alias}.if_speed, {alias}.speed_bps, {alias}.mtu, \
+        {alias}.duplex, {alias}.if_phys_address, {alias}.ip_addresses, \
+        {alias}.if_admin_status, {alias}.if_oper_status, {alias}.metadata, \
+        {alias}.available_metrics, {alias}.created_at"
+    )
+}
+
+fn interface_enrichment_joins(alias: &str) -> String {
+    format!(
+        " LEFT JOIN interface_settings ifs ON ifs.device_id = {alias}.device_id AND ifs.interface_uid = {alias}.interface_uid \
+        LEFT JOIN LATERAL ( \
+          SELECT tm.value \
+          FROM timeseries_metrics tm \
+          WHERE tm.device_id = {alias}.device_id \
+            AND tm.if_index = {alias}.if_index \
+            AND tm.metric_name = 'ifInErrors' \
+            AND tm.metric_type = 'snmp' \
+          ORDER BY tm.timestamp DESC \
+          LIMIT 1 \
+        ) tm_in ON true \
+        LEFT JOIN LATERAL ( \
+          SELECT tm.value \
+          FROM timeseries_metrics tm \
+          WHERE tm.device_id = {alias}.device_id \
+            AND tm.if_index = {alias}.if_index \
+            AND tm.metric_name = 'ifOutErrors' \
+            AND tm.metric_type = 'snmp' \
+          ORDER BY tm.timestamp DESC \
+          LIMIT 1 \
+        ) tm_out ON true"
+    )
+}
+
 fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
     let (latest_only, filters) = extract_latest_filter(&plan.filters)?;
     let mut binds = Vec::new();
@@ -200,53 +238,33 @@ fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
         }
     }
 
-    // SELECT from discovered_interfaces with LEFT JOIN to interface_settings
-    // to include favorited and metrics_enabled flags
-    let mut base_select = String::from(
-        "SELECT di.timestamp, di.agent_id, di.gateway_id, di.device_ip, di.device_id, di.interface_uid, \
-        di.if_index, di.if_name, di.if_descr, di.if_alias, di.if_type, di.if_type_name, di.interface_kind, \
-        di.if_speed, di.speed_bps, di.mtu, di.duplex, di.if_phys_address, di.ip_addresses, \
-        di.if_admin_status, di.if_oper_status, di.metadata, di.available_metrics, \
-        tm_in.value AS in_errors, tm_out.value AS out_errors, di.created_at, \
-        COALESCE(ifs.favorited, false) AS favorited, \
-        COALESCE(ifs.metrics_enabled, false) AS metrics_enabled \
-        FROM discovered_interfaces di \
-        LEFT JOIN interface_settings ifs ON ifs.device_id = di.device_id AND ifs.interface_uid = di.interface_uid \
-        LEFT JOIN LATERAL ( \
-          SELECT tm.value \
-          FROM timeseries_metrics tm \
-          WHERE tm.device_id = di.device_id \
-            AND tm.if_index = di.if_index \
-            AND tm.metric_name = 'ifInErrors' \
-            AND tm.metric_type = 'snmp' \
-          ORDER BY tm.timestamp DESC \
-          LIMIT 1 \
-        ) tm_in ON true \
-        LEFT JOIN LATERAL ( \
-          SELECT tm.value \
-          FROM timeseries_metrics tm \
-          WHERE tm.device_id = di.device_id \
-            AND tm.if_index = di.if_index \
-            AND tm.metric_name = 'ifOutErrors' \
-            AND tm.metric_type = 'snmp' \
-          ORDER BY tm.timestamp DESC \
-          LIMIT 1 \
-        ) tm_out ON true",
-    );
-
+    let mut discovered_interfaces_from = String::from("FROM discovered_interfaces di");
     if !clauses.is_empty() {
-        base_select.push_str(" WHERE ");
-        base_select.push_str(&clauses.join(" AND "));
+        discovered_interfaces_from.push_str(" WHERE ");
+        discovered_interfaces_from.push_str(&clauses.join(" AND "));
     }
 
     let (sql, binds) = if latest_only {
         let mut inner = String::from("SELECT DISTINCT ON (di.device_id, di.interface_uid) ");
-        inner.push_str(&base_select["SELECT ".len()..]);
+        inner.push_str(&interface_select_columns("di"));
+        inner.push(' ');
+        inner.push_str(&discovered_interfaces_from);
         inner.push_str(
             " ORDER BY di.device_id, di.interface_uid, di.timestamp DESC, di.created_at DESC",
         );
 
-        let mut outer = format!("SELECT * FROM ({inner}) AS latest");
+        let mut outer = String::from("SELECT ");
+        outer.push_str(&interface_select_columns("latest"));
+        outer.push_str(
+            ", tm_in.value AS in_errors, tm_out.value AS out_errors, \
+            COALESCE(ifs.favorited, false) AS favorited, \
+            COALESCE(ifs.metrics_enabled, false) AS metrics_enabled \
+            FROM (",
+        );
+        outer.push_str(&inner);
+        outer.push_str(") AS latest");
+        outer.push_str(&interface_enrichment_joins("latest"));
+
         if let Some(order_clause) = build_order_clause(&plan.order) {
             outer.push(' ');
             outer.push_str(&order_clause);
@@ -257,7 +275,15 @@ fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
         binds.push(BindParam::Int(plan.offset));
         (outer, binds)
     } else {
-        let mut sql = base_select;
+        let mut sql = String::from("SELECT ");
+        sql.push_str(&interface_select_columns("di"));
+        sql.push_str(
+            ", tm_in.value AS in_errors, tm_out.value AS out_errors, \
+            COALESCE(ifs.favorited, false) AS favorited, \
+            COALESCE(ifs.metrics_enabled, false) AS metrics_enabled ",
+        );
+        sql.push_str(&discovered_interfaces_from);
+        sql.push_str(&interface_enrichment_joins("di"));
         if let Some(order_clause) = build_order_clause(&plan.order) {
             sql.push(' ');
             sql.push_str(&order_clause);
@@ -786,6 +812,56 @@ mod tests {
         assert!(
             lower.contains("ifouterrors"),
             "expected ifOutErrors join, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn latest_interfaces_query_defers_error_metric_joins_until_after_dedupe() {
+        let plan = QueryPlan {
+            entity: Entity::Interfaces,
+            filters: vec![
+                Filter {
+                    field: "device_id".into(),
+                    value: FilterValue::Scalar("dev-1".into()),
+                    op: FilterOp::Eq,
+                },
+                Filter {
+                    field: "latest".into(),
+                    value: FilterValue::Scalar("true".into()),
+                    op: FilterOp::Eq,
+                },
+            ],
+            order: vec![OrderClause {
+                field: "if_name".into(),
+                direction: OrderDirection::Asc,
+            }],
+            limit: 10,
+            offset: 0,
+            time_range: None,
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, _) = to_sql_and_params(&plan).expect("interfaces SQL should be generated");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("from (select distinct on"),
+            "expected latest subquery, got: {sql}"
+        );
+        assert!(
+            lower.contains("ifs.device_id = latest.device_id"),
+            "expected interface settings join on latest rows, got: {sql}"
+        );
+        assert!(
+            lower.contains("tm.device_id = latest.device_id"),
+            "expected timeseries join on latest rows, got: {sql}"
+        );
+        assert!(
+            !lower.contains("tm.device_id = di.device_id"),
+            "expected no per-history-row timeseries join, got: {sql}"
         );
     }
 

@@ -1,0 +1,20 @@
+rules:
+  - id: mikrotik-router
+    enabled: true
+    priority: 880
+    confidence: 90
+    reason: "MikroTik RouterOS signature in SNMP identity"
+    match:
+      any:
+        sys_object_id_prefixes:
+          - "1.3.6.1.4.1.14988"
+        sys_descr: ["mikrotik", "routeros"]
+        sys_name: ["mikrotik", "routeros"]
+        hostname: ["mikrotik"]
+      all:
+        ip_forwarding: [1]
+    set:
+      vendor_name: "MikroTik"
+      type: "Router"
+      type_id: 12
+      model_from_sys_descr_prefix: ""

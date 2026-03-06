@@ -324,10 +324,11 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    timeseries_metrics (timestamp, gateway_id, metric_name) {
+    timeseries_metrics (timestamp, gateway_id, series_key) {
         timestamp -> Timestamptz,
         gateway_id -> Text,
         agent_id -> Nullable<Text>,
+        series_key -> Text,
         metric_name -> Text,
         metric_type -> Text,
         device_id -> Nullable<Text>,

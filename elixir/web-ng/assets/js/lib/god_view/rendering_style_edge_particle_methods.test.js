@@ -173,4 +173,27 @@ describe("rendering_style_edge_particle_methods", () => {
     const nearParticles = nearCtx.buildPacketFlowInstances([edge])
     expect(nearParticles.length).toBeGreaterThan(farParticles.length)
   })
+
+  it("buildPacketFlowInstances softens endpoint attachment particles", () => {
+    const backboneEdge = {
+      sourcePosition: [0, 0, 0],
+      targetPosition: [100, 0, 0],
+      flowPps: 1000,
+      flowBps: 10_000_000,
+      flowPpsAb: 700,
+      flowPpsBa: 300,
+      flowBpsAb: 7_000_000,
+      flowBpsBa: 3_000_000,
+      capacityBps: 20_000_000,
+      telemetryEligible: true,
+      topologyClass: "backbone",
+    }
+    const endpointEdge = {...backboneEdge, topologyClass: "endpoints"}
+
+    const backboneParticles = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances([backboneEdge])
+    const endpointParticles = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances([endpointEdge])
+
+    expect(endpointParticles.length).toBeLessThan(backboneParticles.length)
+    expect(endpointParticles.every((particle) => particle.color[3] <= 110)).toBe(true)
+  })
 })

@@ -93,3 +93,47 @@ func TestConvertVariable_StringTypesUnexpectedValueDoNotPanic(t *testing.T) {
 		})
 	}
 }
+
+func TestCollectChunkResults_SkipsUnsupportedInstanceButKeepsValidResults(t *testing.T) {
+	client := &SNMPClientImpl{}
+
+	results, err := client.collectChunkResults([]gosnmp.SnmpPDU{
+		{
+			Name:  ".1.3.6.1.2.1.2.2.1.10.3",
+			Type:  gosnmp.Counter32,
+			Value: uint(1234),
+		},
+		{
+			Name:  ".1.3.6.1.2.1.2.2.1.11.3",
+			Type:  gosnmp.NoSuchInstance,
+			Value: nil,
+		},
+		{
+			Name:  ".1.3.6.1.2.1.2.2.1.16.3",
+			Type:  gosnmp.Counter32,
+			Value: uint(5678),
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, map[string]interface{}{
+		".1.3.6.1.2.1.2.2.1.10.3": uint64(1234),
+		".1.3.6.1.2.1.2.2.1.16.3": uint64(5678),
+	}, results)
+}
+
+func TestCollectChunkResults_ReturnsFatalConversionErrors(t *testing.T) {
+	client := &SNMPClientImpl{}
+
+	results, err := client.collectChunkResults([]gosnmp.SnmpPDU{
+		{
+			Name:  ".1.3.6.1.2.1.1.1.0",
+			Type:  gosnmp.OctetString,
+			Value: byte('x'),
+		},
+	})
+
+	require.Nil(t, results)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrSNMPConvert)
+}

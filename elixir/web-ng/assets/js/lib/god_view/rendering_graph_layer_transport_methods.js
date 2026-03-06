@@ -1,6 +1,7 @@
 import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {ArcLayer, LineLayer, ScatterplotLayer} from "@deck.gl/layers"
 import PacketFlowLayer from "../deckgl/PacketFlowLayer"
+import {edgeTopologyVisualStyleValue} from "./rendering_style_edge_topology_methods"
 
 export const godViewRenderingGraphLayerTransportMethods = {
   buildTransportAndEffectLayers(effective, nodeData, edgeData, rootPulseNodesArg = null) {
@@ -40,11 +41,14 @@ export const godViewRenderingGraphLayerTransportMethods = {
               const base = this.state.visual.mantleEdgeBase
               const alphaBase = this.state.visual.mantleEdgeAlphaBase ?? 128
               const alphaBoost = this.state.visual.mantleEdgeAlphaBoost ?? 32
-              const edgeAlpha = Math.round((alphaBase + (alphaBoost * zoomParticleVisibility)) * alphaMult(d))
-              return [base[0], base[1], base[2], Math.max(24, Math.min(255, edgeAlpha))]
+              const style = edgeTopologyVisualStyleValue(d)
+              const edgeAlpha =
+                Math.round((alphaBase + (alphaBoost * zoomParticleVisibility)) * alphaMult(d) * style.mantleAlphaScale)
+              return [base[0], base[1], base[2], Math.max(style.mantleAlphaFloor, Math.min(255, edgeAlpha))]
             },
             getWidth: (d) => {
-              const tube = (this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * zoomScale * 1.35) + 2.0
+              const style = edgeTopologyVisualStyleValue(d)
+              const tube = (this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * zoomScale * 1.35 * style.mantleWidthScale) + 2.0
               return Math.min(38, tube + (this.edgeIsFocused(d) ? 2.0 : 0))
             },
             getPolygonOffset: (d) => (this.edgeIsFocused(d) ? [0, -1000] : [0, 0]),
@@ -76,14 +80,22 @@ export const godViewRenderingGraphLayerTransportMethods = {
               getTargetPosition: (d) => d.targetPosition,
               getSourceColor: (d) => {
                 const source = this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).source
-                return [source[0], source[1], source[2], Math.min(255, source[3] * alphaMult(d))]
+                const style = edgeTopologyVisualStyleValue(d)
+                const edgeAlpha = Math.min(255, source[3] * alphaMult(d) * style.crustAlphaScale)
+                return [source[0], source[1], source[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
               },
               getTargetColor: (d) => {
                 const target = this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).target
-                return [target[0], target[1], target[2], Math.min(255, target[3] * alphaMult(d))]
+                const style = edgeTopologyVisualStyleValue(d)
+                const edgeAlpha = Math.min(255, target[3] * alphaMult(d) * style.crustAlphaScale)
+                return [target[0], target[1], target[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
               },
               getWidth: (d) => {
-                const base = Math.max(3.4, Math.min((this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * 0.98 * zoomScale) + 0.6, 11.5))
+                const style = edgeTopologyVisualStyleValue(d)
+                const base = Math.max(
+                  3.0,
+                  Math.min((this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * 0.98 * zoomScale * style.crustWidthScale) + 0.6, 11.5),
+                )
                 return this.edgeIsFocused(d) ? Math.min(12.0, base + 2.0) : base
               },
               getPolygonOffset: (d) => (this.edgeIsFocused(d) ? [0, -1000] : [0, 0]),

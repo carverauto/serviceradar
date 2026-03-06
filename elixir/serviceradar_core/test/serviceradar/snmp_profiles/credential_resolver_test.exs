@@ -6,6 +6,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.SNMPProfiles.CredentialResolver
@@ -22,6 +23,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
     test "uses device override when present" do
       actor = SystemActor.system(:test)
       device_uid = Ecto.UUID.generate()
+      hostname = "device-override-test-#{System.unique_integer([:positive])}"
 
       {:ok, _device} =
         Device
@@ -29,7 +31,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
           :create,
           %{
             uid: device_uid,
-            hostname: "device-override-test",
+            hostname: hostname,
             type_id: 10,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -43,8 +45,8 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Default Profile",
-            is_default: true,
+            name: "Override Profile #{System.unique_integer([:positive])}",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             version: :v2c,
             community: "public"
           },
@@ -75,6 +77,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
     test "falls back to profile credentials when no override exists" do
       actor = SystemActor.system(:test)
       device_uid = Ecto.UUID.generate()
+      hostname = "profile-cred-test-#{System.unique_integer([:positive])}"
 
       {:ok, _device} =
         Device
@@ -82,7 +85,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
           :create,
           %{
             uid: device_uid,
-            hostname: "profile-cred-test",
+            hostname: hostname,
             type_id: 10,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -96,8 +99,8 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Default Profile",
-            is_default: true,
+            name: "Profile Credential #{System.unique_integer([:positive])}",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             version: :v2c,
             community: "public"
           },
@@ -107,6 +110,68 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
 
       assert {:ok, %{credential: credential, source: :profile}} =
                CredentialResolver.resolve_for_device(device_uid, actor)
+
+      assert credential.community == "public"
+    end
+
+    @tag :integration
+    test "resolve_for_host follows confirmed IP aliases back to the canonical device" do
+      actor = SystemActor.system(:test)
+      device_uid = "sr:" <> Ecto.UUID.generate()
+      hostname = "alias-credential-test-#{System.unique_integer([:positive])}"
+      public_ip = "198.51.100.#{rem(System.unique_integer([:positive]), 200) + 1}"
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: device_uid,
+            hostname: hostname,
+            ip: public_ip,
+            type_id: 10,
+            created_time: DateTime.utc_now(),
+            modified_time: DateTime.utc_now()
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Alias Credential Profile #{System.unique_integer([:positive])}",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
+            version: :v2c,
+            community: "public"
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, alias_state} =
+        DeviceAliasState.create_detected(
+          %{
+            device_id: device_uid,
+            partition: "default",
+            alias_type: :ip,
+            alias_value: "192.168.10.1",
+            metadata: %{}
+          },
+          actor: actor
+        )
+
+      {:ok, _confirmed} =
+        DeviceAliasState.record_sighting(
+          alias_state,
+          %{confirm_threshold: 1},
+          actor: actor
+        )
+
+      assert {:ok, %{credential: credential, source: :profile}} =
+               CredentialResolver.resolve_for_host("192.168.10.1", actor)
 
       assert credential.community == "public"
     end

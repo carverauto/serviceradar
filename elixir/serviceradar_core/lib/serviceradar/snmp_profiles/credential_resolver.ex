@@ -11,6 +11,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   require Ash.Query
   require Logger
 
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.SNMPProfiles.SNMPProfile
@@ -150,17 +151,45 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
         {:ok, device.uid}
 
       _ ->
-        query =
-          Device
-          |> Ash.Query.for_read(:read, %{}, actor: actor)
-          |> Ash.Query.filter(ip == ^host or hostname == ^host or name == ^host)
-          |> Ash.Query.limit(1)
+        case lookup_device_uid_by_fields(host, actor) do
+          {:ok, device_uid} ->
+            {:ok, device_uid}
 
-        case Ash.read_one(query, actor: actor) do
-          {:ok, %Device{} = device} -> {:ok, device.uid}
-          {:ok, nil} -> {:error, :device_not_found}
-          {:error, reason} -> {:error, reason}
+          {:error, :device_not_found} ->
+            lookup_device_uid_by_ip_alias(host, actor)
+
+          {:error, reason} ->
+            {:error, reason}
         end
+    end
+  end
+
+  defp lookup_device_uid_by_fields(host, actor) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(ip == ^host or hostname == ^host or name == ^host)
+      |> Ash.Query.limit(1)
+
+    case Ash.read_one(query, actor: actor) do
+      {:ok, %Device{} = device} -> {:ok, device.uid}
+      {:ok, nil} -> {:error, :device_not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp lookup_device_uid_by_ip_alias(host, actor) do
+    query =
+      DeviceAliasState
+      |> Ash.Query.filter(
+        alias_type == :ip and alias_value == ^host and state in [:confirmed, :updated]
+      )
+      |> Ash.Query.limit(1)
+
+    case Ash.read_one(query, actor: actor) do
+      {:ok, %DeviceAliasState{device_id: device_id}} -> {:ok, device_id}
+      {:ok, nil} -> {:error, :device_not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 

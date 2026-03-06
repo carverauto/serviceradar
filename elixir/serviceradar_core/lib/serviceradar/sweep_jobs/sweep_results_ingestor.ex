@@ -40,9 +40,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.{DeviceAliasState, DeviceLookup}
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Repo
 
   alias ServiceRadar.SweepJobs.{
+    MapperPromotion,
     SweepGroup,
     SweepGroupExecution,
     SweepHostResult,
@@ -81,6 +83,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     chunk_index = Keyword.get(opts, :chunk_index)
     total_chunks = Keyword.get(opts, :total_chunks)
     is_final = Keyword.get(opts, :is_final, true)
+    mapper_promotion_opts = Keyword.get(opts, :mapper_promotion_opts, [])
 
     results = List.wrap(results)
     total_count = length(results)
@@ -105,7 +108,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         start_time = System.monotonic_time(:millisecond)
 
         results
-        |> process_batches(execution_id, sweep_group_id, actor)
+        |> process_batches(execution_id, sweep_group_id, agent_id, actor, mapper_promotion_opts)
         |> finalize_results(
           execution_id,
           sweep_group_id,
@@ -169,7 +172,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp process_batches(results, execution_id, sweep_group_id, actor) do
+  defp process_batches(
+         results,
+         execution_id,
+         sweep_group_id,
+         agent_id,
+         actor,
+         mapper_promotion_opts
+       ) do
     batches =
       results
       |> Enum.chunk_every(@batch_size)
@@ -182,13 +192,24 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       hosts_available: 0,
       hosts_failed: 0,
       devices_updated: 0,
-      devices_created: 0
+      devices_created: 0,
+      mapper_dispatched: 0,
+      mapper_suppressed: 0,
+      mapper_skipped: 0,
+      mapper_failed: 0
     }
 
     Enum.reduce_while(batches, {:ok, initial_stats}, fn {batch, batch_num}, {:ok, acc_stats} ->
       batch_start = System.monotonic_time(:millisecond)
 
-      case process_batch(batch, execution_id, sweep_group_id, actor) do
+      case process_batch(
+             batch,
+             execution_id,
+             sweep_group_id,
+             agent_id,
+             actor,
+             mapper_promotion_opts
+           ) do
         {:ok, batch_stats} ->
           batch_elapsed = System.monotonic_time(:millisecond) - batch_start
 
@@ -263,7 +284,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     error
   end
 
-  defp process_batch(results, execution_id, sweep_group_id, actor) do
+  defp process_batch(
+         results,
+         execution_id,
+         sweep_group_id,
+         agent_id,
+         actor,
+         mapper_promotion_opts
+       ) do
     # Step 1: Extract all IPs for bulk device lookup
     ips = Enum.map(results, &extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
@@ -289,10 +317,19 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       Enum.map(detected_alias_map, fn {ip, {record, _alias}} -> {ip, record} end)
       |> Map.new()
 
-    # Step 5: Merge all device sources (skip truly unknown hosts)
+    created_device_map =
+      create_available_unknown_devices(
+        results,
+        unknown_ips -- detected_ips,
+        sweep_group_id,
+        actor
+      )
+
+    # Step 5: Merge all device sources
     all_devices =
       device_map
       |> Map.merge(detected_device_map)
+      |> Map.merge(created_device_map)
 
     # Step 7: Build host result records
     {host_results, stats} = build_host_results(results, execution_id, all_devices)
@@ -303,11 +340,21 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         # Step 9: Update device availability
         update_device_availability(results, all_devices, sweep_group_id, actor)
 
+        promotion_stats =
+          MapperPromotion.promote(
+            results,
+            all_devices,
+            sweep_group_id,
+            agent_id,
+            Keyword.put(mapper_promotion_opts, :actor, actor)
+          )
+
         final_stats =
           stats
-          |> Map.put(:devices_created, 0)
+          |> Map.put(:devices_created, map_size(created_device_map))
           |> Map.put(:devices_updated, length(known_ips) + length(detected_ips))
           |> Map.put(:aliases_confirmed, length(detected_ips))
+          |> Map.merge(prefix_promotion_stats(promotion_stats))
 
         {:ok, final_stats}
 
@@ -331,6 +378,120 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
             "SweepResultsIngestor: Failed to confirm alias #{ip}: #{inspect(reason)}"
           )
       end
+    end)
+  end
+
+  defp prefix_promotion_stats(stats) when is_map(stats) do
+    %{
+      mapper_dispatched: Map.get(stats, :dispatched, 0),
+      mapper_suppressed: Map.get(stats, :suppressed, 0),
+      mapper_skipped: Map.get(stats, :skipped, 0),
+      mapper_failed: Map.get(stats, :failed, 0)
+    }
+  end
+
+  defp create_available_unknown_devices(_results, [], _sweep_group_id, _actor), do: %{}
+
+  defp create_available_unknown_devices(results, unknown_ips, sweep_group_id, actor) do
+    available_unknown_hosts =
+      results
+      |> Enum.filter(fn result ->
+        ip = extract_ip(result)
+        result_available?(result) and ip in unknown_ips
+      end)
+      |> Enum.reduce(%{}, fn result, acc -> Map.put_new(acc, extract_ip(result), result) end)
+
+    if map_size(available_unknown_hosts) == 0 do
+      %{}
+    else
+      partition = sweep_group_partition(sweep_group_id, actor)
+
+      available_unknown_hosts
+      |> Map.values()
+      |> Enum.each(&create_available_unknown_device(&1, partition, actor))
+
+      available_unknown_hosts
+      |> Map.keys()
+      |> DeviceLookup.batch_lookup_by_ip(actor: actor, include_deleted: true)
+    end
+  end
+
+  defp create_available_unknown_device(result, partition, actor) do
+    ip = extract_ip(result)
+    hostname = result["hostname"] |> normalize_hostname()
+
+    ids = %{
+      agent_id: nil,
+      armis_id: nil,
+      integration_id: nil,
+      netbox_id: nil,
+      mac: nil,
+      ip: ip,
+      partition: partition
+    }
+
+    uid = IdentityReconciler.generate_deterministic_device_id(ids)
+
+    attrs = %{
+      uid: uid,
+      ip: ip,
+      hostname: hostname,
+      discovery_sources: ["sweep"],
+      is_available: true,
+      metadata: %{
+        "identity_state" => "provisional",
+        "identity_source" => "sweep_ip_seed",
+        "canonical_partition" => partition
+      }
+    }
+
+    case Device
+         |> Ash.Changeset.for_create(:create, attrs)
+         |> Ash.create(actor: actor) do
+      {:ok, _device} ->
+        Logger.info("SweepResultsIngestor: Created provisional sweep device #{uid} for #{ip}")
+
+      {:error, %Ash.Error.Invalid{errors: errors}} ->
+        if not duplicate_device_conflict?(errors) do
+          Logger.warning(
+            "SweepResultsIngestor: Failed to create provisional sweep device for #{ip}: #{inspect(errors)}"
+          )
+        end
+
+      {:error, reason} ->
+        Logger.warning(
+          "SweepResultsIngestor: Failed to create provisional sweep device for #{ip}: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp sweep_group_partition(nil, _actor), do: "default"
+  defp sweep_group_partition("", _actor), do: "default"
+
+  defp sweep_group_partition(sweep_group_id, actor) do
+    case Ash.get(SweepGroup, sweep_group_id, actor: actor) do
+      {:ok, %SweepGroup{partition: partition}} when is_binary(partition) and partition != "" ->
+        partition
+
+      _ ->
+        "default"
+    end
+  end
+
+  defp normalize_hostname(hostname) when is_binary(hostname) do
+    case String.trim(hostname) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_hostname(_), do: nil
+
+  defp duplicate_device_conflict?(errors) when is_list(errors) do
+    Enum.any?(errors, fn error ->
+      field = Map.get(error, :field)
+      message = Exception.message(error)
+      field == :uid or field == :ip or String.contains?(message, "has already been taken")
     end)
   end
 
@@ -1069,6 +1230,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       hosts_failed: stats1.hosts_failed + stats2.hosts_failed,
       devices_updated: stats1.devices_updated + Map.get(stats2, :devices_updated, 0),
       devices_created: stats1.devices_created + Map.get(stats2, :devices_created, 0),
+      mapper_dispatched:
+        Map.get(stats1, :mapper_dispatched, 0) + Map.get(stats2, :mapper_dispatched, 0),
+      mapper_suppressed:
+        Map.get(stats1, :mapper_suppressed, 0) + Map.get(stats2, :mapper_suppressed, 0),
+      mapper_skipped: Map.get(stats1, :mapper_skipped, 0) + Map.get(stats2, :mapper_skipped, 0),
+      mapper_failed: Map.get(stats1, :mapper_failed, 0) + Map.get(stats2, :mapper_failed, 0),
       aliases_confirmed:
         Map.get(stats1, :aliases_confirmed, 0) + Map.get(stats2, :aliases_confirmed, 0)
     }

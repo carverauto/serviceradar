@@ -283,6 +283,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       refute query =~ "[]->"
       assert query =~ "WITH src_id, dst_id, collect({"
       assert query =~ "UNWIND candidates AS c"
+      assert query =~ "support_rank"
+      assert query =~ "pair_support_rank"
       assert query =~ "AND ai.device_id STARTS WITH 'sr:'"
       assert query =~ "AND bi.device_id STARTS WITH 'sr:'"
       assert query =~ "toLower(trim(ai.device_id)) <> 'nil'"

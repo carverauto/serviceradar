@@ -16,6 +16,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
     "agent_id": "agent-1",
     "metric_name": "cpu_usage",
     "metric_type": "gauge",
+    "series_key": "deterministic-series-key",
     "device_id": "device-1",
     "value": 45.5,
     "unit": "percent",
@@ -32,6 +33,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
     agent_id TEXT,
     metric_name TEXT NOT NULL,
     metric_type TEXT NOT NULL,
+    series_key TEXT NOT NULL,
     device_id TEXT,
     value DOUBLE PRECISION NOT NULL,
     unit TEXT,
@@ -50,6 +52,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.Observability.TimeseriesSeriesKey
 
   require Logger
 
@@ -108,7 +111,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
   defp parse_telemetry(json) do
     timestamp = FieldParser.parse_timestamp(json["timestamp"])
 
-    %{
+    row = %{
       timestamp: timestamp,
       gateway_id: FieldParser.get_field(json, "gateway_id", "gatewayId", "unknown"),
       agent_id: FieldParser.get_field(json, "agent_id", "agentId"),
@@ -128,5 +131,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
       metadata: FieldParser.encode_jsonb(json["metadata"]),
       created_at: DateTime.utc_now()
     }
+
+    Map.put(row, :series_key, TimeseriesSeriesKey.build(row))
   end
 end

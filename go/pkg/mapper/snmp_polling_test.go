@@ -276,6 +276,61 @@ func TestConvertToUint64(t *testing.T) {
 	}
 }
 
+func TestFetchSystemVariables_FallsBackToPerOIDFetchOnUnsupportedBatch(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	variables, err := fetchSystemVariables(func(oids []string) (*gosnmp.SnmpPacket, error) {
+		calls++
+
+		if len(oids) > 1 {
+			return &gosnmp.SnmpPacket{Error: gosnmp.NoSuchName}, nil
+		}
+
+		switch oids[0] {
+		case oidSysDescr:
+			return &gosnmp.SnmpPacket{
+				Error: gosnmp.NoError,
+				Variables: []gosnmp.SnmpPDU{{
+					Name:  oidSysDescr,
+					Type:  gosnmp.OctetString,
+					Value: []byte("RouterOS RB5009"),
+				}},
+			}, nil
+		case oidSysObjectID:
+			return &gosnmp.SnmpPacket{Error: gosnmp.NoSuchName}, nil
+		case oidSysName:
+			return &gosnmp.SnmpPacket{
+				Error: gosnmp.NoError,
+				Variables: []gosnmp.SnmpPDU{{
+					Name:  oidSysName,
+					Type:  gosnmp.OctetString,
+					Value: []byte("mikrotik-6-167"),
+				}},
+			}, nil
+		default:
+			return &gosnmp.SnmpPacket{Error: gosnmp.NoError}, nil
+		}
+	}, []string{oidSysDescr, oidSysObjectID, oidSysName})
+
+	require.NoError(t, err)
+	require.Len(t, variables, 2)
+	assert.Equal(t, oidSysDescr, variables[0].Name)
+	assert.Equal(t, oidSysName, variables[1].Name)
+	assert.Equal(t, 4, calls)
+}
+
+func TestFetchSystemVariables_ReturnsFatalBatchError(t *testing.T) {
+	t.Parallel()
+
+	_, err := fetchSystemVariables(func(_ []string) (*gosnmp.SnmpPacket, error) {
+		return &gosnmp.SnmpPacket{Error: gosnmp.GenErr}, nil
+	}, []string{oidSysDescr})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrSNMPError)
+}
+
 func TestLLDPManagementAddressLinkKey(t *testing.T) {
 	t.Parallel()
 

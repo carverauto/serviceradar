@@ -28,6 +28,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   # Process in chunks to balance memory vs DB efficiency
   @batch_size 500
+  @inventory_rollup_refresh_lock_key 20_240_306
   @vendor_tokens [
     {"cisco", "Cisco"},
     {"juniper", "Juniper"},
@@ -101,7 +102,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       "SyncIngestor: Completed #{total_count} updates in #{elapsed}ms (#{rate} devices/sec)"
     )
 
-    result
+    maybe_refresh_inventory_rollups(result, total_count)
   end
 
   defp ingest_batch(updates, actor) do
@@ -128,7 +129,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp resolve_updates(normalized_updates, _actor) do
     all_identifiers = extract_all_identifiers(normalized_updates)
     existing_mappings = bulk_lookup_identifiers(all_identifiers)
-    existing_ip_to_device = bulk_lookup_by_ip(ip_only_updates(normalized_updates))
+    existing_ip_to_device = bulk_lookup_by_ip(normalized_updates)
 
     {resolved_updates, _batch_ip_to_device} =
       Enum.reduce(normalized_updates, {[], existing_ip_to_device}, fn update,
@@ -158,13 +159,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     identifier_records = build_identifier_records(resolved_updates)
 
     {resolved_updates, device_records, identifier_records}
-  end
-
-  defp ip_only_updates(normalized_updates) do
-    Enum.filter(normalized_updates, fn update ->
-      ids = effective_identifiers(update)
-      not IdentityReconciler.has_strong_identifier?(ids) and ids.ip != ""
-    end)
   end
 
   defp upsert_devices([]), do: :ok
@@ -426,12 +420,14 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp do_bulk_upsert_devices(records, update_query) do
-    Repo.insert_all(
-      Device,
-      records,
-      on_conflict: update_query,
-      conflict_target: [:uid]
-    )
+    with_inventory_rollup_bypassed(fn ->
+      Repo.insert_all(
+        Device,
+        records,
+        on_conflict: update_query,
+        conflict_target: [:uid]
+      )
+    end)
 
     :ok
   rescue
@@ -463,12 +459,14 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp do_bulk_upsert_devices_once(records, update_query) do
-    Repo.insert_all(
-      Device,
-      records,
-      on_conflict: update_query,
-      conflict_target: [:uid]
-    )
+    with_inventory_rollup_bypassed(fn ->
+      Repo.insert_all(
+        Device,
+        records,
+        on_conflict: update_query,
+        conflict_target: [:uid]
+      )
+    end)
 
     :ok
   rescue
@@ -505,6 +503,56 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         existing_uid -> Map.put(record, :uid, existing_uid)
       end
     end)
+  end
+
+  defp maybe_refresh_inventory_rollups(:ok, total_count) when total_count > 0 do
+    refresh_inventory_rollups()
+  end
+
+  defp maybe_refresh_inventory_rollups(result, _total_count), do: result
+
+  defp with_inventory_rollup_bypassed(fun) when is_function(fun, 0) do
+    Repo.transaction(
+      fn ->
+        Repo.query!("SET LOCAL platform.skip_inventory_rollup = 'on'")
+        fun.()
+      end,
+      timeout: :infinity
+    )
+  end
+
+  defp refresh_inventory_rollups do
+    if inventory_rollups_supported?(), do: run_inventory_rollup_refresh(), else: :ok
+  end
+
+  defp run_inventory_rollup_refresh do
+    case Repo.transaction(&refresh_inventory_rollups_in_transaction/0, timeout: :infinity) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("SyncIngestor: Failed to refresh inventory rollups: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp refresh_inventory_rollups_in_transaction do
+    Repo.query!("SELECT pg_advisory_xact_lock($1)", [@inventory_rollup_refresh_lock_key])
+    Repo.query!("SELECT platform.refresh_device_inventory_rollups()")
+  end
+
+  defp inventory_rollups_supported? do
+    case Repo.query(
+           "SELECT to_regprocedure('platform.refresh_device_inventory_rollups()') IS NOT NULL",
+           []
+         ) do
+      {:ok, %{rows: [[true]]}} ->
+        :ok
+        true
+
+      _ ->
+        false
+    end
   end
 
   defp merge_records_by_uid(records) do
