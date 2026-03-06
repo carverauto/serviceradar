@@ -4,10 +4,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias ServiceRadar.NetworkDiscovery.{MapperJob, MapperUnifiController}
+  alias ServiceRadar.NetworkDiscovery.{MapperJob, MapperMikrotikController, MapperUnifiController}
   alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
+
+  setup do
+    ensure_mikrotik_table!()
+    :ok
+  end
 
   setup :register_and_log_in_admin_user
 
@@ -124,6 +129,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     assert has_element?(lv, "option[value='#{agent.uid}']")
   end
 
+  test "discovery job form renders mikrotik api fields", %{conn: conn} do
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/discovery/new")
+
+    assert html =~ "MikroTik RouterOS"
+    assert has_element?(lv, "input[name='mikrotik[base_url]']")
+    assert has_element?(lv, "input[name='mikrotik[username]']")
+    assert has_element?(lv, "input[name='mikrotik[password]']")
+  end
+
   test "discovery job table includes run now action", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
 
@@ -161,10 +175,56 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     assert has_element?(lv, "input[name='unifi[api_key]'][placeholder='stored']")
   end
 
+  test "shows masked placeholders for stored mikrotik credentials", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(:create, %{name: "Discovery #{unique}"})
+      |> Ash.create(scope: scope)
+
+    {:ok, _controller} =
+      MapperMikrotikController
+      |> Ash.Changeset.for_create(:create, %{
+        name: "mikrotik-#{unique}",
+        base_url: "https://router.example/rest",
+        username: "admin",
+        password: "router-secret",
+        mapper_job_id: job.id
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/discovery/#{job.id}/edit")
+
+    assert html =~ "Password stored"
+    assert has_element?(lv, "input[name='mikrotik[password]'][placeholder='stored']")
+    assert has_element?(lv, "input[name='mikrotik[username]'][value='admin']")
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)
 
     %{conn: log_in_user(conn, user), user: user, scope: scope}
+  end
+
+  defp ensure_mikrotik_table! do
+    Ecto.Adapters.SQL.query!(
+      ServiceRadar.Repo,
+      """
+      CREATE TABLE IF NOT EXISTS platform.mapper_mikrotik_controllers (
+        id uuid PRIMARY KEY,
+        name text,
+        base_url text NOT NULL,
+        username text NOT NULL,
+        encrypted_password bytea,
+        insecure_skip_verify boolean NOT NULL DEFAULT false,
+        mapper_job_id uuid NOT NULL,
+        inserted_at timestamp(6) without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+        updated_at timestamp(6) without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
+      )
+      """,
+      []
+    )
   end
 end

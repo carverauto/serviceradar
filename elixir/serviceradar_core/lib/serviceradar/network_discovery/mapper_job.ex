@@ -242,6 +242,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
     has_many :unifi_controllers, ServiceRadar.NetworkDiscovery.MapperUnifiController do
       destination_attribute :mapper_job_id
     end
+
+    has_many :mikrotik_controllers, ServiceRadar.NetworkDiscovery.MapperMikrotikController do
+      destination_attribute :mapper_job_id
+    end
   end
 
   identities do

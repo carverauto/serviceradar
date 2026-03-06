@@ -45,11 +45,12 @@ const (
 	protocolSNMPL2    = "snmp-l2"
 	fallbackUnknown   = string(DiscoveryStatusUnknown)
 
-	sourceAdapterUniFiV1 = "unifi.v1"
-	sourceAdapterSNMPV1  = "snmp.v1"
-	sourceAdapterLLDPV1  = "lldp.v1"
-	sourceAdapterCDPV1   = "cdp.v1"
-	topologyContractV2   = "mapper.topology_observation.v2"
+	sourceAdapterUniFiV1    = "unifi.v1"
+	sourceAdapterMikroTikV1 = "mikrotik.v1"
+	sourceAdapterSNMPV1     = "snmp.v1"
+	sourceAdapterLLDPV1     = "lldp.v1"
+	sourceAdapterCDPV1      = "cdp.v1"
+	topologyContractV2      = "mapper.topology_observation.v2"
 )
 
 // NewDiscoveryEngine creates a new discovery engine with the given configuration
@@ -954,6 +955,9 @@ func applySourceAdapterVersion(link *TopologyLink) {
 	case strings.HasPrefix(source, "unifi-api"):
 		link.Metadata["source_adapter_version"] = sourceAdapterUniFiV1
 		link.Metadata["source_adapter_family"] = "unifi"
+	case strings.HasPrefix(source, "mikrotik-api"):
+		link.Metadata["source_adapter_version"] = sourceAdapterMikroTikV1
+		link.Metadata["source_adapter_family"] = "mikrotik"
 	case protocol == protocolLLDP:
 		link.Metadata["source_adapter_version"] = sourceAdapterLLDPV1
 		link.Metadata["source_adapter_family"] = protocolLLDP
@@ -2080,7 +2084,7 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 	job.mu.Unlock()
 
 	e.logger.Info().Str("job_id", job.ID).Int("initial_seeds_count", len(initialSeeds)).
-		Msg("Phase 1 - UniFi Discovery starting")
+		Msg("Phase 1 - API discovery starting")
 
 	devicesFound := 0
 	interfacesFound := 0
@@ -2121,9 +2125,33 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 		}
 	}
 
+	if len(e.config.MikroTikAPIs) > 0 {
+		apiCtx, cancel := context.WithTimeout(ctx, defaultUniFiPhaseTimeout)
+		devices, interfaces, links, err := e.queryMikroTikDevices(apiCtx, job)
+		cancel()
+		if err != nil {
+			e.logger.Error().Str("job_id", job.ID).Err(err).Msg("MikroTik discovery failed")
+		} else {
+			devicesFound += len(devices)
+			interfacesFound += len(interfaces)
+
+			job.mu.Lock()
+			e.processDevicesForSNMPTargets(job, devices, allPotentialSNMPTargets, seenMACs)
+			job.mu.Unlock()
+
+			for _, iface := range interfaces {
+				e.upsertInterface(job, iface)
+			}
+
+			if len(links) > 0 {
+				e.publishTopologyLinks(job, links, "", "MikroTik-API")
+			}
+		}
+	}
+
 	e.logger.Info().Str("job_id", job.ID).Int("devices_found", devicesFound).
 		Int("interfaces_found", interfacesFound).Int("snmp_targets", len(allPotentialSNMPTargets)).
-		Msg("Phase 1 - UniFi Discovery completed")
+		Msg("Phase 1 - API discovery completed")
 
 	return allPotentialSNMPTargets
 }
@@ -2303,7 +2331,9 @@ func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(
 	totalSNMPTargets := len(job.scanQueue)
 	if totalSNMPTargets == 0 {
 		e.logger.Info().Str("job_id", job.ID).Strs("seeds", initialSeeds).
-			Int("unifi_apis_count", len(e.config.UniFiAPIs)).Msg("No SNMP targets to poll")
+			Int("unifi_apis_count", len(e.config.UniFiAPIs)).
+			Int("mikrotik_apis_count", len(e.config.MikroTikAPIs)).
+			Msg("No SNMP targets to poll")
 
 		return true
 	}
