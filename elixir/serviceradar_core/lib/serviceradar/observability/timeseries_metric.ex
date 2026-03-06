@@ -61,6 +61,7 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
         :timestamp,
         :gateway_id,
         :agent_id,
+        :series_key,
         :metric_name,
         :metric_type,
         :device_id,
@@ -105,6 +106,12 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
     attribute :agent_id, :string do
       public? true
       description "Agent that collected this metric"
+    end
+
+    attribute :series_key, :string do
+      allow_nil? false
+      public? true
+      description "Deterministic identity for one metric series"
     end
 
     attribute :metric_name, :string do
@@ -179,6 +186,6 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
   end
 
   identities do
-    identity :unique_timeseries_metric, [:timestamp, :gateway_id, :metric_name]
+    identity :unique_timeseries_metric, [:timestamp, :gateway_id, :series_key]
   end
 end

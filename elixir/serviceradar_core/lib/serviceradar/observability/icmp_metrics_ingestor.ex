@@ -24,6 +24,7 @@ defmodule ServiceRadar.Observability.IcmpMetricsIngestor do
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Observability.TimeseriesMetric
+  alias ServiceRadar.Observability.TimeseriesSeriesKey
 
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) or is_list(payload) do
@@ -35,7 +36,7 @@ defmodule ServiceRadar.Observability.IcmpMetricsIngestor do
       |> normalize_results()
       |> Enum.map(&build_metric_row(&1, status, actor, created_at))
       |> Enum.reject(&is_nil/1)
-      |> dedupe_timeseries_rows()
+      |> TimeseriesSeriesKey.dedupe_rows()
 
     if Enum.empty?(rows) do
       :ok
@@ -116,7 +117,7 @@ defmodule ServiceRadar.Observability.IcmpMetricsIngestor do
 
       device_id = device_id || resolve_device_id(host, status, actor)
 
-      %{
+      row = %{
         timestamp:
           FieldParser.parse_timestamp(
             fetch_value(result, ["timestamp", "time", "ts"]) ||
@@ -136,19 +137,12 @@ defmodule ServiceRadar.Observability.IcmpMetricsIngestor do
         metadata: build_metadata(result),
         created_at: created_at
       }
+
+      Map.put(row, :series_key, TimeseriesSeriesKey.build(row))
     end
   end
 
   defp build_metric_row(_result, _status, _actor, _created_at), do: nil
-
-  defp dedupe_timeseries_rows(rows) do
-    rows
-    |> Enum.reduce(%{}, fn row, acc ->
-      key = {row[:timestamp], row[:gateway_id], row[:metric_name]}
-      Map.put(acc, key, row)
-    end)
-    |> Map.values()
-  end
 
   defp resolve_device_id(nil, _status, _actor), do: nil
   defp resolve_device_id("", _status, _actor), do: nil

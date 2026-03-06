@@ -731,6 +731,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
     case Graph.execute(upsert_cypher) do
       :ok ->
+        demotion_result = reconcile_competing_same_port_canonical_edges()
         after_upsert_edges = canonical_edge_count()
         prune_result = prune_stale_canonical_device_links(stale_cutoff)
         after_prune_edges = canonical_edge_count()
@@ -749,6 +750,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
           mapper_evidence_edges: mapper_evidence_edges,
           after_upsert_edges: after_upsert_edges,
           after_prune_edges: after_prune_edges,
+          same_port_demotions: demotion_result,
           telemetry_refresh: telemetry_result,
           stale_cutoff: stale_cutoff,
           self_heal_result: self_heal_result,
@@ -765,6 +767,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         failure_stats = %{
           before_edges: before_edges,
           mapper_evidence_edges: mapper_evidence_edges,
+          same_port_demotions: :skipped,
           stale_cutoff: stale_cutoff,
           lock_skipped: false
         }
@@ -783,6 +786,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       mapper_evidence_edges: mapper_evidence_edges,
       after_upsert_edges: before_edges,
       after_prune_edges: before_edges,
+      same_port_demotions: :skipped,
       telemetry_refresh: :skipped,
       stale_cutoff: stale_cutoff_iso8601(),
       self_heal_result: %{status: :skipped},
@@ -790,6 +794,142 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       lock_skipped: true
     }
   end
+
+  defp reconcile_competing_same_port_canonical_edges do
+    with {:ok, edges} <- Graph.query(competing_same_port_canonical_edges_query()) do
+      edge_map = Map.new(edges, &{canonical_edge_key(&1), &1})
+
+      demotions =
+        edges
+        |> Enum.flat_map(&edge_port_conflicts/1)
+        |> Enum.group_by(fn {port_key, _edge_key} -> port_key end, fn {_port_key, edge_key} ->
+          edge_key
+        end)
+        |> Enum.flat_map(fn {_port_key, edge_keys} ->
+          demotions_for_port_group(edge_keys, edge_map)
+        end)
+        |> Enum.uniq()
+
+      Enum.each(demotions, &demote_canonical_edge_to_attachment/1)
+      {:ok, length(demotions)}
+    else
+      {:error, reason} ->
+        Logger.warning("Canonical same-port reconciliation failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp competing_same_port_canonical_edges_query do
+    """
+    MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND coalesce(r.relation_type, '') = 'CONNECTS_TO'
+      AND coalesce(r.evidence_class, '') = 'direct'
+    RETURN {
+      src_id: a.id,
+      dst_id: b.id,
+      pair_support_rank: coalesce(r.pair_support_rank, 0),
+      local_if_index_ab: coalesce(r.local_if_index_ab, r.local_if_index),
+      local_if_name_ab: coalesce(r.local_if_name_ab, r.local_if_name, ''),
+      local_if_index_ba: coalesce(r.local_if_index_ba, r.neighbor_if_index),
+      local_if_name_ba: coalesce(r.local_if_name_ba, r.neighbor_if_name, '')
+    }
+    """
+  end
+
+  defp edge_port_conflicts(%{} = edge) do
+    edge_key = canonical_edge_key(edge)
+
+    [
+      canonical_port_key(
+        Map.get(edge, "src_id"),
+        Map.get(edge, "local_if_index_ab"),
+        Map.get(edge, "local_if_name_ab")
+      ),
+      canonical_port_key(
+        Map.get(edge, "dst_id"),
+        Map.get(edge, "local_if_index_ba"),
+        Map.get(edge, "local_if_name_ba")
+      )
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&{&1, edge_key})
+  end
+
+  defp edge_port_conflicts(_), do: []
+
+  defp demotions_for_port_group(edge_keys, edge_map)
+       when is_list(edge_keys) and is_map(edge_map) do
+    group =
+      edge_keys
+      |> Enum.uniq()
+      |> Enum.map(&Map.get(edge_map, &1))
+      |> Enum.reject(&is_nil/1)
+
+    if length(group) > 1 and Enum.any?(group, &(pair_support_rank(&1) > 0)) do
+      group
+      |> Enum.filter(&(pair_support_rank(&1) == 0))
+      |> Enum.map(&canonical_edge_key/1)
+    else
+      []
+    end
+  end
+
+  defp demotions_for_port_group(_edge_keys, _edge_map), do: []
+
+  defp demote_canonical_edge_to_attachment({src_id, dst_id})
+       when is_binary(src_id) and is_binary(dst_id) do
+    cypher = """
+    MATCH (a:Device {id: '#{Graph.escape(src_id)}'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id: '#{Graph.escape(dst_id)}'})
+    SET r.relation_type = 'ATTACHED_TO'
+    SET r.evidence_class = 'endpoint-attachment'
+    SET r.confidence_tier = 'medium'
+    SET r.confidence_score = CASE WHEN coalesce(r.confidence_score, 0) > 78 THEN r.confidence_score ELSE 78 END
+    SET r.confidence_reason = 'shared_segment_via_uplink'
+    """
+
+    case Graph.execute(cypher) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("Canonical edge demotion failed: #{inspect(reason)}")
+    end
+  end
+
+  defp demote_canonical_edge_to_attachment(_edge_key), do: :ok
+
+  defp canonical_edge_key(%{} = edge) do
+    src_id = Map.get(edge, "src_id")
+    dst_id = Map.get(edge, "dst_id")
+
+    if is_binary(src_id) and is_binary(dst_id), do: {src_id, dst_id}, else: nil
+  end
+
+  defp canonical_edge_key(_), do: nil
+
+  defp canonical_port_key(device_id, if_index, if_name) do
+    device_id = non_blank(device_id)
+    if_name = non_blank(if_name)
+    if_index = value_to_non_negative_int(if_index)
+
+    cond do
+      is_binary(device_id) and is_integer(if_index) and if_index > 0 ->
+        {device_id, {:ifindex, if_index}}
+
+      is_binary(device_id) and is_binary(if_name) ->
+        {device_id, {:ifname, if_name}}
+
+      true ->
+        nil
+    end
+  end
+
+  defp pair_support_rank(%{} = edge) do
+    edge
+    |> Map.get("pair_support_rank")
+    |> value_to_non_negative_int()
+    |> Kernel.||(0)
+  end
+
+  defp pair_support_rank(_), do: 0
 
   @doc false
   @spec canonical_rebuild_min_edges() :: pos_integer()
@@ -1520,7 +1660,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         WHEN 'medium' THEN 2
         WHEN 'low' THEN 1
         ELSE 0
-      END AS conf_rank
+      END AS conf_rank,
+      CASE type(r)
+        WHEN 'INFERRED_TO' THEN 1
+        WHEN 'ATTACHED_TO' THEN 1
+        ELSE 0
+      END AS support_rank
     WITH
       src_id,
       dst_id,
@@ -1536,7 +1681,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       confidence_reason,
       last_observed_at,
       rel_rank,
-      conf_rank
+      conf_rank,
+      support_rank
     ORDER BY
       src_id,
       dst_id,
@@ -1550,6 +1696,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       confidence_tier: confidence_tier,
       confidence_score: confidence_score,
       confidence_reason: confidence_reason,
+      support_rank: support_rank,
       last_observed_at: last_observed_at,
       local_if_index: local_if_index,
       neighbor_if_index: neighbor_if_index,
@@ -1562,6 +1709,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       src_id,
       dst_id,
       best,
+      max(c.support_rank) AS pair_support_rank,
       max(CASE WHEN c.local_if_index IS NOT NULL AND c.local_if_index > 0 THEN c.local_if_index ELSE -1 END) AS best_local_if_index,
       max(CASE WHEN c.neighbor_if_index IS NOT NULL AND c.neighbor_if_index > 0 THEN c.neighbor_if_index ELSE -1 END) AS best_neighbor_if_index,
       max(CASE WHEN c.local_if_name IS NOT NULL AND c.local_if_name <> '' AND toLower(c.local_if_name) <> 'unknown' THEN c.local_if_name ELSE '' END) AS best_local_if_name,
@@ -1576,6 +1724,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET cr.confidence_tier = best.confidence_tier
     SET cr.confidence_score = best.confidence_score
     SET cr.confidence_reason = best.confidence_reason
+    SET cr.pair_support_rank = pair_support_rank
     SET cr.last_observed_at = best.last_observed_at
     SET cr.local_if_index =
       CASE

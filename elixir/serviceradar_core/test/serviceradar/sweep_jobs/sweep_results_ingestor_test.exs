@@ -4,7 +4,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
   describe "build_host_results/3" do
-    test "leaves device_id nil for unknown sweep hosts" do
+    test "leaves device_id nil for unavailable unknown sweep hosts" do
       execution_id = Ash.UUID.generate()
 
       results = [

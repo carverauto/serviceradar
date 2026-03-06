@@ -18,6 +18,7 @@
 package snmp
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -159,22 +160,46 @@ func (s *SNMPClientImpl) Get(oids []string) (map[string]interface{}, error) {
 			}
 		}
 
-		// Process results from this chunk
-		for _, variable := range result.Variables {
-			value, err := s.convertVariable(variable)
-			if err != nil {
-				return nil, &SNMPError{
-					Op:      "convert",
-					Target:  s.target.Host,
-					Wrapped: err,
-				}
+		chunkResults, err := s.collectChunkResults(result.Variables)
+		if err != nil {
+			return nil, &SNMPError{
+				Op:      "convert",
+				Target:  s.target.Host,
+				Wrapped: err,
 			}
+		}
 
-			allResults[variable.Name] = value
+		for name, value := range chunkResults {
+			allResults[name] = value
 		}
 	}
 
 	return allResults, nil
+}
+
+func (s *SNMPClientImpl) collectChunkResults(variables []gosnmp.SnmpPDU) (map[string]interface{}, error) {
+	results := make(map[string]interface{}, len(variables))
+
+	for _, variable := range variables {
+		value, err := s.convertVariable(variable)
+		if err != nil {
+			if isSkippableValueError(err) {
+				continue
+			}
+
+			return nil, err
+		}
+
+		results[variable.Name] = value
+	}
+
+	return results, nil
+}
+
+func isSkippableValueError(err error) bool {
+	return errors.Is(err, ErrSNMPNoSuchObject) ||
+		errors.Is(err, ErrSNMPNoSuchInstance) ||
+		errors.Is(err, ErrSNMPEndOfMibView)
 }
 
 // Close implements SNMPClient interface.

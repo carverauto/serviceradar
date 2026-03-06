@@ -244,6 +244,7 @@ CREATE TABLE timeseries_metrics (
     timestamp        TIMESTAMPTZ NOT NULL,
     gateway_id        TEXT        NOT NULL,
     agent_id         TEXT,
+    series_key       TEXT        NOT NULL,
     metric_name      TEXT        NOT NULL,
     metric_type      TEXT        NOT NULL,
     device_id        TEXT,
@@ -257,7 +258,7 @@ CREATE TABLE timeseries_metrics (
     if_index         INT,
     metadata         JSONB,
     created_at       TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (timestamp, gateway_id, metric_name)
+    PRIMARY KEY (timestamp, gateway_id, series_key)
 );
 
 DROP TABLE IF EXISTS cpu_metrics;

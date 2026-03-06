@@ -1,3 +1,5 @@
+import {edgeTopologyVisualStyleValue} from "./rendering_style_edge_topology_methods"
+
 function packetFlowStamp(edgeData) {
   if (!Array.isArray(edgeData) || edgeData.length === 0) return "empty"
   const sampleCount = Math.min(edgeData.length, 96)
@@ -7,7 +9,7 @@ function packetFlowStamp(edgeData) {
     const edge = edgeData[i] || {}
     const key = edge.interactionKey || `${edge.sourceId || "s"}:${edge.targetId || "t"}:${i}`
     const telemetryEligible = edge.telemetryEligible === false || edge.telemetry_eligible === false ? 0 : 1
-    acc += `|${key}:${Number(edge.flowPps || 0)}:${Number(edge.flowBps || 0)}:${Number(edge.flowPpsAb || 0)}:${Number(edge.flowPpsBa || 0)}:${Number(edge.flowBpsAb || 0)}:${Number(edge.flowBpsBa || 0)}:${Number(edge.capacityBps || 0)}:${telemetryEligible}`
+    acc += `|${key}:${Number(edge.flowPps || 0)}:${Number(edge.flowBps || 0)}:${Number(edge.flowPpsAb || 0)}:${Number(edge.flowPpsBa || 0)}:${Number(edge.flowBpsAb || 0)}:${Number(edge.flowBpsBa || 0)}:${Number(edge.capacityBps || 0)}:${telemetryEligible}:${String(edge.topologyClass || "unknown")}`
   }
   return acc
 }
@@ -25,7 +27,18 @@ export const godViewRenderingStyleEdgeParticleMethods = {
     const zoom = Number(this?.state?.viewState?.zoom || 0)
     const zoomDensity = Math.max(0.55, Math.min(1.25, (zoom + 2.5) / 4.5))
 
-    const pushDirectionParticles = ({src, dst, edgeIndex, count, speedBase, jitter, utilization, laneOffset}) => {
+    const pushDirectionParticles = ({
+      src,
+      dst,
+      edgeIndex,
+      count,
+      speedBase,
+      jitter,
+      utilization,
+      laneOffset,
+      particleAlphaScale,
+      particleSizeScale,
+    }) => {
       for (let j = 0; j < count; j += 1) {
         if (particles.length >= maxParticles) break
         const seed = (((edgeIndex * 17 + j * 37) % 997) + 1) / 997
@@ -41,7 +54,7 @@ export const godViewRenderingStyleEdgeParticleMethods = {
           Math.round(cyan[0] * (1 - mix) + magenta[0] * mix),
           Math.round(cyan[1] * (1 - mix) + magenta[1] * mix),
           Math.round(cyan[2] * (1 - mix) + magenta[2] * mix),
-          255,
+          Math.max(70, Math.min(255, Math.round(255 * particleAlphaScale))),
         ]
 
         particles.push({
@@ -53,7 +66,7 @@ export const godViewRenderingStyleEdgeParticleMethods = {
           speed: particleSpeed,
           jitter,
           laneOffset,
-          size: isHead ? (6 + (seed * 3)) : (2 + (seed * 3)),
+          size: (isHead ? (6 + (seed * 3)) : (2 + (seed * 3))) * particleSizeScale,
           color,
         })
       }
@@ -63,6 +76,7 @@ export const godViewRenderingStyleEdgeParticleMethods = {
       if (particles.length >= maxParticles) break
       const edge = edgeData[i]
       if (edge?.telemetryEligible === false || edge?.telemetry_eligible === false) continue
+      const topologyStyle = edgeTopologyVisualStyleValue(edge)
       const src = edge?.sourcePosition
       const dst = edge?.targetPosition
       if (!Array.isArray(src) || !Array.isArray(dst)) continue
@@ -95,8 +109,11 @@ export const godViewRenderingStyleEdgeParticleMethods = {
       const jitterBase = Math.max(1.1, Math.min(6.2, (tubeWidth * 0.32) + 0.95))
       const spreadFill = Math.max(0.8, Math.min(1.4, 0.9 + (utilization * 0.7)))
       const particlesOnEdge = Math.max(
-        96,
-        Math.min(1400, Math.floor((95 + (intensity * 85)) * (0.78 + (tubeWidth * 0.16)) * zoomDensity)),
+        18,
+        Math.min(
+          1400,
+          Math.floor((95 + (intensity * 85)) * (0.78 + (tubeWidth * 0.16)) * zoomDensity * topologyStyle.particleDensityScale),
+        ),
       )
       const bidirectional = baWeight > 0
       const abMinWeight = bidirectional ? 0.1 : 0.05
@@ -118,6 +135,8 @@ export const godViewRenderingStyleEdgeParticleMethods = {
           jitter: jitterBase * spreadFill,
           utilization,
           laneOffset: baCount > 0 ? laneSeparation : 0,
+          particleAlphaScale: topologyStyle.particleAlphaScale,
+          particleSizeScale: topologyStyle.particleSizeScale,
         })
 
         if (baCount > 0) {
@@ -132,6 +151,8 @@ export const godViewRenderingStyleEdgeParticleMethods = {
             // Keep same signed offset for reverse direction; the segment normal flips with direction,
             // so this lands on the opposite side of the tube in world space.
             laneOffset: laneSeparation,
+            particleAlphaScale: topologyStyle.particleAlphaScale,
+            particleSizeScale: topologyStyle.particleSizeScale,
           })
         }
       }

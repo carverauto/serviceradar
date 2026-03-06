@@ -259,6 +259,41 @@ func TestCancelDiscovery(t *testing.T) {
 	assert.Equal(t, DiscoverStatusCanceled, results.Status.Status)
 }
 
+func TestRunScheduledJobWithSeedsOverridesSeeds(t *testing.T) {
+	mockPublisher := new(MockPublisher)
+	mockLogger := logger.NewTestLogger()
+	config := &Config{
+		Workers:       2,
+		MaxActiveJobs: 5,
+		Timeout:       30 * time.Second,
+		ScheduledJobs: []*ScheduledJob{
+			{
+				Name:     "job-1",
+				Interval: "5m",
+				Enabled:  true,
+				Seeds:    []string{"192.168.1.1"},
+				Type:     "full",
+			},
+		},
+	}
+
+	engine, err := NewDiscoveryEngine(config, mockPublisher, mockLogger)
+	require.NoError(t, err)
+
+	discoveryEngine := engine.(*DiscoveryEngine)
+	discoveryID, err := discoveryEngine.RunScheduledJobWithSeeds(
+		context.Background(),
+		"job-1",
+		[]string{" 192.168.6.98 ", "192.168.6.98", "", "192.168.6.167"},
+	)
+	require.NoError(t, err)
+
+	job, ok := discoveryEngine.activeJobs[discoveryID]
+	require.True(t, ok)
+	require.NotNil(t, job)
+	assert.Equal(t, []string{"192.168.6.98", "192.168.6.167"}, job.Params.Seeds)
+}
+
 func TestValidateConfig(t *testing.T) {
 	tests := []struct {
 		name        string

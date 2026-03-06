@@ -196,6 +196,25 @@ func (s *MapperService) RunScheduledJob(ctx context.Context, jobName string) (st
 	return runner.RunScheduledJob(ctx, jobName)
 }
 
+func (s *MapperService) RunScheduledJobWithSeeds(ctx context.Context, jobName string, seeds []string) (string, error) {
+	s.mu.RLock()
+	engine := s.engine
+	s.mu.RUnlock()
+
+	if engine == nil {
+		return "", errMapperEngineNotRunning
+	}
+
+	runner, ok := engine.(interface {
+		RunScheduledJobWithSeeds(context.Context, string, []string) (string, error)
+	})
+	if !ok {
+		return "", errMapperRunUnsupported
+	}
+
+	return runner.RunScheduledJobWithSeeds(ctx, jobName, seeds)
+}
+
 func (s *MapperService) DrainResults(max int) ([]map[string]interface{}, bool) {
 	s.mu.RLock()
 	publisher := s.publisher

@@ -1,10 +1,12 @@
 defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.{Device, DeviceEnrichmentRules, SyncIngestor}
+  alias ServiceRadar.Repo
 
   setup_all do
     test_rules_dir = Path.join(System.tmp_dir!(), "serviceradar-device-rules-empty")
@@ -12,6 +14,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     Application.put_env(:serviceradar_core, :device_enrichment_rules_dir, test_rules_dir)
     DeviceEnrichmentRules.reload()
     ServiceRadar.TestSupport.start_core!()
+    ensure_inventory_rollup_schema!()
     :ok
   end
 
@@ -332,12 +335,62 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
       }
     }
 
-    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+    log =
+      capture_log(fn ->
+        assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+      end)
 
     device = fetch_device_by_ip!(actor, ip)
     assert device.uid == existing_uid
     assert device.hostname == "updated-host"
     assert device.metadata["sys_descr"] == "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324"
+    refute log =~ "Bulk device upsert hit active-IP conflict"
+  end
+
+  test "refreshes inventory rollups after sync ingest", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    vendor = "Vendor-#{unique}"
+    type = "Type-#{unique}"
+    available_ip = unique_ip()
+    unavailable_ip = unique_ip()
+
+    Repo.query!("SELECT platform.refresh_device_inventory_rollups()")
+
+    baseline_total = inventory_count!("total")
+    baseline_available = inventory_count!("available")
+    baseline_unavailable = inventory_count!("unavailable")
+    baseline_type = type_count!(type)
+    baseline_vendor = vendor_count!(vendor)
+
+    available_update = %{
+      "ip" => available_ip,
+      "hostname" => "rollup-available-#{unique}",
+      "source" => "mapper",
+      "is_available" => true,
+      "metadata" => %{
+        "vendor_name" => vendor,
+        "type" => type
+      }
+    }
+
+    unavailable_update = %{
+      "ip" => unavailable_ip,
+      "hostname" => "rollup-unavailable-#{unique}",
+      "source" => "mapper",
+      "is_available" => false,
+      "metadata" => %{
+        "vendor_name" => vendor,
+        "type" => type
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([available_update, unavailable_update], actor: actor)
+
+    assert inventory_count!("total") == baseline_total + 2
+    assert inventory_count!("available") == baseline_available + 1
+    assert inventory_count!("unavailable") == baseline_unavailable + 1
+    assert type_count!(type) == baseline_type + 2
+    assert vendor_count!(vendor) == baseline_vendor + 2
   end
 
   describe "captured Ubiquiti payload fixtures" do
@@ -421,11 +474,18 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   end
 
   defp unique_ip do
-    n = System.unique_integer([:positive, :monotonic])
-    octet2 = rem(div(n, 65_025), 250) + 1
-    octet3 = rem(div(n, 255), 250) + 1
-    octet4 = rem(n, 250) + 1
-    "10.#{octet2}.#{octet3}.#{octet4}"
+    Stream.repeatedly(fn -> System.unique_integer([:positive, :monotonic]) end)
+    |> Enum.find_value(fn n ->
+      octet2 = rem(div(n, 65_025), 250) + 1
+      octet3 = rem(div(n, 255), 250) + 1
+      octet4 = rem(n, 250) + 1
+      ip = "10.#{octet2}.#{octet3}.#{octet4}"
+
+      case Repo.query("SELECT 1 FROM platform.ocsf_devices WHERE ip = $1 LIMIT 1", [ip]) do
+        {:ok, %{rows: []}} -> ip
+        _ -> nil
+      end
+    end)
   end
 
   defp load_fixture_update!(file_name, ip) do
@@ -444,5 +504,103 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     |> File.read!()
     |> Jason.decode!()
     |> Map.put("ip", ip)
+  end
+
+  defp inventory_count!(key) do
+    case Repo.query("SELECT value FROM platform.device_inventory_counts WHERE key = $1", [key]) do
+      {:ok, %{rows: [[value]]}} when is_integer(value) -> value
+      {:ok, %{rows: []}} -> 0
+    end
+  end
+
+  defp type_count!(type) do
+    case Repo.query("SELECT count FROM platform.device_inventory_type_counts WHERE type = $1", [
+           type
+         ]) do
+      {:ok, %{rows: [[value]]}} when is_integer(value) -> value
+      {:ok, %{rows: []}} -> 0
+    end
+  end
+
+  defp vendor_count!(vendor) do
+    case Repo.query(
+           "SELECT count FROM platform.device_inventory_vendor_counts WHERE vendor_name = $1",
+           [vendor]
+         ) do
+      {:ok, %{rows: [[value]]}} when is_integer(value) -> value
+      {:ok, %{rows: []}} -> 0
+    end
+  end
+
+  defp ensure_inventory_rollup_schema! do
+    Repo.query!("""
+    CREATE TABLE IF NOT EXISTS platform.device_inventory_counts (
+      key text PRIMARY KEY,
+      value bigint NOT NULL DEFAULT 0,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+    """)
+
+    Repo.query!("""
+    CREATE TABLE IF NOT EXISTS platform.device_inventory_type_counts (
+      type text PRIMARY KEY,
+      count bigint NOT NULL DEFAULT 0,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+    """)
+
+    Repo.query!("""
+    CREATE TABLE IF NOT EXISTS platform.device_inventory_vendor_counts (
+      vendor_name text PRIMARY KEY,
+      count bigint NOT NULL DEFAULT 0,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+    """)
+
+    Repo.query!("""
+    CREATE OR REPLACE FUNCTION platform.refresh_device_inventory_rollups()
+    RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      TRUNCATE TABLE platform.device_inventory_counts;
+      TRUNCATE TABLE platform.device_inventory_type_counts;
+      TRUNCATE TABLE platform.device_inventory_vendor_counts;
+
+      INSERT INTO platform.device_inventory_counts (key, value, updated_at)
+      SELECT 'total', COUNT(*)::bigint, now()
+      FROM platform.ocsf_devices
+      WHERE deleted_at IS NULL;
+
+      INSERT INTO platform.device_inventory_counts (key, value, updated_at)
+      SELECT 'available', COUNT(*)::bigint, now()
+      FROM platform.ocsf_devices
+      WHERE deleted_at IS NULL
+        AND COALESCE(is_available, false) = true;
+
+      INSERT INTO platform.device_inventory_counts (key, value, updated_at)
+      SELECT 'unavailable', COUNT(*)::bigint, now()
+      FROM platform.ocsf_devices
+      WHERE deleted_at IS NULL
+        AND COALESCE(is_available, false) = false;
+
+      INSERT INTO platform.device_inventory_type_counts (type, count, updated_at)
+      SELECT COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type,
+             COUNT(*)::bigint AS count,
+             now()
+      FROM platform.ocsf_devices
+      WHERE deleted_at IS NULL
+      GROUP BY COALESCE(NULLIF(trim(type), ''), 'Unknown');
+
+      INSERT INTO platform.device_inventory_vendor_counts (vendor_name, count, updated_at)
+      SELECT COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown') AS vendor_name,
+             COUNT(*)::bigint AS count,
+             now()
+      FROM platform.ocsf_devices
+      WHERE deleted_at IS NULL
+      GROUP BY COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown');
+    END;
+    $$;
+    """)
   end
 end

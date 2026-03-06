@@ -8,7 +8,13 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.Observability.{ServiceIdentity, ServiceStatus, TimeseriesMetric}
+
+  alias ServiceRadar.Observability.{
+    ServiceIdentity,
+    ServiceStatus,
+    TimeseriesMetric,
+    TimeseriesSeriesKey
+  }
 
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) do
@@ -140,7 +146,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       |> extract_metrics()
       |> Enum.map(&build_metric_row(&1, payload, status, observed_at, created_at))
       |> Enum.reject(&is_nil/1)
-      |> dedupe_timeseries_rows()
+      |> TimeseriesSeriesKey.dedupe_rows()
 
     if Enum.empty?(rows) do
       :ok
@@ -186,7 +192,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         tags = build_tags(payload)
         metadata = build_metadata(metric, payload)
 
-        %{
+        row = %{
           timestamp: observed_at,
           gateway_id: status[:gateway_id] || "unknown",
           agent_id: status[:agent_id],
@@ -200,21 +206,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
           created_at: created_at
         }
 
+        Map.put(row, :series_key, TimeseriesSeriesKey.build(row))
+
       _ ->
         nil
     end
   end
 
   defp build_metric_row(_metric, _payload, _status, _observed_at, _created_at), do: nil
-
-  defp dedupe_timeseries_rows(rows) do
-    rows
-    |> Enum.reduce(%{}, fn row, acc ->
-      key = {row[:timestamp], row[:gateway_id], row[:metric_name]}
-      Map.put(acc, key, row)
-    end)
-    |> Map.values()
-  end
 
   defp build_tags(payload) do
     payload

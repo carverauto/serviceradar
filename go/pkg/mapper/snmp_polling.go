@@ -89,6 +89,12 @@ const (
 	oidIfAlias     = ".1.3.6.1.2.1.31.1.1.1.18"
 	oidIfHighSpeed = ".1.3.6.1.2.1.31.1.1.1.15"
 
+	// Interface metric probing is best-effort. Large switches can expose hundreds of
+	// interfaces, and probing every interface inline can exceed the discovery timeout
+	// before the discovered interfaces are ever published.
+	interfaceMetricProbeBudget = 5 * time.Second
+	interfaceMetricProbeMax    = 64
+
 	// LLDP OIDs
 	oidLLDPRemTable = ".1.0.8802.1.1.2.1.4.1.1"
 	// oidLldpRemChassisId = ".1.0.8802.1.1.2.1.4.1.1.5"
@@ -504,14 +510,9 @@ func (e *DiscoveryEngine) querySysInfo(
 		oidDot1dBaseBridgeAddress,
 	}
 
-	// Perform SNMP Get
-	result, err := client.Get(oids)
+	variables, err := fetchSystemVariables(client.Get, oids)
 	if err != nil {
-		return nil, fmt.Errorf("%w %w", ErrSNMPGetFailed, err)
-	}
-
-	if result.Error != gosnmp.NoError {
-		return nil, fmt.Errorf("%w %s", ErrSNMPError, result.Error)
+		return nil, err
 	}
 
 	// Create and initialize device
@@ -520,7 +521,7 @@ func (e *DiscoveryEngine) querySysInfo(
 	extractionErrors := make(map[string]string)
 
 	// Process SNMP variables
-	foundSomething := e.processSNMPVariablesWithErrors(device, result.Variables, extractionErrors)
+	foundSomething := e.processSNMPVariablesWithErrors(device, variables, extractionErrors)
 	if !foundSomething {
 		return nil, ErrNoSNMPDataReturned
 	}
@@ -541,6 +542,53 @@ func (e *DiscoveryEngine) querySysInfo(
 	e.generateDeviceID(job, device, target)
 
 	return device, nil
+}
+
+func fetchSystemVariables(
+	get func([]string) (*gosnmp.SnmpPacket, error),
+	oids []string,
+) ([]gosnmp.SnmpPDU, error) {
+	result, err := get(oids)
+	if err != nil {
+		return nil, fmt.Errorf("%w %w", ErrSNMPGetFailed, err)
+	}
+
+	if result.Error == gosnmp.NoError {
+		return result.Variables, nil
+	}
+
+	if !isSNMPPacketUnsupportedError(result.Error) {
+		return nil, fmt.Errorf("%w %s", ErrSNMPError, result.Error)
+	}
+
+	variables := make([]gosnmp.SnmpPDU, 0, len(oids))
+
+	for _, oid := range oids {
+		single, singleErr := get([]string{oid})
+		if singleErr != nil {
+			if isSNMPOIDUnsupportedError(singleErr) {
+				continue
+			}
+
+			return nil, fmt.Errorf("%w %w", ErrSNMPGetFailed, singleErr)
+		}
+
+		if single == nil {
+			continue
+		}
+
+		if single.Error != gosnmp.NoError {
+			if isSNMPPacketUnsupportedError(single.Error) {
+				continue
+			}
+
+			return nil, fmt.Errorf("%w %s", ErrSNMPError, single.Error)
+		}
+
+		variables = append(variables, single.Variables...)
+	}
+
+	return variables, nil
 }
 
 func buildSNMPFingerprintFromDevice(device *DiscoveredDevice, extractionErrors map[string]string) *SNMPFingerprint {
@@ -719,9 +767,23 @@ func isSNMPOIDUnsupportedError(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "no such object") ||
+	return strings.Contains(msg, "no such name") ||
+		strings.Contains(msg, "nosuchname") ||
+		strings.Contains(msg, "no such object") ||
+		strings.Contains(msg, "nosuchobject") ||
 		strings.Contains(msg, "no such instance") ||
+		strings.Contains(msg, "nosuchinstance") ||
 		strings.Contains(msg, "unknown object identifier")
+}
+
+func isSNMPPacketUnsupportedError(err gosnmp.SNMPError) bool {
+	msg := strings.ToLower(err.String())
+	return strings.Contains(msg, "no such name") ||
+		strings.Contains(msg, "nosuchname") ||
+		strings.Contains(msg, "no such object") ||
+		strings.Contains(msg, "nosuchobject") ||
+		strings.Contains(msg, "no such instance") ||
+		strings.Contains(msg, "nosuchinstance")
 }
 
 func parseVLANIDFromOID(oid string) (int32, bool) {
@@ -865,27 +927,51 @@ func (e *DiscoveryEngine) queryInterfaces(
 		Int("speed_count", speedCount).Int("zero_speed_count", zeroSpeedCount).
 		Int("max_speed_count", maxSpeedCount).Msg("Interface discovery summary")
 
-	// Probe available metrics for each interface
-	e.probeInterfaceMetrics(client, interfaces)
+	// Probe available metrics with a tight budget so interface discovery is not
+	// blocked behind thousands of per-interface GET requests on large devices.
+	e.probeInterfaceMetrics(client, interfaces, target)
 
 	return interfaces, nil
 }
 
-// probeInterfaceMetrics probes each interface for available SNMP metrics
-func (e *DiscoveryEngine) probeInterfaceMetrics(client *gosnmp.GoSNMP, interfaces []*DiscoveredInterface) {
+// probeInterfaceMetrics probes each interface for available SNMP metrics.
+// This is best-effort only; discovered interface rows are more important than
+// complete metric capability metadata.
+func (e *DiscoveryEngine) probeInterfaceMetrics(
+	client *gosnmp.GoSNMP,
+	interfaces []*DiscoveredInterface,
+	target string,
+) {
 	if len(interfaces) == 0 {
 		return
 	}
 
-	// Limit probing to first 1000 interfaces to prevent very long discovery times
-	maxProbe := 1000
+	sort.Slice(interfaces, func(i, j int) bool {
+		return interfaces[i].IfIndex < interfaces[j].IfIndex
+	})
+
+	maxProbe := interfaceMetricProbeMax
 	if len(interfaces) > maxProbe {
-		e.logger.Warn().Int("total_interfaces", len(interfaces)).Int("probing", maxProbe).
-			Msg("Limiting metric probing to first 1000 interfaces")
+		e.logger.Warn().
+			Str("target", target).
+			Int("total_interfaces", len(interfaces)).
+			Int("probing", maxProbe).
+			Msg("Limiting interface metric probing")
 		interfaces = interfaces[:maxProbe]
 	}
 
-	for _, iface := range interfaces {
+	deadline := time.Now().Add(interfaceMetricProbeBudget)
+
+	for idx, iface := range interfaces {
+		if time.Now().After(deadline) {
+			e.logger.Warn().
+				Str("target", target).
+				Int("probed_interfaces", idx).
+				Int("remaining_interfaces", len(interfaces)-idx).
+				Msg("Stopping interface metric probing to preserve discovery latency")
+			return
+		}
+
 		iface.AvailableMetrics = e.probeMetricsForInterface(client, iface.IfIndex)
 	}
 }

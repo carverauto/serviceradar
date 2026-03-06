@@ -44,8 +44,9 @@ const defaultMaxConcurrentOnDemandMtr = 2
 var errControlStreamClosed = errors.New("control stream closed")
 
 type mapperRunPayload struct {
-	JobID   string `json:"job_id"`
-	JobName string `json:"job_name"`
+	JobID   string   `json:"job_id"`
+	JobName string   `json:"job_name"`
+	Seeds   []string `json:"seeds,omitempty"`
 }
 
 type sweepRunPayload struct {
@@ -271,7 +272,14 @@ func (p *PushLoop) handleMapperRun(ctx context.Context, cmd *proto.CommandReques
 		return
 	}
 
-	discoveryID, err := mapperSvc.RunScheduledJob(ctx, payload.JobName)
+	var discoveryID string
+
+	var err error
+	if len(payload.Seeds) > 0 {
+		discoveryID, err = mapperSvc.RunScheduledJobWithSeeds(ctx, payload.JobName, payload.Seeds)
+	} else {
+		discoveryID, err = mapperSvc.RunScheduledJob(ctx, payload.JobName)
+	}
 	if err != nil {
 		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))
 		return
@@ -281,6 +289,9 @@ func (p *PushLoop) handleMapperRun(ctx context.Context, cmd *proto.CommandReques
 		"discovery_id": discoveryID,
 		"job_id":       payload.JobID,
 		"job_name":     payload.JobName,
+	}
+	if len(payload.Seeds) > 0 {
+		resultPayload["seeds"] = payload.Seeds
 	}
 
 	_ = sender.Send(commandResult(cmd, true, "mapper run started", resultPayload))

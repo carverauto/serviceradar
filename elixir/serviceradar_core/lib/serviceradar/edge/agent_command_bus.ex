@@ -146,8 +146,27 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   def run_mapper_job(job, opts \\ []) do
-    payload = %{job_id: job.id, job_name: job.name}
-    opts = add_context(opts, %{mapper_job_id: job.id, partition_id: job.partition || "default"})
+    seeds =
+      opts
+      |> Keyword.get(:seeds, [])
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    payload =
+      %{
+        job_id: job.id,
+        job_name: job.name
+      }
+      |> maybe_put(:seeds, seeds)
+      |> maybe_put(:trigger_source, Keyword.get(opts, :trigger_source))
+
+    opts =
+      add_context(opts, %{
+        mapper_job_id: job.id,
+        partition_id: job.partition || "default",
+        promoted_seeds: seeds
+      })
 
     dispatch_for_assignment(
       job.partition || "default",
@@ -205,6 +224,11 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     :ok
   end
+
+  defp maybe_put(map, _key, []), do: map
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, ""), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp lookup_control_session(agent_id) do
     if registry_available?() do

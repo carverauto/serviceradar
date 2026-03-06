@@ -39,6 +39,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       "dev-switch-b",
       "dev-ap",
       "dev-dist",
+      "sr:aruba",
+      "sr:tonka",
+      "sr:zz-mikrotik",
       "dev-1/eth0",
       "dev-1/eth2",
       "dev-1/unknown-local",
@@ -50,7 +53,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       "dev-switch-a/uplink",
       "dev-switch-b/uplink",
       "dev-ap/wifi0",
-      "dev-dist/xe-0/0/1"
+      "dev-dist/xe-0/0/1",
+      "sr:aruba/23",
+      "sr:tonka/eth4",
+      "sr:zz-mikrotik/ether1"
     ])
 
     :ok
@@ -567,6 +573,77 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     assert result["count"] == 1
     assert Enum.sort(result["neighbors"]) == ["dev-switch-a"]
+  end
+
+  test "canonical rebuild demotes competing same-port direct neighbor to attachment when uplink is corroborated" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    TopologyGraph.upsert_links([
+      %{
+        local_device_id: "sr:aruba",
+        neighbor_device_id: "sr:tonka",
+        local_if_name: "23",
+        local_if_index: 23,
+        neighbor_port_id: "eth4",
+        protocol: "lldp",
+        metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
+        timestamp: now,
+        created_at: now
+      },
+      %{
+        local_device_id: "sr:aruba",
+        neighbor_device_id: "sr:zz-mikrotik",
+        local_if_name: "23",
+        local_if_index: 23,
+        neighbor_port_id: "ether1",
+        protocol: "lldp",
+        metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
+        timestamp: now,
+        created_at: now
+      },
+      %{
+        local_device_id: "sr:aruba",
+        neighbor_device_id: "sr:tonka",
+        local_if_name: "23",
+        local_if_index: 23,
+        neighbor_port_id: "eth4",
+        protocol: "snmp-l2",
+        metadata: %{
+          "confidence_tier" => "medium",
+          "confidence_score" => 72,
+          "confidence_reason" => "arp_fdb_port_mapping",
+          "evidence_class" => "inferred"
+        },
+        timestamp: now,
+        created_at: now
+      }
+    ])
+
+    results =
+      cypher_rows("""
+      MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+      WHERE (a.id = 'sr:aruba' AND b.id IN ['sr:tonka', 'sr:zz-mikrotik'])
+         OR (b.id = 'sr:aruba' AND a.id IN ['sr:tonka', 'sr:zz-mikrotik'])
+      RETURN {
+        neighbor: CASE WHEN a.id = 'sr:aruba' THEN b.id ELSE a.id END,
+        relation_type: r.relation_type,
+        evidence_class: r.evidence_class,
+        confidence_reason: r.confidence_reason
+      } AS result
+      """)
+
+    assert results |> Enum.map(& &1["neighbor"]) |> Enum.sort() == ["sr:tonka", "sr:zz-mikrotik"]
+
+    assert Enum.any?(results, fn row ->
+             row["neighbor"] == "sr:tonka" and row["relation_type"] == "CONNECTS_TO" and
+               row["evidence_class"] == "direct"
+           end)
+
+    assert Enum.any?(results, fn row ->
+             row["neighbor"] == "sr:zz-mikrotik" and row["relation_type"] == "ATTACHED_TO" and
+               row["evidence_class"] == "endpoint-attachment" and
+               row["confidence_reason"] == "shared_segment_via_uplink"
+           end)
   end
 
   defp insert_device_type(uid, type) do

@@ -78,6 +78,26 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRulesTest do
     assert classification.rule_id == "aruba-switch"
   end
 
+  test "classifies RouterOS identity as MikroTik router" do
+    update = %{
+      hostname: "mikrotik-6-167",
+      source: "mapper",
+      metadata: %{
+        "sys_object_id" => ".1.3.6.1.4.1.14988.1",
+        "sys_descr" => "MikroTik RouterOS RB5009UG+S+",
+        "sys_name" => "mikrotik-6-167",
+        "ip_forwarding" => "1"
+      }
+    }
+
+    classification = DeviceEnrichmentRules.classify(update)
+
+    assert classification.vendor_name == "MikroTik"
+    assert classification.type == "Router"
+    assert classification.type_id == 12
+    assert classification.rule_id == "mikrotik-router"
+  end
+
   test "filesystem override with same rule id takes precedence over built-in rule" do
     tmp_dir =
       Path.join(

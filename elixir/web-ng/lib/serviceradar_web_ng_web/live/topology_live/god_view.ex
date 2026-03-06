@@ -49,7 +49,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
         |> assign(:topology_layers, %{
           backbone: true,
           inferred: false,
-          endpoints: false,
+          endpoints: true,
           mtr_paths: true
         })
         |> assign(:mtr_paths_cache, nil)
