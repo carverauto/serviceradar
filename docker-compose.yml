@@ -6,13 +6,39 @@ services:
       # Optional extra SAN entries for `cnpg.pem` so clients can connect using a LAN IP
       # (example: CNPG_CERT_EXTRA_IPS=192.168.2.134)
       - CNPG_CERT_EXTRA_IPS=${CNPG_CERT_EXTRA_IPS:-}
+      - CNPG_SUPERUSER=${CNPG_SUPERUSER:-}
+      - CNPG_SUPERUSER_FILE=/etc/serviceradar/cnpg/superuser-username
     volumes:
       - cert-data:/certs
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
       - ./docker/compose/generate-certs.sh:/generate-certs.sh:ro
     command: sh -c "apk add --no-cache openssl bash && cp /generate-certs.sh /tmp/gen.sh && chmod +x /tmp/gen.sh && CERT_DIR=/certs bash /tmp/gen.sh"
+    depends_on:
+      db-credentials:
+        condition: service_completed_successfully
     restart: "no"
     networks:
       - serviceradar-net
+
+  cnpg-migrator:
+    image: docker:28.0.1-cli
+    container_name: serviceradar-cnpg-migrator
+    environment:
+      - FORCE=true
+      - CNPG_ALLOW_RUNNING_COMPOSE_PROJECT=true
+      - SERVICERADAR_VOLUME_PREFIX=${SERVICERADAR_VOLUME_PREFIX:-serviceradar}
+      - CNPG_DATA_VOLUME=${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cnpg-data
+      - CNPG_CREDENTIALS_VOLUME=${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cnpg-credentials
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_SUPERUSER=${CNPG_SUPERUSER:-}
+      - CNPG_SUPERUSER_PASSWORD=${CNPG_SUPERUSER_PASSWORD:-}
+      - CNPG_PASSWORD=${CNPG_PASSWORD:-}
+      - CNPG_EXPECTED_PG_MAJOR=18
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker/compose/migrate-cnpg-pg16-to-pg18.sh:/migrate-cnpg-pg16-to-pg18.sh:ro
+    command: sh /migrate-cnpg-pg16-to-pg18.sh
+    restart: "no"
 
   db-credentials:
     image: alpine:3.20
@@ -26,8 +52,10 @@ services:
       - CNPG_SUPERUSER=${CNPG_SUPERUSER:-}
       - CNPG_PASSWORD=${CNPG_PASSWORD:-}
       - CNPG_SUPERUSER_PASSWORD=${CNPG_SUPERUSER_PASSWORD:-}
-      - CNPG_SPIRE_PASSWORD=${CNPG_SPIRE_PASSWORD:-}
     command: sh /bootstrap-db-credentials.sh
+    depends_on:
+      cnpg-migrator:
+        condition: service_completed_successfully
     restart: "no"
     networks:
       - serviceradar-net
@@ -852,6 +880,7 @@ volumes:
   cnpg-credentials:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cnpg-credentials"
   cnpg-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cnpg-data"
   datasvc-data:
   nats-data:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_nats-data"

@@ -1,11 +1,9 @@
 #!/bin/sh
 set -eu
 
-ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
-
 COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-serviceradar}"
 VOLUME_PREFIX="${SERVICERADAR_VOLUME_PREFIX:-serviceradar}"
-DATA_VOLUME="${CNPG_DATA_VOLUME:-${COMPOSE_PROJECT}_cnpg-data}"
+DATA_VOLUME="${CNPG_DATA_VOLUME:-${VOLUME_PREFIX}_cnpg-data}"
 CREDENTIALS_VOLUME="${CNPG_CREDENTIALS_VOLUME:-${VOLUME_PREFIX}_cnpg-credentials}"
 
 SOURCE_IMAGE="${CNPG_SOURCE_IMAGE:-ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr5}"
@@ -22,16 +20,17 @@ LEGACY_SUPERUSER="${CNPG_LEGACY_SUPERUSER:-serviceradar}"
 LEGACY_SUPERUSER_PASSWORD="${CNPG_LEGACY_SUPERUSER_PASSWORD:-serviceradar}"
 LEGACY_APP_PASSWORD="${CNPG_LEGACY_APP_PASSWORD:-serviceradar}"
 FORCE="${FORCE:-false}"
+ALLOW_RUNNING_COMPOSE_PROJECT="${CNPG_ALLOW_RUNNING_COMPOSE_PROJECT:-false}"
 
 TIMESTAMP="$(date +%Y%m%d%H%M%S)"
 BACKUP_VOLUME="${DATA_VOLUME}-pg16-backup-${TIMESTAMP}"
 STAGE_VOLUME="${DATA_VOLUME}-pg18-stage-${TIMESTAMP}"
 CREDENTIALS_BACKUP_VOLUME="${CREDENTIALS_VOLUME}-backup-${TIMESTAMP}"
-DUMP_FILE="$(mktemp /tmp/serviceradar-cnpg-pg18-dump-XXXXXX.sql)"
+DUMP_FILE="/tmp/serviceradar-cnpg-pg18-dump-${TIMESTAMP}.sql"
 SOURCE_CONTAINER="serviceradar-cnpg16-migrate-${TIMESTAMP}"
 TARGET_CONTAINER="serviceradar-cnpg18-migrate-${TIMESTAMP}"
 BOOTSTRAP_USER="migration_admin"
-BOOTSTRAP_PASSWORD="$(openssl rand -hex 32)"
+BOOTSTRAP_PASSWORD="$(od -An -N 32 -tx1 /dev/urandom | tr -d ' \n')"
 
 cleanup() {
   rm -f "$DUMP_FILE"
@@ -142,16 +141,21 @@ seed_credentials_volume() {
   fi
 
   docker run --rm \
-    -e CNPG_CRED_DIR=/etc/serviceradar/cnpg \
-    -e CNPG_DATA_DIR="${TARGET_DATA_PATH}" \
     -e CNPG_SUPERUSER="${SOURCE_SUPERUSER}" \
     -e CNPG_SUPERUSER_PASSWORD="${SOURCE_SUPERUSER_PASSWORD}" \
     -e CNPG_PASSWORD="${APP_PASSWORD}" \
     -v "${CREDENTIALS_VOLUME}:/etc/serviceradar/cnpg" \
-    -v "${DATA_VOLUME}:${TARGET_DATA_PATH}:ro" \
-    -v "${ROOT_DIR}/docker/compose/bootstrap-db-credentials.sh:/bootstrap-db-credentials.sh:ro" \
     alpine:3.20 \
-    sh /bootstrap-db-credentials.sh
+    sh -ceu '
+      umask 077
+      mkdir -p /etc/serviceradar/cnpg
+      printf "%s" "$CNPG_SUPERUSER" > /etc/serviceradar/cnpg/superuser-username
+      printf "%s" "$CNPG_SUPERUSER_PASSWORD" > /etc/serviceradar/cnpg/superuser-password
+      printf "%s" "$CNPG_PASSWORD" > /etc/serviceradar/cnpg/serviceradar-password
+      chmod 0644 /etc/serviceradar/cnpg/superuser-username \
+        /etc/serviceradar/cnpg/superuser-password \
+        /etc/serviceradar/cnpg/serviceradar-password
+    '
 }
 
 wait_for_ready() {
@@ -177,26 +181,23 @@ wait_for_ready() {
   die "Timed out waiting for $container to become ready."
 }
 
-ensure_source_is_pg16() {
-  actual="$(docker run --rm -v "${DATA_VOLUME}:/data:ro" alpine:3.20 sh -ceu 'tr -d "\r\n" < /data/PG_VERSION')"
-  if [ -z "$actual" ]; then
-    die "Volume ${DATA_VOLUME} does not contain a PG_VERSION file."
-  fi
-
-  case "$actual" in
-    16|16.*)
-      ;;
-    ${EXPECTED_TARGET_MAJOR}|${EXPECTED_TARGET_MAJOR}.*)
-      die "Volume ${DATA_VOLUME} already reports PostgreSQL ${actual}; migration is not needed."
-      ;;
-    *)
-      die "Volume ${DATA_VOLUME} reports PostgreSQL ${actual}; this workflow only supports PG16 -> PG${EXPECTED_TARGET_MAJOR}."
-      ;;
-  esac
+detect_source_version() {
+  docker run --rm \
+    -v "${DATA_VOLUME}:/data:ro" \
+    alpine:3.20 \
+    sh -ceu '
+      if [ -f /data/PG_VERSION ]; then
+        tr -d "\r\n" < /data/PG_VERSION
+      fi
+    ' 2>/dev/null || true
 }
 
 ensure_compose_stack_stopped() {
-  if docker ps --filter "label=com.docker.compose.project=${COMPOSE_PROJECT}" --format '{{.ID}}' | rg -q '.'; then
+  if [ "$ALLOW_RUNNING_COMPOSE_PROJECT" = "true" ]; then
+    return
+  fi
+
+  if [ -n "$(docker ps --filter "label=com.docker.compose.project=${COMPOSE_PROJECT}" -q)" ]; then
     die "Stop the running Docker Compose project ${COMPOSE_PROJECT} before migrating CNPG volumes."
   fi
 }
@@ -213,8 +214,24 @@ if [ -z "$APP_PASSWORD" ]; then
 fi
 
 ensure_volume_exists "$DATA_VOLUME"
-ensure_source_is_pg16
 ensure_compose_stack_stopped
+
+actual_version="$(detect_source_version)"
+case "$actual_version" in
+  "")
+    log "No existing PostgreSQL data detected in ${DATA_VOLUME}; skipping CNPG major migration."
+    exit 0
+    ;;
+  16|16.*)
+    ;;
+  ${EXPECTED_TARGET_MAJOR}|${EXPECTED_TARGET_MAJOR}.*)
+    log "Data volume ${DATA_VOLUME} already uses PostgreSQL ${actual_version}; skipping CNPG major migration."
+    exit 0
+    ;;
+  *)
+    die "Volume ${DATA_VOLUME} reports PostgreSQL ${actual_version}; this workflow only supports PG16 -> PG${EXPECTED_TARGET_MAJOR}."
+    ;;
+esac
 
 confirm "This will migrate Docker volume ${DATA_VOLUME} from PG16 to PG${EXPECTED_TARGET_MAJOR}, create backup volume ${BACKUP_VOLUME}, and overwrite ${DATA_VOLUME} with migrated PG${EXPECTED_TARGET_MAJOR} data. Continue?"
 

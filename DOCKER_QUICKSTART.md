@@ -84,11 +84,18 @@ All values have sensible defaults, so the `.env` file is optional.
 
 Note: CNPG binds to loopback by default. Set `CNPG_PUBLIC_BIND=0.0.0.0` in `.env` if you need LAN access.
 
-Note: Docker Compose now checks the on-disk Postgres major version before CNPG
-starts. A PostgreSQL 16 data volume will fail fast with an explicit migration
-error when used with the PG18 image.
+Note: Docker Compose now auto-migrates an existing PG16 CNPG data volume to
+PG18 during startup. For existing installs, the normal path is still:
 
-To migrate an existing PG16 Compose data volume to PG18:
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Fresh installs and already-migrated PG18 volumes automatically no-op in the
+migration step.
+
+If you need to run the migration explicitly, the helper is still available:
 
 ```bash
 ./docker/compose/migrate-cnpg-pg16-to-pg18.sh

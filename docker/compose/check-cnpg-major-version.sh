@@ -4,9 +4,10 @@ set -eu
 DATA_DIR="${CNPG_DATA_DIR:-/var/lib/postgresql/data}"
 VERSION_FILE="${DATA_DIR}/PG_VERSION"
 EXPECTED_MAJOR="${CNPG_EXPECTED_PG_MAJOR:-18}"
+CNPG_ENTRYPOINT="${CNPG_ENTRYPOINT:-/usr/local/bin/docker-entrypoint.sh}"
 
 if [ ! -f "$VERSION_FILE" ]; then
-  exec "$@"
+  exec "$CNPG_ENTRYPOINT" "$@"
 fi
 
 actual_version="$(tr -d '\r\n' < "$VERSION_FILE")"
@@ -19,4 +20,4 @@ if [ "$actual_major" != "$EXPECTED_MAJOR" ]; then
   exit 42
 fi
 
-exec "$@"
+exec "$CNPG_ENTRYPOINT" "$@"
