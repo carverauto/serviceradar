@@ -3,6 +3,7 @@
 * Currently, only linux on x86_64 is supported.
 * The recommended linux distro is Ubuntu 24_04.
 * The build process uses Bazel via Bazelisk.
+* The repository currently pins Bazel via `.bazelversion` to `9.0.0`.
 
 When configuring a VM, have at least 12 GB of RAM and 8 CPU cores available.
 
@@ -17,6 +18,7 @@ sudo mv bazelisk-linux-amd64 /usr/local/bin/bazel
 **check bazelisk is installed**
 
 which bazel
+bazel --version
 
 ### Install system dependencies
 

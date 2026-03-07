@@ -23,7 +23,7 @@ Alternatively, you can store an entire Docker auth configuration JSON in a singl
 
 ## Bootstrap script for BuildBuddy
 
-The repository includes `buildbuddy_setup_docker_auth.sh` together with the Bazel target `//:buildbuddy_setup_docker_auth`. The script materialises `~/.docker/config.json` before any build steps run, so Rule-based tooling such as `rules_oci` can reuse the credentials transparently.
+The repository includes `buildbuddy_setup_docker_auth.sh`. The script materialises `~/.docker/config.json` before any build steps run, so rule-based tooling such as `rules_oci` can reuse the credentials transparently.
 
 The script supports three input modes. Set exactly one of them via BuildBuddy secrets (replace placeholders with the matching `@@SECRET_NAME@@` syntax):
 
@@ -37,7 +37,6 @@ Example BuildBuddy workflow fragment:
 actions:
   - name: "Build, test and publish containers"
     bazel_commands = [
-      "run --config=remote //:buildbuddy_setup_docker_auth",
       "build --config=remote //...",
       "test  --config=remote //...",
       "run  --config=remote --stamp //docker/images:push_all",
@@ -69,10 +68,10 @@ steps:
 
 BuildBuddy replaces the `@@SECRET_NAME@@` placeholders with the stored secret values while keeping them out of the Bazel command line history.
 
-If you prefer the BuildBuddy script style locally, just run:
+If you prefer the script style locally, just run:
 
 ```bash
-bazel run //:buildbuddy_setup_docker_auth
+./buildbuddy_setup_docker_auth.sh
 ```
 
 For local pushes without the script you can export the same environment variables manually:
@@ -83,11 +82,13 @@ export GHCR_TOKEN="ghp_xxx"
 # Optional
 # export GHCR_REGISTRY="ghcr.io"
 
-bazel run --stamp //docker/images:push_all -- --tag "v$(git describe --tags --always)"
+make push_all PUSH_TAG="v$(git describe --tags --always)"
 ```
 
 ## Command usage
 
+- `make push_all` – pushes all images with the default `latest` and `sha-<commit>` tags, then verifies the published GHCR state.
+- `make push_all PUSH_TAG=v1.2.3` – pushes all images with an extra tag and verifies `latest`, `sha-<commit>`, and `v1.2.3`.
 - `bazel run --stamp //docker/images:push_all` – pushes all images with the default `latest` and `sha-<commit>` tags.
 - `bazel run --stamp //docker/images:core_image_amd64_push -- --tag 1.2.3` – pushes only the `core` image and adds an extra `1.2.3` tag.
 - `bazel run --config=remote --stamp //docker/images:push_all -- --tag $GIT_COMMIT` – builds using BuildBuddy remote execution, then pushes from the local workflow runner.
@@ -99,3 +100,19 @@ When credentials are supplied via environment variables the push helper writes a
 - Always run publish commands with `--stamp` so that Bazel injects the `STABLE_COMMIT_SHA` into the tag file. Without stamping, the fallback tag `sha-dev` is used.
 - The `push_all` helper accepts any flags supported by the underlying `oci_push` binaries (e.g. `--allow-nondistributable-artifacts`). These flags are forwarded to each image push in sequence.
 - CI systems that cannot expose environment variables globally can instead `source` a file containing the JSON docker config and set `DOCKER_CONFIG` before invoking `bazel run`. The helper script respects pre-set `DOCKER_CONFIG` values by simply overwriting the target directory.
+
+## Verification
+
+After publishing, run the repo-local verification script against the tag you care about, or use `make verify_publish`:
+
+```bash
+make verify_publish
+make verify_publish VERIFY_TAG="v$(git describe --tags --always)"
+./scripts/verify-ghcr-publish.sh latest "sha-$(git rev-parse HEAD)"
+```
+
+The script checks:
+
+- single-arch repos still publish single OCI manifests where expected
+- multi-arch repos publish OCI indexes with `linux/amd64` and `linux/arm64/v8`
+- critical runtime metadata such as `Entrypoint`, `Cmd`, `WorkingDir`, and selected environment values still match the Bazel image declarations

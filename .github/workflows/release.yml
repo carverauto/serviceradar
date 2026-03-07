@@ -117,6 +117,15 @@ jobs:
       - name: Setup Bazelisk
         uses: bazelbuild/setup-bazelisk@v3
 
+      - name: Verify Bazel version
+        run: |
+          set -euo pipefail
+          expected="$(tr -d '\r\n' < .bazelversion)"
+          actual="$(bazel --version | awk '{print $NF}')"
+          echo "Expected Bazel: ${expected}"
+          echo "Resolved Bazel: ${actual}"
+          test "${actual}" = "${expected}"
+
       - name: Resolve release metadata
         id: release
         env:
@@ -233,19 +242,14 @@ jobs:
             echo "GHCR_DOCKER_AUTH="
           } >> "${GITHUB_ENV}"
 
-          # Then run the Bazel auth setup for BuildBuddy.
-          bazel run --config=remote //:buildbuddy_setup_docker_auth
+          chmod +x ./buildbuddy_setup_docker_auth.sh
+          ./buildbuddy_setup_docker_auth.sh
 
       - name: Publish container images
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          run_bazel() {
-            local -a bazel_flags=("$@"); shift $#
-            bazel "${bazel_flags[@]}" //docker/images:push_all "${@}"
-          }
-
           extra_args=()
           if [[ -n "${RELEASE_TAG}" ]]; then
             extra_args+=(-- --tag "${RELEASE_TAG}")
@@ -268,6 +272,12 @@ jobs:
               exit 1
             fi
           fi
+
+          verify_tags=(latest "sha-${GITHUB_SHA}")
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            verify_tags+=("${RELEASE_TAG}")
+          fi
+          ./scripts/verify-ghcr-publish.sh "${verify_tags[@]}"
 
       - name: Install Helm
         uses: azure/setup-helm@v4

@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-lc"]
 
 # 1. Install basic setup tools, repository handling, and common dependencies
-# 2. Setup PostgreSQL official repo for version 16
+# 2. Setup PostgreSQL official repo for version 18
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
@@ -21,11 +21,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc \
     && gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
     && sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] http://apt.postgresql.org/pub/repos/apt noble-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
+    && dpkg --add-architecture arm64 \
+    && awk '{print} /^Signed-By:/ {print "Architectures: amd64"}' /etc/apt/sources.list.d/ubuntu.sources > /tmp/ubuntu.sources \
+    && mv /tmp/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources \
+    && printf '%s\n' \
+        'Types: deb' \
+        'URIs: http://ports.ubuntu.com/ubuntu-ports' \
+        'Suites: noble noble-updates noble-backports' \
+        'Components: main restricted universe multiverse' \
+        'Architectures: arm64' \
+        'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
+        '' \
+        'Types: deb' \
+        'URIs: http://ports.ubuntu.com/ubuntu-ports' \
+        'Suites: noble-security' \
+        'Components: main restricted universe multiverse' \
+        'Architectures: arm64' \
+        'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
+        > /etc/apt/sources.list.d/ubuntu-arm64.sources \
     && apt-get update && apt-get install -y --no-install-recommends \
         # Build Tools & Compilers
         build-essential \
         gcc \
         g++ \
+        gcc-aarch64-linux-gnu \
+        g++-aarch64-linux-gnu \
+        binutils-aarch64-linux-gnu \
         clang \
         llvm \
         llvm-dev \
@@ -39,9 +60,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         skopeo \
         iptables \
         # Database / Libs
-        postgresql-server-dev-16 \
+        postgresql-server-dev-18 \
         libpq-dev \
+        libc6-dev-arm64-cross \
+        linux-libc-dev-arm64-cross \
+        libstdc++-13-dev-arm64-cross \
         libssl-dev \
+        libssl-dev:arm64 \
         zlib1g-dev \
         liblz4-dev \
         libzstd-dev \
@@ -82,19 +107,26 @@ RUN ln -s /usr/lib/x86_64-linux-gnu /usr/lib64
 # that were required for Oracle Linux gcc-toolset-13.
 
 # Set Environment Variables
-# Note: On Ubuntu, Postgres libraries are usually in standard paths or /usr/lib/postgresql/16/lib
-ENV CC=/usr/bin/gcc \
-    CXX=/usr/bin/g++ \
-    XDG_RUNTIME_DIR=/run/user/0 \
+# Note: On Ubuntu, Postgres libraries are usually in standard paths or /usr/lib/postgresql/18/lib
+ENV XDG_RUNTIME_DIR=/run/user/0 \
     RUSTUP_HOME=/opt/rustup \
     CARGO_HOME=/opt/cargo \
     PATH=/opt/cargo/bin:$PATH \
     # pkg-config lookup paths
-    PKG_CONFIG_PATH=/usr/lib/postgresql/16/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+    PKG_CONFIG_PATH=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig \
+    CC_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-gcc \
+    CXX_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-g++ \
+    AR_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-ar \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/aarch64-linux-gnu-gcc \
+    PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu=/ \
+    PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig \
+    AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_DIR=/usr \
+    AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu \
+    AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 
-ARG GHCR_CNPG_IMAGE="ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3"
+ARG GHCR_CNPG_IMAGE="ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2"
 ARG GHCR_USERNAME=""
 
 # Fetch the CNPG test fixture image into a local docker-archive.

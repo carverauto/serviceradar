@@ -1110,7 +1110,7 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "4JWeK9DKO2TLwYx7NIm5mkkcU6SzchOSFjEc3GKVUYs=",
-        "usagesDigest": "rCjR4U0emGDsIez9h9m3n88swYuUmDRgPbUINcwJj8A=",
+        "usagesDigest": "TM65Zk9kF0+1zpHBQ/odgp3y8sQzeBjUIjfoa7SdEWw=",
         "recordedInputs": [
           "REPO_MAPPING:aspect_bazel_lib+,bazel_tools bazel_tools",
           "REPO_MAPPING:bazel_features+,bazel_tools bazel_tools",
@@ -1213,9 +1213,22 @@
               "scheme": "https",
               "registry": "index.docker.io",
               "repository": "library/alpine",
-              "identifier": "sha256:f25ebd2af60b9de8e26e5100fe6f493beb81bff010f27e84f223ad19886a78f0",
+              "identifier": "sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805",
               "platform": "linux/amd64",
               "target_name": "alpine_3_20_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "alpine_3_20_linux_arm64_v8": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/alpine",
+              "identifier": "sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805",
+              "platform": "linux/arm64/v8",
+              "target_name": "alpine_3_20_linux_arm64_v8",
               "bazel_tags": []
             }
           },
@@ -1227,11 +1240,41 @@
               "scheme": "https",
               "registry": "index.docker.io",
               "repository": "library/alpine",
-              "identifier": "sha256:f25ebd2af60b9de8e26e5100fe6f493beb81bff010f27e84f223ad19886a78f0",
+              "identifier": "sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805",
               "platforms": {
-                "@@platforms//cpu:x86_64": "@alpine_3_20_linux_amd64"
+                "@@platforms//cpu:x86_64": "@alpine_3_20_linux_amd64",
+                "@@platforms//cpu:arm64": "@alpine_3_20_linux_arm64_v8"
               },
               "bzlmod_repository": "alpine_3_20",
+              "reproducible": true
+            }
+          },
+          "alpine_3_23_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/alpine",
+              "identifier": "sha256:59855d3dceb3ae53991193bd03301e082b2a7faa56a514b03527ae0ec2ce3a95",
+              "platform": "linux/amd64",
+              "target_name": "alpine_3_23_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "alpine_3_23": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "alpine_3_23",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/alpine",
+              "identifier": "sha256:59855d3dceb3ae53991193bd03301e082b2a7faa56a514b03527ae0ec2ce3a95",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@alpine_3_23_linux_amd64"
+              },
+              "bzlmod_repository": "alpine_3_23",
               "reproducible": true
             }
           },
@@ -1242,9 +1285,22 @@
               "scheme": "https",
               "registry": "index.docker.io",
               "repository": "library/ubuntu",
-              "identifier": "sha256:985be7c735afdf6f18aaa122c23f87d989c30bba4e9aa24c8278912aac339a8d",
+              "identifier": "sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9",
               "platform": "linux/amd64",
               "target_name": "ubuntu_noble_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "ubuntu_noble_linux_arm64_v8": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/ubuntu",
+              "identifier": "sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9",
+              "platform": "linux/arm64/v8",
+              "target_name": "ubuntu_noble_linux_arm64_v8",
               "bazel_tags": []
             }
           },
@@ -1256,9 +1312,10 @@
               "scheme": "https",
               "registry": "index.docker.io",
               "repository": "library/ubuntu",
-              "identifier": "sha256:985be7c735afdf6f18aaa122c23f87d989c30bba4e9aa24c8278912aac339a8d",
+              "identifier": "sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9",
               "platforms": {
-                "@@platforms//cpu:x86_64": "@ubuntu_noble_linux_amd64"
+                "@@platforms//cpu:x86_64": "@ubuntu_noble_linux_amd64",
+                "@@platforms//cpu:arm64": "@ubuntu_noble_linux_arm64_v8"
               },
               "bzlmod_repository": "ubuntu_noble",
               "reproducible": true
@@ -1271,9 +1328,22 @@
               "scheme": "https",
               "registry": "index.docker.io",
               "repository": "library/debian",
-              "identifier": "sha256:48fa1e32d5ad897f7748b4b67d1ffb9e2ec46f4129f037afa3456a99f937203a",
+              "identifier": "sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421",
               "platform": "linux/amd64",
               "target_name": "debian_bookworm_slim_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "debian_bookworm_slim_linux_arm64_v8": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/debian",
+              "identifier": "sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421",
+              "platform": "linux/arm64/v8",
+              "target_name": "debian_bookworm_slim_linux_arm64_v8",
               "bazel_tags": []
             }
           },
@@ -1285,9 +1355,10 @@
               "scheme": "https",
               "registry": "index.docker.io",
               "repository": "library/debian",
-              "identifier": "sha256:48fa1e32d5ad897f7748b4b67d1ffb9e2ec46f4129f037afa3456a99f937203a",
+              "identifier": "sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421",
               "platforms": {
-                "@@platforms//cpu:x86_64": "@debian_bookworm_slim_linux_amd64"
+                "@@platforms//cpu:x86_64": "@debian_bookworm_slim_linux_amd64",
+                "@@platforms//cpu:arm64": "@debian_bookworm_slim_linux_arm64_v8"
               },
               "bzlmod_repository": "debian_bookworm_slim",
               "reproducible": true
@@ -1591,10 +1662,15 @@
             "arc_runner_linux_amd64",
             "alpine_3_20",
             "alpine_3_20_linux_amd64",
+            "alpine_3_20_linux_arm64_v8",
+            "alpine_3_23",
+            "alpine_3_23_linux_amd64",
             "ubuntu_noble",
             "ubuntu_noble_linux_amd64",
+            "ubuntu_noble_linux_arm64_v8",
             "debian_bookworm_slim",
             "debian_bookworm_slim_linux_amd64",
+            "debian_bookworm_slim_linux_arm64_v8",
             "debian_testing_slim",
             "debian_testing_slim_linux_amd64",
             "node_20_alpine",
@@ -11623,13 +11699,13 @@
     "@@toolchains_buildbuddy+//:extensions.bzl%buildbuddy": {
       "general": {
         "bzlTransitiveDigest": "YThiSErJv+jiCHJzZIEyk0yegQRS/x+T/ce309eGTvA=",
-        "usagesDigest": "ZzAg9Zzyiqs/IAgGzDgGO7tdlNFIPG8RjLkJhLXAWPQ=",
+        "usagesDigest": "hgTknl+iCzIvaXFBdoTqwDqHZSJ+LSBOBszBiV/a2dI=",
         "recordedInputs": [],
         "generatedRepoSpecs": {
           "buildbuddy_toolchain": {
             "repoRuleId": "@@toolchains_buildbuddy+//:rules.bzl%_buildbuddy_toolchain",
             "attributes": {
-              "container_image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.20",
+              "container_image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.23",
               "llvm": false,
               "java_version": "",
               "gcc_version": "13",

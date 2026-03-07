@@ -78,6 +78,15 @@ jobs:
       - name: Setup Bazel
         uses: bazelbuild/setup-bazelisk@v3
 
+      - name: Verify Bazel version
+        run: |
+          set -euo pipefail
+          expected="$(tr -d '\r\n' < .bazelversion)"
+          actual="$(bazel --version | awk '{print $NF}')"
+          echo "Expected Bazel: ${expected}"
+          echo "Resolved Bazel: ${actual}"
+          test "${actual}" = "${expected}"
+
       - name: Configure BuildBuddy remote cache
         if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
         run: |
@@ -131,10 +140,8 @@ jobs:
             echo "GHCR_DOCKER_AUTH="
           } >> "${GITHUB_ENV}"
 
-          bazel run \
-            --config=remote \
-            -c opt \
-            //:buildbuddy_setup_docker_auth
+          chmod +x ./buildbuddy_setup_docker_auth.sh
+          ./buildbuddy_setup_docker_auth.sh
 
       - name: Build (no publish)
         run: |
@@ -153,6 +160,12 @@ jobs:
             cmd+=(-- --tag "${EXTRA_TAG}")
           fi
           "${cmd[@]}"
+
+          verify_tags=(latest "sha-${GITHUB_SHA}")
+          if [[ -n "${EXTRA_TAG}" ]]; then
+            verify_tags+=("${EXTRA_TAG}")
+          fi
+          ./scripts/verify-ghcr-publish.sh "${verify_tags[@]}"
 
       - name: Summarize pushed tags
         env:

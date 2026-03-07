@@ -75,6 +75,7 @@ The `publish_packages` binary performs the following:
 After the commands complete:
 
 - Confirm container images in GHCR (`ghcr.io/carverauto/serviceradar-*`).
+- Run `make verify_publish VERIFY_TAG="v$(cat VERSION)"` to confirm published image shape and runtime metadata for `latest`, `sha-<commit>`, and the release tag.
 - Verify that the GitHub release contains the expected `.deb` and `.rpm` assets.
 - Optionally attach checksums or additional assets by re-running `publish_packages` with extra files staged in `build/release/package_manifest.txt`.
 
@@ -94,10 +95,9 @@ For RPM builds the macro automatically splits pre-release strings (e.g. `1.0.53-
 
 The repository includes a BuildBuddy workflow (`.buildbuddy/workflows.yaml`) that wires the publish steps into a fully automated pipeline:
 
-- `run --config=remote //:buildbuddy_setup_docker_auth`
-- `run --config=remote //tools/buildbuddy:release_pipeline`
+- `run --config=remote //build/buildbuddy:release_pipeline`
 
-`//tools/buildbuddy:release_pipeline` is a thin shim over the manual commands: it determines the release tag (from the workflow input, Git tag, or the `VERSION` file), pushes all container images, and then invokes `//build/release:publish_packages`. Useful environment variables:
+`//build/buildbuddy:release_pipeline` bootstraps Docker auth with `./buildbuddy_setup_docker_auth.sh`, determines the release tag (from the workflow input, Git tag, or the `VERSION` file), pushes all container images, and then invokes `//build/release:publish_packages`. Useful environment variables:
 
 - `RELEASE_TAG` / workflow `tag` input – forces the tag passed to both publish steps.
 - `RELEASE_NOTES_FILE` / workflow `notes_file` input – points at a file that `publish_packages` should attach as the release body.

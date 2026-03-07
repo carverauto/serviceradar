@@ -1,9 +1,23 @@
 """Bazel-native OCI images."""
 
-load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
-load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
-load("//docker/images:apk.bzl", "apk_rootfs_amd64")
+load("//docker/images:apk.bzl", "apk_rootfs_amd64", "declare_alpine_netutils_rootfs_amd64", "declare_apk_rootfs_targets")
+load("//docker/images:cnpg_image.bzl", "declare_cnpg_image_amd64")
 load("//docker/images:push_targets.bzl", "declare_ghcr_push_targets")
+load(
+    "//docker/images:release_images.bzl",
+    "declare_elixir_release_container_amd64",
+    "declare_elixir_release_container_with_debs_amd64",
+    "declare_web_ng_release_container_amd64",
+)
+load(
+    "//docker/images:service_images.bzl",
+    "declare_common_tools_layer",
+    "declare_custom_base_service_container_amd64",
+    "declare_multiarch_image_index",
+    "declare_postgresql_client_symlink_layer",
+    "declare_loaded_oci_image_amd64",
+    "declare_service_container_amd64",
+)
 
 exports_files([
     "export_rootfs_from_layout.py",
@@ -17,549 +31,63 @@ package(default_visibility = ["//visibility:public"])
 
 # ARC runner image -----------------------------------------------------------
 
-oci_image(
+declare_loaded_oci_image_amd64(
     name = "arc_runner_image_amd64",
     base = "@arc_runner_linux_amd64//:arc_runner_linux_amd64",
-    labels = {
-        "org.opencontainers.image.title": "arc-runner",
-    },
-)
-
-oci_load(
-    name = "arc_runner_image_amd64_tar",
-    image = ":arc_runner_image_amd64",
+    image_title = "arc-runner",
     repo_tags = ["ghcr.io/carverauto/arc-runner:local"],
 )
 
-pkg_tar(
-    name = "common_tools_amd64",
-    files = {
-        "@jq_linux_amd64//file": "usr/local/bin/jq",
-        "@curl_linux_amd64//file": "usr/local/bin/curl",
-        "@grpcurl_linux_amd64//:grpcurl": "usr/local/bin/grpcurl",
-        "//go/cmd/tools/waitforport:wait-for-port": "usr/local/bin/wait-for-port",
-    },
-    modes = {
-        "usr/local/bin/jq": "0755",
-        "usr/local/bin/curl": "0755",
-        "usr/local/bin/grpcurl": "0755",
-        "usr/local/bin/wait-for-port": "0755",
-    },
-    package_dir = "/",
-)
+declare_common_tools_layer()
 
-genrule(
-    name = "apk_iputils_ping_rootfs_amd64",
-    srcs = ["@alpine_iputils_ping_apk//file"],
-    outs = ["apk_iputils_ping_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_iputils_ping_apk//file)
-TMP=$(@D)/iputils_ping_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
-""",
-)
-
-genrule(
-    name = "apk_nmap_rootfs_amd64",
-    srcs = ["@alpine_nmap_apk//file"],
-    outs = ["apk_nmap_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_nmap_apk//file)
-TMP=$(@D)/nmap_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
-""",
-)
-
-genrule(
-    name = "apk_netcat_rootfs_amd64",
-    srcs = ["@alpine_netcat_openbsd_apk//file"],
-    outs = ["apk_netcat_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_netcat_openbsd_apk//file)
-TMP=$(@D)/netcat_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
-""",
-)
+declare_apk_rootfs_targets([
+    ("iputils_ping", "@alpine_iputils_ping_apk//file"),
+    ("nmap", "@alpine_nmap_apk//file"),
+    ("netcat", "@alpine_netcat_openbsd_apk//file"),
+    ("inetutils_telnet", "@alpine_inetutils_telnet_apk//file"),
+    ("libcap2", "@alpine_libcap2_apk//file"),
+    ("libbsd", "@alpine_libbsd_apk//file"),
+    ("libmd", "@alpine_libmd_apk//file"),
+    ("bash", "@alpine_bash_apk//file"),
+    ("readline", "@alpine_readline_apk//file"),
+])
 
 apk_rootfs_amd64(
-    name = "inetutils_telnet",
-    apk_target = "@alpine_inetutils_telnet_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "libcap2",
-    apk_target = "@alpine_libcap2_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "libbsd",
-    apk_target = "@alpine_libbsd_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "libmd",
-    apk_target = "@alpine_libmd_apk//file",
-)
-
-genrule(
-    name = "apk_bash_rootfs_amd64",
-    srcs = ["@alpine_bash_apk//file"],
-    outs = ["apk_bash_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_bash_apk//file)
-TMP=$(@D)/bash_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
-""",
-)
-
-genrule(
-    name = "apk_readline_rootfs_amd64",
-    srcs = ["@alpine_readline_apk//file"],
-    outs = ["apk_readline_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_readline_apk//file)
-TMP=$(@D)/readline_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
-""",
-)
-
-genrule(
-    name = "apk_postgresql16_client_rootfs_amd64",
-    srcs = ["@alpine_postgresql16_client_apk//file"],
-    outs = ["apk_postgresql16_client_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_postgresql16_client_apk//file)
-TMP=$(@D)/postgresql16_client_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
-""",
-)
-
-genrule(
-    name = "apk_libpq16_rootfs_amd64",
-    srcs = ["@alpine_libpq16_apk//file"],
-    outs = ["apk_libpq16_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_libpq16_apk//file)
-TMP=$(@D)/libpq16_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
-""",
-)
-
-genrule(
-    name = "apk_glibc_rootfs_amd64",
-    srcs = ["@alpine_glibc_apk//file"],
-    outs = ["apk_glibc_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_glibc_apk//file)
-TMP=$(@D)/glibc_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
+    name = "glibc",
+    apk_target = "@alpine_glibc_apk//file",
+    post_extract_cmd = """
 # Ensure ld-linux is reachable from /lib64 for glibc binaries.
 mkdir -p "$${TMP}/rootfs/lib64"
 if [ -f "$${TMP}/rootfs/lib/ld-linux-x86-64.so.2" ] && [ ! -e "$${TMP}/rootfs/lib64/ld-linux-x86-64.so.2" ]; then
   ln -s ../lib/ld-linux-x86-64.so.2 "$${TMP}/rootfs/lib64/ld-linux-x86-64.so.2"
 fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
 """,
 )
 
-genrule(
-    name = "apk_libncursesw_rootfs_amd64",
-    srcs = ["@alpine_libncursesw_apk//file"],
-    outs = ["apk_libncursesw_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_libncursesw_apk//file)
-TMP=$(@D)/libncursesw_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
-""",
-)
+declare_apk_rootfs_targets([
+    ("libncursesw", "@alpine_libncursesw_apk//file"),
+    ("ncurses_terminfo_base", "@alpine_ncurses_terminfo_base_apk//file"),
+    ("tools_bash", "@alpine_3_23_bash_apk//file"),
+    ("tools_readline", "@alpine_3_23_readline_apk//file"),
+    ("tools_postgresql_common", "@alpine_3_23_postgresql_common_apk//file"),
+    ("tools_postgresql18_client", "@alpine_3_23_postgresql18_client_apk//file"),
+    ("tools_libpq", "@alpine_3_23_libpq_apk//file"),
+    ("tools_lz4_libs", "@alpine_3_23_lz4_libs_apk//file"),
+    ("tools_zstd_libs", "@alpine_3_23_zstd_libs_apk//file"),
+    ("tools_libncursesw", "@alpine_3_23_libncursesw_apk//file"),
+    ("tools_ncurses_terminfo_base", "@alpine_3_23_ncurses_terminfo_base_apk//file"),
+])
 
-genrule(
-    name = "apk_ncurses_terminfo_base_rootfs_amd64",
-    srcs = ["@alpine_ncurses_terminfo_base_apk//file"],
-    outs = ["apk_ncurses_terminfo_base_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-APK=$(location @alpine_ncurses_terminfo_base_apk//file)
-TMP=$(@D)/ncurses_terminfo_base_extract
-rm -rf "$${TMP}"
-mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
-tar -xzf "$${APK}" -C "$${TMP}/extracted"
-DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
-if [ -n "$${DATA_TAR}" ]; then
-  case "$${DATA_TAR}" in
-    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
-  esac
-else
-  shopt -s nullglob
-  for entry in "$${TMP}/extracted"/*; do
-    base=`basename "$${entry}"`
-    case "$${base}" in
-      .SIGN*|.PKGINFO) continue ;;
-    esac
-    cp -a "$${entry}" "$${TMP}/rootfs/"
-  done
-fi
-tar -czf "$@" -C "$${TMP}/rootfs" .
-""",
-)
-
-genrule(
-    name = "alpine_netutils_rootfs_amd64",
-    srcs = [
-        ":apk_iputils_ping_rootfs_amd64.tar",
-        ":apk_libcap2_rootfs_amd64.tar",
-        ":apk_libmd_rootfs_amd64.tar",
-        ":apk_libbsd_rootfs_amd64.tar",
-        ":apk_nmap_rootfs_amd64.tar",
-        ":apk_netcat_rootfs_amd64.tar",
-        ":apk_inetutils_telnet_rootfs_amd64.tar",
-    ],
-    outs = ["alpine_netutils_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-ROOT=$(@D)/netutils_root
-rm -rf "$${ROOT}"
-mkdir -p "$${ROOT}"
-for tarfile in $(SRCS); do
-  tar -xzf "$${tarfile}" -C "$${ROOT}"
-done
-tar -czf "$@" -C "$${ROOT}" .
-""",
-)
+declare_alpine_netutils_rootfs_amd64()
 
 # web-ng (Phoenix) -----------------------------------------------------------
 
-genrule(
-    name = "web_ng_release_rootfs_amd64",
-    srcs = ["//elixir/web-ng:release_tar"],
-    outs = ["web_ng_release_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-TAR=$(location //elixir/web-ng:release_tar)
-ROOT=$(@D)/rootfs
-rm -rf "$${ROOT}"
-mkdir -p "$${ROOT}/app"
-tar -xzf "$${TAR}" -C "$${ROOT}/app"
-tar -czf "$@" -C "$${ROOT}" .
-""",
-)
-
-oci_image(
-    name = "web_ng_image_base_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    tars = [":web_ng_release_rootfs_amd64"],
-    entrypoint = ["/app/bin/serviceradar_web_ng"],
-    cmd = ["start"],
-    env = {
-        "HOME": "/app",
-        "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
-        "PHX_SERVER": "true",
-        "MIX_ENV": "prod",
-    },
-    workdir = "/app",
-    exposed_ports = ["4000/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-web-ng",
-    },
-)
-
-genrule(
-    name = "web_ng_build_info_json",
-    srcs = [
-        ":web_ng_image_base_amd64.digest",
-        "//docker/images:core_elx_image_amd64.digest",
-        "//:VERSION",
-    ],
-    outs = ["web_ng_build_info.json"],
-    stamp = True,
-    cmd = """
-set -euo pipefail
-
-web_digest_file="$(location :web_ng_image_base_amd64.digest)"
-core_digest_file="$(location //docker/images:core_elx_image_amd64.digest)"
-version_file="$(location //:VERSION)"
-info_file="bazel-out/stable-status.txt"
-
-web_digest=$$(cat "$$web_digest_file")
-if [[ "$$web_digest" != sha256:* ]]; then
-  echo "unexpected web-ng base digest format: $$web_digest" >&2
-  exit 1
-fi
-
-web_short=$${web_digest#sha256:}
-web_short=$$(printf '%s' "$$web_short" | cut -c1-12)
-
-core_digest=$$(cat "$$core_digest_file")
-if [[ "$$core_digest" != sha256:* ]]; then
-  echo "unexpected core-elx digest format: $$core_digest" >&2
-  exit 1
-fi
-
-core_short=$${core_digest#sha256:}
-core_short=$$(printf '%s' "$$core_short" | cut -c1-12)
-
-commit_sha="dev"
-if [[ -f "$$info_file" ]]; then
-  commit_sha=$$(grep -m1 '^STABLE_COMMIT_SHA ' "$$info_file" | awk '{print $$2}')
-  if [[ -z "$$commit_sha" ]]; then
-    commit_sha="dev"
-  fi
-fi
-commit_short=$$(printf '%s' "$$commit_sha" | cut -c1-12)
-
-if [[ -f "$$version_file" ]]; then
-  version=$$(tr -d '\\n' < "$$version_file")
-else
-  version="dev"
-fi
-
-build_time="$${BUILD_TIMESTAMP:-$$(date -u +"%Y-%m-%dT%H:%M:%SZ")}"
-
-cat > "$@" <<EOF
-{
-  "version": "$$version",
-  "buildTime": "$$build_time",
-  "webBuildId": "sha-$$commit_short",
-  "webImageDigest": "$$web_digest",
-  "coreBuildId": "sha-$$core_short"
-}
-EOF
-""",
-)
-
-pkg_tar(
-    name = "web_ng_build_info_layer_amd64",
-    files = {
-        ":web_ng_build_info_json": "app/priv/static/build-info.json",
-    },
-    modes = {
-        "app/priv/static/build-info.json": "0644",
-    },
-    package_dir = "/",
-    target_compatible_with = [],
-)
-
-# Bun runtime for Phoenix React Server SSR (GoRules JDM editor)
-pkg_tar(
-    name = "bun_runtime_layer_amd64",
-    files = {
-        "@bun_linux_amd64//:bun": "usr/local/bin/bun",
-    },
-    modes = {
-        "usr/local/bin/bun": "0755",
-    },
-    package_dir = "/",
-)
-
-oci_image(
+declare_web_ng_release_container_amd64(
     name = "web_ng_image_amd64",
-    target_compatible_with = [],
-    base = ":web_ng_image_base_amd64",
-    tars = [
-        ":web_ng_build_info_layer_amd64",
-        ":bun_runtime_layer_amd64",
-    ],
-    entrypoint = ["/app/bin/serviceradar_web_ng"],
+    base_image_name = "web_ng_image_base_amd64",
+    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    release_tar = "//elixir/web-ng:release_tar",
+    core_digest = "//docker/images:core_elx_image_amd64.digest",
     cmd = ["start"],
     env = {
         "HOME": "/app",
@@ -569,38 +97,17 @@ oci_image(
     },
     workdir = "/app",
     exposed_ports = ["4000/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-web-ng",
-    },
-)
-
-oci_load(
-    name = "web_ng_image_amd64_tar",
-    image = ":web_ng_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-web-ng:local"],
+    image_title = "serviceradar-web-ng",
+    local_repo_tag = "ghcr.io/carverauto/serviceradar-web-ng:local",
+    target_compatible_with = [],
 )
 
 # elixir core-elx ------------------------------------------------------------
 
-genrule(
-    name = "core_elx_release_rootfs_amd64",
-    srcs = ["//elixir/serviceradar_core_elx:release_tar"],
-    outs = ["core_elx_release_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-TAR=$(location //elixir/serviceradar_core_elx:release_tar)
-ROOT=$(@D)/rootfs
-rm -rf "$${ROOT}"
-mkdir -p "$${ROOT}/app"
-tar -xzf "$${TAR}" -C "$${ROOT}/app"
-tar -czf "$@" -C "$${ROOT}" .
-""",
-)
-
-oci_image(
+declare_elixir_release_container_amd64(
     name = "core_elx_image_amd64",
     base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    tars = [":core_elx_release_rootfs_amd64"],
+    release_tar = "//elixir/serviceradar_core_elx:release_tar",
     entrypoint = ["/app/bin/serviceradar_core_elx"],
     cmd = ["start"],
     env = {
@@ -609,61 +116,20 @@ oci_image(
         "MIX_ENV": "prod",
     },
     workdir = "/app",
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-core-elx",
-    },
-)
-
-oci_load(
-    name = "core_elx_image_amd64_tar",
-    image = ":core_elx_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-core-elx:local"],
+    image_title = "serviceradar-core-elx",
+    local_repo_tag = "ghcr.io/carverauto/serviceradar-core-elx:local",
 )
 
 # elixir agent-gateway -------------------------------------------------------
 
-genrule(
-    name = "agent_gateway_release_rootfs_amd64",
-    srcs = ["//elixir/serviceradar_agent_gateway:release_tar"],
-    outs = ["agent_gateway_release_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-TAR=$(location //elixir/serviceradar_agent_gateway:release_tar)
-ROOT=$(@D)/rootfs
-rm -rf "$${ROOT}"
-mkdir -p "$${ROOT}/app"
-tar -xzf "$${TAR}" -C "$${ROOT}/app"
-tar -czf "$@" -C "$${ROOT}" .
-""",
-)
-
-genrule(
-    name = "agent_gateway_openssl_rootfs_amd64",
-    srcs = [
-        ":agent_gateway_release_rootfs_amd64",
+declare_elixir_release_container_with_debs_amd64(
+    name = "agent_gateway_image_amd64",
+    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    release_tar = "//elixir/serviceradar_agent_gateway:release_tar",
+    deb_packages = [
         "@debian_openssl_amd64_deb//file",
         "@debian_libssl3_amd64_deb//file",
     ],
-    outs = ["agent_gateway_openssl_rootfs_amd64.tar"],
-    tools = ["//docker/images:overlay_deb_packages.py"],
-    cmd = """
-set -euo pipefail
-TAR=$(location :agent_gateway_release_rootfs_amd64)
-ROOT=$(@D)/rootfs
-rm -rf "$${ROOT}"
-mkdir -p "$${ROOT}"
-tar -xzf "$${TAR}" -C "$${ROOT}"
-python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT}" \\
-  "$(location @debian_openssl_amd64_deb//file)" \\
-  "$(location @debian_libssl3_amd64_deb//file)"
-tar -czf "$@" -C "$${ROOT}" .
-""",
-)
-
-oci_image(
-    name = "agent_gateway_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    tars = [":agent_gateway_openssl_rootfs_amd64"],
     entrypoint = ["/app/bin/serviceradar_agent_gateway"],
     cmd = ["start"],
     env = {
@@ -672,19 +138,14 @@ oci_image(
         "MIX_ENV": "prod",
     },
     workdir = "/app",
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-agent-gateway",
-    },
+    image_title = "serviceradar-agent-gateway",
+    local_repo_tag = "ghcr.io/carverauto/serviceradar-agent-gateway:local",
 )
 
-oci_load(
-    name = "agent_gateway_image_amd64_tar",
-    image = ":agent_gateway_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-agent-gateway:local"],
-)
-
-pkg_tar(
-    name = "agent_layer_amd64",
+declare_service_container_amd64(
+    name = "agent_image_amd64",
+    runtime = "alpine_netutils",
+    image_title = "serviceradar-agent",
     files = {
         "//go/cmd/agent:agent": "usr/local/bin/serviceradar-agent",
         "//docker/compose:agent.docker.json": "etc/serviceradar/agent.json",
@@ -699,32 +160,16 @@ pkg_tar(
         "var/lib/serviceradar",
         "var/log/serviceradar",
     ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "agent_image_amd64",
-    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":agent_layer_amd64"],
     cmd = ["/usr/local/bin/serviceradar-agent", "-config", "/etc/serviceradar/agent.json"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["50051/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-agent",
-    },
-)
-
-oci_load(
-    name = "agent_image_amd64_tar",
-    image = ":agent_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-agent:local"],
 )
 
-pkg_tar(
-    name = "db_event_writer_layer_amd64",
+declare_service_container_amd64(
+    name = "db_event_writer_image_amd64",
+    runtime = "alpine_netutils",
+    image_title = "serviceradar-db-event-writer",
     files = {
         "//go/cmd/consumers/db-event-writer:db-event-writer": "usr/local/bin/serviceradar-db-event-writer",
         "//docker/compose:entrypoint-db-event-writer.sh": "usr/local/bin/entrypoint.sh",
@@ -739,33 +184,17 @@ pkg_tar(
         "var/lib/serviceradar",
         "var/log/serviceradar",
     ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "db_event_writer_image_amd64",
-    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":db_event_writer_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["serviceradar-db-event-writer"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["50041/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-db-event-writer",
-    },
-)
-
-oci_load(
-    name = "db_event_writer_image_amd64_tar",
-    image = ":db_event_writer_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-db-event-writer:local"],
 )
 
-pkg_tar(
-    name = "datasvc_layer_amd64",
+declare_service_container_amd64(
+    name = "datasvc_image_amd64",
+    runtime = "alpine_netutils",
+    image_title = "serviceradar-datasvc",
     files = {
         "//go/cmd/data-services:data_services": "usr/local/bin/serviceradar-datasvc",
         "//docker/compose:entrypoint-datasvc.sh": "usr/local/bin/entrypoint.sh",
@@ -780,33 +209,17 @@ pkg_tar(
         "var/lib/serviceradar",
         "var/log/serviceradar",
     ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "datasvc_image_amd64",
-    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":datasvc_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["/usr/local/bin/serviceradar-datasvc"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["50057/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-datasvc",
-    },
-)
-
-oci_load(
-    name = "datasvc_image_amd64_tar",
-    image = ":datasvc_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-datasvc:local"],
 )
 
-pkg_tar(
-    name = "log_collector_layer_amd64",
+declare_service_container_amd64(
+    name = "log_collector_image_amd64",
+    runtime = "debian",
+    image_title = "serviceradar-log-collector",
     files = {
         "//rust/log-collector:log-collector": "usr/local/bin/serviceradar-log-collector",
         "//docker/compose:entrypoint-log-collector.sh": "usr/local/bin/entrypoint.sh",
@@ -827,33 +240,22 @@ pkg_tar(
         "var/log/serviceradar",
         "var/lib/serviceradar",
     ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "log_collector_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    tars = [":common_tools_amd64", ":log_collector_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["serviceradar-log-collector"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["514/udp", "4317/tcp", "50044/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-log-collector",
-    },
-)
-
-oci_load(
-    name = "log_collector_image_amd64_tar",
-    image = ":log_collector_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-log-collector:local"],
 )
 
-pkg_tar(
-    name = "trapd_layer_amd64",
+declare_multiarch_image_index(
+    name = "log_collector_image_multiarch",
+    image = ":log_collector_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "trapd_image_amd64",
+    runtime = "debian",
+    image_title = "serviceradar-trapd",
     files = {
         "//rust/trapd:trapd": "usr/local/bin/serviceradar-trapd",
         "//docker/compose:entrypoint-trapd.sh": "usr/local/bin/entrypoint.sh",
@@ -869,33 +271,22 @@ pkg_tar(
         "var/log/serviceradar",
         "var/lib/serviceradar",
     ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "trapd_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    tars = [":common_tools_amd64", ":trapd_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["serviceradar-trapd"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["162/udp", "50043/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-trapd",
-    },
-)
-
-oci_load(
-    name = "trapd_image_amd64_tar",
-    image = ":trapd_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-trapd:local"],
 )
 
-pkg_tar(
-    name = "flow_collector_layer_amd64",
+declare_multiarch_image_index(
+    name = "trapd_image_multiarch",
+    image = ":trapd_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "flow_collector_image_amd64",
+    runtime = "debian",
+    image_title = "serviceradar-flow-collector",
     files = {
         "//rust/flow-collector:flow-collector": "usr/local/bin/serviceradar-flow-collector",
         "//rust/flow-collector:flow-collector.json": "etc/serviceradar/flow-collector.json",
@@ -909,33 +300,22 @@ pkg_tar(
         "var/log/serviceradar",
         "var/lib/serviceradar",
     ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "flow_collector_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    tars = [":common_tools_amd64", ":flow_collector_layer_amd64"],
     entrypoint = ["/usr/local/bin/serviceradar-flow-collector"],
     cmd = ["--config", "/etc/serviceradar/flow-collector.json"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["2055/udp", "6343/udp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-flow-collector",
-    },
-)
-
-oci_load(
-    name = "flow_collector_image_amd64_tar",
-    image = ":flow_collector_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-flow-collector:local"],
 )
 
-pkg_tar(
-    name = "bmp_collector_layer_amd64",
+declare_multiarch_image_index(
+    name = "flow_collector_image_multiarch",
+    image = ":flow_collector_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "bmp_collector_image_amd64",
+    runtime = "debian",
+    image_title = "arancini",
     files = {
         "//rust/bmp-collector:bmp-collector": "usr/local/bin/serviceradar-bmp-collector",
     },
@@ -948,33 +328,22 @@ pkg_tar(
         "var/log/serviceradar",
         "var/lib/serviceradar",
     ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "bmp_collector_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    tars = [":common_tools_amd64", ":bmp_collector_layer_amd64"],
     entrypoint = ["/usr/local/bin/serviceradar-bmp-collector"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["11019/tcp", "8080/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "arancini",
-    },
-)
-
-oci_load(
-    name = "bmp_collector_image_amd64_tar",
-    image = ":bmp_collector_image_amd64",
     repo_tags = ["ghcr.io/carverauto/arancini:local"],
 )
 
+declare_multiarch_image_index(
+    name = "bmp_collector_image_multiarch",
+    image = ":bmp_collector_image_amd64",
+)
 
-pkg_tar(
-    name = "rperf_client_layer_amd64",
+
+declare_service_container_amd64(
+    name = "rperf_client_image_amd64",
+    runtime = "debian",
+    image_title = "serviceradar-rperf-client",
     files = {
         "//rust/rperf-client:rperf_checker": "usr/local/bin/serviceradar-rperf-checker",
         "//docker/compose:entrypoint-rperf-client.sh": "usr/local/bin/entrypoint.sh",
@@ -991,33 +360,22 @@ pkg_tar(
         "var/log/serviceradar",
         "var/lib/serviceradar",
     ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "rperf_client_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    tars = [":common_tools_amd64", ":rperf_client_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["/usr/local/bin/serviceradar-rperf-checker", "--config", "/etc/serviceradar/checkers/rperf.json"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["50059/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-rperf-client",
-    },
-)
-
-oci_load(
-    name = "rperf_client_image_amd64_tar",
-    image = ":rperf_client_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-rperf-client:local"],
 )
 
-pkg_tar(
-    name = "faker_layer_amd64",
+declare_multiarch_image_index(
+    name = "rperf_client_image_multiarch",
+    image = ":rperf_client_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "faker_image_amd64",
+    runtime = "alpine",
+    image_title = "serviceradar-faker",
     files = {
         "//go/cmd/faker:faker": "usr/local/bin/serviceradar-faker",
     },
@@ -1029,32 +387,21 @@ pkg_tar(
         "var/log/serviceradar",
         "var/lib/serviceradar/faker",
     ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "faker_image_amd64",
-    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":common_tools_amd64", ":faker_layer_amd64"],
     cmd = ["/usr/local/bin/serviceradar-faker", "-config", "/etc/serviceradar/faker.json"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["8080/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-faker",
-    },
-)
-
-oci_load(
-    name = "faker_image_amd64_tar",
-    image = ":faker_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-faker:local"],
 )
 
-pkg_tar(
-    name = "zen_layer_amd64",
+declare_multiarch_image_index(
+    name = "faker_image_multiarch",
+    image = ":faker_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "zen_image_amd64",
+    runtime = "debian",
+    image_title = "serviceradar-zen",
     files = {
         "//rust/consumers/zen:zen": "usr/local/bin/serviceradar-zen",
         "//rust/consumers/zen:zen_put_rule": "usr/local/bin/zen-put-rule",
@@ -1083,33 +430,22 @@ pkg_tar(
         "var/log/serviceradar",
         "var/lib/serviceradar",
     ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "zen_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    tars = [":common_tools_amd64", ":zen_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["serviceradar-zen"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["50040/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-zen",
-    },
-)
-
-oci_load(
-    name = "zen_image_amd64_tar",
-    image = ":zen_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-zen:local"],
 )
 
-pkg_tar(
-    name = "config_updater_layer_amd64",
+declare_multiarch_image_index(
+    name = "zen_image_multiarch",
+    image = ":zen_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "config_updater_image_amd64",
+    runtime = "alpine_netutils",
+    image_title = "serviceradar-config-updater",
     files = {
         "//go/cmd/cli:cli": "usr/local/bin/serviceradar-cli",
         "//docker/compose:update-config.sh": "usr/local/bin/update-config.sh",
@@ -1122,31 +458,16 @@ pkg_tar(
         "etc/serviceradar/certs",
         "etc/serviceradar/config",
     ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "config_updater_image_amd64",
-    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":config_updater_layer_amd64"],
     cmd = ["/usr/local/bin/update-config.sh"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
     workdir = "/",
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-config-updater",
-    },
-)
-
-oci_load(
-    name = "config_updater_image_amd64_tar",
-    image = ":config_updater_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-config-updater:local"],
 )
 
-pkg_tar(
-    name = "cert_generator_layer_amd64",
+declare_custom_base_service_container_amd64(
+    name = "cert_generator_image_amd64",
+    base = "@serviceradar_cert_generator_linux_amd64//:serviceradar_cert_generator_linux_amd64",
+    image_title = "serviceradar-cert-generator",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-cert-generator:local"],
     files = {
         "//docker/compose:entrypoint-certs.sh": "entrypoint-certs.sh",
     },
@@ -1154,27 +475,19 @@ pkg_tar(
         "entrypoint-certs.sh": "0755",
     },
     empty_dirs = ["certs"],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "cert_generator_image_amd64",
-    base = "@serviceradar_cert_generator_linux_amd64//:serviceradar_cert_generator_linux_amd64",
-    tars = [":cert_generator_layer_amd64"],
     entrypoint = ["/bin/sh", "/entrypoint-certs.sh"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-cert-generator",
-    },
 )
 
-oci_load(
-    name = "cert_generator_image_amd64_tar",
-    image = ":cert_generator_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-cert-generator:local"],
+declare_postgresql_client_symlink_layer(
+    name = "postgresql18_client_symlinks",
+    libexec_dir = "postgresql18",
 )
 
-pkg_tar(
-    name = "tools_layer_amd64",
+declare_custom_base_service_container_amd64(
+    name = "tools_image_amd64",
+    base = "@alpine_3_23_linux_amd64//:alpine_3_23_linux_amd64",
+    image_title = "serviceradar-tools",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-tools:local"],
     files = {
         "//go/cmd/cli:cli": "usr/local/bin/serviceradar-cli",
         "//docker/compose:tools-entrypoint.sh": "usr/local/bin/entrypoint.sh",
@@ -1191,359 +504,33 @@ pkg_tar(
     },
     empty_dirs = [
         "etc/serviceradar/certs",
+        "etc/serviceradar/cnpg",
         "etc/serviceradar/nats",
         "root/.config/nats/context",
     ],
-    package_dir = "/",
-)
-
-pkg_tar(
-    name = "postgresql16_client_symlinks",
-    package_dir = "/",
-    symlinks = {
-        "usr/bin/clusterdb": "/usr/libexec/postgresql16/clusterdb",
-        "usr/bin/createdb": "/usr/libexec/postgresql16/createdb",
-        "usr/bin/createuser": "/usr/libexec/postgresql16/createuser",
-        "usr/bin/dropdb": "/usr/libexec/postgresql16/dropdb",
-        "usr/bin/dropuser": "/usr/libexec/postgresql16/dropuser",
-        "usr/bin/pg_amcheck": "/usr/libexec/postgresql16/pg_amcheck",
-        "usr/bin/pg_basebackup": "/usr/libexec/postgresql16/pg_basebackup",
-        "usr/bin/pg_dump": "/usr/libexec/postgresql16/pg_dump",
-        "usr/bin/pg_dumpall": "/usr/libexec/postgresql16/pg_dumpall",
-        "usr/bin/pg_isready": "/usr/libexec/postgresql16/pg_isready",
-        "usr/bin/pg_recvlogical": "/usr/libexec/postgresql16/pg_recvlogical",
-        "usr/bin/pg_receivewal": "/usr/libexec/postgresql16/pg_receivewal",
-        "usr/bin/pg_restore": "/usr/libexec/postgresql16/pg_restore",
-        "usr/bin/pg_verifybackup": "/usr/libexec/postgresql16/pg_verifybackup",
-        "usr/bin/pgbench": "/usr/libexec/postgresql16/pgbench",
-        "usr/bin/psql": "/usr/libexec/postgresql16/psql",
-        "usr/bin/reindexdb": "/usr/libexec/postgresql16/reindexdb",
-        "usr/bin/vacuumdb": "/usr/libexec/postgresql16/vacuumdb",
-    },
-)
-
-oci_image(
-    name = "tools_image_amd64",
-    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [
+    extra_tars = [
         ":alpine_netutils_rootfs_amd64",
-        ":apk_bash_rootfs_amd64",
-        ":apk_readline_rootfs_amd64",
-        ":apk_postgresql16_client_rootfs_amd64",
-        ":apk_libpq16_rootfs_amd64",
-        ":postgresql16_client_symlinks",
-        ":apk_libncursesw_rootfs_amd64",
-        ":apk_ncurses_terminfo_base_rootfs_amd64",
+        ":apk_tools_bash_rootfs_amd64.tar",
+        ":apk_tools_readline_rootfs_amd64.tar",
+        ":apk_tools_postgresql_common_rootfs_amd64.tar",
+        ":apk_tools_postgresql18_client_rootfs_amd64.tar",
+        ":apk_tools_libpq_rootfs_amd64.tar",
+        ":postgresql18_client_symlinks",
+        ":apk_tools_lz4_libs_rootfs_amd64.tar",
+        ":apk_tools_zstd_libs_rootfs_amd64.tar",
+        ":apk_tools_libncursesw_rootfs_amd64.tar",
+        ":apk_tools_ncurses_terminfo_base_rootfs_amd64.tar",
         ":apk_glibc_rootfs_amd64",
-        ":tools_layer_amd64",
         ":common_tools_amd64",
     ],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["/bin/sh"],
     env = {
-        "PATH": "/usr/libexec/postgresql16:/usr/local/bin:/usr/bin:/bin",
-    },
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-tools",
+        "PATH": "/usr/libexec/postgresql18:/usr/local/bin:/usr/bin:/bin",
     },
 )
 
-oci_load(
-    name = "tools_image_amd64_tar",
-    image = ":tools_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-tools:local"],
-)
-
-genrule(
-    name = "cnpg_postgresql_18_rootfs_tar",
-    srcs = ["@cloudnativepg_postgresql_18_linux_amd64//:cloudnativepg_postgresql_18_linux_amd64"],
-    tools = [
-        "//docker/images:export_rootfs_from_layout.py",
-        "//docker/images:extract_rootfs.py",
-    ],
-    outs = ["cnpg_postgresql_18_rootfs.tar"],
-    cmd = """
-set -euo pipefail
-LAYOUT_RELATIVE="$(location @cloudnativepg_postgresql_18_linux_amd64//:cloudnativepg_postgresql_18_linux_amd64)"
-if [[ "$${LAYOUT_RELATIVE}" != /* ]]; then
-  LAYOUT="$$(pwd)/$${LAYOUT_RELATIVE}"
-else
-  LAYOUT="$${LAYOUT_RELATIVE}"
-fi
-# Normalize the path to remove any .. or .
-LAYOUT="$$(cd "$$(dirname "$${LAYOUT}")" && pwd)/$$(basename "$${LAYOUT}")"
-python3 "$(location //docker/images:export_rootfs_from_layout.py)" --layout "$${LAYOUT}" --output "$@"
-""",
-    visibility = ["//visibility:public"],
-)
-
-genrule(
-    name = "glibc_runtime_layer",
-    srcs = [
-        "@debian_gcc_15_base_amd64_deb//file",
-        "@debian_libgcc_s1_amd64_deb//file",
-        "@debian_libc6_amd64_deb//file",
-    ],
-    outs = ["glibc_runtime_layer.tar"],
-    tools = [
-        "//docker/images:overlay_deb_packages.py",
-    ],
-    cmd = """
-set -euo pipefail
-OUT_DIR="$$(pwd)/$(@D)"
-ROOT_DIR="$${OUT_DIR}/rootfs_glibc"
-OUT_TAR="$$(pwd)/$@"
-mkdir -p "$${ROOT_DIR}"
-python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
-  "$(location @debian_gcc_15_base_amd64_deb//file)" \
-  "$(location @debian_libgcc_s1_amd64_deb//file)" \
-  "$(location @debian_libc6_amd64_deb//file)"
-tar -C "$${ROOT_DIR}" -cf "$${OUT_TAR}" .
-""",
-)
-
-genrule(
-    name = "timescaledb_extension_layer",
-    srcs = [
-        ":cnpg_postgresql_18_rootfs_tar",
-        "@postgresql_server_dev_18_deb//file",
-        "@debian_bison_amd64_deb//file",
-        "@debian_flex_amd64_deb//file",
-        "@debian_libpq_dev_amd64_deb//file",
-        "@debian_gcc_15_base_amd64_deb//file",
-        "@debian_libgcc_s1_amd64_deb//file",
-        "@debian_libc6_amd64_deb//file",
-        "//database/timescaledb:source_tree",
-        "//docker/images:pg_config_wrapper.sh",
-    ],
-    outs = ["timescaledb_extension_layer.tar"],
-    tools = [
-        "//docker/images:extract_rootfs.py",
-        "//docker/images:overlay_deb_packages.py",
-        "//docker/images:pg_config_rewrite.py",
-        "@cmake_linux_amd64_prebuilt//:cmake_bin",
-        "@cmake_linux_amd64_prebuilt//:cmake_share",
-    ],
-    cmd = """
-set -euo pipefail
-OUT_DIR="$$(pwd)/$(@D)"
-OUT_TAR="$$(pwd)/$@"
-ROOT_DIR="$${OUT_DIR}/rootfs_timescaledb"
-python3 "$(location //docker/images:extract_rootfs.py)" "$(location :cnpg_postgresql_18_rootfs_tar)" "$${ROOT_DIR}"
-python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
-  "$(location @postgresql_server_dev_18_deb//file)" \
-  "$(location @debian_bison_amd64_deb//file)" \
-  "$(location @debian_flex_amd64_deb//file)" \
-  "$(location @debian_libpq_dev_amd64_deb//file)" \
-  "$(location @debian_gcc_15_base_amd64_deb//file)" \
-  "$(location @debian_libgcc_s1_amd64_deb//file)" \
-  "$(location @debian_libc6_amd64_deb//file)"
-sed -i 's|^CLANG = .*|CLANG = clang|' "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
-sed -i 's|^with_llvm\t= .*|with_llvm\t= no|' "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
-
-SRC_TREE="$$(pwd)/$(execpath //database/timescaledb:source_tree)"
-echo "Copying TimescaleDB sources from $${SRC_TREE}"
-if [[ -d "$${OUT_DIR}/timescaledb" ]]; then
-  chmod -R u+w "$${OUT_DIR}/timescaledb"
-  rm -rf "$${OUT_DIR}/timescaledb"
-fi
-mkdir -p "$${OUT_DIR}/timescaledb"
-cp -R "$${SRC_TREE}/." "$${OUT_DIR}/timescaledb"
-chmod -R u+w "$${OUT_DIR}/timescaledb"
-cp "$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wrapper_ts.sh"
-chmod +x "$${OUT_DIR}/pg_config_wrapper_ts.sh"
-cp "$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"
-
-CMAKE_RELATIVE="$(location @cmake_linux_amd64_prebuilt//:cmake_bin)"
-if [[ "$${CMAKE_RELATIVE}" != /* ]]; then
-  CMAKE_BIN="$$(pwd)/$${CMAKE_RELATIVE}"
-else
-  CMAKE_BIN="$${CMAKE_RELATIVE}"
-fi
-# Don't use readlink -f - cmake needs the original path to find its modules
-chmod +x "$${CMAKE_BIN}"
-CMAKE_DIR="$$(dirname "$${CMAKE_BIN}")"
-mkdir -p "$${OUT_DIR}/bin"
-ln -sf "$${CMAKE_BIN}" "$${OUT_DIR}/bin/cmake"
-export CMAKE="$${CMAKE_BIN}"
-export CNPG_ROOT="$${ROOT_DIR}"
-export CNPG_REAL_PG_CONFIG="$${ROOT_DIR}/usr/lib/postgresql/18/bin/pg_config"
-export PATH="$${OUT_DIR}/bin:$${CMAKE_DIR}:$${ROOT_DIR}/usr/lib/postgresql/18/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin"
-export PKG_CONFIG_PATH="$${ROOT_DIR}/usr/lib/pkgconfig:$${ROOT_DIR}/usr/lib/x86_64-linux-gnu/pkgconfig"
-cd "$${OUT_DIR}/timescaledb"
-BUILD_FORCE_REMOVE=true ./bootstrap -DREGRESS_CHECKS=OFF -DPROJECT_INSTALL_METHOD=docker -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPG_CONFIG="$${OUT_DIR}/pg_config_wrapper_ts.sh"
-cd build
-make -j4
-mkdir -p "$${OUT_DIR}/install"
-make DESTDIR="$${OUT_DIR}/install_ts" install
-INSTALL_PREFIX="$${OUT_DIR}/install_ts$${CNPG_ROOT}"
-if [[ ! -d "$${INSTALL_PREFIX}" ]]; then
-  echo "Timescale install prefix $${INSTALL_PREFIX} not found" >&2
-  exit 1
-fi
-tar -C "$${INSTALL_PREFIX}" -cf "$${OUT_TAR}" .
-""",
-)
-
-genrule(
-    name = "age_extension_layer",
-    srcs = [
-        ":cnpg_postgresql_18_rootfs_tar",
-        "@postgresql_server_dev_18_deb//file",
-        "@debian_libpq_dev_amd64_deb//file",
-        "@debian_gcc_15_base_amd64_deb//file",
-        "@debian_libgcc_s1_amd64_deb//file",
-        "@debian_libc6_amd64_deb//file",
-        "//database/age:source_tree",
-        "//docker/images:pg_config_wrapper.sh",
-    ],
-    outs = ["age_extension_layer.tar"],
-    tools = [
-        "//docker/images:extract_rootfs.py",
-        "//docker/images:overlay_deb_packages.py",
-        "//docker/images:pg_config_rewrite.py",
-    ],
-    cmd = """
-set -euo pipefail
-REPO_ROOT="$$(pwd)"
-OUT_DIR="$$(pwd)/$(@D)"
-OUT_TAR="$$(pwd)/$@"
-ROOT_DIR="$${OUT_DIR}/rootfs_age"
-python3 "$(location //docker/images:extract_rootfs.py)" "$(location :cnpg_postgresql_18_rootfs_tar)" "$${ROOT_DIR}"
-python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
-  "$(location @postgresql_server_dev_18_deb//file)" \
-  "$(location @debian_libpq_dev_amd64_deb//file)" \
-  "$(location @debian_gcc_15_base_amd64_deb//file)" \
-  "$(location @debian_libgcc_s1_amd64_deb//file)" \
-  "$(location @debian_libc6_amd64_deb//file)"
-sed -i 's|^CLANG = .*|CLANG = clang|' "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
-sed -i 's|^with_llvm\t= .*|with_llvm\t= no|' "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
-
-AGE_TREE="$$(pwd)/$(execpath //database/age:source_tree)"
-if [[ -d "$${OUT_DIR}/age" ]]; then
-  chmod -R u+w "$${OUT_DIR}/age"
-  rm -rf "$${OUT_DIR}/age"
-fi
-mkdir -p "$${OUT_DIR}/age"
-cp -R "$${AGE_TREE}/." "$${OUT_DIR}/age"
-chmod -R u+w "$${OUT_DIR}/age"
-
-cp "$${REPO_ROOT}/$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wrapper_age.sh"
-chmod +x "$${OUT_DIR}/pg_config_wrapper_age.sh"
-cp "$${REPO_ROOT}/$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"
-
-for tool in flex bison gperf; do
-  if ! command -v "$${tool}" >/dev/null 2>&1; then
-    echo "Missing required build tool: $${tool} (expected in the RBE executor image or host toolchain)" >&2
-    exit 1
-  fi
-done
-
-export CNPG_ROOT="$${ROOT_DIR}"
-export CNPG_REAL_PG_CONFIG="$${ROOT_DIR}/usr/lib/postgresql/18/bin/pg_config"
-export PATH="$${ROOT_DIR}/usr/lib/postgresql/18/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin:$${PATH:-}"
-export PKG_CONFIG_PATH="$${ROOT_DIR}/usr/lib/pkgconfig:$${ROOT_DIR}/usr/lib/x86_64-linux-gnu/pkgconfig:$${PKG_CONFIG_PATH:-}"
-cd "$${OUT_DIR}/age"
-make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" FLEX=flex LEX=flex BISON=bison YACC="bison -y" -j4
-mkdir -p "$${OUT_DIR}/install_age"
-make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" FLEX=flex LEX=flex BISON=bison YACC="bison -y" DESTDIR="$${OUT_DIR}/install_age" install
-INSTALL_PREFIX="$${OUT_DIR}/install_age$${CNPG_ROOT}"
-if [[ ! -d "$${INSTALL_PREFIX}" ]]; then
-  echo "AGE install prefix $${INSTALL_PREFIX} not found" >&2
-  exit 1
-fi
-tar -C "$${INSTALL_PREFIX}" -cf "$${OUT_TAR}" .
-""",
-)
-
-genrule(
-    name = "postgis_extension_layer",
-    srcs = [
-        "@postgresql_18_postgis_3_amd64_deb//file",
-        "@postgresql_18_postgis_3_scripts_all_deb//file",
-        "@postgresql_18_pgvector_amd64_deb//file",
-        "@debian_libgeos_c1v5_amd64_deb//file",
-        "@debian_libgeos3_11_1_amd64_deb//file",
-        "@debian_libproj25_amd64_deb//file",
-        "@debian_proj_data_all_deb//file",
-        "@debian_libjson_c5_amd64_deb//file",
-        "@debian_libprotobuf_c1_amd64_deb//file",
-        "@debian_libtiff6_amd64_deb//file",
-        "@debian_libcurl3_gnutls_amd64_deb//file",
-        "@debian_libwebp7_amd64_deb//file",
-        "@debian_liblerc4_amd64_deb//file",
-        "@debian_libjbig0_amd64_deb//file",
-        "@debian_libjpeg62_turbo_amd64_deb//file",
-        "@debian_libdeflate0_amd64_deb//file",
-        "@debian_libnghttp2_14_amd64_deb//file",
-        "@debian_librtmp1_amd64_deb//file",
-        "@debian_libssh2_1_amd64_deb//file",
-        "@debian_libpsl5_amd64_deb//file",
-        "@debian_libbrotli1_amd64_deb//file",
-    ],
-    outs = ["postgis_extension_layer.tar"],
-    tools = [
-        "//docker/images:overlay_deb_packages.py",
-    ],
-    cmd = """
-set -euo pipefail
-OUT_DIR="$$(pwd)/$(@D)"
-OUT_TAR="$$(pwd)/$@"
-ROOT_DIR="$${OUT_DIR}/rootfs_postgis"
-rm -rf "$${ROOT_DIR}"
-mkdir -p "$${ROOT_DIR}"
-python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
-  "$(location @postgresql_18_postgis_3_amd64_deb//file)" \
-  "$(location @postgresql_18_postgis_3_scripts_all_deb//file)" \
-  "$(location @postgresql_18_pgvector_amd64_deb//file)" \
-  "$(location @debian_libgeos_c1v5_amd64_deb//file)" \
-  "$(location @debian_libgeos3_11_1_amd64_deb//file)" \
-  "$(location @debian_libproj25_amd64_deb//file)" \
-  "$(location @debian_proj_data_all_deb//file)" \
-  "$(location @debian_libjson_c5_amd64_deb//file)" \
-  "$(location @debian_libprotobuf_c1_amd64_deb//file)" \
-  "$(location @debian_libtiff6_amd64_deb//file)" \
-  "$(location @debian_libcurl3_gnutls_amd64_deb//file)" \
-  "$(location @debian_libwebp7_amd64_deb//file)" \
-  "$(location @debian_liblerc4_amd64_deb//file)" \
-  "$(location @debian_libjbig0_amd64_deb//file)" \
-  "$(location @debian_libjpeg62_turbo_amd64_deb//file)" \
-  "$(location @debian_libdeflate0_amd64_deb//file)" \
-  "$(location @debian_libnghttp2_14_amd64_deb//file)" \
-  "$(location @debian_librtmp1_amd64_deb//file)" \
-  "$(location @debian_libssh2_1_amd64_deb//file)" \
-  "$(location @debian_libpsl5_amd64_deb//file)" \
-  "$(location @debian_libbrotli1_amd64_deb//file)"
-EXT_DIR="$${ROOT_DIR}/usr/share/postgresql/18/extension"
-ln -sf postgis-3.control "$${EXT_DIR}/postgis.control"
-ln -sf postgis_raster-3.control "$${EXT_DIR}/postgis_raster.control"
-ln -sf postgis_sfcgal-3.control "$${EXT_DIR}/postgis_sfcgal.control"
-ln -sf postgis_topology-3.control "$${EXT_DIR}/postgis_topology.control"
-ln -sf postgis_tiger_geocoder-3.control "$${EXT_DIR}/postgis_tiger_geocoder.control"
-ln -sf address_standardizer-3.control "$${EXT_DIR}/address_standardizer.control"
-tar -C "$${ROOT_DIR}" -cf "$${OUT_TAR}" .
-""",
-)
-
-oci_image(
-    name = "cnpg_image_amd64",
-    base = "@cloudnativepg_postgresql_18_linux_amd64//:cloudnativepg_postgresql_18_linux_amd64",
-    tars = [
-        ":glibc_runtime_layer",
-        ":timescaledb_extension_layer",
-        ":age_extension_layer",
-        ":postgis_extension_layer",
-    ],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-cnpg",
-    },
-)
-
-oci_load(
-    name = "cnpg_image_amd64_tar",
-    image = ":cnpg_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-cnpg:local"],
-)
+declare_cnpg_image_amd64()
 
 # --- GHCR publishing ---------------------------------------------------------
 declare_ghcr_push_targets()

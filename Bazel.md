@@ -1,8 +1,10 @@
 # Bazel
 
 
-This mono-repo is configured to build and test with Bazel. 
-Please [install bazelisk ](https://github.com/bazelbuild/bazelisk)as it is the only requirement to build the repo with Bazel.
+This mono-repo is configured to build and test with Bazel.
+Please [install bazelisk](https://github.com/bazelbuild/bazelisk) as it is the recommended way to honor the repo's `.bazelversion` pin.
+
+The repository currently pins Bazel to `9.0.0` via `.bazelversion`.
 
 This project now prefers direct Bazel dependencies on canonical package targets (for example `//go/pkg/...`) rather than compatibility alias shims.
 
