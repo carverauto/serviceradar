@@ -26,6 +26,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         gcc \
         g++ \
+        gcc-aarch64-linux-gnu \
+        g++-aarch64-linux-gnu \
+        binutils-aarch64-linux-gnu \
         clang \
         llvm \
         llvm-dev \
@@ -41,6 +44,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         # Database / Libs
         postgresql-server-dev-18 \
         libpq-dev \
+        libc6-dev-arm64-cross \
+        linux-libc-dev-arm64-cross \
+        libstdc++-13-dev-arm64-cross \
         libssl-dev \
         zlib1g-dev \
         liblz4-dev \
@@ -83,14 +89,21 @@ RUN ln -s /usr/lib/x86_64-linux-gnu /usr/lib64
 
 # Set Environment Variables
 # Note: On Ubuntu, Postgres libraries are usually in standard paths or /usr/lib/postgresql/18/lib
-ENV CC=/usr/bin/gcc \
-    CXX=/usr/bin/g++ \
-    XDG_RUNTIME_DIR=/run/user/0 \
+ENV XDG_RUNTIME_DIR=/run/user/0 \
     RUSTUP_HOME=/opt/rustup \
     CARGO_HOME=/opt/cargo \
     PATH=/opt/cargo/bin:$PATH \
     # pkg-config lookup paths
-    PKG_CONFIG_PATH=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+    PKG_CONFIG_PATH=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig \
+    CC_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-gcc \
+    CXX_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-g++ \
+    AR_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-ar \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/aarch64-linux-gnu-gcc \
+    PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu=/usr/aarch64-linux-gnu \
+    PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig \
+    AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_DIR=/usr \
+    AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu \
+    AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/include
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 

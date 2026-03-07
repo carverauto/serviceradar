@@ -1,9 +1,45 @@
 """Shared helpers for straightforward service OCI images."""
 
-load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_image_index", "oci_load")
 load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 
 _DEFAULT_PATH = "/usr/local/bin:/usr/bin:/bin"
+_LINUX_ARM64_PLATFORM = "//build/platforms:linux_arm64"
+_LINUX_ARM64_SELECT = "//build/platforms:target_linux_arm64"
+_LINUX_MULTIARCH_PLATFORMS = [
+    "//build/platforms:linux_amd64",
+    _LINUX_ARM64_PLATFORM,
+]
+
+def _platform_select(default, linux_arm64):
+    return select({
+        _LINUX_ARM64_SELECT: linux_arm64,
+        "//conditions:default": default,
+    })
+
+def _common_tools_layers():
+    return _platform_select(
+        [":common_tools_amd64"],
+        [":common_tools_arm64"],
+    )
+
+def _ubuntu_noble_base():
+    return _platform_select(
+        "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+        "@ubuntu_noble_linux_arm64_v8//:ubuntu_noble_linux_arm64_v8",
+    )
+
+def _debian_bookworm_slim_base():
+    return _platform_select(
+        "@debian_bookworm_slim_linux_amd64//:debian_bookworm_slim_linux_amd64",
+        "@debian_bookworm_slim_linux_arm64_v8//:debian_bookworm_slim_linux_arm64_v8",
+    )
+
+def _alpine_3_20_base():
+    return _platform_select(
+        "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
+        "@alpine_3_20_linux_arm64_v8//:alpine_3_20_linux_arm64_v8",
+    )
 
 def _service_env(extra_env):
     env = {
@@ -86,12 +122,32 @@ def declare_common_tools_layer(
     if target_compatible_with == None:
         target_compatible_with = []
 
+    arm64_name = name.replace("_amd64", "_arm64") if name.endswith("_amd64") else name + "_arm64"
+
     service_layer(
         name = name,
         files = {
             "@jq_linux_amd64//file": "usr/local/bin/jq",
             "@curl_linux_amd64//file": "usr/local/bin/curl",
             "@grpcurl_linux_amd64//:grpcurl": "usr/local/bin/grpcurl",
+            "//go/cmd/tools/waitforport:wait-for-port": "usr/local/bin/wait-for-port",
+        },
+        modes = {
+            "usr/local/bin/jq": "0755",
+            "usr/local/bin/curl": "0755",
+            "usr/local/bin/grpcurl": "0755",
+            "usr/local/bin/wait-for-port": "0755",
+        },
+        visibility = visibility,
+        target_compatible_with = target_compatible_with,
+    )
+
+    service_layer(
+        name = arm64_name,
+        files = {
+            "@jq_linux_arm64//file": "usr/local/bin/jq",
+            "@curl_linux_arm64//file": "usr/local/bin/curl",
+            "@grpcurl_linux_arm64//:grpcurl": "usr/local/bin/grpcurl",
             "//go/cmd/tools/waitforport:wait-for-port": "usr/local/bin/wait-for-port",
         },
         modes = {
@@ -219,8 +275,8 @@ def alpine_service_image_amd64(
 
     service_image_amd64(
         name = name,
-        base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-        tars = [":common_tools_amd64"] + extra_tars + [layer],
+        base = _alpine_3_20_base(),
+        tars = _common_tools_layers() + extra_tars + [layer],
         entrypoint = entrypoint,
         cmd = cmd,
         env = _service_env(env),
@@ -285,8 +341,41 @@ def ubuntu_service_image_amd64(
 
     service_image_amd64(
         name = name,
-        base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-        tars = [":common_tools_amd64"] + extra_tars + [layer],
+        base = _ubuntu_noble_base(),
+        tars = _common_tools_layers() + extra_tars + [layer],
+        entrypoint = entrypoint,
+        cmd = cmd,
+        env = _service_env(env),
+        workdir = workdir,
+        exposed_ports = exposed_ports,
+        target_compatible_with = target_compatible_with,
+        visibility = visibility,
+        image_title = image_title,
+    )
+
+def debian_service_image_amd64(
+        name,
+        layer,
+        image_title,
+        entrypoint = None,
+        cmd = None,
+        env = None,
+        workdir = "/var/lib/serviceradar",
+        exposed_ports = None,
+        extra_tars = None,
+        target_compatible_with = None,
+        visibility = None):
+    """Create a Debian-based service image with common tools."""
+
+    if env == None:
+        env = {}
+    if extra_tars == None:
+        extra_tars = []
+
+    service_image_amd64(
+        name = name,
+        base = _debian_bookworm_slim_base(),
+        tars = _common_tools_layers() + extra_tars + [layer],
         entrypoint = entrypoint,
         cmd = cmd,
         env = _service_env(env),
@@ -394,6 +483,20 @@ def declare_service_container_amd64(
             target_compatible_with = target_compatible_with,
             visibility = visibility,
         )
+    elif runtime == "debian":
+        debian_service_image_amd64(
+            name = name,
+            layer = layer_label,
+            image_title = image_title,
+            entrypoint = entrypoint,
+            cmd = cmd,
+            env = env,
+            workdir = workdir,
+            exposed_ports = exposed_ports,
+            extra_tars = extra_tars,
+            target_compatible_with = target_compatible_with,
+            visibility = visibility,
+        )
     else:
         fail("unsupported runtime '{}'".format(runtime))
 
@@ -465,5 +568,22 @@ def declare_custom_base_service_container_amd64(
         workdir = workdir,
         exposed_ports = exposed_ports,
         target_compatible_with = target_compatible_with,
+        visibility = visibility,
+    )
+
+def declare_multiarch_image_index(
+        name,
+        image,
+        platforms = None,
+        visibility = None):
+    """Declare a multi-architecture OCI image index for a platform-aware image target."""
+
+    if platforms == None:
+        platforms = _LINUX_MULTIARCH_PLATFORMS
+
+    oci_image_index(
+        name = name,
+        images = [image],
+        platforms = platforms,
         visibility = visibility,
     )

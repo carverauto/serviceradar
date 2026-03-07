@@ -202,9 +202,14 @@ buildbuddy_toolchain_ext.gcc_toolchain(
 
 # Make the generated platform default to our custom executor image.
 buildbuddy_toolchain_ext.platform(
-    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.20",
+    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.22",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
+
+register_toolchains(
+    "//build/toolchains:rbe_cc_toolchain",
+    "//build/toolchains:rbe_cc_toolchain_arm64",
+)
 
 # --- LLVM Toolchain (clang/lld) ----------------------------------
 llvm_ext = use_extension(
@@ -265,10 +270,11 @@ oci_ext.pull(
 )
 oci_ext.pull(
     name = "alpine_3_20",
-    digest = "sha256:f25ebd2af60b9de8e26e5100fe6f493beb81bff010f27e84f223ad19886a78f0",
+    digest = "sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805",
     image = "docker.io/library/alpine:3.20",
     platforms = [
         "linux/amd64",
+        "linux/arm64/v8",
     ],
 )
 oci_ext.pull(
@@ -281,18 +287,20 @@ oci_ext.pull(
 )
 oci_ext.pull(
     name = "ubuntu_noble",
-    digest = "sha256:985be7c735afdf6f18aaa122c23f87d989c30bba4e9aa24c8278912aac339a8d",
+    digest = "sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9",
     image = "docker.io/library/ubuntu:24.04",
     platforms = [
         "linux/amd64",
+        "linux/arm64/v8",
     ],
 )
 oci_ext.pull(
     name = "debian_bookworm_slim",
-    digest = "sha256:48fa1e32d5ad897f7748b4b67d1ffb9e2ec46f4129f037afa3456a99f937203a",
+    digest = "sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421",
     image = "docker.io/library/debian:bookworm-slim",
     platforms = [
         "linux/amd64",
+        "linux/arm64/v8",
     ],
 )
 oci_ext.pull(
@@ -350,6 +358,7 @@ use_repo(
     "actions_runner_linux_amd64",
     "alpine_3_20",
     "alpine_3_20_linux_amd64",
+    "alpine_3_20_linux_arm64_v8",
     "alpine_3_23",
     "alpine_3_23_linux_amd64",
     "arc_runner",
@@ -358,6 +367,7 @@ use_repo(
     "cloudnativepg_postgresql_18_linux_amd64",
     "debian_bookworm_slim",
     "debian_bookworm_slim_linux_amd64",
+    "debian_bookworm_slim_linux_arm64_v8",
     "debian_testing_slim",
     "debian_testing_slim_linux_amd64",
     "nginx_alpine",
@@ -372,6 +382,7 @@ use_repo(
     "ubuntu_jammy_linux_amd64",
     "ubuntu_noble",
     "ubuntu_noble_linux_amd64",
+    "ubuntu_noble_linux_arm64_v8",
 )
 
 repo_alias = use_repo_rule("//build:repo_alias.bzl", "repo_alias")
@@ -492,6 +503,7 @@ RUST_EDITION = "2021"
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = RUST_EDITION,
+    extra_target_triples = ["aarch64-unknown-linux-gnu"],
     versions = [RUST_DEFAULT_VERSION],
 )
 use_repo(rust, "rust_toolchains")
@@ -1134,6 +1146,18 @@ exports_files(["grpcurl"])
     strip_prefix = "",
     urls = [
         "https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_x86_64.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "grpcurl_linux_arm64",
+    build_file_content = """
+exports_files(["grpcurl"])
+""",
+    sha256 = "1303f4c1c6667f31b80efbe483875c749c94c8cb0d8b631bd64179f0b140714d",
+    strip_prefix = "",
+    urls = [
+        "https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_arm64.tar.gz",
     ],
 )
 

@@ -1,3 +1,69 @@
+load("@buildbuddy_toolchain//:cc_toolchain_config.bzl", "cc_toolchain_config")
+load("@rules_cc//cc:defs.bzl", "cc_toolchain")
+load(":arm64_cc_config.bzl", "AARCH64_GCC_BUILTIN_INCLUDE_PATHS", "AARCH64_GCC_TOOL_PATHS")
+
+filegroup(
+    name = "empty",
+    srcs = [],
+)
+
+cc_toolchain(
+    name = "aarch64_linux_gnu_cc_toolchain",
+    toolchain_identifier = "aarch64-linux-gnu",
+    toolchain_config = ":aarch64_linux_gnu_cc_toolchain_config",
+    all_files = ":empty",
+    ar_files = ":empty",
+    as_files = ":empty",
+    compiler_files = ":empty",
+    dwp_files = ":empty",
+    linker_files = ":empty",
+    objcopy_files = ":empty",
+    strip_files = ":empty",
+    supports_param_files = 1,
+)
+
+cc_toolchain_config(
+    name = "aarch64_linux_gnu_cc_toolchain_config",
+    abi_libc_version = "glibc-2.39",
+    abi_version = "gcc-13",
+    compile_flags = [
+        "--sysroot=/usr/aarch64-linux-gnu",
+        "-U_FORTIFY_SOURCE",
+        "-fstack-protector",
+        "-Wall",
+        "-Wunused-but-set-parameter",
+        "-Wno-free-nonheap-object",
+        "-fno-omit-frame-pointer",
+    ],
+    compiler = "aarch64-linux-gnu-gcc",
+    cpu = "aarch64",
+    cxx_builtin_include_directories = AARCH64_GCC_BUILTIN_INCLUDE_PATHS,
+    cxx_flags = ["-std=c++17"],
+    dbg_compile_flags = ["-g"],
+    host_system_name = "x86_64-unknown-linux-gnu",
+    link_flags = [
+        "--sysroot=/usr/aarch64-linux-gnu",
+        "-Wl,-no-as-needed",
+        "-Wl,-z,relro,-z,now",
+        "-pass-exit-codes",
+        "-lstdc++",
+        "-lm",
+    ],
+    link_libs = [],
+    opt_compile_flags = [
+        "-g0",
+        "-O2",
+        "-D_FORTIFY_SOURCE=1",
+        "-DNDEBUG",
+        "-ffunction-sections",
+        "-fdata-sections",
+    ],
+    target_libc = "glibc-2.39",
+    target_system_name = "aarch64-unknown-linux-gnu",
+    tool_paths = AARCH64_GCC_TOOL_PATHS,
+    toolchain_identifier = "aarch64-linux-gnu",
+)
+
 toolchain(
     name = "rbe_cc_toolchain",
     toolchain = "@buildbuddy_toolchain//:ubuntu_local_cc_toolchain",
@@ -8,6 +74,20 @@ toolchain(
     ],
     target_compatible_with = [
         "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+)
+
+toolchain(
+    name = "rbe_cc_toolchain_arm64",
+    toolchain = ":aarch64_linux_gnu_cc_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+    exec_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
         "@platforms//os:linux",
     ],
 )

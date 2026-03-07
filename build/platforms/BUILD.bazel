@@ -20,6 +20,15 @@ constraint_value(
     visibility = ["//visibility:public"],
 )
 
+config_setting(
+    name = "target_linux_arm64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+    visibility = ["//visibility:public"],
+)
+
 platform(
     name = "linux_amd64",
     constraint_values = [
@@ -87,7 +96,7 @@ platform(
         "@elixir_config//:elixir_internal",
     ],
     exec_properties = {
-        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.20",
+        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.22",
         "OSFamily": "linux",
         "Arch": "amd64",
         "dockerNetwork": "host",
@@ -105,9 +114,10 @@ platform(
         "@elixir_config//:elixir_internal",
     ],
     exec_properties = {
-        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.20",
+        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.22",
         "OSFamily": "linux",
-        "Arch": "arm64",
+        # Cross-compiles linux/arm64 targets on the amd64 BuildBuddy executor pool.
+        "Arch": "amd64",
         "dockerNetwork": "host",
         "Pool": "default",
     },

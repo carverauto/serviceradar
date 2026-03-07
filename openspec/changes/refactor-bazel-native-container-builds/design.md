@@ -77,6 +77,7 @@ That is the model this proposal adopts for generic service images. The Threadr c
 
 - Full multi-arch support may expose architecture-specific binary or runtime assumptions.
   - Mitigation: start with services whose Bazel targets already build cleanly on both platforms, then expand.
+  - Current repo status: `faker` builds as a multi-arch OCI index, but the Rust/Ubuntu image tranche is still blocked on BuildBuddy arm64 C++ toolchain support for Abseil/Protobuf-heavy dependencies.
 
 - Leaving CNPG custom means the repo will still have two image build styles for some time.
   - Mitigation: document that split clearly and constrain the exception to CNPG-like images only.
@@ -91,5 +92,6 @@ That is the model this proposal adopts for generic service images. The Threadr c
 
 ## Open Questions
 - Which generic service images can move to multi-arch immediately without further runtime fixes?
+- What is the correct BuildBuddy-backed arm64 C++ toolchain registration for Rust/Ubuntu images, given the current arm64 path does not yet provide a working C++17 toolchain for Abseil/Protobuf dependencies?
 - Which runtime packages belong in shared base profiles versus per-service layers?
 - Should the initial migration introduce one common macro with mode flags, or separate macros for binary images and release-tar images?

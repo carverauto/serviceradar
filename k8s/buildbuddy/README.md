@@ -172,7 +172,7 @@ Only the Bazel action image is customized today. After updating `docker/Dockerfi
    docker buildx build \
      --platform linux/amd64 \
      -f docker/Dockerfile.rbe \
-     -t ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.20 \
+     -t ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.22 \
      --push .
    ```
    (Alternatively, push via `.github/workflows/build-rbe-image.yml`.)

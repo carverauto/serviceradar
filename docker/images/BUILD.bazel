@@ -13,6 +13,7 @@ load(
     "//docker/images:service_images.bzl",
     "declare_common_tools_layer",
     "declare_custom_base_service_container_amd64",
+    "declare_multiarch_image_index",
     "declare_postgresql_client_symlink_layer",
     "declare_loaded_oci_image_amd64",
     "declare_service_container_amd64",
@@ -217,7 +218,7 @@ declare_service_container_amd64(
 
 declare_service_container_amd64(
     name = "log_collector_image_amd64",
-    runtime = "ubuntu",
+    runtime = "debian",
     image_title = "serviceradar-log-collector",
     files = {
         "//rust/log-collector:log-collector": "usr/local/bin/serviceradar-log-collector",
@@ -246,9 +247,14 @@ declare_service_container_amd64(
     repo_tags = ["ghcr.io/carverauto/serviceradar-log-collector:local"],
 )
 
+declare_multiarch_image_index(
+    name = "log_collector_image_multiarch",
+    image = ":log_collector_image_amd64",
+)
+
 declare_service_container_amd64(
     name = "trapd_image_amd64",
-    runtime = "ubuntu",
+    runtime = "debian",
     image_title = "serviceradar-trapd",
     files = {
         "//rust/trapd:trapd": "usr/local/bin/serviceradar-trapd",
@@ -274,7 +280,7 @@ declare_service_container_amd64(
 
 declare_service_container_amd64(
     name = "flow_collector_image_amd64",
-    runtime = "ubuntu",
+    runtime = "debian",
     image_title = "serviceradar-flow-collector",
     files = {
         "//rust/flow-collector:flow-collector": "usr/local/bin/serviceradar-flow-collector",
@@ -298,7 +304,7 @@ declare_service_container_amd64(
 
 declare_service_container_amd64(
     name = "bmp_collector_image_amd64",
-    runtime = "ubuntu",
+    runtime = "debian",
     image_title = "arancini",
     files = {
         "//rust/bmp-collector:bmp-collector": "usr/local/bin/serviceradar-bmp-collector",
@@ -321,7 +327,7 @@ declare_service_container_amd64(
 
 declare_service_container_amd64(
     name = "rperf_client_image_amd64",
-    runtime = "ubuntu",
+    runtime = "debian",
     image_title = "serviceradar-rperf-client",
     files = {
         "//rust/rperf-client:rperf_checker": "usr/local/bin/serviceradar-rperf-checker",
@@ -367,9 +373,14 @@ declare_service_container_amd64(
     repo_tags = ["ghcr.io/carverauto/serviceradar-faker:local"],
 )
 
+declare_multiarch_image_index(
+    name = "faker_image_multiarch",
+    image = ":faker_image_amd64",
+)
+
 declare_service_container_amd64(
     name = "zen_image_amd64",
-    runtime = "ubuntu",
+    runtime = "debian",
     image_title = "serviceradar-zen",
     files = {
         "//rust/consumers/zen:zen": "usr/local/bin/serviceradar-zen",
