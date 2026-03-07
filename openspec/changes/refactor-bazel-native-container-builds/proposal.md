@@ -10,6 +10,7 @@ Issue #2999 and the discussion on #1733 point to a better direction: treat Bazel
 - Replace wrapper-style image build targets with Bazel-native `release_tar` plus `oci_image` and `oci_push` flows.
 - Introduce declarative runtime base image profiles for generic services, using Bazel-managed base definitions instead of hand-extracted package tarballs in `docker/images/BUILD.bazel`.
 - Make the Bazel image path remote-execution-safe by using real Linux RBE platform and toolchain wiring, fully qualified OCI image references, and direct CI script invocation where Bazel wrapper targets add no value.
+- Support arm64 image publishing from amd64 remote executors by providing an explicit `aarch64-linux-gnu` cross C/C++ toolchain path for Rust/C++ dependencies.
 - Publish multi-arch OCI indexes for eligible service images from a single canonical Bazel target while preserving existing tag semantics.
 - Migrate generic service images in `//docker/images` away from bespoke per-service filesystem assembly onto the shared macros and base profiles.
 - Keep the CNPG image on a dedicated path for now, but isolate and document it as an exception because it compiles and overlays database extensions rather than packaging a single runtime artifact.

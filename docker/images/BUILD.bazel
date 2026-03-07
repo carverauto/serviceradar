@@ -278,6 +278,11 @@ declare_service_container_amd64(
     repo_tags = ["ghcr.io/carverauto/serviceradar-trapd:local"],
 )
 
+declare_multiarch_image_index(
+    name = "trapd_image_multiarch",
+    image = ":trapd_image_amd64",
+)
+
 declare_service_container_amd64(
     name = "flow_collector_image_amd64",
     runtime = "debian",
@@ -302,6 +307,11 @@ declare_service_container_amd64(
     repo_tags = ["ghcr.io/carverauto/serviceradar-flow-collector:local"],
 )
 
+declare_multiarch_image_index(
+    name = "flow_collector_image_multiarch",
+    image = ":flow_collector_image_amd64",
+)
+
 declare_service_container_amd64(
     name = "bmp_collector_image_amd64",
     runtime = "debian",
@@ -322,6 +332,11 @@ declare_service_container_amd64(
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["11019/tcp", "8080/tcp"],
     repo_tags = ["ghcr.io/carverauto/arancini:local"],
+)
+
+declare_multiarch_image_index(
+    name = "bmp_collector_image_multiarch",
+    image = ":bmp_collector_image_amd64",
 )
 
 
@@ -350,6 +365,11 @@ declare_service_container_amd64(
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["50059/tcp"],
     repo_tags = ["ghcr.io/carverauto/serviceradar-rperf-client:local"],
+)
+
+declare_multiarch_image_index(
+    name = "rperf_client_image_multiarch",
+    image = ":rperf_client_image_amd64",
 )
 
 declare_service_container_amd64(
@@ -415,6 +435,11 @@ declare_service_container_amd64(
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["50040/tcp"],
     repo_tags = ["ghcr.io/carverauto/serviceradar-zen:local"],
+)
+
+declare_multiarch_image_index(
+    name = "zen_image_multiarch",
+    image = ":zen_image_amd64",
 )
 
 declare_service_container_amd64(

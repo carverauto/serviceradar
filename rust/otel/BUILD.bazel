@@ -11,13 +11,13 @@ cargo_build_script(
     edition = "2024",
     deps = crate_deps(["tonic-build"]),
     data = [
-        "@bazel_tools//tools/proto:protoc",
         "//rust/otel:otel_proto_srcs",
         "//proto:kv_proto_src",
     ],
     build_script_env = {
         "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
     },
+    tools = ["@bazel_tools//tools/proto:protoc"],
 )
 
 rust_library(

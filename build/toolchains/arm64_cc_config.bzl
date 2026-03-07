@@ -1,11 +1,13 @@
 AARCH64_GCC_BUILTIN_INCLUDE_PATHS = [
+    "/usr/aarch64-linux-gnu/include",
+    "/usr/aarch64-linux-gnu/include/c++/13",
+    "/usr/aarch64-linux-gnu/include/c++/13/aarch64-linux-gnu",
+    "/usr/aarch64-linux-gnu/include/c++/13/backward",
     "/usr/include",
-    "/usr/include/aarch64-linux-gnu",
-    "/usr/include/aarch64-linux-gnu/c++/13",
     "/usr/include/c++/13",
     "/usr/include/c++/13/backward",
-    "/usr/lib/gcc/aarch64-linux-gnu/13/include",
-    "/usr/lib/gcc/aarch64-linux-gnu/13/include-fixed",
+    "/usr/lib/gcc-cross/aarch64-linux-gnu/13/include",
+    "/usr/lib/gcc-cross/aarch64-linux-gnu/13/include-fixed",
     "/usr/local/include",
 ]
 

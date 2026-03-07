@@ -27,7 +27,6 @@ cc_toolchain_config(
     abi_libc_version = "glibc-2.39",
     abi_version = "gcc-13",
     compile_flags = [
-        "--sysroot=/usr/aarch64-linux-gnu",
         "-U_FORTIFY_SOURCE",
         "-fstack-protector",
         "-Wall",
@@ -42,7 +41,6 @@ cc_toolchain_config(
     dbg_compile_flags = ["-g"],
     host_system_name = "x86_64-unknown-linux-gnu",
     link_flags = [
-        "--sysroot=/usr/aarch64-linux-gnu",
         "-Wl,-no-as-needed",
         "-Wl,-z,relro,-z,now",
         "-pass-exit-codes",

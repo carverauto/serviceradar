@@ -23,14 +23,15 @@
 
 ## 5. Preserve publishing and deployment behavior
 - [x] 5.1 Update push targets so migrated images continue to publish `latest`, `sha-<commit>`, and `v<VERSION>` tags.
-- [ ] 5.2 Add multi-arch publishing for eligible images without changing repository names or deployment references.
-  Current status: shared multi-arch index macros are in place and `faker` builds multi-arch successfully, but the Rust/Ubuntu image tranche still needs a working BuildBuddy arm64 C++ toolchain before those images can publish as multi-arch indexes.
+- [x] 5.2 Add multi-arch publishing for eligible images without changing repository names or deployment references.
+  Current status: shared multi-arch index macros are in place; `faker`, `log_collector`, `trapd`, `flow_collector`, `bmp_collector`, `rperf_client`, and `zen` are wired to multi-arch indexes, and `make push_all` was reported to publish successfully without repository-name changes.
 - [x] 5.3 Verify Helm and Docker Compose consumers continue to reference the same image repositories and tags.
 
 ## 6. Validate and document the migration
 - [x] 6.1 Validate the release tar targets first for the migrated services.
 - [x] 6.2 Validate the OCI image targets second for the migrated services.
-- [ ] 6.3 Validate the push targets third after the image targets are clean.
+- [x] 6.3 Validate the push targets third after the image targets are clean.
+  Current status: `//docker/images:push_all` is the `make push_all` path, and that end-to-end push flow was reported successful after the multi-arch push-target updates.
 - [ ] 6.4 Verify the published image metadata and entrypoints still match current runtime expectations.
 - [x] 6.5 Update release/build documentation to describe the new container build model, the RBE/toolchain requirements, and the CNPG exception.
 - [x] 6.6 Run `openspec validate refactor-bazel-native-container-builds --strict`.

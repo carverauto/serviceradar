@@ -77,7 +77,8 @@ That is the model this proposal adopts for generic service images. The Threadr c
 
 - Full multi-arch support may expose architecture-specific binary or runtime assumptions.
   - Mitigation: start with services whose Bazel targets already build cleanly on both platforms, then expand.
-  - Current repo status: `faker` builds as a multi-arch OCI index, but the Rust/Ubuntu image tranche is still blocked on BuildBuddy arm64 C++ toolchain support for Abseil/Protobuf-heavy dependencies.
+  - Current repo status: `faker`, `log_collector`, `trapd`, `flow_collector`, `bmp_collector`, `rperf_client`, and `zen` now build as multi-arch OCI indexes.
+  - The working arm64 path uses amd64 BuildBuddy executors with an explicit `aarch64-linux-gnu` cross C/C++ toolchain, corrected arm64 OpenSSL/pkg-config environment, and an updated RBE executor image that carries the cross toolchain and arm64 development headers.
 
 - Leaving CNPG custom means the repo will still have two image build styles for some time.
   - Mitigation: document that split clearly and constrain the exception to CNPG-like images only.
@@ -91,7 +92,7 @@ That is the model this proposal adopts for generic service images. The Threadr c
 6. Isolate CNPG-specific logic so generic image code no longer depends on extension-build helpers.
 
 ## Open Questions
-- Which generic service images can move to multi-arch immediately without further runtime fixes?
-- What is the correct BuildBuddy-backed arm64 C++ toolchain registration for Rust/Ubuntu images, given the current arm64 path does not yet provide a working C++17 toolchain for Abseil/Protobuf dependencies?
+- Which remaining generic service images should move to multi-arch next, and which should stay amd64-only until their runtime assumptions are simplified?
+- Should the repo keep Debian slim as the default Rust runtime profile, or further reduce those images once shell-based entrypoints are removed?
 - Which runtime packages belong in shared base profiles versus per-service layers?
 - Should the initial migration introduce one common macro with mode flags, or separate macros for binary images and release-tar images?
