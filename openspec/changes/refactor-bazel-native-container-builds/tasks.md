@@ -24,14 +24,15 @@
 ## 5. Preserve publishing and deployment behavior
 - [x] 5.1 Update push targets so migrated images continue to publish `latest`, `sha-<commit>`, and `v<VERSION>` tags.
 - [x] 5.2 Add multi-arch publishing for eligible images without changing repository names or deployment references.
-  Current status: shared multi-arch index macros are in place; `faker`, `log_collector`, `trapd`, `flow_collector`, `bmp_collector`, `rperf_client`, and `zen` are wired to multi-arch indexes, and `make push_all` was reported to publish successfully without repository-name changes.
+  Current status: shared multi-arch index macros are in place; `faker`, `log_collector`, `trapd`, `flow_collector`, `bmp_collector`, `rperf_client`, and `zen` are wired to multi-arch indexes, and their Bazel multi-arch targets build successfully. `log_collector_image_amd64_push` was run directly and published `latest`, `sha-<commit>`, and an extra `--tag` as OCI indexes on GHCR without changing repository names. The remaining stale GHCR tags were refreshed by rerunning the individual multi-arch push targets for `trapd`, `flow_collector`, `bmp_collector`, `rperf_client`, `faker`, and `zen`.
 - [x] 5.3 Verify Helm and Docker Compose consumers continue to reference the same image repositories and tags.
 
 ## 6. Validate and document the migration
 - [x] 6.1 Validate the release tar targets first for the migrated services.
 - [x] 6.2 Validate the OCI image targets second for the migrated services.
 - [x] 6.3 Validate the push targets third after the image targets are clean.
-  Current status: `//docker/images:push_all` is the `make push_all` path, and that end-to-end push flow was reported successful after the multi-arch push-target updates.
-- [ ] 6.4 Verify the published image metadata and entrypoints still match current runtime expectations.
+  Current status: `//docker/images:push_all` is the `make push_all` path, and that flow was reported successful. In addition, `//docker/images:log_collector_image_amd64_push`, `//docker/images:trapd_image_amd64_push`, `//docker/images:flow_collector_image_amd64_push`, `//docker/images:bmp_collector_image_amd64_push`, `//docker/images:rperf_client_image_amd64_push`, `//docker/images:faker_image_amd64_push`, and `//docker/images:zen_image_amd64_push` were run directly, and GHCR inspection confirmed that their `latest` tags publish as OCI indexes.
+- [x] 6.4 Verify the published image metadata and entrypoints still match current runtime expectations.
+  Current status: published amd64 `latest` configs on GHCR were inspected for `web_ng`, `core_elx`, `agent_gateway`, `agent`, `log_collector`, `flow_collector`, `bmp_collector`, `rperf_client`, `faker`, `zen`, and `tools`. Their published `Entrypoint`, `Cmd`, `WorkingDir`, and key env values match the Bazel image declarations. `./scripts/verify-ghcr-publish.sh latest` now passes end to end against GHCR.
 - [x] 6.5 Update release/build documentation to describe the new container build model, the RBE/toolchain requirements, and the CNPG exception.
 - [x] 6.6 Run `openspec validate refactor-bazel-native-container-builds --strict`.

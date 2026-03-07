@@ -98,3 +98,18 @@ When credentials are supplied via environment variables the push helper writes a
 - Always run publish commands with `--stamp` so that Bazel injects the `STABLE_COMMIT_SHA` into the tag file. Without stamping, the fallback tag `sha-dev` is used.
 - The `push_all` helper accepts any flags supported by the underlying `oci_push` binaries (e.g. `--allow-nondistributable-artifacts`). These flags are forwarded to each image push in sequence.
 - CI systems that cannot expose environment variables globally can instead `source` a file containing the JSON docker config and set `DOCKER_CONFIG` before invoking `bazel run`. The helper script respects pre-set `DOCKER_CONFIG` values by simply overwriting the target directory.
+
+## Verification
+
+After publishing, run the repo-local verification script against the tag you care about:
+
+```bash
+./scripts/verify-ghcr-publish.sh latest
+./scripts/verify-ghcr-publish.sh "sha-$(git rev-parse HEAD)"
+```
+
+The script checks:
+
+- single-arch repos still publish single OCI manifests where expected
+- multi-arch repos publish OCI indexes with `linux/amd64` and `linux/arm64/v8`
+- critical runtime metadata such as `Entrypoint`, `Cmd`, `WorkingDir`, and selected environment values still match the Bazel image declarations

@@ -75,6 +75,7 @@ The `publish_packages` binary performs the following:
 After the commands complete:
 
 - Confirm container images in GHCR (`ghcr.io/carverauto/serviceradar-*`).
+- Run `./scripts/verify-ghcr-publish.sh latest` and `./scripts/verify-ghcr-publish.sh "sha-$(git rev-parse HEAD)"` to confirm published image shape and runtime metadata.
 - Verify that the GitHub release contains the expected `.deb` and `.rpm` assets.
 - Optionally attach checksums or additional assets by re-running `publish_packages` with extra files staged in `build/release/package_manifest.txt`.
 
