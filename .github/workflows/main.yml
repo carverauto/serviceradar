@@ -82,6 +82,15 @@ jobs:
       - name: Setup Bazel
         uses: bazelbuild/setup-bazelisk@v3
 
+      - name: Verify Bazel version
+        run: |
+          set -euo pipefail
+          expected="$(tr -d '\r\n' < .bazelversion)"
+          actual="$(bazel --version | awk '{print $NF}')"
+          echo "Expected Bazel: ${expected}"
+          echo "Resolved Bazel: ${actual}"
+          test "${actual}" = "${expected}"
+
       - name: Configure SRQL fixture database for tests
         env:
           SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}

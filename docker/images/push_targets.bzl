@@ -11,14 +11,14 @@ GHCR_PUSH_TARGETS = [
     {"image": "agent_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent"},
     {"image": "db_event_writer_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-db-event-writer"},
     {"image": "datasvc_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-datasvc"},
-    {"image": "log_collector_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-log-collector"},
-    {"image": "trapd_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-trapd"},
-    {"image": "flow_collector_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-flow-collector"},
-    {"image": "bmp_collector_image_amd64", "repository": "ghcr.io/carverauto/arancini"},
-    {"image": "rperf_client_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-rperf-client"},
+    {"image": "log_collector_image_amd64", "push_image": "log_collector_image_multiarch", "repository": "ghcr.io/carverauto/serviceradar-log-collector"},
+    {"image": "trapd_image_amd64", "push_image": "trapd_image_multiarch", "repository": "ghcr.io/carverauto/serviceradar-trapd"},
+    {"image": "flow_collector_image_amd64", "push_image": "flow_collector_image_multiarch", "repository": "ghcr.io/carverauto/serviceradar-flow-collector"},
+    {"image": "bmp_collector_image_amd64", "push_image": "bmp_collector_image_multiarch", "repository": "ghcr.io/carverauto/arancini"},
+    {"image": "rperf_client_image_amd64", "push_image": "rperf_client_image_multiarch", "repository": "ghcr.io/carverauto/serviceradar-rperf-client"},
     {"image": "agent_gateway_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent-gateway"},
-    {"image": "faker_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-faker"},
-    {"image": "zen_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-zen"},
+    {"image": "faker_image_amd64", "push_image": "faker_image_multiarch", "repository": "ghcr.io/carverauto/serviceradar-faker"},
+    {"image": "zen_image_amd64", "push_image": "zen_image_multiarch", "repository": "ghcr.io/carverauto/serviceradar-zen"},
     {"image": "config_updater_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-config-updater"},
     {"image": "web_ng_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-web-ng", "digest_label": ":web_ng_image_base_amd64.digest"},
     {"image": "cert_generator_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-cert-generator"},
@@ -38,8 +38,9 @@ def declare_ghcr_push_targets():
 
     for target in GHCR_PUSH_TARGETS:
         image = target["image"]
+        push_image = target.get("push_image", image)
         repository = target["repository"]
-        digest_label = target.get("digest_label", ":{}.digest".format(image))
+        digest_label = target.get("digest_label", ":{}.digest".format(push_image))
         static_tags = ["latest"] + target.get("static_tags", [])
 
         # Generate commit SHA tag (sha-<commit>)
@@ -72,7 +73,7 @@ def declare_ghcr_push_targets():
 
         oci_push(
             name = "{}_push".format(image),
-            image = ":{}".format(image),
+            image = ":{}".format(push_image),
             repository = repository,
             remote_tags = ":{}_push_tags".format(image),
             visibility = ["//visibility:public"],

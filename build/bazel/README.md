@@ -1,11 +1,7 @@
 # Bazel tooling helpers
 
-This directory houses small scripts and wrappers that standardize how the
-monorepo interacts with Bazel.
+The active Bazel wrapper now lives under
+[`/tools/bazel`](/home/mfreeman/serviceradar/tools/bazel).
 
-- `bazel`: Delegates to `bazelisk`, ensuring commands run from the repository
-  root so they pick up `.bazelversion`, `.bazelrc`, and workspace-relative
-  paths. Use it in automation (for example, `./tools/bazel/bazel test //...`).
-
-Add new helpers for common workflows (formatting, query utilities, etc.) as the
-migration progresses.
+See [`/tools/bazel/README.md`](/home/mfreeman/serviceradar/tools/bazel/README.md)
+for the current wrapper entrypoint and usage notes.

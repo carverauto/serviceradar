@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+cd "${REPO_ROOT}"
+
+if command -v bazelisk >/dev/null 2>&1; then
+  exec bazelisk "$@"
+fi
+
+if command -v bazel >/dev/null 2>&1; then
+  exec bazel "$@"
+fi
+
+echo "Neither bazelisk nor bazel is available on PATH." >&2
+exit 1

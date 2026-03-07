@@ -39,7 +39,7 @@ RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
         patch \
         perl \
         pkgconfig \
-        postgresql16-devel \
+        postgresql18-devel \
         protobuf-compiler \
         protobuf-devel \
         rpm-build \
@@ -65,13 +65,13 @@ ENV CC=/usr/bin/gcc \
     RUSTUP_HOME=/opt/rustup \
     CARGO_HOME=/opt/cargo \
     PATH=/opt/cargo/bin:/opt/rh/gcc-toolset-13/root/usr/bin:$PATH \
-    LIBRARY_PATH=/usr/pgsql-16/lib:/usr/lib64 \
-    LD_LIBRARY_PATH=/usr/pgsql-16/lib:/usr/lib64 \
-    PKG_CONFIG_PATH=/usr/lib64/pkgconfig:/usr/pgsql-16/lib/pkgconfig
+    LIBRARY_PATH=/usr/pgsql-18/lib:/usr/lib64 \
+    LD_LIBRARY_PATH=/usr/pgsql-18/lib:/usr/lib64 \
+    PKG_CONFIG_PATH=/usr/lib64/pkgconfig:/usr/pgsql-18/lib/pkgconfig
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 
-ARG GHCR_CNPG_IMAGE="ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3"
+ARG GHCR_CNPG_IMAGE="ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2"
 ARG GHCR_USERNAME=""
 
 # Fetch the CNPG test fixture image into a local docker-archive so Bazel

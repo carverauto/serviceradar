@@ -22,12 +22,22 @@ maybe_write_remote_rc() {
 
 maybe_write_remote_rc
 
-BAZEL_BINARY="${BAZEL_BINARY:-bazelisk}"
-if ! command -v "${BAZEL_BINARY}" >/dev/null 2>&1; then
-    if command -v bazel >/dev/null 2>&1; then
+DOCKER_AUTH_SCRIPT="${REPO_ROOT}/buildbuddy_setup_docker_auth.sh"
+if [[ -x "${DOCKER_AUTH_SCRIPT}" ]]; then
+    "${DOCKER_AUTH_SCRIPT}"
+fi
+
+DEFAULT_BAZEL_WRAPPER="${REPO_ROOT}/tools/bazel/bazel"
+BAZEL_BINARY="${BAZEL_BINARY:-${DEFAULT_BAZEL_WRAPPER}}"
+if [[ ! -x "${BAZEL_BINARY}" ]]; then
+    if command -v "${BAZEL_BINARY}" >/dev/null 2>&1; then
+        :
+    elif command -v bazelisk >/dev/null 2>&1; then
+        BAZEL_BINARY="bazelisk"
+    elif command -v bazel >/dev/null 2>&1; then
         BAZEL_BINARY="bazel"
     else
-        echo "Neither bazelisk nor bazel is available on PATH. Set BAZEL_BINARY to a valid executable." >&2
+        echo "Neither ${DEFAULT_BAZEL_WRAPPER}, bazelisk, nor bazel is available. Set BAZEL_BINARY to a valid executable." >&2
         exit 1
     fi
 fi
@@ -131,6 +141,32 @@ if [[ "${PUSH_DRY_RUN:-0}" == "1" ]]; then
 fi
 
 "${BAZEL_BINARY}" run "${BAZEL_FLAGS[@]}" //docker/images:push_all -- --tag "${TAG}" "${PUSH_ARGS[@]}"
+
+if [[ "${PUSH_DRY_RUN:-0}" != "1" ]]; then
+    VERIFY_SCRIPT="${REPO_ROOT}/scripts/verify-ghcr-publish.sh"
+    if [[ ! -x "${VERIFY_SCRIPT}" ]]; then
+        echo "Publish verification script is missing or not executable: ${VERIFY_SCRIPT}" >&2
+        exit 1
+    fi
+
+    VERIFY_TAGS=("latest" "${TAG}")
+    if git rev-parse HEAD >/dev/null 2>&1; then
+        VERIFY_TAGS+=("sha-$(git rev-parse HEAD)")
+    elif [[ -n "${GIT_COMMIT:-}" ]]; then
+        VERIFY_TAGS+=("sha-${GIT_COMMIT}")
+    fi
+
+    declare -A seen_tags=()
+    deduped_verify_tags=()
+    for verify_tag in "${VERIFY_TAGS[@]}"; do
+        if [[ -n "${verify_tag}" && -z "${seen_tags[${verify_tag}]+x}" ]]; then
+            deduped_verify_tags+=("${verify_tag}")
+            seen_tags["${verify_tag}"]=1
+        fi
+    done
+
+    "${VERIFY_SCRIPT}" "${deduped_verify_tags[@]}"
+fi
 
 "${BAZEL_BINARY}" run "${BAZEL_FLAGS[@]}" //build/release:publish_packages -- --tag "${TAG}" "${RELEASE_ARGS[@]}"
 

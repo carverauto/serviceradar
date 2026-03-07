@@ -11,12 +11,12 @@ cargo_build_script(
     edition = "2018",
     deps = crate_deps(["tonic-build"]),
     data = [
-        "@bazel_tools//tools/proto:protoc",
         "//proto:kv_proto_src",
     ],
     build_script_env = {
         "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
     },
+    tools = ["@bazel_tools//tools/proto:protoc"],
 )
 
 rust_library(
@@ -42,4 +42,3 @@ rust_library(
     proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
 )
-

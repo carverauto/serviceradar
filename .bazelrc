@@ -34,6 +34,15 @@ build --action_env=NEXT_SKIP_TURBO=1
 build --action_env=OPENSSL_DIR=/usr
 build --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
 build --action_env=OPENSSL_INCLUDE_DIR=/usr/include
+build --action_env=AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_DIR=/usr
+build --action_env=AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu
+build --action_env=AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu
+build --action_env=CC_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-gcc
+build --action_env=CXX_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-g++
+build --action_env=AR_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-ar
+build --action_env=CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/aarch64-linux-gnu-gcc
+build --action_env=PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu=/
+build --action_env=PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
 build --action_env=OPENSSL_NO_VENDOR=
 build --action_env=OPENSSL_NO_PKG_CONFIG=
 build --repo_env=OPENSSL_DIR=/usr
