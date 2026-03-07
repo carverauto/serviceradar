@@ -197,8 +197,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
   defp app_password! do
     password =
-      read_password_file(System.get_env("CNPG_APP_PASSWORD_FILE")) ||
-        read_password_file(System.get_env("CNPG_PASSWORD_FILE")) ||
+      read_text_file(System.get_env("CNPG_APP_PASSWORD_FILE")) ||
+        read_text_file(System.get_env("CNPG_PASSWORD_FILE")) ||
         System.get_env("CNPG_APP_PASSWORD") ||
         System.get_env("CNPG_PASSWORD")
 
@@ -210,9 +210,9 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     password
   end
 
-  defp read_password_file(nil), do: nil
+  defp read_text_file(nil), do: nil
 
-  defp read_password_file(path) do
+  defp read_text_file(path) do
     case File.read(path) do
       {:ok, value} ->
         value = String.trim(value)
@@ -756,10 +756,12 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   defp admin_credentials! do
-    admin_user = System.get_env("CNPG_USERNAME")
+    admin_user =
+      read_text_file(System.get_env("CNPG_USERNAME_FILE")) ||
+        System.get_env("CNPG_USERNAME")
 
     admin_password =
-      read_password_file(System.get_env("CNPG_PASSWORD_FILE")) ||
+      read_text_file(System.get_env("CNPG_PASSWORD_FILE")) ||
         System.get_env("CNPG_PASSWORD")
 
     cond do
