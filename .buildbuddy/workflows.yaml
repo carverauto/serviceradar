@@ -18,7 +18,6 @@ workflows:
             description: "Set to 1 to push/publish in dry-run mode"
             default: "1"
     bazel_commands:
-      - "run --config=remote //:buildbuddy_setup_docker_auth"
       - "run --config=remote //build/buildbuddy:release_pipeline"
     env:
       - name: GHCR_USERNAME

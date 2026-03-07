@@ -233,8 +233,8 @@ jobs:
             echo "GHCR_DOCKER_AUTH="
           } >> "${GITHUB_ENV}"
 
-          # Then run the Bazel auth setup for BuildBuddy.
-          bazel run --config=remote //:buildbuddy_setup_docker_auth
+          chmod +x ./buildbuddy_setup_docker_auth.sh
+          ./buildbuddy_setup_docker_auth.sh
 
       - name: Publish container images
         env:

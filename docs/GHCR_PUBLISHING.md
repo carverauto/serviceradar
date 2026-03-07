@@ -23,7 +23,7 @@ Alternatively, you can store an entire Docker auth configuration JSON in a singl
 
 ## Bootstrap script for BuildBuddy
 
-The repository includes `buildbuddy_setup_docker_auth.sh` together with the Bazel target `//:buildbuddy_setup_docker_auth`. The script materialises `~/.docker/config.json` before any build steps run, so Rule-based tooling such as `rules_oci` can reuse the credentials transparently.
+The repository includes `buildbuddy_setup_docker_auth.sh`. The script materialises `~/.docker/config.json` before any build steps run, so rule-based tooling such as `rules_oci` can reuse the credentials transparently.
 
 The script supports three input modes. Set exactly one of them via BuildBuddy secrets (replace placeholders with the matching `@@SECRET_NAME@@` syntax):
 
@@ -37,7 +37,6 @@ Example BuildBuddy workflow fragment:
 actions:
   - name: "Build, test and publish containers"
     bazel_commands = [
-      "run --config=remote //:buildbuddy_setup_docker_auth",
       "build --config=remote //...",
       "test  --config=remote //...",
       "run  --config=remote --stamp //docker/images:push_all",
@@ -69,10 +68,10 @@ steps:
 
 BuildBuddy replaces the `@@SECRET_NAME@@` placeholders with the stored secret values while keeping them out of the Bazel command line history.
 
-If you prefer the BuildBuddy script style locally, just run:
+If you prefer the script style locally, just run:
 
 ```bash
-bazel run //:buildbuddy_setup_docker_auth
+./buildbuddy_setup_docker_auth.sh
 ```
 
 For local pushes without the script you can export the same environment variables manually:

@@ -22,6 +22,11 @@ maybe_write_remote_rc() {
 
 maybe_write_remote_rc
 
+DOCKER_AUTH_SCRIPT="${REPO_ROOT}/buildbuddy_setup_docker_auth.sh"
+if [[ -x "${DOCKER_AUTH_SCRIPT}" ]]; then
+    "${DOCKER_AUTH_SCRIPT}"
+fi
+
 BAZEL_BINARY="${BAZEL_BINARY:-bazelisk}"
 if ! command -v "${BAZEL_BINARY}" >/dev/null 2>&1; then
     if command -v bazel >/dev/null 2>&1; then

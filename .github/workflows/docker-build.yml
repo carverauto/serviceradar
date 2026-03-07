@@ -131,10 +131,8 @@ jobs:
             echo "GHCR_DOCKER_AUTH="
           } >> "${GITHUB_ENV}"
 
-          bazel run \
-            --config=remote \
-            -c opt \
-            //:buildbuddy_setup_docker_auth
+          chmod +x ./buildbuddy_setup_docker_auth.sh
+          ./buildbuddy_setup_docker_auth.sh
 
       - name: Build (no publish)
         run: |

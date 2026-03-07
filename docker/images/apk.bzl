@@ -1,11 +1,13 @@
-"""Helpers for extracting Alpine APK artifacts into rootfs tarballs."""
+"""Helpers for extracting and combining Alpine APK rootfs tarballs."""
 
-def apk_rootfs_amd64(name, apk_target):
+def apk_rootfs_amd64(name, apk_target, post_extract_cmd = "", visibility = None):
     """Generate an amd64 rootfs tar from an APK repository target.
 
     Args:
         name: Short rule suffix (for example "libcap2").
         apk_target: Label for the APK file target.
+        post_extract_cmd: Optional shell snippet to run after unpacking.
+        visibility: Optional target visibility.
     """
     native.genrule(
         name = "apk_{}_rootfs_amd64".format(name),
@@ -31,9 +33,32 @@ else
     cp -a "$${{entry}}" "$${{TMP}}/rootfs/"
   done
 fi
+{post_extract_cmd}
 tar -czf "$@" -C "$${{TMP}}/rootfs" .
 """.format(
             apk_target = apk_target,
             name = name,
+            post_extract_cmd = post_extract_cmd,
         ),
+        visibility = visibility,
+    )
+
+def merged_rootfs_amd64(name, srcs, visibility = None):
+    """Merge multiple rootfs tarballs into a single tarball."""
+
+    native.genrule(
+        name = name,
+        srcs = srcs,
+        outs = ["{}.tar".format(name)],
+        cmd = """
+set -euo pipefail
+ROOT=$(@D)/{name}_root
+rm -rf "$${{ROOT}}"
+mkdir -p "$${{ROOT}}"
+for tarfile in $(SRCS); do
+  tar -xzf "$${{tarfile}}" -C "$${{ROOT}}"
+done
+tar -czf "$@" -C "$${{ROOT}}" .
+""".format(name = name),
+        visibility = visibility,
     )

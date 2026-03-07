@@ -46,12 +46,6 @@ alias(
 )
 
 sh_binary(
-    name = "buildbuddy_setup_docker_auth",
-    srcs = ["buildbuddy_setup_docker_auth.sh"],
-    visibility = ["//visibility:public"],
-)
-
-sh_binary(
     name = "swiftlint_lint",
     srcs = ["scripts/swiftlint_bazel.sh"],
     args = [
