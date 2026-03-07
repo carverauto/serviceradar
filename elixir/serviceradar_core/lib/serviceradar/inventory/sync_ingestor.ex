@@ -393,6 +393,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         type_id: device_type_id,
         vendor_name: vendor_name,
         model: model,
+        os: infer_os(metadata, vendor_name),
+        hw_info: infer_hw_info(metadata),
         is_available: update.is_available || false,
         owner: owner,
         metadata: metadata,
@@ -567,6 +569,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp merge_device_records(existing, incoming) do
     merged_metadata = Map.merge(existing.metadata || %{}, incoming.metadata || %{})
     merged_tags = Map.merge(existing.tags || %{}, incoming.tags || %{})
+    merged_os = Map.merge(existing.os || %{}, incoming.os || %{})
+    merged_hw_info = Map.merge(existing.hw_info || %{}, incoming.hw_info || %{})
 
     merged_discovery_sources =
       merge_discovery_sources(existing.discovery_sources, incoming.discovery_sources)
@@ -581,6 +585,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         type_id: prefer_positive_int(incoming.type_id, existing.type_id),
         vendor_name: prefer_non_empty(incoming.vendor_name, existing.vendor_name),
         model: prefer_non_empty(incoming.model, existing.model),
+        os: merged_os,
+        hw_info: merged_hw_info,
         is_available: incoming.is_available,
         owner: prefer_non_nil(incoming.owner, existing.owner),
         metadata: merged_metadata,
@@ -640,6 +646,16 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
             ),
           vendor_name: fragment("COALESCE(EXCLUDED.vendor_name, ?)", d.vendor_name),
           model: fragment("COALESCE(EXCLUDED.model, ?)", d.model),
+          os:
+            fragment(
+              "COALESCE(?, '{}'::jsonb) || COALESCE(EXCLUDED.os, '{}'::jsonb)",
+              d.os
+            ),
+          hw_info:
+            fragment(
+              "COALESCE(?, '{}'::jsonb) || COALESCE(EXCLUDED.hw_info, '{}'::jsonb)",
+              d.hw_info
+            ),
           is_available: fragment("COALESCE(EXCLUDED.is_available, ?)", d.is_available),
           owner: fragment("COALESCE(EXCLUDED.owner, ?)", d.owner),
           metadata:
@@ -994,6 +1010,49 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
   end
 
+  defp infer_os(metadata, vendor_name) when is_map(metadata) do
+    explicit_name =
+      get_string(metadata, [
+        "os_name",
+        "os",
+        "operating_system",
+        "osName"
+      ])
+
+    routeros_version = get_string(metadata, ["routeros_version", "os_version", "version"])
+    sys_descr = sys_descr_from_metadata(metadata)
+
+    os =
+      cond do
+        explicit_name not in [nil, ""] ->
+          %{"name" => explicit_name}
+
+        routeros_metadata?(metadata, vendor_name, sys_descr) ->
+          %{"name" => "RouterOS"}
+
+        true ->
+          %{}
+      end
+
+    os
+    |> maybe_put_map_value("version", routeros_version)
+    |> empty_map_to_nil()
+  end
+
+  defp infer_os(_metadata, _vendor_name), do: nil
+
+  defp infer_hw_info(metadata) when is_map(metadata) do
+    %{}
+    |> maybe_put_map_value("serial_number", get_string(metadata, ["serial_number", "serial"]))
+    |> maybe_put_map_value(
+      "cpu_architecture",
+      get_string(metadata, ["cpu_architecture", "architecture_name", "architecture"])
+    )
+    |> empty_map_to_nil()
+  end
+
+  defp infer_hw_info(_metadata), do: nil
+
   defp infer_owner(update, metadata) do
     explicit_owner =
       update.metadata
@@ -1109,6 +1168,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   defp sys_object_id_from_metadata(metadata) do
     get_string(metadata, ["sys_object_id", "sysObjectID", "sys_objectid", "sysObjectId"])
+  end
+
+  defp routeros_metadata?(metadata, vendor_name, sys_descr) do
+    get_string(metadata, ["routeros_version"]) not in [nil, ""] or
+      vendor_name == "MikroTik" or
+      (is_binary(sys_descr) and String.contains?(String.downcase(sys_descr), "routeros"))
   end
 
   defp infer_device_type(update, classification) do
@@ -1246,6 +1311,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         |> Map.put("classification_reason", Map.get(classification, :reason))
     end
   end
+
+  defp maybe_put_map_value(map, _key, value) when value in [nil, ""], do: map
+  defp maybe_put_map_value(map, key, value), do: Map.put(map, key, value)
+
+  defp empty_map_to_nil(map) when is_map(map) and map_size(map) == 0, do: nil
+  defp empty_map_to_nil(map), do: map
 
   defp enrich_alias_metadata(update) do
     metadata = update.metadata || %{}

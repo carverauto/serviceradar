@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   alias ServiceRadar.NetworkDiscovery.{
     MapperJob,
+    MapperMikrotikController,
     MapperSeed,
     MapperUnifiController
   }
@@ -81,8 +82,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:mapper_job, nil)
         |> assign(:mapper_form, nil)
         |> assign(:mapper_seeds_text, "")
-        |> assign(:mapper_unifi_form, nil)
+        |> assign(:mapper_unifi_form, empty_unifi_form())
         |> assign(:mapper_unifi_present, false)
+        |> assign(:mapper_mikrotik_form, empty_mikrotik_form())
+        |> assign(:mapper_mikrotik_present, false)
+        |> assign(:mapper_mikrotik, empty_mikrotik_fields())
         |> assign(:mapper_command_statuses, %{})
         |> assign(:sweep_command_statuses, %{})
         |> assign(:cleanup_settings, cleanup_settings)
@@ -168,7 +172,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> assign(:mapper_job, nil)
     |> assign(:mapper_form, nil)
     |> assign(:mapper_seeds_text, "")
-    |> assign(:mapper_unifi_form, nil)
+    |> assign(:mapper_unifi_form, empty_unifi_form())
+    |> assign(:mapper_unifi_present, false)
+    |> assign(:mapper_mikrotik_form, empty_mikrotik_form())
+    |> assign(:mapper_mikrotik_present, false)
+    |> assign(:mapper_mikrotik, empty_mikrotik_fields())
   end
 
   defp apply_action(socket, :new_mapper_job, _params) do
@@ -194,8 +202,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> assign(:mapper_job, nil)
     |> assign(:mapper_form, to_form(defaults, as: :mapper_job))
     |> assign(:mapper_seeds_text, "")
-    |> assign(:mapper_unifi_form, to_form(%{}, as: :unifi))
+    |> assign(:mapper_unifi_form, empty_unifi_form())
     |> assign(:mapper_unifi_present, false)
+    |> assign(:mapper_mikrotik_form, empty_mikrotik_form())
+    |> assign(:mapper_mikrotik_present, false)
+    |> assign(:mapper_mikrotik, empty_mikrotik_fields())
   end
 
   defp apply_action(socket, :edit_mapper_job, %{"id" => id}) do
@@ -209,6 +220,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
       job ->
         {unifi_form, unifi_present} = mapper_unifi_form(job.unifi_controllers)
+        {mikrotik_form, mikrotik_present} = mapper_mikrotik_form(job.mikrotik_controllers)
+        mikrotik = mapper_mikrotik_fields(job.mikrotik_controllers)
 
         socket
         |> assign(:page_title, "Edit Discovery Job")
@@ -220,6 +233,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:mapper_seeds_text, seeds_to_text(job.seeds || []))
         |> assign(:mapper_unifi_form, unifi_form)
         |> assign(:mapper_unifi_present, unifi_present)
+        |> assign(:mapper_mikrotik_form, mikrotik_form)
+        |> assign(:mapper_mikrotik_present, mikrotik_present)
+        |> assign(:mapper_mikrotik, Map.put(mikrotik, :password_present, mikrotik_present))
     end
   end
 
@@ -436,12 +452,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     job_params = normalize_mapper_job_params(Map.get(params, "mapper_job", %{}))
     seeds = parse_seeds_text(Map.get(params, "seeds", ""))
     unifi_params = normalize_unifi_params(Map.get(params, "unifi", %{}))
+    mikrotik_params = normalize_mikrotik_params(Map.get(params, "mikrotik", %{}))
 
     case save_mapper_job(
            socket.assigns.mapper_job,
            job_params,
            seeds,
            unifi_params,
+           mikrotik_params,
            scope
          ) do
       {:ok, _job} ->
@@ -468,10 +486,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     updated_form_data = Map.merge(current_form_data, job_params)
     updated_form = to_form(updated_form_data, as: :mapper_job)
 
+    mikrotik =
+      build_mikrotik_fields_from_params(
+        Map.get(socket.assigns, :mapper_mikrotik, empty_mikrotik_fields()),
+        Map.get(params, "mikrotik", %{})
+      )
+
     {:noreply,
      socket
      |> assign(:mapper_form, updated_form)
-     |> assign(:mapper_seeds_text, seeds_text)}
+     |> assign(:mapper_seeds_text, seeds_text)
+     |> assign(:mapper_mikrotik, mikrotik)}
   end
 
   def handle_event("delete_profile", %{"id" => id}, socket) do
@@ -959,6 +984,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             agents={@agents}
             unifi_form={@mapper_unifi_form}
             unifi_present={@mapper_unifi_present}
+            mikrotik={@mapper_mikrotik}
             mapper_command_statuses={@mapper_command_statuses}
             can_manage_networks={@can_manage_networks}
           />
@@ -1076,6 +1102,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   attr :agents, :list, default: []
   attr :unifi_form, :any, default: nil
   attr :unifi_present, :boolean, default: false
+  attr :mikrotik, :map, default: %{}
   attr :mapper_command_statuses, :map, default: %{}
   attr :can_manage_networks, :boolean, default: false
 
@@ -1111,6 +1138,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           agents={@agents}
           unifi_form={@unifi_form}
           unifi_present={@unifi_present}
+          mikrotik={@mikrotik}
         />
       <% else %>
         <div class="overflow-x-auto">
@@ -1227,6 +1255,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   attr :agents, :list, default: []
   attr :unifi_form, :any, required: true
   attr :unifi_present, :boolean, default: false
+  attr :mikrotik, :map, default: %{}
 
   defp mapper_job_form(assigns) do
     # Get current values for conditional rendering
@@ -1238,6 +1267,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
     assigns =
       assigns
+      |> assign(:unifi_form, assigns.unifi_form || empty_unifi_form())
+      |> assign(:mikrotik, normalize_mikrotik_fields(assigns.mikrotik))
       |> assign(:discovery_mode, discovery_mode)
       |> assign(:show_api, discovery_mode in ["api", "snmp_api"])
       |> assign(:agent_options, agent_options)
@@ -1301,38 +1332,92 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       </div>
 
       <div :if={@show_api} class="rounded-xl border border-base-200 p-4 space-y-4">
-        <div class="flex items-center justify-between">
-          <div>
-            <h3 class="text-sm font-semibold">UniFi Controller</h3>
-            <p class="text-xs text-base-content/60">API discovery integration.</p>
+        <div class="grid gap-4 xl:grid-cols-2">
+          <div class="rounded-lg border border-base-200/80 bg-base-100 p-4 space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-sm font-semibold">UniFi Controller</h3>
+                <p class="text-xs text-base-content/60">API discovery integration.</p>
+              </div>
+              <span class="text-xs text-base-content/60">
+                <%= if @unifi_present do %>
+                  API key stored
+                <% else %>
+                  No API key saved
+                <% end %>
+              </span>
+            </div>
+            <div class="grid gap-4 md:grid-cols-2">
+              <.input field={@unifi_form[:name]} type="text" label="Controller Name" />
+              <.input
+                field={@unifi_form[:base_url]}
+                type="text"
+                label="Controller URL"
+                placeholder="https://controller:8443 or https://controller:8443/proxy/network/integration/v1"
+              />
+              <.input
+                field={@unifi_form[:api_key]}
+                type="password"
+                label="API Key"
+                placeholder={if(@unifi_present, do: "stored", else: "required")}
+              />
+              <.input
+                field={@unifi_form[:insecure_skip_verify]}
+                type="checkbox"
+                label="Skip TLS Verification"
+              />
+            </div>
           </div>
-          <span class="text-xs text-base-content/60">
-            <%= if @unifi_present do %>
-              API key stored
-            <% else %>
-              No API key saved
-            <% end %>
-          </span>
-        </div>
-        <div class="grid gap-4 md:grid-cols-2">
-          <.input field={@unifi_form[:name]} type="text" label="Controller Name" />
-          <.input
-            field={@unifi_form[:base_url]}
-            type="text"
-            label="Controller URL"
-            placeholder="https://controller:8443 or https://controller:8443/proxy/network/integration/v1"
-          />
-          <.input
-            field={@unifi_form[:api_key]}
-            type="password"
-            label="API Key"
-            placeholder={if(@unifi_present, do: "stored", else: "required")}
-          />
-          <.input
-            field={@unifi_form[:insecure_skip_verify]}
-            type="checkbox"
-            label="Skip TLS Verification"
-          />
+
+          <div class="rounded-lg border border-base-200/80 bg-base-100 p-4 space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-sm font-semibold">MikroTik RouterOS</h3>
+                <p class="text-xs text-base-content/60">RouterOS REST API discovery integration.</p>
+              </div>
+              <span class="text-xs text-base-content/60">
+                <%= if @mikrotik.password_present do %>
+                  Password stored
+                <% else %>
+                  No password saved
+                <% end %>
+              </span>
+            </div>
+            <div class="grid gap-4 md:grid-cols-2">
+              <.input
+                type="text"
+                name="mikrotik[name]"
+                value={@mikrotik.name}
+                label="Source Name"
+              />
+              <.input
+                type="text"
+                name="mikrotik[base_url]"
+                value={@mikrotik.base_url}
+                label="RouterOS URL"
+                placeholder="https://router/rest"
+              />
+              <.input
+                type="text"
+                name="mikrotik[username]"
+                value={@mikrotik.username}
+                label="Username"
+              />
+              <.input
+                type="password"
+                name="mikrotik[password]"
+                value=""
+                label="Password"
+                placeholder={if(@mikrotik.password_present, do: "stored", else: "required")}
+              />
+              <.input
+                type="checkbox"
+                name="mikrotik[insecure_skip_verify]"
+                checked={@mikrotik.insecure_skip_verify}
+                label="Skip TLS Verification"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2962,8 +3047,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> Ash.Query.for_read(:read)
       |> Ash.Query.load([
         :seeds,
-        :unifi_controllers,
-        unifi_controllers: [:api_key_present]
+        unifi_controllers: [:api_key_present],
+        mikrotik_controllers: [:password_present]
       ])
 
     case Ash.read(query, scope: scope) do
@@ -2979,8 +3064,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                job,
                [
                  :seeds,
-                 :unifi_controllers,
-                 unifi_controllers: [:api_key_present]
+                 unifi_controllers: [:api_key_present],
+                 mikrotik_controllers: [:password_present]
                ],
                scope: scope
              ) do
@@ -3231,8 +3316,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
-  defp mapper_unifi_form([]), do: {to_form(%{}, as: :unifi), false}
-  defp mapper_unifi_form(%Ash.NotLoaded{}), do: {to_form(%{}, as: :unifi), false}
+  defp mapper_unifi_form([]), do: {empty_unifi_form(), false}
+  defp mapper_unifi_form(%Ash.NotLoaded{}), do: {empty_unifi_form(), false}
 
   defp mapper_unifi_form([controller | _]) do
     form = %{
@@ -3245,6 +3330,93 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     api_key_present = has_secret_value?(controller, :api_key)
 
     {to_form(form, as: :unifi), api_key_present}
+  end
+
+  defp mapper_mikrotik_form([]), do: {empty_mikrotik_form(), false}
+  defp mapper_mikrotik_form(%Ash.NotLoaded{}), do: {empty_mikrotik_form(), false}
+
+  defp mapper_mikrotik_form([controller | _]) do
+    form = %{
+      "name" => controller.name || "",
+      "base_url" => controller.base_url || "",
+      "username" => controller.username || "",
+      "insecure_skip_verify" => controller.insecure_skip_verify || false
+    }
+
+    password_present = has_secret_value?(controller, :password)
+
+    {to_form(form, as: :mikrotik), password_present}
+  end
+
+  defp mapper_mikrotik_fields([]), do: empty_mikrotik_fields()
+  defp mapper_mikrotik_fields(%Ash.NotLoaded{}), do: empty_mikrotik_fields()
+
+  defp mapper_mikrotik_fields([controller | _]) do
+    %{
+      name: controller.name || "",
+      base_url: controller.base_url || "",
+      username: controller.username || "",
+      insecure_skip_verify: controller.insecure_skip_verify || false,
+      password_present: has_secret_value?(controller, :password)
+    }
+  end
+
+  defp empty_unifi_form do
+    to_form(
+      %{
+        "name" => "",
+        "base_url" => "",
+        "api_key" => "",
+        "insecure_skip_verify" => false
+      },
+      as: :unifi
+    )
+  end
+
+  defp empty_mikrotik_form do
+    to_form(
+      %{
+        "name" => "",
+        "base_url" => "",
+        "username" => "",
+        "password" => "",
+        "insecure_skip_verify" => false
+      },
+      as: :mikrotik
+    )
+  end
+
+  defp empty_mikrotik_fields do
+    %{
+      name: "",
+      base_url: "",
+      username: "",
+      insecure_skip_verify: false,
+      password_present: false
+    }
+  end
+
+  defp normalize_mikrotik_fields(fields) do
+    empty_mikrotik_fields()
+    |> Map.merge(fields || %{})
+  end
+
+  defp build_mikrotik_fields_from_params(current, params) do
+    params = normalize_boolean(params, "insecure_skip_verify")
+
+    current
+    |> normalize_mikrotik_fields()
+    |> Map.merge(%{
+      name: Map.get(params, "name", current[:name] || ""),
+      base_url: Map.get(params, "base_url", current[:base_url] || ""),
+      username: Map.get(params, "username", current[:username] || ""),
+      insecure_skip_verify:
+        Map.get(
+          params,
+          "insecure_skip_verify",
+          current[:insecure_skip_verify] || false
+        )
+    })
   end
 
   defp seeds_to_text(seeds) do
@@ -3271,6 +3443,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     params
     |> normalize_boolean("insecure_skip_verify")
     |> drop_blank(~w(api_key))
+  end
+
+  defp normalize_mikrotik_params(params) do
+    params
+    |> normalize_boolean("insecure_skip_verify")
+    |> drop_blank(~w(password))
   end
 
   defp normalize_boolean(params, key) do
@@ -3309,10 +3487,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end)
   end
 
-  defp save_mapper_job(job, job_params, seeds, unifi_params, scope) do
+  defp save_mapper_job(job, job_params, seeds, unifi_params, mikrotik_params, scope) do
     with {:ok, job} <- upsert_mapper_job(job, job_params, scope),
          :ok <- replace_mapper_seeds(job, seeds, scope),
-         :ok <- upsert_unifi_controller(job, unifi_params, scope) do
+         :ok <- upsert_unifi_controller(job, unifi_params, scope),
+         :ok <- upsert_mikrotik_controller(job, mikrotik_params, scope) do
       {:ok, job}
     end
   end
@@ -3363,6 +3542,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
+  defp upsert_mikrotik_controller(_job, params, _scope) when map_size(params) == 0, do: :ok
+
+  defp upsert_mikrotik_controller(job, params, scope) do
+    base_url = Map.get(params, "base_url") |> to_string() |> String.trim()
+
+    if base_url == "" do
+      :ok
+    else
+      persist_mikrotik_controller(job, params, scope)
+    end
+  end
+
   defp fetch_mapper_job(scope, id) do
     case load_mapper_job(scope, id) do
       nil -> {:error, :not_found}
@@ -3389,6 +3580,34 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
         controller ->
           # Don't include mapper_job_id in update - it's not accepted
+          controller
+          |> Ash.Changeset.for_update(:update, params)
+          |> Ash.update(scope: scope)
+      end
+
+    case result do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp persist_mikrotik_controller(job, params, scope) do
+    existing =
+      case Ash.load(job, [:mikrotik_controllers], scope: scope) do
+        {:ok, loaded} -> List.first(loaded.mikrotik_controllers || [])
+        {:error, _} -> nil
+      end
+
+    result =
+      case existing do
+        nil ->
+          create_params = Map.put(params, "mapper_job_id", job.id)
+
+          MapperMikrotikController
+          |> Ash.Changeset.for_create(:create, create_params)
+          |> Ash.create(scope: scope)
+
+        controller ->
           controller
           |> Ash.Changeset.for_update(:update, params)
           |> Ash.update(scope: scope)

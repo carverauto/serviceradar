@@ -430,6 +430,7 @@ type Config struct {
 	Credentials        []SNMPCredentialConfig     `json:"credentials"`
 	Seeds              []string                   `json:"seeds"`
 	Security           *models.SecurityConfig     `json:"security"`
+	MikroTikAPIs       []MikroTikAPIConfig        `json:"mikrotik_apis"`
 	UniFiAPIs          []UniFiAPIConfig           `json:"unifi_apis"`
 	ScheduledJobs      []*ScheduledJob            `json:"scheduled_jobs"`
 	Logging            *logger.Config             `json:"logging"`
@@ -440,6 +441,15 @@ type UniFiAPIConfig struct {
 	BaseURL            string `json:"base_url"`
 	APIKey             string `json:"api_key" sensitive:"true"`
 	Name               string `json:"name"`                           // Optional name for identifying the controller
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"` // Skip TLS verification
+}
+
+// MikroTikAPIConfig contains configuration for connecting to a RouterOS REST API endpoint.
+type MikroTikAPIConfig struct {
+	BaseURL            string `json:"base_url"`
+	Username           string `json:"username"`
+	Password           string `json:"password" sensitive:"true"`
+	Name               string `json:"name"`                           // Optional name for identifying the endpoint
 	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"` // Skip TLS verification
 }
 
