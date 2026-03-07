@@ -1,5 +1,6 @@
 # Overrides for gha-runner-scale-set to pin a custom runner image with build tooling.
 runnerScaleSetName: arc-runner-set
+githubConfigUrl: https://github.com/carverauto
 
 template:
   spec:

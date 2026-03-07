@@ -13,13 +13,12 @@ bazel run //docker/images:arc_runner_image_amd64_push
 
 ## Helm install override (gha-runner-scale-set)
 
-Pass a small values override that pins the runner image; for example:
+Pass a small values override that pins the runner image and registers the
+shared scale set at the org level; for example:
 
 ```yaml
-runnerScaleSetName: serviceradar
-githubConfigUrl: <REPO_URL>
-githubConfigSecret:
-  github_token: <PAT>
+runnerScaleSetName: arc-runner-set
+githubConfigUrl: https://github.com/carverauto
 template:
   spec:
     containers:
@@ -39,15 +38,26 @@ template:
 Then install with:
 
 ```
-helm install <name> \
+helm upgrade --install <name> \
   --namespace <ns> \
   --create-namespace \
   -f ./k8s/arc/values.yaml \
   -f ./k8s/arc/runner-values.yaml \
+  --set-string githubConfigSecret=<pre-created-secret-name> \
   oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
 ```
 
-Adjust secrets/labels as needed; the key is ensuring the runner image has the tooling above so Bazel `genrule` work that must run locally can succeed.
+Create the GitHub credential as a Kubernetes Secret first instead of embedding
+it in Helm values, for example:
+
+```
+kubectl create secret generic <pre-created-secret-name> \
+  -n <ns> \
+  --from-literal=github_token='<ORG_OR_REPO_TOKEN>'
+```
+
+Adjust secrets/labels as needed; the key is ensuring the runner image has the
+tooling above so Bazel `genrule` work that must run locally can succeed.
 
 Symptom/resolution note:
 - If runners start and immediately exit/Complete, ensure the command/args above are set so the runner actually launches `/home/runner/run.sh --jitconfig ... --once` with the desired labels.
