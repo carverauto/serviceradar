@@ -84,16 +84,35 @@ All values have sensible defaults, so the `.env` file is optional.
 
 Note: CNPG binds to loopback by default. Set `CNPG_PUBLIC_BIND=0.0.0.0` in `.env` if you need LAN access.
 
+Note: Docker Compose now auto-migrates an existing PG16 CNPG data volume to
+PG18 during startup. For existing installs, the normal path is still:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Fresh installs and already-migrated PG18 volumes automatically no-op in the
+migration step.
+
+If you need to run the migration explicitly, the helper is still available:
+
+```bash
+./docker/compose/migrate-cnpg-pg16-to-pg18.sh
+```
+
 If you already have a CNPG data volume from a previous install, note that we
 now store randomly generated DB credentials in a dedicated volume instead of
 shipping static defaults. Seed the `cnpg-credentials` volume once before
-starting:
+starting. Legacy pre-security Compose data volumes are auto-recovered using the
+old defaults on first restart. If you use custom credentials or lost a newer
+`cnpg-credentials` volume, seed them explicitly:
 
 ```bash
 docker compose run --rm \
+  -e CNPG_SUPERUSER=<postgres-or-legacy-superuser> \
   -e CNPG_PASSWORD=<app-password> \
   -e CNPG_SUPERUSER_PASSWORD=<postgres-password> \
-  -e CNPG_SPIRE_PASSWORD=<spire-password> \
   db-credentials
 ```
 

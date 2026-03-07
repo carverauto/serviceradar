@@ -27,6 +27,13 @@ ORG_UNIT="Docker"
 
 DEFAULT_PARTITION_ID="${DEFAULT_PARTITION_ID:-default}"
 
+read_trimmed_file() {
+    local path="$1"
+    if [ -f "$path" ]; then
+        tr -d '\r\n' < "$path"
+    fi
+}
+
 # Create certificate directory
 mkdir -p "$CERT_DIR"
 mkdir -p "$CERT_DIR/components"
@@ -145,9 +152,16 @@ generate_cert() {
     local cn=$2
     local san=$3
     local required_dns=""
+    local existing_cn=""
     
     if [ -f "$CERT_DIR/$component.pem" ]; then
-        if [ "$component" = "cnpg" ] && [ -n "${CNPG_CERT_EXTRA_IPS:-}" ]; then
+        existing_cn="$(openssl x509 -in "$CERT_DIR/$component.pem" -noout -subject -nameopt RFC2253 | sed -n 's/^subject=.*CN=\([^,]*\).*$/\1/p')"
+        if [ -n "$existing_cn" ] && [ "$existing_cn" != "$cn" ]; then
+            echo "Certificate for $component has CN ${existing_cn}, expected ${cn}; regenerating..."
+            rm -f "$CERT_DIR/$component.pem" "$CERT_DIR/$component-key.pem"
+        fi
+
+        if [ -f "$CERT_DIR/$component.pem" ] && [ "$component" = "cnpg" ] && [ -n "${CNPG_CERT_EXTRA_IPS:-}" ]; then
             for ip in $(echo "$CNPG_CERT_EXTRA_IPS" | tr ',' ' '); do
                 if ! openssl x509 -in "$CERT_DIR/$component.pem" -noout -text | grep -q "IP Address:${ip}"; then
                     echo "CNPG certificate is missing SAN IP ${ip}; regenerating cnpg certificate..."
@@ -162,7 +176,7 @@ generate_cert() {
             required_dns="agent-elx-t2"
         fi
 
-        if [ -n "$required_dns" ]; then
+        if [ -f "$CERT_DIR/$component.pem" ] && [ -n "$required_dns" ]; then
             if ! openssl x509 -in "$CERT_DIR/$component.pem" -noout -text | grep -q "DNS:${required_dns}"; then
                 echo "Certificate for $component missing SAN DNS:${required_dns}; regenerating..."
                 rm -f "$CERT_DIR/$component.pem" "$CERT_DIR/$component-key.pem"
@@ -261,7 +275,12 @@ generate_cert "cnpg" "cnpg.serviceradar" "${CNPG_SAN}"
 generate_cert "db-client" "serviceradar" "DNS:serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Client cert for DB superuser tasks (CN must match DB username)
-generate_cert "db-superuser" "postgres" "DNS:postgres,DNS:localhost,IP:127.0.0.1"
+DB_SUPERUSER="${CNPG_SUPERUSER:-}"
+if [ -z "$DB_SUPERUSER" ] && [ -n "${CNPG_SUPERUSER_FILE:-}" ]; then
+    DB_SUPERUSER="$(read_trimmed_file "$CNPG_SUPERUSER_FILE")"
+fi
+DB_SUPERUSER="${DB_SUPERUSER:-postgres}"
+generate_cert "db-superuser" "$DB_SUPERUSER" "DNS:${DB_SUPERUSER},DNS:localhost,IP:127.0.0.1"
 
 # Client cert intended for developers connecting from outside the Docker network
 generate_cert "workstation" "workstation.serviceradar" "DNS:workstation,DNS:workstation.serviceradar,DNS:localhost,IP:127.0.0.1"
