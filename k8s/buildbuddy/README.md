@@ -163,7 +163,7 @@ Executors expose Prometheus metrics on port 9090:
 Two different container images are involved in remote execution:
 
 1. **BuildBuddy executor pods (Helm)** – run the BuildBuddy binary and should stay on the upstream image `gcr.io/flame-public/buildbuddy-executor-enterprise:<tag>` unless we intentionally rebuild the executor ourselves.
-2. **Bazel action image** – the toolchain container (`ghcr.io/carverauto/serviceradar/rbe-executor:<tag>`) that Bazel runs for each action via `exec_properties`. This is where we add compilers, Postgres libraries, etc.
+2. **Bazel action image** – the toolchain container (`ghcr.io/carverauto/serviceradar/rbe-executor:<tag>`) that Bazel runs for each action via `exec_properties`. This is where we add compilers, Postgres libraries, Node/npm, and similar build-time toolchains.
 
 Only the Bazel action image is customized today. After updating `docker/Dockerfile.rbe`:
 
@@ -172,7 +172,7 @@ Only the Bazel action image is customized today. After updating `docker/Dockerfi
    docker buildx build \
      --platform linux/amd64 \
      -f docker/Dockerfile.rbe \
-     -t ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.20 \
+     -t ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.21 \
      --push .
    ```
    (Alternatively, push via `.github/workflows/build-rbe-image.yml`.)

@@ -9,6 +9,7 @@ SHELL ["/bin/bash", "-lc"]
 # Install build dependencies
 RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
     && dnf config-manager --enable ol9_codeready_builder \
+    && dnf -y module enable nodejs:20 \
     && dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm \
     && dnf install -y https://zfsonlinux.org/epel/zfs-release-2-3.el9.noarch.rpm \
     && dnf -qy module disable postgresql \
@@ -35,6 +36,7 @@ RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
         lz4-devel \
         m4 \
         make \
+        nodejs \
         openssl-devel \
         patch \
         perl \
@@ -119,5 +121,7 @@ RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | 
 RUN mkdir -p /workspace
 
 WORKDIR /workspace
+
+RUN node --version && npm --version
 
 # Important: Do not set ENTRYPOINT or CMD as BuildBuddy will provide commands

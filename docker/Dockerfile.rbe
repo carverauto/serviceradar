@@ -56,6 +56,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         patch \
         unzip \
+        nodejs \
+        npm \
         rsync \
         tar \
         m4 \
@@ -74,6 +76,8 @@ RUN curl -fsSL http://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1
 RUN ln -sf /usr/sbin/iptables /usr/bin/iptables
 
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+RUN node --version && npm --version
 
 # Provide the common RHEL-style lib64 path expected by some build scripts.
 RUN ln -s /usr/lib/x86_64-linux-gnu /usr/lib64
