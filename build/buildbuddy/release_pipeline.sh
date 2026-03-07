@@ -27,12 +27,17 @@ if [[ -x "${DOCKER_AUTH_SCRIPT}" ]]; then
     "${DOCKER_AUTH_SCRIPT}"
 fi
 
-BAZEL_BINARY="${BAZEL_BINARY:-bazelisk}"
-if ! command -v "${BAZEL_BINARY}" >/dev/null 2>&1; then
-    if command -v bazel >/dev/null 2>&1; then
+DEFAULT_BAZEL_WRAPPER="${REPO_ROOT}/tools/bazel/bazel"
+BAZEL_BINARY="${BAZEL_BINARY:-${DEFAULT_BAZEL_WRAPPER}}"
+if [[ ! -x "${BAZEL_BINARY}" ]]; then
+    if command -v "${BAZEL_BINARY}" >/dev/null 2>&1; then
+        :
+    elif command -v bazelisk >/dev/null 2>&1; then
+        BAZEL_BINARY="bazelisk"
+    elif command -v bazel >/dev/null 2>&1; then
         BAZEL_BINARY="bazel"
     else
-        echo "Neither bazelisk nor bazel is available on PATH. Set BAZEL_BINARY to a valid executable." >&2
+        echo "Neither ${DEFAULT_BAZEL_WRAPPER}, bazelisk, nor bazel is available. Set BAZEL_BINARY to a valid executable." >&2
         exit 1
     fi
 fi

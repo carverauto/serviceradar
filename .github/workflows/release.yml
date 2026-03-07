@@ -117,6 +117,15 @@ jobs:
       - name: Setup Bazelisk
         uses: bazelbuild/setup-bazelisk@v3
 
+      - name: Verify Bazel version
+        run: |
+          set -euo pipefail
+          expected="$(tr -d '\r\n' < .bazelversion)"
+          actual="$(bazel --version | awk '{print $NF}')"
+          echo "Expected Bazel: ${expected}"
+          echo "Resolved Bazel: ${actual}"
+          test "${actual}" = "${expected}"
+
       - name: Resolve release metadata
         id: release
         env:
