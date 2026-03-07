@@ -313,3 +313,119 @@ def declare_elixir_release_container_amd64(
         repo_tags = [local_repo_tag],
         visibility = visibility,
     )
+
+def declare_elixir_release_container_with_debs_amd64(
+        name,
+        base,
+        release_tar,
+        deb_packages,
+        entrypoint,
+        image_title,
+        local_repo_tag,
+        rootfs_name = None,
+        cmd = None,
+        env = None,
+        workdir = "/app",
+        exposed_ports = None,
+        extra_tars = None,
+        visibility = None,
+        target_compatible_with = None):
+    """Declare an Elixir release image whose rootfs overlays Debian packages."""
+
+    if rootfs_name == None:
+        if name.endswith("_image_amd64"):
+            rootfs_name = name[:-len("_image_amd64")] + "_rootfs_amd64"
+        else:
+            rootfs_name = name + "_rootfs_amd64"
+
+    elixir_release_rootfs_with_debs_amd64(
+        name = rootfs_name,
+        release_tar = release_tar,
+        deb_packages = deb_packages,
+        visibility = visibility,
+    )
+
+    declare_elixir_release_container_amd64(
+        name = name,
+        base = base,
+        rootfs_tar = ":{}".format(rootfs_name),
+        entrypoint = entrypoint,
+        image_title = image_title,
+        local_repo_tag = local_repo_tag,
+        cmd = cmd,
+        env = env,
+        workdir = workdir,
+        exposed_ports = exposed_ports,
+        extra_tars = extra_tars,
+        visibility = visibility,
+        target_compatible_with = target_compatible_with,
+    )
+
+def declare_web_ng_release_container_amd64(
+        name,
+        base,
+        release_tar,
+        core_digest,
+        local_repo_tag,
+        image_title = "serviceradar-web-ng",
+        base_image_name = None,
+        build_info_layer_name = None,
+        bun_layer_name = None,
+        bun_src = "@bun_linux_amd64//:bun",
+        cmd = None,
+        env = None,
+        workdir = "/app",
+        exposed_ports = None,
+        visibility = None,
+        target_compatible_with = None):
+    """Declare the web-ng release image with build-info and Bun SSR layers."""
+
+    if build_info_layer_name == None:
+        if name.endswith("_image_amd64"):
+            build_info_layer_name = name[:-len("_image_amd64")] + "_build_info_layer_amd64"
+        else:
+            build_info_layer_name = name + "_build_info_layer_amd64"
+
+    if bun_layer_name == None:
+        if name.endswith("_image_amd64"):
+            bun_layer_name = name[:-len("_image_amd64")] + "_bun_runtime_layer_amd64"
+        else:
+            bun_layer_name = name + "_bun_runtime_layer_amd64"
+
+    base_digest = ":{}.digest".format(base_image_name) if base_image_name else ":{}.digest".format(name)
+
+    elixir_build_info_layer_amd64(
+        name = build_info_layer_name,
+        web_digest = base_digest,
+        core_digest = core_digest,
+        visibility = visibility,
+        target_compatible_with = target_compatible_with,
+    )
+
+    file_layer_amd64(
+        name = bun_layer_name,
+        src = bun_src,
+        target_path = "usr/local/bin/bun",
+        visibility = visibility,
+        target_compatible_with = target_compatible_with,
+    )
+
+    declare_elixir_release_container_amd64(
+        name = name,
+        base = base,
+        release_tar = release_tar,
+        entrypoint = ["/app/bin/serviceradar_web_ng"],
+        cmd = cmd,
+        env = env,
+        workdir = workdir,
+        exposed_ports = exposed_ports,
+        image_title = image_title,
+        local_repo_tag = local_repo_tag,
+        extra_tars = [
+            ":{}".format(build_info_layer_name),
+            ":{}".format(bun_layer_name),
+        ],
+        base_image_name = base_image_name,
+        visibility = visibility,
+        target_compatible_with = target_compatible_with,
+    )

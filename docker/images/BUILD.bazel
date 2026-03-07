@@ -1,18 +1,17 @@
 """Bazel-native OCI images."""
 
-load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
-load("//docker/images:apk.bzl", "apk_rootfs_amd64", "merged_rootfs_amd64")
+load("//docker/images:apk.bzl", "apk_rootfs_amd64", "declare_alpine_netutils_rootfs_amd64", "declare_apk_rootfs_targets")
 load("//docker/images:cnpg_image.bzl", "declare_cnpg_image_amd64")
 load("//docker/images:push_targets.bzl", "declare_ghcr_push_targets")
 load(
     "//docker/images:release_images.bzl",
-    "elixir_build_info_layer_amd64",
     "declare_elixir_release_container_amd64",
-    "elixir_release_rootfs_with_debs_amd64",
-    "file_layer_amd64",
+    "declare_elixir_release_container_with_debs_amd64",
+    "declare_web_ng_release_container_amd64",
 )
 load(
     "//docker/images:service_images.bzl",
+    "declare_common_tools_layer",
     "declare_custom_base_service_container_amd64",
     "declare_postgresql_client_symlink_layer",
     "declare_loaded_oci_image_amd64",
@@ -38,67 +37,19 @@ declare_loaded_oci_image_amd64(
     repo_tags = ["ghcr.io/carverauto/arc-runner:local"],
 )
 
-pkg_tar(
-    name = "common_tools_amd64",
-    files = {
-        "@jq_linux_amd64//file": "usr/local/bin/jq",
-        "@curl_linux_amd64//file": "usr/local/bin/curl",
-        "@grpcurl_linux_amd64//:grpcurl": "usr/local/bin/grpcurl",
-        "//go/cmd/tools/waitforport:wait-for-port": "usr/local/bin/wait-for-port",
-    },
-    modes = {
-        "usr/local/bin/jq": "0755",
-        "usr/local/bin/curl": "0755",
-        "usr/local/bin/grpcurl": "0755",
-        "usr/local/bin/wait-for-port": "0755",
-    },
-    package_dir = "/",
-)
+declare_common_tools_layer()
 
-apk_rootfs_amd64(
-    name = "iputils_ping",
-    apk_target = "@alpine_iputils_ping_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "nmap",
-    apk_target = "@alpine_nmap_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "netcat",
-    apk_target = "@alpine_netcat_openbsd_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "inetutils_telnet",
-    apk_target = "@alpine_inetutils_telnet_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "libcap2",
-    apk_target = "@alpine_libcap2_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "libbsd",
-    apk_target = "@alpine_libbsd_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "libmd",
-    apk_target = "@alpine_libmd_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "bash",
-    apk_target = "@alpine_bash_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "readline",
-    apk_target = "@alpine_readline_apk//file",
-)
+declare_apk_rootfs_targets([
+    ("iputils_ping", "@alpine_iputils_ping_apk//file"),
+    ("nmap", "@alpine_nmap_apk//file"),
+    ("netcat", "@alpine_netcat_openbsd_apk//file"),
+    ("inetutils_telnet", "@alpine_inetutils_telnet_apk//file"),
+    ("libcap2", "@alpine_libcap2_apk//file"),
+    ("libbsd", "@alpine_libbsd_apk//file"),
+    ("libmd", "@alpine_libmd_apk//file"),
+    ("bash", "@alpine_bash_apk//file"),
+    ("readline", "@alpine_readline_apk//file"),
+])
 
 apk_rootfs_amd64(
     name = "glibc",
@@ -112,99 +63,30 @@ fi
 """,
 )
 
-apk_rootfs_amd64(
-    name = "libncursesw",
-    apk_target = "@alpine_libncursesw_apk//file",
-)
+declare_apk_rootfs_targets([
+    ("libncursesw", "@alpine_libncursesw_apk//file"),
+    ("ncurses_terminfo_base", "@alpine_ncurses_terminfo_base_apk//file"),
+    ("tools_bash", "@alpine_3_23_bash_apk//file"),
+    ("tools_readline", "@alpine_3_23_readline_apk//file"),
+    ("tools_postgresql_common", "@alpine_3_23_postgresql_common_apk//file"),
+    ("tools_postgresql18_client", "@alpine_3_23_postgresql18_client_apk//file"),
+    ("tools_libpq", "@alpine_3_23_libpq_apk//file"),
+    ("tools_lz4_libs", "@alpine_3_23_lz4_libs_apk//file"),
+    ("tools_zstd_libs", "@alpine_3_23_zstd_libs_apk//file"),
+    ("tools_libncursesw", "@alpine_3_23_libncursesw_apk//file"),
+    ("tools_ncurses_terminfo_base", "@alpine_3_23_ncurses_terminfo_base_apk//file"),
+])
 
-apk_rootfs_amd64(
-    name = "ncurses_terminfo_base",
-    apk_target = "@alpine_ncurses_terminfo_base_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "tools_bash",
-    apk_target = "@alpine_3_23_bash_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "tools_readline",
-    apk_target = "@alpine_3_23_readline_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "tools_postgresql_common",
-    apk_target = "@alpine_3_23_postgresql_common_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "tools_postgresql18_client",
-    apk_target = "@alpine_3_23_postgresql18_client_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "tools_libpq",
-    apk_target = "@alpine_3_23_libpq_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "tools_lz4_libs",
-    apk_target = "@alpine_3_23_lz4_libs_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "tools_zstd_libs",
-    apk_target = "@alpine_3_23_zstd_libs_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "tools_libncursesw",
-    apk_target = "@alpine_3_23_libncursesw_apk//file",
-)
-
-apk_rootfs_amd64(
-    name = "tools_ncurses_terminfo_base",
-    apk_target = "@alpine_3_23_ncurses_terminfo_base_apk//file",
-)
-
-merged_rootfs_amd64(
-    name = "alpine_netutils_rootfs_amd64",
-    srcs = [
-        ":apk_iputils_ping_rootfs_amd64.tar",
-        ":apk_libcap2_rootfs_amd64.tar",
-        ":apk_libmd_rootfs_amd64.tar",
-        ":apk_libbsd_rootfs_amd64.tar",
-        ":apk_nmap_rootfs_amd64.tar",
-        ":apk_netcat_rootfs_amd64.tar",
-        ":apk_inetutils_telnet_rootfs_amd64.tar",
-    ],
-)
+declare_alpine_netutils_rootfs_amd64()
 
 # web-ng (Phoenix) -----------------------------------------------------------
 
-elixir_build_info_layer_amd64(
-    name = "web_ng_build_info_layer_amd64",
-    web_digest = ":web_ng_image_base_amd64.digest",
-    core_digest = "//docker/images:core_elx_image_amd64.digest",
-)
-
-# Bun runtime for Phoenix React Server SSR (GoRules JDM editor)
-file_layer_amd64(
-    name = "bun_runtime_layer_amd64",
-    src = "@bun_linux_amd64//:bun",
-    target_path = "usr/local/bin/bun",
-)
-
-declare_elixir_release_container_amd64(
+declare_web_ng_release_container_amd64(
     name = "web_ng_image_amd64",
     base_image_name = "web_ng_image_base_amd64",
     base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
     release_tar = "//elixir/web-ng:release_tar",
-    extra_tars = [
-        ":web_ng_build_info_layer_amd64",
-        ":bun_runtime_layer_amd64",
-    ],
-    entrypoint = ["/app/bin/serviceradar_web_ng"],
+    core_digest = "//docker/images:core_elx_image_amd64.digest",
     cmd = ["start"],
     env = {
         "HOME": "/app",
@@ -239,19 +121,14 @@ declare_elixir_release_container_amd64(
 
 # elixir agent-gateway -------------------------------------------------------
 
-elixir_release_rootfs_with_debs_amd64(
-    name = "agent_gateway_openssl_rootfs_amd64",
+declare_elixir_release_container_with_debs_amd64(
+    name = "agent_gateway_image_amd64",
+    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
     release_tar = "//elixir/serviceradar_agent_gateway:release_tar",
     deb_packages = [
         "@debian_openssl_amd64_deb//file",
         "@debian_libssl3_amd64_deb//file",
     ],
-)
-
-declare_elixir_release_container_amd64(
-    name = "agent_gateway_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    rootfs_tar = ":agent_gateway_openssl_rootfs_amd64",
     entrypoint = ["/app/bin/serviceradar_agent_gateway"],
     cmd = ["start"],
     env = {

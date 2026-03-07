@@ -77,6 +77,33 @@ def declare_postgresql_client_symlink_layer(
         visibility = visibility,
     )
 
+def declare_common_tools_layer(
+        name = "common_tools_amd64",
+        visibility = None,
+        target_compatible_with = None):
+    """Create the shared debugging/tooling layer used by service images."""
+
+    if target_compatible_with == None:
+        target_compatible_with = []
+
+    service_layer(
+        name = name,
+        files = {
+            "@jq_linux_amd64//file": "usr/local/bin/jq",
+            "@curl_linux_amd64//file": "usr/local/bin/curl",
+            "@grpcurl_linux_amd64//:grpcurl": "usr/local/bin/grpcurl",
+            "//go/cmd/tools/waitforport:wait-for-port": "usr/local/bin/wait-for-port",
+        },
+        modes = {
+            "usr/local/bin/jq": "0755",
+            "usr/local/bin/curl": "0755",
+            "usr/local/bin/grpcurl": "0755",
+            "usr/local/bin/wait-for-port": "0755",
+        },
+        visibility = visibility,
+        target_compatible_with = target_compatible_with,
+    )
+
 def service_image_amd64(
         name,
         base,

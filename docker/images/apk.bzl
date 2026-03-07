@@ -43,6 +43,21 @@ tar -czf "$@" -C "$${{TMP}}/rootfs" .
         visibility = visibility,
     )
 
+def declare_apk_rootfs_targets(entries, visibility = None):
+    """Declare multiple amd64 APK rootfs targets.
+
+    Args:
+        entries: Sequence of `(name, apk_target)` tuples.
+        visibility: Optional target visibility applied to each target.
+    """
+
+    for name, apk_target in entries:
+        apk_rootfs_amd64(
+            name = name,
+            apk_target = apk_target,
+            visibility = visibility,
+        )
+
 def merged_rootfs_amd64(name, srcs, visibility = None):
     """Merge multiple rootfs tarballs into a single tarball."""
 
@@ -60,5 +75,24 @@ for tarfile in $(SRCS); do
 done
 tar -czf "$@" -C "$${{ROOT}}" .
 """.format(name = name),
+        visibility = visibility,
+    )
+
+def declare_alpine_netutils_rootfs_amd64(
+        name = "alpine_netutils_rootfs_amd64",
+        visibility = None):
+    """Declare the shared Alpine netutils rootfs bundle."""
+
+    merged_rootfs_amd64(
+        name = name,
+        srcs = [
+            ":apk_iputils_ping_rootfs_amd64.tar",
+            ":apk_libcap2_rootfs_amd64.tar",
+            ":apk_libmd_rootfs_amd64.tar",
+            ":apk_libbsd_rootfs_amd64.tar",
+            ":apk_nmap_rootfs_amd64.tar",
+            ":apk_netcat_rootfs_amd64.tar",
+            ":apk_inetutils_telnet_rootfs_amd64.tar",
+        ],
         visibility = visibility,
     )
