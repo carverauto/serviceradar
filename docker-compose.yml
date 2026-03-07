@@ -19,13 +19,15 @@ services:
     container_name: serviceradar-db-credentials
     volumes:
       - cnpg-credentials:/etc/serviceradar/cnpg
-      - cnpg-data:/var/lib/postgresql/data:ro
+      - cnpg-data:/var/lib/postgresql/18/docker:ro
       - ./docker/compose/bootstrap-db-credentials.sh:/bootstrap-db-credentials.sh:ro
     environment:
+      - CNPG_DATA_DIR=/var/lib/postgresql/18/docker
+      - CNPG_SUPERUSER=${CNPG_SUPERUSER:-}
       - CNPG_PASSWORD=${CNPG_PASSWORD:-}
       - CNPG_SUPERUSER_PASSWORD=${CNPG_SUPERUSER_PASSWORD:-}
       - CNPG_SPIRE_PASSWORD=${CNPG_SPIRE_PASSWORD:-}
-    command: sh -c "apk add --no-cache openssl && sh /bootstrap-db-credentials.sh"
+    command: sh /bootstrap-db-credentials.sh
     restart: "no"
     networks:
       - serviceradar-net
@@ -34,6 +36,7 @@ services:
     image: ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2
     container_name: serviceradar-cnpg-mtls
     user: "0:0"
+    entrypoint: ["/bin/sh", "/check-cnpg-major-version.sh"]
     depends_on:
       db-credentials:
         condition: service_completed_successfully
@@ -62,6 +65,8 @@ services:
       - "-c"
       - "max_wal_size=1GB"
     environment:
+      - CNPG_DATA_DIR=/var/lib/postgresql/18/docker
+      - CNPG_EXPECTED_PG_MAJOR=18
       - POSTGRES_USER=${CNPG_SUPERUSER:-postgres}
       - POSTGRES_PASSWORD_FILE=/etc/serviceradar/cnpg/superuser-password
       - POSTGRES_DB=${CNPG_DATABASE:-serviceradar}
@@ -69,16 +74,17 @@ services:
     ports:
       - "${CNPG_PUBLIC_BIND:-127.0.0.1}:${CNPG_PUBLIC_PORT:-5455}:5432"
     volumes:
-      - cnpg-data:/var/lib/postgresql/data
+      - cnpg-data:/var/lib/postgresql/18/docker
       - cert-data:/etc/serviceradar/certs:ro
       - cnpg-credentials:/etc/serviceradar/cnpg:ro
+      - ./docker/compose/check-cnpg-major-version.sh:/check-cnpg-major-version.sh:ro
       - ./docker/compose/pg_hba.conf:/etc/serviceradar/pg_hba.conf:ro
       - ./docker/compose/pg_ident.conf:/etc/serviceradar/pg_ident.conf:ro
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "set -e; cp /etc/serviceradar/certs/db-superuser-key.pem /tmp/pg_healthcheck.key; chmod 600 /tmp/pg_healthcheck.key; PGPASSWORD=$(cat /etc/serviceradar/cnpg/superuser-password) PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/db-superuser.pem PGSSLKEY=/tmp/pg_healthcheck.key pg_isready -h localhost -U ${CNPG_SUPERUSER:-postgres} -d ${CNPG_ADMIN_DATABASE:-postgres}"
+          "set -e; cp /etc/serviceradar/certs/db-superuser-key.pem /tmp/pg_healthcheck.key; chmod 600 /tmp/pg_healthcheck.key; CNPG_HEALTHCHECK_USER=$$(cat /etc/serviceradar/cnpg/superuser-username 2>/dev/null || printf '%s' ${CNPG_SUPERUSER:-postgres}); PGPASSWORD=$$(cat /etc/serviceradar/cnpg/superuser-password) PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/db-superuser.pem PGSSLKEY=/tmp/pg_healthcheck.key pg_isready -h localhost -U $$CNPG_HEALTHCHECK_USER -d ${CNPG_DATABASE:-serviceradar}"
         ]
       interval: 10s
       timeout: 5s
@@ -153,6 +159,7 @@ services:
       - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
       - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_USERNAME_FILE=/etc/serviceradar/cnpg/superuser-username
       - CNPG_USERNAME=${CNPG_SUPERUSER:-postgres}
       - CNPG_PASSWORD_FILE=/etc/serviceradar/cnpg/superuser-password
       - CNPG_APP_USER=${CNPG_APP_USER:-serviceradar}

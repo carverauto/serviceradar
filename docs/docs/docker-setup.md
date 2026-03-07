@@ -51,13 +51,31 @@ docker compose up -d --force-recreate
 
 If you already have a CNPG data volume from a previous install, note that the
 stack now stores database credentials in the `cnpg-credentials` volume to avoid
-shipping static passwords. Seed the credentials once before restarting:
+shipping static passwords. Legacy pre-security Compose volumes are recovered
+automatically using the old defaults on first restart.
+
+Docker Compose also checks the on-disk Postgres major version before CNPG
+starts. A PG16 data volume will fail fast with an explicit migration error when
+used with the PG18 image.
+
+To migrate an existing PG16 Compose data volume to PG18:
+
+```bash
+./docker/compose/migrate-cnpg-pg16-to-pg18.sh
+```
+
+If the old install used non-default credentials without a persisted
+`cnpg-credentials` volume, pass them explicitly when running the migration
+script.
+
+If you use custom credentials or lost a newer `cnpg-credentials` volume, seed
+the credentials once before restarting:
 
 ```bash
 docker compose run --rm \
+  -e CNPG_SUPERUSER=<postgres-or-legacy-superuser> \
   -e CNPG_PASSWORD=<app-password> \
   -e CNPG_SUPERUSER_PASSWORD=<postgres-password> \
-  -e CNPG_SPIRE_PASSWORD=<spire-password> \
   db-credentials
 ```
 
