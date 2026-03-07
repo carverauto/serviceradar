@@ -9,7 +9,7 @@ title: Tools Pod (serviceradar-tools)
 ## What You Get
 
 - `nats` CLI with a preloaded context (TLS and credentials)
-- `psql` helpers for CNPG (Timescale + AGE)
+- PostgreSQL 18 client helpers for CNPG (Timescale + AGE), including `psql`, `pg_isready`, and `cnpg-sql`
 - Common utilities: `jq`, `rg`, `openssl`, `nc`
 
 ## Kubernetes Usage

@@ -60,7 +60,7 @@ Manifests in this directory bootstrap SPIFFE/SPIRE inside the `demo` Kubernetes 
 ## CNPG rebuild with TimescaleDB + AGE + PostGIS
 
 The SPIRE manifests now rely on the custom `ghcr.io/carverauto/serviceradar-cnpg`
-image, which ships PostgreSQL 16.6 along with TimescaleDB, Apache AGE, and PostGIS
+image, which ships PostgreSQL 18 along with TimescaleDB, Apache AGE, and PostGIS
 extensions. Follow this workflow whenever you need a clean rebuild (for example
 when refreshing the demo cluster or cutting over from the stock CloudNativePG
 image):

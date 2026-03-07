@@ -6,8 +6,10 @@ load("//docker/images:cnpg_image.bzl", "declare_cnpg_image_amd64")
 load("//docker/images:push_targets.bzl", "declare_ghcr_push_targets")
 load(
     "//docker/images:release_images.bzl",
+    "elixir_build_info_layer_amd64",
     "declare_elixir_release_container_amd64",
     "elixir_release_rootfs_with_debs_amd64",
+    "file_layer_amd64",
 )
 load(
     "//docker/images:service_images.bzl",
@@ -180,92 +182,17 @@ merged_rootfs_amd64(
 
 # web-ng (Phoenix) -----------------------------------------------------------
 
-genrule(
-    name = "web_ng_build_info_json",
-    srcs = [
-        ":web_ng_image_base_amd64.digest",
-        "//docker/images:core_elx_image_amd64.digest",
-        "//:VERSION",
-    ],
-    outs = ["web_ng_build_info.json"],
-    stamp = True,
-    cmd = """
-set -euo pipefail
-
-web_digest_file="$(location :web_ng_image_base_amd64.digest)"
-core_digest_file="$(location //docker/images:core_elx_image_amd64.digest)"
-version_file="$(location //:VERSION)"
-info_file="bazel-out/stable-status.txt"
-
-web_digest=$$(cat "$$web_digest_file")
-if [[ "$$web_digest" != sha256:* ]]; then
-  echo "unexpected web-ng base digest format: $$web_digest" >&2
-  exit 1
-fi
-
-web_short=$${web_digest#sha256:}
-web_short=$$(printf '%s' "$$web_short" | cut -c1-12)
-
-core_digest=$$(cat "$$core_digest_file")
-if [[ "$$core_digest" != sha256:* ]]; then
-  echo "unexpected core-elx digest format: $$core_digest" >&2
-  exit 1
-fi
-
-core_short=$${core_digest#sha256:}
-core_short=$$(printf '%s' "$$core_short" | cut -c1-12)
-
-commit_sha="dev"
-if [[ -f "$$info_file" ]]; then
-  commit_sha=$$(grep -m1 '^STABLE_COMMIT_SHA ' "$$info_file" | awk '{print $$2}')
-  if [[ -z "$$commit_sha" ]]; then
-    commit_sha="dev"
-  fi
-fi
-commit_short=$$(printf '%s' "$$commit_sha" | cut -c1-12)
-
-if [[ -f "$$version_file" ]]; then
-  version=$$(tr -d '\\n' < "$$version_file")
-else
-  version="dev"
-fi
-
-build_time="$${BUILD_TIMESTAMP:-$$(date -u +"%Y-%m-%dT%H:%M:%SZ")}"
-
-cat > "$@" <<EOF
-{
-  "version": "$$version",
-  "buildTime": "$$build_time",
-  "webBuildId": "sha-$$commit_short",
-  "webImageDigest": "$$web_digest",
-  "coreBuildId": "sha-$$core_short"
-}
-EOF
-""",
-)
-
-pkg_tar(
+elixir_build_info_layer_amd64(
     name = "web_ng_build_info_layer_amd64",
-    files = {
-        ":web_ng_build_info_json": "app/priv/static/build-info.json",
-    },
-    modes = {
-        "app/priv/static/build-info.json": "0644",
-    },
-    package_dir = "/",
-    target_compatible_with = [],
+    web_digest = ":web_ng_image_base_amd64.digest",
+    core_digest = "//docker/images:core_elx_image_amd64.digest",
 )
 
 # Bun runtime for Phoenix React Server SSR (GoRules JDM editor)
-pkg_tar(
+file_layer_amd64(
     name = "bun_runtime_layer_amd64",
-    files = {
-        "@bun_linux_amd64//:bun": "usr/local/bin/bun",
-    },
-    modes = {
-        "usr/local/bin/bun": "0755",
-    },
-    package_dir = "/",
+    src = "@bun_linux_amd64//:bun",
+    target_path = "usr/local/bin/bun",
 )
 
 declare_elixir_release_container_amd64(

@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-lc"]
 
 # 1. Install basic setup tools, repository handling, and common dependencies
-# 2. Setup PostgreSQL official repo for version 16
+# 2. Setup PostgreSQL official repo for version 18
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         skopeo \
         iptables \
         # Database / Libs
-        postgresql-server-dev-16 \
+        postgresql-server-dev-18 \
         libpq-dev \
         libssl-dev \
         zlib1g-dev \
@@ -82,7 +82,7 @@ RUN ln -s /usr/lib/x86_64-linux-gnu /usr/lib64
 # that were required for Oracle Linux gcc-toolset-13.
 
 # Set Environment Variables
-# Note: On Ubuntu, Postgres libraries are usually in standard paths or /usr/lib/postgresql/16/lib
+# Note: On Ubuntu, Postgres libraries are usually in standard paths or /usr/lib/postgresql/18/lib
 ENV CC=/usr/bin/gcc \
     CXX=/usr/bin/g++ \
     XDG_RUNTIME_DIR=/run/user/0 \
@@ -90,11 +90,11 @@ ENV CC=/usr/bin/gcc \
     CARGO_HOME=/opt/cargo \
     PATH=/opt/cargo/bin:$PATH \
     # pkg-config lookup paths
-    PKG_CONFIG_PATH=/usr/lib/postgresql/16/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+    PKG_CONFIG_PATH=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 
-ARG GHCR_CNPG_IMAGE="ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3"
+ARG GHCR_CNPG_IMAGE="ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2"
 ARG GHCR_USERNAME=""
 
 # Fetch the CNPG test fixture image into a local docker-archive.

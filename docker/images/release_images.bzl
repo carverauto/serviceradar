@@ -1,6 +1,126 @@
 """Shared helpers for Bazel-native OCI images backed by Elixir releases."""
 
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
+
+def file_layer_amd64(
+        name,
+        src,
+        target_path,
+        mode = "0755",
+        visibility = None,
+        target_compatible_with = None):
+    """Package a single file into a rootfs layer tar."""
+
+    if target_compatible_with == None:
+        target_compatible_with = []
+
+    pkg_tar(
+        name = name,
+        files = {
+            src: target_path,
+        },
+        modes = {
+            target_path: mode,
+        },
+        package_dir = "/",
+        visibility = visibility,
+        target_compatible_with = target_compatible_with,
+    )
+
+def elixir_build_info_layer_amd64(
+        name,
+        web_digest,
+        core_digest,
+        version_file = "//:VERSION",
+        target_path = "app/priv/static/build-info.json",
+        visibility = None,
+        target_compatible_with = None):
+    """Emit a build-info JSON file and wrap it as a layer tar."""
+
+    if target_compatible_with == None:
+        target_compatible_with = []
+
+    json_name = "{}_json".format(name)
+
+    native.genrule(
+        name = json_name,
+        srcs = [
+            web_digest,
+            core_digest,
+            version_file,
+        ],
+        outs = ["{}.json".format(name)],
+        stamp = True,
+        cmd = """
+set -euo pipefail
+
+web_digest_file="$(location ___WEB_DIGEST___)"
+core_digest_file="$(location ___CORE_DIGEST___)"
+version_file="$(location ___VERSION_FILE___)"
+info_file="bazel-out/stable-status.txt"
+
+web_digest=$$(cat "$$web_digest_file")
+if [[ "$$web_digest" != sha256:* ]]; then
+  echo "unexpected web digest format: $$web_digest" >&2
+  exit 1
+fi
+
+web_short=$${web_digest#sha256:}
+web_short=$$(printf '%s' "$$web_short" | cut -c1-12)
+
+core_digest=$$(cat "$$core_digest_file")
+if [[ "$$core_digest" != sha256:* ]]; then
+  echo "unexpected core digest format: $$core_digest" >&2
+  exit 1
+fi
+
+core_short=$${core_digest#sha256:}
+core_short=$$(printf '%s' "$$core_short" | cut -c1-12)
+
+commit_sha="dev"
+if [[ -f "$$info_file" ]]; then
+  commit_sha=$$(grep -m1 '^STABLE_COMMIT_SHA ' "$$info_file" | awk '{print $$2}')
+  if [[ -z "$$commit_sha" ]]; then
+    commit_sha="dev"
+  fi
+fi
+commit_short=$$(printf '%s' "$$commit_sha" | cut -c1-12)
+
+if [[ -f "$$version_file" ]]; then
+  version=$$(tr -d '\\n' < "$$version_file")
+else
+  version="dev"
+fi
+
+build_time="$${BUILD_TIMESTAMP:-$$(date -u +"%Y-%m-%dT%H:%M:%SZ")}"
+
+cat > "$@" <<EOF
+{
+  "version": "$$version",
+  "buildTime": "$$build_time",
+  "webBuildId": "sha-$$commit_short",
+  "webImageDigest": "$$web_digest",
+  "coreBuildId": "sha-$$core_short"
+}
+EOF
+""".replace("___WEB_DIGEST___", web_digest).replace("___CORE_DIGEST___", core_digest).replace("___VERSION_FILE___", version_file),
+        visibility = visibility,
+        target_compatible_with = target_compatible_with,
+    )
+
+    pkg_tar(
+        name = name,
+        files = {
+            ":{}".format(json_name): target_path,
+        },
+        modes = {
+            target_path: "0644",
+        },
+        package_dir = "/",
+        visibility = visibility,
+        target_compatible_with = target_compatible_with,
+    )
 
 def elixir_release_rootfs_amd64(name, release_tar, visibility = None):
     """Wrap an Elixir release tarball under /app for OCI packaging."""
