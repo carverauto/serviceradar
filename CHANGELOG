@@ -1,3 +1,27 @@
+# ServiceRadar v1.2.0
+
+CNPG 18 upgrade, MikroTik router support, unified flow/log collectors, Falco runtime security, and major UI/performance improvements.
+
+## Whats New
+
+**1.2.0**
+- Upgraded CloudNativePG from version 16 to 18, including pgvector extension support for RF fingerprinting.
+- Added MikroTik RouterOS device support via API-based discovery and monitoring.
+- Added Falco runtime security integration with automated deployment for container threat detection.
+- Added Trivy vulnerability scanner sidecar with event processing and streaming integration.
+- Added MTR (My Traceroute) support for network path analysis.
+- Merged Flowgger and OTEL into a unified log-collector service; replaced separate netflow/sflow services with a unified flow-collector.
+- Added sFlow collection support alongside existing NetFlow ingestion.
+- Added BGP/BMP collector for routing telemetry with Arancini-backed ingest.
+- Added netflow statistics dashboard, detail enhancements, analytics views, and per-device Flows tab.
+- Added bidirectional packet flow visualization and topology node details in the topology view; moved topology link building to backend.
+- Added device enrichment rules for Aruba network equipment and moved telemetry enrichment processing to the backend.
+- Added reactive device inventory UI with MAC address searching in SRQL.
+- Improved UI performance with slow query fixes, large number abbreviation, and theme/color scheme updates.
+- Optimized RBAC permission lookups for reduced latency.
+- Upgraded to Bazel 9 with updated Alpine packages and container build fixes.
+- Fixed SRQL crashes, builder bugs, SNMP description overflow, OTEL trace migration issues, and Docker build failures.
+
 # ServiceRadar v1.1.3
 
 Release hardening for web-ng MixRelease builds, plus GodView JS architecture/test cleanup.
