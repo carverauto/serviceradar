@@ -33,16 +33,17 @@ type gatewayMapperPayload struct {
 }
 
 type gatewayMapperConfig struct {
-	Workers         int               `json:"workers"`
-	Timeout         string            `json:"timeout"`
-	Retries         int               `json:"retries"`
-	MaxActiveJobs   int               `json:"max_active_jobs"`
-	ResultRetention string            `json:"result_retention"`
-	Seeds           []string          `json:"seeds"`
-	Credentials     []mapperCredSpec  `json:"credentials"`
-	UniFiAPIs       []mapperUnifiSpec `json:"unifi_apis"`
-	ScheduledJobs   []mapperJobSpec   `json:"scheduled_jobs"`
-	ConfigHash      string            `json:"config_hash"`
+	Workers         int                  `json:"workers"`
+	Timeout         string               `json:"timeout"`
+	Retries         int                  `json:"retries"`
+	MaxActiveJobs   int                  `json:"max_active_jobs"`
+	ResultRetention string               `json:"result_retention"`
+	Seeds           []string             `json:"seeds"`
+	Credentials     []mapperCredSpec     `json:"credentials"`
+	MikroTikAPIs    []mapperMikroTikSpec `json:"mikrotik_apis"`
+	UniFiAPIs       []mapperUnifiSpec    `json:"unifi_apis"`
+	ScheduledJobs   []mapperJobSpec      `json:"scheduled_jobs"`
+	ConfigHash      string               `json:"config_hash"`
 }
 
 type mapperCredSpec struct {
@@ -63,17 +64,26 @@ type mapperUnifiSpec struct {
 	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
 }
 
+type mapperMikroTikSpec struct {
+	BaseURL            string `json:"base_url"`
+	Username           string `json:"username"`
+	Password           string `json:"password"`
+	Name               string `json:"name"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
+}
+
 type mapperJobSpec struct {
-	Name        string                 `json:"name"`
-	Interval    string                 `json:"interval"`
-	Enabled     bool                   `json:"enabled"`
-	Seeds       []string               `json:"seeds"`
-	Type        string                 `json:"type"`
-	Credentials map[string]interface{} `json:"credentials"`
-	Concurrency int                    `json:"concurrency"`
-	Timeout     string                 `json:"timeout"`
-	Retries     int                    `json:"retries"`
-	Options     map[string]string      `json:"options"`
+	Name          string                 `json:"name"`
+	Interval      string                 `json:"interval"`
+	Enabled       bool                   `json:"enabled"`
+	Seeds         []string               `json:"seeds"`
+	Type          string                 `json:"type"`
+	DiscoveryMode string                 `json:"discovery_mode,omitempty"`
+	Credentials   map[string]interface{} `json:"credentials"`
+	Concurrency   int                    `json:"concurrency"`
+	Timeout       string                 `json:"timeout"`
+	Retries       int                    `json:"retries"`
+	Options       map[string]string      `json:"options"`
 }
 
 var errServerConfigRequired = errors.New("server config required")
@@ -128,6 +138,7 @@ func buildMapperEngineConfig(cfg *gatewayMapperConfig, serverCfg *ServerConfig, 
 		Retries:         cfg.Retries,
 		Seeds:           cfg.Seeds,
 		Credentials:     convertMapperCreds(cfg.Credentials),
+		MikroTikAPIs:    convertMapperMikroTik(cfg.MikroTikAPIs),
 		UniFiAPIs:       convertMapperUnifi(cfg.UniFiAPIs),
 		ScheduledJobs:   convertMapperJobs(cfg.ScheduledJobs, log),
 		ResultRetention: parseMapperDuration(cfg.ResultRetention, 24*time.Hour, log),
@@ -203,6 +214,25 @@ func convertMapperUnifi(controllers []mapperUnifiSpec) []mapper.UniFiAPIConfig {
 	return out
 }
 
+func convertMapperMikroTik(endpoints []mapperMikroTikSpec) []mapper.MikroTikAPIConfig {
+	if len(endpoints) == 0 {
+		return nil
+	}
+
+	out := make([]mapper.MikroTikAPIConfig, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		out = append(out, mapper.MikroTikAPIConfig{
+			BaseURL:            endpoint.BaseURL,
+			Username:           endpoint.Username,
+			Password:           endpoint.Password,
+			Name:               endpoint.Name,
+			InsecureSkipVerify: endpoint.InsecureSkipVerify,
+		})
+	}
+
+	return out
+}
+
 func convertMapperJobs(jobs []mapperJobSpec, log logger.Logger) []*mapper.ScheduledJob {
 	if len(jobs) == 0 {
 		return nil
@@ -213,16 +243,17 @@ func convertMapperJobs(jobs []mapperJobSpec, log logger.Logger) []*mapper.Schedu
 		creds := parseMapperJobCreds(job, log)
 
 		out = append(out, &mapper.ScheduledJob{
-			Name:        job.Name,
-			Interval:    job.Interval,
-			Enabled:     job.Enabled,
-			Seeds:       job.Seeds,
-			Type:        job.Type,
-			Credentials: creds,
-			Concurrency: job.Concurrency,
-			Timeout:     job.Timeout,
-			Retries:     job.Retries,
-			Options:     job.Options,
+			Name:          job.Name,
+			Interval:      job.Interval,
+			Enabled:       job.Enabled,
+			Seeds:         job.Seeds,
+			Type:          job.Type,
+			DiscoveryMode: job.DiscoveryMode,
+			Credentials:   creds,
+			Concurrency:   job.Concurrency,
+			Timeout:       job.Timeout,
+			Retries:       job.Retries,
+			Options:       job.Options,
 		})
 	}
 

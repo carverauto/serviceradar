@@ -15,6 +15,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
   alias ServiceRadar.NetworkDiscovery.{
     MapperJob,
+    MapperMikrotikController,
     MapperSeed,
     MapperUnifiController
   }
@@ -32,7 +33,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
   @impl true
   def source_resources do
-    [MapperJob, MapperSeed, MapperUnifiController]
+    [MapperJob, MapperSeed, MapperUnifiController, MapperMikrotikController]
   end
 
   @impl true
@@ -41,6 +42,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     device_uid = opts[:device_uid]
 
     jobs = load_jobs(partition, agent_id, actor)
+    mikrotik_controllers = load_mikrotik_controllers(jobs)
     unifi_controllers = load_unifi_controllers(jobs)
     credentials = resolve_credentials(device_uid, actor)
 
@@ -51,6 +53,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       "max_active_jobs" => @default_max_active_jobs,
       "result_retention" => @default_result_retention,
       "scheduled_jobs" => Enum.map(jobs, &compile_job(&1, credentials)),
+      "mikrotik_apis" => mikrotik_controllers,
       "unifi_apis" => unifi_controllers
     }
 
@@ -66,8 +69,26 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     |> Ash.Query.for_read(:for_agent_partition, %{agent_id: agent_id, partition: partition},
       actor: actor
     )
-    |> Ash.Query.load([:seeds, :unifi_controllers])
+    |> Ash.Query.load([:seeds, :unifi_controllers, :mikrotik_controllers])
     |> Ash.read!()
+  end
+
+  defp load_mikrotik_controllers(jobs) do
+    jobs
+    |> Enum.flat_map(fn job ->
+      job.mikrotik_controllers || []
+    end)
+    |> Enum.map(&compile_mikrotik_controller/1)
+  end
+
+  defp compile_mikrotik_controller(controller) do
+    %{
+      "base_url" => controller.base_url,
+      "username" => controller.username,
+      "password" => string_or_empty(controller.password),
+      "name" => controller.name,
+      "insecure_skip_verify" => controller.insecure_skip_verify
+    }
   end
 
   defp load_unifi_controllers(jobs) do
@@ -81,15 +102,23 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   defp compile_unifi_controller(controller) do
     %{
       "base_url" => controller.base_url,
-      "api_key" => controller.api_key,
+      "api_key" => string_or_empty(controller.api_key),
       "name" => controller.name,
       "insecure_skip_verify" => controller.insecure_skip_verify
     }
   end
 
   defp compile_job(job, credentials) do
+    mikrotik_controllers = job.mikrotik_controllers || []
     seeds = job.seeds || []
     unifi_controllers = job.unifi_controllers || []
+
+    mikrotik_api_names =
+      mikrotik_controllers |> Enum.map(& &1.name) |> Enum.reject(&nil_or_blank?/1)
+
+    mikrotik_api_urls =
+      mikrotik_controllers |> Enum.map(& &1.base_url) |> Enum.reject(&nil_or_blank?/1)
+
     unifi_api_names = unifi_controllers |> Enum.map(& &1.name) |> Enum.reject(&nil_or_blank?/1)
     unifi_api_urls = unifi_controllers |> Enum.map(& &1.base_url) |> Enum.reject(&nil_or_blank?/1)
 
@@ -99,6 +128,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       options
       |> Map.put_new("mapper_job_id", to_string(job.id))
       |> Map.put_new("mapper_job_name", job.name)
+      |> maybe_put_csv_option("mikrotik_api_names", mikrotik_api_names)
+      |> maybe_put_csv_option("mikrotik_api_urls", mikrotik_api_urls)
       |> maybe_put_csv_option("unifi_api_names", unifi_api_names)
       |> maybe_put_csv_option("unifi_api_urls", unifi_api_urls)
 
@@ -131,6 +162,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   defp nil_or_blank?(nil), do: true
   defp nil_or_blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp nil_or_blank?(_), do: false
+
+  defp string_or_empty(nil), do: ""
+  defp string_or_empty(value) when is_binary(value), do: value
+  defp string_or_empty(value), do: to_string(value)
 
   defp resolve_credentials(device_uid, actor) do
     case CredentialResolver.resolve_for_device(device_uid, actor) do

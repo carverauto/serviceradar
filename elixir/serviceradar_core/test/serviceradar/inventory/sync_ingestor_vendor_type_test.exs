@@ -311,6 +311,79 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert device.vendor_name == "Cisco"
   end
 
+  test "maps RouterOS metadata into canonical os and hardware info", %{actor: actor} do
+    ip = unique_ip()
+
+    update = %{
+      "ip" => ip,
+      "hostname" => "mikrotik-rb5009",
+      "source" => "mapper",
+      "metadata" => %{
+        "vendor_name" => "MikroTik",
+        "model" => "RB5009UG+S+",
+        "routeros_version" => "7.15.3",
+        "architecture_name" => "arm64",
+        "serial_number" => "ABC123XYZ",
+        "sys_object_id" => ".1.3.6.1.4.1.14988.1",
+        "sys_descr" => "MikroTik RouterOS RB5009UG+S+",
+        "ip_forwarding" => "1"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.vendor_name == "MikroTik"
+    assert device.model == "RB5009UG+S+"
+    assert device.type == "Router"
+    assert device.type_id == 12
+    assert device.os == %{"name" => "RouterOS", "version" => "7.15.3"}
+    assert device.hw_info == %{"cpu_architecture" => "arm64", "serial_number" => "ABC123XYZ"}
+  end
+
+  test "enriches existing device matched by IP with RouterOS metadata", %{actor: actor} do
+    ip = unique_ip()
+    existing_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _existing} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: existing_uid,
+        ip: ip,
+        hostname: "placeholder-router",
+        metadata: %{
+          "identity_state" => "provisional",
+          "identity_source" => "mapper_ip_seed"
+        }
+      })
+      |> Ash.create(actor: actor)
+
+    update = %{
+      "ip" => ip,
+      "hostname" => "placeholder-router",
+      "source" => "mapper",
+      "metadata" => %{
+        "vendor_name" => "MikroTik",
+        "model" => "CHR",
+        "routeros_version" => "7.16beta2",
+        "architecture_name" => "x86_64",
+        "serial_number" => "CHR-DEMO-001",
+        "sys_descr" => "MikroTik RouterOS CHR",
+        "ip_forwarding" => "1"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.uid == existing_uid
+    assert device.vendor_name == "MikroTik"
+    assert device.model == "CHR"
+    assert device.os == %{"name" => "RouterOS", "version" => "7.16beta2"}
+    assert device.hw_info == %{"cpu_architecture" => "x86_64", "serial_number" => "CHR-DEMO-001"}
+    assert device.metadata["identity_state"] == "provisional"
+  end
+
   test "recovers from active-ip unique conflicts by remapping to existing uid", %{actor: actor} do
     ip = unique_ip()
     existing_uid = "sr:existing-ip-#{System.unique_integer([:positive])}"
