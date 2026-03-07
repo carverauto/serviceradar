@@ -161,6 +161,12 @@ jobs:
           fi
           "${cmd[@]}"
 
+          verify_tags=(latest "sha-${GITHUB_SHA}")
+          if [[ -n "${EXTRA_TAG}" ]]; then
+            verify_tags+=("${EXTRA_TAG}")
+          fi
+          ./scripts/verify-ghcr-publish.sh "${verify_tags[@]}"
+
       - name: Summarize pushed tags
         env:
           EXTRA_TAG: ${{ steps.release.outputs.tag }}

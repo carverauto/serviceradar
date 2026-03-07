@@ -250,11 +250,6 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          run_bazel() {
-            local -a bazel_flags=("$@"); shift $#
-            bazel "${bazel_flags[@]}" //docker/images:push_all "${@}"
-          }
-
           extra_args=()
           if [[ -n "${RELEASE_TAG}" ]]; then
             extra_args+=(-- --tag "${RELEASE_TAG}")
@@ -277,6 +272,12 @@ jobs:
               exit 1
             fi
           fi
+
+          verify_tags=(latest "sha-${GITHUB_SHA}")
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            verify_tags+=("${RELEASE_TAG}")
+          fi
+          ./scripts/verify-ghcr-publish.sh "${verify_tags[@]}"
 
       - name: Install Helm
         uses: azure/setup-helm@v4

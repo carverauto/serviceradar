@@ -122,7 +122,22 @@ push-web-ng: ## Build and push just the web-ng OCI image to GHCR (remote)
 
 .PHONY: push_all
 push_all: ## Build and push all OCI images to GHCR (CI only, see issue #2517)
-	@bazel run --config=remote --stamp //docker/images:push_all
+	@set -eu; \
+	if [ -n "$(PUSH_TAG)" ]; then \
+		bazel run --config=remote --stamp //docker/images:push_all -- --tag "$(PUSH_TAG)"; \
+		$(MAKE) verify_publish VERIFY_TAG="$(PUSH_TAG)"; \
+	else \
+		bazel run --config=remote --stamp //docker/images:push_all; \
+		$(MAKE) verify_publish; \
+	fi
+
+.PHONY: verify_publish
+verify_publish: ## Verify published GHCR image shape and runtime metadata (set VERIFY_TAG=<tag> to include an extra tag)
+	@set -eu; \
+	./scripts/verify-ghcr-publish.sh latest "sha-$$(git rev-parse HEAD)"; \
+	if [ -n "$(VERIFY_TAG)" ]; then \
+		./scripts/verify-ghcr-publish.sh "$(VERIFY_TAG)"; \
+	fi
 
 .PHONY: check-dev-image-tags
 check-dev-image-tags: ## Verify dev image tag defaults (latest + APP_TAG fallbacks)

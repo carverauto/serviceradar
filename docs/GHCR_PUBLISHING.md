@@ -82,11 +82,13 @@ export GHCR_TOKEN="ghp_xxx"
 # Optional
 # export GHCR_REGISTRY="ghcr.io"
 
-bazel run --stamp //docker/images:push_all -- --tag "v$(git describe --tags --always)"
+make push_all PUSH_TAG="v$(git describe --tags --always)"
 ```
 
 ## Command usage
 
+- `make push_all` – pushes all images with the default `latest` and `sha-<commit>` tags, then verifies the published GHCR state.
+- `make push_all PUSH_TAG=v1.2.3` – pushes all images with an extra tag and verifies `latest`, `sha-<commit>`, and `v1.2.3`.
 - `bazel run --stamp //docker/images:push_all` – pushes all images with the default `latest` and `sha-<commit>` tags.
 - `bazel run --stamp //docker/images:core_image_amd64_push -- --tag 1.2.3` – pushes only the `core` image and adds an extra `1.2.3` tag.
 - `bazel run --config=remote --stamp //docker/images:push_all -- --tag $GIT_COMMIT` – builds using BuildBuddy remote execution, then pushes from the local workflow runner.
@@ -101,11 +103,12 @@ When credentials are supplied via environment variables the push helper writes a
 
 ## Verification
 
-After publishing, run the repo-local verification script against the tag you care about:
+After publishing, run the repo-local verification script against the tag you care about, or use `make verify_publish`:
 
 ```bash
-./scripts/verify-ghcr-publish.sh latest
-./scripts/verify-ghcr-publish.sh "sha-$(git rev-parse HEAD)"
+make verify_publish
+make verify_publish VERIFY_TAG="v$(git describe --tags --always)"
+./scripts/verify-ghcr-publish.sh latest "sha-$(git rev-parse HEAD)"
 ```
 
 The script checks:
