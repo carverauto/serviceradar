@@ -7,7 +7,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperMikrotikControllerTest do
   @tag :integration
   setup do
     ServiceRadar.TestSupport.start_core!()
-    ensure_mikrotik_table!()
     :ok
   end
 
@@ -54,29 +53,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperMikrotikControllerTest do
 
   defp create_job(actor) do
     MapperJob
-    |> Ash.Changeset.for_create(:create, %{name: "job-#{System.unique_integer([:positive])}"},
-      actor: actor
-    )
+    |> Ash.Changeset.for_create(:create, %{name: "job-#{Ash.UUID.generate()}"}, actor: actor)
     |> Ash.create(actor: actor)
-  end
-
-  defp ensure_mikrotik_table! do
-    Ecto.Adapters.SQL.query!(
-      ServiceRadar.Repo,
-      """
-      CREATE TABLE IF NOT EXISTS platform.mapper_mikrotik_controllers (
-        id uuid PRIMARY KEY,
-        name text,
-        base_url text NOT NULL,
-        username text NOT NULL,
-        encrypted_password bytea,
-        insecure_skip_verify boolean NOT NULL DEFAULT false,
-        mapper_job_id uuid NOT NULL,
-        inserted_at timestamp(6) without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
-        updated_at timestamp(6) without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
-      )
-      """,
-      []
-    )
   end
 end

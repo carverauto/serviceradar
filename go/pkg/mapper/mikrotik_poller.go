@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -345,10 +346,14 @@ func mikrotikInterfaceIndex(raw map[string]any, fallback int) int32 {
 	if raw != nil {
 		if id := stringValue(raw, ".id"); id != "" {
 			trimmed := strings.TrimPrefix(strings.TrimSpace(id), "*")
-			if parsed, err := strconv.Atoi(trimmed); err == nil && parsed > 0 {
+			if parsed, err := strconv.ParseInt(trimmed, 10, 32); err == nil && parsed > 0 {
 				return int32(parsed)
 			}
 		}
+	}
+
+	if fallback >= math.MaxInt32 {
+		return math.MaxInt32
 	}
 
 	return int32(fallback + 1)
@@ -492,12 +497,16 @@ func mikrotikDeviceIP(baseURL string, rawAddresses []map[string]any) string {
 func firstMikroTikMAC(rawInterfaces []map[string]any) string {
 	for _, raw := range rawInterfaces {
 		mac := NormalizeMAC(stringValue(raw, "mac-address"))
-		if mac != "" {
+		if mac != "" && !isAllZeroMAC(mac) {
 			return mac
 		}
 	}
 
 	return ""
+}
+
+func isAllZeroMAC(mac string) bool {
+	return mac == "000000000000"
 }
 
 func buildMikroTikSysDescr(resource mikroTikSystemResource, routerboard mikroTikRouterboard) string {

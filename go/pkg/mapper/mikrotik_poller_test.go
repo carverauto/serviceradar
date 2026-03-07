@@ -175,18 +175,18 @@ func TestQueryMikroTikDevicesIgnoresUnsupportedRouterboardEndpoint(t *testing.T)
 		case "/rest/interface":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
-					".id":         "*2",
-					"name":        "ether1",
-					"type":        "ether",
-					"mac-address": "00:11:22:33:44:55",
-					"running":     true,
-					"disabled":    false,
-				},
-				{
 					".id":         "*1",
 					"name":        "lo",
 					"type":        "loopback",
 					"mac-address": "00:00:00:00:00:00",
+					"running":     true,
+					"disabled":    false,
+				},
+				{
+					".id":         "*2",
+					"name":        "ether1",
+					"type":        "ether",
+					"mac-address": "00:11:22:33:44:55",
 					"running":     true,
 					"disabled":    false,
 				},
@@ -240,8 +240,15 @@ func TestQueryMikroTikDevicesIgnoresUnsupportedRouterboardEndpoint(t *testing.T)
 	require.Len(t, interfaces, 2)
 	require.Empty(t, links)
 
-	assert.Equal(t, int32(2), interfaces[0].IfIndex)
-	assert.Equal(t, int32(1), interfaces[1].IfIndex)
+	ifIndexByName := make(map[string]int32, len(interfaces))
+	for _, iface := range interfaces {
+		ifIndexByName[iface.IfName] = iface.IfIndex
+	}
+
+	assert.Equal(t, "001122334455", devices[0].MAC)
+	assert.Equal(t, "mac-001122334455", devices[0].DeviceID)
+	assert.Equal(t, int32(2), ifIndexByName["ether1"])
+	assert.Equal(t, int32(1), ifIndexByName["lo"])
 	assert.Equal(t, "MikroTik RouterOS CHR QEMU Standard PC (i440FX + PIIX, 1996) 7.21.3", devices[0].SysDescr)
 	assert.Equal(t, "mikrotik-api", devices[0].Metadata["source"])
 	assert.Empty(t, devices[0].Metadata["serial_number"])

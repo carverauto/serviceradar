@@ -85,7 +85,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     %{
       "base_url" => controller.base_url,
       "username" => controller.username,
-      "password" => controller.password,
+      "password" => string_or_empty(controller.password),
       "name" => controller.name,
       "insecure_skip_verify" => controller.insecure_skip_verify
     }
@@ -102,7 +102,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   defp compile_unifi_controller(controller) do
     %{
       "base_url" => controller.base_url,
-      "api_key" => controller.api_key,
+      "api_key" => string_or_empty(controller.api_key),
       "name" => controller.name,
       "insecure_skip_verify" => controller.insecure_skip_verify
     }
@@ -162,6 +162,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   defp nil_or_blank?(nil), do: true
   defp nil_or_blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp nil_or_blank?(_), do: false
+
+  defp string_or_empty(nil), do: ""
+  defp string_or_empty(value) when is_binary(value), do: value
+  defp string_or_empty(value), do: to_string(value)
 
   defp resolve_credentials(device_uid, actor) do
     case CredentialResolver.resolve_for_device(device_uid, actor) do

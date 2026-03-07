@@ -11,13 +11,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
   alias ServiceRadar.NetworkDiscovery.MapperSeed
+  alias ServiceRadar.NetworkDiscovery.MapperUnifiController
   alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   @tag :integration
   setup do
     ServiceRadar.TestSupport.start_core!()
-    ensure_mikrotik_table!()
     :ok
   end
 
@@ -193,23 +193,62 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
     assert compiled_job["options"]["mikrotik_api_urls"] == "https://192.168.88.1/rest"
   end
 
-  defp ensure_mikrotik_table! do
-    Ecto.Adapters.SQL.query!(
-      ServiceRadar.Repo,
-      """
-      CREATE TABLE IF NOT EXISTS platform.mapper_mikrotik_controllers (
-        id uuid PRIMARY KEY,
-        name text,
-        base_url text NOT NULL,
-        username text NOT NULL,
-        encrypted_password bytea,
-        insecure_skip_verify boolean NOT NULL DEFAULT false,
-        mapper_job_id uuid NOT NULL,
-        inserted_at timestamp(6) without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
-        updated_at timestamp(6) without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
+  @tag :integration
+  test "normalizes nil API secrets to empty strings in mapper config" do
+    actor = SystemActor.system(:test)
+    unique_id = System.unique_integer([:positive])
+    job_name = "Mapper Job API Nil Secret #{unique_id}"
+
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: job_name,
+          discovery_mode: :api,
+          discovery_type: :full
+        },
+        actor: actor
       )
-      """,
-      []
-    )
+      |> Ash.create(actor: actor)
+
+    {:ok, _mikrotik_controller} =
+      MapperMikrotikController
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          mapper_job_id: job.id,
+          name: "chr-demo-#{unique_id}",
+          base_url: "https://192.168.88.1",
+          username: "admin",
+          password: nil
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, _unifi_controller} =
+      MapperUnifiController
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          mapper_job_id: job.id,
+          name: "unifi-demo-#{unique_id}",
+          base_url: "https://192.168.10.1",
+          api_key: nil
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, config} = MapperCompiler.compile("default", nil, actor: actor)
+
+    assert Enum.any?(config["mikrotik_apis"], fn controller ->
+             controller["name"] == "chr-demo-#{unique_id}" and controller["password"] == ""
+           end)
+
+    assert Enum.any?(config["unifi_apis"], fn controller ->
+             controller["name"] == "unifi-demo-#{unique_id}" and controller["api_key"] == ""
+           end)
   end
 end
