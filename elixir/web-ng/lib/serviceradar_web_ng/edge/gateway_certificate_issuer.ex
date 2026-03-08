@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
   require Logger
 
   alias ServiceRadar.GatewayRegistry
+  alias ServiceRadar.GatewayTracker
 
   @default_timeout 30_000
 
@@ -28,12 +29,22 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
       [{_pid, metadata} | _] ->
         case metadata[:node] do
           node when is_atom(node) -> {:ok, node}
-          _ -> {:error, :gateway_unavailable}
+          _ -> lookup_gateway_node_from_tracker(gateway_id)
         end
 
       _ ->
-        {:error, :gateway_unavailable}
+        lookup_gateway_node_from_tracker(gateway_id)
     end
+  end
+
+  defp lookup_gateway_node_from_tracker(gateway_id) do
+    [Node.self() | Node.list()]
+    |> Enum.find_value({:error, :gateway_unavailable}, fn node ->
+      case :rpc.call(node, GatewayTracker, :get_gateway, [gateway_id], 1_500) do
+        %{node: tracker_node} when is_atom(tracker_node) -> {:ok, tracker_node}
+        _ -> false
+      end
+    end)
   end
 
   defp rpc_issue(node, component_id, partition_id, opts) do

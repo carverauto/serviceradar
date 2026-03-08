@@ -96,12 +96,17 @@ spec:
 
           if python3 <<'PY'
           import os
+          import base64
+          import json
           import ssl
           import sys
           import urllib.error
           import urllib.request
 
           secret_name = os.environ["SECRET_NAME"]
+          cert_dir = os.environ["CERT_DIR"]
+          agent_component_cert = f'{os.environ["DEFAULT_AGENT_COMPONENT_ID"]}-{os.environ["DEFAULT_PARTITION_ID"]}-chain.pem'
+          agent_component_key = f'{os.environ["DEFAULT_AGENT_COMPONENT_ID"]}-{os.environ["DEFAULT_PARTITION_ID"]}-key.pem'
           serviceaccount = "/var/run/secrets/kubernetes.io/serviceaccount"
           token = open(os.path.join(serviceaccount, "token"), encoding="utf-8").read().strip()
           namespace = open(os.path.join(serviceaccount, "namespace"), encoding="utf-8").read().strip()
@@ -112,9 +117,29 @@ spec:
 
           try:
             request = urllib.request.Request(secret_url, headers=headers, method="GET")
-            urllib.request.urlopen(request, context=context).read()
-            print(f"Secret {secret_name} already exists; preserving current runtime certs")
-            sys.exit(0)
+            payload = json.loads(urllib.request.urlopen(request, context=context).read().decode("utf-8"))
+            os.makedirs(cert_dir, exist_ok=True)
+
+            for name, encoded in (payload.get("data") or {}).items():
+              path = os.path.join(cert_dir, name)
+              os.makedirs(os.path.dirname(path), exist_ok=True)
+              with open(path, "wb") as handle:
+                handle.write(base64.b64decode(encoded))
+
+            required = [
+              "root.pem",
+              "root-key.pem",
+              agent_component_cert,
+              agent_component_key,
+            ]
+
+            missing = [name for name in required if not os.path.exists(os.path.join(cert_dir, name))]
+            if not missing:
+              print(f"Secret {secret_name} already exists with required runtime certs; preserving current runtime certs")
+              sys.exit(0)
+
+            print(f"Secret {secret_name} exists but is missing runtime cert files: {', '.join(missing)}")
+            sys.exit(1)
           except urllib.error.HTTPError as exc:
             if exc.code == 404:
               sys.exit(1)
@@ -149,11 +174,12 @@ spec:
           context = ssl.create_default_context(cafile=cafile)
 
           data = {}
-          for entry in sorted(os.listdir(cert_dir)):
-            path = os.path.join(cert_dir, entry)
-            if os.path.isfile(path):
+          for root, _, files in os.walk(cert_dir):
+            for entry in sorted(files):
+              path = os.path.join(root, entry)
+              key = os.path.basename(path)
               with open(path, "rb") as handle:
-                data[entry] = base64.b64encode(handle.read()).decode("ascii")
+                data[key] = base64.b64encode(handle.read()).decode("ascii")
 
           payload = {
             "apiVersion": "v1",

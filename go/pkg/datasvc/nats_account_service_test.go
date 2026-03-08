@@ -69,6 +69,44 @@ func authorizedContext() context.Context {
 	return peer.NewContext(context.Background(), p)
 }
 
+func authorizedContextWithSubject(subject pkix.Name) context.Context {
+	cert := &x509.Certificate{Subject: subject}
+	tlsInfo := credentials.TLSInfo{State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}}
+	p := &peer.Peer{AuthInfo: tlsInfo}
+	return peer.NewContext(context.Background(), p)
+}
+
+func TestNATSAccountServerAuthorizeRequestSubjectAliases(t *testing.T) {
+	fullDN := "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+	compactDN := "CN=serviceradar-core,O=ServiceRadar"
+	ctx := authorizedContextWithSubject(pkix.Name{
+		CommonName:         "serviceradar-core",
+		Organization:       []string{"ServiceRadar"},
+		OrganizationalUnit: []string{"Kubernetes"},
+		Locality:           []string{"San Francisco"},
+		Province:           []string{"CA"},
+		Country:            []string{"US"},
+	})
+
+	t.Run("matches full subject identity", func(t *testing.T) {
+		server := newTestNATSAccountServer(t)
+		server.SetAllowedClientIdentities([]string{fullDN})
+
+		if err := server.authorizeRequest(ctx); err != nil {
+			t.Fatalf("authorizeRequest failed for full DN identity: %v", err)
+		}
+	})
+
+	t.Run("matches compact subject identity", func(t *testing.T) {
+		server := newTestNATSAccountServer(t)
+		server.SetAllowedClientIdentities([]string{compactDN})
+
+		if err := server.authorizeRequest(ctx); err != nil {
+			t.Fatalf("authorizeRequest failed for compact DN identity: %v", err)
+		}
+	})
+}
+
 func TestNATSAccountServer_CreateAccount(t *testing.T) {
 	server := newTestNATSAccountServer(t)
 	ctx := authorizedContext()
@@ -173,7 +211,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	t.Run("success with collector type", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			AccountName:     "test-ns",
+			AccountName:    "test-ns",
 			AccountSeed:    createResp.AccountSeed,
 			UserName:       "collector-1",
 			CredentialType: proto.UserCredentialType_USER_CREDENTIAL_TYPE_COLLECTOR,
@@ -205,7 +243,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	t.Run("with expiration", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			AccountName:        "test-ns",
+			AccountName:       "test-ns",
 			AccountSeed:       createResp.AccountSeed,
 			UserName:          "expiring-user",
 			CredentialType:    proto.UserCredentialType_USER_CREDENTIAL_TYPE_SERVICE,
@@ -224,7 +262,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	t.Run("empty account name", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			AccountName:  "",
+			AccountName: "",
 			AccountSeed: createResp.AccountSeed,
 			UserName:    "test-user",
 		}
@@ -242,7 +280,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	t.Run("empty account seed", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			AccountName:  "test-ns",
+			AccountName: "test-ns",
 			AccountSeed: "",
 			UserName:    "test-user",
 		}
@@ -260,7 +298,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	t.Run("empty user name", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			AccountName:  "test-ns",
+			AccountName: "test-ns",
 			AccountSeed: createResp.AccountSeed,
 			UserName:    "",
 		}
@@ -291,7 +329,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		req := &proto.SignAccountJWTRequest{
-			AccountName:  "resign-account",
+			AccountName: "resign-account",
 			AccountSeed: createResp.AccountSeed,
 		}
 
@@ -313,7 +351,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 	t.Run("with revocations", func(t *testing.T) {
 		// First generate a user to revoke
 		userResp, err := server.GenerateUserCredentials(ctx, &proto.GenerateUserCredentialsRequest{
-			AccountName:  "resign-account",
+			AccountName: "resign-account",
 			AccountSeed: createResp.AccountSeed,
 			UserName:    "revoke-me",
 		})
@@ -322,7 +360,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 		}
 
 		req := &proto.SignAccountJWTRequest{
-			AccountName:      "resign-account",
+			AccountName:     "resign-account",
 			AccountSeed:     createResp.AccountSeed,
 			RevokedUserKeys: []string{userResp.UserPublicKey},
 		}
@@ -339,7 +377,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 
 	t.Run("with updated limits", func(t *testing.T) {
 		req := &proto.SignAccountJWTRequest{
-			AccountName:  "resign-account",
+			AccountName: "resign-account",
 			AccountSeed: createResp.AccountSeed,
 			Limits: &proto.AccountLimits{
 				MaxConnections: 200,
@@ -358,7 +396,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 
 	t.Run("empty account name", func(t *testing.T) {
 		req := &proto.SignAccountJWTRequest{
-			AccountName:  "",
+			AccountName: "",
 			AccountSeed: createResp.AccountSeed,
 		}
 
@@ -375,7 +413,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 
 	t.Run("empty account seed", func(t *testing.T) {
 		req := &proto.SignAccountJWTRequest{
-			AccountName:  "resign-account",
+			AccountName: "resign-account",
 			AccountSeed: "",
 		}
 

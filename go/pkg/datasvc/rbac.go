@@ -69,13 +69,14 @@ func (s *Server) getRoleForIdentity(identity string) Role {
 
 // checkRBAC verifies the caller’s role against the method.
 func (s *Server) checkRBAC(ctx context.Context, method string) error {
-	identity, err := s.extractIdentity(ctx)
+	identities, err := extractIdentities(ctx)
 	if err != nil {
 		return err
 	}
 
-	role := s.getRoleForIdentity(identity)
+	role, identity := s.getRoleForIdentities(identities)
 	if role == "" {
+		identity = firstIdentity(identities)
 		return status.Errorf(codes.PermissionDenied, "identity %s not authorized", identity)
 	}
 
@@ -88,25 +89,38 @@ func (s *Server) checkRBAC(ctx context.Context, method string) error {
 	return nil
 }
 
-// extractIdentity retrieves and validates the caller's identity from the context.
+// extractIdentity retrieves and validates the caller's preferred identity from the context.
 func (*Server) extractIdentity(ctx context.Context) (string, error) {
+	identities, err := extractIdentities(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	return firstIdentity(identities), nil
+}
+
+func (s *Server) getRoleForIdentities(identities []string) (Role, string) {
+	for _, identity := range identities {
+		if role := s.getRoleForIdentity(identity); role != "" {
+			return role, identity
+		}
+	}
+
+	return "", ""
+}
+
+func extractIdentities(ctx context.Context) ([]string, error) {
 	p, ok := peer.FromContext(ctx)
 	if !ok || p.AuthInfo == nil {
-		return "", status.Error(codes.Unauthenticated, "no peer info available; mTLS required")
+		return nil, status.Error(codes.Unauthenticated, "no peer info available; mTLS required")
 	}
 
 	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
 	if !ok || len(tlsInfo.State.PeerCertificates) == 0 {
-		return "", status.Error(codes.Unauthenticated, "mTLS authentication required")
+		return nil, status.Error(codes.Unauthenticated, "mTLS authentication required")
 	}
 
-	cert := tlsInfo.State.PeerCertificates[0]
-
-	if id := spiffeIDFromCertificate(cert); id != "" {
-		return id, nil
-	}
-
-	return subjectIdentity(cert), nil
+	return certificateIdentities(tlsInfo.State.PeerCertificates[0]), nil
 }
 
 // authorizeMethod checks if the role is permitted to execute the method.
@@ -170,6 +184,108 @@ func subjectIdentity(cert *x509.Certificate) string {
 		return ""
 	}
 
+	if identity := fullSubjectIdentity(cert); identity != "" {
+		return identity
+	}
+
+	return compactSubjectIdentity(cert)
+}
+
+func certificateIdentities(cert *x509.Certificate) []string {
+	if cert == nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, 4)
+	identities := make([]string, 0, 4)
+
+	if id := spiffeIDFromCertificate(cert); id != "" {
+		identities = appendIdentity(identities, seen, id)
+	}
+
+	identities = appendIdentity(identities, seen, fullSubjectIdentity(cert))
+	identities = appendIdentity(identities, seen, compactSubjectIdentity(cert))
+	identities = appendIdentity(identities, seen, cnOnlyIdentity(cert))
+
+	return identities
+}
+
+func appendIdentity(identities []string, seen map[string]struct{}, identity string) []string {
+	if identity == "" {
+		return identities
+	}
+
+	if _, ok := seen[identity]; ok {
+		return identities
+	}
+
+	seen[identity] = struct{}{}
+	return append(identities, identity)
+}
+
+func firstIdentity(identities []string) string {
+	if len(identities) == 0 {
+		return ""
+	}
+
+	return identities[0]
+}
+
+func fullSubjectIdentity(cert *x509.Certificate) string {
+	if cert == nil {
+		return ""
+	}
+
+	cn := strings.TrimSpace(cert.Subject.CommonName)
+	org := ""
+	if len(cert.Subject.Organization) > 0 {
+		org = strings.TrimSpace(cert.Subject.Organization[0])
+	}
+	ou := ""
+	if len(cert.Subject.OrganizationalUnit) > 0 {
+		ou = strings.TrimSpace(cert.Subject.OrganizationalUnit[0])
+	}
+	locality := ""
+	if len(cert.Subject.Locality) > 0 {
+		locality = strings.TrimSpace(cert.Subject.Locality[0])
+	}
+	state := ""
+	if len(cert.Subject.Province) > 0 {
+		state = strings.TrimSpace(cert.Subject.Province[0])
+	}
+	country := ""
+	if len(cert.Subject.Country) > 0 {
+		country = strings.TrimSpace(cert.Subject.Country[0])
+	}
+
+	parts := make([]string, 0, 6)
+	if cn != "" {
+		parts = append(parts, fmt.Sprintf("CN=%s", cn))
+	}
+	if ou != "" {
+		parts = append(parts, fmt.Sprintf("OU=%s", ou))
+	}
+	if org != "" {
+		parts = append(parts, fmt.Sprintf("O=%s", org))
+	}
+	if locality != "" {
+		parts = append(parts, fmt.Sprintf("L=%s", locality))
+	}
+	if state != "" {
+		parts = append(parts, fmt.Sprintf("ST=%s", state))
+	}
+	if country != "" {
+		parts = append(parts, fmt.Sprintf("C=%s", country))
+	}
+
+	return strings.Join(parts, ",")
+}
+
+func compactSubjectIdentity(cert *x509.Certificate) string {
+	if cert == nil {
+		return ""
+	}
+
 	cn := strings.TrimSpace(cert.Subject.CommonName)
 	org := ""
 	if len(cert.Subject.Organization) > 0 {
@@ -178,10 +294,23 @@ func subjectIdentity(cert *x509.Certificate) string {
 
 	switch {
 	case cn == "":
-		return cert.Subject.String()
+		return ""
 	case org == "":
 		return fmt.Sprintf("CN=%s", cn)
 	default:
 		return fmt.Sprintf("CN=%s,O=%s", cn, org)
 	}
+}
+
+func cnOnlyIdentity(cert *x509.Certificate) string {
+	if cert == nil {
+		return ""
+	}
+
+	cn := strings.TrimSpace(cert.Subject.CommonName)
+	if cn == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("CN=%s", cn)
 }
