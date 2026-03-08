@@ -1,57 +1,196 @@
+{{- $certJobImage := default "ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2" .Values.cnpg.imageName -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-runtime-cert-generator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: runtime-cert-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: serviceradar-runtime-cert-generator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: runtime-cert-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "create", "update", "patch"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: serviceradar-runtime-cert-generator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: runtime-cert-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: serviceradar-runtime-cert-generator
+subjects:
+- kind: ServiceAccount
+  name: serviceradar-runtime-cert-generator
+  namespace: {{ .Release.Namespace }}
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: serviceradar-cert-generator
+  name: serviceradar-runtime-cert-generator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: runtime-cert-generator
   annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "0"
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 2
   template:
     metadata:
       labels:
-        app: serviceradar-cert-generator
+        app: serviceradar-runtime-cert-generator
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: runtime-cert-generator
     spec:
+      serviceAccountName: serviceradar-runtime-cert-generator
       restartPolicy: OnFailure
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
-      - name: cert-generator
-        image: alpine/openssl:latest
-        command: ["/bin/sh"]
-        args:
-        - -c
-        - |
-          cp /scripts/generate-certs.sh /tmp/generate-certs.sh
-          chmod +x /tmp/generate-certs.sh
-          cd /certs
-          /bin/sh /tmp/generate-certs.sh
-        volumeMounts:
-        - name: cert-scripts
-          mountPath: /scripts
-        - name: cert-data
-          mountPath: /certs
+      - name: runtime-cert-generator
+        image: {{ $certJobImage | quote }}
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c"]
         env:
+        - name: SECRET_NAME
+          value: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
         - name: CERT_DIR
-          value: "/certs"
+          value: "/tmp/certs"
         - name: DEFAULT_PARTITION_ID
           value: {{ default "default" (default (dict) .Values.agent).partitionId | quote }}
         - name: DEFAULT_AGENT_COMPONENT_ID
           value: {{ default "k8s-agent" (default (dict) .Values.agent).agentId | quote }}
-      volumes:
-      - name: cert-scripts
-        configMap:
-          name: serviceradar-cert-scripts
-          defaultMode: 0755
-      - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: serviceradar-cert-data
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
+        args:
+        - |
+          set -euo pipefail
+
+          if python3 <<'PY'
+          import os
+          import ssl
+          import sys
+          import urllib.error
+          import urllib.request
+
+          secret_name = os.environ["SECRET_NAME"]
+          serviceaccount = "/var/run/secrets/kubernetes.io/serviceaccount"
+          token = open(os.path.join(serviceaccount, "token"), encoding="utf-8").read().strip()
+          namespace = open(os.path.join(serviceaccount, "namespace"), encoding="utf-8").read().strip()
+          cafile = os.path.join(serviceaccount, "ca.crt")
+          context = ssl.create_default_context(cafile=cafile)
+          secret_url = f"https://kubernetes.default.svc/api/v1/namespaces/{namespace}/secrets/{secret_name}"
+          headers = {"Authorization": f"Bearer {token}"}
+
+          try:
+            request = urllib.request.Request(secret_url, headers=headers, method="GET")
+            urllib.request.urlopen(request, context=context).read()
+            print(f"Secret {secret_name} already exists; preserving current runtime certs")
+            sys.exit(0)
+          except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+              sys.exit(1)
+            raise
+          PY
+          then
+            exit 0
+          fi
+
+          cat >/tmp/generate-certs.sh.b64 <<'EOF_SCRIPT_B64'
+{{ tpl (.Files.Get "files/generate-certs.sh") . | b64enc | indent 12 }}
+          EOF_SCRIPT_B64
+          tr -d '[:space:]' </tmp/generate-certs.sh.b64 | base64 -d >/tmp/generate-certs.sh
+          chmod +x /tmp/generate-certs.sh
+          mkdir -p "${CERT_DIR}"
+          bash /tmp/generate-certs.sh
+
+          python3 <<'PY'
+          import base64
+          import json
+          import os
+          import ssl
+          import urllib.error
+          import urllib.request
+
+          secret_name = os.environ["SECRET_NAME"]
+          cert_dir = os.environ["CERT_DIR"]
+          serviceaccount = "/var/run/secrets/kubernetes.io/serviceaccount"
+          token = open(os.path.join(serviceaccount, "token"), encoding="utf-8").read().strip()
+          namespace = open(os.path.join(serviceaccount, "namespace"), encoding="utf-8").read().strip()
+          cafile = os.path.join(serviceaccount, "ca.crt")
+          context = ssl.create_default_context(cafile=cafile)
+
+          data = {}
+          for entry in sorted(os.listdir(cert_dir)):
+            path = os.path.join(cert_dir, entry)
+            if os.path.isfile(path):
+              with open(path, "rb") as handle:
+                data[entry] = base64.b64encode(handle.read()).decode("ascii")
+
+          payload = {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+              "name": secret_name,
+              "labels": {
+                "app.kubernetes.io/part-of": "serviceradar",
+                "app.kubernetes.io/component": "runtime-certs",
+              },
+            },
+            "type": "Opaque",
+            "data": data,
+          }
+
+          base_url = f"https://kubernetes.default.svc/api/v1/namespaces/{namespace}/secrets"
+          secret_url = f"{base_url}/{secret_name}"
+          headers = {"Authorization": f"Bearer {token}"}
+
+          try:
+            request = urllib.request.Request(secret_url, headers=headers, method="GET")
+            urllib.request.urlopen(request, context=context).read()
+            method = "PATCH"
+            url = secret_url
+            body = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/merge-patch+json"
+            action = "Reconciled"
+          except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+              raise
+            method = "POST"
+            url = base_url
+            body = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+            action = "Created"
+
+          request = urllib.request.Request(url, data=body, headers=headers, method=method)
+          urllib.request.urlopen(request, context=context).read()
+          print(f"{action} Secret {secret_name}")
+          PY

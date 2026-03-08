@@ -358,8 +358,8 @@ spec:
               - key: ca.crt
                 path: ca.crt
         - name: cert-data
-          persistentVolumeClaim:
-            claimName: serviceradar-cert-data
+          secret:
+            secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
   volumeClaimTemplates:
     - metadata:
         name: spire-data

@@ -44,7 +44,7 @@ spec:
         - name: CORE_ADDRESS
           value: "serviceradar-core:50052"
         - name: CORE_SEC_MODE
-          value: "spiffe"
+          value: "mtls"
         - name: CORE_TRUST_DOMAIN
           value: "carverauto.dev"
         - name: CORE_SERVER_SPIFFE_ID
@@ -87,8 +87,8 @@ spec:
         configMap:
           name: serviceradar-config
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: serviceradar-runtime-certs
       - name: nats-creds
         secret:
           name: serviceradar-nats-creds

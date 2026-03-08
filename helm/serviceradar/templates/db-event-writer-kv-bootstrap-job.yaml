@@ -52,6 +52,6 @@ spec:
           configMap:
             name: serviceradar-db-event-writer-config
         - name: cert-data
-          persistentVolumeClaim:
-            claimName: serviceradar-cert-data
+          secret:
+            secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
 {{- end }}

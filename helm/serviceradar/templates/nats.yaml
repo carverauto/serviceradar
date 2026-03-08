@@ -65,8 +65,8 @@ spec:
             - key: nats.conf
               path: nats-server.conf
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
 ---
 apiVersion: v1
 kind: Service

@@ -18,6 +18,26 @@ Usage: {{ include "serviceradar.imageTag" (dict "Values" .Values "service" "core
 {{- end -}}
 
 {{/*
+Build an image ref suffix for a service.
+Uses image.digests.<service> when set, otherwise falls back to :tag behavior.
+Usage: ghcr.io/carverauto/serviceradar-core-elx{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "core") }}
+*/}}
+{{- define "serviceradar.imageRefSuffix" -}}
+{{- $image := .Values.image | default dict -}}
+{{- $digests := $image.digests | default dict -}}
+{{- $digest := index $digests .service | default "" -}}
+{{- if $digest -}}
+{{- if hasPrefix "@" $digest -}}
+{{- $digest -}}
+{{- else -}}
+{{- printf "@%s" $digest -}}
+{{- end -}}
+{{- else -}}
+{{- printf ":%s" (include "serviceradar.imageTag" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Get image pull policy.
 Uses global.imagePullPolicy if set, otherwise defaults to IfNotPresent.
 Usage: {{ include "serviceradar.imagePullPolicy" . }}
@@ -34,6 +54,10 @@ imagePullSecrets:
 {{- end }}
 {{- end -}}
 
+{{- define "serviceradar.runtimeCertsSecretName" -}}
+{{- default "serviceradar-runtime-certs" .Values.certs.runtimeSecretName -}}
+{{- end -}}
+
 {{- define "serviceradar.kvEnv" -}}
 {{- $vals := .Values -}}
 {{- $trustDomain := default $vals.spire.trustDomain $vals.kv.trustDomain -}}
@@ -45,7 +69,7 @@ imagePullSecrets:
 - name: KV_ADDRESS
   value: "{{ default "serviceradar-datasvc:50057" $vals.kv.address }}"
 - name: KV_SEC_MODE
-  value: "{{ default "spiffe" $vals.kv.secMode }}"
+  value: "{{ default "mtls" $vals.kv.secMode }}"
 - name: KV_TRUST_DOMAIN
   value: "{{ $trustDomain }}"
 - name: KV_SERVER_SPIFFE_ID
@@ -115,7 +139,7 @@ imagePullSecrets:
 - name: CORE_ADDRESS
   value: "{{ include "serviceradar.coreAddress" . }}"
 - name: CORE_SEC_MODE
-  value: "{{ default "spiffe" $vals.coreClient.secMode }}"
+  value: "{{ default "mtls" $vals.coreClient.secMode }}"
 - name: CORE_TRUST_DOMAIN
   value: "{{ $trustDomain }}"
 - name: CORE_SERVER_SPIFFE_ID

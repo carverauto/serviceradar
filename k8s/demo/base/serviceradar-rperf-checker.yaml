@@ -54,7 +54,7 @@ spec:
         - name: KV_ADDRESS
           value: "serviceradar-datasvc:50057"
         - name: KV_SEC_MODE
-          value: "spiffe"
+          value: "mtls"
         - name: KV_TRUST_DOMAIN
           value: "carverauto.dev"
         - name: KV_SERVER_SPIFFE_ID
@@ -91,8 +91,8 @@ spec:
         configMap:
           name: serviceradar-config
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: serviceradar-runtime-certs
       - name: checkers-dir
         emptyDir: {}
       - name: spire-agent-socket

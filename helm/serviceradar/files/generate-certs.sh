@@ -118,6 +118,14 @@ if [ -f "$CERT_DIR/log-collector-key.pem" ] && [ ! -f "$CERT_DIR/otel-key.pem" ]
   cp "$CERT_DIR/log-collector-key.pem" "$CERT_DIR/otel-key.pem"
   chmod 600 "$CERT_DIR/otel-key.pem"
 fi
+if [ -f "$CERT_DIR/rperf-client.pem" ] && [ ! -f "$CERT_DIR/rperf-checker.pem" ]; then
+  cp "$CERT_DIR/rperf-client.pem" "$CERT_DIR/rperf-checker.pem"
+  chmod 644 "$CERT_DIR/rperf-checker.pem"
+fi
+if [ -f "$CERT_DIR/rperf-client-key.pem" ] && [ ! -f "$CERT_DIR/rperf-checker-key.pem" ]; then
+  cp "$CERT_DIR/rperf-client-key.pem" "$CERT_DIR/rperf-checker-key.pem"
+  chmod 600 "$CERT_DIR/rperf-checker-key.pem"
+fi
 if [ ! -f "$CERT_DIR/cnpg-client.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; then
   openssl ecparam -name prime256v1 -genkey -noout -out "$CERT_DIR/cnpg-client-key.pem"
   cat > "$CERT_DIR/cnpg-client.conf" <<EOF

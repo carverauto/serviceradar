@@ -144,8 +144,8 @@ spec:
         configMap:
           name: serviceradar-flow-collector-config
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: serviceradar-runtime-certs
       - name: nats-creds
         secret:
           name: serviceradar-nats-creds

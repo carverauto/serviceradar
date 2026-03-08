@@ -57,7 +57,7 @@ data:
         }
       },
       "security": {
-        "mode": "spiffe",
+        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
         "cert_dir": "/etc/serviceradar/certs",
         "role": "core",
         "trust_domain": "{{$trustDomain}}",
