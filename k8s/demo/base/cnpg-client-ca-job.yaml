@@ -146,5 +146,5 @@ spec:
           readOnly: true
       volumes:
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: serviceradar-runtime-certs

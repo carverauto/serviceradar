@@ -146,7 +146,7 @@ spec:
       {{- end }}
       containers:
       - name: log-collector
-        image: ghcr.io/carverauto/serviceradar-log-collector:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "logCollector") }}
+        image: ghcr.io/carverauto/serviceradar-log-collector{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "logCollector") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - name: syslog
@@ -204,16 +204,18 @@ spec:
           mountPath: /var/lib/serviceradar
         - name: logs
           mountPath: /var/log/serviceradar
+        {{- if .Values.spire.enabled }}
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
           readOnly: true
+        {{- end }}
       volumes:
       - name: log-collector-config
         configMap:
           name: serviceradar-log-collector-config
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
       {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
       - name: nats-creds
         secret:
@@ -224,10 +226,12 @@ spec:
           claimName: serviceradar-log-collector-data
       - name: logs
         emptyDir: {}
+      {{- if .Values.spire.enabled }}
       - name: spire-agent-socket
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
           type: DirectoryOrCreate
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

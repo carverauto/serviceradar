@@ -729,7 +729,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             and restart the agent.
           </p>
           <p class="text-xs text-base-content/50">
-            The gateway address is derived from your deployment host by default.
+            The gateway address is derived from your deployment configuration by default.
           </p>
           <div class="relative">
             <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@enroll_cmd}</code></pre>

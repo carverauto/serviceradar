@@ -87,8 +87,8 @@ spec:
           mountPath: /var/log/serviceradar
       volumes:
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
       - name: nats-creds
         secret:
           secretName: serviceradar-nats-creds

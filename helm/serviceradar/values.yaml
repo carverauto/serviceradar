@@ -45,7 +45,7 @@ kv:
   configSource: file
   bucket: serviceradar-datasvc
   address: serviceradar-datasvc:50057
-  secMode: spiffe
+  secMode: mtls
   trustDomain: ""
   serverSPIFFEID: ""
   workloadSocket: unix:/run/spire/sockets/agent.sock
@@ -61,6 +61,7 @@ nats:
   persistence:
     size: 30Gi
 certs:
+  runtimeSecretName: serviceradar-runtime-certs
   regenerator:
     # Disable by default to avoid unexpected cert rotation.
     enabled: false
@@ -169,6 +170,7 @@ core:
       pauseOnDrift: true
       alertOnDrift: true
 faker:
+  enabled: false
   gobgp:
     # When enabled, an initContainer copies gobgpd/gobgp binaries into a shared volume
     # mounted into the faker container.
@@ -339,16 +341,44 @@ gobgp:
     annotations: {}
 coreClient:
   address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
-  secMode: spiffe
+  secMode: mtls
   trustDomain: ""
   serverSPIFFEID: ""
   workloadSocket: unix:/run/spire/sockets/agent.sock
   certDir: /etc/serviceradar/certs
 cnpg:
+  enabled: true
+  clusterName: cnpg
+  instances: 3
+  storageClass: local-path
+  storageSize: 100Gi
+  imageName: ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2
+  sharedPreloadLibraries:
+    - timescaledb
+    - age
+    - pg_stat_statements
+  postgresqlParameters:
+    log_min_duration_statement: "500ms"
+    log_lock_waits: "on"
+    deadlock_timeout: "1s"
+    pg_stat_statements.max: "10000"
+    pg_stat_statements.track: "all"
+    pg_stat_statements.track_planning: "on"
+    track_io_timing: "on"
+  extensionsSQL:
+    - CREATE EXTENSION IF NOT EXISTS timescaledb;
+    - CREATE EXTENSION IF NOT EXISTS age;
+    - CREATE EXTENSION IF NOT EXISTS postgis;
+    - CREATE EXTENSION IF NOT EXISTS vector;
+    - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+  superuserSecret: cnpg-superuser
+  superuserUsername: postgres
+  superuserPassword: ""
   host: ""
   port: 5432
   database: serviceradar
   username: serviceradar
+  password: ""
   # Schema for application data. The app user's search_path is set to this schema.
   # For OSS single-deployment mode, use "platform" (default).
   # The schema is created automatically during bootstrap.
@@ -408,7 +438,7 @@ webNg:
   datasvc:
     host: "serviceradar-datasvc"
     port: 50057
-    secMode: "spiffe"
+    secMode: "mtls"
     certDir: "/etc/serviceradar/certs"
     certName: "web"
     serverName: "datasvc.serviceradar"
@@ -632,7 +662,7 @@ configSync:
     extraArgs: ""
     extraEnv: {}
 spire:
-  enabled: true
+  enabled: false
   namespace: ""
   serverSelector: app=spire-server
   trustDomain: carverauto.dev
@@ -819,5 +849,5 @@ sweep:
 # =============================================================================
 
 spiffe:
-  mode: "workload_api"
+  mode: "filesystem"
   trustDomain: "serviceradar.local"

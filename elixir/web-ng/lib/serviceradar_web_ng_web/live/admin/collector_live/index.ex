@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.NatsCredential
+  alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
   alias ServiceRadarWebNG.Collectors.PubSub, as: CollectorPubSub
   alias ServiceRadarWebNG.RBAC
 
@@ -52,6 +53,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
         |> assign(:selected_package, nil)
         |> assign(:created_package, nil)
         |> assign(:created_download_token, nil)
+        |> assign(:created_install_command, nil)
         |> assign(:filter_status, nil)
         |> assign(:filter_type, nil)
         |> load_account_status(actor)
@@ -101,7 +103,8 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
      socket
      |> assign(:show_create_modal, false)
      |> assign(:created_package, nil)
-     |> assign(:created_download_token, nil)}
+     |> assign(:created_download_token, nil)
+     |> assign(:created_install_command, nil)}
   end
 
   def handle_event("close_details_modal", _params, socket) do
@@ -128,6 +131,10 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
          socket
          |> assign(:created_package, package)
          |> assign(:created_download_token, download_token)
+         |> assign(
+           :created_install_command,
+           created_install_command(package, download_token, base_url)
+         )
          |> load_packages(actor)
          |> put_flash(:info, "Collector package created")}
 
@@ -434,6 +441,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
         edge_sites={@edge_sites}
         created_package={@created_package}
         download_token={@created_download_token}
+        created_install_command={@created_install_command}
       />
 
       <.details_modal
@@ -529,32 +537,47 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
                 <div class="bg-base-200 rounded-lg p-3">
                   <div class="text-xs uppercase tracking-wide text-base-content/60 mb-2">
-                    Step 1: Install the collector
+                    <%= if @created_package.collector_type == :falcosidekick do %>
+                      Step 1: Download and deploy the bundle
+                    <% else %>
+                      Step 1: Install the collector
+                    <% end %>
                   </div>
-                  <code class="text-xs">
-                    # Debian/Ubuntu<br />
-                    sudo apt install serviceradar-{@created_package.collector_type}<br /><br />
-                    # RHEL/CentOS<br />
-                    sudo dnf install serviceradar-{@created_package.collector_type}
-                  </code>
+                  <%= if @created_package.collector_type == :falcosidekick do %>
+                    <div class="text-xs text-base-content/70">
+                      This collector deploys through Helm and reuses the namespace's
+                      `serviceradar-runtime-certs` secret.
+                    </div>
+                  <% else %>
+                    <code class="text-xs">
+                      # Debian/Ubuntu<br />
+                      sudo apt install serviceradar-{@created_package.collector_type}<br /><br />
+                      # RHEL/CentOS<br />
+                      sudo dnf install serviceradar-{@created_package.collector_type}
+                    </code>
+                  <% end %>
                 </div>
 
                 <div class="bg-base-200 rounded-lg p-3">
                   <div class="flex items-center justify-between mb-2">
                     <div class="text-xs uppercase tracking-wide text-base-content/60">
-                      Step 2: Run the enrollment command
+                      <%= if @created_package.collector_type == :falcosidekick do %>
+                        Step 2: Run the bundle command
+                      <% else %>
+                        Step 2: Run the enrollment command
+                      <% end %>
                     </div>
                     <button
                       type="button"
                       class="btn btn-xs btn-ghost"
                       phx-click="copy_token"
-                      phx-value-token={"/usr/local/bin/serviceradar-cli enroll --token #{@download_token}"}
+                      phx-value-token={@created_install_command}
                     >
                       <.icon name="hero-clipboard-document" class="size-3" /> Copy
                     </button>
                   </div>
                   <code class="font-mono text-xs break-all bg-base-300 p-2 rounded block">
-                    /usr/local/bin/serviceradar-cli enroll --token {@download_token}
+                    {@created_install_command}
                   </code>
                 </div>
               </div>
@@ -941,6 +964,10 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   defp normalize_port(%URI{scheme: "http", port: 80} = uri), do: %{uri | port: nil}
   defp normalize_port(%URI{scheme: "https", port: 443} = uri), do: %{uri | port: nil}
   defp normalize_port(uri), do: uri
+
+  defp created_install_command(package, download_token, base_url) do
+    CollectorBundleGenerator.update_command(package, download_token, base_url: base_url)
+  end
 
   defp revoke_package(id, actor) do
     case get_package(id, actor) do

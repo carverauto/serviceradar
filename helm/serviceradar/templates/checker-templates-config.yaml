@@ -11,7 +11,7 @@ data:
       "node_address": "{{`{{AGENT_ADDRESS}}`}}",
       "listen_addr": ":50054",
       "security": {
-        "mode": "spiffe",
+        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
         "role": "checker",
         "cert_dir": "/etc/serviceradar/certs",
         "trust_domain": "{{`{{TRUST_DOMAIN}}`}}",
@@ -33,7 +33,7 @@ data:
       "type": "grpc",
       "timeout": "30s",
       "security": {
-        "mode": "spiffe",
+        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
         "cert_dir": "/etc/serviceradar/certs",
         "trust_domain": "{{`{{TRUST_DOMAIN}}`}}",
         "server_spiffe_id": "{{`{{DOWNSTREAM_SPIFFE_ID}}`}}",
@@ -50,7 +50,7 @@ data:
       "listen_addr": ":50082",
       "timeout": "5m",
       "security": {
-        "mode": "spiffe",
+        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
         "role": "checker",
         "cert_dir": "/etc/serviceradar/certs",
         "trust_domain": "{{`{{TRUST_DOMAIN}}`}}",

@@ -73,7 +73,7 @@ spec:
       - name: ghcr-io-cred
       containers:
       - name: trivy-sidecar
-        image: ghcr.io/carverauto/serviceradar-trivy-sidecar:latest
+        image: ghcr.io/carverauto/serviceradar-trivy-sidecar:sha-4582835936b4-v7
         imagePullPolicy: Always
         env:
         - name: CLUSTER_ID
@@ -145,8 +145,8 @@ spec:
         secret:
           secretName: serviceradar-nats-creds
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: serviceradar-runtime-certs
 ---
 apiVersion: v1
 kind: Service

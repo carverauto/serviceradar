@@ -50,9 +50,11 @@ spec:
           mountPath: /etc/serviceradar/consumers
         - name: db-event-writer-data
           mountPath: /var/lib/serviceradar
+        {{- if .Values.spire.enabled }}
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
           readOnly: true
+        {{- end }}
         env:
         - name: CONFIG_SOURCE
           value: "file"
@@ -105,8 +107,10 @@ spec:
           value: {{ default "unix:/run/spire/sockets/agent.sock" .Values.kv.workloadSocket | quote }}
         - name: KV_CERT_DIR
           value: {{ default "/etc/serviceradar/certs" .Values.kv.certDir | quote }}
+        {{- if .Values.spire.enabled }}
         - name: SPIFFE_ENDPOINT_SOCKET
           value: "unix:/run/spire/sockets/agent.sock"
+        {{- end }}
         - name: CORE_ADDRESS
           value: {{ include "serviceradar.coreAddress" . | quote }}
         - name: CORE_SEC_MODE
@@ -151,8 +155,8 @@ spec:
       - name: db-event-writer-consumers
         emptyDir: {}
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
       {{- if or .Values.natsCreds.platform .Values.natsCreds.system }}
       - name: nats-creds
         secret:
@@ -167,10 +171,12 @@ spec:
       - name: db-event-writer-data
         persistentVolumeClaim:
           claimName: serviceradar-db-event-writer-data
+      {{- if .Values.spire.enabled }}
       - name: spire-agent-socket
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
           type: DirectoryOrCreate
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

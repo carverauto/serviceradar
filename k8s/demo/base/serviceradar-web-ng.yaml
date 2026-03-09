@@ -121,8 +121,8 @@ spec:
             failureThreshold: 3
       volumes:
         - name: cert-data
-          persistentVolumeClaim:
-            claimName: serviceradar-cert-data
+          secret:
+            secretName: serviceradar-runtime-certs
         - name: cnpg-ca
           secret:
             secretName: cnpg-ca

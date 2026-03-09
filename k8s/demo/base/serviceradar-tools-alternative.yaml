@@ -127,8 +127,8 @@ spec:
             - NET_RAW
       volumes:
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: serviceradar-runtime-certs
       - name: shared-tools
         emptyDir: {}
       - name: serviceradar-cli

@@ -86,6 +86,27 @@ else
     fi
 fi
 
+# Generate CNPG credentials if not already present
+if ! kubectl get secret cnpg-superuser -n $NAMESPACE >/dev/null 2>&1; then
+    echo "⚠️  CNPG superuser credentials not found. Creating..."
+    CNPG_SUPERUSER_PASSWORD=$(openssl rand -hex 24)
+    kubectl create secret generic cnpg-superuser \
+      --from-literal=username=postgres \
+      --from-literal=password="$CNPG_SUPERUSER_PASSWORD" \
+      -n $NAMESPACE
+    echo "✅ Created cnpg-superuser"
+fi
+
+if ! kubectl get secret serviceradar-db-credentials -n $NAMESPACE >/dev/null 2>&1; then
+    echo "⚠️  ServiceRadar DB credentials not found. Creating..."
+    CNPG_APP_PASSWORD=$(openssl rand -hex 24)
+    kubectl create secret generic serviceradar-db-credentials \
+      --from-literal=username=serviceradar \
+      --from-literal=password="$CNPG_APP_PASSWORD" \
+      -n $NAMESPACE
+    echo "✅ Created serviceradar-db-credentials"
+fi
+
 # Check if ghcr.io credentials exist
 if ! kubectl get secret ghcr-io-cred -n $NAMESPACE >/dev/null 2>&1; then
     echo "⚠️  GitHub Container Registry credentials not found!"

@@ -1,0 +1,125 @@
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $spire := default (dict) .Values.spire -}}
+{{- $spirePg := default (dict) $spire.postgres -}}
+{{- $spiffeCnpgManaged := and (default false $spire.enabled) (default false $spirePg.enabled) -}}
+{{- if and (default true $cnpg.enabled) (not $spiffeCnpgManaged) }}
+{{- $ns := .Release.Namespace -}}
+{{- $clusterName := default "cnpg" $cnpg.clusterName -}}
+{{- $appSecretName := default "serviceradar-db-credentials" $cnpg.credentialsSecret -}}
+{{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
+{{- $existingAppCreds := (lookup "v1" "Secret" $ns $appSecretName) -}}
+{{- $existingSuper := (lookup "v1" "Secret" $ns $superSecretName) -}}
+{{- $appUser := default "serviceradar" $cnpg.username -}}
+{{- $appPass := default "" $cnpg.password -}}
+{{- if and $existingAppCreds $existingAppCreds.data.password }}
+  {{- $appPass = (b64dec $existingAppCreds.data.password) }}
+{{- end }}
+{{- if eq $appPass "" }}
+  {{- $appPass = randAlphaNum 32 }}
+{{- end }}
+{{- $superUser := default "postgres" $cnpg.superuserUsername -}}
+{{- $superPass := default "" $cnpg.superuserPassword -}}
+{{- if and $existingSuper $existingSuper.data.password }}
+  {{- $superPass = (b64dec $existingSuper.data.password) }}
+{{- end }}
+{{- if eq $superPass "" }}
+  {{- $superPass = randAlphaNum 32 }}
+{{- end }}
+{{- $clientCASecret := default "" $cnpg.clientCASecret -}}
+{{- if and (not $clientCASecret) $cnpg.requireClientCert }}
+  {{- $clientCASecret = "serviceradar-cnpg-client-ca" }}
+{{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $superSecretName }}
+  namespace: {{ $ns }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
+type: Opaque
+stringData:
+  username: {{ $superUser | quote }}
+  password: {{ $superPass | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $appSecretName }}
+  namespace: {{ $ns }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
+type: Opaque
+stringData:
+  username: {{ $appUser | quote }}
+  password: {{ $appPass | quote }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $clusterName }}
+  namespace: {{ $ns }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
+spec:
+  imageName: {{ default "ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2" $cnpg.imageName }}
+  instances: {{ default 3 $cnpg.instances }}
+  {{- if .Values.image.registryPullSecret }}
+  imagePullSecrets:
+    - name: {{ .Values.image.registryPullSecret | quote }}
+  {{- end }}
+  storage:
+    size: {{ default "100Gi" $cnpg.storageSize }}
+    {{- if $cnpg.storageClass }}
+    storageClass: {{ $cnpg.storageClass | quote }}
+    {{- end }}
+  bootstrap:
+    initdb:
+      database: {{ default "serviceradar" $cnpg.database }}
+      owner: {{ $appUser | quote }}
+      secret:
+        name: {{ $appSecretName | quote }}
+      {{- with $cnpg.extensionsSQL }}
+      postInitApplicationSQL:
+        {{- range $stmt := . }}
+        - {{ $stmt | quote }}
+        {{- end }}
+      {{- end }}
+  postgresql:
+    {{- with $cnpg.postgresqlParameters }}
+    parameters:
+      {{- range $k, $v := . }}
+      {{ $k | quote }}: {{ $v | quote }}
+      {{- end }}
+    {{- end }}
+    {{- with $cnpg.sharedPreloadLibraries }}
+    shared_preload_libraries:
+      {{- range $lib := . }}
+      - {{ $lib | quote }}
+      {{- end }}
+    {{- end }}
+    {{- if $cnpg.requireClientCert }}
+    pg_hba:
+      - "hostnossl all all all reject"
+      - "hostssl all all all scram-sha-256 clientcert=verify-ca"
+    {{- else }}
+    pg_hba:
+      - "hostnossl all all all reject"
+      - "hostssl all all all scram-sha-256"
+    {{- end }}
+  {{- if $clientCASecret }}
+  certificates:
+    clientCASecret: {{ $clientCASecret | quote }}
+  {{- end }}
+  managed:
+    roles:
+      - name: {{ $appUser | quote }}
+        ensure: present
+        login: true
+        passwordSecret:
+          name: {{ $appSecretName | quote }}
+  monitoring:
+    enablePodMonitor: true
+  enableSuperuserAccess: true
+  failoverDelay: 0
+{{- end }}

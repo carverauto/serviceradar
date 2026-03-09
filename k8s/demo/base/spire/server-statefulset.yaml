@@ -127,8 +127,8 @@ spec:
               - key: ca.crt
                 path: ca.crt
         - name: cert-data
-          persistentVolumeClaim:
-            claimName: serviceradar-cert-data
+          secret:
+            secretName: serviceradar-runtime-certs
   volumeClaimTemplates:
     - metadata:
         name: spire-data

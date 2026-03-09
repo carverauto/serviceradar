@@ -1,53 +1,280 @@
 # base/cert-generator-job.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-runtime-cert-generator
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: runtime-cert-generator
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: serviceradar-runtime-cert-generator
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: runtime-cert-generator
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "create", "update", "patch"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: serviceradar-runtime-cert-generator
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: runtime-cert-generator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: serviceradar-runtime-cert-generator
+subjects:
+- kind: ServiceAccount
+  name: serviceradar-runtime-cert-generator
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: serviceradar-cert-generator
+  name: serviceradar-runtime-cert-generator
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: runtime-cert-generator
 spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 2
   template:
     metadata:
       labels:
-        app: serviceradar-cert-generator
+        app: serviceradar-runtime-cert-generator
         app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: runtime-cert-generator
     spec:
+      serviceAccountName: serviceradar-runtime-cert-generator
       restartPolicy: OnFailure
+      imagePullSecrets:
+      - name: ghcr-io-cred
       containers:
-      - name: cert-generator
-        image: alpine/openssl:latest
-        imagePullPolicy: Always
-        command: ["/bin/sh"]
-        args:
-        - -c
-        - |
-          # Alpine should have openssl built-in, just copy and run the script
-          cp /scripts/generate-certs.sh /tmp/generate-certs.sh
-          chmod +x /tmp/generate-certs.sh
-          cd /certs
-          /bin/sh /tmp/generate-certs.sh
-        volumeMounts:
-        - name: cert-scripts
-          mountPath: /scripts
-        - name: cert-data
-          mountPath: /certs
+      - name: runtime-cert-generator
+        image: ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c"]
         env:
+        - name: SECRET_NAME
+          value: "serviceradar-runtime-certs"
         - name: CERT_DIR
-          value: "/certs"
-      volumes:
-      - name: cert-scripts
-        configMap:
-          name: serviceradar-cert-scripts
-          defaultMode: 0755
-      - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: serviceradar-cert-data
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
+          value: "/tmp/certs"
+        args:
+        - |
+          set -euo pipefail
+
+          if python3 <<'PY'
+          import os
+          import ssl
+          import sys
+          import urllib.error
+          import urllib.request
+
+          secret_name = os.environ["SECRET_NAME"]
+          serviceaccount = "/var/run/secrets/kubernetes.io/serviceaccount"
+          token = open(os.path.join(serviceaccount, "token"), encoding="utf-8").read().strip()
+          namespace = open(os.path.join(serviceaccount, "namespace"), encoding="utf-8").read().strip()
+          cafile = os.path.join(serviceaccount, "ca.crt")
+          context = ssl.create_default_context(cafile=cafile)
+          secret_url = f"https://kubernetes.default.svc/api/v1/namespaces/{namespace}/secrets/{secret_name}"
+          headers = {"Authorization": f"Bearer {token}"}
+
+          try:
+            request = urllib.request.Request(secret_url, headers=headers, method="GET")
+            urllib.request.urlopen(request, context=context).read()
+            print(f"Secret {secret_name} already exists; preserving current runtime certs")
+            sys.exit(0)
+          except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+              sys.exit(1)
+            raise
+          PY
+          then
+            exit 0
+          fi
+
+          export NAMESPACE="$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)"
+          cat >/tmp/generate-certs.sh <<'EOF'
+          #!/bin/sh
+          set -e
+
+          CERT_DIR="${CERT_DIR:-./certs}"
+          NAMESPACE="${NAMESPACE:-demo}"
+          DAYS_VALID=3650
+          COUNTRY="US"
+          STATE="CA"
+          LOCALITY="San Francisco"
+          ORGANIZATION="ServiceRadar"
+          ORG_UNIT="Kubernetes"
+
+          mkdir -p "$CERT_DIR"
+          chmod 755 "$CERT_DIR"
+
+          if [ ! -f "$CERT_DIR/root.pem" ]; then
+            openssl genrsa -out "$CERT_DIR/root-key.pem" 4096
+            openssl req -new -x509 -sha256 -key "$CERT_DIR/root-key.pem" -out "$CERT_DIR/root.pem" \
+              -days "$DAYS_VALID" -subj "/C=$COUNTRY/ST=$STATE/L=$LOCALITY/O=$ORGANIZATION/OU=$ORG_UNIT/CN=ServiceRadar Root CA"
+            chmod 644 "$CERT_DIR/root.pem"
+            chmod 600 "$CERT_DIR/root-key.pem"
+          fi
+
+          generate_cert() {
+            component="$1"
+            cn="$2"
+            san="$3"
+
+            if [ -f "$CERT_DIR/$component.pem" ]; then
+              return
+            fi
+
+            openssl genrsa -out "$CERT_DIR/$component-key.pem" 2048
+            printf '%s\n' \
+              '[req]' \
+              'distinguished_name = req_distinguished_name' \
+              'req_extensions = v3_req' \
+              'prompt = no' \
+              '[req_distinguished_name]' \
+              "C = $COUNTRY" \
+              "ST = $STATE" \
+              "L = $LOCALITY" \
+              "O = $ORGANIZATION" \
+              "OU = $ORG_UNIT" \
+              "CN = $cn" \
+              '[v3_req]' \
+              'keyUsage = keyEncipherment, dataEncipherment, digitalSignature' \
+              'extendedKeyUsage = serverAuth, clientAuth' \
+              "subjectAltName = $san" \
+              > "$CERT_DIR/$component.conf"
+            openssl req -new -sha256 -key "$CERT_DIR/$component-key.pem" \
+              -out "$CERT_DIR/$component.csr" -config "$CERT_DIR/$component.conf"
+            openssl x509 -req -in "$CERT_DIR/$component.csr" -CA "$CERT_DIR/root.pem" \
+              -CAkey "$CERT_DIR/root-key.pem" -CAcreateserial -out "$CERT_DIR/$component.pem" \
+              -days "$DAYS_VALID" -sha256 -extensions v3_req -extfile "$CERT_DIR/$component.conf"
+            rm "$CERT_DIR/$component.csr" "$CERT_DIR/$component.conf"
+            chmod 644 "$CERT_DIR/$component.pem"
+            chmod 600 "$CERT_DIR/$component-key.pem"
+          }
+
+          generate_cert "nats" "serviceradar-nats" "DNS:serviceradar-nats,DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats.${NAMESPACE}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
+          generate_cert "core" "serviceradar-core" "DNS:serviceradar-core,DNS:core,DNS:core.serviceradar,DNS:serviceradar-core.${NAMESPACE}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
+          generate_cert "web" "serviceradar-web-ng" "DNS:serviceradar-web-ng,DNS:web-ng,DNS:serviceradar-web,DNS:web,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
+          generate_cert "datasvc" "serviceradar-datasvc" "DNS:serviceradar-datasvc,DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc.${NAMESPACE}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
+          generate_cert "agent" "serviceradar-agent" "DNS:serviceradar-agent,DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent.${NAMESPACE}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
+          generate_cert "rperf-client" "serviceradar-rperf-client" "DNS:serviceradar-rperf-client,DNS:rperf-client,DNS:serviceradar-rperf,DNS:localhost,IP:127.0.0.1"
+          generate_cert "db-event-writer" "serviceradar-db-event-writer" "DNS:serviceradar-db-event-writer,DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
+          generate_cert "cnpg-client" "serviceradar-cnpg-client" "DNS:serviceradar-cnpg-client"
+          generate_cert "zen" "serviceradar-zen" "DNS:serviceradar-zen,DNS:zen,DNS:zen.serviceradar,DNS:localhost,IP:127.0.0.1"
+          generate_cert "log-collector" "serviceradar-log-collector" "DNS:serviceradar-log-collector,DNS:log-collector,DNS:log-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
+          generate_cert "flow-collector" "serviceradar-flow-collector" "DNS:serviceradar-flow-collector,DNS:flow-collector,DNS:flow-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
+          generate_cert "trapd" "serviceradar-trapd" "DNS:serviceradar-trapd,DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd.${NAMESPACE}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
+          generate_cert "client" "serviceradar-debug-client" "DNS:serviceradar-tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
+
+          if [ -f "$CERT_DIR/root.pem" ] && [ ! -f "$CERT_DIR/ca.crt" ]; then
+            cp "$CERT_DIR/root.pem" "$CERT_DIR/ca.crt"
+            chmod 644 "$CERT_DIR/ca.crt"
+          fi
+
+          if [ -f "$CERT_DIR/flow-collector.pem" ] && [ -f "$CERT_DIR/flow-collector-key.pem" ]; then
+            if [ ! -f "$CERT_DIR/flow-client.crt" ]; then
+              cp "$CERT_DIR/flow-collector.pem" "$CERT_DIR/flow-client.crt"
+              chmod 644 "$CERT_DIR/flow-client.crt"
+            fi
+            if [ ! -f "$CERT_DIR/flow-client.key" ]; then
+              cp "$CERT_DIR/flow-collector-key.pem" "$CERT_DIR/flow-client.key"
+              chmod 600 "$CERT_DIR/flow-client.key"
+            fi
+          fi
+
+          if [ -f "$CERT_DIR/rperf-client.pem" ] && [ ! -f "$CERT_DIR/rperf-checker.pem" ]; then
+            cp "$CERT_DIR/rperf-client.pem" "$CERT_DIR/rperf-checker.pem"
+            chmod 644 "$CERT_DIR/rperf-checker.pem"
+          fi
+
+          if [ -f "$CERT_DIR/rperf-client-key.pem" ] && [ ! -f "$CERT_DIR/rperf-checker-key.pem" ]; then
+            cp "$CERT_DIR/rperf-client-key.pem" "$CERT_DIR/rperf-checker-key.pem"
+            chmod 600 "$CERT_DIR/rperf-checker-key.pem"
+          fi
+
+          if [ ! -f "$CERT_DIR/jwt-secret" ]; then
+            openssl rand -hex 32 > "$CERT_DIR/jwt-secret"
+            chmod 600 "$CERT_DIR/jwt-secret"
+          fi
+
+          if [ ! -f "$CERT_DIR/api-key" ]; then
+            openssl rand -hex 32 > "$CERT_DIR/api-key"
+            chmod 600 "$CERT_DIR/api-key"
+          fi
+          EOF
+
+          chmod +x /tmp/generate-certs.sh
+          mkdir -p "${CERT_DIR}"
+          /bin/sh /tmp/generate-certs.sh
+
+          python3 <<'PY'
+          import base64
+          import json
+          import os
+          import ssl
+          import urllib.error
+          import urllib.request
+
+          secret_name = os.environ["SECRET_NAME"]
+          cert_dir = os.environ["CERT_DIR"]
+          serviceaccount = "/var/run/secrets/kubernetes.io/serviceaccount"
+          token = open(os.path.join(serviceaccount, "token"), encoding="utf-8").read().strip()
+          namespace = open(os.path.join(serviceaccount, "namespace"), encoding="utf-8").read().strip()
+          cafile = os.path.join(serviceaccount, "ca.crt")
+          context = ssl.create_default_context(cafile=cafile)
+
+          data = {}
+          for entry in sorted(os.listdir(cert_dir)):
+            path = os.path.join(cert_dir, entry)
+            if os.path.isfile(path):
+              with open(path, "rb") as handle:
+                data[entry] = base64.b64encode(handle.read()).decode("ascii")
+
+          payload = {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+              "name": secret_name,
+              "labels": {
+                "app.kubernetes.io/part-of": "serviceradar",
+                "app.kubernetes.io/component": "runtime-certs",
+              },
+            },
+            "type": "Opaque",
+            "data": data,
+          }
+
+          base_url = f"https://kubernetes.default.svc/api/v1/namespaces/{namespace}/secrets"
+          secret_url = f"{base_url}/{secret_name}"
+          headers = {"Authorization": f"Bearer {token}"}
+
+          try:
+            request = urllib.request.Request(secret_url, headers=headers, method="GET")
+            urllib.request.urlopen(request, context=context).read()
+            method = "PATCH"
+            url = secret_url
+            body = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/merge-patch+json"
+            action = "Reconciled"
+          except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+              raise
+            method = "POST"
+            url = base_url
+            body = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+            action = "Created"
+
+          request = urllib.request.Request(url, data=body, headers=headers, method=method)
+          urllib.request.urlopen(request, context=context).read()
+          print(f"{action} Secret {secret_name}")
+          PY
