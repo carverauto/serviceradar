@@ -127,6 +127,26 @@ if config_env() == :prod do
     end
   end
 
+  parse_int_env = fn env_name, default ->
+    case System.get_env(env_name) do
+      nil ->
+        default
+
+      "" ->
+        default
+
+      value ->
+        case Integer.parse(value) do
+          {int, ""} -> int
+          _ -> default
+        end
+    end
+  end
+
+  config :serviceradar_core,
+    mapper_topology_edge_stale_minutes:
+      parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
+
   mtr_automation_enabled = parse_bool.("MTR_AUTOMATION_ENABLED", false)
 
   config :serviceradar_core,
