@@ -132,7 +132,7 @@ func TestParseJSONLogsCharCodeBody(t *testing.T) {
 
 func TestParseJSONLogsPrefersSubjectSourceForSNMP(t *testing.T) {
 	payload := []byte(`{
-		"body":"logs.snmp.processed",
+		"body":"I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable.",
 		"source":"192.168.10.154:161",
 		"resource":{"source":"192.168.10.154:161"},
 		"community":"public",
@@ -156,7 +156,7 @@ func TestParseJSONLogsPrefersSubjectSourceForSNMP(t *testing.T) {
 	if row.Source != "snmp" {
 		t.Fatalf("expected source %q, got %q", "snmp", row.Source)
 	}
-	if row.Body != "logs.snmp.processed" {
+	if row.Body != "I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable." {
 		t.Fatalf("unexpected body: %q", row.Body)
 	}
 	if row.ResourceAttributes == "" {
