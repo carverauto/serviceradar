@@ -1,6 +1,7 @@
 package dbeventwriter
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -126,6 +127,46 @@ func TestParseJSONLogsCharCodeBody(t *testing.T) {
 	}
 	if rows[0].ServiceName != "core-elx" {
 		t.Fatalf("unexpected service name: %q", rows[0].ServiceName)
+	}
+}
+
+func TestParseJSONLogsPrefersSubjectSourceForSNMP(t *testing.T) {
+	payload := []byte(`{
+		"body":"logs.snmp.processed",
+		"source":"192.168.10.154:161",
+		"resource":{"source":"192.168.10.154:161"},
+		"community":"public",
+		"varbinds":[
+			{
+				"oid":"1.3.6.1.2.1.16.9.1.1.2.4911",
+				"value":"OCTET STRING: I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable."
+			}
+		]
+	}`)
+
+	rows, ok := parseJSONLogs(payload, "logs.snmp.processed")
+	if !ok {
+		t.Fatalf("expected JSON log parse to succeed")
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+
+	row := rows[0]
+	if row.Source != "snmp" {
+		t.Fatalf("expected source %q, got %q", "snmp", row.Source)
+	}
+	if row.Body != "logs.snmp.processed" {
+		t.Fatalf("unexpected body: %q", row.Body)
+	}
+	if row.ResourceAttributes == "" {
+		t.Fatalf("expected resource attributes to be preserved")
+	}
+	if row.Attributes == "" {
+		t.Fatalf("expected attributes to be preserved")
+	}
+	if strings.Contains(row.Attributes, "community") {
+		t.Fatalf("expected community to be dropped from attributes, got %s", row.Attributes)
 	}
 }
 

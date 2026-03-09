@@ -95,7 +95,10 @@ mod tests {
         let config: Config = toml::from_str("").unwrap();
         assert!(config.flowgger.enabled);
         assert!(config.otel.enabled);
-        assert_eq!(config.flowgger.config_file, "/etc/serviceradar/flowgger.toml");
+        assert_eq!(
+            config.flowgger.config_file,
+            "/etc/serviceradar/flowgger.toml"
+        );
         assert_eq!(config.otel.config_file, "/etc/serviceradar/otel.toml");
         assert_eq!(config.health.listen_addr, "0.0.0.0:50044");
     }

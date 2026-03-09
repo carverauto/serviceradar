@@ -25,6 +25,7 @@ const (
 var jsonLogReservedKeys = map[string]struct{}{
 	"@timestamp":              {},
 	"body":                    {},
+	"community":               {},
 	"attributes":              {},
 	"event_name":              {},
 	"eventName":               {},
@@ -203,9 +204,9 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 	attributes := encodeAttributes(attributesMap)
 	resourceAttributes := encodeAttributes(resourceAttribs)
 	scopeAttributesEncoded := encodeAttributes(scopeAttributes)
-	source := firstString(entry, "source")
+	source := inferLogSource(subject)
 	if source == "" {
-		source = inferLogSource(subject)
+		source = firstString(entry, "source")
 	}
 
 	return models.OTELLogRow{

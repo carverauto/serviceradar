@@ -14,6 +14,11 @@ use tokio::time::timeout;
 use crate::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest;
 use crate::opentelemetry::proto::collector::metrics::v1::ExportMetricsServiceRequest;
 use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest;
+use crate::opentelemetry::proto::logs::v1::{ResourceLogs, ScopeLogs};
+use crate::opentelemetry::proto::metrics::v1::{ResourceMetrics, ScopeMetrics};
+use crate::opentelemetry::proto::trace::v1::{ResourceSpans, ScopeSpans};
+
+const MAX_PROTO_PUBLISH_BYTES: usize = 900 * 1024;
 
 #[derive(Clone, Debug)]
 pub struct NATSConfig {
@@ -52,6 +57,209 @@ pub struct NATSOutput {
     config: NATSConfig,
     jetstream: Option<jetstream::Context>,
     disabled: bool,
+}
+
+fn split_logs_request(
+    logs: &ExportLogsServiceRequest,
+    max_publish_bytes: usize,
+) -> Result<Vec<ExportLogsServiceRequest>> {
+    if logs.encoded_len() <= max_publish_bytes {
+        return Ok(vec![logs.clone()]);
+    }
+
+    let mut units = Vec::new();
+    for resource_log in &logs.resource_logs {
+        for scope_log in &resource_log.scope_logs {
+            for log_record in &scope_log.log_records {
+                units.push(ExportLogsServiceRequest {
+                    resource_logs: vec![ResourceLogs {
+                        resource: resource_log.resource.clone(),
+                        scope_logs: vec![ScopeLogs {
+                            scope: scope_log.scope.clone(),
+                            log_records: vec![log_record.clone()],
+                            schema_url: scope_log.schema_url.clone(),
+                        }],
+                        schema_url: resource_log.schema_url.clone(),
+                    }],
+                });
+            }
+        }
+    }
+
+    pack_log_units(units, max_publish_bytes)
+}
+
+fn pack_log_units(
+    units: Vec<ExportLogsServiceRequest>,
+    max_publish_bytes: usize,
+) -> Result<Vec<ExportLogsServiceRequest>> {
+    let mut chunks = Vec::new();
+    let mut current = ExportLogsServiceRequest {
+        resource_logs: Vec::new(),
+    };
+
+    for unit in units {
+        let unit_size = unit.encoded_len();
+        if unit_size > max_publish_bytes {
+            return Err(anyhow!(
+                "single OTEL log record exceeds NATS payload budget: {} > {} bytes",
+                unit_size,
+                max_publish_bytes
+            ));
+        }
+
+        let mut candidate = current.clone();
+        candidate.resource_logs.extend(unit.resource_logs.clone());
+
+        if !current.resource_logs.is_empty() && candidate.encoded_len() > max_publish_bytes {
+            chunks.push(current);
+            current = unit;
+        } else {
+            current.resource_logs.extend(unit.resource_logs);
+        }
+    }
+
+    if !current.resource_logs.is_empty() {
+        chunks.push(current);
+    }
+
+    Ok(chunks)
+}
+
+fn split_traces_request(
+    traces: &ExportTraceServiceRequest,
+    max_publish_bytes: usize,
+) -> Result<Vec<ExportTraceServiceRequest>> {
+    if traces.encoded_len() <= max_publish_bytes {
+        return Ok(vec![traces.clone()]);
+    }
+
+    let mut units = Vec::new();
+    for resource_span in &traces.resource_spans {
+        for scope_span in &resource_span.scope_spans {
+            for span in &scope_span.spans {
+                units.push(ExportTraceServiceRequest {
+                    resource_spans: vec![ResourceSpans {
+                        resource: resource_span.resource.clone(),
+                        scope_spans: vec![ScopeSpans {
+                            scope: scope_span.scope.clone(),
+                            spans: vec![span.clone()],
+                            schema_url: scope_span.schema_url.clone(),
+                        }],
+                        schema_url: resource_span.schema_url.clone(),
+                    }],
+                });
+            }
+        }
+    }
+
+    pack_trace_units(units, max_publish_bytes)
+}
+
+fn pack_trace_units(
+    units: Vec<ExportTraceServiceRequest>,
+    max_publish_bytes: usize,
+) -> Result<Vec<ExportTraceServiceRequest>> {
+    let mut chunks = Vec::new();
+    let mut current = ExportTraceServiceRequest {
+        resource_spans: Vec::new(),
+    };
+
+    for unit in units {
+        let unit_size = unit.encoded_len();
+        if unit_size > max_publish_bytes {
+            return Err(anyhow!(
+                "single OTEL span exceeds NATS payload budget: {} > {} bytes",
+                unit_size,
+                max_publish_bytes
+            ));
+        }
+
+        let mut candidate = current.clone();
+        candidate.resource_spans.extend(unit.resource_spans.clone());
+
+        if !current.resource_spans.is_empty() && candidate.encoded_len() > max_publish_bytes {
+            chunks.push(current);
+            current = unit;
+        } else {
+            current.resource_spans.extend(unit.resource_spans);
+        }
+    }
+
+    if !current.resource_spans.is_empty() {
+        chunks.push(current);
+    }
+
+    Ok(chunks)
+}
+
+fn split_metrics_request(
+    metrics: &ExportMetricsServiceRequest,
+    max_publish_bytes: usize,
+) -> Result<Vec<ExportMetricsServiceRequest>> {
+    if metrics.encoded_len() <= max_publish_bytes {
+        return Ok(vec![metrics.clone()]);
+    }
+
+    let mut units = Vec::new();
+    for resource_metrics in &metrics.resource_metrics {
+        for scope_metrics in &resource_metrics.scope_metrics {
+            for metric in &scope_metrics.metrics {
+                units.push(ExportMetricsServiceRequest {
+                    resource_metrics: vec![ResourceMetrics {
+                        resource: resource_metrics.resource.clone(),
+                        scope_metrics: vec![ScopeMetrics {
+                            scope: scope_metrics.scope.clone(),
+                            metrics: vec![metric.clone()],
+                            schema_url: scope_metrics.schema_url.clone(),
+                        }],
+                        schema_url: resource_metrics.schema_url.clone(),
+                    }],
+                });
+            }
+        }
+    }
+
+    pack_metric_units(units, max_publish_bytes)
+}
+
+fn pack_metric_units(
+    units: Vec<ExportMetricsServiceRequest>,
+    max_publish_bytes: usize,
+) -> Result<Vec<ExportMetricsServiceRequest>> {
+    let mut chunks = Vec::new();
+    let mut current = ExportMetricsServiceRequest {
+        resource_metrics: Vec::new(),
+    };
+
+    for unit in units {
+        let unit_size = unit.encoded_len();
+        if unit_size > max_publish_bytes {
+            return Err(anyhow!(
+                "single OTEL metric exceeds NATS payload budget: {} > {} bytes",
+                unit_size,
+                max_publish_bytes
+            ));
+        }
+
+        let mut candidate = current.clone();
+        candidate
+            .resource_metrics
+            .extend(unit.resource_metrics.clone());
+
+        if !current.resource_metrics.is_empty() && candidate.encoded_len() > max_publish_bytes {
+            chunks.push(current);
+            current = unit;
+        } else {
+            current.resource_metrics.extend(unit.resource_metrics);
+        }
+    }
+
+    if !current.resource_metrics.is_empty() {
+        chunks.push(current);
+    }
+
+    Ok(chunks)
 }
 
 async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> Result<()> {
@@ -185,12 +393,15 @@ async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> R
                             "Updating existing stream '{}' to add subjects: {:?}",
                             config.stream, subjects
                         );
-                        jetstream.update_stream(updated_config).await.map_err(|ue| {
-                            anyhow!(
-                                "Failed to update stream '{}' after config mismatch: {ue}",
-                                config.stream
-                            )
-                        })?;
+                        jetstream
+                            .update_stream(updated_config)
+                            .await
+                            .map_err(|ue| {
+                                anyhow!(
+                                    "Failed to update stream '{}' after config mismatch: {ue}",
+                                    config.stream
+                                )
+                            })?;
                         info!("Successfully updated stream '{}'", config.stream);
                     } else {
                         info!(
@@ -344,74 +555,93 @@ impl NATSOutput {
             span_count
         );
 
-        // Encode traces as protobuf
-        let mut payload = Vec::new();
-        traces.encode(&mut payload)?;
-
-        debug!("Encoded trace data: {} bytes", payload.len());
-
-        // Publish with acknowledgment - use traces-specific subject
         let traces_subject = format!("{}.traces", self.config.subject); // otel.traces
-        debug!("Publishing traces to subject: {traces_subject}");
         if self.disabled {
             debug!("NATS output disabled; dropping traces");
             return Ok(());
         }
-        let js = self.get_or_recover_jetstream().await?;
-        let ack: PublishAckFuture = match js.publish(traces_subject, payload.into()).await {
-            Ok(future) => future,
-            Err(e) => {
-                error!("Failed to publish traces to NATS: {e}");
-                if Self::publish_error_indicates_missing_stream(&e) {
-                    match self.recover_stream().await {
-                        Ok(_) => {}
-                        Err(recover_err) => {
+
+        let trace_chunks = split_traces_request(traces, MAX_PROTO_PUBLISH_BYTES)?;
+        debug!(
+            "Publishing {} trace chunk(s) to subject: {}",
+            trace_chunks.len(),
+            traces_subject
+        );
+
+        for (index, chunk) in trace_chunks.iter().enumerate() {
+            let mut payload = Vec::with_capacity(chunk.encoded_len());
+            chunk.encode(&mut payload)?;
+            debug!(
+                "Encoded trace chunk {}/{}: {} bytes",
+                index + 1,
+                trace_chunks.len(),
+                payload.len()
+            );
+
+            let js = self.get_or_recover_jetstream().await?;
+            let ack: PublishAckFuture = match js
+                .publish(traces_subject.clone(), payload.into())
+                .await
+            {
+                Ok(future) => future,
+                Err(e) => {
+                    error!("Failed to publish traces to NATS: {e}");
+                    if Self::publish_error_indicates_missing_stream(&e) {
+                        match self.recover_stream().await {
+                            Ok(_) => {}
+                            Err(recover_err) => {
+                                error!(
+                                    "Failed to recover JetStream stream '{}' after traces publish error: {recover_err}",
+                                    self.config.stream
+                                );
+                            }
+                        }
+                    }
+                    return Err(e.into());
+                }
+            };
+
+            debug!(
+                "Waiting for NATS acknowledgment for trace chunk {}/{} (timeout: {:?})",
+                index + 1,
+                trace_chunks.len(),
+                self.config.timeout
+            );
+            match timeout(self.config.timeout, ack).await {
+                Ok(Ok(ack_result)) => {
+                    debug!(
+                        "NATS trace chunk acknowledged: stream={}, sequence={}",
+                        ack_result.stream, ack_result.sequence
+                    );
+                }
+                Ok(Err(e)) => {
+                    error!("NATS acknowledgment failed: {e}");
+                    if e.kind() == PublishErrorKind::StreamNotFound {
+                        warn!(
+                            "JetStream stream '{}' missing during traces publish acknowledgment; attempting recovery",
+                            self.config.stream
+                        );
+                        if let Err(recover_err) = self.recover_stream().await {
                             error!(
-                                "Failed to recover JetStream stream '{}' after traces publish error: {recover_err}",
+                                "Failed to recover JetStream stream '{}' after traces ack error: {recover_err}",
                                 self.config.stream
                             );
                         }
                     }
+                    return Err(anyhow::anyhow!("NATS acknowledgment failed: {}", e));
                 }
-                return Err(e.into());
-            }
-        };
-
-        // Wait for acknowledgment with timeout
-        debug!(
-            "Waiting for NATS acknowledgment (timeout: {:?})",
-            self.config.timeout
-        );
-        match timeout(self.config.timeout, ack).await {
-            Ok(Ok(ack_result)) => {
-                debug!(
-                    "NATS publish acknowledged: stream={}, sequence={}",
-                    ack_result.stream, ack_result.sequence
-                );
-                info!("Successfully published {span_count} spans to NATS");
-            }
-            Ok(Err(e)) => {
-                error!("NATS acknowledgment failed: {e}");
-                if e.kind() == PublishErrorKind::StreamNotFound {
-                    warn!(
-                        "JetStream stream '{}' missing during traces publish acknowledgment; attempting recovery",
-                        self.config.stream
-                    );
-                    if let Err(recover_err) = self.recover_stream().await {
-                        error!(
-                            "Failed to recover JetStream stream '{}' after traces ack error: {recover_err}",
-                            self.config.stream
-                        );
-                    }
+                Err(_) => {
+                    warn!("NATS ack timed out after {:?}", self.config.timeout);
+                    return Err(anyhow::anyhow!("NATS publish timeout"));
                 }
-                return Err(anyhow::anyhow!("NATS acknowledgment failed: {}", e));
-            }
-            Err(_) => {
-                warn!("NATS ack timed out after {:?}", self.config.timeout);
-                return Err(anyhow::anyhow!("NATS publish timeout"));
             }
         }
 
+        info!(
+            "Successfully published {} spans to NATS in {} message(s)",
+            span_count,
+            trace_chunks.len()
+        );
         Ok(())
     }
 
@@ -433,78 +663,95 @@ impl NATSOutput {
             logs_count
         );
 
-        // Encode logs as protobuf
-        let mut payload = Vec::new();
-        logs.encode(&mut payload)?;
-
-        debug!("Encoded logs data: {} bytes", payload.len());
-
-        // Publish with acknowledgment - allow dedicated subject for logs
         let logs_subject = self
             .config
             .logs_subject
             .clone()
             .unwrap_or_else(|| format!("{}.logs", self.config.subject));
-        debug!("Publishing to subject: {logs_subject}");
         if self.disabled {
             debug!("NATS output disabled; dropping logs");
             return Ok(());
         }
-        let js = self.get_or_recover_jetstream().await?;
-        let ack: PublishAckFuture = match js.publish(logs_subject, payload.into()).await {
-            Ok(future) => future,
-            Err(e) => {
-                error!("Failed to publish logs to NATS: {e}");
-                if Self::publish_error_indicates_missing_stream(&e) {
-                    match self.recover_stream().await {
-                        Ok(_) => {}
-                        Err(recover_err) => {
+
+        let log_chunks = split_logs_request(logs, MAX_PROTO_PUBLISH_BYTES)?;
+        debug!(
+            "Publishing {} log chunk(s) to subject: {}",
+            log_chunks.len(),
+            logs_subject
+        );
+
+        for (index, chunk) in log_chunks.iter().enumerate() {
+            let mut payload = Vec::with_capacity(chunk.encoded_len());
+            chunk.encode(&mut payload)?;
+            debug!(
+                "Encoded log chunk {}/{}: {} bytes",
+                index + 1,
+                log_chunks.len(),
+                payload.len()
+            );
+
+            let js = self.get_or_recover_jetstream().await?;
+            let ack: PublishAckFuture = match js.publish(logs_subject.clone(), payload.into()).await
+            {
+                Ok(future) => future,
+                Err(e) => {
+                    error!("Failed to publish logs to NATS: {e}");
+                    if Self::publish_error_indicates_missing_stream(&e) {
+                        match self.recover_stream().await {
+                            Ok(_) => {}
+                            Err(recover_err) => {
+                                error!(
+                                    "Failed to recover JetStream stream '{}' after logs publish error: {recover_err}",
+                                    self.config.stream
+                                );
+                            }
+                        }
+                    }
+                    return Err(e.into());
+                }
+            };
+
+            debug!(
+                "Waiting for NATS acknowledgment for log chunk {}/{} (timeout: {:?})",
+                index + 1,
+                log_chunks.len(),
+                self.config.timeout
+            );
+            match timeout(self.config.timeout, ack).await {
+                Ok(Ok(ack_result)) => {
+                    debug!(
+                        "NATS logs chunk acknowledged: stream={}, sequence={}",
+                        ack_result.stream, ack_result.sequence
+                    );
+                }
+                Ok(Err(e)) => {
+                    error!("NATS logs acknowledgment failed: {e}");
+                    if e.kind() == PublishErrorKind::StreamNotFound {
+                        warn!(
+                            "JetStream stream '{}' missing during logs publish acknowledgment; attempting recovery",
+                            self.config.stream
+                        );
+                        if let Err(recover_err) = self.recover_stream().await {
                             error!(
-                                "Failed to recover JetStream stream '{}' after logs publish error: {recover_err}",
+                                "Failed to recover JetStream stream '{}' after logs ack error: {recover_err}",
                                 self.config.stream
                             );
                         }
                     }
+                    return Err(anyhow::anyhow!("NATS logs acknowledgment failed: {}", e));
                 }
-                return Err(e.into());
-            }
-        };
-
-        // Wait for acknowledgment with timeout
-        debug!(
-            "Waiting for NATS acknowledgment for logs (timeout: {:?})",
-            self.config.timeout
-        );
-        match timeout(self.config.timeout, ack).await {
-            Ok(Ok(ack_result)) => {
-                debug!(
-                    "NATS logs publish acknowledged: stream={}, sequence={}",
-                    ack_result.stream, ack_result.sequence
-                );
-                info!("Successfully published {logs_count} log records to NATS");
-            }
-            Ok(Err(e)) => {
-                error!("NATS logs acknowledgment failed: {e}");
-                if e.kind() == PublishErrorKind::StreamNotFound {
-                    warn!(
-                        "JetStream stream '{}' missing during logs publish acknowledgment; attempting recovery",
-                        self.config.stream
-                    );
-                    if let Err(recover_err) = self.recover_stream().await {
-                        error!(
-                            "Failed to recover JetStream stream '{}' after logs ack error: {recover_err}",
-                            self.config.stream
-                        );
-                    }
+                Err(_) => {
+                    warn!("NATS logs ack timed out after {:?}", self.config.timeout);
+                    return Err(anyhow::anyhow!("NATS logs publish timeout"));
                 }
-                return Err(anyhow::anyhow!("NATS logs acknowledgment failed: {}", e));
-            }
-            Err(_) => {
-                warn!("NATS logs ack timed out after {:?}", self.config.timeout);
-                return Err(anyhow::anyhow!("NATS logs publish timeout"));
             }
         }
 
+        info!(
+            "Successfully published {} log records to NATS in {} message(s)",
+            logs_count,
+            log_chunks.len()
+        );
         Ok(())
     }
 
@@ -602,73 +849,92 @@ impl NATSOutput {
             return Ok(());
         }
 
-        let mut payload = Vec::new();
-        metrics_request.encode(&mut payload)?;
-        debug!("Encoded raw OTLP metrics payload: {} bytes", payload.len());
-
         let raw_subject = format!("{}.metrics.raw", self.config.subject);
-        debug!("Publishing OTLP metrics to subject: {raw_subject}");
 
-        let js = self.get_or_recover_jetstream().await?;
-        let ack: PublishAckFuture = match js.publish(raw_subject, payload.into()).await {
-            Ok(future) => future,
-            Err(e) => {
-                error!("Failed to publish raw OTLP metrics to NATS: {e}");
-                if Self::publish_error_indicates_missing_stream(&e) {
-                    match self.recover_stream().await {
-                        Ok(_) => {}
-                        Err(recover_err) => {
+        let metric_chunks = split_metrics_request(metrics_request, MAX_PROTO_PUBLISH_BYTES)?;
+        debug!(
+            "Publishing {} raw metrics chunk(s) to subject: {}",
+            metric_chunks.len(),
+            raw_subject
+        );
+
+        for (index, chunk) in metric_chunks.iter().enumerate() {
+            let mut payload = Vec::with_capacity(chunk.encoded_len());
+            chunk.encode(&mut payload)?;
+            debug!(
+                "Encoded raw metrics chunk {}/{}: {} bytes",
+                index + 1,
+                metric_chunks.len(),
+                payload.len()
+            );
+
+            let js = self.get_or_recover_jetstream().await?;
+            let ack: PublishAckFuture = match js.publish(raw_subject.clone(), payload.into()).await
+            {
+                Ok(future) => future,
+                Err(e) => {
+                    error!("Failed to publish raw OTLP metrics to NATS: {e}");
+                    if Self::publish_error_indicates_missing_stream(&e) {
+                        match self.recover_stream().await {
+                            Ok(_) => {}
+                            Err(recover_err) => {
+                                error!(
+                                    "Failed to recover JetStream stream '{}' after raw metrics publish error: {recover_err}",
+                                    self.config.stream
+                                );
+                            }
+                        }
+                    }
+                    return Err(e.into());
+                }
+            };
+
+            debug!(
+                "Waiting for NATS acknowledgment for raw metrics chunk {}/{} (timeout: {:?})",
+                index + 1,
+                metric_chunks.len(),
+                self.config.timeout
+            );
+            match timeout(self.config.timeout, ack).await {
+                Ok(Ok(ack_result)) => {
+                    debug!(
+                        "NATS raw metrics chunk acknowledged: stream={}, sequence={}",
+                        ack_result.stream, ack_result.sequence
+                    );
+                }
+                Ok(Err(e)) => {
+                    error!("NATS raw metrics acknowledgment failed: {e}");
+                    if e.kind() == PublishErrorKind::StreamNotFound {
+                        warn!(
+                            "JetStream stream '{}' missing during raw metrics acknowledgment; attempting recovery",
+                            self.config.stream
+                        );
+                        if let Err(recover_err) = self.recover_stream().await {
                             error!(
-                                "Failed to recover JetStream stream '{}' after raw metrics publish error: {recover_err}",
+                                "Failed to recover JetStream stream '{}' after raw metrics ack error: {recover_err}",
                                 self.config.stream
                             );
                         }
                     }
+                    return Err(anyhow::anyhow!(
+                        "NATS raw metrics acknowledgment failed: {}",
+                        e
+                    ));
                 }
-                return Err(e.into());
-            }
-        };
-
-        debug!(
-            "Waiting for NATS acknowledgment for raw metrics (timeout: {:?})",
-            self.config.timeout
-        );
-        match timeout(self.config.timeout, ack).await {
-            Ok(Ok(ack_result)) => {
-                debug!(
-                    "NATS raw metrics publish acknowledged: stream={}, sequence={}",
-                    ack_result.stream, ack_result.sequence
-                );
-                info!("Successfully published raw OTLP metrics request to NATS");
-            }
-            Ok(Err(e)) => {
-                error!("NATS raw metrics acknowledgment failed: {e}");
-                if e.kind() == PublishErrorKind::StreamNotFound {
+                Err(_) => {
                     warn!(
-                        "JetStream stream '{}' missing during raw metrics acknowledgment; attempting recovery",
-                        self.config.stream
+                        "NATS raw metrics ack timed out after {:?}",
+                        self.config.timeout
                     );
-                    if let Err(recover_err) = self.recover_stream().await {
-                        error!(
-                            "Failed to recover JetStream stream '{}' after raw metrics ack error: {recover_err}",
-                            self.config.stream
-                        );
-                    }
+                    return Err(anyhow::anyhow!("NATS raw metrics publish timeout"));
                 }
-                return Err(anyhow::anyhow!(
-                    "NATS raw metrics acknowledgment failed: {}",
-                    e
-                ));
-            }
-            Err(_) => {
-                warn!(
-                    "NATS raw metrics ack timed out after {:?}",
-                    self.config.timeout
-                );
-                return Err(anyhow::anyhow!("NATS raw metrics publish timeout"));
             }
         }
 
+        info!(
+            "Successfully published raw OTLP metrics request to NATS in {} message(s)",
+            metric_chunks.len()
+        );
         Ok(())
     }
 }
@@ -701,4 +967,233 @@ pub struct PerformanceMetric {
     // Additional metadata
     pub component: String, // "otel-collector"
     pub level: String,     // "info", "warn" for slow spans
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::opentelemetry::proto::common::v1::{AnyValue, InstrumentationScope, KeyValue};
+    use crate::opentelemetry::proto::logs::v1::{LogRecord, SeverityNumber};
+    use crate::opentelemetry::proto::metrics::v1::{Gauge, Metric, NumberDataPoint};
+    use crate::opentelemetry::proto::resource::v1::Resource;
+    use crate::opentelemetry::proto::trace::v1::{Span, Status as SpanStatus, span::SpanKind};
+
+    fn test_resource(service_name: &str) -> Resource {
+        Resource {
+            attributes: vec![KeyValue {
+                key: "service.name".to_string(),
+                value: Some(AnyValue {
+                    value: Some(
+                        crate::opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                            service_name.to_string(),
+                        ),
+                    ),
+                }),
+            }],
+            dropped_attributes_count: 0,
+            entity_refs: vec![],
+        }
+    }
+
+    #[test]
+    fn split_logs_request_chunks_oversized_exports() {
+        let oversized_body = "x".repeat(2_000);
+        let logs = ExportLogsServiceRequest {
+            resource_logs: vec![ResourceLogs {
+                resource: Some(test_resource("log-test")),
+                scope_logs: vec![ScopeLogs {
+                    scope: Some(InstrumentationScope {
+                        name: "logger".to_string(),
+                        version: "1.0.0".to_string(),
+                        attributes: vec![],
+                        dropped_attributes_count: 0,
+                    }),
+                    log_records: (0..8)
+                        .map(|idx| LogRecord {
+                            time_unix_nano: idx,
+                            observed_time_unix_nano: idx,
+                            severity_number: SeverityNumber::Info as i32,
+                            severity_text: "INFO".to_string(),
+                            body: Some(AnyValue {
+                                value: Some(crate::opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                                    oversized_body.clone(),
+                                )),
+                            }),
+                            attributes: vec![],
+                            dropped_attributes_count: 0,
+                            flags: 0,
+                            trace_id: vec![],
+                            span_id: vec![],
+                            event_name: format!("log-{idx}"),
+                        })
+                        .collect(),
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let chunks = split_logs_request(&logs, 5_000).expect("split logs request");
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|chunk| chunk.encoded_len() <= 5_000));
+
+        let total_logs = chunks
+            .iter()
+            .map(|chunk| {
+                chunk
+                    .resource_logs
+                    .iter()
+                    .map(|rl| {
+                        rl.scope_logs
+                            .iter()
+                            .map(|sl| sl.log_records.len())
+                            .sum::<usize>()
+                    })
+                    .sum::<usize>()
+            })
+            .sum::<usize>();
+        assert_eq!(total_logs, 8);
+    }
+
+    #[test]
+    fn split_traces_request_chunks_oversized_exports() {
+        let oversized_name = "span".repeat(400);
+        let traces = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(test_resource("trace-test")),
+                scope_spans: vec![ScopeSpans {
+                    scope: Some(InstrumentationScope {
+                        name: "scope".to_string(),
+                        version: "1.0.0".to_string(),
+                        attributes: vec![],
+                        dropped_attributes_count: 0,
+                    }),
+                    spans: (0..12)
+                        .map(|idx| Span {
+                            trace_id: vec![1; 16],
+                            span_id: vec![2; 8],
+                            parent_span_id: vec![],
+                            flags: 0,
+                            name: format!("{oversized_name}-{idx}"),
+                            kind: SpanKind::Internal as i32,
+                            start_time_unix_nano: idx,
+                            end_time_unix_nano: idx + 1,
+                            attributes: vec![KeyValue {
+                                key: "key".to_string(),
+                                value: Some(AnyValue {
+                                    value: Some(crate::opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                                        "value".repeat(200),
+                                    )),
+                                }),
+                            }],
+                            dropped_attributes_count: 0,
+                            events: vec![],
+                            dropped_events_count: 0,
+                            links: vec![],
+                            dropped_links_count: 0,
+                            status: Some(SpanStatus {
+                                message: String::new(),
+                                code: 1,
+                            }),
+                            trace_state: String::new(),
+                        })
+                        .collect(),
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let chunks = split_traces_request(&traces, 6_000).expect("split traces request");
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|chunk| chunk.encoded_len() <= 6_000));
+
+        let total_spans = chunks
+            .iter()
+            .map(|chunk| {
+                chunk
+                    .resource_spans
+                    .iter()
+                    .map(|rs| {
+                        rs.scope_spans
+                            .iter()
+                            .map(|ss| ss.spans.len())
+                            .sum::<usize>()
+                    })
+                    .sum::<usize>()
+            })
+            .sum::<usize>();
+        assert_eq!(total_spans, 12);
+    }
+
+    #[test]
+    fn split_metrics_request_chunks_oversized_exports() {
+        let metrics = ExportMetricsServiceRequest {
+            resource_metrics: vec![ResourceMetrics {
+                resource: Some(test_resource("metric-test")),
+                scope_metrics: vec![ScopeMetrics {
+                    scope: Some(InstrumentationScope {
+                        name: "scope".to_string(),
+                        version: "1.0.0".to_string(),
+                        attributes: vec![],
+                        dropped_attributes_count: 0,
+                    }),
+                    metrics: (0..10)
+                        .map(|idx| Metric {
+                            name: format!("metric-{idx}"),
+                            description: "description".repeat(100),
+                            unit: "1".to_string(),
+                            metadata: vec![],
+                            data: Some(crate::opentelemetry::proto::metrics::v1::metric::Data::Gauge(
+                                Gauge {
+                                    data_points: vec![NumberDataPoint {
+                                        attributes: vec![KeyValue {
+                                            key: "attr".to_string(),
+                                            value: Some(AnyValue {
+                                                value: Some(crate::opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                                                    "value".repeat(200),
+                                                )),
+                                            }),
+                                        }],
+                                        start_time_unix_nano: idx,
+                                        time_unix_nano: idx + 1,
+                                        exemplars: vec![],
+                                        flags: 0,
+                                        value: Some(
+                                            crate::opentelemetry::proto::metrics::v1::number_data_point::Value::AsDouble(
+                                                idx as f64,
+                                            ),
+                                        ),
+                                    }],
+                                },
+                            )),
+                        })
+                        .collect(),
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let chunks = split_metrics_request(&metrics, 8_000).expect("split metrics request");
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|chunk| chunk.encoded_len() <= 8_000));
+
+        let total_metrics = chunks
+            .iter()
+            .map(|chunk| {
+                chunk
+                    .resource_metrics
+                    .iter()
+                    .map(|rm| {
+                        rm.scope_metrics
+                            .iter()
+                            .map(|sm| sm.metrics.len())
+                            .sum::<usize>()
+                    })
+                    .sum::<usize>()
+            })
+            .sum::<usize>();
+        assert_eq!(total_metrics, 10);
+    }
 }

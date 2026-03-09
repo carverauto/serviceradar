@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.BundleGenerator
+  alias ServiceRadarWebNG.Edge.ComponentID
   alias ServiceRadarWebNG.Edge.PubSub, as: EdgePubSub
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.RBAC
@@ -1160,20 +1161,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   # Generate a component_id from label and type
   # e.g., "Production Gateway 01" -> "gateway-production-gateway-01"
   defp generate_component_id(label, component_type) when is_binary(label) and label != "" do
-    slug =
-      label
-      |> String.downcase()
-      |> String.replace(~r/[^a-z0-9\s-]/, "")
-      |> String.replace(~r/\s+/, "-")
-      |> String.replace(~r/-+/, "-")
-      |> String.trim("-")
-
-    "#{component_type}-#{slug}"
+    ComponentID.generate(label, component_type)
   end
 
   defp generate_component_id(_, component_type) do
-    # Fallback with timestamp if no label
-    "#{component_type}-#{:os.system_time(:millisecond)}"
+    ComponentID.generate(nil, component_type)
   end
 
   defp add_parent_type(attrs, "agent"), do: Map.put(attrs, :parent_type, "gateway")

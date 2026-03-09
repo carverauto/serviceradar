@@ -129,6 +129,12 @@ spec:
             required = [
               "root.pem",
               "root-key.pem",
+              "tools.pem",
+              "tools-key.pem",
+              "falcosidekick.pem",
+              "falcosidekick-key.pem",
+              "trivy-sidecar.pem",
+              "trivy-sidecar-key.pem",
               agent_component_cert,
               agent_component_key,
             ]

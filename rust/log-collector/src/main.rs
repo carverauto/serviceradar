@@ -4,12 +4,12 @@ use anyhow::Result;
 use clap::{Arg, Command};
 use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat};
 use log::{error, info};
-use std::io::{stderr, Write};
+use std::io::{Write, stderr};
 use std::net::SocketAddr;
 use std::sync::Once;
 use std::time::Duration;
-use tonic_health::server::health_reporter;
 use tonic_health::ServingStatus;
+use tonic_health::server::health_reporter;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 

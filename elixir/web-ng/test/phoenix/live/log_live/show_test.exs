@@ -189,6 +189,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert has_element?(lv, "span", "serviceradar-db-event-writer")
       assert has_element?(lv, "span", "db-writer-service")
     end
+
+    test "renders source as a device link when the source IP is in inventory", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+
+      device =
+        device_fixture(%{
+          uid: "device-snmp-source",
+          name: "aruba-24g-02",
+          ip: "192.168.10.154"
+        })
+
+      log_id = "9f53ba9d-aacf-4580-ae67-a36dab67ae0f"
+      insert_test_snmp_log!(log_id)
+
+      {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
+
+      assert has_element?(lv, "a[href='/devices/#{device.uid}']", "192.168.10.154:161")
+    end
   end
 
   describe "can_create_rules? helper" do
@@ -266,6 +285,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
             },
             "scope" => "db-writer-service"
           }),
+        created_at: now
+      }
+    ])
+  end
+
+  defp insert_test_snmp_log!(log_id) when is_binary(log_id) do
+    {:ok, uuid} = Ecto.UUID.dump(log_id)
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Repo.insert_all("logs", [
+      %{
+        timestamp: now,
+        observed_timestamp: now,
+        id: uuid,
+        severity_text: "INFO",
+        severity_number: 11,
+        body: "SNMP trap received",
+        source: "snmp",
+        attributes: Jason.encode!(%{"version" => "V1"}),
+        resource_attributes: Jason.encode!(%{"source" => "192.168.10.154:161"}),
         created_at: now
       }
     ])

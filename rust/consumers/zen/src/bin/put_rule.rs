@@ -23,6 +23,9 @@ struct Cli {
     /// Name of the decision key to store under
     #[arg(long)]
     key: String,
+    /// Skip publishing when the KV entry already matches the file contents
+    #[arg(long, default_value_t = false)]
+    skip_if_unchanged: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -111,6 +114,17 @@ async fn main() -> Result<()> {
         "agents/{}/{}/{}/{}.json",
         cfg.agent_id, cfg.stream_name, cli.subject, rule_key
     );
+    if cli.skip_if_unchanged {
+        if let Some(existing) = store.get(key.clone()).await? {
+            if existing.as_ref() == data.as_slice() {
+                println!(
+                    "Rule {} unchanged for subject {}, skipping",
+                    rule_key, cli.subject
+                );
+                return Ok(());
+            }
+        }
+    }
     store.put(key, data.into()).await?;
     println!("Inserted rule {} for subject {}", rule_key, cli.subject);
     Ok(())

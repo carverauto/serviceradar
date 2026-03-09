@@ -78,11 +78,21 @@ generate_cert "zen" "serviceradar-zen" "DNS:serviceradar-zen,DNS:zen,DNS:zen.ser
 generate_cert "log-collector" "serviceradar-log-collector" "DNS:serviceradar-log-collector,DNS:log-collector,DNS:log-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "flow-collector" "serviceradar-flow-collector" "DNS:serviceradar-flow-collector,DNS:flow-collector,DNS:flow-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "bmp-collector" "serviceradar-bmp-collector" "DNS:serviceradar-bmp-collector,DNS:bmp-collector,DNS:bmp-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "falcosidekick" "serviceradar-falcosidekick" "DNS:serviceradar-falcosidekick,DNS:falcosidekick,DNS:falcosidekick-nats-auth,DNS:localhost,IP:127.0.0.1"
+generate_cert "trivy-sidecar" "serviceradar-trivy-sidecar" "DNS:serviceradar-trivy-sidecar,DNS:trivy-sidecar,DNS:trivy-sidecar.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "trapd" "serviceradar-trapd" "DNS:serviceradar-trapd,DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
-generate_cert "client" "serviceradar-debug-client" "DNS:serviceradar-tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
+generate_cert "tools" "serviceradar-tools" "DNS:serviceradar-tools,DNS:tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
 if [ -f "$CERT_DIR/root.pem" ] && [ ! -f "$CERT_DIR/ca.crt" ]; then
   cp "$CERT_DIR/root.pem" "$CERT_DIR/ca.crt"
   chmod 644 "$CERT_DIR/ca.crt"
+fi
+if [ -f "$CERT_DIR/tools.pem" ] && [ ! -f "$CERT_DIR/client.pem" ]; then
+  cp "$CERT_DIR/tools.pem" "$CERT_DIR/client.pem"
+  chmod 644 "$CERT_DIR/client.pem"
+fi
+if [ -f "$CERT_DIR/tools-key.pem" ] && [ ! -f "$CERT_DIR/client-key.pem" ]; then
+  cp "$CERT_DIR/tools-key.pem" "$CERT_DIR/client-key.pem"
+  chmod 640 "$CERT_DIR/client-key.pem"
 fi
 if [ -f "$CERT_DIR/flow-collector.pem" ] && [ -f "$CERT_DIR/flow-collector-key.pem" ]; then
   if [ ! -f "$CERT_DIR/flow-client.crt" ]; then

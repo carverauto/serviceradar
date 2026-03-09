@@ -9,8 +9,9 @@ metadata:
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "5"
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
 spec:
+  activeDeadlineSeconds: 180
   backoffLimit: 3
   ttlSecondsAfterFinished: 300
   template:
@@ -44,7 +45,7 @@ spec:
               memory: "32Mi"
       containers:
         - name: zen-rules-bootstrap
-          image: ghcr.io/carverauto/serviceradar-zen{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "zen") }}
+          image: ghcr.io/carverauto/serviceradar-tools{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "tools") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           command: ["/bin/sh", "-c"]
           args:
@@ -54,9 +55,45 @@ spec:
               RULES_DIR="/etc/serviceradar/rules"
               CONFIG_PATH="/etc/serviceradar/zen.json"
               FORCE_REINSTALL="{{ .Values.zenRulesBootstrap.forceReinstall }}"
+              DEFAULT_KV_BUCKET="{{ .Values.kv.bucket | default "serviceradar-datasvc" }}"
+              DEFAULT_NATS_URL="tls://serviceradar-nats:4222"
 
               echo "Starting Zen rules bootstrap..."
               echo "Force reinstall: ${FORCE_REINSTALL}"
+
+              json_string() {
+                local key="$1"
+                sed -n "s/.*\"${key}\":[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$CONFIG_PATH" | head -n 1
+              }
+
+              nats_kv() {
+                if [ -f /etc/serviceradar/creds/platform.creds ]; then
+                  /usr/local/bin/nats \
+                    --server "${NATS_URL}" \
+                    --creds /etc/serviceradar/creds/platform.creds \
+                    --tlscert /etc/serviceradar/certs/zen.pem \
+                    --tlskey /etc/serviceradar/certs/zen-key.pem \
+                    --tlsca /etc/serviceradar/certs/root.pem \
+                    kv "$@"
+                else
+                  /usr/local/bin/nats \
+                    --server "${NATS_URL}" \
+                    --tlscert /etc/serviceradar/certs/zen.pem \
+                    --tlskey /etc/serviceradar/certs/zen-key.pem \
+                    --tlsca /etc/serviceradar/certs/root.pem \
+                    kv "$@"
+                fi
+              }
+
+              AGENT_ID="$(json_string agent_id)"
+              STREAM_NAME="$(json_string stream_name)"
+              KV_BUCKET="$(json_string kv_bucket)"
+              NATS_URL="$(json_string nats_url)"
+
+              [ -n "${AGENT_ID}" ] || AGENT_ID="k8s-zen-consumer"
+              [ -n "${STREAM_NAME}" ] || STREAM_NAME="events"
+              [ -n "${KV_BUCKET}" ] || KV_BUCKET="${DEFAULT_KV_BUCKET}"
+              [ -n "${NATS_URL}" ] || NATS_URL="${DEFAULT_NATS_URL}"
 
               install_rule() {
                 local file="$1"
@@ -71,14 +108,24 @@ spec:
                 local attempt=1
                 local max_attempts=6
                 local delay=2
+                local store_key="agents/${AGENT_ID}/${STREAM_NAME}/${subject}/${key}.json"
+
+                if [ "${FORCE_REINSTALL}" != "true" ]; then
+                  local existing
+                  existing="$(mktemp)"
+                  if nats_kv get "${KV_BUCKET}" "${store_key}" --raw >"${existing}" 2>/dev/null; then
+                    if cmp -s "${file}" "${existing}"; then
+                      echo "✓ Rule $key already current, skipping"
+                      rm -f "${existing}"
+                      return 0
+                    fi
+                  fi
+                  rm -f "${existing}"
+                fi
 
                 while [ "$attempt" -le "$max_attempts" ]; do
                   echo "Installing rule: $key for subject: $subject (attempt ${attempt}/${max_attempts})"
-                  if /usr/local/bin/zen-put-rule \
-                      --config "$CONFIG_PATH" \
-                      --file "$file" \
-                      --subject "$subject" \
-                      --key "$key"; then
+                  if nats_kv put "${KV_BUCKET}" "${store_key}" <"${file}"; then
                     echo "✓ Rule $key installed successfully"
                     return 0
                   fi

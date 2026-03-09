@@ -70,6 +70,8 @@ spec:
           set -euo pipefail
 
           if python3 <<'PY'
+          import base64
+          import json
           import os
           import ssl
           import sys
@@ -77,6 +79,7 @@ spec:
           import urllib.request
 
           secret_name = os.environ["SECRET_NAME"]
+          cert_dir = os.environ["CERT_DIR"]
           serviceaccount = "/var/run/secrets/kubernetes.io/serviceaccount"
           token = open(os.path.join(serviceaccount, "token"), encoding="utf-8").read().strip()
           namespace = open(os.path.join(serviceaccount, "namespace"), encoding="utf-8").read().strip()
@@ -87,9 +90,30 @@ spec:
 
           try:
             request = urllib.request.Request(secret_url, headers=headers, method="GET")
-            urllib.request.urlopen(request, context=context).read()
-            print(f"Secret {secret_name} already exists; preserving current runtime certs")
-            sys.exit(0)
+            payload = json.loads(urllib.request.urlopen(request, context=context).read().decode("utf-8"))
+            os.makedirs(cert_dir, exist_ok=True)
+
+            for name, encoded in (payload.get("data") or {}).items():
+              path = os.path.join(cert_dir, name)
+              with open(path, "wb") as handle:
+                handle.write(base64.b64decode(encoded))
+
+            required = [
+              "root.pem",
+              "root-key.pem",
+              "falcosidekick.pem",
+              "falcosidekick-key.pem",
+              "trivy-sidecar.pem",
+              "trivy-sidecar-key.pem",
+            ]
+
+            missing = [name for name in required if not os.path.exists(os.path.join(cert_dir, name))]
+            if not missing:
+              print(f"Secret {secret_name} already exists with required runtime certs; preserving current runtime certs")
+              sys.exit(0)
+
+            print(f"Secret {secret_name} exists but is missing runtime cert files: {', '.join(missing)}")
+            sys.exit(1)
           except urllib.error.HTTPError as exc:
             if exc.code == 404:
               sys.exit(1)
@@ -172,12 +196,22 @@ spec:
           generate_cert "zen" "serviceradar-zen" "DNS:serviceradar-zen,DNS:zen,DNS:zen.serviceradar,DNS:localhost,IP:127.0.0.1"
           generate_cert "log-collector" "serviceradar-log-collector" "DNS:serviceradar-log-collector,DNS:log-collector,DNS:log-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
           generate_cert "flow-collector" "serviceradar-flow-collector" "DNS:serviceradar-flow-collector,DNS:flow-collector,DNS:flow-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
+          generate_cert "falcosidekick" "serviceradar-falcosidekick" "DNS:serviceradar-falcosidekick,DNS:falcosidekick,DNS:falcosidekick-nats-auth,DNS:localhost,IP:127.0.0.1"
+          generate_cert "trivy-sidecar" "serviceradar-trivy-sidecar" "DNS:serviceradar-trivy-sidecar,DNS:trivy-sidecar,DNS:trivy-sidecar.serviceradar,DNS:localhost,IP:127.0.0.1"
           generate_cert "trapd" "serviceradar-trapd" "DNS:serviceradar-trapd,DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd.${NAMESPACE}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
-          generate_cert "client" "serviceradar-debug-client" "DNS:serviceradar-tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
+          generate_cert "tools" "serviceradar-tools" "DNS:serviceradar-tools,DNS:tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
 
           if [ -f "$CERT_DIR/root.pem" ] && [ ! -f "$CERT_DIR/ca.crt" ]; then
             cp "$CERT_DIR/root.pem" "$CERT_DIR/ca.crt"
             chmod 644 "$CERT_DIR/ca.crt"
+          fi
+          if [ -f "$CERT_DIR/tools.pem" ] && [ ! -f "$CERT_DIR/client.pem" ]; then
+            cp "$CERT_DIR/tools.pem" "$CERT_DIR/client.pem"
+            chmod 644 "$CERT_DIR/client.pem"
+          fi
+          if [ -f "$CERT_DIR/tools-key.pem" ] && [ ! -f "$CERT_DIR/client-key.pem" ]; then
+            cp "$CERT_DIR/tools-key.pem" "$CERT_DIR/client-key.pem"
+            chmod 640 "$CERT_DIR/client-key.pem"
           fi
 
           if [ -f "$CERT_DIR/flow-collector.pem" ] && [ -f "$CERT_DIR/flow-collector-key.pem" ]; then

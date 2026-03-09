@@ -381,8 +381,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
         cacertfile: /etc/serviceradar/certs/root.pem
       mutualtlsclient:
         cacertfile: /etc/serviceradar/certs/root.pem
-        certfile: /etc/serviceradar/certs/client.pem
-        keyfile: /etc/serviceradar/certs/client-key.pem
+        certfile: /etc/serviceradar/certs/falcosidekick.pem
+        keyfile: /etc/serviceradar/certs/falcosidekick-key.pem
       otlp:
         metrics:
           endpoint: "#{otlp_endpoint}"
@@ -391,8 +391,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
           minimumpriority: "debug"
           extraenvvars:
             OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE: /etc/serviceradar/certs/root.pem
-            OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE: /etc/serviceradar/certs/client.pem
-            OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY: /etc/serviceradar/certs/client-key.pem
+            OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE: /etc/serviceradar/certs/falcosidekick.pem
+            OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY: /etc/serviceradar/certs/falcosidekick-key.pem
 
     extraVolumes:
       - name: serviceradar-certs

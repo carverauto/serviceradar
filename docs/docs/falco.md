@@ -21,8 +21,8 @@ Examples below use:
 
 2. ServiceRadar certs available in the cluster (expected files):
 - `/etc/serviceradar/certs/root.pem`
-- `/etc/serviceradar/certs/client.pem`
-- `/etc/serviceradar/certs/client-key.pem`
+- `/etc/serviceradar/certs/falcosidekick.pem`
+- `/etc/serviceradar/certs/falcosidekick-key.pem`
 
 3. Helm repos:
 ```bash
@@ -45,15 +45,15 @@ helm upgrade -n demo falcosidekick-nats-auth falcosecurity/falcosidekick \
   --set-string config.nats.minimumpriority=debug \
   --set-string config.tlsclient.cacertfile=/etc/serviceradar/certs/root.pem \
   --set-string config.mutualtlsclient.cacertfile=/etc/serviceradar/certs/root.pem \
-  --set-string config.mutualtlsclient.certfile=/etc/serviceradar/certs/client.pem \
-  --set-string config.mutualtlsclient.keyfile=/etc/serviceradar/certs/client-key.pem \
+  --set-string config.mutualtlsclient.certfile=/etc/serviceradar/certs/falcosidekick.pem \
+  --set-string config.mutualtlsclient.keyfile=/etc/serviceradar/certs/falcosidekick-key.pem \
   --set-string config.otlp.metrics.endpoint=https://serviceradar-log-collector:4317 \
   --set-string config.otlp.metrics.protocol=grpc \
   --set config.otlp.metrics.checkcert=true \
   --set-string config.otlp.metrics.minimumpriority=debug \
   --set-string config.otlp.metrics.extraenvvars.OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE=/etc/serviceradar/certs/root.pem \
-  --set-string config.otlp.metrics.extraenvvars.OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE=/etc/serviceradar/certs/client.pem \
-  --set-string config.otlp.metrics.extraenvvars.OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY=/etc/serviceradar/certs/client-key.pem \
+  --set-string config.otlp.metrics.extraenvvars.OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE=/etc/serviceradar/certs/falcosidekick.pem \
+  --set-string config.otlp.metrics.extraenvvars.OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY=/etc/serviceradar/certs/falcosidekick-key.pem \
   --set extraVolumes[0].name=serviceradar-certs \
   --set extraVolumes[0].secret.secretName=serviceradar-runtime-certs \
   --set extraVolumeMounts[0].name=serviceradar-certs \

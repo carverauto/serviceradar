@@ -235,11 +235,7 @@ impl Config {
                 anyhow::bail!("listener[{}]: subject cannot be empty", i);
             }
             if !seen_addrs.insert(addr.to_string()) {
-                anyhow::bail!(
-                    "listener[{}]: duplicate listen_addr '{}'",
-                    i,
-                    addr
-                );
+                anyhow::bail!("listener[{}]: duplicate listen_addr '{}'", i, addr);
             }
 
             // Validate netflow-specific pending_flows config
@@ -267,10 +263,7 @@ impl Config {
                     );
                 }
                 if pf.ttl_secs == 0 || pf.ttl_secs > 3600 {
-                    anyhow::bail!(
-                        "listener[{}]: pending_flows.ttl_secs must be 1..=3,600",
-                        i
-                    );
+                    anyhow::bail!("listener[{}]: pending_flows.ttl_secs must be 1..=3,600", i);
                 }
             }
         }
@@ -279,10 +272,7 @@ impl Config {
     }
 
     pub fn stream_subjects_resolved(&self) -> Vec<String> {
-        let mut subjects: Vec<String> = self
-            .stream_subjects
-            .clone()
-            .unwrap_or_default();
+        let mut subjects: Vec<String> = self.stream_subjects.clone().unwrap_or_default();
 
         // Add each listener's subject
         for listener in &self.listeners {
@@ -443,7 +433,10 @@ mod tests {
         let config: Config = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_ok());
         match &config.listeners[0] {
-            ListenerConfig::Sflow { max_samples_per_datagram, .. } => {
+            ListenerConfig::Sflow {
+                max_samples_per_datagram,
+                ..
+            } => {
                 assert_eq!(*max_samples_per_datagram, Some(1000));
             }
             _ => panic!("Expected Sflow variant"),

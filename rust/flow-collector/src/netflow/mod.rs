@@ -1,15 +1,15 @@
 pub mod converter;
 
 use crate::config::PendingFlowsCacheConfig;
+use crate::flowpb::FlowMessage;
 use crate::listener::{FlowHandler, filter_and_track_flows, get_current_time_ns};
 use crate::metrics::ListenerMetrics;
-use crate::flowpb::FlowMessage;
 use converter::Converter;
 use log::{debug, info, warn};
 use netflow_parser::{AutoScopedParser, NetflowParserBuilder, PendingFlowsConfig, TemplateEvent};
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 fn make_template_event_callback(pending_enabled: bool) -> impl Fn(&TemplateEvent) {
