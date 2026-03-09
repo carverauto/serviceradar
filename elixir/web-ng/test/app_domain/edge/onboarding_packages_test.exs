@@ -55,6 +55,17 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       assert {:error, error} = OnboardingPackages.create(attrs, actor: @actor)
       assert is_struct(error, Ash.Error.Invalid)
     end
+
+    test "normalizes repeated component-type prefixes in component_id", _context do
+      attrs = %{
+        label: "agent-dusk",
+        component_type: :agent,
+        component_id: "agent-agent-dusk"
+      }
+
+      assert {:ok, result} = OnboardingPackages.create(attrs, actor: @actor)
+      assert result.package.component_id == "agent-dusk"
+    end
   end
 
   describe "get/1" do

@@ -337,6 +337,218 @@ func TestFetchUniFiDevicesForSite(t *testing.T) {
 	}
 }
 
+func TestQuerySingleUniFiAPIFallsBackToInventoryUplinkWhenDetailPayloadDrifts(t *testing.T) {
+	job := &DiscoveryJob{
+		ID: "test-job",
+		Results: &DiscoveryResults{
+			Contract: DiscoveryContract{
+				ParseDiagnostics: DiscoveryParseDiagnostics{
+					ParseFailures:     make(map[string]int),
+					UnknownTopLevel:   make(map[string]int),
+					ParserMismatches:  make(map[string]int),
+					LastFailureByType: make(map[string]string),
+				},
+			},
+		},
+	}
+
+	deviceDetailPayload := []byte(`{
+		"id": "device1",
+		"ipAddress": "192.168.1.1",
+		"name": "Device 1",
+		"macAddress": "00:11:22:33:44:55",
+		"model": "UDM Pro Max",
+		"supported": true,
+		"interfaces": {
+			"ports": []
+		}
+	}`)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sites/site1/devices":
+			assert.Equal(t, "500", r.URL.Query().Get("limit"))
+			w.WriteHeader(http.StatusOK)
+			err := json.NewEncoder(w).Encode(struct {
+				Data []UniFiDevice `json:"data"`
+			}{
+				Data: []UniFiDevice{
+					{
+						ID:        "uplink-device",
+						IPAddress: "192.168.1.254",
+						Name:      "Uplink Device",
+						MAC:       "ff:ee:dd:cc:bb:aa",
+					},
+					{
+						ID:        "device1",
+						IPAddress: "192.168.1.1",
+						Name:      "Device 1",
+						MAC:       "00:11:22:33:44:55",
+						Uplink: UniFiUplink{
+							DeviceID:      "uplink-device",
+							LocalPortIdx:  26,
+							LocalPortName: "Port 26",
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+		case "/sites/site1/devices/device1", "/sites/site1/devices/uplink-device":
+			w.WriteHeader(http.StatusOK)
+			_, err := w.Write(deviceDetailPayload)
+			require.NoError(t, err)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	engine := &DiscoveryEngine{
+		config: &Config{
+			Timeout: 30 * time.Second,
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	apiConfig := UniFiAPIConfig{
+		Name:    "Test API",
+		BaseURL: server.URL,
+		APIKey:  "test-api-key",
+	}
+
+	site := UniFiSite{
+		ID:   "site1",
+		Name: "Site 1",
+	}
+
+	links, err := engine.querySingleUniFiAPI(context.Background(), job, "", apiConfig, site)
+	require.NoError(t, err)
+	require.Len(t, links, 1)
+
+	link := links[0]
+	assert.Equal(t, "UniFi-API", link.Protocol)
+	assert.Equal(t, "192.168.1.254", link.LocalDeviceIP)
+	assert.Equal(t, GenerateDeviceID("ff:ee:dd:cc:bb:aa"), link.LocalDeviceID)
+	assert.Equal(t, int32(26), link.LocalIfIndex)
+	assert.Equal(t, "Port 26", link.LocalIfName)
+	assert.Equal(t, "00:11:22:33:44:55", link.NeighborChassisID)
+	assert.Equal(t, "Device 1", link.NeighborSystemName)
+	assert.Equal(t, "192.168.1.1", link.NeighborMgmtAddr)
+	assert.Equal(t, "unifi-api-uplink", link.Metadata["source"])
+	assert.Positive(t, job.Results.Contract.ParseDiagnostics.ParserMismatches["unifi.detail.quarantined"])
+}
+
+func TestQuerySingleUniFiAPIFallsBackToLegacyStatDeviceWhenIntegrationDetailsDrift(t *testing.T) {
+	job := &DiscoveryJob{
+		ID: "test-job",
+		Results: &DiscoveryResults{
+			Contract: DiscoveryContract{
+				ParseDiagnostics: DiscoveryParseDiagnostics{
+					ParseFailures:     make(map[string]int),
+					UnknownTopLevel:   make(map[string]int),
+					ParserMismatches:  make(map[string]int),
+					LastFailureByType: make(map[string]string),
+				},
+			},
+		},
+	}
+
+	deviceDetailPayload := []byte(`{
+		"id": "device1",
+		"ipAddress": "192.168.1.1",
+		"name": "Device 1",
+		"macAddress": "00:11:22:33:44:55",
+		"model": "UDM Pro Max",
+		"supported": true,
+		"interfaces": {
+			"ports": []
+		}
+	}`)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/proxy/network/integration/v1/sites/site1/devices":
+			assert.Equal(t, "500", r.URL.Query().Get("limit"))
+			w.WriteHeader(http.StatusOK)
+			err := json.NewEncoder(w).Encode(struct {
+				Data []UniFiDevice `json:"data"`
+			}{
+				Data: []UniFiDevice{
+					{
+						ID:        "device1",
+						IPAddress: "192.168.1.1",
+						Name:      "Device 1",
+						MAC:       "00:11:22:33:44:55",
+					},
+				},
+			})
+			require.NoError(t, err)
+		case r.URL.Path == "/proxy/network/integration/v1/sites/site1/devices/device1":
+			w.WriteHeader(http.StatusOK)
+			_, err := w.Write(deviceDetailPayload)
+			require.NoError(t, err)
+		case r.URL.Path == "/proxy/network/api/s/default/stat/device":
+			w.WriteHeader(http.StatusOK)
+			err := json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]any{
+					{
+						"mac":  "00:11:22:33:44:55",
+						"ip":   "192.168.1.1",
+						"name": "Device 1",
+						"lldp_table": []map[string]any{
+							{
+								"local_port_idx":  26,
+								"local_port_name": "eth25",
+								"chassis_id":      "78:45:58:6d:1e:4b",
+								"port_id":         "eth4",
+							},
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	engine := &DiscoveryEngine{
+		config: &Config{
+			Timeout: 30 * time.Second,
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	apiConfig := UniFiAPIConfig{
+		Name:    "Test API",
+		BaseURL: server.URL + "/proxy/network/integration/v1",
+		APIKey:  "test-api-key",
+	}
+
+	site := UniFiSite{
+		ID:                "site1",
+		InternalReference: "default",
+		Name:              "Site 1",
+	}
+
+	links, err := engine.querySingleUniFiAPI(context.Background(), job, "", apiConfig, site)
+	require.NoError(t, err)
+	require.Len(t, links, 1)
+
+	link := links[0]
+	assert.Equal(t, "LLDP", link.Protocol)
+	assert.Equal(t, "192.168.1.1", link.LocalDeviceIP)
+	assert.Equal(t, GenerateDeviceID("00:11:22:33:44:55"), link.LocalDeviceID)
+	assert.Equal(t, int32(26), link.LocalIfIndex)
+	assert.Equal(t, "eth25", link.LocalIfName)
+	assert.Equal(t, "78:45:58:6d:1e:4b", link.NeighborChassisID)
+	assert.Equal(t, "eth4", link.NeighborPortID)
+	assert.Equal(t, unifiDetailAdapterLegacyStat, link.Metadata["source_adapter_version"])
+	assert.Equal(t, "legacy_stat_device", link.Metadata["source_adapter_shape"])
+	assert.Positive(t, job.Results.Contract.ParseDiagnostics.ParserMismatches["unifi.detail.quarantined"])
+}
+
 func TestProcessLLDPTable(t *testing.T) {
 	// Create test data
 	device := &UniFiDevice{

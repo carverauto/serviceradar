@@ -1,5 +1,21 @@
 import Config
 
+parse_int_env = fn env_name, default ->
+  case System.get_env(env_name) do
+    nil ->
+      default
+
+    "" ->
+      default
+
+    value ->
+      case Integer.parse(value) do
+        {int, ""} -> int
+        _ -> default
+      end
+  end
+end
+
 # =============================================================================
 # OpenTelemetry Configuration
 # =============================================================================
@@ -197,6 +213,10 @@ config :serviceradar_core, :spiffe,
   cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
   workload_api_socket:
     System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+
+config :serviceradar_core,
+  mapper_topology_edge_stale_minutes:
+    parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
 
 if config_env() == :prod do
   cloak_key =
