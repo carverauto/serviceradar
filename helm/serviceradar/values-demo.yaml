@@ -213,6 +213,9 @@ core:
     EVENT_WRITER_NATS_CREDS_FILE: "/etc/serviceradar/creds/platform.creds"
     EVENT_WRITER_NATS_URL: "tls://serviceradar-nats:4222"
     EVENT_WRITER_NATS_TLS: "true"
+    # Keep last-known topology visible in demo when external mapper agents are
+    # briefly offline or being re-enrolled.
+    SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES: "10080"
     # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
     GEOLITE_CITY_ENABLED: "true"
 
