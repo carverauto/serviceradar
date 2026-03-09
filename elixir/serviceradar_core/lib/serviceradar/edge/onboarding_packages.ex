@@ -147,6 +147,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     # Prepare attributes for Ash create
     create_attrs =
       attrs
+      |> normalize_component_identity()
       |> Map.put(:created_by, get_actor_name(actor))
 
     changeset =
@@ -482,6 +483,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     partition_id = Keyword.get(opts, :partition_id, attrs[:site] || "default")
     cert_validity = Keyword.get(opts, :cert_validity_days, 365)
 
+    attrs = normalize_component_identity(attrs)
     component_id = attrs[:component_id] || generate_component_id(attrs[:component_type])
     component_type = attrs[:component_type] || :gateway
 
@@ -579,4 +581,52 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     short_id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
     "#{component_type}-#{short_id}"
   end
+
+  defp normalize_component_identity(attrs) when is_map(attrs) do
+    component_type = Map.get(attrs, :component_type) || Map.get(attrs, "component_type")
+    component_id = Map.get(attrs, :component_id) || Map.get(attrs, "component_id")
+
+    normalized_component_id = normalize_component_id(component_id, component_type)
+
+    cond do
+      is_nil(normalized_component_id) ->
+        attrs
+
+      Map.has_key?(attrs, :component_id) ->
+        Map.put(attrs, :component_id, normalized_component_id)
+
+      Map.has_key?(attrs, "component_id") ->
+        Map.put(attrs, "component_id", normalized_component_id)
+
+      true ->
+        attrs
+    end
+  end
+
+  defp normalize_component_identity(attrs), do: attrs
+
+  defp normalize_component_id(component_id, component_type)
+       when is_binary(component_id) and byte_size(component_id) > 0 do
+    normalized_type =
+      component_type
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    case normalized_type do
+      "" ->
+        component_id
+
+      prefix ->
+        repeated_prefix = prefix <> "-" <> prefix <> "-"
+
+        if String.starts_with?(component_id, repeated_prefix) do
+          prefix <> "-" <> String.replace_prefix(component_id, repeated_prefix, "")
+        else
+          component_id
+        end
+    end
+  end
+
+  defp normalize_component_id(component_id, _component_type), do: component_id
 end

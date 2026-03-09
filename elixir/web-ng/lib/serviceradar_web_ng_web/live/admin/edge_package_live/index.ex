@@ -437,6 +437,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                       <td>
                         <div class="font-medium">{package.label}</div>
                         <div class="text-xs text-base-content/60 font-mono">
+                          {package.component_id}
+                        </div>
+                        <div class="text-xs text-base-content/60 font-mono">
                           {String.slice(package.id, 0, 8)}...
                         </div>
                       </td>
@@ -791,6 +794,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
       <div class="grid grid-cols-2 gap-4 text-sm">
         <div>
+          <div class="text-xs uppercase tracking-wide text-base-content/60">Component ID</div>
+          <code class="font-mono text-xs break-all">{@package.component_id}</code>
+        </div>
+        <div>
           <div class="text-xs uppercase tracking-wide text-base-content/60">Package ID</div>
           <code class="font-mono text-xs">{String.slice(@package.id, 0, 8)}...</code>
         </div>
@@ -952,6 +959,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             <div>
               <div class="text-xs uppercase tracking-wide text-base-content/60">Component Type</div>
               <div>{@package.component_type}</div>
+            </div>
+            <div>
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Component ID</div>
+              <code class="text-sm font-mono break-all">{@package.component_id}</code>
             </div>
             <div>
               <div class="text-xs uppercase tracking-wide text-base-content/60">Security Mode</div>

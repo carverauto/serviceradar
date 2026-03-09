@@ -452,6 +452,9 @@ var (
 	// ErrNoUniFiNeighborsFound indicates that no neighboring devices were found during UniFi discovery.
 	ErrNoUniFiNeighborsFound        = errors.New("no UniFi neighbors found")
 	ErrUniFiPayloadDriftQuarantined = errors.New("unifi payload drift quarantined")
+	ErrUniFiLegacySiteRefMissing    = errors.New("missing UniFi legacy site reference")
+	ErrUniFiLegacyBaseURLInvalid    = errors.New("unifi base URL does not include /integration/v1")
+	ErrUniFiLegacyStatsRequestFail  = errors.New("legacy UniFi device stats request failed")
 )
 
 // fetchUniFiDevicesForSite fetches devices from a UniFi site and creates a device cache
@@ -599,7 +602,16 @@ const (
 	unifiDetailAdapterV1Direct      = "unifi.detail.v1.direct"
 	unifiDetailAdapterV1WrappedData = "unifi.detail.v1.wrapped_data"
 	unifiDetailAdapterV1WrappedNode = "unifi.detail.v1.wrapped_device"
+	unifiDetailAdapterLegacyStat    = "unifi.detail.v1.legacy_stat_device"
 )
+
+type legacyUniFiDeviceDetailsRecord struct {
+	MAC      string `json:"mac"`
+	IP       string `json:"ip"`
+	Name     string `json:"name"`
+	Hostname string `json:"hostname"`
+	UniFiDeviceDetails
+}
 
 func hasUniFiTopologySignals(details *UniFiDeviceDetails) bool {
 	if details == nil {
@@ -648,6 +660,109 @@ func (e *DiscoveryEngine) parseUniFiDeviceDetailsWithAdapters(
 	e.recordContractUnknownTopLevel(job, "unifi.detail", topKeys)
 	e.recordContractParserMismatch(job, "unifi.detail.quarantined")
 	return nil, ErrUniFiPayloadDriftQuarantined
+}
+
+func legacyUniFiStatDeviceURL(apiConfig UniFiAPIConfig, site UniFiSite) (string, error) {
+	siteRef := strings.TrimSpace(site.InternalReference)
+	if siteRef == "" {
+		return "", fmt.Errorf("%w: site %s", ErrUniFiLegacySiteRefMissing, site.Name)
+	}
+
+	if !strings.Contains(apiConfig.BaseURL, "/integration/v1") {
+		return "", fmt.Errorf("%w: %q", ErrUniFiLegacyBaseURLInvalid, apiConfig.BaseURL)
+	}
+
+	return strings.Replace(
+		apiConfig.BaseURL,
+		"/integration/v1",
+		fmt.Sprintf("/api/s/%s/stat/device", siteRef),
+		1,
+	), nil
+}
+
+func (e *DiscoveryEngine) fetchLegacyUniFiDeviceDetailsForSite(
+	ctx context.Context,
+	client *http.Client,
+	headers map[string]string,
+	apiConfig UniFiAPIConfig,
+	site UniFiSite) ([]legacyUniFiDeviceDetailsRecord, error) {
+	legacyURL, err := legacyUniFiStatDeviceURL(apiConfig, site)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, legacyURL, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create legacy details request for site %s: %w", site.Name, err)
+	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch legacy UniFi device stats for site %s: %w", site.Name, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf(
+			"%w: controller %s site %s status %d",
+			ErrUniFiLegacyStatsRequestFail,
+			apiConfig.Name,
+			site.Name,
+			resp.StatusCode,
+		)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read legacy UniFi device stats for site %s: %w", site.Name, err)
+	}
+
+	var legacyResp struct {
+		Data []legacyUniFiDeviceDetailsRecord `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &legacyResp); err != nil {
+		return nil, fmt.Errorf("failed to parse legacy UniFi device stats for site %s: %w", site.Name, err)
+	}
+
+	for i := range legacyResp.Data {
+		legacyResp.Data[i].AdapterVersion = unifiDetailAdapterLegacyStat
+		legacyResp.Data[i].AdapterShape = "legacy_stat_device"
+	}
+
+	return legacyResp.Data, nil
+}
+
+func matchLegacyUniFiDeviceDetails(
+	device *UniFiDevice,
+	records []legacyUniFiDeviceDetailsRecord) *UniFiDeviceDetails {
+	if device == nil {
+		return nil
+	}
+
+	deviceMAC := strings.ToLower(strings.TrimSpace(device.MAC))
+	deviceIP := strings.TrimSpace(device.IPAddress)
+	deviceName := strings.TrimSpace(device.Name)
+
+	for i := range records {
+		record := &records[i]
+		switch {
+		case deviceMAC != "" && deviceMAC == strings.ToLower(strings.TrimSpace(record.MAC)):
+			return &record.UniFiDeviceDetails
+		case deviceIP != "" && deviceIP == strings.TrimSpace(record.IP):
+			return &record.UniFiDeviceDetails
+		case deviceName != "" && deviceName == strings.TrimSpace(record.Name):
+			return &record.UniFiDeviceDetails
+		case deviceName != "" && deviceName == strings.TrimSpace(record.Hostname):
+			return &record.UniFiDeviceDetails
+		}
+	}
+
+	return nil
 }
 
 func extractTopLevelJSONKeys(body []byte) []string {
@@ -869,6 +984,8 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 	lldpCount := 0
 	portCount := 0
 	uplinkCount := 0
+	var legacyDetails []legacyUniFiDeviceDetailsRecord
+	legacyDetailsLoaded := false
 	if targetIP != "" {
 		e.logger.Debug().
 			Str("job_id", job.ID).
@@ -894,22 +1011,57 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 					Str("site_name", site.Name).
 					Str("device_id", device.ID).
 					Err(err).
-					Msg("Skipping quarantined UniFi detail payload")
+					Msg("Falling back to site inventory uplink data after quarantined UniFi detail payload")
+
+				if !legacyDetailsLoaded {
+					legacyDetails, err = e.fetchLegacyUniFiDeviceDetailsForSite(
+						ctx,
+						client,
+						headers,
+						apiConfig,
+						site,
+					)
+					legacyDetailsLoaded = true
+					if err != nil {
+						e.logger.Warn().
+							Str("job_id", job.ID).
+							Str("api_name", apiConfig.Name).
+							Str("site_name", site.Name).
+							Err(err).
+							Msg("Failed to load legacy UniFi device stats fallback")
+					}
+				}
+
+				if details == nil && len(legacyDetails) > 0 {
+					details = matchLegacyUniFiDeviceDetails(device, legacyDetails)
+					if details != nil {
+						e.logger.Info().
+							Str("job_id", job.ID).
+							Str("api_name", apiConfig.Name).
+							Str("site_name", site.Name).
+							Str("device_id", device.ID).
+							Str("adapter_version", details.AdapterVersion).
+							Msg("Recovered UniFi topology signals from legacy stat/device fallback")
+					}
+				}
 			} else {
 				e.logger.Error().Str("job_id", job.ID).Err(err).Msg("UniFi device processing error")
+
+				continue
 			}
-			continue
 		}
 
-		// Process LLDP table
-		lldpLinks := e.processLLDPTable(job, device, deviceID, details, apiConfig, site)
-		links = append(links, lldpLinks...)
-		lldpCount += len(lldpLinks)
+		if details != nil {
+			// Process LLDP table
+			lldpLinks := e.processLLDPTable(job, device, deviceID, details, apiConfig, site)
+			links = append(links, lldpLinks...)
+			lldpCount += len(lldpLinks)
 
-		// Process port table
-		portLinks := e.processPortTable(job, device, deviceID, details, deviceCache, apiConfig, site)
-		links = append(links, portLinks...)
-		portCount += len(portLinks)
+			// Process port table
+			portLinks := e.processPortTable(job, device, deviceID, details, deviceCache, apiConfig, site)
+			links = append(links, portLinks...)
+			portCount += len(portLinks)
+		}
 
 		// Process uplink information
 		uplinkLinks := e.processUplinkInfo(job, device, details, deviceCache, apiConfig, site)
