@@ -220,9 +220,8 @@ core:
     GEOLITE_CITY_ENABLED: "true"
 
 zenRulesBootstrap:
-  # Disabled in demo for now: this post-upgrade hook job is currently failing
-  # and keeps Helm upgrades stuck in pending-upgrade.
-  enabled: false
+  # Safe to keep enabled again: the hook now skips unchanged rules in KV.
+  enabled: true
 
 dbEventWriter:
   kvBootstrap:

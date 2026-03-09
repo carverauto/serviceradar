@@ -1,8 +1,6 @@
 use crate::flowpb;
-use flowparser_sflow::{
-    AddressType, FlowRecord, SflowDatagram, SflowSample,
-};
 use flowparser_sflow::samples::FlowSample;
+use flowparser_sflow::{AddressType, FlowRecord, SflowDatagram, SflowSample};
 use log::debug;
 use std::net::SocketAddr;
 
@@ -55,10 +53,7 @@ impl Converter {
         messages
     }
 
-    fn convert_flow_sample(
-        &self,
-        sample: &FlowSample,
-    ) -> Option<flowpb::FlowMessage> {
+    fn convert_flow_sample(&self, sample: &FlowSample) -> Option<flowpb::FlowMessage> {
         self.convert_flow_sample_from_records(
             &sample.records,
             sample.sampling_rate,
@@ -188,12 +183,12 @@ fn protocol_name(proto: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flowparser_sflow::datagram::AddressType;
-    use flowparser_sflow::flow_records::*;
-    use flowparser_sflow::flow_records::extended_gateway::AsPathSegment;
-    use flowparser_sflow::samples::{FlowSample, SflowSample};
-    use flowparser_sflow::samples::counter_sample::CounterSample;
     use flowparser_sflow::SflowDatagram;
+    use flowparser_sflow::datagram::AddressType;
+    use flowparser_sflow::flow_records::extended_gateway::AsPathSegment;
+    use flowparser_sflow::flow_records::*;
+    use flowparser_sflow::samples::counter_sample::CounterSample;
+    use flowparser_sflow::samples::{FlowSample, SflowSample};
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
     fn make_datagram(samples: Vec<SflowSample>) -> SflowDatagram {

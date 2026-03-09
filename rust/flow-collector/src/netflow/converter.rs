@@ -4,8 +4,8 @@ use netflow_parser::NetflowPacket;
 use netflow_parser::protocol::ProtocolTypes;
 use netflow_parser::static_versions::v5::V5;
 use netflow_parser::variable_versions::data_number::{DataNumber, FieldValue};
-use netflow_parser::variable_versions::ipfix_lookup::{IANAIPFixField, IPFixField};
 use netflow_parser::variable_versions::ipfix_lookup::ReverseInformationElement;
+use netflow_parser::variable_versions::ipfix_lookup::{IANAIPFixField, IPFixField};
 use netflow_parser::variable_versions::v9_lookup::V9Field;
 use std::net::{IpAddr, SocketAddr};
 
@@ -116,8 +116,12 @@ impl Converter {
                                         msg.dst_addr = field_value_to_ip_bytes(field_value);
                                     }
                                 }
-                                V9Field::L4SrcPort => msg.src_port = field_value_to_u32(field_value),
-                                V9Field::L4DstPort => msg.dst_port = field_value_to_u32(field_value),
+                                V9Field::L4SrcPort => {
+                                    msg.src_port = field_value_to_u32(field_value)
+                                }
+                                V9Field::L4DstPort => {
+                                    msg.dst_port = field_value_to_u32(field_value)
+                                }
                                 V9Field::Protocol => {
                                     msg.proto = field_value_to_u32(field_value);
                                     msg.protocol_name = field_value_to_protocol_name(field_value);
@@ -146,7 +150,9 @@ impl Converter {
                                 }
                                 V9Field::InputSnmp => msg.in_if = field_value_to_u32(field_value),
                                 V9Field::OutputSnmp => msg.out_if = field_value_to_u32(field_value),
-                                V9Field::InSrcMac => msg.src_mac = field_value_to_mac_u64(field_value),
+                                V9Field::InSrcMac => {
+                                    msg.src_mac = field_value_to_mac_u64(field_value)
+                                }
                                 V9Field::InDstMac | V9Field::OutDstMac => {
                                     if msg.dst_mac == 0 {
                                         msg.dst_mac = field_value_to_mac_u64(field_value);
@@ -176,7 +182,9 @@ impl Converter {
                                         msg.dst_net = field_value_to_u32(field_value);
                                     }
                                 }
-                                V9Field::TcpFlags => msg.tcp_flags = field_value_to_u32(field_value),
+                                V9Field::TcpFlags => {
+                                    msg.tcp_flags = field_value_to_u32(field_value)
+                                }
                                 V9Field::SrcTos => msg.ip_tos = field_value_to_u32(field_value),
                                 V9Field::SrcVlan => msg.src_vlan = field_value_to_u32(field_value),
                                 V9Field::DstVlan => msg.dst_vlan = field_value_to_u32(field_value),
@@ -697,8 +705,16 @@ mod tests {
     fn test_is_valid_flow() {
         use crate::listener::is_valid_flow;
 
-        let valid = flowpb::FlowMessage { bytes: 100, packets: 1, ..Default::default() };
-        let invalid = flowpb::FlowMessage { bytes: 0, packets: 0, ..Default::default() };
+        let valid = flowpb::FlowMessage {
+            bytes: 100,
+            packets: 1,
+            ..Default::default()
+        };
+        let invalid = flowpb::FlowMessage {
+            bytes: 0,
+            packets: 0,
+            ..Default::default()
+        };
         assert!(is_valid_flow(&valid));
         assert!(!is_valid_flow(&invalid));
     }

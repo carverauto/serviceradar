@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
 
   @impl true
@@ -28,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     {log, error} =
       case srql_module().query(query) do
         {:ok, %{"results" => [log | _]}} when is_map(log) ->
-          {augment_log(log), nil}
+          {augment_log(log, socket.assigns.current_scope), nil}
 
         {:ok, %{"results" => []}} ->
           # Try alternate query without filter - just return not found
@@ -135,7 +136,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp can_create_rules?(_), do: false
 
-  defp augment_log(%{} = log) do
+  defp augment_log(%{} = log, scope) do
     attributes = parse_attributes(Map.get(log, "attributes")) || %{}
 
     resource_attributes =
@@ -160,9 +161,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     |> Map.put("scope_name", scope_name)
     |> Map.put("scope_version", scope_version)
     |> put_service_from_resource(resource_attributes)
+    |> put_source_device_from_resource(resource_attributes, scope)
   end
 
-  defp augment_log(log), do: log
+  defp augment_log(log, _scope), do: log
 
   defp extract_resource_from_attributes(attributes) when is_map(attributes) do
     attributes
@@ -231,6 +233,56 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp put_service_from_resource(log, _resource_attributes), do: log
+
+  defp put_source_device_from_resource(log, resource_attributes, scope)
+       when is_map(resource_attributes) do
+    case source_device_uid(resource_attributes, scope) do
+      nil -> log
+      device_uid -> Map.put(log, "source_device_uid", device_uid)
+    end
+  end
+
+  defp put_source_device_from_resource(log, _resource_attributes, _scope), do: log
+
+  defp source_device_uid(resource_attributes, scope) when is_map(resource_attributes) do
+    resource_attributes
+    |> Map.get("source")
+    |> normalize_source_host()
+    |> case do
+      nil -> nil
+      ip -> lookup_device_uid_by_ip(ip, scope)
+    end
+  end
+
+  defp source_device_uid(_resource_attributes, _scope), do: nil
+
+  defp lookup_device_uid_by_ip(_ip, nil), do: nil
+
+  defp lookup_device_uid_by_ip(ip, scope) when is_binary(ip) do
+    case Device.get_by_ip(ip, false, scope: scope) do
+      {:ok, %Device{} = device} -> device.uid
+      _ -> nil
+    end
+  end
+
+  defp lookup_device_uid_by_ip(_ip, _scope), do: nil
+
+  defp normalize_source_host(nil), do: nil
+
+  defp normalize_source_host(source) when is_binary(source) do
+    source = String.trim(source)
+
+    if source == "" do
+      nil
+    else
+      case URI.parse("//" <> source) do
+        %URI{host: host} when is_binary(host) and host != "" -> host
+        _ -> source
+      end
+    end
+  end
+
+  defp normalize_source_host(_source), do: nil
 
   defp put_if_blank(%{} = log, _key, value) when value in [nil, ""], do: log
 
@@ -346,6 +398,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       |> assign(:detail_fields, detail_fields)
       |> assign(:parsed_attributes, parsed_attributes)
       |> assign(:parsed_resource_attributes, parsed_resource_attributes)
+      |> assign(:source_device_uid, Map.get(assigns.log, "source_device_uid"))
 
     ~H"""
     <div :if={@detail_fields != []} class="rounded-xl border border-base-200 bg-base-100">
@@ -362,6 +415,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
               <.parsed_attributes_section
                 attributes={@parsed_resource_attributes}
                 title="Resource Attributes"
+                source_device_uid={@source_device_uid}
               />
             <% else %>
               <div class="px-4 py-3 flex items-start gap-4">
@@ -382,6 +436,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   attr :attributes, :map, required: true
   attr :title, :string, default: "Attributes"
+  attr :source_device_uid, :string, default: nil
 
   defp parsed_attributes_section(assigns) do
     ~H"""
@@ -393,7 +448,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
             <span class="inline-flex items-center gap-2 rounded-full border border-base-200 bg-base-100 px-2.5 py-1 text-xs text-base-content/70">
               <span class="font-medium">{key}</span>
               <span class="text-base-content/40">=</span>
-              <span class="font-mono text-base-content/90">{format_attribute_value(value)}</span>
+              <span class="font-mono text-base-content/90">
+                <%= if key == "source" and is_binary(@source_device_uid) do %>
+                  <.link navigate={~p"/devices/#{@source_device_uid}"} class="link link-hover">
+                    {format_attribute_value(value)}
+                  </.link>
+                <% else %>
+                  {format_attribute_value(value)}
+                <% end %>
+              </span>
             </span>
           <% end %>
         </div>
@@ -408,7 +471,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
                     <span class="font-medium">{key}</span>
                     <span class="text-base-content/40">=</span>
                     <span class="font-mono text-base-content/90">
-                      {format_attribute_value(value)}
+                      <%= if key == "source" and is_binary(@source_device_uid) do %>
+                        <.link navigate={~p"/devices/#{@source_device_uid}"} class="link link-hover">
+                          {format_attribute_value(value)}
+                        </.link>
+                      <% else %>
+                        {format_attribute_value(value)}
+                      <% end %>
                     </span>
                   </span>
                 <% end %>

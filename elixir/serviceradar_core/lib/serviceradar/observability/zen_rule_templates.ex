@@ -49,12 +49,15 @@ defmodule ServiceRadar.Observability.ZenRuleTemplates do
                          "type": "expressionNode",
                          "name": "Set SNMP Severity",
                          "position": { "x": 300, "y": 150 },
-                         "content": {
-                           "expressions": [
-                             { "id": "expr1", "key": "severity", "value": "coalesce(severity, 'Unknown')" }
-                           ]
-                         }
-                       },
+                           "content": {
+                             "expressions": [
+                             { "id": "expr1", "key": "severity", "value": "severity ?? 'Unknown'" },
+                             { "id": "expr2", "key": "source", "value": "'snmp'" },
+                             { "id": "expr3", "key": "service_name", "value": "'snmp'" },
+                             { "id": "expr4", "key": "body", "value": "(body == 'logs.snmp.processed' or body == '') ? (len(varbinds ?? []) > 0 ? (extract(varbinds[0].value ?? '', '^[^:]+: (.*)$')[1] ?? varbinds[0].value ?? body) : body) : body" }
+                             ]
+                           }
+                         },
                        { "id": "outputNode", "type": "outputNode", "name": "Response", "position": { "x": 560, "y": 150 } }
                      ],
                      "edges": [

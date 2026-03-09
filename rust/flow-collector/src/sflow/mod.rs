@@ -1,8 +1,8 @@
 pub mod converter;
 
+use crate::flowpb::FlowMessage;
 use crate::listener::{FlowHandler, filter_and_track_flows, get_current_time_ns};
 use crate::metrics::ListenerMetrics;
-use crate::flowpb::FlowMessage;
 use converter::Converter;
 use flowparser_sflow::SflowParser;
 use log::{debug, warn};
@@ -18,9 +18,7 @@ pub struct SflowHandler {
 impl SflowHandler {
     pub fn new(max_samples_per_datagram: Option<u32>, metrics: Arc<ListenerMetrics>) -> Self {
         let parser = if let Some(max_samples) = max_samples_per_datagram {
-            SflowParser::builder()
-                .with_max_samples(max_samples)
-                .build()
+            SflowParser::builder().with_max_samples(max_samples).build()
         } else {
             SflowParser::default()
         };
@@ -53,7 +51,9 @@ impl FlowHandler for SflowHandler {
         for datagram in result.datagrams {
             debug!(
                 "Parsed sFlow datagram from {}: seq={}, samples={}",
-                peer, datagram.sequence_number, datagram.samples.len()
+                peer,
+                datagram.sequence_number,
+                datagram.samples.len()
             );
 
             let converter = Converter::new(datagram, peer, receive_time_ns);

@@ -185,12 +185,15 @@ async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> R
                             "Updating existing stream '{}' to add subjects: {:?}",
                             config.stream, subjects
                         );
-                        jetstream.update_stream(updated_config).await.map_err(|ue| {
-                            anyhow!(
-                                "Failed to update stream '{}' after config mismatch: {ue}",
-                                config.stream
-                            )
-                        })?;
+                        jetstream
+                            .update_stream(updated_config)
+                            .await
+                            .map_err(|ue| {
+                                anyhow!(
+                                    "Failed to update stream '{}' after config mismatch: {ue}",
+                                    config.stream
+                                )
+                            })?;
                         info!("Successfully updated stream '{}'", config.stream);
                     } else {
                         info!(
