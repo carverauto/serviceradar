@@ -20,7 +20,7 @@ export GOCACHE
 export GOMODCACHE
 GOBIN ?= $$($(GO) env GOPATH)/bin
 GOLANGCI_LINT ?= golangci-lint
-GOLANGCI_LINT_VERSION ?= v2.4.0
+GOLANGCI_LINT_VERSION ?= v2.9.0
 SWIFTLINT ?= swiftlint
 
 # Rust configuration
@@ -187,6 +187,12 @@ tidy: ## Tidy and format Go code
 get-golangcilint: ## Install golangci-lint
 	@echo "$(COLOR_BOLD)Checking golangci-lint $(GOLANGCI_LINT_VERSION)$(COLOR_RESET)"
 	@which $(GOLANGCI_LINT) > /dev/null || (echo "golangci-lint not found, please install it" && exit 1)
+	@expected_version="$(patsubst v%,%,$(GOLANGCI_LINT_VERSION))"; \
+	if ! $(GOLANGCI_LINT) version | grep -F "version $${expected_version}" > /dev/null; then \
+		found_version="$$( $(GOLANGCI_LINT) version | sed -n 's/.*version \([0-9][^ ]*\).*/v\1/p' | head -n1 )"; \
+		echo "golangci-lint $${found_version:-unknown} found, expected $(GOLANGCI_LINT_VERSION)"; \
+		exit 1; \
+	fi
 
 .PHONY: get-swiftlint
 get-swiftlint: ## Check SwiftLint is installed
@@ -199,9 +205,7 @@ get-bun: ## Check Bun is installed
 	@which bun > /dev/null || (echo "bun not found, please install it from https://bun.sh" && exit 1)
 
 .PHONY: lint
-lint: get-golangcilint get-bun ## Run linting checks
-	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
-	@$(GOLANGCI_LINT) run ./...
+lint: lint-go get-bun ## Run linting checks
 ifeq ($(HOST_OS),Darwin)
 	@echo "$(COLOR_BOLD)Running SwiftLint$(COLOR_RESET)"
 	@which $(SWIFTLINT) > /dev/null || (echo "swiftlint not found, please install it from https://github.com/realm/SwiftLint" && exit 1)
@@ -222,6 +226,11 @@ endif
 	@cd elixir/serviceradar_core && mix credo --strict --mute-exit-status
 	@echo "$(COLOR_BOLD)Running web-ng assets ESLint$(COLOR_RESET)"
 	@cd elixir/web-ng/assets && bun run lint
+
+.PHONY: lint-go
+lint-go: get-golangcilint ## Run Go linting checks
+	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
+	@$(GOLANGCI_LINT) run ./...
 
 .PHONY: test
 test: $(TEST_PREREQS) get-bun ## Run all tests with coverage
