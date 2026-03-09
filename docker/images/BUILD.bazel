@@ -218,7 +218,7 @@ declare_service_container_amd64(
 
 declare_service_container_amd64(
     name = "log_collector_image_amd64",
-    runtime = "debian",
+    runtime = "ubuntu",
     image_title = "serviceradar-log-collector",
     files = {
         "//rust/log-collector:log-collector": "usr/local/bin/serviceradar-log-collector",

@@ -22,7 +22,9 @@ config :serviceradar_core,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
-    ServiceRadar.NetworkDiscovery
+    ServiceRadar.NetworkDiscovery,
+    ServiceRadar.Plugins,
+    ServiceRadar.Spatial
   ]
 
 # Plugin blob storage download configuration (used to generate signed download URLs)
