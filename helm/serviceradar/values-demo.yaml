@@ -137,6 +137,7 @@ webNg:
     downloadTtlSeconds: 86400
 
 faker:
+  enabled: true
   gobgp:
     enabled: false
     # Keep latest for demo iterations; pin to a digest/tag if reproducibility

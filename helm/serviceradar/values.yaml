@@ -170,6 +170,7 @@ core:
       pauseOnDrift: true
       alertOnDrift: true
 faker:
+  enabled: false
   gobgp:
     # When enabled, an initContainer copies gobgpd/gobgp binaries into a shared volume
     # mounted into the faker container.
