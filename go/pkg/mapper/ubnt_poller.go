@@ -452,6 +452,9 @@ var (
 	// ErrNoUniFiNeighborsFound indicates that no neighboring devices were found during UniFi discovery.
 	ErrNoUniFiNeighborsFound        = errors.New("no UniFi neighbors found")
 	ErrUniFiPayloadDriftQuarantined = errors.New("unifi payload drift quarantined")
+	ErrUniFiLegacySiteRefMissing    = errors.New("missing UniFi legacy site reference")
+	ErrUniFiLegacyBaseURLInvalid    = errors.New("unifi base URL does not include /integration/v1")
+	ErrUniFiLegacyStatsRequestFail  = errors.New("legacy UniFi device stats request failed")
 )
 
 // fetchUniFiDevicesForSite fetches devices from a UniFi site and creates a device cache
@@ -662,11 +665,11 @@ func (e *DiscoveryEngine) parseUniFiDeviceDetailsWithAdapters(
 func legacyUniFiStatDeviceURL(apiConfig UniFiAPIConfig, site UniFiSite) (string, error) {
 	siteRef := strings.TrimSpace(site.InternalReference)
 	if siteRef == "" {
-		return "", fmt.Errorf("missing UniFi legacy site reference for site %s", site.Name)
+		return "", fmt.Errorf("%w: site %s", ErrUniFiLegacySiteRefMissing, site.Name)
 	}
 
 	if !strings.Contains(apiConfig.BaseURL, "/integration/v1") {
-		return "", fmt.Errorf("unifi base URL %q does not include /integration/v1", apiConfig.BaseURL)
+		return "", fmt.Errorf("%w: %q", ErrUniFiLegacyBaseURLInvalid, apiConfig.BaseURL)
 	}
 
 	return strings.Replace(
@@ -679,7 +682,6 @@ func legacyUniFiStatDeviceURL(apiConfig UniFiAPIConfig, site UniFiSite) (string,
 
 func (e *DiscoveryEngine) fetchLegacyUniFiDeviceDetailsForSite(
 	ctx context.Context,
-	job *DiscoveryJob,
 	client *http.Client,
 	headers map[string]string,
 	apiConfig UniFiAPIConfig,
@@ -706,7 +708,8 @@ func (e *DiscoveryEngine) fetchLegacyUniFiDeviceDetailsForSite(
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf(
-			"legacy UniFi device stats request failed for %s, site %s with status: %d",
+			"%w: controller %s site %s status %d",
+			ErrUniFiLegacyStatsRequestFail,
 			apiConfig.Name,
 			site.Name,
 			resp.StatusCode,
@@ -1013,7 +1016,6 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 				if !legacyDetailsLoaded {
 					legacyDetails, err = e.fetchLegacyUniFiDeviceDetailsForSite(
 						ctx,
-						job,
 						client,
 						headers,
 						apiConfig,

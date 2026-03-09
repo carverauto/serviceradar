@@ -392,11 +392,15 @@ func TestQuerySingleUniFiAPIFallsBackToInventoryUplinkWhenDetailPayloadDrifts(t 
 					},
 				},
 			})
-			require.NoError(t, err)
+			if err != nil {
+				t.Fatalf("encode integration devices response: %v", err)
+			}
 		case "/sites/site1/devices/device1", "/sites/site1/devices/uplink-device":
 			w.WriteHeader(http.StatusOK)
 			_, err := w.Write(deviceDetailPayload)
-			require.NoError(t, err)
+			if err != nil {
+				t.Fatalf("write integration device details response: %v", err)
+			}
 		default:
 			http.NotFound(w, r)
 		}
@@ -466,8 +470,8 @@ func TestQuerySingleUniFiAPIFallsBackToLegacyStatDeviceWhenIntegrationDetailsDri
 	}`)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/proxy/network/integration/v1/sites/site1/devices":
+		switch r.URL.Path {
+		case "/proxy/network/integration/v1/sites/site1/devices":
 			assert.Equal(t, "500", r.URL.Query().Get("limit"))
 			w.WriteHeader(http.StatusOK)
 			err := json.NewEncoder(w).Encode(struct {
@@ -482,12 +486,16 @@ func TestQuerySingleUniFiAPIFallsBackToLegacyStatDeviceWhenIntegrationDetailsDri
 					},
 				},
 			})
-			require.NoError(t, err)
-		case r.URL.Path == "/proxy/network/integration/v1/sites/site1/devices/device1":
+			if err != nil {
+				t.Fatalf("encode integration devices response: %v", err)
+			}
+		case "/proxy/network/integration/v1/sites/site1/devices/device1":
 			w.WriteHeader(http.StatusOK)
 			_, err := w.Write(deviceDetailPayload)
-			require.NoError(t, err)
-		case r.URL.Path == "/proxy/network/api/s/default/stat/device":
+			if err != nil {
+				t.Fatalf("write integration device detail response: %v", err)
+			}
+		case "/proxy/network/api/s/default/stat/device":
 			w.WriteHeader(http.StatusOK)
 			err := json.NewEncoder(w).Encode(map[string]any{
 				"data": []map[string]any{
@@ -506,7 +514,9 @@ func TestQuerySingleUniFiAPIFallsBackToLegacyStatDeviceWhenIntegrationDetailsDri
 					},
 				},
 			})
-			require.NoError(t, err)
+			if err != nil {
+				t.Fatalf("encode legacy stat/device response: %v", err)
+			}
 		default:
 			http.NotFound(w, r)
 		}
