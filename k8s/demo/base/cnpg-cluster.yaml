@@ -1,0 +1,51 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: cnpg
+spec:
+  instances: 3
+  imageName: ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2
+  imagePullSecrets:
+    - name: ghcr-io-cred
+  storage:
+    size: 100Gi
+    storageClass: local-path
+  bootstrap:
+    initdb:
+      database: serviceradar
+      owner: serviceradar
+      secret:
+        name: serviceradar-db-credentials
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS timescaledb;
+        - CREATE EXTENSION IF NOT EXISTS age;
+        - CREATE EXTENSION IF NOT EXISTS postgis;
+        - CREATE EXTENSION IF NOT EXISTS vector;
+        - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+  postgresql:
+    parameters:
+      log_min_duration_statement: "500ms"
+      log_lock_waits: "on"
+      deadlock_timeout: "1s"
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.track: "all"
+      pg_stat_statements.track_planning: "on"
+      track_io_timing: "on"
+    shared_preload_libraries:
+      - timescaledb
+      - age
+      - pg_stat_statements
+    pg_hba:
+      - "hostnossl all all all reject"
+      - "hostssl all all all scram-sha-256"
+  managed:
+    roles:
+      - name: serviceradar
+        ensure: present
+        login: true
+        passwordSecret:
+          name: serviceradar-db-credentials
+  monitoring:
+    enablePodMonitor: true
+  enableSuperuserAccess: true
+  failoverDelay: 0

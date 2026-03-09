@@ -15,6 +15,12 @@ global:
 
 image:
   registryPullSecret: ghcr-io-cred
+  digests:
+    flowCollector: "sha256:bc33e4015dda594e7551112b9e3b18a47561e6cad2c832623abf7ee458a0f552"
+    logCollector: "sha256:f0579552e7991559151aa75cc9b1b03ae0a3721d55d2f5b297b6f09a7b814ec2"
+    rperfClient: "sha256:a84806375a722517ba81d80af1071560d2ffa7903cca66dff193a819ed7a3007"
+    trapd: "sha256:9786b6b9ff24bfd584f7c19a2432181d857078902b17e9f21f39b88881f0644c"
+    zen: "sha256:42671e94db34741f511f465c1decf5100b3d60fbb0cb525e293f58ca0c6979b0"
 
 natsCreds:
   autoGenerate: true
@@ -108,6 +114,7 @@ geoipMmdb:
   storageClassName: ""
 
 webNg:
+  gatewayAddress: "demo-gw.serviceradar.cloud:50052"
   extraEnv:
     # City MMDB is large; we only enable it in demo where we can allocate more memory.
     GEOLITE_CITY_ENABLED: "true"
@@ -130,6 +137,7 @@ webNg:
     downloadTtlSeconds: 86400
 
 faker:
+  enabled: true
   gobgp:
     enabled: false
     # Keep latest for demo iterations; pin to a digest/tag if reproducibility
@@ -213,6 +221,12 @@ zenRulesBootstrap:
   # and keeps Helm upgrades stuck in pending-upgrade.
   enabled: false
 
+dbEventWriter:
+  kvBootstrap:
+    # Disabled in demo: the post-upgrade KV seed job is not required for
+    # steady-state upgrades and can leave Helm stuck in pending-upgrade.
+    enabled: false
+
 # Temporarily disabled client CA for initial testing - there's a circular dependency
 # where CNPG needs the client CA secret, but the job that creates it
 # runs post-install and needs CNPG to be running first.
@@ -222,13 +236,13 @@ zenRulesBootstrap:
 #   requireClientCert: true
 
 spire:
-  enabled: true
+  enabled: false
   trustDomain: carverauto.dev
   clusterName: carverauto-cluster
   agent:
     hostNetwork: false
   postgres:
-    enabled: true
+    enabled: false
     clusterName: cnpg
     instances: 3
     storageSize: 100Gi
@@ -288,9 +302,9 @@ flowCollector:
 
 certs:
   regenerator:
-    # Ensure new collector certs (including bmp-collector.pem) are created
-    # in existing demo cert volumes during upgrades.
-    enabled: true
+    # Leave disabled in demo so pre-upgrade cert preservation is stable and
+    # upgrades do not rotate the runtime CA unexpectedly.
+    enabled: false
 
 bmpCollector:
   enabled: true

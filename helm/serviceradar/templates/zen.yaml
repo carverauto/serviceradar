@@ -19,7 +19,7 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: zen
-        image: ghcr.io/carverauto/serviceradar-zen:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "zen") }}
+        image: ghcr.io/carverauto/serviceradar-zen{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "zen") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - containerPort: 50040
@@ -39,9 +39,11 @@ spec:
         {{- end }}
         - name: zen-data
           mountPath: /var/lib/serviceradar
+        {{- if .Values.spire.enabled }}
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
           readOnly: true
+        {{- end }}
         env:
 {{ include "serviceradar.kvEnv" . | indent 8 }}
         - name: CONFIG_PATH
@@ -94,8 +96,8 @@ spec:
         configMap:
           name: serviceradar-zen-rules
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
       {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
       - name: nats-creds
         secret:
@@ -104,10 +106,12 @@ spec:
       - name: zen-data
         persistentVolumeClaim:
           claimName: serviceradar-zen-data
+      {{- if .Values.spire.enabled }}
       - name: spire-agent-socket
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
           type: DirectoryOrCreate
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

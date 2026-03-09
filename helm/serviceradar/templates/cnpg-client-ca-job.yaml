@@ -196,8 +196,8 @@ spec:
           readOnly: true
       volumes:
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
       - name: cnpg-ca
         secret:
           secretName: {{ printf "%s-ca" $cnpgClusterName | quote }}

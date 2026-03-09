@@ -105,6 +105,7 @@ The deployment automatically generates:
 ### TLS/mTLS Configuration
 - All internal service communication uses mutual TLS (mTLS)
 - Certificates are automatically generated via init jobs
+- SPIFFE/SPIRE is optional and is not part of the default `k8s/demo` deployment path
 - Web traffic uses TLS certificates from cert-manager
 
 ### Password Retrieval

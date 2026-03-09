@@ -48,7 +48,7 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: flow-collector
-        image: ghcr.io/carverauto/serviceradar-flow-collector:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "flowCollector") }}
+        image: ghcr.io/carverauto/serviceradar-flow-collector{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "flowCollector") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         {{- if .Values.flowCollector.service.ports.netflow.enabled }}
@@ -159,8 +159,8 @@ spec:
         configMap:
           name: serviceradar-flow-collector-config
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
       - name: nats-creds
         secret:
           secretName: serviceradar-nats-creds

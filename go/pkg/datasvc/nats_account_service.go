@@ -28,8 +28,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/nats-io/nats.go"
@@ -154,7 +152,7 @@ func (s *NATSAccountServer) SetAllowedClientIdentities(identities []string) {
 }
 
 func (s *NATSAccountServer) authorizeRequest(ctx context.Context) error {
-	identity, err := extractMTLSIdentity(ctx)
+	identities, err := extractIdentities(ctx)
 	if err != nil {
 		return err
 	}
@@ -167,30 +165,18 @@ func (s *NATSAccountServer) authorizeRequest(ctx context.Context) error {
 		return status.Error(codes.PermissionDenied, "no allowed identities configured for NATS account service")
 	}
 
+	for _, identity := range identities {
+		if _, ok := allowed[identity]; ok {
+			return nil
+		}
+	}
+
+	identity := firstIdentity(identities)
 	if _, ok := allowed[identity]; !ok {
 		return status.Errorf(codes.PermissionDenied, "identity %s not authorized for NATS account service", identity)
 	}
 
 	return nil
-}
-
-func extractMTLSIdentity(ctx context.Context) (string, error) {
-	p, ok := peer.FromContext(ctx)
-	if !ok || p.AuthInfo == nil {
-		return "", status.Error(codes.Unauthenticated, "no peer info available; mTLS required")
-	}
-
-	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
-	if !ok || len(tlsInfo.State.PeerCertificates) == 0 {
-		return "", status.Error(codes.Unauthenticated, "mTLS authentication required")
-	}
-
-	cert := tlsInfo.State.PeerCertificates[0]
-	if id := spiffeIDFromCertificate(cert); id != "" {
-		return id, nil
-	}
-
-	return subjectIdentity(cert), nil
 }
 
 func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {

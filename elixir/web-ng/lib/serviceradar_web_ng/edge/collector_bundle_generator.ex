@@ -4,9 +4,9 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   A collector bundle contains everything needed to configure an already-installed collector:
   - NATS credentials file (.creds) for account-isolated messaging
-  - mTLS certificates for secure communication
+  - mTLS certificates for secure communication on host-installed collectors
   - Collector configuration file (TOML for flowgger/otel, JSON for trapd/netflow)
-  - Update script to copy files and restart the service
+  - Update or deploy script for the target runtime
 
   ## Bundle Structure
 
@@ -21,6 +21,10 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
       │   └── <collector>.toml     # Collector configuration (or .json)
       ├── update.sh                # Script to copy files and restart service
       └── README.md                # Installation instructions
+
+  Falcosidekick is the Kubernetes exception: its bundle ships Helm values and
+  a deploy script, and it expects the cluster-wide `serviceradar-runtime-certs`
+  secret to already exist instead of bundling a second certificate set.
 
   ## Prerequisites
 
@@ -64,14 +68,10 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     files =
       case package.collector_type do
         :falcosidekick ->
-          # Falcosidekick deploys via Helm in k8s — bundle includes Helm values,
-          # a deploy script that creates k8s secrets + runs helm upgrade,
-          # and certs named to match Falcosidekick's mTLS convention.
+          # Falcosidekick deploys via Helm in k8s and reuses the shared
+          # serviceradar-runtime-certs secret that already exists in-cluster.
           [
             {"#{package_dir}/creds/nats.creds", nats_creds},
-            {"#{package_dir}/certs/client.pem", package.tls_cert_pem},
-            {"#{package_dir}/certs/client-key.pem", tls_key_pem},
-            {"#{package_dir}/certs/ca-chain.pem", package.ca_chain_pem},
             {"#{package_dir}/#{config_filename(package)}", generate_config(package, opts)},
             {"#{package_dir}/deploy.sh", generate_falcosidekick_deploy_script(package)},
             {"#{package_dir}/README.md", generate_readme(package)}
@@ -105,11 +105,24 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   Generates a one-liner install command for updating an existing collector.
   """
   @spec update_command(CollectorPackage.t(), String.t(), keyword()) :: String.t()
-  def update_command(package, download_token, opts \\ []) do
-    base_url = Keyword.get(opts, :base_url, default_base_url())
+  def update_command(package, download_token, opts \\ [])
+
+  def update_command(%{collector_type: :falcosidekick} = package, download_token, opts) do
+    base_url = Keyword.get_lazy(opts, :base_url, &default_base_url/0)
 
     """
-    curl -fsSL "#{base_url}/api/edge/collectors/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    curl -fsSL "#{base_url}/api/collectors/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    cd collector-package-#{short_id(package.id)} && \\
+    ./deploy.sh
+    """
+    |> String.trim()
+  end
+
+  def update_command(package, download_token, opts) do
+    base_url = Keyword.get_lazy(opts, :base_url, &default_base_url/0)
+
+    """
+    curl -fsSL "#{base_url}/api/collectors/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
     cd collector-package-#{short_id(package.id)} && \\
     sudo ./update.sh
     """
@@ -354,8 +367,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     #   helm upgrade -n #{namespace} #{release_name} falcosecurity/falcosidekick \\
     #     -f falcosidekick.yaml
     #
-    # Or run the included deploy.sh script which creates the k8s secret
-    # and runs helm upgrade for you.
+    # Or run the included deploy.sh script which verifies the shared runtime
+    # cert secret and runs helm upgrade for you.
 
     config:
       nats:
@@ -365,9 +378,9 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
         subjecttemplate: "#{subject_template}"
         minimumpriority: "debug"
       tlsclient:
-        cacertfile: /etc/serviceradar/certs/ca-chain.pem
+        cacertfile: /etc/serviceradar/certs/root.pem
       mutualtlsclient:
-        cacertfile: /etc/serviceradar/certs/ca-chain.pem
+        cacertfile: /etc/serviceradar/certs/root.pem
         certfile: /etc/serviceradar/certs/client.pem
         keyfile: /etc/serviceradar/certs/client-key.pem
       otlp:
@@ -377,14 +390,14 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
           checkcert: true
           minimumpriority: "debug"
           extraenvvars:
-            OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE: /etc/serviceradar/certs/ca-chain.pem
+            OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE: /etc/serviceradar/certs/root.pem
             OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE: /etc/serviceradar/certs/client.pem
             OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY: /etc/serviceradar/certs/client-key.pem
 
     extraVolumes:
       - name: serviceradar-certs
         secret:
-          secretName: serviceradar-falcosidekick-certs
+          secretName: serviceradar-runtime-certs
 
     extraVolumeMounts:
       - name: serviceradar-certs
@@ -411,7 +424,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     # Package ID: #{s_package_id}
     # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
     #
-    # Creates a k8s TLS secret from the bundled certs, then deploys/upgrades
+    # Verifies the shared runtime cert secret exists, then deploys/upgrades
     # Falcosidekick via Helm with the generated values file.
 
     set -e
@@ -419,7 +432,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     NAMESPACE="#{s_namespace}"
     RELEASE="#{s_release}"
-    SECRET_NAME="serviceradar-falcosidekick-certs"
+    SECRET_NAME="serviceradar-runtime-certs"
 
     echo "ServiceRadar Falcosidekick Deploy"
     echo "=================================="
@@ -437,14 +450,12 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     # Create namespace if needed
     kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
-    # Create or update the TLS secret from bundled certs
-    echo "Creating k8s secret $SECRET_NAME in $NAMESPACE..."
-    kubectl create secret generic "$SECRET_NAME" \\
-        --namespace "$NAMESPACE" \\
-        --from-file=ca-chain.pem="$SCRIPT_DIR/certs/ca-chain.pem" \\
-        --from-file=client.pem="$SCRIPT_DIR/certs/client.pem" \\
-        --from-file=client-key.pem="$SCRIPT_DIR/certs/client-key.pem" \\
-        --dry-run=client -o yaml | kubectl apply -f -
+    if ! kubectl get secret "$SECRET_NAME" --namespace "$NAMESPACE" >/dev/null 2>&1; then
+        echo "Error: required secret $SECRET_NAME was not found in namespace $NAMESPACE."
+        echo "Install or upgrade the ServiceRadar chart in that namespace first so the"
+        echo "shared runtime cert bundle exists before deploying Falcosidekick."
+        exit 1
+    fi
 
     # Deploy / upgrade Falcosidekick with the generated values
     echo "Deploying Falcosidekick..."
@@ -595,7 +606,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     ## Quick Start
 
-    Run the deploy script — it creates the k8s secret and runs `helm upgrade`:
+    Run the deploy script — it verifies `serviceradar-runtime-certs` exists and runs `helm upgrade`:
 
     ```bash
     ./deploy.sh
@@ -604,13 +615,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     ## Manual Deploy
 
     ```bash
-    # 1. Create the TLS secret
-    kubectl create secret generic serviceradar-falcosidekick-certs \\
-      --namespace #{namespace} \\
-      --from-file=ca-chain.pem=certs/ca-chain.pem \\
-      --from-file=client.pem=certs/client.pem \\
-      --from-file=client-key.pem=certs/client-key.pem \\
-      --dry-run=client -o yaml | kubectl apply -f -
+    # 1. Confirm the shared runtime cert secret exists
+    kubectl get secret serviceradar-runtime-certs --namespace #{namespace}
 
     # 2. Deploy Falcosidekick
     helm upgrade --install #{release_name} falcosecurity/falcosidekick \\
@@ -621,11 +627,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     ## Contents
 
     - `creds/nats.creds` - NATS account credentials (for future .creds auth support)
-    - `certs/client.pem` - mTLS client certificate
-    - `certs/client-key.pem` - mTLS client private key (keep secure!)
-    - `certs/ca-chain.pem` - CA certificate chain
     - `falcosidekick.yaml` - Helm values for Falcosidekick
-    - `deploy.sh` - Automated deploy script (creates secret + helm upgrade)
+    - `deploy.sh` - Automated deploy script (checks runtime secret + helm upgrade)
 
     ## Configure Falco to Forward Events
 
@@ -655,7 +658,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     ## Security Notes
 
-    - The client private key should be kept secure
+    - Falcosidekick reuses the cluster's `serviceradar-runtime-certs` secret
     - mTLS authenticates Falcosidekick to the NATS cluster
     - All messages are scoped to this deployment's account
     - Events publish to `falco.<priority>.<rule>` subjects

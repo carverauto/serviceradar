@@ -293,7 +293,7 @@ defmodule ServiceRadarWebNG.Api.CollectorEnrollController do
     Map.put(config, "falcosidekick", %{
       "nats_subject" => "events.falco.raw",
       "nats_credsfile" => "/etc/serviceradar/creds/nats.creds",
-      "nats_cacertfile" => "/etc/serviceradar/certs/ca-chain.pem"
+      "nats_cacertfile" => "/etc/serviceradar/certs/root.pem"
     })
   end
 

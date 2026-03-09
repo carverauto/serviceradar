@@ -43,9 +43,11 @@ spec:
         {{- end }}
         - name: datasvc-data
           mountPath: /var/lib/serviceradar
+        {{- if .Values.spire.enabled }}
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
           readOnly: true
+        {{- end }}
         env:
         - name: CONFIG_PATH
           value: "/etc/serviceradar/datasvc.json"
@@ -53,8 +55,10 @@ spec:
           value: "true"
         - name: LOG_LEVEL
           value: "info"
+        {{- if .Values.spire.enabled }}
         - name: SPIFFE_ENDPOINT_SOCKET
           value: "unix:/run/spire/sockets/agent.sock"
+        {{- end }}
         - name: NATS_OPERATOR_SEED
           valueFrom:
             secretKeyRef:
@@ -95,8 +99,8 @@ spec:
         configMap:
           name: serviceradar-config
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
       {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
       - name: nats-creds
         secret:
@@ -106,10 +110,12 @@ spec:
       - name: datasvc-data
         persistentVolumeClaim:
           claimName: serviceradar-datasvc-data
+      {{- if .Values.spire.enabled }}
       - name: spire-agent-socket
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
           type: DirectoryOrCreate
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

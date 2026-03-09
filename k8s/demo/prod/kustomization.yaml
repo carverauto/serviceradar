@@ -10,28 +10,6 @@ resources:
 - service-aliases.demo.yaml
 - ingress.yaml
 - serviceradar-datasvc-grpc-external.yaml
-- spire-server-external.yaml
-
-configurations:
-- var-references.yaml
-
-replacements:
-  - source:
-      kind: Namespace
-      name: demo
-      fieldPath: metadata.name
-    targets:
-      - select:
-          kind: ClusterSPIFFEID
-        fieldPaths:
-          - spec.namespaceSelector.matchLabels.[kubernetes.io/metadata.name]
-      - select:
-          kind: ClusterSPIFFEID
-        fieldPaths:
-          - spec.spiffeIDTemplate
-        options:
-          delimiter: /
-          index: 4
 
 images:
 - name: ghcr.io/carverauto/serviceradar-web-ng

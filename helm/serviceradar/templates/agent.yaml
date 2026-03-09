@@ -52,9 +52,11 @@ spec:
             mountPath: {{ default "/var/lib/serviceradar/checkers" $agentStorage.basePath | quote }}
           - name: cert-data
             mountPath: /etc/serviceradar/certs
+          {{- if .Values.spire.enabled }}
           - name: spire-agent-socket
             mountPath: /run/spire/sockets
             readOnly: true
+          {{- end }}
           env:
 {{ include "serviceradar.kvEnv" . | indent 12 }}
 {{ include "serviceradar.coreEnv" . | indent 12 }}
@@ -87,12 +89,14 @@ spec:
         emptyDir: {}
         {{- end }}
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+      {{- if .Values.spire.enabled }}
       - name: spire-agent-socket
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
           type: DirectoryOrCreate
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

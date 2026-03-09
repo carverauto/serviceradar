@@ -207,8 +207,8 @@ spec:
             - NET_RAW
       volumes:
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: serviceradar-runtime-certs
       - name: nats-context-config
         configMap:
           name: serviceradar-nats-context

@@ -213,6 +213,7 @@ spec:
           value: {{ $clusterCookie | quote }}
         - name: ELIXIR_ERL_OPTIONS
           value: "+fnu"
+        {{- if .Values.spire.enabled }}
         - name: SPIFFE_TRUST_DOMAIN
           value: {{ $trustDomain | quote }}
         - name: SPIFFE_MODE
@@ -223,6 +224,7 @@ spec:
           value: "unix:///run/spire/sockets/agent.sock"
         - name: SPIFFE_TRUST_BUNDLE_PATH
           value: "/run/spire/bundle/bundle.crt"
+        {{- end }}
         - name: SERVICERADAR_CLUSTER_COORDINATOR
           value: "true"
         - name: SERVICERADAR_CORE_RUN_MIGRATIONS
@@ -378,12 +380,14 @@ spec:
           readOnly: true
         - name: migrations
           mountPath: /var/lib/serviceradar/migrations
+        {{- if .Values.spire.enabled }}
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
           readOnly: true
         - name: spire-bundle
           mountPath: /run/spire/bundle
           readOnly: true
+        {{- end }}
         {{- if $geoipMmdb.enabled }}
         - name: geoip-mmdb
           mountPath: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
@@ -426,13 +430,14 @@ spec:
           failureThreshold: 3
       volumes:
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
       - name: {{ $cnpgClusterName }}-ca
         secret:
           secretName: {{ $cnpgClusterName }}-ca
       - name: migrations
         emptyDir: {}
+      {{- if .Values.spire.enabled }}
       - name: spire-agent-socket
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
@@ -440,6 +445,7 @@ spec:
       - name: spire-bundle
         configMap:
           name: {{ $spireBundle | quote }}
+      {{- end }}
       {{- if $geoipMmdb.enabled }}
       - name: geoip-mmdb
         persistentVolumeClaim:

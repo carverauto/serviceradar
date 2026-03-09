@@ -21,7 +21,7 @@ Trivy Operator CRDs (aquasecurity.github.io)
 
 1. Kubernetes cluster with Trivy Operator CRDs installed.
 2. ServiceRadar NATS available in-cluster.
-3. NATS creds in `serviceradar-nats-creds` and certs in `serviceradar-cert-data`.
+3. NATS creds in `serviceradar-nats-creds` and certs in `serviceradar-runtime-certs`.
 4. `trivy-sidecar` image pushed to GHCR.
 
 ## Build and Push Image

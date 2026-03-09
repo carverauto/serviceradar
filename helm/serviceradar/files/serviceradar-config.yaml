@@ -12,8 +12,8 @@
 {{- $agentPartition := default (default "default" $gatewayVals.partitionId) $agentVals.partitionId -}}
 {{- $gatewayServiceName := "serviceradar-agent-gateway" -}}
 {{- $gatewayAddress := default (printf "%s:%v" $gatewayServiceName $gatewayPort) $agentVals.gatewayAddress -}}
-{{- $agentComponentCert := printf "components/%s-%s-chain.pem" $agentID $agentPartition -}}
-{{- $agentComponentKey := printf "components/%s-%s-key.pem" $agentID $agentPartition -}}
+{{- $agentComponentCert := printf "%s-%s-chain.pem" $agentID $agentPartition -}}
+{{- $agentComponentKey := printf "%s-%s-key.pem" $agentID $agentPartition -}}
 {{- $cnpgRuntime := default (dict) .Values.cnpg.runtimeParams -}}
 {{- $appSchema := default "platform" .Values.cnpg.schema -}}
 {{- $searchPath := index $cnpgRuntime "search_path" -}}
@@ -123,7 +123,7 @@ data:
         "require_device_registry": true
       },
       "security": {
-        "mode": "spiffe",
+        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
         "cert_dir": "/etc/serviceradar/certs",
         "role": "core",
         "trust_domain": "{{$trustDomain}}",
@@ -138,7 +138,7 @@ data:
         }
       },
       "kv_security": {
-        "mode": "spiffe",
+        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
         "cert_dir": "/etc/serviceradar/certs",
         "role": "core",
         "trust_domain": "{{$trustDomain}}",
@@ -326,7 +326,7 @@ data:
         "sync_runtime_enabled": {{- if hasKey $agentVals "syncRuntimeEnabled" -}}{{ $agentVals.syncRuntimeEnabled }}{{- else -}}true{{- end }},
         "kv_address": "serviceradar-datasvc:50057",
         "kv_security": {
-          "mode": "spiffe",
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "agent",
           "trust_domain": "{{$trustDomain}}",
@@ -339,7 +339,7 @@ data:
           }
         },
         "security": {
-          "mode": "spiffe",
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "agent",
           "trust_domain": "{{$trustDomain}}",
@@ -418,7 +418,7 @@ data:
         "type": "grpc",
         "address": "serviceradar-rperf:50081",
         "security": {
-          "mode": "spiffe",
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
@@ -439,7 +439,7 @@ data:
         "type": "grpc",
         "address": "serviceradar-zen:50040",
         "security": {
-          "mode": "spiffe",
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
@@ -460,7 +460,7 @@ data:
         "type": "grpc",
         "address": "serviceradar-db-event-writer:50041",
         "security": {
-          "mode": "spiffe",
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
@@ -481,7 +481,7 @@ data:
         "type": "grpc",
         "address": "serviceradar-trapd:50043",
         "security": {
-          "mode": "spiffe",
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
@@ -502,7 +502,7 @@ data:
         "type": "grpc",
         "address": "serviceradar-log-collector:50044",
         "security": {
-          "mode": "spiffe",
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
@@ -564,14 +564,17 @@ data:
           "ca_file": "/etc/serviceradar/certs/root.pem"
         },
         "grpc_security": {
-          "mode": "spiffe",
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "zen",
           "trust_domain": "{{$trustDomain}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock"
+          "workload_socket": "unix:/run/spire/sockets/agent.sock",
+          "cert_file": "/etc/serviceradar/certs/zen.pem",
+          "key_file": "/etc/serviceradar/certs/zen-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem"
         },
         "kv_security": {
-          "mode": "spiffe",
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "zen",
           "trust_domain": "{{$trustDomain}}",
@@ -729,7 +732,7 @@ data:
   
       # HTTP monitoring
       http: 0.0.0.0:8222
-  
+
       # Enable JetStream for KV store
       jetstream {
         # Directory to store JetStream data
@@ -987,7 +990,7 @@ data:
         },
         "grpc_listen_addr": "0.0.0.0:50043",
         "grpc_security": {
-          "mode": "spiffe",
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
           "cert_dir": "/etc/serviceradar/certs",
           "trust_domain": "{{ .Values.spire.trustDomain }}",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -1072,7 +1075,7 @@ data:
         "type": "grpc",
         "timeout": "30s",
         "security": {
-          "mode": "spiffe",
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
           "cert_dir": "/etc/serviceradar/certs",
           "trust_domain": "{{$trustDomain}}",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -1108,7 +1111,7 @@ data:
           }
         },
         "security": {
-          "mode": "spiffe",
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "datasvc",
           "trust_domain": "{{$trustDomain}}",
@@ -1128,19 +1131,22 @@ data:
           "system_account_creds_file": "/etc/serviceradar/creds/system.creds",
         {{- end }}
           "allowed_client_identities": [
-            "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}"
+            "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}",
+            "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
           ]
         },
         "rbac": {
           "roles": [
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}", "role": "admin"},
+            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}", "role": "writer"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $logCollectorSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $agentSA }}", "role": "writer"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $dbEventWriterSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $zenSA }}", "role": "reader"},
             {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "writer"},
+            {"identity": "CN=serviceradar-db-event-writer,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
+            {"identity": "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
             {"identity": "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
-            {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "admin"},
+            {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "writer"},
             {"identity": "CN=serviceradar-debug-client,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"}
           ]
         },

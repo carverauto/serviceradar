@@ -43,6 +43,7 @@ The chart deploys the following components:
 | Agent | In-cluster Go agent | 50051 (gRPC) |
 | Datasvc | KV store service | - |
 | NATS | JetStream messaging | 4222 |
+| CNPG | App database cluster | 5432 |
 | OTEL | Telemetry collector | - |
 
 ### Edge Agents
@@ -56,7 +57,9 @@ To deploy edge agents:
 
 **Security Model:**
 - Edge agents communicate only via gRPC (no ERTS/Erlang distribution)
-- mTLS with deployment-issued certificates provides identity verification
+- Internal service-to-service traffic uses mTLS by default
+- Default Kubernetes installs use deployment-managed certificates published into a Kubernetes Secret and mounted into workloads
+- SPIFFE/SPIRE remains available as an explicit opt-in mode when operators want workload identities
 - Isolation is enforced by deployment boundaries and database credentials
 
 For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge-agents.md).
@@ -82,15 +85,17 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `networkPolicy.calicoLogDenied.selector` | Calico selector for matching pods | `app.kubernetes.io/part-of == 'serviceradar'` |
 | `networkPolicy.calicoLogDenied.order` | Calico policy order (lower is higher priority) | `1000` |
 | `secrets.autoGenerate` | Auto-generate secrets | `true` |
-| `spire.enabled` | Enable SPIRE identity plane | `true` |
+| `spire.enabled` | Enable SPIRE identity plane | `false` |
 | `agent.resources.limits.cpu` | Agent CPU limit | `500m` |
-| `webNg.gatewayAddress` | External gateway address for edge agents (host:port). Defaults to `ingress.host:50052` when set. | `""` |
+| `webNg.gatewayAddress` | External gateway address for edge agents (host:port). Set this explicitly when the agent gateway is exposed on a different host than the web ingress. Otherwise it defaults to `ingress.host:50052` when set, or the in-cluster service. | `""` |
 
 ### Notes
 
 - Ingress is disabled by default; set `ingress.enabled=true` and provide `ingress.host` (plus TLS settings if needed).
 - A pre-install hook auto-generates `serviceradar-secrets` (JWT/API key, admin password + bcrypt hash) unless you disable it with `--set secrets.autoGenerate=false`. If you disable it, create the secret yourself at `secrets.existingSecretName` (default `serviceradar-secrets`).
+- A pre-install hook also generates the runtime certificate bundle and publishes it to `certs.runtimeSecretName` (default `serviceradar-runtime-certs`).
 - The chart does not generate image pull secrets; create `ghcr-io-cred` (or override `image.registryPullSecret`).
+- SPIFFE/SPIRE is optional. Enable it with `--set spire.enabled=true` (and `--set spire.postgres.enabled=true` if you also want the in-chart SPIRE database resources).
 - The SPIRE controller manager sidecar can be disabled with `--set spire.controllerManager.enabled=false` if you do not need webhook-managed entries.
 
 ### MTR Automation Rollout

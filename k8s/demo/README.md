@@ -1,6 +1,6 @@
 # ServiceRadar Kubernetes Deployment
 
-This directory contains Kubernetes manifests for deploying ServiceRadar in the demo environments. Common resources live under `base/` and each overlay (`prod/`, `staging/`) applies environment-specific tweaks via Kustomize.
+This directory contains Kubernetes manifests for deploying ServiceRadar in the demo environments. Common resources live under `base/` and each overlay (`prod/`, `staging/`) applies environment-specific tweaks via Kustomize. SPIFFE/SPIRE resources remain available under `base/spire/`, but they are no longer part of the default demo install path.
 
 ## Structure
 
@@ -22,7 +22,8 @@ This directory contains Kubernetes manifests for deploying ServiceRadar in the d
 - **cloud** – central service that collects and stores monitoring data
 - **agent** – DaemonSet on every node for local resource monitoring (includes embedded dusk monitoring)
 - **web-ng/edge-proxy/nats** – other core platform services defined in `base/`
-- **cnpg** – CloudNativePG cluster (Timescale + AGE) deployed via `base/spire`; hosts telemetry + SPIRE state.
+- **cnpg** – the default app database cluster now lives in `base/`
+- **spire** – optional SPIFFE/SPIRE resources remain under `base/spire` for explicit opt-in installs
 
 ## Quick Start
 
@@ -41,7 +42,13 @@ From `k8s/demo/` run:
 ./deploy.sh staging   # Deploy to namespace demo-staging, host demo-staging.serviceradar.cloud
 ```
 
-The script creates the namespace, generates secrets/configmaps, applies `base/` followed by the chosen overlay, and waits for key deployments before printing ingress details.
+The script creates the namespace, generates secrets/configmaps, applies the default non-SPIRE base plus the chosen overlay, and waits for key deployments before printing ingress details.
+
+If you explicitly want SPIFFE/SPIRE in the demo namespace, apply it separately after the base deployment:
+
+```bash
+kubectl apply -k k8s/demo/base/spire
+```
 
 ### Manual Kustomize apply
 

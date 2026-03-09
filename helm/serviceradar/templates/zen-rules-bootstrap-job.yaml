@@ -44,7 +44,7 @@ spec:
               memory: "32Mi"
       containers:
         - name: zen-rules-bootstrap
-          image: ghcr.io/carverauto/serviceradar-zen:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "zen") }}
+          image: ghcr.io/carverauto/serviceradar-zen{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "zen") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           command: ["/bin/sh", "-c"]
           args:
@@ -140,9 +140,11 @@ spec:
               mountPath: /etc/serviceradar/creds
               readOnly: true
             {{- end }}
+            {{- if .Values.spire.enabled }}
             - name: spire-agent-socket
               mountPath: /run/spire/sockets
               readOnly: true
+            {{- end }}
           resources:
             limits:
               cpu: "200m"
@@ -158,15 +160,17 @@ spec:
           configMap:
             name: serviceradar-config
         - name: cert-data
-          persistentVolumeClaim:
-            claimName: serviceradar-cert-data
+          secret:
+            secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
         {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
         - name: nats-creds
           secret:
             secretName: serviceradar-nats-creds
         {{- end }}
+        {{- if .Values.spire.enabled }}
         - name: spire-agent-socket
           hostPath:
             path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
             type: DirectoryOrCreate
+        {{- end }}
 {{- end }}

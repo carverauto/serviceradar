@@ -1,3 +1,4 @@
+{{- if .Values.faker.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -64,9 +65,11 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        {{- if .Values.spire.enabled }}
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
           readOnly: true
+        {{- end }}
         readinessProbe:
           httpGet:
             path: /api/v1/search/?aql=test&length=1
@@ -91,12 +94,14 @@ spec:
         configMap:
           name: serviceradar-config
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+      {{- if .Values.spire.enabled }}
       - name: spire-agent-socket
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
           type: DirectoryOrCreate
+      {{- end }}
       {{- if .Values.faker.gobgp.enabled }}
       - name: gobgp-bin
         emptyDir: {}
@@ -124,3 +129,4 @@ spec:
   resources:
     requests:
       storage: 1Gi
+{{- end }}

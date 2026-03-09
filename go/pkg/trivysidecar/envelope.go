@@ -91,8 +91,7 @@ func BuildEnvelope(
 		return Envelope{}, errObjectRVMissing
 	}
 
-	reportBody := cloneMap(obj.Object)
-	delete(reportBody, "managedFields")
+	reportBody := compactReportObject(obj.Object)
 
 	envelope := Envelope{
 		EventID:         BuildEventID(clusterID, reportKind.Kind, obj.GetNamespace(), name, resourceVersion),
@@ -117,6 +116,270 @@ func BuildEnvelope(
 	}
 
 	return envelope, nil
+}
+
+func compactReportObject(input map[string]any) map[string]any {
+	output := map[string]any{}
+
+	if apiVersion, ok := input["apiVersion"].(string); ok && strings.TrimSpace(apiVersion) != "" {
+		output["apiVersion"] = apiVersion
+	}
+
+	if kind, ok := input["kind"].(string); ok && strings.TrimSpace(kind) != "" {
+		output["kind"] = kind
+	}
+
+	if metadata := compactReportMetadata(asMap(input["metadata"])); len(metadata) > 0 {
+		output["metadata"] = metadata
+	}
+
+	if report := compactInnerReport(asMap(input["report"])); len(report) > 0 {
+		output["report"] = report
+	}
+
+	return output
+}
+
+func compactReportMetadata(input map[string]any) map[string]any {
+	output := map[string]any{}
+
+	if creationTimestamp, ok := input["creationTimestamp"].(string); ok && strings.TrimSpace(creationTimestamp) != "" {
+		output["creationTimestamp"] = creationTimestamp
+	}
+
+	if labels := compactStringMap(asMap(input["labels"])); len(labels) > 0 {
+		output["labels"] = labels
+	}
+
+	return output
+}
+
+func compactInnerReport(input map[string]any) map[string]any {
+	output := map[string]any{}
+
+	if summary := cloneMap(asMap(input["summary"])); len(summary) > 0 {
+		output["summary"] = summary
+	}
+
+	if artifact := compactArtifact(asMap(input["artifact"])); len(artifact) > 0 {
+		output["artifact"] = artifact
+	}
+
+	if scanner := compactScanner(asMap(input["scanner"])); len(scanner) > 0 {
+		output["scanner"] = scanner
+	}
+
+	if updateTimestamp, ok := input["updateTimestamp"].(string); ok && strings.TrimSpace(updateTimestamp) != "" {
+		output["updateTimestamp"] = updateTimestamp
+	}
+
+	if vulnerabilities := compactVulnerabilities(asList(input["vulnerabilities"])); len(vulnerabilities) > 0 {
+		output["vulnerabilities"] = vulnerabilities
+	}
+
+	if checks := compactChecks(asList(input["checks"])); len(checks) > 0 {
+		output["checks"] = checks
+	}
+
+	if secrets := compactSecrets(asList(input["secrets"])); len(secrets) > 0 {
+		output["secrets"] = secrets
+	}
+
+	return output
+}
+
+func compactArtifact(input map[string]any) map[string]any {
+	output := map[string]any{}
+
+	copyStringKey(output, input, "repository")
+	copyStringKey(output, input, "tag")
+
+	return output
+}
+
+func compactScanner(input map[string]any) map[string]any {
+	output := map[string]any{}
+
+	copyStringKey(output, input, "name")
+	copyStringKey(output, input, "version")
+
+	return output
+}
+
+func compactVulnerabilities(items []any) []map[string]any {
+	return compactList(items, func(item map[string]any) map[string]any {
+		output := map[string]any{}
+
+		copyStringKeyAlias(output, item, "vulnerabilityID", "VulnerabilityID", "id")
+		copyStringKeyAlias(output, item, "title", "Title")
+		copyStringKey(output, item, "severity")
+		copyStringKeyAlias(output, item, "status", "Status")
+		copyStringKeyAlias(output, item, "pkgName", "PkgName", "packageName")
+		copyStringKeyAlias(output, item, "installedVersion", "InstalledVersion")
+		copyStringKeyAlias(output, item, "fixedVersion", "FixedVersion")
+		copyStringKeyAlias(output, item, "description", "Description")
+
+		if references := compactReferences(item); len(references) > 0 {
+			output["references"] = references
+			output["links"] = references
+		}
+
+		return output
+	})
+}
+
+func compactChecks(items []any) []map[string]any {
+	return compactList(items, func(item map[string]any) map[string]any {
+		output := map[string]any{}
+
+		copyStringKeyAlias(output, item, "checkID", "CheckID", "id")
+		copyStringKeyAlias(output, item, "title", "checkTitle", "name")
+		copyStringKey(output, item, "severity")
+		copyBoolLikeKey(output, item, "success")
+		copyStringKeyAlias(output, item, "description", "message")
+
+		if messages := compactStringList(item["messages"]); len(messages) > 0 {
+			output["messages"] = messages
+		}
+
+		if references := compactReferences(item); len(references) > 0 {
+			output["references"] = references
+			output["links"] = references
+		}
+
+		return output
+	})
+}
+
+func compactSecrets(items []any) []map[string]any {
+	return compactList(items, func(item map[string]any) map[string]any {
+		output := map[string]any{}
+
+		copyStringKeyAlias(output, item, "ruleID", "RuleID", "id")
+		copyStringKeyAlias(output, item, "title", "category", "rule")
+		copyStringKey(output, item, "severity")
+		copyStringKeyAlias(output, item, "description", "match", "message")
+
+		if references := compactReferences(item); len(references) > 0 {
+			output["references"] = references
+			output["links"] = references
+		}
+
+		return output
+	})
+}
+
+func compactReferences(input map[string]any) []string {
+	values := compactStringList(input["references"])
+	values = append(values, compactStringList(input["links"])...)
+
+	if primaryLink, ok := input["primaryLink"].(string); ok && strings.TrimSpace(primaryLink) != "" {
+		values = append(values, strings.TrimSpace(primaryLink))
+	}
+
+	if len(values) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(values))
+	uniq := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+
+		seen[value] = struct{}{}
+		uniq = append(uniq, value)
+	}
+
+	return uniq
+}
+
+func compactList(items []any, compact func(map[string]any) map[string]any) []map[string]any {
+	output := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		compacted := compact(asMap(item))
+		if len(compacted) == 0 {
+			continue
+		}
+
+		output = append(output, compacted)
+	}
+
+	return output
+}
+
+func compactStringMap(input map[string]any) map[string]string {
+	output := make(map[string]string, len(input))
+	for key, value := range input {
+		if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+			output[key] = strings.TrimSpace(text)
+		}
+	}
+
+	return output
+}
+
+func compactStringList(input any) []string {
+	items := asList(input)
+	output := make([]string, 0, len(items))
+	for _, item := range items {
+		if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+			output = append(output, strings.TrimSpace(text))
+		}
+	}
+
+	return output
+}
+
+func copyStringKey(output, input map[string]any, key string) {
+	if value, ok := input[key].(string); ok && strings.TrimSpace(value) != "" {
+		output[key] = strings.TrimSpace(value)
+	}
+}
+
+func copyStringKeyAlias(output, input map[string]any, keys ...string) {
+	for _, key := range keys {
+		if value, ok := input[key].(string); ok && strings.TrimSpace(value) != "" {
+			output[keys[0]] = strings.TrimSpace(value)
+			return
+		}
+	}
+}
+
+func copyBoolLikeKey(output, input map[string]any, key string) {
+	switch value := input[key].(type) {
+	case bool:
+		output[key] = value
+	case string:
+		if strings.TrimSpace(value) != "" {
+			output[key] = strings.TrimSpace(value)
+		}
+	case int:
+		output[key] = value
+	case int32:
+		output[key] = value
+	case int64:
+		output[key] = value
+	case float64:
+		output[key] = value
+	}
+}
+
+func asMap(value any) map[string]any {
+	if mapped, ok := value.(map[string]any); ok {
+		return mapped
+	}
+
+	return nil
+}
+
+func asList(value any) []any {
+	if items, ok := value.([]any); ok {
+		return items
+	}
+
+	return nil
 }
 
 func BuildEventID(clusterID, kind, namespace, name, resourceVersion string) string {

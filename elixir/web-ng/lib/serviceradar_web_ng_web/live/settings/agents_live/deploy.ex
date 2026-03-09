@@ -108,8 +108,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
               </ol>
 
               <p class="text-xs text-base-content/50">
-                The gateway address is derived from your deployment host by default. In Helm installs,
-                set your ingress host and the gateway address will follow it automatically.
+                The gateway address is derived from your deployment configuration by default. In Helm
+                installs, set
+                <code class="rounded bg-base-200 px-1 py-0.5 text-xs font-mono">
+                  webNg.gatewayAddress
+                </code>
+                when agents should use a dedicated gateway host.
               </p>
 
               <div class="flex items-center gap-2 text-xs text-base-content/50">

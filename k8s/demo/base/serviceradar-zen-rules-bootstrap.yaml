@@ -125,8 +125,8 @@ spec:
           configMap:
             name: serviceradar-config
         - name: cert-data
-          persistentVolumeClaim:
-            claimName: serviceradar-cert-data
+          secret:
+            secretName: serviceradar-runtime-certs
         - name: nats-creds
           secret:
             secretName: serviceradar-nats-creds

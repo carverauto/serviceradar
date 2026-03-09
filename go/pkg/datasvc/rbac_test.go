@@ -161,6 +161,69 @@ func TestCheckRBAC(t *testing.T) {
 	})
 }
 
+func TestCertificateIdentities(t *testing.T) {
+	uri, err := url.Parse("spiffe://carverauto.dev/ns/demo/sa/serviceradar-core")
+	require.NoError(t, err)
+
+	cert := &x509.Certificate{
+		Subject: pkix.Name{
+			CommonName:         "serviceradar-core",
+			Organization:       []string{"ServiceRadar"},
+			OrganizationalUnit: []string{"Kubernetes"},
+			Locality:           []string{"San Francisco"},
+			Province:           []string{"CA"},
+			Country:            []string{"US"},
+		},
+		URIs: []*url.URL{uri},
+	}
+
+	assert.Equal(t, []string{
+		"spiffe://carverauto.dev/ns/demo/sa/serviceradar-core",
+		"CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US",
+		"CN=serviceradar-core,O=ServiceRadar",
+		"CN=serviceradar-core",
+	}, certificateIdentities(cert))
+}
+
+func TestCheckRBACMatchesSubjectAliases(t *testing.T) {
+	fullDN := "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+	compactDN := "CN=serviceradar-core,O=ServiceRadar"
+
+	newContext := func() context.Context {
+		cert := &x509.Certificate{
+			Subject: pkix.Name{
+				CommonName:         "serviceradar-core",
+				Organization:       []string{"ServiceRadar"},
+				OrganizationalUnit: []string{"Kubernetes"},
+				Locality:           []string{"San Francisco"},
+				Province:           []string{"CA"},
+				Country:            []string{"US"},
+			},
+		}
+		tlsInfo := credentials.TLSInfo{
+			State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
+		}
+		p := &peer.Peer{AuthInfo: tlsInfo}
+		return peer.NewContext(context.Background(), p)
+	}
+
+	t.Run("FullSubjectIdentity", func(t *testing.T) {
+		s, _ := setupServer(t)
+		s.config.RBAC.Roles = []RBACRule{{Identity: fullDN, Role: RoleWriter}}
+
+		err := s.checkRBAC(newContext(), "/proto.KVService/Delete")
+		assert.NoError(t, err)
+	})
+
+	t.Run("CompactSubjectIdentity", func(t *testing.T) {
+		s, _ := setupServer(t)
+		s.config.RBAC.Roles = []RBACRule{{Identity: compactDN, Role: RoleWriter}}
+
+		err := s.checkRBAC(newContext(), "/proto.KVService/Delete")
+		assert.NoError(t, err)
+	})
+}
+
 func TestRBACInterceptor(t *testing.T) {
 	t.Run("Reader_Get", func(t *testing.T) {
 		s, mockStore := setupServer(t)

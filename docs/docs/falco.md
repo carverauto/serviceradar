@@ -55,7 +55,7 @@ helm upgrade -n demo falcosidekick-nats-auth falcosecurity/falcosidekick \
   --set-string config.otlp.metrics.extraenvvars.OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE=/etc/serviceradar/certs/client.pem \
   --set-string config.otlp.metrics.extraenvvars.OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY=/etc/serviceradar/certs/client-key.pem \
   --set extraVolumes[0].name=serviceradar-certs \
-  --set extraVolumes[0].persistentVolumeClaim.claimName=serviceradar-cert-data \
+  --set extraVolumes[0].secret.secretName=serviceradar-runtime-certs \
   --set extraVolumeMounts[0].name=serviceradar-certs \
   --set extraVolumeMounts[0].mountPath=/etc/serviceradar/certs \
   --set extraVolumeMounts[0].readOnly=true
@@ -171,4 +171,3 @@ kubectl -n falco get pods | grep '^falco-'
 kubectl -n demo exec deploy/serviceradar-tools -- nats --context serviceradar stream ls
 kubectl -n demo exec deploy/serviceradar-tools -- nats --context serviceradar stream info falco_events
 ```
-

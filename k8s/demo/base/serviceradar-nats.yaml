@@ -63,8 +63,8 @@ spec:
         configMap:
           name: serviceradar-config
       - name: cert-data
-        persistentVolumeClaim:
-          claimName: serviceradar-cert-data
+        secret:
+          secretName: serviceradar-runtime-certs
 ---
 apiVersion: v1
 kind: Service

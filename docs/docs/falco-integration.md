@@ -47,7 +47,7 @@ helm repo update
 3. Select **Falcosidekick (Falco)** as the collector type.
 4. Set the **Site** to your cluster/namespace (e.g., `demo`).
 5. Click **Create Collector**.
-6. Download the bundle — it contains mTLS certs, Helm values, and a deploy script.
+6. Download the bundle — it contains Helm values, a deploy script, and NATS credentials metadata.
 
 ### Via the API
 
@@ -74,7 +74,7 @@ Download and extract the bundle, then run the deploy script:
 curl -fsSL ".../api/admin/collectors/<ID>/bundle?token=<TOKEN>" | tar xzf -
 cd collector-package-*/
 
-# Deploy (creates k8s secret + helm upgrade)
+# Deploy (verifies runtime cert secret + helm upgrade)
 ./deploy.sh
 ```
 
@@ -84,10 +84,6 @@ cd collector-package-*/
 collector-package-<id>/
 ├── creds/
 │   └── nats.creds            # NATS credentials (for future .creds auth)
-├── certs/
-│   ├── client.pem            # mTLS client certificate
-│   ├── client-key.pem        # mTLS client private key
-│   └── ca-chain.pem          # CA certificate chain
 ├── falcosidekick.yaml         # Helm values
 ├── deploy.sh                  # Automated deploy script
 └── README.md
@@ -95,7 +91,7 @@ collector-package-<id>/
 
 ### What `deploy.sh` Does
 
-1. Creates a Kubernetes secret (`serviceradar-falcosidekick-certs`) from the bundled certs
+1. Verifies the shared Kubernetes secret `serviceradar-runtime-certs` exists in the target namespace
 2. Runs `helm upgrade --install` with the generated `falcosidekick.yaml` values
 
 ### Manual Deploy
@@ -103,13 +99,9 @@ collector-package-<id>/
 If you prefer to deploy manually:
 
 ```bash
-# Create the TLS secret
-kubectl create secret generic serviceradar-falcosidekick-certs \
-  --namespace demo \
-  --from-file=ca-chain.pem=certs/ca-chain.pem \
-  --from-file=client.pem=certs/client.pem \
-  --from-file=client-key.pem=certs/client-key.pem \
-  --dry-run=client -o yaml | kubectl apply -f -
+# Confirm the shared runtime cert secret exists
+kubectl get secret serviceradar-runtime-certs \
+  --namespace demo
 
 # Deploy Falcosidekick
 helm upgrade --install falcosidekick-nats-auth falcosecurity/falcosidekick \
@@ -232,6 +224,7 @@ Required settings:
 
 - Verify cert files are mounted: `kubectl -n demo exec deploy/falcosidekick-nats-auth -- ls /etc/serviceradar/certs/`
 - Ensure `config.nats.mutualtls=true` in Helm values
+- Ensure the pod is mounting `serviceradar-runtime-certs`
 - Check CA trust chain matches the NATS server certificate
 
 ### OTLP `unexpected EOF`
