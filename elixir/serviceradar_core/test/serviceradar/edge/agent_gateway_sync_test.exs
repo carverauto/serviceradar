@@ -196,6 +196,44 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, device} = Device.get_by_uid(device_uid_b, false, actor: actor)
       assert device.ip == "10.42.#{rem(unique_id, 255)}.20"
     end
+
+    test "marks older duplicate-prefix agent unavailable when reenrollment resolves to same device",
+         %{
+           unique_id: unique_id,
+           actor: actor
+         } do
+      old_agent_id = "agent-dusk-#{unique_id}"
+      replacement_agent_id = "agent-agent-dusk-#{unique_id}"
+      source_ip = "192.168.50.#{rem(unique_id, 200) + 10}"
+
+      attrs = %{
+        hostname: "dusk-#{unique_id}",
+        source_ip: source_ip,
+        partition: "default",
+        capabilities: ["sysmon"]
+      }
+
+      :ok =
+        AgentGatewaySync.upsert_agent(old_agent_id, %{host: source_ip, capabilities: ["sysmon"]})
+
+      {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(old_agent_id, attrs)
+
+      :ok =
+        AgentGatewaySync.upsert_agent(replacement_agent_id, %{
+          host: source_ip,
+          capabilities: ["sysmon"]
+        })
+
+      assert {:ok, ^device_uid} =
+               AgentGatewaySync.ensure_device_for_agent(replacement_agent_id, attrs)
+
+      {:ok, old_agent} = Agent.get_by_uid(old_agent_id, actor: actor)
+      {:ok, replacement_agent} = Agent.get_by_uid(replacement_agent_id, actor: actor)
+
+      assert old_agent.status == :unavailable
+      assert replacement_agent.status == :connected
+      assert replacement_agent.device_uid == device_uid
+    end
   end
 
   describe "upsert_agent/2" do
@@ -320,6 +358,33 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       {:ok, agent} = Agent.get_by_uid(agent_id, actor: actor)
       assert agent.config_source == :local
+    end
+
+    test "heartbeat restores unavailable agent back to connected", %{
+      unique_id: unique_id,
+      actor: actor
+    } do
+      agent_id = "recover-agent-#{unique_id}"
+
+      :ok = AgentGatewaySync.upsert_agent(agent_id, %{name: "Recover Agent", host: "10.10.10.10"})
+
+      {:ok, agent} = Agent.get_by_uid(agent_id, actor: actor)
+
+      {:ok, _} =
+        agent
+        |> Ash.Changeset.for_update(:mark_unavailable, %{reason: "test"})
+        |> Ash.update(actor: actor)
+
+      :ok =
+        AgentGatewaySync.heartbeat_agent(agent_id, %{
+          config_source: :remote,
+          is_healthy: true
+        })
+
+      {:ok, recovered} = Agent.get_by_uid(agent_id, actor: actor)
+      assert recovered.status == :connected
+      assert recovered.is_healthy == true
+      assert recovered.config_source == :remote
     end
   end
 end

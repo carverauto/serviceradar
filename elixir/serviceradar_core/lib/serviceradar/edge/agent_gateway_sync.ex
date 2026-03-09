@@ -119,6 +119,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
             # Link the agent to the device
             link_agent_to_device(agent_id, device_uid, actor)
+            retire_superseded_agents(agent_id, device_uid, attrs, actor)
             {:ok, device_uid}
 
           {:error, reason} ->
@@ -349,6 +350,71 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  defp retire_superseded_agents(agent_id, device_uid, attrs, actor) do
+    source_ip = Map.get(attrs, :source_ip) || Map.get(attrs, :host)
+    canonical_agent_id = canonicalize_agent_uid(agent_id)
+
+    query =
+      Agent
+      |> Ash.Query.for_read(:by_device, %{device_uid: device_uid}, actor: actor)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, agents} ->
+        agents
+        |> Enum.reject(&(&1.uid == agent_id))
+        |> Enum.filter(&(canonicalize_agent_uid(&1.uid) == canonical_agent_id))
+        |> Enum.filter(&matching_source?(&1, source_ip))
+        |> Enum.each(&mark_agent_superseded(&1, agent_id, actor))
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to lookup superseded agents for #{agent_id} on #{device_uid}: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp matching_source?(_agent, nil), do: true
+  defp matching_source?(%Agent{host: host}, source_ip), do: host == source_ip
+
+  defp mark_agent_superseded(%Agent{status: :unavailable}, _replacement_agent_id, _actor), do: :ok
+
+  defp mark_agent_superseded(agent, replacement_agent_id, actor) do
+    reason = "superseded by reenrollment: #{replacement_agent_id}"
+
+    case agent
+         |> Ash.Changeset.for_update(:mark_unavailable, %{reason: reason})
+         |> Ash.update(actor: actor) do
+      {:ok, _updated} ->
+        Logger.info(
+          "Marked superseded agent #{agent.uid} unavailable in favor of #{replacement_agent_id}"
+        )
+
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to mark superseded agent #{agent.uid} unavailable: #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
+
+  defp canonicalize_agent_uid(uid) when is_binary(uid) do
+    uid
+    |> String.split("-", trim: true)
+    |> collapse_duplicate_prefix()
+    |> Enum.join("-")
+  end
+
+  defp canonicalize_agent_uid(uid), do: uid
+
+  defp collapse_duplicate_prefix([prefix, prefix | rest]) do
+    collapse_duplicate_prefix([prefix | rest])
+  end
+
+  defp collapse_duplicate_prefix(parts), do: parts
+
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
@@ -419,6 +485,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   defp heartbeat_agent_record(agent, attrs, actor) do
+    if agent.status != :connected or agent.is_healthy != true do
+      restore_connected_agent(agent, actor)
+    end
+
     heartbeat_attrs =
       attrs
       |> Map.take([:capabilities, :is_healthy, :config_source])
@@ -428,6 +498,37 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     agent
     |> Ash.Changeset.for_update(:heartbeat, heartbeat_attrs)
     |> Ash.update(actor: actor)
+    |> case do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp restore_connected_agent(agent, actor) do
+    attrs =
+      agent
+      |> Map.take([
+        :uid,
+        :name,
+        :type_id,
+        :type,
+        :uid_alt,
+        :vendor_name,
+        :version,
+        :policies,
+        :gateway_id,
+        :device_uid,
+        :capabilities,
+        :host,
+        :port,
+        :spiffe_identity,
+        :metadata
+      ])
+      |> compact_attrs()
+
+    Agent
+    |> Ash.Changeset.for_create(:register_connected, attrs)
+    |> Ash.create(actor: actor)
     |> case do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
