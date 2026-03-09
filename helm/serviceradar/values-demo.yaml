@@ -114,6 +114,7 @@ geoipMmdb:
   storageClassName: ""
 
 webNg:
+  gatewayAddress: "demo-gw.serviceradar.cloud:50052"
   extraEnv:
     # City MMDB is large; we only enable it in demo where we can allocate more memory.
     GEOLITE_CITY_ENABLED: "true"

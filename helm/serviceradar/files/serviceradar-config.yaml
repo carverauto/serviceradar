@@ -732,7 +732,7 @@ data:
   
       # HTTP monitoring
       http: 0.0.0.0:8222
-  
+
       # Enable JetStream for KV store
       jetstream {
         # Directory to store JetStream data

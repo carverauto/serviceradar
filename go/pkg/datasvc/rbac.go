@@ -179,18 +179,6 @@ func spiffeIDFromCertificate(cert *x509.Certificate) string {
 	return ""
 }
 
-func subjectIdentity(cert *x509.Certificate) string {
-	if cert == nil {
-		return ""
-	}
-
-	if identity := fullSubjectIdentity(cert); identity != "" {
-		return identity
-	}
-
-	return compactSubjectIdentity(cert)
-}
-
 func certificateIdentities(cert *x509.Certificate) []string {
 	if cert == nil {
 		return nil

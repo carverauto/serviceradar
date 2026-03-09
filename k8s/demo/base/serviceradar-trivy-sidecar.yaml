@@ -73,7 +73,7 @@ spec:
       - name: ghcr-io-cred
       containers:
       - name: trivy-sidecar
-        image: ghcr.io/carverauto/serviceradar-trivy-sidecar:latest
+        image: ghcr.io/carverauto/serviceradar-trivy-sidecar:sha-4582835936b4-v7
         imagePullPolicy: Always
         env:
         - name: CLUSTER_ID
