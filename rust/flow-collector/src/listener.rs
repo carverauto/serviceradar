@@ -1,9 +1,9 @@
 use crate::config::ListenerConfig;
 use crate::error::GetCurrentTimeError;
+use crate::flowpb::FlowMessage;
 use crate::metrics::ListenerMetrics;
 use crate::netflow::NetflowHandler;
 use crate::sflow::SflowHandler;
-use crate::flowpb::FlowMessage;
 use anyhow::Result;
 use log::{error, info, warn};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -181,7 +181,9 @@ impl Listener {
         loop {
             match self.socket.recv_from(&mut buf).await {
                 Ok((len, peer_addr)) => {
-                    self.metrics.packets_received.fetch_add(1, Ordering::Relaxed);
+                    self.metrics
+                        .packets_received
+                        .fetch_add(1, Ordering::Relaxed);
                     let messages = self.handler.parse_datagram(&buf[..len], len, peer_addr);
 
                     for flow_msg in messages {
@@ -196,11 +198,17 @@ impl Listener {
                         match self.tx.try_send((self.subject.clone(), encoded)) {
                             Ok(_) => {}
                             Err(mpsc::error::TrySendError::Full(_)) => {
-                                warn!("[{}] Publisher channel full, dropping flow message", protocol);
+                                warn!(
+                                    "[{}] Publisher channel full, dropping flow message",
+                                    protocol
+                                );
                                 self.metrics.flows_dropped.fetch_add(1, Ordering::Relaxed);
                             }
                             Err(mpsc::error::TrySendError::Closed(_)) => {
-                                error!("[{}] Publisher channel closed, stopping listener", protocol);
+                                error!(
+                                    "[{}] Publisher channel closed, stopping listener",
+                                    protocol
+                                );
                                 return Err(anyhow::anyhow!("Publisher channel closed"));
                             }
                         }

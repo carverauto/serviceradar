@@ -43,8 +43,7 @@ impl MetricsReporter {
 
                 info!(
                     "[{}@{}] packets_received: {}, flows_converted: {}, flows_dropped: {}, parse_errors: {}",
-                    metrics.protocol, metrics.listen_addr,
-                    packets, flows, dropped, errors
+                    metrics.protocol, metrics.listen_addr, packets, flows, dropped, errors
                 );
             }
         }
