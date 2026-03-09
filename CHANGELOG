@@ -1,3 +1,17 @@
+# ServiceRadar v1.2.1
+
+Default Kubernetes install now uses secret-backed runtime mTLS, edge onboarding/package generation is aligned with the dedicated gateway endpoint, and Trivy/Falco integrations are hardened for production use.
+
+## Whats New
+
+**1.2.1**
+- Removed SPIRE as the default Kubernetes installation path and switched Helm/demo manifests to secret-backed runtime certificates with CNPG enabled by default.
+- Fixed datasvc and NATS certificate identity matching so non-SPIFFE service certificates authorize correctly.
+- Hardened demo and Helm upgrade behavior by preserving existing runtime cert secrets instead of rotating them on every upgrade.
+- Fixed edge package and collector bundle generation to emit the correct gateway address and shared runtime cert usage for Falcosidekick and external agents.
+- Compacted Trivy sidecar report envelopes to stay under the existing NATS payload limit and fixed cross-namespace pod lookup RBAC for report correlation.
+- Removed `faker` from default Helm rendering; demo now opts into it explicitly.
+
 # ServiceRadar v1.2.0
 
 CNPG 18 upgrade, MikroTik router support, unified flow/log collectors, Falco runtime security, and major UI/performance improvements.
