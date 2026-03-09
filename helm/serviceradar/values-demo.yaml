@@ -327,11 +327,8 @@ bmpCollector:
     - "-vvv"
   config:
     stream_max_bytes: 1073741824
-    # Workaround: NATS verify_and_map currently fails to match the
-    # serviceradar-bmp-collector DN in demo.
-    # Use the known-good debug client mTLS identity for NATS auth.
-    nats_tls_client_cert_path: "/etc/serviceradar/certs/client.pem"
-    nats_tls_client_key_path: "/etc/serviceradar/certs/client-key.pem"
+    nats_tls_client_cert_path: "/etc/serviceradar/certs/bmp-collector.pem"
+    nats_tls_client_key_path: "/etc/serviceradar/certs/bmp-collector-key.pem"
   service:
     type: LoadBalancer
     annotations:

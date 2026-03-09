@@ -89,9 +89,9 @@ spec:
         - name: NATS_CACERTFILE
           value: /etc/serviceradar/certs/ca.crt
         - name: NATS_CERTFILE
-          value: /etc/serviceradar/certs/client.pem
+          value: /etc/serviceradar/certs/trivy-sidecar.pem
         - name: NATS_KEYFILE
-          value: /etc/serviceradar/certs/client-key.pem
+          value: /etc/serviceradar/certs/trivy-sidecar-key.pem
         - name: NATS_SERVER_NAME
           value: serviceradar-nats
         - name: TRIVY_METRICS_ADDR

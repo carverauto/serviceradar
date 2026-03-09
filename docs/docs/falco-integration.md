@@ -8,6 +8,11 @@ sidebar_label: Falco Integration
 
 Stream Falco runtime security events into ServiceRadar via NATS JetStream using Falcosidekick with mTLS authentication.
 
+Falcosidekick should use the dedicated shared cert files:
+- `/etc/serviceradar/certs/root.pem`
+- `/etc/serviceradar/certs/falcosidekick.pem`
+- `/etc/serviceradar/certs/falcosidekick-key.pem`
+
 ## Architecture
 
 ```

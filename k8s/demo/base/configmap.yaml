@@ -778,7 +778,7 @@ data:
           jetstream: enabled
           users: [
           {
-            user: "CN=serviceradar-debug-client,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            user: "CN=serviceradar-tools,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
                 allow: [">"]
@@ -881,6 +881,28 @@ data:
             permissions: {
               publish: {
                 allow: ["flows.raw.>", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-falcosidekick,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["falco.>", "$JS.API.STREAM.INFO.falco_events", "$JS.API.STREAM.CREATE.falco_events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-trivy-sidecar,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["trivy.report.>", "$JS.API.STREAM.INFO.trivy_reports", "$JS.API.STREAM.CREATE.trivy_reports", "$JS.API.>"]
               }
               subscribe: {
                 allow: ["$JS.API.>", "_INBOX.>"]
@@ -1032,7 +1054,8 @@ data:
             {"identity": "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
             {"identity": "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
             {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "writer"},
-            {"identity": "CN=serviceradar-debug-client,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"}
+            {"identity": "CN=serviceradar-falcosidekick,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
+            {"identity": "CN=serviceradar-tools,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"}
           ]
         },
         "bucket": "serviceradar-datasvc",
