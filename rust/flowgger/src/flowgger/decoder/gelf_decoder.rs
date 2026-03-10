@@ -144,44 +144,35 @@ mod test {
         let sd = &res.sd.unwrap();
         assert!(sd.len() == 1);
         let pairs = &sd[0].pairs;
-        assert!(pairs
-            .iter()
-            .cloned()
-            .any(|(k, v)| if let SDValue::U64(v) = v {
-                k == "_user_id" && v == 9001
-            } else {
-                false
-            }));
-        assert!(pairs
-            .iter()
-            .cloned()
-            .any(|(k, v)| if let SDValue::String(v) = v {
-                k == "_some_info" && v == "foo"
-            } else {
-                false
-            }));
-        assert!(pairs
-            .iter()
-            .cloned()
-            .any(|(k, v)| if let SDValue::String(v) = v {
-                k == "_some_env_var" && v == "bar"
-            } else {
-                false
-            }));
+        assert!(pairs.iter().any(|(k, v)| if let SDValue::U64(v) = v {
+            k == "_user_id" && *v == 9001
+        } else {
+            false
+        }));
+        assert!(pairs.iter().any(|(k, v)| if let SDValue::String(v) = v {
+            k == "_some_info" && v == "foo"
+        } else {
+            false
+        }));
+        assert!(pairs.iter().any(|(k, v)| if let SDValue::String(v) = v {
+            k == "_some_env_var" && v == "bar"
+        } else {
+            false
+        }));
     }
 
     #[test]
     #[should_panic(expected = "Invalid value type in structured data")]
     fn test_gelf_decoder_bad_key() {
         let msg = r#"{"some_key": []}"#;
-        let _res = GelfDecoder.decode(&msg).unwrap();
+        let _res = GelfDecoder.decode(msg).unwrap();
     }
 
     #[test]
     #[should_panic(expected = "Invalid GELF timestamp")]
     fn test_gelf_decoder_bad_timestamp() {
         let msg = r#"{"timestamp": "a string not a timestamp", "host": "anhostname"}"#;
-        let _res = GelfDecoder.decode(&msg).unwrap();
+        let _res = GelfDecoder.decode(msg).unwrap();
     }
 
     #[test]
