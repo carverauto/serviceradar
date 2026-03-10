@@ -27,67 +27,67 @@ defmodule ServiceRadar.Repo.Migrations.FixDireAgentDeduplicationCleanup do
       -- Find agent_ids with duplicate devices
       FOR rec IN
         SELECT agent_id
-        FROM ocsf_devices
+        FROM platform.ocsf_devices
         WHERE agent_id IS NOT NULL AND agent_id != ''
         GROUP BY agent_id
         HAVING COUNT(*) > 1
       LOOP
         -- Pick canonical device: the one referenced by ocsf_agents, or most recently created
         SELECT COALESCE(
-          (SELECT device_uid FROM ocsf_agents WHERE uid = rec.agent_id),
-          (SELECT uid FROM ocsf_devices WHERE agent_id = rec.agent_id ORDER BY created_time DESC LIMIT 1)
+          (SELECT device_uid FROM platform.ocsf_agents WHERE uid = rec.agent_id),
+          (SELECT uid FROM platform.ocsf_devices WHERE agent_id = rec.agent_id ORDER BY created_time DESC LIMIT 1)
         ) INTO canonical_uid;
 
         -- Reassign associated records from duplicates to canonical
-        UPDATE discovered_interfaces
+        UPDATE platform.discovered_interfaces
         SET device_id = canonical_uid
         WHERE device_id IN (
-          SELECT uid FROM ocsf_devices
+          SELECT uid FROM platform.ocsf_devices
           WHERE agent_id = rec.agent_id AND uid != canonical_uid
         );
 
-        UPDATE sweep_host_results
+        UPDATE platform.sweep_host_results
         SET device_id = canonical_uid
         WHERE device_id IN (
-          SELECT uid FROM ocsf_devices
+          SELECT uid FROM platform.ocsf_devices
           WHERE agent_id = rec.agent_id AND uid != canonical_uid
         );
 
-        UPDATE timeseries_metrics
+        UPDATE platform.timeseries_metrics
         SET device_id = canonical_uid
         WHERE device_id IN (
-          SELECT uid FROM ocsf_devices
+          SELECT uid FROM platform.ocsf_devices
           WHERE agent_id = rec.agent_id AND uid != canonical_uid
         );
 
-        UPDATE device_identifiers
+        UPDATE platform.device_identifiers
         SET device_id = canonical_uid
         WHERE device_id IN (
-          SELECT uid FROM ocsf_devices
+          SELECT uid FROM platform.ocsf_devices
           WHERE agent_id = rec.agent_id AND uid != canonical_uid
         );
 
-        UPDATE device_alias_states
+        UPDATE platform.device_alias_states
         SET device_id = canonical_uid
         WHERE device_id IN (
-          SELECT uid FROM ocsf_devices
+          SELECT uid FROM platform.ocsf_devices
           WHERE agent_id = rec.agent_id AND uid != canonical_uid
         );
 
-        UPDATE device_updates
+        UPDATE platform.device_updates
         SET device_id = canonical_uid
         WHERE device_id IN (
-          SELECT uid FROM ocsf_devices
+          SELECT uid FROM platform.ocsf_devices
           WHERE agent_id = rec.agent_id AND uid != canonical_uid
         );
 
         -- Update agent record to point to canonical device
-        UPDATE ocsf_agents
+        UPDATE platform.ocsf_agents
         SET device_uid = canonical_uid
         WHERE uid = rec.agent_id AND device_uid != canonical_uid;
 
         -- Delete duplicate devices
-        DELETE FROM ocsf_devices
+        DELETE FROM platform.ocsf_devices
         WHERE agent_id = rec.agent_id AND uid != canonical_uid;
 
         RAISE NOTICE 'Consolidated agent % to device %', rec.agent_id, canonical_uid;
@@ -99,7 +99,7 @@ defmodule ServiceRadar.Repo.Migrations.FixDireAgentDeduplicationCleanup do
     # Step 2: Backfill agent_id identifiers for all devices that have agent_id
     # set on ocsf_devices but no corresponding row in device_identifiers
     execute("""
-    INSERT INTO device_identifiers (device_id, identifier_type, identifier_value, partition, confidence, source, first_seen, last_seen)
+    INSERT INTO platform.device_identifiers (device_id, identifier_type, identifier_value, partition, confidence, source, first_seen, last_seen)
     SELECT
       d.uid,
       'agent_id',
@@ -109,11 +109,11 @@ defmodule ServiceRadar.Repo.Migrations.FixDireAgentDeduplicationCleanup do
       'migration_backfill',
       NOW(),
       NOW()
-    FROM ocsf_devices d
+    FROM platform.ocsf_devices d
     WHERE d.agent_id IS NOT NULL
       AND d.agent_id != ''
       AND NOT EXISTS (
-        SELECT 1 FROM device_identifiers di
+        SELECT 1 FROM platform.device_identifiers di
         WHERE di.device_id = d.uid
           AND di.identifier_type = 'agent_id'
           AND di.identifier_value = d.agent_id
@@ -125,7 +125,7 @@ defmodule ServiceRadar.Repo.Migrations.FixDireAgentDeduplicationCleanup do
   def down do
     # Backfill rows are identifiable by source
     execute("""
-    DELETE FROM device_identifiers
+    DELETE FROM platform.device_identifiers
     WHERE source = 'migration_backfill'
       AND identifier_type = 'agent_id';
     """)
