@@ -255,7 +255,7 @@ jobs:
             extra_args+=(-- --tag "${RELEASE_TAG}")
           fi
 
-          if ! bazel run --config=remote --stamp //docker/images:push_all "${extra_args[@]}"; then
+          if ! bazel run --config=remote --stamp //:push "${extra_args[@]}"; then
             if [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
               echo "Remote bazel run failed; retrying locally without remote executor/cache" >&2
               bazel run \
@@ -265,7 +265,7 @@ jobs:
                 --noremote_upload_local_results \
                 --jobs=8 \
                 --stamp \
-                //docker/images:push_all \
+                //:push \
                 "${extra_args[@]}"
             else
               echo "Remote bazel run failed; local fallback disabled." >&2

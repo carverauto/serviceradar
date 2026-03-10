@@ -106,7 +106,7 @@ compose-upgrade: ## Pull images and recreate containers without destroying volum
 
 .PHONY: build
 build: ## Build all OCI images with Bazel (remote)
-	@bazel build --config=remote $$(bazel query 'kind(oci_image, //docker/images:*)')
+	@bazel build --config=remote //:images
 
 .PHONY: build-workspace
 build-workspace: ## Build the full workspace with Bazel (remote)
@@ -124,10 +124,10 @@ push-web-ng: ## Build and push just the web-ng OCI image to GHCR (remote)
 push_all: ## Build and push all OCI images to GHCR (CI only, see issue #2517)
 	@set -eu; \
 	if [ -n "$(PUSH_TAG)" ]; then \
-		bazel run --config=remote --stamp //docker/images:push_all -- --tag "$(PUSH_TAG)"; \
+		bazel run --config=remote --stamp //:push -- --tag "$(PUSH_TAG)"; \
 		$(MAKE) verify_publish VERIFY_TAG="$(PUSH_TAG)"; \
 	else \
-		bazel run --config=remote --stamp //docker/images:push_all; \
+		bazel run --config=remote --stamp //:push; \
 		$(MAKE) verify_publish; \
 	fi
 

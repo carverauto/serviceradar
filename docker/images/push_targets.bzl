@@ -3,32 +3,8 @@
 load("@rules_oci//oci:defs.bzl", "oci_push")
 load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template")
 load("//docker/images:container_tags.bzl", "immutable_push_tags")
+load("//docker/images:image_inventory.bzl", "PUBLISHABLE_IMAGES")
 load("@rules_multirun//:defs.bzl", "command", "multirun")
-
-GHCR_PUSH_TARGETS = [
-    {"image": "arc_runner_image_amd64", "repository": "ghcr.io/carverauto/arc-runner"},
-    {"image": "core_elx_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-core-elx"},
-    {"image": "agent_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent"},
-    {"image": "db_event_writer_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-db-event-writer"},
-    {"image": "datasvc_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-datasvc"},
-    {"image": "log_collector_image_amd64", "push_image": "log_collector_image_multiarch", "repository": "ghcr.io/carverauto/serviceradar-log-collector"},
-    {"image": "trapd_image_amd64", "push_image": "trapd_image_multiarch", "repository": "ghcr.io/carverauto/serviceradar-trapd"},
-    {"image": "flow_collector_image_amd64", "push_image": "flow_collector_image_multiarch", "repository": "ghcr.io/carverauto/serviceradar-flow-collector"},
-    {"image": "bmp_collector_image_amd64", "push_image": "bmp_collector_image_multiarch", "repository": "ghcr.io/carverauto/arancini"},
-    {"image": "rperf_client_image_amd64", "push_image": "rperf_client_image_multiarch", "repository": "ghcr.io/carverauto/serviceradar-rperf-client"},
-    {"image": "agent_gateway_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent-gateway"},
-    {"image": "faker_image_amd64", "push_image": "faker_image_multiarch", "repository": "ghcr.io/carverauto/serviceradar-faker"},
-    {"image": "zen_image_amd64", "push_image": "zen_image_multiarch", "repository": "ghcr.io/carverauto/serviceradar-zen"},
-    {"image": "config_updater_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-config-updater"},
-    {"image": "web_ng_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-web-ng", "digest_label": ":web_ng_image_base_amd64.digest"},
-    {"image": "cert_generator_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-cert-generator"},
-    {"image": "tools_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-tools"},
-    {
-        "image": "cnpg_image_amd64",
-        "repository": "ghcr.io/carverauto/serviceradar-cnpg",
-        "static_tags": ["18.3.0-sr2"],
-    },
-]
 
 
 def declare_ghcr_push_targets():
@@ -36,7 +12,7 @@ def declare_ghcr_push_targets():
 
     push_command_targets = []
 
-    for target in GHCR_PUSH_TARGETS:
+    for target in PUBLISHABLE_IMAGES:
         image = target["image"]
         push_image = target.get("push_image", image)
         repository = target["repository"]

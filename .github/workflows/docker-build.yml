@@ -148,14 +148,14 @@ jobs:
           bazel build \
             --config=remote \
             -c opt \
-            //docker/images:push_all
+            //:images
 
       - name: Publish images
         env:
           EXTRA_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          cmd=(bazel run --config=remote -c opt --stamp //docker/images:push_all)
+          cmd=(bazel run --config=remote -c opt --stamp //:push)
           if [[ -n "${EXTRA_TAG}" ]]; then
             cmd+=(-- --tag "${EXTRA_TAG}")
           fi
