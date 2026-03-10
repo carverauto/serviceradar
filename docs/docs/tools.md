@@ -10,6 +10,7 @@ title: Tools Pod (serviceradar-tools)
 
 - `nats` CLI with a preloaded context (TLS and credentials)
 - PostgreSQL 18 client helpers for CNPG (Timescale + AGE), including `psql`, `pg_isready`, and `cnpg-sql`
+- `zen-put-rule` for publishing or updating Zen rule bundles in KV during debugging
 - Common utilities: `jq`, `rg`, `openssl`, `nc`
 
 ## Kubernetes Usage
@@ -31,6 +32,12 @@ nats stream info events
 
 # Consumers (events)
 nats consumer ls events
+```
+
+Zen rule debugging:
+
+```bash
+zen-put-rule --help
 ```
 
 CNPG checks:

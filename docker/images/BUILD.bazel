@@ -490,6 +490,7 @@ declare_custom_base_service_container_amd64(
     repo_tags = ["ghcr.io/carverauto/serviceradar-tools:local"],
     files = {
         "//go/cmd/cli:cli": "usr/local/bin/serviceradar-cli",
+        "//rust/consumers/zen:zen_put_rule": "usr/local/bin/zen-put-rule",
         "//docker/compose:tools-entrypoint.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:tools-profile.sh": "etc/profile.d/serviceradar-tools.sh",
         "//docker/compose:tools-motd.txt": "etc/motd",
@@ -497,6 +498,7 @@ declare_custom_base_service_container_amd64(
     },
     modes = {
         "usr/local/bin/serviceradar-cli": "0755",
+        "usr/local/bin/zen-put-rule": "0755",
         "usr/local/bin/entrypoint.sh": "0755",
         "etc/profile.d/serviceradar-tools.sh": "0644",
         "etc/motd": "0644",

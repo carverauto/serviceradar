@@ -19,7 +19,22 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /usr/local/bin/serviceradar-cli \
     ./go/cmd/cli
 
-# Stage 2: Final tools image
+# Stage 2: Build zen-put-rule for live rule debugging from the tools pod
+FROM rust:1.78-bullseye AS zen-put-rule-builder
+
+WORKDIR /usr/src/serviceradar
+
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY rust ./rust
+COPY proto ./proto
+
+RUN cargo build -p serviceradar-zen --release --bin zen-put-rule
+
+# Stage 3: Final tools image
 FROM ubuntu:22.04
 
 # Avoid interactive prompts during package installation
@@ -69,6 +84,10 @@ RUN go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest && \
 # Copy serviceradar-cli from builder stage
 COPY --from=builder /usr/local/bin/serviceradar-cli /usr/local/bin/serviceradar-cli
 RUN chmod +x /usr/local/bin/serviceradar-cli
+
+# Copy zen-put-rule from Rust builder stage
+COPY --from=zen-put-rule-builder /usr/src/serviceradar/target/release/zen-put-rule /usr/local/bin/zen-put-rule
+RUN chmod +x /usr/local/bin/zen-put-rule
 
 # Bundle a default NATS context setup script for local debugging
 RUN mkdir -p /etc/serviceradar/nats
