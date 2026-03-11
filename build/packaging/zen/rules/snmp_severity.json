@@ -11,7 +11,7 @@
           { "id": "expr1", "key": "severity", "value": "severity ?? 'Unknown'" },
           { "id": "expr2", "key": "source", "value": "'snmp'" },
           { "id": "expr3", "key": "service_name", "value": "'snmp'" },
-          { "id": "expr4", "key": "body", "value": "len(varbinds ?? []) > 0 ? (varbinds[0].value ?? (body ?? '')) : (body ?? '')" }
+          { "id": "expr4", "key": "body", "value": "(body == 'logs.snmp.processed' or body == '') ? (len(varbinds ?? []) > 0 ? (extract(varbinds[0].value ?? '', '^[^:]+: (.*)$')[1] ?? varbinds[0].value ?? body) : body) : body" }
         ]
       }
     },
