@@ -19,8 +19,8 @@ use std::{
     path::{Path, PathBuf},
     process,
     sync::Once,
-    time::{SystemTime, UNIX_EPOCH},
     time::Duration,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     task::JoinHandle,
@@ -37,6 +37,10 @@ const DB_SEED_RETRIES: usize = 3;
 const REMOTE_FIXTURE_LOCK_ID: i64 = 4_216_042;
 
 static TRACING_INIT: Once = Once::new();
+
+fn ensure_rustls_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
 
 /// Runs a test closure against a fully bootstrapped SRQL instance backed by the seeded Postgres fixture.
 pub async fn with_srql_harness<F, Fut>(test: F)
@@ -288,9 +292,9 @@ impl RemoteFixtureConfig {
             (None, None) => return Ok(None),
         };
 
-        let parsed: tokio_postgres::Config = database_url
-            .parse()
-            .map_err(|err| anyhow::anyhow!("SRQL_TEST_DATABASE_URL is invalid: {err}"))?;
+        let (database_url, parsed) =
+            parse_fixture_pg_config("SRQL_TEST_DATABASE_URL", &database_url)?;
+        let (admin_url, _) = parse_fixture_pg_config("SRQL_TEST_ADMIN_URL", &admin_url)?;
         let database_owner = parsed
             .get_user()
             .map(|value| value.to_string())
@@ -310,6 +314,168 @@ impl RemoteFixtureConfig {
             database_name,
             database_owner,
         }))
+    }
+}
+
+fn parse_fixture_pg_config(
+    env_name: &str,
+    raw: &str,
+) -> anyhow::Result<(String, tokio_postgres::Config)> {
+    let normalized = normalize_fixture_pg_connection_string(raw)
+        .map_err(|err| anyhow::anyhow!("{env_name} is invalid: {err}"))?;
+    let parsed = normalized
+        .parse()
+        .map_err(|err| anyhow::anyhow!("{env_name} is invalid: {err}"))?;
+    Ok((normalized, parsed))
+}
+
+fn normalize_fixture_pg_connection_string(raw: &str) -> anyhow::Result<String> {
+    if raw.parse::<PgConfig>().is_ok() {
+        return Ok(raw.to_string());
+    }
+
+    normalize_postgres_url(raw)
+}
+
+fn normalize_postgres_url(raw: &str) -> anyhow::Result<String> {
+    let (scheme, remainder) = raw
+        .split_once("://")
+        .ok_or_else(|| anyhow::anyhow!("invalid connection string"))?;
+    if scheme != "postgres" && scheme != "postgresql" {
+        anyhow::bail!("unsupported connection string scheme {scheme}");
+    }
+
+    let (authority, path_and_query) = remainder
+        .split_once('/')
+        .ok_or_else(|| anyhow::anyhow!("database URL must include a database name"))?;
+    if authority.is_empty() {
+        anyhow::bail!("database URL must include a host");
+    }
+
+    let (userinfo, host_port) = match authority.rsplit_once('@') {
+        Some((userinfo, host_port)) => (Some(userinfo), host_port),
+        None => (None, authority),
+    };
+
+    let (host, port) = parse_host_port(host_port)?;
+    let (database_name, query) = match path_and_query.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (path_and_query, None),
+    };
+    let database_name = percent_decode(database_name.trim_start_matches('/'))?;
+    if database_name.is_empty() {
+        anyhow::bail!("database URL must include a database name");
+    }
+
+    let mut parts = vec![
+        format!("host={}", quote_pg_keyword_value(&host)),
+        format!("dbname={}", quote_pg_keyword_value(&database_name)),
+    ];
+
+    if let Some(port) = port {
+        parts.push(format!("port={}", quote_pg_keyword_value(&port)));
+    }
+
+    if let Some(userinfo) = userinfo {
+        let (user, password) = match userinfo.split_once(':') {
+            Some((user, password)) => (user, Some(password)),
+            None => (userinfo, None),
+        };
+        let user = percent_decode(user)?;
+        if !user.is_empty() {
+            parts.push(format!("user={}", quote_pg_keyword_value(&user)));
+        }
+        if let Some(password) = password {
+            let password = percent_decode(password)?;
+            parts.push(format!("password={}", quote_pg_keyword_value(&password)));
+        }
+    }
+
+    if let Some(query) = query {
+        for segment in query.split('&') {
+            if segment.is_empty() {
+                continue;
+            }
+
+            let (key, value) = match segment.split_once('=') {
+                Some((key, value)) => (key, value),
+                None => (segment, ""),
+            };
+            let key = percent_decode(key)?;
+            if key.is_empty() {
+                continue;
+            }
+            let value = percent_decode(value)?;
+            parts.push(format!("{key}={}", quote_pg_keyword_value(&value)));
+        }
+    }
+
+    Ok(parts.join(" "))
+}
+
+fn parse_host_port(value: &str) -> anyhow::Result<(String, Option<String>)> {
+    if value.is_empty() {
+        anyhow::bail!("database URL must include a host");
+    }
+
+    if let Some(rest) = value.strip_prefix('[') {
+        let (host, remainder) = rest
+            .split_once(']')
+            .ok_or_else(|| anyhow::anyhow!("invalid IPv6 host"))?;
+        let port = remainder
+            .strip_prefix(':')
+            .filter(|port| !port.is_empty())
+            .map(str::to_string);
+        return Ok((host.to_string(), port));
+    }
+
+    match value.rsplit_once(':') {
+        Some((host, port))
+            if !host.is_empty()
+                && !port.is_empty()
+                && port.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            Ok((host.to_string(), Some(port.to_string())))
+        }
+        _ => Ok((value.to_string(), None)),
+    }
+}
+
+fn quote_pg_keyword_value(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('\'', "\\'");
+    format!("'{escaped}'")
+}
+
+fn percent_decode(value: &str) -> anyhow::Result<String> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len() {
+                anyhow::bail!("invalid percent-encoding");
+            }
+            let hi = decode_hex_digit(bytes[index + 1])?;
+            let lo = decode_hex_digit(bytes[index + 2])?;
+            decoded.push((hi << 4) | lo);
+            index += 3;
+            continue;
+        }
+
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+
+    String::from_utf8(decoded).map_err(|_| anyhow::anyhow!("invalid UTF-8 in connection string"))
+}
+
+fn decode_hex_digit(byte: u8) -> anyhow::Result<u8> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        b'A'..=b'F' => Ok(byte - b'A' + 10),
+        _ => anyhow::bail!("invalid percent-encoding"),
     }
 }
 
@@ -587,11 +753,7 @@ fn resolved_pg_ssl_root_cert_path() -> anyhow::Result<Option<String>> {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let path = env::temp_dir().join(format!(
-        "srql-test-ca-{}-{}.crt",
-        process::id(),
-        nanos
-    ));
+    let path = env::temp_dir().join(format!("srql-test-ca-{}-{}.crt", process::id(), nanos));
     fs::write(&path, trimmed).with_context(|| {
         format!(
             "failed to materialize SRQL_TEST_DATABASE_CA_CERT into {}",
@@ -630,6 +792,7 @@ fn build_client_config(
     client_cert: Option<&str>,
     client_key: Option<&str>,
 ) -> anyhow::Result<ClientConfig> {
+    ensure_rustls_crypto_provider();
     let builder = ClientConfig::builder().with_root_certificates(root_store);
 
     match (client_cert, client_key) {
