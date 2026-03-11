@@ -46,7 +46,10 @@ CREATE TABLE ocsf_devices (
     agent_id            TEXT,
     discovery_sources   TEXT[],
     is_available        BOOLEAN,
-    metadata            JSONB
+    metadata            JSONB,
+    deleted_at          TIMESTAMPTZ,
+    deleted_by          TEXT,
+    deleted_reason      TEXT
 );
 
 DROP TABLE IF EXISTS gateways;
