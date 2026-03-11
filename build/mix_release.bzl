@@ -629,10 +629,7 @@ ln -sf "$MIX_GLOBAL_CACHE/node_modules" "$WORKDIR/assets/node_modules"
 mkdir -p "$WORKDIR/assets/component"
 ln -sf "$MIX_GLOBAL_CACHE/component_node_modules" "$WORKDIR/assets/component/node_modules"
 
-if [ -f "$EXECROOT/Cargo.toml" ]; then
-  cp "$EXECROOT/Cargo.toml" "$WORKDIR/Cargo.toml"
-  [ -f "$EXECROOT/Cargo.lock" ] && cp "$EXECROOT/Cargo.lock" "$WORKDIR/Cargo.lock"
-
+if [ -d "$EXECROOT/rust/srql" ] || [ -d "$EXECROOT/rust/kvutil" ]; then
   if [ -d "$EXECROOT/rust/srql" ]; then
     mkdir -p "$WORKDIR/rust/srql"
     copy_dir "$EXECROOT/rust/srql/" "$WORKDIR/rust/srql/"
@@ -649,14 +646,10 @@ if [ -f "$EXECROOT/Cargo.toml" ]; then
   fi
 
   if [ -d "$WORKDIR/rust" ]; then
-    mkdir -p /tmp/rust
-    rm -rf /tmp/rust/srql /tmp/rust/kvutil
-    [ -d "$WORKDIR/rust/srql" ] && ln -s "$WORKDIR/rust/srql" /tmp/rust/srql
-    [ -d "$WORKDIR/rust/kvutil" ] && ln -s "$WORKDIR/rust/kvutil" /tmp/rust/kvutil
-    cat > /tmp/rust/Cargo.toml <<'EOF'
+    cat > "$WORKDIR/Cargo.toml" <<'EOF'
 [workspace]
 resolver = "2"
-members = ["srql", "kvutil"]
+members = ["rust/srql", "rust/kvutil"]
 
 [workspace.dependencies]
 tonic = {{ version = "0.12", features = ["tls"] }}
@@ -675,6 +668,19 @@ lto = true
 debug-assertions = false
 panic = "abort"
 EOF
+
+    NIF_LOCK="$WORKDIR/elixir/serviceradar_srql/native/srql_nif/Cargo.lock"
+    if [ -f "$NIF_LOCK" ]; then
+      cp "$NIF_LOCK" "$WORKDIR/Cargo.lock"
+    else
+      rm -f "$WORKDIR/Cargo.lock"
+    fi
+
+    mkdir -p /tmp/rust
+    rm -rf /tmp/rust/srql /tmp/rust/kvutil
+    [ -d "$WORKDIR/rust/srql" ] && ln -s "$WORKDIR/rust/srql" /tmp/rust/srql
+    [ -d "$WORKDIR/rust/kvutil" ] && ln -s "$WORKDIR/rust/kvutil" /tmp/rust/kvutil
+    cp "$WORKDIR/Cargo.toml" /tmp/rust/Cargo.toml
   fi
 fi
 

@@ -27,10 +27,6 @@ mix_release(
     name = "release_tar",
     srcs = [":srcs"],
     bootstrap_srcs = [":deps_srcs"],
-    data = [
-        "//:Cargo.toml",
-        "//:Cargo.lock",
-    ],
     out = "serviceradar-core-elx-release.tar.gz",
     src_dir = "elixir/serviceradar_core_elx",
     run_assets = False,
