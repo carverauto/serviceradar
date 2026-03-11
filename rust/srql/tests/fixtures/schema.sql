@@ -137,6 +137,7 @@ CREATE TABLE logs (
     severity_number     INT,
     body                TEXT,
     event_name          TEXT,
+    source              TEXT,
     service_name        TEXT,
     service_version     TEXT,
     service_instance    TEXT,
@@ -239,6 +240,7 @@ CREATE TABLE otel_metrics (
     is_slow          BOOLEAN,
     component        TEXT,
     level            TEXT,
+    unit             TEXT,
     created_at       TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (timestamp, span_name, service_name, span_id)
 );

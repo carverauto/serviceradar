@@ -350,6 +350,7 @@ INSERT INTO logs (
         service_instance,
         scope_name,
         scope_version,
+        source,
         attributes,
         resource_attributes,
         created_at
@@ -366,6 +367,7 @@ SELECT base.now_ts - INTERVAL '1 minute',
     'inst-1',
     'my-scope',
     '1.0',
+    'app',
     '{"key":"value"}'::text,
     '{"res":"val"}'::text,
     base.now_ts
@@ -383,6 +385,7 @@ SELECT base.now_ts - INTERVAL '2 hours',
     'inst-1',
     'my-scope',
     '1.0',
+    'app',
     '{"error":"timeout"}'::text,
     '{"res":"val"}'::text,
     base.now_ts
