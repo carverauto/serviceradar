@@ -26,7 +26,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
             let sql_debug = summary_query.sql.clone();
             let binds_debug = summary_query.binds.clone();
             let query = summary_query.to_boxed_query();
-            let rows: Vec<TraceSummaryRow> = query.load(conn).await.map_err(|err| {
+            let rows: Vec<TraceSummaryRow> = query.load::<TraceSummaryRow>(conn).await.map_err(|err| {
                 error!(
                     error = ?err,
                     sql = %sql_debug,
@@ -41,7 +41,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
             let sql_debug = summary_query.sql.clone();
             let binds_debug = summary_query.binds.clone();
             let query = summary_query.to_boxed_query();
-            let rows: Vec<TraceStatsPayload> = query.load(conn).await.map_err(|err| {
+            let rows: Vec<TraceStatsPayload> = query.load::<TraceStatsPayload>(conn).await.map_err(|err| {
                 error!(
                     error = ?err,
                     sql = %sql_debug,
@@ -139,6 +139,7 @@ fn bind_param_from_query(value: SqlBindValue) -> BindParam {
 }
 
 #[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct TraceStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
     payload: Option<Value>,

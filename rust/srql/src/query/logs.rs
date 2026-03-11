@@ -39,7 +39,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     if let Some(rollup_sql) = build_rollup_stats_query(plan)? {
         let query = rollup_sql.to_boxed_query();
         let rows: Vec<LogsStatsPayload> = query
-            .load(conn)
+            .load::<LogsStatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
         return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
@@ -48,7 +48,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     if let Some(stats_sql) = build_stats_query(plan)? {
         let query = stats_sql.to_boxed_query();
         let rows: Vec<LogsStatsPayload> = query
-            .load(conn)
+            .load::<LogsStatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
         return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
@@ -157,6 +157,7 @@ impl LogsStatsSql {
 }
 
 #[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct LogsStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
     payload: Option<Value>,

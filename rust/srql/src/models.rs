@@ -10,8 +10,8 @@ use serde::Serialize;
 use uuid::Uuid;
 
 /// OCSF-aligned agent row (OCSF v1.7.0 Agent object)
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::ocsf_agents)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::ocsf_agents, check_for_backend(diesel::pg::Pg))]
 pub struct AgentRow {
     pub uid: String,
     pub name: Option<String>,
@@ -59,8 +59,8 @@ impl AgentRow {
 }
 
 /// OCSF-aligned device row (OCSF v1.7.0 Device object)
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::ocsf_devices)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::ocsf_devices, check_for_backend(diesel::pg::Pg))]
 pub struct DeviceRow {
     // OCSF Core Identity
     pub uid: String,
@@ -176,8 +176,8 @@ impl DeviceRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::bmp_routing_events)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::bmp_routing_events, check_for_backend(diesel::pg::Pg))]
 pub struct BmpRoutingEventRow {
     pub time: DateTime<Utc>,
     pub id: Uuid,
@@ -217,8 +217,8 @@ impl BmpRoutingEventRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::ocsf_events)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::ocsf_events, check_for_backend(diesel::pg::Pg))]
 pub struct EventRow {
     pub time: DateTime<Utc>,
     pub id: Uuid,
@@ -306,8 +306,8 @@ fn extract_device_host(device: &serde_json::Value) -> Option<String> {
     None
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::device_updates)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::device_updates, check_for_backend(diesel::pg::Pg))]
 pub struct DeviceUpdateRow {
     pub observed_at: DateTime<Utc>,
     pub agent_id: String,
@@ -342,8 +342,8 @@ impl DeviceUpdateRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::logs)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::logs, check_for_backend(diesel::pg::Pg))]
 pub struct LogRow {
     pub timestamp: DateTime<Utc>,
     pub observed_timestamp: Option<DateTime<Utc>>,
@@ -394,8 +394,8 @@ impl LogRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::otel_traces)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::otel_traces, check_for_backend(diesel::pg::Pg))]
 pub struct TraceSpanRow {
     pub timestamp: DateTime<Utc>,
     pub trace_id: Option<String>,
@@ -446,8 +446,8 @@ impl TraceSpanRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::service_status)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::service_status, check_for_backend(diesel::pg::Pg))]
 pub struct ServiceStatusRow {
     pub timestamp: DateTime<Utc>,
     pub gateway_id: String,
@@ -488,7 +488,7 @@ impl ServiceStatusRow {
 }
 
 #[derive(Debug, Clone, QueryableByName, Serialize)]
-#[diesel(table_name = crate::schema::gateways)]
+#[diesel(table_name = crate::schema::gateways, check_for_backend(diesel::pg::Pg))]
 pub struct GatewayRow {
     #[diesel(sql_type = Text)]
     pub gateway_id: String,
@@ -543,8 +543,8 @@ impl GatewayRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::otel_metrics)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::otel_metrics, check_for_backend(diesel::pg::Pg))]
 pub struct OtelMetricRow {
     pub timestamp: DateTime<Utc>,
     pub trace_id: Option<String>,
@@ -594,8 +594,8 @@ impl OtelMetricRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::timeseries_metrics)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::timeseries_metrics, check_for_backend(diesel::pg::Pg))]
 pub struct TimeseriesMetricRow {
     pub timestamp: DateTime<Utc>,
     pub gateway_id: String,
@@ -640,8 +640,8 @@ impl TimeseriesMetricRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::cpu_metrics)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::cpu_metrics, check_for_backend(diesel::pg::Pg))]
 pub struct CpuMetricRow {
     pub timestamp: DateTime<Utc>,
     pub gateway_id: String,
@@ -675,8 +675,8 @@ impl CpuMetricRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::memory_metrics)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::memory_metrics, check_for_backend(diesel::pg::Pg))]
 pub struct MemoryMetricRow {
     pub timestamp: DateTime<Utc>,
     pub gateway_id: Option<String>,
@@ -708,8 +708,8 @@ impl MemoryMetricRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::disk_metrics)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::disk_metrics, check_for_backend(diesel::pg::Pg))]
 pub struct DiskMetricRow {
     pub timestamp: DateTime<Utc>,
     pub gateway_id: Option<String>,
@@ -745,8 +745,8 @@ impl DiskMetricRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::process_metrics)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::process_metrics, check_for_backend(diesel::pg::Pg))]
 pub struct ProcessMetricRow {
     pub timestamp: DateTime<Utc>,
     pub gateway_id: Option<String>,
@@ -783,6 +783,7 @@ impl ProcessMetricRow {
 }
 
 #[derive(Debug, Clone, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct TraceSummaryRow {
     #[diesel(sql_type = Timestamptz)]
     pub timestamp: DateTime<Utc>,
@@ -836,8 +837,8 @@ impl TraceSummaryRow {
 }
 
 /// Alert row for monitoring alerts
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::alerts)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::alerts, check_for_backend(diesel::pg::Pg))]
 pub struct AlertRow {
     pub id: Uuid,
     pub title: String,

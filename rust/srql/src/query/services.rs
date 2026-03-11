@@ -32,6 +32,7 @@ type ServicesStatsQuery<'a> = BoxedSelectStatement<'a, BigInt, ServiceStatusFrom
 
 /// Raw SQL result for rollup stats query - returns JSONB payload
 #[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct ServicesRollupStatsSql {
     #[diesel(sql_type = Jsonb)]
     payload: Value,
@@ -61,7 +62,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     if let Some(rollup_result) = build_rollup_stats_query(plan)? {
         let rows: Vec<ServicesRollupStatsSql> = rollup_result
             .query
-            .load(conn)
+            .load::<ServicesRollupStatsSql>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
 

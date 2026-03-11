@@ -24,7 +24,7 @@ pub(super) async fn execute(
     query = query.bind::<diesel::sql_types::Int8, _>(plan.offset);
 
     let rows: Vec<CypherRow> = query
-        .load(conn)
+        .load::<CypherRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
@@ -132,6 +132,7 @@ fn ensure_read_only(raw: &str) -> Result<()> {
 }
 
 #[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct CypherRow {
     #[diesel(sql_type = Nullable<Jsonb>)]
     result: Option<Value>,

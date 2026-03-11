@@ -30,9 +30,10 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     ensure_entity(plan)?;
     let query = build_query(plan)?;
     let rows: Vec<AgentRow> = query
+        .select(AgentRow::as_select())
         .limit(plan.limit)
         .offset(plan.offset)
-        .load(conn)
+        .load::<AgentRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 

@@ -208,7 +208,7 @@ pub(super) const FLOW_APP_EXPR: &str = r#"
 "#;
 
 #[derive(Queryable, Selectable, Serialize, Deserialize)]
-#[diesel(table_name = crate::schema::ocsf_network_activity)]
+#[diesel(table_name = crate::schema::ocsf_network_activity, check_for_backend(diesel::pg::Pg))]
 struct FlowRow {
     time: chrono::NaiveDateTime,
     class_uid: i32,
@@ -272,9 +272,10 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 
     let query = build_query(plan)?;
     let rows: Vec<FlowRow> = query
+        .select(FlowRow::as_select())
         .limit(plan.limit)
         .offset(plan.offset)
-        .load(conn)
+        .load::<FlowRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
@@ -1143,6 +1144,7 @@ fn bind_param_from_flow_stats(value: FlowSqlBindValue) -> BindParam {
 }
 
 #[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct FlowStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
     result: Option<Value>,
@@ -1186,7 +1188,7 @@ async fn execute_stats(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result
     }
 
     let rows: Vec<FlowStatsPayload> = query
-        .load(conn)
+        .load::<FlowStatsPayload>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 

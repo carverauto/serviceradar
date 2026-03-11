@@ -29,9 +29,10 @@ pub(super) async fn execute(
     ensure_entity(plan)?;
     let query = build_query(plan)?;
     let rows: Vec<DeviceUpdateRow> = query
+        .select(DeviceUpdateRow::as_select())
         .limit(plan.limit)
         .offset(plan.offset)
-        .load(conn)
+        .load::<DeviceUpdateRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
