@@ -19,7 +19,7 @@ on:
     branches:
       - main
     paths:
-      - 'pkg/cpufreq/**'
+      - 'go/pkg/cpufreq/**'
       - 'Makefile'
       - '.bazelrc'
       - 'MODULE.bazel'
@@ -27,7 +27,7 @@ on:
       - '.github/workflows/clang-tidy.yml'
   pull_request:
     paths:
-      - 'pkg/cpufreq/**'
+      - 'go/pkg/cpufreq/**'
       - 'Makefile'
       - '.bazelrc'
       - 'MODULE.bazel'
@@ -64,4 +64,4 @@ jobs:
           printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
 
       - name: Run clang-tidy via Bazel
-        run: bazel build --config=clang-tidy //pkg/cpufreq:hostfreq_darwin_cc
+        run: bazel build --config=clang-tidy //go/pkg/cpufreq:hostfreq_darwin_cc
