@@ -151,7 +151,7 @@ SELECT 'gateway-1',
     10,
     50,
     base.now_ts,
-    '00000000-0000-0000-0000-000000000010'
+    '00000000-0000-0000-0000-000000000010'::uuid
 FROM base
 UNION ALL
 SELECT 'gateway-2',
@@ -168,7 +168,7 @@ SELECT 'gateway-2',
     5,
     25,
     base.now_ts,
-    '00000000-0000-0000-0000-000000000011'
+    '00000000-0000-0000-0000-000000000011'::uuid
 FROM base;
 WITH base AS (
     SELECT NOW() AS now_ts
