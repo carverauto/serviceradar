@@ -114,7 +114,7 @@ jobs:
 
           {
             echo "PGSSLROOTCERT=${ca_file}"
-            echo "SRQL_TEST_DATABASE_CA_CERT=${ca_file}"
+            echo "SRQL_TEST_DATABASE_CA_CERT_FILE=${ca_file}"
           } >> "$GITHUB_ENV"
 
       - name: Configure remote cache

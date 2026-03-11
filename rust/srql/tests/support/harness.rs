@@ -17,7 +17,9 @@ use std::{
     io::BufReader,
     net::SocketAddr,
     path::{Path, PathBuf},
+    process,
     sync::Once,
+    time::{SystemTime, UNIX_EPOCH},
     time::Duration,
 };
 use tokio::{
@@ -107,7 +109,8 @@ fn test_config(database_url: String) -> AppConfig {
         database_url,
         age_graph_name: "platform_graph".to_string(),
         max_pool_size: 5,
-        pg_ssl_root_cert: env::var("PGSSLROOTCERT").ok(),
+        pg_ssl_root_cert: resolved_pg_ssl_root_cert_path()
+            .expect("failed to resolve PGSSLROOTCERT for SRQL test harness"),
         pg_ssl_cert: env::var("PGSSLCERT").ok(),
         pg_ssl_key: env::var("PGSSLKEY").ok(),
         api_key: Some(API_KEY.to_string()),
@@ -538,9 +541,9 @@ async fn connect_with_env_tls(
 }
 
 fn tls_connector_from_env() -> anyhow::Result<Option<MakeRustlsConnect>> {
-    let root_cert = match env::var("PGSSLROOTCERT") {
-        Ok(value) if !value.trim().is_empty() => value,
-        _ => return Ok(None),
+    let root_cert = match resolved_pg_ssl_root_cert_path()? {
+        Some(value) => value,
+        None => return Ok(None),
     };
     let client_cert = env::var("PGSSLCERT").ok();
     let client_key = env::var("PGSSLKEY").ok();
@@ -550,6 +553,53 @@ fn tls_connector_from_env() -> anyhow::Result<Option<MakeRustlsConnect>> {
         client_cert.as_deref(),
         client_key.as_deref(),
     )?))
+}
+
+fn resolved_pg_ssl_root_cert_path() -> anyhow::Result<Option<String>> {
+    if let Ok(path) = env::var("PGSSLROOTCERT") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            let candidate = Path::new(trimmed);
+            if candidate.is_file() {
+                return Ok(Some(trimmed.to_string()));
+            }
+        }
+    }
+
+    let raw_or_path = match env::var("SRQL_TEST_DATABASE_CA_CERT") {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => return Ok(None),
+    };
+
+    let trimmed = raw_or_path.trim();
+    let candidate = Path::new(trimmed);
+    if candidate.is_file() {
+        return Ok(Some(trimmed.to_string()));
+    }
+
+    if !trimmed.contains("BEGIN CERTIFICATE") {
+        anyhow::bail!(
+            "PGSSLROOTCERT was not readable and SRQL_TEST_DATABASE_CA_CERT did not contain a PEM certificate or a valid file path"
+        );
+    }
+
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let path = env::temp_dir().join(format!(
+        "srql-test-ca-{}-{}.crt",
+        process::id(),
+        nanos
+    ));
+    fs::write(&path, trimmed).with_context(|| {
+        format!(
+            "failed to materialize SRQL_TEST_DATABASE_CA_CERT into {}",
+            path.display()
+        )
+    })?;
+
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 fn build_tls_connector(

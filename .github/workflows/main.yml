@@ -115,7 +115,7 @@ jobs:
 
           {
             echo "PGSSLROOTCERT=${ca_file}"
-            echo "SRQL_TEST_DATABASE_CA_CERT=${ca_file}"
+            echo "SRQL_TEST_DATABASE_CA_CERT_FILE=${ca_file}"
           } >> "$GITHUB_ENV"
 
           parser="$(command -v python3 || command -v python || true)"
@@ -179,6 +179,7 @@ jobs:
             --test_env=PGSSLROOTCERT \
             --test_env=PGSSLCERT \
             --test_env=PGSSLKEY \
+            --test_env=SRQL_TEST_DATABASE_CA_CERT \
             //...
 
       - name: serviceradar_core integration tests
