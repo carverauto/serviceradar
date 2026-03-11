@@ -53,13 +53,13 @@ jobs:
 
           if command -v apt-get >/dev/null 2>&1; then
             sudo apt-get update
-            sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler cmake flex bison rpm rpm2cpio
+            sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler cmake flex bison rpm rpm2cpio postgresql-client
           elif command -v dnf >/dev/null 2>&1; then
-            sudo dnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake flex bison rpm-build rpm
+            sudo dnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake flex bison rpm-build rpm postgresql
           elif command -v yum >/dev/null 2>&1; then
-            sudo yum install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake flex bison rpm-build rpm
+            sudo yum install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake flex bison rpm-build rpm postgresql
           elif command -v microdnf >/dev/null 2>&1; then
-            sudo microdnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake flex bison rpm-build rpm
+            sudo microdnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake flex bison rpm-build rpm postgresql
           else
             echo "Unsupported package manager; please install gcc, g++ (or clang), make, OpenSSL headers, pkg-config, and protoc manually." >&2
             exit 1
@@ -67,6 +67,7 @@ jobs:
 
           ensure_pkg_config
           command -v rpmbuild >/dev/null 2>&1 || (echo "rpmbuild installation failed" && exit 1)
+          command -v psql >/dev/null 2>&1 || (echo "psql installation failed" && exit 1)
           protoc --version || (echo "protoc installation failed" && exit 1)
 
       - name: Setup Beam
