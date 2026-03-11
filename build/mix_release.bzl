@@ -709,7 +709,17 @@ if [ -z "${{MIX_REBAR3:-}}" ]; then
 fi
 mix deps.get --only prod
 {patch_script}
+# Compile the minimal dependency chain for the SRQL path dependency first so
+# later dependent compilation can load its Rustler NIF from _build/prod/lib.
+mix deps.compile jason rustler serviceradar_srql
+if [ -d "$WORKDIR/elixir/serviceradar_srql/priv/native" ]; then
+  SRQL_BUILD_PRIV="$WORKDIR/_build/prod/lib/serviceradar_srql/priv"
+  rm -rf "$SRQL_BUILD_PRIV"
+  mkdir -p "$SRQL_BUILD_PRIV"
+  cp -aL "$WORKDIR/elixir/serviceradar_srql/priv/." "$SRQL_BUILD_PRIV/"
+fi
 mix deps.compile
+
 if [ "{run_assets}" = "true" ]; then
   # Preserve existing static assets (favicon, images, robots.txt) before clearing priv/static
   PRESERVED_STATIC=$(mktemp -d)
