@@ -147,6 +147,8 @@ defmodule ServiceRadarWebNG.MixProject do
   defp aliases do
     bundle_output = Path.expand("priv/react/server.js", __DIR__)
     bundle_cd = Path.expand("assets/component", __DIR__)
+    dev_node_path = "../deps:../_build/dev/lib"
+    prod_node_path = "../deps:../_build/prod/lib"
 
     [
       setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build"],
@@ -154,17 +156,19 @@ defmodule ServiceRadarWebNG.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["serviceradar.maybe_test"],
       "assets.setup": [
-        "tailwind.install --if-missing",
-        "esbuild.install --if-missing",
-        "cmd --cd assets bun install --frozen-lockfile",
+        "cmd --cd assets bun install",
         "cmd --cd assets/component bun install --frozen-lockfile"
       ],
-      "assets.build": ["compile", "tailwind serviceradar_web_ng", "esbuild serviceradar_web_ng"],
+      "assets.build": [
+        "compile",
+        "cmd --cd assets bun run build:css",
+        "cmd --cd assets env NODE_PATH=#{dev_node_path} bun run build:js"
+      ],
       "assets.deploy": [
-        "cmd --cd assets bun install --frozen-lockfile",
+        "cmd --cd assets bun install",
         "cmd --cd assets/component bun install --frozen-lockfile",
-        "tailwind serviceradar_web_ng --minify",
-        "esbuild serviceradar_web_ng --minify",
+        "cmd --cd assets bun run build:css:minify",
+        "cmd --cd assets env NODE_PATH=#{prod_node_path} bun run build:js:minify",
         "phx.react.bun.bundle --component-base=assets/component/src --output=#{bundle_output} --cd=#{bundle_cd}",
         "phx.digest"
       ],

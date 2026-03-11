@@ -88,7 +88,6 @@ declare_web_ng_release_container_amd64(
     base_image_name = "web_ng_image_base_amd64",
     base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
     release_tar = "//elixir/web-ng:release_tar",
-    core_digest = "//docker/images:core_elx_image_amd64.digest",
     cmd = ["start"],
     env = {
         "HOME": "/app",

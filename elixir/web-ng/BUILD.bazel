@@ -18,6 +18,14 @@ filegroup(
     ),
 )
 
+filegroup(
+    name = "deps_srcs",
+    srcs = [
+        "mix.exs",
+        "mix.lock",
+    ] + glob(["config/**"]),
+)
+
 genrule(
     name = "precommit_runner",
     srcs = ["scripts/bazel_precommit.sh"],
@@ -63,6 +71,7 @@ sh_test(
 mix_release(
     name = "release_tar",
     srcs = [":srcs"],
+    bootstrap_srcs = [":deps_srcs"],
     data = [
         "//:Cargo.toml",
         "//:Cargo.lock",
@@ -90,8 +99,5 @@ mix_release(
         "//elixir/datasvc:srcs",
     ],
     bun = "@bun_linux_amd64//:bun",
-    hex_cache = select({
-        "//build:use_hex_cache": "//build:hex_cache",
-        "//conditions:default": None,
-    }),
+    workdir_name = "serviceradar_web_ng",
 )
