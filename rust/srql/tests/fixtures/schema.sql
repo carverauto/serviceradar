@@ -154,6 +154,7 @@ CREATE TABLE service_status (
     timestamp    TIMESTAMPTZ NOT NULL,
     gateway_id    TEXT        NOT NULL,
     agent_id     TEXT,
+    service_id   UUID,
     service_name TEXT        NOT NULL,
     service_type TEXT,
     available    BOOLEAN     NOT NULL,
