@@ -100,6 +100,8 @@ CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 CREATE EXTENSION IF NOT EXISTS "citext";
 CREATE EXTENSION IF NOT EXISTS "timescaledb";
 CREATE EXTENSION IF NOT EXISTS "age";
+CREATE EXTENSION IF NOT EXISTS "postgis";
+CREATE EXTENSION IF NOT EXISTS "vector";
 '
 
 printf "%s\n" "$extensions_sql" | psql "$admin_db_url" -v ON_ERROR_STOP=1
