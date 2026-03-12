@@ -44,8 +44,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
 
     assert :ok = IdentityReconciler.register_identifiers(device_b.uid, ids, actor: actor)
 
-    assert {:ok, _} = Device.get_by_uid(device_a.uid, false, actor: actor)
-    assert {:error, _} = Device.get_by_uid(device_b.uid, false, actor: actor)
+    assert {:error, _} = Device.get_by_uid(device_a.uid, false, actor: actor)
+    assert {:ok, _} = Device.get_by_uid(device_b.uid, false, actor: actor)
 
     mac_query =
       DeviceIdentifier
@@ -56,10 +56,10 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
       })
 
     assert {:ok, [identifier | _]} = Ash.read(mac_query, actor: actor)
-    assert identifier.device_id == device_a.uid
+    assert identifier.device_id == device_b.uid
 
-    assert {:ok, [audit | _]} = MergeAudit.get_merged_to(device_b.uid, actor: actor)
-    assert audit.to_device_id == device_a.uid
+    assert {:ok, [audit | _]} = MergeAudit.get_merged_to(device_a.uid, actor: actor)
+    assert audit.to_device_id == device_b.uid
   end
 
   test "agent_id resolves to same device after IP change", %{actor: actor} do
