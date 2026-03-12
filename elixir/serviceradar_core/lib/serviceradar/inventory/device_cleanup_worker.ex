@@ -157,8 +157,13 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
             return_errors?: true
           )
 
-        updated = accumulate_bulk_result(stats, result, length(records))
-        do_purge(cutoff, batch_size, actor, updated)
+        {updated, deleted_count} = accumulate_bulk_result(stats, result, length(records))
+
+        if deleted_count > 0 do
+          do_purge(cutoff, batch_size, actor, updated)
+        else
+          updated
+        end
 
       {:error, reason} ->
         Logger.warning("DeviceCleanupWorker: failed to read cleanup batch",
@@ -175,7 +180,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
          batch_count
        ) do
     deleted = max(batch_count - error_count, 0)
-    %{stats | deleted: stats.deleted + deleted, errors: stats.errors + error_count}
+    {%{stats | deleted: stats.deleted + deleted, errors: stats.errors + error_count}, deleted}
   end
 
   defp accumulate_bulk_result(
@@ -185,7 +190,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
        ) do
     deleted = max(batch_count - error_count, 0)
     Logger.warning("DeviceCleanupWorker: partial delete failures", errors: inspect(errors))
-    %{stats | deleted: stats.deleted + deleted, errors: stats.errors + error_count}
+    {%{stats | deleted: stats.deleted + deleted, errors: stats.errors + error_count}, deleted}
   end
 
   defp accumulate_bulk_result(
@@ -194,11 +199,11 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
          _batch_count
        ) do
     Logger.warning("DeviceCleanupWorker: delete failures", errors: inspect(errors))
-    %{stats | errors: stats.errors + max(error_count, length(errors || []))}
+    {%{stats | errors: stats.errors + max(error_count, length(errors || []))}, 0}
   end
 
   defp accumulate_bulk_result(stats, other, _batch_count) do
     Logger.warning("DeviceCleanupWorker: unexpected bulk result", result: inspect(other))
-    %{stats | errors: stats.errors + 1}
+    {%{stats | errors: stats.errors + 1}, 0}
   end
 end

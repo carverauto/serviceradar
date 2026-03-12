@@ -7,6 +7,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
 
   @moduletag :integration
 
+  require Ash.Query
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
 
@@ -56,7 +58,15 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
     assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
 
     assert {:ok, _} = Device.get_by_uid(canonical.uid, false, actor: actor)
-    assert {:error, _} = Device.get_by_uid(alias_device.uid, false, actor: actor)
+
+    {:ok, devices_at_ip} =
+      Device
+      |> Ash.Query.filter(ip == ^ip)
+      |> Ash.read(actor: actor)
+      |> ServiceRadar.Ash.Page.unwrap()
+
+    assert Enum.any?(devices_at_ip, &(&1.uid == canonical.uid))
+    assert Enum.count(devices_at_ip) == 1
 
     assert {:ok, [audit | _]} = MergeAudit.get_merged_to(alias_device.uid, actor: actor)
     assert audit.to_device_id == canonical.uid

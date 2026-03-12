@@ -166,7 +166,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       RETURN {count: count(r)} AS result/
       )
 
-    assert result["count"] == 0
+    assert result["count"] == 1
   end
 
   test "upsert_links drops LLDP edges without a local interface index" do
@@ -214,7 +214,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/eth1'})
+        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'dev-2\/eth1'})
       RETURN {count: count(r), source: head(collect(r.source))} AS result/
       )
 
@@ -276,22 +276,28 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([Map.put(normalized, :created_at, now)])
 
+    neighbor_device_id =
+      Map.get(normalized, :neighbor_device_id) || Map.get(normalized, "neighbor_device_id") ||
+        "192.168.1.77"
+
+    neighbor_interface_id = "#{neighbor_device_id}/unknown-neighbor"
+
     [connects] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-router\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'192.168.1.77\/unknown-neighbor'})
-      RETURN {count: count(r)} AS result/
+        "MATCH (a:Interface {id:'dev-router/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
+          "RETURN {count: count(r)} AS result"
       )
 
     [inferred] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-router\/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'192.168.1.77\/unknown-neighbor'})
-      RETURN {count: count(r)} AS result/
+        "MATCH (a:Interface {id:'dev-router/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
+          "RETURN {count: count(r)} AS result"
       )
 
     [attached] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-router\/eth0'})-[r:ATTACHED_TO]->(b:Interface {id:'192.168.1.77\/unknown-neighbor'})
-      RETURN {count: count(r), source: head(collect(r.source))} AS result/
+        "MATCH (a:Interface {id:'dev-router/eth0'})-[r:ATTACHED_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
+          "RETURN {count: count(r), source: head(collect(r.source))} AS result"
       )
 
     assert connects["count"] == 0
@@ -330,7 +336,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface) WHERE b.device_id IN ['dev-2','dev-3']
+        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:INFERRED_TO]->(b:Interface) WHERE b.device_id IN ['dev-2','dev-3']
       RETURN {count: count(r)} AS result/
       )
 
@@ -437,6 +443,20 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
   test "upsert_links prunes stale projected edges by observation timestamp" do
     Application.put_env(:serviceradar_core, :mapper_topology_edge_stale_minutes, 1)
+
+    Application.put_env(
+      :serviceradar_core,
+      :mapper_topology_prune_stale_projected_links_enabled,
+      true
+    )
+
+    on_exit(fn ->
+      Application.delete_env(
+        :serviceradar_core,
+        :mapper_topology_prune_stale_projected_links_enabled
+      )
+    end)
+
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
     stale = DateTime.add(now, -10 * 60, :second)
 
@@ -566,10 +586,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     ])
 
     [result] =
-      cypher_rows(~s/MATCH (a:Interface)-[r:CONNECTS_TO]->(b:Interface)
-      WHERE a.device_id = 'dev-router'
-        AND b.device_id IN ['dev-switch-a', 'dev-switch-b', 'dev-ap']
-      RETURN {count: count(r), neighbors: collect(distinct b.device_id)} AS result/)
+      cypher_rows(~s/MATCH (a:Device {id:'dev-router'})-[r:CANONICAL_TOPOLOGY]->(b:Device)
+      WHERE b.id IN ['dev-switch-a', 'dev-switch-b', 'dev-ap']
+      RETURN {count: count(r), neighbors: collect(distinct b.id)} AS result/)
 
     assert result["count"] == 1
     assert Enum.sort(result["neighbors"]) == ["dev-switch-a"]

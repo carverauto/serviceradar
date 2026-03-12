@@ -53,16 +53,17 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     {:ok, device} = create_device(actor, uid, ip, mac)
     {:ok, _} = soft_delete_device(actor, device, "user_requested")
 
-    {:ok, [deleted]} =
+    restore_query =
       Device
       |> Ash.Query.for_read(:read, %{include_deleted: true})
       |> Ash.Query.filter(uid == ^uid)
-      |> read_results(actor)
 
-    {:ok, _restored} =
-      deleted
-      |> Ash.Changeset.for_update(:restore, %{}, actor: actor)
-      |> Ash.update()
+    assert %Ash.BulkResult{status: :success} =
+             Ash.bulk_update(restore_query, :restore, %{},
+               actor: actor,
+               return_records?: false,
+               return_errors?: true
+             )
 
     assert {:ok, [restored]} =
              Device

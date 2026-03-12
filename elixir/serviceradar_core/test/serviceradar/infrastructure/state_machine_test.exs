@@ -255,11 +255,14 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     test "records success resets consecutive failures", %{actor: actor} do
       {:ok, checker} = create_active_checker(actor)
 
-      # Record some failures first
+      {:ok, failed_once} =
+        update_with_action(checker, :record_failure, %{reason: "timeout"}, actor)
+
+      {:ok, failed_twice} =
+        update_with_action(failed_once, :record_failure, %{reason: "timeout"}, actor)
+
       {:ok, with_failures} =
-        checker
-        |> Ash.Changeset.for_update(:update, %{consecutive_failures: 5})
-        |> Ash.update(actor: actor)
+        update_with_action(failed_twice, :record_failure, %{reason: "timeout"}, actor)
 
       # Record success
       {:ok, success} = update_with_action(with_failures, :record_success, %{}, actor)

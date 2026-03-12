@@ -95,10 +95,15 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
   end
 
   defp with_worker_env(worker, overrides) when is_list(overrides) do
+    previous = Application.get_env(:serviceradar_core, worker)
     Application.put_env(:serviceradar_core, worker, overrides)
 
     on_exit(fn ->
-      Application.delete_env(:serviceradar_core, worker)
+      if is_nil(previous) do
+        Application.delete_env(:serviceradar_core, worker)
+      else
+        Application.put_env(:serviceradar_core, worker, previous)
+      end
     end)
   end
 
@@ -183,7 +188,12 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
   defp http_accept_loop(listen_socket, body, content_type, status) do
     case :gen_tcp.accept(listen_socket) do
       {:ok, socket} ->
-        _ = :gen_tcp.recv(socket, 0, 1_000)
+        _ =
+          case :gen_tcp.recv(socket, 0, 5_000) do
+            {:ok, _request} -> :ok
+            {:error, :timeout} -> :ok
+            {:error, _reason} -> :ok
+          end
 
         response =
           [

@@ -747,11 +747,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp match_value(actual, expected), do: actual == expected
 
   defp get_nested_value(map, key) when is_map(map) and is_binary(key) do
-    key
-    |> String.split(".")
-    |> Enum.reduce(map, fn segment, acc ->
-      if is_map(acc), do: Map.get(acc, segment), else: nil
-    end)
+    case Map.get(map, key) do
+      nil ->
+        key
+        |> String.split(".")
+        |> Enum.reduce(map, fn segment, acc ->
+          if is_map(acc), do: Map.get(acc, segment), else: nil
+        end)
+
+      value ->
+        value
+    end
   end
 
   defp get_nested_value(map, key) when is_map(map), do: Map.get(map, key)
@@ -759,7 +765,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp ingest_subject(log) do
     attributes = Map.get(log, :attributes, %{})
-    get_nested_value(attributes, "serviceradar.ingest.subject")
+
+    get_nested_value(attributes, "serviceradar.ingest.subject") ||
+      get_nested_value(attributes, "serviceradar.ingest") |> get_nested_value("subject")
   end
 
   defp build_group(nil, _log), do: {:ok, "global", %{}}

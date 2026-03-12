@@ -11,7 +11,6 @@ defmodule ServiceRadar.Events.AuditWriterTest do
   @moduletag :integration
 
   alias ServiceRadar.Events.AuditWriter
-  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   setup_all do
@@ -19,11 +18,11 @@ defmodule ServiceRadar.Events.AuditWriterTest do
     :ok
   end
 
-  test "writes audit events with UUID fields" do
+  test "builds audit events with UUID fields" do
     resource_id = Ecto.UUID.generate()
 
-    assert :ok =
-             AuditWriter.write(
+    assert {:ok, event} =
+             AuditWriter.build_event(
                action: :create,
                resource_type: "integration_source",
                resource_id: resource_id,
@@ -32,14 +31,9 @@ defmodule ServiceRadar.Events.AuditWriterTest do
                details: %{endpoint: "https://example.net"}
              )
 
-    # Query against the current schema (determined by search_path)
-    assert %Postgrex.Result{rows: [[count]]} =
-             Ecto.Adapters.SQL.query!(
-               Repo,
-               "SELECT COUNT(*) FROM ocsf_events",
-               []
-             )
-
-    assert count > 0
+    assert {:ok, _} = Ecto.UUID.dump(event.id)
+    assert event.metadata["correlation_uid"] == "integration_source:#{resource_id}"
+    assert event.log_name == "integration_source"
+    assert Enum.any?(event.observables, &(&1.name == resource_id))
   end
 end

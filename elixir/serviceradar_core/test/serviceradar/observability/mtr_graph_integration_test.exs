@@ -91,7 +91,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
     [edge_1_2] =
       cypher_rows(
         "MATCH (a:MtrHop {id:'mtr:10.0.0.1'})-[r:MTR_PATH]->(b:MtrHop {id:'mtr:203.0.113.1'}) " <>
-          "RETURN {count: count(r), avg_us: r.avg_us, loss_pct: r.loss_pct} AS result"
+          "RETURN {count: count(r), avg_us: head(collect(r.avg_us)), loss_pct: head(collect(r.loss_pct))} AS result"
       )
 
     assert edge_1_2["count"] == 1
@@ -102,7 +102,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
     [edge_2_3] =
       cypher_rows(
         "MATCH (a:MtrHop {id:'mtr:203.0.113.1'})-[r:MTR_PATH]->(b:MtrHop {id:'mtr:8.8.8.8'}) " <>
-          "RETURN {count: count(r), avg_us: r.avg_us, agent_id: r.agent_id} AS result"
+          "RETURN {count: count(r), avg_us: head(collect(r.avg_us)), agent_id: head(collect(r.agent_id))} AS result"
       )
 
     assert edge_2_3["count"] == 1

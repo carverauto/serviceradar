@@ -24,7 +24,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   end
 
   test "fires and resolves alerts based on bucketed counts", %{actor: actor} do
-    {:ok, rule} =
+    {:ok, _rule} =
       StatefulAlertRule
       |> Ash.Changeset.for_create(
         :create,
@@ -70,7 +70,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     events = [event.(base_time), event.(base_time)]
 
     # In single-deployment mode, schema is determined by search_path
-    assert :ok = StatefulAlertEngine.evaluate_events(events, nil)
+    assert :ok = StatefulAlertEngine.evaluate_events(events)
 
     events =
       OcsfEvent
@@ -89,7 +89,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert alert.status in [:pending, :acknowledged, :escalated]
 
     later = DateTime.add(base_time, 180, :second)
-    assert :ok = StatefulAlertEngine.evaluate_events([event.(later)], nil)
+    assert :ok = StatefulAlertEngine.evaluate_events([event.(later)])
 
     {:ok, resolved} = Alert.get_by_id(alert.id, actor: actor)
     assert resolved.status == :resolved

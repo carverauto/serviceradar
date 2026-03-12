@@ -13,8 +13,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, SyncIngestor}
-  alias ServiceRadar.TestSupport
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -50,6 +50,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         Device
         |> Ash.Query.filter(ip == ^ip)
         |> Ash.read(actor: actor)
+        |> Page.unwrap()
 
       assert device.discovery_sources == ["armis"]
     end
@@ -75,6 +76,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         Device
         |> Ash.Query.filter(ip == ^ip)
         |> Ash.read(actor: actor)
+        |> Page.unwrap()
 
       assert device.discovery_sources == ["netbox"]
     end
@@ -113,6 +115,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         Device
         |> Ash.Query.filter(ip == ^ip)
         |> Ash.read(actor: actor)
+        |> Page.unwrap()
 
       # Should have both sources, order may vary
       assert Enum.sort(device.discovery_sources) == ["armis", "netbox"]
@@ -137,6 +140,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         Device
         |> Ash.Query.filter(ip == ^ip)
         |> Ash.read(actor: actor)
+        |> Page.unwrap()
 
       assert device.discovery_sources == ["unknown"]
     end
@@ -164,6 +168,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         Device
         |> Ash.Query.filter(ip == ^ip)
         |> Ash.read(actor: actor)
+        |> Page.unwrap()
 
       # Should only have one "armis" entry, not duplicated
       assert device.discovery_sources == ["armis"]
@@ -197,11 +202,13 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         Device
         |> Ash.Query.filter(ip == ^ip_a)
         |> Ash.read(actor: actor)
+        |> Page.unwrap()
 
       {:ok, devices_b} =
         Device
         |> Ash.Query.filter(ip == ^ip_b)
         |> Ash.read(actor: actor)
+        |> Page.unwrap()
 
       assert length(devices_a) == 1
       assert length(devices_b) == 1
@@ -215,7 +222,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
           partition: "default"
         })
 
-      assert {:ok, []} = Ash.read(query, actor: actor)
+      assert {:ok, []} = query |> Ash.read(actor: actor) |> Page.unwrap()
     end
 
     test "single batch with same IP resolves to one active device", %{actor: actor} do
@@ -243,6 +250,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         Device
         |> Ash.Query.filter(ip == ^ip and is_nil(deleted_at))
         |> Ash.read(actor: actor)
+        |> Page.unwrap()
 
       assert length(devices) == 1
     end

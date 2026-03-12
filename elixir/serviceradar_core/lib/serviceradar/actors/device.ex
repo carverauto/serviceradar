@@ -493,8 +493,11 @@ defmodule ServiceRadar.Actors.Device do
 
         %{state | identity: identity, partition_id: state.partition_id || device.gateway_id}
 
-      {:error, _} ->
-        Logger.debug("Device not found in DB: #{state.device_id}")
+      {:error, error} ->
+        if not_found_error?(error) do
+          Logger.debug("Device not found in DB: #{state.device_id}")
+        end
+
         state
     end
   end
@@ -521,12 +524,12 @@ defmodule ServiceRadar.Actors.Device do
           {:error, error} -> {:error, error}
         end
 
-      {:error, %Ash.Error.Query.NotFound{}} ->
-        # Device doesn't exist yet, nothing to persist
-        :ok
-
       {:error, error} ->
-        {:error, error}
+        if not_found_error?(error) do
+          :ok
+        else
+          {:error, error}
+        end
     end
   end
 
@@ -613,4 +616,12 @@ defmodule ServiceRadar.Actors.Device do
   defp schedule_idle_check do
     Process.send_after(self(), :idle_check, @idle_timeout)
   end
+
+  defp not_found_error?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp not_found_error?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &not_found_error?/1)
+  end
+
+  defp not_found_error?(_), do: false
 end

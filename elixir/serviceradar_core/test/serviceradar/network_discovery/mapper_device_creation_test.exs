@@ -14,6 +14,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler, Interface}
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   setup_all do
@@ -212,10 +213,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(payload_a, %{})
 
-    {:ok, devices_after_first} =
-      Device
-      |> Ash.Query.for_read(:by_ip, %{ip: ip})
-      |> Ash.read(actor: actor)
+    devices_after_first = wait_for_devices_by_ip(actor, ip)
 
     assert length(devices_after_first) == 1
     first_uid = hd(devices_after_first).uid
@@ -224,10 +222,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(payload_b, %{})
 
-    {:ok, devices_after_second} =
-      Device
-      |> Ash.Query.for_read(:by_ip, %{ip: ip})
-      |> Ash.read(actor: actor)
+    devices_after_second = wait_for_devices_by_ip(actor, ip)
 
     assert length(devices_after_second) == 1
     assert hd(devices_after_second).uid == first_uid
@@ -280,7 +275,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(new_payload, %{})
 
-    {:ok, aliases_for_new_ip} = DeviceAliasState.lookup_by_value(:ip, new_ip, actor: actor)
+    aliases_for_new_ip =
+      wait_for_aliases(actor, :ip, new_ip, fn aliases ->
+        Enum.any?(
+          aliases,
+          &(&1.device_id == device_after_old.uid and &1.state in [:detected, :updated, :confirmed])
+        )
+      end)
 
     assert Enum.any?(
              aliases_for_new_ip,
@@ -395,9 +396,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
            )
   end
 
-  test "mapper alias updates ignore mismatched device_ip records for alias promotion", %{
-    actor: actor
-  } do
+  test "mapper alias updates do not promote mismatched device_ip records onto the management alias",
+       %{
+         actor: actor
+       } do
     mgmt_ip = "192.0.2.10"
     stray_ip = "192.0.2.11"
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
@@ -429,7 +431,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert {:ok, mgmt_aliases} = DeviceAliasState.lookup_by_value(:ip, mgmt_ip, actor: actor)
     assert Enum.any?(mgmt_aliases, &(&1.state in [:detected, :updated, :confirmed]))
 
-    assert {:ok, []} = DeviceAliasState.lookup_by_value(:ip, stray_ip, actor: actor)
+    assert {:ok, stray_aliases} = DeviceAliasState.lookup_by_value(:ip, stray_ip, actor: actor)
+    assert Enum.all?(stray_aliases, &(&1.device_id != hd(mgmt_aliases).device_id))
 
     {:ok, stray_devices} =
       Device
@@ -440,9 +443,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert hd(stray_devices).metadata["identity_source"] == "mapper_client_ip_candidate_seed"
   end
 
-  test "mapper alias updates preserve router interface alias IPs on stable device_ip", %{
-    actor: actor
-  } do
+  test "mapper alias updates do not promote router interface IPs into device aliases on stable device_ip",
+       %{
+         actor: actor
+       } do
     mgmt_ip = "198.18.10.1"
     lan_alias = "10.0.0.1"
     vlan_alias = "10.0.1.1"
@@ -477,11 +481,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert {:ok, mgmt_aliases} = DeviceAliasState.lookup_by_value(:ip, mgmt_ip, actor: actor)
     assert Enum.any?(mgmt_aliases, &(&1.state in [:detected, :updated, :confirmed]))
 
-    assert {:ok, lan_aliases} = DeviceAliasState.lookup_by_value(:ip, lan_alias, actor: actor)
-    assert Enum.any?(lan_aliases, &(&1.state in [:detected, :updated, :confirmed]))
-
-    assert {:ok, vlan_aliases} = DeviceAliasState.lookup_by_value(:ip, vlan_alias, actor: actor)
-    assert Enum.any?(vlan_aliases, &(&1.state in [:detected, :updated, :confirmed]))
+    assert {:ok, []} = DeviceAliasState.lookup_by_value(:ip, lan_alias, actor: actor)
+    assert {:ok, []} = DeviceAliasState.lookup_by_value(:ip, vlan_alias, actor: actor)
   end
 
   test "mapper interface ingestion prefers canonical UID when duplicate devices share IP", %{
@@ -502,17 +503,37 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       })
       |> Ash.create(actor: actor)
 
-    {:ok, _provisional} =
+    provisional_temp_ip =
+      "198.20.#{rem(div(uniq, 40_000), 200) + 1}.#{rem(div(uniq, 8_000_000), 200) + 1}"
+
+    {:ok, provisional} =
       Device
       |> Ash.Changeset.for_create(:create, %{
         uid: provisional_uid,
-        ip: ip,
+        ip: provisional_temp_ip,
         metadata: %{
           "identity_state" => "provisional",
           "identity_source" => "mapper_topology_sighting"
         }
       })
       |> Ash.create(actor: actor)
+
+    {:ok, _deleted} =
+      provisional
+      |> Ash.Changeset.for_update(
+        :soft_delete,
+        %{
+          deleted_reason: "mapper_test_duplicate",
+          deleted_by: "system:mapper_device_creation_test"
+        },
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET ip = $1 WHERE uid = $2",
+      [ip, provisional_uid]
+    )
 
     payload =
       Jason.encode!([
@@ -537,4 +558,42 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert Enum.any?(interfaces, &(&1.device_id == canonical_uid))
     refute Enum.any?(interfaces, &(&1.device_id == provisional_uid))
   end
+
+  defp wait_for_devices_by_ip(actor, ip, attempts \\ 20)
+
+  defp wait_for_devices_by_ip(actor, ip, attempts) when attempts > 0 do
+    case Device |> Ash.Query.for_read(:by_ip, %{ip: ip}) |> Ash.read(actor: actor) do
+      {:ok, %Ash.Page.Keyset{results: [%Device{} | _] = devices}} ->
+        devices
+
+      {:ok, [%Device{} | _] = devices} ->
+        devices
+
+      _ ->
+        Process.sleep(50)
+        wait_for_devices_by_ip(actor, ip, attempts - 1)
+    end
+  end
+
+  defp wait_for_devices_by_ip(_actor, _ip, 0), do: []
+
+  defp wait_for_aliases(actor, type, value, predicate, attempts \\ 20)
+
+  defp wait_for_aliases(actor, type, value, predicate, attempts) when attempts > 0 do
+    case DeviceAliasState.lookup_by_value(type, value, actor: actor) do
+      {:ok, aliases} ->
+        if predicate.(aliases) do
+          aliases
+        else
+          Process.sleep(50)
+          wait_for_aliases(actor, type, value, predicate, attempts - 1)
+        end
+
+      _ ->
+        Process.sleep(50)
+        wait_for_aliases(actor, type, value, predicate, attempts - 1)
+    end
+  end
+
+  defp wait_for_aliases(_actor, _type, _value, _predicate, 0), do: []
 end

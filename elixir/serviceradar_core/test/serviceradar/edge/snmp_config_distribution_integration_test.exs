@@ -95,7 +95,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             name: "Router Target",
             host: device.ip,
             port: 161,
-            snmp_version: :v2c,
+            version: :v2c,
             community: "public",
             snmp_profile_id: profile.id
           },
@@ -192,7 +192,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             name: "Switch Target",
             host: device.ip,
             port: 161,
-            snmp_version: :v2c,
+            version: :v2c,
             community: "switch-community",
             snmp_profile_id: profile.id
           },
@@ -263,7 +263,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             name: "Test Target",
             host: "10.10.10.#{rem(unique_id, 254) + 1}",
             port: 161,
-            snmp_version: :v2c,
+            version: :v2c,
             community: "test",
             snmp_profile_id: profile.id
           },
@@ -366,13 +366,13 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             name: "SNMPv3 Target",
             host: "10.20.30.#{rem(unique_id, 254) + 1}",
             port: 161,
-            snmp_version: :v3,
-            v3_username: "admin",
-            v3_security_level: :auth_priv,
-            v3_auth_protocol: :sha,
-            v3_auth_password: "authpass123",
-            v3_priv_protocol: :aes,
-            v3_priv_password: "privpass456",
+            version: :v3,
+            username: "admin",
+            security_level: :auth_priv,
+            auth_protocol: :sha,
+            auth_password: "authpass123",
+            priv_protocol: :aes,
+            priv_password: "privpass456",
             snmp_profile_id: profile.id
           },
           actor: actor

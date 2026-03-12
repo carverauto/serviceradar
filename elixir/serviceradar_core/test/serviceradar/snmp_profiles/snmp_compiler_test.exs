@@ -132,6 +132,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         )
         |> Ash.create(actor: actor)
 
+      expected_profile_name = profile.name
+
       {:ok, profile} =
         profile
         |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
@@ -154,6 +156,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         )
         |> Ash.create(actor: actor)
 
+      expected_target_name = target.name
+
       # Create an OID config
       {:ok, _oid} =
         SNMPOIDConfig
@@ -174,11 +178,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
       assert config["enabled"] == true
-      assert config["profile_name"] == "Network Monitoring"
+      assert config["profile_name"] == expected_profile_name
       assert length(config["targets"]) == 1
 
       [compiled_target] = config["targets"]
-      assert compiled_target["name"] == "Core Router"
+      assert compiled_target["name"] == expected_target_name
       assert compiled_target["host"] == "192.168.1.1"
       assert compiled_target["port"] == 161
       assert compiled_target["version"] == "v2c"
