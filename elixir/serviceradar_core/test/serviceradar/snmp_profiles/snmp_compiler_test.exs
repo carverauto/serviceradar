@@ -14,6 +14,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
+  alias ServiceRadar.AgentConfig.ConfigServer
 
   require Ash.Query
 
@@ -286,6 +287,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     @tag :integration
     setup do
       ServiceRadar.TestSupport.start_core!()
+      ConfigServer.invalidate(:snmp)
       actor = SystemActor.system(:test)
 
       {:ok, actor: actor}
@@ -297,10 +299,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     } do
       alias ServiceRadar.Inventory.Device
 
+      uniq = System.unique_integer([:positive, :monotonic])
       parent_uid = "sr:" <> Ecto.UUID.generate()
       child_uid = "sr:" <> Ecto.UUID.generate()
-      parent_ip = "192.168.1.#{rem(System.unique_integer([:positive]), 200) + 20}"
-      child_ip = "203.0.113.#{rem(System.unique_integer([:positive]), 200) + 20}"
+      parent_ip = unique_test_ip(172, 21, uniq)
+      child_ip = unique_test_ip(198, 19, uniq + 1)
 
       # Create parent (management) device at reachable IP
       {:ok, _parent} =
@@ -484,5 +487,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       assert result.id == profile.id
       assert result.is_default == true
     end
+  end
+
+  defp unique_test_ip(a, b, value) do
+    third = rem(value, 250) + 1
+    fourth = rem(div(value, 250), 250) + 1
+    "#{a}.#{b}.#{third}.#{fourth}"
   end
 end

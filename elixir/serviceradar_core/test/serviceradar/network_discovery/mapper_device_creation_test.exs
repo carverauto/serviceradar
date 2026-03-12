@@ -285,7 +285,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       |> Ash.Query.filter(device_id == ^device_after_old.uid)
       |> Ash.read(actor: actor)
 
-    assert Enum.any?(interfaces, &(&1.if_phys_address == normalized_mac))
+    assert Enum.any?(interfaces, fn interface ->
+             IdentityReconciler.normalize_mac(interface.if_phys_address) == normalized_mac
+           end)
 
     {:ok, old_aliases} = DeviceAliasState.lookup_by_value(:ip, old_ip, actor: actor)
     assert Enum.any?(old_aliases, &(&1.device_id == device_after_old.uid))

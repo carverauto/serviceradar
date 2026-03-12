@@ -30,34 +30,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   setup do
     Application.put_env(:serviceradar_core, :mapper_topology_edge_stale_minutes, 180)
 
-    cleanup_graph([
-      "dev-1",
-      "dev-2",
-      "dev-3",
-      "dev-router",
-      "dev-switch-a",
-      "dev-switch-b",
-      "dev-ap",
-      "dev-dist",
-      "sr:aruba",
-      "sr:tonka",
-      "sr:zz-mikrotik",
-      "dev-1/eth0",
-      "dev-1/eth2",
-      "dev-1/unknown-local",
-      "dev-2/Gi1/0/1",
-      "dev-2/aa:bb:cc:dd:ee:ff",
-      "dev-2/eth1",
-      "dev-3/eth5",
-      "dev-router/eth0",
-      "dev-switch-a/uplink",
-      "dev-switch-b/uplink",
-      "dev-ap/wifi0",
-      "dev-dist/xe-0/0/1",
-      "sr:aruba/23",
-      "sr:tonka/eth4",
-      "sr:zz-mikrotik/ether1"
-    ])
+    cleanup_graph(
+      [
+        "dev-1",
+        "dev-2",
+        "dev-3",
+        "dev-router",
+        "dev-switch-a",
+        "dev-switch-b",
+        "dev-ap",
+        "dev-dist",
+        "sr:aruba",
+        "sr:tonka",
+        "sr:zz-mikrotik",
+        "dev-1/eth0",
+        "dev-1/eth2",
+        "dev-1/unknown-local",
+        "dev-2/Gi1/0/1",
+        "dev-2/aa:bb:cc:dd:ee:ff",
+        "dev-2/eth1",
+        "dev-3/eth5",
+        "dev-router/eth0",
+        "dev-switch-a/uplink",
+        "dev-switch-b/uplink",
+        "dev-ap/wifi0",
+        "dev-dist/xe-0/0/1",
+        "sr:aruba/23",
+        "sr:tonka/eth4",
+        "sr:zz-mikrotik/ether1"
+      ] ++ synthetic_topology_ids()
+    )
 
     :ok
   end
@@ -540,7 +542,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     )
   end
 
-  test "router keeps one inferred attachment edge and prefers the corroborated switch neighbor" do
+  test "router drops low-confidence inferred neighbors when only the uplink is corroborated" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     insert_device_type("dev-router", "Router")
@@ -604,9 +606,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       RETURN {count: count(r), relation_type: head(collect(r.relation_type)), confidence_reason: head(collect(r.confidence_reason))} AS result/
       )
 
-    assert result["count"] == 1
-    assert result["relation_type"] == "ATTACHED_TO"
-    assert result["confidence_reason"] == "shared_segment_via_uplink"
+    assert result["count"] == 0
 
     [rejected] =
       cypher_rows(~s/MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
@@ -786,6 +786,23 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
   defp graph_name do
     Application.get_env(:serviceradar_core, :age_graph_name, "platform_graph")
+  end
+
+  defp synthetic_topology_ids do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    now
+    |> synthetic_topology_fixture()
+    |> Map.fetch!(:links)
+    |> Enum.flat_map(fn link ->
+      [
+        link["local_device_id"],
+        link["neighbor_device_id"],
+        "#{link["local_device_id"]}/#{link["local_if_name"]}",
+        "#{link["neighbor_device_id"]}/#{link["neighbor_port_id"]}"
+      ]
+    end)
+    |> Enum.uniq()
   end
 
   defp synthetic_topology_fixture(now) do

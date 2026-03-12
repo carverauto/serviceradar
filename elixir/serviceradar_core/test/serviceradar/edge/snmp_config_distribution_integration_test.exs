@@ -27,6 +27,8 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
   # Schema is determined by DB connection's search_path
   setup do
+    ConfigServer.invalidate(:snmp)
+
     actor = %{
       id: Ash.UUID.generate(),
       email: "snmp-config@serviceradar.local",
@@ -173,7 +175,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           %{
             name: "Core Switch Profile",
             target_query: ~s(in:devices hostname:"core-switch-#{unique_id}"),
-            priority: 10,
+            priority: 1_000_000 + unique_id,
             enabled: true,
             poll_interval: 30,
             timeout: 3,
@@ -215,6 +217,8 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           actor: actor
         )
         |> Ash.create()
+
+      ConfigServer.invalidate(:snmp)
 
       # Get config - the targeting profile should be resolved for this device
       {:ok, entry} =
