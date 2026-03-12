@@ -2,6 +2,7 @@
 
 load("//docker/images:apk.bzl", "apk_rootfs_amd64", "declare_alpine_netutils_rootfs_amd64", "declare_apk_rootfs_targets")
 load("//docker/images:cnpg_image.bzl", "declare_cnpg_image_amd64")
+load("//docker/images:image_inventory.bzl", "publishable_image_labels")
 load("//docker/images:push_targets.bzl", "declare_ghcr_push_targets")
 load(
     "//docker/images:release_images.bzl",
@@ -87,7 +88,6 @@ declare_web_ng_release_container_amd64(
     base_image_name = "web_ng_image_base_amd64",
     base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
     release_tar = "//elixir/web-ng:release_tar",
-    core_digest = "//docker/images:core_elx_image_amd64.digest",
     cmd = ["start"],
     env = {
         "HOME": "/app",
@@ -533,6 +533,12 @@ declare_custom_base_service_container_amd64(
 )
 
 declare_cnpg_image_amd64()
+
+filegroup(
+    name = "images",
+    srcs = publishable_image_labels(),
+    visibility = ["//visibility:public"],
+)
 
 # --- GHCR publishing ---------------------------------------------------------
 declare_ghcr_push_targets()

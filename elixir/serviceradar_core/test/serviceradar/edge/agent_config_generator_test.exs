@@ -8,6 +8,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Edge.AgentConfigGenerator
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Monitoring.ServiceCheck
 
   @moduletag :integration
@@ -47,6 +48,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       agent_uid: agent_uid,
       unique_id: unique_id
     } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
       # Create a service check for this agent (enabled by default)
       {:ok, _check} =
         ServiceCheck
@@ -79,6 +82,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     end
 
     test "excludes disabled checks", %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
       # Create enabled check (enabled by default)
       {:ok, _enabled} =
         ServiceCheck
@@ -220,6 +225,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       agent_uid: agent_uid,
       unique_id: unique_id
     } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
       # Get initial config
       {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
 
@@ -558,5 +565,20 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         assert "Partition Wide Sweep #{unique_id}" in group_names
       end
     end
+  end
+
+  defp create_connected_agent(actor, agent_uid) do
+    Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{
+        uid: agent_uid,
+        name: "Config Test Agent #{agent_uid}",
+        host: "127.0.0.1",
+        port: 50_051
+      },
+      actor: actor
+    )
+    |> Ash.create()
   end
 end

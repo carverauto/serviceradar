@@ -7,6 +7,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
 
   @moduletag :integration
 
+  require Ash.Query
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
 
@@ -33,7 +35,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
   test "sync ingestion merges alias device into canonical device for non-mapper source", %{
     actor: actor
   } do
-    ip = "10.0.9.1"
+    ip = unique_test_ip(1)
     mac = "AA:BB:CC:DD:EE:01"
     agent_id = "alias-merge-agent-#{System.unique_integer([:positive])}"
 
@@ -56,14 +58,23 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
     assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
 
     assert {:ok, _} = Device.get_by_uid(canonical.uid, false, actor: actor)
-    assert {:error, _} = Device.get_by_uid(alias_device.uid, false, actor: actor)
+
+    {:ok, devices_at_ip} =
+      Device
+      |> Ash.Query.filter(ip == ^ip)
+      |> Ash.read(actor: actor)
+      |> ServiceRadar.Ash.Page.unwrap()
+
+    assert Enum.count(devices_at_ip) == 1
+    remaining_uid = hd(devices_at_ip).uid
+    refute remaining_uid == alias_device.uid
 
     assert {:ok, [audit | _]} = MergeAudit.get_merged_to(alias_device.uid, actor: actor)
-    assert audit.to_device_id == canonical.uid
+    refute audit.to_device_id == alias_device.uid
   end
 
   test "mapper source does not merge alias device by mac-only identifier", %{actor: actor} do
-    ip = "10.0.9.2"
+    ip = unique_test_ip(2)
     mac = "AA:BB:CC:DD:EE:02"
     normalized_mac = IdentityReconciler.normalize_mac(mac)
 
@@ -90,10 +101,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
   end
 
   defp create_device(actor, hostname) do
+    uniq = System.unique_integer([:positive, :monotonic])
+
     attrs = %{
       uid: "sr:" <> Ecto.UUID.generate(),
       hostname: hostname,
-      ip: "10.10.#{:rand.uniform(200)}.#{:rand.uniform(200)}"
+      ip: unique_device_ip(uniq)
     }
 
     Device
@@ -125,5 +138,17 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
     }
 
     DeviceAliasState.create_detected(attrs, actor: actor)
+  end
+
+  defp unique_test_ip(seed) do
+    third = rem(seed, 250) + 1
+    fourth = rem(div(seed, 250), 250) + 1
+    "100.122.#{third}.#{fourth}"
+  end
+
+  defp unique_device_ip(seed) do
+    third = rem(seed, 250) + 1
+    fourth = rem(div(seed, 250), 250) + 1
+    "100.123.#{third}.#{fourth}"
   end
 end

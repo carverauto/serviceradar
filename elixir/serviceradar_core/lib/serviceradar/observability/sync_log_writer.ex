@@ -57,8 +57,10 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
       body: body,
       service_name: "serviceradar.core",
       scope_name: "sync_ingestor",
-      attributes: build_attributes(source, stage, result, device_count, error_message),
-      resource_attributes: %{}
+      attributes:
+        build_attributes(source, stage, result, device_count, error_message)
+        |> Jason.encode!(),
+      resource_attributes: Jason.encode!(%{})
     }
   end
 

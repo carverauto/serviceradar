@@ -43,7 +43,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       {:ok, gateway} = create_healthy_gateway(actor)
       assert gateway.status == :healthy
 
-      {:ok, degraded} = Ash.update(gateway, :degrade, %{reason: "test"}, actor: actor)
+      {:ok, degraded} = update_with_action(gateway, :degrade, %{reason: "test"}, actor)
 
       assert degraded.status == :degraded
       assert degraded.is_healthy == false
@@ -52,7 +52,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     test "transitions from healthy to offline", %{actor: actor} do
       {:ok, gateway} = create_healthy_gateway(actor)
 
-      {:ok, offline} = Ash.update(gateway, :go_offline, %{reason: "shutdown"}, actor: actor)
+      {:ok, offline} = update_with_action(gateway, :go_offline, %{reason: "shutdown"}, actor)
 
       assert offline.status == :offline
       assert offline.is_healthy == false
@@ -62,11 +62,11 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       {:ok, gateway} = create_healthy_gateway(actor)
 
       # Start maintenance
-      {:ok, in_maintenance} = Ash.update(gateway, :start_maintenance, %{}, actor: actor)
+      {:ok, in_maintenance} = update_with_action(gateway, :start_maintenance, %{}, actor)
       assert in_maintenance.status == :maintenance
 
       # End maintenance
-      {:ok, restored} = Ash.update(in_maintenance, :end_maintenance, %{}, actor: actor)
+      {:ok, restored} = update_with_action(in_maintenance, :end_maintenance, %{}, actor)
       assert restored.status == :healthy
       assert restored.is_healthy == true
     end
@@ -75,11 +75,11 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       {:ok, gateway} = create_healthy_gateway(actor)
 
       # Start draining
-      {:ok, draining} = Ash.update(gateway, :start_draining, %{}, actor: actor)
+      {:ok, draining} = update_with_action(gateway, :start_draining, %{}, actor)
       assert draining.status == :draining
 
       # Finish draining
-      {:ok, offline} = Ash.update(draining, :finish_draining, %{}, actor: actor)
+      {:ok, offline} = update_with_action(draining, :finish_draining, %{}, actor)
       assert offline.status == :offline
     end
 
@@ -87,15 +87,15 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       {:ok, gateway} = create_healthy_gateway(actor)
 
       # Go offline
-      {:ok, offline} = Ash.update(gateway, :go_offline, %{reason: "failure"}, actor: actor)
+      {:ok, offline} = update_with_action(gateway, :go_offline, %{reason: "failure"}, actor)
       assert offline.status == :offline
 
       # Start recovery
-      {:ok, recovering} = Ash.update(offline, :recover, %{}, actor: actor)
+      {:ok, recovering} = update_with_action(offline, :recover, %{}, actor)
       assert recovering.status == :recovering
 
       # Restore health
-      {:ok, healthy} = Ash.update(recovering, :restore_health, %{}, actor: actor)
+      {:ok, healthy} = update_with_action(recovering, :restore_health, %{}, actor)
       assert healthy.status == :healthy
       assert healthy.is_healthy == true
     end
@@ -103,7 +103,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     test "deactivate works from any state", %{actor: actor} do
       {:ok, gateway} = create_healthy_gateway(actor)
 
-      {:ok, inactive} = Ash.update(gateway, :deactivate, %{}, actor: actor)
+      {:ok, inactive} = update_with_action(gateway, :deactivate, %{}, actor)
       assert inactive.status == :inactive
       assert inactive.is_healthy == false
     end
@@ -112,7 +112,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       {:ok, gateway} = create_healthy_gateway(actor)
 
       # Cannot recover from healthy (only from degraded/offline/recovering)
-      {:error, changeset} = Ash.update(gateway, :recover, %{}, actor: actor)
+      {:error, changeset} = update_with_action(gateway, :recover, %{}, actor)
       assert changeset.errors != []
     end
 
@@ -140,7 +140,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     test "transitions from connecting to connected", %{actor: actor} do
       {:ok, agent} = create_connecting_agent(actor)
 
-      {:ok, connected} = Ash.update(agent, :establish_connection, %{}, actor: actor)
+      {:ok, connected} = update_with_action(agent, :establish_connection, %{}, actor)
 
       assert connected.status == :connected
       assert connected.is_healthy == true
@@ -149,7 +149,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     test "transitions from connected to disconnected", %{actor: actor} do
       {:ok, agent} = create_connected_agent(actor)
 
-      {:ok, disconnected} = Ash.update(agent, :lose_connection, %{}, actor: actor)
+      {:ok, disconnected} = update_with_action(agent, :lose_connection, %{}, actor)
 
       assert disconnected.status == :disconnected
     end
@@ -158,12 +158,12 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       {:ok, agent} = create_connected_agent(actor)
 
       # Degrade
-      {:ok, degraded} = Ash.update(agent, :degrade, %{}, actor: actor)
+      {:ok, degraded} = update_with_action(agent, :degrade, %{}, actor)
       assert degraded.status == :degraded
       assert degraded.is_healthy == false
 
       # Restore health
-      {:ok, restored} = Ash.update(degraded, :restore_health, %{}, actor: actor)
+      {:ok, restored} = update_with_action(degraded, :restore_health, %{}, actor)
       assert restored.status == :connected
       assert restored.is_healthy == true
     end
@@ -172,12 +172,12 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       {:ok, agent} = create_connected_agent(actor)
 
       # Mark unavailable
-      {:ok, unavailable} = Ash.update(agent, :mark_unavailable, %{reason: "admin"}, actor: actor)
+      {:ok, unavailable} = update_with_action(agent, :mark_unavailable, %{reason: "admin"}, actor)
       assert unavailable.status == :unavailable
       assert unavailable.is_healthy == false
 
       # Recover
-      {:ok, connecting} = Ash.update(unavailable, :recover, %{}, actor: actor)
+      {:ok, connecting} = update_with_action(unavailable, :recover, %{}, actor)
       assert connecting.status == :connecting
     end
 
@@ -215,16 +215,16 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     test "transitions from active to paused", %{actor: actor} do
       {:ok, checker} = create_active_checker(actor)
 
-      {:ok, paused} = Ash.update(checker, :pause, %{}, actor: actor)
+      {:ok, paused} = update_with_action(checker, :pause, %{}, actor)
 
       assert paused.status == :paused
     end
 
     test "transitions from paused to active", %{actor: actor} do
       {:ok, checker} = create_active_checker(actor)
-      {:ok, paused} = Ash.update(checker, :pause, %{}, actor: actor)
+      {:ok, paused} = update_with_action(checker, :pause, %{}, actor)
 
-      {:ok, resumed} = Ash.update(paused, :resume, %{}, actor: actor)
+      {:ok, resumed} = update_with_action(paused, :resume, %{}, actor)
 
       assert resumed.status == :active
       assert resumed.enabled == true
@@ -233,7 +233,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     test "transitions to failing state", %{actor: actor} do
       {:ok, checker} = create_active_checker(actor)
 
-      {:ok, failing} = Ash.update(checker, :mark_failing, %{reason: "timeout"}, actor: actor)
+      {:ok, failing} = update_with_action(checker, :mark_failing, %{reason: "timeout"}, actor)
 
       assert failing.status == :failing
       assert failing.failure_reason == "timeout"
@@ -242,9 +242,9 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
 
     test "clears failure state", %{actor: actor} do
       {:ok, checker} = create_active_checker(actor)
-      {:ok, failing} = Ash.update(checker, :mark_failing, %{reason: "timeout"}, actor: actor)
+      {:ok, failing} = update_with_action(checker, :mark_failing, %{reason: "timeout"}, actor)
 
-      {:ok, cleared} = Ash.update(failing, :clear_failure, %{}, actor: actor)
+      {:ok, cleared} = update_with_action(failing, :clear_failure, %{}, actor)
 
       assert cleared.status == :active
       assert cleared.consecutive_failures == 0
@@ -255,14 +255,17 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     test "records success resets consecutive failures", %{actor: actor} do
       {:ok, checker} = create_active_checker(actor)
 
-      # Record some failures first
+      {:ok, failed_once} =
+        update_with_action(checker, :record_failure, %{reason: "timeout"}, actor)
+
+      {:ok, failed_twice} =
+        update_with_action(failed_once, :record_failure, %{reason: "timeout"}, actor)
+
       {:ok, with_failures} =
-        checker
-        |> Ash.Changeset.for_update(:update, %{consecutive_failures: 5})
-        |> Ash.update(actor: actor)
+        update_with_action(failed_twice, :record_failure, %{reason: "timeout"}, actor)
 
       # Record success
-      {:ok, success} = Ash.update(with_failures, :record_success, %{}, actor: actor)
+      {:ok, success} = update_with_action(with_failures, :record_success, %{}, actor)
 
       assert success.consecutive_failures == 0
       assert success.last_success != nil
@@ -272,12 +275,12 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       {:ok, checker} = create_active_checker(actor)
 
       {:ok, failed_once} =
-        Ash.update(checker, :record_failure, %{reason: "timeout"}, actor: actor)
+        update_with_action(checker, :record_failure, %{reason: "timeout"}, actor)
 
       assert failed_once.consecutive_failures == 1
 
       {:ok, failed_twice} =
-        Ash.update(failed_once, :record_failure, %{reason: "timeout"}, actor: actor)
+        update_with_action(failed_once, :record_failure, %{reason: "timeout"}, actor)
 
       assert failed_twice.consecutive_failures == 2
     end
@@ -286,12 +289,12 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       {:ok, checker} = create_active_checker(actor)
 
       # Disable
-      {:ok, disabled} = Ash.update(checker, :disable, %{}, actor: actor)
+      {:ok, disabled} = update_with_action(checker, :disable, %{}, actor)
       assert disabled.status == :disabled
       assert disabled.enabled == false
 
       # Enable
-      {:ok, enabled} = Ash.update(disabled, :enable, %{}, actor: actor)
+      {:ok, enabled} = update_with_action(disabled, :enable, %{}, actor)
       assert enabled.status == :active
       assert enabled.enabled == true
     end
@@ -304,5 +307,11 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       })
       |> Ash.create(actor: actor)
     end
+  end
+
+  defp update_with_action(record, action, params, actor) do
+    record
+    |> Ash.Changeset.for_update(action, params, actor: actor)
+    |> Ash.update(actor: actor)
   end
 end

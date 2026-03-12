@@ -27,6 +27,8 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
   # Schema is determined by DB connection's search_path
   setup do
+    ConfigServer.invalidate(:snmp)
+
     actor = %{
       id: Ash.UUID.generate(),
       email: "snmp-config@serviceradar.local",
@@ -71,15 +73,20 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           :create,
           %{
             name: "Default SNMP Profile",
-            is_default: true,
+            is_default: false,
             enabled: true,
-            poll_interval_seconds: 60,
-            timeout_seconds: 5,
+            poll_interval: 60,
+            timeout: 5,
             retries: 2
           },
           actor: actor
         )
         |> Ash.create()
+
+      {:ok, _profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
 
       # Create an SNMP target
       {:ok, target} =
@@ -90,7 +97,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             name: "Router Target",
             host: device.ip,
             port: 161,
-            snmp_version: :v2c,
+            version: :v2c,
             community: "public",
             snmp_profile_id: profile.id
           },
@@ -167,11 +174,11 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           :create,
           %{
             name: "Core Switch Profile",
-            target_query: "in:devices hostname:core-switch-*",
-            priority: 10,
+            target_query: ~s(in:devices hostname:"core-switch-#{unique_id}"),
+            priority: 1_000_000 + unique_id,
             enabled: true,
-            poll_interval_seconds: 30,
-            timeout_seconds: 3,
+            poll_interval: 30,
+            timeout: 3,
             retries: 1
           },
           actor: actor
@@ -187,7 +194,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             name: "Switch Target",
             host: device.ip,
             port: 161,
-            snmp_version: :v2c,
+            version: :v2c,
             community: "switch-community",
             snmp_profile_id: profile.id
           },
@@ -210,6 +217,8 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           actor: actor
         )
         |> Ash.create()
+
+      ConfigServer.invalidate(:snmp)
 
       # Get config - the targeting profile should be resolved for this device
       {:ok, entry} =
@@ -236,13 +245,18 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           :create,
           %{
             name: "Agent Test Profile",
-            is_default: true,
+            is_default: false,
             enabled: true,
-            poll_interval_seconds: 120
+            poll_interval: 120
           },
           actor: actor
         )
         |> Ash.create()
+
+      {:ok, _profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
 
       # Create a target
       {:ok, target} =
@@ -253,7 +267,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             name: "Test Target",
             host: "10.10.10.#{rem(unique_id, 254) + 1}",
             port: 161,
-            snmp_version: :v2c,
+            version: :v2c,
             community: "test",
             snmp_profile_id: profile.id
           },
@@ -280,12 +294,14 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       {:ok, agent_config} = AgentConfigGenerator.generate_config(agent_id)
       payload = Jason.decode!(agent_config.config_json)
 
-      # Verify SNMP config is included
-      snmp_payload = payload["snmp"]
-      assert snmp_payload != nil
-      assert snmp_payload["enabled"] == true
-      assert is_list(snmp_payload["targets"])
-      refute Enum.empty?(snmp_payload["targets"])
+      # SNMP is carried in the dedicated proto field, not in config_json.
+      refute Map.has_key?(payload, "snmp")
+
+      snmp_config = agent_config.snmp_config
+      assert snmp_config != nil
+      assert snmp_config.enabled == true
+      assert is_list(snmp_config.targets)
+      refute Enum.empty?(snmp_config.targets)
     end
 
     @tag :integration
@@ -294,19 +310,24 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       agent_id: agent_id
     } do
       # Create a disabled SNMP profile
-      {:ok, _profile} =
+      {:ok, profile} =
         SNMPProfile
         |> Ash.Changeset.for_create(
           :create,
           %{
             name: "Disabled Profile",
-            is_default: true,
+            is_default: false,
             enabled: false,
-            poll_interval_seconds: 60
+            poll_interval: 60
           },
           actor: actor
         )
         |> Ash.create()
+
+      {:ok, _profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
 
       # Get config
       {:ok, entry} = ConfigServer.get_config(:snmp, "default", agent_id)
@@ -329,13 +350,18 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           :create,
           %{
             name: "SNMPv3 Profile",
-            is_default: true,
+            is_default: false,
             enabled: true,
-            poll_interval_seconds: 60
+            poll_interval: 60
           },
           actor: actor
         )
         |> Ash.create()
+
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
 
       # Create SNMPv3 target
       {:ok, target} =
@@ -346,13 +372,13 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             name: "SNMPv3 Target",
             host: "10.20.30.#{rem(unique_id, 254) + 1}",
             port: 161,
-            snmp_version: :v3,
-            v3_username: "admin",
-            v3_security_level: :auth_priv,
-            v3_auth_protocol: :sha,
-            v3_auth_password: "authpass123",
-            v3_priv_protocol: :aes,
-            v3_priv_password: "privpass456",
+            version: :v3,
+            username: "admin",
+            security_level: :auth_priv,
+            auth_protocol: :sha,
+            auth_password: "authpass123",
+            priv_protocol: :aes,
+            priv_password: "privpass456",
             snmp_profile_id: profile.id
           },
           actor: actor
@@ -385,9 +411,9 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       assert v3_target != nil
       assert v3_target["v3_auth"] != nil
       assert v3_target["v3_auth"]["username"] == "admin"
-      assert v3_target["v3_auth"]["security_level"] == "auth_priv"
-      assert v3_target["v3_auth"]["auth_protocol"] == "sha"
-      assert v3_target["v3_auth"]["priv_protocol"] == "aes"
+      assert v3_target["v3_auth"]["security_level"] == "authPriv"
+      assert v3_target["v3_auth"]["auth_protocol"] == "SHA"
+      assert v3_target["v3_auth"]["priv_protocol"] == "AES"
       # Passwords should be present (may be encrypted)
       assert v3_target["v3_auth"]["auth_password"] != nil
       assert v3_target["v3_auth"]["priv_password"] != nil

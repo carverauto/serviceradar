@@ -43,6 +43,18 @@ bazel_dep(
     repo_name = "io_buildbuddy_buildbuddy_toolchain",
 )
 
+# rules_go/gazelle pull package_metadata transitively. Prefer the Bazel mirror
+# first so CI does not fail analysis when GitHub releases transiently returns 502.
+archive_override(
+    module_name = "package_metadata",
+    integrity = "sha256-Se0R5da3UsVfpTnLsQsnNpdPNHsIHXvVAKgNrLfb7AY=",
+    strip_prefix = "supply-chain-0.0.5/metadata",
+    urls = [
+        "https://mirror.bazel.build/github.com/bazel-contrib/supply-chain/releases/download/v0.0.5/supply-chain-v0.0.5.tar.gz",
+        "https://github.com/bazel-contrib/supply-chain/releases/download/v0.0.5/supply-chain-v0.0.5.tar.gz",
+    ],
+)
+
 single_version_override(
     module_name = "rules_java",
     patch_strip = 0,

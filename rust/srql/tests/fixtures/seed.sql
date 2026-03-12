@@ -151,7 +151,7 @@ SELECT 'gateway-1',
     10,
     50,
     base.now_ts,
-    '00000000-0000-0000-0000-000000000010'
+    '00000000-0000-0000-0000-000000000010'::uuid
 FROM base
 UNION ALL
 SELECT 'gateway-2',
@@ -168,7 +168,7 @@ SELECT 'gateway-2',
     5,
     25,
     base.now_ts,
-    '00000000-0000-0000-0000-000000000011'
+    '00000000-0000-0000-0000-000000000011'::uuid
 FROM base;
 WITH base AS (
     SELECT NOW() AS now_ts
@@ -177,6 +177,7 @@ INSERT INTO service_status (
         timestamp,
         gateway_id,
         agent_id,
+        service_id,
         service_name,
         service_type,
         available,
@@ -188,6 +189,7 @@ INSERT INTO service_status (
 SELECT base.now_ts - INTERVAL '5 minutes',
     'gateway-1',
     'agent-1',
+    '10000000-0000-0000-0000-000000000001'::uuid,
     'ssh',
     'ssh',
     true,
@@ -200,6 +202,7 @@ UNION ALL
 SELECT base.now_ts - INTERVAL '10 minutes',
     'gateway-1',
     'agent-1',
+    '10000000-0000-0000-0000-000000000002'::uuid,
     'http',
     'http',
     false,
@@ -347,6 +350,7 @@ INSERT INTO logs (
         service_instance,
         scope_name,
         scope_version,
+        source,
         attributes,
         resource_attributes,
         created_at
@@ -363,6 +367,7 @@ SELECT base.now_ts - INTERVAL '1 minute',
     'inst-1',
     'my-scope',
     '1.0',
+    'app',
     '{"key":"value"}'::text,
     '{"res":"val"}'::text,
     base.now_ts
@@ -380,6 +385,7 @@ SELECT base.now_ts - INTERVAL '2 hours',
     'inst-1',
     'my-scope',
     '1.0',
+    'app',
     '{"error":"timeout"}'::text,
     '{"res":"val"}'::text,
     base.now_ts

@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -494,6 +495,7 @@ func TestLocalOverrideTakesPrecedence(t *testing.T) {
 	svc, err := NewSysmonService(SysmonServiceConfig{
 		AgentID:   "test-agent",
 		ConfigDir: tmpDir,
+		CachePath: cachedPath,
 		Logger:    log,
 	})
 	require.NoError(t, err)
@@ -535,6 +537,7 @@ func TestCacheFallbackWhenLocalUnavailable(t *testing.T) {
 	configDir := tmpDir + "/config"
 	err := os.MkdirAll(configDir, 0755)
 	require.NoError(t, err)
+	cachePath := filepath.Join(tmpDir, "cache", "sysmon-config.json")
 
 	initialConfig := `{
 		"enabled": true,
@@ -552,6 +555,7 @@ func TestCacheFallbackWhenLocalUnavailable(t *testing.T) {
 	svc1, err := NewSysmonService(SysmonServiceConfig{
 		AgentID:   "test-agent",
 		ConfigDir: configDir,
+		CachePath: cachePath,
 		Logger:    log,
 	})
 	require.NoError(t, err)
@@ -580,6 +584,7 @@ func TestCacheFallbackWhenLocalUnavailable(t *testing.T) {
 	svc2, err := NewSysmonService(SysmonServiceConfig{
 		AgentID:   "test-agent-2",
 		ConfigDir: configDir, // Same dir but config file is gone
+		CachePath: cachePath,
 		Logger:    log,
 	})
 	require.NoError(t, err)

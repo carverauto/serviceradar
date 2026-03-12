@@ -35,7 +35,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     if let Some(stats_sql) = build_stats_query(plan)? {
         let query = stats_sql.to_boxed_query();
         let rows: Vec<MetricsStatsPayload> = query
-            .load(conn)
+            .load::<MetricsStatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
         return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
@@ -323,6 +323,7 @@ fn bind_param_from_stats(value: SqlBindValue) -> BindParam {
 }
 
 #[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct MetricsStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
     payload: Option<Value>,

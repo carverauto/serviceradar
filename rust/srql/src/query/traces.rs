@@ -39,7 +39,7 @@ pub(super) async fn execute(
     if let Some(rollup_sql) = build_rollup_stats_query(plan)? {
         let query = rollup_sql.to_boxed_query();
         let rows: Vec<TracesStatsPayload> = query
-            .load(conn)
+            .load::<TracesStatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
         return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
@@ -47,9 +47,10 @@ pub(super) async fn execute(
 
     let query = build_query(plan)?;
     let rows: Vec<TraceSpanRow> = query
+        .select(TraceSpanRow::as_select())
         .limit(plan.limit)
         .offset(plan.offset)
-        .load(conn)
+        .load::<TraceSpanRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
@@ -129,6 +130,7 @@ impl TracesStatsSql {
 }
 
 #[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct TracesStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
     payload: Option<Value>,

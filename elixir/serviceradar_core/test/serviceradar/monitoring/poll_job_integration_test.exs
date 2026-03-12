@@ -17,6 +17,14 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
   @moduletag :database
 
   setup do
+    old_repo_enabled = Application.get_env(:serviceradar_core, :repo_enabled)
+    Application.put_env(:serviceradar_core, :repo_enabled, true)
+    ServiceRadar.TestSupport.start_core!()
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_core, :repo_enabled, old_repo_enabled)
+    end)
+
     unique_id = :erlang.unique_integer([:positive])
     actor = SystemActor.system(:test)
 
@@ -28,7 +36,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
         schedule_type: :interval,
         interval_seconds: 60
       })
-      |> Ash.create()
+      |> Ash.create(actor: actor)
 
     {:ok, actor: actor, unique_id: unique_id, schedule_id: schedule.id, schedule: schedule}
   end
@@ -285,7 +293,11 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       {:ok, pending_job: pending_job, running_job: running_job}
     end
 
-    test "pending query returns only pending jobs", %{pending_job: pending, running_job: running, actor: actor} do
+    test "pending query returns only pending jobs", %{
+      pending_job: pending,
+      running_job: running,
+      actor: actor
+    } do
       jobs =
         PollJob
         |> Ash.Query.for_read(:pending, %{})
@@ -295,7 +307,11 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       refute Enum.any?(jobs, &(&1.id == running.id))
     end
 
-    test "running query returns only running jobs", %{pending_job: pending, running_job: running, actor: actor} do
+    test "running query returns only running jobs", %{
+      pending_job: pending,
+      running_job: running,
+      actor: actor
+    } do
       jobs =
         PollJob
         |> Ash.Query.for_read(:running, %{})

@@ -58,6 +58,7 @@ rust_test(
     name = "zen_lib_test",
     crate = ":zen_lib",
     data = [
+        "//build/packaging/zen:rules",
         "testdata/host_switch.json",
         "testdata/syslog_settings.json",
     ],

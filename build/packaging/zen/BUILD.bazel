@@ -3,6 +3,11 @@ load("//build/packaging:packages.bzl", "PACKAGES")
 
 package(default_visibility = ["//visibility:public"])
 
+filegroup(
+    name = "rules",
+    srcs = glob(["rules/*.json"]),
+)
+
 serviceradar_package_from_config(
     name = "zen",
     config = PACKAGES["zen"],

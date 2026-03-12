@@ -26,30 +26,32 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
             let sql_debug = summary_query.sql.clone();
             let binds_debug = summary_query.binds.clone();
             let query = summary_query.to_boxed_query();
-            let rows: Vec<TraceSummaryRow> = query.load(conn).await.map_err(|err| {
-                error!(
-                    error = ?err,
-                    sql = %sql_debug,
-                    binds = ?binds_debug,
-                    "trace summaries data query failed"
-                );
-                ServiceError::Internal(err.into())
-            })?;
+            let rows: Vec<TraceSummaryRow> =
+                query.load::<TraceSummaryRow>(conn).await.map_err(|err| {
+                    error!(
+                        error = ?err,
+                        sql = %sql_debug,
+                        binds = ?binds_debug,
+                        "trace summaries data query failed"
+                    );
+                    ServiceError::Internal(err.into())
+                })?;
             Ok(rows.into_iter().map(TraceSummaryRow::into_json).collect())
         }
         SummaryMode::Stats => {
             let sql_debug = summary_query.sql.clone();
             let binds_debug = summary_query.binds.clone();
             let query = summary_query.to_boxed_query();
-            let rows: Vec<TraceStatsPayload> = query.load(conn).await.map_err(|err| {
-                error!(
-                    error = ?err,
-                    sql = %sql_debug,
-                    binds = ?binds_debug,
-                    "trace summaries stats query failed"
-                );
-                ServiceError::Internal(err.into())
-            })?;
+            let rows: Vec<TraceStatsPayload> =
+                query.load::<TraceStatsPayload>(conn).await.map_err(|err| {
+                    error!(
+                        error = ?err,
+                        sql = %sql_debug,
+                        binds = ?binds_debug,
+                        "trace summaries stats query failed"
+                    );
+                    ServiceError::Internal(err.into())
+                })?;
             let payload = rows
                 .into_iter()
                 .next()
@@ -139,6 +141,7 @@ fn bind_param_from_query(value: SqlBindValue) -> BindParam {
 }
 
 #[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct TraceStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
     payload: Option<Value>,

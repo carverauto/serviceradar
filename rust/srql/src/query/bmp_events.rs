@@ -30,9 +30,10 @@ pub(super) async fn execute(
     ensure_entity(plan)?;
     let query = build_query(plan)?;
     let rows: Vec<BmpRoutingEventRow> = query
+        .select(BmpRoutingEventRow::as_select())
         .limit(plan.limit)
         .offset(plan.offset)
-        .load(conn)
+        .load::<BmpRoutingEventRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 

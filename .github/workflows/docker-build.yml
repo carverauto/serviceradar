@@ -25,11 +25,24 @@ jobs:
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       GHCR_REGISTRY: ghcr.io
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+            third_party/bazel-repo-cache
+            third_party/bazel-disk-cache
+            third_party/distdir
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
 
       - name: Install build dependencies
         run: |
@@ -148,14 +161,14 @@ jobs:
           bazel build \
             --config=remote \
             -c opt \
-            //docker/images:push_all
+            //:images
 
       - name: Publish images
         env:
           EXTRA_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          cmd=(bazel run --config=remote -c opt --stamp //docker/images:push_all)
+          cmd=(bazel run --config=remote -c opt --stamp //:push)
           if [[ -n "${EXTRA_TAG}" ]]; then
             cmd+=(-- --tag "${EXTRA_TAG}")
           fi

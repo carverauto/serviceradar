@@ -42,12 +42,16 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
   """
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
-    case check_existing_job() do
-      true ->
-        {:ok, :already_scheduled}
+    if ObanSupport.available?() do
+      case check_existing_job() do
+        true ->
+          {:ok, :already_scheduled}
 
-      false ->
-        %{} |> new() |> Oban.insert()
+        false ->
+          %{} |> new() |> ObanSupport.safe_insert()
+      end
+    else
+      {:error, :oban_unavailable}
     end
   end
 
@@ -83,7 +87,9 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
   end
 
   defp schedule_next_cleanup do
-    %{} |> new(schedule_in: @reschedule_interval_seconds) |> Oban.insert()
+    %{}
+    |> new(schedule_in: @reschedule_interval_seconds)
+    |> ObanSupport.safe_insert()
   end
 
   defp cleanup_stale_states(cutoff) do

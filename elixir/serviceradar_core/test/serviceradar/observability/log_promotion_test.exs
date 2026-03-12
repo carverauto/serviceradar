@@ -43,7 +43,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
       severity_number: 17,
       body: "Disk failure detected",
       service_name: "syslog",
-      attributes: %{"serviceradar.ingest" => %{"subject" => "logs.syslog.processed"}},
+      attributes: %{"serviceradar" => %{"ingest" => %{"subject" => "logs.syslog.processed"}}},
       resource_attributes: %{},
       created_at: DateTime.utc_now()
     }

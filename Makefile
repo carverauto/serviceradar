@@ -106,7 +106,7 @@ compose-upgrade: ## Pull images and recreate containers without destroying volum
 
 .PHONY: build
 build: ## Build all OCI images with Bazel (remote)
-	@bazel build --config=remote $$(bazel query 'kind(oci_image, //docker/images:*)')
+	@bazel build --config=remote //:images
 
 .PHONY: build-workspace
 build-workspace: ## Build the full workspace with Bazel (remote)
@@ -124,10 +124,10 @@ push-web-ng: ## Build and push just the web-ng OCI image to GHCR (remote)
 push_all: ## Build and push all OCI images to GHCR (CI only, see issue #2517)
 	@set -eu; \
 	if [ -n "$(PUSH_TAG)" ]; then \
-		bazel run --config=remote --stamp //docker/images:push_all -- --tag "$(PUSH_TAG)"; \
+		bazel run --config=remote --stamp //:push -- --tag "$(PUSH_TAG)"; \
 		$(MAKE) verify_publish VERIFY_TAG="$(PUSH_TAG)"; \
 	else \
-		bazel run --config=remote --stamp //docker/images:push_all; \
+		bazel run --config=remote --stamp //:push; \
 		$(MAKE) verify_publish; \
 	fi
 
@@ -289,12 +289,22 @@ test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG
 	  exit 1; \
 	fi; \
 	if [ -n "$${admin_url}" ]; then \
-	  export PGSSLROOTCERT="$${PGSSLROOTCERT:-$${SERVICERADAR_TEST_DATABASE_CA_CERT:-$${SRQL_TEST_DATABASE_CA_CERT:-}}}"; \
+	  ca_file="$${PGSSLROOTCERT:-$${SERVICERADAR_TEST_DATABASE_CA_CERT_FILE:-$${SRQL_TEST_DATABASE_CA_CERT_FILE:-$${CNPG_CA_FILE:-}}}}"; \
+	  if [ -z "$${ca_file}" ]; then \
+	    for candidate in "$${SERVICERADAR_TEST_DATABASE_CA_CERT:-}" "$${SRQL_TEST_DATABASE_CA_CERT:-}"; do \
+	      if [ -n "$${candidate}" ] && [ -f "$${candidate}" ]; then \
+	        ca_file="$${candidate}"; \
+	        break; \
+	      fi; \
+	    done; \
+	  fi; \
+	  export PGSSLROOTCERT="$${ca_file}"; \
 	  export PGSSLCERT="$${PGSSLCERT:-$${SERVICERADAR_TEST_DATABASE_CERT:-$${SRQL_TEST_DATABASE_CERT:-}}}"; \
 	  export PGSSLKEY="$${PGSSLKEY:-$${SERVICERADAR_TEST_DATABASE_KEY:-$${SRQL_TEST_DATABASE_KEY:-}}}"; \
 	  ./scripts/reset-test-db.sh "$${admin_url}" "$${db_url}"; \
 	fi; \
 	export SERVICERADAR_TEST_DATABASE_URL="$${db_url}"; \
+	export SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS="$${SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS:-600000}"; \
 	cd elixir/serviceradar_core; \
 	MIX_ENV=test mix deps.get; \
 	MIX_ENV=test mix ash.migrate; \

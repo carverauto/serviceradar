@@ -80,7 +80,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   @type state :: atom()
 
   defp repo_enabled? do
-    Application.get_env(:serviceradar_core, :repo_enabled, true)
+    Application.get_env(:serviceradar_core, :repo_enabled, true) != false
   end
 
   defp ensure_tracking_ready do

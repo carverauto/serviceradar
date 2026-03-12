@@ -11,8 +11,10 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.{Device, DeviceCleanupSettings}
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
+  import Ecto.Query
   require Ash.Query
   require Logger
 
@@ -150,15 +152,13 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
         stats
 
       {:ok, records} ->
-        result =
-          Ash.bulk_destroy(records, :destroy, %{},
-            actor: actor,
-            return_records?: false,
-            return_errors?: true
-          )
+        {updated, deleted_count} = hard_delete_records(stats, records)
 
-        updated = accumulate_bulk_result(stats, result, length(records))
-        do_purge(cutoff, batch_size, actor, updated)
+        if deleted_count > 0 do
+          do_purge(cutoff, batch_size, actor, updated)
+        else
+          updated
+        end
 
       {:error, reason} ->
         Logger.warning("DeviceCleanupWorker: failed to read cleanup batch",
@@ -169,36 +169,17 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     end
   end
 
-  defp accumulate_bulk_result(
-         stats,
-         %Ash.BulkResult{status: :success, error_count: error_count},
-         batch_count
-       ) do
-    deleted = max(batch_count - error_count, 0)
-    %{stats | deleted: stats.deleted + deleted, errors: stats.errors + error_count}
-  end
+  defp hard_delete_records(stats, records) do
+    uids = Enum.map(records, & &1.uid)
 
-  defp accumulate_bulk_result(
-         stats,
-         %Ash.BulkResult{status: :partial_success, errors: errors, error_count: error_count},
-         batch_count
-       ) do
-    deleted = max(batch_count - error_count, 0)
-    Logger.warning("DeviceCleanupWorker: partial delete failures", errors: inspect(errors))
-    %{stats | deleted: stats.deleted + deleted, errors: stats.errors + error_count}
-  end
+    {deleted_count, _} =
+      from(d in "ocsf_devices", where: d.uid in ^uids)
+      |> Repo.delete_all(prefix: "platform")
 
-  defp accumulate_bulk_result(
-         stats,
-         %Ash.BulkResult{status: :error, errors: errors, error_count: error_count},
-         _batch_count
-       ) do
-    Logger.warning("DeviceCleanupWorker: delete failures", errors: inspect(errors))
-    %{stats | errors: stats.errors + max(error_count, length(errors || []))}
-  end
-
-  defp accumulate_bulk_result(stats, other, _batch_count) do
-    Logger.warning("DeviceCleanupWorker: unexpected bulk result", result: inspect(other))
-    %{stats | errors: stats.errors + 1}
+    {%{stats | deleted: stats.deleted + deleted_count}, deleted_count}
+  rescue
+    error ->
+      Logger.warning("DeviceCleanupWorker: delete failures", error: inspect(error))
+      {%{stats | errors: stats.errors + 1}, 0}
   end
 end

@@ -37,8 +37,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :sync_ingestor_test_pid, self())
 
-    ensure_supervised({Task.Supervisor, name: ServiceRadar.SyncIngestor.TaskSupervisor})
-    ensure_supervised(SyncIngestorQueue)
+    restart_task_supervisor(ServiceRadar.SyncIngestor.TaskSupervisor)
+    restart_supervised(SyncIngestorQueue)
+    flush_mailbox()
 
     on_exit(fn ->
       restore_env(:sync_ingestor, previous)
@@ -66,40 +67,72 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
   end
 
   test "processes batches sequentially" do
-    Application.put_env(:serviceradar_core, :sync_ingestor_coalesce_ms, 0)
-    Application.put_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 1)
+    Application.put_env(:serviceradar_core, :sync_ingestor_coalesce_ms, 10)
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 10)
     Application.put_env(:serviceradar_core, :sync_ingestor_test_delay_ms, 200)
 
     SyncIngestorQueue.enqueue(Jason.encode!([%{"device_id" => "dev-a"}]))
-    SyncIngestorQueue.enqueue(Jason.encode!([%{"device_id" => "dev-b"}]))
 
-    # First batch should start immediately
-    assert_receive {:ingest_started, _updates}, 500
+    # Let the first batch become inflight before adding the second.
+    assert_receive {:ingest_started, _updates}, 2_000
+
+    SyncIngestorQueue.enqueue(Jason.encode!([%{"device_id" => "dev-b"}]))
 
     # Second batch should wait until first finishes
     refute_receive {:ingest_started, _updates}, 150
-    assert_receive :ingest_finished, 500
-    assert_receive {:ingest_started, _updates}, 500
+    assert_receive :ingest_finished, 2_000
+    assert_receive {:ingest_started, _updates}, 2_000
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 
-  defp ensure_supervised({Task.Supervisor, opts}) do
-    name = Keyword.get(opts, :name)
+  defp restart_task_supervisor(name) do
+    stop_process(name)
 
-    if name && Process.whereis(name) do
-      :ok
-    else
-      start_supervised!({Task.Supervisor, opts})
+    case start_supervised({Task.Supervisor, name: name}) do
+      {:ok, pid} -> pid
+      {:error, {:already_started, pid}} -> pid
     end
   end
 
-  defp ensure_supervised(module) when is_atom(module) do
-    if Process.whereis(module) do
-      :ok
-    else
-      start_supervised!(module)
+  defp restart_supervised(module) when is_atom(module) do
+    stop_process(module)
+
+    case Process.whereis(module) do
+      nil ->
+        case start_supervised(module) do
+          {:ok, pid} -> pid
+          {:error, {:already_started, pid}} -> pid
+        end
+
+      pid ->
+        pid
+    end
+  end
+
+  defp stop_process(nil), do: :ok
+
+  defp stop_process(name) do
+    if pid = Process.whereis(name) do
+      ref = Process.monitor(pid)
+      Process.exit(pid, :shutdown)
+
+      receive do
+        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+      after
+        1_000 -> :ok
+      end
+    end
+
+    :ok
+  end
+
+  defp flush_mailbox do
+    receive do
+      _message -> flush_mailbox()
+    after
+      0 -> :ok
     end
   end
 end

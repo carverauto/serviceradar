@@ -126,6 +126,7 @@ fn parse_bool(input: &str, default_value: bool) -> Option<bool> {
 }
 
 #[derive(QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct DeviceGraphRow {
     #[diesel(sql_type = Jsonb)]
     result: Value,

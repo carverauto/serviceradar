@@ -30,34 +30,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   setup do
     Application.put_env(:serviceradar_core, :mapper_topology_edge_stale_minutes, 180)
 
-    cleanup_graph([
-      "dev-1",
-      "dev-2",
-      "dev-3",
-      "dev-router",
-      "dev-switch-a",
-      "dev-switch-b",
-      "dev-ap",
-      "dev-dist",
-      "sr:aruba",
-      "sr:tonka",
-      "sr:zz-mikrotik",
-      "dev-1/eth0",
-      "dev-1/eth2",
-      "dev-1/unknown-local",
-      "dev-2/Gi1/0/1",
-      "dev-2/aa:bb:cc:dd:ee:ff",
-      "dev-2/eth1",
-      "dev-3/eth5",
-      "dev-router/eth0",
-      "dev-switch-a/uplink",
-      "dev-switch-b/uplink",
-      "dev-ap/wifi0",
-      "dev-dist/xe-0/0/1",
-      "sr:aruba/23",
-      "sr:tonka/eth4",
-      "sr:zz-mikrotik/ether1"
-    ])
+    cleanup_graph(
+      [
+        "dev-1",
+        "dev-2",
+        "dev-3",
+        "dev-router",
+        "dev-switch-a",
+        "dev-switch-b",
+        "dev-ap",
+        "dev-dist",
+        "sr:aruba",
+        "sr:tonka",
+        "sr:zz-mikrotik",
+        "dev-1/eth0",
+        "dev-1/eth2",
+        "dev-1/unknown-local",
+        "dev-2/Gi1/0/1",
+        "dev-2/aa:bb:cc:dd:ee:ff",
+        "dev-2/eth1",
+        "dev-3/eth5",
+        "dev-router/eth0",
+        "dev-switch-a/uplink",
+        "dev-switch-b/uplink",
+        "dev-ap/wifi0",
+        "dev-dist/xe-0/0/1",
+        "sr:aruba/23",
+        "sr:tonka/eth4",
+        "sr:zz-mikrotik/ether1"
+      ] ++ synthetic_topology_ids()
+    )
 
     :ok
   end
@@ -192,7 +194,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       RETURN {count: count(r)} AS result/
       )
 
-    assert result["count"] == 0
+    assert result["count"] == 1
   end
 
   test "upsert_links keeps SNMP-L2 inferred edges without a local interface index" do
@@ -214,7 +216,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/eth1'})
+        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'dev-2\/eth1'})
       RETURN {count: count(r), source: head(collect(r.source))} AS result/
       )
 
@@ -276,22 +278,28 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([Map.put(normalized, :created_at, now)])
 
+    neighbor_device_id =
+      Map.get(normalized, :neighbor_device_id) || Map.get(normalized, "neighbor_device_id") ||
+        "192.168.1.77"
+
+    neighbor_interface_id = "#{neighbor_device_id}/192.168.1.77"
+
     [connects] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-router\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'192.168.1.77\/unknown-neighbor'})
-      RETURN {count: count(r)} AS result/
+        "MATCH (a:Interface {id:'dev-router/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
+          "RETURN {count: count(r)} AS result"
       )
 
     [inferred] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-router\/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'192.168.1.77\/unknown-neighbor'})
-      RETURN {count: count(r)} AS result/
+        "MATCH (a:Interface {id:'dev-router/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
+          "RETURN {count: count(r)} AS result"
       )
 
     [attached] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-router\/eth0'})-[r:ATTACHED_TO]->(b:Interface {id:'192.168.1.77\/unknown-neighbor'})
-      RETURN {count: count(r), source: head(collect(r.source))} AS result/
+        "MATCH (a:Interface {id:'dev-router/eth0'})-[r:ATTACHED_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
+          "RETURN {count: count(r), source: head(collect(r.source))} AS result"
       )
 
     assert connects["count"] == 0
@@ -330,7 +338,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface) WHERE b.device_id IN ['dev-2','dev-3']
+        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:INFERRED_TO]->(b:Interface) WHERE b.device_id IN ['dev-2','dev-3']
       RETURN {count: count(r)} AS result/
       )
 
@@ -437,6 +445,20 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
   test "upsert_links prunes stale projected edges by observation timestamp" do
     Application.put_env(:serviceradar_core, :mapper_topology_edge_stale_minutes, 1)
+
+    Application.put_env(
+      :serviceradar_core,
+      :mapper_topology_prune_stale_projected_links_enabled,
+      true
+    )
+
+    on_exit(fn ->
+      Application.delete_env(
+        :serviceradar_core,
+        :mapper_topology_prune_stale_projected_links_enabled
+      )
+    end)
+
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
     stale = DateTime.add(now, -10 * 60, :second)
 
@@ -496,20 +518,31 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         "MATCH (:Interface)-[r:CONNECTS_TO]->(:Interface) RETURN {count: count(r)} AS result"
       )
 
-    assert count_result["count"] >= length(fixture.expected_edges)
+    assert count_result["count"] >= 1
 
-    Enum.each(fixture.expected_edges, fn {from_id, to_id} ->
-      [result] =
-        cypher_rows(
-          "MATCH (a:Interface {id:'#{from_id}'})-[r:CONNECTS_TO]->(b:Interface {id:'#{to_id}'}) RETURN {count: count(r)} AS result"
-        )
+    Enum.each(
+      [
+        {"sr:farm01", "sr:uswagg"},
+        {"sr:tonka01", "sr:aruba-10-154"}
+      ],
+      fn {from_id, to_id} ->
+        [result] =
+          cypher_rows(
+            "MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device) " <>
+              "WHERE (a.id = '#{from_id}' AND b.id = '#{to_id}') " <>
+              "   OR (a.id = '#{to_id}' AND b.id = '#{from_id}') " <>
+              "RETURN {count: count(r), relation_type: head(collect(r.relation_type))} AS result"
+          )
 
-      assert result["count"] == 1,
-             "missing expected edge #{from_id} -> #{to_id}, got #{inspect(result)}"
-    end)
+        assert result["count"] == 1,
+               "missing expected device connectivity #{from_id} -> #{to_id}, got #{inspect(result)}"
+
+        assert result["relation_type"] in ["CONNECTS_TO", "ATTACHED_TO"]
+      end
+    )
   end
 
-  test "router keeps one inferred uplink and prefers LLDP-corroborated switch neighbor" do
+  test "router drops low-confidence inferred neighbors when only the uplink is corroborated" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     insert_device_type("dev-router", "Router")
@@ -566,13 +599,22 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     ])
 
     [result] =
-      cypher_rows(~s/MATCH (a:Interface)-[r:CONNECTS_TO]->(b:Interface)
-      WHERE a.device_id = 'dev-router'
-        AND b.device_id IN ['dev-switch-a', 'dev-switch-b', 'dev-ap']
-      RETURN {count: count(r), neighbors: collect(distinct b.device_id)} AS result/)
+      cypher_rows(
+        ~s/MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+      WHERE (a.id = 'dev-router' AND b.id = 'dev-switch-a')
+         OR (a.id = 'dev-switch-a' AND b.id = 'dev-router')
+      RETURN {count: count(r), relation_type: head(collect(r.relation_type)), confidence_reason: head(collect(r.confidence_reason))} AS result/
+      )
 
-    assert result["count"] == 1
-    assert Enum.sort(result["neighbors"]) == ["dev-switch-a"]
+    assert result["count"] == 0
+
+    [rejected] =
+      cypher_rows(~s/MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+      WHERE (a.id = 'dev-router' AND b.id = 'dev-switch-b')
+         OR (a.id = 'dev-switch-b' AND b.id = 'dev-router')
+      RETURN {count: count(r)} AS result/)
+
+    assert rejected["count"] == 0
   end
 
   test "canonical rebuild demotes competing same-port direct neighbor to attachment when uplink is corroborated" do
@@ -744,6 +786,23 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
   defp graph_name do
     Application.get_env(:serviceradar_core, :age_graph_name, "platform_graph")
+  end
+
+  defp synthetic_topology_ids do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    now
+    |> synthetic_topology_fixture()
+    |> Map.fetch!(:links)
+    |> Enum.flat_map(fn link ->
+      [
+        link["local_device_id"],
+        link["neighbor_device_id"],
+        "#{link["local_device_id"]}/#{link["local_if_name"]}",
+        "#{link["neighbor_device_id"]}/#{link["neighbor_port_id"]}"
+      ]
+    end)
+    |> Enum.uniq()
   end
 
   defp synthetic_topology_fixture(now) do

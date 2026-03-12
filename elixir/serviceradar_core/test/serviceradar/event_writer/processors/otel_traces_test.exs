@@ -161,8 +161,8 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
         Jason.encode!(%{
           "trace_id" => "trace-string",
           "span_id" => "span-string",
-          "start_time_unix_nano" => "1_705_315_800_000_000_000",
-          "end_time_unix_nano" => "1_705_315_800_100_000_000"
+          "start_time_unix_nano" => "1705315800000000000",
+          "end_time_unix_nano" => "1705315800100000000"
         })
 
       message = %{data: json_data, metadata: %{}}

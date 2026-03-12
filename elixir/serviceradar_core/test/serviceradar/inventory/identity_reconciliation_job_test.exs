@@ -10,7 +10,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, Interface, MergeAudit}
+  alias ServiceRadar.Inventory.{Device, Interface, MergeAudit}
   alias ServiceRadar.Jobs.JobSchedule
   alias ServiceRadar.TestSupport
 
@@ -31,8 +31,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
     {:ok, device_a} = create_device(actor, "reconcile-a")
     {:ok, device_b} = create_device(actor, "reconcile-b")
 
-    assert {:ok, _} = register_identifier(actor, device_a.uid, :mac, mac)
-    assert {:ok, _} = register_identifier(actor, device_b.uid, :mac, mac_with_space)
+    assert :ok = register_strong_identifiers(actor, device_a.uid, %{mac: mac})
+    assert :ok = register_strong_identifiers(actor, device_b.uid, %{mac: mac_with_space})
 
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
@@ -58,7 +58,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
     assert {:ok, []} = MergeAudit.get_merged_to(device_b.uid, actor: actor)
   end
 
-  test "scheduled reconciliation merges duplicates with non-MAC strong identifier", %{
+  test "register-time reconciliation merges duplicates with non-MAC strong identifier", %{
     actor: actor
   } do
     shared_armis_id = "armis-reconcile-#{System.unique_integer([:positive])}"
@@ -66,20 +66,13 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
     {:ok, device_a} = create_device(actor, "reconcile-strong-a")
     {:ok, device_b} = create_device(actor, "reconcile-strong-b")
 
-    assert {:ok, _} = register_identifier(actor, device_a.uid, :armis_device_id, shared_armis_id)
-    assert {:ok, _} = register_identifier(actor, device_b.uid, :armis_device_id, shared_armis_id)
-
+    assert :ok = register_strong_identifiers(actor, device_a.uid, %{armis_id: shared_armis_id})
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
     assert {:ok, _} =
              create_interface(actor, device_b.uid, timestamp, "ifindex:101", 101, "eth101")
 
-    schedule = ensure_identity_schedule(actor)
-
-    assert {:ok, _} =
-             schedule
-             |> Ash.Changeset.for_update(:run_identity_reconciliation, %{})
-             |> Ash.update(actor: actor)
+    assert :ok = register_strong_identifiers(actor, device_b.uid, %{armis_id: shared_armis_id})
 
     {remaining_id, merged_id} =
       case Device.get_by_uid(device_a.uid, false, actor: actor) do
@@ -131,18 +124,13 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
     |> Ash.create(actor: actor)
   end
 
-  defp register_identifier(actor, device_id, type, value) do
-    attrs = %{
-      device_id: device_id,
-      identifier_type: type,
-      identifier_value: value,
-      partition: "default",
-      source: "test"
-    }
-
-    DeviceIdentifier
-    |> Ash.Changeset.for_create(:register, attrs)
-    |> Ash.create(actor: actor)
+  defp register_strong_identifiers(actor, device_id, ids) do
+    case ServiceRadar.Inventory.IdentityReconciler.register_identifiers(device_id, ids,
+           actor: actor
+         ) do
+      :ok -> :ok
+      other -> other
+    end
   end
 
   defp create_interface(actor, device_id, timestamp, interface_uid, if_index, if_name) do

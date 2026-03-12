@@ -60,7 +60,8 @@ impl SqlBindValue {
     }
 }
 
-#[derive(QueryableByName)]
+#[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct ProcessStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
     payload: Option<Value>,
@@ -383,7 +384,7 @@ async fn execute_stats(
         query = bind.apply(query);
     }
     let rows: Vec<ProcessStatsPayload> = query
-        .load(conn)
+        .load::<ProcessStatsPayload>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
     Ok(rows.into_iter().filter_map(|row| row.payload).collect())

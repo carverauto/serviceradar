@@ -107,6 +107,7 @@ fn bind_param_from_device_stats(value: DeviceSqlBindValue) -> BindParam {
 }
 
 #[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct DeviceStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
     payload: Option<Value>,
@@ -131,7 +132,7 @@ pub(super) async fn execute(
 
     if let Some(rollup_sql) = build_rollup_stats_query(plan)? {
         let rows: Vec<DeviceStatsPayload> = diesel::sql_query(&rollup_sql.sql)
-            .load(conn)
+            .load::<DeviceStatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
         return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
@@ -146,7 +147,7 @@ pub(super) async fn execute(
                 query = bind.apply(query);
             }
             let rows: Vec<DeviceStatsPayload> = query
-                .load(conn)
+                .load::<DeviceStatsPayload>(conn)
                 .await
                 .map_err(|err| ServiceError::Internal(err.into()))?;
             return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
@@ -164,9 +165,10 @@ pub(super) async fn execute(
 
     let query = build_query(plan)?;
     let rows: Vec<DeviceRow> = query
+        .select(DeviceRow::as_select())
         .limit(plan.limit)
         .offset(plan.offset)
-        .load(conn)
+        .load::<DeviceRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 

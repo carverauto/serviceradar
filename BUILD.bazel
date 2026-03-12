@@ -56,3 +56,15 @@ sh_binary(
     ],
     visibility = ["//visibility:public"],
 )
+
+alias(
+    name = "images",
+    actual = "//docker/images:images",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "push",
+    actual = "//docker/images:push_all",
+    visibility = ["//visibility:public"],
+)
