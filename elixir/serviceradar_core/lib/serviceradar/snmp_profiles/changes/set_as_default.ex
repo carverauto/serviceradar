@@ -34,10 +34,12 @@ defmodule ServiceRadar.SNMPProfiles.Changes.SetAsDefault do
     _ = actor
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-    from(p in "snmp_profiles",
-      where: p.is_default == true and p.id != ^current_id
-    )
-    |> Repo.update_all(set: [is_default: false, updated_at: now], prefix: "platform")
+    query =
+      from(p in "snmp_profiles",
+        where: p.is_default == true and p.id != ^current_id
+      )
+
+    Repo.update_all(query, [set: [is_default: false, updated_at: now]], prefix: "platform")
 
     :ok
   end

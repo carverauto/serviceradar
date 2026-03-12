@@ -199,14 +199,14 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
           [
             "HTTP/1.1 ",
             Integer.to_string(status),
-            " OK\\r\\n",
+            " OK\r\n",
             "Content-Type: ",
             content_type,
-            "\\r\\n",
+            "\r\n",
             "Content-Length: ",
             Integer.to_string(byte_size(body)),
-            "\\r\\n",
-            "Connection: close\\r\\n\\r\\n",
+            "\r\n",
+            "Connection: close\r\n\r\n",
             body
           ]
           |> IO.iodata_to_binary()
