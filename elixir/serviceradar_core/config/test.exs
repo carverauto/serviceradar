@@ -145,9 +145,14 @@ queue_interval =
   System.get_env("SERVICERADAR_TEST_DATABASE_QUEUE_INTERVAL_MS") ||
     System.get_env("SRQL_TEST_DATABASE_QUEUE_INTERVAL_MS")
 
+ownership_timeout =
+  System.get_env("SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS") ||
+    System.get_env("SRQL_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS")
+
 pool_size = if pool_size, do: parse_int.(pool_size), else: nil
 queue_target = if queue_target, do: parse_int.(queue_target), else: nil
 queue_interval = if queue_interval, do: parse_int.(queue_interval), else: nil
+ownership_timeout = if ownership_timeout, do: parse_int.(ownership_timeout), else: nil
 
 search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
 
@@ -164,6 +169,9 @@ repo_config =
       end)
       |> then(fn opts ->
         if queue_interval, do: Keyword.put(opts, :queue_interval, queue_interval), else: opts
+      end)
+      |> then(fn opts ->
+        if ownership_timeout, do: Keyword.put(opts, :ownership_timeout, ownership_timeout), else: opts
       end)
 
     if ssl_enabled do

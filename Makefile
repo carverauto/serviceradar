@@ -304,6 +304,7 @@ test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG
 	  ./scripts/reset-test-db.sh "$${admin_url}" "$${db_url}"; \
 	fi; \
 	export SERVICERADAR_TEST_DATABASE_URL="$${db_url}"; \
+	export SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS="$${SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS:-600000}"; \
 	cd elixir/serviceradar_core; \
 	MIX_ENV=test mix deps.get; \
 	MIX_ENV=test mix ash.migrate; \
