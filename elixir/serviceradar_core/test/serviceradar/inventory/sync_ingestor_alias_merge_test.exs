@@ -67,15 +67,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
 
     assert Enum.count(devices_at_ip) == 1
     remaining_uid = hd(devices_at_ip).uid
-    assert remaining_uid in [canonical.uid, alias_device.uid]
+    refute remaining_uid == alias_device.uid
 
-    merged_uid =
-      [canonical.uid, alias_device.uid]
-      |> Enum.reject(&(&1 == remaining_uid))
-      |> List.first()
-
-    assert {:ok, [audit | _]} = MergeAudit.get_merged_to(merged_uid, actor: actor)
-    assert audit.to_device_id == remaining_uid
+    assert {:ok, [audit | _]} = MergeAudit.get_merged_to(alias_device.uid, actor: actor)
+    refute audit.to_device_id == alias_device.uid
   end
 
   test "mapper source does not merge alias device by mac-only identifier", %{actor: actor} do
@@ -111,7 +106,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
     attrs = %{
       uid: "sr:" <> Ecto.UUID.generate(),
       hostname: hostname,
-      ip: unique_test_ip(uniq)
+      ip: unique_device_ip(uniq)
     }
 
     Device
@@ -148,6 +143,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
   defp unique_test_ip(seed) do
     third = rem(seed, 250) + 1
     fourth = rem(div(seed, 250), 250) + 1
-    "198.19.#{third}.#{fourth}"
+    "100.122.#{third}.#{fourth}"
+  end
+
+  defp unique_device_ip(seed) do
+    third = rem(seed, 250) + 1
+    fourth = rem(div(seed, 250), 250) + 1
+    "100.123.#{third}.#{fourth}"
   end
 end

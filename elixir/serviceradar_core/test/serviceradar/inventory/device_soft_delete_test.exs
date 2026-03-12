@@ -214,9 +214,15 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
   end
 
   defp unique_ip(uid \\ nil) do
-    seed = uid || System.unique_integer([:positive])
-    octet = rem(:erlang.phash2(seed), 200) + 20
-    "10.42.#{octet}.#{rem(octet * 7, 250) + 2}"
+    seed =
+      case uid do
+        nil -> System.unique_integer([:positive, :monotonic])
+        value -> :erlang.phash2(value, 62_500)
+      end
+
+    third = rem(seed, 250) + 1
+    fourth = rem(div(seed, 250), 250) + 1
+    "10.42.#{third}.#{fourth}"
   end
 
   defp unique_mac do

@@ -78,7 +78,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   test "mapper-created device gets correct discovery_sources", %{actor: actor} do
     uniq = System.unique_integer([:positive, :monotonic])
     device_uid = "sr:" <> Ecto.UUID.generate()
-    ip = unique_test_ip(192, 168, uniq)
+    ip = unique_test_ip(198, 18, 150, uniq)
 
     attrs = %{
       uid: device_uid,
@@ -239,11 +239,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
        %{
          actor: actor
        } do
-    old_ip = "203.0.113.#{:rand.uniform(120) + 10}"
     uniq = System.unique_integer([:positive, :monotonic])
-    old_ip = unique_test_ip(203, 0, 113, uniq)
-    new_ip = unique_test_ip(198, 51, 100, uniq + 1)
-    mac = "F4:92:BF:75:C7:21"
+    old_ip = unique_test_ip(100, 120, uniq)
+    new_ip = unique_test_ip(100, 121, uniq + 1)
+    mac = unique_test_mac(uniq)
     normalized_mac = IdentityReconciler.normalize_mac(mac)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
@@ -348,6 +347,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     canonical_ip = unique_test_ip(10, 10, uniq)
 
     stale_alias_ip = unique_test_ip(198, 18, uniq + 1)
+    mac = unique_test_mac(uniq)
 
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
@@ -378,7 +378,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => stale_alias_ip,
           "if_index" => 1,
           "if_name" => "eth0",
-          "if_phys_address" => "F4:92:BF:75:C7:21",
+          "if_phys_address" => mac,
           "timestamp" => ts
         }
       ])
@@ -411,6 +411,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     uniq = System.unique_integer([:positive, :monotonic])
     mgmt_ip = unique_test_ip(192, 0, 2, uniq)
     stray_ip = unique_test_ip(192, 0, 2, uniq + 1)
+    mac_a = unique_test_mac(uniq)
+    mac_b = unique_test_mac(uniq + 1)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
     payload =
@@ -421,7 +423,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => mgmt_ip,
           "if_index" => 1,
           "if_name" => "wlan0",
-          "if_phys_address" => "AA:BB:CC:DD:EE:01",
+          "if_phys_address" => mac_a,
           "timestamp" => ts
         },
         %{
@@ -430,7 +432,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => stray_ip,
           "if_index" => 2,
           "if_name" => "wlan1",
-          "if_phys_address" => "AA:BB:CC:DD:EE:02",
+          "if_phys_address" => mac_b,
           "timestamp" => ts
         }
       ])
@@ -503,6 +505,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     canonical_uid = "sr:" <> Ecto.UUID.generate()
     provisional_uid = "sr:" <> Ecto.UUID.generate()
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    mac = unique_test_mac(uniq)
 
     {:ok, _canonical} =
       Device
@@ -552,7 +555,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => ip,
           "if_index" => 1,
           "if_name" => "eth0",
-          "if_phys_address" => "F4:92:BF:75:C7:21",
+          "if_phys_address" => mac,
           "timestamp" => ts
         }
       ])
@@ -598,14 +601,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   end
 
   defp unique_test_mac(seed) do
-    bytes =
-      0..5
-      |> Enum.map(fn idx ->
-        rem(div(seed, :math.pow(256, idx) |> trunc()), 256)
-      end)
-      |> Enum.reverse()
+    <<b1, b2, b3, b4, b5, b6, _::binary>> =
+      :crypto.hash(:sha256, "#{seed}:#{Ecto.UUID.generate()}")
 
-    Enum.map_join(bytes, ":", &Base.encode16(<<&1>>, case: :upper))
+    Enum.map_join([b1, b2, b3, b4, b5, b6], ":", &Base.encode16(<<&1>>, case: :upper))
   end
 
   defp wait_for_aliases(actor, type, value, predicate, attempts \\ 60)
