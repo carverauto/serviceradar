@@ -3,6 +3,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::ocsf_network_activity::dsl::*,
     time::TimeRange,
@@ -251,7 +252,7 @@ struct FlowRow {
     dst_mac_vendor: Option<String>,
     dst_mac_vendor_source: Option<String>,
     sampler_address: Option<String>,
-    ocsf_payload: Value,
+    ocsf_payload: DbJson,
     partition: Option<String>,
     created_at: chrono::NaiveDateTime,
 }
@@ -1147,7 +1148,7 @@ fn bind_param_from_flow_stats(value: FlowSqlBindValue) -> BindParam {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 struct FlowStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
-    result: Option<Value>,
+    result: Option<DbJson>,
 }
 
 struct FlowGroupedStatsSql {
@@ -1192,7 +1193,10 @@ async fn execute_stats(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
-    Ok(rows.into_iter().filter_map(|row| row.result).collect())
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| row.result.map(serde_json::Value::from))
+        .collect())
 }
 
 fn to_sql_and_params_stats(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {

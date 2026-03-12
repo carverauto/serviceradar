@@ -1,15 +1,13 @@
+use diesel::deserialize::FromSqlRow;
 use diesel::deserialize::{self, FromSql};
 use diesel::expression::AsExpression;
 use diesel::pg::{Pg, PgValue};
 use diesel::serialize::{self, IsNull, Output, ToSql};
 use diesel::sql_types::{Json, Jsonb};
-use diesel::FromSqlRow;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 
-#[derive(
-    AsExpression, Clone, Debug, Default, Deserialize, FromSqlRow, PartialEq, Serialize,
-)]
+#[derive(AsExpression, Clone, Debug, Default, Deserialize, FromSqlRow, PartialEq, Serialize)]
 #[diesel(sql_type = Json)]
 #[diesel(sql_type = Jsonb)]
 #[serde(transparent)]
