@@ -21,6 +21,7 @@ jobs:
       SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
       SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
       SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
     strategy:
       matrix:
         project:
@@ -33,6 +34,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+            third_party/bazel-repo-cache
+            third_party/bazel-disk-cache
+            third_party/distdir
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
 
       - name: Install dependencies
         run: |

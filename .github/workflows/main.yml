@@ -19,10 +19,23 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       TEST_CNPG_DATABASE: serviceradar_web_ng_test
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+            third_party/bazel-repo-cache
+            third_party/bazel-disk-cache
+            third_party/distdir
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
 
       - name: Install build dependencies
         run: |
