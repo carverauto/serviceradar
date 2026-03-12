@@ -121,16 +121,21 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Network Monitoring",
+            name: "Network Monitoring #{System.unique_integer([:positive])}",
             poll_interval: 30,
             timeout: 10,
             retries: 2,
-            is_default: true,
+            is_default: false,
             enabled: true
           },
           actor: actor
         )
         |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
 
       # Create a target with v2c community
       {:ok, target} =
@@ -139,7 +144,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
           :create,
           %{
             snmp_profile_id: profile.id,
-            name: "Core Router",
+            name: "Core Router #{System.unique_integer([:positive])}",
             host: "192.168.1.1",
             port: 161,
             version: :v2c,
@@ -201,16 +206,21 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Secure Monitoring",
+            name: "Secure Monitoring #{System.unique_integer([:positive])}",
             poll_interval: 60,
             timeout: 5,
             retries: 3,
-            is_default: true,
+            is_default: false,
             enabled: true
           },
           actor: actor
         )
         |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
 
       # Create a SNMPv3 target
       {:ok, _target} =
@@ -271,11 +281,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
       parent_uid = "sr:" <> Ecto.UUID.generate()
       child_uid = "sr:" <> Ecto.UUID.generate()
+      parent_ip = "192.168.1.#{rem(System.unique_integer([:positive]), 200) + 20}"
+      child_ip = "203.0.113.#{rem(System.unique_integer([:positive]), 200) + 20}"
 
       # Create parent (management) device at reachable IP
       {:ok, _parent} =
         Device
-        |> Ash.Changeset.for_create(:create, %{uid: parent_uid, ip: "192.168.1.1"})
+        |> Ash.Changeset.for_create(:create, %{uid: parent_uid, ip: parent_ip})
         |> Ash.create(actor: actor)
 
       # Create child device with unreachable IP, pointing to parent
@@ -283,7 +295,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         Device
         |> Ash.Changeset.for_create(:create, %{
           uid: child_uid,
-          ip: "203.0.113.5",
+          ip: child_ip,
           management_device_id: parent_uid,
           discovery_sources: ["mapper"]
         })
@@ -308,18 +320,19 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       alias ServiceRadar.Inventory.Device
 
       device_uid = "sr:" <> Ecto.UUID.generate()
+      device_ip = "10.0.0.#{rem(System.unique_integer([:positive]), 200) + 20}"
 
       {:ok, device} =
         Device
         |> Ash.Changeset.for_create(:create, %{
           uid: device_uid,
-          ip: "10.0.0.1",
+          ip: device_ip,
           discovery_sources: ["mapper"]
         })
         |> Ash.create(actor: actor)
 
       assert device.management_device_id == nil
-      assert device.ip == "10.0.0.1"
+      assert device.ip == device_ip
     end
 
     @tag :integration
@@ -436,13 +449,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Default SNMP",
-            is_default: true,
+            name: "Default SNMP #{System.unique_integer([:positive])}",
+            is_default: false,
             enabled: true
           },
           actor: actor
         )
         |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
 
       result = SNMPCompiler.resolve_profile("some-device-uid", actor)
       assert result.id == profile.id

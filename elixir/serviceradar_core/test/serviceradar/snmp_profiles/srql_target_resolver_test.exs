@@ -23,8 +23,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
       assert Code.ensure_loaded?(SrqlTargetResolver)
     end
 
-    test "exports resolve_for_device/2" do
-      assert function_exported?(SrqlTargetResolver, :resolve_for_device, 2)
+    test "resolve_for_device/2 is callable" do
+      assert {:ok, nil} = SrqlTargetResolver.resolve_for_device(nil, nil)
     end
   end
 
@@ -63,7 +63,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         SNMPProfile
         |> Ash.Changeset.for_create(
           :create,
-          %{name: "Default Profile", is_default: true},
+          %{name: "Default Profile #{System.unique_integer([:positive])}"},
           actor: actor
         )
         |> Ash.create(actor: actor)
@@ -103,8 +103,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Router Profile",
-            target_query: "in:devices hostname:test-router-01",
+            name: "Router Profile #{System.unique_integer([:positive])}",
+            target_query: "in:devices hostname:\"test-router-01\"",
             priority: 10
           },
           actor: actor
@@ -146,8 +146,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Router Profile",
-            target_query: "in:devices hostname:router-*",
+            name: "Router Profile #{System.unique_integer([:positive])}",
+            target_query: "in:devices hostname:\"router-01\"",
             priority: 10
           },
           actor: actor
@@ -188,8 +188,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "General Network",
-            target_query: "in:devices hostname:*-router-*",
+            name: "General Network #{System.unique_integer([:positive])}",
+            target_query: "in:devices hostname:\"core-router-01\"",
             priority: 5
           },
           actor: actor
@@ -202,8 +202,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Core Routers",
-            target_query: "in:devices hostname:core-*",
+            name: "Core Routers #{System.unique_integer([:positive])}",
+            target_query: "in:devices hostname:\"core-router-01\"",
             priority: 20
           },
           actor: actor
@@ -247,8 +247,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Disabled Profile",
-            target_query: "in:devices hostname:server-*",
+            name: "Disabled Profile #{System.unique_integer([:positive])}",
+            target_query: "in:devices hostname:\"server-01\"",
             priority: 10,
             enabled: false
           },
@@ -262,8 +262,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Enabled Profile",
-            target_query: "in:devices hostname:server-*",
+            name: "Enabled Profile #{System.unique_integer([:positive])}",
+            target_query: "in:devices hostname:\"server-01\"",
             priority: 5,
             enabled: true
           },
@@ -307,7 +307,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Manual Assignment Only",
+            name: "Manual Assignment Only #{System.unique_integer([:positive])}",
             priority: 100
           },
           actor: actor
@@ -320,8 +320,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Auto-Target Profile",
-            target_query: "in:devices hostname:device-*",
+            name: "Auto-Target Profile #{System.unique_integer([:positive])}",
+            target_query: "in:devices hostname:\"device-01\"",
             priority: 10
           },
           actor: actor

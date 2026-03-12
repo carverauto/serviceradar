@@ -71,15 +71,20 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           :create,
           %{
             name: "Default SNMP Profile",
-            is_default: true,
+            is_default: false,
             enabled: true,
-            poll_interval_seconds: 60,
-            timeout_seconds: 5,
+            poll_interval: 60,
+            timeout: 5,
             retries: 2
           },
           actor: actor
         )
         |> Ash.create()
+
+      {:ok, _profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
 
       # Create an SNMP target
       {:ok, target} =
@@ -170,8 +175,8 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             target_query: "in:devices hostname:core-switch-*",
             priority: 10,
             enabled: true,
-            poll_interval_seconds: 30,
-            timeout_seconds: 3,
+            poll_interval: 30,
+            timeout: 3,
             retries: 1
           },
           actor: actor
@@ -236,13 +241,18 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           :create,
           %{
             name: "Agent Test Profile",
-            is_default: true,
+            is_default: false,
             enabled: true,
-            poll_interval_seconds: 120
+            poll_interval: 120
           },
           actor: actor
         )
         |> Ash.create()
+
+      {:ok, _profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
 
       # Create a target
       {:ok, target} =
@@ -294,19 +304,24 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       agent_id: agent_id
     } do
       # Create a disabled SNMP profile
-      {:ok, _profile} =
+      {:ok, profile} =
         SNMPProfile
         |> Ash.Changeset.for_create(
           :create,
           %{
             name: "Disabled Profile",
-            is_default: true,
+            is_default: false,
             enabled: false,
-            poll_interval_seconds: 60
+            poll_interval: 60
           },
           actor: actor
         )
         |> Ash.create()
+
+      {:ok, _profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
 
       # Get config
       {:ok, entry} = ConfigServer.get_config(:snmp, "default", agent_id)
@@ -329,13 +344,18 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           :create,
           %{
             name: "SNMPv3 Profile",
-            is_default: true,
+            is_default: false,
             enabled: true,
-            poll_interval_seconds: 60
+            poll_interval: 60
           },
           actor: actor
         )
         |> Ash.create()
+
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
 
       # Create SNMPv3 target
       {:ok, target} =

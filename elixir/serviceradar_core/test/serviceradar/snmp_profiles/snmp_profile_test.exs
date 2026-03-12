@@ -9,7 +9,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
 
   use ExUnit.Case, async: false
 
-  alias ResourceInfo, as: ResourceInfo
+  alias Ash.Resource.Info, as: ResourceInfo
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
@@ -201,12 +201,12 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
     test "set_as_default clears other defaults" do
       actor = SystemActor.system(:test)
 
-      # Create first profile as default
+      # Create first profile
       {:ok, profile1} =
         SNMPProfile
         |> Ash.Changeset.for_create(
           :create,
-          %{name: "Profile 1", is_default: true},
+          %{name: "Profile 1"},
           actor: actor
         )
         |> Ash.create(actor: actor)
