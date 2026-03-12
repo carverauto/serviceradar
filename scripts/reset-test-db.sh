@@ -21,6 +21,19 @@ if [ -z "$parser" ]; then
   exit 1
 fi
 
+db_name="$("$parser" - "$db_url" <<'PY'
+import sys
+from urllib.parse import urlparse
+
+dbname = (urlparse(sys.argv[1]).path or "/")[1:]
+
+if not dbname:
+    raise SystemExit("SERVICERADAR_TEST_DATABASE_URL must include database name")
+
+print(dbname)
+PY
+)"
+
 sql="$("$parser" - "$db_url" <<'PY'
 import sys
 from urllib.parse import urlparse
@@ -48,3 +61,13 @@ PY
 )"
 
 printf "%s\n" "$sql" | psql "$admin_url" -v ON_ERROR_STOP=1
+
+extensions_sql='
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+CREATE EXTENSION IF NOT EXISTS "citext";
+CREATE EXTENSION IF NOT EXISTS "timescaledb";
+CREATE EXTENSION IF NOT EXISTS "age";
+'
+
+printf "%s\n" "$extensions_sql" | psql "$admin_url" -d "$db_name" -v ON_ERROR_STOP=1
