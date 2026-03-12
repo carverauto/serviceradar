@@ -216,15 +216,13 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   end
 
   defp apply_filter(query, %{field: field, op: op, value: value}) when is_binary(field) do
-    # Map common SRQL field names to Device attributes
-    mapped_field = map_field(field)
-
-    # Handle special cases like tags
+    # Handle JSON tag filters before mapping to atoms, since "tags.foo"
+    # is not a concrete Device attribute.
     if String.starts_with?(field, "tags.") do
-      # tags.key:value -> filter on tags JSONB
       tag_key = String.replace_prefix(field, "tags.", "")
       apply_tag_filter(query, tag_key, value)
     else
+      mapped_field = map_field(field)
       apply_standard_filter(query, mapped_field, op, value)
     end
   rescue

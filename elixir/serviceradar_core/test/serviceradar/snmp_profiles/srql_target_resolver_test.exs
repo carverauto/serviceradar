@@ -50,6 +50,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     @tag :integration
     setup do
       ServiceRadar.TestSupport.start_core!()
+      actor = SystemActor.system(:test)
+      clear_targeting_profiles!(actor)
       :ok
     end
 
@@ -142,6 +144,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           actor: actor
         )
         |> Ash.create(actor: actor)
+
+      clear_targeting_profiles!(actor)
 
       # Create a targeting profile that won't match
       {:ok, _profile} =
@@ -342,5 +346,16 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
       assert {:ok, matched_profile} = result
       assert matched_profile.id == targeting_profile.id
     end
+  end
+
+  defp clear_targeting_profiles!(actor) do
+    SNMPProfile
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(not is_nil(target_query) and is_default == false)
+    |> Ash.read!(actor: actor)
+    |> ServiceRadar.Ash.Page.unwrap!()
+    |> Enum.each(fn profile ->
+      Ash.destroy!(profile, actor: actor)
+    end)
   end
 end

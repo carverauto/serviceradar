@@ -35,7 +35,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
   test "sync ingestion merges alias device into canonical device for non-mapper source", %{
     actor: actor
   } do
-    ip = "10.0.9.1"
+    ip = unique_test_ip(1)
     mac = "AA:BB:CC:DD:EE:01"
     agent_id = "alias-merge-agent-#{System.unique_integer([:positive])}"
 
@@ -79,7 +79,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
   end
 
   test "mapper source does not merge alias device by mac-only identifier", %{actor: actor} do
-    ip = "10.0.9.2"
+    ip = unique_test_ip(2)
     mac = "AA:BB:CC:DD:EE:02"
     normalized_mac = IdentityReconciler.normalize_mac(mac)
 
@@ -106,10 +106,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
   end
 
   defp create_device(actor, hostname) do
+    uniq = System.unique_integer([:positive, :monotonic])
+
     attrs = %{
       uid: "sr:" <> Ecto.UUID.generate(),
       hostname: hostname,
-      ip: "10.10.#{:rand.uniform(200)}.#{:rand.uniform(200)}"
+      ip: unique_test_ip(uniq)
     }
 
     Device
@@ -141,5 +143,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
     }
 
     DeviceAliasState.create_detected(attrs, actor: actor)
+  end
+
+  defp unique_test_ip(seed) do
+    third = rem(seed, 250) + 1
+    fourth = rem(div(seed, 250), 250) + 1
+    "198.19.#{third}.#{fourth}"
   end
 end

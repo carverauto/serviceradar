@@ -17,6 +17,14 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
   @moduletag :database
 
   setup do
+    old_repo_enabled = Application.get_env(:serviceradar_core, :repo_enabled)
+    Application.put_env(:serviceradar_core, :repo_enabled, true)
+    ServiceRadar.TestSupport.start_core!()
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_core, :repo_enabled, old_repo_enabled)
+    end)
+
     unique_id = :erlang.unique_integer([:positive])
     actor = SystemActor.system(:test)
 
