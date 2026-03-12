@@ -23,6 +23,13 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
   setup do
     unique_id = :erlang.unique_integer([:positive])
+    old_repo_enabled = Application.get_env(:serviceradar_core, :repo_enabled)
+
+    Application.put_env(:serviceradar_core, :repo_enabled, true)
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_core, :repo_enabled, old_repo_enabled)
+    end)
 
     {:ok, unique_id: unique_id}
   end

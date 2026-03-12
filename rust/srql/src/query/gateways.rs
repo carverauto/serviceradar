@@ -41,7 +41,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     }
 
     let rows: Vec<GatewayRowRow> = query
-        .load(conn)
+        .load::<GatewayRowRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
@@ -74,6 +74,7 @@ fn bind_param<'a>(
 }
 
 #[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct GatewayRowRow {
     #[diesel(sql_type = Text)]
     gateway_id: String,

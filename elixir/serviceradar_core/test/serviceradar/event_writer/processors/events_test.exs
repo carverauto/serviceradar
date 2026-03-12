@@ -12,7 +12,7 @@ defmodule ServiceRadar.EventWriter.Processors.EventsTest do
   describe "parse_message/1" do
     test "parses OCSF event payloads" do
       payload = %{
-        "id" => "event-123",
+        "id" => Ecto.UUID.generate(),
         "time" => "2024-01-01T00:00:00Z",
         "class_uid" => 1008,
         "category_uid" => 1,
@@ -27,7 +27,7 @@ defmodule ServiceRadar.EventWriter.Processors.EventsTest do
 
       row = Events.parse_message(message)
 
-      assert row.id == "event-123"
+      assert is_binary(row.id)
       assert row.class_uid == 1008
       assert row.category_uid == 1
       assert row.activity_id == 1

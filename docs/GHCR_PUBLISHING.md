@@ -5,7 +5,8 @@ This note describes the Bazel-native workflow for building and pushing the Servi
 ## Overview
 
 - Each image defined in `docker/images/BUILD.bazel` now has a matching `oci_push` target that uploads the image to `ghcr.io/carverauto/<image-name>`.
-- A helper binary, `//docker/images:push_all`, writes a temporary Docker config that contains the GHCR credentials and then sequentially runs each of the individual push targets.
+- The canonical aggregate publish target is `//:push`, which delegates to `//docker/images:push_all`.
+- `//docker/images:push_all` writes a temporary Docker config that contains the GHCR credentials and runs the per-image push targets in parallel via `rules_multirun` with `jobs = 0`.
 - Tags are generated via Bazel stamping: every push always publishes a `latest` tag plus a `sha-<commit>` tag (falling back to `sha-dev` when Bazel runs without `--stamp`). Additional tags can be supplied at runtime via `--tag <value>` arguments passed to any `oci_push` target.
 
 ## Required secrets
@@ -39,7 +40,7 @@ actions:
     bazel_commands = [
       "build --config=remote //...",
       "test  --config=remote //...",
-      "run  --config=remote --stamp //docker/images:push_all",
+      "run  --config=remote --stamp //:push",
     ]
     env = {
       GHCR_USERNAME = "@@GHCR_USERNAME@@",
@@ -63,7 +64,7 @@ steps:
       # Optional override if you are not pushing to ghcr.io
       # GHCR_REGISTRY: "@@GHCR_REGISTRY@@"
     script: |
-      bazel run --config=remote --stamp //docker/images:push_all -- --tag "v${BUILD_TAG}"
+      bazel run --config=remote --stamp //:push -- --tag "v${BUILD_TAG}"
 ```
 
 BuildBuddy replaces the `@@SECRET_NAME@@` placeholders with the stored secret values while keeping them out of the Bazel command line history.
@@ -89,16 +90,17 @@ make push_all PUSH_TAG="v$(git describe --tags --always)"
 
 - `make push_all` – pushes all images with the default `latest` and `sha-<commit>` tags, then verifies the published GHCR state.
 - `make push_all PUSH_TAG=v1.2.3` – pushes all images with an extra tag and verifies `latest`, `sha-<commit>`, and `v1.2.3`.
-- `bazel run --stamp //docker/images:push_all` – pushes all images with the default `latest` and `sha-<commit>` tags.
-- `bazel run --stamp //docker/images:core_image_amd64_push -- --tag 1.2.3` – pushes only the `core` image and adds an extra `1.2.3` tag.
-- `bazel run --config=remote --stamp //docker/images:push_all -- --tag $GIT_COMMIT` – builds using BuildBuddy remote execution, then pushes from the local workflow runner.
+- `bazel build --config=remote //:images` – builds the canonical publishable image set, including current multi-arch image indexes.
+- `bazel run --stamp //:push` – pushes all images with the default `latest` and `sha-<commit>` tags.
+- `bazel run --stamp //docker/images:core_elx_image_amd64_push -- --tag 1.2.3` – pushes only the core-elx image and adds an extra `1.2.3` tag.
+- `bazel run --config=remote --stamp //:push -- --tag $GIT_COMMIT` – builds using BuildBuddy remote execution, then pushes from the local workflow runner.
 
 When credentials are supplied via environment variables the push helper writes an ephemeral Docker config into `$DOCKER_CONFIG`, otherwise it reuses the config created by the bootstrap script (or an existing `docker login`) so no secrets are leaked.
 
 ## Notes
 
 - Always run publish commands with `--stamp` so that Bazel injects the `STABLE_COMMIT_SHA` into the tag file. Without stamping, the fallback tag `sha-dev` is used.
-- The `push_all` helper accepts any flags supported by the underlying `oci_push` binaries (e.g. `--allow-nondistributable-artifacts`). These flags are forwarded to each image push in sequence.
+- The aggregate `//:push` target accepts any flags supported by the underlying `oci_push` binaries (e.g. `--allow-nondistributable-artifacts`). These flags are forwarded to each image push.
 - CI systems that cannot expose environment variables globally can instead `source` a file containing the JSON docker config and set `DOCKER_CONFIG` before invoking `bazel run`. The helper script respects pre-set `DOCKER_CONFIG` values by simply overwriting the target directory.
 
 ## Verification

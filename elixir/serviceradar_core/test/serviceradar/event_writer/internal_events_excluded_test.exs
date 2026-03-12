@@ -67,12 +67,7 @@ defmodule ServiceRadar.EventWriter.InternalEventsExcludedTest do
       # Verify HealthTracker doesn't import or alias NATS-related modules
       # This is a static check to ensure the module design is correct
       tracker_path =
-        Path.join([
-          Application.app_dir(:serviceradar_core),
-          "..",
-          "lib/serviceradar/infrastructure/health_tracker.ex"
-        ])
-        |> Path.expand()
+        Path.expand("../../../lib/serviceradar/infrastructure/health_tracker.ex", __DIR__)
 
       {:ok, tracker_source} = File.read(tracker_path)
 
@@ -100,12 +95,7 @@ defmodule ServiceRadar.EventWriter.InternalEventsExcludedTest do
     @tag :source_analysis
     test "HealthPubSub uses Phoenix.PubSub, not NATS" do
       pubsub_path =
-        Path.join([
-          Application.app_dir(:serviceradar_core),
-          "..",
-          "lib/serviceradar/infrastructure/health_pubsub.ex"
-        ])
-        |> Path.expand()
+        Path.expand("../../../lib/serviceradar/infrastructure/health_pubsub.ex", __DIR__)
 
       {:ok, pubsub_source} = File.read(pubsub_path)
 

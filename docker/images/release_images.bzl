@@ -31,7 +31,6 @@ def file_layer_amd64(
 def elixir_build_info_layer_amd64(
         name,
         web_digest,
-        core_digest,
         version_file = "//:VERSION",
         target_path = "app/priv/static/build-info.json",
         visibility = None,
@@ -47,7 +46,6 @@ def elixir_build_info_layer_amd64(
         name = json_name,
         srcs = [
             web_digest,
-            core_digest,
             version_file,
         ],
         outs = ["{}.json".format(name)],
@@ -56,7 +54,6 @@ def elixir_build_info_layer_amd64(
 set -euo pipefail
 
 web_digest_file="$(location ___WEB_DIGEST___)"
-core_digest_file="$(location ___CORE_DIGEST___)"
 version_file="$(location ___VERSION_FILE___)"
 info_file="bazel-out/stable-status.txt"
 
@@ -68,15 +65,6 @@ fi
 
 web_short=$${web_digest#sha256:}
 web_short=$$(printf '%s' "$$web_short" | cut -c1-12)
-
-core_digest=$$(cat "$$core_digest_file")
-if [[ "$$core_digest" != sha256:* ]]; then
-  echo "unexpected core digest format: $$core_digest" >&2
-  exit 1
-fi
-
-core_short=$${core_digest#sha256:}
-core_short=$$(printf '%s' "$$core_short" | cut -c1-12)
 
 commit_sha="dev"
 if [[ -f "$$info_file" ]]; then
@@ -100,11 +88,10 @@ cat > "$@" <<EOF
   "version": "$$version",
   "buildTime": "$$build_time",
   "webBuildId": "sha-$$commit_short",
-  "webImageDigest": "$$web_digest",
-  "coreBuildId": "sha-$$core_short"
+  "webImageDigest": "$$web_digest"
 }
 EOF
-""".replace("___WEB_DIGEST___", web_digest).replace("___CORE_DIGEST___", core_digest).replace("___VERSION_FILE___", version_file),
+""".replace("___WEB_DIGEST___", web_digest).replace("___VERSION_FILE___", version_file),
         visibility = visibility,
         target_compatible_with = target_compatible_with,
     )
@@ -365,7 +352,6 @@ def declare_web_ng_release_container_amd64(
         name,
         base,
         release_tar,
-        core_digest,
         local_repo_tag,
         image_title = "serviceradar-web-ng",
         base_image_name = None,
@@ -397,7 +383,6 @@ def declare_web_ng_release_container_amd64(
     elixir_build_info_layer_amd64(
         name = build_info_layer_name,
         web_digest = base_digest,
-        core_digest = core_digest,
         visibility = visibility,
         target_compatible_with = target_compatible_with,
     )

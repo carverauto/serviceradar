@@ -46,7 +46,10 @@ CREATE TABLE ocsf_devices (
     agent_id            TEXT,
     discovery_sources   TEXT[],
     is_available        BOOLEAN,
-    metadata            JSONB
+    metadata            JSONB,
+    deleted_at          TIMESTAMPTZ,
+    deleted_by          TEXT,
+    deleted_reason      TEXT
 );
 
 DROP TABLE IF EXISTS gateways;
@@ -134,6 +137,7 @@ CREATE TABLE logs (
     severity_number     INT,
     body                TEXT,
     event_name          TEXT,
+    source              TEXT,
     service_name        TEXT,
     service_version     TEXT,
     service_instance    TEXT,
@@ -151,6 +155,7 @@ CREATE TABLE service_status (
     timestamp    TIMESTAMPTZ NOT NULL,
     gateway_id    TEXT        NOT NULL,
     agent_id     TEXT,
+    service_id   UUID,
     service_name TEXT        NOT NULL,
     service_type TEXT,
     available    BOOLEAN     NOT NULL,
@@ -235,6 +240,7 @@ CREATE TABLE otel_metrics (
     is_slow          BOOLEAN,
     component        TEXT,
     level            TEXT,
+    unit             TEXT,
     created_at       TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (timestamp, span_name, service_name, span_id)
 );

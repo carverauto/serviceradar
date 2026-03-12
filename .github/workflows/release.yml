@@ -70,11 +70,24 @@ jobs:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       GHCR_REGISTRY: ghcr.io
       ALLOW_LOCAL_FALLBACK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.allow_local_fallback || 'false' }}
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+            third_party/bazel-repo-cache
+            third_party/bazel-disk-cache
+            third_party/distdir
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
 
       - name: Ensure rpmbuild available for rules_pkg toolchain
         run: |
@@ -255,7 +268,7 @@ jobs:
             extra_args+=(-- --tag "${RELEASE_TAG}")
           fi
 
-          if ! bazel run --config=remote --stamp //docker/images:push_all "${extra_args[@]}"; then
+          if ! bazel run --config=remote --stamp //:push "${extra_args[@]}"; then
             if [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
               echo "Remote bazel run failed; retrying locally without remote executor/cache" >&2
               bazel run \
@@ -265,7 +278,7 @@ jobs:
                 --noremote_upload_local_results \
                 --jobs=8 \
                 --stamp \
-                //docker/images:push_all \
+                //:push \
                 "${extra_args[@]}"
             else
               echo "Remote bazel run failed; local fallback disabled." >&2

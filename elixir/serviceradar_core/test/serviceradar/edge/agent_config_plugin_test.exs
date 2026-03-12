@@ -3,7 +3,7 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
 
   alias ServiceRadar.Edge.AgentConfigGenerator
 
-  test "plugin config omits github metadata from agent assignments" do
+  test "plugin config preserves github metadata on agent assignments" do
     assignment = %{
       assignment_id: "assign-1",
       plugin_id: "plugin-1",
@@ -31,7 +31,7 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
     config = AgentConfigGenerator.to_proto_plugin_config([assignment], %{})
     [proto] = config.assignments
 
-    assert proto.source_repo_url == ""
-    assert proto.source_commit == ""
+    assert proto.source_repo_url == "https://github.com/acme/demo"
+    assert proto.source_commit == "abc123"
   end
 end

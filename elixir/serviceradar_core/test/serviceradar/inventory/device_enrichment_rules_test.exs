@@ -1,10 +1,18 @@
 defmodule ServiceRadar.Inventory.DeviceEnrichmentRulesTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
 
   setup do
     original_dir = Application.get_env(:serviceradar_core, :device_enrichment_rules_dir)
+
+    if is_nil(original_dir) do
+      Application.delete_env(:serviceradar_core, :device_enrichment_rules_dir)
+    else
+      Application.put_env(:serviceradar_core, :device_enrichment_rules_dir, original_dir)
+    end
+
+    DeviceEnrichmentRules.reload()
 
     on_exit(fn ->
       if is_nil(original_dir) do

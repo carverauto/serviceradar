@@ -39,7 +39,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     if let Some(rollup_sql) = build_rollup_stats_query(plan)? {
         let query = rollup_sql.to_boxed_query();
         let rows: Vec<LogsStatsPayload> = query
-            .load(conn)
+            .load::<LogsStatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
         return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
@@ -48,7 +48,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     if let Some(stats_sql) = build_stats_query(plan)? {
         let query = stats_sql.to_boxed_query();
         let rows: Vec<LogsStatsPayload> = query
-            .load(conn)
+            .load::<LogsStatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
         return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
@@ -118,7 +118,11 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 }
 
 fn effective_timestamp_expr() -> SqlLiteral<Timestamptz> {
-    sql::<Timestamptz>("timestamp")
+    sql::<Timestamptz>("COALESCE(observed_timestamp, timestamp)")
+}
+
+fn effective_timestamp_sql() -> &'static str {
+    "COALESCE(observed_timestamp, timestamp)"
 }
 
 fn build_query(plan: &QueryPlan) -> Result<LogsQuery<'static>> {
@@ -157,6 +161,7 @@ impl LogsStatsSql {
 }
 
 #[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct LogsStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
     payload: Option<Value>,
@@ -273,9 +278,9 @@ fn build_stats_query(plan: &QueryPlan) -> Result<Option<LogsStatsSql>> {
     let mut clauses = Vec::new();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        clauses.push("timestamp >= ?".to_string());
+        clauses.push(format!("{} >= ?", effective_timestamp_sql()));
         binds.push(SqlBindValue::Timestamp(*start));
-        clauses.push("timestamp <= ?".to_string());
+        clauses.push(format!("{} <= ?", effective_timestamp_sql()));
         binds.push(SqlBindValue::Timestamp(*end));
     }
 
@@ -986,6 +991,41 @@ mod tests {
             stats_sql.binds.len(),
             3,
             "time range + message filter binds expected"
+        );
+    }
+
+    #[test]
+    fn stats_query_uses_effective_timestamp() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(24);
+        let plan = QueryPlan {
+            entity: Entity::Logs,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw("count() as total")),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let stats_sql = build_stats_query(&plan).expect("stats query should parse");
+        let stats_sql = stats_sql.expect("stats SQL expected");
+        assert!(
+            stats_sql
+                .sql
+                .contains("COALESCE(observed_timestamp, timestamp) >= ?"),
+            "time filter should use effective timestamp: {}",
+            stats_sql.sql
+        );
+        assert!(
+            stats_sql
+                .sql
+                .contains("COALESCE(observed_timestamp, timestamp) <= ?"),
+            "time filter should use effective timestamp: {}",
+            stats_sql.sql
         );
     }
 

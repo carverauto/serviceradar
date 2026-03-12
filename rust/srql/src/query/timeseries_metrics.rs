@@ -60,7 +60,8 @@ impl SqlBindValue {
     }
 }
 
-#[derive(QueryableByName)]
+#[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct TimeseriesStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
     payload: Option<Value>,
@@ -84,9 +85,10 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 
     let query = build_query(plan, scope)?;
     let rows: Vec<TimeseriesMetricRow> = query
+        .select(TimeseriesMetricRow::as_select())
         .limit(plan.limit)
         .offset(plan.offset)
-        .load(conn)
+        .load::<TimeseriesMetricRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
@@ -461,7 +463,7 @@ async fn execute_stats(
         query = bind.apply(query);
     }
     let rows: Vec<TimeseriesStatsPayload> = query
-        .load(conn)
+        .load::<TimeseriesStatsPayload>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
     Ok(rows.into_iter().filter_map(|row| row.payload).collect())

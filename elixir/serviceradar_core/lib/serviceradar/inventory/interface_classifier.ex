@@ -189,7 +189,7 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
       |> List.wrap()
 
     ips
-    |> maybe_add_ip(record.device_ip)
+    |> maybe_add_ip(Map.get(record, :device_ip))
     |> Enum.uniq()
   end
 

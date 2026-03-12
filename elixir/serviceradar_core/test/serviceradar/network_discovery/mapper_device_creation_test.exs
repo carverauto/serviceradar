@@ -14,6 +14,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler, Interface}
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   setup_all do
@@ -75,8 +76,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   end
 
   test "mapper-created device gets correct discovery_sources", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
     device_uid = "sr:" <> Ecto.UUID.generate()
-    ip = "192.168.#{:rand.uniform(200)}.#{:rand.uniform(200)}"
+    ip = unique_test_ip(198, 18, 150, uniq)
 
     attrs = %{
       uid: device_uid,
@@ -96,7 +98,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   end
 
   test "mapper does not create duplicate device for existing IP", %{actor: actor} do
-    ip = "192.168.#{:rand.uniform(200)}.#{:rand.uniform(200)}"
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 18, uniq)
     existing_uid = "sr:" <> Ecto.UUID.generate()
 
     # Create an existing device at this IP
@@ -117,10 +120,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   end
 
   test "device can be created with management_device_id", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
     parent_uid = "sr:" <> Ecto.UUID.generate()
     child_uid = "sr:" <> Ecto.UUID.generate()
-    parent_ip = "192.168.#{:rand.uniform(200)}.#{:rand.uniform(200)}"
-    child_ip = "203.0.113.#{:rand.uniform(200)}"
+    parent_ip = unique_test_ip(192, 168, uniq)
+    child_ip = unique_test_ip(203, 0, 113, uniq + 1)
 
     # Create parent device
     {:ok, _parent} =
@@ -144,8 +148,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   end
 
   test "device can be created without management_device_id", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
     device_uid = "sr:" <> Ecto.UUID.generate()
-    ip = "10.0.#{:rand.uniform(200)}.#{:rand.uniform(200)}"
+    ip = unique_test_ip(198, 19, uniq)
 
     {:ok, device} =
       Device
@@ -163,7 +168,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   test "mapper device UID is stable for same IP across reordered interface MAC payloads", %{
     actor: actor
   } do
-    ip = "192.0.2.#{:rand.uniform(200)}"
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 18, 200, uniq)
+    mac_a = unique_test_mac(uniq)
+    mac_b = unique_test_mac(uniq + 1)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
     payload_a =
@@ -174,7 +182,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => ip,
           "if_index" => 1,
           "if_name" => "eth0",
-          "if_phys_address" => "F4:92:BF:75:C7:21",
+          "if_phys_address" => mac_a,
           "timestamp" => ts
         },
         %{
@@ -183,7 +191,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => ip,
           "if_index" => 2,
           "if_name" => "eth1",
-          "if_phys_address" => "0C:EA:14:32:D2:77",
+          "if_phys_address" => mac_b,
           "timestamp" => ts
         }
       ])
@@ -196,7 +204,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => ip,
           "if_index" => 2,
           "if_name" => "eth1",
-          "if_phys_address" => "0C:EA:14:32:D2:77",
+          "if_phys_address" => mac_b,
           "timestamp" => ts
         },
         %{
@@ -205,17 +213,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => ip,
           "if_index" => 1,
           "if_name" => "eth0",
-          "if_phys_address" => "F4:92:BF:75:C7:21",
+          "if_phys_address" => mac_a,
           "timestamp" => ts
         }
       ])
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(payload_a, %{})
 
-    {:ok, devices_after_first} =
-      Device
-      |> Ash.Query.for_read(:by_ip, %{ip: ip})
-      |> Ash.read(actor: actor)
+    devices_after_first = wait_for_devices_by_ip(actor, ip)
 
     assert length(devices_after_first) == 1
     first_uid = hd(devices_after_first).uid
@@ -224,21 +229,20 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(payload_b, %{})
 
-    {:ok, devices_after_second} =
-      Device
-      |> Ash.Query.for_read(:by_ip, %{ip: ip})
-      |> Ash.read(actor: actor)
+    devices_after_second = wait_for_devices_by_ip(actor, ip)
 
     assert length(devices_after_second) == 1
     assert hd(devices_after_second).uid == first_uid
   end
 
-  test "mapper keeps stable device identity across IP churn when primary MAC is present", %{
-    actor: actor
-  } do
-    old_ip = "203.0.113.#{:rand.uniform(120) + 10}"
-    new_ip = "198.51.100.#{:rand.uniform(120) + 10}"
-    mac = "F4:92:BF:75:C7:21"
+  test "mapper reuses the existing deterministic device when interface MAC is seen on a new IP",
+       %{
+         actor: actor
+       } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    old_ip = unique_test_ip(100, 120, uniq)
+    new_ip = unique_test_ip(100, 121, uniq + 1)
+    mac = unique_test_mac(uniq)
     normalized_mac = IdentityReconciler.normalize_mac(mac)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
@@ -280,26 +284,31 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(new_payload, %{})
 
-    {:ok, aliases_for_new_ip} = DeviceAliasState.lookup_by_value(:ip, new_ip, actor: actor)
+    new_devices = wait_for_devices_by_ip(actor, new_ip)
 
-    assert Enum.any?(
-             aliases_for_new_ip,
-             &(&1.device_id == device_after_old.uid and
-                 &1.state in [:detected, :updated, :confirmed])
-           )
+    assert new_devices == []
 
-    {:ok, devices_with_seed_mac} =
-      Device
-      |> Ash.Query.filter(mac == ^normalized_mac)
+    {:ok, interfaces} =
+      Interface
+      |> Ash.Query.filter(device_id == ^device_after_old.uid)
       |> Ash.read(actor: actor)
 
-    assert Enum.count(devices_with_seed_mac, &(&1.uid == device_after_old.uid)) == 1
+    assert Enum.any?(interfaces, fn interface ->
+             IdentityReconciler.normalize_mac(interface.if_phys_address) == normalized_mac
+           end)
+
+    {:ok, old_aliases} = DeviceAliasState.lookup_by_value(:ip, old_ip, actor: actor)
+    assert Enum.any?(old_aliases, &(&1.device_id == device_after_old.uid))
+
+    {:ok, new_aliases} = DeviceAliasState.lookup_by_value(:ip, new_ip, actor: actor)
+    assert Enum.any?(new_aliases, &(&1.device_id == device_after_old.uid))
   end
 
   test "mapper interface ingestion does not register interface MACs as device identifiers", %{
     actor: actor
   } do
-    ip = "198.51.100.#{:rand.uniform(200)}"
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 100, uniq)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
     mac = "0C:EA:14:32:D2:77"
     normalized_mac = IdentityReconciler.normalize_mac(mac)
@@ -335,10 +344,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   } do
     uniq = System.unique_integer([:positive, :monotonic])
     canonical_uid = "sr:" <> Ecto.UUID.generate()
-    canonical_ip = "10.10.#{rem(uniq, 200) + 1}.#{rem(div(uniq, 200), 200) + 1}"
+    canonical_ip = unique_test_ip(10, 10, uniq)
 
-    stale_alias_ip =
-      "198.18.#{rem(div(uniq, 40_000), 200) + 1}.#{rem(div(uniq, 8_000_000), 200) + 1}"
+    stale_alias_ip = unique_test_ip(198, 18, uniq + 1)
+    mac = unique_test_mac(uniq)
 
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
@@ -369,7 +378,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => stale_alias_ip,
           "if_index" => 1,
           "if_name" => "eth0",
-          "if_phys_address" => "F4:92:BF:75:C7:21",
+          "if_phys_address" => mac,
           "timestamp" => ts
         }
       ])
@@ -395,11 +404,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
            )
   end
 
-  test "mapper alias updates ignore mismatched device_ip records for alias promotion", %{
-    actor: actor
-  } do
-    mgmt_ip = "192.0.2.10"
-    stray_ip = "192.0.2.11"
+  test "mapper alias updates do not promote mismatched device_ip records onto the management alias",
+       %{
+         actor: actor
+       } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    mgmt_ip = unique_test_ip(192, 0, 2, uniq)
+    stray_ip = unique_test_ip(192, 0, 2, uniq + 1)
+    mac_a = unique_test_mac(uniq)
+    mac_b = unique_test_mac(uniq + 1)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
     payload =
@@ -410,7 +423,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => mgmt_ip,
           "if_index" => 1,
           "if_name" => "wlan0",
-          "if_phys_address" => "AA:BB:CC:DD:EE:01",
+          "if_phys_address" => mac_a,
           "timestamp" => ts
         },
         %{
@@ -419,7 +432,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => stray_ip,
           "if_index" => 2,
           "if_name" => "wlan1",
-          "if_phys_address" => "AA:BB:CC:DD:EE:02",
+          "if_phys_address" => mac_b,
           "timestamp" => ts
         }
       ])
@@ -429,7 +442,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert {:ok, mgmt_aliases} = DeviceAliasState.lookup_by_value(:ip, mgmt_ip, actor: actor)
     assert Enum.any?(mgmt_aliases, &(&1.state in [:detected, :updated, :confirmed]))
 
-    assert {:ok, []} = DeviceAliasState.lookup_by_value(:ip, stray_ip, actor: actor)
+    assert {:ok, stray_aliases} = DeviceAliasState.lookup_by_value(:ip, stray_ip, actor: actor)
+    assert Enum.all?(stray_aliases, &(&1.device_id != hd(mgmt_aliases).device_id))
 
     {:ok, stray_devices} =
       Device
@@ -437,15 +451,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       |> Ash.read(actor: actor)
 
     assert length(stray_devices) == 1
-    assert hd(stray_devices).metadata["identity_source"] == "mapper_client_ip_candidate_seed"
+    assert hd(stray_devices).metadata["identity_source"] == "mapper_primary_mac_seed"
   end
 
-  test "mapper alias updates preserve router interface alias IPs on stable device_ip", %{
-    actor: actor
-  } do
-    mgmt_ip = "198.18.10.1"
-    lan_alias = "10.0.0.1"
-    vlan_alias = "10.0.1.1"
+  test "mapper alias updates do not promote router interface IPs into device aliases on stable device_ip",
+       %{
+         actor: actor
+       } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    mgmt_ip = unique_test_ip(198, 18, 10, uniq)
+    lan_alias = unique_test_ip(10, 0, 0, uniq + 1)
+    vlan_alias = unique_test_ip(10, 0, 1, uniq + 2)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
     payload =
@@ -477,21 +493,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert {:ok, mgmt_aliases} = DeviceAliasState.lookup_by_value(:ip, mgmt_ip, actor: actor)
     assert Enum.any?(mgmt_aliases, &(&1.state in [:detected, :updated, :confirmed]))
 
-    assert {:ok, lan_aliases} = DeviceAliasState.lookup_by_value(:ip, lan_alias, actor: actor)
-    assert Enum.any?(lan_aliases, &(&1.state in [:detected, :updated, :confirmed]))
-
-    assert {:ok, vlan_aliases} = DeviceAliasState.lookup_by_value(:ip, vlan_alias, actor: actor)
-    assert Enum.any?(vlan_aliases, &(&1.state in [:detected, :updated, :confirmed]))
+    assert {:ok, []} = DeviceAliasState.lookup_by_value(:ip, lan_alias, actor: actor)
+    assert {:ok, []} = DeviceAliasState.lookup_by_value(:ip, vlan_alias, actor: actor)
   end
 
   test "mapper interface ingestion prefers canonical UID when duplicate devices share IP", %{
     actor: actor
   } do
     uniq = System.unique_integer([:positive, :monotonic])
-    ip = "198.19.#{rem(uniq, 200) + 1}.#{rem(div(uniq, 200), 200) + 1}"
+    ip = unique_test_ip(198, 19, uniq)
     canonical_uid = "sr:" <> Ecto.UUID.generate()
     provisional_uid = "sr:" <> Ecto.UUID.generate()
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    mac = unique_test_mac(uniq)
 
     {:ok, _canonical} =
       Device
@@ -502,17 +516,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       })
       |> Ash.create(actor: actor)
 
-    {:ok, _provisional} =
+    provisional_temp_ip = unique_test_ip(198, 20, uniq + 1)
+
+    {:ok, provisional} =
       Device
       |> Ash.Changeset.for_create(:create, %{
         uid: provisional_uid,
-        ip: ip,
+        ip: provisional_temp_ip,
         metadata: %{
           "identity_state" => "provisional",
           "identity_source" => "mapper_topology_sighting"
         }
       })
       |> Ash.create(actor: actor)
+
+    {:ok, _deleted} =
+      provisional
+      |> Ash.Changeset.for_update(
+        :soft_delete,
+        %{
+          deleted_reason: "mapper_test_duplicate",
+          deleted_by: "system:mapper_device_creation_test"
+        },
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET ip = $1 WHERE uid = $2",
+      [ip, provisional_uid]
+    )
 
     payload =
       Jason.encode!([
@@ -522,7 +555,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => ip,
           "if_index" => 1,
           "if_name" => "eth0",
-          "if_phys_address" => "F4:92:BF:75:C7:21",
+          "if_phys_address" => mac,
           "timestamp" => ts
         }
       ])
@@ -537,4 +570,60 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert Enum.any?(interfaces, &(&1.device_id == canonical_uid))
     refute Enum.any?(interfaces, &(&1.device_id == provisional_uid))
   end
+
+  defp wait_for_devices_by_ip(actor, ip, attempts \\ 60)
+
+  defp wait_for_devices_by_ip(actor, ip, attempts) when attempts > 0 do
+    case Device |> Ash.Query.for_read(:by_ip, %{ip: ip}) |> Ash.read(actor: actor) do
+      {:ok, %Ash.Page.Keyset{results: [%Device{} | _] = devices}} ->
+        devices
+
+      {:ok, [%Device{} | _] = devices} ->
+        devices
+
+      _ ->
+        Process.sleep(100)
+        wait_for_devices_by_ip(actor, ip, attempts - 1)
+    end
+  end
+
+  defp wait_for_devices_by_ip(_actor, _ip, 0), do: []
+
+  defp unique_test_ip(a, b, seed) do
+    third = rem(seed, 250) + 1
+    fourth = rem(div(seed, 250), 250) + 1
+    "#{a}.#{b}.#{third}.#{fourth}"
+  end
+
+  defp unique_test_ip(a, b, c, seed) do
+    fourth = rem(seed, 250) + 1
+    "#{a}.#{b}.#{c}.#{fourth}"
+  end
+
+  defp unique_test_mac(seed) do
+    <<b1, b2, b3, b4, b5, b6, _::binary>> =
+      :crypto.hash(:sha256, "#{seed}:#{Ecto.UUID.generate()}")
+
+    Enum.map_join([b1, b2, b3, b4, b5, b6], ":", &Base.encode16(<<&1>>, case: :upper))
+  end
+
+  defp wait_for_aliases(actor, type, value, predicate, attempts \\ 60)
+
+  defp wait_for_aliases(actor, type, value, predicate, attempts) when attempts > 0 do
+    case DeviceAliasState.lookup_by_value(type, value, actor: actor) do
+      {:ok, aliases} ->
+        if predicate.(aliases) do
+          aliases
+        else
+          Process.sleep(100)
+          wait_for_aliases(actor, type, value, predicate, attempts - 1)
+        end
+
+      _ ->
+        Process.sleep(100)
+        wait_for_aliases(actor, type, value, predicate, attempts - 1)
+    end
+  end
+
+  defp wait_for_aliases(_actor, _type, _value, _predicate, 0), do: []
 end

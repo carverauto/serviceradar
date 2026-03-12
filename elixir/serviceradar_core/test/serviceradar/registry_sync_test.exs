@@ -3,6 +3,8 @@ defmodule ServiceRadar.RegistrySyncTest do
 
   @moduletag :integration
 
+  alias ServiceRadar.ProcessRegistry
+
   @partition_id "partition-sync"
   @domain "sync-domain"
 
@@ -26,7 +28,7 @@ defmodule ServiceRadar.RegistrySyncTest do
   end
 
   test "gateway registry syncs across nodes", %{peer_node: peer_node} do
-    key = {@partition_id, Node.self()}
+    gateway_id = "gateway-sync-#{System.unique_integer([:positive])}"
 
     metadata = %{
       partition_id: @partition_id,
@@ -38,19 +40,18 @@ defmodule ServiceRadar.RegistrySyncTest do
       last_heartbeat: DateTime.utc_now()
     }
 
-    assert {:ok, _pid} = ServiceRadar.GatewayRegistry.register(key, metadata)
+    assert {:ok, _pid} = ProcessRegistry.register_gateway(gateway_id, metadata)
 
     assert eventually(fn ->
              match?(
                [{_pid, _meta} | _],
-               lookup_remote(ServiceRadar.GatewayRegistry, key, peer_node)
+               lookup_remote_gateway(gateway_id, peer_node)
              )
            end)
   end
 
   test "agent registry syncs across nodes", %{peer_node: peer_node} do
     agent_id = "agent-sync-#{System.unique_integer([:positive])}"
-    key = {@partition_id, agent_id}
 
     metadata = %{
       partition_id: @partition_id,
@@ -62,12 +63,12 @@ defmodule ServiceRadar.RegistrySyncTest do
       last_heartbeat: DateTime.utc_now()
     }
 
-    assert {:ok, _pid} = ServiceRadar.AgentRegistry.register(key, metadata)
+    assert {:ok, _pid} = ProcessRegistry.register_agent(agent_id, metadata)
 
     assert eventually(fn ->
              match?(
                [{_pid, _meta} | _],
-               lookup_remote(ServiceRadar.AgentRegistry, key, peer_node)
+               lookup_remote_agent(agent_id, peer_node)
              )
            end)
   end
@@ -90,11 +91,8 @@ defmodule ServiceRadar.RegistrySyncTest do
     {:ok, _} = Application.ensure_all_started(:telemetry)
   end
 
-  defp start_registry(registry) do
-    case registry.start_link([]) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-    end
+  defp start_registry(_registry) do
+    ensure_process_registry_started()
   end
 
   defp start_registry_remote(node, registry) do
@@ -148,22 +146,39 @@ defmodule ServiceRadar.RegistrySyncTest do
   end
 
   defp ensure_members(peer_node) do
-    gateway_members = [
-      {ServiceRadar.GatewayRegistry, node()},
-      {ServiceRadar.GatewayRegistry, peer_node}
+    registry_members = [
+      {ProcessRegistry.registry_name(), node()},
+      {ProcessRegistry.registry_name(), peer_node}
     ]
 
-    agent_members = [
-      {ServiceRadar.AgentRegistry, node()},
-      {ServiceRadar.AgentRegistry, peer_node}
+    supervisor_members = [
+      {ProcessRegistry.supervisor_name(), node()},
+      {ProcessRegistry.supervisor_name(), peer_node}
     ]
 
-    :ok = Horde.Cluster.set_members(ServiceRadar.GatewayRegistry, gateway_members)
-    :ok = Horde.Cluster.set_members(ServiceRadar.AgentRegistry, agent_members)
+    :ok = Horde.Cluster.set_members(ProcessRegistry.registry_name(), registry_members)
+    :ok = Horde.Cluster.set_members(ProcessRegistry.supervisor_name(), supervisor_members)
   end
 
-  defp lookup_remote(registry, key, node) do
-    :rpc.call(node, Horde.Registry, :lookup, [registry, key])
+  defp ensure_process_registry_started do
+    Enum.each(ProcessRegistry.child_specs(), fn
+      {module, opts} ->
+        case module.start_link(opts) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+        end
+
+      other ->
+        raise "Unsupported child spec in registry sync test: #{inspect(other)}"
+    end)
+  end
+
+  defp lookup_remote_gateway(gateway_id, node) do
+    :rpc.call(node, ProcessRegistry, :lookup_gateway, [gateway_id])
+  end
+
+  defp lookup_remote_agent(agent_id, node) do
+    :rpc.call(node, ProcessRegistry, :lookup_agent, [agent_id])
   end
 
   defp eventually(fun, attempts \\ 20)

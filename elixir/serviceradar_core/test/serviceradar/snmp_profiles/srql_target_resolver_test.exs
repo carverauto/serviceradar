@@ -23,8 +23,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
       assert Code.ensure_loaded?(SrqlTargetResolver)
     end
 
-    test "exports resolve_for_device/2" do
-      assert function_exported?(SrqlTargetResolver, :resolve_for_device, 2)
+    test "resolve_for_device/2 is callable" do
+      assert {:ok, nil} = SrqlTargetResolver.resolve_for_device(nil, nil)
     end
   end
 
@@ -50,6 +50,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     @tag :integration
     setup do
       ServiceRadar.TestSupport.start_core!()
+      actor = SystemActor.system(:test)
+      clear_targeting_profiles!(actor)
       :ok
     end
 
@@ -63,7 +65,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         SNMPProfile
         |> Ash.Changeset.for_create(
           :create,
-          %{name: "Default Profile", is_default: true},
+          %{name: "Default Profile #{System.unique_integer([:positive])}"},
           actor: actor
         )
         |> Ash.create(actor: actor)
@@ -78,6 +80,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     test "matches device with hostname query" do
       # Schema determined by DB connection
       actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      hostname = "test-router-#{unique}"
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -88,7 +92,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             uid: device_uid,
-            hostname: "test-router-01",
+            hostname: hostname,
             type_id: 3,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -103,8 +107,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Router Profile",
-            target_query: "in:devices hostname:test-router-01",
+            name: "Router Profile #{System.unique_integer([:positive])}",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             priority: 10
           },
           actor: actor
@@ -121,6 +125,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     test "returns nil when device does not match query" do
       # Schema determined by DB connection
       actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
 
       # Create a device with different hostname
       device_uid = Ecto.UUID.generate()
@@ -131,7 +136,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             uid: device_uid,
-            hostname: "switch-01",
+            hostname: "switch-#{unique}",
             type_id: 3,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -140,14 +145,16 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         )
         |> Ash.create(actor: actor)
 
+      clear_targeting_profiles!(actor)
+
       # Create a targeting profile that won't match
       {:ok, _profile} =
         SNMPProfile
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Router Profile",
-            target_query: "in:devices hostname:router-*",
+            name: "Router Profile #{System.unique_integer([:positive])}",
+            target_query: ~s(in:devices hostname:"router-miss-#{unique}"),
             priority: 10
           },
           actor: actor
@@ -163,6 +170,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     test "resolves by priority - higher priority wins" do
       # Schema determined by DB connection
       actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      hostname = "core-router-#{unique}"
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -173,7 +182,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             uid: device_uid,
-            hostname: "core-router-01",
+            hostname: hostname,
             type_id: 3,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -188,8 +197,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "General Network",
-            target_query: "in:devices hostname:*-router-*",
+            name: "General Network #{System.unique_integer([:positive])}",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             priority: 5
           },
           actor: actor
@@ -202,8 +211,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Core Routers",
-            target_query: "in:devices hostname:core-*",
+            name: "Core Routers #{System.unique_integer([:positive])}",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             priority: 20
           },
           actor: actor
@@ -222,6 +231,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     test "skips disabled profiles" do
       # Schema determined by DB connection
       actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      hostname = "server-#{unique}"
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -232,7 +243,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             uid: device_uid,
-            hostname: "server-01",
+            hostname: hostname,
             type_id: 3,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -247,8 +258,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Disabled Profile",
-            target_query: "in:devices hostname:server-*",
+            name: "Disabled Profile #{System.unique_integer([:positive])}",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             priority: 10,
             enabled: false
           },
@@ -262,8 +273,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Enabled Profile",
-            target_query: "in:devices hostname:server-*",
+            name: "Enabled Profile #{System.unique_integer([:positive])}",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             priority: 5,
             enabled: true
           },
@@ -282,6 +293,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     test "skips profiles without target_query (non-targeting profiles)" do
       # Schema determined by DB connection
       actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      hostname = "device-#{unique}"
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -292,7 +305,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             uid: device_uid,
-            hostname: "device-01",
+            hostname: hostname,
             type_id: 3,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -307,7 +320,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Manual Assignment Only",
+            name: "Manual Assignment Only #{System.unique_integer([:positive])}",
             priority: 100
           },
           actor: actor
@@ -320,8 +333,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Auto-Target Profile",
-            target_query: "in:devices hostname:device-*",
+            name: "Auto-Target Profile #{System.unique_integer([:positive])}",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             priority: 10
           },
           actor: actor
@@ -333,5 +346,16 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
       assert {:ok, matched_profile} = result
       assert matched_profile.id == targeting_profile.id
     end
+  end
+
+  defp clear_targeting_profiles!(actor) do
+    SNMPProfile
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(not is_nil(target_query) and is_default == false)
+    |> Ash.read!(actor: actor)
+    |> ServiceRadar.Ash.Page.unwrap!()
+    |> Enum.each(fn profile ->
+      Ash.destroy!(profile, actor: actor)
+    end)
   end
 end

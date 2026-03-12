@@ -8,11 +8,21 @@ defmodule ServiceRadar.Repo.Migrations.AddAgeGraphServiceradar do
   def up do
     execute("""
     DO $$
+    DECLARE
+      graph_exists boolean;
     BEGIN
-      PERFORM ag_catalog.create_graph('serviceradar');
-    EXCEPTION
-      WHEN duplicate_object THEN
-        NULL;
+      SELECT EXISTS(
+        SELECT 1 FROM ag_catalog.ag_graph WHERE name = 'serviceradar'
+      ) INTO graph_exists;
+
+      IF NOT graph_exists THEN
+        BEGIN
+          PERFORM ag_catalog.create_graph('serviceradar');
+        EXCEPTION
+          WHEN duplicate_object OR duplicate_schema OR invalid_schema_name THEN
+            NULL;
+        END;
+      END IF;
     END
     $$;
     """)

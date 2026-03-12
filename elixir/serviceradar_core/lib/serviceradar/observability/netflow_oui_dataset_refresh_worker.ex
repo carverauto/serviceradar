@@ -98,7 +98,7 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
     cluster_coordinator =
       Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
 
-    if cluster_enabled, do: cluster_coordinator, else: true
+    if cluster_enabled, do: cluster_coordinator == true, else: true
   end
 
   defp fetch_oui_rows(source_url, timeout_ms) do
@@ -162,50 +162,53 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
     snapshot_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-    Repo.transaction(fn ->
-      {1, _} =
-        Repo.insert_all(
-          "netflow_oui_dataset_snapshots",
-          [
-            %{
-              id: snapshot_id,
-              source_url: source_url,
-              source_etag: etag,
-              source_sha256: sha256(payload),
-              fetched_at: now,
-              promoted_at: nil,
-              is_active: false,
-              record_count: length(rows),
-              metadata: %{format: "oui.csv"},
-              inserted_at: now,
-              updated_at: now
-            }
-          ],
-          prefix: "platform",
+    Repo.transaction(
+      fn ->
+        {1, _} =
+          Repo.insert_all(
+            "netflow_oui_dataset_snapshots",
+            [
+              %{
+                id: snapshot_id,
+                source_url: source_url,
+                source_etag: etag,
+                source_sha256: sha256(payload),
+                fetched_at: now,
+                promoted_at: nil,
+                is_active: false,
+                record_count: length(rows),
+                metadata: %{format: "oui.csv"},
+                inserted_at: now,
+                updated_at: now
+              }
+            ],
+            prefix: "platform",
+            timeout: @db_timeout_ms
+          )
+
+        rows_to_insert = Enum.map(rows, &Map.put(&1, :snapshot_id, snapshot_id))
+        count = insert_oui_rows(rows_to_insert)
+
+        Repo.query!(
+          "UPDATE platform.netflow_oui_dataset_snapshots SET is_active = FALSE, updated_at = now() WHERE id <> $1 AND is_active = TRUE",
+          [snapshot_id],
           timeout: @db_timeout_ms
         )
 
-      rows_to_insert = Enum.map(rows, &Map.put(&1, :snapshot_id, snapshot_id))
-      count = insert_oui_rows(rows_to_insert)
+        Repo.query!(
+          "UPDATE platform.netflow_oui_dataset_snapshots SET is_active = TRUE, promoted_at = now(), updated_at = now() WHERE id = $1",
+          [snapshot_id],
+          timeout: @db_timeout_ms
+        )
 
-      Repo.query!(
-        "UPDATE platform.netflow_oui_dataset_snapshots SET is_active = FALSE, updated_at = now() WHERE id <> $1 AND is_active = TRUE",
-        [snapshot_id],
-        timeout: @db_timeout_ms
-      )
-
-      Repo.query!(
-        "UPDATE platform.netflow_oui_dataset_snapshots SET is_active = TRUE, promoted_at = now(), updated_at = now() WHERE id = $1",
-        [snapshot_id],
-        timeout: @db_timeout_ms
-      )
-
-      if count == 0 do
-        Repo.rollback(:no_rows_inserted)
-      else
-        :ok
-      end
-    end, timeout: @db_timeout_ms)
+        if count == 0 do
+          Repo.rollback(:no_rows_inserted)
+        else
+          :ok
+        end
+      end,
+      timeout: @db_timeout_ms
+    )
     |> case do
       {:ok, :ok} -> :ok
       {:error, reason} -> {:error, reason}

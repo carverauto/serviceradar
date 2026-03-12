@@ -34,7 +34,7 @@ The script validates that `CHANGELOG` already contains a section for the version
 ## Step 1 – Push container images
 
 ```
-bazel run --stamp //docker/images:push_all -- --tag v$(cat VERSION)
+bazel run --stamp //:push -- --tag v$(cat VERSION)
 ```
 
 Refer to `docs/GHCR_PUBLISHING.md` for more details on configuring registry credentials and tagging conventions.

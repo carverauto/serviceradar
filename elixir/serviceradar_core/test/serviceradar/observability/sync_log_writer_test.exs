@@ -8,6 +8,7 @@ defmodule ServiceRadar.Observability.SyncLogWriterTest do
 
   @moduletag :integration
 
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.{Log, SyncLogWriter}
@@ -47,29 +48,47 @@ defmodule ServiceRadar.Observability.SyncLogWriterTest do
     logs =
       Log
       |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> Ash.read!()
+      |> Ash.read(actor: actor)
+      |> Page.unwrap!()
 
     sync_logs =
       Enum.filter(logs, fn log ->
-        get_in(log.attributes, ["serviceradar", "sync", "integration_source_id"]) ==
+        attributes = Jason.decode!(log.attributes || "{}")
+
+        get_in(attributes, ["serviceradar", "sync", "integration_source_id"]) ==
           to_string(source.id)
       end)
 
     assert Enum.any?(sync_logs, fn log ->
-             get_in(log.attributes, ["serviceradar", "sync", "stage"]) == "started"
+             attributes = Jason.decode!(log.attributes || "{}")
+             get_in(attributes, ["serviceradar", "sync", "stage"]) == "started"
            end)
 
     assert Enum.any?(sync_logs, fn log ->
-             get_in(log.attributes, ["serviceradar", "sync", "stage"]) == "finished" and
-               get_in(log.attributes, ["serviceradar", "sync", "result"]) == "failed" and
-               get_in(log.attributes, ["serviceradar", "sync", "error_message"]) == "boom"
+             attributes = Jason.decode!(log.attributes || "{}")
+
+             get_in(attributes, ["serviceradar", "sync", "stage"]) == "finished" and
+               get_in(attributes, ["serviceradar", "sync", "result"]) == "failed" and
+               get_in(attributes, ["serviceradar", "sync", "error_message"]) == "boom"
            end)
 
     events =
       OcsfEvent
       |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> Ash.read!()
+      |> Ash.read(actor: actor)
+      |> Page.unwrap!()
 
-    assert events == []
+    sync_events =
+      Enum.filter(events, fn event ->
+        get_in(event.unmapped || %{}, [
+          "log_attributes",
+          "serviceradar",
+          "sync",
+          "integration_source_id"
+        ]) ==
+          to_string(source.id)
+      end)
+
+    assert sync_events == []
   end
 end

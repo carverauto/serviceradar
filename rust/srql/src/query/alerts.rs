@@ -32,9 +32,10 @@ pub(super) async fn execute(
     ensure_entity(plan)?;
     let query = build_query(plan)?;
     let rows: Vec<AlertRow> = query
+        .select(AlertRow::as_select())
         .limit(plan.limit)
         .offset(plan.offset)
-        .load(conn)
+        .load::<AlertRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 

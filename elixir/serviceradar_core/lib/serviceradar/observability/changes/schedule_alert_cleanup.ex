@@ -10,6 +10,7 @@ defmodule ServiceRadar.Observability.Changes.ScheduleAlertCleanup do
   use Ash.Resource.Change
 
   alias ServiceRadar.Observability.StatefulAlertCleanupWorker
+  alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
 
@@ -25,20 +26,26 @@ defmodule ServiceRadar.Observability.Changes.ScheduleAlertCleanup do
   def atomic(_changeset, _opts, _context), do: :ok
 
   defp schedule_cleanup(record) do
-    case StatefulAlertCleanupWorker.ensure_scheduled() do
-      {:ok, :already_scheduled} ->
-        Logger.debug("Alert cleanup already scheduled")
+    if ObanSupport.available?() do
+      case StatefulAlertCleanupWorker.ensure_scheduled() do
+        {:ok, :already_scheduled} ->
+          Logger.debug("Alert cleanup already scheduled")
 
-      {:ok, _job} ->
-        Logger.info("Scheduled alert cleanup",
-          rule_id: record.id
-        )
+        {:ok, _job} ->
+          Logger.info("Scheduled alert cleanup",
+            rule_id: record.id
+          )
 
-      {:error, reason} ->
-        Logger.error("Failed to schedule alert cleanup",
-          rule_id: record.id,
-          reason: inspect(reason)
-        )
+        {:error, reason} ->
+          Logger.error("Failed to schedule alert cleanup",
+            rule_id: record.id,
+            reason: inspect(reason)
+          )
+      end
+    else
+      Logger.debug("Skipping alert cleanup scheduling because Oban is unavailable",
+        rule_id: record.id
+      )
     end
   end
 end

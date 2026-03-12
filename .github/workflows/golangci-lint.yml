@@ -35,11 +35,23 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: true
           
       - name: go toolchain info
         run: |
           go version
-          go env GOMOD GOCACHE GOTOOLCHAIN
+          go env GOMOD GOCACHE GOMODCACHE GOPROXY GOTOOLCHAIN
+
+      - name: Prefetch Go modules
+        run: |
+          for attempt in 1 2 3; do
+            if go mod download; then
+              exit 0
+            fi
+            echo "go mod download failed on attempt $attempt; retrying..." >&2
+            sleep $((attempt * 5))
+          done
+          exit 1
           
       - name: Install golangci-lint
         run: |

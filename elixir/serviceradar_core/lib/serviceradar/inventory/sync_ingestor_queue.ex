@@ -156,16 +156,35 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   end
 
   defp start_task(task_fun) do
+    start_task_with_supervisor(task_fun)
+  catch
+    :exit, {:noproc, _details} ->
+      start_task_fallback(task_fun)
+
+    :exit, {:normal, _details} ->
+      start_task_fallback(task_fun)
+
+    :exit, reason ->
+      {:error, reason}
+  end
+
+  defp start_task_with_supervisor(task_fun) do
     case Task.Supervisor.start_child(ServiceRadar.SyncIngestor.TaskSupervisor, task_fun) do
       {:ok, pid} ->
-        ref = Process.monitor(pid)
-        {:ok, ref}
+        {:ok, Process.monitor(pid)}
 
       {:error, reason} ->
         {:error, reason}
 
       other ->
         {:error, other}
+    end
+  end
+
+  defp start_task_fallback(task_fun) do
+    case Task.start(task_fun) do
+      {:ok, pid} -> {:ok, Process.monitor(pid)}
+      {:error, reason} -> {:error, reason}
     end
   end
 

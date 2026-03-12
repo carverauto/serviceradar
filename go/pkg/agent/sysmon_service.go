@@ -71,6 +71,7 @@ type SysmonService struct {
 	logger    logger.Logger
 	started   bool
 	configDir string
+	cachePath string
 
 	// Config refresh
 	rawConfig    sysmon.Config // Original config for hash comparison
@@ -88,6 +89,9 @@ type SysmonServiceConfig struct {
 	AgentID   string
 	Partition string
 	ConfigDir string
+	// CachePath overrides the default platform cache location.
+	// Use this in tests to isolate cache state.
+	CachePath string
 	Logger    logger.Logger
 	// TestConfig overrides the default sysmon config for testing.
 	// Use this in tests to set a fast sample interval (e.g., 100ms).
@@ -100,6 +104,7 @@ func NewSysmonService(cfg SysmonServiceConfig) (*SysmonService, error) {
 		agentID:    cfg.AgentID,
 		partition:  cfg.Partition,
 		configDir:  cfg.ConfigDir,
+		cachePath:  cfg.CachePath,
 		logger:     cfg.Logger,
 		testConfig: cfg.TestConfig,
 	}
@@ -500,6 +505,10 @@ func (s *SysmonService) getLocalConfigPath() string {
 
 // getCachePath returns the platform-specific cache path.
 func (s *SysmonService) getCachePath() string {
+	if s.cachePath != "" {
+		return s.cachePath
+	}
+
 	switch runtime.GOOS {
 	case "darwin":
 		return darwinCachePath

@@ -20,6 +20,7 @@ build --jobs=auto
 build --show_timestamps
 build --action_env=SRQL_TEST_DATABASE_URL
 build --action_env=SRQL_TEST_ADMIN_URL
+build --action_env=SRQL_TEST_DATABASE_CA_CERT
 build --action_env=NATS_URL
 build --action_env=NATS_SERVER_NAME
 build --action_env=NATS_CA_FILE
@@ -69,6 +70,7 @@ test --test_strategy=standalone
 test --remote_executor=
 test --action_env=SRQL_TEST_DATABASE_URL
 test --action_env=SRQL_TEST_ADMIN_URL
+test --action_env=SRQL_TEST_DATABASE_CA_CERT
 test --test_env=PATH
 test --test_env=CNPG_HOST
 test --test_env=CNPG_PORT
@@ -82,6 +84,7 @@ test --test_env=TEST_CNPG_PORT
 test --test_env=TEST_CNPG_DATABASE
 test --test_env=TEST_CNPG_USERNAME
 test --test_env=TEST_CNPG_PASSWORD
+test --test_env=SRQL_TEST_DATABASE_CA_CERT
 test --action_env=NATS_URL
 test --action_env=NATS_SERVER_NAME
 test --action_env=NATS_CA_FILE
@@ -119,7 +122,6 @@ build:ci --bes_results_url=https://carverauto.buildbuddy.io/invocation/
 build:ci --bes_backend=grpcs://carverauto.buildbuddy.io
 build:ci --remote_cache=grpcs://carverauto.buildbuddy.io
 build:ci --remote_timeout=15m
-build:ci --define=use_hex_cache=true
 build:ci --strategy=ExpandTemplate=local
 build:ci --strategy=NpmPackageExtract=local
 build:ci --strategy=CopyDirectory=local
@@ -151,7 +153,6 @@ build:remote_base --incompatible_strict_action_env
 build:remote_base --remote_download_minimal
 build:remote_base --remote_upload_local_results
 build:remote_base --jobs=100
-build:remote_base --define=use_hex_cache=true
 build:remote_base --strategy=ExpandTemplate=local
 build:remote_base --strategy=NpmPackageExtract=local
 build:remote_base --strategy=CopyDirectory=local

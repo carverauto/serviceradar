@@ -12,7 +12,10 @@ defmodule ServiceRadar.SNMPProfiles.Changes.SetAsDefault do
   use Ash.Resource.Change
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.SNMPProfile
+
+  import Ecto.Query
 
   @impl true
   def change(changeset, _opts, _context) do
@@ -29,24 +32,16 @@ defmodule ServiceRadar.SNMPProfiles.Changes.SetAsDefault do
   end
 
   defp unset_other_defaults(current_id, actor) do
-    # Query for existing default profiles, excluding the current one
+    _ = actor
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
     query =
-      SNMPProfile
-      |> Ash.Query.filter(is_default == true)
-      |> Ash.Query.filter(id != ^current_id)
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      from(p in SNMPProfile,
+        where: p.is_default == true and p.id != ^current_id
+      )
 
-    case Ash.read(query, actor: actor) do
-      {:ok, profiles} ->
-        # Unset all default profiles in a single bulk operation
-        Ash.bulk_update(profiles, :unset_default, %{}, actor: actor)
+    Repo.update_all(query, [set: [is_default: false, updated_at: now]], prefix: "platform")
 
-      {:error, error} ->
-        # Log but don't fail - the system should continue and we'll have multiple defaults
-        # which is still better than crashing
-        require Logger
-        Logger.warning("Failed to query existing default SNMP profiles: #{inspect(error)}")
-        :ok
-    end
+    :ok
   end
 end

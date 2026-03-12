@@ -14,6 +14,10 @@ use tracing::{error, info};
 
 pub type PgPool = Pool<PgConnectionManager>;
 
+fn ensure_rustls_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 pub async fn connect_pool(config: &AppConfig) -> Result<PgPool> {
     let manager = PgConnectionManager::new(
         &config.database_url,
@@ -128,6 +132,7 @@ fn build_client_config(
     client_cert: Option<&str>,
     client_key: Option<&str>,
 ) -> Result<ClientConfig> {
+    ensure_rustls_crypto_provider();
     let builder = ClientConfig::builder().with_root_certificates(root_store);
 
     match (client_cert, client_key) {

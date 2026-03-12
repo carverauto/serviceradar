@@ -25,7 +25,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
             query = bind_param(query, param)?;
         }
         let rows: Vec<StatsPayload> = query
-            .load(conn)
+            .load::<StatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
         return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
@@ -38,7 +38,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     }
 
     let rows: Vec<InterfaceRow> = query
-        .load(conn)
+        .load::<InterfaceRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
@@ -67,6 +67,7 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 }
 
 #[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct InterfaceRow {
     #[diesel(sql_type = Timestamptz)]
     timestamp: DateTime<Utc>,
@@ -167,6 +168,7 @@ impl InterfaceRow {
 }
 
 #[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 struct StatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
     payload: Option<Value>,

@@ -8,6 +8,7 @@ defmodule ServiceRadar.TestSupport do
 
   def start_core! do
     {:ok, _} = Application.ensure_all_started(:serviceradar_core)
+    ensure_repo_started!()
 
     if Process.whereis(ServiceRadar.Repo) do
       mode =
@@ -21,5 +22,18 @@ defmodule ServiceRadar.TestSupport do
     end
 
     :ok
+  end
+
+  defp ensure_repo_started! do
+    repo_enabled? = Application.get_env(:serviceradar_core, :repo_enabled, true) != false
+
+    if repo_enabled? and is_nil(Process.whereis(ServiceRadar.Repo)) do
+      case ServiceRadar.Repo.start_link() do
+        {:ok, _pid} -> :ok
+        {:error, {:already_started, _pid}} -> :ok
+      end
+    else
+      :ok
+    end
   end
 end

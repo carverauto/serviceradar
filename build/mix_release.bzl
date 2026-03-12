@@ -41,7 +41,7 @@ def _mix_release_impl(ctx):
         transitive_inputs.append(rust_toolchain.rust_std)
 
     hex_cache = ctx.file.hex_cache
-    direct_inputs = toolchain_inputs + ctx.files.srcs + ctx.files.data + ctx.files.extra_dir_srcs
+    direct_inputs = toolchain_inputs + ctx.files.srcs + ctx.files.bootstrap_srcs + ctx.files.data + ctx.files.extra_dir_srcs
     if hex_cache:
         direct_inputs.append(hex_cache)
     if bun:
@@ -529,8 +529,28 @@ fi
 echo "OTP_TAR={otp_tar}"
 echo "ERLANG_HOME=$ERLANG_HOME"
 
+SYS_TMP=$(python3 - <<'PY'
+import tempfile
+print(tempfile.gettempdir())
+PY
+)
+
+TARGET_HASH=$(echo "{tar_out}" | md5sum | cut -d' ' -f1 2>/dev/null || echo "{tar_out}" | md5 -q 2>/dev/null || echo "mix_release_hash")
+if [ -d /cache ] && [ -w /cache ]; then
+  MIX_GLOBAL_CACHE="/cache/mix_bazel_$TARGET_HASH"
+else
+  MIX_GLOBAL_CACHE="$SYS_TMP/mix_bazel_$TARGET_HASH"
+fi
+
+mkdir -p "$MIX_GLOBAL_CACHE/.mix_home"
+mkdir -p "$MIX_GLOBAL_CACHE/_cargo_target"
+mkdir -p "$MIX_GLOBAL_CACHE/deps"
+mkdir -p "$MIX_GLOBAL_CACHE/_build"
+mkdir -p "$MIX_GLOBAL_CACHE/node_modules"
+mkdir -p "$MIX_GLOBAL_CACHE/component_node_modules"
+
 WORKDIR=$(mktemp -d)
-export HOME="$WORKDIR/.mix_home"
+export HOME="$MIX_GLOBAL_CACHE/.mix_home"
 export MIX_HOME="$HOME/.mix"
 export HEX_HOME="$HOME/.hex"
 export REBAR_BASE_DIR="$HOME/.cache/rebar3"
@@ -571,22 +591,20 @@ if [ ! -x "$ERLANG_HOME/bin/erl" ]; then
 fi
 
 mkdir -p "$HOME"
-export CARGO_TARGET_DIR="$WORKDIR/_cargo_target"
+export CARGO_TARGET_DIR="$MIX_GLOBAL_CACHE/_cargo_target"
 TMPROOT="$WORKDIR/_tmp"
-SYS_TMP=$(python3 - <<'PY'
-import tempfile
-print(tempfile.gettempdir())
-PY
-)
 mkdir -p "$TMPROOT"
 export TMPDIR="$TMPROOT"
 export RUSTLER_TMPDIR="$TMPROOT"
 export RUSTLER_TEMP_DIR="$TMPROOT"
 if [ -n "{hex_cache_tar}" ] && [ -f "$EXECROOT/{hex_cache_tar}" ]; then
-  case "$EXECROOT/{hex_cache_tar}" in
-    *.tar.gz|*.tgz) tar -xzf "$EXECROOT/{hex_cache_tar}" -C "$HOME" ;;
-    *) tar -xf "$EXECROOT/{hex_cache_tar}" -C "$HOME" ;;
-  esac
+  if [ ! -f "$HOME/.hex_cache_extracted" ]; then
+    case "$EXECROOT/{hex_cache_tar}" in
+      *.tar.gz|*.tgz) tar -xzf "$EXECROOT/{hex_cache_tar}" -C "$HOME" ;;
+      *) tar -xf "$EXECROOT/{hex_cache_tar}" -C "$HOME" ;;
+    esac
+    touch "$HOME/.hex_cache_extracted"
+  fi
   # NOTE: We intentionally do NOT set HEX_OFFLINE=1 here.
   # The hex_cache is an optimization to pre-seed packages, but if any
   # packages are missing or outdated, Mix should be allowed to fetch them.
@@ -601,10 +619,17 @@ fi
 mkdir -p "$CARGO_HOME"
 copy_dir "{src_dir}/" "$WORKDIR/"
 {extra_copy}
-if [ -f "$EXECROOT/Cargo.toml" ]; then
-  cp "$EXECROOT/Cargo.toml" "$WORKDIR/Cargo.toml"
-  [ -f "$EXECROOT/Cargo.lock" ] && cp "$EXECROOT/Cargo.lock" "$WORKDIR/Cargo.lock"
 
+# Link persistent caches into WORKDIR before compilation
+rm -rf "$WORKDIR/deps" "$WORKDIR/_build" "$WORKDIR/assets/node_modules" "$WORKDIR/assets/component/node_modules"
+ln -sf "$MIX_GLOBAL_CACHE/deps" "$WORKDIR/deps"
+ln -sf "$MIX_GLOBAL_CACHE/_build" "$WORKDIR/_build"
+mkdir -p "$WORKDIR/assets"
+ln -sf "$MIX_GLOBAL_CACHE/node_modules" "$WORKDIR/assets/node_modules"
+mkdir -p "$WORKDIR/assets/component"
+ln -sf "$MIX_GLOBAL_CACHE/component_node_modules" "$WORKDIR/assets/component/node_modules"
+
+if [ -d "$EXECROOT/rust/srql" ] || [ -d "$EXECROOT/rust/kvutil" ]; then
   if [ -d "$EXECROOT/rust/srql" ]; then
     mkdir -p "$WORKDIR/rust/srql"
     copy_dir "$EXECROOT/rust/srql/" "$WORKDIR/rust/srql/"
@@ -621,14 +646,10 @@ if [ -f "$EXECROOT/Cargo.toml" ]; then
   fi
 
   if [ -d "$WORKDIR/rust" ]; then
-    mkdir -p /tmp/rust
-    rm -rf /tmp/rust/srql /tmp/rust/kvutil
-    [ -d "$WORKDIR/rust/srql" ] && ln -s "$WORKDIR/rust/srql" /tmp/rust/srql
-    [ -d "$WORKDIR/rust/kvutil" ] && ln -s "$WORKDIR/rust/kvutil" /tmp/rust/kvutil
-    cat > /tmp/rust/Cargo.toml <<'EOF'
+    cat > "$WORKDIR/Cargo.toml" <<'EOF'
 [workspace]
 resolver = "2"
-members = ["srql", "kvutil"]
+members = ["rust/srql", "rust/kvutil"]
 
 [workspace.dependencies]
 tonic = {{ version = "0.12", features = ["tls"] }}
@@ -647,6 +668,19 @@ lto = true
 debug-assertions = false
 panic = "abort"
 EOF
+
+    NIF_LOCK="$WORKDIR/elixir/serviceradar_srql/native/srql_nif/Cargo.lock"
+    if [ -f "$NIF_LOCK" ]; then
+      cp "$NIF_LOCK" "$WORKDIR/Cargo.lock"
+    else
+      rm -f "$WORKDIR/Cargo.lock"
+    fi
+
+    mkdir -p /tmp/rust
+    rm -rf /tmp/rust/srql /tmp/rust/kvutil
+    [ -d "$WORKDIR/rust/srql" ] && ln -s "$WORKDIR/rust/srql" /tmp/rust/srql
+    [ -d "$WORKDIR/rust/kvutil" ] && ln -s "$WORKDIR/rust/kvutil" /tmp/rust/kvutil
+    cp "$WORKDIR/Cargo.toml" /tmp/rust/Cargo.toml
   fi
 fi
 
@@ -681,7 +715,17 @@ if [ -z "${{MIX_REBAR3:-}}" ]; then
 fi
 mix deps.get --only prod
 {patch_script}
+# Compile the minimal dependency chain for the SRQL path dependency first so
+# later dependent compilation can load its Rustler NIF from _build/prod/lib.
+mix deps.compile jason rustler serviceradar_srql
+if [ -d "$WORKDIR/elixir/serviceradar_srql/priv/native" ]; then
+  SRQL_BUILD_PRIV="$WORKDIR/_build/prod/lib/serviceradar_srql/priv"
+  rm -rf "$SRQL_BUILD_PRIV"
+  mkdir -p "$SRQL_BUILD_PRIV"
+  cp -aL "$WORKDIR/elixir/serviceradar_srql/priv/." "$SRQL_BUILD_PRIV/"
+fi
 mix deps.compile
+
 if [ "{run_assets}" = "true" ]; then
   # Preserve existing static assets (favicon, images, robots.txt) before clearing priv/static
   PRESERVED_STATIC=$(mktemp -d)
@@ -779,6 +823,10 @@ mix_release = rule(
     implementation = _mix_release_impl,
     attrs = {
         "srcs": attr.label_list(allow_files = True, doc = "Web-NG sources"),
+        "bootstrap_srcs": attr.label_list(
+            allow_files = True,
+            doc = "Project files that should invalidate dependency/bootstrap caches",
+        ),
         "data": attr.label_list(allow_files = True, doc = "Additional data files (e.g., priv/static)"),
         "src_dir": attr.string(default = "web-ng", doc = "Path to the web-ng project root relative to workspace"),
         "out": attr.output(mandatory = True),
@@ -787,6 +835,7 @@ mix_release = rule(
         "extra_dir_srcs": attr.label_list(allow_files = True, doc = "File inputs that back extra_dirs"),
         "hex_cache": attr.label(allow_single_file = True, doc = "Tarball containing offline Hex/Mix cache"),
         "bun": attr.label(allow_single_file = True, doc = "Optional bun binary for SSR asset builds"),
+        "workdir_name": attr.string(doc = "Legacy stable workdir/cache name for compatibility"),
     },
     toolchains = [
         "@rules_elixir//:toolchain_type",

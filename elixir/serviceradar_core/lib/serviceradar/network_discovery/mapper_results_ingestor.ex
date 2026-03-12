@@ -1144,11 +1144,20 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp recover_existing_device_uid(device_uid, device_ip, errors, actor) do
     # Device may have been created concurrently; recover by re-reading by IP.
-    case Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)) do
+    case Enum.any?(errors, &recoverable_device_create_conflict?/1) do
       true -> recover_existing_device_uid_from_conflict(device_uid, device_ip, errors, actor)
       false -> {:error, errors}
     end
   end
+
+  defp recoverable_device_create_conflict?(%Ash.Error.Changes.InvalidChanges{}), do: true
+
+  defp recoverable_device_create_conflict?(%Ash.Error.Changes.InvalidAttribute{} = error) do
+    error.field == :uid and
+      Keyword.get(error.private_vars || [], :constraint_type) == :unique
+  end
+
+  defp recoverable_device_create_conflict?(_error), do: false
 
   defp recover_existing_device_uid_from_conflict(device_uid, device_ip, errors, actor) do
     if device_exists?(device_uid, actor) do

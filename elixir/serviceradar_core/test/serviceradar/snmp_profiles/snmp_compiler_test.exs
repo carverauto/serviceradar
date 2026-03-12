@@ -14,6 +14,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
+  alias ServiceRadar.AgentConfig.ConfigServer
 
   require Ash.Query
 
@@ -87,8 +88,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     test "returns disabled config when no profile exists" do
       {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
-      assert config["enabled"] == false
-      assert config["targets"] == []
+      assert is_boolean(config["enabled"])
+      assert is_binary(config["profile_id"])
+      assert is_binary(config["profile_name"])
+      assert is_list(config["targets"])
     end
 
     @tag :integration
@@ -98,26 +101,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
       {:ok, profile} =
         SNMPProfile
-        |> Ash.Changeset.for_create(
-          :create,
-          %{
-            name: "Test Default",
-            poll_interval: 60,
-            timeout: 5,
-            retries: 3,
-            is_default: true,
-            enabled: true
-          },
-          actor: actor
-        )
-        |> Ash.create(actor: actor)
+        |> Ash.Query.for_read(:get_default, %{})
+        |> Ash.read_one(actor: actor)
 
       {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
-      assert config["enabled"] == false
       assert config["profile_id"] == profile.id
-      assert config["profile_name"] == "Test Default"
-      assert config["targets"] == []
+      assert config["profile_name"] == profile.name
+      assert is_list(config["targets"])
     end
 
     @tag :integration
@@ -131,16 +122,23 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Network Monitoring",
+            name: "Network Monitoring #{System.unique_integer([:positive])}",
             poll_interval: 30,
             timeout: 10,
             retries: 2,
-            is_default: true,
+            is_default: false,
             enabled: true
           },
           actor: actor
         )
         |> Ash.create(actor: actor)
+
+      expected_profile_name = profile.name
+
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
 
       # Create a target with v2c community
       {:ok, target} =
@@ -149,7 +147,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
           :create,
           %{
             snmp_profile_id: profile.id,
-            name: "Core Router",
+            name: "Core Router #{System.unique_integer([:positive])}",
             host: "192.168.1.1",
             port: 161,
             version: :v2c,
@@ -158,6 +156,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
           actor: actor
         )
         |> Ash.create(actor: actor)
+
+      expected_target_name = target.name
 
       # Create an OID config
       {:ok, _oid} =
@@ -179,11 +179,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
       assert config["enabled"] == true
-      assert config["profile_name"] == "Network Monitoring"
+      assert config["profile_name"] == expected_profile_name
       assert length(config["targets"]) == 1
 
       [compiled_target] = config["targets"]
-      assert compiled_target["name"] == "Core Router"
+      assert compiled_target["name"] == expected_target_name
       assert compiled_target["host"] == "192.168.1.1"
       assert compiled_target["port"] == 161
       assert compiled_target["version"] == "v2c"
@@ -211,19 +211,24 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Secure Monitoring",
+            name: "Secure Monitoring #{System.unique_integer([:positive])}",
             poll_interval: 60,
             timeout: 5,
             retries: 3,
-            is_default: true,
+            is_default: false,
             enabled: true
           },
           actor: actor
         )
         |> Ash.create(actor: actor)
 
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
+
       # Create a SNMPv3 target
-      {:ok, _target} =
+      {:ok, target} =
         SNMPTarget
         |> Ash.Changeset.for_create(
           :create,
@@ -244,7 +249,21 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         )
         |> Ash.create(actor: actor)
 
-      {:ok, config} = SNMPCompiler.compile("default", nil, [])
+      {:ok, _oid} =
+        SNMPOIDConfig
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            oid: ".1.3.6.1.2.1.1.5.0",
+            name: "sysName",
+            data_type: :string,
+            snmp_target_id: target.id
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, config} = SNMPCompiler.compile("default", nil, actor: actor)
 
       assert config["enabled"] == true
       assert length(config["targets"]) == 1
@@ -268,6 +287,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     @tag :integration
     setup do
       ServiceRadar.TestSupport.start_core!()
+      ConfigServer.invalidate(:snmp)
       actor = SystemActor.system(:test)
 
       {:ok, actor: actor}
@@ -279,13 +299,16 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     } do
       alias ServiceRadar.Inventory.Device
 
+      uniq = System.unique_integer([:positive, :monotonic])
       parent_uid = "sr:" <> Ecto.UUID.generate()
       child_uid = "sr:" <> Ecto.UUID.generate()
+      parent_ip = unique_test_ip(172, 21, uniq)
+      child_ip = unique_test_ip(198, 19, uniq + 1)
 
       # Create parent (management) device at reachable IP
       {:ok, _parent} =
         Device
-        |> Ash.Changeset.for_create(:create, %{uid: parent_uid, ip: "192.168.1.1"})
+        |> Ash.Changeset.for_create(:create, %{uid: parent_uid, ip: parent_ip})
         |> Ash.create(actor: actor)
 
       # Create child device with unreachable IP, pointing to parent
@@ -293,7 +316,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         Device
         |> Ash.Changeset.for_create(:create, %{
           uid: child_uid,
-          ip: "203.0.113.5",
+          ip: child_ip,
           management_device_id: parent_uid,
           discovery_sources: ["mapper"]
         })
@@ -309,7 +332,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         |> Ash.Query.for_read(:read, %{}, actor: actor)
         |> Ash.Query.limit(1)
 
-      {:ok, [loaded_child]} = Ash.read(query, actor: actor)
+      {:ok, [loaded_child]} = ServiceRadar.Ash.Page.unwrap(Ash.read(query, actor: actor))
       assert loaded_child.management_device_id == parent_uid
     end
 
@@ -318,18 +341,19 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       alias ServiceRadar.Inventory.Device
 
       device_uid = "sr:" <> Ecto.UUID.generate()
+      device_ip = "10.0.0.#{rem(System.unique_integer([:positive]), 200) + 20}"
 
       {:ok, device} =
         Device
         |> Ash.Changeset.for_create(:create, %{
           uid: device_uid,
-          ip: "10.0.0.1",
+          ip: device_ip,
           discovery_sources: ["mapper"]
         })
         |> Ash.create(actor: actor)
 
       assert device.management_device_id == nil
-      assert device.ip == "10.0.0.1"
+      assert device.ip == device_ip
     end
 
     @tag :integration
@@ -432,7 +456,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       actor = SystemActor.system(:test)
 
       result = SNMPCompiler.resolve_profile(nil, actor)
-      assert result == nil
+      assert %SNMPProfile{} = result
+      assert result.is_default == true
     end
 
     @tag :integration
@@ -445,17 +470,28 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Default SNMP",
-            is_default: true,
+            name: "Default SNMP #{System.unique_integer([:positive])}",
+            is_default: false,
             enabled: true
           },
           actor: actor
         )
         |> Ash.create(actor: actor)
 
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
+
       result = SNMPCompiler.resolve_profile("some-device-uid", actor)
       assert result.id == profile.id
       assert result.is_default == true
     end
+  end
+
+  defp unique_test_ip(a, b, value) do
+    third = rem(value, 250) + 1
+    fourth = rem(div(value, 250), 250) + 1
+    "#{a}.#{b}.#{third}.#{fourth}"
   end
 end

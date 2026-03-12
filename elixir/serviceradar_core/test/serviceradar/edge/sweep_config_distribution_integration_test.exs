@@ -83,7 +83,8 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
     assert is_map(entry.config)
     assert is_binary(entry.config["config_hash"])
 
-    [compiled_group] = entry.config["groups"]
+    compiled_group = Enum.find(entry.config["groups"], &(&1["sweep_group_id"] == group.id))
+    assert is_map(compiled_group)
     assert compiled_group["sweep_group_id"] == group.id
     assert device_ip in compiled_group["targets"]
     assert "10.0.2.0/24" in compiled_group["targets"]
@@ -93,9 +94,10 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
     {:ok, agent_config} = AgentConfigGenerator.generate_config(agent_id)
     payload = Jason.decode!(agent_config.config_json)
     sweep_payload = payload["sweep"]
+    generated_group = Enum.find(sweep_payload["groups"], &(&1["sweep_group_id"] == group.id))
 
     assert sweep_payload["config_hash"] == entry.config["config_hash"]
-    assert length(sweep_payload["groups"]) == 1
+    assert is_map(generated_group)
   end
 
   test "inherits profile ports when group ports override is empty", %{

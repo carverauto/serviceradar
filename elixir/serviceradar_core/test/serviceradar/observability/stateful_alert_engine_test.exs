@@ -9,8 +9,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   @moduletag :integration
 
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Monitoring.{Alert, OcsfEvent}
   alias ServiceRadar.Observability.{StatefulAlertEngine, StatefulAlertRule}
+  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.TestSupport
 
   setup_all do
@@ -20,6 +22,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
   setup do
     actor = %{id: "system", role: :admin}
+    reset_engine()
+    on_exit(&reset_engine/0)
     {:ok, actor: actor}
   end
 
@@ -70,28 +74,71 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     events = [event.(base_time), event.(base_time)]
 
     # In single-deployment mode, schema is determined by search_path
-    assert :ok = StatefulAlertEngine.evaluate_events(events, nil)
+    assert :ok = StatefulAlertEngine.evaluate_events(events)
 
     events =
       OcsfEvent
       |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.read!()
+      |> Page.unwrap!()
 
-    assert Enum.any?(events, fn event -> event.log_name == "alert.rule.threshold" end)
+    threshold_event =
+      Enum.find(events, fn event ->
+        event.log_name == "alert.rule.threshold" and
+          metadata_value(event.metadata, ["serviceradar", "rule_id"]) == to_string(rule.id)
+      end)
+
+    assert threshold_event
 
     alert =
       Alert
       |> Ash.Query.for_read(:active, %{}, actor: actor)
       |> Ash.read!()
-      |> List.first()
+      |> Page.unwrap!()
+      |> Enum.find(fn alert ->
+        metadata_value(alert.metadata, ["event_id"]) == to_string(threshold_event.id)
+      end)
 
     assert alert != nil
     assert alert.status in [:pending, :acknowledged, :escalated]
 
     later = DateTime.add(base_time, 180, :second)
-    assert :ok = StatefulAlertEngine.evaluate_events([event.(later)], nil)
+    assert :ok = StatefulAlertEngine.evaluate_events([event.(later)])
 
     {:ok, resolved} = Alert.get_by_id(alert.id, actor: actor)
     assert resolved.status == :resolved
   end
+
+  defp reset_engine do
+    case ProcessRegistry.lookup(:stateful_alert_engine) do
+      [{pid, _}] ->
+        _ = ProcessRegistry.terminate_child(pid)
+        Process.sleep(25)
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp metadata_value(data, [key]), do: metadata_value(data, key)
+
+  defp metadata_value(data, [key | rest]) when is_map(data) do
+    case metadata_value(data, key) do
+      %{} = nested -> metadata_value(nested, rest)
+      _ -> nil
+    end
+  end
+
+  defp metadata_value(data, key) when is_map(data) and is_binary(key) do
+    Map.get(data, key) || Map.get(data, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> Map.get(data, key)
+  end
+
+  defp metadata_value(data, key) when is_map(data) and is_atom(key) do
+    Map.get(data, key) || Map.get(data, Atom.to_string(key))
+  end
+
+  defp metadata_value(_, _), do: nil
 end

@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.{Device, DeviceCleanupSettings, DeviceCleanupWorker, SyncIngestor}
+  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -32,13 +33,13 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     assert {:ok, []} =
              Device
              |> Ash.Query.filter(uid == ^uid)
-             |> Ash.read(actor: actor)
+             |> read_results(actor)
 
     assert {:ok, [deleted]} =
              Device
              |> Ash.Query.for_read(:read, %{include_deleted: true})
              |> Ash.Query.filter(uid == ^uid)
-             |> Ash.read(actor: actor)
+             |> read_results(actor)
 
     assert deleted.deleted_at
     assert deleted.deleted_by
@@ -52,15 +53,22 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     {:ok, device} = create_device(actor, uid, ip, mac)
     {:ok, _} = soft_delete_device(actor, device, "user_requested")
 
-    {:ok, _restored} =
-      device
-      |> Ash.Changeset.for_update(:restore, %{}, actor: actor)
-      |> Ash.update()
+    restore_query =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid == ^uid)
+
+    assert %Ash.BulkResult{status: :success} =
+             Ash.bulk_update(restore_query, :restore, %{},
+               actor: actor,
+               return_records?: false,
+               return_errors?: true
+             )
 
     assert {:ok, [restored]} =
              Device
              |> Ash.Query.filter(uid == ^uid)
-             |> Ash.read(actor: actor)
+             |> read_results(actor)
 
     assert is_nil(restored.deleted_at)
     assert is_nil(restored.deleted_by)
@@ -68,9 +76,20 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
   end
 
   test "sync ingestor restores deleted devices when identity matches", %{actor: actor} do
-    uid = unique_uid()
-    ip = unique_ip(uid)
+    ip = unique_ip()
     mac = unique_mac()
+    netbox_device_id = "netbox-#{System.unique_integer([:positive])}"
+
+    uid =
+      IdentityReconciler.generate_deterministic_device_id(%{
+        agent_id: nil,
+        armis_id: nil,
+        integration_id: nil,
+        netbox_id: netbox_device_id,
+        mac: String.replace(mac, ":", ""),
+        ip: ip,
+        partition: "default"
+      })
 
     {:ok, device} = create_device(actor, uid, ip, mac)
     {:ok, _} = soft_delete_device(actor, device, "integration_refresh")
@@ -80,7 +99,7 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
       "mac" => mac,
       "hostname" => "restored-#{uid}",
       "source" => "netbox",
-      "metadata" => %{"netbox_device_id" => "netbox-#{uid}"}
+      "metadata" => %{"netbox_device_id" => netbox_device_id}
     }
 
     assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
@@ -89,7 +108,7 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
              Device
              |> Ash.Query.for_read(:read, %{include_deleted: true})
              |> Ash.Query.filter(uid == ^uid)
-             |> Ash.read(actor: actor)
+             |> read_results(actor)
 
     assert is_nil(restored.deleted_at)
     assert is_nil(restored.deleted_by)
@@ -100,7 +119,7 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
       ensure_cleanup_settings(actor, %{
         retention_days: 1,
         cleanup_interval_minutes: 60,
-        batch_size: 50,
+        batch_size: 100,
         enabled: true
       })
 
@@ -125,13 +144,13 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
              Device
              |> Ash.Query.for_read(:read, %{include_deleted: true})
              |> Ash.Query.filter(uid == ^old_device.uid)
-             |> Ash.read(actor: actor)
+             |> read_results(actor)
 
     assert {:ok, [remaining]} =
              Device
              |> Ash.Query.for_read(:read, %{include_deleted: true})
              |> Ash.Query.filter(uid == ^recent_device.uid)
-             |> Ash.read(actor: actor)
+             |> read_results(actor)
 
     assert remaining.deleted_at
   end
@@ -173,8 +192,20 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
         |> Ash.Changeset.for_create(:create, attrs)
         |> Ash.create(actor: actor)
 
+      {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{} | _]}} ->
+        DeviceCleanupSettings
+        |> Ash.Changeset.for_create(:create, attrs)
+        |> Ash.create(actor: actor)
+
       {:error, reason} ->
         flunk("failed to load cleanup settings: #{inspect(reason)}")
+    end
+  end
+
+  defp read_results(query, actor) do
+    case Ash.read(query, actor: actor) do
+      {:ok, %Ash.Page.Keyset{results: results}} -> {:ok, results}
+      other -> other
     end
   end
 
@@ -183,9 +214,15 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
   end
 
   defp unique_ip(uid \\ nil) do
-    seed = uid || System.unique_integer([:positive])
-    octet = rem(:erlang.phash2(seed), 200) + 20
-    "10.42.#{octet}.#{rem(octet * 7, 250) + 2}"
+    seed =
+      case uid do
+        nil -> System.unique_integer([:positive, :monotonic])
+        value -> :erlang.phash2(value, 62_500)
+      end
+
+    third = rem(seed, 250) + 1
+    fourth = rem(div(seed, 250), 250) + 1
+    "10.42.#{third}.#{fourth}"
   end
 
   defp unique_mac do

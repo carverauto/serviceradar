@@ -15,13 +15,18 @@ filegroup(
     ),
 )
 
+filegroup(
+    name = "deps_srcs",
+    srcs = [
+        "mix.exs",
+        "mix.lock",
+    ] + glob(["config/**"]),
+)
+
 mix_release(
     name = "release_tar",
     srcs = [":srcs"],
-    data = [
-        "//:Cargo.toml",
-        "//:Cargo.lock",
-    ],
+    bootstrap_srcs = [":deps_srcs"],
     out = "serviceradar-agent-gateway-release.tar.gz",
     src_dir = "elixir/serviceradar_agent_gateway",
     run_assets = False,
@@ -43,8 +48,5 @@ mix_release(
         "//rust/kvutil:srcs",
         "//rust/srql:srcs",
     ],
-    hex_cache = select({
-        "//build:use_hex_cache": "//build:hex_cache",
-        "//conditions:default": None,
-    }),
+    workdir_name = "serviceradar_agent_gateway",
 )

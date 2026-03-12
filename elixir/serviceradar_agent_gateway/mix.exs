@@ -71,7 +71,7 @@ defmodule ServiceRadarAgentGateway.MixProject do
           runtime_tools: :permanent,
           serviceradar_agent_gateway: :permanent
         ],
-        steps: [:assemble, :tar],
+        steps: [:assemble],
         rel_templates_path: "rel"
       ]
     ]

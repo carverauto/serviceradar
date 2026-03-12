@@ -8,7 +8,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIpDedupTest do
   @moduletag :integration
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, IdentityReconciler, MergeAudit}
+  alias ServiceRadar.Inventory.{Device, IdentityReconciler}
   alias ServiceRadar.TestSupport
 
   setup_all do
@@ -37,25 +37,11 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIpDedupTest do
     assert resolved_id == device.uid
   end
 
-  test "reconciliation merges devices that share a primary IP", %{actor: actor} do
+  test "active devices cannot share a primary IP", %{actor: actor} do
     ip = unique_ip()
 
-    {:ok, device_a} = create_device(actor, ip, "duplicate-a")
-    {:ok, device_b} = create_device(actor, ip, "duplicate-b")
-
-    earlier = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.truncate(:second)
-
-    device_a
-    |> Ash.Changeset.for_update(:update, %{last_seen_time: earlier})
-    |> Ash.update(actor: actor)
-
-    assert {:ok, _stats} = IdentityReconciler.reconcile_duplicates(actor: actor, max_merges: 10)
-
-    assert {:error, _} = Device.get_by_uid(device_a.uid, false, actor: actor)
-    assert {:ok, _} = Device.get_by_uid(device_b.uid, false, actor: actor)
-
-    assert {:ok, [audit | _]} = MergeAudit.get_merged_to(device_a.uid, actor: actor)
-    assert audit.to_device_id == device_b.uid
+    {:ok, _device_a} = create_device(actor, ip, "duplicate-a")
+    assert {:error, _reason} = create_device(actor, ip, "duplicate-b")
   end
 
   defp create_device(actor, ip, hostname) do

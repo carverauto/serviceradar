@@ -47,6 +47,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
           %{
             name: "Override Profile #{System.unique_integer([:positive])}",
             target_query: ~s(in:devices hostname:"#{hostname}"),
+            priority: 100,
             version: :v2c,
             community: "public"
           },
@@ -101,6 +102,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
           %{
             name: "Profile Credential #{System.unique_integer([:positive])}",
             target_query: ~s(in:devices hostname:"#{hostname}"),
+            priority: 100,
             version: :v2c,
             community: "public"
           },
@@ -120,6 +122,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
       device_uid = "sr:" <> Ecto.UUID.generate()
       hostname = "alias-credential-test-#{System.unique_integer([:positive])}"
       public_ip = "198.51.100.#{rem(System.unique_integer([:positive]), 200) + 1}"
+      alias_ip = "192.168.10.#{rem(System.unique_integer([:positive]), 200) + 1}"
 
       {:ok, _device} =
         Device
@@ -144,6 +147,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
           %{
             name: "Alias Credential Profile #{System.unique_integer([:positive])}",
             target_query: ~s(in:devices hostname:"#{hostname}"),
+            priority: 100,
             version: :v2c,
             community: "public"
           },
@@ -157,7 +161,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
             device_id: device_uid,
             partition: "default",
             alias_type: :ip,
-            alias_value: "192.168.10.1",
+            alias_value: alias_ip,
             metadata: %{}
           },
           actor: actor
@@ -171,7 +175,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
         )
 
       assert {:ok, %{credential: credential, source: :profile}} =
-               CredentialResolver.resolve_for_host("192.168.10.1", actor)
+               CredentialResolver.resolve_for_host(alias_ip, actor)
 
       assert credential.community == "public"
     end

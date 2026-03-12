@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:css": "tailwindcss --input=css/app.css --output=../priv/static/assets/css/app.css",
+    "build:css:minify": "tailwindcss --input=css/app.css --output=../priv/static/assets/css/app.css --minify",
+    "build:js": "esbuild js/app.js js/theme_init.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file",
+    "build:js:minify": "esbuild js/app.js js/theme_init.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file --minify",
     "test": "bunx vitest run js/lib/god_view/*.test.js",
     "test:god_view:contracts": "bunx vitest run js/lib/god_view/*contract*.test.js js/lib/god_view/renderer_deps.test.js",
     "lint": "bunx eslint js/**/*.js",
@@ -29,7 +33,10 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "4.1.12",
+    "esbuild": "0.25.4",
     "eslint": "^9.39.3",
+    "tailwindcss": "4.1.12",
     "vitest": "^3.2.4"
   }
 }

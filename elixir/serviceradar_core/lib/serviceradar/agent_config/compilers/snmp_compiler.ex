@@ -442,7 +442,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       SNMPOIDTemplate
       |> Ash.Query.filter(id in ^template_ids)
 
-    case Ash.read(query, actor: actor) do
+    case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, templates} ->
         # Flatten all OIDs from all templates
         templates
@@ -475,11 +475,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   defp resolve_polling_host(%{management_device_id: mgmt_id} = device, actor)
        when is_binary(mgmt_id) and mgmt_id != "" do
-    case Device
-         |> Ash.Query.filter(uid == ^mgmt_id)
-         |> Ash.Query.for_read(:read, %{}, actor: actor)
-         |> Ash.Query.limit(1)
-         |> Ash.read(actor: actor) do
+    query =
+      Device
+      |> Ash.Query.filter(uid == ^mgmt_id)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.limit(1)
+
+    case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, [mgmt_device | _]} ->
         mgmt_ip = mgmt_device.ip || mgmt_device.hostname
 
@@ -664,7 +666,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       |> Ash.Query.filter(snmp_profile_id == ^profile.id)
       |> Ash.Query.load(:oid_configs)
 
-    case Ash.read(query, actor: actor) do
+    case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, targets} ->
         targets
         |> Enum.map(&compile_profile_target(&1, profile))

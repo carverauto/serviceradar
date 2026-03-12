@@ -119,7 +119,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   defp resolve_profile(device_uid, actor) do
     case SrqlTargetResolver.resolve_for_device(device_uid, actor) do
       {:ok, %SNMPProfile{} = profile} ->
-        profile
+        load_profile(profile.id, actor)
 
       {:ok, nil} ->
         get_default_profile(actor)
@@ -134,8 +134,24 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     query = Ash.Query.for_read(SNMPProfile, :get_default, %{})
 
     case Ash.read_one(query, actor: actor) do
-      {:ok, profile} -> profile
+      {:ok, %SNMPProfile{} = profile} -> load_profile(profile.id, actor)
       {:error, _} -> nil
+      _ -> nil
+    end
+  end
+
+  defp load_profile(nil, _actor), do: nil
+
+  defp load_profile(profile_id, actor) do
+    query =
+      SNMPProfile
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(id == ^profile_id)
+      |> Ash.Query.limit(1)
+
+    case Ash.read_one(query, actor: actor) do
+      {:ok, %SNMPProfile{} = profile} -> profile
+      _ -> nil
     end
   end
 

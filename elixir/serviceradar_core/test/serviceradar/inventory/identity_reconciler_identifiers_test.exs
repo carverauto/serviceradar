@@ -23,6 +23,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
 
   test "register_identifiers merges conflicting strong identifiers", %{actor: actor} do
     armis_id = "armis-#{System.unique_integer([:positive])}"
+    netbox_id = "netbox-#{System.unique_integer([:positive])}"
     mac = "AA:BB:CC:DD:EE:#{mac_suffix()}"
     normalized_mac = IdentityReconciler.normalize_mac(mac)
 
@@ -30,13 +31,13 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
     {:ok, device_b} = create_device(actor, "device-b")
 
     assert {:ok, _} = register_identifier(actor, device_a.uid, :armis_device_id, armis_id)
-    assert {:ok, _} = register_identifier(actor, device_b.uid, :mac, normalized_mac)
+    assert {:ok, _} = register_identifier(actor, device_b.uid, :netbox_device_id, netbox_id)
 
     ids = %{
       agent_id: nil,
       armis_id: armis_id,
       integration_id: nil,
-      netbox_id: nil,
+      netbox_id: netbox_id,
       mac: normalized_mac,
       ip: "",
       partition: "default"
@@ -44,8 +45,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
 
     assert :ok = IdentityReconciler.register_identifiers(device_b.uid, ids, actor: actor)
 
-    assert {:ok, _} = Device.get_by_uid(device_a.uid, false, actor: actor)
-    assert {:error, _} = Device.get_by_uid(device_b.uid, false, actor: actor)
+    assert {:error, _} = Device.get_by_uid(device_a.uid, false, actor: actor)
+    assert {:ok, _} = Device.get_by_uid(device_b.uid, false, actor: actor)
 
     mac_query =
       DeviceIdentifier
@@ -56,10 +57,10 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
       })
 
     assert {:ok, [identifier | _]} = Ash.read(mac_query, actor: actor)
-    assert identifier.device_id == device_a.uid
+    assert identifier.device_id == device_b.uid
 
-    assert {:ok, [audit | _]} = MergeAudit.get_merged_to(device_b.uid, actor: actor)
-    assert audit.to_device_id == device_a.uid
+    assert {:ok, [audit | _]} = MergeAudit.get_merged_to(device_a.uid, actor: actor)
+    assert audit.to_device_id == device_b.uid
   end
 
   test "agent_id resolves to same device after IP change", %{actor: actor} do

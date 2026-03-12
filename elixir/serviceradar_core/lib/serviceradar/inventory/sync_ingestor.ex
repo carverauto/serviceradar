@@ -135,13 +135,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       Enum.reduce(normalized_updates, {[], existing_ip_to_device}, fn update,
                                                                       {acc, ip_to_device} ->
         ids = effective_identifiers(update)
-
-        device_id =
-          case ids.ip do
-            ip when is_binary(ip) and ip != "" -> Map.get(ip_to_device, ip)
-            _ -> nil
-          end ||
-            resolve_device_id_cached(update, existing_mappings, ip_to_device)
+        device_id = resolve_device_id_cached(update, existing_mappings, ip_to_device)
 
         next_ip_to_device =
           case ids.ip do
@@ -195,9 +189,11 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     |> Enum.flat_map(fn update ->
       ids = effective_identifiers(update)
       partition = ids.partition
+      include_agent? = include_agent_identifier?(update, ids)
       include_mac? = include_mac_identifier?(update)
 
       []
+      |> maybe_add_id_if(include_agent?, :agent_id, ids.agent_id, partition)
       |> maybe_add_id(:armis_device_id, ids.armis_id, partition)
       |> maybe_add_id(:integration_id, ids.integration_id, partition)
       |> maybe_add_id(:netbox_device_id, ids.netbox_id, partition)

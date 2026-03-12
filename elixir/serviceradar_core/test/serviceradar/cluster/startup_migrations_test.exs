@@ -33,7 +33,9 @@ defmodule ServiceRadar.Cluster.StartupMigrationsTest do
     {:ok, tracker} = Agent.start_link(fn -> %{run: 0} end)
 
     on_exit(fn ->
-      Agent.stop(tracker)
+      if Process.alive?(tracker) do
+        Agent.stop(tracker)
+      end
     end)
 
     migrations_fun = fn ->

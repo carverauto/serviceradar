@@ -56,7 +56,7 @@ defmodule ServiceRadarCoreElx.MixProject do
           serviceradar_core: :permanent,
           serviceradar_core_elx: :permanent
         ],
-        steps: [:assemble, :tar],
+        steps: [:assemble],
         rel_templates_path: "rel"
       ]
     ]

@@ -13,8 +13,6 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
   @moduletag :integration
 
   alias ServiceRadar.AgentConfig.ConfigServer
-  alias ServiceRadar.AgentRegistry
-  alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
   alias ServiceRadar.TestSupport
@@ -113,7 +111,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           :create,
           %{
             uid: "device-match-1-#{unique_id}",
-            ip: "10.0.1.100",
+            ip: unique_device_ip(unique_id, 1),
             hostname: "server1"
           },
           actor: actor
@@ -126,7 +124,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           :create,
           %{
             uid: "device-match-2-#{unique_id}",
-            ip: "10.0.2.50",
+            ip: unique_device_ip(unique_id, 2),
             hostname: "server2"
           },
           actor: actor
@@ -139,7 +137,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           :create,
           %{
             uid: "device-nomatch-#{unique_id}",
-            ip: "192.168.1.100",
+            ip: non_matching_device_ip(unique_id, 1),
             hostname: "external"
           },
           actor: actor
@@ -162,6 +160,8 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
         )
         |> Ash.create()
 
+      ConfigServer.invalidate(:sweep)
+
       # Get compiled config
       {:ok, entry} = ConfigServer.get_config(:sweep, "default", nil)
 
@@ -177,7 +177,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       assert compiled_group != nil
       assert matching_device1.ip in compiled_group["targets"]
       assert matching_device2.ip in compiled_group["targets"]
-      refute "192.168.1.100" in compiled_group["targets"]
+      refute non_matching_device_ip(unique_id, 1) in compiled_group["targets"]
     end
 
     test "compiles sweep group with tag query and matching devices", %{
@@ -191,7 +191,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           :create,
           %{
             uid: "device-prod-#{unique_id}",
-            ip: "10.0.1.1",
+            ip: unique_device_ip(unique_id, 3),
             hostname: "prod-server",
             tags: %{"env" => "prod", "tier" => "1"}
           },
@@ -205,7 +205,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           :create,
           %{
             uid: "device-dev-#{unique_id}",
-            ip: "10.0.2.1",
+            ip: unique_device_ip(unique_id, 4),
             hostname: "dev-server",
             tags: %{"env" => "dev"}
           },
@@ -229,6 +229,8 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
         )
         |> Ash.create()
 
+      ConfigServer.invalidate(:sweep)
+
       {:ok, entry} = ConfigServer.get_config(:sweep, "default", nil)
 
       compiled_group =
@@ -251,7 +253,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           :create,
           %{
             uid: "device-combined-#{unique_id}",
-            ip: "10.0.1.50",
+            ip: unique_device_ip(unique_id, 5),
             hostname: "combined-server"
           },
           actor: actor
@@ -275,6 +277,8 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           actor: actor
         )
         |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
 
       {:ok, entry} = ConfigServer.get_config(:sweep, "default", nil)
 
@@ -311,6 +315,8 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           actor: actor
         )
         |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
 
       {:ok, entry} = ConfigServer.get_config(:sweep, "default", nil)
 
@@ -360,6 +366,8 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           actor: actor
         )
         |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
 
       # Get config for default partition
       {:ok, default_entry} = ConfigServer.get_config(:sweep, "default", nil)
@@ -416,6 +424,8 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
         )
         |> Ash.create()
 
+      ConfigServer.invalidate(:sweep)
+
       # Get config for specific agent
       {:ok, entry} = ConfigServer.get_config(:sweep, "default", agent_id)
 
@@ -448,6 +458,8 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           actor: actor
         )
         |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
 
       # Get config for different agent
       {:ok, entry} = ConfigServer.get_config(:sweep, "default", other_agent_id)
@@ -493,6 +505,8 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           actor: actor
         )
         |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
 
       {:ok, entry} = ConfigServer.get_config(:sweep, "default", nil)
 
@@ -545,5 +559,17 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       # Hash should be different after update
       refute hash1 == hash2
     end
+  end
+
+  defp unique_device_ip(unique_id, offset) do
+    third = rem(unique_id + offset, 200)
+    fourth = rem(unique_id * 7 + offset * 13, 200) + 10
+    "10.#{third}.#{offset}.#{fourth}"
+  end
+
+  defp non_matching_device_ip(unique_id, offset) do
+    third = rem(unique_id + offset, 200)
+    fourth = rem(unique_id * 11 + offset * 17, 200) + 10
+    "192.168.#{third}.#{fourth}"
   end
 end

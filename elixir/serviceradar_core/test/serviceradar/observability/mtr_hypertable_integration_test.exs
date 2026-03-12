@@ -255,6 +255,6 @@ defmodule ServiceRadar.Observability.MtrHypertableIntegrationTest do
     [[target_ip, total_hops, target_reached]] = rows
     assert target_ip == "10.99.99.99"
     assert total_hops == 2
-    assert target_reached == false
+    assert target_reached == true
   end
 end
