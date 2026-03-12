@@ -46,6 +46,7 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     }
 }
 
+#[derive(Debug)]
 struct DeviceGraphParams {
     device_id: String,
     collector_owned_only: bool,
@@ -71,6 +72,7 @@ fn extract_params(plan: &QueryPlan) -> Result<DeviceGraphParams> {
                         "device_id filter cannot be empty".into(),
                     ));
                 }
+                validate_device_id(value)?;
                 device_id = Some(value.to_string());
             }
             "collector_owned" | "collector_owned_only" => {
@@ -125,6 +127,22 @@ fn parse_bool(input: &str, default_value: bool) -> Option<bool> {
     input.parse::<bool>().ok()
 }
 
+fn validate_device_id(value: &str) -> Result<()> {
+    if value.contains('$') {
+        return Err(ServiceError::InvalidRequest(
+            "device_id contains invalid character '$'".into(),
+        ));
+    }
+
+    if value.chars().any(|ch| ch.is_ascii_control()) {
+        return Err(ServiceError::InvalidRequest(
+            "device_id contains invalid control characters".into(),
+        ));
+    }
+
+    Ok(())
+}
+
 #[derive(QueryableByName)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 struct DeviceGraphRow {
@@ -139,3 +157,58 @@ WITH _config AS (
 )
 SELECT public.age_device_neighborhood($1::text, $2::boolean, $3::boolean) AS result;
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::{Entity, Filter, FilterOp, FilterValue};
+
+    #[test]
+    fn rejects_device_ids_with_dollar_signs() {
+        let plan = QueryPlan {
+            entity: Entity::DeviceGraph,
+            filters: vec![Filter {
+                field: "device_id".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("device$$alpha".into()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: None,
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let err = extract_params(&plan).expect_err("device_id with '$' should be rejected");
+        assert_eq!(
+            err.to_string(),
+            "invalid request: device_id contains invalid character '$'"
+        );
+    }
+
+    #[test]
+    fn accepts_standard_device_ids() {
+        let plan = QueryPlan {
+            entity: Entity::DeviceGraph,
+            filters: vec![Filter {
+                field: "device_id".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("serviceradar:agent:agent-1".into()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: None,
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let params = extract_params(&plan).expect("standard device_id should be accepted");
+        assert_eq!(params.device_id, "serviceradar:agent:agent-1");
+    }
+}
