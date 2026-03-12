@@ -25,14 +25,20 @@ db_name="$("$parser" - "$db_url" <<'PY'
 import sys
 from urllib.parse import urlparse
 
-dbname = (urlparse(sys.argv[1]).path or "/")[1:]
+parsed = urlparse(sys.argv[1])
+dbname = (parsed.path or "/")[1:]
+user = parsed.username
 
-if not dbname:
-    raise SystemExit("SERVICERADAR_TEST_DATABASE_URL must include database name")
+if not dbname or not user:
+    raise SystemExit("SERVICERADAR_TEST_DATABASE_URL must include user and database name")
 
 print(dbname)
+print(user)
 PY
 )"
+
+app_user="$(printf '%s\n' "$db_name" | sed -n '2p')"
+db_name="$(printf '%s\n' "$db_name" | sed -n '1p')"
 
 admin_db_url="$("$parser" - "$admin_url" "$db_name" <<'PY'
 import sys
@@ -97,3 +103,78 @@ CREATE EXTENSION IF NOT EXISTS "age";
 '
 
 printf "%s\n" "$extensions_sql" | psql "$admin_db_url" -v ON_ERROR_STOP=1
+
+age_bootstrap_sql="$("$parser" - "$app_user" <<'PY'
+import sys
+
+app_user = sys.argv[1]
+graphs = ["serviceradar_topology", "serviceradar", "platform_graph"]
+
+def quote_ident(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+def quote_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+app_user_ident = quote_ident(app_user)
+graph_literals = ", ".join(quote_literal(graph) for graph in graphs)
+
+print(f"GRANT USAGE ON SCHEMA ag_catalog TO {app_user_ident};")
+print(f"GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO {app_user_ident};")
+print(f"GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO {app_user_ident};")
+print(f"GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO {app_user_ident};")
+print(
+    "DO $$\n"
+    "DECLARE\n"
+    "  graph_name text;\n"
+    "  relname text;\n"
+    "BEGIN\n"
+    f"  FOREACH graph_name IN ARRAY ARRAY[{graph_literals}] LOOP\n"
+    "    BEGIN\n"
+    "      PERFORM ag_catalog.create_graph(graph_name);\n"
+    "    EXCEPTION\n"
+    "      WHEN duplicate_object OR duplicate_schema THEN\n"
+    "        NULL;\n"
+    "    END;\n"
+    "\n"
+    "    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = graph_name) THEN\n"
+    f"      EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO {app_user_ident}', graph_name);\n"
+    f"      EXECUTE format('GRANT ALL ON ALL TABLES IN SCHEMA %I TO {app_user_ident}', graph_name);\n"
+    f"      EXECUTE format('GRANT ALL ON ALL SEQUENCES IN SCHEMA %I TO {app_user_ident}', graph_name);\n"
+    f"      EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT ALL ON TABLES TO {app_user_ident}', graph_name);\n"
+    f"      EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT ALL ON SEQUENCES TO {app_user_ident}', graph_name);\n"
+    f"      EXECUTE format('ALTER SCHEMA %I OWNER TO {app_user_ident}', graph_name);\n"
+    "\n"
+    "      FOR relname IN\n"
+    "        SELECT c.relname\n"
+    "        FROM pg_class c\n"
+    "        JOIN pg_namespace n ON n.oid = c.relnamespace\n"
+    "        WHERE n.nspname = graph_name\n"
+    "          AND c.relkind IN ('r', 'p')\n"
+    "      LOOP\n"
+    f"        EXECUTE format('ALTER TABLE %I.%I OWNER TO {app_user_ident}', graph_name, relname);\n"
+    "      END LOOP;\n"
+    "\n"
+    "      FOR relname IN\n"
+    "        SELECT c.relname\n"
+    "        FROM pg_class c\n"
+    "        JOIN pg_namespace n ON n.oid = c.relnamespace\n"
+    "        WHERE n.nspname = graph_name\n"
+    "          AND c.relkind = 'S'\n"
+    "          AND NOT EXISTS (\n"
+    "            SELECT 1 FROM pg_depend d\n"
+    "            WHERE d.objid = c.oid\n"
+    "              AND d.deptype = 'a'\n"
+    "          )\n"
+    "      LOOP\n"
+    f"        EXECUTE format('ALTER SEQUENCE %I.%I OWNER TO {app_user_ident}', graph_name, relname);\n"
+    "      END LOOP;\n"
+    "    END IF;\n"
+    "  END LOOP;\n"
+    "END\n"
+    "$$;"
+)
+PY
+)"
+
+printf "%s\n" "$age_bootstrap_sql" | psql "$admin_db_url" -v ON_ERROR_STOP=1
