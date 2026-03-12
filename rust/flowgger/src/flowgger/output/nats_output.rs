@@ -76,13 +76,13 @@ impl NATSOutput {
 
         let tls_cert = cfg
             .lookup("output.nats_tls_cert")
-            .and_then(|v| Some(PathBuf::from(v.as_str().unwrap())));
+            .map(|v| PathBuf::from(v.as_str().unwrap()));
         let tls_key = cfg
             .lookup("output.nats_tls_key")
-            .and_then(|v| Some(PathBuf::from(v.as_str().unwrap())));
+            .map(|v| PathBuf::from(v.as_str().unwrap()));
         let tls_ca = cfg
             .lookup("output.nats_tls_ca_file")
-            .and_then(|v| Some(PathBuf::from(v.as_str().unwrap())));
+            .map(|v| PathBuf::from(v.as_str().unwrap()));
         let creds_file = cfg.lookup("output.nats_creds_file").and_then(|v| {
             let value = v.as_str().unwrap().trim();
             if value.is_empty() {
@@ -230,7 +230,7 @@ impl NATSWorker {
 
         loop {
             // Pull a record from Flowgger’s queue synchronously.
-            let mut bytes = match { self.arx.lock().unwrap().recv() } {
+            let mut bytes = match self.arx.lock().unwrap().recv() {
                 Ok(b) => b,
                 Err(_) => return, // channel closed – shut the worker down
             };
