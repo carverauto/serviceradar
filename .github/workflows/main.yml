@@ -116,6 +116,8 @@ jobs:
 
           {
             echo "PGSSLROOTCERT=${ca_file}"
+            echo "CNPG_CA_FILE=${ca_file}"
+            echo "SERVICERADAR_TEST_DATABASE_CA_CERT_FILE=${ca_file}"
             echo "SRQL_TEST_DATABASE_CA_CERT_FILE=${ca_file}"
           } >> "$GITHUB_ENV"
 

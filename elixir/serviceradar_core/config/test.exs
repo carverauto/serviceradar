@@ -99,7 +99,9 @@ cnpg_key =
     (cnpg_cert_dir && Path.join(cnpg_cert_dir, "workstation-key.pem"))
 
 ssl_ca =
-  System.get_env("SERVICERADAR_TEST_DATABASE_CA_CERT") ||
+  System.get_env("SERVICERADAR_TEST_DATABASE_CA_CERT_FILE") ||
+    System.get_env("SRQL_TEST_DATABASE_CA_CERT_FILE") ||
+    System.get_env("SERVICERADAR_TEST_DATABASE_CA_CERT") ||
     System.get_env("SRQL_TEST_DATABASE_CA_CERT") ||
     cnpg_ca
 

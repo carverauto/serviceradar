@@ -289,7 +289,16 @@ test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG
 	  exit 1; \
 	fi; \
 	if [ -n "$${admin_url}" ]; then \
-	  export PGSSLROOTCERT="$${PGSSLROOTCERT:-$${SERVICERADAR_TEST_DATABASE_CA_CERT:-$${SRQL_TEST_DATABASE_CA_CERT:-}}}"; \
+	  ca_file="$${PGSSLROOTCERT:-$${SERVICERADAR_TEST_DATABASE_CA_CERT_FILE:-$${SRQL_TEST_DATABASE_CA_CERT_FILE:-$${CNPG_CA_FILE:-}}}}"; \
+	  if [ -z "$${ca_file}" ]; then \
+	    for candidate in "$${SERVICERADAR_TEST_DATABASE_CA_CERT:-}" "$${SRQL_TEST_DATABASE_CA_CERT:-}"; do \
+	      if [ -n "$${candidate}" ] && [ -f "$${candidate}" ]; then \
+	        ca_file="$${candidate}"; \
+	        break; \
+	      fi; \
+	    done; \
+	  fi; \
+	  export PGSSLROOTCERT="$${ca_file}"; \
 	  export PGSSLCERT="$${PGSSLCERT:-$${SERVICERADAR_TEST_DATABASE_CERT:-$${SRQL_TEST_DATABASE_CERT:-}}}"; \
 	  export PGSSLKEY="$${PGSSLKEY:-$${SERVICERADAR_TEST_DATABASE_KEY:-$${SRQL_TEST_DATABASE_KEY:-}}}"; \
 	  ./scripts/reset-test-db.sh "$${admin_url}" "$${db_url}"; \
