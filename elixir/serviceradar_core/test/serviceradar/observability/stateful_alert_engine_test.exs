@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   @moduletag :integration
 
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Monitoring.{Alert, OcsfEvent}
   alias ServiceRadar.Observability.{StatefulAlertEngine, StatefulAlertRule}
   alias ServiceRadar.ProcessRegistry
@@ -79,6 +80,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       OcsfEvent
       |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.read!()
+      |> Page.unwrap!()
 
     threshold_event =
       Enum.find(events, fn event ->
@@ -92,6 +94,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       Alert
       |> Ash.Query.for_read(:active, %{}, actor: actor)
       |> Ash.read!()
+      |> Page.unwrap!()
       |> Enum.find(fn alert ->
         metadata_value(alert.metadata, ["event_id"]) == to_string(threshold_event.id)
       end)

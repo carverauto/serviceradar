@@ -13,6 +13,7 @@ defmodule ServiceRadar.SNMPProfiles.Changes.SetAsDefault do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Repo
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   import Ecto.Query
 
@@ -35,7 +36,7 @@ defmodule ServiceRadar.SNMPProfiles.Changes.SetAsDefault do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     query =
-      from(p in "snmp_profiles",
+      from(p in SNMPProfile,
         where: p.is_default == true and p.id != ^current_id
       )
 

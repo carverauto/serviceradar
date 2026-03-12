@@ -529,7 +529,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     end)
   end
 
-  test "router keeps one inferred uplink and prefers LLDP-corroborated switch neighbor" do
+  test "router keeps one inferred attachment edge and prefers the corroborated switch neighbor" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     insert_device_type("dev-router", "Router")
@@ -587,12 +587,20 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Device {id:'dev-router'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id:'dev-switch-a'})
-      RETURN {count: count(r), relation: head(collect(r.relation_type))} AS result/
+        ~s/MATCH (a:Interface {id:'dev-router\/eth0'})-[r:ATTACHED_TO]->(b:Interface {id:'dev-switch-a\/uplink'})
+      RETURN {count: count(r), source: head(collect(r.source))} AS result/
       )
 
     assert result["count"] == 1
-    assert result["relation"] == "ATTACHED_TO"
+    assert result["source"] == "lldp"
+
+    [rejected] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-router\/eth0'})-[r:ATTACHED_TO]->(b:Interface {id:'dev-switch-b\/uplink'})
+      RETURN {count: count(r)} AS result/
+      )
+
+    assert rejected["count"] == 0
   end
 
   test "canonical rebuild demotes competing same-port direct neighbor to attachment when uplink is corroborated" do

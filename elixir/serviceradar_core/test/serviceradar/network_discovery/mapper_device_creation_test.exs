@@ -228,9 +228,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert hd(devices_after_second).uid == first_uid
   end
 
-  test "mapper creates a fresh provisional device when interface MAC is seen on a new IP", %{
-    actor: actor
-  } do
+  test "mapper reuses the existing deterministic device when interface MAC is seen on a new IP",
+       %{
+         actor: actor
+       } do
     old_ip = "203.0.113.#{:rand.uniform(120) + 10}"
     new_ip = "198.51.100.#{:rand.uniform(120) + 10}"
     mac = "F4:92:BF:75:C7:21"
@@ -277,9 +278,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     new_devices = wait_for_devices_by_ip(actor, new_ip)
 
-    assert length(new_devices) == 1
-    refute hd(new_devices).uid == device_after_old.uid
-    assert hd(new_devices).metadata["identity_source"] == "mapper_primary_mac_seed"
+    assert new_devices == []
+
+    {:ok, interfaces} =
+      Interface
+      |> Ash.Query.filter(device_ip == ^new_ip)
+      |> Ash.read(actor: actor)
+
+    assert Enum.any?(interfaces, &(&1.device_id == device_after_old.uid))
 
     {:ok, old_aliases} = DeviceAliasState.lookup_by_value(:ip, old_ip, actor: actor)
     assert Enum.any?(old_aliases, &(&1.device_id == device_after_old.uid))

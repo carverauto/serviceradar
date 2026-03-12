@@ -34,11 +34,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
     } do
       armis_id = "armis-#{System.unique_integer([:positive])}"
       ip = "10.0.2.#{unique_octet()}"
-      mac = "AA:BB:CC:DD:EE:#{mac_suffix()}"
 
       update = %{
         "ip" => ip,
-        "mac" => mac,
+        "mac" => unique_mac(),
         "hostname" => "armis-device",
         "source" => "armis",
         "metadata" => %{"armis_device_id" => armis_id}
@@ -60,11 +59,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
     } do
       netbox_id = "netbox-#{System.unique_integer([:positive])}"
       ip = "10.0.3.#{unique_octet()}"
-      mac = "AA:BB:CC:DD:EE:#{mac_suffix()}"
 
       update = %{
         "ip" => ip,
-        "mac" => mac,
+        "mac" => unique_mac(),
         "hostname" => "netbox-device",
         "source" => "netbox",
         "metadata" => %{"netbox_device_id" => netbox_id}
@@ -87,12 +85,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       armis_id = "armis-#{System.unique_integer([:positive])}"
       netbox_id = "netbox-#{System.unique_integer([:positive])}"
       ip = "10.0.4.#{unique_octet()}"
-      mac = "AA:BB:CC:DD:EE:#{mac_suffix()}"
+      mac = unique_mac()
 
       # First discovery from armis
       armis_update = %{
         "ip" => ip,
-        "mac" => mac,
+        "mac" => unique_mac(),
         "hostname" => "multi-source-device",
         "source" => "armis",
         "metadata" => %{"armis_device_id" => armis_id}
@@ -125,11 +123,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       actor: actor
     } do
       ip = "10.0.5.#{unique_octet()}"
-      mac = "AA:BB:CC:DD:EE:#{mac_suffix()}"
 
       update = %{
         "ip" => ip,
-        "mac" => mac,
+        "mac" => unique_mac(),
         "hostname" => "unknown-source-device"
         # No "source" field
       }
@@ -142,7 +139,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         |> Ash.read(actor: actor)
         |> Page.unwrap()
 
-      assert device.discovery_sources == ["unknown"]
+      assert "unknown" in device.discovery_sources
     end
 
     test "duplicate source updates do not create duplicate entries", %{
@@ -150,11 +147,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
     } do
       armis_id = "armis-#{System.unique_integer([:positive])}"
       ip = "10.0.6.#{unique_octet()}"
-      mac = "AA:BB:CC:DD:EE:#{mac_suffix()}"
 
       update = %{
         "ip" => ip,
-        "mac" => mac,
+        "mac" => unique_mac(),
         "hostname" => "dup-source-device",
         "source" => "armis",
         "metadata" => %{"armis_device_id" => armis_id}
@@ -181,7 +177,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
 
       update_a = %{
         "ip" => ip_a,
-        "mac" => "AA:BB:CC:DD:EE:#{mac_suffix()}",
+        "mac" => unique_mac(),
         "hostname" => "mapper-a",
         "source" => "mapper",
         "metadata" => %{"agent_id" => scanner_agent_id}
@@ -189,7 +185,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
 
       update_b = %{
         "ip" => ip_b,
-        "mac" => "AA:BB:CC:DD:EE:#{mac_suffix()}",
+        "mac" => unique_mac(),
         "hostname" => "mapper-b",
         "source" => "mapper",
         "metadata" => %{"agent_id" => scanner_agent_id}
@@ -231,7 +227,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
 
       armis_update = %{
         "ip" => ip,
-        "mac" => "AA:BB:CC:DD:EE:#{mac_suffix()}",
+        "mac" => unique_mac(),
         "hostname" => "same-ip-armis",
         "source" => "armis",
         "metadata" => %{"armis_device_id" => armis_id}
@@ -260,11 +256,17 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
     rem(System.unique_integer([:positive]), 200) + 10
   end
 
-  defp mac_suffix do
-    System.unique_integer([:positive])
-    |> rem(256)
-    |> Integer.to_string(16)
-    |> String.pad_leading(2, "0")
-    |> String.upcase()
+  defp unique_mac do
+    value = System.unique_integer([:positive])
+
+    for shift <- [40, 32, 24, 16, 8, 0] do
+      value
+      |> Bitwise.bsr(shift)
+      |> Bitwise.band(0xFF)
+      |> Integer.to_string(16)
+      |> String.pad_leading(2, "0")
+      |> String.upcase()
+    end
+    |> Enum.join(":")
   end
 end

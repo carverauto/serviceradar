@@ -544,7 +544,7 @@ defmodule ServiceRadar.Application do
     cluster_coordinator =
       Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
 
-    if cluster_enabled, do: cluster_coordinator, else: true
+    if cluster_enabled, do: cluster_coordinator == true, else: true
   end
 
   defp datasvc_enabled? do
