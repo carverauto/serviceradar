@@ -123,6 +123,8 @@ print(f"GRANT USAGE ON SCHEMA ag_catalog TO {app_user_ident};")
 print(f"GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO {app_user_ident};")
 print(f"GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO {app_user_ident};")
 print(f"GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO {app_user_ident};")
+print("LOAD 'age';")
+print("SET search_path = ag_catalog, pg_catalog, \"$user\", public;")
 print(
     "DO $$\n"
     "DECLARE\n"
