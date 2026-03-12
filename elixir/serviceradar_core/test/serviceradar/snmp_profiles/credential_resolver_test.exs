@@ -47,6 +47,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
           %{
             name: "Override Profile #{System.unique_integer([:positive])}",
             target_query: ~s(in:devices hostname:"#{hostname}"),
+            priority: 100,
             version: :v2c,
             community: "public"
           },
@@ -101,6 +102,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
           %{
             name: "Profile Credential #{System.unique_integer([:positive])}",
             target_query: ~s(in:devices hostname:"#{hostname}"),
+            priority: 100,
             version: :v2c,
             community: "public"
           },

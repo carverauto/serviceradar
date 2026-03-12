@@ -54,9 +54,10 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
     assert {:ok, restored} = Device.get_by_uid(device_b.uid, false, actor: actor)
     assert restored.uid == device_b.uid
 
-    # Verify unmerge audit was recorded
-    {:ok, audits} = MergeAudit.get_merged_to(device_b.uid, actor: actor)
-    assert Enum.any?(audits, &(&1.reason == "unmerge" || String.contains?(to_string(&1.reason), "unmerge")))
+    # Verify both the original merge audit and the compensating unmerge audit exist
+    {:ok, audits} = MergeAudit.get_by_device(device_b.uid, actor: actor)
+    assert Enum.any?(audits, &(&1.reason == "identifier_conflict"))
+    assert Enum.any?(audits, &(&1.reason == "unmerge"))
   end
 
   test "unmerge returns error when no merge audit exists", %{actor: actor} do

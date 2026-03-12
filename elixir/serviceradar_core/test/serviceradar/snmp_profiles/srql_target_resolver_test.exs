@@ -78,6 +78,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     test "matches device with hostname query" do
       # Schema determined by DB connection
       actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      hostname = "test-router-#{unique}"
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -88,7 +90,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             uid: device_uid,
-            hostname: "test-router-01",
+            hostname: hostname,
             type_id: 3,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -104,7 +106,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             name: "Router Profile #{System.unique_integer([:positive])}",
-            target_query: "in:devices hostname:\"test-router-01\"",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             priority: 10
           },
           actor: actor
@@ -121,6 +123,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     test "returns nil when device does not match query" do
       # Schema determined by DB connection
       actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
 
       # Create a device with different hostname
       device_uid = Ecto.UUID.generate()
@@ -131,7 +134,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             uid: device_uid,
-            hostname: "switch-01",
+            hostname: "switch-#{unique}",
             type_id: 3,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -147,7 +150,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             name: "Router Profile #{System.unique_integer([:positive])}",
-            target_query: "in:devices hostname:\"router-01\"",
+            target_query: ~s(in:devices hostname:"router-miss-#{unique}"),
             priority: 10
           },
           actor: actor
@@ -163,6 +166,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     test "resolves by priority - higher priority wins" do
       # Schema determined by DB connection
       actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      hostname = "core-router-#{unique}"
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -173,7 +178,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             uid: device_uid,
-            hostname: "core-router-01",
+            hostname: hostname,
             type_id: 3,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -189,7 +194,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             name: "General Network #{System.unique_integer([:positive])}",
-            target_query: "in:devices hostname:\"core-router-01\"",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             priority: 5
           },
           actor: actor
@@ -203,7 +208,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             name: "Core Routers #{System.unique_integer([:positive])}",
-            target_query: "in:devices hostname:\"core-router-01\"",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             priority: 20
           },
           actor: actor
@@ -222,6 +227,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     test "skips disabled profiles" do
       # Schema determined by DB connection
       actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      hostname = "server-#{unique}"
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -232,7 +239,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             uid: device_uid,
-            hostname: "server-01",
+            hostname: hostname,
             type_id: 3,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -248,7 +255,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             name: "Disabled Profile #{System.unique_integer([:positive])}",
-            target_query: "in:devices hostname:\"server-01\"",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             priority: 10,
             enabled: false
           },
@@ -263,7 +270,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             name: "Enabled Profile #{System.unique_integer([:positive])}",
-            target_query: "in:devices hostname:\"server-01\"",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             priority: 5,
             enabled: true
           },
@@ -282,6 +289,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     test "skips profiles without target_query (non-targeting profiles)" do
       # Schema determined by DB connection
       actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      hostname = "device-#{unique}"
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -292,7 +301,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             uid: device_uid,
-            hostname: "device-01",
+            hostname: hostname,
             type_id: 3,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -321,7 +330,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
           :create,
           %{
             name: "Auto-Target Profile #{System.unique_integer([:positive])}",
-            target_query: "in:devices hostname:\"device-01\"",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
             priority: 10
           },
           actor: actor

@@ -67,12 +67,12 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
     {:ok, device_b} = create_device(actor, "reconcile-strong-b")
 
     assert :ok = register_strong_identifiers(actor, device_a.uid, %{armis_id: shared_armis_id})
-    assert :ok = register_strong_identifiers(actor, device_b.uid, %{armis_id: shared_armis_id})
-
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
     assert {:ok, _} =
              create_interface(actor, device_b.uid, timestamp, "ifindex:101", 101, "eth101")
+
+    assert :ok = register_strong_identifiers(actor, device_b.uid, %{armis_id: shared_armis_id})
 
     {remaining_id, merged_id} =
       case Device.get_by_uid(device_a.uid, false, actor: actor) do

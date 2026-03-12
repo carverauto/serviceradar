@@ -11,6 +11,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.{Alert, OcsfEvent}
   alias ServiceRadar.Observability.{StatefulAlertEngine, StatefulAlertRule}
+  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.TestSupport
 
   setup_all do
@@ -20,11 +21,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
   setup do
     actor = %{id: "system", role: :admin}
+    reset_engine()
+    on_exit(&reset_engine/0)
     {:ok, actor: actor}
   end
 
   test "fires and resolves alerts based on bucketed counts", %{actor: actor} do
-    {:ok, _rule} =
+    {:ok, rule} =
       StatefulAlertRule
       |> Ash.Changeset.for_create(
         :create,
@@ -77,13 +80,21 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.read!()
 
-    assert Enum.any?(events, fn event -> event.log_name == "alert.rule.threshold" end)
+    threshold_event =
+      Enum.find(events, fn event ->
+        event.log_name == "alert.rule.threshold" and
+          metadata_value(event.metadata, ["serviceradar", "rule_id"]) == to_string(rule.id)
+      end)
+
+    assert threshold_event
 
     alert =
       Alert
       |> Ash.Query.for_read(:active, %{}, actor: actor)
       |> Ash.read!()
-      |> List.first()
+      |> Enum.find(fn alert ->
+        metadata_value(alert.metadata, ["event_id"]) == to_string(threshold_event.id)
+      end)
 
     assert alert != nil
     assert alert.status in [:pending, :acknowledged, :escalated]
@@ -94,4 +105,37 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     {:ok, resolved} = Alert.get_by_id(alert.id, actor: actor)
     assert resolved.status == :resolved
   end
+
+  defp reset_engine do
+    case ProcessRegistry.lookup(:stateful_alert_engine) do
+      [{pid, _}] ->
+        _ = ProcessRegistry.terminate_child(pid)
+        Process.sleep(25)
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp metadata_value(data, [key]), do: metadata_value(data, key)
+
+  defp metadata_value(data, [key | rest]) when is_map(data) do
+    case metadata_value(data, key) do
+      %{} = nested -> metadata_value(nested, rest)
+      _ -> nil
+    end
+  end
+
+  defp metadata_value(data, key) when is_map(data) and is_binary(key) do
+    Map.get(data, key) || Map.get(data, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> Map.get(data, key)
+  end
+
+  defp metadata_value(data, key) when is_map(data) and is_atom(key) do
+    Map.get(data, key) || Map.get(data, Atom.to_string(key))
+  end
+
+  defp metadata_value(_, _), do: nil
 end

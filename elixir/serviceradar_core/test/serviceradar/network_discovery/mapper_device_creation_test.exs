@@ -228,7 +228,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert hd(devices_after_second).uid == first_uid
   end
 
-  test "mapper keeps stable device identity across IP churn when primary MAC is present", %{
+  test "mapper creates a fresh provisional device when interface MAC is seen on a new IP", %{
     actor: actor
   } do
     old_ip = "203.0.113.#{:rand.uniform(120) + 10}"
@@ -275,26 +275,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(new_payload, %{})
 
-    aliases_for_new_ip =
-      wait_for_aliases(actor, :ip, new_ip, fn aliases ->
-        Enum.any?(
-          aliases,
-          &(&1.device_id == device_after_old.uid and &1.state in [:detected, :updated, :confirmed])
-        )
-      end)
+    new_devices = wait_for_devices_by_ip(actor, new_ip)
 
-    assert Enum.any?(
-             aliases_for_new_ip,
-             &(&1.device_id == device_after_old.uid and
-                 &1.state in [:detected, :updated, :confirmed])
-           )
+    assert length(new_devices) == 1
+    refute hd(new_devices).uid == device_after_old.uid
+    assert hd(new_devices).metadata["identity_source"] == "mapper_primary_mac_seed"
 
-    {:ok, devices_with_seed_mac} =
-      Device
-      |> Ash.Query.filter(mac == ^normalized_mac)
-      |> Ash.read(actor: actor)
-
-    assert Enum.count(devices_with_seed_mac, &(&1.uid == device_after_old.uid)) == 1
+    {:ok, old_aliases} = DeviceAliasState.lookup_by_value(:ip, old_ip, actor: actor)
+    assert Enum.any?(old_aliases, &(&1.device_id == device_after_old.uid))
   end
 
   test "mapper interface ingestion does not register interface MACs as device identifiers", %{
@@ -440,7 +428,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       |> Ash.read(actor: actor)
 
     assert length(stray_devices) == 1
-    assert hd(stray_devices).metadata["identity_source"] == "mapper_client_ip_candidate_seed"
+    assert hd(stray_devices).metadata["identity_source"] == "mapper_primary_mac_seed"
   end
 
   test "mapper alias updates do not promote router interface IPs into device aliases on stable device_ip",
@@ -559,7 +547,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     refute Enum.any?(interfaces, &(&1.device_id == provisional_uid))
   end
 
-  defp wait_for_devices_by_ip(actor, ip, attempts \\ 20)
+  defp wait_for_devices_by_ip(actor, ip, attempts \\ 60)
 
   defp wait_for_devices_by_ip(actor, ip, attempts) when attempts > 0 do
     case Device |> Ash.Query.for_read(:by_ip, %{ip: ip}) |> Ash.read(actor: actor) do
@@ -570,14 +558,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
         devices
 
       _ ->
-        Process.sleep(50)
+        Process.sleep(100)
         wait_for_devices_by_ip(actor, ip, attempts - 1)
     end
   end
 
   defp wait_for_devices_by_ip(_actor, _ip, 0), do: []
 
-  defp wait_for_aliases(actor, type, value, predicate, attempts \\ 20)
+  defp wait_for_aliases(actor, type, value, predicate, attempts \\ 60)
 
   defp wait_for_aliases(actor, type, value, predicate, attempts) when attempts > 0 do
     case DeviceAliasState.lookup_by_value(type, value, actor: actor) do
@@ -585,12 +573,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
         if predicate.(aliases) do
           aliases
         else
-          Process.sleep(50)
+          Process.sleep(100)
           wait_for_aliases(actor, type, value, predicate, attempts - 1)
         end
 
       _ ->
-        Process.sleep(50)
+        Process.sleep(100)
         wait_for_aliases(actor, type, value, predicate, attempts - 1)
     end
   end

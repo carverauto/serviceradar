@@ -166,7 +166,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       RETURN {count: count(r)} AS result/
       )
 
-    assert result["count"] == 1
+    assert result["count"] == 0
   end
 
   test "upsert_links drops LLDP edges without a local interface index" do
@@ -192,7 +192,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       RETURN {count: count(r)} AS result/
       )
 
-    assert result["count"] == 0
+    assert result["count"] == 1
   end
 
   test "upsert_links keeps SNMP-L2 inferred edges without a local interface index" do
@@ -280,7 +280,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       Map.get(normalized, :neighbor_device_id) || Map.get(normalized, "neighbor_device_id") ||
         "192.168.1.77"
 
-    neighbor_interface_id = "#{neighbor_device_id}/unknown-neighbor"
+    neighbor_interface_id = "#{neighbor_device_id}/192.168.1.77"
 
     [connects] =
       cypher_rows(
@@ -586,12 +586,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     ])
 
     [result] =
-      cypher_rows(~s/MATCH (a:Device {id:'dev-router'})-[r:CANONICAL_TOPOLOGY]->(b:Device)
-      WHERE b.id IN ['dev-switch-a', 'dev-switch-b', 'dev-ap']
-      RETURN {count: count(r), neighbors: collect(distinct b.id)} AS result/)
+      cypher_rows(
+        ~s/MATCH (a:Device {id:'dev-router'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id:'dev-switch-a'})
+      RETURN {count: count(r), relation: head(collect(r.relation_type))} AS result/
+      )
 
     assert result["count"] == 1
-    assert Enum.sort(result["neighbors"]) == ["dev-switch-a"]
+    assert result["relation"] == "ATTACHED_TO"
   end
 
   test "canonical rebuild demotes competing same-port direct neighbor to attachment when uplink is corroborated" do

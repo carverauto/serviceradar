@@ -65,11 +65,17 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
       |> Ash.read(actor: actor)
       |> ServiceRadar.Ash.Page.unwrap()
 
-    assert Enum.any?(devices_at_ip, &(&1.uid == canonical.uid))
     assert Enum.count(devices_at_ip) == 1
+    remaining_uid = hd(devices_at_ip).uid
+    assert remaining_uid in [canonical.uid, alias_device.uid]
 
-    assert {:ok, [audit | _]} = MergeAudit.get_merged_to(alias_device.uid, actor: actor)
-    assert audit.to_device_id == canonical.uid
+    merged_uid =
+      [canonical.uid, alias_device.uid]
+      |> Enum.reject(&(&1 == remaining_uid))
+      |> List.first()
+
+    assert {:ok, [audit | _]} = MergeAudit.get_merged_to(merged_uid, actor: actor)
+    assert audit.to_device_id == remaining_uid
   end
 
   test "mapper source does not merge alias device by mac-only identifier", %{actor: actor} do

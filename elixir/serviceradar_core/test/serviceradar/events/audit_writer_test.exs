@@ -32,8 +32,12 @@ defmodule ServiceRadar.Events.AuditWriterTest do
              )
 
     assert {:ok, _} = Ecto.UUID.dump(event.id)
-    assert event.metadata["correlation_uid"] == "integration_source:#{resource_id}"
+    assert metadata_value(event.metadata, :correlation_uid) == "integration_source:#{resource_id}"
     assert event.log_name == "integration_source"
     assert Enum.any?(event.observables, &(&1.name == resource_id))
+  end
+
+  defp metadata_value(metadata, key) do
+    Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
   end
 end
