@@ -9,7 +9,7 @@ CERT_DIR="/etc/serviceradar/certs"
 APP_UID="${SERVICERADAR_UID:-1001}"
 APP_GID="${SERVICERADAR_GID:-1001}"
 
-# Owner/group: ServiceRadar runtime user so non-root containers can read.
+# Owner/group: ServiceRadar runtime user so non-root containers can read their cert material.
 chown -R "${APP_UID}:${APP_GID}" "${CERT_DIR}"
 # Allow other service users to traverse the cert dir (but not list contents).
 find "${CERT_DIR}" -type d -exec chmod 711 {} \;

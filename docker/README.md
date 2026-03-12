@@ -102,16 +102,18 @@ All inter-service communication uses mTLS for authentication and encryption:
 
 ## Configuration
 
-ServiceRadar core-elx uses environment-based configuration. See `docker-compose.elx.yml` for available options:
+ServiceRadar core-elx uses environment-based configuration. There is no committed
+`api.env`; bootstrap credentials are generated into Docker volumes at runtime. See
+`docker-compose.elx.yml` for available options:
 - Database configuration via `CNPG_*` environment variables
 - Feature flags via `SERVICERADAR_CORE_*` environment variables
 - Cluster configuration via `CLUSTER_*` environment variables
 
 ### Default Setup
 
-The docker-compose.yml automatically mounts:
-- `build/packaging/core/config/core.docker.json` as `/etc/serviceradar/core.json`
-- `build/packaging/core/config/api.env` as `/etc/serviceradar/api.env`
+The docker-compose.yml automatically mounts the service-specific config files under
+`docker/compose/` and stores generated admin credentials in the `admin-creds`
+Docker volume.
 
 ### Customizing Configuration
 
