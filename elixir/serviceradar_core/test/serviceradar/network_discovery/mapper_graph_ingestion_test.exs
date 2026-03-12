@@ -526,7 +526,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       fn {from_id, to_id} ->
         [result] =
           cypher_rows(
-            "MATCH (a:Device {id:'#{from_id}'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id:'#{to_id}'}) RETURN {count: count(r), relation_type: head(collect(r.relation_type))} AS result"
+            "MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device) " <>
+              "WHERE (a.id = '#{from_id}' AND b.id = '#{to_id}') " <>
+              "   OR (a.id = '#{to_id}' AND b.id = '#{from_id}') " <>
+              "RETURN {count: count(r), relation_type: head(collect(r.relation_type))} AS result"
           )
 
         assert result["count"] == 1,
@@ -595,7 +598,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Device {id:'dev-router'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id:'dev-switch-a'})
+        ~s/MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+      WHERE (a.id = 'dev-router' AND b.id = 'dev-switch-a')
+         OR (a.id = 'dev-switch-a' AND b.id = 'dev-router')
       RETURN {count: count(r), relation_type: head(collect(r.relation_type)), confidence_reason: head(collect(r.confidence_reason))} AS result/
       )
 
@@ -604,10 +609,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert result["confidence_reason"] == "shared_segment_via_uplink"
 
     [rejected] =
-      cypher_rows(
-        ~s/MATCH (a:Device {id:'dev-router'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id:'dev-switch-b'})
-      RETURN {count: count(r)} AS result/
-      )
+      cypher_rows(~s/MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+      WHERE (a.id = 'dev-router' AND b.id = 'dev-switch-b')
+         OR (a.id = 'dev-switch-b' AND b.id = 'dev-router')
+      RETURN {count: count(r)} AS result/)
 
     assert rejected["count"] == 0
   end

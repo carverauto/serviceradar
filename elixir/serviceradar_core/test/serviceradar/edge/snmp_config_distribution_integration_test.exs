@@ -407,9 +407,9 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       assert v3_target != nil
       assert v3_target["v3_auth"] != nil
       assert v3_target["v3_auth"]["username"] == "admin"
-      assert v3_target["v3_auth"]["security_level"] == "auth_priv"
-      assert v3_target["v3_auth"]["auth_protocol"] == "sha"
-      assert v3_target["v3_auth"]["priv_protocol"] == "aes"
+      assert v3_target["v3_auth"]["security_level"] == "authPriv"
+      assert v3_target["v3_auth"]["auth_protocol"] == "SHA"
+      assert v3_target["v3_auth"]["priv_protocol"] == "AES"
       # Passwords should be present (may be encrypted)
       assert v3_target["v3_auth"]["auth_password"] != nil
       assert v3_target["v3_auth"]["priv_password"] != nil

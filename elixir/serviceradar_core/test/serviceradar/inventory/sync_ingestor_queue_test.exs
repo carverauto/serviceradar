@@ -37,7 +37,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :sync_ingestor_test_pid, self())
 
-    ensure_supervised({Task.Supervisor, name: ServiceRadar.SyncIngestor.TaskSupervisor})
+    restart_task_supervisor(ServiceRadar.SyncIngestor.TaskSupervisor)
     restart_supervised(SyncIngestorQueue)
     flush_mailbox()
 
@@ -87,18 +87,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 
-  defp ensure_supervised({Task.Supervisor, opts}) do
-    name = Keyword.get(opts, :name)
+  defp restart_task_supervisor(name) do
+    stop_process(name)
 
-    case Process.whereis(name) do
-      nil ->
-        case start_supervised({Task.Supervisor, opts}) do
-          {:ok, pid} -> pid
-          {:error, {:already_started, pid}} -> pid
-        end
-
-      pid ->
-        pid
+    case start_supervised({Task.Supervisor, name: name}) do
+      {:ok, pid} -> pid
+      {:error, {:already_started, pid}} -> pid
     end
   end
 

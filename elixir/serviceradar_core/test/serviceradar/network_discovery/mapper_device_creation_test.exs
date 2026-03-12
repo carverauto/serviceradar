@@ -282,13 +282,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     {:ok, interfaces} =
       Interface
-      |> Ash.Query.filter(device_ip == ^new_ip)
+      |> Ash.Query.filter(device_id == ^device_after_old.uid)
       |> Ash.read(actor: actor)
 
-    assert Enum.any?(interfaces, &(&1.device_id == device_after_old.uid))
+    assert Enum.any?(interfaces, &(&1.if_phys_address == normalized_mac))
 
     {:ok, old_aliases} = DeviceAliasState.lookup_by_value(:ip, old_ip, actor: actor)
     assert Enum.any?(old_aliases, &(&1.device_id == device_after_old.uid))
+
+    {:ok, new_aliases} = DeviceAliasState.lookup_by_value(:ip, new_ip, actor: actor)
+    assert Enum.any?(new_aliases, &(&1.device_id == device_after_old.uid))
   end
 
   test "mapper interface ingestion does not register interface MACs as device identifiers", %{
