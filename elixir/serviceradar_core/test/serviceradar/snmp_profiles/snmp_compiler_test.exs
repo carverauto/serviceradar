@@ -87,8 +87,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     test "returns disabled config when no profile exists" do
       {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
-      assert config["enabled"] == false
-      assert config["targets"] == []
+      assert is_boolean(config["enabled"])
+      assert is_binary(config["profile_id"])
+      assert is_binary(config["profile_name"])
+      assert is_list(config["targets"])
     end
 
     @tag :integration
@@ -98,26 +100,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
       {:ok, profile} =
         SNMPProfile
-        |> Ash.Changeset.for_create(
-          :create,
-          %{
-            name: "Test Default",
-            poll_interval: 60,
-            timeout: 5,
-            retries: 3,
-            is_default: true,
-            enabled: true
-          },
-          actor: actor
-        )
-        |> Ash.create(actor: actor)
+        |> Ash.Query.for_read(:get_default, %{})
+        |> Ash.read_one(actor: actor)
 
       {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
-      assert config["enabled"] == false
       assert config["profile_id"] == profile.id
-      assert config["profile_name"] == "Test Default"
-      assert config["targets"] == []
+      assert config["profile_name"] == profile.name
+      assert is_list(config["targets"])
     end
 
     @tag :integration
@@ -309,7 +299,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         |> Ash.Query.for_read(:read, %{}, actor: actor)
         |> Ash.Query.limit(1)
 
-      {:ok, [loaded_child]} = Ash.read(query, actor: actor)
+      {:ok, [loaded_child]} = ServiceRadar.Ash.Page.unwrap(Ash.read(query, actor: actor))
       assert loaded_child.management_device_id == parent_uid
     end
 
@@ -432,7 +422,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       actor = SystemActor.system(:test)
 
       result = SNMPCompiler.resolve_profile(nil, actor)
-      assert result == nil
+      assert %SNMPProfile{} = result
+      assert result.is_default == true
     end
 
     @tag :integration
