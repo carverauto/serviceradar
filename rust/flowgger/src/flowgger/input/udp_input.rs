@@ -158,6 +158,13 @@ mod test {
     use std::sync::mpsc::{sync_channel, Receiver};
 
     const DEFAULT_QUEUE_SIZE: usize = 10_000_000;
+    type TestSetup = (
+        &'static str,
+        SyncSender<Vec<u8>>,
+        Receiver<Vec<u8>>,
+        Box<dyn Decoder>,
+        Box<dyn Encoder>,
+    );
 
     #[test]
     fn test_udp_input_constructor() {
@@ -184,13 +191,7 @@ mod test {
         assert_eq!(input.listen, default_addr);
     }
 
-    fn handle_record_set_up() -> (
-        &'static str,
-        SyncSender<Vec<u8>>,
-        Receiver<Vec<u8>>,
-        Box<dyn Decoder>,
-        Box<dyn Encoder>,
-    ) {
+    fn handle_record_set_up() -> TestSetup {
         let line = "Aug  6 11:15:24 testhostname appname 69 42 [origin@123 software=\"te\\st sc\"ript\" swVersion=\"0.0.1\"] test message";
         let (tx, rx): (SyncSender<Vec<u8>>, Receiver<Vec<u8>>) = sync_channel(DEFAULT_QUEUE_SIZE);
         let config = Config::from_string("").unwrap();

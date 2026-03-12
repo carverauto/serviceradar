@@ -381,7 +381,7 @@ fn test_rfc3164_decode_with_pri_year_tz() {
         "[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n",
     )
     .unwrap();
-    let expected_ts = ts_from_date_time(2020, Month::August, 6, 08, 15, 24, 0);
+    let expected_ts = ts_from_date_time(2020, Month::August, 6, 8, 15, 24, 0);
 
     let decoder = RFC3164Decoder::new(&cfg);
     let res = decoder.decode(msg).unwrap();

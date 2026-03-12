@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.2
+
+CNPG migration fixes, enrollment stability improvements, and hardened Zen rule processing.
+
+## Whats New
+
+**1.2.2**
+- Fixed the Docker Compose CNPG upgrade path by schema-qualifying the DIRE deduplication cleanup migration so existing PG16 instances can complete the PG18 handoff cleanly.
+- Improved enrollment and topology continuity by making mapper stale-edge retention configurable at runtime and extending the demo default for reenrollment scenarios.
+- Fixed Zen SNMP severity rule evaluation so SNMP messages are processed correctly end-to-end.
+- Added `zen-put-rule` to the tools image and Kubernetes tooling manifests to support rule management workflows.
+- Bundled dependency and build-action refreshes included since `v1.2.1`.
+
 # ServiceRadar v1.2.1
 
 Default Kubernetes install now uses secret-backed runtime mTLS, edge onboarding/package generation is aligned with the dedicated gateway endpoint, and Trivy/Falco integrations are hardened for production use.

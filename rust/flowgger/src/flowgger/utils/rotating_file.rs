@@ -384,9 +384,7 @@ mod tests {
     fn build_pattern_list(count: u32, length: usize) -> Vec<String> {
         let mut pattern_list = Vec::new();
         for i in 0..count {
-            let mut pattern_str = std::iter::repeat(i.to_string())
-                .take(length)
-                .collect::<String>();
+            let mut pattern_str = i.to_string().repeat(length);
             pattern_str.push('\n');
             pattern_list.push(pattern_str);
         }
