@@ -209,7 +209,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp repo_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if repo_enabled?() do
       ServiceRadar.Repo
     else
       nil
@@ -261,7 +261,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp sweep_schedule_reconciler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+    if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.SweepJobs.SweepScheduleReconciler
     else
       nil
@@ -269,7 +269,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp netflow_security_scheduler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+    if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Observability.NetflowSecurityScheduler
     else
       nil
@@ -277,7 +277,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp netflow_cache_scheduler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+    if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Observability.NetflowCacheScheduler
     else
       nil
@@ -293,7 +293,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp plugin_target_policy_scheduler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+    if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Plugins.PluginTargetPolicyScheduler
     else
       nil
@@ -395,7 +395,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp template_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+    if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Observability.TemplateSeeder
     else
@@ -404,7 +404,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp zen_rule_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+    if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Observability.ZenRuleSeeder
     else
@@ -413,7 +413,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp zen_rule_sync_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if repo_enabled?() do
       ServiceRadar.Observability.ZenRuleSync
     else
       nil
@@ -421,7 +421,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp rule_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+    if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Observability.RuleSeeder
     else
@@ -430,7 +430,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp job_schedule_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+    if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Jobs.JobScheduleSeeder
     else
@@ -439,7 +439,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp device_cleanup_settings_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+    if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Inventory.DeviceCleanupSettingsSeeder
     else
@@ -448,7 +448,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp snmp_profile_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+    if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.SNMPProfiles.SNMPProfileSeeder
     else
@@ -457,7 +457,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp role_profile_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+    if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Identity.RoleProfileSeeder
     else
@@ -466,7 +466,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp ip_enrichment_scheduler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+    if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Observability.IpEnrichmentScheduler
     else
       nil
@@ -474,7 +474,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp geolite_mmdb_scheduler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+    if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Observability.GeoLiteMmdbScheduler
     else
       nil
@@ -482,7 +482,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp ipinfo_mmdb_scheduler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+    if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Observability.IpinfoMmdbScheduler
     else
       nil
@@ -490,7 +490,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp netflow_enrichment_dataset_scheduler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+    if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Observability.NetflowEnrichmentDatasetScheduler
     else
       nil
@@ -498,7 +498,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp topology_state_scheduler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+    if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.NetworkDiscovery.TopologyStateScheduler
     else
       nil
@@ -507,7 +507,7 @@ defmodule ServiceRadar.Application do
 
   defp mtr_baseline_scheduler_child do
     if mtr_baseline_automation_enabled?() and
-         Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         repo_enabled?() and
          job_scheduler_node?() do
       ServiceRadar.Observability.MtrBaselineScheduler
     else
@@ -517,7 +517,7 @@ defmodule ServiceRadar.Application do
 
   defp mtr_state_trigger_worker_child do
     if mtr_trigger_automation_enabled?() and
-         Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         repo_enabled?() and
          job_scheduler_node?() do
       ServiceRadar.Observability.MtrStateTriggerWorker
     else
@@ -527,7 +527,7 @@ defmodule ServiceRadar.Application do
 
   defp mtr_consensus_worker_child do
     if mtr_consensus_automation_enabled?() and
-         Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         repo_enabled?() and
          job_scheduler_node?() do
       ServiceRadar.Observability.MtrConsensusWorker
     else
@@ -545,6 +545,10 @@ defmodule ServiceRadar.Application do
       Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
 
     if cluster_enabled, do: cluster_coordinator == true, else: true
+  end
+
+  defp repo_enabled? do
+    Application.get_env(:serviceradar_core, :repo_enabled, true) != false
   end
 
   defp datasvc_enabled? do

@@ -174,7 +174,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp repo_available? do
-    Application.get_env(:serviceradar_core, :repo_enabled, true) &&
+    Application.get_env(:serviceradar_core, :repo_enabled, true) != false &&
       is_pid(Process.whereis(ServiceRadar.Repo))
   end
 

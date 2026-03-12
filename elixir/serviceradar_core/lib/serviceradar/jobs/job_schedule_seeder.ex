@@ -93,7 +93,7 @@ defmodule ServiceRadar.Jobs.JobScheduleSeeder do
   defp not_found?(_), do: false
 
   defp repo_enabled? do
-    Application.get_env(:serviceradar_core, :repo_enabled, true) &&
+    Application.get_env(:serviceradar_core, :repo_enabled, true) != false &&
       is_pid(Process.whereis(ServiceRadar.Repo))
   end
 end

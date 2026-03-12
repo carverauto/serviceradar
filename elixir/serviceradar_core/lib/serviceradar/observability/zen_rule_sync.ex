@@ -295,7 +295,7 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   end
 
   defp repo_enabled? do
-    Application.get_env(:serviceradar_core, :repo_enabled, true) &&
+    Application.get_env(:serviceradar_core, :repo_enabled, true) != false &&
       is_pid(Process.whereis(ServiceRadar.Repo))
   end
 
