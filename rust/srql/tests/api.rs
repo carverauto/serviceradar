@@ -14,6 +14,7 @@ async fn srql_api_queries() {
         check_invalid_field_returns_400(&harness).await;
         check_missing_api_key_returns_401(&harness).await;
         check_device_graph_query_returns_neighborhood(&harness).await;
+        check_device_graph_query_rejects_invalid_device_id(&harness).await;
         check_timeseries_metrics_query_returns_rows(&harness).await;
         check_snmp_metrics_alias_filters_metric_type(&harness).await;
         check_rperf_metrics_queries_still_work(&harness).await;
@@ -227,6 +228,29 @@ async fn check_device_graph_query_returns_neighborhood(harness: &SrqlTestHarness
     assert!(
         filtered_interfaces.is_empty(),
         "include_topology:false should omit interfaces: {filtered_body}"
+    );
+}
+
+async fn check_device_graph_query_rejects_invalid_device_id(harness: &SrqlTestHarness) {
+    let request = QueryRequest {
+        query: r#"in:device_graph device_id:"device$$alpha""#.to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = harness.query(request).await;
+    let (status, body) = read_json(response).await;
+
+    assert_eq!(
+        status,
+        http::StatusCode::BAD_REQUEST,
+        "unexpected status: {body}"
+    );
+    assert_eq!(
+        body["error"],
+        serde_json::json!("invalid request: device_id contains invalid character '$'")
     );
 }
 

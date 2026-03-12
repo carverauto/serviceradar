@@ -543,6 +543,7 @@ AS $$
 DECLARE
     cypher_sql text;
     cypher_result ag_catalog.agtype;
+    graph_name text := 'platform_graph';
     include_topology text := CASE WHEN coalesce(p_include_topology, true) THEN 'true' ELSE 'false' END;
     collector_only text := CASE WHEN coalesce(p_collector_owned_only, false) THEN 'true' ELSE 'false' END;
 BEGIN
@@ -599,9 +600,12 @@ BEGIN
         } AS result
     $cypher$, include_topology, collector_only, p_device_id);
 
-    EXECUTE 'SELECT result FROM ag_catalog.cypher(''platform_graph'', ' ||
-            chr(36) || chr(36) || cypher_sql || chr(36) || chr(36) ||
-            ') AS (result ag_catalog.agtype)'
+    -- Quote the Cypher text as an SQL literal so device ids containing $$ stay data.
+    EXECUTE format(
+        'SELECT result FROM ag_catalog.cypher(%L, %L) AS (result ag_catalog.agtype)',
+        graph_name,
+        cypher_sql
+    )
     INTO cypher_result;
 
     IF cypher_result IS NULL OR cypher_result::text = 'null' THEN
@@ -658,9 +662,11 @@ BEGIN
             } AS result
         $cypher$, include_topology, collector_only, p_device_id, p_device_id);
 
-        EXECUTE 'SELECT result FROM ag_catalog.cypher(''platform_graph'', ' ||
-                chr(36) || chr(36) || cypher_sql || chr(36) || chr(36) ||
-                ') AS (result ag_catalog.agtype)'
+        EXECUTE format(
+            'SELECT result FROM ag_catalog.cypher(%L, %L) AS (result ag_catalog.agtype)',
+            graph_name,
+            cypher_sql
+        )
         INTO cypher_result;
     END IF;
 
@@ -708,9 +714,11 @@ BEGIN
             } AS result
         $cypher$, include_topology, collector_only, p_device_id);
 
-        EXECUTE 'SELECT result FROM ag_catalog.cypher(''platform_graph'', ' ||
-                chr(36) || chr(36) || cypher_sql || chr(36) || chr(36) ||
-                ') AS (result ag_catalog.agtype)'
+        EXECUTE format(
+            'SELECT result FROM ag_catalog.cypher(%L, %L) AS (result ag_catalog.agtype)',
+            graph_name,
+            cypher_sql
+        )
         INTO cypher_result;
     END IF;
 
