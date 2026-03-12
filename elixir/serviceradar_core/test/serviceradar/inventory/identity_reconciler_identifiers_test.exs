@@ -23,6 +23,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
 
   test "register_identifiers merges conflicting strong identifiers", %{actor: actor} do
     armis_id = "armis-#{System.unique_integer([:positive])}"
+    netbox_id = "netbox-#{System.unique_integer([:positive])}"
     mac = "AA:BB:CC:DD:EE:#{mac_suffix()}"
     normalized_mac = IdentityReconciler.normalize_mac(mac)
 
@@ -30,13 +31,13 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
     {:ok, device_b} = create_device(actor, "device-b")
 
     assert {:ok, _} = register_identifier(actor, device_a.uid, :armis_device_id, armis_id)
-    assert {:ok, _} = register_identifier(actor, device_b.uid, :mac, normalized_mac)
+    assert {:ok, _} = register_identifier(actor, device_b.uid, :netbox_device_id, netbox_id)
 
     ids = %{
       agent_id: nil,
       armis_id: armis_id,
       integration_id: nil,
-      netbox_id: nil,
+      netbox_id: netbox_id,
       mac: normalized_mac,
       ip: "",
       partition: "default"

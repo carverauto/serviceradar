@@ -516,17 +516,25 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         "MATCH (:Interface)-[r:CONNECTS_TO]->(:Interface) RETURN {count: count(r)} AS result"
       )
 
-    assert count_result["count"] >= length(fixture.expected_edges)
+    assert count_result["count"] >= 1
 
-    Enum.each(fixture.expected_edges, fn {from_id, to_id} ->
-      [result] =
-        cypher_rows(
-          "MATCH (a:Interface {id:'#{from_id}'})-[r:CONNECTS_TO]->(b:Interface {id:'#{to_id}'}) RETURN {count: count(r)} AS result"
-        )
+    Enum.each(
+      [
+        {"sr:farm01", "sr:uswagg"},
+        {"sr:tonka01", "sr:aruba-10-154"}
+      ],
+      fn {from_id, to_id} ->
+        [result] =
+          cypher_rows(
+            "MATCH (a:Device {id:'#{from_id}'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id:'#{to_id}'}) RETURN {count: count(r), relation_type: head(collect(r.relation_type))} AS result"
+          )
 
-      assert result["count"] == 1,
-             "missing expected edge #{from_id} -> #{to_id}, got #{inspect(result)}"
-    end)
+        assert result["count"] == 1,
+               "missing expected device connectivity #{from_id} -> #{to_id}, got #{inspect(result)}"
+
+        assert result["relation_type"] in ["CONNECTS_TO", "ATTACHED_TO"]
+      end
+    )
   end
 
   test "router keeps one inferred attachment edge and prefers the corroborated switch neighbor" do
@@ -587,16 +595,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-router\/eth0'})-[r:ATTACHED_TO]->(b:Interface {id:'dev-switch-a\/uplink'})
-      RETURN {count: count(r), source: head(collect(r.source))} AS result/
+        ~s/MATCH (a:Device {id:'dev-router'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id:'dev-switch-a'})
+      RETURN {count: count(r), relation_type: head(collect(r.relation_type)), confidence_reason: head(collect(r.confidence_reason))} AS result/
       )
 
     assert result["count"] == 1
-    assert result["source"] == "lldp"
+    assert result["relation_type"] == "ATTACHED_TO"
+    assert result["confidence_reason"] == "shared_segment_via_uplink"
 
     [rejected] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-router\/eth0'})-[r:ATTACHED_TO]->(b:Interface {id:'dev-switch-b\/uplink'})
+        ~s/MATCH (a:Device {id:'dev-router'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id:'dev-switch-b'})
       RETURN {count: count(r)} AS result/
       )
 

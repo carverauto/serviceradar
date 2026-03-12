@@ -227,7 +227,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         |> Ash.update(actor: actor)
 
       # Create a SNMPv3 target
-      {:ok, _target} =
+      {:ok, target} =
         SNMPTarget
         |> Ash.Changeset.for_create(
           :create,
@@ -248,7 +248,21 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         )
         |> Ash.create(actor: actor)
 
-      {:ok, config} = SNMPCompiler.compile("default", nil, [])
+      {:ok, _oid} =
+        SNMPOIDConfig
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            oid: ".1.3.6.1.2.1.1.5.0",
+            name: "sysName",
+            data_type: :string,
+            snmp_target_id: target.id
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, config} = SNMPCompiler.compile("default", nil, actor: actor)
 
       assert config["enabled"] == true
       assert length(config["targets"]) == 1

@@ -172,7 +172,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           :create,
           %{
             name: "Core Switch Profile",
-            target_query: "in:devices hostname:core-switch-*",
+            target_query: ~s(in:devices hostname:"core-switch-#{unique_id}"),
             priority: 10,
             enabled: true,
             poll_interval: 30,
@@ -290,12 +290,14 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       {:ok, agent_config} = AgentConfigGenerator.generate_config(agent_id)
       payload = Jason.decode!(agent_config.config_json)
 
-      # Verify SNMP config is included
-      snmp_payload = payload["snmp"]
-      assert snmp_payload != nil
-      assert snmp_payload["enabled"] == true
-      assert is_list(snmp_payload["targets"])
-      refute Enum.empty?(snmp_payload["targets"])
+      # SNMP is carried in the dedicated proto field, not in config_json.
+      refute Map.has_key?(payload, "snmp")
+
+      snmp_config = agent_config.snmp_config
+      assert snmp_config != nil
+      assert snmp_config.enabled == true
+      assert is_list(snmp_config.targets)
+      refute Enum.empty?(snmp_config.targets)
     end
 
     @tag :integration

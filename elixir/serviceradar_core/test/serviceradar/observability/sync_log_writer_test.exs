@@ -78,6 +78,17 @@ defmodule ServiceRadar.Observability.SyncLogWriterTest do
       |> Ash.read(actor: actor)
       |> Page.unwrap!()
 
-    assert events == []
+    sync_events =
+      Enum.filter(events, fn event ->
+        get_in(event.unmapped || %{}, [
+          "log_attributes",
+          "serviceradar",
+          "sync",
+          "integration_source_id"
+        ]) ==
+          to_string(source.id)
+      end)
+
+    assert sync_events == []
   end
 end

@@ -51,7 +51,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
         %{
           name: "Default SNMP #{unique_id}",
           enabled: true,
-          target_query: "in:devices hostname:#{hostname}",
+          target_query: ~s(in:devices hostname:"#{hostname}"),
           priority: 10,
           community: "public"
         },
