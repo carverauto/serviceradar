@@ -34,6 +34,32 @@ print(dbname)
 PY
 )"
 
+admin_db_url="$("$parser" - "$admin_url" "$db_name" <<'PY'
+import sys
+from urllib.parse import quote, urlparse, urlunparse
+
+admin_url, dbname = sys.argv[1], sys.argv[2]
+
+if admin_url.startswith(("postgres://", "postgresql://")):
+    parsed = urlparse(admin_url)
+    print(
+        urlunparse(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                "/" + quote(dbname, safe=""),
+                parsed.params,
+                parsed.query,
+                parsed.fragment,
+            )
+        )
+    )
+else:
+    escaped = dbname.replace("\\", "\\\\").replace("'", "\\'")
+    print(f"dbname='{escaped}' {admin_url}")
+PY
+)"
+
 sql="$("$parser" - "$db_url" <<'PY'
 import sys
 from urllib.parse import urlparse
@@ -70,4 +96,4 @@ CREATE EXTENSION IF NOT EXISTS "timescaledb";
 CREATE EXTENSION IF NOT EXISTS "age";
 '
 
-printf "%s\n" "$extensions_sql" | psql "$admin_url" -d "$db_name" -v ON_ERROR_STOP=1
+printf "%s\n" "$extensions_sql" | psql "$admin_db_url" -v ON_ERROR_STOP=1
