@@ -227,14 +227,13 @@ endif
 .PHONY: lint-elixir
 lint-elixir: ## Run the repository-standard Elixir analyzer contract across elixir/*
 	@set -eu; \
-	projects=' \
-		connection::--skip-dialyzer \
-		datasvc:: \
-		elixir_uuid::--skip-dialyzer \
-		protobuf::--skip-dialyzer --skip-warnings-as-errors \
-		serviceradar_agent_gateway:: \
-		serviceradar_core:: \
-		serviceradar_core_elx:: \
+		projects=' \
+			connection::--skip-dialyzer \
+			datasvc:: \
+			elixir_uuid::--skip-dialyzer \
+			serviceradar_agent_gateway:: \
+			serviceradar_core:: \
+			serviceradar_core_elx:: \
 		serviceradar_srql:: \
 		web-ng::--phoenix'; \
 	for entry in $$projects; do \

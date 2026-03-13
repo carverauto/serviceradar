@@ -1,6 +1,6 @@
 ## Context
 
-The repo contains nine first-party Mix projects under `elixir/`: `connection`, `datasvc`, `elixir_uuid`, `protobuf`, `serviceradar_agent_gateway`, `serviceradar_core`, `serviceradar_core_elx`, `serviceradar_srql`, and `web-ng`. Analyzer support is uneven across that workspace. Some projects already ship `.formatter.exs`, `.credo.exs`, or `dialyxir`, but current CI only runs Credo in dedicated workflows for a subset of the workspace, and there is no spec defining which analyzers must pass before Elixir changes merge.
+The repo contains eight first-party Mix projects under `elixir/`: `connection`, `datasvc`, `elixir_uuid`, `serviceradar_agent_gateway`, `serviceradar_core`, `serviceradar_core_elx`, `serviceradar_srql`, and `web-ng`. Analyzer support is uneven across that workspace. Some projects already ship `.formatter.exs`, `.credo.exs`, or `dialyxir`, but current CI only runs Credo in dedicated workflows for a subset of the workspace, and there is no spec defining which analyzers must pass before Elixir changes merge.
 
 Issue #3029 lists a broad tool wishlist. Some items are immediate quality gates (`dialyzer`, `credo`, `sobelow`, dependency audits, `mix xref`), while others are opinionated formatter or architecture tools (`Styler`, `Boundary`, `rustywind`, `ex_dna`, `ex_slop`) that can add noise or reshape the codebase. The proposal should establish a stable baseline first, then evaluate optional tools separately.
 
@@ -37,7 +37,7 @@ Issue #3029 lists a broad tool wishlist. Some items are immediate quality gates 
   - Rationale for rejection: It adds maintenance overhead without improving the quality signal.
 
 - Decision: Generated, vendored, or intentionally exempted paths inside the `elixir/` workspace must be excluded through version-controlled config rather than ad hoc CI exceptions.
-  - Why: The repo already contains generated protobuf code and vendored dependencies that would otherwise dominate analyzer output.
+  - Why: The repo already contains generated code and vendored dependencies that would otherwise dominate analyzer output.
 
 - Decision: Temporary analyzer waivers are allowed only when they are encoded per project in repository-owned workflow metadata and tied to legacy fork constraints.
   - Why: Some older forked projects cannot satisfy every analyzer under the current Beam toolchain without a larger remediation pass.

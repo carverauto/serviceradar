@@ -13,6 +13,7 @@ EOF
 project=""
 phoenix="false"
 skip_dialyzer="false"
+skip_credo="false"
 skip_warnings_as_errors="false"
 
 while [[ $# -gt 0 ]]; do
@@ -27,6 +28,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-dialyzer)
       skip_dialyzer="true"
+      shift
+      ;;
+    --skip-credo)
+      skip_credo="true"
       shift
       ;;
     --skip-warnings-as-errors)
@@ -74,7 +79,9 @@ else
   run mix compile --warnings-as-errors
 fi
 run mix xref graph --format stats --label compile-connected
-run mix credo --strict
+if [[ "${skip_credo}" != "true" ]]; then
+  run mix credo --strict
+fi
 run mix hex.audit
 
 if [[ "${skip_dialyzer}" != "true" ]]; then

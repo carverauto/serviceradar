@@ -6,7 +6,7 @@ Issue #3029 calls out a real gap in the Elixir toolchain: analyzer coverage is i
 
 ## What Changes
 
-- Define a standard analyzer contract for every first-party Mix project under `elixir/`, including `web-ng`, `serviceradar_core`, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `serviceradar_srql`, `datasvc`, `connection`, `elixir_uuid`, and `protobuf`
+- Define a standard analyzer contract for every first-party Mix project under `elixir/`, including `web-ng`, `serviceradar_core`, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `serviceradar_srql`, `datasvc`, `connection`, and `elixir_uuid`
 - Require the analyzer contract to cover formatting checks, compile-time warning checks, cross-reference reporting, strict Credo, dependency auditing, Dialyzer, and Phoenix security analysis where applicable
 - Add documented local entrypoints and matching GitHub Actions jobs so developers and CI run the same analyzer sequence
 - Consolidate repo-owned Elixir quality enforcement into a matrix-style GitHub Actions workflow or equivalent reusable workflow pattern that covers every first-party Mix project under `elixir/`
