@@ -232,6 +232,157 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
     end
 
     @tag :integration
+    test "device-specific SNMP config cache is scoped by device uid", %{
+      actor: actor,
+      agent_id: agent_id
+    } do
+      unique_id = System.unique_integer([:positive])
+
+      {:ok, first_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: Ecto.UUID.generate(),
+            hostname: "edge-switch-a-#{unique_id}",
+            ip: "10.11.#{rem(unique_id, 200) + 1}.10",
+            type_id: 3,
+            created_time: DateTime.utc_now(),
+            modified_time: DateTime.utc_now()
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, second_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: Ecto.UUID.generate(),
+            hostname: "edge-switch-b-#{unique_id}",
+            ip: "10.12.#{rem(unique_id, 200) + 1}.10",
+            type_id: 3,
+            created_time: DateTime.utc_now(),
+            modified_time: DateTime.utc_now()
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, first_profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Scoped Profile A #{unique_id}",
+            target_query: ~s(in:devices hostname:"#{first_device.hostname}"),
+            priority: 2_000_000 + unique_id,
+            enabled: true,
+            poll_interval: 30,
+            timeout: 3,
+            retries: 1
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, second_profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Scoped Profile B #{unique_id}",
+            target_query: ~s(in:devices hostname:"#{second_device.hostname}"),
+            priority: 2_100_000 + unique_id,
+            enabled: true,
+            poll_interval: 30,
+            timeout: 3,
+            retries: 1
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, first_target} =
+        SNMPTarget
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Scoped Target A",
+            host: first_device.ip,
+            port: 161,
+            version: :v2c,
+            community: "community-a",
+            snmp_profile_id: first_profile.id
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, second_target} =
+        SNMPTarget
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Scoped Target B",
+            host: second_device.ip,
+            port: 161,
+            version: :v2c,
+            community: "community-b",
+            snmp_profile_id: second_profile.id
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _first_oid} =
+        SNMPOIDConfig
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            oid: ".1.3.6.1.2.1.1.3.0",
+            name: "sysUpTimeA",
+            data_type: :timeticks,
+            snmp_target_id: first_target.id
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _second_oid} =
+        SNMPOIDConfig
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            oid: ".1.3.6.1.2.1.1.5.0",
+            name: "sysNameB",
+            data_type: :string,
+            snmp_target_id: second_target.id
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      ConfigServer.invalidate(:snmp)
+
+      {:ok, first_entry} =
+        ConfigServer.get_config(:snmp, "default", agent_id, device_uid: first_device.uid)
+
+      {:ok, second_entry} =
+        ConfigServer.get_config(:snmp, "default", agent_id, device_uid: second_device.uid)
+
+      first_hosts = Enum.map(first_entry.config["targets"], & &1["host"])
+      second_hosts = Enum.map(second_entry.config["targets"], & &1["host"])
+
+      assert first_device.ip in first_hosts
+      refute second_device.ip in first_hosts
+
+      assert second_device.ip in second_hosts
+      refute first_device.ip in second_hosts
+    end
+
+    @tag :integration
     test "agent config generator includes SNMP in full config", %{
       actor: actor,
       agent_id: agent_id
@@ -244,7 +395,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Agent Test Profile",
+            name: "Agent Test Profile #{unique_id}",
             is_default: false,
             enabled: true,
             poll_interval: 120
@@ -309,13 +460,15 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       actor: actor,
       agent_id: agent_id
     } do
+      unique_id = System.unique_integer([:positive])
+
       # Create a disabled SNMP profile
       {:ok, profile} =
         SNMPProfile
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Disabled Profile",
+            name: "Disabled Profile #{unique_id}",
             is_default: false,
             enabled: false,
             poll_interval: 60
@@ -349,7 +502,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "SNMPv3 Profile",
+            name: "SNMPv3 Profile #{unique_id}",
             is_default: false,
             enabled: true,
             poll_interval: 60
