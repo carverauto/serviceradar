@@ -14,6 +14,24 @@ warn() {
     printf '%s\n' "⚠️  $*" >&2
 }
 
+move_legacy_secret() {
+    src="$1"
+    dest="$2"
+
+    if [ -f "$src" ] && [ ! -f "$dest" ]; then
+        mkdir -p "$(dirname "$dest")"
+        mv "$src" "$dest"
+    fi
+}
+
+remove_legacy_secret() {
+    path="$1"
+
+    if [ -f "$path" ]; then
+        rm -f "$path"
+    fi
+}
+
 random_hex() {
     # $1: number of bytes to read from urandom
     dd if=/dev/urandom bs=1 count="$1" 2>/dev/null \
@@ -27,10 +45,16 @@ random_base64() {
 }
 
 CERT_DIR="/etc/serviceradar/certs"
+AUTH_DIR="/etc/serviceradar/auth"
+ADMIN_DIR="/etc/serviceradar/admin"
 CONFIG_DIR="/etc/serviceradar/config"
 CORE_CONFIG="$CONFIG_DIR/core.json"
-API_ENV="$CONFIG_DIR/api.env"
 CHECKERS_DIR="$CONFIG_DIR/checkers"
+JWT_SECRET_FILE="$AUTH_DIR/jwt-secret"
+API_KEY_FILE="$AUTH_DIR/api-key"
+ADMIN_PASSWORD_FILE="$ADMIN_DIR/admin-password"
+ADMIN_PASSWORD_HASH_FILE="$AUTH_DIR/admin-password-hash"
+EDGE_KEY_FILE="$AUTH_DIR/edge-onboarding.key"
 FORCE_REGENERATE_CONFIG="${FORCE_REGENERATE_CONFIG:-false}"
 EDGE_DEFAULT_CHECKER_ENDPOINT="${EDGE_DEFAULT_CHECKER_ENDPOINT:-}"
 EDGE_DEFAULT_CHECKER_SECURITY_MODE="${EDGE_DEFAULT_CHECKER_SECURITY_MODE:-}"
@@ -56,6 +80,9 @@ fi
 # Create config directory
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$CHECKERS_DIR"
+mkdir -p "$AUTH_DIR"
+mkdir -p "$ADMIN_DIR"
+chmod 700 "$AUTH_DIR" "$ADMIN_DIR"
 
 echo "Updating ServiceRadar configurations with generated secrets..."
 
@@ -72,45 +99,63 @@ else
     echo "core.json already exists; preserving existing auth keys and settings"
 fi
 
+# Migrate secrets out of the shared cert volume if older runs left them there.
+move_legacy_secret "$CERT_DIR/jwt-secret" "$JWT_SECRET_FILE"
+move_legacy_secret "$CERT_DIR/api-key" "$API_KEY_FILE"
+move_legacy_secret "$CERT_DIR/admin-password-hash" "$ADMIN_PASSWORD_HASH_FILE"
+move_legacy_secret "$CERT_DIR/edge-onboarding.key" "$EDGE_KEY_FILE"
+move_legacy_secret "$CERT_DIR/admin-password" "$ADMIN_PASSWORD_FILE"
+if [ ! -f "$ADMIN_PASSWORD_FILE" ] && [ -f "$CERT_DIR/password.txt" ]; then
+    move_legacy_secret "$CERT_DIR/password.txt" "$ADMIN_PASSWORD_FILE"
+fi
+
 # Generate JWT secret and API key if they don't exist
-if [ ! -f "$CERT_DIR/jwt-secret" ]; then
+if [ ! -f "$JWT_SECRET_FILE" ]; then
     echo "Generating JWT secret..."
-    random_hex 32 > "$CERT_DIR/jwt-secret"
+    random_hex 32 > "$JWT_SECRET_FILE"
+    chmod 600 "$JWT_SECRET_FILE"
     echo "✅ Generated JWT secret"
 fi
 
-if [ ! -f "$CERT_DIR/api-key" ]; then
+if [ ! -f "$API_KEY_FILE" ]; then
     echo "Generating API key..."
-    random_hex 32 > "$CERT_DIR/api-key"
+    random_hex 32 > "$API_KEY_FILE"
+    chmod 600 "$API_KEY_FILE"
     echo "✅ Generated API key"
 fi
 
+if [ ! -f "$ADMIN_PASSWORD_FILE" ]; then
+    echo "Generating admin password..."
+    ADMIN_PASSWORD=$(random_base64 12)
+    printf '%s' "$ADMIN_PASSWORD" > "$ADMIN_PASSWORD_FILE"
+    chmod 600 "$ADMIN_PASSWORD_FILE"
+    echo "✅ Generated admin password: $ADMIN_PASSWORD"
+    echo "✅ Admin password saved to: $ADMIN_PASSWORD_FILE"
+fi
+
 # Generate admin password bcrypt hash if it doesn't exist
-if [ ! -f "$CERT_DIR/admin-password-hash" ]; then
-    if [ -f "$CERT_DIR/admin-password" ]; then
-        echo "Generating bcrypt hash from existing admin password..."
-        ADMIN_PASSWORD=$(cat "$CERT_DIR/admin-password")
-    else
-        echo "Generating admin password bcrypt hash..."
-        ADMIN_PASSWORD=$(random_base64 12)
-        echo "$ADMIN_PASSWORD" > "$CERT_DIR/admin-password"
-        echo "✅ Generated admin password: $ADMIN_PASSWORD"
-        echo "✅ Admin password saved to: $CERT_DIR/admin-password"
-    fi
+if [ ! -f "$ADMIN_PASSWORD_HASH_FILE" ]; then
+    echo "Generating admin password bcrypt hash..."
+    ADMIN_PASSWORD=$(cat "$ADMIN_PASSWORD_FILE")
 
     # Generate bcrypt hash using serviceradar-cli
     ADMIN_PASSWORD_HASH=$(echo "$ADMIN_PASSWORD" | serviceradar-cli)
-    echo "$ADMIN_PASSWORD_HASH" > "$CERT_DIR/admin-password-hash"
+    printf '%s' "$ADMIN_PASSWORD_HASH" > "$ADMIN_PASSWORD_HASH_FILE"
+    chmod 600 "$ADMIN_PASSWORD_HASH_FILE"
     echo "✅ Generated bcrypt hash for admin password using serviceradar-cli"
-
-    # Also write the password to the standard location for user reference
-    echo "$ADMIN_PASSWORD" > "$CERT_DIR/password.txt"
-    echo "✅ Admin password saved to: $CERT_DIR/password.txt"
 fi
 
+# Remove legacy auth/bootstrap secrets from the shared cert volume after migration.
+remove_legacy_secret "$CERT_DIR/jwt-secret"
+remove_legacy_secret "$CERT_DIR/api-key"
+remove_legacy_secret "$CERT_DIR/admin-password"
+remove_legacy_secret "$CERT_DIR/admin-password-hash"
+remove_legacy_secret "$CERT_DIR/password.txt"
+remove_legacy_secret "$CERT_DIR/edge-onboarding.key"
+
 # Update core.json with JWT secret and admin password hash if the files exist
-if [ -f "$CERT_DIR/jwt-secret" ] && [ -f "$CORE_CONFIG" ]; then
-    JWT_SECRET=$(cat "$CERT_DIR/jwt-secret")
+if [ -f "$JWT_SECRET_FILE" ] && [ -f "$CORE_CONFIG" ]; then
+    JWT_SECRET=$(cat "$JWT_SECRET_FILE")
     echo "Updating core.json with generated JWT secret..."
     
     # Use jq to update the JWT secret in core.json
@@ -120,8 +165,8 @@ if [ -f "$CERT_DIR/jwt-secret" ] && [ -f "$CORE_CONFIG" ]; then
 fi
 
 # Update core.json with admin password hash if it exists
-if [ -f "$CERT_DIR/admin-password-hash" ] && [ -f "$CORE_CONFIG" ]; then
-    ADMIN_HASH=$(cat "$CERT_DIR/admin-password-hash")
+if [ -f "$ADMIN_PASSWORD_HASH_FILE" ] && [ -f "$CORE_CONFIG" ]; then
+    ADMIN_HASH=$(cat "$ADMIN_PASSWORD_HASH_FILE")
     echo "Updating core.json with generated admin password hash..."
     
     # Use jq to update the admin password hash in core.json
@@ -130,54 +175,18 @@ if [ -f "$CERT_DIR/admin-password-hash" ] && [ -f "$CORE_CONFIG" ]; then
     echo "✅ Updated core.json with generated admin password hash"
 fi
 
-# Create/update api.env with generated secrets
-if [ -f "$CERT_DIR/api-key" ] && [ -f "$CERT_DIR/jwt-secret" ]; then
-    API_KEY=$(cat "$CERT_DIR/api-key")
-    JWT_SECRET=$(cat "$CERT_DIR/jwt-secret")
-    
-    echo "Creating api.env with generated secrets..."
-    
-    # Create api.env
-    cat > "$API_ENV" <<EOF
-# ServiceRadar API Configuration - Auto-generated
-API_KEY=$API_KEY
-JWT_SECRET=$JWT_SECRET
-AUTH_ENABLED=true
-NEXT_INTERNAL_API_URL=http://core:8090
-NEXT_PUBLIC_API_URL=http://localhost
-EOF
-    
-    echo "✅ Created api.env with generated secrets"
-fi
-
-# Remove legacy SRQL block; web-ng now serves SRQL queries directly
+# Remove legacy SRQL block; current Docker stacks route requests without core.json SRQL settings.
 if [ -f "$CORE_CONFIG" ]; then
     jq 'del(.srql)' "$CORE_CONFIG" > "$CORE_CONFIG.tmp"
     mv "$CORE_CONFIG.tmp" "$CORE_CONFIG"
     echo "✅ Removed legacy SRQL config from core.json"
 fi
 
-# Create a Docker environment file for the core service to use
-# This allows docker-compose to inject the generated secrets directly
-if [ -f "$CERT_DIR/api-key" ] && [ -f "$CERT_DIR/jwt-secret" ]; then
-    API_KEY=$(cat "$CERT_DIR/api-key")
-    JWT_SECRET=$(cat "$CERT_DIR/jwt-secret")
-    
-    echo "Creating .env file for Docker Compose..."
-    cat > "$CONFIG_DIR/.env" <<EOF
-API_KEY=$API_KEY
-JWT_SECRET=$JWT_SECRET
-AUTH_ENABLED=true
-EOF
-    
-    echo "✅ Created .env file for Docker Compose"
-fi
-
 # Ensure edge onboarding config exists (used by web/CLI issuance)
-EDGE_KEY_FILE="$CERT_DIR/edge-onboarding.key"
 if [ ! -s "$EDGE_KEY_FILE" ]; then
     EDGE_ONBOARDING_KEY="$(random_base64 32)"
     printf "%s" "$EDGE_ONBOARDING_KEY" > "$EDGE_KEY_FILE"
+    chmod 600 "$EDGE_KEY_FILE"
     echo "✅ Generated edge onboarding encryption key"
 fi
 EDGE_ONBOARDING_KEY=$(cat "$EDGE_KEY_FILE")
@@ -328,25 +337,24 @@ fi
 fi
 
 # Display important setup information to the user
-if [ -f "$CERT_DIR/admin-password" ]; then
-    ADMIN_PASSWORD=$(cat "$CERT_DIR/admin-password")
+if [ -f "$ADMIN_PASSWORD_FILE" ]; then
+    ADMIN_PASSWORD=$(cat "$ADMIN_PASSWORD_FILE")
     echo ""
     echo "🔐 IMPORTANT: ServiceRadar Admin Credentials"
     echo "============================================="
     echo "Username: admin"
     echo "Password: $ADMIN_PASSWORD"
     echo ""
-    echo "📁 Password Location: /etc/serviceradar/certs/password.txt"
+    echo "📁 Password Location: $ADMIN_PASSWORD_FILE"
     echo ""
     echo "⚠️  SECURITY NOTICE:"
     echo "   • Please save this password in a secure location"
-    echo "   • Delete the password.txt file after saving: rm /etc/serviceradar/certs/password.txt"
     echo "   • You can change this password using the ServiceRadar CLI"
     echo ""
     echo "🔧 To change your admin password:"
     echo "   1. Generate a new bcrypt hash: echo 'your-new-password' | serviceradar-cli"
-    echo "   2. Update core.json: serviceradar-cli update-config -file=/path/to/core.json -admin-hash=<new-hash>"
-    echo "   3. Restart the core service: docker-compose restart core"
+    echo "   2. Update the generated config with the new hash"
+    echo "   3. Restart the core service after updating the config"
     echo ""
 fi
 

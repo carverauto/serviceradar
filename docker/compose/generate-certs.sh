@@ -335,34 +335,6 @@ fi
 generate_cert "sysmon-osx" "sysmon-osx.serviceradar" "DNS:sysmon-osx,DNS:sysmon-osx.serviceradar,DNS:serviceradar-sysmon-osx,DNS:sysmon-osx-checker,DNS:localhost,IP:127.0.0.1"
 generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
 
-# Generate JWT secret for authentication
-JWT_SECRET_FILE="$CERT_DIR/jwt-secret"
-if [ ! -f "$JWT_SECRET_FILE" ]; then
-    echo "Generating JWT secret..."
-    openssl rand -hex 32 > "$JWT_SECRET_FILE"
-    if command -v groupadd >/dev/null 2>&1; then
-        chown serviceradar:serviceradar "$JWT_SECRET_FILE"
-    fi
-    chmod 640 "$JWT_SECRET_FILE"
-    echo "JWT secret generated."
-else
-    echo "JWT secret already exists."
-fi
-
-# Generate API key
-API_KEY_FILE="$CERT_DIR/api-key" 
-if [ ! -f "$API_KEY_FILE" ]; then
-    echo "Generating API key..."
-    openssl rand -hex 32 > "$API_KEY_FILE"
-    if command -v groupadd >/dev/null 2>&1; then
-        chown serviceradar:serviceradar "$API_KEY_FILE"
-    fi
-    chmod 640 "$API_KEY_FILE"
-    echo "API key generated."
-else
-    echo "API key already exists."
-fi
-
 # Generate example edge component certificates for development
 echo ""
 echo "=== Generating edge component certificates ==="
@@ -374,10 +346,10 @@ generate_component_cert "agent" "agent-001" "$DEFAULT_PARTITION_ID" "DNS:agent,D
 generate_component_cert "agent" "docker-agent" "$DEFAULT_PARTITION_ID" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2"
 
 echo ""
-echo "All certificates and secrets generated successfully in $CERT_DIR"
+echo "All certificates generated successfully in $CERT_DIR"
 echo ""
 echo "Platform certificates:"
-ls -la "$CERT_DIR"/*.pem "$CERT_DIR"/jwt-secret "$CERT_DIR"/api-key 2>/dev/null | awk '{print $9}' | sort
+ls -la "$CERT_DIR"/*.pem 2>/dev/null | awk '{print $9}' | sort
 
 echo ""
 echo "Component certificates:"

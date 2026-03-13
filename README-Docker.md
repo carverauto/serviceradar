@@ -279,8 +279,8 @@ On first startup, ServiceRadar generates:
 - API keys and JWT secrets
 - mTLS certificates for all services
 
-**Save your admin password**. The password is stored in the admin creds volume at
-`/etc/serviceradar/admin/admin-password` (mounted into `web-ng` and `config-updater`):
+**Save your admin password**. The password is stored in the `admin-creds` volume,
+separate from the shared cert volume, at `/etc/serviceradar/admin/admin-password`:
 ```bash
 docker compose exec web-ng cat /etc/serviceradar/admin/admin-password
 ```

@@ -332,7 +332,7 @@
     },
     "@@aspect_rules_js+//npm:extensions.bzl%pnpm": {
       "general": {
-        "bzlTransitiveDigest": "peMhDJmVcEa1UF33o4+MdRhoRVJ7mc8mkWnvPHoGtk0=",
+        "bzlTransitiveDigest": "LACV8Jj6rPqjsmdZS8Q/l02ca/9RUcnqPL39856DSfo=",
         "usagesDigest": "nZsztwJYOdbgW8q0XMkWF4tgDJotYArkhTox/UTNYS0=",
         "recordedInputs": [
           "REPO_MAPPING:aspect_bazel_lib+,bazel_lib bazel_lib+",
@@ -11570,7 +11570,7 @@
     },
     "@@rules_rust+//crate_universe/private:internal_extensions.bzl%cu_nr": {
       "general": {
-        "bzlTransitiveDigest": "dK1b0Sut7/N4ABoFzQfhqdgqNM8Wr2K0mbagfOolPB4=",
+        "bzlTransitiveDigest": "Qf/80Jy55rLi8k8EnkhNrY83gJRCOdC7M6GopaviJ0M=",
         "usagesDigest": "lAGiU7JGcUJ6BL7JrXrtglO7l/4CfFuSP4+oWoVk9Js=",
         "recordedInputs": [
           "REPO_MAPPING:bazel_features+,bazel_features_globals bazel_features++version_extension+bazel_features_globals",
