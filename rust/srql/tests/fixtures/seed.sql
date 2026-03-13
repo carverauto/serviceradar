@@ -600,7 +600,7 @@ BEGIN
         } AS result
     $cypher$, include_topology, collector_only, p_device_id);
 
-    -- Quote the Cypher text as an SQL literal so device ids containing $$ stay data.
+    -- Quote the Cypher text as an SQL literal so embedded dollar quoting stays data.
     EXECUTE format(
         'SELECT result FROM ag_catalog.cypher(%L, %L) AS (result ag_catalog.agtype)',
         graph_name,
