@@ -778,12 +778,26 @@ if [ "{run_assets}" = "true" ]; then
   rm priv/static
   mv "$DIGEST_ROOT" priv/static
 fi
+
+if [ -n "{app_name}" ] && [ -d priv ]; then
+  APP_BUILD_PRIV="$PROJECT_DIR/_build/prod/lib/{app_name}/priv"
+  rm -rf "$APP_BUILD_PRIV"
+  mkdir -p "$APP_BUILD_PRIV"
+  cp -aL priv/. "$APP_BUILD_PRIV/"
+fi
+
 RELEASE_DIR=$(mktemp -d)
 mix release --path "$RELEASE_DIR"
 
+# Mix can leave symlinks in the assembled release that point back into the
+# staged project or shared build cache. Materialize the release tree before
+# archiving so the runtime tarball is self-contained inside the final image.
+PACKAGED_RELEASE_DIR=$(mktemp -d)
+copy_dir "$RELEASE_DIR/" "$PACKAGED_RELEASE_DIR/"
+
 # Package release to tar output (ensure parent exists, write via absolute path)
 mkdir -p "$(dirname "$EXECROOT/{tar_out}")"
-tar -czf "$EXECROOT/{tar_out}" -C "$RELEASE_DIR" .
+tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED_RELEASE_DIR" .
 """.format(
             elixir_home = elixir_home,
             erlang_home = erlang_home,
@@ -799,6 +813,7 @@ tar -czf "$EXECROOT/{tar_out}" -C "$RELEASE_DIR" .
             patch_script = patch_script_placeholder,
             hex_cache_tar = hex_cache.path if hex_cache else "",
             bun_path = bun.path if bun else "",
+            app_name = ctx.attr.workdir_name,
         ).replace(patch_script_placeholder, patch_script),
         use_default_shell_env = False,
     )
