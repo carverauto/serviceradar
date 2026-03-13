@@ -31,7 +31,9 @@ Examples:
   # Hotfix release (skips staging e2e tests)
   scripts/cut-release.sh --version 1.0.71 --hotfix --push
 
-The script expects the working tree to be clean aside from VERSION and CHANGELOG changes.
+The script expects the working tree to be clean aside from VERSION, CHANGELOG,
+scripts/cut-release.sh, and helm/serviceradar/Chart.yaml changes. Dry runs skip
+the clean-tree check.
 USAGE
 }
 
@@ -133,21 +135,19 @@ tag="${tag_prefix}${version}"
 # Ensure the working tree is clean apart from allowed files.
 if [[ "$dry_run" == "false" ]]; then
     mapfile -t dirty < <(git status --porcelain)
-else
-    mapfile -t dirty < <(git status --porcelain)
+    for entry in "${dirty[@]}"; do
+        file=${entry:3}
+        case "$file" in
+            ""|"VERSION"|"CHANGELOG"|"scripts/cut-release.sh"|"helm/serviceradar/Chart.yaml")
+                ;;
+            *)
+                echo "Unexpected pending change: $file" >&2
+                echo "Please commit or stash it before running this script." >&2
+                exit 1
+                ;;
+        esac
+    done
 fi
-for entry in "${dirty[@]}"; do
-    file=${entry:3}
-    case "$file" in
-        ""|"VERSION"|"CHANGELOG"|"helm/serviceradar/Chart.yaml")
-            ;;
-        *)
-            echo "Unexpected pending change: $file" >&2
-            echo "Please commit or stash it before running this script." >&2
-            exit 1
-            ;;
-    esac
-done
 
 if [[ "$skip_changelog_check" == "false" ]]; then
     if ! scripts/extract-changelog.py "$version" >/dev/null; then
