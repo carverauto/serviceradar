@@ -96,13 +96,25 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns profile config when default profile exists" do
-      # Create a default profile - schema determined by DB connection
       actor = SystemActor.system(:test)
 
       {:ok, profile} =
         SNMPProfile
-        |> Ash.Query.for_read(:get_default, %{})
-        |> Ash.read_one(actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Compiler Default Profile #{System.unique_integer([:positive])}",
+            is_default: false,
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
 
       {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
