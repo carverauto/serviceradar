@@ -1,6 +1,8 @@
 # Minimal ARC runner image with build tooling needed by ServiceRadar Bazel releases.
 # Base image comes from GitHub Actions Runner from actions/runner project.
-FROM ghcr.io/actions/actions-runner@sha256:25e5339f41c8511899dff6d9d1ee3d29d0aaca085f24b967f486e153e4368cc6
+# 2026-03-13: GitHub has deprecated runner v2.330.0; refresh to the current
+# upstream image before rebuilding/pushing ghcr.io/carverauto/arc-runner.
+FROM ghcr.io/actions/actions-runner@sha256:97b86689bb0571ca04b858e460190c8359c346c2fb4d093f0f88e40906e0b3c4
 
 USER root
 RUN set -eux; \
