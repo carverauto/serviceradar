@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.3
+
+ARC runner refresh, migration safety fixes, and more reliable integration test orchestration.
+
+## Whats New
+
+**1.2.3**
+- Updated the custom ARC runner image to `actions/runner` `v2.332.0` so GitHub-hosted jobs continue to receive work after the deprecation of runner `v2.330.0`.
+- Fixed the UI slow-query index migration by avoiding concurrent index creation on the `platform.discovered_interfaces` Timescale hypertable.
+- Moved integration test orchestration into a dedicated script and disabled startup migrations during explicit test database setup in CI.
+- Hardened shared-fixture integration tests by fixing SNMP profile isolation, widening generated device IP space, and making deleted-device restore tests resolve through explicit identifiers.
+
 # ServiceRadar v1.2.2
 
 CNPG migration fixes, enrollment stability improvements, and hardened Zen rule processing.
