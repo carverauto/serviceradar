@@ -705,9 +705,6 @@ EARLY_DEPS=""
 if grep -q '{{:serviceradar_srql,' mix.exs; then
   EARLY_DEPS="$EARLY_DEPS serviceradar_srql"
 fi
-if grep -q '{{:serviceradar_core,' mix.exs; then
-  EARLY_DEPS="$EARLY_DEPS serviceradar_core"
-fi
 if [ -n "$EARLY_DEPS" ]; then
   mix deps.compile $EARLY_DEPS
 fi
