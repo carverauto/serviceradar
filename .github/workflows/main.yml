@@ -199,4 +199,4 @@ jobs:
             //...
 
       - name: serviceradar_core integration tests
-        run: make test-integration
+        run: ./scripts/test-integration.sh

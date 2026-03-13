@@ -596,8 +596,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   end
 
   defp unique_test_ip(a, b, c, seed) do
+    third = rem(c + div(seed, 250), 250) + 1
     fourth = rem(seed, 250) + 1
-    "#{a}.#{b}.#{c}.#{fourth}"
+    "#{a}.#{b}.#{third}.#{fourth}"
   end
 
   defp unique_test_mac(seed) do

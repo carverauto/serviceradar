@@ -266,7 +266,7 @@ oci_ext.pull(
 )
 oci_ext.pull(
     name = "actions_runner",
-    digest = "sha256:25e5339f41c8511899dff6d9d1ee3d29d0aaca085f24b967f486e153e4368cc6",
+    digest = "sha256:97b86689bb0571ca04b858e460190c8359c346c2fb4d093f0f88e40906e0b3c4",
     image = "ghcr.io/actions/actions-runner",
     platforms = [
         "linux/amd64",
@@ -274,7 +274,7 @@ oci_ext.pull(
 )
 oci_ext.pull(
     name = "arc_runner",
-    digest = "sha256:4d98cb36fc9a2dd82636e790d2be8c0d14de76584e90c91b7325fb811b8ef9fc",
+    digest = "sha256:cd933c5c1e917d0e3ad96b81eb02f8dc9ce8ba9043eab7611c457dacf370f26f",
     image = "ghcr.io/carverauto/arc-runner",
     platforms = [
         "linux/amd64",

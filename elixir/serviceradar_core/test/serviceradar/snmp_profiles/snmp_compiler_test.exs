@@ -10,6 +10,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
@@ -466,6 +467,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     test "returns nil when no profiles exist" do
       # Schema determined by DB connection
       actor = SystemActor.system(:test)
+      Repo.query!("TRUNCATE TABLE platform.snmp_profiles CASCADE")
 
       result = SNMPCompiler.resolve_profile(nil, actor)
       assert is_nil(result)

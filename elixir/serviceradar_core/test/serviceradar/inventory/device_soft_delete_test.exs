@@ -4,7 +4,15 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
   @moduletag :integration
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, DeviceCleanupSettings, DeviceCleanupWorker, SyncIngestor}
+
+  alias ServiceRadar.Inventory.{
+    Device,
+    DeviceCleanupSettings,
+    DeviceCleanupWorker,
+    DeviceIdentifier,
+    SyncIngestor
+  }
+
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -92,6 +100,8 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
       })
 
     {:ok, device} = create_device(actor, uid, ip, mac)
+    {:ok, _} = register_identifier(actor, device.uid, :mac, IdentityReconciler.normalize_mac(mac))
+    {:ok, _} = register_identifier(actor, device.uid, :netbox_device_id, netbox_device_id)
     {:ok, _} = soft_delete_device(actor, device, "integration_refresh")
 
     update = %{
@@ -180,6 +190,19 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     |> Ash.update()
   end
 
+  defp register_identifier(actor, device_id, type, value) do
+    DeviceIdentifier
+    |> Ash.Changeset.for_create(:upsert, %{
+      device_id: device_id,
+      identifier_type: type,
+      identifier_value: value,
+      partition: "default",
+      confidence: :strong,
+      source: "device_soft_delete_test"
+    })
+    |> Ash.create(actor: actor)
+  end
+
   defp ensure_cleanup_settings(actor, attrs) do
     case DeviceCleanupSettings.get_settings(actor: actor) do
       {:ok, %DeviceCleanupSettings{} = settings} ->
@@ -226,7 +249,17 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
   end
 
   defp unique_mac do
-    suffix = Integer.to_string(:rand.uniform(255), 16) |> String.pad_leading(2, "0")
-    "AA:BB:CC:DD:EE:#{String.upcase(suffix)}"
+    seed = System.unique_integer([:positive, :monotonic])
+    octet_4 = rem(div(seed, 65_536), 256)
+    octet_5 = rem(div(seed, 256), 256)
+    octet_6 = rem(seed, 256)
+
+    [0xAA, 0xBB, 0xCC, octet_4, octet_5, octet_6]
+    |> Enum.map_join(":", fn octet ->
+      octet
+      |> Integer.to_string(16)
+      |> String.pad_leading(2, "0")
+      |> String.upcase()
+    end)
   end
 end

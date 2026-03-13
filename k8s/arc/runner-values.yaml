@@ -5,7 +5,7 @@ template:
   spec:
     containers:
       - name: runner
-        image: ghcr.io/carverauto/arc-runner@sha256:3c64956f1b4c8027f03b414ca699da181eb87fdb05f8a03444b403cfca81eb11
+        image: ghcr.io/carverauto/arc-runner@sha256:cd933c5c1e917d0e3ad96b81eb02f8dc9ce8ba9043eab7611c457dacf370f26f
         command:
           - /home/runner/run.sh
         args:
