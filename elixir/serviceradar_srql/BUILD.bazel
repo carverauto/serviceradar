@@ -8,6 +8,7 @@ filegroup(
             "bazel-*",
             "_build/**",
             "deps/**",
+            "native/srql_nif/target/**",
             "tmp/**",
         ],
     ),

@@ -15,6 +15,6 @@ rust_binary(
         "@@rules_rust++crate+rust_crates__clap-2.33.4//:clap",
         "@@rules_rust++crate+rust_crates__env_logger-0.8.4//:env_logger",
         "@@rules_rust++crate+rust_crates__log-0.4.29//:log",
-        "@@rules_rust++crate+rust_crates__ctrlc-3.5.1//:ctrlc",
+        "@@rules_rust++crate+rust_crates__ctrlc-3.5.2//:ctrlc",
     ],
 )

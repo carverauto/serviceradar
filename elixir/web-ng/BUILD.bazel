@@ -10,7 +10,9 @@ filegroup(
         exclude = [
             "bazel-*",
             "_build/**",
+            "assets/**/target/**",
             "deps/**",
+            "native/**/target/**",
             "node_modules/**",
             "tmp/**",
             ".git/**",
