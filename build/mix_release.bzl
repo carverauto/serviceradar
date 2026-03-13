@@ -703,7 +703,7 @@ mix deps.get --only prod
 # later dependent compilation can load its Rustler NIF from _build/prod/lib.
 EARLY_DEPS=""
 if grep -q '{{:serviceradar_srql,' mix.exs; then
-  EARLY_DEPS="$EARLY_DEPS serviceradar_srql"
+  EARLY_DEPS="$EARLY_DEPS rustler serviceradar_srql"
 fi
 if [ -n "$EARLY_DEPS" ]; then
   mix deps.compile $EARLY_DEPS
@@ -779,15 +779,18 @@ if [ "{run_assets}" = "true" ]; then
   mv "$DIGEST_ROOT" priv/static
 fi
 
-if [ -n "{app_name}" ] && [ -d priv ]; then
-  APP_BUILD_PRIV="$PROJECT_DIR/_build/prod/lib/{app_name}/priv"
-  rm -rf "$APP_BUILD_PRIV"
-  mkdir -p "$APP_BUILD_PRIV"
-  cp -aL priv/. "$APP_BUILD_PRIV/"
-fi
-
 RELEASE_DIR=$(mktemp -d)
 mix release --path "$RELEASE_DIR"
+
+if [ -n "{app_name}" ] && [ -d priv ]; then
+  RELEASE_APP_DIR=$(find "$RELEASE_DIR/lib" -maxdepth 1 -mindepth 1 -type d -name "{app_name}-*" -print -quit)
+  if [ -n "$RELEASE_APP_DIR" ]; then
+    RELEASE_APP_PRIV="$RELEASE_APP_DIR/priv"
+    rm -rf "$RELEASE_APP_PRIV"
+    mkdir -p "$RELEASE_APP_PRIV"
+    cp -aL priv/. "$RELEASE_APP_PRIV/"
+  fi
+fi
 
 # Mix can leave symlinks in the assembled release that point back into the
 # staged project or shared build cache. Materialize the release tree before
