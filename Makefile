@@ -20,7 +20,7 @@ export GOCACHE
 export GOMODCACHE
 GOBIN ?= $$($(GO) env GOPATH)/bin
 GOLANGCI_LINT ?= golangci-lint
-GOLANGCI_LINT_VERSION ?= v2.9.0
+GOLANGCI_LINT_VERSION ?= v2.11.3
 SWIFTLINT ?= swiftlint
 
 # Rust configuration
@@ -220,12 +220,29 @@ endif
 	@cd rust/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/srql && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy --all-targets -- -D warnings
-	@echo "$(COLOR_BOLD)Running web-ng Credo$(COLOR_RESET)"
-	@cd elixir/web-ng && mix credo --all
-	@echo "$(COLOR_BOLD)Running serviceradar_core Credo$(COLOR_RESET)"
-	@cd elixir/serviceradar_core && mix credo --strict --mute-exit-status
+	@$(MAKE) lint-elixir
 	@echo "$(COLOR_BOLD)Running web-ng assets ESLint$(COLOR_RESET)"
 	@cd elixir/web-ng/assets && bun run lint
+
+.PHONY: lint-elixir
+lint-elixir: ## Run the repository-standard Elixir analyzer contract across elixir/*
+	@set -eu; \
+	projects=' \
+		connection::--skip-dialyzer \
+		datasvc:: \
+		elixir_uuid::--skip-dialyzer \
+		protobuf::--skip-dialyzer --skip-warnings-as-errors \
+		serviceradar_agent_gateway:: \
+		serviceradar_core:: \
+		serviceradar_core_elx:: \
+		serviceradar_srql:: \
+		web-ng::--phoenix'; \
+	for entry in $$projects; do \
+		project="$${entry%%::*}"; \
+		args="$${entry#*::}"; \
+		echo "$(COLOR_BOLD)Running Elixir quality ($${project})$(COLOR_RESET)"; \
+		./scripts/elixir_quality.sh --project "elixir/$${project}" $$args; \
+	done
 
 .PHONY: lint-go
 lint-go: get-golangcilint ## Run Go linting checks

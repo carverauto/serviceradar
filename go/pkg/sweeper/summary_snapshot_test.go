@@ -35,6 +35,7 @@ func TestGetSummary_HostResultsDoNotAliasInternalState(t *testing.T) {
 	internal := processor.GetHostMap()[hostAddr]
 	if internal == nil {
 		t.Fatalf("expected internal host to exist")
+		return
 	}
 	if internal.ICMPStatus == nil || internal.PortMap == nil || len(internal.PortResults) == 0 {
 		t.Fatalf("expected internal host to have ICMPStatus and port state")

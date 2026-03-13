@@ -28,6 +28,7 @@ func TestNewEnricher_EmptyPath(t *testing.T) {
 	}
 	if e == nil {
 		t.Fatal("NewEnricher(\"\") returned nil enricher")
+		return
 	}
 	if e.db != nil {
 		t.Fatal("expected nil db for empty path enricher")
@@ -42,6 +43,7 @@ func TestNewEnricher_MissingFile(t *testing.T) {
 	// Should still return a usable (no-op) enricher
 	if e == nil {
 		t.Fatal("expected non-nil enricher even on error")
+		return
 	}
 	if e.db != nil {
 		t.Fatal("expected nil db for failed open")
