@@ -1,6 +1,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     models::TraceSpanRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::otel_traces::dsl::{
@@ -22,7 +23,6 @@ use diesel::sql_query;
 use diesel::sql_types::{Int4, Jsonb, Nullable, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
-use serde_json::Value;
 
 type TracesTable = crate::schema::otel_traces::table;
 type TracesFromClause = FromClause<TracesTable>;
@@ -42,7 +42,10 @@ pub(super) async fn execute(
             .load::<TracesStatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
-        return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
+        return Ok(rows
+            .into_iter()
+            .filter_map(|row| row.payload.map(serde_json::Value::from))
+            .collect());
     }
 
     let query = build_query(plan)?;
@@ -133,7 +136,7 @@ impl TracesStatsSql {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 struct TracesStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
-    payload: Option<Value>,
+    payload: Option<DbJson>,
 }
 
 #[derive(Debug, Clone)]

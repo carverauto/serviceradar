@@ -1,6 +1,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     models::DeviceRow,
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
     schema::ocsf_devices::dsl::{
@@ -21,7 +22,6 @@ use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromCl
 use diesel::sql_types::{Array, BigInt, Bool, Inet, Jsonb, Nullable, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
-use serde_json::Value;
 use std::net::IpAddr;
 
 type OcsfDevicesTable = crate::schema::ocsf_devices::table;
@@ -110,7 +110,7 @@ fn bind_param_from_device_stats(value: DeviceSqlBindValue) -> BindParam {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 struct DeviceStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
-    payload: Option<Value>,
+    payload: Option<DbJson>,
 }
 
 /// Grouped stats query result
@@ -135,7 +135,10 @@ pub(super) async fn execute(
             .load::<DeviceStatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
-        return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
+        return Ok(rows
+            .into_iter()
+            .filter_map(|row| row.payload.map(serde_json::Value::from))
+            .collect());
     }
 
     if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
@@ -150,7 +153,10 @@ pub(super) async fn execute(
                 .load::<DeviceStatsPayload>(conn)
                 .await
                 .map_err(|err| ServiceError::Internal(err.into()))?;
-            return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
+            return Ok(rows
+                .into_iter()
+                .filter_map(|row| row.payload.map(serde_json::Value::from))
+                .collect());
         }
 
         // Simple count (ungrouped)

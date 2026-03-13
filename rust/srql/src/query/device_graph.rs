@@ -1,6 +1,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     parser::{Entity, FilterOp},
 };
 use diesel::prelude::*;
@@ -21,7 +22,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
         .optional()
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
-    Ok(row.map(|r| vec![r.result]).unwrap_or_default())
+    Ok(row.map(|r| vec![r.result.into()]).unwrap_or_default())
 }
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
@@ -147,7 +148,7 @@ fn validate_device_id(value: &str) -> Result<()> {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 struct DeviceGraphRow {
     #[diesel(sql_type = Jsonb)]
-    result: Value,
+    result: DbJson,
 }
 
 const DEVICE_GRAPH_QUERY: &str = r#"

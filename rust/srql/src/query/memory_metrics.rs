@@ -1,6 +1,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     models::MemoryMetricRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::memory_metrics::dsl::{
@@ -65,7 +66,7 @@ impl SqlBindValue {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 struct MemoryStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
-    payload: Option<Value>,
+    payload: Option<DbJson>,
 }
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
@@ -370,7 +371,10 @@ async fn execute_stats(
         .load::<MemoryStatsPayload>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
-    Ok(rows.into_iter().filter_map(|row| row.payload).collect())
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| row.payload.map(serde_json::Value::from))
+        .collect())
 }
 
 fn build_stats_query(plan: &QueryPlan, spec: &MemoryStatsSpec) -> Result<MemoryStatsSql> {

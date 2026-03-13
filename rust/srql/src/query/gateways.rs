@@ -1,6 +1,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::gateways::dsl::{
         agent_count as col_agent_count, checker_count as col_checker_count,
@@ -93,7 +94,7 @@ struct GatewayRowRow {
     #[diesel(sql_type = Nullable<Timestamptz>)]
     last_seen: Option<DateTime<Utc>>,
     #[diesel(sql_type = Nullable<Jsonb>)]
-    metadata: Option<serde_json::Value>,
+    metadata: Option<DbJson>,
     #[diesel(sql_type = Nullable<Text>)]
     created_by: Option<String>,
     #[diesel(sql_type = Nullable<Bool>)]
@@ -117,7 +118,9 @@ impl GatewayRowRow {
             "first_registered": self.first_registered,
             "first_seen": self.first_seen,
             "last_seen": self.last_seen,
-            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "metadata": self
+                .metadata
+                .map_or(serde_json::json!({}), serde_json::Value::from),
             "created_by": self.created_by,
             "is_healthy": self.is_healthy,
             "agent_count": self.agent_count.unwrap_or(0),

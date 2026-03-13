@@ -1,6 +1,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     parser::{Entity, FilterOp},
 };
 use diesel::deserialize::QueryableByName;
@@ -28,7 +29,10 @@ pub(super) async fn execute(
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
-    Ok(rows.into_iter().filter_map(|row| row.result).collect())
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| row.result.map(serde_json::Value::from))
+        .collect())
 }
 
 pub(super) fn to_sql_and_params(
@@ -135,7 +139,7 @@ fn ensure_read_only(raw: &str) -> Result<()> {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 struct CypherRow {
     #[diesel(sql_type = Nullable<Jsonb>)]
-    result: Option<Value>,
+    result: Option<DbJson>,
 }
 
 fn rewrite_placeholders(sql: &str) -> String {

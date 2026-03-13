@@ -1,6 +1,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     models::TraceSummaryRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     time::TimeRange,
@@ -55,7 +56,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
             let payload = rows
                 .into_iter()
                 .next()
-                .and_then(|row| row.payload)
+                .and_then(|row| row.payload.map(serde_json::Value::from))
                 .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
             Ok(vec![payload])
         }
@@ -144,7 +145,7 @@ fn bind_param_from_query(value: SqlBindValue) -> BindParam {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 struct TraceStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
-    payload: Option<Value>,
+    payload: Option<DbJson>,
 }
 
 fn build_summary_query(plan: &QueryPlan) -> Result<TraceSummarySql> {

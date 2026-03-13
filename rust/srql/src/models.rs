@@ -1,5 +1,6 @@
 //! Data models for CNPG-backed SRQL queries.
 
+use crate::jsonb::DbJson;
 use chrono::{DateTime, Utc};
 use diesel::deserialize::QueryableByName;
 use diesel::prelude::*;
@@ -20,7 +21,7 @@ pub struct AgentRow {
     pub version: Option<String>,
     pub vendor_name: Option<String>,
     pub uid_alt: Option<String>,
-    pub policies: Option<serde_json::Value>,
+    pub policies: Option<DbJson>,
     pub gateway_id: Option<String>,
     pub capabilities: Option<Vec<String>>,
     pub ip: Option<String>,
@@ -28,7 +29,7 @@ pub struct AgentRow {
     pub last_seen_time: Option<DateTime<Utc>>,
     pub created_time: DateTime<Utc>,
     pub modified_time: DateTime<Utc>,
-    pub metadata: Option<serde_json::Value>,
+    pub metadata: Option<DbJson>,
     pub config_source: Option<String>,
 }
 
@@ -52,7 +53,9 @@ impl AgentRow {
             "last_seen": self.last_seen_time,    // Alias for consistency
             "created_time": self.created_time,
             "modified_time": self.modified_time,
-            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "metadata": self
+                .metadata
+                .map_or(serde_json::json!({}), serde_json::Value::from),
             "config_source": self.config_source,
         })
     }
@@ -96,20 +99,20 @@ pub struct DeviceRow {
     pub is_trusted: Option<bool>,
 
     // OCSF Nested Objects (JSONB)
-    pub os: Option<serde_json::Value>,
-    pub hw_info: Option<serde_json::Value>,
-    pub network_interfaces: Option<serde_json::Value>,
-    pub owner: Option<serde_json::Value>,
-    pub org: Option<serde_json::Value>,
-    pub groups: Option<serde_json::Value>,
-    pub agent_list: Option<serde_json::Value>,
+    pub os: Option<DbJson>,
+    pub hw_info: Option<DbJson>,
+    pub network_interfaces: Option<DbJson>,
+    pub owner: Option<DbJson>,
+    pub org: Option<DbJson>,
+    pub groups: Option<DbJson>,
+    pub agent_list: Option<DbJson>,
 
     // ServiceRadar-specific fields
     pub gateway_id: Option<String>,
     pub agent_id: Option<String>,
     pub discovery_sources: Option<Vec<String>>,
     pub is_available: Option<bool>,
-    pub metadata: Option<serde_json::Value>,
+    pub metadata: Option<DbJson>,
     pub deleted_at: Option<DateTime<Utc>>,
     pub deleted_by: Option<String>,
     pub deleted_reason: Option<String>,
@@ -168,7 +171,9 @@ impl DeviceRow {
             "agent_id": self.agent_id,
             "discovery_sources": self.discovery_sources.unwrap_or_default(),
             "is_available": self.is_available.unwrap_or(false),
-            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "metadata": self
+                .metadata
+                .map_or(serde_json::json!({}), serde_json::Value::from),
             "deleted_at": self.deleted_at,
             "deleted_by": self.deleted_by,
             "deleted_reason": self.deleted_reason,
@@ -190,7 +195,7 @@ pub struct BmpRoutingEventRow {
     pub local_asn: Option<i64>,
     pub prefix: Option<String>,
     pub message: Option<String>,
-    pub metadata: serde_json::Value,
+    pub metadata: DbJson,
     pub raw_data: Option<String>,
     pub created_at: DateTime<Utc>,
 }
@@ -234,19 +239,19 @@ pub struct EventRow {
     pub status: Option<String>,
     pub status_code: Option<String>,
     pub status_detail: Option<String>,
-    pub metadata: serde_json::Value,
-    pub observables: serde_json::Value,
+    pub metadata: DbJson,
+    pub observables: DbJson,
     pub trace_id: Option<String>,
     pub span_id: Option<String>,
-    pub actor: serde_json::Value,
-    pub device: serde_json::Value,
-    pub src_endpoint: serde_json::Value,
-    pub dst_endpoint: serde_json::Value,
+    pub actor: DbJson,
+    pub device: DbJson,
+    pub src_endpoint: DbJson,
+    pub dst_endpoint: DbJson,
     pub log_name: Option<String>,
     pub log_provider: Option<String>,
     pub log_level: Option<String>,
     pub log_version: Option<String>,
-    pub unmapped: serde_json::Value,
+    pub unmapped: DbJson,
     pub raw_data: Option<String>,
     pub created_at: DateTime<Utc>,
 }
@@ -319,7 +324,7 @@ pub struct DeviceUpdateRow {
     pub mac: Option<String>,
     pub hostname: Option<String>,
     pub available: Option<bool>,
-    pub metadata: Option<serde_json::Value>,
+    pub metadata: Option<DbJson>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -336,7 +341,9 @@ impl DeviceUpdateRow {
             "mac": self.mac,
             "hostname": self.hostname,
             "available": self.available,
-            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "metadata": self
+                .metadata
+                .map_or(serde_json::json!({}), serde_json::Value::from),
             "created_at": self.created_at,
         })
     }
@@ -507,7 +514,7 @@ pub struct GatewayRow {
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub last_seen: Option<DateTime<Utc>>,
     #[diesel(sql_type = Nullable<Jsonb>)]
-    pub metadata: Option<serde_json::Value>,
+    pub metadata: Option<DbJson>,
     #[diesel(sql_type = Nullable<Text>)]
     pub created_by: Option<String>,
     #[diesel(sql_type = Nullable<Bool>)]
@@ -533,7 +540,9 @@ impl GatewayRow {
             "first_registered": self.first_registered,
             "first_seen": self.first_seen,
             "last_seen": self.last_seen,
-            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "metadata": self
+                .metadata
+                .map_or(serde_json::json!({}), serde_json::Value::from),
             "created_by": self.created_by,
             "is_healthy": self.is_healthy,
             "agent_count": self.agent_count.unwrap_or(0),
@@ -606,13 +615,13 @@ pub struct TimeseriesMetricRow {
     pub device_id: Option<String>,
     pub value: f64,
     pub unit: Option<String>,
-    pub tags: Option<serde_json::Value>,
+    pub tags: Option<DbJson>,
     pub partition: Option<String>,
     pub scale: Option<f64>,
     pub is_delta: Option<bool>,
     pub target_device_ip: Option<String>,
     pub if_index: Option<i32>,
-    pub metadata: Option<serde_json::Value>,
+    pub metadata: Option<DbJson>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -868,7 +877,7 @@ pub struct AlertRow {
     pub notification_count: Option<i64>,
     pub last_notification_at: Option<DateTime<Utc>>,
     pub suppressed_until: Option<DateTime<Utc>>,
-    pub metadata: Option<serde_json::Value>,
+    pub metadata: Option<DbJson>,
     pub tags: Option<Vec<String>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -906,7 +915,9 @@ impl AlertRow {
             "notification_count": self.notification_count.unwrap_or(0),
             "last_notification_at": self.last_notification_at,
             "suppressed_until": self.suppressed_until,
-            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "metadata": self
+                .metadata
+                .map_or(serde_json::json!({}), serde_json::Value::from),
             "tags": self.tags.unwrap_or_default(),
             "created_at": self.created_at,
             "updated_at": self.updated_at,

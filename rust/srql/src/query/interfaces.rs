@@ -1,6 +1,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
     time::TimeRange,
 };
@@ -28,7 +29,10 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
             .load::<StatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
-        return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
+        return Ok(rows
+            .into_iter()
+            .filter_map(|row| row.payload.map(serde_json::Value::from))
+            .collect());
     }
 
     let query_sql = build_query_sql(plan)?;
@@ -112,9 +116,9 @@ struct InterfaceRow {
     #[diesel(sql_type = Nullable<Int4>)]
     if_oper_status: Option<i32>,
     #[diesel(sql_type = Nullable<Jsonb>)]
-    metadata: Option<serde_json::Value>,
+    metadata: Option<DbJson>,
     #[diesel(sql_type = Nullable<Jsonb>)]
-    available_metrics: Option<serde_json::Value>,
+    available_metrics: Option<DbJson>,
     #[diesel(sql_type = Nullable<Float8>)]
     in_errors: Option<f64>,
     #[diesel(sql_type = Nullable<Float8>)]
@@ -155,7 +159,9 @@ impl InterfaceRow {
             "ip_addresses": self.ip_addresses.unwrap_or_default(),
             "if_admin_status": self.if_admin_status,
             "if_oper_status": self.if_oper_status,
-            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "metadata": self
+                .metadata
+                .map_or(serde_json::json!({}), serde_json::Value::from),
             "available_metrics": self.available_metrics,
             "in_errors": self.in_errors,
             "out_errors": self.out_errors,
@@ -171,7 +177,7 @@ impl InterfaceRow {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 struct StatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
-    payload: Option<Value>,
+    payload: Option<DbJson>,
 }
 
 struct SqlBuildResult {

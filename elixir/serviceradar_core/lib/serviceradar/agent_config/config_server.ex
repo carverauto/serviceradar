@@ -44,8 +44,10 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   @spec get_config(atom(), String.t(), String.t() | nil, keyword()) ::
           {:ok, map()} | {:error, term()}
   def get_config(config_type, partition, agent_id \\ nil, opts \\ []) do
+    scope = cache_scope(config_type, opts)
+
     # Check cache first
-    case ConfigCache.get(config_type, partition, agent_id) do
+    case ConfigCache.get(config_type, partition, agent_id, scope) do
       {:ok, entry} ->
         {:ok, entry}
 
@@ -66,7 +68,9 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   @spec get_config_if_changed(atom(), String.t(), String.t() | nil, String.t(), keyword()) ::
           {:ok, map()} | :unchanged | {:error, term()}
   def get_config_if_changed(config_type, partition, agent_id, current_hash, opts \\ []) do
-    case ConfigCache.get_if_changed(config_type, partition, agent_id, current_hash) do
+    scope = cache_scope(config_type, opts)
+
+    case ConfigCache.get_if_changed(config_type, partition, agent_id, current_hash, scope) do
       :unchanged ->
         :unchanged
 
@@ -131,10 +135,12 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   # Private helpers
 
   defp compile_and_cache(config_type, partition, agent_id, opts) do
+    scope = cache_scope(config_type, opts)
+
     case compile(config_type, partition, agent_id, opts) do
       {:ok, compiled_result} ->
         entry = build_cache_entry(compiled_result)
-        ConfigCache.put(config_type, partition, agent_id, entry)
+        ConfigCache.put(config_type, partition, agent_id, entry, scope)
         {:ok, entry}
 
       {:error, _} = error ->
@@ -190,4 +196,18 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
       Logger.warning("ConfigServer: exception loading config: #{inspect(e)}")
       {:error, e}
   end
+
+  defp cache_scope(config_type, opts)
+
+  defp cache_scope(config_type, opts) when config_type in [:mapper, :snmp, :sysmon] do
+    case Keyword.get(opts, :device_uid) do
+      device_uid when is_binary(device_uid) and device_uid != "" ->
+        {:device_uid, device_uid}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp cache_scope(_config_type, _opts), do: nil
 end

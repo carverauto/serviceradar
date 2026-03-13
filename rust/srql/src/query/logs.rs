@@ -1,6 +1,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     models::LogRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::logs::dsl::{
@@ -42,7 +43,10 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
             .load::<LogsStatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
-        return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
+        return Ok(rows
+            .into_iter()
+            .filter_map(|row| row.payload.map(serde_json::Value::from))
+            .collect());
     }
 
     if let Some(stats_sql) = build_stats_query(plan)? {
@@ -51,7 +55,10 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
             .load::<LogsStatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
-        return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
+        return Ok(rows
+            .into_iter()
+            .filter_map(|row| row.payload.map(serde_json::Value::from))
+            .collect());
     }
 
     let query = build_query(plan)?;
@@ -164,7 +171,7 @@ impl LogsStatsSql {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 struct LogsStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
-    payload: Option<Value>,
+    payload: Option<DbJson>,
 }
 
 #[derive(Debug, Clone)]

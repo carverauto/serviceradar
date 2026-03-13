@@ -1,6 +1,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     models::OtelMetricRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::otel_metrics::dsl::{
@@ -38,7 +39,10 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
             .load::<MetricsStatsPayload>(conn)
             .await
             .map_err(|err| ServiceError::Internal(err.into()))?;
-        return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
+        return Ok(rows
+            .into_iter()
+            .filter_map(|row| row.payload.map(serde_json::Value::from))
+            .collect());
     }
 
     let query = build_query(plan)?;
@@ -326,7 +330,7 @@ fn bind_param_from_stats(value: SqlBindValue) -> BindParam {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 struct MetricsStatsPayload {
     #[diesel(sql_type = Nullable<Jsonb>)]
-    payload: Option<Value>,
+    payload: Option<DbJson>,
 }
 
 #[derive(Debug, Clone)]
