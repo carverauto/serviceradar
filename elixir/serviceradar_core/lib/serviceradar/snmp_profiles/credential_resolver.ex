@@ -162,21 +162,38 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   end
 
   defp lookup_device_uid(host, actor) do
+    with false <- ip_literal?(host),
+         {:ok, %Device{} = device} <- Device.get_by_uid(host, false, actor: actor) do
+      {:ok, device.uid}
+    else
+      true ->
+        lookup_device_uid_for_ip(host, actor)
+
+      _ ->
+        lookup_device_uid_by_identity(host, actor)
+    end
+  end
+
+  defp lookup_device_uid_for_ip(host, actor) do
+    case lookup_device_uid_by_ip_alias(host, actor) do
+      {:ok, device_uid} ->
+        {:ok, device_uid}
+
+      {:error, :device_not_found} ->
+        lookup_device_uid_by_identity(host, actor)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp lookup_device_uid_by_identity(host, actor) do
     case Device.get_by_uid(host, false, actor: actor) do
       {:ok, %Device{} = device} ->
         {:ok, device.uid}
 
       _ ->
-        case lookup_device_uid_by_fields(host, actor) do
-          {:ok, device_uid} ->
-            {:ok, device_uid}
-
-          {:error, :device_not_found} ->
-            lookup_device_uid_by_ip_alias(host, actor)
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+        lookup_device_uid_by_fields(host, actor)
     end
   end
 
@@ -208,6 +225,15 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp ip_literal?(host) when is_binary(host) do
+    case :inet.parse_address(String.to_charlist(host)) do
+      {:ok, _address} -> true
+      {:error, _reason} -> false
+    end
+  end
+
+  defp ip_literal?(_host), do: false
 
   defp build_credential(nil), do: nil
 

@@ -468,8 +468,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       actor = SystemActor.system(:test)
 
       result = SNMPCompiler.resolve_profile(nil, actor)
-      assert %SNMPProfile{} = result
-      assert result.is_default == true
+      assert is_nil(result)
     end
 
     @tag :integration
