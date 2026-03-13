@@ -1109,7 +1109,7 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "/jl276vDpQWxB1/3CAGO5clOvCe40KXmJB6wp2bxWj4=",
-        "usagesDigest": "TM65Zk9kF0+1zpHBQ/odgp3y8sQzeBjUIjfoa7SdEWw=",
+        "usagesDigest": "1nmIE2didRwN4ikRim3iYsrWfyRSK+kt1I/1dwZbOPM=",
         "recordedInputs": [
           "REPO_MAPPING:aspect_bazel_lib+,bazel_tools bazel_tools",
           "REPO_MAPPING:bazel_features+,bazel_tools bazel_tools",
@@ -1154,7 +1154,7 @@
               "scheme": "https",
               "registry": "ghcr.io",
               "repository": "actions/actions-runner",
-              "identifier": "sha256:25e5339f41c8511899dff6d9d1ee3d29d0aaca085f24b967f486e153e4368cc6",
+              "identifier": "sha256:97b86689bb0571ca04b858e460190c8359c346c2fb4d093f0f88e40906e0b3c4",
               "platform": "linux/amd64",
               "target_name": "actions_runner_linux_amd64",
               "bazel_tags": []
@@ -1168,7 +1168,7 @@
               "scheme": "https",
               "registry": "ghcr.io",
               "repository": "actions/actions-runner",
-              "identifier": "sha256:25e5339f41c8511899dff6d9d1ee3d29d0aaca085f24b967f486e153e4368cc6",
+              "identifier": "sha256:97b86689bb0571ca04b858e460190c8359c346c2fb4d093f0f88e40906e0b3c4",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@actions_runner_linux_amd64"
               },
@@ -1183,7 +1183,7 @@
               "scheme": "https",
               "registry": "ghcr.io",
               "repository": "carverauto/arc-runner",
-              "identifier": "sha256:4d98cb36fc9a2dd82636e790d2be8c0d14de76584e90c91b7325fb811b8ef9fc",
+              "identifier": "sha256:cd933c5c1e917d0e3ad96b81eb02f8dc9ce8ba9043eab7611c457dacf370f26f",
               "platform": "linux/amd64",
               "target_name": "arc_runner_linux_amd64",
               "bazel_tags": []
@@ -1197,7 +1197,7 @@
               "scheme": "https",
               "registry": "ghcr.io",
               "repository": "carverauto/arc-runner",
-              "identifier": "sha256:4d98cb36fc9a2dd82636e790d2be8c0d14de76584e90c91b7325fb811b8ef9fc",
+              "identifier": "sha256:cd933c5c1e917d0e3ad96b81eb02f8dc9ce8ba9043eab7611c457dacf370f26f",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@arc_runner_linux_amd64"
               },
