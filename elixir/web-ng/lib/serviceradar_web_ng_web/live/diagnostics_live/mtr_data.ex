@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Repo
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @default_pending_states [:queued, :sent, :acknowledged, :running]
   @default_sort {"time", "DESC"}
   @allowed_sort_fields %{

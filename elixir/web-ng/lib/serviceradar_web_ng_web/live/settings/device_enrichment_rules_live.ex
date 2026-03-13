@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
   use ServiceRadarWebNGWeb, :live_view
 
   require Logger
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   import ServiceRadarWebNGWeb.SettingsComponents
 

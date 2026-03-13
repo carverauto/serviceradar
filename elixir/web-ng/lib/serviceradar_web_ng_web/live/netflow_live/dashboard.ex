@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   require Ash.Query
   require Logger
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   @refresh_interval_ms :timer.seconds(60)
 

@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.SRQL do
   alias ServiceRadarWebNG.SRQL.Native
 
   require Logger
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   @behaviour ServiceRadarWebNG.SRQLBehaviour
 
@@ -98,7 +99,7 @@ defmodule ServiceRadarWebNG.SRQL do
     |> case do
       {:ok, params} ->
         with {:ok, result} <- run_sql(sql, params) do
-          build_translation_response({:ok, result}, translation)
+          {:ok, build_response(translation, result)}
         end
 
       {:error, reason} ->
@@ -136,14 +137,6 @@ defmodule ServiceRadarWebNG.SRQL do
       true ->
         {:error, :non_read_only_sql}
     end
-  end
-
-  defp build_translation_response({:ok, result}, translation) do
-    {:ok, build_response(translation, result)}
-  end
-
-  defp build_translation_response({:error, reason}, _translation) do
-    {:error, reason}
   end
 
   defp build_response(translation, %Postgrex.Result{columns: columns, rows: rows}) do

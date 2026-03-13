@@ -801,7 +801,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
             System.get_env("CNPG_TLS_SERVER_NAME") |> to_sni()
           )
 
-        if opts == [], do: true, else: opts
+        opts
     end
   end
 

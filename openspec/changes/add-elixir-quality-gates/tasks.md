@@ -12,9 +12,9 @@
 
 ## 3. Baseline Cleanup
 
-- [ ] 3.1 Run the analyzer suite locally for each managed Mix project under `elixir/`
-- [ ] 3.2 Fix or explicitly suppress existing findings required to reach a stable green baseline
-- [ ] 3.3 Verify local documented commands and CI jobs execute the same analyzer sequence
+- [x] 3.1 Run the analyzer suite locally for each managed Mix project under `elixir/`
+- [x] 3.2 Fix or explicitly suppress existing findings required to reach a stable green baseline
+- [x] 3.3 Verify local documented commands and CI jobs execute the same analyzer sequence
 
 ## 4. Documentation
 

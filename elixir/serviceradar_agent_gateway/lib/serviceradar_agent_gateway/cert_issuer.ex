@@ -20,10 +20,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     component_type = normalize_component_type(component_type)
 
     with :ok <- validate_component_type(component_type),
-         {:ok, ca_cert, ca_key} <- load_ca_paths(opts),
-         {:ok, bundle} <-
-           generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, opts) do
-      {:ok, bundle}
+         {:ok, ca_cert, ca_key} <- load_ca_paths(opts) do
+      generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, opts)
     end
   end
 

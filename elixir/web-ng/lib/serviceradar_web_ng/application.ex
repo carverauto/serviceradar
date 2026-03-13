@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Application do
   use Application
 
   require Logger
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   @impl true
   def start(_type, _args) do
@@ -240,15 +241,16 @@ defmodule ServiceRadarWebNG.Application do
   end
 
   defp try_connect_to_node(host) do
-    with {:ok, node} <- remote_node(host) do
-      Logger.debug("Attempting to connect to #{node}")
+    case remote_node(host) do
+      {:ok, node} ->
+        Logger.debug("Attempting to connect to #{node}")
 
-      case Node.connect(node) do
-        true -> Logger.info("Connected to #{node}")
-        false -> Logger.debug("Could not connect to #{node} (may not be up yet)")
-        :ignored -> Logger.debug("Connection to #{node} ignored")
-      end
-    else
+        case Node.connect(node) do
+          true -> Logger.info("Connected to #{node}")
+          false -> Logger.debug("Could not connect to #{node} (may not be up yet)")
+          :ignored -> Logger.debug("Connection to #{node} ignored")
+        end
+
       :error ->
         Logger.warning("Skipping invalid cluster host entry: #{inspect(host)}")
     end

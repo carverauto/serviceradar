@@ -44,6 +44,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @doc """
   Creates a tarball bundle for the given collector package.
 

@@ -68,37 +68,23 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
     key = {:agent_control, agent_id}
 
-    case register_session(key, metadata) do
-      :ok ->
-        {:reply, :ok,
-         %{
-           state
-           | agent_id: agent_id,
-             partition_id: partition_id,
-             capabilities: capabilities,
-             registry_key: key
-         }}
+    :ok = register_session(key, metadata)
 
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:reply, :ok,
+     %{
+       state
+       | agent_id: agent_id,
+         partition_id: partition_id,
+         capabilities: capabilities,
+         registry_key: key
+     }}
   end
 
   def handle_call({:send_command, command, context}, _from, state) do
     response = %Monitoring.ControlStreamResponse{payload: {:command, command}}
 
-    case GRPC.Server.send_reply(state.stream, response) do
-      :ok ->
-        log_command_dispatch(state, command)
-        {:reply, {:ok, command.command_id}, track_command(state, command, context)}
-
-      {:ok, %GRPC.Server.Stream{} = stream} ->
-        log_command_dispatch(state, command)
-
-        {:reply, {:ok, command.command_id},
-         track_command(%{state | stream: stream}, command, context)}
-
-      %GRPC.Server.Stream{} = stream ->
+    case send_stream_reply(state.stream, response) do
+      {:ok, stream} ->
         log_command_dispatch(state, command)
 
         {:reply, {:ok, command.command_id},
@@ -110,34 +96,18 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         )
 
         {:reply, {:error, reason}, state}
-
-      other ->
-        Logger.warning(
-          "Unexpected reply while dispatching command to agent #{state.agent_id}: #{inspect(other)}"
-        )
-
-        {:reply, {:error, {:unexpected_reply, other}}, state}
     end
   end
 
   def handle_call({:push_config, config}, _from, state) do
     response = %Monitoring.ControlStreamResponse{payload: {:config, config}}
 
-    case GRPC.Server.send_reply(state.stream, response) do
-      :ok ->
-        {:reply, :ok, state}
-
-      {:ok, %GRPC.Server.Stream{} = stream} ->
-        {:reply, :ok, %{state | stream: stream}}
-
-      %GRPC.Server.Stream{} = stream ->
+    case send_stream_reply(state.stream, response) do
+      {:ok, stream} ->
         {:reply, :ok, %{state | stream: stream}}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
-
-      other ->
-        {:reply, {:error, {:unexpected_reply, other}}, state}
     end
   end
 
@@ -194,12 +164,21 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
         case ProcessRegistry.register(key, metadata) do
           {:ok, _pid} -> :ok
-          {:error, reason} -> {:error, reason}
+          {:error, {:already_registered, _pid}} -> :ok
         end
-
-      {:error, reason} ->
-        {:error, reason}
     end
+  end
+
+  @spec send_stream_reply(GRPC.Server.Stream.t(), struct()) ::
+          {:ok, GRPC.Server.Stream.t()} | {:error, term()}
+  defp send_stream_reply(stream, response) do
+    {:ok, GRPC.Server.send_reply(stream, response)}
+  rescue
+    error ->
+      {:error, error}
+  catch
+    kind, reason ->
+      {:error, {kind, reason}}
   end
 
   defp broadcast_ack(ack, state) do

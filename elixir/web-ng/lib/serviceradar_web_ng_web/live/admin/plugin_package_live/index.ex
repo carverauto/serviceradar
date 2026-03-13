@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   require Ash.Query
   require Logger
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.Manifest

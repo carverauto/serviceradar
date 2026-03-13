@@ -2166,7 +2166,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     total_favorited = MapSet.size(favorited_uids)
     enabled_favorited_uids = MapSet.intersection(favorited_uids, metrics_enabled_uids)
 
-    if map_size(enabled_favorited_uids) == 0 do
+    if MapSet.size(enabled_favorited_uids) == 0 do
       %{
         has_favorited: total_favorited > 0,
         panels: [],

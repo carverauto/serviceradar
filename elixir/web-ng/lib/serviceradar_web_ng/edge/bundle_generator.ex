@@ -23,6 +23,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.OnboardingToken
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @doc """
   Creates a tarball bundle for the given package and certificate data.
 

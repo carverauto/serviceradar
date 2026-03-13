@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
 
   require Logger
   require Ash.Query
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User

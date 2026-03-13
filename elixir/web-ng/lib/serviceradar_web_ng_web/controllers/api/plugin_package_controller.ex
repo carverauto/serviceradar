@@ -14,6 +14,8 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.RBAC
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
   def index(conn, params) do

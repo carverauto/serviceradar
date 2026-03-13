@@ -79,7 +79,7 @@ defmodule ServiceRadarGateway.RegistrationTest do
 
       # Find gateways for partition-a
       gateways_a = GatewayRegistry.find_gateways_for_partition("test-partition-a")
-      assert length(gateways_a) >= 1
+      assert gateways_a != []
       assert Enum.all?(gateways_a, &(&1.partition_id == "test-partition-a"))
     end
 

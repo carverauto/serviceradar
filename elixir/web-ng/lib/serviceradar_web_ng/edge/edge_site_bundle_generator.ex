@@ -32,6 +32,8 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
 
   alias ServiceRadar.Edge.NatsLeafConfigGenerator
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @doc """
   Creates a tarball bundle for an edge site.
 

@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNGWeb.Endpoint
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @default_base_path "/var/lib/serviceradar/plugin-packages"
   @default_upload_ttl_seconds 900
   @default_download_ttl_seconds 900
