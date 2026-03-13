@@ -550,6 +550,7 @@ mkdir -p "$MIX_GLOBAL_CACHE/node_modules"
 mkdir -p "$MIX_GLOBAL_CACHE/component_node_modules"
 
 WORKDIR=$(mktemp -d)
+PROJECT_DIR="$WORKDIR/{src_dir}"
 export HOME="$MIX_GLOBAL_CACHE/.mix_home"
 export MIX_HOME="$HOME/.mix"
 export HEX_HOME="$HOME/.hex"
@@ -617,17 +618,18 @@ else
   export CARGO_HOME="$HOME/.cargo"
 fi
 mkdir -p "$CARGO_HOME"
-copy_dir "{src_dir}/" "$WORKDIR/"
+mkdir -p "$(dirname "$PROJECT_DIR")"
+copy_dir "{src_dir}/" "$PROJECT_DIR/"
 {extra_copy}
 
-# Link persistent caches into WORKDIR before compilation
-rm -rf "$WORKDIR/deps" "$WORKDIR/_build" "$WORKDIR/assets/node_modules" "$WORKDIR/assets/component/node_modules"
-ln -sf "$MIX_GLOBAL_CACHE/deps" "$WORKDIR/deps"
-ln -sf "$MIX_GLOBAL_CACHE/_build" "$WORKDIR/_build"
-mkdir -p "$WORKDIR/assets"
-ln -sf "$MIX_GLOBAL_CACHE/node_modules" "$WORKDIR/assets/node_modules"
-mkdir -p "$WORKDIR/assets/component"
-ln -sf "$MIX_GLOBAL_CACHE/component_node_modules" "$WORKDIR/assets/component/node_modules"
+# Link persistent caches into the project directory before compilation
+rm -rf "$PROJECT_DIR/deps" "$PROJECT_DIR/_build" "$PROJECT_DIR/assets/node_modules" "$PROJECT_DIR/assets/component/node_modules"
+ln -sf "$MIX_GLOBAL_CACHE/deps" "$PROJECT_DIR/deps"
+ln -sf "$MIX_GLOBAL_CACHE/_build" "$PROJECT_DIR/_build"
+mkdir -p "$PROJECT_DIR/assets"
+ln -sf "$MIX_GLOBAL_CACHE/node_modules" "$PROJECT_DIR/assets/node_modules"
+mkdir -p "$PROJECT_DIR/assets/component"
+ln -sf "$MIX_GLOBAL_CACHE/component_node_modules" "$PROJECT_DIR/assets/component/node_modules"
 
 if [ -d "$EXECROOT/rust/srql" ] || [ -d "$EXECROOT/rust/kvutil" ]; then
   if [ -d "$EXECROOT/rust/srql" ]; then
@@ -676,30 +678,12 @@ EOF
       rm -f "$WORKDIR/Cargo.lock"
     fi
 
-    mkdir -p /tmp/rust
-    rm -rf /tmp/rust/srql /tmp/rust/kvutil
-    [ -d "$WORKDIR/rust/srql" ] && ln -s "$WORKDIR/rust/srql" /tmp/rust/srql
-    [ -d "$WORKDIR/rust/kvutil" ] && ln -s "$WORKDIR/rust/kvutil" /tmp/rust/kvutil
-    cp "$WORKDIR/Cargo.toml" /tmp/rust/Cargo.toml
   fi
 fi
 
-mkdir -p /tmp/elixir
-rm -rf /tmp/elixir/datasvc
-ln -s "$WORKDIR/elixir/datasvc" /tmp/elixir/datasvc
-rm -rf /tmp/elixir/serviceradar_core
-ln -s "$WORKDIR/elixir/serviceradar_core" /tmp/elixir/serviceradar_core
-rm -rf /tmp/elixir/serviceradar_srql
-ln -s "$WORKDIR/elixir/serviceradar_srql" /tmp/elixir/serviceradar_srql
-rm -rf /tmp/serviceradar_core
-ln -s "$WORKDIR/elixir/serviceradar_core" /tmp/serviceradar_core
-rm -rf /tmp/serviceradar_srql
-ln -s "$WORKDIR/elixir/serviceradar_srql" /tmp/serviceradar_srql
-rm -rf /tmp/datasvc
-ln -s "$WORKDIR/elixir/datasvc" /tmp/datasvc
-
 cd "$WORKDIR"
 chmod -R u+w .
+cd "$PROJECT_DIR"
 
 # Fetch and compile deps, build assets, create release into Bazel output dir
 if ! ls "$MIX_HOME/archives/hex-"* >/dev/null 2>&1; then
@@ -717,9 +701,15 @@ mix deps.get --only prod
 {patch_script}
 # Compile the minimal dependency chain for the SRQL path dependency first so
 # later dependent compilation can load its Rustler NIF from _build/prod/lib.
-mix deps.compile jason rustler serviceradar_srql
+EARLY_DEPS=""
+if grep -q '{{:serviceradar_srql,' mix.exs; then
+  EARLY_DEPS="$EARLY_DEPS rustler serviceradar_srql"
+fi
+if [ -n "$EARLY_DEPS" ]; then
+  mix deps.compile $EARLY_DEPS
+fi
 if [ -d "$WORKDIR/elixir/serviceradar_srql/priv/native" ]; then
-  SRQL_BUILD_PRIV="$WORKDIR/_build/prod/lib/serviceradar_srql/priv"
+  SRQL_BUILD_PRIV="$PROJECT_DIR/_build/prod/lib/serviceradar_srql/priv"
   rm -rf "$SRQL_BUILD_PRIV"
   mkdir -p "$SRQL_BUILD_PRIV"
   cp -aL "$WORKDIR/elixir/serviceradar_srql/priv/." "$SRQL_BUILD_PRIV/"
@@ -735,8 +725,8 @@ if [ "{run_assets}" = "true" ]; then
     [ -d priv/static/images ] && cp -r priv/static/images "$PRESERVED_STATIC/"
   fi
 
-  STATIC_ROOT="$WORKDIR/priv_static"
-  DIGEST_ROOT="$WORKDIR/priv_static_digest"
+  STATIC_ROOT="$PROJECT_DIR/priv_static"
+  DIGEST_ROOT="$PROJECT_DIR/priv_static_digest"
   rm -rf priv/static "$DIGEST_ROOT"
   mkdir -p "$STATIC_ROOT/assets/css"
   ln -s "$STATIC_ROOT" priv/static
@@ -781,19 +771,36 @@ if [ "{run_assets}" = "true" ]; then
   # Bundle React components for Phoenix React Server (if component directory exists)
   if [ -d assets/component/src ] && [ -f assets/component/package.json ]; then
     mkdir -p priv/react
-    mix phx.react.bun.bundle --component-base=assets/component/src --output="$WORKDIR/priv/react/server.js" --cd="$WORKDIR/assets/component"
+    mix phx.react.bun.bundle --component-base=assets/component/src --output="$PROJECT_DIR/priv/react/server.js" --cd="$PROJECT_DIR/assets/component"
   fi
 
   mix phx.digest priv/static -o "$DIGEST_ROOT"
   rm priv/static
   mv "$DIGEST_ROOT" priv/static
 fi
+
 RELEASE_DIR=$(mktemp -d)
 mix release --path "$RELEASE_DIR"
 
+if [ -n "{app_name}" ] && [ -d priv ]; then
+  RELEASE_APP_DIR=$(find "$RELEASE_DIR/lib" -maxdepth 1 -mindepth 1 -type d -name "{app_name}-*" -print -quit)
+  if [ -n "$RELEASE_APP_DIR" ]; then
+    RELEASE_APP_PRIV="$RELEASE_APP_DIR/priv"
+    rm -rf "$RELEASE_APP_PRIV"
+    mkdir -p "$RELEASE_APP_PRIV"
+    cp -aL priv/. "$RELEASE_APP_PRIV/"
+  fi
+fi
+
+# Mix can leave symlinks in the assembled release that point back into the
+# staged project or shared build cache. Materialize the release tree before
+# archiving so the runtime tarball is self-contained inside the final image.
+PACKAGED_RELEASE_DIR=$(mktemp -d)
+copy_dir "$RELEASE_DIR/" "$PACKAGED_RELEASE_DIR/"
+
 # Package release to tar output (ensure parent exists, write via absolute path)
 mkdir -p "$(dirname "$EXECROOT/{tar_out}")"
-tar -czf "$EXECROOT/{tar_out}" -C "$RELEASE_DIR" .
+tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED_RELEASE_DIR" .
 """.format(
             elixir_home = elixir_home,
             erlang_home = erlang_home,
@@ -809,6 +816,7 @@ tar -czf "$EXECROOT/{tar_out}" -C "$RELEASE_DIR" .
             patch_script = patch_script_placeholder,
             hex_cache_tar = hex_cache.path if hex_cache else "",
             bun_path = bun.path if bun else "",
+            app_name = ctx.attr.workdir_name,
         ).replace(patch_script_placeholder, patch_script),
         use_default_shell_env = False,
     )
