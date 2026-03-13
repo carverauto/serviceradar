@@ -7,7 +7,7 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
 
   ## Cache Key Structure
 
-  Keys are tuples: `{config_type, partition, agent_id}`
+  Keys are tuples: `{config_type, partition, agent_id, scope}`
 
   ## Cache Entry Structure
 
@@ -40,13 +40,13 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
 
   Returns `{:ok, entry}` if found, `:miss` if not cached.
   """
-  @spec get(atom(), String.t(), String.t() | nil) ::
+  @spec get(atom(), String.t(), String.t() | nil, term()) ::
           {:ok, map()} | :miss
-  def get(config_type, partition, agent_id \\ nil) do
+  def get(config_type, partition, agent_id \\ nil, scope \\ nil) do
     if :ets.whereis(@table_name) == :undefined do
       :miss
     else
-      key = cache_key(config_type, partition, agent_id)
+      key = cache_key(config_type, partition, agent_id, scope)
       now = System.monotonic_time(:millisecond)
 
       case :ets.lookup(@table_name, key) do
@@ -71,10 +71,10 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   `{:ok, entry}` if hash differs or not cached,
   `:miss` if not cached.
   """
-  @spec get_if_changed(atom(), String.t(), String.t() | nil, String.t()) ::
+  @spec get_if_changed(atom(), String.t(), String.t() | nil, String.t(), term()) ::
           :unchanged | {:ok, map()} | :miss
-  def get_if_changed(config_type, partition, agent_id, current_hash) do
-    case get(config_type, partition, agent_id) do
+  def get_if_changed(config_type, partition, agent_id, current_hash, scope \\ nil) do
+    case get(config_type, partition, agent_id, scope) do
       {:ok, entry} ->
         if entry.hash == current_hash do
           :unchanged
@@ -90,12 +90,12 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   @doc """
   Puts a compiled config into the cache.
   """
-  @spec put(atom(), String.t(), String.t() | nil, map(), integer()) :: :ok
-  def put(config_type, partition, agent_id, entry, ttl_ms \\ @default_ttl_ms) do
+  @spec put(atom(), String.t(), String.t() | nil, map(), term(), integer()) :: :ok
+  def put(config_type, partition, agent_id, entry, scope \\ nil, ttl_ms \\ @default_ttl_ms) do
     if :ets.whereis(@table_name) == :undefined do
       :ok
     else
-      key = cache_key(config_type, partition, agent_id)
+      key = cache_key(config_type, partition, agent_id, scope)
       expires_at = System.monotonic_time(:millisecond) + ttl_ms
 
       :ets.insert(@table_name, {key, entry, expires_at})
@@ -113,7 +113,7 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
     else
       # Match all keys for this config type
       match_spec = [
-        {{{config_type, :_, :_}, :_, :_}, [], [true]}
+        {{{config_type, :_, :_, :_}, :_, :_}, [], [true]}
       ]
 
       :ets.select_delete(@table_name, match_spec)
@@ -124,12 +124,12 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   @doc """
   Invalidates a specific cache entry.
   """
-  @spec invalidate_key(atom(), String.t(), String.t() | nil) :: :ok
-  def invalidate_key(config_type, partition, agent_id) do
+  @spec invalidate_key(atom(), String.t(), String.t() | nil, term()) :: :ok
+  def invalidate_key(config_type, partition, agent_id, scope \\ nil) do
     if :ets.whereis(@table_name) == :undefined do
       :ok
     else
-      key = cache_key(config_type, partition, agent_id)
+      key = cache_key(config_type, partition, agent_id, scope)
       :ets.delete(@table_name, key)
       :ok
     end
@@ -191,8 +191,8 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
 
   # Private helpers
 
-  defp cache_key(config_type, partition, agent_id) do
-    {config_type, partition, agent_id}
+  defp cache_key(config_type, partition, agent_id, scope) do
+    {config_type, partition, agent_id, scope}
   end
 
   defp schedule_cleanup do

@@ -1,6 +1,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     models::ServiceStatusRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::service_status::dsl::{
@@ -35,7 +36,7 @@ type ServicesStatsQuery<'a> = BoxedSelectStatement<'a, BigInt, ServiceStatusFrom
 #[diesel(check_for_backend(diesel::pg::Pg))]
 struct ServicesRollupStatsSql {
     #[diesel(sql_type = Jsonb)]
-    payload: Value,
+    payload: DbJson,
 }
 
 /// Payload structure for services availability rollup stats (reference/documentation)
@@ -67,7 +68,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
             .map_err(|err| ServiceError::Internal(err.into()))?;
 
         if let Some(row) = rows.into_iter().next() {
-            return Ok(vec![row.payload]);
+            return Ok(vec![row.payload.into()]);
         }
         // Return empty stats if no data
         return Ok(vec![serde_json::json!({
