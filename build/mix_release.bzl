@@ -63,6 +63,7 @@ def _mix_release_impl(ctx):
         )
 
     run_assets = "true" if ctx.attr.run_assets else "false"
+    bootstrap_inputs = "\\n".join(sorted([f.short_path for f in ctx.files.bootstrap_srcs]))
     patch_script = """python3 - <<'PY'
 from pathlib import Path
 
@@ -398,7 +399,27 @@ print(tempfile.gettempdir())
 PY
 )
 
-TARGET_HASH=$(echo "{tar_out}" | md5sum | cut -d' ' -f1 2>/dev/null || echo "{tar_out}" | md5 -q 2>/dev/null || echo "mix_release_hash")
+CACHE_VERSION="mix_release_v2"
+BOOTSTRAP_HASH=$(
+  while IFS= read -r relpath; do
+    [ -n "$relpath" ] || continue
+    if [ -f "$EXECROOT/$relpath" ]; then
+      if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$EXECROOT/$relpath"
+      else
+        shasum -a 256 "$EXECROOT/$relpath"
+      fi
+    fi
+  done <<'EOF'
+{bootstrap_inputs}
+EOF
+)
+TARGET_HASH_INPUT="$CACHE_VERSION|{src_dir}|{tar_out}|$BOOTSTRAP_HASH"
+if command -v sha256sum >/dev/null 2>&1; then
+  TARGET_HASH=$(printf '%s' "$TARGET_HASH_INPUT" | sha256sum | cut -d' ' -f1)
+else
+  TARGET_HASH=$(printf '%s' "$TARGET_HASH_INPUT" | shasum -a 256 | cut -d' ' -f1)
+fi
 if [ -d /cache ] && [ -w /cache ]; then
   MIX_GLOBAL_CACHE="/cache/mix_bazel_$TARGET_HASH"
 else
@@ -693,6 +714,7 @@ tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED_RELEASE_DIR" .
             otp_tar = otp_tar.path if otp_tar else "",
             extra_copy = "".join(extra_copy_cmds),
             run_assets = run_assets,
+            bootstrap_inputs = bootstrap_inputs,
             patch_script = patch_script_placeholder,
             hex_cache_tar = hex_cache.path if hex_cache else "",
             bun_path = bun.path if bun else "",
