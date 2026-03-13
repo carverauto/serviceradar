@@ -91,7 +91,6 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
 
   def handle_event("create_file", %{"new_file" => %{"file_name" => file_name}}, socket) do
     with {:ok, normalized_name} <- normalize_file_name(file_name),
-         :ok <- File.mkdir_p(socket.assigns.rules_dir),
          false <- File.exists?(Path.join(socket.assigns.rules_dir, normalized_name)),
          :ok <- write_rules_file(socket.assigns.rules_dir, normalized_name, []) do
       record_rules_audit(socket, :create_file, normalized_name, %{
@@ -1206,6 +1205,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     end
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp read_rule_file(rules_dir, file_name) do
     override_path = Path.join(rules_dir, file_name)
     inactive_override_path = override_path <> ".disabled"
@@ -1293,6 +1293,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     end
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp delete_override_file(rules_dir, file_name) do
     active_path = Path.join(rules_dir, file_name)
     inactive_path = active_path <> ".disabled"
@@ -1457,6 +1458,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     end
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp write_rules_file(dir, file_name, rules, expected_mtime \\ :any) do
     with :ok <- File.mkdir_p(dir),
          {:ok, normalized_name} <- normalize_file_name(file_name),

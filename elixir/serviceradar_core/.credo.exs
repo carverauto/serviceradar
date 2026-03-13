@@ -28,7 +28,7 @@
         ]
       },
       plugins: [],
-      requires: ["lib/serviceradar/credo/check/warning/authorize_false_usage.ex"],
+      requires: ["credo/check/warning/authorize_false_usage.ex"],
       strict: false,
       parse_timeout: 5000,
       color: true,
@@ -46,11 +46,7 @@
           {Credo.Check.Consistency.TabsOrSpaces, []},
 
           # Design checks
-          {Credo.Check.Design.AliasUsage,
-           [priority: :low, if_nested_deeper_than: 2, if_called_more_often_than: 1]},
-
           # Readability checks
-          {Credo.Check.Readability.AliasOrder, []},
           {Credo.Check.Readability.FunctionNames, []},
           {Credo.Check.Readability.LargeNumbers, []},
           {Credo.Check.Readability.MaxLineLength, [priority: :low, max_length: 120]},
@@ -58,21 +54,17 @@
           {Credo.Check.Readability.ModuleDoc, []},
           {Credo.Check.Readability.ModuleNames, []},
           {Credo.Check.Readability.ParenthesesInCondition, []},
-          {Credo.Check.Readability.ParenthesesOnZeroArityDefs, []},
           {Credo.Check.Readability.PipeIntoAnonymousFunctions, []},
           {Credo.Check.Readability.PredicateFunctionNames, []},
-          {Credo.Check.Readability.PreferImplicitTry, []},
           {Credo.Check.Readability.RedundantBlankLines, []},
           {Credo.Check.Readability.Semicolons, []},
           {Credo.Check.Readability.SpaceAfterCommas, []},
-          {Credo.Check.Readability.StringSigils, []},
           {Credo.Check.Readability.TrailingBlankLine, []},
           {Credo.Check.Readability.TrailingWhiteSpace, []},
           {Credo.Check.Readability.UnnecessaryAliasExpansion, []},
           {Credo.Check.Readability.VariableNames, []},
 
           # Refactoring opportunities
-          {Credo.Check.Refactor.Apply, []},
           {Credo.Check.Refactor.CondStatements, []},
           {Credo.Check.Refactor.CyclomaticComplexity, []},
           {Credo.Check.Refactor.FunctionArity, [max_arity: 8]},
@@ -111,9 +103,15 @@
           # We use custom AuthorizeFalseUsage instead
           {Credo.Check.Design.TagTODO, []},
           {Credo.Check.Design.TagFIXME, []},
+          {Credo.Check.Design.AliasUsage, []},
           # Too noisy for our codebase
           {Credo.Check.Refactor.ABCSize, []},
-          {Credo.Check.Readability.Specs, []}
+          {Credo.Check.Readability.AliasOrder, []},
+          {Credo.Check.Readability.ParenthesesOnZeroArityDefs, []},
+          {Credo.Check.Readability.PreferImplicitTry, []},
+          {Credo.Check.Readability.Specs, []},
+          {Credo.Check.Readability.StringSigils, []},
+          {Credo.Check.Refactor.Apply, []}
         ]
       }
     }

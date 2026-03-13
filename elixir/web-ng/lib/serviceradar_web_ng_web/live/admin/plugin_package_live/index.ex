@@ -650,6 +650,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp handle_wasm_upload(socket, package, scope) do
     results =
       consume_uploaded_entries(socket, :wasm_blob, fn %{path: path}, _entry ->

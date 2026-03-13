@@ -4,16 +4,24 @@ defmodule UUID do
   See [RFC 4122](http://www.ietf.org/rfc/rfc4122.txt).
   """
 
-  @nanosec_intervals_offset 122_192_928_000_000_000 # 15 Oct 1582 to 1 Jan 1970.
-  @nanosec_intervals_factor 10 # Microseconds to nanoseconds factor.
+  # 15 Oct 1582 to 1 Jan 1970.
+  @nanosec_intervals_offset 122_192_928_000_000_000
+  # Microseconds to nanoseconds factor.
+  @nanosec_intervals_factor 10
 
-  @variant10 2 # Variant, corresponds to variant 1 0 of RFC 4122.
-  @uuid_v1 1 # UUID v1 identifier.
-  @uuid_v3 3 # UUID v3 identifier.
-  @uuid_v4 4 # UUID v4 identifier.
-  @uuid_v5 5 # UUID v5 identifier.
+  # Variant, corresponds to variant 1 0 of RFC 4122.
+  @variant10 2
+  # UUID v1 identifier.
+  @uuid_v1 1
+  # UUID v3 identifier.
+  @uuid_v3 3
+  # UUID v4 identifier.
+  @uuid_v4 4
+  # UUID v5 identifier.
+  @uuid_v5 5
 
-  @urn "urn:uuid:" # UUID URN prefix.
+  # UUID URN prefix.
+  @urn "urn:uuid:"
 
   @doc """
   Inspect a UUID and return tuple with `{:ok, result}`, where result is
@@ -128,12 +136,16 @@ defmodule UUID do
   def info!(<<uuid::binary>> = uuid_string) do
     {type, <<uuid::128>>} = uuid_string_to_hex_pair(uuid)
     <<_::48, version::4, _::12, v0::1, v1::1, v2::1, _::61>> = <<uuid::128>>
-    [uuid: uuid_string,
-     binary: <<uuid::128>>,
-     type: type,
-     version: version,
-     variant: variant(<<v0, v1, v2>>)]
+
+    [
+      uuid: uuid_string,
+      binary: <<uuid::128>>,
+      type: type,
+      version: version,
+      variant: variant(<<v0, v1, v2>>)
+    ]
   end
+
   def info!(_) do
     raise ArgumentError, message: "Invalid argument; Expected: String"
   end
@@ -167,9 +179,11 @@ defmodule UUID do
 
   """
   def binary_to_string!(uuid, format \\ :default)
+
   def binary_to_string!(<<uuid::binary>>, format) do
     uuid_to_string(<<uuid::binary>>, format)
   end
+
   def binary_to_string!(_, _) do
     raise ArgumentError, message: "Invalid argument; Expected: <<uuid::128>>"
   end
@@ -206,6 +220,7 @@ defmodule UUID do
     {_type, <<uuid::128>>} = uuid_string_to_hex_pair(uuid)
     <<uuid::128>>
   end
+
   def string_to_binary!(_) do
     raise ArgumentError, message: "Invalid argument; Expected: String"
   end
@@ -270,16 +285,18 @@ defmodule UUID do
 
   """
   def uuid1(clock_seq, node, format \\ :default)
+
   def uuid1(<<clock_seq::14>>, <<node::48>>, format) do
     <<time_hi::12, time_mid::16, time_low::32>> = uuid1_time()
     <<clock_seq_hi::6, clock_seq_low::8>> = <<clock_seq::14>>
-    <<time_low::32, time_mid::16, @uuid_v1::4, time_hi::12, @variant10::2,
-      clock_seq_hi::6, clock_seq_low::8, node::48>>
-      |> uuid_to_string(format)
+
+    <<time_low::32, time_mid::16, @uuid_v1::4, time_hi::12, @variant10::2, clock_seq_hi::6,
+      clock_seq_low::8, node::48>>
+    |> uuid_to_string(format)
   end
+
   def uuid1(_, _, _) do
-    raise ArgumentError, message:
-    "Invalid argument; Expected: <<clock_seq::14>>, <<node::48>>"
+    raise ArgumentError, message: "Invalid argument; Expected: <<clock_seq::14>>, <<node::48>>"
   end
 
   @doc """
@@ -317,34 +334,42 @@ defmodule UUID do
 
   """
   def uuid3(namespace_or_uuid, name, format \\ :default)
+
   def uuid3(:dns, <<name::binary>>, format) do
-    namebased_uuid(:md5, <<0x6ba7b8109dad11d180b400c04fd430c8::128, name::binary>>)
-      |> uuid_to_string(format)
+    namebased_uuid(:md5, <<0x6BA7B8109DAD11D180B400C04FD430C8::128, name::binary>>)
+    |> uuid_to_string(format)
   end
+
   def uuid3(:url, <<name::binary>>, format) do
-    namebased_uuid(:md5, <<0x6ba7b8119dad11d180b400c04fd430c8::128, name::binary>>)
-      |> uuid_to_string(format)
+    namebased_uuid(:md5, <<0x6BA7B8119DAD11D180B400C04FD430C8::128, name::binary>>)
+    |> uuid_to_string(format)
   end
+
   def uuid3(:oid, <<name::binary>>, format) do
-    namebased_uuid(:md5, <<0x6ba7b8129dad11d180b400c04fd430c8::128, name::binary>>)
-      |> uuid_to_string(format)
+    namebased_uuid(:md5, <<0x6BA7B8129DAD11D180B400C04FD430C8::128, name::binary>>)
+    |> uuid_to_string(format)
   end
+
   def uuid3(:x500, <<name::binary>>, format) do
-    namebased_uuid(:md5, <<0x6ba7b8149dad11d180b400c04fd430c8::128, name::binary>>)
-      |> uuid_to_string(format)
+    namebased_uuid(:md5, <<0x6BA7B8149DAD11D180B400C04FD430C8::128, name::binary>>)
+    |> uuid_to_string(format)
   end
-  def uuid3(:nil, <<name::binary>>, format) do
+
+  def uuid3(nil, <<name::binary>>, format) do
     namebased_uuid(:md5, <<0::128, name::binary>>)
-      |> uuid_to_string(format)
+    |> uuid_to_string(format)
   end
+
   def uuid3(<<uuid::binary>>, <<name::binary>>, format) do
     {_type, <<uuid::128>>} = uuid_string_to_hex_pair(uuid)
+
     namebased_uuid(:md5, <<uuid::128, name::binary>>)
-      |> uuid_to_string(format)
+    |> uuid_to_string(format)
   end
+
   def uuid3(_, _, _) do
-    raise ArgumentError, message:
-    "Invalid argument; Expected: :dns|:url|:oid|:x500|:nil OR String, String"
+    raise ArgumentError,
+      message: "Invalid argument; Expected: :dns|:url|:oid|:x500|:nil OR String, String"
   end
 
   @doc """
@@ -376,12 +401,16 @@ defmodule UUID do
   """
   def uuid4(), do: uuid4(:default)
 
-  def uuid4(:strong), do: uuid4(:default) # For backwards compatibility.
-  def uuid4(:weak),   do: uuid4(:default) # For backwards compatibility.
+  # For backwards compatibility.
+  def uuid4(:strong), do: uuid4(:default)
+  # For backwards compatibility.
+  def uuid4(:weak), do: uuid4(:default)
+
   def uuid4(format) do
     <<u0::48, _::4, u1::12, _::2, u2::62>> = :crypto.strong_rand_bytes(16)
+
     <<u0::48, @uuid_v4::4, u1::12, @variant10::2, u2::62>>
-      |> uuid_to_string(format)
+    |> uuid_to_string(format)
   end
 
   @doc """
@@ -419,34 +448,42 @@ defmodule UUID do
 
   """
   def uuid5(namespace_or_uuid, name, format \\ :default)
+
   def uuid5(:dns, <<name::binary>>, format) do
-    namebased_uuid(:sha1, <<0x6ba7b8109dad11d180b400c04fd430c8::128, name::binary>>)
-      |> uuid_to_string(format)
+    namebased_uuid(:sha1, <<0x6BA7B8109DAD11D180B400C04FD430C8::128, name::binary>>)
+    |> uuid_to_string(format)
   end
+
   def uuid5(:url, <<name::binary>>, format) do
-    namebased_uuid(:sha1, <<0x6ba7b8119dad11d180b400c04fd430c8::128, name::binary>>)
-      |> uuid_to_string(format)
+    namebased_uuid(:sha1, <<0x6BA7B8119DAD11D180B400C04FD430C8::128, name::binary>>)
+    |> uuid_to_string(format)
   end
+
   def uuid5(:oid, <<name::binary>>, format) do
-    namebased_uuid(:sha1, <<0x6ba7b8129dad11d180b400c04fd430c8::128, name::binary>>)
-      |> uuid_to_string(format)
+    namebased_uuid(:sha1, <<0x6BA7B8129DAD11D180B400C04FD430C8::128, name::binary>>)
+    |> uuid_to_string(format)
   end
+
   def uuid5(:x500, <<name::binary>>, format) do
-    namebased_uuid(:sha1, <<0x6ba7b8149dad11d180b400c04fd430c8::128, name::binary>>)
-      |> uuid_to_string(format)
+    namebased_uuid(:sha1, <<0x6BA7B8149DAD11D180B400C04FD430C8::128, name::binary>>)
+    |> uuid_to_string(format)
   end
-  def uuid5(:nil, <<name::binary>>, format) do
+
+  def uuid5(nil, <<name::binary>>, format) do
     namebased_uuid(:sha1, <<0::128, name::binary>>)
-      |> uuid_to_string(format)
+    |> uuid_to_string(format)
   end
+
   def uuid5(<<uuid::binary>>, <<name::binary>>, format) do
     {_type, <<uuid::128>>} = uuid_string_to_hex_pair(uuid)
+
     namebased_uuid(:sha1, <<uuid::128, name::binary>>)
-      |> uuid_to_string(format)
+    |> uuid_to_string(format)
   end
+
   def uuid5(_, _, _) do
-    raise ArgumentError, message:
-    "Invalid argument; Expected: :dns|:url|:oid|:x500|:nil OR String, String"
+    raise ArgumentError,
+      message: "Invalid argument; Expected: :dns|:url|:oid|:x500|:nil OR String, String"
   end
 
   #
@@ -457,55 +494,82 @@ defmodule UUID do
   defp uuid_to_string(<<_::128>> = u, :default) do
     uuid_to_string_default(u)
   end
+
   defp uuid_to_string(<<_::128>> = u, :hex) do
     IO.iodata_to_binary(for <<part::4 <- u>>, do: e(part))
   end
+
   defp uuid_to_string(<<_::128>> = u, :urn) do
     @urn <> uuid_to_string(u, :default)
   end
+
   defp uuid_to_string(<<_::128>> = u, :raw) do
     u
   end
+
   defp uuid_to_string(<<_::128>> = u, :slug) do
-    Base.url_encode64(u, [padding: false])
+    Base.url_encode64(u, padding: false)
   end
+
   defp uuid_to_string(_u, format) when format in [:default, :hex, :urn, :slug] do
-    raise ArgumentError, message:
-    "Invalid binary data; Expected: <<uuid::128>>"
+    raise ArgumentError, message: "Invalid binary data; Expected: <<uuid::128>>"
   end
+
   defp uuid_to_string(_u, format) do
-    raise ArgumentError, message:
-    "Invalid format #{format}; Expected: :default|:hex|:urn|:slug"
+    raise ArgumentError, message: "Invalid format #{format}; Expected: :default|:hex|:urn|:slug"
   end
 
   defp uuid_to_string_default(<<
-         a1::4, a2::4, a3::4, a4::4,
-         a5::4, a6::4, a7::4, a8::4,
-         b1::4, b2::4, b3::4, b4::4,
-         c1::4, c2::4, c3::4, c4::4,
-         d1::4, d2::4, d3::4, d4::4,
-         e1::4, e2::4, e3::4, e4::4,
-         e5::4, e6::4, e7::4, e8::4,
-         e9::4, e10::4, e11::4, e12::4 >>) do
-    << e(a1), e(a2), e(a3), e(a4), e(a5), e(a6), e(a7), e(a8), ?-,
-       e(b1), e(b2), e(b3), e(b4), ?-,
-       e(c1), e(c2), e(c3), e(c4), ?-,
-       e(d1), e(d2), e(d3), e(d4), ?-,
-       e(e1), e(e2), e(e3), e(e4), e(e5), e(e6), e(e7), e(e8), e(e9), e(e10), e(e11), e(e12) >>
+         a1::4,
+         a2::4,
+         a3::4,
+         a4::4,
+         a5::4,
+         a6::4,
+         a7::4,
+         a8::4,
+         b1::4,
+         b2::4,
+         b3::4,
+         b4::4,
+         c1::4,
+         c2::4,
+         c3::4,
+         c4::4,
+         d1::4,
+         d2::4,
+         d3::4,
+         d4::4,
+         e1::4,
+         e2::4,
+         e3::4,
+         e4::4,
+         e5::4,
+         e6::4,
+         e7::4,
+         e8::4,
+         e9::4,
+         e10::4,
+         e11::4,
+         e12::4
+       >>) do
+    <<e(a1), e(a2), e(a3), e(a4), e(a5), e(a6), e(a7), e(a8), ?-, e(b1), e(b2), e(b3), e(b4), ?-,
+      e(c1), e(c2), e(c3), e(c4), ?-, e(d1), e(d2), e(d3), e(d4), ?-, e(e1), e(e2), e(e3), e(e4),
+      e(e5), e(e6), e(e7), e(e8), e(e9), e(e10), e(e11), e(e12)>>
   end
 
   @compile {:inline, e: 1}
 
-  defp e(0),  do: ?0
-  defp e(1),  do: ?1
-  defp e(2),  do: ?2
-  defp e(3),  do: ?3
-  defp e(4),  do: ?4
-  defp e(5),  do: ?5
-  defp e(6),  do: ?6
-  defp e(7),  do: ?7
-  defp e(8),  do: ?8
-  defp e(9),  do: ?9
+  defp e(0), do: ?0
+  defp e(1), do: ?1
+  defp e(2), do: ?2
+  defp e(3), do: ?3
+  defp e(4), do: ?4
+  defp e(5), do: ?5
+  defp e(6), do: ?6
+  defp e(7), do: ?7
+  defp e(8), do: ?8
+  defp e(9), do: ?9
   defp e(10), do: ?a
   defp e(11), do: ?b
   defp e(12), do: ?c
@@ -517,39 +581,46 @@ defmodule UUID do
   defp uuid_string_to_hex_pair(<<_::128>> = uuid) do
     {:raw, uuid}
   end
+
   defp uuid_string_to_hex_pair(<<uuid_in::binary>>) do
     uuid = String.downcase(uuid_in)
-    {type, hex_str} = case uuid do
-      <<u0::64, ?-, u1::32, ?-, u2::32, ?-, u3::32, ?-, u4::96>> ->
-        {:default, <<u0::64, u1::32, u2::32, u3::32, u4::96>>}
-      <<u::256>> ->
-        {:hex, <<u::256>>}
-      <<@urn, u0::64, ?-, u1::32, ?-, u2::32, ?-, u3::32, ?-, u4::96>> ->
-        {:urn, <<u0::64, u1::32, u2::32, u3::32, u4::96>>}
-      _ ->
-        case uuid_in do
-          _ when byte_size(uuid_in) == 22 ->
-            case Base.url_decode64(uuid_in <> "==") do
-              {:ok, decoded} -> {:slug, Base.encode16(decoded)}
-              _ -> raise ArgumentError, message: "Invalid argument; Not a valid UUID: #{uuid}"
-            end
-          _ -> raise ArgumentError, message: "Invalid argument; Not a valid UUID: #{uuid}"
-        end
-    end
+
+    {type, hex_str} =
+      case uuid do
+        <<u0::64, ?-, u1::32, ?-, u2::32, ?-, u3::32, ?-, u4::96>> ->
+          {:default, <<u0::64, u1::32, u2::32, u3::32, u4::96>>}
+
+        <<u::256>> ->
+          {:hex, <<u::256>>}
+
+        <<@urn, u0::64, ?-, u1::32, ?-, u2::32, ?-, u3::32, ?-, u4::96>> ->
+          {:urn, <<u0::64, u1::32, u2::32, u3::32, u4::96>>}
+
+        _ ->
+          case uuid_in do
+            _ when byte_size(uuid_in) == 22 ->
+              case Base.url_decode64(uuid_in <> "==") do
+                {:ok, decoded} -> {:slug, Base.encode16(decoded)}
+                _ -> raise ArgumentError, message: "Invalid argument; Not a valid UUID: #{uuid}"
+              end
+
+            _ ->
+              raise ArgumentError, message: "Invalid argument; Not a valid UUID: #{uuid}"
+          end
+      end
 
     try do
       {type, hex_str_to_binary(hex_str)}
     catch
       _, _ ->
-        raise ArgumentError, message:
-          "Invalid argument; Not a valid UUID: #{uuid}"
+        raise ArgumentError, message: "Invalid argument; Not a valid UUID: #{uuid}"
     end
   end
 
   # Get unix epoch as a 60-bit timestamp.
   defp uuid1_time() do
     {mega_sec, sec, micro_sec} = :os.timestamp()
-    epoch = (mega_sec * 1_000_000_000_000 + sec * 1_000_000 + micro_sec)
+    epoch = mega_sec * 1_000_000_000_000 + sec * 1_000_000 + micro_sec
     timestamp = @nanosec_intervals_offset + @nanosec_intervals_factor * epoch
     <<timestamp::60>>
   end
@@ -568,16 +639,18 @@ defmodule UUID do
 
   defp uuid1_node([{_if_name, if_config} | rest]) do
     case :lists.keyfind(:hwaddr, 1, if_config) do
-      :false ->
+      false ->
         uuid1_node(rest)
+
       {:hwaddr, hw_addr} ->
-        if length(hw_addr) != 6 or Enum.all?(hw_addr, fn(n) -> n == 0 end) do
+        if length(hw_addr) != 6 or Enum.all?(hw_addr, fn n -> n == 0 end) do
           uuid1_node(rest)
         else
           :erlang.list_to_binary(hw_addr)
         end
     end
   end
+
   defp uuid1_node(_) do
     <<rnd_hi::7, _::1, rnd_low::40>> = :crypto.strong_rand_bytes(6)
     <<rnd_hi::7, 1::1, rnd_low::40>>
@@ -588,6 +661,7 @@ defmodule UUID do
     md5 = :crypto.hash(:md5, data)
     compose_namebased_uuid(@uuid_v3, md5)
   end
+
   defp namebased_uuid(:sha1, data) do
     <<sha1::128, _::32>> = :crypto.hash(:sha, data)
     compose_namebased_uuid(@uuid_v5, <<sha1::128>>)
@@ -595,44 +669,44 @@ defmodule UUID do
 
   # Format the given hash as a UUID.
   defp compose_namebased_uuid(version, hash) do
-    <<time_low::32, time_mid::16, _::4, time_hi::12, _::2,
-      clock_seq_hi::6, clock_seq_low::8, node::48>> = hash
-    <<time_low::32, time_mid::16, version::4, time_hi::12, @variant10::2,
-      clock_seq_hi::6, clock_seq_low::8, node::48>>
+    <<time_low::32, time_mid::16, _::4, time_hi::12, _::2, clock_seq_hi::6, clock_seq_low::8,
+      node::48>> = hash
+
+    <<time_low::32, time_mid::16, version::4, time_hi::12, @variant10::2, clock_seq_hi::6,
+      clock_seq_low::8, node::48>>
   end
 
   # Identify the UUID variant according to section 4.1.1 of RFC 4122.
   defp variant(<<1, 1, 1>>) do
     :reserved_future
   end
+
   defp variant(<<1, 1, _v>>) do
     :reserved_microsoft
   end
+
   defp variant(<<1, 0, _v>>) do
     :rfc4122
   end
+
   defp variant(<<0, _v::2-binary>>) do
     :reserved_ncs
   end
+
   defp variant(_) do
     raise ArgumentError, message: "Invalid argument; Not valid variant bits"
   end
-  
-  defp hex_str_to_binary(<< a1, a2, a3, a4, a5, a6, a7, a8,
-                            b1, b2, b3, b4,
-                            c1, c2, c3, c4,
-                            d1, d2, d3, d4,
-                            e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12 >>) do
-    << d(a1)::4, d(a2)::4, d(a3)::4, d(a4)::4,
-        d(a5)::4, d(a6)::4, d(a7)::4, d(a8)::4,
-        d(b1)::4, d(b2)::4, d(b3)::4, d(b4)::4,
-        d(c1)::4, d(c2)::4, d(c3)::4, d(c4)::4,
-        d(d1)::4, d(d2)::4, d(d3)::4, d(d4)::4,
-        d(e1)::4, d(e2)::4, d(e3)::4, d(e4)::4,
-        d(e5)::4, d(e6)::4, d(e7)::4, d(e8)::4,
-        d(e9)::4, d(e10)::4, d(e11)::4, d(e12)::4 >>
+
+  defp hex_str_to_binary(
+         <<a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, c1, c2, c3, c4, d1, d2, d3, d4, e1, e2,
+           e3, e4, e5, e6, e7, e8, e9, e10, e11, e12>>
+       ) do
+    <<d(a1)::4, d(a2)::4, d(a3)::4, d(a4)::4, d(a5)::4, d(a6)::4, d(a7)::4, d(a8)::4, d(b1)::4,
+      d(b2)::4, d(b3)::4, d(b4)::4, d(c1)::4, d(c2)::4, d(c3)::4, d(c4)::4, d(d1)::4, d(d2)::4,
+      d(d3)::4, d(d4)::4, d(e1)::4, d(e2)::4, d(e3)::4, d(e4)::4, d(e5)::4, d(e6)::4, d(e7)::4,
+      d(e8)::4, d(e9)::4, d(e10)::4, d(e11)::4, d(e12)::4>>
   end
-  
+
   @compile {:inline, d: 1}
 
   defp d(?0), do: 0

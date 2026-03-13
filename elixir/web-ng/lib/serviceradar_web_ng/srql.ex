@@ -97,8 +97,9 @@ defmodule ServiceRadarWebNG.SRQL do
     |> decode_params()
     |> case do
       {:ok, params} ->
-        run_sql(sql, params)
-        |> build_translation_response(translation)
+        with {:ok, result} <- run_sql(sql, params) do
+          build_translation_response({:ok, result}, translation)
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -109,8 +110,32 @@ defmodule ServiceRadarWebNG.SRQL do
     {:error, :invalid_srql_translation}
   end
 
+  @sobelow_skip ["SQL.Query"]
   defp run_sql(sql, params) do
-    Ecto.Adapters.SQL.query(Repo, sql, params)
+    with :ok <- ensure_read_only_sql(sql) do
+      Ecto.Adapters.SQL.query(Repo, sql, params)
+    end
+  end
+
+  defp ensure_read_only_sql(sql) when is_binary(sql) do
+    normalized =
+      sql
+      |> String.trim_leading()
+      |> String.trim_trailing(";")
+
+    cond do
+      normalized == "" ->
+        {:error, :empty_sql}
+
+      String.contains?(normalized, ";") ->
+        {:error, :multiple_sql_statements_not_allowed}
+
+      Regex.match?(~r/\A(?:select|with)\b/i, normalized) ->
+        :ok
+
+      true ->
+        {:error, :non_read_only_sql}
+    end
   end
 
   defp build_translation_response({:ok, result}, translation) do

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Web-NG Lint
+name: Web-NG Assets
 permissions:
   contents: read
   pull-requests: write
@@ -22,39 +22,17 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'elixir/web-ng/**'
+      - 'elixir/web-ng/assets/**'
       - '.github/workflows/web-ng-lint.yml'
       - '.tool-versions'
   pull_request:
     branches: [ main ]
     paths:
-      - 'elixir/web-ng/**'
+      - 'elixir/web-ng/assets/**'
       - '.github/workflows/web-ng-lint.yml'
       - '.tool-versions'
 
 jobs:
-  credo:
-    name: Credo
-    runs-on: arc-runner-set
-    defaults:
-      run:
-        working-directory: elixir/web-ng
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup Beam
-        uses: erlef/setup-beam@v1
-        with:
-          otp-version: '28.3'
-          elixir-version: '1.19.4'
-
-      - name: Install dependencies
-        run: mix deps.get
-
-      - name: Run Credo
-        run: mix credo --all
-
   assets_js:
     name: Assets JS (Bun)
     runs-on: arc-runner-set

@@ -196,8 +196,9 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   defp safe_path(object_key) when is_binary(object_key) do
     base = Path.expand(base_path())
     path = Path.expand(Path.join(base, object_key))
+    base_prefix = base <> "/"
 
-    if String.starts_with?(path, base) do
+    if path == base or String.starts_with?(path, base_prefix) do
       {:ok, path}
     else
       {:error, :invalid_path}
@@ -215,6 +216,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   defp sanitize_segment(_), do: "unknown"
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp put_blob_filesystem(object_key, payload) do
     case safe_path(object_key) do
       {:ok, path} ->
@@ -228,6 +230,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     end
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp delete_blob_filesystem(object_key) do
     case safe_path(object_key) do
       {:ok, path} ->
@@ -242,6 +245,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     end
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp fetch_blob_filesystem(object_key) do
     with {:ok, path} <- safe_path(object_key) do
       if File.exists?(path) do

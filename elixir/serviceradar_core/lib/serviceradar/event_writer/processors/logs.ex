@@ -438,8 +438,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp maybe_encode_text(row, key) do
     case Map.get(row, key) do
-      value when is_map(value) or is_list(value) -> Map.put(row, key, FieldParser.encode_json(value))
-      _ -> row
+      value when is_map(value) or is_list(value) ->
+        Map.put(row, key, FieldParser.encode_json(value))
+
+      _ ->
+        row
     end
   end
 

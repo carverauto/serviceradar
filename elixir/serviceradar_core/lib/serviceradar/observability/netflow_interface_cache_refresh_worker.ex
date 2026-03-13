@@ -181,6 +181,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
     (Repo.all(input_q) ++ Repo.all(output_q))
     |> Enum.flat_map(fn {sampler_address, idx_txt} ->
       sampler_address = sampler_address |> to_string() |> String.trim()
+
       idx_txt =
         case idx_txt do
           s when is_binary(s) -> String.trim(s)

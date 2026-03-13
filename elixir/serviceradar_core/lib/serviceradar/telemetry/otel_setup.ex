@@ -79,7 +79,8 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
     cert_dir = System.get_env("OTEL_CERT_DIR")
     cert_name = System.get_env("OTEL_CERT_NAME")
 
-    with true <- is_binary(cert_dir) and cert_dir != "" and is_binary(cert_name) and cert_name != "" do
+    with true <-
+           is_binary(cert_dir) and cert_dir != "" and is_binary(cert_name) and cert_name != "" do
       ca_file = Path.join(cert_dir, "root.pem")
       cert_file = Path.join(cert_dir, "#{cert_name}.pem")
       key_file = Path.join(cert_dir, "#{cert_name}-key.pem")
@@ -163,7 +164,11 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
         # Use a local copy of the handler implementation. The upstream
         # `otel_log_handler` can get stuck in the `exporting` state when a timer
         # tick fires with an empty batch, which halts further log exporting.
-        case :logger.add_handler(:otel_log_handler, :serviceradar_otel_log_handler_v2, handler_config) do
+        case :logger.add_handler(
+               :otel_log_handler,
+               :serviceradar_otel_log_handler_v2,
+               handler_config
+             ) do
           :ok ->
             Logger.info("[OtelSetup] OTLP log handler registered")
 

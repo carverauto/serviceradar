@@ -72,6 +72,8 @@ defmodule ServiceRadarWebNG.MixProject do
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:sobelow, "~> 0.14", only: [:dev, :test], runtime: false},
       {:swoosh, "~> 1.16"},
       {:req, "~> 0.5"},
       {:castore, "~> 1.0"},

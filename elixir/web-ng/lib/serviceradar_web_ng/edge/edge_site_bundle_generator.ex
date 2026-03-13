@@ -116,6 +116,7 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
     end
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp create_tar_gz(files) do
     try do
       # Convert files to format expected by :erl_tar

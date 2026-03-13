@@ -185,6 +185,7 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
     unauthorized(conn)
   end
 
+  @sobelow_skip ["Traversal.SendFile"]
   def download_blob(conn, %{"id" => id, "token" => token}) do
     with {:ok, %{id: token_id, key: object_key}} <- Storage.verify_token(:download, token),
          true <- token_id == id,

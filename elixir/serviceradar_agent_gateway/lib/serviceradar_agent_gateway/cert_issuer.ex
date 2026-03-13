@@ -21,7 +21,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
 
     with :ok <- validate_component_type(component_type),
          {:ok, ca_cert, ca_key} <- load_ca_paths(opts),
-         {:ok, bundle} <- generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, opts) do
+         {:ok, bundle} <-
+           generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, opts) do
       {:ok, bundle}
     end
   end
@@ -49,10 +50,14 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
 
   defp load_ca_paths(opts) do
     cert_dir = Keyword.get(opts, :cert_dir, System.get_env("GATEWAY_CERT_DIR", @default_cert_dir))
-    ca_cert = Keyword.get(opts, :ca_cert_file, System.get_env("GATEWAY_CA_CERT_FILE")) ||
-                Path.join(cert_dir, "root.pem")
-    ca_key = Keyword.get(opts, :ca_key_file, System.get_env("GATEWAY_CA_KEY_FILE")) ||
-               Path.join(cert_dir, "root-key.pem")
+
+    ca_cert =
+      Keyword.get(opts, :ca_cert_file, System.get_env("GATEWAY_CA_CERT_FILE")) ||
+        Path.join(cert_dir, "root.pem")
+
+    ca_key =
+      Keyword.get(opts, :ca_key_file, System.get_env("GATEWAY_CA_KEY_FILE")) ||
+        Path.join(cert_dir, "root-key.pem")
 
     cond do
       not File.exists?(ca_cert) -> {:error, :ca_not_available}
@@ -64,7 +69,9 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, opts) do
     cn = "#{component_id}.#{partition_id}.serviceradar"
     validity_days = Keyword.get(opts, :validity_days, @default_validity_days)
-    temp_dir = Path.join(System.tmp_dir!(), "serviceradar-cert-#{System.unique_integer([:positive])}")
+
+    temp_dir =
+      Path.join(System.tmp_dir!(), "serviceradar-cert-#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(temp_dir)
 
@@ -76,7 +83,17 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
 
     try do
       with :ok <- run_openssl(["genrsa", "-out", key_path, "4096"]),
-           :ok <- run_openssl(["req", "-new", "-key", key_path, "-out", csr_path, "-subj", "/CN=#{cn}"]),
+           :ok <-
+             run_openssl([
+               "req",
+               "-new",
+               "-key",
+               key_path,
+               "-out",
+               csr_path,
+               "-subj",
+               "/CN=#{cn}"
+             ]),
            :ok <- write_extfile(ext_path, component_type, partition_id, component_id, cn),
            :ok <- ensure_serial(serial_path),
            :ok <-

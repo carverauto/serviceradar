@@ -38,7 +38,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
-  alias ServiceRadarAgentGateway.{AgentRegistryProxy, Config, ControlStreamSession, StatusProcessor}
+
+  alias ServiceRadarAgentGateway.{
+    AgentRegistryProxy,
+    Config,
+    ControlStreamSession,
+    StatusProcessor
+  }
 
   # Default heartbeat interval for agents
   @default_heartbeat_interval_sec 30
@@ -518,7 +524,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
                       "Failed to register control stream for agent #{agent_id}: #{inspect(reason)}"
                     )
 
-                    raise GRPC.RPCError, status: :internal, message: "control stream registration failed"
+                    raise GRPC.RPCError,
+                      status: :internal,
+                      message: "control stream registration failed"
                 end
 
               _ ->
@@ -747,11 +755,17 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         {identity, component_type}
 
       nil ->
-        Logger.warning("Component type missing from client certificate: component_id=#{component_id}")
+        Logger.warning(
+          "Component type missing from client certificate: component_id=#{component_id}"
+        )
+
         raise GRPC.RPCError, status: :permission_denied, message: "component_type missing"
 
       _ ->
-        Logger.warning("Invalid component type in client certificate: component_id=#{component_id}")
+        Logger.warning(
+          "Invalid component type in client certificate: component_id=#{component_id}"
+        )
+
         raise GRPC.RPCError, status: :permission_denied, message: "invalid component_type"
     end
   end
@@ -1038,7 +1052,6 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     coordinators
   end
-
 
   defp find_nodes_with_process(nodes, process_name) do
     Enum.filter(nodes, fn node ->

@@ -8,6 +8,7 @@ defmodule Mix.Tasks.Serviceradar.MapperTopologyCleanup do
   Usage:
     mix serviceradar.mapper_topology_cleanup
   """
+
   # credo:disable-for-this-file Credo.Check.Refactor.Nesting
 
   use Mix.Task

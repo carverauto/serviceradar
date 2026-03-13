@@ -16,12 +16,6 @@ defmodule Protobuf.Mixfile do
       elixirc_paths: elixirc_paths(Mix.env()),
       test_coverage: [tool: ExCoveralls],
       test_elixirc_options: [debug_info: true],
-      preferred_cli_env: [
-        coveralls: :test,
-        "coveralls.html": :test,
-        conformance_test: :test,
-        "escript.build": :prod
-      ],
       deps: deps(),
       escript: escript(),
       description: @description,
@@ -35,6 +29,17 @@ defmodule Protobuf.Mixfile do
   def application do
     [
       extra_applications: [:logger, :eex]
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
+        coveralls: :test,
+        "coveralls.html": :test,
+        conformance_test: :test,
+        "escript.build": :prod
+      ]
     ]
   end
 

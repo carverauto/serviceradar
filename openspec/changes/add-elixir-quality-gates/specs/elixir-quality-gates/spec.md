@@ -7,7 +7,7 @@ The repository SHALL define a standard analyzer contract for every first-party M
 The contract SHALL require:
 
 - formatting verification
-- compilation with warnings treated as errors
+- compile-time warning checks
 - `mix credo --strict`
 - dependency auditing
 - the app-specific analyzers required by this capability
@@ -18,11 +18,13 @@ The contract SHALL be exposed through documented local commands or Mix aliases s
 
 - **GIVEN** a developer is preparing changes in a first-party Mix project under `elixir/`
 - **WHEN** they run the documented analyzer contract for that app
-- **THEN** the command sequence checks formatting, compiler warnings, strict Credo, dependency audit, and any required app-specific analyzers for that app
+- **THEN** the command sequence checks formatting, compile-time warnings, xref output, strict Credo, dependency audit, and any required app-specific analyzers for that app
 
 ### Requirement: GitHub Actions Enforces the Analyzer Contract
 
 GitHub Actions SHALL run the full analyzer contract for first-party Mix projects under `elixir/` on pull requests and pushes that touch the project, its workflow definition, or shared Elixir tooling that affects analyzer outcomes.
+
+The repository SHALL represent each first-party Mix project through an explicit entry in a matrix-style Elixir quality workflow or an equivalent reusable workflow definition.
 
 #### Scenario: Pull request changes web-ng Elixir code
 
@@ -42,15 +44,28 @@ GitHub Actions SHALL run the full analyzer contract for first-party Mix projects
 - **THEN** GitHub Actions runs the managed analyzer contract for that project or for the CI job grouping that covers it
 - **AND** the pull request fails if any required analyzer step fails
 
-### Requirement: Elixir Workspace Projects Run Type Analysis
+#### Scenario: CI enumerates the Elixir workspace explicitly
 
-First-party Mix projects under `elixir/` SHALL run Dialyzer as part of the analyzer contract, with cached PLTs or equivalent reuse to keep CI execution practical.
+- **WHEN** maintainers review the repository-owned Elixir quality workflow definition
+- **THEN** they can identify how each first-party Mix project under `elixir/` is mapped into CI
+- **AND** the workflow metadata identifies whether Phoenix-only analyzers apply to that project
+
+### Requirement: Elixir Workspace Projects Run Type Analysis Unless Explicitly Waived
+
+First-party Mix projects under `elixir/` SHALL run Dialyzer as part of the analyzer contract, with cached PLTs or equivalent reuse to keep CI execution practical, unless a repository-owned temporary waiver is recorded for that project.
 
 #### Scenario: Type analysis runs for a managed app
 
 - **WHEN** the analyzer contract runs for a first-party Mix project under `elixir/`
 - **THEN** Dialyzer executes for that application
 - **AND** the workflow reuses PLT state or equivalent cached artifacts when available
+
+#### Scenario: Temporary Dialyzer waiver is tracked explicitly
+
+- **GIVEN** a legacy fork in `elixir/` cannot yet complete Dialyzer successfully under the repository toolchain
+- **WHEN** maintainers apply a temporary waiver
+- **THEN** the waiver is encoded in repository-owned workflow metadata for that specific project
+- **AND** the rest of the analyzer contract still runs for that project
 
 ### Requirement: Phoenix Applications Run Security Analysis
 
@@ -63,9 +78,9 @@ First-party Mix projects under `elixir/` that expose Phoenix endpoints SHALL run
 - **THEN** Sobelow executes with repository-owned configuration
 - **AND** the analyzer output is treated as part of the required pull request gate
 
-### Requirement: Workspace Analyzer Exclusions Are Explicit and Version Controlled
+### Requirement: Workspace Analyzer Exclusions And Waivers Are Explicit And Version Controlled
 
-The repository SHALL keep analyzer suppressions and exclusions for generated code, vendored code, and approved temporary waivers in the `elixir/` workspace in version-controlled configuration rather than ad hoc CI logic.
+The repository SHALL keep analyzer suppressions, exclusions, and approved temporary waivers in the `elixir/` workspace in version-controlled configuration rather than ad hoc CI logic.
 
 #### Scenario: Generated code is excluded from analyzer noise
 

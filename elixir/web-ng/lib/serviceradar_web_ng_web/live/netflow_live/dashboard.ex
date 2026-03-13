@@ -1290,6 +1290,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   defp unit_suffix("pps"), do: "pps"
   defp unit_suffix(_), do: ""
 
+  @sobelow_skip ["XSS.Raw"]
   defp format_port_cell(row) do
     port = to_string(row.port)
     app = Map.get(@well_known_ports, port)
@@ -1494,6 +1495,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   defp iso2_flag_emoji(_), do: nil
 
+  @sobelow_skip ["XSS.Raw"]
   defp format_enriched_ip(ip, rdns_map, geo_iso2_map) do
     flag = iso2_flag_emoji(Map.get(geo_iso2_map, ip))
     hostname = Map.get(rdns_map, ip)

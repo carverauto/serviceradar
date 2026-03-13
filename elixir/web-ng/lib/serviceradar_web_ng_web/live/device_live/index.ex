@@ -2822,6 +2822,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   # CSV Import helpers
+  @sobelow_skip ["Traversal.FileModule"]
   defp parse_csv_file(path) do
     try do
       content = File.read!(path)

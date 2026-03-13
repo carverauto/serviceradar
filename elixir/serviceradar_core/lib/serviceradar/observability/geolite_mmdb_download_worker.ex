@@ -73,8 +73,10 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     dir = Keyword.get(config, :dir, System.get_env("GEOLITE_MMDB_DIR") || @default_dir)
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
+
     failure_reschedule_seconds =
       Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
+
     files = Keyword.get(config, :files, @default_files)
 
     now = DateTime.utc_now()
@@ -162,7 +164,9 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
 
   defp record_mmdb_attempt(%NetflowSettings{} = s, actor, %DateTime{} = now) do
     _ =
-      NetflowSettings.update_enrichment_status(s, %{geolite_mmdb_last_attempt_at: now}, actor: actor)
+      NetflowSettings.update_enrichment_status(s, %{geolite_mmdb_last_attempt_at: now},
+        actor: actor
+      )
 
     :ok
   end

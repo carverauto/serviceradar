@@ -1,0 +1,9 @@
+{build_config, _binding} = Code.eval_file(Path.expand("../.credo.base.exs", __DIR__))
+
+build_config.(
+  included: ["lib/", "test/"],
+  disabled: [
+    {Credo.Check.Readability.PreferImplicitTry, []},
+    {Credo.Check.Refactor.Apply, []}
+  ]
+)

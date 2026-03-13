@@ -36,6 +36,7 @@ defmodule ServiceRadar.Observability.ZenRuleTemplatesTest do
     assert severity_expression == "severity ?? 'Unknown'"
     assert source_expression == "'snmp'"
     assert service_name_expression == "'snmp'"
+
     assert body_expression ==
              "(body == 'logs.snmp.processed' or body == '') ? (len(varbinds ?? []) > 0 ? (extract(varbinds[0].value ?? '', '^[^:]+: (.*)$')[1] ?? varbinds[0].value ?? body) : body) : body"
 

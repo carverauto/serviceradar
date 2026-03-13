@@ -71,7 +71,13 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     case register_session(key, metadata) do
       :ok ->
         {:reply, :ok,
-         %{state | agent_id: agent_id, partition_id: partition_id, capabilities: capabilities, registry_key: key}}
+         %{
+           state
+           | agent_id: agent_id,
+             partition_id: partition_id,
+             capabilities: capabilities,
+             registry_key: key
+         }}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -88,11 +94,15 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
       {:ok, %GRPC.Server.Stream{} = stream} ->
         log_command_dispatch(state, command)
-        {:reply, {:ok, command.command_id}, track_command(%{state | stream: stream}, command, context)}
+
+        {:reply, {:ok, command.command_id},
+         track_command(%{state | stream: stream}, command, context)}
 
       %GRPC.Server.Stream{} = stream ->
         log_command_dispatch(state, command)
-        {:reply, {:ok, command.command_id}, track_command(%{state | stream: stream}, command, context)}
+
+        {:reply, {:ok, command.command_id},
+         track_command(%{state | stream: stream}, command, context)}
 
       {:error, reason} ->
         Logger.warning(
@@ -181,6 +191,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
       {:error, {:already_registered, _pid}} ->
         ProcessRegistry.unregister(key)
+
         case ProcessRegistry.register(key, metadata) do
           {:ok, _pid} -> :ok
           {:error, reason} -> {:error, reason}

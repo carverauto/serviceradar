@@ -119,7 +119,10 @@ defmodule ServiceRadarAgentGateway.Application do
           # Registration worker - registers this gateway in the distributed registry.
           # Gateways are platform-level; request context is derived per-request via mTLS.
           {ServiceRadar.Gateway.RegistrationWorker,
-           partition_id: partition_id, gateway_id: gateway_id, domain: domain, entity_type: :gateway},
+           partition_id: partition_id,
+           gateway_id: gateway_id,
+           domain: domain,
+           entity_type: :gateway},
           # Register gateway for platform-wide visibility (Infrastructure UI).
           {ServiceRadar.GatewayRegistrationWorker,
            gateway_id: gateway_id, partition: partition_id, domain: domain}

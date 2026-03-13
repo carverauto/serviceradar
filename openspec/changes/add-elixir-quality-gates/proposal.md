@@ -7,9 +7,11 @@ Issue #3029 calls out a real gap in the Elixir toolchain: analyzer coverage is i
 ## What Changes
 
 - Define a standard analyzer contract for every first-party Mix project under `elixir/`, including `web-ng`, `serviceradar_core`, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `serviceradar_srql`, `datasvc`, `connection`, `elixir_uuid`, and `protobuf`
-- Require the analyzer contract to cover formatting checks, compilation with warnings as errors, strict Credo, dependency auditing, Dialyzer, and Phoenix security analysis where applicable
+- Require the analyzer contract to cover formatting checks, compile-time warning checks, cross-reference reporting, strict Credo, dependency auditing, Dialyzer, and Phoenix security analysis where applicable
 - Add documented local entrypoints and matching GitHub Actions jobs so developers and CI run the same analyzer sequence
+- Consolidate repo-owned Elixir quality enforcement into a matrix-style GitHub Actions workflow or equivalent reusable workflow pattern that covers every first-party Mix project under `elixir/`
 - Version-control exclusions and suppressions for generated or vendored code so analyzer output stays actionable
+- Allow narrowly scoped temporary waivers in repository-owned workflow metadata for legacy forks that cannot yet satisfy a specific analyzer without upstream remediation
 - Defer optional analyzer candidates from issue #3029 (`Styler`, `Boundary`, `rustywind`, `ex_dna`, `ex_slop`) to follow-up evaluation after the baseline gates are green and stable
 
 ## Impact

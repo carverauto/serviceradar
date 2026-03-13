@@ -30,7 +30,9 @@ defmodule ServiceRadarSRQL.MixProject do
       {:rustler, "~> 0.36"},
 
       # JSON parsing
-      {:jason, "~> 1.2"}
+      {:jason, "~> 1.2"},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 

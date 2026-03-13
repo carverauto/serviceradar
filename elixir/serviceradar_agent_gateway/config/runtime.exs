@@ -67,6 +67,7 @@ topologies =
         # Connects to both core and other gateways via headless services
         namespace = System.get_env("NAMESPACE", "serviceradar")
         kubernetes_selector = System.get_env("KUBERNETES_SELECTOR", "app=serviceradar")
+
         kubernetes_node_basename =
           System.get_env("KUBERNETES_NODE_BASENAME", "serviceradar_agent_gateway")
 
@@ -195,7 +196,8 @@ config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
   cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-  workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+  workload_api_socket:
+    System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
 
 # =============================================================================
 # serviceradar_core Dependencies

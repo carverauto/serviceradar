@@ -50,6 +50,7 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
 - Bazel tests/images: `bazel test --config=remote //...`, `bazel run //docker/images:<target>_push`.
 - Web (Next.js) lint/build: `cd web && npm install && npm run lint && npm run build` (if needed).
+- Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`.
 
 Prefer Bazel targets when modifying code that already has BUILD files. Always run gofmt/cargo fmt where applicable (Go formatting handled by `gofmt`, Rust by `cargo fmt`).
 

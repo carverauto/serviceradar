@@ -1,5 +1,4 @@
 defmodule Protobuf.Any do
-
   @moduledoc """
   Provides functions for working with the `google.protobuf.Any` type.
   """

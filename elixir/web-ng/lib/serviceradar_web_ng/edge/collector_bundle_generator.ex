@@ -786,6 +786,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     dt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp create_tar_gz(files) do
     # Create tarball entries
     entries =
