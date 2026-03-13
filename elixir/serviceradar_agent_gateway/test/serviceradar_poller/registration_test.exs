@@ -25,6 +25,7 @@ defmodule ServiceRadarGateway.RegistrationTest do
   describe "GatewayRegistry" do
     test "can register a gateway directly with the registry" do
       key = {@partition_id, :test_node}
+
       metadata = %{
         partition_id: @partition_id,
         domain: @domain,
@@ -48,6 +49,7 @@ defmodule ServiceRadarGateway.RegistrationTest do
     test "find_gateways_for_partition returns only gateways in that partition" do
       # Register a gateway in test-partition-a
       key_a = {"test-partition-a", :node_a}
+
       metadata_a = %{
         partition_id: "test-partition-a",
         domain: "domain-a",
@@ -57,10 +59,12 @@ defmodule ServiceRadarGateway.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
+
       {:ok, _} = GatewayRegistry.register(key_a, metadata_a)
 
       # Register a gateway in test-partition-b
       key_b = {"test-partition-b", :node_b}
+
       metadata_b = %{
         partition_id: "test-partition-b",
         domain: "domain-b",
@@ -70,17 +74,19 @@ defmodule ServiceRadarGateway.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
+
       {:ok, _} = GatewayRegistry.register(key_b, metadata_b)
 
       # Find gateways for partition-a
       gateways_a = GatewayRegistry.find_gateways_for_partition("test-partition-a")
-      assert length(gateways_a) >= 1
+      assert gateways_a != []
       assert Enum.all?(gateways_a, &(&1.partition_id == "test-partition-a"))
     end
 
     test "find_available_gateways filters by status" do
       # Register an available gateway
       key_avail = {"avail-partition", :avail_node}
+
       metadata_avail = %{
         partition_id: "avail-partition",
         domain: "domain",
@@ -90,10 +96,12 @@ defmodule ServiceRadarGateway.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
+
       {:ok, _} = GatewayRegistry.register(key_avail, metadata_avail)
 
       # Register an unavailable gateway
       key_unavail = {"unavail-partition", :unavail_node}
+
       metadata_unavail = %{
         partition_id: "unavail-partition",
         domain: "domain",
@@ -103,6 +111,7 @@ defmodule ServiceRadarGateway.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
+
       {:ok, _} = GatewayRegistry.register(key_unavail, metadata_unavail)
 
       # Find available gateways
@@ -113,12 +122,15 @@ defmodule ServiceRadarGateway.RegistrationTest do
       assert "avail-partition" in avail_ids
 
       # Should not contain the unavailable one
-      unavail_ids = Enum.filter(available, &(&1.status == :unavailable)) |> Enum.map(& &1.partition_id)
+      unavail_ids =
+        Enum.filter(available, &(&1.status == :unavailable)) |> Enum.map(& &1.partition_id)
+
       assert unavail_ids == []
     end
 
     test "update_value updates metadata" do
       key = {"update-partition", :update_node}
+
       metadata = %{
         partition_id: "update-partition",
         domain: "domain",
@@ -128,6 +140,7 @@ defmodule ServiceRadarGateway.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
+
       {:ok, _} = GatewayRegistry.register(key, metadata)
 
       # Update status to busy
@@ -144,6 +157,7 @@ defmodule ServiceRadarGateway.RegistrationTest do
       initial_count = GatewayRegistry.count()
 
       key = {"count-partition", :count_node}
+
       metadata = %{
         partition_id: "count-partition",
         domain: "domain",
@@ -153,6 +167,7 @@ defmodule ServiceRadarGateway.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
+
       {:ok, _} = GatewayRegistry.register(key, metadata)
 
       assert GatewayRegistry.count() == initial_count + 1
@@ -160,6 +175,7 @@ defmodule ServiceRadarGateway.RegistrationTest do
 
     test "unregister removes gateway from registry" do
       key = {"unregister-partition", :unregister_node}
+
       metadata = %{
         partition_id: "unregister-partition",
         domain: "domain",
@@ -169,6 +185,7 @@ defmodule ServiceRadarGateway.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
+
       {:ok, _} = GatewayRegistry.register(key, metadata)
 
       # Verify registered

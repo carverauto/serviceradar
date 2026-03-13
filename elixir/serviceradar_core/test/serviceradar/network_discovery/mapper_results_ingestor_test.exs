@@ -824,6 +824,34 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert resolved.neighbor_device_id == "sr:endpoint-10-96"
     end
 
+    test "preserves explicit canonical device ids ahead of conflicting ip matches" do
+      records = [
+        %{
+          local_device_id: "sr:tonka01",
+          local_device_ip: "192.168.10.1",
+          neighbor_device_id: "sr:aruba-10-154",
+          neighbor_mgmt_addr: "192.168.10.154",
+          neighbor_system_name: "aruba-24g-02",
+          neighbor_chassis_id: nil,
+          partition: "default"
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{},
+        ip_to_uid: %{
+          "192.168.10.1" => "sr:7fcc84b5-fb2f-4624-9451-23b00bbbe9ea",
+          "192.168.10.154" => "sr:aruba-10-154"
+        },
+        name_to_uid: %{"aruba-24g-02" => "sr:aruba-10-154"},
+        mac_to_uid: %{}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+      assert resolved.local_device_id == "sr:tonka01"
+      assert resolved.neighbor_device_id == "sr:aruba-10-154"
+    end
+
     test "reconciles previously unresolved endpoints after canonical identity becomes available" do
       records = [
         %{

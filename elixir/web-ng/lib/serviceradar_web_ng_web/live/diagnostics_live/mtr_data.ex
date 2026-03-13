@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Repo
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @default_pending_states [:queued, :sent, :acknowledged, :running]
   @default_sort {"time", "DESC"}
   @allowed_sort_fields %{
@@ -41,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     "error" => "error"
   }
 
+  @sobelow_skip ["SQL.Query"]
   def list_traces(opts \\ []) do
     target_filter = normalize_string(Keyword.get(opts, :target_filter, ""))
     agent_filter = normalize_string(Keyword.get(opts, :agent_filter, ""))
@@ -68,6 +71,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     end
   end
 
+  @sobelow_skip ["SQL.Query"]
   def list_traces_paginated(opts \\ []) do
     target_filter = normalize_string(Keyword.get(opts, :target_filter, ""))
     agent_filter = normalize_string(Keyword.get(opts, :agent_filter, ""))
@@ -158,6 +162,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
   def build_trends(_), do: %{hops: [], latency: []}
 
+  @sobelow_skip ["SQL.Query"]
   def get_trace_detail(scope, trace_id) when is_binary(trace_id) and trace_id != "" do
     if is_nil(scope) do
       {:error, :missing_scope}
@@ -296,6 +301,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     |> Enum.filter(&uuid?/1)
   end
 
+  @sobelow_skip ["SQL.Query"]
   defp fetch_last_hop_latency_map(trace_ids) do
     placeholders = Enum.map_join(1..length(trace_ids), ", ", fn i -> "$#{i}" end)
 

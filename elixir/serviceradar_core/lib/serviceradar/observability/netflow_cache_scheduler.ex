@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.NetflowCacheScheduler do
     NetflowExporterCacheRefreshWorker,
     NetflowInterfaceCacheRefreshWorker
   }
+
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -49,7 +50,10 @@ defmodule ServiceRadar.Observability.NetflowCacheScheduler do
           )
       end
     else
-      Logger.debug("NetFlow cache scheduler skipped; Oban tables not ready", worker: inspect(worker))
+      Logger.debug("NetFlow cache scheduler skipped; Oban tables not ready",
+        worker: inspect(worker)
+      )
+
       :ok
     end
   end

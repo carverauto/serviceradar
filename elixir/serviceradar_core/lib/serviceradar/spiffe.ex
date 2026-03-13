@@ -390,7 +390,6 @@ defmodule ServiceRadar.SPIFFE do
     case WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
       {:ok, %{certs: certs, cacerts: cacerts, key: key}} ->
         extra_cacerts = extra_cacerts(opts)
-        bundle_path = trust_bundle_path(opts)
         all_cacerts = cacerts ++ extra_cacerts
 
         ssl_opts = [
@@ -403,17 +402,7 @@ defmodule ServiceRadar.SPIFFE do
           versions: [:"tlsv1.3", :"tlsv1.2"]
         ]
 
-        ssl_opts =
-          cond do
-            all_cacerts != [] ->
-              Keyword.put(ssl_opts, :cacerts, all_cacerts)
-
-            is_binary(bundle_path) ->
-              Keyword.put(ssl_opts, :cacertfile, String.to_charlist(bundle_path))
-
-            true ->
-              ssl_opts
-          end
+        ssl_opts = Keyword.put(ssl_opts, :cacerts, all_cacerts)
 
         {:ok, ssl_opts}
 
@@ -451,9 +440,7 @@ defmodule ServiceRadar.SPIFFE do
          days_remaining: days_remaining
        }}
     else
-      {:ok, %{certs: []}} -> {:error, :workload_api_no_certs}
       {:error, _} = error -> error
-      error -> {:error, error}
     end
   end
 
@@ -478,7 +465,6 @@ defmodule ServiceRadar.SPIFFE do
        }}
     else
       {:error, _} = error -> error
-      error -> {:error, error}
     end
   end
 

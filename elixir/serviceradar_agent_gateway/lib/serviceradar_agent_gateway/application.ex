@@ -71,6 +71,8 @@ defmodule ServiceRadarAgentGateway.Application do
 
   require Logger
 
+  alias ServiceRadar.Telemetry.OtelSetup
+
   @impl true
   def start(_type, _args) do
     partition_id = System.get_env("GATEWAY_PARTITION_ID", "default")
@@ -92,7 +94,7 @@ defmodule ServiceRadarAgentGateway.Application do
     )
 
     # Attach OTEL auto-instrumentation handlers (SDK configured in runtime.exs)
-    ServiceRadar.Telemetry.OtelSetup.attach_instrumentations(instrumentations: [])
+    OtelSetup.attach_instrumentations(instrumentations: [])
 
     Logger.info("Starting ServiceRadar Agent Gateway: #{gateway_id}, domain: #{domain}")
     Logger.info("Agent Gateway gRPC server listening on port #{grpc_port}")
@@ -119,7 +121,10 @@ defmodule ServiceRadarAgentGateway.Application do
           # Registration worker - registers this gateway in the distributed registry.
           # Gateways are platform-level; request context is derived per-request via mTLS.
           {ServiceRadar.Gateway.RegistrationWorker,
-           partition_id: partition_id, gateway_id: gateway_id, domain: domain, entity_type: :gateway},
+           partition_id: partition_id,
+           gateway_id: gateway_id,
+           domain: domain,
+           entity_type: :gateway},
           # Register gateway for platform-wide visibility (Infrastructure UI).
           {ServiceRadar.GatewayRegistrationWorker,
            gateway_id: gateway_id, partition: partition_id, domain: domain}
@@ -205,11 +210,8 @@ defmodule ServiceRadarAgentGateway.Application do
   end
 
   defp generate_gateway_id do
-    hostname =
-      case :inet.gethostname() do
-        {:ok, name} -> List.to_string(name)
-        _ -> "unknown"
-      end
+    {:ok, hostname} = :inet.gethostname()
+    hostname = List.to_string(hostname)
 
     suffix =
       8

@@ -11,30 +11,30 @@ defmodule Datasvc.KV.Proto do
     @moduledoc false
     use Protobuf, syntax: :proto3
 
-    field :prefix, 1, type: :string
+    field(:prefix, 1, type: :string)
   end
 
   defmodule ListKeysResponse do
     @moduledoc false
     use Protobuf, syntax: :proto3
 
-    field :keys, 1, repeated: true, type: :string
+    field(:keys, 1, repeated: true, type: :string)
   end
 
   defmodule GetRequest do
     @moduledoc false
     use Protobuf, syntax: :proto3
 
-    field :key, 1, type: :string
+    field(:key, 1, type: :string)
   end
 
   defmodule GetResponse do
     @moduledoc false
     use Protobuf, syntax: :proto3
 
-    field :value, 1, type: :bytes
-    field :found, 2, type: :bool
-    field :revision, 3, type: :uint64
+    field(:value, 1, type: :bytes)
+    field(:found, 2, type: :bool)
+    field(:revision, 3, type: :uint64)
   end
 
   defmodule InfoRequest do
@@ -46,9 +46,9 @@ defmodule Datasvc.KV.Proto do
     @moduledoc false
     use Protobuf, syntax: :proto3
 
-    field :domain, 1, type: :string
-    field :bucket, 2, type: :string
-    field :object_bucket, 3, type: :string
+    field(:domain, 1, type: :string)
+    field(:bucket, 2, type: :string)
+    field(:object_bucket, 3, type: :string)
   end
 end
 

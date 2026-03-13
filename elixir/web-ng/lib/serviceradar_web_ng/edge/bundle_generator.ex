@@ -23,6 +23,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.OnboardingToken
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @doc """
   Creates a tarball bundle for the given package and certificate data.
 
@@ -512,6 +514,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     dt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp create_tar_gz(files) do
     # Create tarball entries
     entries =

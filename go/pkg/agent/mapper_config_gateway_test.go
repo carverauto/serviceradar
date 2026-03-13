@@ -43,6 +43,7 @@ func TestParseGatewayMapperConfigPreservesMikroTikEndpoints(t *testing.T) {
 
 	if cfg == nil {
 		t.Fatal("expected mapper config, got nil")
+		return
 	}
 
 	if len(cfg.MikroTikAPIs) != 1 {

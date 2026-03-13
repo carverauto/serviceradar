@@ -4,11 +4,11 @@ defmodule ServiceRadarWebNG.Api.StreamController do
   require Logger
 
   @doc """
-  Upgrades an incoming HTTP request into a persistent WebSocket connection 
+  Upgrades an incoming HTTP request into a persistent WebSocket connection
   for the high-fidelity Arrow IPC data stream.
   """
   def connect(conn, %{"session_id" => session_id}) do
-    # At this point, the API authentication pipeline has already validated 
+    # At this point, the API authentication pipeline has already validated
     # the OAuth2 Bearer token in the request headers and attached the user to conn.assigns.
     user = conn.assigns[:current_user]
 

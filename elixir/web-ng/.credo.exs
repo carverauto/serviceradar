@@ -29,14 +29,11 @@
           {Credo.Check.Consistency.TabsOrSpaces, []},
 
           # Design Checks
-          {Credo.Check.Design.AliasUsage,
-           [priority: :low, if_nested_deeper_than: 2, if_called_more_often_than: 0]},
           {Credo.Check.Design.TagFIXME, []},
           # TODOs are informational, don't fail the build
           {Credo.Check.Design.TagTODO, [exit_status: 0]},
 
           # Readability Checks
-          {Credo.Check.Readability.AliasOrder, []},
           {Credo.Check.Readability.FunctionNames, []},
           {Credo.Check.Readability.LargeNumbers, []},
           {Credo.Check.Readability.MaxLineLength, [priority: :low, max_length: 120]},
@@ -44,14 +41,11 @@
           {Credo.Check.Readability.ModuleDoc, []},
           {Credo.Check.Readability.ModuleNames, []},
           {Credo.Check.Readability.ParenthesesInCondition, []},
-          {Credo.Check.Readability.ParenthesesOnZeroArityDefs, []},
           {Credo.Check.Readability.PipeIntoAnonymousFunctions, []},
           {Credo.Check.Readability.PredicateFunctionNames, []},
-          {Credo.Check.Readability.PreferImplicitTry, []},
           {Credo.Check.Readability.RedundantBlankLines, []},
           {Credo.Check.Readability.Semicolons, []},
           {Credo.Check.Readability.SpaceAfterCommas, []},
-          {Credo.Check.Readability.StringSigils, []},
           {Credo.Check.Readability.TrailingBlankLine, []},
           {Credo.Check.Readability.TrailingWhiteSpace, []},
           {Credo.Check.Readability.UnnecessaryAliasExpansion, []},
@@ -59,7 +53,6 @@
           {Credo.Check.Readability.WithSingleClause, []},
 
           # Refactoring Opportunities
-          {Credo.Check.Refactor.Apply, []},
           {Credo.Check.Refactor.CondStatements, []},
           # Increased max_complexity to 13 for complex LiveView components
           {Credo.Check.Refactor.CyclomaticComplexity, [max_complexity: 13]},
@@ -108,19 +101,25 @@
           {Credo.Check.Design.DuplicatedCode, []},
           {Credo.Check.Design.SkipTestWithoutComment, []},
           {Credo.Check.Readability.AliasAs, []},
+          {Credo.Check.Readability.AliasOrder, []},
           {Credo.Check.Readability.BlockPipe, []},
           {Credo.Check.Readability.ImplTrue, []},
           {Credo.Check.Readability.MultiAlias, []},
           {Credo.Check.Readability.NestedFunctionCalls, []},
           {Credo.Check.Readability.OneArityFunctionInPipe, []},
           {Credo.Check.Readability.OnePipePerLine, []},
+          {Credo.Check.Readability.ParenthesesOnZeroArityDefs, []},
+          {Credo.Check.Readability.PreferImplicitTry, []},
           {Credo.Check.Readability.SeparateAliasRequire, []},
           {Credo.Check.Readability.SingleFunctionToBlockPipe, []},
           {Credo.Check.Readability.SinglePipe, []},
           {Credo.Check.Readability.Specs, []},
           {Credo.Check.Readability.StrictModuleLayout, []},
+          {Credo.Check.Readability.StringSigils, []},
           {Credo.Check.Readability.WithCustomTaggedTuple, []},
+          {Credo.Check.Design.AliasUsage, []},
           {Credo.Check.Refactor.ABCSize, []},
+          {Credo.Check.Refactor.Apply, []},
           {Credo.Check.Refactor.AppendSingleItem, []},
           {Credo.Check.Refactor.DoubleBooleanNegation, []},
           {Credo.Check.Refactor.FilterReject, []},

@@ -9,8 +9,6 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
 
   use GenServer
 
-  require Logger
-
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.ProcessRegistry
 
@@ -45,10 +43,6 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
 
           {:error, {:already_registered, _pid}} ->
             {:reply, :ok, state}
-
-          {:error, reason} ->
-            Logger.warning("Failed to register agent #{agent_id}: #{inspect(reason)}")
-            {:reply, {:error, reason}, state}
         end
     end
   end

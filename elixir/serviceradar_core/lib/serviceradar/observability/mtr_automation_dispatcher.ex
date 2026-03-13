@@ -716,7 +716,8 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   end
 
   defp valid_row_target?(target_key, target_ip) do
-    is_binary(target_key) and target_key != "" and is_binary(target_ip) and target_ip != ""
+    is_binary(target_key) and byte_size(target_key) > 0 and is_binary(target_ip) and
+      byte_size(target_ip) > 0
   end
 
   defp event_metadata(event) do

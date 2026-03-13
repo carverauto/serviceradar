@@ -36,9 +36,16 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   require Logger
 
+  alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
-  alias ServiceRadarAgentGateway.{AgentRegistryProxy, Config, ControlStreamSession, StatusProcessor}
+
+  alias ServiceRadarAgentGateway.{
+    AgentRegistryProxy,
+    Config,
+    ControlStreamSession,
+    StatusProcessor
+  }
 
   # Default heartbeat interval for agents
   @default_heartbeat_interval_sec 30
@@ -55,6 +62,26 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     node() |> Atom.to_string()
   end
 
+  defp required_agent_id(value) do
+    case value do
+      nil ->
+        raise GRPC.RPCError, status: :invalid_argument, message: "agent_id is required"
+
+      value ->
+        case value |> to_string() |> String.trim() do
+          "" ->
+            raise GRPC.RPCError, status: :invalid_argument, message: "agent_id is required"
+
+          agent_id ->
+            agent_id
+        end
+    end
+  end
+
+  defp config_outdated?(nil), do: true
+  defp config_outdated?(""), do: true
+  defp config_outdated?(_), do: false
+
   @doc """
   Handle an agent hello/enrollment request.
 
@@ -64,21 +91,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @spec hello(Monitoring.AgentHelloRequest.t(), GRPC.Server.Stream.t()) ::
           Monitoring.AgentHelloResponse.t()
   def hello(request, stream) do
-    agent_id =
-      case request.agent_id do
-        nil ->
-          ""
-
-        value ->
-          value
-          |> to_string()
-          |> String.trim()
-      end
-
-    if agent_id == "" do
-      raise GRPC.RPCError, status: :invalid_argument, message: "agent_id is required"
-    end
-
+    agent_id = required_agent_id(request.agent_id)
     version = request.version
     capabilities = request.capabilities || []
 
@@ -97,10 +110,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     ensure_agent_registered(identity, agent_id, partition_id, capabilities, stream)
 
     # Registration is stored in the registry and DB; acceptance remains cert-based.
-
-    # Check if config is outdated (placeholder - always false for now)
-    # TODO: Implement config versioning in core-elx
-    config_outdated = request.config_version == "" or request.config_version == nil
+    config_outdated = config_outdated?(request.config_version)
 
     Logger.info("Agent enrolled: agent_id=#{agent_id}, config_outdated=#{config_outdated}")
 
@@ -128,21 +138,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @spec get_config(Monitoring.AgentConfigRequest.t(), GRPC.Server.Stream.t()) ::
           Monitoring.AgentConfigResponse.t()
   def get_config(request, stream) do
-    agent_id =
-      case request.agent_id do
-        nil ->
-          ""
-
-        value ->
-          value
-          |> to_string()
-          |> String.trim()
-      end
-
-    if agent_id == "" do
-      raise GRPC.RPCError, status: :invalid_argument, message: "agent_id is required"
-    end
-
+    agent_id = required_agent_id(request.agent_id)
     config_version = request.config_version || ""
 
     Logger.debug("Agent config request: agent_id=#{agent_id}, version=#{config_version}")
@@ -155,69 +151,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     Logger.info("Config request received: component_type=#{component_type}, agent_id=#{agent_id}")
 
     # Generate config from database using the config generator
-    case core_call(AgentGatewaySync, :get_config_if_changed, [agent_id, config_version], 15_000) do
-      {:error, :core_unavailable} ->
-        Logger.warning(
-          "Core unavailable for config request: agent_id=#{agent_id}, version=#{config_version}"
-        )
-
-        if config_version != "" do
-          %Monitoring.AgentConfigResponse{
-            not_modified: true,
-            config_version: config_version
-          }
-        else
-          %Monitoring.AgentConfigResponse{
-            not_modified: false,
-            config_version: "v0-unavailable",
-            config_timestamp: System.os_time(:second),
-            heartbeat_interval_sec: @default_heartbeat_interval_sec,
-            config_poll_interval_sec: 300,
-            checks: []
-          }
-        end
-
-      {:ok, :not_modified} ->
-        Logger.debug("Agent config not modified: agent_id=#{agent_id}, version=#{config_version}")
-
-        %Monitoring.AgentConfigResponse{
-          not_modified: true,
-          config_version: config_version
-        }
-
-      {:ok, {:ok, config}} ->
-        Logger.info(
-          "Sending config to agent: agent_id=#{agent_id}, version=#{config.config_version}, checks=#{length(config.checks)}"
-        )
-
-        ServiceRadar.Edge.AgentConfigGenerator.to_proto_response(config)
-
-      {:ok, {:error, reason}} ->
-        Logger.warning(
-          "Failed to generate config for agent #{agent_id}: #{inspect(reason)}, returning empty config"
-        )
-
-        %Monitoring.AgentConfigResponse{
-          not_modified: false,
-          config_version: "v0-error",
-          config_timestamp: System.os_time(:second),
-          heartbeat_interval_sec: @default_heartbeat_interval_sec,
-          config_poll_interval_sec: 300,
-          checks: []
-        }
-
-      {:ok, other} ->
-        Logger.warning("Unexpected config response for agent #{agent_id}: #{inspect(other)}")
-
-        %Monitoring.AgentConfigResponse{
-          not_modified: false,
-          config_version: "v0-error",
-          config_timestamp: System.os_time(:second),
-          heartbeat_interval_sec: @default_heartbeat_interval_sec,
-          config_poll_interval_sec: 300,
-          checks: []
-        }
-    end
+    core_call(AgentGatewaySync, :get_config_if_changed, [agent_id, config_version], 15_000)
+    |> handle_config_response(agent_id, config_version)
   end
 
   @doc """
@@ -327,147 +262,16 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     identity = extract_identity_from_stream(stream)
     peer_ip = get_peer_ip(stream)
 
-    {total_services, saw_final?, _stream_agent_id, _expected_idx, _pinned_total_chunks,
-     _registered?} =
-      Enum.reduce_while(request_stream, {0, false, nil, 0, nil, false}, fn chunk,
-                                                                           {acc, _saw_final?,
-                                                                            stream_agent_id,
-                                                                            expected_idx,
-                                                                            pinned_total_chunks,
-                                                                            registered?} ->
-        agent_id =
-          case chunk.agent_id do
-            nil ->
-              ""
-
-            value ->
-              value
-              |> to_string()
-              |> String.trim()
-          end
-
-        if agent_id == "" do
-          raise GRPC.RPCError, status: :invalid_argument, message: "agent_id is required"
-        end
-
-        stream_agent_id =
-          case stream_agent_id do
-            nil ->
-              agent_id
-
-            ^agent_id ->
-              agent_id
-
-            _ ->
-              raise GRPC.RPCError,
-                status: :invalid_argument,
-                message: "agent_id changed mid-stream"
-          end
-
-        enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
-
-        services =
-          chunk.services
-          |> List.wrap()
-          |> Enum.reject(&is_nil/1)
-
-        service_count = length(services)
-        new_total = acc + service_count
-
-        if new_total > @max_services_per_request do
-          raise GRPC.RPCError,
-            status: :resource_exhausted,
-            message: "too many service statuses in one stream (max: #{@max_services_per_request})"
-        end
-
-        chunk_index = chunk.chunk_index || 0
-        total_chunks = chunk.total_chunks || 0
-
-        if total_chunks <= 0 do
-          raise GRPC.RPCError, status: :invalid_argument, message: "total_chunks must be > 0"
-        end
-
-        pinned_total_chunks =
-          case pinned_total_chunks do
-            nil ->
-              total_chunks
-
-            ^total_chunks ->
-              total_chunks
-
-            _ ->
-              raise GRPC.RPCError,
-                status: :invalid_argument,
-                message: "total_chunks changed mid-stream"
-          end
-
-        if chunk_index < 0 or chunk_index >= total_chunks do
-          raise GRPC.RPCError, status: :invalid_argument, message: "invalid chunk_index"
-        end
-
-        if chunk_index != expected_idx do
-          raise GRPC.RPCError, status: :invalid_argument, message: "unexpected chunk_index"
-        end
-
-        Logger.debug("Received chunk #{chunk_index + 1}/#{total_chunks} from agent #{agent_id}")
-
-        partition = resolve_partition(identity, chunk.partition)
-
-        if not registered? do
-          refresh_agent_heartbeat(identity, agent_id, partition, chunk, stream)
-        end
-
-        # Extract metadata from chunk
-        # Use server's gateway_id() instead of client-provided chunk.gateway_id
-        # to prevent spoofing and ensure correct data attribution
-        metadata = %{
-          agent_id: agent_id,
-          gateway_id: gateway_id(),
-          partition: partition,
-          source_ip: peer_ip,
-          kv_store_id: chunk.kv_store_id,
-          timestamp: System.os_time(:second),
-          agent_timestamp: chunk.timestamp,
-          chunk_index: chunk_index,
-          total_chunks: total_chunks,
-          is_final: chunk.is_final
-        }
-
-        # Process each service status in the chunk
-        Enum.each(services, fn service ->
-          try do
-            process_service_status(service, metadata)
-          rescue
-            e in GRPC.RPCError ->
-              log_invalid_service_status(metadata, service, e)
-
-            e ->
-              Logger.warning(
-                "Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}"
-              )
-          end
-        end)
-
-        if chunk.is_final do
-          if chunk_index != total_chunks - 1 do
-            raise GRPC.RPCError,
-              status: :invalid_argument,
-              message: "final chunk_index does not match total_chunks"
-          end
-
-          record_push_metrics(agent_id, new_total)
-          {:halt, {new_total, true, stream_agent_id, expected_idx + 1, pinned_total_chunks, true}}
-        else
-          {:cont,
-           {new_total, false, stream_agent_id, expected_idx + 1, pinned_total_chunks, true}}
-        end
+    state =
+      Enum.reduce_while(request_stream, initial_stream_status_state(), fn chunk, state ->
+        handle_status_chunk(chunk, state, identity, peer_ip, stream)
       end)
 
-    if not saw_final? do
+    if not state.saw_final? do
       raise GRPC.RPCError, status: :invalid_argument, message: "stream ended without final chunk"
     end
 
-    Logger.info("Completed streaming status reception: #{total_services} total services")
+    Logger.info("Completed streaming status reception: #{state.total_services} total services")
 
     %Monitoring.GatewayStatusResponse{received: true}
   end
@@ -480,62 +284,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     identity = extract_identity_from_stream(stream)
 
     session_pid =
-      Enum.reduce_while(request_stream, {:awaiting_hello, nil}, fn message, state ->
-        case state do
-          {:awaiting_hello, nil} ->
-            case message.payload do
-              {:hello, %Monitoring.ControlStreamHello{} = hello} ->
-                agent_id =
-                  case hello.agent_id do
-                    nil -> ""
-                    value -> value |> to_string() |> String.trim()
-                  end
-
-                if agent_id == "" do
-                  raise GRPC.RPCError,
-                    status: :invalid_argument,
-                    message: "agent_id is required"
-                end
-
-                {identity, _component_type} = resolve_component_type!(identity, agent_id)
-                enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
-
-                partition_id = resolve_partition(identity, hello.partition)
-                capabilities = normalize_capabilities(hello.capabilities || [])
-
-                {:ok, session} = ControlStreamSession.start_link(stream: stream)
-
-                case ControlStreamSession.register(session, agent_id, partition_id, capabilities) do
-                  :ok ->
-                    Logger.info(
-                      "Control stream established: agent_id=#{agent_id}, partition=#{partition_id}"
-                    )
-
-                    {:cont, {:ready, session}}
-
-                  {:error, reason} ->
-                    Logger.warning(
-                      "Failed to register control stream for agent #{agent_id}: #{inspect(reason)}"
-                    )
-
-                    raise GRPC.RPCError, status: :internal, message: "control stream registration failed"
-                end
-
-              _ ->
-                raise GRPC.RPCError,
-                  status: :failed_precondition,
-                  message: "control stream requires hello as the first message"
-            end
-
-          {:ready, session} ->
-            ControlStreamSession.handle_message(session, message)
-            {:cont, {:ready, session}}
-        end
+      request_stream
+      |> Enum.reduce_while({:awaiting_hello, nil}, fn message, state ->
+        handle_control_stream_message(message, state, identity, stream)
       end)
-      |> case do
-        {:ready, session} -> session
-        {:awaiting_hello, _} -> nil
-      end
+      |> control_session_pid()
 
     if is_pid(session_pid) do
       GenServer.stop(session_pid, :normal)
@@ -547,104 +300,19 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   # Process a single service status and forward to the core
   defp process_service_status(service, metadata) do
     # Validation is done by mTLS certificate verification and deployment isolation.
+    {service_name, service_type, source} = normalized_service_fields(service)
+    validate_service_fields!(service_name, service_type, source)
 
-    service_name =
-      case service.service_name do
-        name when is_binary(name) -> String.trim(name)
-        nil -> ""
-        _ -> ""
-      end
+    status =
+      build_service_status(
+        service,
+        metadata,
+        service_name,
+        service_type,
+        source
+      )
 
-    service_type =
-      case service.service_type do
-        st when is_binary(st) -> String.trim(st)
-        _ -> ""
-      end
-
-    source =
-      case service.source do
-        src when is_binary(src) -> String.trim(src)
-        _ -> ""
-      end
-
-    cond do
-      service_name == "" ->
-        raise GRPC.RPCError, status: :invalid_argument, message: "service_name is required"
-
-      byte_size(service_name) > 255 ->
-        raise GRPC.RPCError, status: :invalid_argument, message: "service_name is too long"
-
-      String.contains?(service_name, ["\n", "\r", "\t"]) ->
-        raise GRPC.RPCError,
-          status: :invalid_argument,
-          message: "service_name contains invalid characters"
-
-      byte_size(service_type) > 64 or String.contains?(service_type, ["\n", "\r", "\t"]) ->
-        raise GRPC.RPCError, status: :invalid_argument, message: "service_type is invalid"
-
-      byte_size(source) > 64 or String.contains?(source, ["\n", "\r", "\t"]) ->
-        raise GRPC.RPCError, status: :invalid_argument, message: "source is invalid"
-
-      true ->
-        :ok
-    end
-
-    message =
-      case service.message do
-        nil ->
-          ""
-
-        msg when is_binary(msg) ->
-          msg
-
-        msg when is_list(msg) ->
-          IO.iodata_to_binary(msg)
-
-        _ ->
-          ""
-      end
-      |> normalize_message(source)
-
-    response_time =
-      case service.response_time do
-        rt when is_integer(rt) and rt >= 0 and rt <= 86_400_000 ->
-          rt
-
-        rt when is_integer(rt) and rt > 86_400_000 ->
-          86_400_000
-
-        _ ->
-          0
-      end
-
-    status = %{
-      service_name: service_name,
-      available: service.available == true,
-      message: message,
-      service_type: service_type,
-      response_time: response_time,
-      agent_id: metadata.agent_id,
-      gateway_id: metadata.gateway_id,
-      partition: normalize_partition(service.partition || metadata.partition),
-      source: source,
-      kv_store_id: service.kv_store_id || metadata.kv_store_id,
-      timestamp: metadata.timestamp,
-      agent_timestamp: metadata.agent_timestamp,
-      chunk_index: Map.get(metadata, :chunk_index, 0),
-      total_chunks: Map.get(metadata, :total_chunks, 1),
-      is_final: Map.get(metadata, :is_final, true)
-    }
-
-    # Forward to the status processor (delegates to core)
-    case StatusProcessor.process(status) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning(
-          "Failed to process status for service #{service.service_name}: #{inspect(reason)}"
-        )
-    end
+    forward_service_status(service, status)
   end
 
   defp normalize_partition(partition) when is_binary(partition) do
@@ -659,6 +327,94 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp normalize_partition(_partition), do: "default"
+
+  defp normalized_service_fields(service) do
+    {
+      normalize_service_field(service.service_name),
+      normalize_service_field(service.service_type),
+      normalize_service_field(service.source)
+    }
+  end
+
+  defp normalize_service_field(value) when is_binary(value), do: String.trim(value)
+  defp normalize_service_field(_), do: ""
+
+  defp validate_service_fields!(service_name, service_type, source) do
+    cond do
+      service_name == "" ->
+        raise GRPC.RPCError, status: :invalid_argument, message: "service_name is required"
+
+      invalid_service_name?(service_name) ->
+        raise GRPC.RPCError, status: :invalid_argument, message: "service_name is invalid"
+
+      invalid_service_field?(service_type, 64) ->
+        raise GRPC.RPCError, status: :invalid_argument, message: "service_type is invalid"
+
+      invalid_service_field?(source, 64) ->
+        raise GRPC.RPCError, status: :invalid_argument, message: "source is invalid"
+
+      true ->
+        :ok
+    end
+  end
+
+  defp invalid_service_name?(service_name) do
+    byte_size(service_name) > 255 or contains_control_chars?(service_name)
+  end
+
+  defp invalid_service_field?(value, max_bytes) do
+    byte_size(value) > max_bytes or contains_control_chars?(value)
+  end
+
+  defp contains_control_chars?(value) do
+    String.contains?(value, ["\n", "\r", "\t"])
+  end
+
+  defp build_service_status(service, metadata, service_name, service_type, source) do
+    %{
+      service_name: service_name,
+      available: service.available == true,
+      message: normalize_service_message(service.message, source),
+      service_type: service_type,
+      response_time: normalize_response_time(service.response_time),
+      agent_id: metadata.agent_id,
+      gateway_id: metadata.gateway_id,
+      partition: normalize_partition(service.partition || metadata.partition),
+      source: source,
+      kv_store_id: service.kv_store_id || metadata.kv_store_id,
+      timestamp: metadata.timestamp,
+      agent_timestamp: metadata.agent_timestamp,
+      chunk_index: Map.get(metadata, :chunk_index, 0),
+      total_chunks: Map.get(metadata, :total_chunks, 1),
+      is_final: Map.get(metadata, :is_final, true)
+    }
+  end
+
+  defp normalize_service_message(nil, source), do: normalize_message("", source)
+
+  defp normalize_service_message(message, source) when is_binary(message),
+    do: normalize_message(message, source)
+
+  defp normalize_service_message(message, source) when is_list(message),
+    do: message |> IO.iodata_to_binary() |> normalize_message(source)
+
+  defp normalize_service_message(_, source), do: normalize_message("", source)
+
+  defp normalize_response_time(rt) when is_integer(rt) and rt >= 0 and rt <= 86_400_000, do: rt
+  defp normalize_response_time(rt) when is_integer(rt) and rt > 86_400_000, do: 86_400_000
+  defp normalize_response_time(_), do: 0
+
+  defp forward_service_status(service, status) do
+    case StatusProcessor.process(status) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to process status for service #{service.service_name}: #{inspect(reason)}"
+        )
+    end
+  end
 
   defp log_invalid_service_status(metadata, service, %GRPC.RPCError{} = error) do
     Logger.warning(
@@ -731,14 +487,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     |> Enum.uniq()
   end
 
-  defp resolve_partition(identity, request_partition) do
-    identity_partition =
-      case identity do
-        %{partition_id: partition_id} -> partition_id
-        _ -> nil
-      end
-
-    normalize_partition(identity_partition || request_partition)
+  defp resolve_partition(identity, _request_partition) do
+    partition_id = Map.fetch!(identity, :partition_id)
+    normalize_partition(partition_id)
   end
 
   defp resolve_component_type!(identity, component_id) do
@@ -747,21 +498,26 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         {identity, component_type}
 
       nil ->
-        Logger.warning("Component type missing from client certificate: component_id=#{component_id}")
+        Logger.warning(
+          "Component type missing from client certificate: component_id=#{component_id}"
+        )
+
         raise GRPC.RPCError, status: :permission_denied, message: "component_type missing"
 
       _ ->
-        Logger.warning("Invalid component type in client certificate: component_id=#{component_id}")
+        Logger.warning(
+          "Invalid component type in client certificate: component_id=#{component_id}"
+        )
+
         raise GRPC.RPCError, status: :permission_denied, message: "invalid component_type"
     end
   end
 
   defp enforce_component_identity!(identity, component_id, allowed_types) do
     cert_component_id =
-      case identity do
-        %{component_id: value} when is_binary(value) -> String.trim(value)
-        _ -> ""
-      end
+      identity
+      |> Map.fetch!(:component_id)
+      |> String.trim()
 
     if cert_component_id == "" do
       Logger.warning("Component identity missing from client certificate")
@@ -825,18 +581,22 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp extract_config_source(request) do
     case request do
-      %{config_source: source} when is_binary(source) and source != "" ->
-        case source do
-          "remote" -> :remote
-          "local" -> :local
-          "cached" -> :cached
-          "unassigned" -> :unassigned
-          "default" -> :unassigned
-          _ -> nil
-        end
+      %{config_source: source} when is_binary(source) ->
+        parse_config_source(source)
 
       _ ->
         nil
+    end
+  end
+
+  defp parse_config_source(source) do
+    case String.trim(source) do
+      "remote" -> :remote
+      "local" -> :local
+      "cached" -> :cached
+      "unassigned" -> :unassigned
+      "default" -> :unassigned
+      _ -> nil
     end
   end
 
@@ -992,29 +752,35 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp core_call(module, function, args, timeout \\ 5_000) do
     nodes = core_nodes()
 
-    if nodes == [] do
-      Logger.warning(
-        "Core call failed: no core nodes available. Connected nodes: #{inspect(Node.list())}. " <>
-          "Calling #{inspect(module)}.#{function}"
-      )
+    case nodes do
+      [] ->
+        Logger.warning(
+          "Core call failed: no core nodes available. Connected nodes: #{inspect(Node.list())}. " <>
+            "Calling #{inspect(module)}.#{function}"
+        )
 
-      {:error, :core_unavailable}
-    else
-      Enum.reduce_while(nodes, {:error, :core_unavailable}, fn node, _acc ->
-        case :rpc.call(node, module, function, args, timeout) do
-          {:badrpc, reason} ->
-            Logger.warning(
-              "Core RPC call to #{node} failed: #{inspect(reason)}. " <>
-                "Calling #{inspect(module)}.#{function}"
-            )
+        {:error, :core_unavailable}
 
-            {:cont, {:error, :core_unavailable}}
-
-          result ->
-            {:halt, {:ok, result}}
-        end
-      end)
+      _ ->
+        rpc_core_nodes(nodes, module, function, args, timeout)
     end
+  end
+
+  defp rpc_core_nodes(nodes, module, function, args, timeout) do
+    Enum.reduce_while(nodes, {:error, :core_unavailable}, fn node, _acc ->
+      case :rpc.call(node, module, function, args, timeout) do
+        {:badrpc, reason} ->
+          Logger.warning(
+            "Core RPC call to #{node} failed: #{inspect(reason)}. " <>
+              "Calling #{inspect(module)}.#{function}"
+          )
+
+          {:cont, {:error, :core_unavailable}}
+
+        result ->
+          {:halt, {:ok, result}}
+      end
+    end)
   end
 
   defp core_nodes do
@@ -1031,14 +797,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     if coordinators == [] and remote_nodes != [] do
       Logger.warning(
         "No core-elx nodes found with ClusterHealth. " <>
-          "Config compilation and other DB operations will fail until core is available.",
-        connected_nodes: remote_nodes
+          "Config compilation and other DB operations will fail until core is available. " <>
+          "Connected nodes: #{inspect(remote_nodes)}"
       )
     end
 
     coordinators
   end
-
 
   defp find_nodes_with_process(nodes, process_name) do
     Enum.filter(nodes, fn node ->
@@ -1077,50 +842,46 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   # Get the peer certificate from the gRPC stream
   # Uses the adapter's built-in get_cert function which calls :cowboy_req.cert(req)
   defp get_peer_cert(stream) do
-    try do
-      adapter = stream.adapter
-      payload = stream.payload
+    adapter = stream.adapter
+    payload = stream.payload
 
-      # Check if the adapter supports certificate extraction
-      if is_atom(adapter) and function_exported?(adapter, :get_cert, 1) do
-        case adapter.get_cert(payload) do
-          :undefined ->
-            {:error, :no_certificate}
+    # Check if the adapter supports certificate extraction
+    if is_atom(adapter) and function_exported?(adapter, :get_cert, 1) do
+      case adapter.get_cert(payload) do
+        :undefined ->
+          {:error, :no_certificate}
 
-          cert_der when is_binary(cert_der) ->
-            {:ok, cert_der}
+        cert_der when is_binary(cert_der) ->
+          {:ok, cert_der}
 
-          other ->
-            {:error, {:unexpected_cert_result, other}}
-        end
-      else
-        {:error, {:cert_extraction_unsupported, adapter}}
+        other ->
+          {:error, {:unexpected_cert_result, other}}
       end
-    rescue
-      e -> {:error, {:extraction_failed, Exception.message(e)}}
-    catch
-      kind, reason -> {:error, {:extraction_failed, kind, inspect(reason)}}
+    else
+      {:error, {:cert_extraction_unsupported, adapter}}
     end
+  rescue
+    e -> {:error, {:extraction_failed, Exception.message(e)}}
+  catch
+    kind, reason -> {:error, {:extraction_failed, kind, inspect(reason)}}
   end
 
   defp get_peer_ip(stream) do
-    try do
-      adapter = stream.adapter
-      payload = stream.payload
+    adapter = stream.adapter
+    payload = stream.payload
 
-      cond do
-        is_atom(adapter) and function_exported?(adapter, :get_peer, 1) ->
-          normalize_peer(adapter.get_peer(payload))
+    cond do
+      is_atom(adapter) and function_exported?(adapter, :get_peer, 1) ->
+        normalize_peer(adapter.get_peer(payload))
 
-        function_exported?(:cowboy_req, :peer, 1) ->
-          normalize_peer(:cowboy_req.peer(payload))
+      function_exported?(:cowboy_req, :peer, 1) ->
+        normalize_peer(:cowboy_req.peer(payload))
 
-        true ->
-          nil
-      end
-    rescue
-      _ -> nil
+      true ->
+        nil
     end
+  rescue
+    _ -> nil
   end
 
   defp normalize_peer({ip, _port}), do: ip_to_string(ip)
@@ -1133,4 +894,289 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     |> :inet.ntoa()
     |> to_string()
   end
+
+  defp handle_config_response({:error, :core_unavailable}, agent_id, config_version) do
+    Logger.warning(
+      "Core unavailable for config request: agent_id=#{agent_id}, version=#{config_version}"
+    )
+
+    unavailable_config_response(config_version)
+  end
+
+  defp handle_config_response({:ok, :not_modified}, agent_id, config_version) do
+    Logger.debug("Agent config not modified: agent_id=#{agent_id}, version=#{config_version}")
+
+    %Monitoring.AgentConfigResponse{
+      not_modified: true,
+      config_version: config_version
+    }
+  end
+
+  defp handle_config_response({:ok, {:ok, config}}, agent_id, _config_version) do
+    Logger.info(
+      "Sending config to agent: agent_id=#{agent_id}, version=#{config.config_version}, checks=#{length(config.checks)}"
+    )
+
+    AgentConfigGenerator.to_proto_response(config)
+  end
+
+  defp handle_config_response({:ok, {:error, reason}}, agent_id, _config_version) do
+    Logger.warning(
+      "Failed to generate config for agent #{agent_id}: #{inspect(reason)}, returning empty config"
+    )
+
+    empty_config_response("v0-error")
+  end
+
+  defp handle_config_response({:ok, other}, agent_id, _config_version) do
+    Logger.warning("Unexpected config response for agent #{agent_id}: #{inspect(other)}")
+    empty_config_response("v0-error")
+  end
+
+  defp unavailable_config_response(config_version) when config_version != "" do
+    %Monitoring.AgentConfigResponse{
+      not_modified: true,
+      config_version: config_version
+    }
+  end
+
+  defp unavailable_config_response(_config_version), do: empty_config_response("v0-unavailable")
+
+  defp empty_config_response(version) do
+    %Monitoring.AgentConfigResponse{
+      not_modified: false,
+      config_version: version,
+      config_timestamp: System.os_time(:second),
+      heartbeat_interval_sec: @default_heartbeat_interval_sec,
+      config_poll_interval_sec: 300,
+      checks: []
+    }
+  end
+
+  defp initial_stream_status_state do
+    %{
+      total_services: 0,
+      saw_final?: false,
+      stream_agent_id: nil,
+      expected_idx: 0,
+      pinned_total_chunks: nil,
+      registered?: false
+    }
+  end
+
+  defp handle_status_chunk(chunk, state, identity, peer_ip, stream) do
+    agent_id = resolve_stream_agent_id(state.stream_agent_id, chunk.agent_id)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+
+    services = normalize_chunk_services(chunk.services)
+    total_services = validate_stream_service_total!(state.total_services, length(services))
+    total_chunks = require_total_chunks(chunk.total_chunks || 0)
+    pinned_total_chunks = pin_total_chunks(state.pinned_total_chunks, total_chunks)
+    chunk_index = validate_chunk_index!(chunk.chunk_index || 0, total_chunks, state.expected_idx)
+
+    Logger.debug("Received chunk #{chunk_index + 1}/#{total_chunks} from agent #{agent_id}")
+
+    partition = resolve_partition(identity, chunk.partition)
+    ensure_stream_registration(state.registered?, identity, agent_id, partition, chunk, stream)
+
+    metadata = chunk_metadata(agent_id, partition, peer_ip, chunk, chunk_index, total_chunks)
+    process_chunk_services(services, metadata)
+
+    next_stream_status_state(
+      state,
+      agent_id,
+      total_services,
+      pinned_total_chunks,
+      chunk_index,
+      chunk
+    )
+  end
+
+  defp resolve_stream_agent_id(nil, chunk_agent_id), do: required_agent_id(chunk_agent_id)
+
+  defp resolve_stream_agent_id(stream_agent_id, chunk_agent_id) do
+    agent_id = required_agent_id(chunk_agent_id)
+
+    if agent_id == stream_agent_id do
+      agent_id
+    else
+      raise GRPC.RPCError, status: :invalid_argument, message: "agent_id changed mid-stream"
+    end
+  end
+
+  defp normalize_chunk_services(services) do
+    services
+    |> List.wrap()
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp validate_stream_service_total!(current_total, service_count) do
+    new_total = current_total + service_count
+
+    if new_total > @max_services_per_request do
+      raise GRPC.RPCError,
+        status: :resource_exhausted,
+        message: "too many service statuses in one stream (max: #{@max_services_per_request})"
+    end
+
+    new_total
+  end
+
+  defp require_total_chunks(total_chunks) when total_chunks > 0, do: total_chunks
+
+  defp require_total_chunks(_total_chunks) do
+    raise GRPC.RPCError, status: :invalid_argument, message: "total_chunks must be > 0"
+  end
+
+  defp pin_total_chunks(nil, total_chunks), do: total_chunks
+  defp pin_total_chunks(total_chunks, total_chunks), do: total_chunks
+
+  defp pin_total_chunks(_pinned_total_chunks, _total_chunks) do
+    raise GRPC.RPCError, status: :invalid_argument, message: "total_chunks changed mid-stream"
+  end
+
+  defp validate_chunk_index!(chunk_index, total_chunks, expected_idx) do
+    cond do
+      chunk_index < 0 or chunk_index >= total_chunks ->
+        raise GRPC.RPCError, status: :invalid_argument, message: "invalid chunk_index"
+
+      chunk_index != expected_idx ->
+        raise GRPC.RPCError, status: :invalid_argument, message: "unexpected chunk_index"
+
+      true ->
+        chunk_index
+    end
+  end
+
+  defp ensure_stream_registration(false, identity, agent_id, partition, chunk, stream) do
+    refresh_agent_heartbeat(identity, agent_id, partition, chunk, stream)
+  end
+
+  defp ensure_stream_registration(true, _identity, _agent_id, _partition, _chunk, _stream),
+    do: :ok
+
+  defp chunk_metadata(agent_id, partition, peer_ip, chunk, chunk_index, total_chunks) do
+    %{
+      agent_id: agent_id,
+      gateway_id: gateway_id(),
+      partition: partition,
+      source_ip: peer_ip,
+      kv_store_id: chunk.kv_store_id,
+      timestamp: System.os_time(:second),
+      agent_timestamp: chunk.timestamp,
+      chunk_index: chunk_index,
+      total_chunks: total_chunks,
+      is_final: chunk.is_final
+    }
+  end
+
+  defp process_chunk_services(services, metadata) do
+    Enum.each(services, fn service ->
+      try do
+        process_service_status(service, metadata)
+      rescue
+        e in GRPC.RPCError ->
+          log_invalid_service_status(metadata, service, e)
+
+        e ->
+          Logger.warning(
+            "Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}"
+          )
+      end
+    end)
+  end
+
+  defp next_stream_status_state(
+         state,
+         agent_id,
+         total_services,
+         pinned_total_chunks,
+         chunk_index,
+         chunk
+       ) do
+    if chunk.is_final do
+      validate_final_chunk!(chunk_index, pinned_total_chunks)
+      record_push_metrics(agent_id, total_services)
+
+      {:halt,
+       %{
+         state
+         | total_services: total_services,
+           saw_final?: true,
+           stream_agent_id: agent_id,
+           expected_idx: chunk_index + 1,
+           pinned_total_chunks: pinned_total_chunks,
+           registered?: true
+       }}
+    else
+      {:cont,
+       %{
+         state
+         | total_services: total_services,
+           stream_agent_id: agent_id,
+           expected_idx: chunk_index + 1,
+           pinned_total_chunks: pinned_total_chunks,
+           registered?: true
+       }}
+    end
+  end
+
+  defp validate_final_chunk!(chunk_index, total_chunks) when chunk_index == total_chunks - 1,
+    do: :ok
+
+  defp validate_final_chunk!(_chunk_index, _total_chunks) do
+    raise GRPC.RPCError,
+      status: :invalid_argument,
+      message: "final chunk_index does not match total_chunks"
+  end
+
+  defp handle_control_stream_message(message, {:awaiting_hello, nil}, identity, stream) do
+    case message.payload do
+      {:hello, %Monitoring.ControlStreamHello{} = hello} ->
+        {:cont, {:ready, initialize_control_session(hello, identity, stream)}}
+
+      _ ->
+        raise GRPC.RPCError,
+          status: :failed_precondition,
+          message: "control stream requires hello as the first message"
+    end
+  end
+
+  defp handle_control_stream_message(message, {:ready, session}, _identity, _stream) do
+    ControlStreamSession.handle_message(session, message)
+    {:cont, {:ready, session}}
+  end
+
+  defp initialize_control_session(hello, identity, stream) do
+    agent_id = required_agent_id(hello.agent_id)
+    {identity, _component_type} = resolve_component_type!(identity, agent_id)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+
+    partition_id = resolve_partition(identity, hello.partition)
+    capabilities = normalize_capabilities(hello.capabilities || [])
+
+    {:ok, session} = ControlStreamSession.start_link(stream: stream)
+    register_control_session(session, agent_id, partition_id, capabilities)
+  end
+
+  defp register_control_session(session, agent_id, partition_id, capabilities) do
+    case ControlStreamSession.register(session, agent_id, partition_id, capabilities) do
+      :ok ->
+        Logger.info("Control stream established: agent_id=#{agent_id}, partition=#{partition_id}")
+
+        session
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to register control stream for agent #{agent_id}: #{inspect(reason)}"
+        )
+
+        raise GRPC.RPCError,
+          status: :internal,
+          message: "control stream registration failed"
+    end
+  end
+
+  defp control_session_pid({:ready, session}), do: session
+  defp control_session_pid({:awaiting_hello, _}), do: nil
 end

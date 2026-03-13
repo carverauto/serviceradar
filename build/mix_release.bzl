@@ -63,6 +63,7 @@ def _mix_release_impl(ctx):
         )
 
     run_assets = "true" if ctx.attr.run_assets else "false"
+    bootstrap_inputs = "\\n".join(sorted([f.short_path for f in ctx.files.bootstrap_srcs]))
     patch_script = """python3 - <<'PY'
 from pathlib import Path
 
@@ -97,149 +98,12 @@ patch_file(
     ],
 )
 
-# Patch protobuf to avoid struct-update typing warnings under Elixir 1.19.
-patch_file(
-    Path("deps/protobuf/lib/protobuf/dsl.ex"),
-    [
-        (
-            "  defp cal_packed(props, _syntax), do: %FieldProps{props | packed?: false}\\n",
-            "  defp cal_packed(%FieldProps{} = props, _syntax), do: %FieldProps{props | packed?: false}\\n",
-        ),
-        (
-            "    Enum.reduce(opts, props, fn\\n"
-            "      {:optional, optional?}, acc ->\\n"
-            "        %FieldProps{acc | optional?: optional?}\\n\\n"
-            "      {:proto3_optional, proto3_optional?}, acc ->\\n"
-            "        %FieldProps{acc | proto3_optional?: proto3_optional?}\\n\\n"
-            "      {:required, required?}, acc ->\\n"
-            "        %FieldProps{acc | required?: required?}\\n\\n"
-            "      {:enum, enum?}, acc ->\\n"
-            "        %FieldProps{acc | enum?: enum?}\\n\\n"
-            "      {:map, map?}, acc ->\\n"
-            "        %FieldProps{acc | map?: map?}\\n\\n"
-            "      {:repeated, repeated?}, acc ->\\n"
-            "        %FieldProps{acc | repeated?: repeated?}\\n\\n"
-            "      {:embedded, embedded}, acc ->\\n"
-            "        %FieldProps{acc | embedded?: embedded}\\n\\n"
-            "      {:deprecated, deprecated?}, acc ->\\n"
-            "        %FieldProps{acc | deprecated?: deprecated?}\\n\\n"
-            "      {:packed, packed?}, acc ->\\n"
-            "        %FieldProps{acc | packed?: packed?}\\n\\n"
-            "      {:type, type}, acc ->\\n"
-            "        %FieldProps{acc | type: type}\\n\\n"
-            "      {:default, default}, acc ->\\n"
-            "        %FieldProps{acc | default: default}\\n\\n"
-            "      {:oneof, oneof}, acc ->\\n"
-            "        %FieldProps{acc | oneof: oneof}\\n\\n"
-            "      {:json_name, json_name}, acc ->\\n"
-            "        %FieldProps{acc | json_name: json_name}\\n"
-            "    end)\\n",
-            "    Enum.reduce(opts, props, fn\\n"
-            "      {:optional, optional?}, %FieldProps{} = acc ->\\n"
-            "        %FieldProps{acc | optional?: optional?}\\n\\n"
-            "      {:proto3_optional, proto3_optional?}, %FieldProps{} = acc ->\\n"
-            "        %FieldProps{acc | proto3_optional?: proto3_optional?}\\n\\n"
-            "      {:required, required?}, %FieldProps{} = acc ->\\n"
-            "        %FieldProps{acc | required?: required?}\\n\\n"
-            "      {:enum, enum?}, %FieldProps{} = acc ->\\n"
-            "        %FieldProps{acc | enum?: enum?}\\n\\n"
-            "      {:map, map?}, %FieldProps{} = acc ->\\n"
-            "        %FieldProps{acc | map?: map?}\\n\\n"
-            "      {:repeated, repeated?}, %FieldProps{} = acc ->\\n"
-            "        %FieldProps{acc | repeated?: repeated?}\\n\\n"
-            "      {:embedded, embedded}, %FieldProps{} = acc ->\\n"
-            "        %FieldProps{acc | embedded?: embedded}\\n\\n"
-            "      {:deprecated, deprecated?}, %FieldProps{} = acc ->\\n"
-            "        %FieldProps{acc | deprecated?: deprecated?}\\n\\n"
-            "      {:packed, packed?}, %FieldProps{} = acc ->\\n"
-            "        %FieldProps{acc | packed?: packed?}\\n\\n"
-            "      {:type, type}, %FieldProps{} = acc ->\\n"
-            "        %FieldProps{acc | type: type}\\n\\n"
-            "      {:default, default}, %FieldProps{} = acc ->\\n"
-            "        %FieldProps{acc | default: default}\\n\\n"
-            "      {:oneof, oneof}, %FieldProps{} = acc ->\\n"
-            "        %FieldProps{acc | oneof: oneof}\\n\\n"
-            "      {:json_name, json_name}, %FieldProps{} = acc ->\\n"
-            "        %FieldProps{acc | json_name: json_name}\\n"
-            "    end)\\n",
-        ),
-    ],
-)
-patch_file(
-    Path("deps/protobuf/lib/protobuf/protoc/generator.ex"),
-    [
-        (
-            "  defp generate_module_definitions(ctx, %Google.Protobuf.FileDescriptorProto{} = desc) do\\n",
-            "  defp generate_module_definitions(%Context{} = ctx, %Google.Protobuf.FileDescriptorProto{} = desc) do\\n",
-        ),
-    ],
-)
-
-# Patch protobuf cli.ex for parse_param functions
-patch_file(
-    Path("deps/protobuf/lib/protobuf/protoc/cli.ex"),
-    [
-        ('defp parse_param("plugins=" <> plugins, ctx) do\\n', 'defp parse_param("plugins=" <> plugins, %Context{} = ctx) do\\n'),
-        ('defp parse_param("gen_descriptors=" <> value, ctx) do\\n', 'defp parse_param("gen_descriptors=" <> value, %Context{} = ctx) do\\n'),
-        ('defp parse_param("package_prefix=" <> package, ctx) do\\n', 'defp parse_param("package_prefix=" <> package, %Context{} = ctx) do\\n'),
-        ('defp parse_param("transform_module=" <> module, ctx) do\\n', 'defp parse_param("transform_module=" <> module, %Context{} = ctx) do\\n'),
-        ('defp parse_param("one_file_per_module=" <> value, ctx) do\\n', 'defp parse_param("one_file_per_module=" <> value, %Context{} = ctx) do\\n'),
-        ('defp parse_param("include_docs=" <> value, ctx) do\\n', 'defp parse_param("include_docs=" <> value, %Context{} = ctx) do\\n'),
-    ],
-)
-
-# Patch protobuf message.ex for Context struct updates
-patch_file(
-    Path("deps/protobuf/lib/protobuf/protoc/generator/message.ex"),
-    [
-        ("  defp gen_nested_msgs(ctx, desc) do\\n", "  defp gen_nested_msgs(%Context{} = ctx, desc) do\\n"),
-        ("  defp gen_nested_enums(ctx, desc) do\\n", "  defp gen_nested_enums(%Context{} = ctx, desc) do\\n"),
-        ("  defp get_fields(ctx, desc) do\\n", "  defp get_fields(%Context{} = ctx, desc) do\\n"),
-        ("  defp get_field(ctx, %FieldDescriptorProto{} = field_desc, nested_maps, oneofs) do\\n", "  defp get_field(%Context{} = ctx, %FieldDescriptorProto{} = field_desc, nested_maps, oneofs) do\\n"),
-        ("  defp field_type_name(ctx, %FieldDescriptorProto{type_name: type_name} = field_desc) do\\n", "  defp field_type_name(%Context{} = ctx, %FieldDescriptorProto{type_name: type_name} = field_desc) do\\n"),
-        ("  defp nested_maps(ctx, desc) do\\n", "  defp nested_maps(%Context{} = ctx, desc) do\\n"),
-    ],
-)
-
 # Patch permit to avoid struct-update typing warnings under Elixir 1.19.
 patch_file(
     Path("deps/permit/lib/permit/permissions/disjunctive_normal_form.ex"),
     [
         ("def add_clauses(dnf, clauses) do\\n", "def add_clauses(%DNF{} = dnf, clauses) do\\n"),
         ("def add_clauses(dnf, clause) do\\n", "def add_clauses(%DNF{} = dnf, clause) do\\n"),
-    ],
-)
-
-# Patch protobuf extension.ex for Context struct updates
-patch_file(
-    Path("deps/protobuf/lib/protobuf/protoc/generator/extension.ex"),
-    [
-        ("  defp generate_extend_dsl(ctx, %FieldDescriptorProto{} = f, ns) do\\n", "  defp generate_extend_dsl(%Context{} = ctx, %FieldDescriptorProto{} = f, ns) do\\n"),
-        # Convert the complex struct update to use map update syntax instead
-        # The function already has %Context{} = ctx pattern match, so we can use %{} for the update
-        (
-            "          %Context{\\n"
-            "            Context.append_comment_path(ctx, \\"6.#{index}\\")\\n"
-            "            | namespace: ctx.namespace ++ [Macro.camelize(desc.name)]\\n"
-            "          },",
-            "          (fn %Context{} = c -> %Context{c | namespace: ctx.namespace ++ [Macro.camelize(desc.name)]} end).(Context.append_comment_path(ctx, \\"6.#{index}\\")),",
-        ),
-    ],
-)
-
-# Patch protobuf service.ex for Context struct updates
-patch_file(
-    Path("deps/protobuf/lib/protobuf/protoc/generator/service.ex"),
-    [
-        ("  defp generate_service_method(ctx, method) do\\n", "  defp generate_service_method(%Context{} = ctx, method) do\\n"),
-    ],
-)
-
-# Patch additional dsl.ex function
-patch_file(
-    Path("deps/protobuf/lib/protobuf/dsl.ex"),
-    [
-        ("  defp cal_json_name(props), do: %FieldProps{props | json_name: props.name}\\n", "  defp cal_json_name(%FieldProps{} = props), do: %FieldProps{props | json_name: props.name}\\n"),
     ],
 )
 
@@ -535,7 +399,27 @@ print(tempfile.gettempdir())
 PY
 )
 
-TARGET_HASH=$(echo "{tar_out}" | md5sum | cut -d' ' -f1 2>/dev/null || echo "{tar_out}" | md5 -q 2>/dev/null || echo "mix_release_hash")
+CACHE_VERSION="mix_release_v3"
+BOOTSTRAP_HASH=$(
+  while IFS= read -r relpath; do
+    [ -n "$relpath" ] || continue
+    if [ -f "$EXECROOT/$relpath" ]; then
+      if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$EXECROOT/$relpath"
+      else
+        shasum -a 256 "$EXECROOT/$relpath"
+      fi
+    fi
+  done <<'EOF'
+{bootstrap_inputs}
+EOF
+)
+TARGET_HASH_INPUT="$CACHE_VERSION|{src_dir}|{tar_out}|$BOOTSTRAP_HASH"
+if command -v sha256sum >/dev/null 2>&1; then
+  TARGET_HASH=$(printf '%s' "$TARGET_HASH_INPUT" | sha256sum | cut -d' ' -f1)
+else
+  TARGET_HASH=$(printf '%s' "$TARGET_HASH_INPUT" | shasum -a 256 | cut -d' ' -f1)
+fi
 if [ -d /cache ] && [ -w /cache ]; then
   MIX_GLOBAL_CACHE="/cache/mix_bazel_$TARGET_HASH"
 else
@@ -544,13 +428,10 @@ fi
 
 mkdir -p "$MIX_GLOBAL_CACHE/.mix_home"
 mkdir -p "$MIX_GLOBAL_CACHE/_cargo_target"
-mkdir -p "$MIX_GLOBAL_CACHE/deps"
-mkdir -p "$MIX_GLOBAL_CACHE/_build"
 mkdir -p "$MIX_GLOBAL_CACHE/node_modules"
 mkdir -p "$MIX_GLOBAL_CACHE/component_node_modules"
 
 WORKDIR=$(mktemp -d)
-PROJECT_DIR="$WORKDIR/{src_dir}"
 export HOME="$MIX_GLOBAL_CACHE/.mix_home"
 export MIX_HOME="$HOME/.mix"
 export HEX_HOME="$HOME/.hex"
@@ -618,18 +499,18 @@ else
   export CARGO_HOME="$HOME/.cargo"
 fi
 mkdir -p "$CARGO_HOME"
-mkdir -p "$(dirname "$PROJECT_DIR")"
-copy_dir "{src_dir}/" "$PROJECT_DIR/"
+copy_dir "{src_dir}/" "$WORKDIR/"
 {extra_copy}
 
-# Link persistent caches into the project directory before compilation
-rm -rf "$PROJECT_DIR/deps" "$PROJECT_DIR/_build" "$PROJECT_DIR/assets/node_modules" "$PROJECT_DIR/assets/component/node_modules"
-ln -sf "$MIX_GLOBAL_CACHE/deps" "$PROJECT_DIR/deps"
-ln -sf "$MIX_GLOBAL_CACHE/_build" "$PROJECT_DIR/_build"
-mkdir -p "$PROJECT_DIR/assets"
-ln -sf "$MIX_GLOBAL_CACHE/node_modules" "$PROJECT_DIR/assets/node_modules"
-mkdir -p "$PROJECT_DIR/assets/component"
-ln -sf "$MIX_GLOBAL_CACHE/component_node_modules" "$PROJECT_DIR/assets/component/node_modules"
+# Link only the expensive non-Mix caches into WORKDIR before compilation.
+# Keep `deps` and `_build` ephemeral per action so stale extracted deps or
+# partially compiled artifacts from an earlier failed release cannot poison
+# later images.
+rm -rf "$WORKDIR/deps" "$WORKDIR/_build" "$WORKDIR/assets/node_modules" "$WORKDIR/assets/component/node_modules"
+mkdir -p "$WORKDIR/assets"
+ln -sf "$MIX_GLOBAL_CACHE/node_modules" "$WORKDIR/assets/node_modules"
+mkdir -p "$WORKDIR/assets/component"
+ln -sf "$MIX_GLOBAL_CACHE/component_node_modules" "$WORKDIR/assets/component/node_modules"
 
 if [ -d "$EXECROOT/rust/srql" ] || [ -d "$EXECROOT/rust/kvutil" ]; then
   if [ -d "$EXECROOT/rust/srql" ]; then
@@ -678,12 +559,31 @@ EOF
       rm -f "$WORKDIR/Cargo.lock"
     fi
 
+    mkdir -p /tmp/rust
+    rm -rf /tmp/rust/srql /tmp/rust/kvutil
+    [ -d "$WORKDIR/rust/srql" ] && ln -s "$WORKDIR/rust/srql" /tmp/rust/srql
+    [ -d "$WORKDIR/rust/kvutil" ] && ln -s "$WORKDIR/rust/kvutil" /tmp/rust/kvutil
+    cp "$WORKDIR/Cargo.toml" /tmp/rust/Cargo.toml
+
   fi
 fi
 
 cd "$WORKDIR"
 chmod -R u+w .
-cd "$PROJECT_DIR"
+
+mkdir -p /tmp/elixir
+rm -rf /tmp/elixir/datasvc
+ln -s "$WORKDIR/elixir/datasvc" /tmp/elixir/datasvc
+rm -rf /tmp/elixir/serviceradar_core
+ln -s "$WORKDIR/elixir/serviceradar_core" /tmp/elixir/serviceradar_core
+rm -rf /tmp/elixir/serviceradar_srql
+ln -s "$WORKDIR/elixir/serviceradar_srql" /tmp/elixir/serviceradar_srql
+rm -rf /tmp/serviceradar_core
+ln -s "$WORKDIR/elixir/serviceradar_core" /tmp/serviceradar_core
+rm -rf /tmp/serviceradar_srql
+ln -s "$WORKDIR/elixir/serviceradar_srql" /tmp/serviceradar_srql
+rm -rf /tmp/datasvc
+ln -s "$WORKDIR/elixir/datasvc" /tmp/datasvc
 
 # Fetch and compile deps, build assets, create release into Bazel output dir
 if ! ls "$MIX_HOME/archives/hex-"* >/dev/null 2>&1; then
@@ -703,13 +603,13 @@ mix deps.get --only prod
 # later dependent compilation can load its Rustler NIF from _build/prod/lib.
 EARLY_DEPS=""
 if grep -q '{{:serviceradar_srql,' mix.exs; then
-  EARLY_DEPS="$EARLY_DEPS rustler serviceradar_srql"
+  EARLY_DEPS="$EARLY_DEPS jason rustler serviceradar_srql"
 fi
 if [ -n "$EARLY_DEPS" ]; then
   mix deps.compile $EARLY_DEPS
 fi
 if [ -d "$WORKDIR/elixir/serviceradar_srql/priv/native" ]; then
-  SRQL_BUILD_PRIV="$PROJECT_DIR/_build/prod/lib/serviceradar_srql/priv"
+  SRQL_BUILD_PRIV="$WORKDIR/_build/prod/lib/serviceradar_srql/priv"
   rm -rf "$SRQL_BUILD_PRIV"
   mkdir -p "$SRQL_BUILD_PRIV"
   cp -aL "$WORKDIR/elixir/serviceradar_srql/priv/." "$SRQL_BUILD_PRIV/"
@@ -725,8 +625,8 @@ if [ "{run_assets}" = "true" ]; then
     [ -d priv/static/images ] && cp -r priv/static/images "$PRESERVED_STATIC/"
   fi
 
-  STATIC_ROOT="$PROJECT_DIR/priv_static"
-  DIGEST_ROOT="$PROJECT_DIR/priv_static_digest"
+  STATIC_ROOT="$WORKDIR/priv_static"
+  DIGEST_ROOT="$WORKDIR/priv_static_digest"
   rm -rf priv/static "$DIGEST_ROOT"
   mkdir -p "$STATIC_ROOT/assets/css"
   ln -s "$STATIC_ROOT" priv/static
@@ -771,7 +671,7 @@ if [ "{run_assets}" = "true" ]; then
   # Bundle React components for Phoenix React Server (if component directory exists)
   if [ -d assets/component/src ] && [ -f assets/component/package.json ]; then
     mkdir -p priv/react
-    mix phx.react.bun.bundle --component-base=assets/component/src --output="$PROJECT_DIR/priv/react/server.js" --cd="$PROJECT_DIR/assets/component"
+    mix phx.react.bun.bundle --component-base=assets/component/src --output="$WORKDIR/priv/react/server.js" --cd="$WORKDIR/assets/component"
   fi
 
   mix phx.digest priv/static -o "$DIGEST_ROOT"
@@ -813,6 +713,7 @@ tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED_RELEASE_DIR" .
             otp_tar = otp_tar.path if otp_tar else "",
             extra_copy = "".join(extra_copy_cmds),
             run_assets = run_assets,
+            bootstrap_inputs = bootstrap_inputs,
             patch_script = patch_script_placeholder,
             hex_cache_tar = hex_cache.path if hex_cache else "",
             bun_path = bun.path if bun else "",

@@ -14,6 +14,7 @@ defmodule ServiceRadarCore.MixProject do
       consolidate_protocols: Mix.env() != :dev,
       deps: deps(),
       aliases: aliases(),
+      dialyzer: [ignore_warnings: ".dialyzer_ignore.exs"],
 
       # Docs
       name: "ServiceRadar Core",

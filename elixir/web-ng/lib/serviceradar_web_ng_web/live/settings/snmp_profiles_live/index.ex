@@ -626,7 +626,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       end
 
     # Validate we have a host
-    if host == "" or host == nil do
+    if host == "" do
       {:noreply,
        assign(socket, :test_connection_result, %{
          success: false,

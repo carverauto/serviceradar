@@ -50,6 +50,7 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
 - Bazel tests/images: `bazel test --config=remote //...`, `bazel run //docker/images:<target>_push`.
 - Web (Next.js) lint/build: `cd web && npm install && npm run lint && npm run build` (if needed).
+- Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`.
 
 Prefer Bazel targets when modifying code that already has BUILD files. Always run gofmt/cargo fmt where applicable (Go formatting handled by `gofmt`, Rust by `cargo fmt`).
 
@@ -570,3 +571,54 @@ SHOW search_path;
 - The `serviceradar` user has `search_path=platform, ag_catalog` set, so tables in the `platform` schema are accessed without prefix.
 - For production debugging, prefer `kubectl exec` over exposing the service externally.
 - Remember to clean up NodePort services when done: `kubectl delete svc cnpg-staging-external -n demo-staging`
+
+## SRQL Fixture Integration Tests
+
+Use this when `elixir/serviceradar_core` integration tests need the shared CNPG/AGE fixture in the `srql-fixtures` namespace.
+
+### 1. Start a local port-forward to the primary
+
+```bash
+kubectl port-forward -n srql-fixtures pod/srql-fixture-1 5455:5432
+```
+
+If the pod name changes, get the current primary with:
+
+```bash
+kubectl get cluster -n srql-fixtures
+kubectl get pods -n srql-fixtures -o wide
+```
+
+### 2. Export fixture credentials and CA material
+
+```bash
+kubectl get secret srql-fixture-ca -n srql-fixtures \
+  -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/srql-fixture-ca.crt
+
+DB_USER="$(kubectl get secret srql-test-db-credentials -n srql-fixtures -o jsonpath='{.data.username}' | base64 -d)"
+DB_PASS="$(kubectl get secret srql-test-db-credentials -n srql-fixtures -o jsonpath='{.data.password}' | base64 -d)"
+ADMIN_USER="$(kubectl get secret srql-test-admin-credentials -n srql-fixtures -o jsonpath='{.data.username}' | base64 -d)"
+ADMIN_PASS="$(kubectl get secret srql-test-admin-credentials -n srql-fixtures -o jsonpath='{.data.password}' | base64 -d)"
+
+export SERVICERADAR_TEST_DATABASE_URL="postgres://${DB_USER}:${DB_PASS}@127.0.0.1:5455/serviceradar_web_ng_test?sslmode=require"
+export SERVICERADAR_TEST_ADMIN_URL="postgres://${ADMIN_USER}:${ADMIN_PASS}@127.0.0.1:5455/postgres?sslmode=require"
+export PGSSLROOTCERT=/tmp/srql-fixture-ca.crt
+export CNPG_CA_FILE=/tmp/srql-fixture-ca.crt
+export SERVICERADAR_TEST_DATABASE_CA_CERT_FILE=/tmp/srql-fixture-ca.crt
+export SRQL_TEST_DATABASE_CA_CERT_FILE=/tmp/srql-fixture-ca.crt
+```
+
+### 3. Reset, migrate, and run `serviceradar_core` integration tests
+
+```bash
+./scripts/reset-test-db.sh "$SERVICERADAR_TEST_ADMIN_URL" "$SERVICERADAR_TEST_DATABASE_URL"
+
+cd elixir/serviceradar_core
+MIX_ENV=test mix ash.migrate
+MIX_ENV=test mix test --include integration --no-start
+```
+
+Notes:
+- The shared fixture is already AGE-enabled; use it when graph-backed tests fail in CI.
+- Prefer the local port-forward over the public load balancer when working interactively; it is more predictable from a workstation.
+- `make test-integration` already wires the same reset + migrate flow if the env vars above are exported first.

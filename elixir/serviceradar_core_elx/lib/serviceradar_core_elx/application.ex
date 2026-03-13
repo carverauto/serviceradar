@@ -27,14 +27,17 @@ defmodule ServiceRadarCoreElx.Application do
 
   require Logger
 
+  alias ServiceRadar.Repo
+  alias ServiceRadar.Telemetry.OtelSetup
+
   @impl true
   def start(_type, _args) do
     Logger.info("Starting ServiceRadar Core-ELX node: #{node()}")
 
     # Attach OTEL auto-instrumentation handlers (SDK configured in runtime.exs)
-    ServiceRadar.Telemetry.OtelSetup.attach_instrumentations(
+    OtelSetup.attach_instrumentations(
       instrumentations: [:ecto, :oban],
-      ecto_repo: ServiceRadar.Repo
+      ecto_repo: Repo
     )
 
     # Core-ELX doesn't start duplicate children - serviceradar_core handles everything

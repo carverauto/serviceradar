@@ -751,9 +751,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       nil ->
         key
         |> String.split(".")
-        |> Enum.reduce(map, fn segment, acc ->
-          if is_map(acc), do: Map.get(acc, segment), else: nil
-        end)
+        |> Enum.reduce(map, &nested_map_get/2)
 
       value ->
         value
@@ -762,6 +760,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp get_nested_value(map, key) when is_map(map), do: Map.get(map, key)
   defp get_nested_value(_, _), do: nil
+
+  defp nested_map_get(segment, acc) when is_map(acc), do: Map.get(acc, segment)
+  defp nested_map_get(_, _), do: nil
 
   defp ingest_subject(log) do
     attributes = Map.get(log, :attributes, %{})

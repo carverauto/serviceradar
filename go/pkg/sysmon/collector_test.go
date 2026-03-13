@@ -265,6 +265,7 @@ func TestCollectorCollect(t *testing.T) {
 
 	if sample == nil {
 		t.Fatal("expected non-nil sample")
+		return
 	}
 
 	if sample.Timestamp == "" {

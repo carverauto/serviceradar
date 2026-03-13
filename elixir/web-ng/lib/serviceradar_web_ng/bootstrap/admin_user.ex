@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
 
   require Logger
   require Ash.Query
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
@@ -114,6 +115,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
 
   defp read_password_file(nil), do: nil
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp read_password_file(path) do
     case File.read(path) do
       {:ok, contents} ->

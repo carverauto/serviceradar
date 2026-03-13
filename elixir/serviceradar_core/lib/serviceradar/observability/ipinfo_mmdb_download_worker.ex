@@ -60,6 +60,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
     dir = Keyword.get(config, :dir, System.get_env("GEOLITE_MMDB_DIR") || @default_dir)
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
+
     failure_reschedule_seconds =
       Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
 
@@ -160,7 +161,8 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
     end
   end
 
-  defp recently_updated?(path, seconds) when is_binary(path) and is_integer(seconds) and seconds > 0 do
+  defp recently_updated?(path, seconds)
+       when is_binary(path) and is_integer(seconds) and seconds > 0 do
     case File.stat(path) do
       {:ok, %File.Stat{mtime: mtime}} ->
         now = DateTime.utc_now() |> DateTime.to_unix(:second)
