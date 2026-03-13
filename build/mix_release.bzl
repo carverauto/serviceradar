@@ -399,7 +399,7 @@ print(tempfile.gettempdir())
 PY
 )
 
-CACHE_VERSION="mix_release_v2"
+CACHE_VERSION="mix_release_v3"
 BOOTSTRAP_HASH=$(
   while IFS= read -r relpath; do
     [ -n "$relpath" ] || continue
@@ -428,8 +428,6 @@ fi
 
 mkdir -p "$MIX_GLOBAL_CACHE/.mix_home"
 mkdir -p "$MIX_GLOBAL_CACHE/_cargo_target"
-mkdir -p "$MIX_GLOBAL_CACHE/deps"
-mkdir -p "$MIX_GLOBAL_CACHE/_build"
 mkdir -p "$MIX_GLOBAL_CACHE/node_modules"
 mkdir -p "$MIX_GLOBAL_CACHE/component_node_modules"
 
@@ -504,10 +502,11 @@ mkdir -p "$CARGO_HOME"
 copy_dir "{src_dir}/" "$WORKDIR/"
 {extra_copy}
 
-# Link persistent caches into WORKDIR before compilation
+# Link only the expensive non-Mix caches into WORKDIR before compilation.
+# Keep `deps` and `_build` ephemeral per action so stale extracted deps or
+# partially compiled artifacts from an earlier failed release cannot poison
+# later images.
 rm -rf "$WORKDIR/deps" "$WORKDIR/_build" "$WORKDIR/assets/node_modules" "$WORKDIR/assets/component/node_modules"
-ln -sf "$MIX_GLOBAL_CACHE/deps" "$WORKDIR/deps"
-ln -sf "$MIX_GLOBAL_CACHE/_build" "$WORKDIR/_build"
 mkdir -p "$WORKDIR/assets"
 ln -sf "$MIX_GLOBAL_CACHE/node_modules" "$WORKDIR/assets/node_modules"
 mkdir -p "$WORKDIR/assets/component"
