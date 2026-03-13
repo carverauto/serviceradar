@@ -15,11 +15,12 @@ import (
 // buildSYNACKFrame fabricates an Ethernet+IPv4+TCP SYN/ACK frame addressed to localIP
 // and destined to dstPort (which should match the scanner's srcPort mapping).
 func buildSYNACKFrame(localIP, remoteIP net.IP, dstPort, srcPort uint16) []byte {
-	eth := make([]byte, 14)
+	frame := make([]byte, 14+20+20)
+	eth := frame[:14]
 	// dst/src MAC left zeroed (not parsed by scanner)
 	binary.BigEndian.PutUint16(eth[12:], 0x0800)
 
-	ip := make([]byte, 20)
+	ip := frame[14:34]
 	ip[0] = 0x45
 	ip[1] = 0
 	binary.BigEndian.PutUint16(ip[2:], 40)
@@ -31,7 +32,7 @@ func buildSYNACKFrame(localIP, remoteIP net.IP, dstPort, srcPort uint16) []byte 
 	copy(ip[16:20], localIP.To4())
 	binary.BigEndian.PutUint16(ip[10:], ChecksumNew(ip))
 
-	tcp := make([]byte, 20)
+	tcp := frame[34:]
 	binary.BigEndian.PutUint16(tcp[0:], srcPort) // remote's src = target's dst
 	binary.BigEndian.PutUint16(tcp[2:], dstPort) // reply dst = our ephemeral src
 	binary.BigEndian.PutUint32(tcp[4:], 0xABCDEF01)
@@ -43,7 +44,7 @@ func buildSYNACKFrame(localIP, remoteIP net.IP, dstPort, srcPort uint16) []byte 
 	binary.BigEndian.PutUint16(tcp[18:], 0)
 	binary.BigEndian.PutUint16(tcp[16:], TCPChecksumNew(remoteIP, localIP, tcp, nil))
 
-	return append(eth, append(ip, tcp...)...)
+	return frame
 }
 
 func BenchmarkProcessEthernetFrame(b *testing.B) {

@@ -4,8 +4,7 @@ import Config
 config :swoosh, :api_client, false
 
 # Use Test adapter for mailer
-config :serviceradar_core, ServiceRadar.Mailer,
-  adapter: Swoosh.Adapters.Test
+config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
 
 # Disable Repo, Oban, clustering, and registries for standalone agent gateway tests (no database needed)
 config :serviceradar_core,

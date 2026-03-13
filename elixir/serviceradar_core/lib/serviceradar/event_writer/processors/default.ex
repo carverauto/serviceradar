@@ -9,6 +9,7 @@ defmodule ServiceRadar.EventWriter.Processors.Default do
   @behaviour ServiceRadar.EventWriter.Processor
 
   require Logger
+
   @expected_ignored_subjects MapSet.new([
                                "logs.syslog",
                                "logs.snmp",
@@ -41,7 +42,9 @@ defmodule ServiceRadar.EventWriter.Processors.Default do
         |> MapSet.new()
 
       if map_size(subjects) > 0 and MapSet.subset?(subjects, @expected_ignored_subjects) do
-        Logger.debug("Default processor skipped expected subjects (top subjects: #{top_subjects})")
+        Logger.debug(
+          "Default processor skipped expected subjects (top subjects: #{top_subjects})"
+        )
       else
         Logger.warning(
           "Default processor received #{count} unhandled messages (top subjects: #{top_subjects})"

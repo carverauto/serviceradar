@@ -14,6 +14,8 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.RBAC
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
   def index(conn, params) do
@@ -185,6 +187,7 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
     unauthorized(conn)
   end
 
+  @sobelow_skip ["Traversal.SendFile"]
   def download_blob(conn, %{"id" => id, "token" => token}) do
     with {:ok, %{id: token_id, key: object_key}} <- Storage.verify_token(:download, token),
          true <- token_id == id,

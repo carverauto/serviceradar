@@ -121,8 +121,9 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
       actor = SystemActor.system(:test)
       device_uid = "sr:" <> Ecto.UUID.generate()
       hostname = "alias-credential-test-#{System.unique_integer([:positive])}"
-      public_ip = "198.51.100.#{rem(System.unique_integer([:positive]), 200) + 1}"
-      alias_ip = "192.168.10.#{rem(System.unique_integer([:positive]), 200) + 1}"
+      ip_seed = System.unique_integer([:positive])
+      public_ip = "198.51.100.#{rem(ip_seed, 200) + 1}"
+      alias_ip = "100.64.#{rem(div(ip_seed, 200), 200) + 1}.#{rem(ip_seed, 200) + 1}"
 
       {:ok, _device} =
         Device
@@ -132,6 +133,22 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
             uid: device_uid,
             hostname: hostname,
             ip: public_ip,
+            type_id: 10,
+            created_time: DateTime.utc_now(),
+            modified_time: DateTime.utc_now()
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _conflicting_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: Ecto.UUID.generate(),
+            hostname: "alias-collision-test-#{System.unique_integer([:positive])}",
+            ip: alias_ip,
             type_id: 10,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()

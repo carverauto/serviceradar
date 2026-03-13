@@ -91,7 +91,7 @@ defmodule Datasvc do
         connect_opts =
           interceptors
           |> build_connect_opts()
-          |> Keyword.put(:adapter_opts, [connect_timeout: connect_timeout])
+          |> Keyword.put(:adapter_opts, connect_timeout: connect_timeout)
 
         case GRPC.Stub.connect(addr, connect_opts) do
           {:ok, channel} -> {:ok, channel}
@@ -147,6 +147,7 @@ defmodule Datasvc do
           catch
             :exit, _ -> :ok
           end
+
           :ok
         end
 

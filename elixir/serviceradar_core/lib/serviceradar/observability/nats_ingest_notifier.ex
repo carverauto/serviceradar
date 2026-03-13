@@ -53,10 +53,12 @@ defmodule ServiceRadar.Observability.NatsIngestNotifier do
     count = Map.get(state.pending, category, 0)
     if count > 0, do: broadcast(category, count)
 
-    {:noreply, %{state |
-      pending: Map.delete(state.pending, category),
-      timers: Map.delete(state.timers, category)
-    }}
+    {:noreply,
+     %{
+       state
+       | pending: Map.delete(state.pending, category),
+         timers: Map.delete(state.timers, category)
+     }}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
@@ -72,7 +74,10 @@ defmodule ServiceRadar.Observability.NatsIngestNotifier do
           {subject, sid}
 
         {:error, reason} ->
-          Logger.error("NatsIngestNotifier: failed to subscribe to #{subject}: #{inspect(reason)}")
+          Logger.error(
+            "NatsIngestNotifier: failed to subscribe to #{subject}: #{inspect(reason)}"
+          )
+
           nil
       end
     end)

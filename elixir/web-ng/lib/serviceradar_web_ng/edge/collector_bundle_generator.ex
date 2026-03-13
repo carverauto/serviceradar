@@ -44,6 +44,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @doc """
   Creates a tarball bundle for the given collector package.
 
@@ -786,6 +788,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     dt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp create_tar_gz(files) do
     # Create tarball entries
     entries =

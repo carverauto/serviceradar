@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   require Ash.Query
   require Logger
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadar.Inventory.DevicePubSub
@@ -262,10 +263,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           {:noreply,
            socket
            |> put_flash(:error, "A device with this IP address already exists.")}
-
-        {:error, :invalid_uid} ->
-          Logger.error("Device create failed: generated UID was invalid for #{inspect(params)}")
-          {:noreply, put_flash(socket, :error, "Failed to create device: invalid device UID")}
 
         {:error, :missing_scope} ->
           Logger.error("Device create failed: missing scope for #{inspect(params)}")
@@ -597,9 +594,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
           {:error, errors} when is_list(errors) ->
             {:noreply, assign(socket, :csv_errors, errors)}
-
-          {:error, reason} ->
-            {:noreply, assign(socket, :csv_errors, ["Import failed: #{inspect(reason)}"])}
         end
 
       _ ->
@@ -1974,8 +1968,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     |> Map.get(key)
   end
 
-  defp metadata_value(_row, _key), do: nil
-
   defp snmp_fallback_derived?(row) when is_map(row) do
     metadata = row_metadata(row)
 
@@ -2003,8 +1995,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
-  defp snmp_fallback_derived?(_row), do: false
-
   defp snmp_evidence_present?(metadata) when is_map(metadata) do
     is_map(Map.get(metadata, "snmp_fingerprint")) or
       present_text?(Map.get(metadata, "sys_object_id")) or
@@ -2014,8 +2004,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       present_text?(Map.get(metadata, "snmp_name")) or
       present_text?(Map.get(metadata, "ip_forwarding"))
   end
-
-  defp snmp_evidence_present?(_metadata), do: false
 
   defp normalize_meta_text(nil), do: ""
 
@@ -2531,8 +2519,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       Enum.any?(sources, &(&1 == "agent"))
   end
 
-  defp agent_device_row?(_), do: false
-
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
   defp format_error(reason) when is_binary(reason), do: reason
@@ -2810,8 +2796,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     not is_nil(value) and value != ""
   end
 
-  defp deleted_device_row?(_), do: false
-
   # Sysmon profile helpers
   # Note: Profile-per-device tracking removed - profiles now target devices via SRQL queries.
   # This function returns an empty map for profiles_by_device.
@@ -2822,6 +2806,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   # CSV Import helpers
+  @sobelow_skip ["Traversal.FileModule"]
   defp parse_csv_file(path) do
     try do
       content = File.read!(path)
@@ -2964,13 +2949,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     # Generate a UID based on IP (or use a UUID)
     uid = generate_device_uid(device_data.ip)
 
-    if is_nil(uid) or uid == "" do
-      Logger.error("Device create failed: generated UID is empty for #{inspect(device_data)}")
-      {:error, :invalid_uid}
-    else
-      create_new_device(uid, device_data, scope)
-      |> normalize_create_result()
-    end
+    create_new_device(uid, device_data, scope)
+    |> normalize_create_result()
   end
 
   defp normalize_create_result({:ok, device}), do: {:ok, device}

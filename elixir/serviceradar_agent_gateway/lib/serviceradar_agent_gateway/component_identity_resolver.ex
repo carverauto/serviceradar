@@ -105,10 +105,7 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
         value -> value
       end
 
-    if !is_list(extensions) do
-      Logger.warning("Unexpected certificate extensions value: #{inspect(extensions)}")
-      return_nil()
-    else
+    if is_list(extensions) do
       san_extension =
         Enum.find(extensions, fn
           {:Extension, {2, 5, 29, 17}, _, _} -> true
@@ -122,6 +119,9 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
         _ ->
           nil
       end
+    else
+      Logger.warning("Unexpected certificate extensions value: #{inspect(extensions)}")
+      return_nil()
     end
   end
 

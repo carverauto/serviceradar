@@ -171,7 +171,9 @@ repo_config =
         if queue_interval, do: Keyword.put(opts, :queue_interval, queue_interval), else: opts
       end)
       |> then(fn opts ->
-        if ownership_timeout, do: Keyword.put(opts, :ownership_timeout, ownership_timeout), else: opts
+        if ownership_timeout,
+          do: Keyword.put(opts, :ownership_timeout, ownership_timeout),
+          else: opts
       end)
 
     if ssl_enabled do

@@ -68,6 +68,7 @@ func TestParseGatewaySweepConfig_WithDeviceTargets(t *testing.T) {
 
 	if config == nil {
 		t.Fatal("expected config, got nil")
+		return
 	}
 
 	// Verify basic config fields
@@ -158,6 +159,7 @@ func TestParseGatewaySweepConfig_NoDeviceTargets(t *testing.T) {
 
 	if config == nil {
 		t.Fatal("expected config, got nil")
+		return
 	}
 
 	// DeviceTargets should be nil/empty when not provided

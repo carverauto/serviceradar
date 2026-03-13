@@ -952,12 +952,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     queues =
       results
       |> Enum.reduce(%{}, fn {queue, state, count}, acc ->
-        state_atom = String.to_atom(state)
-
         queue_stats =
           Map.get(acc, queue, %{available: 0, executing: 0, scheduled: 0, retryable: 0})
 
-        updated_stats = Map.put(queue_stats, state_atom, count)
+        updated_stats = Map.put(queue_stats, oban_state_key(state), count)
         Map.put(acc, queue, updated_stats)
       end)
 
@@ -971,6 +969,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   rescue
     _ -> %{queues: %{}, total_executing: 0}
   end
+
+  defp oban_state_key("available"), do: :available
+  defp oban_state_key("executing"), do: :executing
+  defp oban_state_key("scheduled"), do: :scheduled
+  defp oban_state_key("retryable"), do: :retryable
+  defp oban_state_key(_state), do: :unknown
 
   defp oban_variant(%{total_executing: n}) when n > 0, do: "success"
   defp oban_variant(_), do: "info"

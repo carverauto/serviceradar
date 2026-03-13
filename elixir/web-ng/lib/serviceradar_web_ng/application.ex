@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Application do
   use Application
 
   require Logger
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   @impl true
   def start(_type, _args) do
@@ -134,8 +135,8 @@ defmodule ServiceRadarWebNG.Application do
 
   defp start_distribution do
     ip = detect_ip_address()
-    node_name = :"serviceradar_web_ng@#{ip}"
-    cookie = String.to_atom(System.get_env("RELEASE_COOKIE", "serviceradar_dev_cookie"))
+    node_name = local_node_name(ip)
+    cookie = release_cookie()
 
     Logger.info("Starting distributed Erlang as #{node_name}")
 
@@ -240,13 +241,57 @@ defmodule ServiceRadarWebNG.Application do
   end
 
   defp try_connect_to_node(host) do
-    node = String.to_atom(String.trim(host))
-    Logger.debug("Attempting to connect to #{node}")
+    case remote_node(host) do
+      {:ok, node} ->
+        Logger.debug("Attempting to connect to #{node}")
 
-    case Node.connect(node) do
-      true -> Logger.info("Connected to #{node}")
-      false -> Logger.debug("Could not connect to #{node} (may not be up yet)")
-      :ignored -> Logger.debug("Connection to #{node} ignored")
+        case Node.connect(node) do
+          true -> Logger.info("Connected to #{node}")
+          false -> Logger.debug("Could not connect to #{node} (may not be up yet)")
+          :ignored -> Logger.debug("Connection to #{node} ignored")
+        end
+
+      :error ->
+        Logger.warning("Skipping invalid cluster host entry: #{inspect(host)}")
+    end
+  end
+
+  @sobelow_skip ["DOS.StringToAtom", "DOS.BinToAtom"]
+  defp local_node_name(ip) do
+    validated_ip =
+      ip
+      |> to_string()
+      |> String.trim()
+      |> case do
+        ip when ip != "" ->
+          if Regex.match?(~r/\A[0-9a-zA-Z:.%-]+\z/, ip), do: ip, else: "127.0.0.1"
+
+        _ ->
+          "127.0.0.1"
+      end
+
+    :"serviceradar_web_ng@#{validated_ip}"
+  end
+
+  @sobelow_skip ["DOS.StringToAtom"]
+  defp release_cookie do
+    cookie = System.get_env("RELEASE_COOKIE", "serviceradar_dev_cookie") |> String.trim()
+
+    if cookie != "" and Regex.match?(~r/\A[0-9A-Za-z_.@-]{1,255}\z/, cookie) do
+      String.to_atom(cookie)
+    else
+      :serviceradar_dev_cookie
+    end
+  end
+
+  @sobelow_skip ["DOS.StringToAtom"]
+  defp remote_node(host) do
+    host = host |> to_string() |> String.trim()
+
+    if Regex.match?(~r/\A[0-9A-Za-z_]+@[0-9A-Za-z_.:-]+\z/, host) do
+      {:ok, String.to_atom(host)}
+    else
+      :error
     end
   end
 

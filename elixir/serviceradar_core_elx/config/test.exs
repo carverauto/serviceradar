@@ -2,8 +2,7 @@ import Config
 
 config :swoosh, :api_client, false
 
-config :serviceradar_core, ServiceRadar.Mailer,
-  adapter: Swoosh.Adapters.Test
+config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
 
 config :serviceradar_core,
   repo_enabled: false

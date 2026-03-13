@@ -71,18 +71,23 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
       {:error, reason} ->
         if buffer_on_failure and should_buffer?(status) do
-          if Process.whereis(StatusBuffer) do
-            StatusBuffer.enqueue(status)
-          else
-            Logger.debug("Results buffer unavailable; dropping status")
-          end
-
+          enqueue_buffered_status(status)
           emit_forward_metrics(:buffered, status, from_buffer, started_at)
           :ok
         else
           emit_forward_metrics(:failed, status, from_buffer, started_at)
           {:error, reason}
         end
+    end
+  end
+
+  defp enqueue_buffered_status(status) do
+    case Process.whereis(StatusBuffer) do
+      nil ->
+        Logger.debug("Results buffer unavailable; dropping status")
+
+      _pid ->
+        StatusBuffer.enqueue(status)
     end
   end
 
@@ -153,9 +158,6 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
       {:error, :not_available} ->
         forward_distributed(status, handler)
-
-      error ->
-        error
     end
   end
 
@@ -226,8 +228,14 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   defp should_buffer?(status), do: results_router_source?(status)
 
   defp results_router_source?(status) do
-    status[:source] in ["results", :results, "sysmon-metrics", :sysmon_metrics, "plugin-result",
-                        :plugin_result]
+    status[:source] in [
+      "results",
+      :results,
+      "sysmon-metrics",
+      :sysmon_metrics,
+      "plugin-result",
+      :plugin_result
+    ]
   end
 
   defp emit_forward_metrics(result, status, from_buffer, started_at) do

@@ -45,8 +45,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorkerTest do
 
     assert :ok = TopologyStateCleanupWorker.emit_cleanup_rebuild_telemetry(:completed, stats, 1)
 
-    assert_receive {:telemetry, [:serviceradar, :topology, :cleanup_rebuild, :completed], measurements,
-                    metadata}
+    assert_receive {:telemetry, [:serviceradar, :topology, :cleanup_rebuild, :completed],
+                    measurements, metadata}
 
     assert measurements.before_edges == 10
     assert measurements.after_upsert_edges == 20
@@ -71,7 +71,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorkerTest do
 
     on_exit(fn -> :telemetry.detach(handler_id) end)
 
-    stats = %{mapper_evidence_edges: 11, after_prune_edges: 0, stale_cutoff: "2026-02-26T00:00:00Z"}
+    stats = %{
+      mapper_evidence_edges: 11,
+      after_prune_edges: 0,
+      stale_cutoff: "2026-02-26T00:00:00Z"
+    }
 
     assert :ok =
              TopologyStateCleanupWorker.emit_recovery_telemetry(
@@ -81,8 +85,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorkerTest do
                :timeout
              )
 
-    assert_receive {:telemetry, [:serviceradar, :topology, :cleanup_recovery, :failed], measurements,
-                    metadata}
+    assert_receive {:telemetry, [:serviceradar, :topology, :cleanup_recovery, :failed],
+                    measurements, metadata}
 
     assert measurements.mapper_evidence_edges == 11
     assert measurements.after_prune_edges == 0

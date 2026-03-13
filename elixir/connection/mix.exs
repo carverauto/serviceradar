@@ -8,8 +8,8 @@ defmodule Connection.Mixfile do
       app: :connection,
       version: @version,
       elixir: "~> 1.7",
-      build_embedded: Mix.env == :prod,
-      start_permanent: Mix.env == :prod,
+      build_embedded: Mix.env() == :prod,
+      start_permanent: Mix.env() == :prod,
       description: description(),
       package: package(),
       docs: docs(),
@@ -25,7 +25,9 @@ defmodule Connection.Mixfile do
 
   defp deps() do
     [
-      {:ex_doc, "~> 0.22", only: :dev}
+      {:ex_doc, "~> 0.22", only: :dev},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test]}
     ]
   end
 

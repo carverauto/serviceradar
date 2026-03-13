@@ -334,13 +334,13 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   attr :capabilities, :list, required: true
 
   defp capabilities_card(assigns) do
-    # Convert string capabilities to atoms for lookup, deriving info from Ash resource
+    # Capability info accepts binary names and internally uses an existing-atom lookup.
     caps_with_info =
       (assigns.capabilities || [])
       |> Enum.map(fn cap ->
-        cap_atom = if is_atom(cap), do: cap, else: String.to_atom(cap)
-        info = ServiceRadar.Infrastructure.Agent.capability_info(cap_atom)
-        {cap_atom, info}
+        cap_name = if is_atom(cap), do: Atom.to_string(cap), else: to_string(cap)
+        info = ServiceRadar.Infrastructure.Agent.capability_info(cap_name)
+        {cap_name, info}
       end)
 
     assigns = assign(assigns, :caps_with_info, caps_with_info)

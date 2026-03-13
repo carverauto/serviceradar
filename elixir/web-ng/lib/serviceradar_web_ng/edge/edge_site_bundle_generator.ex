@@ -32,6 +32,8 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
 
   alias ServiceRadar.Edge.NatsLeafConfigGenerator
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @doc """
   Creates a tarball bundle for an edge site.
 
@@ -116,6 +118,7 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
     end
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp create_tar_gz(files) do
     try do
       # Convert files to format expected by :erl_tar

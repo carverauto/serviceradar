@@ -810,18 +810,17 @@ func bytesToHexString(raw []byte) string {
 }
 
 func snmpStringValue(v gosnmp.SnmpPDU) (string, bool) {
-	//nolint:exhaustive // We only convert textual SNMP types here.
-	switch v.Type {
-	case gosnmp.OctetString, gosnmp.ObjectDescription:
-		switch val := v.Value.(type) {
-		case []byte:
-			return string(val), true
-		case string:
-			return val, true
-		}
-	default:
+	if v.Type != gosnmp.OctetString && v.Type != gosnmp.ObjectDescription {
 		return "", false
 	}
+
+	switch val := v.Value.(type) {
+	case []byte:
+		return string(val), true
+	case string:
+		return val, true
+	}
+
 	return "", false
 }
 

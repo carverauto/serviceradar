@@ -92,6 +92,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
 
         {:error, reason, retry_stats} ->
           emit_recovery_telemetry(:failed, retry_stats, min_canonical_edges, reason)
+
           Logger.warning(
             "Canonical topology recovery rebuild failed",
             reason: inspect(reason),
@@ -115,7 +116,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
   def recovery_needed?(_stats, _min_canonical_edges), do: false
 
   @doc false
-  @spec emit_cleanup_rebuild_telemetry(:completed | :failed, map(), integer(), term() | nil) :: :ok
+  @spec emit_cleanup_rebuild_telemetry(:completed | :failed, map(), integer(), term() | nil) ::
+          :ok
   def emit_cleanup_rebuild_telemetry(status, stats, min_canonical_edges, reason \\ nil)
       when status in [:completed, :failed] and is_map(stats) and is_integer(min_canonical_edges) do
     measurements = %{
@@ -133,12 +135,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
       }
       |> maybe_put_reason(reason)
 
-    :telemetry.execute([:serviceradar, :topology, :cleanup_rebuild, status], measurements, metadata)
+    :telemetry.execute(
+      [:serviceradar, :topology, :cleanup_rebuild, status],
+      measurements,
+      metadata
+    )
+
     :ok
   end
 
   @doc false
-  @spec emit_recovery_telemetry(:triggered | :completed | :failed, map(), integer(), term() | nil) :: :ok
+  @spec emit_recovery_telemetry(:triggered | :completed | :failed, map(), integer(), term() | nil) ::
+          :ok
   def emit_recovery_telemetry(status, stats, min_canonical_edges, reason \\ nil)
       when status in [:triggered, :completed, :failed] and is_map(stats) and
              is_integer(min_canonical_edges) do
@@ -155,7 +163,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
       }
       |> maybe_put_reason(reason)
 
-    :telemetry.execute([:serviceradar, :topology, :cleanup_recovery, status], measurements, metadata)
+    :telemetry.execute(
+      [:serviceradar, :topology, :cleanup_recovery, status],
+      measurements,
+      metadata
+    )
+
     :ok
   end
 

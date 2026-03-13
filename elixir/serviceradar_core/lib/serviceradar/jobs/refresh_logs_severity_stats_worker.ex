@@ -30,17 +30,13 @@ defmodule ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker do
         :ok
 
       {:error, error} ->
-        Logger.error(
-          "Failed to refresh logs_severity_stats_5m: #{Exception.message(error)}"
-        )
+        Logger.error("Failed to refresh logs_severity_stats_5m: #{Exception.message(error)}")
 
         {:error, error}
     end
   rescue
     error ->
-      Logger.error(
-        "Failed to refresh logs_severity_stats_5m: #{Exception.message(error)}"
-      )
+      Logger.error("Failed to refresh logs_severity_stats_5m: #{Exception.message(error)}")
 
       {:error, error}
   end

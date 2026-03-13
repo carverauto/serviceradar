@@ -56,7 +56,8 @@ defmodule ServiceRadarWebNGWeb.Router do
   pipeline :api_auth do
     plug(:accepts, ["json"])
     plug(:fetch_session)
-    plug(:maybe_protect_from_forgery)
+    plug(:skip_csrf_protection_for_bearer_auth)
+    plug(:protect_from_forgery)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
     plug(:require_authenticated_user_api)
@@ -89,6 +90,8 @@ defmodule ServiceRadarWebNGWeb.Router do
   pipeline :ash_json_api do
     plug(:accepts, ["json"])
     plug(:fetch_session)
+    plug(:skip_csrf_protection_for_bearer_auth)
+    plug(:protect_from_forgery)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
     plug(ServiceRadarWebNGWeb.Plugs.ApiErrorHandler)
@@ -316,7 +319,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/sign-in", AuthController, :create)
 
     # Sign out
-    get("/sign-out", AuthController, :delete)
     delete("/sign-out", AuthController, :delete)
 
     # Password reset
@@ -500,11 +502,11 @@ defmodule ServiceRadarWebNGWeb.Router do
     end
   end
 
-  defp maybe_protect_from_forgery(conn, _opts) do
+  defp skip_csrf_protection_for_bearer_auth(conn, _opts) do
     case Plug.Conn.get_req_header(conn, "authorization") do
-      ["Bearer " <> _] -> conn
-      ["bearer " <> _] -> conn
-      _ -> Plug.CSRFProtection.call(conn, Plug.CSRFProtection.init([]))
+      ["Bearer " <> _] -> Plug.Conn.put_private(conn, :plug_skip_csrf_protection, true)
+      ["bearer " <> _] -> Plug.Conn.put_private(conn, :plug_skip_csrf_protection, true)
+      _ -> conn
     end
   end
 

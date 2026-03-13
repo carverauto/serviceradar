@@ -307,11 +307,11 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner
 			Msg("Clamped SYN scanner concurrency to prevent resource exhaustion")
 	}
 
-	synScanner, err := scan.NewSYNScanner(config.TCPSettings.Timeout, synConcurrency, log, opts)
-	if err != nil {
+	synScanner, synErr := scan.NewSYNScanner(config.TCPSettings.Timeout, synConcurrency, log, opts)
+	if synScanner == nil {
 		// SYN scanner failed (non-Linux, container without CAP_NET_RAW, etc.)
 		// Gracefully fall back to TCP connect() scanner
-		log.Warn().Err(err).Msg("SYN scanner unavailable; falling back to TCP connect() scanner")
+		log.Warn().Err(synErr).Msg("SYN scanner unavailable; falling back to TCP connect() scanner")
 	} else {
 		log.Info().Int("concurrency", synConcurrency).Msg("Using SYN scanning for improved TCP port detection performance")
 		return synScanner

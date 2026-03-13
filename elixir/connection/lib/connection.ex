@@ -145,11 +145,13 @@ defmodule Connection do
   entering the loop or calling `terminate/2`.
   """
   @callback init(any) ::
-    {:ok, any} | {:ok, any, timeout | :hibernate} |
-    {:connect, any, any} |
-    {:backoff, timeout, any} | {:backoff, timeout, any, timeout | :hibernate} |
-    :ignore | {:stop, any}
-
+              {:ok, any}
+              | {:ok, any, timeout | :hibernate}
+              | {:connect, any, any}
+              | {:backoff, timeout, any}
+              | {:backoff, timeout, any, timeout | :hibernate}
+              | :ignore
+              | {:stop, any}
 
   @doc """
   Called when the process should try to connect. The first argument will either
@@ -187,9 +189,11 @@ defmodule Connection do
   `terminate(reason, state)` before the process exits with reason `reason`.
   """
   @callback connect(any, any) ::
-    {:ok, any} | {:ok, any, timeout | :hibernate} |
-    {:backoff, timeout, any} | {:backoff, timeout, any, timeout | :hibernate} |
-    {:stop, any, any}
+              {:ok, any}
+              | {:ok, any, timeout | :hibernate}
+              | {:backoff, timeout, any}
+              | {:backoff, timeout, any, timeout | :hibernate}
+              | {:stop, any, any}
 
   @doc """
   Called when the process should disconnect. The first argument will either
@@ -214,10 +218,12 @@ defmodule Connection do
   `terminate(reason, state)` before the process exits with reason `reason`.
   """
   @callback disconnect(any, any) ::
-    {:connect, any, any} |
-    {:backoff, timeout, any} | {:backoff, timeout, any, timeout | :hibernate} |
-    {:noconnect, any} | {:noconnect, any, timeout | :hibernate} |
-    {:stop, any, any}
+              {:connect, any, any}
+              | {:backoff, timeout, any}
+              | {:backoff, timeout, any, timeout | :hibernate}
+              | {:noconnect, any}
+              | {:noconnect, any, timeout | :hibernate}
+              | {:stop, any, any}
 
   @doc """
   Called when the process receives a call message sent by `call/3`. This
@@ -237,11 +243,14 @@ defmodule Connection do
   or a later callback using `reply/2`.
   """
   @callback handle_call(any, {pid, any}, any) ::
-    {:reply, any, any} | {:reply, any, any, timeout | :hibernate} |
-    {:noreply, any} | {:noreply, any, timeout | :hibernate} |
-    {:disconnect | :connect, any, any, any} |
-    {:disconnect | :connect, any, any} |
-    {:stop, any, any} | {:stop, any, any, any}
+              {:reply, any, any}
+              | {:reply, any, any, timeout | :hibernate}
+              | {:noreply, any}
+              | {:noreply, any, timeout | :hibernate}
+              | {:disconnect | :connect, any, any, any}
+              | {:disconnect | :connect, any, any}
+              | {:stop, any, any}
+              | {:stop, any, any, any}
 
   @doc """
   Called when the process receives a cast message sent by `cast/3`. This
@@ -254,9 +263,10 @@ defmodule Connection do
   except `disconnect/2` is called.
   """
   @callback handle_cast(any, any) ::
-    {:noreply, any} | {:noreply, any, timeout | :hibernate} |
-    {:disconnect | :connect, any, any} |
-    {:stop, any, any}
+              {:noreply, any}
+              | {:noreply, any, timeout | :hibernate}
+              | {:disconnect | :connect, any, any}
+              | {:stop, any, any}
 
   @doc """
   Called when the process receives a message that is not a call or cast. This
@@ -269,9 +279,10 @@ defmodule Connection do
   except `disconnect/2` is called.
   """
   @callback handle_info(any, any) ::
-    {:noreply, any} | {:noreply, any, timeout | :hibernate} |
-    {:disconnect | :connect, any, any} |
-    {:stop, any, any}
+              {:noreply, any}
+              | {:noreply, any, timeout | :hibernate}
+              | {:disconnect | :connect, any, any}
+              | {:stop, any, any}
 
   @doc """
   This callback is the same as the `GenServer` equivalent and is used to change
@@ -303,6 +314,7 @@ defmodule Connection do
       def handle_call(msg, _from, state) do
         # We do this to trick dialyzer to not complain about non-local returns.
         reason = {:bad_call, msg}
+
         case :erlang.phash2(1, 1) do
           0 -> exit(reason)
           1 -> {:stop, reason, state}
@@ -318,6 +330,7 @@ defmodule Connection do
       def handle_cast(msg, state) do
         # We do this to trick dialyzer to not complain about non-local returns.
         reason = {:bad_cast, msg}
+
         case :erlang.phash2(1, 1) do
           0 -> exit(reason)
           1 -> {:stop, reason, state}
@@ -337,6 +350,7 @@ defmodule Connection do
       @doc false
       def connect(info, state) do
         reason = {:bad_connect, info}
+
         case :erlang.phash2(1, 1) do
           0 -> exit(reason)
           1 -> {:stop, reason, state}
@@ -346,15 +360,21 @@ defmodule Connection do
       @doc false
       def disconnect(info, state) do
         reason = {:bad_disconnect, info}
+
         case :erlang.phash2(1, 1) do
           0 -> exit(reason)
           1 -> {:stop, reason, state}
         end
       end
 
-      defoverridable [init: 1, handle_call: 3, handle_info: 2,
-                      handle_cast: 2, terminate: 2, code_change: 3,
-                      connect: 2, disconnect: 2]
+      defoverridable init: 1,
+                     handle_call: 3,
+                     handle_info: 2,
+                     handle_cast: 2,
+                     terminate: 2,
+                     code_change: 3,
+                     connect: 2,
+                     disconnect: 2
     end
   end
 
@@ -370,7 +390,7 @@ defmodule Connection do
 
   See `GenServer.start_link/3` for more information.
   """
-  @spec start_link(module, any, GenServer.options) :: GenServer.on_start
+  @spec start_link(module, any, GenServer.options()) :: GenServer.on_start()
   def start_link(mod, args, opts \\ []) do
     start(mod, args, opts, :link)
   end
@@ -380,7 +400,7 @@ defmodule Connection do
 
   See `start_link/3` for more information.
   """
-  @spec start(module, any, GenServer.options) :: GenServer.on_start
+  @spec start(module, any, GenServer.options()) :: GenServer.on_start()
   def start(mod, args, opts \\ []) do
     start(mod, args, opts, :nolink)
   end
@@ -420,13 +440,16 @@ defmodule Connection do
   @doc false
   def init_it(starter, _, name, mod, args, opts) do
     Process.put(:"$initial_call", {mod, :init, 1})
+
     try do
       apply(mod, :init, [args])
     catch
       :exit, reason ->
         init_stop(starter, name, reason)
+
       :error, reason ->
         init_stop(starter, name, {reason, __STACKTRACE__})
+
       :throw, value ->
         reason = {{:nocatch, value}, __STACKTRACE__}
         init_stop(starter, name, reason)
@@ -434,30 +457,38 @@ defmodule Connection do
       {:ok, mod_state} ->
         :proc_lib.init_ack(starter, {:ok, self()})
         enter_loop(mod, nil, mod_state, name, opts, :infinity)
+
       {:ok, mod_state, timeout} ->
         :proc_lib.init_ack(starter, {:ok, self()})
         enter_loop(mod, nil, mod_state, name, opts, timeout)
+
       {:connect, info, mod_state} ->
         :proc_lib.init_ack(starter, {:ok, self()})
         enter_connect(mod, info, mod_state, name, opts)
+
       {:backoff, backoff_timeout, mod_state} ->
         backoff = start_backoff(backoff_timeout)
         :proc_lib.init_ack(starter, {:ok, self()})
         enter_loop(mod, backoff, mod_state, name, opts, :infinity)
+
       {:backoff, backoff_timeout, mod_state, timeout} ->
         backoff = start_backoff(backoff_timeout)
         :proc_lib.init_ack(starter, {:ok, self()})
         enter_loop(mod, backoff, mod_state, name, opts, timeout)
+
       :ignore ->
         _ = unregister(name)
         :proc_lib.init_ack(starter, :ignore)
         exit(:normal)
+
       {:stop, reason} ->
         init_stop(starter, name, reason)
+
       other ->
         init_stop(starter, name, {:bad_return_value, other})
     end
   end
+
   ## :proc_lib callback
 
   @doc false
@@ -465,15 +496,15 @@ defmodule Connection do
     args = [mod, backoff, mod_state, name, opts, :infinity]
     :proc_lib.hibernate(__MODULE__, :enter_loop, args)
   end
+
   def enter_loop(mod, backoff, mod_state, name, opts, timeout)
-  when name === self() do
-    s = %Connection{mod: mod, backoff: backoff, mod_state: mod_state,
-                    raise: nil}
+      when name === self() do
+    s = %Connection{mod: mod, backoff: backoff, mod_state: mod_state, raise: nil}
     :gen_server.enter_loop(__MODULE__, opts, s, timeout)
   end
+
   def enter_loop(mod, backoff, mod_state, name, opts, timeout) do
-    s = %Connection{mod: mod, backoff: backoff, mod_state: mod_state,
-                    raise: nil}
+    s = %Connection{mod: mod, backoff: backoff, mod_state: mod_state, raise: nil}
     :gen_server.enter_loop(__MODULE__, opts, s, name, timeout)
   end
 
@@ -492,26 +523,36 @@ defmodule Connection do
     else
       {:noreply, mod_state} = noreply ->
         put_elem(noreply, 1, %{s | mod_state: mod_state})
+
       {:noreply, mod_state, _} = noreply ->
         put_elem(noreply, 1, %{s | mod_state: mod_state})
+
       {:reply, _, mod_state} = reply ->
         put_elem(reply, 2, %{s | mod_state: mod_state})
+
       {:reply, _, mod_state, _} = reply ->
         put_elem(reply, 2, %{s | mod_state: mod_state})
+
       {:connect, info, mod_state} ->
         connect(info, mod_state, s)
+
       {:connect, info, reply, mod_state} ->
         reply(from, reply)
         connect(info, mod_state, s)
+
       {:disconnect, info, mod_state} ->
         disconnect(info, mod_state, s)
+
       {:disconnect, info, reply, mod_state} ->
         reply(from, reply)
         disconnect(info, mod_state, s)
+
       {:stop, _, mod_state} = stop ->
         put_elem(stop, 2, %{s | mod_state: mod_state})
+
       {:stop, _, _, mod_state} = stop ->
         put_elem(stop, 3, %{s | mod_state: mod_state})
+
       other ->
         {:stop, {:bad_return_value, other}, %{s | mod_state: mod_state}}
     end
@@ -523,10 +564,13 @@ defmodule Connection do
   end
 
   @doc false
-  def handle_info({:timeout, backoff, __MODULE__},
-  %{backoff: backoff, mod_state: mod_state} = s) do
+  def handle_info(
+        {:timeout, backoff, __MODULE__},
+        %{backoff: backoff, mod_state: mod_state} = s
+      ) do
     connect(:backoff, mod_state, %{s | backoff: nil})
   end
+
   def handle_info(msg, s) do
     handle_async(:handle_info, msg, s)
   end
@@ -556,6 +600,7 @@ defmodule Connection do
         mod_status
     end
   end
+
   def format_status(:terminate, [pdict, %{mod: mod, mod_state: mod_state}]) do
     try do
       apply(mod, :format_status, [:terminate, [pdict, mod_state]])
@@ -572,8 +617,10 @@ defmodule Connection do
   def terminate(reason, %{mod: mod, mod_state: mod_state, raise: nil}) do
     apply(mod, :terminate, [reason, mod_state])
   end
+
   def terminate(stop, %{raise: {class, reason, stack}} = s) do
     %{mod: mod, mod_state: mod_state} = s
+
     try do
       apply(mod, :terminate, [stop, mod_state])
     catch
@@ -582,8 +629,10 @@ defmodule Connection do
     else
       _ when stop in [:normal, :shutdown] ->
         :ok
+
       _ when tuple_size(stop) == 2 and elem(stop, 0) == :shutdown ->
         :ok
+
       _ ->
         :erlang.raise(class, reason, stack)
     end
@@ -595,10 +644,13 @@ defmodule Connection do
     case Keyword.pop(options, :name) do
       {nil, opts} ->
         :gen.start(__MODULE__, link, mod, args, opts)
+
       {atom, opts} when is_atom(atom) ->
         :gen.start(__MODULE__, link, {:local, atom}, mod, args, opts)
+
       {{:global, _} = name, opts} ->
         :gen.start(__MODULE__, link, name, mod, args, opts)
+
       {{:via, _, _} = name, opts} ->
         :gen.start(__MODULE__, link, name, mod, args, opts)
     end
@@ -624,25 +676,32 @@ defmodule Connection do
       :exit, reason ->
         report_reason = {:EXIT, {reason, __STACKTRACE__}}
         enter_terminate(mod, mod_state, name, reason, report_reason)
+
       :error, reason ->
         reason = {reason, __STACKTRACE__}
         enter_terminate(mod, mod_state, name, reason, {:EXIT, reason})
+
       :throw, value ->
         reason = {{:nocatch, value}, __STACKTRACE__}
         enter_terminate(mod, mod_state, name, reason, {:EXIT, reason})
     else
       {:ok, mod_state} ->
         enter_loop(mod, nil, mod_state, name, opts, :infinity)
+
       {:ok, mod_state, timeout} ->
         enter_loop(mod, nil, mod_state, name, opts, timeout)
+
       {:backoff, backoff_timeout, mod_state} ->
         backoff = start_backoff(backoff_timeout)
         enter_loop(mod, backoff, mod_state, name, opts, :infinity)
+
       {:backoff, backoff_timeout, mod_state, timeout} ->
         backoff = start_backoff(backoff_timeout)
         enter_loop(mod, backoff, mod_state, name, opts, timeout)
+
       {:stop, reason, mod_state} ->
         enter_terminate(mod, mod_state, name, reason, {:stop, reason})
+
       other ->
         reason = {:bad_return_value, other}
         enter_terminate(mod, mod_state, name, reason, {:stop, reason})
@@ -656,9 +715,11 @@ defmodule Connection do
       :exit, reason ->
         report_reason = {:EXIT, {reason, __STACKTRACE__}}
         enter_stop(mod, mod_state, name, reason, report_reason)
+
       :error, reason ->
         reason = {reason, __STACKTRACE__}
         enter_stop(mod, mod_state, name, reason, {:EXIT, reason})
+
       :throw, value ->
         reason = {{:nocatch, value}, __STACKTRACE__}
         enter_stop(mod, mod_state, name, reason, {:EXIT, reason})
@@ -670,19 +731,21 @@ defmodule Connection do
 
   defp enter_stop(_, _, _, :normal, {:stop, :normal}), do: exit(:normal)
   defp enter_stop(_, _, _, :shutdown, {:stop, :shutdown}), do: exit(:shutdown)
-  defp enter_stop(_, _, _, {:shutdown, reason} = shutdown,
-  {:stop, {:shutdown, reason}}) do
-      exit(shutdown)
+
+  defp enter_stop(_, _, _, {:shutdown, reason} = shutdown, {:stop, {:shutdown, reason}}) do
+    exit(shutdown)
   end
+
   defp enter_stop(mod, mod_state, name, reason, {_, reason2}) do
     s = %{mod: mod, backoff: nil, mod_state: mod_state}
     mod_state = format_status(:terminate, [Process.get(), s])
+    ## No last message
     format =
       ~c"** Generic server ~p terminating \n" ++
         ~c"** Last message in was ~p~n" ++
-        ## No last message
         ~c"** When Server state == ~p~n" ++
         ~c"** Reason for termination == ~n** ~p~n"
+
     args = [report_name(name), nil, mod_state, report_reason(reason2)]
     :error_logger.format(format, args)
     exit(reason)
@@ -697,12 +760,15 @@ defmodule Connection do
     cond do
       :code.is_loaded(mod) === false ->
         {:"module could not be loaded", stack}
+
       not function_exported?(mod, fun, length(args)) ->
         {:"function not exported", stack}
+
       true ->
         reason
     end
   end
+
   defp report_reason(reason) do
     reason
   end
@@ -710,18 +776,22 @@ defmodule Connection do
   ## backoff helpers
 
   defp start_backoff(:infinity), do: nil
+
   defp start_backoff(timeout) do
     :erlang.start_timer(timeout, self(), __MODULE__)
   end
 
   defp cancel_backoff(%{backoff: nil} = s), do: s
+
   defp cancel_backoff(%{backoff: backoff} = s) do
     case :erlang.cancel_timer(backoff) do
       false ->
         flush_backoff(backoff)
+
       _ ->
         :ok
     end
+
     %{s | backoff: nil}
   end
 
@@ -739,6 +809,7 @@ defmodule Connection do
 
   defp connect(info, mod_state, %{mod: mod} = s) do
     s = cancel_backoff(s)
+
     try do
       apply(mod, :connect, [info, mod_state])
     catch
@@ -748,16 +819,21 @@ defmodule Connection do
     else
       {:ok, mod_state} ->
         {:noreply, %{s | mod_state: mod_state}}
+
       {:ok, mod_state, timeout} ->
         {:noreply, %{s | mod_state: mod_state}, timeout}
+
       {:backoff, backoff_timeout, mod_state} ->
         backoff = start_backoff(backoff_timeout)
         {:noreply, %{s | backoff: backoff, mod_state: mod_state}}
+
       {:backoff, backoff_timeout, mod_state, timeout} ->
         backoff = start_backoff(backoff_timeout)
         {:noreply, %{s | backoff: backoff, mod_state: mod_state}, timeout}
+
       {:stop, _, mod_state} = stop ->
         put_elem(stop, 2, %{s | mod_state: mod_state})
+
       other ->
         {:stop, {:bad_return_value, other}, %{s | mod_state: mod_state}}
     end
@@ -765,6 +841,7 @@ defmodule Connection do
 
   defp disconnect(info, mod_state, %{mod: mod} = s) do
     s = cancel_backoff(s)
+
     try do
       apply(mod, :disconnect, [info, mod_state])
     catch
@@ -774,18 +851,24 @@ defmodule Connection do
     else
       {:connect, info, mod_state} ->
         connect(info, mod_state, s)
+
       {:noconnect, mod_state} ->
         {:noreply, %{s | mod_state: mod_state}}
+
       {:noconnect, mod_state, timeout} ->
         {:noreply, %{s | mod_state: mod_state}, timeout}
+
       {:backoff, backoff_timeout, mod_state} ->
         backoff = start_backoff(backoff_timeout)
         {:noreply, %{s | backoff: backoff, mod_state: mod_state}}
+
       {:backoff, backoff_timeout, mod_state, timeout} ->
         backoff = start_backoff(backoff_timeout)
         {:noreply, %{s | backoff: backoff, mod_state: mod_state}, timeout}
+
       {:stop, _, mod_state} = stop ->
         put_elem(stop, 2, %{s | mod_state: mod_state})
+
       other ->
         {:stop, {:bad_return_value, other}, %{s | mod_state: mod_state}}
     end
@@ -799,13 +882,14 @@ defmodule Connection do
   defp callback_stop(:throw, value, stack, s) do
     callback_stop(:error, {:nocatch, value}, stack, s)
   end
+
   defp callback_stop(class, reason, stack, s) do
     raise = {class, reason, stack}
     {:stop, stop_reason(class, reason, stack), %{s | raise: raise}}
   end
 
   defp stop_reason(:error, reason, stack), do: {reason, stack}
-  defp stop_reason(:exit, reason, _),      do: reason
+  defp stop_reason(:exit, reason, _), do: reason
 
   defp handle_async(fun, msg, %{mod: mod, mod_state: mod_state} = s) do
     try do
@@ -816,14 +900,19 @@ defmodule Connection do
     else
       {:noreply, mod_state} = noreply ->
         put_elem(noreply, 1, %{s | mod_state: mod_state})
+
       {:noreply, mod_state, _} = noreply ->
         put_elem(noreply, 1, %{s | mod_state: mod_state})
+
       {:connect, info, mod_state} ->
         connect(info, mod_state, s)
+
       {:disconnect, info, mod_state} ->
         disconnect(info, mod_state, s)
+
       {:stop, _, mod_state} = stop ->
         put_elem(stop, 2, %{s | mod_state: mod_state})
+
       other ->
         {:stop, {:bad_return_value, other}, %{s | mod_state: mod_state}}
     end

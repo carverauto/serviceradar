@@ -52,7 +52,9 @@ defmodule ServiceRadarAgentGateway.MixProject do
       {:libcluster, "~> 3.4"},
 
       # Testing
-      {:mox, "~> 1.0", only: :test}
+      {:mox, "~> 1.0", only: :test},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 

@@ -306,8 +306,7 @@ func summarizeSlice(items []interface{}) (string, bool) {
 	if length > previewCount {
 		builder.WriteString(", ...")
 	}
-	builder.WriteString("] (total=")
-	builder.WriteString(fmt.Sprintf("%d", length))
+	fmt.Fprintf(&builder, "] (total=%d", length)
 	builder.WriteString(", truncated)")
 
 	result, _ := truncateString(builder.String(), maxAttributeValueLength)
@@ -336,8 +335,7 @@ func summarizeMap(values map[string]interface{}) (string, bool) {
 
 	builder := strings.Builder{}
 	builder.Grow(maxAttributeValueLength)
-	builder.WriteString("{keys=")
-	builder.WriteString(fmt.Sprintf("%d", totalKeys))
+	fmt.Fprintf(&builder, "{keys=%d", totalKeys)
 	if len(preview) > 0 {
 		builder.WriteString(", sample=[")
 		builder.WriteString(strings.Join(preview, ", "))

@@ -1714,9 +1714,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     cond do
       is_binary(uid_match) -> uid_match
+      is_binary(uid) and canonical_topology_uid?(uid) -> uid
       is_binary(ip_match) -> ip_match
       is_binary(mac_match) -> mac_match
-      is_binary(uid) and canonical_topology_uid?(uid) -> uid
       is_binary(name_match) -> name_match
       true -> nil
     end
