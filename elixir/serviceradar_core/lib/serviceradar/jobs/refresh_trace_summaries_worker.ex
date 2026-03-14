@@ -43,7 +43,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     max(t.status_message) FILTER (WHERE t.parent_span_id IS NULL OR t.parent_span_id = ''),
     array_agg(DISTINCT t.service_name) FILTER (WHERE t.service_name IS NOT NULL),
     count(*),
-    count(*) FILTER (WHERE t.status_code IS NOT NULL AND t.status_code != 1),
+    count(*) FILTER (WHERE t.status_code = 2),
     NOW()
   FROM otel_traces t
   WHERE t.trace_id IN (
@@ -70,14 +70,27 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     refreshed_at = NOW()
   """
 
-  @cleanup_sql "DELETE FROM otel_trace_summaries WHERE timestamp < NOW() - INTERVAL '7 days'"
+  @cleanup_batch_sql """
+  WITH doomed AS (
+    SELECT trace_id
+    FROM otel_trace_summaries
+    WHERE timestamp < NOW() - INTERVAL '7 days'
+    ORDER BY timestamp ASC
+    LIMIT $1
+  )
+  DELETE FROM otel_trace_summaries AS summaries
+  USING doomed
+  WHERE summaries.trace_id = doomed.trace_id
+  """
 
   @table_has_data_sql "SELECT EXISTS(SELECT 1 FROM otel_trace_summaries LIMIT 1)"
 
   # Backfill in 1-hour chunks to keep each query fast
   @backfill_chunk_seconds 3600
+  @cleanup_batch_size 50_000
 
   def upsert_sql, do: @upsert_sql
+  def cleanup_batch_sql, do: @cleanup_batch_sql
 
   @impl Oban.Worker
   def perform(_job) do
@@ -164,8 +177,16 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp cleanup_old_summaries do
-    case SQL.query(ServiceRadar.Repo, @cleanup_sql, [], timeout: 10_000) do
-      {:ok, _result} ->
+    case SQL.query(ServiceRadar.Repo, @cleanup_batch_sql, [@cleanup_batch_size], timeout: 60_000) do
+      {:ok, %{num_rows: deleted_rows}} ->
+        if deleted_rows > 0 do
+          Logger.info(
+            "Pruned stale otel_trace_summaries rows",
+            deleted_rows: deleted_rows,
+            batch_size: @cleanup_batch_size
+          )
+        end
+
         :ok
 
       {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} ->

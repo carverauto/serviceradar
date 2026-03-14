@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNG.Jobs do
 
   alias Oban.Cron.Expression
   alias Oban.Job
+  alias ServiceRadar.Jobs.AlertsRetentionWorker
+  alias ServiceRadar.Jobs.ReapStalePeriodicJobsWorker
   alias ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker
@@ -28,6 +30,17 @@ defmodule ServiceRadarWebNG.Jobs do
       default_cron: "*/2 * * * *",
       unique_period_seconds: 180
     },
+    "reap_stale_periodic_jobs" => %{
+      key: "reap_stale_periodic_jobs",
+      label: "Periodic job reaper",
+      description:
+        "Reap stale periodic Oban jobs stuck in executing after restarts or failovers.",
+      worker: ReapStalePeriodicJobsWorker,
+      queue: :maintenance,
+      args: %{},
+      default_cron: "*/2 * * * *",
+      unique_period_seconds: 300
+    },
     "refresh_logs_severity_stats" => %{
       key: "refresh_logs_severity_stats",
       label: "Logs severity stats refresh",
@@ -38,6 +51,16 @@ defmodule ServiceRadarWebNG.Jobs do
       args: %{},
       default_cron: "*/2 * * * *",
       unique_period_seconds: 180
+    },
+    "alerts_retention" => %{
+      key: "alerts_retention",
+      label: "Alerts retention cleanup",
+      description: "Delete alerts older than the configured retention window.",
+      worker: AlertsRetentionWorker,
+      queue: :maintenance,
+      args: %{},
+      default_cron: "15 * * * *",
+      unique_period_seconds: 3600
     },
     "expire_packages" => %{
       key: "expire_packages",
@@ -130,12 +153,14 @@ defmodule ServiceRadarWebNG.Jobs do
 
   def apply_env_overrides do
     cron_override = System.get_env("TRACE_SUMMARIES_REFRESH_CRON")
+    alerts_retention_cron_override = System.get_env("ALERT_RETENTION_CRON")
 
-    if cron_override do
-      apply_cron_override("refresh_trace_summaries", cron_override)
-    else
-      :ok
-    end
+    if cron_override, do: apply_cron_override("refresh_trace_summaries", cron_override)
+
+    if alerts_retention_cron_override,
+      do: apply_cron_override("alerts_retention", alerts_retention_cron_override)
+
+    :ok
   rescue
     error in Postgrex.Error ->
       Logger.warning("Failed to apply schedule overrides: #{Exception.message(error)}")

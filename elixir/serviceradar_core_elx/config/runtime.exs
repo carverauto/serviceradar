@@ -420,6 +420,19 @@ if config_env() == :prod do
 
   oban_enabled = System.get_env("SERVICERADAR_CORE_OBAN_ENABLED", "true") in ~w(true 1 yes)
   oban_node = System.get_env("OBAN_NODE")
+
+  periodic_job_stale_threshold_minutes =
+    parse_int_env.("OBAN_PERIODIC_JOB_STALE_MINUTES", 240)
+
+  alerts_retention_days = parse_int_env.("ALERT_RETENTION_DAYS", 3)
+  alerts_retention_batch_size = parse_int_env.("ALERT_RETENTION_BATCH_SIZE", 10_000)
+  alerts_retention_max_batches = parse_int_env.("ALERT_RETENTION_MAX_BATCHES", 100)
+
+  config :serviceradar_core, ServiceRadar.Jobs.AlertsRetentionWorker,
+    retention_days: alerts_retention_days,
+    batch_size: alerts_retention_batch_size,
+    max_batches: alerts_retention_max_batches
+
   # Enable AshOban scheduler - core-elx is the only service that should run schedulers
   ash_oban_scheduler_enabled =
     System.get_env("SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED", "true") in ~w(true 1 yes)
@@ -465,8 +478,11 @@ if config_env() == :prod do
     end
 
   extra_cron_entries = [
+    {"*/2 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
     {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
-    {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance}
+    {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance},
+    {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *",
+     ServiceRadar.Jobs.AlertsRetentionWorker, queue: :maintenance}
   ]
 
   add_cron_entries = fn config, entries ->
@@ -488,6 +504,11 @@ if config_env() == :prod do
   oban_config = add_cron_entries.(oban_config, extra_cron_entries)
 
   config :serviceradar_core, :oban_enabled, oban_enabled
+
+  config :serviceradar_core,
+         :periodic_job_stale_threshold_minutes,
+         periodic_job_stale_threshold_minutes
+
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
 
   config :serviceradar_core, :start_ash_oban_scheduler, ash_oban_scheduler_enabled

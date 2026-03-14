@@ -430,7 +430,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
     Enum.reduce(events, initial, fn event, acc ->
       updated =
-        case normalize_severity(Map.get(event, "severity")) do
+        case event_summary_bucket(event) do
           "fatal" -> Map.update!(acc, :fatal, &(&1 + 1))
           "critical" -> Map.update!(acc, :critical, &(&1 + 1))
           "high" -> Map.update!(acc, :high, &(&1 + 1))
@@ -527,13 +527,52 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   defp time_window_from_query(_), do: "last_7d"
 
-  defp cutoff_for_time_window("last_1h"),
-    do: {:ok, DateTime.add(DateTime.utc_now(), -1, :hour)}
+  defp cutoff_for_time_window("last_1h"), do: {:ok, DateTime.add(DateTime.utc_now(), -1, :hour)}
+  defp cutoff_for_time_window("last_24h"), do: {:ok, DateTime.add(DateTime.utc_now(), -24, :hour)}
 
-  defp cutoff_for_time_window("last_24h"),
-    do: {:ok, DateTime.add(DateTime.utc_now(), -24, :hour)}
+  defp cutoff_for_time_window(value) when is_binary(value) do
+    case Regex.run(~r/^last_(\d+)([hd])$/i, String.trim(value)) do
+      [_, amount, "h"] ->
+        {:ok, DateTime.add(DateTime.utc_now(), -String.to_integer(amount), :hour)}
+
+      [_, amount, "d"] ->
+        {:ok, DateTime.add(DateTime.utc_now(), -String.to_integer(amount), :day)}
+
+      _ ->
+        :error
+    end
+  end
 
   defp cutoff_for_time_window(_), do: :error
+
+  defp event_summary_bucket(%{} = event) do
+    [
+      normalize_severity(Map.get(event, "severity")),
+      normalize_severity(Map.get(event, "log_level")),
+      severity_bucket_from_id(Map.get(event, "severity_id"))
+    ]
+    |> Enum.find(&(&1 not in [nil, ""]))
+    |> case do
+      nil -> ""
+      value -> value
+    end
+  end
+
+  defp event_summary_bucket(_), do: ""
+
+  defp severity_bucket_from_id(nil), do: nil
+
+  defp severity_bucket_from_id(value) do
+    case to_int(value) do
+      6 -> "fatal"
+      5 -> "critical"
+      4 -> "high"
+      3 -> "medium"
+      2 -> "low"
+      1 -> "informational"
+      _ -> nil
+    end
+  end
 
   defp event_dom_id(event) do
     id = event_id(event)

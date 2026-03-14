@@ -11,4 +11,5 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker do
   end
 
   defdelegate upsert_sql, to: ServiceRadar.Jobs.RefreshTraceSummariesWorker
+  defdelegate cleanup_batch_sql, to: ServiceRadar.Jobs.RefreshTraceSummariesWorker
 end
