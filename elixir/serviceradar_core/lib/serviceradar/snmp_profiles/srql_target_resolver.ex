@@ -36,6 +36,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   require Logger
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.SRQLAst
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   # Device UID regex for validation - prevents SRQL injection via crafted device UIDs
@@ -159,13 +160,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   end
 
   defp parse_query_ast(query_string) do
-    with {:ok, ast_json} <- ServiceRadarSRQL.Native.parse_ast(query_string),
-         {:ok, ast} <- Jason.decode(ast_json) do
-      {:ok, ast}
-    else
-      {:error, %Jason.DecodeError{} = reason} -> {:error, {:json_decode_error, reason}}
-      {:error, reason} -> {:error, {:parse_error, reason}}
-    end
+    SRQLAst.parse(query_string)
   end
 
   # Check if any devices match the parsed SRQL filters

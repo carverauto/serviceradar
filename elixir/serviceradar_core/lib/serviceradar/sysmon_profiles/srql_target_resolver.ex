@@ -28,6 +28,7 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
   require Logger
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.SRQLAst
   alias ServiceRadar.SysmonProfiles.SysmonProfile
 
   @doc """
@@ -129,20 +130,12 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
 
   # Execute an SRQL query and check if it returns results
   defp execute_srql_match(query_string, actor) do
-    # Parse the SRQL query to get filters
-    case ServiceRadarSRQL.Native.parse_ast(query_string) do
-      {:ok, ast_json} ->
-        case Jason.decode(ast_json) do
-          {:ok, ast} ->
-            # Execute a simple device count query with the filters
-            check_device_exists(ast, actor)
-
-          {:error, reason} ->
-            {:error, {:json_decode_error, reason}}
-        end
+    case SRQLAst.parse(query_string) do
+      {:ok, ast} ->
+        check_device_exists(ast, actor)
 
       {:error, reason} ->
-        {:error, {:parse_error, reason}}
+        {:error, reason}
     end
   end
 

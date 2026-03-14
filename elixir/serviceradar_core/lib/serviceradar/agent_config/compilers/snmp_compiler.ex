@@ -62,6 +62,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.SRQLAst
   alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
@@ -197,17 +198,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   def execute_target_query(target_query, actor) do
     target_query = String.trim(target_query)
 
-    case ServiceRadarSRQL.Native.parse_ast(target_query) do
-      {:ok, ast_json} ->
-        case Jason.decode(ast_json) do
-          {:ok, ast} ->
-            entity = extract_entity(target_query)
-            execute_parsed_query(entity, ast, actor)
-
-          {:error, reason} ->
-            Logger.warning("SNMPCompiler: failed to decode SRQL AST - #{inspect(reason)}")
-            []
-        end
+    case SRQLAst.parse(target_query) do
+      {:ok, ast} ->
+        entity = SRQLAst.entity(target_query)
+        execute_parsed_query(entity, ast, actor)
 
       {:error, reason} ->
         Logger.warning("SNMPCompiler: failed to parse SRQL query - #{inspect(reason)}")
@@ -217,14 +211,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     e ->
       Logger.error("SNMPCompiler: error executing target query - #{inspect(e)}")
       []
-  end
-
-  # Extract the entity type from SRQL query
-  defp extract_entity(query) when is_binary(query) do
-    case Regex.run(~r/^in:(\S+)/, query) do
-      [_, entity] -> String.downcase(entity)
-      _ -> "devices"
-    end
   end
 
   defp normalize_target_query(target_query, is_default) do

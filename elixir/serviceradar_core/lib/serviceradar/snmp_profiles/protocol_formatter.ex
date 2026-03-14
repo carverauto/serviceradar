@@ -25,6 +25,30 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatter do
     auth_priv: "authPriv"
   }
 
+  @auth_protocol_aliases %{
+    "MD5" => :md5,
+    "SHA" => :sha,
+    "SHA224" => :sha224,
+    "SHA-224" => :sha224,
+    "SHA256" => :sha256,
+    "SHA-256" => :sha256,
+    "SHA384" => :sha384,
+    "SHA-384" => :sha384,
+    "SHA512" => :sha512,
+    "SHA-512" => :sha512
+  }
+
+  @priv_protocol_aliases %{
+    "DES" => :des,
+    "AES" => :aes,
+    "AES192" => :aes192,
+    "AES-192" => :aes192,
+    "AES256" => :aes256,
+    "AES-256" => :aes256,
+    "AES-192-C" => :aes192c,
+    "AES-256-C" => :aes256c
+  }
+
   @spec version(atom() | String.t() | nil, keyword()) :: String.t()
   def version(value, opts \\ []) do
     allow_binary? = Keyword.get(opts, :allow_binary?, false)
@@ -86,54 +110,12 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatter do
   def normalize_security_level(_), do: nil
 
   @spec normalize_auth_protocol(atom() | String.t() | nil) :: atom() | nil
-  def normalize_auth_protocol(value) do
-    case value do
-      atom when is_atom(atom) ->
-        normalize_protocol(atom, @auth_protocols)
-
-      binary when is_binary(binary) ->
-        case String.upcase(String.trim(binary)) do
-          "MD5" -> :md5
-          "SHA" -> :sha
-          "SHA224" -> :sha224
-          "SHA-224" -> :sha224
-          "SHA256" -> :sha256
-          "SHA-256" -> :sha256
-          "SHA384" -> :sha384
-          "SHA-384" -> :sha384
-          "SHA512" -> :sha512
-          "SHA-512" -> :sha512
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
+  def normalize_auth_protocol(value),
+    do: normalize_protocol_alias(value, @auth_protocols, @auth_protocol_aliases)
 
   @spec normalize_priv_protocol(atom() | String.t() | nil) :: atom() | nil
-  def normalize_priv_protocol(value) do
-    case value do
-      atom when is_atom(atom) ->
-        normalize_protocol(atom, @priv_protocols)
-
-      binary when is_binary(binary) ->
-        case String.upcase(String.trim(binary)) do
-          "DES" -> :des
-          "AES" -> :aes
-          "AES192" -> :aes192
-          "AES-192" -> :aes192
-          "AES256" -> :aes256
-          "AES-256" -> :aes256
-          "AES-192-C" -> :aes192c
-          "AES-256-C" -> :aes256c
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
+  def normalize_priv_protocol(value),
+    do: normalize_protocol_alias(value, @priv_protocols, @priv_protocol_aliases)
 
   defp format_protocol(nil, _mapping, _opts), do: nil
 
@@ -168,4 +150,16 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatter do
   end
 
   defp normalize_protocol(_value, _mapping), do: nil
+
+  defp normalize_protocol_alias(value, mapping, _aliases) when is_atom(value),
+    do: normalize_protocol(value, mapping)
+
+  defp normalize_protocol_alias(value, _mapping, aliases) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.upcase()
+    |> then(&Map.get(aliases, &1))
+  end
+
+  defp normalize_protocol_alias(_value, _mapping, _aliases), do: nil
 end

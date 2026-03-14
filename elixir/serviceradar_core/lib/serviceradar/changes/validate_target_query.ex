@@ -2,6 +2,7 @@ defmodule ServiceRadar.Changes.ValidateTargetQuery do
   @moduledoc false
 
   alias Ash.Changeset
+  alias ServiceRadar.SRQLAst
 
   def change(changeset, opts) do
     field = Keyword.get(opts, :field, :target_query)
@@ -24,8 +25,8 @@ defmodule ServiceRadar.Changes.ValidateTargetQuery do
   defp validate_query(changeset, field, query, opts) do
     normalized_query = normalize_query(query, opts)
 
-    case ServiceRadarSRQL.Native.parse_ast(normalized_query) do
-      {:ok, _ast_json} ->
+    case SRQLAst.validate(normalized_query) do
+      :ok ->
         Changeset.change_attribute(changeset, field, normalized_query)
 
       {:error, reason} ->
