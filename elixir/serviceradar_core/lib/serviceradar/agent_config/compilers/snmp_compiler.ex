@@ -59,6 +59,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.AgentConfig.Compilers.TargetedProfileResolver
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
@@ -130,22 +131,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   """
   @spec resolve_profile(String.t() | nil, map()) :: SNMPProfile.t() | nil
   def resolve_profile(device_uid, actor) do
-    try_srql_targeting(device_uid, actor) ||
-      get_default_profile(actor)
-  end
-
-  # Try to find a matching profile via SRQL targeting
-  defp try_srql_targeting(nil, _actor), do: nil
-
-  defp try_srql_targeting(device_uid, actor) do
-    case SrqlTargetResolver.resolve_for_device(device_uid, actor) do
-      {:ok, profile} ->
-        profile
-
-      {:error, reason} ->
-        Logger.warning("SNMPCompiler: SRQL targeting failed - #{inspect(reason)}")
-        nil
-    end
+    TargetedProfileResolver.resolve(device_uid, actor,
+      resolver: &SrqlTargetResolver.resolve_for_device/2,
+      default_resolver: &get_default_profile/1,
+      log_prefix: "SNMPCompiler"
+    )
   end
 
   @doc """
