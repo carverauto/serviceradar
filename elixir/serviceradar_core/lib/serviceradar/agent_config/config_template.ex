@@ -11,6 +11,9 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @mutable_template_fields [:name, :description, :schema, :default_values, :admin_only, :enabled]
+  @template_create_fields [:config_type | @mutable_template_fields]
+
   postgres do
     table "agent_config_templates"
     repo ServiceRadar.Repo
@@ -21,26 +24,11 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
     defaults [:read, :destroy]
 
     create :create do
-      accept [
-        :name,
-        :description,
-        :config_type,
-        :schema,
-        :default_values,
-        :admin_only,
-        :enabled
-      ]
+      accept @template_create_fields
     end
 
     update :update do
-      accept [
-        :name,
-        :description,
-        :schema,
-        :default_values,
-        :admin_only,
-        :enabled
-      ]
+      accept @mutable_template_fields
     end
 
     read :by_config_type do

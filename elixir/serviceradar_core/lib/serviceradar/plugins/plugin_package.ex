@@ -12,6 +12,27 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  @package_fields [
+    :name,
+    :description,
+    :entrypoint,
+    :runtime,
+    :outputs,
+    :manifest,
+    :config_schema,
+    :display_contract,
+    :wasm_object_key,
+    :content_hash,
+    :signature,
+    :source_type,
+    :source_repo_url,
+    :source_commit,
+    :gpg_key_id,
+    :gpg_verified_at
+  ]
+
+  @package_create_fields [:plugin_id, :version | @package_fields]
+
   postgres do
     table "plugin_packages"
     repo ServiceRadar.Repo
@@ -49,49 +70,13 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     end
 
     create :create do
-      accept [
-        :plugin_id,
-        :name,
-        :version,
-        :description,
-        :entrypoint,
-        :runtime,
-        :outputs,
-        :manifest,
-        :config_schema,
-        :display_contract,
-        :wasm_object_key,
-        :content_hash,
-        :signature,
-        :source_type,
-        :source_repo_url,
-        :source_commit,
-        :gpg_key_id,
-        :gpg_verified_at
-      ]
+      accept @package_create_fields
 
       validate ServiceRadar.Plugins.Validations.Manifest
     end
 
     update :update do
-      accept [
-        :name,
-        :description,
-        :entrypoint,
-        :runtime,
-        :outputs,
-        :manifest,
-        :config_schema,
-        :display_contract,
-        :wasm_object_key,
-        :content_hash,
-        :signature,
-        :source_type,
-        :source_repo_url,
-        :source_commit,
-        :gpg_key_id,
-        :gpg_verified_at
-      ]
+      accept @package_fields
 
       validate ServiceRadar.Plugins.Validations.Manifest
     end

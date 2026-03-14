@@ -14,6 +14,19 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
 
   alias ServiceRadar.Plugins.PluginTargetPolicyOps
 
+  @mutable_fields [
+    :name,
+    :description,
+    :plugin_package_id,
+    :input_definitions,
+    :params_template,
+    :interval_seconds,
+    :timeout_seconds,
+    :chunk_size,
+    :max_targets,
+    :enabled
+  ]
+
   postgres do
     table "plugin_target_policies"
     repo ServiceRadar.Repo
@@ -45,35 +58,11 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
     end
 
     create :create do
-      accept [
-        :name,
-        :description,
-        :plugin_package_id,
-        :input_definitions,
-        :params_template,
-        :interval_seconds,
-        :timeout_seconds,
-        :chunk_size,
-        :max_targets,
-        :enabled
-      ]
+      accept @mutable_fields
     end
 
     update :update do
-      accept [
-        :name,
-        :description,
-        :plugin_package_id,
-        :input_definitions,
-        :params_template,
-        :interval_seconds,
-        :timeout_seconds,
-        :chunk_size,
-        :max_targets,
-        :enabled,
-        :last_reconciled_at,
-        :last_reconcile_summary
-      ]
+      accept @mutable_fields ++ [:last_reconciled_at, :last_reconcile_summary]
     end
 
     action :preview do

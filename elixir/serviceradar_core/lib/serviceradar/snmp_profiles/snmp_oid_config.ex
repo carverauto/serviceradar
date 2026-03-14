@@ -47,6 +47,8 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @oid_fields [:oid, :name, :data_type, :scale, :delta]
+
   postgres do
     table "snmp_oid_configs"
     repo ServiceRadar.Repo
@@ -61,13 +63,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
     defaults [:read, :destroy]
 
     create :create do
-      accept [
-        :oid,
-        :name,
-        :data_type,
-        :scale,
-        :delta
-      ]
+      accept @oid_fields
 
       argument :snmp_target_id, :uuid, allow_nil?: false
 
@@ -75,18 +71,12 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
     end
 
     update :update do
-      accept [
-        :oid,
-        :name,
-        :data_type,
-        :scale,
-        :delta
-      ]
+      accept @oid_fields
     end
 
     create :create_bulk do
       description "Create multiple OID configs at once"
-      accept [:oid, :name, :data_type, :scale, :delta]
+      accept @oid_fields
       argument :snmp_target_id, :uuid, allow_nil?: false
 
       change manage_relationship(:snmp_target_id, :snmp_target, type: :append)

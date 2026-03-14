@@ -8,6 +8,9 @@ defmodule ServiceRadar.Plugins.Plugin do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @mutable_fields [:name, :description, :source_repo_url, :homepage_url, :disabled]
+  @create_fields [:plugin_id | @mutable_fields]
+
   postgres do
     table "plugins"
     repo ServiceRadar.Repo
@@ -18,11 +21,11 @@ defmodule ServiceRadar.Plugins.Plugin do
     defaults [:read, :destroy]
 
     create :create do
-      accept [:plugin_id, :name, :description, :source_repo_url, :homepage_url, :disabled]
+      accept @create_fields
     end
 
     update :update do
-      accept [:name, :description, :source_repo_url, :homepage_url, :disabled]
+      accept @mutable_fields
     end
   end
 

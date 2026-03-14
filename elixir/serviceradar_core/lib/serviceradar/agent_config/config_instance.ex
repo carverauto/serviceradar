@@ -11,6 +11,9 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @create_fields [:config_type, :partition, :agent_id, :compiled_config, :source_ids]
+  @update_fields [:compiled_config, :source_ids]
+
   postgres do
     table "agent_config_instances"
     repo ServiceRadar.Repo
@@ -30,23 +33,14 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
     defaults [:read, :destroy]
 
     create :create do
-      accept [
-        :config_type,
-        :partition,
-        :agent_id,
-        :compiled_config,
-        :source_ids
-      ]
+      accept @create_fields
 
       change ServiceRadar.AgentConfig.Changes.ComputeConfigHash
       change ServiceRadar.AgentConfig.Changes.IncrementVersion
     end
 
     update :update do
-      accept [
-        :compiled_config,
-        :source_ids
-      ]
+      accept @update_fields
 
       require_atomic? false
 

@@ -8,6 +8,20 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @mutable_fields [
+    :source,
+    :source_key,
+    :policy_id,
+    :enabled,
+    :interval_seconds,
+    :timeout_seconds,
+    :params,
+    :permissions_override,
+    :resources_override
+  ]
+
+  @create_fields [:agent_uid, :plugin_package_id | @mutable_fields]
+
   postgres do
     table "plugin_assignments"
     repo ServiceRadar.Repo
@@ -35,19 +49,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     end
 
     create :create do
-      accept [
-        :agent_uid,
-        :plugin_package_id,
-        :source,
-        :source_key,
-        :policy_id,
-        :enabled,
-        :interval_seconds,
-        :timeout_seconds,
-        :params,
-        :permissions_override,
-        :resources_override
-      ]
+      accept @create_fields
 
       change ServiceRadar.Plugins.Changes.ApplyConfigDefaults
       validate ServiceRadar.Plugins.Validations.PackageApproved
@@ -55,17 +57,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     end
 
     update :update do
-      accept [
-        :source,
-        :source_key,
-        :policy_id,
-        :enabled,
-        :interval_seconds,
-        :timeout_seconds,
-        :params,
-        :permissions_override,
-        :resources_override
-      ]
+      accept @mutable_fields
 
       change ServiceRadar.Plugins.Changes.ApplyConfigDefaults
       validate ServiceRadar.Plugins.Validations.AssignmentParams

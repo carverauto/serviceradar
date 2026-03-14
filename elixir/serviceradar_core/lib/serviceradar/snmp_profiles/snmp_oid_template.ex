@@ -59,6 +59,8 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @template_fields [:name, :description, :vendor, :category, :oids]
+
   postgres do
     table "snmp_oid_templates"
     repo ServiceRadar.Repo
@@ -69,13 +71,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
     defaults [:read, :destroy]
 
     create :create do
-      accept [
-        :name,
-        :description,
-        :vendor,
-        :category,
-        :oids
-      ]
+      accept @template_fields
 
       change fn changeset, _context ->
         # Custom templates are never builtin
@@ -84,13 +80,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
     end
 
     update :update do
-      accept [
-        :name,
-        :description,
-        :vendor,
-        :category,
-        :oids
-      ]
+      accept @template_fields
 
       require_atomic? false
 
