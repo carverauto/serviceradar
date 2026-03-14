@@ -27,8 +27,8 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
   require Ash.Query
   require Logger
 
-  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SRQLAst
+  alias ServiceRadar.SRQLDeviceMatcher
   alias ServiceRadar.SysmonProfiles.SysmonProfile
 
   @doc """
@@ -141,92 +141,6 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
 
   # Check if any devices match the parsed SRQL filters
   defp check_device_exists(ast, actor) do
-    filters = extract_filters(ast)
-
-    query =
-      Device
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> apply_srql_filters(filters)
-      |> Ash.Query.limit(1)
-
-    case Ash.read_one(query, actor: actor) do
-      {:ok, nil} -> {:ok, false}
-      {:ok, _device} -> {:ok, true}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # Extract filter conditions from parsed SRQL AST
-  defp extract_filters(%{"filters" => filters}) when is_list(filters) do
-    Enum.map(filters, fn filter ->
-      %{
-        field: Map.get(filter, "field"),
-        op: Map.get(filter, "op", "eq"),
-        value: Map.get(filter, "value")
-      }
-    end)
-  end
-
-  defp extract_filters(_), do: []
-
-  # Apply SRQL filters to an Ash query
-  defp apply_srql_filters(query, filters) do
-    Enum.reduce(filters, query, fn filter, q ->
-      apply_filter(q, filter)
-    end)
-  end
-
-  defp apply_filter(query, %{field: field, op: op, value: value}) when is_binary(field) do
-    # Map common SRQL field names to Device attributes
-    mapped_field = map_field(field)
-
-    # Handle special cases like tags
-    if String.starts_with?(field, "tags.") do
-      # tags.key:value -> filter on tags JSONB
-      tag_key = String.replace_prefix(field, "tags.", "")
-      apply_tag_filter(query, tag_key, value)
-    else
-      apply_standard_filter(query, mapped_field, op, value)
-    end
-  rescue
-    e ->
-      # Log the error but continue - unknown fields are skipped gracefully
-      Logger.debug(
-        "SrqlTargetResolver: skipping filter #{field} #{op} #{inspect(value)}: #{Exception.message(e)}"
-      )
-
-      query
-  end
-
-  defp apply_filter(query, _), do: query
-
-  # Map SRQL field names to Device attribute names
-  defp map_field("hostname"), do: :hostname
-  defp map_field("uid"), do: :uid
-  defp map_field("type"), do: :type_id
-  defp map_field("os"), do: :os
-  defp map_field("status"), do: :status
-  defp map_field(field), do: String.to_existing_atom(field)
-
-  # Apply a standard equality filter
-  defp apply_standard_filter(query, field, "eq", value) when is_atom(field) do
-    Ash.Query.filter_input(query, %{field => %{eq: value}})
-  end
-
-  defp apply_standard_filter(query, field, "contains", value) when is_atom(field) do
-    Ash.Query.filter_input(query, %{field => %{contains: value}})
-  end
-
-  defp apply_standard_filter(query, field, "in", value) when is_atom(field) and is_list(value) do
-    Ash.Query.filter_input(query, %{field => %{in: value}})
-  end
-
-  defp apply_standard_filter(query, _field, _op, _value), do: query
-
-  # Apply a tag filter using JSONB containment
-  defp apply_tag_filter(query, tag_key, tag_value) do
-    # Use Ash fragment for JSONB filter
-    # tags @> '{"key": "value"}'::jsonb
-    Ash.Query.filter(query, fragment("tags @> ?", ^%{tag_key => tag_value}))
+    SRQLDeviceMatcher.match_ast(ast, actor, log_prefix: "SrqlTargetResolver")
   end
 end
