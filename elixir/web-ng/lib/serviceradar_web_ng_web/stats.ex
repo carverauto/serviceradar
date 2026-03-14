@@ -31,7 +31,19 @@ defmodule ServiceRadarWebNGWeb.Stats do
   This module combines all layers for convenience.
   """
 
+  import Ecto.Query
+
+  alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Stats.{Query, Extract, Compute}
+
+  @type alerts_summary :: %{
+          total: non_neg_integer(),
+          pending: non_neg_integer(),
+          acknowledged: non_neg_integer(),
+          resolved: non_neg_integer(),
+          escalated: non_neg_integer(),
+          suppressed: non_neg_integer()
+        }
 
   @doc """
   Fetch logs severity stats using the rollup_stats pattern.
@@ -60,6 +72,44 @@ defmodule ServiceRadarWebNGWeb.Stats do
     query
     |> srql_module.query(%{scope: scope})
     |> Extract.logs_severity()
+  end
+
+  @doc """
+  Fetch overall alert status counts from the alerts table.
+
+  This summary intentionally ignores pagination so alert overview cards reflect
+  the full retained alert set rather than the currently visible page slice.
+  """
+  @spec alerts_summary(keyword()) :: alerts_summary()
+  def alerts_summary(_opts \\ []) do
+    query =
+      from(a in "alerts",
+        select: %{
+          total: count(),
+          pending: fragment("COUNT(*) FILTER (WHERE ? = 'pending')", a.status),
+          acknowledged: fragment("COUNT(*) FILTER (WHERE ? = 'acknowledged')", a.status),
+          resolved: fragment("COUNT(*) FILTER (WHERE ? = 'resolved')", a.status),
+          escalated: fragment("COUNT(*) FILTER (WHERE ? = 'escalated')", a.status),
+          suppressed: fragment("COUNT(*) FILTER (WHERE ? = 'suppressed')", a.status)
+        }
+      )
+
+    case Repo.one(query) do
+      %{total: _} = summary ->
+        %{
+          total: to_int(summary.total),
+          pending: to_int(summary.pending),
+          acknowledged: to_int(summary.acknowledged),
+          resolved: to_int(summary.resolved),
+          escalated: to_int(summary.escalated),
+          suppressed: to_int(summary.suppressed)
+        }
+
+      _ ->
+        empty_alerts_summary()
+    end
+  rescue
+    _ -> empty_alerts_summary()
   end
 
   @doc """
@@ -170,8 +220,27 @@ defmodule ServiceRadarWebNGWeb.Stats do
   defdelegate empty_traces_summary(), to: Extract
   defdelegate empty_services_availability(), to: Extract
 
+  @spec empty_alerts_summary() :: alerts_summary()
+  def empty_alerts_summary do
+    %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0}
+  end
+
   # Get the configured SRQL module
   defp default_srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
+
+  defp to_int(value) when is_integer(value), do: value
+  defp to_int(value) when is_float(value), do: trunc(value)
+  defp to_int(%Decimal{} = value), do: Decimal.to_integer(value)
+
+  defp to_int(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} -> parsed
+      {parsed, _} -> parsed
+      :error -> 0
+    end
+  end
+
+  defp to_int(_), do: 0
 end

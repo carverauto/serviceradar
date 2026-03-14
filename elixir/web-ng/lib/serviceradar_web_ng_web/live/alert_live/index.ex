@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
 
   alias Phoenix.LiveView.JS
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadarWebNGWeb.Stats
 
   @default_limit 25
   @max_limit 200
@@ -36,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
         max_limit: @max_limit
       )
 
-    {:noreply, assign(socket, :summary, compute_summary(socket.assigns.alerts))}
+    {:noreply, assign(socket, :summary, Stats.alerts_summary())}
   end
 
   @impl true
@@ -321,28 +322,4 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
   end
 
   defp parse_timestamp(_), do: :error
-
-  defp compute_summary(alerts) when is_list(alerts) do
-    Enum.reduce(
-      alerts,
-      %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0},
-      fn alert, acc ->
-        status = normalize_status(Map.get(alert, "status"))
-
-        acc
-        |> Map.update!(:total, &(&1 + 1))
-        |> increment_status(status)
-      end
-    )
-  end
-
-  defp compute_summary(_),
-    do: %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0}
-
-  defp increment_status(acc, "pending"), do: Map.update!(acc, :pending, &(&1 + 1))
-  defp increment_status(acc, "acknowledged"), do: Map.update!(acc, :acknowledged, &(&1 + 1))
-  defp increment_status(acc, "resolved"), do: Map.update!(acc, :resolved, &(&1 + 1))
-  defp increment_status(acc, "escalated"), do: Map.update!(acc, :escalated, &(&1 + 1))
-  defp increment_status(acc, "suppressed"), do: Map.update!(acc, :suppressed, &(&1 + 1))
-  defp increment_status(acc, _), do: acc
 end

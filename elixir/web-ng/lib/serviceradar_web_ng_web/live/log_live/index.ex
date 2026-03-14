@@ -6342,29 +6342,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp compute_event_summary(_), do: empty_event_summary()
 
-  defp compute_alert_summary(alerts) when is_list(alerts) do
-    Enum.reduce(
-      alerts,
-      %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0},
-      fn alert, acc ->
-        status = normalize_alert_status(Map.get(alert, "status"))
-
-        acc
-        |> Map.update!(:total, &(&1 + 1))
-        |> increment_alert_status(status)
-      end
-    )
-  end
-
-  defp compute_alert_summary(_), do: empty_alert_summary()
-
-  defp increment_alert_status(acc, "pending"), do: Map.update!(acc, :pending, &(&1 + 1))
-  defp increment_alert_status(acc, "acknowledged"), do: Map.update!(acc, :acknowledged, &(&1 + 1))
-  defp increment_alert_status(acc, "resolved"), do: Map.update!(acc, :resolved, &(&1 + 1))
-  defp increment_alert_status(acc, "escalated"), do: Map.update!(acc, :escalated, &(&1 + 1))
-  defp increment_alert_status(acc, "suppressed"), do: Map.update!(acc, :suppressed, &(&1 + 1))
-  defp increment_alert_status(acc, _), do: acc
-
   defp compute_netflow_summary(flows) when is_list(flows) do
     Enum.reduce(
       flows,
@@ -6506,7 +6483,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp apply_tab_assigns(socket, "alerts", _srql_module) do
-    summary = compute_alert_summary(socket.assigns.alerts)
+    summary = Stats.alerts_summary()
 
     socket
     |> assign(:alert_summary, summary)
@@ -8115,7 +8092,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp format_bucket(seconds) when is_integer(seconds), do: "#{seconds}s"
 
-  # Load duration stats from the continuous aggregation for full 24h data
   defp load_duration_stats_from_cagg(_scope) do
     cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
 
