@@ -160,19 +160,21 @@ defmodule ServiceRadarWebNGWeb.Stats do
   def events_summary(opts \\ []) do
     time_window = Keyword.get(opts, :time, "last_7d")
 
-    with {:ok, cutoff} <- cutoff_for_time_window(time_window) do
-      query =
-        from(s in "ocsf_events_hourly_stats",
-          where: s.bucket >= ^cutoff,
-          group_by: s.severity_id,
-          select: {s.severity_id, sum(s.total_count)}
-        )
+    case cutoff_for_time_window(time_window) do
+      {:ok, cutoff} ->
+        query =
+          from(s in "ocsf_events_hourly_stats",
+            where: s.bucket >= ^cutoff,
+            group_by: s.severity_id,
+            select: {s.severity_id, sum(s.total_count)}
+          )
 
-      query
-      |> Repo.all()
-      |> merge_event_stats(empty_events_summary())
-    else
-      _ -> empty_events_summary()
+        query
+        |> Repo.all()
+        |> merge_event_stats(empty_events_summary())
+
+      _ ->
+        empty_events_summary()
     end
   rescue
     _ -> empty_events_summary()
