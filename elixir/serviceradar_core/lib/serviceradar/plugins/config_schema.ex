@@ -3,6 +3,8 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   Helpers for validating and normalizing plugin configuration schemas.
   """
 
+  alias ServiceRadar.Plugins.MapUtils
+
   @allowed_formats ~w(uri email)
   @allowed_root_keys ~w(type title description properties required additionalProperties)
   @allowed_property_keys ~w(
@@ -237,19 +239,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
     end
   end
 
-  defp stringify_keys(nil), do: %{}
-
-  defp stringify_keys(%{} = map) do
-    map
-    |> Enum.map(fn {key, value} -> {to_string(key), stringify_keys(value)} end)
-    |> Map.new()
-  end
-
-  defp stringify_keys(list) when is_list(list) do
-    Enum.map(list, &stringify_keys/1)
-  end
-
-  defp stringify_keys(value), do: value
+  defp stringify_keys(value), do: MapUtils.stringify_keys_or_empty(value)
 
   defp normalize_for_schema(%{"type" => "object"} = schema, params) when is_map(params) do
     properties = Map.get(schema, "properties", %{})

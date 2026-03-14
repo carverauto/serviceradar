@@ -7,7 +7,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
   disable stale rows.
   """
 
-  alias ServiceRadar.Plugins.PluginInputPayloadBuilder
+  alias ServiceRadar.Plugins.{MapUtils, PluginInputPayloadBuilder}
 
   @type policy_config :: %{
           required(:policy_id) => String.t(),
@@ -100,7 +100,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
       rows = list_value(input, [:rows, "rows"]) || []
 
       Enum.reduce(rows, acc, fn row, input_acc ->
-        accumulate_agent_row(input_acc, name, entity, query, stringify_keys(row))
+        accumulate_agent_row(input_acc, name, entity, query, MapUtils.stringify_keys(row))
       end)
     end)
   end
@@ -198,15 +198,6 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
         {:error, ["missing or invalid required policy field: #{label}"]}
     end
   end
-
-  defp stringify_keys(%{} = map) do
-    map
-    |> Enum.map(fn {k, v} -> {to_string(k), stringify_keys(v)} end)
-    |> Map.new()
-  end
-
-  defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
-  defp stringify_keys(value), do: value
 
   defp string_value(map, keys) do
     keys

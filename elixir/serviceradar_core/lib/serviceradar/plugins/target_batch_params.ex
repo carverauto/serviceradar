@@ -8,6 +8,8 @@ defmodule ServiceRadar.Plugins.TargetBatchParams do
   - chunk generation with payload-size guardrails.
   """
 
+  alias ServiceRadar.Plugins.{MapUtils, PayloadUtils}
+
   @schema_id "serviceradar.plugin_target_batch_params.v1"
   @soft_limit_bytes 262_144
   @hard_limit_bytes 1_000_000
@@ -104,11 +106,8 @@ defmodule ServiceRadar.Plugins.TargetBatchParams do
   def validate(_), do: {:error, ["batch params must be an object"]}
 
   @spec payload_size_bytes(map()) :: non_neg_integer()
-  def payload_size_bytes(payload) when is_map(payload) do
-    payload
-    |> Jason.encode!()
-    |> byte_size()
-  end
+  def payload_size_bytes(payload) when is_map(payload),
+    do: PayloadUtils.payload_size_bytes(payload)
 
   @spec chunk_targets_with_limits(map(), [map()], keyword()) ::
           {:ok, [map()]} | {:error, [String.t()]}
@@ -116,7 +115,13 @@ defmodule ServiceRadar.Plugins.TargetBatchParams do
 
   def chunk_targets_with_limits(base_payload, targets, opts)
       when is_map(base_payload) and is_list(targets) do
-    chunk_size = clamp_chunk_size(Keyword.get(opts, :chunk_size, @default_chunk_size))
+    chunk_size =
+      PayloadUtils.clamp_chunk_size(
+        Keyword.get(opts, :chunk_size, @default_chunk_size),
+        @default_chunk_size,
+        @max_targets_per_payload
+      )
+
     hard_limit = Keyword.get(opts, :hard_limit_bytes, @hard_limit_bytes)
 
     targets =
@@ -139,7 +144,7 @@ defmodule ServiceRadar.Plugins.TargetBatchParams do
     do: {:error, ["base payload must be an object and targets must be a list"]}
 
   defp build_payloads(base_payload, chunks) do
-    payload_base = stringify_keys(base_payload)
+    payload_base = MapUtils.stringify_keys(base_payload)
     total = length(chunks)
 
     payloads =
@@ -172,78 +177,47 @@ defmodule ServiceRadar.Plugins.TargetBatchParams do
   end
 
   defp validate_payload_sizes(payloads, hard_limit) do
-    oversized =
-      Enum.filter(payloads, fn payload ->
-        payload_size_bytes(payload) > hard_limit
-      end)
-
-    if oversized == [] do
-      :ok
-    else
-      {:error, ["generated batch payload exceeds hard size limit"]}
-    end
+    PayloadUtils.validate_payload_sizes(
+      payloads,
+      hard_limit,
+      "generated batch payload exceeds hard size limit"
+    )
   end
 
   defp enforce_size_chunks(base_payload, chunks, hard_limit) do
-    chunks
-    |> Enum.reduce_while({:ok, []}, fn chunk, {:ok, acc} ->
-      case split_chunk_until_fits(base_payload, chunk, hard_limit) do
-        {:ok, split_chunks} -> {:cont, {:ok, acc ++ split_chunks}}
-        {:error, _} = error -> {:halt, error}
-      end
-    end)
+    PayloadUtils.enforce_size_chunks(
+      chunks,
+      &split_chunk_until_fits(base_payload, &1, hard_limit)
+    )
   end
 
   defp split_chunk_until_fits(base_payload, chunk, hard_limit) do
-    if chunk == [] do
-      {:ok, []}
-    else
-      test_payload =
-        base_payload
-        |> stringify_keys()
-        |> Map.put("schema", @schema_id)
-        |> Map.put("chunk_index", 0)
-        |> Map.put("chunk_total", 1)
-        |> Map.put("chunk_hash", chunk_hash(chunk))
-        |> Map.put("targets", chunk)
+    PayloadUtils.split_chunk_until_fits(
+      chunk,
+      hard_limit,
+      @max_targets_per_payload,
+      &build_test_payload(base_payload, &1),
+      "single target payload exceeds hard size limit"
+    )
+  end
 
-      size = payload_size_bytes(test_payload)
-
-      cond do
-        size <= hard_limit and length(chunk) <= @max_targets_per_payload ->
-          {:ok, [chunk]}
-
-        length(chunk) == 1 ->
-          {:error, ["single target payload exceeds hard size limit"]}
-
-        true ->
-          midpoint = div(length(chunk), 2)
-          {left, right} = Enum.split(chunk, midpoint)
-
-          with {:ok, left_chunks} <- split_chunk_until_fits(base_payload, left, hard_limit),
-               {:ok, right_chunks} <- split_chunk_until_fits(base_payload, right, hard_limit) do
-            {:ok, left_chunks ++ right_chunks}
-          end
-      end
-    end
+  defp build_test_payload(base_payload, chunk) do
+    base_payload
+    |> MapUtils.stringify_keys()
+    |> Map.put("schema", @schema_id)
+    |> Map.put("chunk_index", 0)
+    |> Map.put("chunk_total", 1)
+    |> Map.put("chunk_hash", chunk_hash(chunk))
+    |> Map.put("targets", chunk)
   end
 
   defp do_validate(params) do
-    resolved = ExJsonSchema.Schema.resolve(@schema)
-
-    case ExJsonSchema.Validator.validate(resolved, params) do
-      :ok ->
-        size = payload_size_bytes(params)
-
-        if size > @hard_limit_bytes do
-          {:error, ["batch payload exceeds hard size limit of #{@hard_limit_bytes} bytes"]}
-        else
-          :ok
-        end
-
-      {:error, errors} ->
-        {:error, Enum.map(errors, &format_error/1)}
-    end
+    PayloadUtils.validate_schema_and_size(
+      params,
+      @schema,
+      @hard_limit_bytes,
+      "batch payload exceeds hard size limit of #{@hard_limit_bytes} bytes"
+    )
   end
 
   defp batch_payload?(%{"schema" => @schema_id}), do: true
@@ -278,22 +252,5 @@ defmodule ServiceRadar.Plugins.TargetBatchParams do
     Base.encode16(hash, case: :lower)
   end
 
-  defp clamp_chunk_size(value) when is_integer(value) and value > 0 do
-    min(value, @max_targets_per_payload)
-  end
-
-  defp clamp_chunk_size(_), do: @default_chunk_size
-
-  defp stringify_keys(%{} = map) do
-    map
-    |> Enum.map(fn {key, value} -> {to_string(key), stringify_keys(value)} end)
-    |> Map.new()
-  end
-
-  defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
-  defp stringify_keys(value), do: value
-
-  defp format_error(%ExJsonSchema.Validator.Error{} = error), do: inspect(error)
-
-  defp format_error(other), do: inspect(other)
+  defp stringify_keys(value), do: MapUtils.stringify_keys(value)
 end

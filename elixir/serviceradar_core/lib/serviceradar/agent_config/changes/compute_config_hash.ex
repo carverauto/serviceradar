@@ -8,6 +8,8 @@ defmodule ServiceRadar.AgentConfig.Changes.ComputeConfigHash do
 
   use Ash.Resource.Change
 
+  alias ServiceRadar.AgentConfig.Compiler
+
   @impl true
   def change(changeset, _opts, _context) do
     case Ash.Changeset.get_attribute(changeset, :compiled_config) do
@@ -15,11 +17,11 @@ defmodule ServiceRadar.AgentConfig.Changes.ComputeConfigHash do
         changeset
 
       compiled_config when is_map(compiled_config) ->
-        # Canonicalize JSON for consistent hashing
-        canonical_json = Jason.encode!(compiled_config, pretty: false)
-        hash = :crypto.hash(:sha256, canonical_json) |> Base.encode16(case: :lower)
-
-        Ash.Changeset.change_attribute(changeset, :content_hash, hash)
+        Ash.Changeset.change_attribute(
+          changeset,
+          :content_hash,
+          Compiler.content_hash(compiled_config)
+        )
 
       _ ->
         changeset

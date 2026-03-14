@@ -7,7 +7,7 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
   payloads for plugins.
   """
 
-  alias ServiceRadar.Plugins.PluginInputs
+  alias ServiceRadar.Plugins.{MapUtils, PluginInputs}
 
   @type resolved_input :: %{
           required(:name) => String.t(),
@@ -176,14 +176,7 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
 
   defp normalize_entity(_), do: ""
 
-  defp stringify_keys(%{} = map) do
-    map
-    |> Enum.map(fn {key, value} -> {to_string(key), stringify_keys(value)} end)
-    |> Map.new()
-  end
-
-  defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
-  defp stringify_keys(value), do: value
+  defp stringify_keys(value), do: MapUtils.stringify_keys(value)
 
   defp compact_map(%{} = map) do
     map

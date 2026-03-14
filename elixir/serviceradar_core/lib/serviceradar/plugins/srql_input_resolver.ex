@@ -7,6 +7,7 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   """
 
   alias ServiceRadar.Observability.SRQLRunner
+  alias ServiceRadar.Plugins.MapUtils
 
   @supported_entities MapSet.new(["devices", "interfaces"])
 
@@ -84,17 +85,8 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   end
 
   defp normalize_rows(rows) do
-    Enum.map(rows, &stringify_keys/1)
+    Enum.map(rows, &MapUtils.stringify_keys/1)
   end
-
-  defp stringify_keys(%{} = map) do
-    map
-    |> Enum.map(fn {k, v} -> {to_string(k), stringify_keys(v)} end)
-    |> Map.new()
-  end
-
-  defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
-  defp stringify_keys(value), do: value
 
   defp normalize_entity(entity) when is_binary(entity) do
     entity
