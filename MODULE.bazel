@@ -1119,17 +1119,17 @@ http_file(
 
 http_file(
     name = "alpine_3_23_postgresql18_client_apk",
-    sha256 = "4f93be95927eefd15d13fe6adea5714c7a4aef3d72501cbafc98e315f7e69a47",
+    sha256 = "23c01cf919dffd008e8990b23349466b74a4a1fd1d39ed2b9d4700e7035419b3",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/postgresql18-client-18.2-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/postgresql18-client-18.3-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_23_libpq_apk",
-    sha256 = "5edbf209a70984b7b66f22d4b0516d7122061341a15ad44e6d3221b6442e71be",
+    sha256 = "22c8433a4bf6c1f47d2684a92413f82edb9d68a67604bbdd3a2d37640dc539b6",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/libpq-18.2-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/libpq-18.3-r0.apk",
     ],
 )
 

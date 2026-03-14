@@ -558,7 +558,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       rows
       |> Enum.filter(fn row ->
         is_map(row) and
-          (row |> Map.get("severity_text") |> normalize_log_level()) in ["Fatal", "Error"]
+          (row |> Map.get("severity_text") |> normalize_log_level()) in [
+            "Critical",
+            "Fatal",
+            "Error"
+          ]
       end)
       |> Enum.take(5)
 
@@ -841,8 +845,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp normalize_log_level(value) do
     case value |> to_string() |> String.trim() |> String.downcase() do
+      "critical" -> "Critical"
+      "emergency" -> "Critical"
+      "alert" -> "Critical"
       "fatal" -> "Fatal"
       "error" -> "Error"
+      "err" -> "Error"
       "warn" -> "Warning"
       "warning" -> "Warning"
       "info" -> "Info"
@@ -1321,7 +1329,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         >
           <div>
             <.icon name="hero-document-check" class="size-8 mx-auto mb-2 text-success" />
-            <p class="text-sm text-base-content/60">No fatal or error logs</p>
+            <p class="text-sm text-base-content/60">No critical, fatal, or error logs</p>
             <p class="text-xs text-base-content/40 mt-1">All systems logging normally</p>
           </div>
         </div>
@@ -1944,6 +1952,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp log_level_icon(level) do
     case normalize_log_level(level) do
+      "Critical" -> "hero-exclamation-triangle"
       "Fatal" -> "hero-x-circle"
       "Error" -> "hero-exclamation-circle"
       "Warning" -> "hero-exclamation-triangle"
@@ -1955,6 +1964,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp log_level_color(level) do
     case normalize_log_level(level) do
+      "Critical" -> "error"
       "Fatal" -> "error"
       "Error" -> "warning"
       "Warning" -> "info"

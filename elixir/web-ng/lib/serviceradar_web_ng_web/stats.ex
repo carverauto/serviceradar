@@ -45,6 +45,16 @@ defmodule ServiceRadarWebNGWeb.Stats do
           suppressed: non_neg_integer()
         }
 
+  @type events_summary :: %{
+          total: non_neg_integer(),
+          fatal: non_neg_integer(),
+          critical: non_neg_integer(),
+          high: non_neg_integer(),
+          medium: non_neg_integer(),
+          low: non_neg_integer(),
+          informational: non_neg_integer()
+        }
+
   @doc """
   Fetch logs severity stats using the rollup_stats pattern.
 
@@ -141,6 +151,34 @@ defmodule ServiceRadarWebNGWeb.Stats do
   end
 
   @doc """
+  Fetch event severity counts from the hourly OCSF events aggregate.
+
+  This summary intentionally ignores pagination so overview cards reflect the
+  selected time window rather than the currently visible page slice.
+  """
+  @spec events_summary(keyword()) :: events_summary()
+  def events_summary(opts \\ []) do
+    time_window = Keyword.get(opts, :time, "last_7d")
+
+    with {:ok, cutoff} <- cutoff_for_time_window(time_window) do
+      query =
+        from(s in "ocsf_events_hourly_stats",
+          where: s.bucket >= ^cutoff,
+          group_by: s.severity_id,
+          select: {s.severity_id, sum(s.total_count)}
+        )
+
+      query
+      |> Repo.all()
+      |> merge_event_stats(empty_events_summary())
+    else
+      _ -> empty_events_summary()
+    end
+  rescue
+    _ -> empty_events_summary()
+  end
+
+  @doc """
   Fetch services availability stats using the rollup_stats pattern.
 
   Returns aggregated availability metrics from the pre-computed CAGG.
@@ -225,10 +263,52 @@ defmodule ServiceRadarWebNGWeb.Stats do
     %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0}
   end
 
+  @spec empty_events_summary() :: events_summary()
+  def empty_events_summary do
+    %{total: 0, fatal: 0, critical: 0, high: 0, medium: 0, low: 0, informational: 0}
+  end
+
   # Get the configured SRQL module
   defp default_srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
+
+  defp merge_event_stats(rows, base) when is_list(rows) do
+    Enum.reduce(rows, base, fn {severity_id, total_count}, acc ->
+      count = to_int(total_count)
+      acc = Map.update!(acc, :total, &(&1 + count))
+
+      case to_int(severity_id) do
+        6 -> Map.update!(acc, :fatal, &(&1 + count))
+        5 -> Map.update!(acc, :critical, &(&1 + count))
+        4 -> Map.update!(acc, :high, &(&1 + count))
+        3 -> Map.update!(acc, :medium, &(&1 + count))
+        2 -> Map.update!(acc, :low, &(&1 + count))
+        1 -> Map.update!(acc, :informational, &(&1 + count))
+        _ -> acc
+      end
+    end)
+  end
+
+  defp merge_event_stats(_, base), do: base
+
+  defp cutoff_for_time_window("last_1h"), do: {:ok, DateTime.add(DateTime.utc_now(), -1, :hour)}
+  defp cutoff_for_time_window("last_24h"), do: {:ok, DateTime.add(DateTime.utc_now(), -24, :hour)}
+
+  defp cutoff_for_time_window(value) when is_binary(value) do
+    case Regex.run(~r/^last_(\d+)([hd])$/i, String.trim(value)) do
+      [_, amount, "h"] ->
+        {:ok, DateTime.add(DateTime.utc_now(), -String.to_integer(amount), :hour)}
+
+      [_, amount, "d"] ->
+        {:ok, DateTime.add(DateTime.utc_now(), -String.to_integer(amount), :day)}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp cutoff_for_time_window(_), do: :error
 
   defp to_int(value) when is_integer(value), do: value
   defp to_int(value) when is_float(value), do: trunc(value)

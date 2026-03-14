@@ -66,3 +66,22 @@ The system SHALL create a TimescaleDB continuous aggregate `platform.traces_stat
 - **GIVEN** `platform.traces_stats_5m` exists
 - **WHEN** an operator queries `timescaledb_information.jobs`
 - **THEN** the CAGG SHALL have a refresh policy that runs on a recurring schedule suitable for the traces summary cards
+
+### Requirement: OTel metrics hourly stats are a maintained continuous aggregate
+The system SHALL provide `platform.otel_metrics_hourly_stats` as a TimescaleDB continuous aggregate rather than a plain table so analytics and observability duration widgets read from a maintained hourly rollup.
+
+#### Scenario: Dead table form is replaced during migration
+- **GIVEN** an existing deployment still has `platform.otel_metrics_hourly_stats` as a plain table or hypertable
+- **WHEN** the observability rollup migration is applied
+- **THEN** the dead table form SHALL be removed safely
+- **AND** a continuous aggregate named `otel_metrics_hourly_stats` SHALL exist in `platform`
+
+#### Scenario: Metrics hourly CAGG is refreshed automatically
+- **GIVEN** `platform.otel_metrics_hourly_stats` exists
+- **WHEN** an operator queries `timescaledb_information.jobs`
+- **THEN** the CAGG SHALL have a refresh policy suitable for 24-hour dashboard summaries
+
+#### Scenario: Metrics hourly CAGG keeps bounded history
+- **GIVEN** historical OTel metric data spans beyond the supported dashboard window
+- **WHEN** retention maintenance runs for `platform.otel_metrics_hourly_stats`
+- **THEN** rows older than the configured metrics rollup retention window SHALL be removed automatically
