@@ -151,7 +151,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       Task.async(fn -> {:hourly_stats, get_hourly_metrics_stats(scope)} end),
       Task.async(fn -> {:event_stats, get_hourly_event_stats(scope)} end),
       Task.async(fn -> {:service_counts, get_service_counts()} end),
-      Task.async(fn -> {:logs_severity, Stats.logs_severity(scope: scope)} end)
+      Task.async(fn -> {:logs_severity, Stats.logs_severity(scope: scope)} end),
+      Task.async(fn -> {:traces_summary, Stats.traces_summary_with_computed(scope: scope)} end)
     ]
 
     initial =
@@ -176,9 +177,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       devices_offline: ~s|in:devices is_available:false stats:"count() as offline"|,
       logs_critical_recent:
         "in:logs time:last_24h severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT,error,ERROR,err,ERR) sort:timestamp:desc limit:5",
-      trace_stats:
-        "in:otel_trace_summaries time:last_24h " <>
-          ~s|stats:"count() as total, sum(if(status_code != 1, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|,
       slow_spans: "in:otel_metrics time:last_24h is_slow:true sort:duration_ms:desc limit:25",
       cpu_metrics:
         "in:cpu_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
@@ -372,7 +370,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     logs_summary = build_logs_summary(logs_rows, logs_counts)
 
     # Build observability summary - prefer pre-computed hourly stats if available
-    {metrics_total, metrics_error, metrics_slow, avg_duration} =
+    {metrics_total, _metrics_error, metrics_slow, _avg_duration} =
       case Map.get(results, :hourly_stats) do
         %{total: total, error: error, slow: slow, avg_duration_ms: avg_ms} ->
           # Use efficient pre-computed stats from continuous aggregation
@@ -388,16 +386,24 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           {total, http4 + http5 + grpc, slow, 0}
       end
 
-    trace_stats = extract_map(results[:trace_stats])
+    trace_summary =
+      case Map.get(results, :traces_summary) do
+        %{total: _total, errors: _errors, avg_duration_ms: _avg, error_rate: _rate} = summary ->
+          summary
+
+        _ ->
+          Stats.empty_traces_summary()
+          |> Map.put(:error_rate, 0.0)
+          |> Map.put(:successful, 0)
+      end
+
     slow_spans_rows = extract_rows(results[:slow_spans])
 
     observability =
       build_observability_summary(
         metrics_total,
-        metrics_error,
         metrics_slow,
-        avg_duration,
-        trace_stats,
+        trace_summary,
         slow_spans_rows
       )
 
@@ -431,9 +437,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp extract_rows({:ok, %{"results" => rows}}) when is_list(rows), do: rows
   defp extract_rows(_), do: []
-
-  defp extract_map({:ok, %{"results" => [%{} = row | _]}}), do: row
-  defp extract_map(_), do: %{}
 
   defp count_unique_services(rows) when is_list(rows) do
     # Group by service_name and get most recent status for each
@@ -555,7 +558,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       rows
       |> Enum.filter(fn row ->
         is_map(row) and
-          (row |> Map.get("severity_text") |> normalize_log_level()) in ["Fatal", "Error"]
+          (row |> Map.get("severity_text") |> normalize_log_level()) in [
+            "Critical",
+            "Fatal",
+            "Error"
+          ]
       end)
       |> Enum.take(5)
 
@@ -569,19 +576,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp build_observability_summary(
          metrics_total,
-         metrics_error,
          metrics_slow,
-         avg_duration_ms,
-         trace_stats,
+         trace_summary,
          slow_spans
        )
-       when is_integer(metrics_total) and is_integer(metrics_error) and is_integer(metrics_slow) and
-              is_number(avg_duration_ms) and is_map(trace_stats) and is_list(slow_spans) do
-    trace_stats =
-      normalize_trace_stats(trace_stats)
-
-    traces_count = trace_total_count(trace_stats)
-    error_rate = compute_error_rate(metrics_total, metrics_error)
+       when is_integer(metrics_total) and is_integer(metrics_slow) and is_map(trace_summary) and
+              is_list(slow_spans) do
+    traces_count = trace_summary |> Map.get(:total, 0) |> to_int()
+    avg_duration_ms = trace_summary |> Map.get(:avg_duration_ms, 0.0) |> to_float()
+    error_rate = trace_summary |> Map.get(:error_rate, 0.0) |> to_float() |> Float.round(1)
 
     slow_spans =
       slow_spans
@@ -598,7 +601,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     }
   end
 
-  defp build_observability_summary(_, _, _, _, _, _),
+  defp build_observability_summary(_, _, _, _),
     do: %{
       metrics_count: 0,
       traces_count: 0,
@@ -732,28 +735,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     Enum.find_value(keys, default, &Map.get(map, &1))
   end
 
-  defp normalize_trace_stats(trace_stats) do
-    case Map.get(trace_stats, "payload") do
-      %{} = payload -> payload
-      _ -> trace_stats
-    end
-  end
-
-  defp trace_total_count(trace_stats) do
-    trace_stats
-    |> Map.get("total", Map.get(trace_stats, "count"))
-    |> extract_numeric()
-    |> to_int()
-  end
-
-  defp compute_error_rate(total, errors) do
-    if total > 0 do
-      Float.round(errors / total * 100.0, 1)
-    else
-      0.0
-    end
-  end
-
   defp dedupe_by_key(rows, key_fun) do
     rows
     |> Enum.filter(&is_map/1)
@@ -864,8 +845,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp normalize_log_level(value) do
     case value |> to_string() |> String.trim() |> String.downcase() do
+      "critical" -> "Critical"
+      "emergency" -> "Critical"
+      "alert" -> "Critical"
       "fatal" -> "Fatal"
       "error" -> "Error"
+      "err" -> "Error"
       "warn" -> "Warning"
       "warning" -> "Warning"
       "info" -> "Info"
@@ -1344,7 +1329,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         >
           <div>
             <.icon name="hero-document-check" class="size-8 mx-auto mb-2 text-success" />
-            <p class="text-sm text-base-content/60">No fatal or error logs</p>
+            <p class="text-sm text-base-content/60">No critical, fatal, or error logs</p>
             <p class="text-xs text-base-content/40 mt-1">All systems logging normally</p>
           </div>
         </div>
@@ -1896,18 +1881,22 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     <div class="p-2 rounded-lg bg-base-200/50 hover:bg-base-200 transition-colors">
       <div class="flex items-start gap-2">
         <.icon
-          name={severity_icon(@event["severity"])}
-          class={["size-4 mt-0.5", severity_text_class(severity_color(@event["severity"]))]}
+          name={severity_icon(event_entry_severity(@event))}
+          class={[
+            "size-4 mt-0.5",
+            severity_text_class(severity_color(event_entry_severity(@event)))
+          ]}
         />
         <div class="flex-1 min-w-0">
-          <div class="text-sm font-medium truncate">{@event["host"] || "Unknown"}</div>
+          <div class="text-sm font-medium truncate">{event_entry_host(@event)}</div>
           <div class="text-xs text-base-content/60 truncate">
-            {@event["short_message"] || "No details"}
+            {event_entry_message(@event)}
           </div>
-          <div class={["text-xs", severity_text_class(severity_color(@event["severity"]))]}>
-            {@event["severity"] || "Unknown"} · {format_relative_time(
-              @event["time"] || @event["event_timestamp"]
-            )}
+          <div class={[
+            "text-xs",
+            severity_text_class(severity_color(event_entry_severity(@event)))
+          ]}>
+            {event_entry_severity(@event)} · {format_relative_time(event_entry_timestamp(@event))}
           </div>
         </div>
       </div>
@@ -1963,6 +1952,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp log_level_icon(level) do
     case normalize_log_level(level) do
+      "Critical" -> "hero-exclamation-triangle"
       "Fatal" -> "hero-x-circle"
       "Error" -> "hero-exclamation-circle"
       "Warning" -> "hero-exclamation-triangle"
@@ -1974,6 +1964,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp log_level_color(level) do
     case normalize_log_level(level) do
+      "Critical" -> "error"
       "Fatal" -> "error"
       "Error" -> "warning"
       "Warning" -> "info"
@@ -2016,4 +2007,77 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   end
 
   defp format_relative_time(_), do: "Unknown"
+
+  defp event_entry_host(%{} = event) do
+    first_non_blank([
+      Map.get(event, "host"),
+      get_in(event, ["device", "name"]),
+      Map.get(event, "source"),
+      Map.get(event, "uid"),
+      Map.get(event, "device_id"),
+      Map.get(event, "subject")
+    ]) || "Unknown"
+  end
+
+  defp event_entry_host(_), do: "Unknown"
+
+  defp event_entry_message(%{} = event) do
+    message =
+      Map.get(event, "short_message") ||
+        Map.get(event, "message") ||
+        Map.get(event, "subject") ||
+        Map.get(event, "description")
+
+    case message do
+      value when is_binary(value) and value != "" -> String.slice(value, 0, 200)
+      value when not is_nil(value) -> value |> to_string() |> String.slice(0, 200)
+      _ -> "No details"
+    end
+  end
+
+  defp event_entry_message(_), do: "No details"
+
+  defp event_entry_severity(%{} = event) do
+    first_non_blank([
+      Map.get(event, "severity"),
+      normalize_log_level(Map.get(event, "log_level")),
+      severity_label_from_id(Map.get(event, "severity_id"))
+    ]) || "Unknown"
+  end
+
+  defp event_entry_severity(_), do: "Unknown"
+
+  defp event_entry_timestamp(%{} = event) do
+    Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "created_at")
+  end
+
+  defp event_entry_timestamp(_), do: nil
+
+  defp severity_label_from_id(nil), do: nil
+
+  defp severity_label_from_id(value) do
+    case to_int(value) do
+      6 -> "Fatal"
+      5 -> "Critical"
+      4 -> "High"
+      3 -> "Medium"
+      2 -> "Low"
+      1 -> "Informational"
+      _ -> nil
+    end
+  end
+
+  defp first_non_blank(values) when is_list(values) do
+    Enum.find_value(values, fn
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+        if trimmed == "", do: nil, else: trimmed
+
+      nil ->
+        nil
+
+      value ->
+        value
+    end)
+  end
 end

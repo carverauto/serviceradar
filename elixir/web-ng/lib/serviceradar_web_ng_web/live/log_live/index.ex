@@ -6321,50 +6321,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp parse_timestamp(_), do: :error
 
-  defp compute_event_summary(events) when is_list(events) do
-    initial = %{total: 0, critical: 0, high: 0, medium: 0, low: 0}
-
-    Enum.reduce(events, initial, fn event, acc ->
-      severity = normalize_event_severity(Map.get(event, "severity"))
-
-      updated =
-        case severity do
-          s when s in ["critical", "fatal", "error"] -> Map.update!(acc, :critical, &(&1 + 1))
-          s when s in ["high", "warn", "warning"] -> Map.update!(acc, :high, &(&1 + 1))
-          s when s in ["medium", "info"] -> Map.update!(acc, :medium, &(&1 + 1))
-          s when s in ["low", "debug", "ok"] -> Map.update!(acc, :low, &(&1 + 1))
-          _ -> acc
-        end
-
-      Map.update!(updated, :total, &(&1 + 1))
-    end)
-  end
-
-  defp compute_event_summary(_), do: empty_event_summary()
-
-  defp compute_alert_summary(alerts) when is_list(alerts) do
-    Enum.reduce(
-      alerts,
-      %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0},
-      fn alert, acc ->
-        status = normalize_alert_status(Map.get(alert, "status"))
-
-        acc
-        |> Map.update!(:total, &(&1 + 1))
-        |> increment_alert_status(status)
-      end
-    )
-  end
-
-  defp compute_alert_summary(_), do: empty_alert_summary()
-
-  defp increment_alert_status(acc, "pending"), do: Map.update!(acc, :pending, &(&1 + 1))
-  defp increment_alert_status(acc, "acknowledged"), do: Map.update!(acc, :acknowledged, &(&1 + 1))
-  defp increment_alert_status(acc, "resolved"), do: Map.update!(acc, :resolved, &(&1 + 1))
-  defp increment_alert_status(acc, "escalated"), do: Map.update!(acc, :escalated, &(&1 + 1))
-  defp increment_alert_status(acc, "suppressed"), do: Map.update!(acc, :suppressed, &(&1 + 1))
-  defp increment_alert_status(acc, _), do: acc
-
   defp compute_netflow_summary(flows) when is_list(flows) do
     Enum.reduce(
       flows,
@@ -6494,7 +6450,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp apply_tab_assigns(socket, "events", _srql_module) do
-    summary = compute_event_summary(socket.assigns.events)
+    query = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query, "")
+
+    base_summary = Stats.events_summary(time: event_summary_time_window(query))
+
+    summary =
+      base_summary
+      |> Map.put(
+        :critical,
+        Map.get(base_summary, :critical, 0) + Map.get(base_summary, :fatal, 0)
+      )
 
     socket
     |> assign(:event_summary, summary)
@@ -6506,7 +6471,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp apply_tab_assigns(socket, "alerts", _srql_module) do
-    summary = compute_alert_summary(socket.assigns.alerts)
+    summary = Stats.alerts_summary()
 
     socket
     |> assign(:alert_summary, summary)
@@ -6842,6 +6807,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp empty_event_summary do
     %{total: 0, critical: 0, high: 0, medium: 0, low: 0}
   end
+
+  defp event_summary_time_window(query) when is_binary(query) do
+    case Regex.run(~r/\btime:(last_\d+[hd])\b/i, query) do
+      [_, value] -> String.downcase(value)
+      _ -> "last_7d"
+    end
+  end
+
+  defp event_summary_time_window(_), do: "last_7d"
 
   defp empty_alert_summary do
     %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0}
@@ -8115,7 +8089,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp format_bucket(seconds) when is_integer(seconds), do: "#{seconds}s"
 
-  # Load duration stats from the continuous aggregation for full 24h data
   defp load_duration_stats_from_cagg(_scope) do
     cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
 
