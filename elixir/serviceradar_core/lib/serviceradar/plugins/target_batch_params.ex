@@ -8,7 +8,7 @@ defmodule ServiceRadar.Plugins.TargetBatchParams do
   - chunk generation with payload-size guardrails.
   """
 
-  alias ServiceRadar.Plugins.{MapUtils, PayloadUtils}
+  alias ServiceRadar.Plugins.{IdentityUtils, MapUtils, PayloadUtils}
 
   @schema_id "serviceradar.plugin_target_batch_params.v1"
   @soft_limit_bytes 262_144
@@ -243,13 +243,7 @@ defmodule ServiceRadar.Plugins.TargetBatchParams do
   defp normalize_target(_), do: %{}
 
   defp chunk_hash(targets) do
-    hash =
-      targets
-      |> Enum.sort_by(&Map.get(&1, "uid", ""))
-      |> :erlang.term_to_binary()
-      |> then(&:crypto.hash(:sha256, &1))
-
-    Base.encode16(hash, case: :lower)
+    IdentityUtils.chunk_hash(targets, &Map.get(&1, "uid", ""))
   end
 
   defp stringify_keys(value), do: MapUtils.stringify_keys(value)

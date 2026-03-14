@@ -9,7 +9,7 @@ defmodule ServiceRadar.Plugins.PluginInputs do
   execution or API credentials.
   """
 
-  alias ServiceRadar.Plugins.{MapUtils, PayloadUtils}
+  alias ServiceRadar.Plugins.{IdentityUtils, MapUtils, PayloadUtils}
 
   @schema_id "serviceradar.plugin_inputs.v1"
   @soft_limit_bytes 262_144
@@ -236,21 +236,11 @@ defmodule ServiceRadar.Plugins.PluginInputs do
   defp normalize_item(_), do: %{}
 
   defp item_sort_key(item) do
-    cond do
-      is_binary(item["uid"]) and item["uid"] != "" -> "uid:" <> item["uid"]
-      is_binary(item["id"]) and item["id"] != "" -> "id:" <> item["id"]
-      true -> Jason.encode!(item)
-    end
+    IdentityUtils.item_identity(item)
   end
 
   defp chunk_hash(items) do
-    hash =
-      items
-      |> Enum.sort_by(&item_sort_key/1)
-      |> :erlang.term_to_binary()
-      |> then(&:crypto.hash(:sha256, &1))
-
-    Base.encode16(hash, case: :lower)
+    IdentityUtils.chunk_hash(items, &item_sort_key/1)
   end
 
   defp stringify_keys(value), do: MapUtils.stringify_keys(value)

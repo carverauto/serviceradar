@@ -35,6 +35,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
+  alias ServiceRadar.Edge.SNMPProtoMapper
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.SyncConfigGenerator
@@ -823,7 +824,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       name: Map.get(target, "name", "") || "",
       host: Map.get(target, "host", "") || "",
       port: Map.get(target, "port", 161) || 161,
-      version: snmp_version(Map.get(target, "version")),
+      version: SNMPProtoMapper.version(Map.get(target, "version")),
       community: community,
       v3_auth: v3_auth,
       poll_interval_seconds: Map.get(target, "poll_interval_seconds", 60) || 60,
@@ -840,10 +841,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp build_snmp_v3_auth(auth) when is_map(auth) do
     %Monitoring.SNMPv3Auth{
       username: Map.get(auth, "username", "") || "",
-      security_level: snmp_security_level(Map.get(auth, "security_level")),
-      auth_protocol: snmp_auth_protocol(Map.get(auth, "auth_protocol")),
+      security_level: SNMPProtoMapper.security_level(Map.get(auth, "security_level")),
+      auth_protocol: SNMPProtoMapper.auth_protocol(Map.get(auth, "auth_protocol")),
       auth_password: Map.get(auth, "auth_password", "") || "",
-      priv_protocol: snmp_priv_protocol(Map.get(auth, "priv_protocol")),
+      priv_protocol: SNMPProtoMapper.priv_protocol(Map.get(auth, "priv_protocol")),
       priv_password: Map.get(auth, "priv_password", "") || ""
     }
   end
@@ -862,73 +863,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     %Monitoring.SNMPOIDConfig{
       oid: Map.get(oid, "oid", "") || "",
       name: Map.get(oid, "name", "") || "",
-      data_type: snmp_data_type(Map.get(oid, "data_type")),
+      data_type: SNMPProtoMapper.data_type(Map.get(oid, "data_type")),
       scale: Map.get(oid, "scale", 1.0) || 1.0,
       delta: Map.get(oid, "delta", false) || false
     }
   end
 
   defp build_snmp_oid_config(_), do: %Monitoring.SNMPOIDConfig{}
-
-  defp snmp_version("v1"), do: :SNMP_VERSION_V1
-  defp snmp_version("v2c"), do: :SNMP_VERSION_V2C
-  defp snmp_version("v3"), do: :SNMP_VERSION_V3
-  defp snmp_version(:v1), do: :SNMP_VERSION_V1
-  defp snmp_version(:v2c), do: :SNMP_VERSION_V2C
-  defp snmp_version(:v3), do: :SNMP_VERSION_V3
-  defp snmp_version(_), do: :SNMP_VERSION_UNSPECIFIED
-
-  defp snmp_security_level("noAuthNoPriv"), do: :SNMP_SECURITY_LEVEL_NO_AUTH_NO_PRIV
-  defp snmp_security_level("authNoPriv"), do: :SNMP_SECURITY_LEVEL_AUTH_NO_PRIV
-  defp snmp_security_level("authPriv"), do: :SNMP_SECURITY_LEVEL_AUTH_PRIV
-  defp snmp_security_level(:no_auth_no_priv), do: :SNMP_SECURITY_LEVEL_NO_AUTH_NO_PRIV
-  defp snmp_security_level(:auth_no_priv), do: :SNMP_SECURITY_LEVEL_AUTH_NO_PRIV
-  defp snmp_security_level(:auth_priv), do: :SNMP_SECURITY_LEVEL_AUTH_PRIV
-  defp snmp_security_level(_), do: :SNMP_SECURITY_LEVEL_UNSPECIFIED
-
-  defp snmp_auth_protocol("MD5"), do: :SNMP_AUTH_PROTOCOL_MD5
-  defp snmp_auth_protocol("SHA"), do: :SNMP_AUTH_PROTOCOL_SHA
-  defp snmp_auth_protocol("SHA-224"), do: :SNMP_AUTH_PROTOCOL_SHA224
-  defp snmp_auth_protocol("SHA-256"), do: :SNMP_AUTH_PROTOCOL_SHA256
-  defp snmp_auth_protocol("SHA-384"), do: :SNMP_AUTH_PROTOCOL_SHA384
-  defp snmp_auth_protocol("SHA-512"), do: :SNMP_AUTH_PROTOCOL_SHA512
-  defp snmp_auth_protocol(:md5), do: :SNMP_AUTH_PROTOCOL_MD5
-  defp snmp_auth_protocol(:sha), do: :SNMP_AUTH_PROTOCOL_SHA
-  defp snmp_auth_protocol(:sha224), do: :SNMP_AUTH_PROTOCOL_SHA224
-  defp snmp_auth_protocol(:sha256), do: :SNMP_AUTH_PROTOCOL_SHA256
-  defp snmp_auth_protocol(:sha384), do: :SNMP_AUTH_PROTOCOL_SHA384
-  defp snmp_auth_protocol(:sha512), do: :SNMP_AUTH_PROTOCOL_SHA512
-  defp snmp_auth_protocol(_), do: :SNMP_AUTH_PROTOCOL_UNSPECIFIED
-
-  defp snmp_priv_protocol("DES"), do: :SNMP_PRIV_PROTOCOL_DES
-  defp snmp_priv_protocol("AES"), do: :SNMP_PRIV_PROTOCOL_AES
-  defp snmp_priv_protocol("AES-192"), do: :SNMP_PRIV_PROTOCOL_AES192
-  defp snmp_priv_protocol("AES-256"), do: :SNMP_PRIV_PROTOCOL_AES256
-  defp snmp_priv_protocol("AES-192-C"), do: :SNMP_PRIV_PROTOCOL_AES192C
-  defp snmp_priv_protocol("AES-256-C"), do: :SNMP_PRIV_PROTOCOL_AES256C
-  defp snmp_priv_protocol(:des), do: :SNMP_PRIV_PROTOCOL_DES
-  defp snmp_priv_protocol(:aes), do: :SNMP_PRIV_PROTOCOL_AES
-  defp snmp_priv_protocol(:aes192), do: :SNMP_PRIV_PROTOCOL_AES192
-  defp snmp_priv_protocol(:aes256), do: :SNMP_PRIV_PROTOCOL_AES256
-  defp snmp_priv_protocol(:aes192c), do: :SNMP_PRIV_PROTOCOL_AES192C
-  defp snmp_priv_protocol(:aes256c), do: :SNMP_PRIV_PROTOCOL_AES256C
-  defp snmp_priv_protocol(_), do: :SNMP_PRIV_PROTOCOL_UNSPECIFIED
-
-  defp snmp_data_type("counter"), do: :SNMP_DATA_TYPE_COUNTER
-  defp snmp_data_type("gauge"), do: :SNMP_DATA_TYPE_GAUGE
-  defp snmp_data_type("boolean"), do: :SNMP_DATA_TYPE_BOOLEAN
-  defp snmp_data_type("bytes"), do: :SNMP_DATA_TYPE_BYTES
-  defp snmp_data_type("string"), do: :SNMP_DATA_TYPE_STRING
-  defp snmp_data_type("float"), do: :SNMP_DATA_TYPE_FLOAT
-  defp snmp_data_type("timeticks"), do: :SNMP_DATA_TYPE_TIMETICKS
-  defp snmp_data_type(:counter), do: :SNMP_DATA_TYPE_COUNTER
-  defp snmp_data_type(:gauge), do: :SNMP_DATA_TYPE_GAUGE
-  defp snmp_data_type(:boolean), do: :SNMP_DATA_TYPE_BOOLEAN
-  defp snmp_data_type(:bytes), do: :SNMP_DATA_TYPE_BYTES
-  defp snmp_data_type(:string), do: :SNMP_DATA_TYPE_STRING
-  defp snmp_data_type(:float), do: :SNMP_DATA_TYPE_FLOAT
-  defp snmp_data_type(:timeticks), do: :SNMP_DATA_TYPE_TIMETICKS
-  defp snmp_data_type(_), do: :SNMP_DATA_TYPE_UNSPECIFIED
 
   defp resolve_agent_device_uid(nil, _actor), do: nil
   defp resolve_agent_device_uid("", _actor), do: nil

@@ -7,7 +7,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
   disable stale rows.
   """
 
-  alias ServiceRadar.Plugins.{MapUtils, PluginInputPayloadBuilder}
+  alias ServiceRadar.Plugins.{MapUtils, PluginInputPayloadBuilder, ValueUtils}
 
   @type policy_config :: %{
           required(:policy_id) => String.t(),
@@ -84,20 +84,22 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
          policy_id: policy_id,
          policy_version: policy_version,
          plugin_package_id: plugin_package_id,
-         params_template: map_value(policy, [:params_template, "params_template"]) || %{},
-         enabled: bool_value(policy, [:enabled, "enabled"], true),
-         interval_seconds: int_value(policy, [:interval_seconds, "interval_seconds"], 60),
-         timeout_seconds: int_value(policy, [:timeout_seconds, "timeout_seconds"], 10)
+         params_template:
+           ValueUtils.map_value(policy, [:params_template, "params_template"]) || %{},
+         enabled: ValueUtils.bool_value(policy, [:enabled, "enabled"], true),
+         interval_seconds:
+           ValueUtils.int_value(policy, [:interval_seconds, "interval_seconds"], 60),
+         timeout_seconds: ValueUtils.int_value(policy, [:timeout_seconds, "timeout_seconds"], 10)
        }}
     end
   end
 
   defp group_rows_by_agent(resolved_inputs) do
     Enum.reduce(resolved_inputs, %{by_agent: %{}, total_rows: 0}, fn input, acc ->
-      name = string_value(input, [:name, "name"])
-      entity = string_value(input, [:entity, "entity"]) || "unknown"
-      query = string_value(input, [:query, "query"]) || ""
-      rows = list_value(input, [:rows, "rows"]) || []
+      name = ValueUtils.string_value(input, [:name, "name"])
+      entity = ValueUtils.string_value(input, [:entity, "entity"]) || "unknown"
+      query = ValueUtils.string_value(input, [:query, "query"]) || ""
+      rows = ValueUtils.list_value(input, [:rows, "rows"]) || []
 
       Enum.reduce(rows, acc, fn row, input_acc ->
         accumulate_agent_row(input_acc, name, entity, query, MapUtils.stringify_keys(row))
@@ -160,7 +162,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
   end
 
   defp agent_id_from_row(row) do
-    string_value(row, [:agent_uid, "agent_uid", :agent_id, "agent_id"])
+    ValueUtils.string_value(row, [:agent_uid, "agent_uid", :agent_id, "agent_id"])
   end
 
   defp assignment_key(policy_id, agent_id, input) do
@@ -182,7 +184,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
   defp maybe_put(list, key, value), do: Keyword.put(list, key, value)
 
   defp required_string(map, keys, label) do
-    case string_value(map, keys) do
+    case ValueUtils.string_value(map, keys) do
       nil -> {:error, ["missing required policy field: #{label}"]}
       "" -> {:error, ["missing required policy field: #{label}"]}
       value -> {:ok, value}
@@ -190,60 +192,12 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
   end
 
   defp required_positive_int(map, keys, label) do
-    case int_value(map, keys, nil) do
+    case ValueUtils.int_value(map, keys, nil) do
       value when is_integer(value) and value > 0 ->
         {:ok, value}
 
       _ ->
         {:error, ["missing or invalid required policy field: #{label}"]}
-    end
-  end
-
-  defp string_value(map, keys) do
-    keys
-    |> Enum.find_value(fn key -> Map.get(map, key) end)
-    |> case do
-      nil -> nil
-      value when is_binary(value) -> String.trim(value)
-      value when is_atom(value) -> Atom.to_string(value)
-      _ -> nil
-    end
-  end
-
-  defp int_value(map, keys, default) do
-    case keys |> Enum.find_value(fn key -> Map.get(map, key) end) do
-      value when is_integer(value) ->
-        value
-
-      value when is_binary(value) ->
-        case Integer.parse(value) do
-          {parsed, ""} -> parsed
-          _ -> default
-        end
-
-      _ ->
-        default
-    end
-  end
-
-  defp bool_value(map, keys, default) do
-    case keys |> Enum.find_value(fn key -> Map.get(map, key) end) do
-      value when is_boolean(value) -> value
-      _ -> default
-    end
-  end
-
-  defp map_value(map, keys) do
-    case keys |> Enum.find_value(fn key -> Map.get(map, key) end) do
-      value when is_map(value) -> value
-      _ -> nil
-    end
-  end
-
-  defp list_value(map, keys) do
-    case keys |> Enum.find_value(fn key -> Map.get(map, key) end) do
-      value when is_list(value) -> value
-      _ -> nil
     end
   end
 end

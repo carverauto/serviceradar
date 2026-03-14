@@ -63,6 +63,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SNMPProfiles.CredentialResolver
+  alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
@@ -629,7 +630,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       "name" => device.name || device.hostname || device.uid,
       "host" => host,
       "port" => 161,
-      "version" => format_version(version),
+      "version" => ProtocolFormatter.version(version),
       "poll_interval_seconds" => profile.poll_interval,
       "timeout_seconds" => profile.timeout,
       "retries" => profile.retries,
@@ -693,7 +694,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         "name" => target.name,
         "host" => target.host,
         "port" => target.port,
-        "version" => format_version(target.version),
+        "version" => ProtocolFormatter.version(target.version),
         "poll_interval_seconds" => profile.poll_interval,
         "timeout_seconds" => profile.timeout,
         "retries" => profile.retries,
@@ -897,43 +898,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp compile_v3_auth(credential) do
     %{
       "username" => Map.get(credential, :username),
-      "security_level" => format_security_level(Map.get(credential, :security_level)),
-      "auth_protocol" => format_auth_protocol(Map.get(credential, :auth_protocol)),
+      "security_level" => ProtocolFormatter.security_level(Map.get(credential, :security_level)),
+      "auth_protocol" =>
+        ProtocolFormatter.auth_protocol(Map.get(credential, :auth_protocol), style: :hyphenated),
       "auth_password" => Map.get(credential, :auth_password),
-      "priv_protocol" => format_priv_protocol(Map.get(credential, :priv_protocol)),
+      "priv_protocol" =>
+        ProtocolFormatter.priv_protocol(Map.get(credential, :priv_protocol), style: :hyphenated),
       "priv_password" => Map.get(credential, :priv_password)
     }
   end
-
-  # Format version atom to string
-  defp format_version(:v1), do: "v1"
-  defp format_version(:v2c), do: "v2c"
-  defp format_version(:v3), do: "v3"
-  defp format_version(_), do: "v2c"
-
-  # Format security level atom to string
-  defp format_security_level(:no_auth_no_priv), do: "noAuthNoPriv"
-  defp format_security_level(:auth_no_priv), do: "authNoPriv"
-  defp format_security_level(:auth_priv), do: "authPriv"
-  defp format_security_level(_), do: "noAuthNoPriv"
-
-  # Format auth protocol atom to string
-  defp format_auth_protocol(:md5), do: "MD5"
-  defp format_auth_protocol(:sha), do: "SHA"
-  defp format_auth_protocol(:sha224), do: "SHA-224"
-  defp format_auth_protocol(:sha256), do: "SHA-256"
-  defp format_auth_protocol(:sha384), do: "SHA-384"
-  defp format_auth_protocol(:sha512), do: "SHA-512"
-  defp format_auth_protocol(_), do: nil
-
-  # Format priv protocol atom to string
-  defp format_priv_protocol(:des), do: "DES"
-  defp format_priv_protocol(:aes), do: "AES"
-  defp format_priv_protocol(:aes192), do: "AES-192"
-  defp format_priv_protocol(:aes256), do: "AES-256"
-  defp format_priv_protocol(:aes192c), do: "AES-192-C"
-  defp format_priv_protocol(:aes256c), do: "AES-256-C"
-  defp format_priv_protocol(_), do: nil
 
   @doc """
   Returns disabled SNMP configuration when no profile is assigned.

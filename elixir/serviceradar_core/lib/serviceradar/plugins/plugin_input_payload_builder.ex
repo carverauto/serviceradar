@@ -7,7 +7,7 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
   payloads for plugins.
   """
 
-  alias ServiceRadar.Plugins.{MapUtils, PluginInputs}
+  alias ServiceRadar.Plugins.{IdentityUtils, MapUtils, PluginInputs, ValueUtils}
 
   @type resolved_input :: %{
           required(:name) => String.t(),
@@ -38,12 +38,12 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
 
   @spec normalize_rows(String.t() | atom(), [map()]) :: [map()]
   def normalize_rows(entity, rows) when is_list(rows) do
-    entity = normalize_entity(entity)
+    entity = ValueUtils.normalize_entity(entity)
 
     rows
     |> Enum.map(&normalize_row(entity, &1))
     |> Enum.reject(&is_nil/1)
-    |> Enum.uniq_by(&item_identity/1)
+    |> Enum.uniq_by(&IdentityUtils.item_identity/1)
   end
 
   def normalize_rows(_entity, _rows), do: []
@@ -72,17 +72,26 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
   end
 
   defp extract_input_descriptor(input) when is_map(input) do
-    name = string_value(input, [:name, "name"])
-    entity = string_value(input, [:entity, "entity"])
-    query = string_value(input, [:query, "query"])
-    rows = list_value(input, [:rows, "rows"])
+    name = ValueUtils.string_value(input, [:name, "name"])
+    entity = ValueUtils.string_value(input, [:entity, "entity"])
+    query = ValueUtils.string_value(input, [:query, "query"])
+    rows = ValueUtils.list_value(input, [:rows, "rows"])
 
     cond do
-      blank?(name) -> {:error, ["resolved input is missing name"]}
-      blank?(entity) -> {:error, ["resolved input is missing entity"]}
-      blank?(query) -> {:error, ["resolved input is missing query"]}
-      is_nil(rows) -> {:error, ["resolved input is missing rows"]}
-      true -> {:ok, %{name: name, entity: normalize_entity(entity), query: query}, rows}
+      ValueUtils.blank_string?(name) ->
+        {:error, ["resolved input is missing name"]}
+
+      ValueUtils.blank_string?(entity) ->
+        {:error, ["resolved input is missing entity"]}
+
+      ValueUtils.blank_string?(query) ->
+        {:error, ["resolved input is missing query"]}
+
+      is_nil(rows) ->
+        {:error, ["resolved input is missing rows"]}
+
+      true ->
+        {:ok, %{name: name, entity: ValueUtils.normalize_entity(entity), query: query}, rows}
     end
   end
 
@@ -99,27 +108,29 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
   defp normalize_row(_entity, _row), do: nil
 
   defp normalize_device_row(row) do
-    uid = string_value(row, [:uid, "uid", :device_uid, "device_uid", :id, "id"])
+    uid = ValueUtils.string_value(row, [:uid, "uid", :device_uid, "device_uid", :id, "id"])
 
-    if blank?(uid) do
+    if ValueUtils.blank_string?(uid) do
       nil
     else
       compact_map(%{
         "uid" => uid,
-        "ip" => string_value(row, [:ip, "ip", :device_ip, "device_ip"]),
-        "hostname" => string_value(row, [:hostname, "hostname", :name, "name"]),
-        "vendor" => string_value(row, [:vendor, "vendor", :vendor_name, "vendor_name"]),
-        "model" => string_value(row, [:model, "model"]),
-        "site" => string_value(row, [:site, "site", :region, "region"]),
-        "zone" => string_value(row, [:zone, "zone"]),
-        "labels" => map_value(row, [:labels, "labels", :tags, "tags"])
+        "ip" => ValueUtils.string_value(row, [:ip, "ip", :device_ip, "device_ip"]),
+        "hostname" => ValueUtils.string_value(row, [:hostname, "hostname", :name, "name"]),
+        "vendor" =>
+          ValueUtils.string_value(row, [:vendor, "vendor", :vendor_name, "vendor_name"]),
+        "model" => ValueUtils.string_value(row, [:model, "model"]),
+        "site" => ValueUtils.string_value(row, [:site, "site", :region, "region"]),
+        "zone" => ValueUtils.string_value(row, [:zone, "zone"]),
+        "labels" =>
+          ValueUtils.map_value(row, [:labels, "labels", :tags, "tags"], stringify_keys: true)
       })
     end
   end
 
   defp normalize_interface_row(row) do
     id =
-      string_value(row, [
+      ValueUtils.string_value(row, [
         :id,
         "id",
         :interface_uid,
@@ -128,22 +139,24 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
         "if_uid"
       ])
 
-    if blank?(id) do
+    if ValueUtils.blank_string?(id) do
       nil
     else
       compact_map(%{
         "id" => id,
         "uid" => id,
-        "device_uid" => string_value(row, [:device_uid, "device_uid", :device_id, "device_id"]),
-        "device_ip" => string_value(row, [:device_ip, "device_ip", :ip, "ip"]),
-        "if_index" => integer_value(row, [:if_index, "if_index"]),
-        "if_name" => string_value(row, [:if_name, "if_name", :name, "name"]),
-        "if_descr" => string_value(row, [:if_descr, "if_descr"]),
-        "if_alias" => string_value(row, [:if_alias, "if_alias"]),
-        "if_type" => integer_value(row, [:if_type, "if_type"]),
-        "if_type_name" => string_value(row, [:if_type_name, "if_type_name"]),
-        "ip_addresses" => list_value(row, [:ip_addresses, "ip_addresses"]),
-        "labels" => map_value(row, [:labels, "labels", :tags, "tags"])
+        "device_uid" =>
+          ValueUtils.string_value(row, [:device_uid, "device_uid", :device_id, "device_id"]),
+        "device_ip" => ValueUtils.string_value(row, [:device_ip, "device_ip", :ip, "ip"]),
+        "if_index" => ValueUtils.int_value(row, [:if_index, "if_index"]),
+        "if_name" => ValueUtils.string_value(row, [:if_name, "if_name", :name, "name"]),
+        "if_descr" => ValueUtils.string_value(row, [:if_descr, "if_descr"]),
+        "if_alias" => ValueUtils.string_value(row, [:if_alias, "if_alias"]),
+        "if_type" => ValueUtils.int_value(row, [:if_type, "if_type"]),
+        "if_type_name" => ValueUtils.string_value(row, [:if_type_name, "if_type_name"]),
+        "ip_addresses" => ValueUtils.list_value(row, [:ip_addresses, "ip_addresses"]),
+        "labels" =>
+          ValueUtils.map_value(row, [:labels, "labels", :tags, "tags"], stringify_keys: true)
       })
     end
   end
@@ -157,25 +170,6 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
     end)
   end
 
-  defp item_identity(item) do
-    cond do
-      is_binary(item["uid"]) and item["uid"] != "" -> "uid:" <> item["uid"]
-      is_binary(item["id"]) and item["id"] != "" -> "id:" <> item["id"]
-      true -> Jason.encode!(item)
-    end
-  end
-
-  defp normalize_entity(entity) when is_atom(entity),
-    do: entity |> Atom.to_string() |> normalize_entity()
-
-  defp normalize_entity(entity) when is_binary(entity) do
-    entity
-    |> String.trim()
-    |> String.downcase()
-  end
-
-  defp normalize_entity(_), do: ""
-
   defp stringify_keys(value), do: MapUtils.stringify_keys(value)
 
   defp compact_map(%{} = map) do
@@ -184,70 +178,9 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
     |> Map.new()
   end
 
-  defp string_value(map, keys) do
-    case raw_value(map, keys) do
-      nil ->
-        nil
-
-      value when is_binary(value) ->
-        String.trim(value)
-
-      value when is_atom(value) ->
-        Atom.to_string(value)
-
-      value when is_integer(value) ->
-        Integer.to_string(value)
-
-      value when is_float(value) ->
-        :erlang.float_to_binary(value)
-
-      _ ->
-        nil
-    end
-  end
-
-  defp integer_value(map, keys) do
-    case raw_value(map, keys) do
-      value when is_integer(value) ->
-        value
-
-      value when is_binary(value) ->
-        case Integer.parse(value) do
-          {int, ""} -> int
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp map_value(map, keys) do
-    case raw_value(map, keys) do
-      value when is_map(value) -> stringify_keys(value)
-      _ -> nil
-    end
-  end
-
-  defp list_value(map, keys) do
-    case raw_value(map, keys) do
-      value when is_list(value) -> value
-      _ -> nil
-    end
-  end
-
-  defp raw_value(map, keys) do
-    Enum.find_value(keys, fn key ->
-      Map.get(map, key)
-    end)
-  end
-
   defp nil_or_empty?(nil), do: true
   defp nil_or_empty?(""), do: true
   defp nil_or_empty?([]), do: true
   defp nil_or_empty?(%{} = value), do: map_size(value) == 0
   defp nil_or_empty?(_), do: false
-
-  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
-  defp blank?(_), do: true
 end

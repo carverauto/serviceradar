@@ -139,18 +139,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
 
   # Execute a device match query
   defp execute_device_match(query_string, actor) do
-    case ServiceRadarSRQL.Native.parse_ast(query_string) do
-      {:ok, ast_json} ->
-        case Jason.decode(ast_json) do
-          {:ok, ast} ->
-            check_device_exists(ast, actor)
-
-          {:error, reason} ->
-            {:error, {:json_decode_error, reason}}
-        end
-
-      {:error, reason} ->
-        {:error, {:parse_error, reason}}
+    with {:ok, ast} <- parse_query_ast(query_string) do
+      check_device_exists(ast, actor)
     end
   end
 
@@ -163,18 +153,18 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
     # A full implementation would join with interfaces table
     device_query = "in:devices uid:\"#{device_uid}\""
 
-    case ServiceRadarSRQL.Native.parse_ast(device_query) do
-      {:ok, ast_json} ->
-        case Jason.decode(ast_json) do
-          {:ok, ast} ->
-            check_device_exists(ast, actor)
+    with {:ok, ast} <- parse_query_ast(device_query) do
+      check_device_exists(ast, actor)
+    end
+  end
 
-          {:error, reason} ->
-            {:error, {:json_decode_error, reason}}
-        end
-
-      {:error, reason} ->
-        {:error, {:parse_error, reason}}
+  defp parse_query_ast(query_string) do
+    with {:ok, ast_json} <- ServiceRadarSRQL.Native.parse_ast(query_string),
+         {:ok, ast} <- Jason.decode(ast_json) do
+      {:ok, ast}
+    else
+      {:error, %Jason.DecodeError{} = reason} -> {:error, {:json_decode_error, reason}}
+      {:error, reason} -> {:error, {:parse_error, reason}}
     end
   end
 
