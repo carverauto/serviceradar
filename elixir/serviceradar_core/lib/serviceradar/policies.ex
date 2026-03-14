@@ -124,6 +124,17 @@ defmodule ServiceRadar.Policies do
   end
 
   @doc """
+  Restrict one or more action types to operators and admins.
+  """
+  defmacro operator_action_type(action_type_or_types) do
+    quote do
+      policy action_type(unquote(action_type_or_types)) do
+        authorize_if is_operator()
+      end
+    end
+  end
+
+  @doc """
   Restrict one or more named actions to admins.
   """
   defmacro admin_action(actions) do

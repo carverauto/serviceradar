@@ -73,28 +73,9 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Plugins.Policies
 
-    policy action_type(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.plugins.manage"}
-    end
-
-    policy action_type(:update) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.plugins.manage"}
-    end
-
-    policy action_type(:destroy) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.plugins.manage"}
-    end
-
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    manage_action_types()
   end
 
   attributes do

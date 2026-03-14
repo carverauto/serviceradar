@@ -102,18 +102,9 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Plugins.Policies
 
-    policy action_type(:read) do
-      authorize_if always()
-    end
-
-    policy action([:create, :update, :destroy, :preview, :reconcile_now]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.plugins.manage"}
-    end
+    manage_actions([:create, :update, :destroy, :preview, :reconcile_now])
   end
 
   attributes do

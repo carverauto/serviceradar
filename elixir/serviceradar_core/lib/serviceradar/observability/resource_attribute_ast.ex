@@ -8,6 +8,7 @@ defmodule ServiceRadar.Observability.ResourceAttributeAst do
     default = Keyword.get(opts, :default, :__no_default__)
     description = Keyword.get(opts, :description)
     constraints = Keyword.get(opts, :constraints)
+    sensitive? = Keyword.get(opts, :sensitive?)
 
     extra_clauses =
       []
@@ -15,6 +16,7 @@ defmodule ServiceRadar.Observability.ResourceAttributeAst do
       |> maybe_default(default)
       |> maybe_description(description)
       |> maybe_constraints(constraints)
+      |> maybe_sensitive(sensitive?)
 
     quote do
       attribute unquote(name), unquote(type) do
@@ -42,4 +44,7 @@ defmodule ServiceRadar.Observability.ResourceAttributeAst do
   defp maybe_constraints(clauses, constraints) do
     clauses ++ [quote(do: constraints(unquote(Macro.escape(constraints))))]
   end
+
+  defp maybe_sensitive(clauses, nil), do: clauses
+  defp maybe_sensitive(clauses, sensitive?), do: clauses ++ [quote(do: sensitive?(unquote(sensitive?)))]
 end

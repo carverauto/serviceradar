@@ -92,9 +92,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
     import ServiceRadar.Policies
 
     system_bypass()
-    admin_action_type(:create)
-    admin_action_type(:update)
-    admin_action_type(:destroy)
+    admin_action_type([:create, :update, :destroy])
     read_all()
   end
 

@@ -63,8 +63,7 @@ defmodule ServiceRadar.AgentConfig.ConfigVersion do
     import ServiceRadar.Policies
 
     system_bypass()
-    admin_action_type(:read)
-    admin_action_type(:create)
+    admin_action_type([:read, :create])
   end
 
   attributes do

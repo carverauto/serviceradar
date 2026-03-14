@@ -63,9 +63,7 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
     import ServiceRadar.Policies
 
     system_bypass()
-    admin_action_type(:create)
-    admin_action_type(:update)
-    admin_action_type(:destroy)
+    admin_action_type([:create, :update, :destroy])
 
     # All authenticated users in the instance can read non-admin templates
     policy action_type(:read) do
