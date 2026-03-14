@@ -31,6 +31,7 @@ fn opts ->
         parse_timeout: 5000,
         color: true,
         checks: %{
+          extra: Keyword.get(opts, :extra, []),
           disabled: Keyword.get(opts, :disabled, [])
         }
       }

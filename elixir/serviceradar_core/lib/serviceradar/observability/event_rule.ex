@@ -44,21 +44,11 @@ defmodule ServiceRadar.Observability.EventRule do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action([:create, :update, :destroy]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action([:create, :update, :destroy])
   end
 
   attributes do

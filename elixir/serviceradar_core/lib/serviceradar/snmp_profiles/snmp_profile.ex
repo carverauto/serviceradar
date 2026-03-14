@@ -171,30 +171,17 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
   end
 
   policies do
-    # System actors bypass all checks
+    import ServiceRadar.Policies
 
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admins can create and update
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Everyone can read
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    system_bypass()
+    admin_action_type(:create)
+    admin_action_type(:update)
+    read_all()
 
     # Cannot delete default profiles
     policy action_type(:destroy) do
       forbid_if expr(is_default == true)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
   end
 

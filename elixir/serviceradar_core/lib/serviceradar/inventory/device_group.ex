@@ -91,34 +91,13 @@ defmodule ServiceRadar.Inventory.DeviceGroup do
   end
 
   policies do
-    # System actors bypass all policies (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    # Read access: Authenticated users
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Create groups: Operators/admins
-    policy action(:create) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Update groups: Operators/admins
-    policy action([:update, :increment_count, :decrement_count]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Delete groups: Admins only
-    policy action(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action(:create)
+    operator_action([:update, :increment_count, :decrement_count])
+    admin_action(:destroy)
   end
 
   changes do

@@ -94,29 +94,13 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
   end
 
   policies do
-    # System actors bypass all checks
+    import ServiceRadar.Policies
 
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admins can create, update, and delete
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Everyone can read
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    system_bypass()
+    admin_action_type(:create)
+    admin_action_type(:update)
+    admin_action_type(:destroy)
+    read_all()
   end
 
   attributes do

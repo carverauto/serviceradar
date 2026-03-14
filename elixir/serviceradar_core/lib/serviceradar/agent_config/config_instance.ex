@@ -89,30 +89,13 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
   end
 
   policies do
-    # System actors can do anything
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admins can manage config instances
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # All authenticated users in the instance can read
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    system_bypass()
+    admin_action_type(:create)
+    admin_action_type(:update)
+    admin_action_type(:destroy)
+    read_all()
   end
 
   attributes do

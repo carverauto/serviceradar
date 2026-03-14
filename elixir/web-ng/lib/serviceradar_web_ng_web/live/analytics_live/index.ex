@@ -35,6 +35,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
      |> assign(:events_summary, %{})
      |> assign(:logs_summary, %{})
      |> assign(:observability, %{})
+     |> assign(:trace_rollup_status, Stats.empty_trace_rollup_status())
      |> assign(:high_utilization, %{})
      |> assign(:bandwidth, %{})}
   end
@@ -152,7 +153,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       Task.async(fn -> {:event_stats, get_hourly_event_stats(scope)} end),
       Task.async(fn -> {:service_counts, get_service_counts()} end),
       Task.async(fn -> {:logs_severity, Stats.logs_severity(scope: scope)} end),
-      Task.async(fn -> {:traces_summary, Stats.traces_summary_with_computed(scope: scope)} end)
+      Task.async(fn -> {:traces_summary, Stats.traces_summary_with_computed(scope: scope)} end),
+      Task.async(fn -> {:trace_rollup_status, Stats.trace_rollup_status()} end)
     ]
 
     initial =
@@ -298,6 +300,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       results
       |> Map.put(:service_counts, service_counts)
       |> Map.put(:logs_severity, logs_severity)
+      |> Map.put(:traces_summary, Map.get(initial, :traces_summary))
 
     {stats, device_availability, events_summary, logs_summary, observability, high_utilization,
      bandwidth, error} =
@@ -309,6 +312,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     |> assign(:events_summary, events_summary)
     |> assign(:logs_summary, logs_summary)
     |> assign(:observability, observability)
+    |> assign(
+      :trace_rollup_status,
+      Map.get(initial, :trace_rollup_status, Stats.empty_trace_rollup_status())
+    )
     |> assign(:high_utilization, high_utilization)
     |> assign(:bandwidth, bandwidth)
     |> assign(:refreshed_at, DateTime.utc_now())
@@ -865,6 +872,17 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 
+  defp trace_rollup_warning?(%{healthy?: false}), do: true
+  defp trace_rollup_warning?(_), do: false
+
+  defp trace_rollup_warning_text(%{messages: messages}) when is_list(messages) do
+    messages
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" ")
+  end
+
+  defp trace_rollup_warning_text(_), do: "Trace observability data may be stale."
+
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
@@ -878,6 +896,16 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <div role="alert" class="alert alert-error">
             <.icon name="hero-exclamation-triangle" class="size-5" />
             <span class="text-sm">{@error}</span>
+          </div>
+        </div>
+
+        <div :if={trace_rollup_warning?(@trace_rollup_status)} class="mb-4">
+          <div role="alert" class="alert alert-warning">
+            <.icon name="hero-exclamation-triangle" class="size-5" />
+            <div class="text-sm">
+              <div class="font-semibold">Trace rollups need attention</div>
+              <div>{trace_rollup_warning_text(@trace_rollup_status)}</div>
+            </div>
           </div>
         </div>
 

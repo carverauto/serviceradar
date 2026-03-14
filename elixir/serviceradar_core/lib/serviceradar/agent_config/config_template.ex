@@ -60,30 +60,17 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
   end
 
   policies do
-    # System actors can do anything
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admins can manage templates
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    admin_action_type(:create)
+    admin_action_type(:update)
+    admin_action_type(:destroy)
 
     # All authenticated users in the instance can read non-admin templates
     policy action_type(:read) do
       authorize_if expr(admin_only == false)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
   end
 

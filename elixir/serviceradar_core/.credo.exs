@@ -4,6 +4,11 @@
 # Run with suggestions: mix credo suggest
 # Run strict mode: mix credo --strict
 
+{ex_slop_checks, _binding} = Code.eval_file(Path.expand("../.credo.ex_slop.exs", __DIR__))
+{ex_dna_checks, _binding} = Code.eval_file(Path.expand("../.credo.ex_dna.exs", __DIR__))
+
+extra_checks = ex_slop_checks ++ ex_dna_checks
+
 %{
   configs: [
     %{
@@ -28,11 +33,15 @@
         ]
       },
       plugins: [],
-      requires: ["credo/check/warning/authorize_false_usage.ex"],
+      requires: [
+        "deps/ex_dna/lib/ex_dna/integrations/credo.ex",
+        "credo/check/warning/authorize_false_usage.ex"
+      ],
       strict: false,
       parse_timeout: 5000,
       color: true,
       checks: %{
+        extra: extra_checks,
         enabled: [
           # Custom checks
           {ServiceRadar.Credo.Check.Warning.AuthorizeFalseUsage, []},
@@ -104,6 +113,7 @@
           {Credo.Check.Design.TagTODO, []},
           {Credo.Check.Design.TagFIXME, []},
           {Credo.Check.Design.AliasUsage, []},
+          {Credo.Check.Design.DuplicatedCode, []},
           # Too noisy for our codebase
           {Credo.Check.Refactor.ABCSize, []},
           {Credo.Check.Readability.AliasOrder, []},

@@ -83,6 +83,7 @@ if [[ "${skip_credo}" != "true" ]]; then
   run mix credo --strict
 fi
 run mix hex.audit
+run mix deps.audit
 
 if [[ "${skip_dialyzer}" != "true" ]]; then
   run mix dialyzer

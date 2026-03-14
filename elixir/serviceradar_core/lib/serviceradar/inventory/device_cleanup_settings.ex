@@ -72,22 +72,11 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
   end
 
   policies do
-    # System actors can perform all operations
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    # Read access: operators/admins
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Update/create/run: operators/admins
-    policy action([:create, :update, :run_cleanup]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_operator_plus()
+    operator_action([:create, :update, :run_cleanup])
   end
 
   attributes do
