@@ -37,10 +37,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
 
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLDeviceMatcher
+  alias ServiceRadar.SRQLProfileResolver
   alias ServiceRadar.SNMPProfiles.SNMPProfile
-
-  # Device UID regex for validation - prevents SRQL injection via crafted device UIDs
-  @device_uid_regex ~r/^(?:sr:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 
   @doc """
   Resolves the matching SNMP profile for a device using SRQL targeting.
@@ -62,24 +60,11 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   @spec resolve_for_device(String.t(), map()) ::
           {:ok, SNMPProfile.t() | nil} | {:error, term()}
   def resolve_for_device(device_uid, actor) when is_binary(device_uid) do
-    # Validate device_uid is a proper UUID to prevent SRQL injection
-    if Regex.match?(@device_uid_regex, device_uid) do
-      # Load all targeting profiles ordered by priority
-      case load_targeting_profiles(actor) do
-        {:ok, []} ->
-          {:ok, nil}
-
-        {:ok, profiles} ->
-          # Try each profile in order until one matches
-          find_matching_profile(profiles, device_uid, actor)
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    else
-      Logger.debug("SNMPSrqlTargetResolver: skipping invalid device_uid #{inspect(device_uid)}")
-      {:ok, nil}
-    end
+    SRQLProfileResolver.resolve(device_uid, actor,
+      load_profiles: &load_targeting_profiles/1,
+      match_profile: &matches_device?/3,
+      log_prefix: "SNMPSrqlTargetResolver"
+    )
   end
 
   def resolve_for_device(nil, _actor), do: {:ok, nil}
@@ -93,29 +78,6 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
     case Ash.read(query, actor: actor) do
       {:ok, profiles} -> {:ok, profiles}
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # Find the first profile that matches the device
-  defp find_matching_profile([], _device_uid, _actor), do: {:ok, nil}
-
-  defp find_matching_profile([profile | rest], device_uid, actor) do
-    case matches_device?(profile, device_uid, actor) do
-      {:ok, true} ->
-        Logger.debug("SNMPSrqlTargetResolver: profile #{profile.id} matches device #{device_uid}")
-
-        {:ok, profile}
-
-      {:ok, false} ->
-        find_matching_profile(rest, device_uid, actor)
-
-      {:error, reason} ->
-        # Log error but continue trying other profiles
-        Logger.warning(
-          "SNMPSrqlTargetResolver: error evaluating profile #{profile.id}: #{inspect(reason)}"
-        )
-
-        find_matching_profile(rest, device_uid, actor)
     end
   end
 

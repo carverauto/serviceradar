@@ -63,6 +63,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SRQLAst
+  alias ServiceRadar.SRQLQuery
   alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
@@ -227,18 +228,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   defp normalize_target_query(query) when is_binary(query) do
-    query = String.trim(query)
-
-    cond do
-      query == "" ->
-        "in:devices"
-
-      String.starts_with?(query, "in:") ->
-        query
-
-      true ->
-        "in:devices " <> query
-    end
+    SRQLQuery.ensure_target(query, :devices)
   end
 
   defp normalize_target_query(_), do: nil

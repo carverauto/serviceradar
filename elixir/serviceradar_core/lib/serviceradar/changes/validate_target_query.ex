@@ -3,6 +3,7 @@ defmodule ServiceRadar.Changes.ValidateTargetQuery do
 
   alias Ash.Changeset
   alias ServiceRadar.SRQLAst
+  alias ServiceRadar.SRQLQuery
 
   def change(changeset, opts) do
     field = Keyword.get(opts, :field, :target_query)
@@ -38,18 +39,7 @@ defmodule ServiceRadar.Changes.ValidateTargetQuery do
   end
 
   defp normalize_query(query, opts) do
-    allowed_targets = Keyword.get(opts, :allowed_targets, [:devices])
-    default_target = Keyword.get(opts, :default_target, hd(allowed_targets))
-
-    cond do
-      Enum.any?(allowed_targets, &String.starts_with?(query, "in:#{&1}")) ->
-        query
-
-      String.starts_with?(query, "in:") ->
-        query
-
-      true ->
-        "in:#{default_target} " <> query
-    end
+    default_target = Keyword.get(opts, :default_target, :devices)
+    SRQLQuery.ensure_target(query, default_target)
   end
 end

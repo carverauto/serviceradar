@@ -38,6 +38,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.SRQLRunner
+  alias ServiceRadar.SRQLQuery
   alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
   alias ServiceRadar.Types.Cidr
 
@@ -258,13 +259,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   defp get_targets_from_query(_query, _actor), do: []
 
   defp normalize_target_query(query) do
-    query = String.trim(query)
-
-    if String.starts_with?(query, "in:") do
-      query
-    else
-      "in:devices " <> query
-    end
+    SRQLQuery.ensure_target(query, :devices)
   end
 
   defp fetch_srql_device_ips(_query, _cursor, acc) when is_nil(acc), do: MapSet.new()
