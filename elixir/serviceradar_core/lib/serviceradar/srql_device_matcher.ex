@@ -58,11 +58,11 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
   end
 
   defp apply_filter(query, %{field: field, op: op, value: value}, opts) when is_binary(field) do
-    if String.starts_with?(field, "tags.") do
+    if tag_field?(field, opts) do
       tag_key = String.replace_prefix(field, "tags.", "")
       apply_tag_filter(query, tag_key, value)
     else
-      mapped_field = map_field(field)
+      mapped_field = map_field(field, opts)
       apply_standard_filter(query, mapped_field, op, value)
     end
   rescue
@@ -76,18 +76,39 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
 
   defp apply_filter(query, _filter, _opts), do: query
 
-  defp map_field(field), do: Map.get(@field_mappings, field, String.to_existing_atom(field))
+  defp map_field(field, opts) do
+    mappings = Keyword.get(opts, :field_mappings, @field_mappings)
 
-  defp apply_standard_filter(query, field, "eq", value) when is_atom(field) do
+    case Map.fetch(mappings, field) do
+      {:ok, mapped} ->
+        mapped
+
+      :error ->
+        if Keyword.get(opts, :allow_existing_atom_fields?, true) do
+          String.to_existing_atom(field)
+        else
+          nil
+        end
+    end
+  end
+
+  defp apply_standard_filter(query, field, op, value)
+       when op in ["eq", "equals"] and is_atom(field) do
     Ash.Query.filter_input(query, %{field => %{eq: value}})
   end
 
-  defp apply_standard_filter(query, field, "contains", value) when is_atom(field) do
+  defp apply_standard_filter(query, field, op, value)
+       when op in ["contains", "like"] and is_atom(field) do
+    value = trim_like_wildcards(value)
     Ash.Query.filter_input(query, %{field => %{contains: value}})
   end
 
   defp apply_standard_filter(query, field, "in", value) when is_atom(field) and is_list(value) do
     Ash.Query.filter_input(query, %{field => %{in: value}})
+  end
+
+  defp apply_standard_filter(query, field, _op, value) when is_atom(field) do
+    Ash.Query.filter_input(query, %{field => %{eq: value}})
   end
 
   defp apply_standard_filter(query, _field, _op, _value), do: query
@@ -97,4 +118,13 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
   end
 
   defp log_prefix(opts), do: Keyword.get(opts, :log_prefix, "SRQLDeviceMatcher")
+
+  defp tag_field?(field, opts),
+    do: Keyword.get(opts, :tag_fields?, true) and String.starts_with?(field, "tags.")
+
+  defp trim_like_wildcards(value) when is_binary(value) do
+    value |> String.trim_leading("%") |> String.trim_trailing("%")
+  end
+
+  defp trim_like_wildcards(value), do: value
 end

@@ -63,6 +63,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SRQLAst
+  alias ServiceRadar.SRQLDeviceMatcher
   alias ServiceRadar.SRQLQuery
   alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
@@ -233,86 +234,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   defp normalize_target_query(_), do: nil
 
-  # Execute query based on entity type
-  defp execute_parsed_query("interfaces", ast, actor) do
-    # Query interfaces, then extract unique devices
-    filters = extract_filters(ast)
-
-    query =
-      Interface
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> apply_interface_filters(filters)
-      |> Ash.Query.distinct(:device_id)
-      |> Ash.Query.load(:device)
-
-    case Page.unwrap(Ash.read(query, actor: actor)) do
-      {:ok, interfaces} ->
-        # Extract unique devices
-        interfaces
-        |> Enum.map(& &1.device)
-        |> Enum.reject(&is_nil/1)
-        |> Enum.uniq_by(& &1.uid)
-
-      {:error, reason} ->
-        Logger.warning("SNMPCompiler: failed to query interfaces - #{inspect(reason)}")
-        []
-    end
-  end
-
-  defp execute_parsed_query(_entity, ast, actor) do
-    # Query devices directly
-    filters = extract_filters(ast)
-
-    query =
-      Device
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> apply_device_filters(filters)
-
-    case Page.unwrap(Ash.read(query, actor: actor)) do
-      {:ok, devices} ->
-        devices
-
-      {:error, reason} ->
-        Logger.warning("SNMPCompiler: failed to query devices - #{inspect(reason)}")
-        []
-    end
-  end
-
-  # Extract filter conditions from parsed SRQL AST
-  defp extract_filters(%{"filters" => filters}) when is_list(filters) do
-    Enum.map(filters, fn filter ->
-      %{
-        field: Map.get(filter, "field"),
-        op: Map.get(filter, "op", "eq"),
-        value: Map.get(filter, "value")
-      }
-    end)
-  end
-
-  defp extract_filters(_), do: []
-
-  # Apply filters to interface query
-  defp apply_interface_filters(query, filters) do
-    Enum.reduce(filters, query, fn filter, q ->
-      apply_interface_filter(q, filter)
-    end)
-  end
-
-  defp apply_interface_filter(query, %{field: field, op: op, value: value})
-       when is_binary(field) do
-    mapped = map_interface_field(field)
-
-    if mapped do
-      apply_filter_op(query, mapped, op, value)
-    else
-      query
-    end
-  rescue
-    _ -> query
-  end
-
-  defp apply_interface_filter(query, _), do: query
-
   # Map SRQL interface fields to Ash attributes
   @interface_field_map %{
     "if_name" => :if_name,
@@ -337,36 +258,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     "type" => :if_type
   }
 
-  defp map_interface_field(field), do: Map.get(@interface_field_map, field)
-
-  # Apply filters to device query
-  defp apply_device_filters(query, filters) do
-    Enum.reduce(filters, query, fn filter, q ->
-      apply_device_filter(q, filter)
-    end)
-  end
-
-  defp apply_device_filter(query, %{field: field, op: op, value: value})
-       when is_binary(field) do
-    # Handle tag filters specially
-    if String.starts_with?(field, "tags.") do
-      tag_key = String.replace_prefix(field, "tags.", "")
-      Ash.Query.filter(query, fragment("tags @> ?", ^%{tag_key => value}))
-    else
-      mapped = map_device_field(field)
-
-      if mapped do
-        apply_filter_op(query, mapped, op, value)
-      else
-        query
-      end
-    end
-  rescue
-    _ -> query
-  end
-
-  defp apply_device_filter(query, _), do: query
-
   # Map SRQL device fields to Ash attributes
   @device_field_map %{
     "uid" => :uid,
@@ -384,26 +275,59 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     "status" => :status
   }
 
-  defp map_device_field(field), do: Map.get(@device_field_map, field)
+  # Execute query based on entity type
+  defp execute_parsed_query("interfaces", ast, actor) do
+    # Query interfaces, then extract unique devices
+    filters = SRQLDeviceMatcher.extract_filters(ast)
 
-  # Apply filter operation
-  defp apply_filter_op(query, field, op, value) when op in ["eq", "equals"] do
-    Ash.Query.filter_input(query, %{field => %{eq: value}})
+    query =
+      Interface
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> SRQLDeviceMatcher.apply_filters(filters,
+        field_mappings: @interface_field_map,
+        allow_existing_atom_fields?: false,
+        tag_fields?: false,
+        log_prefix: "SNMPCompiler"
+      )
+      |> Ash.Query.distinct(:device_id)
+      |> Ash.Query.load(:device)
+
+    case Page.unwrap(Ash.read(query, actor: actor)) do
+      {:ok, interfaces} ->
+        # Extract unique devices
+        interfaces
+        |> Enum.map(& &1.device)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq_by(& &1.uid)
+
+      {:error, reason} ->
+        Logger.warning("SNMPCompiler: failed to query interfaces - #{inspect(reason)}")
+        []
+    end
   end
 
-  defp apply_filter_op(query, field, op, value) when op in ["contains", "like"] do
-    # Strip % wildcards if present from SRQL like syntax
-    value = value |> String.trim_leading("%") |> String.trim_trailing("%")
-    Ash.Query.filter_input(query, %{field => %{contains: value}})
-  end
+  defp execute_parsed_query(_entity, ast, actor) do
+    # Query devices directly
+    filters = SRQLDeviceMatcher.extract_filters(ast)
 
-  defp apply_filter_op(query, field, "in", value) when is_list(value) do
-    Ash.Query.filter_input(query, %{field => %{in: value}})
-  end
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> SRQLDeviceMatcher.apply_filters(filters,
+        field_mappings: @device_field_map,
+        allow_existing_atom_fields?: false,
+        tag_fields?: true,
+        log_prefix: "SNMPCompiler"
+      )
 
-  defp apply_filter_op(query, field, _op, value) do
-    # Default to equality
-    Ash.Query.filter_input(query, %{field => %{eq: value}})
+    case Page.unwrap(Ash.read(query, actor: actor)) do
+      {:ok, devices} ->
+        devices
+
+      {:error, reason} ->
+        Logger.warning("SNMPCompiler: failed to query devices - #{inspect(reason)}")
+        []
+    end
   end
 
   @doc """
