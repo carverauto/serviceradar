@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
   @moduledoc false
 
-  use Phoenix.LiveComponent
-
   @behaviour ServiceRadarWebNGWeb.Dashboard.Plugin
+
+  use Phoenix.LiveComponent
 
   import ServiceRadarWebNGWeb.UIComponents, only: [ui_panel: 1]
 
@@ -48,7 +48,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
   def update(%{panel_assigns: panel_assigns} = assigns, socket) do
     socket =
       socket
-      |> assign(Map.drop(assigns, [:panel_assigns]))
+      |> assign(Map.delete(assigns, :panel_assigns))
       |> assign(panel_assigns || %{})
       |> assign_new(:selected_node_id, fn -> nil end)
 
@@ -246,12 +246,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
 
   defp merge_graph_payloads(_), do: {:error, :invalid_payloads}
 
-  defp graph_parts(%{"nodes" => nodes, "edges" => edges}) when is_list(nodes) and is_list(edges),
-    do: {nodes, edges}
+  defp graph_parts(%{"nodes" => nodes, "edges" => edges}) when is_list(nodes) and is_list(edges), do: {nodes, edges}
 
-  defp graph_parts(%{"vertices" => nodes, "edges" => edges})
-       when is_list(nodes) and is_list(edges),
-       do: {nodes, edges}
+  defp graph_parts(%{"vertices" => nodes, "edges" => edges}) when is_list(nodes) and is_list(edges), do: {nodes, edges}
 
   defp graph_parts(_), do: {[], []}
 
@@ -264,8 +261,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
 
     if is_binary(id) and id != "" do
       %{id: id, label: String.slice(label, 0, 80), raw: raw}
-    else
-      nil
     end
   end
 
@@ -276,8 +271,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
 
     if is_binary(source) and is_binary(target) and source != "" and target != "" do
       %{source: source, target: target, label: String.slice(label, 0, 60), raw: raw}
-    else
-      nil
     end
   end
 
@@ -318,8 +311,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
   end
 
   defp grid_positions(count, x0, y0, width, height) do
-    cols = max(1, :math.sqrt(count) |> Float.ceil() |> trunc())
-    rows = max(1, Float.ceil(count / cols) |> trunc())
+    cols = max(1, count |> :math.sqrt() |> Float.ceil() |> trunc())
+    rows = max(1, (count / cols) |> Float.ceil() |> trunc())
     dx = max(1, div(width - x0, max(cols - 1, 1)))
     dy = max(1, div(height - y0, max(rows - 1, 1)))
 

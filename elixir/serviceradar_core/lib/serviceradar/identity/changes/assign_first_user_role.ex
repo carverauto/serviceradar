@@ -18,9 +18,7 @@ defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
   @impl true
   def change(changeset, _opts, _context) do
     # Only apply during create actions
-    if changeset.action_type != :create do
-      changeset
-    else
+    if changeset.action_type == :create do
       # Check if role is already explicitly set
       case Ash.Changeset.get_attribute(changeset, :role) do
         nil ->
@@ -34,6 +32,8 @@ defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
           # Role was explicitly set, don't override
           changeset
       end
+    else
+      changeset
     end
   end
 

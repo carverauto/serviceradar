@@ -5,22 +5,18 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.MergeAudit
+  alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.TestSupport
 
   require Ash.Query
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.DeviceAliasState
-
-  alias ServiceRadar.Inventory.{
-    Device,
-    DeviceIdentifier,
-    IdentityReconciler,
-    MergeAudit,
-    SyncIngestor
-  }
-
-  alias ServiceRadar.TestSupport
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()

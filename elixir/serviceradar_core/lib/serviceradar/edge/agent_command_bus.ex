@@ -3,13 +3,13 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   Dispatches on-demand agent commands over the control stream.
   """
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.ProcessRegistry
+
+  require Logger
 
   @default_ttl_seconds 60
   @send_timeout 5_000
@@ -258,7 +258,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp list_online_sessions do
     if registry_available?() do
-      ProcessRegistry.select_by_type(:agent_control)
+      :agent_control
+      |> ProcessRegistry.select_by_type()
       |> Enum.map(fn {key, pid, metadata} ->
         agent_id = elem(key, 1)
         metadata = metadata || %{}
@@ -294,9 +295,10 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     if node(pid) == node() do
       Process.alive?(pid)
     else
-      case :rpc.call(node(pid), Process, :alive?, [pid], 1_000) do
-        true -> true
-        _ -> false
+      if :rpc.call(node(pid), Process, :alive?, [pid], 1_000) do
+        true
+      else
+        false
       end
     end
   end
@@ -304,9 +306,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp process_alive?(_), do: false
 
   defp ensure_assignment(agent_id, metadata, partition, capability) do
-    with :ok <- ensure_partition(agent_id, metadata, partition),
-         :ok <- ensure_capability(agent_id, metadata, capability) do
-      :ok
+    with :ok <- ensure_partition(agent_id, metadata, partition) do
+      ensure_capability(agent_id, metadata, capability)
     end
   end
 

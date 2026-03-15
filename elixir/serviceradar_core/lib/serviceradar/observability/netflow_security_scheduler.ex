@@ -3,10 +3,11 @@ defmodule ServiceRadar.Observability.NetflowSecurityScheduler do
   Ensures optional NetFlow security intelligence jobs are scheduled when Oban is available.
   """
 
-  alias ServiceRadar.Observability.{NetflowSecurityRefreshWorker, ThreatIntelFeedRefreshWorker}
-
   use ServiceRadar.ObanEnsureScheduled,
-    workers: [ThreatIntelFeedRefreshWorker, NetflowSecurityRefreshWorker],
+    workers: [
+      ServiceRadar.Observability.ThreatIntelFeedRefreshWorker,
+      ServiceRadar.Observability.NetflowSecurityRefreshWorker
+    ],
     label: "NetFlow security scheduler",
     tick: :schedule,
     named_start?: true

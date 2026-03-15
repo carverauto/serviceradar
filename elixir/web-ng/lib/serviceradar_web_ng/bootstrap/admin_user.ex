@@ -6,33 +6,32 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
   the admin user once if no admin exists.
   """
 
-  require Logger
-  require Ash.Query
-  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.Users
+
+  require Ash.Query
+  require Logger
+
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   @default_email "root@localhost"
   @default_display_name "admin"
 
   def ensure_admin_user do
-    try do
-      case admin_password() do
-        nil ->
-          Logger.warning("[bootstrap] Admin password not set; skipping admin user bootstrap")
-          :ok
+    case admin_password() do
+      nil ->
+        Logger.warning("[bootstrap] Admin password not set; skipping admin user bootstrap")
+        :ok
 
-        password ->
-          email = admin_email()
-          maybe_bootstrap_admin(email, password)
-      end
-    rescue
-      error ->
-        Logger.error("[bootstrap] Admin user bootstrap failed: #{Exception.message(error)}")
-        :error
+      password ->
+        email = admin_email()
+        maybe_bootstrap_admin(email, password)
     end
+  rescue
+    error ->
+      Logger.error("[bootstrap] Admin user bootstrap failed: #{Exception.message(error)}")
+      :error
   end
 
   defp maybe_bootstrap_admin(email, password) do
@@ -96,15 +95,17 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
   end
 
   defp admin_email do
-    System.get_env("SERVICERADAR_ADMIN_EMAIL")
+    "SERVICERADAR_ADMIN_EMAIL"
+    |> System.get_env()
     |> blank_to_nil()
     |> Kernel.||(@default_email)
   end
 
   defp admin_password do
-    case System.get_env("SERVICERADAR_ADMIN_PASSWORD") |> blank_to_nil() do
+    case "SERVICERADAR_ADMIN_PASSWORD" |> System.get_env() |> blank_to_nil() do
       nil ->
-        System.get_env("SERVICERADAR_ADMIN_PASSWORD_FILE")
+        "SERVICERADAR_ADMIN_PASSWORD_FILE"
+        |> System.get_env()
         |> blank_to_nil()
         |> read_password_file()
 

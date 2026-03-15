@@ -42,12 +42,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
   @impl true
   def handle_params(params, uri, socket) do
-    {:noreply,
-     socket
-     |> SRQLPage.load_list(params, uri, :agents,
-       default_limit: @default_limit,
-       max_limit: @max_limit
-     )}
+    {:noreply, SRQLPage.load_list(socket, params, uri, :agents, default_limit: @default_limit, max_limit: @max_limit)}
   end
 
   @impl true
@@ -80,8 +75,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "agents")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "agents")}
   end
 
   # Handle PubSub events for live agent updates
@@ -276,8 +270,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
   defp format_node(nil), do: "—"
 
-  defp format_node(node) when is_atom(node),
-    do: node |> Atom.to_string() |> String.split("@") |> List.first()
+  defp format_node(node) when is_atom(node), do: node |> Atom.to_string() |> String.split("@") |> List.first()
 
   defp format_node(node), do: to_string(node)
 
@@ -405,7 +398,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
         _ -> "ghost"
       end
 
-    assigns = assign(assigns, :type_name, type_name) |> assign(:variant, variant)
+    assigns = assigns |> assign(:type_name, type_name) |> assign(:variant, variant)
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@type_name}</.ui_badge>

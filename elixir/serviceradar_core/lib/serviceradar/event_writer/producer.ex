@@ -24,14 +24,14 @@ defmodule ServiceRadar.EventWriter.Producer do
   Failed messages are NAK'd for redelivery according to the consumer's retry policy.
   """
 
-  use GenStage
+  @behaviour Broadway.Producer
 
-  require Logger
+  use GenStage
 
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.NATS.JetstreamConsumer
 
-  @behaviour Broadway.Producer
+  require Logger
 
   @fetch_interval 100
   @reconnect_delay 5_000
@@ -130,8 +130,7 @@ defmodule ServiceRadar.EventWriter.Producer do
     end
   end
 
-  def handle_info({:DOWN, _ref, :process, pid, reason}, %{conn: conn} = state)
-      when pid == conn do
+  def handle_info({:DOWN, _ref, :process, pid, reason}, %{conn: conn} = state) when pid == conn do
     Logger.warning("NATS connection process died: #{inspect(reason)}")
     send(self(), :connect)
     {:noreply, [], %{state | connected: false, conn: nil, consumer_context: nil}}
@@ -239,10 +238,10 @@ defmodule ServiceRadar.EventWriter.Producer do
           |> Map.put(:auth_required, true)
 
         settings =
-          if jwt != nil do
-            Map.put(settings, :jwt, jwt)
-          else
+          if jwt == nil do
             settings
+          else
+            Map.put(settings, :jwt, jwt)
           end
 
         {:ok, settings}
@@ -271,7 +270,8 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   defp setup_jetstream_consumers(conn, config) do
     consumers =
-      Enum.map(config.streams, fn stream ->
+      config.streams
+      |> Enum.map(fn stream ->
         durable_name = durable_name(config.consumer_name, stream.name)
         deliver_subject = deliver_subject(config.consumer_name, stream.name)
 
@@ -413,24 +413,18 @@ defmodule ServiceRadar.EventWriter.Producer do
   end
 
   defp find_header_value(headers, key) when is_map(headers) do
-    headers
-    |> Enum.find_value(fn {k, v} ->
+    Enum.find_value(headers, fn {k, v} ->
       if normalize_header_key(k) == key do
         normalize_header_value(v)
-      else
-        nil
       end
     end)
   end
 
   defp find_header_value(headers, key) when is_list(headers) do
-    headers
-    |> Enum.find_value(fn
+    Enum.find_value(headers, fn
       {k, v} ->
         if normalize_header_key(k) == key do
           normalize_header_value(v)
-        else
-          nil
         end
 
       _ ->

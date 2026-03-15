@@ -122,8 +122,7 @@ defmodule ServiceRadar.Observability.BmpSettings do
   Applies Timescale retention policy for `bmp_routing_events` using configured days.
   """
   @spec apply_routing_retention_policy(map()) :: :ok | {:error, term()}
-  def apply_routing_retention_policy(%{bmp_routing_retention_days: days})
-      when is_integer(days) do
+  def apply_routing_retention_policy(%{bmp_routing_retention_days: days}) when is_integer(days) do
     interval = "#{max(days, 1)} days"
 
     sql = """

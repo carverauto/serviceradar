@@ -33,6 +33,15 @@ defmodule ServiceRadar.Infrastructure.Agent do
   - 99: Other
   """
 
+  use Ash.Resource,
+    domain: ServiceRadar.Infrastructure,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshStateMachine, AshJsonApi.Resource]
+
+  alias ServiceRadar.Infrastructure.Changes.EnsureStateMonitor
+  alias ServiceRadar.Infrastructure.Changes.PublishStateChange
+
   @capability_definitions %{
     icmp: %{
       icon: "hero-signal",
@@ -168,12 +177,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
   @agent_gateway_fields [:gateway_id]
   @agent_device_fields [:device_uid]
 
-  use Ash.Resource,
-    domain: ServiceRadar.Infrastructure,
-    data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshStateMachine, AshJsonApi.Resource]
-
   postgres do
     table "ocsf_agents"
     repo ServiceRadar.Repo
@@ -289,7 +292,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
         |> Ash.Changeset.change_attribute(:is_healthy, true)
       end
 
-      change ServiceRadar.Infrastructure.Changes.EnsureStateMonitor
+      change EnsureStateMonitor
     end
 
     create :register_connected do
@@ -314,7 +317,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
         |> Ash.Changeset.change_attribute(:is_healthy, true)
       end
 
-      change ServiceRadar.Infrastructure.Changes.EnsureStateMonitor
+      change EnsureStateMonitor
     end
 
     update :update do
@@ -351,8 +354,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:last_seen_time, &DateTime.utc_now/0)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :agent, new_state: :connected}
+      change {PublishStateChange, entity_type: :agent, new_state: :connected}
     end
 
     update :connection_failed do
@@ -361,8 +363,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change transition_state(:disconnected)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :agent, new_state: :disconnected}
+      change {PublishStateChange, entity_type: :agent, new_state: :disconnected}
     end
 
     update :degrade do
@@ -372,8 +373,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:is_healthy, false)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :agent, new_state: :degraded}
+      change {PublishStateChange, entity_type: :agent, new_state: :degraded}
     end
 
     update :restore_health do
@@ -383,8 +383,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:is_healthy, true)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :agent, new_state: :connected}
+      change {PublishStateChange, entity_type: :agent, new_state: :connected}
     end
 
     update :lose_connection do
@@ -394,8 +393,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:gateway_id, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :agent, new_state: :disconnected}
+      change {PublishStateChange, entity_type: :agent, new_state: :disconnected}
     end
 
     update :reconnect do
@@ -404,8 +402,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change transition_state(:connecting)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :agent, new_state: :connecting}
+      change {PublishStateChange, entity_type: :agent, new_state: :connecting}
     end
 
     update :mark_unavailable do
@@ -416,8 +413,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:is_healthy, false)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :agent, new_state: :unavailable}
+      change {PublishStateChange, entity_type: :agent, new_state: :unavailable}
     end
 
     update :recover do
@@ -426,8 +422,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change transition_state(:connecting)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :agent, new_state: :connecting}
+      change {PublishStateChange, entity_type: :agent, new_state: :connecting}
     end
 
     update :reassign_device do
@@ -446,8 +441,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:last_seen_time, &DateTime.utc_now/0)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :agent, new_state: :connected}
+      change {PublishStateChange, entity_type: :agent, new_state: :connected}
     end
 
     update :disconnect do
@@ -457,8 +451,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:gateway_id, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :agent, new_state: :disconnected}
+      change {PublishStateChange, entity_type: :agent, new_state: :disconnected}
     end
 
     update :mark_unhealthy do
@@ -468,8 +461,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:is_healthy, false)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :agent, new_state: :degraded}
+      change {PublishStateChange, entity_type: :agent, new_state: :degraded}
     end
   end
 
@@ -731,8 +723,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
               expr(
                 if not is_nil(host) and not is_nil(port) do
                   fragment("? || ':' || ?::text", host, port)
-                else
-                  nil
                 end
               )
   end

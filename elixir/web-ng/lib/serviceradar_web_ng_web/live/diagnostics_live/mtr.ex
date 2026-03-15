@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.AgentRegistry
@@ -102,13 +103,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "mtr_traces")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "mtr_traces")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "mtr_traces")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "mtr_traces")}
   end
 
   def handle_event("open_mtr_modal", _params, socket) do
@@ -204,11 +203,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     {:noreply, schedule_refresh(socket)}
   end
 
-  def handle_info({:command_ack, %{command_type: "mtr.run"}}, socket),
-    do: {:noreply, schedule_refresh(socket)}
+  def handle_info({:command_ack, %{command_type: "mtr.run"}}, socket), do: {:noreply, schedule_refresh(socket)}
 
-  def handle_info({:command_progress, %{command_type: "mtr.run"}}, socket),
-    do: {:noreply, schedule_refresh(socket)}
+  def handle_info({:command_progress, %{command_type: "mtr.run"}}, socket), do: {:noreply, schedule_refresh(socket)}
 
   def handle_info(:refresh_diagnostics, socket) do
     {:noreply,
@@ -222,8 +219,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   def handle_info({:command_progress, _}, socket), do: {:noreply, socket}
   def handle_info(_msg, socket), do: {:noreply, socket}
 
-  defp active_mtr_command?(socket, command_id)
-       when is_binary(command_id) and command_id != "" do
+  defp active_mtr_command?(socket, command_id) when is_binary(command_id) and command_id != "" do
     current_command_id = socket.assigns[:mtr_command_id]
     is_binary(current_command_id) and current_command_id == command_id
   end
@@ -757,8 +753,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
   defp patch_path(params) do
     cleaned =
-      params
-      |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+      Map.reject(params, fn {_k, v} -> is_nil(v) or v == "" end)
 
     "/diagnostics/mtr?" <> URI.encode_query(cleaned)
   end

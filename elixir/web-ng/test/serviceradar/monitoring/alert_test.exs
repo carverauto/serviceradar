@@ -12,9 +12,10 @@ defmodule ServiceRadar.Monitoring.AlertTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  require Ash.Query
-
+  alias Ash.Error.Forbidden
   alias ServiceRadar.Monitoring.Alert
+
+  require Ash.Query
 
   describe "alert creation" do
     test "can trigger an alert with required fields" do
@@ -38,7 +39,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert alert.title == "High CPU Usage"
       assert alert.severity == :warning
       assert alert.status == :pending
-      assert alert.triggered_at != nil
+      assert alert.triggered_at
     end
 
     test "creates alert with default pending status" do
@@ -51,7 +52,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       alert = alert_fixture()
 
       # Verify triggered_at is set and is recent (within last minute)
-      assert alert.triggered_at != nil
+      assert alert.triggered_at
       assert DateTime.diff(DateTime.utc_now(), alert.triggered_at, :second) < 60
     end
 
@@ -86,7 +87,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert {:ok, updated} = result
       assert updated.status == :acknowledged
       assert updated.acknowledged_by == "operator@example.com"
-      assert updated.acknowledged_at != nil
+      assert updated.acknowledged_at
     end
 
     test "admin can acknowledge pending alert", %{alert: alert} do
@@ -120,7 +121,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
         )
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
 
     test "cannot acknowledge already acknowledged alert", %{alert: alert} do
@@ -178,7 +179,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert resolved.status == :resolved
       assert resolved.resolved_by == "operator@example.com"
       assert resolved.resolution_note == "Issue fixed"
-      assert resolved.resolved_at != nil
+      assert resolved.resolved_at
     end
 
     test "can resolve from acknowledged state", %{alert: alert} do
@@ -294,7 +295,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
       assert escalated.status == :escalated
       assert escalated.escalation_reason == "No response after 30 minutes"
-      assert escalated.escalated_at != nil
+      assert escalated.escalated_at
       assert escalated.escalation_level == 1
     end
 
@@ -345,7 +346,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
         )
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
 
     test "can escalate from acknowledged state", %{alert: alert} do
@@ -402,7 +403,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
         |> Ash.update()
 
       assert suppressed.status == :suppressed
-      assert suppressed.suppressed_until != nil
+      assert suppressed.suppressed_until
     end
 
     test "operator cannot suppress alerts", %{alert: alert} do
@@ -420,7 +421,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
         )
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
   end
 
@@ -477,7 +478,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
         )
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
   end
 
@@ -489,12 +490,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       actor = admin_actor()
 
       {:ok, acknowledged} =
-        alert_fixture(%{title: "Acknowledged Alert"})
+        %{title: "Acknowledged Alert"}
+        |> alert_fixture()
         |> Ash.Changeset.for_update(:acknowledge, %{acknowledged_by: "test"}, actor: actor)
         |> Ash.update()
 
       {:ok, resolved} =
-        alert_fixture(%{title: "Resolved Alert"})
+        %{title: "Resolved Alert"}
+        |> alert_fixture()
         |> Ash.Changeset.for_update(:resolve, %{resolved_by: "test"}, actor: actor)
         |> Ash.update()
 

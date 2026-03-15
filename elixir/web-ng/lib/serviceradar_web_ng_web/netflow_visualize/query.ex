@@ -114,8 +114,7 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
   def downsample_series_field_from_dim(_), do: "protocol_group"
 
   def top_n(keys, points, limit, limit_type)
-      when is_list(keys) and is_list(points) and is_integer(limit) and limit > 0 and
-             limit_type in ["avg", "max", "last"] do
+      when is_list(keys) and is_list(points) and is_integer(limit) and limit > 0 and limit_type in ["avg", "max", "last"] do
     series_scores =
       keys
       |> Enum.map(fn k -> {k, series_score(points, k, limit_type)} end)
@@ -254,11 +253,9 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
     load_sankey(srql_module, base_query, scope, prefix, group_bys: nil, max_edges: 200)
   end
 
-  def load_sankey(_srql_module, _base_query, _scope, _prefix),
-    do: %{edges: [], sources: [], mids: [], dests: []}
+  def load_sankey(_srql_module, _base_query, _scope, _prefix), do: %{edges: [], sources: [], mids: [], dests: []}
 
-  def load_sankey(srql_module, base_query, scope, prefix, opts)
-      when prefix in [16, 24, 32] and is_list(opts) do
+  def load_sankey(srql_module, base_query, scope, prefix, opts) when prefix in [16, 24, 32] and is_list(opts) do
     base_query =
       base_query
       |> flows_sanitize_for_stats()
@@ -301,8 +298,7 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
     |> Enum.take(12)
   end
 
-  defp srql_stats_rows(srql_module, query, scope, label)
-       when is_binary(query) and is_binary(label) do
+  defp srql_stats_rows(srql_module, query, scope, label) when is_binary(query) and is_binary(label) do
     case apply(srql_module, :query, [query, %{scope: scope}]) do
       {:ok, %{"results" => results}} when is_list(results) ->
         Enum.map(results, fn
@@ -425,8 +421,7 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
     ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by #{Enum.join(group_bys, ", ")}" sort:total_bytes:desc limit:#{max_edges}|
   end
 
-  defp sankey_ip_fallback_query(base_query, max_edges)
-       when is_binary(base_query) and is_integer(max_edges) do
+  defp sankey_ip_fallback_query(base_query, max_edges) when is_binary(base_query) and is_integer(max_edges) do
     ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_port, dst_endpoint_ip" sort:total_bytes:desc limit:#{max_edges}|
   end
 
@@ -452,8 +447,7 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
 
   defp sankey_edges(_rows, _mode), do: []
 
-  defp valid_edge?(%{src: src, dst: dst, bytes: bytes})
-       when is_binary(src) and is_binary(dst) and is_integer(bytes) do
+  defp valid_edge?(%{src: src, dst: dst, bytes: bytes}) when is_binary(src) and is_binary(dst) and is_integer(bytes) do
     src not in ["", "Unknown"] and dst not in ["", "Unknown"] and bytes > 0
   end
 
@@ -485,7 +479,8 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
   end
 
   defp strip_tokens(query, tokens) when is_binary(query) and is_list(tokens) do
-    Enum.reduce(tokens, query, fn token, acc ->
+    tokens
+    |> Enum.reduce(query, fn token, acc ->
       # token:<value> or token:"value"
       Regex.replace(~r/(?:^|\s)#{Regex.escape(token)}:(?:"[^"]*"|\[[^\]]*\]|\S+)/, acc, "")
     end)

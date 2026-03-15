@@ -56,13 +56,14 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
 
   alias ServiceRadar.Edge.GatewayProcess
   alias ServiceRadar.GatewayRegistry
+  alias ServiceRadar.Infrastructure.HealthCheckRunnerSupervisor
   alias ServiceRadar.Infrastructure.HealthTracker
 
   require Logger
 
-  @default_health_interval :timer.seconds(5)
-  @default_results_interval :timer.minutes(1)
-  @check_timeout :timer.seconds(10)
+  @default_health_interval to_timeout(second: 5)
+  @default_results_interval to_timeout(minute: 1)
+  @check_timeout to_timeout(second: 10)
 
   defstruct services: %{},
             timers: %{}
@@ -110,7 +111,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
     }
 
     DynamicSupervisor.start_child(
-      ServiceRadar.Infrastructure.HealthCheckRunnerSupervisor,
+      HealthCheckRunnerSupervisor,
       child_spec
     )
   end
@@ -126,7 +127,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
 
       pid ->
         DynamicSupervisor.terminate_child(
-          ServiceRadar.Infrastructure.HealthCheckRunnerSupervisor,
+          HealthCheckRunnerSupervisor,
           pid
         )
     end

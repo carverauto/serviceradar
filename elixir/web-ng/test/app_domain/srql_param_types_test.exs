@@ -8,11 +8,13 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
   """
   use ExUnit.Case, async: false
 
+  alias Ecto.Adapters.SQL
+  alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Repo
 
   setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
-    Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
+    :ok = Sandbox.checkout(Repo)
+    Sandbox.mode(Repo, {:shared, self()})
     :ok
   end
 
@@ -23,7 +25,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       {:ok, log_id_binary} = Ecto.UUID.dump(log_id)
       now = DateTime.utc_now()
 
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         Repo,
         """
         INSERT INTO logs (timestamp, id, severity_text, body, service_name)
@@ -80,7 +82,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       gateway_id = "srql-bool-test-" <> Ecto.UUID.generate()
       now = DateTime.utc_now()
 
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         Repo,
         """
         INSERT INTO gateways (gateway_id, is_healthy, status, last_seen)
@@ -101,7 +103,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       gateway_id = "srql-bool-test-false-" <> Ecto.UUID.generate()
       now = DateTime.utc_now()
 
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         Repo,
         """
         INSERT INTO gateways (gateway_id, is_healthy, status, last_seen)
@@ -124,7 +126,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       gateway_id = "srql-text-test-" <> Ecto.UUID.generate()
       now = DateTime.utc_now()
 
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         Repo,
         """
         INSERT INTO gateways (gateway_id, status, component_id, last_seen)
@@ -147,7 +149,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       gateway_id = "srql-int-test-" <> Ecto.UUID.generate()
       now = DateTime.utc_now()
 
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         Repo,
         """
         INSERT INTO gateways (gateway_id, agent_count, checker_count, last_seen)
@@ -175,7 +177,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       {:ok, log_id_binary} = Ecto.UUID.dump(log_id)
       now = DateTime.utc_now()
 
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         Repo,
         """
         INSERT INTO logs (timestamp, id, severity_text, body, service_name)

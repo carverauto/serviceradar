@@ -36,7 +36,7 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
     entity_type = Keyword.fetch!(opts, :entity_type)
     new_state = Keyword.fetch!(opts, :new_state)
 
-    unless entity_type in [:gateway, :agent, :checker, :collector] do
+    if entity_type not in [:gateway, :agent, :checker, :collector] do
       raise ArgumentError, "entity_type must be one of :gateway, :agent, :checker, :collector"
     end
 

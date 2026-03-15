@@ -10,7 +10,7 @@ defmodule ServiceRadar.Observability.ZenRuleTemplatesTest do
       compiled
       |> Map.fetch!("nodes")
       |> Enum.find(&(&1["id"] == "setSeverity"))
-      |> then(&Map.fetch!(&1, "content"))
+      |> Map.fetch!("content")
       |> Map.fetch!("expressions")
 
     severity_expression =

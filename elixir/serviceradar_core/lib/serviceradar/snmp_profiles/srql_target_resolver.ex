@@ -32,13 +32,13 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   In this case, we check if the device has any matching interfaces.
   """
 
-  require Ash.Query
-  require Logger
-
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLDeviceMatcher
   alias ServiceRadar.SRQLProfileResolver
-  alias ServiceRadar.SNMPProfiles.SNMPProfile
+
+  require Ash.Query
+  require Logger
 
   @doc """
   Resolves the matching SNMP profile for a device using SRQL targeting.
@@ -71,9 +71,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
 
   # Load all profiles with SRQL targeting, ordered by priority
   defp load_targeting_profiles(actor) do
-    query =
-      SNMPProfile
-      |> Ash.Query.for_read(:list_targeting_profiles, %{}, actor: actor)
+    query = Ash.Query.for_read(SNMPProfile, :list_targeting_profiles, %{}, actor: actor)
 
     case Ash.read(query, actor: actor) do
       {:ok, profiles} -> {:ok, profiles}

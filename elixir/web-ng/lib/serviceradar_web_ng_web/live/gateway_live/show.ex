@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
+
+  alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadarWebNGWeb.GatewayHelpers
 
   require Logger
@@ -44,8 +46,6 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
     node_info =
       if live_gateway do
         fetch_node_info(live_gateway[:node])
-      else
-        nil
       end
 
     # Convert Horde data to display format
@@ -68,8 +68,6 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
           "pid" => inspect(live_gateway[:pid]),
           "_source" => "horde"
         }
-      else
-        nil
       end
 
     # Fall back to SRQL database query
@@ -117,30 +115,28 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
   defp fetch_node_info(nil), do: nil
 
   defp fetch_node_info(node) when is_atom(node) do
-    try do
-      memory = :rpc.call(node, :erlang, :memory, [], 5000)
-      {uptime_ms, _} = :rpc.call(node, :erlang, :statistics, [:wall_clock], 5000)
+    memory = :rpc.call(node, :erlang, :memory, [], 5000)
+    {uptime_ms, _} = :rpc.call(node, :erlang, :statistics, [:wall_clock], 5000)
 
-      %{
-        process_count: :rpc.call(node, :erlang, :system_info, [:process_count], 5000),
-        port_count: :rpc.call(node, :erlang, :system_info, [:port_count], 5000),
-        otp_release: to_string(:rpc.call(node, :erlang, :system_info, [:otp_release], 5000)),
-        schedulers: :rpc.call(node, :erlang, :system_info, [:schedulers], 5000),
-        schedulers_online: :rpc.call(node, :erlang, :system_info, [:schedulers_online], 5000),
-        uptime_ms: uptime_ms,
-        memory_total: memory[:total],
-        memory_processes: memory[:processes],
-        memory_system: memory[:system],
-        memory_atom: memory[:atom],
-        memory_binary: memory[:binary],
-        memory_code: memory[:code],
-        memory_ets: memory[:ets]
-      }
-    rescue
-      _ -> nil
-    catch
-      :exit, _ -> nil
-    end
+    %{
+      process_count: :rpc.call(node, :erlang, :system_info, [:process_count], 5000),
+      port_count: :rpc.call(node, :erlang, :system_info, [:port_count], 5000),
+      otp_release: to_string(:rpc.call(node, :erlang, :system_info, [:otp_release], 5000)),
+      schedulers: :rpc.call(node, :erlang, :system_info, [:schedulers], 5000),
+      schedulers_online: :rpc.call(node, :erlang, :system_info, [:schedulers_online], 5000),
+      uptime_ms: uptime_ms,
+      memory_total: memory[:total],
+      memory_processes: memory[:processes],
+      memory_system: memory[:system],
+      memory_atom: memory[:atom],
+      memory_binary: memory[:binary],
+      memory_code: memory[:code],
+      memory_ets: memory[:ets]
+    }
+  rescue
+    _ -> nil
+  catch
+    :exit, _ -> nil
   end
 
   @impl true
@@ -232,8 +228,8 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
 
   defp gateway_role_card(assigns) do
     # Derive role information from the Ash resource
-    role_description = ServiceRadar.Infrastructure.Gateway.role_description()
-    role_steps = ServiceRadar.Infrastructure.Gateway.role_steps()
+    role_description = Gateway.role_description()
+    role_steps = Gateway.role_steps()
 
     assigns =
       assigns
@@ -389,7 +385,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
         _ -> {"Unknown", "ghost"}
       end
 
-    assigns = assign(assigns, :label, label) |> assign(:variant, variant)
+    assigns = assigns |> assign(:label, label) |> assign(:variant, variant)
 
     ~H"""
     <.ui_badge variant={@variant} size="sm">{@label}</.ui_badge>

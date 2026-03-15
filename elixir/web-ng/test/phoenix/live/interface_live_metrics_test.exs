@@ -35,7 +35,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
 
       # Should have a panel with the group name
       traffic_panel = Enum.find(panels, &(&1.title == "Traffic"))
-      assert traffic_panel != nil
+      assert traffic_panel
       assert traffic_panel.assigns.group_id == "group-1"
     end
 

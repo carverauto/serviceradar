@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNG.AccountsTest do
   use ServiceRadarWebNG.DataCase
 
-  alias ServiceRadarWebNG.Accounts
-
   import ServiceRadarWebNG.AccountsFixtures
+
+  alias ServiceRadarWebNG.Accounts
 
   describe "get_user_by_email/1" do
     test "does not return the user if the email does not exist" do
@@ -22,12 +22,12 @@ defmodule ServiceRadarWebNG.AccountsTest do
     end
 
     test "does not return the user if the password is not valid" do
-      user = user_fixture() |> set_password()
+      user = set_password(user_fixture())
       refute Accounts.get_user_by_email_and_password(user.email, "invalid")
     end
 
     test "returns the user if the email and password are valid" do
-      %{id: id} = user = user_fixture() |> set_password()
+      %{id: id} = user = set_password(user_fixture())
 
       assert %{id: ^id} =
                Accounts.get_user_by_email_and_password(user.email, valid_user_password())
@@ -94,7 +94,7 @@ defmodule ServiceRadarWebNG.AccountsTest do
 
   describe "update_user_password/2" do
     setup do
-      %{user: user_fixture() |> set_password()}
+      %{user: set_password(user_fixture())}
     end
 
     test "validates password", %{user: user} do

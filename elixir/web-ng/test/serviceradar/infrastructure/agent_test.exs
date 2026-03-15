@@ -12,9 +12,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  require Ash.Query
-
   alias ServiceRadar.Infrastructure.Agent
+
+  require Ash.Query
 
   describe "agent registration" do
     setup do
@@ -66,9 +66,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
     test "sets timestamps on registration", %{gateway: gateway} do
       agent = agent_fixture(gateway)
 
-      assert agent.first_seen_time != nil
-      assert agent.last_seen_time != nil
-      assert agent.created_time != nil
+      assert agent.first_seen_time
+      assert agent.last_seen_time
+      assert agent.created_time
       assert DateTime.diff(DateTime.utc_now(), agent.first_seen_time, :second) < 60
     end
 
@@ -101,14 +101,12 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, connected} =
         agent
-        |> Ash.Changeset.for_update(:establish_connection, %{gateway_id: gateway.id},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:establish_connection, %{gateway_id: gateway.id}, actor: actor)
         |> Ash.update()
 
       assert connected.status == :connected
       assert connected.is_healthy == true
-      assert connected.last_seen_time != nil
+      assert connected.last_seen_time
     end
 
     test "can mark connection as failed from connecting state", %{agent: agent} do
@@ -320,8 +318,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # Connecting agent
       agent_connecting = agent_fixture(gateway, %{uid: "agent-connecting-read"})
 
-      {:ok,
-       gateway: gateway, agent_connected: agent_connected, agent_connecting: agent_connecting}
+      {:ok, gateway: gateway, agent_connected: agent_connected, agent_connecting: agent_connecting}
     end
 
     test "by_uid returns specific agent", %{agent_connected: agent} do

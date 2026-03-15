@@ -2,7 +2,9 @@ defmodule ServiceRadarWebNG.Plugins.PackagePolicyTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  alias ServiceRadar.Plugins.{Plugin, PluginAssignment, PluginPackage}
+  alias ServiceRadar.Plugins.Plugin
+  alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins
 
   @manifest %{
@@ -51,10 +53,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagePolicyTest do
     package = create_package(%{source_type: :upload})
 
     changeset =
-      PluginAssignment
-      |> Ash.Changeset.for_create(
-        :create,
-        %{agent_uid: "agent-1", plugin_package_id: package.id},
+      Ash.Changeset.for_create(PluginAssignment, :create, %{agent_uid: "agent-1", plugin_package_id: package.id},
         actor: system_actor()
       )
 

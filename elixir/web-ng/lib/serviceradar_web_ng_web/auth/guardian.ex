@@ -92,10 +92,10 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
       |> Map.put("role", to_string(user.role))
 
     claims =
-      if scopes != [] do
-        Map.put(claims, "scopes", Enum.map(scopes, &to_string/1))
-      else
+      if scopes == [] do
         claims
+      else
+        Map.put(claims, "scopes", Enum.map(scopes, &to_string/1))
       end
 
     # Extension point for Permit integration
@@ -265,13 +265,11 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   end
 
   defp session_idle_timeout_seconds do
-    session_config()
-    |> Keyword.get(:idle_timeout_seconds, @default_idle_timeout_seconds)
+    Keyword.get(session_config(), :idle_timeout_seconds, @default_idle_timeout_seconds)
   end
 
   defp session_absolute_timeout_seconds do
-    session_config()
-    |> Keyword.get(:absolute_timeout_seconds, @default_absolute_timeout_seconds)
+    Keyword.get(session_config(), :absolute_timeout_seconds, @default_absolute_timeout_seconds)
   end
 
   defp session_config do

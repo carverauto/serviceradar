@@ -12,8 +12,11 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
     notifiers: [ServiceRadar.Identity.AuthorizationSettingsNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
-  @allowed_roles ServiceRadar.Identity.Constants.allowed_roles()
-  @auth_manage_permission ServiceRadar.Identity.Constants.auth_manage_permission()
+  alias ServiceRadar.Identity.Constants
+  alias ServiceRadar.Identity.Validations.RoleMappings
+
+  @allowed_roles Constants.allowed_roles()
+  @auth_manage_permission Constants.auth_manage_permission()
   @auth_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                       permission: @auth_manage_permission}
   @settings_fields [:default_role, :role_mappings]
@@ -43,13 +46,13 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
       description "Create authorization settings"
       accept @settings_fields
       change set_attribute(:key, "default")
-      validate ServiceRadar.Identity.Validations.RoleMappings
+      validate RoleMappings
     end
 
     update :update do
       description "Update authorization settings"
       accept @settings_fields
-      validate ServiceRadar.Identity.Validations.RoleMappings
+      validate RoleMappings
     end
   end
 

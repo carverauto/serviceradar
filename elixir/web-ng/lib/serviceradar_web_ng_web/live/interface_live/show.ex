@@ -4,10 +4,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
-  alias ServiceRadar.Inventory.InterfaceSettings
 
   @snmp_metrics_limit 3600
 
@@ -48,11 +48,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   end
 
   @impl true
-  def handle_params(
-        %{"device_uid" => device_uid, "interface_uid" => interface_uid} = params,
-        uri,
-        socket
-      ) do
+  def handle_params(%{"device_uid" => device_uid, "interface_uid" => interface_uid} = params, uri, socket) do
     scope = socket.assigns.current_scope
     srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
 
@@ -404,8 +400,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp parse_metrics_from_params(metrics) when is_list(metrics), do: Enum.sort(metrics)
   defp parse_metrics_from_params(_), do: []
 
-  defp update_or_create_group(groups, group_id, group_name, metrics)
-       when is_binary(group_id) and group_id != "" do
+  defp update_or_create_group(groups, group_id, group_name, metrics) when is_binary(group_id) and group_id != "" do
     Enum.map(groups, fn g ->
       if g["id"] == group_id,
         do: %{"id" => group_id, "name" => group_name, "metrics" => metrics},
@@ -1445,7 +1440,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
     # Get interface speed for proper graph scaling (bps -> bytes per second)
     if_speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, "if_speed")
-    if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8, else: nil
+    if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8
 
     # Get user-defined metric groups for composite charts
     metric_groups = settings_list_value(settings, :metric_groups)
@@ -1473,7 +1468,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, []) do
     # No user-defined groups - build individual panels for each metric
-    Engine.build_panels(srql_response)
+    srql_response
+    |> Engine.build_panels()
     |> Enum.reject(&(&1.plugin == TablePlugin))
     |> Enum.map(fn panel ->
       assigns =
@@ -1528,7 +1524,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp build_ungrouped_panels(srql_response, ungrouped_results, max_speed_bytes_per_sec) do
     ungrouped_response = Map.put(srql_response, "results", ungrouped_results)
 
-    Engine.build_panels(ungrouped_response)
+    ungrouped_response
+    |> Engine.build_panels()
     |> Enum.reject(&(&1.plugin == TablePlugin))
     |> Enum.map(&add_panel_assigns(&1, max_speed_bytes_per_sec))
   end
@@ -1636,7 +1633,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     name = interface_name(iface)
     descr = Map.get(iface, "if_descr")
 
-    if descr && descr != name, do: descr, else: nil
+    if descr && descr != name, do: descr
   end
 
   defp device_name(device) do
@@ -1739,11 +1736,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   defp settings_list_value(nil, _key), do: []
 
-  defp settings_list_value(settings, key) when is_struct(settings),
-    do: normalize_list(Map.get(settings, key))
+  defp settings_list_value(settings, key) when is_struct(settings), do: normalize_list(Map.get(settings, key))
 
-  defp settings_list_value(settings, key) when is_map(settings),
-    do: normalize_list(Map.get(settings, key))
+  defp settings_list_value(settings, key) when is_map(settings), do: normalize_list(Map.get(settings, key))
 
   defp settings_list_value(_, _), do: []
 
@@ -1752,11 +1747,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   defp settings_map_value(nil, _key), do: %{}
 
-  defp settings_map_value(settings, key) when is_struct(settings),
-    do: normalize_map(Map.get(settings, key))
+  defp settings_map_value(settings, key) when is_struct(settings), do: normalize_map(Map.get(settings, key))
 
-  defp settings_map_value(settings, key) when is_map(settings),
-    do: normalize_map(Map.get(settings, key))
+  defp settings_map_value(settings, key) when is_map(settings), do: normalize_map(Map.get(settings, key))
 
   defp settings_map_value(_, _), do: %{}
 

@@ -43,6 +43,8 @@ defmodule ServiceRadar.Monitoring.PollJob do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshJsonApi.Resource]
 
+  alias ServiceRadar.Policies.Checks.ActorIsNil
+
   @poll_job_fields [
     :schedule_id,
     :schedule_name,
@@ -259,8 +261,7 @@ defmodule ServiceRadar.Monitoring.PollJob do
       change fn changeset, _context ->
         reason = Ash.Changeset.get_argument(changeset, :reason)
 
-        changeset
-        |> Ash.Changeset.change_attribute(:error_message, reason || "Job cancelled")
+        Ash.Changeset.change_attribute(changeset, :error_message, reason || "Job cancelled")
       end
     end
 
@@ -297,14 +298,14 @@ defmodule ServiceRadar.Monitoring.PollJob do
       authorize_if is_operator()
 
       # Allow system (AshOban/orchestrator) to create jobs
-      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
+      authorize_if ActorIsNil
     end
 
     policy action_type(:update) do
       authorize_if is_operator()
 
       # Allow system transitions
-      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
+      authorize_if ActorIsNil
     end
   end
 
@@ -510,8 +511,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
               expr(
                 if check_count > 0 do
                   success_count * 100.0 / check_count
-                else
-                  nil
                 end
               )
 
@@ -520,8 +519,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
               expr(
                 if not is_nil(started_at) and not is_nil(inserted_at) do
                   fragment("EXTRACT(EPOCH FROM (? - ?)) * 1000", started_at, inserted_at)
-                else
-                  nil
                 end
               )
   end

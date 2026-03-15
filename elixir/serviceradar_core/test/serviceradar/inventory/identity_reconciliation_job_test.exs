@@ -5,14 +5,16 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Inventory.MergeAudit
+  alias ServiceRadar.Jobs.JobSchedule
+  alias ServiceRadar.TestSupport
 
   require Ash.Query
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, Interface, MergeAudit}
-  alias ServiceRadar.Jobs.JobSchedule
-  alias ServiceRadar.TestSupport
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -34,7 +36,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
     assert :ok = register_strong_identifiers(actor, device_a.uid, %{mac: mac})
     assert :ok = register_strong_identifiers(actor, device_b.uid, %{mac: mac_with_space})
 
-    timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
 
     assert {:ok, _} = create_interface(actor, device_b.uid, timestamp, "ifindex:99", 99, "eth99")
 
@@ -67,7 +69,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
     {:ok, device_b} = create_device(actor, "reconcile-strong-b")
 
     assert :ok = register_strong_identifiers(actor, device_a.uid, %{armis_id: shared_armis_id})
-    timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
 
     assert {:ok, _} =
              create_interface(actor, device_b.uid, timestamp, "ifindex:101", 101, "eth101")

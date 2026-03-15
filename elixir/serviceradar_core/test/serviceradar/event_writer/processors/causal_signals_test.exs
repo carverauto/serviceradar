@@ -31,7 +31,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
       row = CausalSignals.parse_message(message)
 
-      refute is_nil(row)
+      assert row
       assert is_binary(row.id)
       assert byte_size(row.id) == 16
       assert row.class_uid == 1008
@@ -65,7 +65,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
       row = CausalSignals.parse_message(message)
 
-      refute is_nil(row)
+      assert row
       assert row.type_uid == 100_812
       assert row.severity_id == 6
       assert row.severity == "Fatal"
@@ -113,7 +113,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
       row = CausalSignals.parse_message(message)
 
-      refute is_nil(row)
+      assert row
       assert row.metadata["primary_domain"] == "security"
       assert row.metadata["signal_domains"] == ["routing", "security"]
       assert length(row.metadata["grouped_contexts"]) == 3
@@ -140,7 +140,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
       row = CausalSignals.parse_message(message)
 
-      refute is_nil(row)
+      assert row
       assert length(row.metadata["grouped_contexts"]) == 32
       assert row.metadata["guardrails"]["contexts_truncated"] == true
       assert row.metadata["guardrails"]["input_context_count"] == 40
@@ -167,7 +167,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
       row = CausalSignals.parse_message(message)
 
-      refute is_nil(row)
+      assert row
       assert row.metadata["source_identity"]["device_uid"] == "router-edge-01"
       assert row.metadata["routing_correlation"]["local_asn"] == 64_512
       assert row.metadata["routing_correlation"]["peer_asn"] == 64_522
@@ -191,7 +191,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       }
 
       row = CausalSignals.parse_message(message)
-      refute is_nil(row)
+      assert row
       assert row.metadata["event_type"] == "route_withdraw"
     end
 
@@ -209,7 +209,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
       row = CausalSignals.parse_message(message)
 
-      refute is_nil(row)
+      assert row
       assert row.type_uid == 100_811
       assert row.metadata["signal_type"] == "bmp"
       assert row.metadata["event_type"] == "route_update"
@@ -235,7 +235,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
       row = CausalSignals.parse_message(message)
 
-      refute is_nil(row)
+      assert row
       assert row.metadata["signal_type"] == "bmp"
       assert row.metadata["event_type"] == "route_withdraw"
       assert row.metadata["routing_correlation"]["prefix"] == "203.0.114.0/24"
@@ -245,7 +245,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
     test "rejects arancini payloads missing required contract fields" do
       payload =
-        load_event_writer_fixture!("arancini_update_route_update.json")
+        "arancini_update_route_update.json"
+        |> load_event_writer_fixture!()
         |> Map.delete("peer_asn")
 
       message = %{
@@ -285,7 +286,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
       row = CausalSignals.parse_message(message)
 
-      refute is_nil(row)
+      assert row
       assert row.type_uid == 100_811
       assert row.metadata["signal_type"] == "bmp"
       assert row.metadata["event_type"] == "route_update"
@@ -323,30 +324,32 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       now = "2026-02-16T13:10:00Z"
 
       burst =
-        [
-          %{
-            "event_id" => "ctx-a",
-            "timestamp" => now,
-            "severity" => "high",
-            "signal_domains" => ["routing", "security"],
-            "security_zones" => ["zone-a"],
-            "bgp_prefix_groups" => ["as64512-core"]
-          },
-          %{
-            "event_id" => "ctx-b",
-            "timestamp" => now,
-            "severity" => "medium",
-            "signal_domain" => "routing",
-            "bgp_prefix_group" => "as64512-edge"
-          }
-        ]
-        |> Enum.map(fn payload ->
-          %{
-            data: Jason.encode!(payload),
-            metadata: %{subject: "signals.causal.overlay", received_at: DateTime.utc_now()},
-            ack_data: %{}
-          }
-        end)
+        Enum.map(
+          [
+            %{
+              "event_id" => "ctx-a",
+              "timestamp" => now,
+              "severity" => "high",
+              "signal_domains" => ["routing", "security"],
+              "security_zones" => ["zone-a"],
+              "bgp_prefix_groups" => ["as64512-core"]
+            },
+            %{
+              "event_id" => "ctx-b",
+              "timestamp" => now,
+              "severity" => "medium",
+              "signal_domain" => "routing",
+              "bgp_prefix_group" => "as64512-edge"
+            }
+          ],
+          fn payload ->
+            %{
+              data: Jason.encode!(payload),
+              metadata: %{subject: "signals.causal.overlay", received_at: DateTime.utc_now()},
+              ack_data: %{}
+            }
+          end
+        )
 
       first =
         burst
@@ -387,56 +390,58 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
   defp bmp_burst_messages do
     now = "2026-02-16T13:00:00Z"
 
-    [
-      %{
-        "event_id" => "bmp-a",
-        "timestamp" => now,
-        "severity" => "high",
-        "device_id" => "router-a",
-        "peer_ip" => "192.0.2.1",
-        "message" => "peer down"
-      },
-      %{
-        "event_id" => "bmp-b",
-        "timestamp" => now,
-        "severity" => "critical",
-        "device_id" => "router-b",
-        "peer_ip" => "192.0.2.2",
-        "message" => "withdraw storm"
-      },
-      %{
-        "event_id" => "bmp-c",
-        "timestamp" => now,
-        "severity" => "medium",
-        "device_id" => "router-a",
-        "peer_ip" => "192.0.2.1",
-        "message" => "path change"
-      },
-      %{
-        "event_id" => "bmp-d",
-        "timestamp" => now,
-        "severity" => "low",
-        "device_id" => "router-c",
-        "peer_ip" => "192.0.2.3",
-        "message" => "route flap"
-      },
-      # Duplicate logical event id in same burst to assert deterministic projection contract.
-      %{
-        "event_id" => "bmp-a",
-        "timestamp" => now,
-        "severity" => "high",
-        "device_id" => "router-a",
-        "peer_ip" => "192.0.2.1",
-        "message" => "peer down"
-      }
-    ]
-    |> Enum.map(fn payload ->
-      %{
-        data: Jason.encode!(payload),
-        metadata: %{subject: "bmp.events.peer", received_at: DateTime.utc_now()},
-        ack_data: %{}
-      }
-    end)
+    # Duplicate logical event id in same burst to assert deterministic projection contract.
+    Enum.map(
+      [
+        %{
+          "event_id" => "bmp-a",
+          "timestamp" => now,
+          "severity" => "high",
+          "device_id" => "router-a",
+          "peer_ip" => "192.0.2.1",
+          "message" => "peer down"
+        },
+        %{
+          "event_id" => "bmp-b",
+          "timestamp" => now,
+          "severity" => "critical",
+          "device_id" => "router-b",
+          "peer_ip" => "192.0.2.2",
+          "message" => "withdraw storm"
+        },
+        %{
+          "event_id" => "bmp-c",
+          "timestamp" => now,
+          "severity" => "medium",
+          "device_id" => "router-a",
+          "peer_ip" => "192.0.2.1",
+          "message" => "path change"
+        },
+        %{
+          "event_id" => "bmp-d",
+          "timestamp" => now,
+          "severity" => "low",
+          "device_id" => "router-c",
+          "peer_ip" => "192.0.2.3",
+          "message" => "route flap"
+        },
+        %{
+          "event_id" => "bmp-a",
+          "timestamp" => now,
+          "severity" => "high",
+          "device_id" => "router-a",
+          "peer_ip" => "192.0.2.1",
+          "message" => "peer down"
+        }
+      ],
+      fn payload ->
+        %{
+          data: Jason.encode!(payload),
+          metadata: %{subject: "bmp.events.peer", received_at: DateTime.utc_now()},
+          ack_data: %{}
+        }
+      end
+    )
   end
 
   defp route_broadway_messages(events) do
@@ -460,7 +465,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
   # identity + signal attributes sorted independent of ingest/replay order.
   defp causal_overlay_projection(rows) do
     rows
-    |> Enum.map(fn row ->
+    |> MapSet.new(fn row ->
       {
         row.metadata["event_identity"],
         row.metadata["signal_type"],
@@ -469,7 +474,6 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         row.src_endpoint["ip"]
       }
     end)
-    |> MapSet.new()
     |> MapSet.to_list()
     |> Enum.sort()
   end

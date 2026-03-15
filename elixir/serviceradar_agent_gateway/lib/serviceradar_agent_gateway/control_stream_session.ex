@@ -5,10 +5,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   use GenServer
 
-  require Logger
-
   alias ServiceRadar.AgentCommands.PubSub
   alias ServiceRadar.ProcessRegistry
+
+  require Logger
 
   @type state :: %{
           stream: GRPC.Server.Stream.t(),
@@ -87,13 +87,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       {:ok, stream} ->
         log_command_dispatch(state, command)
 
-        {:reply, {:ok, command.command_id},
-         track_command(%{state | stream: stream}, command, context)}
+        {:reply, {:ok, command.command_id}, track_command(%{state | stream: stream}, command, context)}
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to dispatch command to agent #{state.agent_id}: #{inspect(reason)}"
-        )
+        Logger.warning("Failed to dispatch command to agent #{state.agent_id}: #{inspect(reason)}")
 
         {:reply, {:error, reason}, state}
     end
@@ -253,15 +250,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   defp log_command_dispatch(state, command) do
-    Logger.info(
-      "Dispatching command to agent #{state.agent_id}: #{command.command_type} (#{command.command_id})"
-    )
+    Logger.info("Dispatching command to agent #{state.agent_id}: #{command.command_type} (#{command.command_id})")
   end
 
   defp log_command_ack(state, ack) do
-    Logger.info(
-      "Command ack from agent #{state.agent_id}: #{ack.command_type} (#{ack.command_id}) #{ack.message}"
-    )
+    Logger.info("Command ack from agent #{state.agent_id}: #{ack.command_type} (#{ack.command_id}) #{ack.message}")
   end
 
   defp log_command_progress(state, progress) do

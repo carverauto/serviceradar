@@ -8,9 +8,9 @@ defmodule ServiceRadar.Observability.Changes.SyncZenRule do
 
   use Ash.Resource.Change
 
-  require Logger
-
   alias ServiceRadar.Observability.ZenRuleSync
+
+  require Logger
 
   @impl true
   def change(changeset, _opts, _context) do

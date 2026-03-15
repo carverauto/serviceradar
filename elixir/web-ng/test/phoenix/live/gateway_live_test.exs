@@ -1,8 +1,9 @@
 defmodule ServiceRadarWebNGWeb.GatewayLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  alias ServiceRadarWebNG.Repo
   import Phoenix.LiveViewTest
+
+  alias ServiceRadarWebNG.Repo
 
   setup :register_and_log_in_user
 

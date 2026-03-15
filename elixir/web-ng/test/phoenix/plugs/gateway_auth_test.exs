@@ -18,14 +18,14 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthTest do
   describe "verify_token_signature/2" do
     test "verifies valid RSA-signed JWT" do
       token = create_signed_token(@rsa_private_key, "RS256")
-      jwk_map = JOSE.JWK.to_map(@rsa_public_key) |> elem(1)
+      jwk_map = @rsa_public_key |> JOSE.JWK.to_map() |> elem(1)
 
       assert :ok = call_verify_token_signature(token, jwk_map)
     end
 
     test "verifies valid EC-signed JWT" do
       token = create_signed_token(@ec_private_key, "ES256")
-      jwk_map = JOSE.JWK.to_map(@ec_public_key) |> elem(1)
+      jwk_map = @ec_public_key |> JOSE.JWK.to_map() |> elem(1)
 
       assert :ok = call_verify_token_signature(token, jwk_map)
     end
@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthTest do
       # Sign with one key, verify with another
       other_key = JOSE.JWK.generate_key({:rsa, 2048})
       token = create_signed_token(other_key, "RS256")
-      jwk_map = JOSE.JWK.to_map(@rsa_public_key) |> elem(1)
+      jwk_map = @rsa_public_key |> JOSE.JWK.to_map() |> elem(1)
 
       assert {:error, :invalid_signature} = call_verify_token_signature(token, jwk_map)
     end
@@ -49,7 +49,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthTest do
 
       tampered_token = "#{header}.#{tampered_payload}.#{signature}"
 
-      jwk_map = JOSE.JWK.to_map(@rsa_public_key) |> elem(1)
+      jwk_map = @rsa_public_key |> JOSE.JWK.to_map() |> elem(1)
 
       assert {:error, :invalid_signature} = call_verify_token_signature(tampered_token, jwk_map)
     end
@@ -87,7 +87,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthTest do
 
   describe "find_matching_key/2" do
     test "finds key by kid" do
-      jwk_map = JOSE.JWK.to_map(@rsa_public_key) |> elem(1) |> Map.put("kid", "test-key-1")
+      jwk_map = @rsa_public_key |> JOSE.JWK.to_map() |> elem(1) |> Map.put("kid", "test-key-1")
       jwks = [jwk_map]
 
       token = create_signed_token_with_kid(@rsa_private_key, "RS256", "test-key-1")
@@ -96,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthTest do
     end
 
     test "returns error when kid not found" do
-      jwk_map = JOSE.JWK.to_map(@rsa_public_key) |> elem(1) |> Map.put("kid", "other-key")
+      jwk_map = @rsa_public_key |> JOSE.JWK.to_map() |> elem(1) |> Map.put("kid", "other-key")
       jwks = [jwk_map]
 
       token = create_signed_token_with_kid(@rsa_private_key, "RS256", "test-key-1")
@@ -113,7 +113,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthTest do
   describe "integration with JWKS" do
     test "full JWKS verification flow with matching kid" do
       kid = "gateway-key-#{System.unique_integer()}"
-      jwk_map = JOSE.JWK.to_map(@rsa_public_key) |> elem(1) |> Map.put("kid", kid)
+      jwk_map = @rsa_public_key |> JOSE.JWK.to_map() |> elem(1) |> Map.put("kid", kid)
       jwks = [jwk_map]
 
       token = create_signed_token_with_kid(@rsa_private_key, "RS256", kid)
@@ -126,8 +126,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthTest do
 
     test "verification fails when JWKS has wrong key" do
       kid = "gateway-key-#{System.unique_integer()}"
-      other_key = JOSE.JWK.generate_key({:rsa, 2048}) |> JOSE.JWK.to_public()
-      jwk_map = JOSE.JWK.to_map(other_key) |> elem(1) |> Map.put("kid", kid)
+      other_key = {:rsa, 2048} |> JOSE.JWK.generate_key() |> JOSE.JWK.to_public()
+      jwk_map = other_key |> JOSE.JWK.to_map() |> elem(1) |> Map.put("kid", kid)
       jwks = [jwk_map]
 
       token = create_signed_token_with_kid(@rsa_private_key, "RS256", kid)
@@ -149,7 +149,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthTest do
     }
 
     jws = %{"alg" => alg}
-    {_meta, token} = JOSE.JWT.sign(private_key, jws, claims) |> JOSE.JWS.compact()
+    {_meta, token} = private_key |> JOSE.JWT.sign(jws, claims) |> JOSE.JWS.compact()
     token
   end
 
@@ -162,7 +162,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthTest do
     }
 
     jws = %{"alg" => alg, "kid" => kid}
-    {_meta, token} = JOSE.JWT.sign(private_key, jws, claims) |> JOSE.JWS.compact()
+    {_meta, token} = private_key |> JOSE.JWT.sign(jws, claims) |> JOSE.JWS.compact()
     token
   end
 

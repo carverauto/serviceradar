@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   @impl true

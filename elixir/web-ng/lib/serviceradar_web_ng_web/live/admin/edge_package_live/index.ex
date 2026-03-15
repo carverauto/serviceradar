@@ -8,12 +8,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
-  alias ServiceRadarWebNG.Edge.OnboardingPackages
-  alias ServiceRadarWebNG.Edge.OnboardingEvents
+  alias Ash.Error.Invalid
+  alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.ComponentID
+  alias ServiceRadarWebNG.Edge.OnboardingEvents
+  alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.PubSub, as: EdgePubSub
-  alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.GatewayHelpers
 
@@ -146,9 +147,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     partition = params["partition"] || socket.assigns.partition_value
     host_ip = params["host_ip"] || socket.assigns.host_ip_value
 
-    form =
-      socket.assigns.create_form
-      |> AshPhoenix.Form.validate(params)
+    form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
 
     {:noreply,
      socket
@@ -176,9 +175,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       attrs = build_package_attrs_from_form(params, socket.assigns.security_mode)
 
       # Issue certificates via the selected agent-gateway
-      Logger.info(
-        "[EdgePackage] create: base_url=#{base_url} component_type=#{params["component_type"] || "agent"}"
-      )
+      Logger.info("[EdgePackage] create: base_url=#{base_url} component_type=#{params["component_type"] || "agent"}")
 
       result =
         OnboardingPackages.create_with_gateway_cert(attrs,
@@ -239,7 +236,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
            |> assign(:creating, false)
            |> put_flash(:error, "Missing gateway or component identity for package creation.")}
 
-        {:error, %Ash.Error.Invalid{} = error} ->
+        {:error, %Invalid{} = error} ->
           form = AshPhoenix.Form.add_error(form, error)
 
           {:noreply,
@@ -310,7 +307,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   def handle_event("filter", %{"status" => status}, socket) do
     filters = %{limit: 50}
-    filters = if status != "", do: Map.put(filters, :status, [status]), else: filters
+    filters = if status == "", do: filters, else: Map.put(filters, :status, [status])
 
     {:noreply,
      socket
@@ -683,8 +680,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     enroll_cmd =
       if component_type == "agent" and is_binary(onboarding_token) do
         "sudo /usr/local/bin/serviceradar-cli enroll --token #{onboarding_token}"
-      else
-        nil
       end
 
     docker_cmd =
@@ -1155,18 +1150,20 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     metadata_json = build_metadata_json(component_type, params)
     partition_id = params["partition"] || "default"
 
-    %{
-      label: label,
-      component_id: component_id,
-      component_type: component_type,
-      gateway_id: params["gateway_id"],
-      site: if(component_type == "agent", do: partition_id, else: nil),
-      security_mode: security_mode,
-      notes: params["notes"],
-      parent_id: params["parent_id"],
-      metadata_json: metadata_json
-    }
-    |> add_parent_type(component_type)
+    add_parent_type(
+      %{
+        label: label,
+        component_id: component_id,
+        component_type: component_type,
+        gateway_id: params["gateway_id"],
+        site: if(component_type == "agent", do: partition_id),
+        security_mode: security_mode,
+        notes: params["notes"],
+        parent_id: params["parent_id"],
+        metadata_json: metadata_json
+      },
+      component_type
+    )
   end
 
   # Generate a component_id from label and type
@@ -1251,7 +1248,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     {options, default_gateway_id(options)}
   end
 
-  defp format_error(%Ash.Error.Invalid{errors: errors}) do
+  defp format_error(%Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", &format_error/1)
   end
 

@@ -6,9 +6,9 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  on_mount {ServiceRadarWebNGWeb.UserAuth, :require_sudo_mode}
-
   alias ServiceRadarWebNG.Accounts
+
+  on_mount {ServiceRadarWebNGWeb.UserAuth, :require_sudo_mode}
 
   @impl true
   def render(assigns) do
@@ -176,9 +176,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
 
   @impl true
   def handle_event("validate_email", %{"user" => user_params}, socket) do
-    ash_form =
-      socket.assigns.email_ash_form
-      |> AshPhoenix.Form.validate(user_params)
+    ash_form = AshPhoenix.Form.validate(socket.assigns.email_ash_form, user_params)
 
     {:noreply,
      socket
@@ -190,15 +188,13 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
     user = socket.assigns.current_scope.user
 
     if Accounts.sudo_mode?(user, socket.assigns.sudo_at) do
-      ash_form =
-        socket.assigns.email_ash_form
-        |> AshPhoenix.Form.validate(user_params)
+      ash_form = AshPhoenix.Form.validate(socket.assigns.email_ash_form, user_params)
 
       case AshPhoenix.Form.submit(ash_form, params: user_params) do
         {:ok, _updated_user} ->
           # Email verification could use Guardian tokens in the future
           info = "Email updated successfully."
-          {:noreply, socket |> put_flash(:info, info)}
+          {:noreply, put_flash(socket, :info, info)}
 
         {:error, ash_form} ->
           {:noreply,
@@ -215,9 +211,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   end
 
   def handle_event("validate_password", %{"user" => user_params}, socket) do
-    ash_form =
-      socket.assigns.password_ash_form
-      |> AshPhoenix.Form.validate(user_params)
+    ash_form = AshPhoenix.Form.validate(socket.assigns.password_ash_form, user_params)
 
     {:noreply,
      socket
@@ -229,9 +223,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
     user = socket.assigns.current_scope.user
 
     if Accounts.sudo_mode?(user, socket.assigns.sudo_at) do
-      ash_form =
-        socket.assigns.password_ash_form
-        |> AshPhoenix.Form.validate(user_params)
+      ash_form = AshPhoenix.Form.validate(socket.assigns.password_ash_form, user_params)
 
       # Important: do not submit the Ash action here.
       # The browser POSTs to UserSessionController, which performs the password

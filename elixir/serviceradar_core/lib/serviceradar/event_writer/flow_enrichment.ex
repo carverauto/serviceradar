@@ -176,8 +176,9 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   def decode_tcp_flags(nil), do: []
 
   def decode_tcp_flags(flags) when is_integer(flags) and flags >= 0 do
-    Enum.reduce(@tcp_flag_bits, [], fn {bit, name}, acc ->
-      if Bitwise.band(flags, bit) != 0, do: [name | acc], else: acc
+    @tcp_flag_bits
+    |> Enum.reduce([], fn {bit, name}, acc ->
+      if Bitwise.band(flags, bit) == 0, do: acc, else: [name | acc]
     end)
     |> Enum.reverse()
   end
@@ -259,7 +260,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       |> String.upcase()
       |> String.replace(~r/[^0-9A-F]/u, "")
 
-    if String.length(compact) == 12, do: compact, else: nil
+    if String.length(compact) == 12, do: compact
   end
 
   def normalize_mac(_), do: nil

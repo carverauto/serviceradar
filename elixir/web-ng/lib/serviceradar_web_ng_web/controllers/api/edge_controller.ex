@@ -8,16 +8,16 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
 
   use ServiceRadarWebNGWeb, :controller
 
-  require Ash.Query
-
   alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadarWebNG.Edge.OnboardingPackages
-  alias ServiceRadarWebNG.Edge.OnboardingEvents
-  alias ServiceRadarWebNG.Edge.ComponentTemplates
-  alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Accounts.Scope
-  alias ServiceRadarWebNGWeb.ClientIP
+  alias ServiceRadarWebNG.Edge.BundleGenerator
+  alias ServiceRadarWebNG.Edge.ComponentTemplates
+  alias ServiceRadarWebNG.Edge.OnboardingEvents
+  alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.ClientIP
+
+  require Ash.Query
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -251,8 +251,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     conn |> put_status(:not_found) |> json(%{error: "package not found"})
   end
 
-  defp handle_download_error(conn, reason)
-       when reason in [:already_delivered, :revoked, :deleted] do
+  defp handle_download_error(conn, reason) when reason in [:already_delivered, :revoked, :deleted] do
     conn |> put_status(:conflict) |> json(%{error: "package #{reason}"})
   end
 
@@ -263,14 +262,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   end
 
   defp handle_bundle_error(conn, reason)
-       when reason in [
-              :invalid_token,
-              :expired,
-              :not_found,
-              :already_delivered,
-              :revoked,
-              :deleted
-            ] do
+       when reason in [:invalid_token, :expired, :not_found, :already_delivered, :revoked, :deleted] do
     handle_download_error(conn, reason)
   end
 
@@ -345,8 +337,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
         _ -> conn.port
       end
 
-    %URI{scheme: scheme, host: host, port: port}
-    |> URI.to_string()
+    URI.to_string(%URI{scheme: scheme, host: host, port: port})
   end
 
   defp wrap_bundle_error({:ok, tarball}), do: {:ok, tarball}

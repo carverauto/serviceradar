@@ -11,11 +11,11 @@ defmodule ServiceRadar.SNMPProfiles.Changes.SetAsDefault do
 
   use Ash.Resource.Change
 
+  import Ecto.Query
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.SNMPProfile
-
-  import Ecto.Query
 
   @impl true
   def change(changeset, _opts, _context) do
@@ -33,7 +33,7 @@ defmodule ServiceRadar.SNMPProfiles.Changes.SetAsDefault do
 
   defp unset_other_defaults(current_id, actor) do
     _ = actor
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
     query =
       from(p in SNMPProfile,

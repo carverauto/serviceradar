@@ -24,13 +24,13 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
   If this query returns results, the profile matches the device.
   """
 
-  require Ash.Query
-  require Logger
-
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLDeviceMatcher
   alias ServiceRadar.SRQLProfileResolver
   alias ServiceRadar.SysmonProfiles.SysmonProfile
+
+  require Ash.Query
+  require Logger
 
   @doc """
   Resolves the matching sysmon profile for a device using SRQL targeting.
@@ -63,9 +63,7 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
 
   # Load all profiles with SRQL targeting, ordered by priority
   defp load_targeting_profiles(actor) do
-    query =
-      SysmonProfile
-      |> Ash.Query.for_read(:list_targeting_profiles, %{}, actor: actor)
+    query = Ash.Query.for_read(SysmonProfile, :list_targeting_profiles, %{}, actor: actor)
 
     case Ash.read(query, actor: actor) do
       {:ok, profiles} -> {:ok, profiles}

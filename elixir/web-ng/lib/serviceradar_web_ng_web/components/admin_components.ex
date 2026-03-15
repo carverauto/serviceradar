@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.AdminComponents do
   Shared UI components for admin pages.
   """
   use Phoenix.Component
+
   import ServiceRadarWebNGWeb.UIComponents
 
   @doc """

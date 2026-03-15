@@ -8,18 +8,17 @@ defmodule ServiceRadar.Jobs.JobScheduleSeeder do
 
   use ServiceRadar.DelayedSeeder, callback: :seed_all
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Jobs.JobSchedule
+
+  require Logger
 
   def seed_all do
     if repo_enabled?() do
       actor = SystemActor.system(:job_schedule_seeder)
       opts = [actor: actor]
 
-      default_schedules()
-      |> Enum.each(&ensure_schedule(&1, opts))
+      Enum.each(default_schedules(), &ensure_schedule(&1, opts))
     end
   end
 

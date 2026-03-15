@@ -26,8 +26,8 @@ defmodule ServiceRadar.Identity.IdentityCache do
   require Logger
 
   @table_name :serviceradar_identity_cache
-  @default_ttl_ms :timer.minutes(5)
-  @cleanup_interval_ms :timer.minutes(1)
+  @default_ttl_ms to_timeout(minute: 5)
+  @cleanup_interval_ms to_timeout(minute: 1)
   @max_size 100_000
 
   @type cached_record :: %{
@@ -229,7 +229,7 @@ defmodule ServiceRadar.Identity.IdentityCache do
       :ets.delete(@table_name, key)
     end)
 
-    unless Enum.empty?(expired_keys) do
+    if !Enum.empty?(expired_keys) do
       Logger.debug("Identity cache: evicted #{length(expired_keys)} expired entries")
     end
   rescue
@@ -255,7 +255,8 @@ defmodule ServiceRadar.Identity.IdentityCache do
   defp evict_oldest(count) when count > 0 do
     # Get all entries sorted by expiration time (oldest first)
     entries =
-      :ets.tab2list(@table_name)
+      @table_name
+      |> :ets.tab2list()
       |> Enum.sort_by(fn {_key, _record, expires_at} -> expires_at end)
       |> Enum.take(count)
 

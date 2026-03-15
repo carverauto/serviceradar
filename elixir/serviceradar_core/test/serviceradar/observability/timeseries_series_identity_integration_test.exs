@@ -1,21 +1,17 @@
 defmodule ServiceRadar.Observability.TimeseriesSeriesIdentityIntegrationTest do
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Actors.SystemActor
-
-  alias ServiceRadar.Observability.{
-    IcmpMetricsIngestor,
-    PluginResultIngestor,
-    SnmpMetricsIngestor,
-    TimeseriesMetric
-  }
-
+  alias ServiceRadar.Observability.IcmpMetricsIngestor
+  alias ServiceRadar.Observability.PluginResultIngestor
+  alias ServiceRadar.Observability.SnmpMetricsIngestor
+  alias ServiceRadar.Observability.TimeseriesMetric
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   require Ash.Query
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()

@@ -9,7 +9,9 @@ defmodule ServiceRadar.Plugins.PluginInputs do
   execution or API credentials.
   """
 
-  alias ServiceRadar.Plugins.{IdentityUtils, MapUtils, PayloadUtils}
+  alias ServiceRadar.Plugins.IdentityUtils
+  alias ServiceRadar.Plugins.MapUtils
+  alias ServiceRadar.Plugins.PayloadUtils
 
   @schema_id "serviceradar.plugin_inputs.v1"
   @soft_limit_bytes 262_144
@@ -161,8 +163,7 @@ defmodule ServiceRadar.Plugins.PluginInputs do
       end)
 
     errors =
-      payloads
-      |> Enum.flat_map(fn payload ->
+      Enum.flat_map(payloads, fn payload ->
         case do_validate(payload) do
           :ok -> []
           {:error, errs} -> errs

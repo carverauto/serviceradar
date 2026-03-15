@@ -7,15 +7,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.SettingsComponents
   import ServiceRadarWebNGWeb.QueryBuilderComponents
+  import ServiceRadarWebNGWeb.SettingsComponents
 
   alias AshPhoenix.Form
-  alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
+  alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.SysmonProfiles.SysmonProfile
-  alias ServiceRadarWebNGWeb.SRQL.Catalog
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   @impl true
   def mount(_params, _session, socket) do
@@ -119,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     params = transform_array_fields(params)
     target_query = Map.get(params, "target_query")
     device_count = count_target_devices(scope, target_query)
-    ash_form = socket.assigns.ash_form |> Form.validate(params)
+    ash_form = Form.validate(socket.assigns.ash_form, params)
     {parsed_builder, builder_sync} = parse_target_query_to_builder(target_query)
 
     socket =
@@ -141,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
   def handle_event("save_profile", %{"form" => params}, socket) do
     params = transform_array_fields(params)
-    ash_form = socket.assigns.ash_form |> Form.validate(params)
+    ash_form = Form.validate(socket.assigns.ash_form, params)
     scope = socket.assigns.current_scope
 
     case Form.submit(ash_form, params: params) do
@@ -329,9 +329,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     query = build_target_query(builder)
 
     # Update the form with the new target_query
-    ash_form =
-      socket.assigns.ash_form
-      |> Form.validate(%{"target_query" => query})
+    ash_form = Form.validate(socket.assigns.ash_form, %{"target_query" => query})
 
     scope = socket.assigns.current_scope
     device_count = count_target_devices(scope, query)
@@ -524,9 +522,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   defp profile_form(assigns) do
     config = Catalog.entity("devices")
 
-    assigns =
-      assigns
-      |> assign(:config, config)
+    assigns = assign(assigns, :config, config)
 
     ~H"""
     <.ui_panel>
@@ -910,8 +906,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     case Ash.read(SysmonProfile, scope: scope) do
       {:ok, profiles} ->
         # Sort by priority (highest first), then by name
-        profiles
-        |> Enum.sort_by(fn p -> {-p.priority, p.name} end)
+        Enum.sort_by(profiles, fn p -> {-p.priority, p.name} end)
 
       {:error, _} ->
         []
@@ -1041,7 +1036,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     case String.split(field, ":", parts: 2) do
       [field_name, value] ->
         field_name = String.trim(field_name)
-        value = String.trim(value) |> String.replace("\\ ", " ")
+        value = value |> String.trim() |> String.replace("\\ ", " ")
 
         {op, final_value} = parse_filter_value(field_name, negated, value)
 
@@ -1059,7 +1054,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   defp parse_filter_value(field, negated, value) do
     cond do
       list_filter_field?(field) ->
-        normalized = normalize_list_value(value) |> Enum.join(", ")
+        normalized = value |> normalize_list_value() |> Enum.join(", ")
         {maybe_negate_op("equals", negated), normalized}
 
       String.contains?(value, "%") ->
@@ -1241,9 +1236,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
       builder = socket.assigns.builder
       query = build_target_query(builder)
 
-      ash_form =
-        socket.assigns.ash_form
-        |> Form.validate(%{"target_query" => query})
+      ash_form = Form.validate(socket.assigns.ash_form, %{"target_query" => query})
 
       scope = socket.assigns.current_scope
       device_count = count_target_devices(scope, query)

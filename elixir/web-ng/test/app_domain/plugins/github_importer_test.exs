@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadarWebNG.Plugins.GitHubImporter
+  alias ServiceRadarWebNG.Plugins.GitHubImporterTest
   alias ServiceRadarWebNG.Plugins.Storage
 
   @repo_url "https://github.com/acme/demo"
@@ -26,6 +27,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
   def wasm_blob, do: @wasm_blob
 
   defmodule MockClient do
+    @moduledoc false
     def get(url, _opts) do
       cond do
         String.contains?(url, "api.github.com/repos/acme/demo/commits/") ->
@@ -51,14 +53,14 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
           {:ok,
            %Req.Response{
              status: 200,
-             body: ServiceRadarWebNG.Plugins.GitHubImporterTest.manifest_yaml()
+             body: GitHubImporterTest.manifest_yaml()
            }}
 
         String.contains?(url, "raw.githubusercontent.com/acme/demo/main/plugin.wasm") ->
           {:ok,
            %Req.Response{
              status: 200,
-             body: ServiceRadarWebNG.Plugins.GitHubImporterTest.wasm_blob()
+             body: GitHubImporterTest.wasm_blob()
            }}
 
         true ->
@@ -68,6 +70,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
   end
 
   defmodule UnverifiedClient do
+    @moduledoc false
     def get(url, _opts) do
       cond do
         String.contains?(url, "api.github.com/repos/acme/demo/commits/") ->
@@ -92,14 +95,14 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
           {:ok,
            %Req.Response{
              status: 200,
-             body: ServiceRadarWebNG.Plugins.GitHubImporterTest.manifest_yaml()
+             body: GitHubImporterTest.manifest_yaml()
            }}
 
         String.contains?(url, "raw.githubusercontent.com/acme/demo/main/plugin.wasm") ->
           {:ok,
            %Req.Response{
              status: 200,
-             body: ServiceRadarWebNG.Plugins.GitHubImporterTest.wasm_blob()
+             body: GitHubImporterTest.wasm_blob()
            }}
 
         true ->
@@ -146,7 +149,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
     assert result.manifest["id"] == "http-check"
     assert result.content_hash == Storage.sha256(@wasm_blob)
     assert result.gpg_key_id == "octo"
-    assert result.gpg_verified_at != nil
+    assert result.gpg_verified_at
     assert result.source_commit == "abc123"
   end
 

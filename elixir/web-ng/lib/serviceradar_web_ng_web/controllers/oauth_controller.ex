@@ -53,12 +53,13 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
 
   use ServiceRadarWebNGWeb, :controller
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.OAuthClient
+  alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNGWeb.ClientIP
+
+  require Logger
 
   # Default token TTL: 1 hour
   @default_ttl_seconds 3600
@@ -102,7 +103,7 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
       extra_claims = %{"scope" => Enum.join(scopes, " ")}
 
       with {:ok, user} <-
-             ServiceRadar.Identity.User.authenticate(username, password, actor: actor),
+             User.authenticate(username, password, actor: actor),
            {:ok, token, _full_claims} <-
              Guardian.create_api_token(user,
                scopes: scopes_atoms,
@@ -224,11 +225,9 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
     # Load the user for the token
     actor = SystemActor.system(:oauth_token)
 
-    case ServiceRadar.Identity.User.get_by_id(client.user_id, actor: actor) do
+    case User.get_by_id(client.user_id, actor: actor) do
       {:ok, user} ->
-        scopes_atoms =
-          scopes
-          |> Enum.map(&scope_to_atom/1)
+        scopes_atoms = Enum.map(scopes, &scope_to_atom/1)
 
         extra_claims = %{
           "client_id" => to_string(client.id),

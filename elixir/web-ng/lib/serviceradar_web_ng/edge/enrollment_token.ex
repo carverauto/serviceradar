@@ -82,7 +82,7 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   """
   @spec generate_secret() :: String.t()
   def generate_secret do
-    :crypto.strong_rand_bytes(24) |> Base.url_encode64(padding: false)
+    24 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
   end
 
   @doc """
@@ -118,7 +118,7 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   """
   @spec expired?(DateTime.t()) :: boolean()
   def expired?(expires_at) do
-    DateTime.compare(DateTime.utc_now(), expires_at) == :gt
+    DateTime.after?(DateTime.utc_now(), expires_at)
   end
 
   @doc """
@@ -138,7 +138,7 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   @spec expiry_datetime(keyword()) :: DateTime.t()
   def expiry_datetime(opts \\ []) do
     expiry_hours = Keyword.get(opts, :expiry_hours, @default_expiry_hours)
-    DateTime.utc_now() |> DateTime.add(expiry_hours * 3600, :second)
+    DateTime.add(DateTime.utc_now(), expiry_hours * 3600, :second)
   end
 
   # Private functions
@@ -163,7 +163,7 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   end
 
   defp hash_secret(secret) do
-    :crypto.hash(:sha256, secret) |> Base.encode16(case: :lower)
+    :sha256 |> :crypto.hash(secret) |> Base.encode16(case: :lower)
   end
 
   defp default_base_url do

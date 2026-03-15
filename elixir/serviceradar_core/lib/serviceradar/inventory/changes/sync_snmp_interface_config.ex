@@ -5,15 +5,19 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
 
   use Ash.Resource.Change
 
-  require Logger
-  require Ash.Query
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Changes.AfterAction
-  alias ServiceRadar.Inventory.{Device, Interface, InterfaceSettings}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.SNMPProfiles.CredentialResolver
-  alias ServiceRadar.SNMPProfiles.{SNMPOIDConfig, SNMPProfile, SNMPTarget}
+  alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
+  alias ServiceRadar.SNMPProfiles.SNMPTarget
+
+  require Ash.Query
+  require Logger
 
   @impl true
   def change(changeset, _opts, _context) do
@@ -156,14 +160,16 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
 
       {:ok, credential} ->
         attrs =
-          %{
-            name: interface_target_name(settings, interface, host),
-            host: host,
-            port: 161,
-            version: credential.version,
-            snmp_profile_id: profile.id
-          }
-          |> Map.merge(credential_attrs(credential))
+          Map.merge(
+            %{
+              name: interface_target_name(settings, interface, host),
+              host: host,
+              port: 161,
+              version: credential.version,
+              snmp_profile_id: profile.id
+            },
+            credential_attrs(credential)
+          )
 
         SNMPTarget
         |> Ash.Changeset.for_create(:create, attrs, opts)
@@ -309,7 +315,8 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
 
     if String.length(name) > 128 do
       hash =
-        :crypto.hash(:sha256, base)
+        :sha256
+        |> :crypto.hash(base)
         |> Base.encode16(case: :lower)
         |> String.slice(0, 8)
 
@@ -478,9 +485,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   end
 
   defp upsert_oid(target_id, attrs, opts) do
-    query =
-      SNMPOIDConfig
-      |> Ash.Query.filter(snmp_target_id == ^target_id and oid == ^attrs.oid)
+    query = Ash.Query.filter(SNMPOIDConfig, snmp_target_id == ^target_id and oid == ^attrs.oid)
 
     case Ash.read_one(query, opts) do
       {:ok, nil} ->

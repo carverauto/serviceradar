@@ -33,14 +33,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   @behaviour ServiceRadar.AgentConfig.Compiler
 
-  require Ash.Query
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.SRQLQuery
-  alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.Types.Cidr
+
+  require Ash.Query
+  require Logger
 
   @srql_page_limit_default 500
 
@@ -81,7 +82,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
     config = %{
       "groups" => compiled_groups,
-      "compiled_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+      "compiled_at" => DateTime.to_iso8601(DateTime.utc_now()),
       "config_hash" => config_hash
     }
 
@@ -130,8 +131,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   defp load_sweep_groups(partition, agent_id, actor) do
     query =
-      SweepGroup
-      |> Ash.Query.for_read(:for_agent_partition, %{
+      Ash.Query.for_read(SweepGroup, :for_agent_partition, %{
         partition: partition,
         agent_id: agent_id
       })
@@ -163,9 +163,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   defp load_profiles(profile_ids, _actor) when profile_ids == [], do: []
 
   defp load_profiles(profile_ids, actor) do
-    query =
-      SweepProfile
-      |> Ash.Query.filter(id in ^profile_ids)
+    query = Ash.Query.filter(SweepProfile, id in ^profile_ids)
 
     case Ash.read(query, actor: actor) do
       {:ok, profiles} ->
@@ -241,8 +239,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       end
 
     # Combine and deduplicate
-    (static_targets ++ srql_targets)
-    |> Enum.uniq()
+    Enum.uniq(static_targets ++ srql_targets)
   end
 
   defp get_targets_from_query(query, _actor) when is_binary(query) do

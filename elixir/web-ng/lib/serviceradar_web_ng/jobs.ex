@@ -33,8 +33,7 @@ defmodule ServiceRadarWebNG.Jobs do
     "reap_stale_periodic_jobs" => %{
       key: "reap_stale_periodic_jobs",
       label: "Periodic job reaper",
-      description:
-        "Reap stale periodic Oban jobs stuck in executing after restarts or failovers.",
+      description: "Reap stale periodic Oban jobs stuck in executing after restarts or failovers.",
       worker: ReapStalePeriodicJobsWorker,
       queue: :maintenance,
       args: %{},
@@ -44,8 +43,7 @@ defmodule ServiceRadarWebNG.Jobs do
     "refresh_logs_severity_stats" => %{
       key: "refresh_logs_severity_stats",
       label: "Logs severity stats refresh",
-      description:
-        "Refresh the logs_severity_stats_5m continuous aggregate to keep severity counts current.",
+      description: "Refresh the logs_severity_stats_5m continuous aggregate to keep severity counts current.",
       worker: RefreshLogsSeverityStatsWorker,
       queue: :maintenance,
       args: %{},
@@ -65,8 +63,7 @@ defmodule ServiceRadarWebNG.Jobs do
     "expire_packages" => %{
       key: "expire_packages",
       label: "Expire onboarding packages",
-      description:
-        "Marks edge onboarding packages as expired when their tokens have passed expiration.",
+      description: "Marks edge onboarding packages as expired when their tokens have passed expiration.",
       worker: ExpirePackagesWorker,
       queue: :maintenance,
       args: %{},
@@ -84,8 +81,7 @@ defmodule ServiceRadarWebNG.Jobs do
   end
 
   def list_enabled_schedules do
-    from(s in Schedule, where: s.enabled)
-    |> Repo.all()
+    Repo.all(from(s in Schedule, where: s.enabled))
   rescue
     error in Postgrex.Error ->
       Logger.warning("Failed to load job schedules: #{Exception.message(error)}")
@@ -115,8 +111,7 @@ defmodule ServiceRadarWebNG.Jobs do
   def list_schedule_entries(opts \\ []) do
     run_limit = Keyword.get(opts, :run_limit, 5)
 
-    list_schedules()
-    |> Enum.map(fn schedule ->
+    Enum.map(list_schedules(), fn schedule ->
       %{
         schedule: schedule,
         job: Map.get(@job_catalog, schedule.job_key),
@@ -135,12 +130,7 @@ defmodule ServiceRadarWebNG.Jobs do
 
     case job_definition(job_key) do
       %{worker: worker} ->
-        from(j in Job,
-          where: j.worker == ^inspect(worker),
-          order_by: [desc: j.inserted_at],
-          limit: ^limit
-        )
-        |> Repo.all()
+        Repo.all(from(j in Job, where: j.worker == ^inspect(worker), order_by: [desc: j.inserted_at], limit: ^limit))
 
       _ ->
         []
@@ -181,8 +171,7 @@ defmodule ServiceRadarWebNG.Jobs do
   def enqueue_due_schedules(oban_name \\ Oban) do
     now = DateTime.utc_now()
 
-    list_enabled_schedules()
-    |> Enum.reduce(%{enqueued: 0, errors: []}, fn schedule, acc ->
+    Enum.reduce(list_enabled_schedules(), %{enqueued: 0, errors: []}, fn schedule, acc ->
       case enqueue_if_due(schedule, now, oban_name) do
         {:ok, _job} ->
           %{acc | enqueued: acc.enqueued + 1}
@@ -197,28 +186,31 @@ defmodule ServiceRadarWebNG.Jobs do
   end
 
   def next_run_at(%Schedule{} = schedule, now \\ DateTime.utc_now()) do
-    with {:ok, expr} <- Expression.parse(schedule.cron),
-         timezone <- schedule.timezone || @default_timezone,
-         now_tz <- now_in_zone(now, timezone),
-         base_time <- schedule.last_enqueued_at || DateTime.add(now_tz, -60, :second),
-         base_time <- shift_zone(base_time, timezone) do
-      case Expression.next_at(expr, base_time) do
-        %DateTime{} = next_at -> next_at
-        _ -> nil
-      end
-    else
-      _ -> nil
+    case Expression.parse(schedule.cron) do
+      {:ok, expr} ->
+        timezone = schedule.timezone || @default_timezone
+        now_tz = now_in_zone(now, timezone)
+        base_time = schedule.last_enqueued_at || DateTime.add(now_tz, -60, :second)
+        base_time = shift_zone(base_time, timezone)
+
+        case Expression.next_at(expr, base_time) do
+          %DateTime{} = next_at -> next_at
+          _ -> nil
+        end
+
+      _ ->
+        nil
     end
   end
 
   defp enqueue_if_due(%Schedule{} = schedule, now, oban_name) do
     if schedule.enabled do
       with {:ok, expr} <- Expression.parse(schedule.cron),
-           timezone <- schedule.timezone || @default_timezone,
+           timezone = schedule.timezone || @default_timezone,
            job_def when is_map(job_def) <- job_definition(schedule.job_key),
-           now_tz <- now_in_zone(now, timezone),
-           base_time <- schedule.last_enqueued_at || DateTime.add(now_tz, -60, :second),
-           base_time <- shift_zone(base_time, timezone),
+           now_tz = now_in_zone(now, timezone),
+           base_time = schedule.last_enqueued_at || DateTime.add(now_tz, -60, :second),
+           base_time = shift_zone(base_time, timezone),
            %DateTime{} = next_at <- Expression.next_at(expr, base_time),
            true <- DateTime.compare(next_at, now_tz) in [:lt, :eq] do
         enqueue_schedule(schedule, job_def, next_at, oban_name)

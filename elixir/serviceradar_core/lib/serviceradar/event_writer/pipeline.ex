@@ -22,10 +22,12 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   use Broadway
 
-  require Logger
-
   alias Broadway.Message
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.Processors.CausalSignals
+  alias ServiceRadar.EventWriter.Processors.Flows
+
+  require Logger
 
   @doc """
   Starts the Broadway pipeline.
@@ -149,8 +151,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp build_batchers(config) do
     stream_batchers =
-      config.streams
-      |> Enum.map(fn stream ->
+      Keyword.new(config.streams, fn stream ->
         batcher_name = stream_to_batcher_name(stream.name)
 
         {batcher_name,
@@ -159,7 +160,6 @@ defmodule ServiceRadar.EventWriter.Pipeline do
            batch_timeout: stream[:batch_timeout] || config.batch_timeout
          ]}
       end)
-      |> Keyword.new()
 
     if Keyword.has_key?(stream_batchers, :default) do
       stream_batchers
@@ -173,7 +173,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp determine_batcher(subject) when is_binary(subject) do
     Enum.find_value(batcher_rules(), :default, fn {batcher, matcher} ->
-      if matcher.(subject), do: batcher, else: nil
+      if matcher.(subject), do: batcher
     end)
   end
 
@@ -257,8 +257,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp bmp_causal_subject?(subject),
     do:
-      subject == "bmp.events" or
-        String.starts_with?(subject, "bmp.events.") or
+      subject == "bmp.events" or String.starts_with?(subject, "bmp.events.") or
         subject == "signals.causal" or
         String.starts_with?(subject, "signals.causal.")
 
@@ -268,8 +267,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp siem_causal_subject?(subject),
     do: subject == "siem.events" or String.starts_with?(subject, "siem.events.")
 
-  defp falco_subject?(subject),
-    do: subject == "falco" or String.starts_with?(subject, "falco.")
+  defp falco_subject?(subject), do: subject == "falco" or String.starts_with?(subject, "falco.")
 
   defp trivy_subject?(subject),
     do: subject == "trivy.report" or String.starts_with?(subject, "trivy.report.")
@@ -279,15 +277,15 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:events), do: ServiceRadar.EventWriter.Processors.Events
   defp get_processor(:falco), do: ServiceRadar.EventWriter.Processors.FalcoEvents
   defp get_processor(:trivy), do: ServiceRadar.EventWriter.Processors.TrivyReports
-  defp get_processor(:bmp_causal), do: ServiceRadar.EventWriter.Processors.CausalSignals
-  defp get_processor(:arancini_causal), do: ServiceRadar.EventWriter.Processors.CausalSignals
-  defp get_processor(:siem_causal), do: ServiceRadar.EventWriter.Processors.CausalSignals
-  defp get_processor(:causal_signals), do: ServiceRadar.EventWriter.Processors.CausalSignals
+  defp get_processor(:bmp_causal), do: CausalSignals
+  defp get_processor(:arancini_causal), do: CausalSignals
+  defp get_processor(:siem_causal), do: CausalSignals
+  defp get_processor(:causal_signals), do: CausalSignals
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:telemetry), do: ServiceRadar.EventWriter.Processors.Telemetry
-  defp get_processor(:sflow_raw), do: ServiceRadar.EventWriter.Processors.Flows
-  defp get_processor(:netflow_raw), do: ServiceRadar.EventWriter.Processors.Flows
-  defp get_processor(:netflow), do: ServiceRadar.EventWriter.Processors.Flows
+  defp get_processor(:sflow_raw), do: Flows
+  defp get_processor(:netflow_raw), do: Flows
+  defp get_processor(:netflow), do: Flows
   defp get_processor(_), do: ServiceRadar.EventWriter.Processors.Default
 
   defp stream_to_batcher_name(stream_name) do

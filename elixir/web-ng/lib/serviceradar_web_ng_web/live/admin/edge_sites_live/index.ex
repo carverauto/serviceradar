@@ -11,10 +11,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
-  require Ash.Query
-
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadarWebNG.RBAC
+
+  require Ash.Query
 
   @impl true
   def mount(_params, _session, socket) do
@@ -89,9 +89,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   end
 
   def handle_event("refresh", _params, socket) do
-    {:noreply,
-     socket
-     |> load_sites()}
+    {:noreply, load_sites(socket)}
   end
 
   @impl true

@@ -5,10 +5,11 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettingsSeeder do
 
   use ServiceRadar.DelayedSeeder, callback: :seed_defaults
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{DeviceCleanupSettings, DeviceCleanupWorker}
+  alias ServiceRadar.Inventory.DeviceCleanupSettings
+  alias ServiceRadar.Inventory.DeviceCleanupWorker
+
+  require Logger
 
   def seed_defaults do
     if repo_enabled?() do

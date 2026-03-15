@@ -45,8 +45,6 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
          gpg_key_id: gpg_key_id,
          source_commit: source_commit
        }}
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -166,17 +164,16 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
     source_commit = sha || ref
 
     signature =
-      %{
+      drop_blank_values(%{
         "source" => "github",
         "verified" => verified,
         "reason" => reason,
         "signer" => signer,
         "commit" => source_commit
-      }
-      |> drop_blank_values()
+      })
 
-    gpg_verified_at = if verified, do: DateTime.utc_now(), else: nil
-    gpg_key_id = if verified, do: signer, else: nil
+    gpg_verified_at = if verified, do: DateTime.utc_now()
+    gpg_key_id = if verified, do: signer
 
     {signature, gpg_verified_at, gpg_key_id, source_commit}
   end
@@ -195,7 +192,8 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
 
   defp enforce_verification_policy(%{verification: verification}) do
     require_gpg =
-      Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
+      :serviceradar_web_ng
+      |> Application.get_env(:plugin_verification, [])
       |> Keyword.get(:require_gpg_for_github, false)
 
     if require_gpg and Map.get(verification, "verified") != true do

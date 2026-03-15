@@ -8,10 +8,10 @@ defmodule ServiceRadar.Identity.Changes.DisallowLastAdminLockout do
 
   use Ash.Resource.Change
 
-  require Ash.Query
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
+
+  require Ash.Query
 
   @impl true
   def change(changeset, _opts, context) do

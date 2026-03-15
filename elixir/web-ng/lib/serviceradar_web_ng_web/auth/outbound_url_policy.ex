@@ -129,9 +129,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundURLPolicy do
   defp private_or_loopback_ipv6?({0xFD00, _, _, _, _, _, _, _}), do: true
 
   # fc00::/7 — match any address where the top 7 bits are 1111110
-  defp private_or_loopback_ipv6?({w1, _, _, _, _, _, _, _})
-       when Bitwise.band(w1, 0xFE00) == 0xFC00,
-       do: true
+  defp private_or_loopback_ipv6?({w1, _, _, _, _, _, _, _}) when Bitwise.band(w1, 0xFE00) == 0xFC00, do: true
 
   defp private_or_loopback_ipv6?(_), do: false
 

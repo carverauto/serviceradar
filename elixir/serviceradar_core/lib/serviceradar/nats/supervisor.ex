@@ -97,9 +97,9 @@ defmodule ServiceRadar.NATS.Supervisor do
     host = Keyword.get(config, :host, "localhost")
     port = Keyword.get(config, :port, 4222)
     tls = Keyword.get(config, :tls, false)
-    creds_file = resolve_value(Keyword.get(config, :creds_file)) |> normalize()
-    jwt = resolve_value(Keyword.get(config, :jwt)) |> normalize()
-    nkey_seed = resolve_value(Keyword.get(config, :nkey_seed)) |> normalize()
+    creds_file = config |> Keyword.get(:creds_file) |> resolve_value() |> normalize()
+    jwt = config |> Keyword.get(:jwt) |> resolve_value() |> normalize()
+    nkey_seed = config |> Keyword.get(:nkey_seed) |> resolve_value() |> normalize()
     user = resolve_value(Keyword.get(config, :user))
     password = resolve_value(Keyword.get(config, :password))
 
@@ -138,10 +138,10 @@ defmodule ServiceRadar.NATS.Supervisor do
           |> Map.put(:auth_required, true)
 
         settings =
-          if jwt != nil do
-            Map.put(settings, :jwt, jwt)
-          else
+          if jwt == nil do
             settings
+          else
+            Map.put(settings, :jwt, jwt)
           end
 
         {:ok, settings}

@@ -2,10 +2,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
   import Phoenix.LiveViewTest
+  import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, actor_for_user: 1]
 
   alias ServiceRadarWebNG.Edge.OnboardingPackages
-
-  import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, actor_for_user: 1]
 
   setup %{conn: conn} do
     user = admin_user_fixture()

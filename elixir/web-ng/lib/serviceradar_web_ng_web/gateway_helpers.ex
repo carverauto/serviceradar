@@ -3,8 +3,7 @@ defmodule ServiceRadarWebNGWeb.GatewayHelpers do
 
   def extract_gateway_id(%{gateway_id: id}) when is_binary(id) and id != "", do: id
 
-  def extract_gateway_id(%{key: {_partition, node}}) when is_atom(node),
-    do: to_string(node)
+  def extract_gateway_id(%{key: {_partition, node}}) when is_atom(node), do: to_string(node)
 
   def extract_gateway_id(%{key: key}) when is_binary(key), do: key
   def extract_gateway_id(%{key: key}) when is_atom(key), do: to_string(key)

@@ -582,7 +582,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     show_oban_web = show_oban_web?(scope)
     show_leader_info = show_leader_info?(scope)
     can_trigger = can_trigger_jobs?(scope)
-    leader = if show_leader_info, do: get_leader_node(), else: nil
+    leader = if show_leader_info, do: get_leader_node()
 
     socket
     |> assign(:jobs, jobs)
@@ -598,18 +598,15 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     |> assign(:can_trigger, can_trigger)
   end
 
-  defp can_trigger_jobs?(%{user: _} = scope),
-    do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
+  defp can_trigger_jobs?(%{user: _} = scope), do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
 
   defp can_trigger_jobs?(_), do: false
 
-  defp show_oban_web?(%{user: _} = scope),
-    do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
+  defp show_oban_web?(%{user: _} = scope), do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
 
   defp show_oban_web?(_), do: false
 
-  defp show_leader_info?(%{user: _} = scope),
-    do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
+  defp show_leader_info?(%{user: _} = scope), do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
 
   defp show_leader_info?(_), do: false
 
@@ -628,20 +625,18 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   end
 
   defp get_leader_node do
-    try do
-      case ServiceRadar.Cluster.ClusterStatus.find_coordinator() do
-        nil ->
-          nil
+    case ServiceRadar.Cluster.ClusterStatus.find_coordinator() do
+      nil ->
+        nil
 
-        coordinator_node ->
-          case :rpc.call(coordinator_node, Oban.Peer, :get_leader, []) do
-            leader when is_binary(leader) -> leader
-            _ -> nil
-          end
-      end
-    rescue
-      _ -> nil
+      coordinator_node ->
+        case :rpc.call(coordinator_node, Oban.Peer, :get_leader, []) do
+          leader when is_binary(leader) -> leader
+          _ -> nil
+        end
     end
+  rescue
+    _ -> nil
   end
 
   defp encode_job_id(id), do: Base.url_encode64(id, padding: false)

@@ -72,7 +72,8 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Events.HealthWriter
-  alias ServiceRadar.Infrastructure.{HealthEvent, HealthPubSub}
+  alias ServiceRadar.Infrastructure.HealthEvent
+  alias ServiceRadar.Infrastructure.HealthPubSub
 
   require Logger
 
@@ -115,58 +116,63 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   @spec record_state_change(entity_type(), String.t(), keyword()) ::
           {:ok, struct()} | {:error, term()}
   def record_state_change(entity_type, entity_id, opts \\ []) do
-    with :ok <- ensure_tracking_ready() do
-      new_state = Keyword.fetch!(opts, :new_state)
-      old_state = Keyword.get(opts, :old_state)
-      reason = Keyword.get(opts, :reason)
-      node = Keyword.get(opts, :node, to_string(node()))
-      metadata = Keyword.get(opts, :metadata, %{})
-      broadcast = Keyword.get(opts, :broadcast, true)
+    case ensure_tracking_ready() do
+      :ok ->
+        new_state = Keyword.fetch!(opts, :new_state)
+        old_state = Keyword.get(opts, :old_state)
+        reason = Keyword.get(opts, :reason)
+        node = Keyword.get(opts, :node, to_string(node()))
+        metadata = Keyword.get(opts, :metadata, %{})
+        broadcast = Keyword.get(opts, :broadcast, true)
 
-      # Simple actor - DB connection's search_path determines the schema
-      actor = SystemActor.system(:health_tracker)
+        # Simple actor - DB connection's search_path determines the schema
+        actor = SystemActor.system(:health_tracker)
 
-      attrs = %{
-        entity_type: entity_type,
-        entity_id: entity_id,
-        old_state: old_state,
-        new_state: new_state,
-        reason: reason,
-        node: node,
-        metadata: metadata
-      }
+        attrs = %{
+          entity_type: entity_type,
+          entity_id: entity_id,
+          old_state: old_state,
+          new_state: new_state,
+          reason: reason,
+          node: node,
+          metadata: metadata
+        }
 
-      result =
-        HealthEvent
-        |> Ash.Changeset.for_create(:record, attrs, actor: actor)
-        |> Ash.create()
+        result =
+          HealthEvent
+          |> Ash.Changeset.for_create(:record, attrs, actor: actor)
+          |> Ash.create()
 
-      case result do
-        {:ok, event} ->
-          Logger.debug("Recorded health event: #{entity_type} #{entity_id} -> #{new_state}")
+        case result do
+          {:ok, event} ->
+            Logger.debug("Recorded health event: #{entity_type} #{entity_id} -> #{new_state}")
+            maybe_publish_health_log(event)
+            maybe_broadcast_health_event(event, broadcast)
 
-          case HealthWriter.write(event) do
-            :ok ->
-              :ok
+            {:ok, event}
 
-            {:error, reason} ->
-              Logger.warning("Failed to publish health log: #{inspect(reason)}")
-          end
+          {:error, error} ->
+            Logger.warning("Failed to record health event: #{inspect(error)}")
+            {:error, error}
+        end
 
-          if broadcast do
-            HealthPubSub.broadcast_health_event(event)
-          end
-
-          {:ok, event}
-
-        {:error, error} ->
-          Logger.warning("Failed to record health event: #{inspect(error)}")
-          {:error, error}
-      end
-    else
-      {:error, reason} -> return_with_skip(entity_type, entity_id, reason)
+      {:error, reason} ->
+        return_with_skip(entity_type, entity_id, reason)
     end
   end
+
+  defp maybe_publish_health_log(event) do
+    case HealthWriter.write(event) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to publish health log: #{inspect(reason)}")
+    end
+  end
+
+  defp maybe_broadcast_health_event(event, true), do: HealthPubSub.broadcast_health_event(event)
+  defp maybe_broadcast_health_event(_event, false), do: :ok
 
   # =============================================================================
   # Health Check Recording (from gRPC)
@@ -188,40 +194,42 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   @spec record_health_check(entity_type(), String.t(), keyword()) ::
           {:ok, struct()} | {:error, term()}
   def record_health_check(entity_type, entity_id, opts \\ []) do
-    with :ok <- ensure_tracking_ready() do
-      healthy = Keyword.fetch!(opts, :healthy)
-      latency_ms = Keyword.get(opts, :latency_ms)
-      error = Keyword.get(opts, :error)
-      metadata = Keyword.get(opts, :metadata, %{})
+    case ensure_tracking_ready() do
+      :ok ->
+        healthy = Keyword.fetch!(opts, :healthy)
+        latency_ms = Keyword.get(opts, :latency_ms)
+        error = Keyword.get(opts, :error)
+        metadata = Keyword.get(opts, :metadata, %{})
 
-      # Determine new state based on health
-      new_state = if healthy, do: :healthy, else: :unhealthy
+        # Determine new state based on health
+        new_state = if healthy, do: :healthy, else: :unhealthy
 
-      # Get previous state to detect changes
-      old_state =
-        case current_status(entity_type, entity_id) do
-          {:ok, %{new_state: prev}} -> prev
-          _ -> nil
+        # Get previous state to detect changes
+        old_state =
+          case current_status(entity_type, entity_id) do
+            {:ok, %{new_state: prev}} -> prev
+            _ -> nil
+          end
+
+        # Only record if state changed (or first event)
+        if old_state == new_state do
+          # State unchanged, just return ok
+          {:ok, :unchanged}
+        else
+          record_state_change(entity_type, entity_id,
+            old_state: old_state,
+            new_state: new_state,
+            reason: if(healthy, do: :health_check_passed, else: :health_check_failed),
+            metadata:
+              Map.merge(metadata, %{
+                latency_ms: latency_ms,
+                error: error
+              })
+          )
         end
 
-      # Only record if state changed (or first event)
-      if old_state != new_state do
-        record_state_change(entity_type, entity_id,
-          old_state: old_state,
-          new_state: new_state,
-          reason: if(healthy, do: :health_check_passed, else: :health_check_failed),
-          metadata:
-            Map.merge(metadata, %{
-              latency_ms: latency_ms,
-              error: error
-            })
-        )
-      else
-        # State unchanged, just return ok
-        {:ok, :unchanged}
-      end
-    else
-      {:error, reason} -> return_with_skip(entity_type, entity_id, reason)
+      {:error, reason} ->
+        return_with_skip(entity_type, entity_id, reason)
     end
   end
 
@@ -244,32 +252,34 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   @spec heartbeat(entity_type(), String.t(), keyword()) ::
           {:ok, struct()} | {:ok, :unchanged} | {:error, term()}
   def heartbeat(entity_type, entity_id, opts \\ []) do
-    with :ok <- ensure_tracking_ready() do
-      healthy = Keyword.get(opts, :healthy, true)
-      metadata = Keyword.get(opts, :metadata, %{})
+    case ensure_tracking_ready() do
+      :ok ->
+        healthy = Keyword.get(opts, :healthy, true)
+        metadata = Keyword.get(opts, :metadata, %{})
 
-      new_state = if healthy, do: :healthy, else: :degraded
+        new_state = if healthy, do: :healthy, else: :degraded
 
-      # Get previous state
-      old_state =
-        case current_status(entity_type, entity_id) do
-          {:ok, %{new_state: prev}} -> prev
-          _ -> nil
+        # Get previous state
+        old_state =
+          case current_status(entity_type, entity_id) do
+            {:ok, %{new_state: prev}} -> prev
+            _ -> nil
+          end
+
+        # Record event if state changed or first heartbeat
+        if old_state != new_state or old_state == nil do
+          record_state_change(entity_type, entity_id,
+            old_state: old_state,
+            new_state: new_state,
+            reason: :heartbeat,
+            metadata: metadata
+          )
+        else
+          {:ok, :unchanged}
         end
 
-      # Record event if state changed or first heartbeat
-      if old_state != new_state or old_state == nil do
-        record_state_change(entity_type, entity_id,
-          old_state: old_state,
-          new_state: new_state,
-          reason: :heartbeat,
-          metadata: metadata
-        )
-      else
-        {:ok, :unchanged}
-      end
-    else
-      {:error, reason} -> return_with_skip(entity_type, entity_id, reason)
+      {:error, reason} ->
+        return_with_skip(entity_type, entity_id, reason)
     end
   end
 
@@ -285,20 +295,22 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   def current_status(entity_type, entity_id) do
     require Ash.Query
 
-    with :ok <- ensure_tracking_ready() do
-      # Simple actor - DB connection's search_path determines the schema
-      actor = SystemActor.system(:health_tracker)
+    case ensure_tracking_ready() do
+      :ok ->
+        # Simple actor - DB connection's search_path determines the schema
+        actor = SystemActor.system(:health_tracker)
 
-      HealthEvent
-      |> Ash.Query.filter(
-        entity_type == ^entity_type and
-          entity_id == ^entity_id
-      )
-      |> Ash.Query.sort(recorded_at: :desc)
-      |> Ash.Query.limit(1)
-      |> Ash.read_one(actor: actor)
-    else
-      {:error, reason} -> return_with_skip(entity_type, entity_id, reason)
+        HealthEvent
+        |> Ash.Query.filter(
+          entity_type == ^entity_type and
+            entity_id == ^entity_id
+        )
+        |> Ash.Query.sort(recorded_at: :desc)
+        |> Ash.Query.limit(1)
+        |> Ash.read_one(actor: actor)
+
+      {:error, reason} ->
+        return_with_skip(entity_type, entity_id, reason)
     end
   end
 
@@ -318,23 +330,25 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
 
     since = DateTime.add(DateTime.utc_now(), -hours, :hour)
 
-    with :ok <- ensure_tracking_ready() do
-      require Ash.Query
+    case ensure_tracking_ready() do
+      :ok ->
+        require Ash.Query
 
-      # Simple actor - DB connection's search_path determines the schema
-      actor = SystemActor.system(:health_tracker)
+        # Simple actor - DB connection's search_path determines the schema
+        actor = SystemActor.system(:health_tracker)
 
-      HealthEvent
-      |> Ash.Query.filter(
-        entity_type == ^entity_type and
-          entity_id == ^entity_id and
-          recorded_at >= ^since
-      )
-      |> Ash.Query.sort(recorded_at: :desc)
-      |> Ash.Query.limit(limit)
-      |> Ash.read(actor: actor)
-    else
-      {:error, reason} -> return_with_skip(entity_type, entity_id, reason)
+        HealthEvent
+        |> Ash.Query.filter(
+          entity_type == ^entity_type and
+            entity_id == ^entity_id and
+            recorded_at >= ^since
+        )
+        |> Ash.Query.sort(recorded_at: :desc)
+        |> Ash.Query.limit(limit)
+        |> Ash.read(actor: actor)
+
+      {:error, reason} ->
+        return_with_skip(entity_type, entity_id, reason)
     end
   end
 
@@ -347,23 +361,25 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   def summary do
     require Ash.Query
 
-    with :ok <- ensure_tracking_ready() do
-      # Simple actor - DB connection's search_path determines the schema
-      actor = SystemActor.system(:health_tracker)
+    case ensure_tracking_ready() do
+      :ok ->
+        # Simple actor - DB connection's search_path determines the schema
+        actor = SystemActor.system(:health_tracker)
 
-      # Get the most recent event for each entity
-      # This is a simplified approach - for production, use a materialized view
-      case HealthEvent
-           |> Ash.Query.sort(recorded_at: :desc)
-           |> Ash.read(actor: actor) do
-        {:ok, events} ->
-          {:ok, build_summary(events)}
+        # Get the most recent event for each entity
+        # This is a simplified approach - for production, use a materialized view
+        case HealthEvent
+             |> Ash.Query.sort(recorded_at: :desc)
+             |> Ash.read(actor: actor) do
+          {:ok, events} ->
+            {:ok, build_summary(events)}
 
-        {:error, reason} ->
-          {:error, reason}
-      end
-    else
-      {:error, reason} -> return_with_skip(:summary, "all", reason)
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:error, reason} ->
+        return_with_skip(:summary, "all", reason)
     end
   end
 
@@ -371,16 +387,14 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     events
     |> Enum.uniq_by(fn e -> {e.entity_type, e.entity_id} end)
     |> Enum.group_by(& &1.entity_type)
-    |> Enum.map(fn {entity_type, type_events} ->
+    |> Map.new(fn {entity_type, type_events} ->
       by_state =
         type_events
         |> Enum.group_by(& &1.new_state)
-        |> Enum.map(fn {state, state_events} -> {state, length(state_events)} end)
-        |> Map.new()
+        |> Map.new(fn {state, state_events} -> {state, length(state_events)} end)
 
       {entity_type, %{total: length(type_events), by_state: by_state}}
     end)
-    |> Map.new()
   end
 
   @doc """
@@ -396,27 +410,29 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     limit = Keyword.get(opts, :limit, 50)
     entity_type = Keyword.get(opts, :entity_type)
 
-    with :ok <- ensure_tracking_ready() do
-      require Ash.Query
+    case ensure_tracking_ready() do
+      :ok ->
+        require Ash.Query
 
-      # Simple actor - DB connection's search_path determines the schema
-      actor = SystemActor.system(:health_tracker)
+        # Simple actor - DB connection's search_path determines the schema
+        actor = SystemActor.system(:health_tracker)
 
-      query =
-        HealthEvent
-        |> Ash.Query.sort(recorded_at: :desc)
-        |> Ash.Query.limit(limit)
+        query =
+          HealthEvent
+          |> Ash.Query.sort(recorded_at: :desc)
+          |> Ash.Query.limit(limit)
 
-      query =
-        if entity_type do
-          Ash.Query.filter(query, entity_type == ^entity_type)
-        else
-          query
-        end
+        query =
+          if entity_type do
+            Ash.Query.filter(query, entity_type == ^entity_type)
+          else
+            query
+          end
 
-      Ash.read(query, actor: actor)
-    else
-      {:error, reason} -> return_with_skip(:recent, "all", reason)
+        Ash.read(query, actor: actor)
+
+      {:error, reason} ->
+        return_with_skip(:recent, "all", reason)
     end
   end
 

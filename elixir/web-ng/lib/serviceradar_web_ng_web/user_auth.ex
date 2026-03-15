@@ -11,8 +11,8 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
   use ServiceRadarWebNGWeb, :verified_routes
 
-  import Plug.Conn
   import Phoenix.Controller
+  import Plug.Conn
 
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   def log_in_user(conn, user, params \\ %{}) do
     raw_return_to = get_session(conn, :user_return_to) || params["return_to"] || ~p"/analytics"
     return_to = sanitize_return_path(raw_return_to)
-    session_started_at = DateTime.utc_now() |> DateTime.to_unix()
+    session_started_at = DateTime.to_unix(DateTime.utc_now())
     max_age_seconds = session_absolute_timeout_seconds()
 
     case Guardian.create_access_token(user) do
@@ -183,11 +183,11 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
       iat when is_binary(iat) ->
         case Integer.parse(iat) do
           {parsed, ""} -> parsed
-          _ -> DateTime.utc_now() |> DateTime.to_unix()
+          _ -> DateTime.to_unix(DateTime.utc_now())
         end
 
       _ ->
-        DateTime.utc_now() |> DateTime.to_unix()
+        DateTime.to_unix(DateTime.utc_now())
     end
   end
 
@@ -222,8 +222,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   defp session_absolute_timeout_seconds do
-    session_config()
-    |> Keyword.get(:absolute_timeout_seconds, @default_absolute_timeout_seconds)
+    Keyword.get(session_config(), :absolute_timeout_seconds, @default_absolute_timeout_seconds)
   end
 
   @doc """
@@ -411,7 +410,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   Sets the sudo authentication timestamp in the session.
   """
   def put_sudo_mode(conn) do
-    put_session(conn, @sudo_at_key, DateTime.utc_now() |> DateTime.to_unix())
+    put_session(conn, @sudo_at_key, DateTime.to_unix(DateTime.utc_now()))
   end
 
   @doc """
@@ -422,8 +421,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   defp mount_current_scope(socket, session) do
-    socket
-    |> Phoenix.Component.assign_new(:current_scope, fn ->
+    Phoenix.Component.assign_new(socket, :current_scope, fn ->
       user =
         with token when is_binary(token) <- session[@user_token_key],
              {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "access") do

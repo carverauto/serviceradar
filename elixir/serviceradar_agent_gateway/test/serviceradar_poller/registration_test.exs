@@ -13,10 +13,10 @@ defmodule ServiceRadarGateway.RegistrationTest do
   """
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Gateway.RegistrationWorker
   alias ServiceRadar.GatewayRegistry
+
+  @moduletag :integration
 
   @partition_id "test-partition"
   @domain "test-domain"
@@ -123,7 +123,7 @@ defmodule ServiceRadarGateway.RegistrationTest do
 
       # Should not contain the unavailable one
       unavail_ids =
-        Enum.filter(available, &(&1.status == :unavailable)) |> Enum.map(& &1.partition_id)
+        available |> Enum.filter(&(&1.status == :unavailable)) |> Enum.map(& &1.partition_id)
 
       assert unavail_ids == []
     end
@@ -206,7 +206,7 @@ defmodule ServiceRadarGateway.RegistrationTest do
     test "is running after application starts" do
       # The RegistrationWorker should be running
       pid = Process.whereis(RegistrationWorker)
-      assert pid != nil
+      assert pid
       assert Process.alive?(pid)
     end
 
@@ -228,7 +228,7 @@ defmodule ServiceRadarGateway.RegistrationTest do
       info = RegistrationWorker.get_info()
       assert info.partition_id == "default"
       assert info.node == Node.self()
-      assert info.status != nil
+      assert info.status
     end
   end
 

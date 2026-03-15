@@ -5,11 +5,8 @@ defmodule ServiceRadar.Observability.NetflowEnrichmentDatasetScheduler do
 
   use GenServer
 
-  alias ServiceRadar.Observability.{
-    NetflowOuiDatasetRefreshWorker,
-    NetflowProviderDatasetRefreshWorker
-  }
-
+  alias ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker
+  alias ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 

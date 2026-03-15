@@ -26,5 +26,12 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCache do
       {:refreshed_at, :utc_datetime_usec, [allow_nil?: false]}
     ],
     identity: :unique_sampler_ifindex,
-    upsert_fields: [:device_uid, :if_name, :if_description, :if_speed_bps, :boundary, :refreshed_at]
+    upsert_fields: [
+      :device_uid,
+      :if_name,
+      :if_description,
+      :if_speed_bps,
+      :boundary,
+      :refreshed_at
+    ]
 end

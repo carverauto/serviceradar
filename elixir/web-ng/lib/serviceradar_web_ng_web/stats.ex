@@ -33,11 +33,13 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
   import Ecto.Query
 
-  require Logger
-
   alias Ecto.Adapters.SQL
   alias ServiceRadarWebNG.Repo
-  alias ServiceRadarWebNGWeb.Stats.{Query, Extract, Compute}
+  alias ServiceRadarWebNGWeb.Stats.Compute
+  alias ServiceRadarWebNGWeb.Stats.Extract
+  alias ServiceRadarWebNGWeb.Stats.Query
+
+  require Logger
 
   @type alerts_summary :: %{
           total: non_neg_integer(),
@@ -465,15 +467,13 @@ defmodule ServiceRadarWebNGWeb.Stats do
     Application.get_env(:serviceradar_web_ng, :trace_rollup_stale_threshold_seconds, 30 * 60)
   end
 
-  defp stale?(lag_seconds, threshold_seconds)
-       when is_integer(lag_seconds) and is_integer(threshold_seconds) do
+  defp stale?(lag_seconds, threshold_seconds) when is_integer(lag_seconds) and is_integer(threshold_seconds) do
     lag_seconds > threshold_seconds
   end
 
   defp stale?(_, _), do: false
 
-  defp maybe_add_message(messages, true, message) when is_binary(message),
-    do: messages ++ [message]
+  defp maybe_add_message(messages, true, message) when is_binary(message), do: messages ++ [message]
 
   defp maybe_add_message(messages, _, _), do: messages
 

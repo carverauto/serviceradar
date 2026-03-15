@@ -1,4 +1,5 @@
 alias ServiceRadar.Repo
+
 require Ash.Query
 
 IO.puts("=== Table row counts ===")

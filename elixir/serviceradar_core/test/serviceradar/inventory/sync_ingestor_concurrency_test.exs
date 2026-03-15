@@ -8,14 +8,17 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler, SyncIngestor}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.TestSupport
 
+  @moduletag :integration
+
   setup_all do
-    ServiceRadar.TestSupport.start_core!()
+    TestSupport.start_core!()
     :ok
   end
 
@@ -70,8 +73,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
     assert device.uid == expected_id
 
     identifier_query =
-      DeviceIdentifier
-      |> Ash.Query.for_read(:lookup, %{
+      Ash.Query.for_read(DeviceIdentifier, :lookup, %{
         identifier_type: :armis_device_id,
         identifier_value: armis_id,
         partition: "default"
@@ -84,7 +86,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
   end
 
   defp mac_suffix do
-    System.unique_integer([:positive])
+    [:positive]
+    |> System.unique_integer()
     |> rem(256)
     |> Integer.to_string(16)
     |> String.pad_leading(2, "0")

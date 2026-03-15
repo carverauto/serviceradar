@@ -39,14 +39,14 @@ defmodule ServiceRadar.Edge.AgentProcess do
 
   use GenServer
 
-  require Logger
-
-  # Suppress warning for gRPC stub that is generated from protobuf at build time
-  @compile {:no_warn_undefined, Monitoring.AgentService.Stub}
-
   alias Monitoring.AgentService.Stub, as: AgentServiceStub
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Sync.Client, as: SyncClient
+
+  require Logger
+
+  # Suppress warning for gRPC stub that is generated from protobuf at build time
+  @compile {:no_warn_undefined, AgentServiceStub}
 
   @type state :: %{
           agent_id: String.t(),
@@ -439,7 +439,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
   end
 
   defp generate_request_id do
-    :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
+    16 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
   end
 
   defp execute_health_check_impl(channel, service, state) do

@@ -61,8 +61,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
 
   @impl true
   def event_mapping do
-    Permit.Phoenix.LiveView.default_event_mapping()
-    |> Map.merge(%{"save" => :update, "validate" => :read})
+    Map.merge(Permit.Phoenix.LiveView.default_event_mapping(), %{"save" => :update, "validate" => :read})
   end
 
   @impl true

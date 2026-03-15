@@ -47,7 +47,7 @@ defmodule ServiceRadar.Observability.MtrCausalSignalEmitterTest do
       "event_type" => "target_outage",
       "severity_id" => 6,
       "event_identity" => event_identity,
-      "event_time" => DateTime.utc_now() |> DateTime.truncate(:microsecond),
+      "event_time" => DateTime.truncate(DateTime.utc_now(), :microsecond),
       "routing_correlation" => %{
         "target_device_uid" => "dev-1",
         "target_ip" => "1.1.1.1"

@@ -4,11 +4,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
 
   import Phoenix.LiveViewTest
 
-  require Ash.Query
-
+  alias Ash.Page.Keyset
+  alias ServiceRadar.Observability.NetflowLocalCidr
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
-  alias ServiceRadar.Observability.NetflowLocalCidr
+
+  require Ash.Query
 
   setup :register_and_log_in_admin_user
 
@@ -94,9 +95,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
     %{conn: log_in_user(conn, user), user: user, scope: scope}
   end
 
-  defp unwrap_page(%Ash.Page.Keyset{results: results}), do: results
+  defp unwrap_page(%Keyset{results: results}), do: results
   defp unwrap_page(results) when is_list(results), do: results
-  defp unwrap_page({:ok, %Ash.Page.Keyset{results: results}}), do: results
+  defp unwrap_page({:ok, %Keyset{results: results}}), do: results
   defp unwrap_page({:ok, results}) when is_list(results), do: results
   defp unwrap_page(_), do: []
 end

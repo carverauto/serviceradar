@@ -56,17 +56,17 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
 
   defp insert_event_rows(rows) do
     # DB connection's search_path determines the schema
-    case ServiceRadar.Repo.insert_all(
-           table_name(),
-           rows,
-           on_conflict: :nothing,
-           returning: false
-         ) do
-      {count, _} ->
-        maybe_evaluate_stateful_rules(rows)
-        EventsPubSub.broadcast_event(%{count: count})
-        {:ok, count}
-    end
+    {count, _} =
+      ServiceRadar.Repo.insert_all(
+        table_name(),
+        rows,
+        on_conflict: :nothing,
+        returning: false
+      )
+
+    maybe_evaluate_stateful_rules(rows)
+    EventsPubSub.broadcast_event(%{count: count})
+    {:ok, count}
   end
 
   # DB connection's search_path determines the schema

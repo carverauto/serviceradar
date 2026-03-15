@@ -268,7 +268,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
         |> Ash.create()
 
       original_seen = agent.last_seen_time
-      assert original_seen != nil
+      assert original_seen
 
       # Send heartbeat
       {:ok, updated} =
@@ -277,7 +277,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
         |> Ash.update()
 
       # last_seen_time should be updated
-      assert updated.last_seen_time != nil
+      assert updated.last_seen_time
       # The timestamp should be at least equal or greater
       assert DateTime.compare(updated.last_seen_time, original_seen) in [:eq, :gt]
     end
@@ -335,7 +335,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
         |> Ash.create()
 
       original_first_seen = agent.first_seen_time
-      assert original_first_seen != nil
+      assert original_first_seen
 
       # Update agent
       {:ok, updated} =
@@ -371,7 +371,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
         |> Ash.update()
 
       # modified_time should be set and potentially later
-      assert degraded.modified_time != nil
+      assert degraded.modified_time
 
       # If creation set modified_time, the degrade should update it
       if agent.modified_time do

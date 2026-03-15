@@ -88,15 +88,15 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
 
   defp insert_trace_rows(rows) do
     # DB connection's search_path determines the schema
-    case ServiceRadar.Repo.insert_all(
-           table_name(),
-           rows,
-           on_conflict: :nothing,
-           returning: false
-         ) do
-      {count, _} ->
-        {:ok, count}
-    end
+    {count, _} =
+      ServiceRadar.Repo.insert_all(
+        table_name(),
+        rows,
+        on_conflict: :nothing,
+        returning: false
+      )
+
+    {:ok, count}
   end
 
   defp parse_json_trace(json, _metadata) do

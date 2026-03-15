@@ -22,9 +22,9 @@ defmodule ServiceRadarWebNG.Edge.ComponentTemplates do
 
   """
 
-  require Logger
-
   alias Datasvc.KV
+
+  require Logger
 
   @type template :: %{
           component_type: String.t(),
@@ -165,9 +165,8 @@ defmodule ServiceRadarWebNG.Edge.ComponentTemplates do
             security_mode: security_mode,
             template_key: key
           }
-        else
+
           # Not a .json file
-          nil
         end
     end
   end

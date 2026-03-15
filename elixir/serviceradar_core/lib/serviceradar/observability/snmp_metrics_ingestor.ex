@@ -19,18 +19,18 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
     - interface_uid
   """
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Observability.TimeseriesMetric
   alias ServiceRadar.Observability.TimeseriesSeriesKey
 
+  require Logger
+
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) or is_list(payload) do
     actor = SystemActor.system(:snmp_metrics_ingestor)
-    created_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    created_at = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     rows =
       payload
@@ -271,8 +271,7 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
   defp parse_bool(nil), do: false
   defp parse_bool(v) when is_boolean(v), do: v
 
-  defp parse_bool(v) when is_binary(v),
-    do: String.downcase(v) in ["true", "1", "yes", "on"]
+  defp parse_bool(v) when is_binary(v), do: String.downcase(v) in ["true", "1", "yes", "on"]
 
   defp parse_bool(_), do: false
 

@@ -22,10 +22,12 @@ defmodule ServiceRadar.Sync.Client do
   3. Query canonical device information
   """
 
+  alias Monitoring.AgentGatewayService.Stub
+
   require Logger
 
   # Suppress warning for gRPC stub that is generated from protobuf at build time
-  @compile {:no_warn_undefined, Monitoring.AgentGatewayService.Stub}
+  @compile {:no_warn_undefined, Stub}
 
   @default_host "localhost"
   @default_port 50_051
@@ -83,7 +85,7 @@ defmodule ServiceRadar.Sync.Client do
   def push_status(channel, request, opts \\ []) do
     timeout = opts[:timeout] || @default_timeout
 
-    case Monitoring.AgentGatewayService.Stub.push_status(channel, request, timeout: timeout) do
+    case Stub.push_status(channel, request, timeout: timeout) do
       {:ok, response} ->
         Logger.debug("Status reported successfully for gateway #{request.gateway_id}")
         {:ok, response}
@@ -113,7 +115,7 @@ defmodule ServiceRadar.Sync.Client do
   def stream_status(channel, chunks, opts \\ []) do
     timeout = opts[:timeout] || @default_timeout
 
-    stream = Monitoring.AgentGatewayService.Stub.stream_status(channel, timeout: timeout)
+    stream = Stub.stream_status(channel, timeout: timeout)
 
     Enum.each(chunks, fn chunk ->
       GRPC.Stub.send_request(stream, chunk)
@@ -169,7 +171,7 @@ defmodule ServiceRadar.Sync.Client do
     |> Enum.with_index()
     |> Enum.each(fn {chunk_data, index} ->
       chunk = %Proto.ObjectUploadChunk{
-        metadata: if(index == 0, do: metadata, else: nil),
+        metadata: if(index == 0, do: metadata),
         data: chunk_data,
         chunk_index: index,
         is_final: index == total_chunks - 1
@@ -289,7 +291,8 @@ defmodule ServiceRadar.Sync.Client do
 
   # Helper: Get configuration value
   defp config(key, default) do
-    Application.get_env(:serviceradar_core, __MODULE__, [])
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
     |> Keyword.get(key, default)
   end
 end

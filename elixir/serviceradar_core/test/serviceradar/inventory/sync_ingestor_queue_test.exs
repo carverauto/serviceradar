@@ -11,6 +11,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
   alias ServiceRadar.Inventory.SyncIngestorQueue
 
   defmodule TestIngestor do
+    @moduledoc false
     def ingest_updates(updates, _opts) do
       if pid = Application.get_env(:serviceradar_core, :sync_ingestor_test_pid) do
         send(pid, {:ingest_started, updates})

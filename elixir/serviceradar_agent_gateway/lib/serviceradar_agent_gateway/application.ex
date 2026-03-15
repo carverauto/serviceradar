@@ -69,9 +69,9 @@ defmodule ServiceRadarAgentGateway.Application do
 
   use Application
 
-  require Logger
-
   alias ServiceRadar.Telemetry.OtelSetup
+
+  require Logger
 
   @impl true
   def start(_type, _args) do
@@ -121,13 +121,9 @@ defmodule ServiceRadarAgentGateway.Application do
           # Registration worker - registers this gateway in the distributed registry.
           # Gateways are platform-level; request context is derived per-request via mTLS.
           {ServiceRadar.Gateway.RegistrationWorker,
-           partition_id: partition_id,
-           gateway_id: gateway_id,
-           domain: domain,
-           entity_type: :gateway},
+           partition_id: partition_id, gateway_id: gateway_id, domain: domain, entity_type: :gateway},
           # Register gateway for platform-wide visibility (Infrastructure UI).
-          {ServiceRadar.GatewayRegistrationWorker,
-           gateway_id: gateway_id, partition: partition_id, domain: domain}
+          {ServiceRadar.GatewayRegistrationWorker, gateway_id: gateway_id, partition: partition_id, domain: domain}
         ]
       else
         []
@@ -198,9 +194,7 @@ defmodule ServiceRadarAgentGateway.Application do
           System.get_env("GATEWAY_ALLOW_INSECURE_GRPC", "false") == "true"
 
       if allow_insecure? do
-        Logger.warning(
-          "No mTLS certs available; GATEWAY_ALLOW_INSECURE_GRPC=true so starting insecure gRPC (DEV ONLY)"
-        )
+        Logger.warning("No mTLS certs available; GATEWAY_ALLOW_INSECURE_GRPC=true so starting insecure gRPC (DEV ONLY)")
 
         nil
       else
@@ -241,8 +235,6 @@ defmodule ServiceRadarAgentGateway.Application do
       else
         ServiceRadar.ProcessRegistry.child_specs()
       end
-    else
-      nil
     end
   end
 
@@ -253,8 +245,6 @@ defmodule ServiceRadarAgentGateway.Application do
       else
         ServiceRadar.GatewayTracker
       end
-    else
-      nil
     end
   end
 
@@ -265,8 +255,6 @@ defmodule ServiceRadarAgentGateway.Application do
       else
         ServiceRadar.AgentTracker
       end
-    else
-      nil
     end
   end
 

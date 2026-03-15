@@ -138,14 +138,14 @@ defmodule ServiceRadar.SNMPProfiles.ProtocolFormatter do
   end
 
   defp normalize_protocol(value, mapping) when is_atom(value) do
-    if Map.has_key?(mapping, value), do: value, else: nil
+    if Map.has_key?(mapping, value), do: value
   end
 
   defp normalize_protocol(value, mapping) when is_binary(value) do
     normalized = String.upcase(String.trim(value))
 
     Enum.find_value(mapping, fn {atom, styles} ->
-      if normalized in Map.values(styles), do: atom, else: nil
+      if normalized in Map.values(styles), do: atom
     end)
   end
 

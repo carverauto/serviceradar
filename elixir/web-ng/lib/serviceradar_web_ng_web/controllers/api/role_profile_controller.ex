@@ -9,10 +9,10 @@ defmodule ServiceRadarWebNG.Api.RoleProfileController do
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.RoleProfile
 
-  require Ash.Query
-
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
+
+  require Ash.Query
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -32,9 +32,7 @@ defmodule ServiceRadarWebNG.Api.RoleProfileController do
   def index(conn, _params) do
     scope = conn.assigns.current_scope
 
-    query =
-      RoleProfile
-      |> Ash.Query.sort(system: :desc, name: :asc)
+    query = Ash.Query.sort(RoleProfile, system: :desc, name: :asc)
 
     case Ash.read(query, scope: scope) do
       {:ok, profiles} -> json(conn, Enum.map(profiles, &role_profile_to_json/1))
@@ -83,7 +81,7 @@ defmodule ServiceRadarWebNG.Api.RoleProfileController do
         permissions: normalize_permissions(Map.get(params, "permissions"))
       }
 
-      attrs = Enum.reject(attrs, fn {_key, value} -> is_nil(value) end) |> Map.new()
+      attrs = attrs |> Enum.reject(fn {_key, value} -> is_nil(value) end) |> Map.new()
 
       case profile
            |> Ash.Changeset.for_update(:update, attrs, scope: scope)

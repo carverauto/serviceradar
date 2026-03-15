@@ -19,12 +19,11 @@ defmodule ServiceRadar.Inventory.Interface do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
-  @devices_view_check {ServiceRadar.Policies.Checks.ActorHasPermission,
-                       permission: "devices.view"}
-  @devices_update_check {ServiceRadar.Policies.Checks.ActorHasPermission,
-                         permission: "devices.update"}
-  @devices_delete_check {ServiceRadar.Policies.Checks.ActorHasPermission,
-                         permission: "devices.delete"}
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
+
+  @devices_view_check {ActorHasPermission, permission: "devices.view"}
+  @devices_update_check {ActorHasPermission, permission: "devices.update"}
+  @devices_delete_check {ActorHasPermission, permission: "devices.delete"}
   @interface_fields [
     :timestamp,
     :device_id,

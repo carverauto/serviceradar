@@ -2,7 +2,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperMikrotikControllerTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.NetworkDiscovery.{MapperJob, MapperMikrotikController}
+  alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
 
   @tag :integration
   setup do

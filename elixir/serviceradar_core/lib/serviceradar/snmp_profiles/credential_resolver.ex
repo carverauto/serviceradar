@@ -8,9 +8,6 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   3. None
   """
 
-  require Ash.Query
-  require Logger
-
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceSNMPCredential
@@ -18,6 +15,9 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SrqlTargetResolver
   alias ServiceRadar.Vault
+
+  require Ash.Query
+  require Logger
 
   @type credential_map :: %{
           version: atom(),
@@ -105,26 +105,23 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   def to_mapper_credentials(nil), do: %{}
 
   def to_mapper_credentials(%{} = credential) do
-    %{
+    compact_map(%{
       "version" => ProtocolFormatter.version(Map.get(credential, :version), allow_binary?: true),
       "community" => Map.get(credential, :community),
       "username" => Map.get(credential, :username),
       "auth_protocol" =>
-        ProtocolFormatter.auth_protocol(
-          Map.get(credential, :auth_protocol),
+        ProtocolFormatter.auth_protocol(Map.get(credential, :auth_protocol),
           style: :compact,
           allow_binary?: true
         ),
       "auth_password" => Map.get(credential, :auth_password),
       "privacy_protocol" =>
-        ProtocolFormatter.priv_protocol(
-          Map.get(credential, :priv_protocol),
+        ProtocolFormatter.priv_protocol(Map.get(credential, :priv_protocol),
           style: :compact,
           allow_binary?: true
         ),
       "privacy_password" => Map.get(credential, :priv_password)
-    }
-    |> compact_map()
+    })
   end
 
   defp resolve_profile(device_uid, actor) do

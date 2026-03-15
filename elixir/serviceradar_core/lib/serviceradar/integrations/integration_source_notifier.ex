@@ -11,10 +11,12 @@ defmodule ServiceRadar.Integrations.IntegrationSourceNotifier do
   alias ServiceRadar.Events.AuditNotifier
 
   @impl Ash.Notifier
-  def notify(%Ash.Notifier.Notification{
-        resource: ServiceRadar.Integrations.IntegrationSource,
-        data: record
-      } = notification) do
+  def notify(
+        %Ash.Notifier.Notification{
+          resource: ServiceRadar.Integrations.IntegrationSource,
+          data: record
+        } = notification
+      ) do
     AuditNotifier.write_async(notification,
       resource_type: "integration_source",
       resource_id: record.id,

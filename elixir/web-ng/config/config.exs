@@ -7,69 +7,6 @@
 # General application configuration
 import Config
 
-config :serviceradar_web_ng, :scopes,
-  user: [
-    default: true,
-    module: ServiceRadarWebNG.Accounts.Scope,
-    assign_key: :current_scope,
-    access_path: [:user, :id],
-    schema_key: :user_id,
-    schema_type: :id,
-    schema_table: :ng_users,
-    test_data_fixture: ServiceRadarWebNG.AccountsFixtures,
-    test_setup_helper: :register_and_log_in_user
-  ]
-
-config :serviceradar_web_ng,
-  namespace: ServiceRadarWebNG,
-  # Use ServiceRadar.Repo from serviceradar_core
-  ecto_repos: [ServiceRadar.Repo],
-  generators: [timestamp_type: :utc_datetime]
-
-# Configure the shared repo from serviceradar_core
-# Ash manages all migrations in serviceradar_core/priv/repo/migrations/
-config :serviceradar_core, ServiceRadar.Repo, migration_source: "ash_schema_migrations"
-
-# Ash Framework Configuration
-config :serviceradar_web_ng,
-  ash_domains: [
-    ServiceRadar.AgentConfig,
-    ServiceRadar.Identity,
-    ServiceRadar.Inventory,
-    ServiceRadar.Infrastructure,
-    ServiceRadar.Monitoring,
-    ServiceRadar.Observability,
-    ServiceRadar.Edge,
-    ServiceRadar.Integrations,
-    ServiceRadar.Jobs,
-    ServiceRadar.SweepJobs,
-    ServiceRadar.SysmonProfiles,
-    ServiceRadar.SNMPProfiles,
-    ServiceRadar.NetworkDiscovery,
-    ServiceRadar.Plugins,
-    ServiceRadar.Spatial
-  ]
-
-# Also register domains for serviceradar_core OTP app (domains are defined there)
-config :serviceradar_core,
-  ash_domains: [
-    ServiceRadar.AgentConfig,
-    ServiceRadar.Identity,
-    ServiceRadar.Inventory,
-    ServiceRadar.Infrastructure,
-    ServiceRadar.Monitoring,
-    ServiceRadar.Observability,
-    ServiceRadar.Edge,
-    ServiceRadar.Integrations,
-    ServiceRadar.Jobs,
-    ServiceRadar.SweepJobs,
-    ServiceRadar.SysmonProfiles,
-    ServiceRadar.SNMPProfiles,
-    ServiceRadar.NetworkDiscovery,
-    ServiceRadar.Plugins,
-    ServiceRadar.Spatial
-  ]
-
 # Ash configuration
 config :ash,
   include_embedded_source_by_default?: false,
@@ -79,51 +16,62 @@ config :ash,
     show_policy_breakdowns?: true
   ]
 
+# AshOban configuration
+config :ash_oban,
+  oban_name: Oban
+
 # AshPostgres configuration
 config :ash_postgres,
   manage_migrations?: true
 
-# Guardian JWT configuration
-# Secret key is loaded from runtime.exs (TOKEN_SIGNING_SECRET or SECRET_KEY_BASE)
-config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian,
-  issuer: "serviceradar",
-  # Secret loaded in runtime.exs
-  secret_key: nil,
-  # Token lifetimes
-  ttl: {1, :hour},
-  token_ttl: %{
-    "access" => {1, :hour},
-    "refresh" => {30, :days},
-    "api" => {1, :hour}
-  },
-  allowed_algos: ["HS256"],
-  verify_module: Guardian.JWT,
-  allowed_drift: 60_000
+# Configure esbuild (the version is required)
+# Note: The JDM editor uses monaco-editor which requires font loaders
+config :esbuild,
+  version: "0.25.4",
+  serviceradar_web_ng: [
+    args:
+      ~w(js/app.js js/theme_init.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file),
+    cd: Path.expand("../assets", __DIR__),
+    env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
+  ]
 
-# Session configuration for browser-authenticated users
-config :serviceradar_web_ng, :session,
-  idle_timeout_seconds: 60 * 60,
-  absolute_timeout_seconds: 30 * 24 * 60 * 60
+# Configure Elixir's Logger
+config :logger, :default_formatter,
+  format: "$time $metadata[$level] $message\n",
+  metadata: [
+    :request_id,
+    :event_type,
+    :severity,
+    # Auth-related metadata
+    :user_id,
+    :email,
+    :method,
+    :timestamp,
+    :token_type,
+    :jti,
+    :reason,
+    :type,
+    :path,
+    :session_started_at,
+    :absolute_timeout_seconds,
+    :remote_ip,
+    :ip,
+    :user_agent
+  ]
 
-config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
-config :serviceradar_web_ng, :god_view_enabled, false
+# Use Jason for JSON parsing in Phoenix
+config :phoenix, :json_library, Jason
 
-config :serviceradar_web_ng, :plugin_storage,
-  backend: :filesystem,
-  base_path: "/var/lib/serviceradar/plugin-packages",
-  upload_ttl_seconds: 900,
-  download_ttl_seconds: 900,
-  max_upload_bytes: 52_428_800,
-  jetstream_bucket: "serviceradar_plugins",
-  jetstream_replicas: 1,
-  jetstream_storage: :file
+# Phoenix React Server - React rendering for components (GoRules JDM editor)
+# Bun runtime renders React components, LiveView handles the interactivity
+config :phoenix_react_server, Phoenix.React,
+  runtime: Phoenix.React.Runtime.Bun,
+  component_base: Path.expand("../assets/component/src", __DIR__),
+  render_timeout: 5_000,
+  cache_ttl: 60
 
-config :serviceradar_web_ng, :plugin_verification,
-  require_gpg_for_github: false,
-  allow_unsigned_uploads: true
-
-config :serviceradar_web_ng, :allow_insecure_metadata_urls, false
-config :serviceradar_web_ng, :saml_assertion_max_validity_seconds, 300
+# Pin Rustler temp dir to an explicitly writable path when provided by the build system
+config :rustler, :tmp_dir, System.get_env("RUSTLER_TMPDIR") || System.tmp_dir!()
 
 # Oban job processing configuration
 # web-ng only processes jobs, it does NOT schedule them
@@ -151,9 +99,55 @@ config :serviceradar_core, Oban,
   ],
   peer: {Oban.Peers.Database, []}
 
-# AshOban configuration
-config :ash_oban,
-  oban_name: Oban
+# Configure the shared repo from serviceradar_core
+# Ash manages all migrations in serviceradar_core/priv/repo/migrations/
+config :serviceradar_core, ServiceRadar.Repo, migration_source: "ash_schema_migrations"
+
+# Also register domains for serviceradar_core OTP app (domains are defined there)
+config :serviceradar_core,
+  ash_domains: [
+    ServiceRadar.AgentConfig,
+    ServiceRadar.Identity,
+    ServiceRadar.Inventory,
+    ServiceRadar.Infrastructure,
+    ServiceRadar.Monitoring,
+    ServiceRadar.Observability,
+    ServiceRadar.Edge,
+    ServiceRadar.Integrations,
+    ServiceRadar.Jobs,
+    ServiceRadar.SweepJobs,
+    ServiceRadar.SysmonProfiles,
+    ServiceRadar.SNMPProfiles,
+    ServiceRadar.NetworkDiscovery,
+    ServiceRadar.Plugins,
+    ServiceRadar.Spatial
+  ]
+
+# Guardian JWT configuration
+# Secret key is loaded from runtime.exs (TOKEN_SIGNING_SECRET or SECRET_KEY_BASE)
+config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian,
+  issuer: "serviceradar",
+  # Secret loaded in runtime.exs
+  secret_key: nil,
+  # Token lifetimes
+  ttl: {1, :hour},
+  token_ttl: %{
+    "access" => {1, :hour},
+    "refresh" => {30, :days},
+    "api" => {1, :hour}
+  },
+  allowed_algos: ["HS256"],
+  verify_module: Guardian.JWT,
+  allowed_drift: 60_000
+
+# Configure the mailer
+#
+# By default it uses the "Local" adapter which stores the emails
+# locally. You can see the emails in your browser, at "/dev/mailbox".
+#
+# For production it's recommended to configure a different adapter
+# at the `config/runtime.exs`.
+config :serviceradar_web_ng, ServiceRadarWebNG.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure the endpoint
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
@@ -166,27 +160,75 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   pubsub_server: ServiceRadarWebNG.PubSub,
   live_view: [signing_salt: "3bWAu579"]
 
-# Configure the mailer
-#
-# By default it uses the "Local" adapter which stores the emails
-# locally. You can see the emails in your browser, at "/dev/mailbox".
-#
-# For production it's recommended to configure a different adapter
-# at the `config/runtime.exs`.
-config :serviceradar_web_ng, ServiceRadarWebNG.Mailer, adapter: Swoosh.Adapters.Local
+config :serviceradar_web_ng, :allow_insecure_metadata_urls, false
+config :serviceradar_web_ng, :god_view_enabled, false
 
-# Configure esbuild (the version is required)
-# Note: The JDM editor uses monaco-editor which requires font loaders
-config :esbuild,
-  version: "0.25.4",
-  serviceradar_web_ng: [
-    args:
-      ~w(js/app.js js/theme_init.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file),
-    cd: Path.expand("../assets", __DIR__),
-    env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
+config :serviceradar_web_ng, :plugin_storage,
+  backend: :filesystem,
+  base_path: "/var/lib/serviceradar/plugin-packages",
+  upload_ttl_seconds: 900,
+  download_ttl_seconds: 900,
+  max_upload_bytes: 52_428_800,
+  jetstream_bucket: "serviceradar_plugins",
+  jetstream_replicas: 1,
+  jetstream_storage: :file
+
+config :serviceradar_web_ng, :plugin_verification,
+  require_gpg_for_github: false,
+  allow_unsigned_uploads: true
+
+config :serviceradar_web_ng, :saml_assertion_max_validity_seconds, 300
+
+config :serviceradar_web_ng, :scopes,
+  user: [
+    default: true,
+    module: ServiceRadarWebNG.Accounts.Scope,
+    assign_key: :current_scope,
+    access_path: [:user, :id],
+    schema_key: :user_id,
+    schema_type: :id,
+    schema_table: :ng_users,
+    test_data_fixture: ServiceRadarWebNG.AccountsFixtures,
+    test_setup_helper: :register_and_log_in_user
   ]
 
+# Session configuration for browser-authenticated users
+config :serviceradar_web_ng, :session,
+  idle_timeout_seconds: 60 * 60,
+  absolute_timeout_seconds: 30 * 24 * 60 * 60
+
+config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
+
+# Ash Framework Configuration
+config :serviceradar_web_ng,
+  ash_domains: [
+    ServiceRadar.AgentConfig,
+    ServiceRadar.Identity,
+    ServiceRadar.Inventory,
+    ServiceRadar.Infrastructure,
+    ServiceRadar.Monitoring,
+    ServiceRadar.Observability,
+    ServiceRadar.Edge,
+    ServiceRadar.Integrations,
+    ServiceRadar.Jobs,
+    ServiceRadar.SweepJobs,
+    ServiceRadar.SysmonProfiles,
+    ServiceRadar.SNMPProfiles,
+    ServiceRadar.NetworkDiscovery,
+    ServiceRadar.Plugins,
+    ServiceRadar.Spatial
+  ]
+
+config :serviceradar_web_ng,
+  namespace: ServiceRadarWebNG,
+  # Use ServiceRadar.Repo from serviceradar_core
+  ecto_repos: [ServiceRadar.Repo],
+  generators: [timestamp_type: :utc_datetime]
+
+# Import environment specific config. This must remain at the bottom
+
 # Configure tailwind (the version is required)
+# of this file so it overrides the configuration defined above.
 config :tailwind,
   version: "4.1.12",
   serviceradar_web_ng: [
@@ -197,44 +239,4 @@ config :tailwind,
     cd: Path.expand("..", __DIR__)
   ]
 
-# Phoenix React Server - React rendering for components (GoRules JDM editor)
-# Bun runtime renders React components, LiveView handles the interactivity
-config :phoenix_react_server, Phoenix.React,
-  runtime: Phoenix.React.Runtime.Bun,
-  component_base: Path.expand("../assets/component/src", __DIR__),
-  render_timeout: 5_000,
-  cache_ttl: 60
-
-# Configure Elixir's Logger
-config :logger, :default_formatter,
-  format: "$time $metadata[$level] $message\n",
-  metadata: [
-    :request_id,
-    :event_type,
-    :severity,
-    # Auth-related metadata
-    :user_id,
-    :email,
-    :method,
-    :timestamp,
-    :token_type,
-    :jti,
-    :reason,
-    :type,
-    :path,
-    :session_started_at,
-    :absolute_timeout_seconds,
-    :remote_ip,
-    :ip,
-    :user_agent
-  ]
-
-# Pin Rustler temp dir to an explicitly writable path when provided by the build system
-config :rustler, :tmp_dir, System.get_env("RUSTLER_TMPDIR") || System.tmp_dir!()
-
-# Use Jason for JSON parsing in Phoenix
-config :phoenix, :json_library, Jason
-
-# Import environment specific config. This must remain at the bottom
-# of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

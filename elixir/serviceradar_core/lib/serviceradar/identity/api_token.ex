@@ -90,7 +90,7 @@ defmodule ServiceRadar.Identity.ApiToken do
           prefix_attribute: :token_prefix,
           timestamp_attribute: :created_at,
           hash_fun: fn raw_token ->
-            :crypto.hash(:sha256, raw_token) |> Base.encode16(case: :lower)
+            :sha256 |> :crypto.hash(raw_token) |> Base.encode16(case: :lower)
           end
         )
       end

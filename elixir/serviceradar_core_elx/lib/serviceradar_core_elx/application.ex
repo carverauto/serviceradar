@@ -25,10 +25,10 @@ defmodule ServiceRadarCoreElx.Application do
 
   use Application
 
-  require Logger
-
   alias ServiceRadar.Repo
   alias ServiceRadar.Telemetry.OtelSetup
+
+  require Logger
 
   @impl true
   def start(_type, _args) do

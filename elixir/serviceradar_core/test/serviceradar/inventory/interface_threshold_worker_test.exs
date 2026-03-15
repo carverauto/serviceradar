@@ -366,8 +366,6 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerTest do
     utilization_pct =
       if is_number(metric_value) and max_bytes_per_sec > 0 do
         Float.round(metric_value / max_bytes_per_sec * 100, 1)
-      else
-        nil
       end
 
     {effective_threshold, if_speed_bps, utilization_pct}

@@ -32,7 +32,8 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
 
   require Ash.Query
   require Logger
@@ -252,7 +253,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       ip_hint ->
         ip = String.trim(ip_hint)
         signature = "ip|#{ip}"
-        seen = normalized |> Enum.map(&"#{&1.kind}|#{&1.value}") |> MapSet.new()
+        seen = MapSet.new(normalized, &"#{&1.kind}|#{&1.value}")
 
         if ip != "" and not MapSet.member?(seen, signature) do
           normalized ++ [%{kind: :ip, value: ip}]
@@ -491,7 +492,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   end
 
   defp load_alias_devices(aliases, actor, include_deleted) do
-    device_ids = Enum.map(aliases, & &1.device_id) |> Enum.uniq()
+    device_ids = aliases |> Enum.map(& &1.device_id) |> Enum.uniq()
 
     case device_ids do
       [] ->

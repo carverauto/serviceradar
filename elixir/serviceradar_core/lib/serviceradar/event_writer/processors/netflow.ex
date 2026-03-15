@@ -85,16 +85,16 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
 
   defp insert_netflow_rows(rows) do
     # DB connection's search_path determines the schema
-    case ServiceRadar.Repo.insert_all(
-           table_name(),
-           rows,
-           on_conflict: :nothing,
-           returning: false
-         ) do
-      {count, _} ->
-        FlowPubSub.broadcast_ingest(%{count: count})
-        {:ok, count}
-    end
+    {count, _} =
+      ServiceRadar.Repo.insert_all(
+        table_name(),
+        rows,
+        on_conflict: :nothing,
+        returning: false
+      )
+
+    FlowPubSub.broadcast_ingest(%{count: count})
+    {:ok, count}
   end
 
   # DB connection's search_path determines the schema

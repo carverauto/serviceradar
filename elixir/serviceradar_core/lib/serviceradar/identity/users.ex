@@ -12,9 +12,9 @@ defmodule ServiceRadar.Identity.Users do
   PostgreSQL schema isolation handles multi-tenancy at the infrastructure level.
   """
 
-  require Ash.Query
-
   alias ServiceRadar.Identity.User
+
+  require Ash.Query
 
   @doc """
   Gets a user by email.
@@ -183,7 +183,12 @@ defmodule ServiceRadar.Identity.Users do
   """
   @spec record_login(User.t(), atom(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def record_login(user, auth_method, opts \\ []) do
-    update_user(user, :record_login, %{auth_method: auth_method}, Keyword.put_new(opts, :actor, user))
+    update_user(
+      user,
+      :record_login,
+      %{auth_method: auth_method},
+      Keyword.put_new(opts, :actor, user)
+    )
   end
 
   @doc """
@@ -191,7 +196,7 @@ defmodule ServiceRadar.Identity.Users do
   """
   @spec confirm(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def confirm(user, opts \\ []) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
     opts = Keyword.put_new(opts, :actor, user)
 
     update_user(user, :update, %{}, opts, fn changeset ->
@@ -231,6 +236,7 @@ defmodule ServiceRadar.Identity.Users do
 
   defp maybe_filter_role(query, role) do
     import Ash.Expr
+
     Ash.Query.filter(query, expr(role == ^role))
   end
 
@@ -238,6 +244,7 @@ defmodule ServiceRadar.Identity.Users do
 
   defp maybe_filter_status(query, status) do
     import Ash.Expr
+
     Ash.Query.filter(query, expr(status == ^status))
   end
 

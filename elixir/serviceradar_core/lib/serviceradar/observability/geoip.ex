@@ -29,19 +29,17 @@ defmodule ServiceRadar.Observability.GeoIP do
   """
   @spec ensure_loaded() :: :ok | {:error, term()}
   def ensure_loaded do
-    case :persistent_term.get(@geolix_loaded_key, false) do
-      true ->
-        :ok
+    if :persistent_term.get(@geolix_loaded_key, false) do
+      :ok
+    else
+      case load_all_databases() do
+        :ok ->
+          :persistent_term.put(@geolix_loaded_key, true)
+          :ok
 
-      false ->
-        case load_all_databases() do
-          :ok ->
-            :persistent_term.put(@geolix_loaded_key, true)
-            :ok
-
-          {:error, _} = err ->
-            err
-        end
+        {:error, _} = err ->
+          err
+      end
     end
   end
 

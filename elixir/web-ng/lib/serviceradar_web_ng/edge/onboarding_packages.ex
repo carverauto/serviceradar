@@ -9,8 +9,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   PostgreSQL search_path set by infrastructure.
   """
 
-  alias ServiceRadar.Edge.OnboardingPackages, as: AshPackages
   alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadar.Edge.OnboardingPackages, as: AshPackages
   alias ServiceRadarWebNG.Edge.GatewayCertificateIssuer
   alias ServiceRadarWebNG.Edge.PubSub, as: EdgePubSub
 
@@ -89,8 +89,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   """
   @spec create(map(), keyword()) ::
-          {:ok,
-           %{package: OnboardingPackage.t(), join_token: String.t(), download_token: String.t()}}
+          {:ok, %{package: OnboardingPackage.t(), join_token: String.t(), download_token: String.t()}}
           | {:error, Ash.Error.t()}
   def create(attrs, opts \\ []) do
     opts = build_opts(opts)
@@ -204,8 +203,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   """
   @spec deliver(String.t(), String.t(), keyword()) ::
-          {:ok,
-           %{package: OnboardingPackage.t(), join_token: String.t(), bundle_pem: String.t() | nil}}
+          {:ok, %{package: OnboardingPackage.t(), join_token: String.t(), bundle_pem: String.t() | nil}}
           | {:error, atom()}
   def deliver(package_id, download_token, opts \\ []) do
     opts = build_opts(opts)

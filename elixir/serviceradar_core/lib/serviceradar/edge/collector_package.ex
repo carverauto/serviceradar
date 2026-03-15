@@ -38,6 +38,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Changes.AfterAction
+  alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadar.Edge.PubSub
 
   @package_fields [:collector_type, :site, :hostname, :config_overrides, :edge_site_id]
@@ -123,7 +124,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
         user_name =
           case Ash.Changeset.get_argument(changeset, :user_name) do
             nil ->
-              random_suffix = :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
+              random_suffix = 4 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
               "#{collector_type}-#{site}-#{random_suffix}"
 
             name ->
@@ -137,7 +138,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
               # Generate new token (legacy behavior)
               token_bytes = :crypto.strong_rand_bytes(32)
               token_secret = Base.url_encode64(token_bytes, padding: false)
-              hash = :crypto.hash(:sha256, token_secret) |> Base.encode16(case: :lower)
+              hash = :sha256 |> :crypto.hash(token_secret) |> Base.encode16(case: :lower)
               expires = DateTime.add(DateTime.utc_now(), 7, :day)
               {hash, expires}
 
@@ -441,7 +442,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   end
 
   relationships do
-    belongs_to :nats_credential, ServiceRadar.Edge.NatsCredential do
+    belongs_to :nats_credential, NatsCredential do
       source_attribute :nats_credential_id
       allow_nil? true
     end
@@ -482,7 +483,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   defp revoke_associated_nats_credential(package) do
     actor = SystemActor.system(:collector_package)
 
-    case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id, actor: actor) do
+    case Ash.get(NatsCredential, package.nats_credential_id, actor: actor) do
       {:ok, credential} when not is_nil(credential) ->
         credential
         |> Ash.Changeset.for_update(:revoke, %{reason: "Package revoked"})

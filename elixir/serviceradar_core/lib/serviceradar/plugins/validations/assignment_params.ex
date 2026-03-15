@@ -6,7 +6,10 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
   use Ash.Resource.Validation
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Plugins.{ConfigSchema, PluginInputs, PluginPackage, TargetBatchParams}
+  alias ServiceRadar.Plugins.ConfigSchema
+  alias ServiceRadar.Plugins.PluginInputs
+  alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.TargetBatchParams
 
   @impl true
   def atomic(_changeset, _opts, _context), do: :ok

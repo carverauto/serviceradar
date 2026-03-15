@@ -5,13 +5,15 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.TestSupport
 
   require Ash.Query
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, IdentityReconciler, Interface}
-  alias ServiceRadar.TestSupport
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -49,7 +51,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
     assert {:ok, _from_device} = create_device(actor, from_uid, "merge-from")
     assert {:ok, _to_device} = create_device(actor, to_uid, "merge-to")
 
-    timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
     earlier = DateTime.add(timestamp, -60, :second)
 
     assert {:ok, _} = create_interface(actor, to_uid, timestamp, "ifindex:1", 1, "eth0")

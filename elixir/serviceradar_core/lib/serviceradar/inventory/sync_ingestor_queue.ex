@@ -8,11 +8,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   use GenServer
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.SyncIngestor
+
+  require Logger
 
   defmodule Queue do
     @moduledoc false

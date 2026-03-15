@@ -1,13 +1,14 @@
 defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()

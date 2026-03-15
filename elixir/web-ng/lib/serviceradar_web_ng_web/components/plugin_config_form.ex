@@ -108,9 +108,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp normalize_params(_), do: %{}
 
   defp stringify_keys(%{} = map) do
-    map
-    |> Enum.map(fn {key, value} -> {to_string(key), stringify_keys(value)} end)
-    |> Map.new()
+    Map.new(map, fn {key, value} -> {to_string(key), stringify_keys(value)} end)
   end
 
   defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)

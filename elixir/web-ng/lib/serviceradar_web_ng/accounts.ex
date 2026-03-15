@@ -46,13 +46,11 @@ defmodule ServiceRadarWebNG.Accounts do
       nil
 
   """
-  def get_user_by_email_and_password(email, password)
-      when is_binary(email) and is_binary(password) do
+  def get_user_by_email_and_password(email, password) when is_binary(email) and is_binary(password) do
     AshUsers.get_by_email_and_password(email, password, actor: SystemActor.system(:accounts))
   end
 
-  def get_user_by_email_and_password(%Ash.CiString{} = email, password)
-      when is_binary(password) do
+  def get_user_by_email_and_password(%Ash.CiString{} = email, password) when is_binary(password) do
     get_user_by_email_and_password(to_string(email), password)
   end
 
@@ -83,7 +81,7 @@ defmodule ServiceRadarWebNG.Accounts do
   def sudo_mode?(user, sudo_at \\ nil, minutes \\ -20)
 
   def sudo_mode?(%{id: _}, %DateTime{} = sudo_at, minutes) do
-    cutoff = DateTime.utc_now() |> DateTime.add(minutes, :minute)
+    cutoff = DateTime.add(DateTime.utc_now(), minutes, :minute)
     DateTime.compare(sudo_at, cutoff) != :lt
   end
 
@@ -109,9 +107,7 @@ defmodule ServiceRadarWebNG.Accounts do
     {user, types}
     |> Ecto.Changeset.cast(attrs, [:email])
     |> Ecto.Changeset.validate_required([:email])
-    |> Ecto.Changeset.validate_format(:email, ~r/^[^\s]+@[^\s]+$/,
-      message: "must have the @ sign and no spaces"
-    )
+    |> Ecto.Changeset.validate_format(:email, ~r/^[^\s]+@[^\s]+$/, message: "must have the @ sign and no spaces")
     |> Ecto.Changeset.validate_length(:email, max: 160)
     |> validate_email_changed(current_email)
   end

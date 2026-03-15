@@ -1,21 +1,18 @@
 defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
-  alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
-  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
-  alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
-
-  alias ServiceRadar.Observability.{
-    IpGeoEnrichmentCache,
-    IpIpinfoCache,
-    IpRdnsCache,
-    IpThreatIntelCache,
-    NetflowPortAnomalyFlag,
-    NetflowPortScanFlag
-  }
-
   alias ServiceRadar.Integrations.MapboxSettings
+  alias ServiceRadar.Observability.IpGeoEnrichmentCache
+  alias ServiceRadar.Observability.IpIpinfoCache
+  alias ServiceRadar.Observability.IpRdnsCache
+  alias ServiceRadar.Observability.IpThreatIntelCache
+  alias ServiceRadar.Observability.NetflowPortAnomalyFlag
+  alias ServiceRadar.Observability.NetflowPortScanFlag
+  alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
+  alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
+  alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Ash.Query
 
@@ -95,7 +92,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
     state = normalize_state_for_graph(state)
 
-    q_param = Map.get(params, "q") |> normalize_optional_string()
+    q_param = params |> Map.get("q") |> normalize_optional_string()
 
     socket =
       socket
@@ -171,8 +168,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "flows")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "flows")}
   end
 
   def handle_event("nf_reset", _params, socket) do
@@ -198,8 +194,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     selected =
       if is_integer(idx) and is_list(socket.assigns.flows) do
         Enum.at(socket.assigns.flows, idx)
-      else
-        nil
       end
 
     context = load_flow_context(selected, socket.assigns.current_scope)
@@ -240,12 +234,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   def handle_event("netflow_sankey_edge", %{} = params, socket) do
-    src = Map.get(params, "src") |> normalize_optional_string()
-    dst = Map.get(params, "dst") |> normalize_optional_string()
+    src = params |> Map.get("src") |> normalize_optional_string()
+    dst = params |> Map.get("dst") |> normalize_optional_string()
 
     port = parse_optional_port(Map.get(params, "port"))
-    mid_field = Map.get(params, "mid_field") |> normalize_optional_string()
-    mid_value = Map.get(params, "mid_value") |> normalize_optional_string()
+    mid_field = params |> Map.get("mid_field") |> normalize_optional_string()
+    mid_value = params |> Map.get("mid_value") |> normalize_optional_string()
 
     # Edges involving "Other" are bucketed aggregates (not a concrete endpoint). SRQL doesn't
     # have a clean way to express "everything except top-N", so clicking these should not
@@ -258,11 +252,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
     if src_bucketed or dst_bucketed do
       {:noreply,
-       socket
-       |> put_flash(
-         :info,
-         "This edge is bucketed as Other. Increase detail (or switch dims) to drill in."
-       )}
+       put_flash(socket, :info, "This edge is bucketed as Other. Increase detail (or switch dims) to drill in.")}
     else
       # IMPORTANT: The current SRQL query is a chart query (e.g. includes `stats:"..."`).
       # Upserting filters into that string can accidentally match group-by expressions inside
@@ -290,15 +280,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
       {:noreply,
        push_patch(socket,
-         to:
-           build_patch_url(socket, %{"q" => chart_query, "cursor" => nil, "nf" => nf_param(state)})
+         to: build_patch_url(socket, %{"q" => chart_query, "cursor" => nil, "nf" => nf_param(state)})
        )}
     end
   end
 
   def handle_event("netflow_stack_series", %{"field" => field, "value" => value}, socket) do
-    field = to_string(field || "") |> String.trim()
-    value = to_string(value || "") |> String.trim()
+    field = (field || "") |> to_string() |> String.trim()
+    value = (value || "") |> to_string() |> String.trim()
 
     if field in ["app", "protocol_group"] and value != "" do
       query = Map.get(socket.assigns.srql, :query) || ""
@@ -340,8 +329,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
      )}
   end
 
-  def handle_event("nf_dim_move", %{"dim" => dim, "dir" => dir}, socket)
-      when is_binary(dim) and dir in ["up", "down"] do
+  def handle_event("nf_dim_move", %{"dim" => dim, "dir" => dir}, socket) when is_binary(dim) and dir in ["up", "down"] do
     current = Map.get(socket.assigns, :netflow_viz_state, NFState.default())
 
     # Sankey dims are positional (src -> mid -> dst). Avoid confusing reorder operations.
@@ -358,8 +346,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
       {:noreply,
        push_patch(socket,
-         to:
-           build_patch_url(socket, %{"nf" => nf_param(next), "q" => chart_query, "cursor" => nil})
+         to: build_patch_url(socket, %{"nf" => nf_param(next), "q" => chart_query, "cursor" => nil})
        )}
     end
   end
@@ -380,8 +367,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
       {:noreply,
        push_patch(socket,
-         to:
-           build_patch_url(socket, %{"nf" => nf_param(next), "q" => chart_query, "cursor" => nil})
+         to: build_patch_url(socket, %{"nf" => nf_param(next), "q" => chart_query, "cursor" => nil})
        )}
     end
   end
@@ -1216,7 +1202,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   @flow_key_atom_map Map.new(@flow_key_atoms, fn a -> {Atom.to_string(a), a} end)
 
   defp flow_get(flow, keys) when is_map(flow) and is_list(keys) do
-    Enum.find_value(keys, fn k ->
+    keys
+    |> Enum.find_value(fn k ->
       Map.get(flow, k) ||
         case Map.get(@flow_key_atom_map, k) do
           a when is_atom(a) -> Map.get(flow, a)
@@ -1283,11 +1270,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       if a in ?A..?Z and b in ?A..?Z do
         # Regional indicator symbols: U+1F1E6 = 'A'
         <<0x1F1E6 + (a - ?A)::utf8, 0x1F1E6 + (b - ?A)::utf8>>
-      else
-        nil
       end
-    else
-      nil
     end
   end
 
@@ -1311,7 +1294,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp tcp_flag_tooltip(_), do: "TCP flag."
 
   defp flows_filter_patch(base_path, query, limit, nf, field, value) do
-    value = to_string(value || "") |> String.trim()
+    value = (value || "") |> to_string() |> String.trim()
 
     q = upsert_query_filter(query || "", field, value)
 
@@ -1335,8 +1318,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     if String.trim(to_string(value || "")) == "" do
       query
     else
-      (query <> " " <> "#{field}:#{value}")
-      |> String.trim()
+      String.trim(query <> " " <> "#{field}:#{value}")
     end
   end
 
@@ -1388,8 +1370,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       end
 
     srql =
-      srql
-      |> Map.merge(%{
+      Map.merge(srql, %{
         enabled: true,
         entity: "flows",
         page_path: page_path,
@@ -1408,8 +1389,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     |> assign(:limit, limit)
   end
 
-  defp load_srql_assigns(socket, other, uri, limit),
-    do: load_srql_assigns(socket, to_string(other || ""), uri, limit)
+  defp load_srql_assigns(socket, other, uri, limit), do: load_srql_assigns(socket, to_string(other || ""), uri, limit)
 
   defp load_flows_list(socket, params, %{} = state) do
     srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
@@ -1419,12 +1399,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     fallback_time = Map.get(state, "time", @default_time)
 
     list_query =
-      flows_list_base_query(chart_query, fallback_time)
+      chart_query
+      |> flows_list_base_query(fallback_time)
       |> ensure_sort_time_desc()
 
     window_label = flows_window_label_from_query(list_query, fallback_time)
 
-    cursor = Map.get(params, "cursor") |> normalize_optional_string()
+    cursor = params |> Map.get("cursor") |> normalize_optional_string()
     limit = Map.get(socket.assigns, :limit, @default_limit)
 
     {flows, pagination} =
@@ -1549,8 +1530,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp geo_iso2_map_for_flows(_flows, _scope), do: %{}
 
-  defp flows_window_label_from_query(query, fallback_time)
-       when is_binary(query) and is_binary(fallback_time) do
+  defp flows_window_label_from_query(query, fallback_time) when is_binary(query) and is_binary(fallback_time) do
     # Prefer explicit bracket range, otherwise show the state time token.
     case parse_time_window_from_query(query) do
       {:ok, {start_dt, end_dt}} ->
@@ -2333,8 +2313,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           |> Enum.reject(&(&1 == ""))
           |> Enum.join(" ")
 
-        {location, to_int(Map.get(geo, :as_number)),
-         normalize_optional_string(Map.get(geo, :as_name)),
+        {location, to_int(Map.get(geo, :as_number)), normalize_optional_string(Map.get(geo, :as_name)),
          normalize_optional_string(Map.get(geo, :country_code))}
       else
         {"", nil, nil, nil}
@@ -2415,19 +2394,19 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp load_flow_context(flow, scope) when is_map(flow) do
     srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
     user = scope && scope.user
-    src_ip = flow_get(flow, ["src_endpoint_ip", "src_ip"]) |> normalize_ip()
-    dst_ip = flow_get(flow, ["dst_endpoint_ip", "dst_ip"]) |> normalize_ip()
-    dst_port = flow_get(flow, ["dst_endpoint_port", "dst_port"]) |> to_int()
+    src_ip = flow |> flow_get(["src_endpoint_ip", "src_ip"]) |> normalize_ip()
+    dst_ip = flow |> flow_get(["dst_endpoint_ip", "dst_ip"]) |> normalize_ip()
+    dst_port = flow |> flow_get(["dst_endpoint_port", "dst_port"]) |> to_int()
 
     src_mac =
-      (flow_get(flow, ["src_mac"]) ||
-         get_in(flow_get(flow, ["ocsf_payload"]) || %{}, ["unmapped", "src_mac"]))
-      |> normalize_mac()
+      normalize_mac(
+        flow_get(flow, ["src_mac"]) || get_in(flow_get(flow, ["ocsf_payload"]) || %{}, ["unmapped", "src_mac"])
+      )
 
     dst_mac =
-      (flow_get(flow, ["dst_mac"]) ||
-         get_in(flow_get(flow, ["ocsf_payload"]) || %{}, ["unmapped", "dst_mac"]))
-      |> normalize_mac()
+      normalize_mac(
+        flow_get(flow, ["dst_mac"]) || get_in(flow_get(flow, ["ocsf_payload"]) || %{}, ["unmapped", "dst_mac"])
+      )
 
     src_device_uid =
       lookup_device_uid_by_ip_or_mac(srql_module, scope, src_ip, src_mac)
@@ -2538,7 +2517,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp read_rdns(_user, nil), do: nil
 
   defp read_rdns(user, ip) when is_binary(ip) do
-    query = IpRdnsCache |> Ash.Query.for_read(:by_ip, %{ip: ip})
+    query = Ash.Query.for_read(IpRdnsCache, :by_ip, %{ip: ip})
 
     case Ash.read_one(query, actor: user) do
       {:ok, record} -> record
@@ -2559,7 +2538,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp read_geo(_user, nil), do: nil
 
   defp read_geo(user, ip) when is_binary(ip) do
-    query = IpGeoEnrichmentCache |> Ash.Query.for_read(:by_ip, %{ip: ip})
+    query = Ash.Query.for_read(IpGeoEnrichmentCache, :by_ip, %{ip: ip})
 
     case Ash.read_one(query, actor: user) do
       {:ok, record} -> record
@@ -2571,7 +2550,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp read_ipinfo(_user, nil), do: nil
 
   defp read_ipinfo(user, ip) when is_binary(ip) do
-    query = IpIpinfoCache |> Ash.Query.for_read(:by_ip, %{ip: ip})
+    query = Ash.Query.for_read(IpIpinfoCache, :by_ip, %{ip: ip})
 
     case Ash.read_one(query, actor: user) do
       {:ok, %IpIpinfoCache{} = record} -> record
@@ -2583,7 +2562,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp read_threat(_user, nil), do: nil
 
   defp read_threat(user, ip) when is_binary(ip) do
-    query = IpThreatIntelCache |> Ash.Query.for_read(:by_ip, %{ip: ip})
+    query = Ash.Query.for_read(IpThreatIntelCache, :by_ip, %{ip: ip})
 
     case Ash.read_one(query, actor: user) do
       {:ok, record} -> record
@@ -2595,7 +2574,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp read_port_scan(_user, nil), do: nil
 
   defp read_port_scan(user, ip) when is_binary(ip) do
-    query = NetflowPortScanFlag |> Ash.Query.for_read(:by_src_ip, %{src_ip: ip})
+    query = Ash.Query.for_read(NetflowPortScanFlag, :by_src_ip, %{src_ip: ip})
 
     case Ash.read_one(query, actor: user) do
       {:ok, record} -> record
@@ -2607,7 +2586,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp read_port_anomaly(_user, nil), do: nil
 
   defp read_port_anomaly(user, port) when is_integer(port) and port > 0 do
-    query = NetflowPortAnomalyFlag |> Ash.Query.for_read(:by_port, %{dst_port: port})
+    query = Ash.Query.for_read(NetflowPortAnomalyFlag, :by_port, %{dst_port: port})
 
     case Ash.read_one(query, actor: user) do
       {:ok, record} -> record
@@ -2687,8 +2666,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
     # Prefer "latest selection wins": newly selected dimensions become the primary series.
     # This makes the chart respond immediately when users click additional dimensions.
-    (added ++ preserved)
-    |> Enum.uniq()
+    Enum.uniq(added ++ preserved)
   end
 
   defp move_dim(dims, dim, "up"), do: move_dim(dims, dim, -1)
@@ -2721,17 +2699,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     end
   end
 
-  defp units_to_value_field_and_scale("pps", bucket),
-    do: {"packets_total", rate_scale_fun(bucket, 1.0)}
+  defp units_to_value_field_and_scale("pps", bucket), do: {"packets_total", rate_scale_fun(bucket, 1.0)}
 
-  defp units_to_value_field_and_scale("bps", bucket),
-    do: {"bytes_total", rate_scale_fun(bucket, 8.0)}
+  defp units_to_value_field_and_scale("bps", bucket), do: {"bytes_total", rate_scale_fun(bucket, 8.0)}
 
-  defp units_to_value_field_and_scale("Bps", bucket),
-    do: {"bytes_total", rate_scale_fun(bucket, 1.0)}
+  defp units_to_value_field_and_scale("Bps", bucket), do: {"bytes_total", rate_scale_fun(bucket, 1.0)}
 
-  defp units_to_value_field_and_scale(_, bucket),
-    do: {"bytes_total", rate_scale_fun(bucket, 1.0)}
+  defp units_to_value_field_and_scale(_, bucket), do: {"bytes_total", rate_scale_fun(bucket, 1.0)}
 
   defp rate_scale_fun(bucket, multiplier) when is_binary(bucket) and is_number(multiplier) do
     secs = bucket_to_seconds(bucket)
@@ -2844,8 +2818,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> assign(:netflow_sankey_edges_json, "[]")
   end
 
-  defp load_visualize_chart(socket, other, %{} = state),
-    do: load_visualize_chart(socket, to_string(other || ""), state)
+  defp load_visualize_chart(socket, other, %{} = state), do: load_visualize_chart(socket, to_string(other || ""), state)
 
   defp flows_list_base_query(query, fallback_time) when is_binary(fallback_time) do
     query
@@ -2897,8 +2870,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     _ -> []
   end
 
-  defp reduce_sankey_clutter(edges, dims, max_edges)
-       when is_list(edges) and is_list(dims) and is_integer(max_edges) do
+  defp reduce_sankey_clutter(edges, dims, max_edges) when is_list(edges) and is_list(dims) and is_integer(max_edges) do
     # IP-mode Sankey gets unreadable quickly (too many unique endpoints). We bucket low-volume
     # endpoints into "Other" and then re-aggregate the edge weights.
     src_dim = Enum.at(dims, 0) || "src_cidr"
@@ -2951,15 +2923,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       src_bytes
       |> Enum.sort_by(fn {_k, v} -> -v end)
       |> Enum.take(max(top_src, 1))
-      |> Enum.map(fn {k, _} -> k end)
-      |> MapSet.new()
+      |> MapSet.new(fn {k, _} -> k end)
 
     dst_top =
       dst_bytes
       |> Enum.sort_by(fn {_k, v} -> -v end)
       |> Enum.take(max(top_dst, 1))
-      |> Enum.map(fn {k, _} -> k end)
-      |> MapSet.new()
+      |> MapSet.new(fn {k, _} -> k end)
 
     {src_top, dst_top}
   end
@@ -3265,7 +3235,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
     name = ripe_record_value(flat, ["as-name", "ASName"])
     org_name = ripe_record_value(flat, ["org-name", "OrgName", "org"])
-    descr = ripe_record_values(flat, ["descr", "Description", "remarks"]) |> Enum.join(" | ")
+    descr = flat |> ripe_record_values(["descr", "Description", "remarks"]) |> Enum.join(" | ")
     country = ripe_record_value(flat, ["country"])
     registration_date = ripe_record_value(flat, ["RegDate", "created"])
     update_date = ripe_record_value(flat, ["Updated", "last-modified"])
@@ -3297,10 +3267,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp normalize_ripe_asn(_asn, _records), do: %{}
 
   defp ripe_record_value(records, keys) when is_list(records) and is_list(keys) do
-    records
-    |> Enum.find_value(fn
+    Enum.find_value(records, fn
       %{"key" => key, "value" => value} when is_binary(key) and is_binary(value) ->
-        if key in keys, do: String.trim(value), else: nil
+        if key in keys, do: String.trim(value)
 
       _ ->
         nil
@@ -3321,10 +3290,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   defp ripe_record_details_link(records, keys) when is_list(records) and is_list(keys) do
-    records
-    |> Enum.find_value(fn
+    Enum.find_value(records, fn
       %{"key" => key, "details_link" => value} when is_binary(key) and is_binary(value) ->
-        if key in keys, do: String.trim(value), else: nil
+        if key in keys, do: String.trim(value)
 
       _ ->
         nil
@@ -3416,8 +3384,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         mid_field: mid_field,
         mid_value: mid_value
       }
-    else
-      nil
     end
   end
 
@@ -3508,8 +3474,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp sankey_mid(_), do: {nil, nil, 0}
 
-  defp sankey_mid_label("dst_port", _mid_value, port) when is_integer(port) and port > 0,
-    do: to_string(port)
+  defp sankey_mid_label("dst_port", _mid_value, port) when is_integer(port) and port > 0, do: to_string(port)
 
   defp sankey_mid_label(_mid_field, mid_value, _port) when is_binary(mid_value) do
     v = String.trim(mid_value)
@@ -3520,7 +3485,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp load_overlays(srql_module, base, scope, opts) do
     graph = Keyword.get(opts, :graph, "stacked")
-    keys = Keyword.get(opts, :keys, []) |> List.wrap()
+    keys = opts |> Keyword.get(:keys, []) |> List.wrap()
     series_field = Keyword.get(opts, :series_field, "protocol_group")
     bucket = Keyword.get(opts, :bucket, "5m")
     value_field = Keyword.get(opts, :value_field, "bytes_total")
@@ -3599,7 +3564,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           prev_query = NFQuery.flows_replace_time(base_query, prev_time)
 
           points =
-            load_total_overlay_points(srql_module, prev_query, scope,
+            srql_module
+            |> load_total_overlay_points(prev_query, scope,
               bucket: bucket,
               value_field: value_field,
               agg: agg,
@@ -3665,7 +3631,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp shift_overlay_points(other, _seconds), do: other
 
   defp load_stacked100_composition_overlays(srql_module, base_query, scope, opts) do
-    keys = Keyword.get(opts, :keys, []) |> List.wrap()
+    keys = opts |> Keyword.get(:keys, []) |> List.wrap()
     series_field = Keyword.get(opts, :series_field, "protocol_group")
     bucket = Keyword.get(opts, :bucket, "5m")
     value_field = Keyword.get(opts, :value_field, "bytes_total")
@@ -3756,8 +3722,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp restrict_points_to_keys(other, _keys), do: other
 
-  defp shift_points({keys, points}, seconds)
-       when is_list(keys) and is_list(points) and is_integer(seconds) do
+  defp shift_points({keys, points}, seconds) when is_list(keys) and is_list(points) and is_integer(seconds) do
     points =
       Enum.map(points, fn
         %{"t" => t} = point when is_binary(t) ->
@@ -3812,7 +3777,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp parse_time_token(_), do: {:error, :invalid_time}
 
   defp relative_window(seconds) when is_integer(seconds) and seconds > 0 do
-    end_dt = DateTime.utc_now() |> DateTime.truncate(:second)
+    end_dt = DateTime.truncate(DateTime.utc_now(), :second)
     start_dt = DateTime.add(end_dt, -seconds, :second)
     {:ok, {start_dt, end_dt}}
   end

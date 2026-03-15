@@ -28,19 +28,21 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       result = AgentConfigGenerator.get_config_if_changed(agent_id, current_version)
   """
 
-  require Logger
-  require Ash.Query
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
-  alias ServiceRadar.Edge.SNMPProtoMapper
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadar.Edge.SNMPProtoMapper
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Monitoring.ServiceCheck
-  alias ServiceRadar.Plugins.{PluginAssignment, PluginPackage, StorageToken}
+  alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.StorageToken
+
+  require Ash.Query
+  require Logger
 
   # Default intervals
   @default_heartbeat_interval_sec 30
@@ -288,9 +290,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp has_approved_package?(
-         %PluginAssignment{
-           plugin_package: %PluginPackage{status: :approved}
-         } = assignment
+         %PluginAssignment{plugin_package: %PluginPackage{status: :approved}} = assignment
        ) do
     if wasm_available?(assignment.plugin_package) do
       true
@@ -364,10 +364,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp effective_capabilities(%PluginPackage{} = package, manifest) do
     approved = package.approved_capabilities || []
 
-    if approved != [] do
-      approved
-    else
+    if approved == [] do
       Map.get(manifest, "capabilities") || Map.get(manifest, :capabilities) || []
+    else
+      approved
     end
   end
 
@@ -376,31 +376,35 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          %PluginPackage{} = package,
          manifest
        ) do
-    cond do
-      map_present?(assignment.permissions_override) ->
-        assignment.permissions_override
+    cond_result =
+      cond do
+        map_present?(assignment.permissions_override) ->
+          assignment.permissions_override
 
-      map_present?(package.approved_permissions) ->
-        package.approved_permissions
+        map_present?(package.approved_permissions) ->
+          package.approved_permissions
 
-      true ->
-        Map.get(manifest, "permissions") || Map.get(manifest, :permissions) || %{}
-    end
-    |> normalize_map()
+        true ->
+          Map.get(manifest, "permissions") || Map.get(manifest, :permissions) || %{}
+      end
+
+    normalize_map(cond_result)
   end
 
   defp effective_resources(%PluginAssignment{} = assignment, %PluginPackage{} = package, manifest) do
-    cond do
-      map_present?(assignment.resources_override) ->
-        assignment.resources_override
+    cond_result =
+      cond do
+        map_present?(assignment.resources_override) ->
+          assignment.resources_override
 
-      map_present?(package.approved_resources) ->
-        package.approved_resources
+        map_present?(package.approved_resources) ->
+          package.approved_resources
 
-      true ->
-        Map.get(manifest, "resources") || Map.get(manifest, :resources) || %{}
-    end
-    |> normalize_map()
+        true ->
+          Map.get(manifest, "resources") || Map.get(manifest, :resources) || %{}
+      end
+
+    normalize_map(cond_result)
   end
 
   defp map_present?(map) when is_map(map), do: map_size(map) > 0

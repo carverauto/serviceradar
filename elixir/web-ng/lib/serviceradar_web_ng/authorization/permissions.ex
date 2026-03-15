@@ -3,11 +3,11 @@ defmodule ServiceRadarWebNG.Authorization.Permissions do
 
   use Permit.Permissions, actions_module: ServiceRadarWebNG.Authorization.Actions
 
-  alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.AuthorizationSettings
+  alias ServiceRadar.Identity.AuthSettings
+  alias ServiceRadar.Identity.RBAC, as: RBACCore
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
-  alias ServiceRadar.Identity.RBAC, as: RBACCore
 
   @impl true
   def can(%User{} = user) do
@@ -27,8 +27,7 @@ defmodule ServiceRadarWebNG.Authorization.Permissions do
         |> all(AuthorizationSettings)
 
       "settings.rbac.manage" ->
-        permissions
-        |> all(RoleProfile)
+        all(permissions, RoleProfile)
 
       _ ->
         permissions

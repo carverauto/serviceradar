@@ -35,7 +35,8 @@ defmodule ServiceRadarWebNGWeb.ClientIP do
   end
 
   defp trust_x_forwarded_for? do
-    Application.get_env(:serviceradar_web_ng, :client_ip, [])
+    :serviceradar_web_ng
+    |> Application.get_env(:client_ip, [])
     |> Keyword.get(:trust_x_forwarded_for, false)
   end
 

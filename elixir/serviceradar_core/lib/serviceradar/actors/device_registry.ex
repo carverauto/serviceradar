@@ -102,7 +102,8 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   """
   @spec list_devices() :: [map()]
   def list_devices do
-    ProcessRegistry.select_by_type(:device)
+    :device
+    |> ProcessRegistry.select_by_type()
     |> Enum.map(fn {key, pid, metadata} ->
       Map.merge(metadata, %{key: key, pid: pid, device_id: elem(key, 1)})
     end)
@@ -114,8 +115,7 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   """
   @spec list_devices_for_partition(String.t()) :: [map()]
   def list_devices_for_partition(partition_id) do
-    list_devices()
-    |> Enum.filter(&(&1[:partition_id] == partition_id))
+    Enum.filter(list_devices(), &(&1[:partition_id] == partition_id))
   end
 
   @doc """
@@ -150,8 +150,7 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   """
   @spec stop_all() :: :ok
   def stop_all do
-    list_devices()
-    |> Enum.each(fn %{pid: pid} ->
+    Enum.each(list_devices(), fn %{pid: pid} ->
       try do
         Device.stop(pid)
       catch
@@ -193,8 +192,7 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   """
   @spec broadcast(term()) :: :ok
   def broadcast(message) do
-    list_devices()
-    |> Enum.each(fn %{pid: pid} ->
+    Enum.each(list_devices(), fn %{pid: pid} ->
       send(pid, message)
     end)
 

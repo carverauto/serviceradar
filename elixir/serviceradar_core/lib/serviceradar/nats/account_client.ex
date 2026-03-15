@@ -40,6 +40,8 @@ defmodule ServiceRadar.NATS.AccountClient do
       )
   """
 
+  alias Proto.NATSAccountService.Stub
+
   require Logger
 
   @default_timeout 30_000
@@ -96,7 +98,7 @@ defmodule ServiceRadar.NATS.AccountClient do
     }
 
     with {:ok, channel} <- get_channel() do
-      case Proto.NATSAccountService.Stub.create_account(channel, request, timeout: timeout) do
+      case Stub.create_account(channel, request, timeout: timeout) do
         {:ok, response} ->
           {:ok,
            %{
@@ -180,9 +182,7 @@ defmodule ServiceRadar.NATS.AccountClient do
     }
 
     with {:ok, channel} <- get_channel() do
-      case Proto.NATSAccountService.Stub.generate_user_credentials(channel, request,
-             timeout: timeout
-           ) do
+      case Stub.generate_user_credentials(channel, request, timeout: timeout) do
         {:ok, response} ->
           build_user_credentials(response)
 
@@ -274,7 +274,7 @@ defmodule ServiceRadar.NATS.AccountClient do
     }
 
     with {:ok, channel} <- get_channel() do
-      case Proto.NATSAccountService.Stub.sign_account_jwt(channel, request, timeout: timeout) do
+      case Stub.sign_account_jwt(channel, request, timeout: timeout) do
         {:ok, response} ->
           {:ok,
            %{
@@ -332,7 +332,7 @@ defmodule ServiceRadar.NATS.AccountClient do
     }
 
     with {:ok, channel} <- get_channel() do
-      case Proto.NATSAccountService.Stub.push_account_jwt(channel, request, timeout: timeout) do
+      case Stub.push_account_jwt(channel, request, timeout: timeout) do
         {:ok, response} ->
           {:ok,
            %{
@@ -401,7 +401,7 @@ defmodule ServiceRadar.NATS.AccountClient do
     }
 
     with {:ok, channel} <- get_channel() do
-      case Proto.NATSAccountService.Stub.bootstrap_operator(channel, request, timeout: timeout) do
+      case Stub.bootstrap_operator(channel, request, timeout: timeout) do
         {:ok, response} ->
           {:ok,
            %{
@@ -448,7 +448,7 @@ defmodule ServiceRadar.NATS.AccountClient do
     request = %Proto.GetOperatorInfoRequest{}
 
     with {:ok, channel} <- get_channel() do
-      case Proto.NATSAccountService.Stub.get_operator_info(channel, request, timeout: timeout) do
+      case Stub.get_operator_info(channel, request, timeout: timeout) do
         {:ok, response} ->
           {:ok,
            %{
@@ -516,21 +516,20 @@ defmodule ServiceRadar.NATS.AccountClient do
 
     endpoint = "#{host}:#{port}"
 
-    with {:ok, cred_opts} <- build_cred_opts() do
-      connect_opts =
-        cred_opts
-        |> Keyword.put(:adapter_opts, connect_timeout: 5_000)
+    case build_cred_opts() do
+      {:ok, cred_opts} ->
+        connect_opts = Keyword.put(cred_opts, :adapter_opts, connect_timeout: 5_000)
 
-      case GRPC.Stub.connect(endpoint, connect_opts) do
-        {:ok, channel} ->
-          Logger.debug("Created fresh NATS account gRPC channel to #{endpoint}")
-          {:ok, channel}
+        case GRPC.Stub.connect(endpoint, connect_opts) do
+          {:ok, channel} ->
+            Logger.debug("Created fresh NATS account gRPC channel to #{endpoint}")
+            {:ok, channel}
 
-        {:error, reason} ->
-          Logger.error("Failed to create NATS account gRPC channel: #{inspect(reason)}")
-          {:error, {:connection_failed, reason}}
-      end
-    else
+          {:error, reason} ->
+            Logger.error("Failed to create NATS account gRPC channel: #{inspect(reason)}")
+            {:error, {:connection_failed, reason}}
+        end
+
       {:error, reason} ->
         Logger.error("Failed to build NATS account gRPC credentials: #{inspect(reason)}")
         {:error, {:connection_failed, reason}}

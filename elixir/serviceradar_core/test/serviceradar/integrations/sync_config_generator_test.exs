@@ -8,12 +8,13 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Integrations.SyncConfigGenerator
 
   require Ash.Query
 
-  alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.Integrations.{IntegrationSource, SyncConfigGenerator}
+  @moduletag :integration
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()

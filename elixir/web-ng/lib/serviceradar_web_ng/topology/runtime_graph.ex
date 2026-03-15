@@ -8,10 +8,11 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   """
 
   use GenServer
-  require Logger
 
   alias ServiceRadarWebNG.Graph, as: AgeGraph
   alias ServiceRadarWebNG.Topology.Native
+
+  require Logger
 
   @default_refresh_ms 5_000
   @max_link_rows 5_000
@@ -51,8 +52,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   @impl true
   def init(_opts) do
     refresh_ms =
-      Application.get_env(
-        :serviceradar_web_ng,
+      :serviceradar_web_ng
+      |> Application.get_env(
         :god_view_runtime_graph_refresh_ms,
         @default_refresh_ms
       )
@@ -380,7 +381,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     Map.get(metadata, key) ||
       Enum.find_value(Map.keys(metadata), fn
         atom_key when is_atom(atom_key) ->
-          if Atom.to_string(atom_key) == key, do: Map.get(metadata, atom_key), else: nil
+          if Atom.to_string(atom_key) == key, do: Map.get(metadata, atom_key)
 
         _ ->
           nil
@@ -412,7 +413,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   defp parse_ifindex(value) when is_float(value) do
     rounded = trunc(Float.round(value))
-    if rounded >= 0, do: rounded, else: nil
+    if rounded >= 0, do: rounded
   end
 
   defp parse_ifindex(value) when is_binary(value) do

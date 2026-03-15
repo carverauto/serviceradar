@@ -2,11 +2,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   # Writes to shared tables; keep serial to avoid deadlocks in CNPG-backed tests.
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  alias ServiceRadarWebNG.AshTestHelpers
-  alias ServiceRadar.Inventory.Device
-  alias ServiceRadarWebNG.Repo
-  alias ServiceRadar.NetworkDiscovery.{MapperJob, MapperSeed}
   import Phoenix.LiveViewTest
+
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.NetworkDiscovery.MapperSeed
+  alias ServiceRadarWebNG.AshTestHelpers
+  alias ServiceRadarWebNG.Repo
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
@@ -40,7 +42,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "renders fallback sysmon label when profile data is missing", %{conn: conn} do
     uid = "test-device-sysmon-missing-#{System.unique_integer([:positive])}"
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
     Repo.insert_all("ocsf_devices", [
       %{
@@ -314,7 +316,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "renders sysmon cpu header gauge and process/memory/disk sections", %{conn: conn} do
     uid = "test-device-sysmon-metrics-#{System.unique_integer([:positive])}"
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
     Repo.insert_all("ocsf_devices", [
       %{
@@ -508,9 +510,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
       # Click favorite star for first interface
       view
-      |> element(
-        "button[phx-click='toggle_interface_favorite'][phx-value-uid='#{device_uid}-eth0']"
-      )
+      |> element("button[phx-click='toggle_interface_favorite'][phx-value-uid='#{device_uid}-eth0']")
       |> render_click()
 
       # Should show favorited state (star icon changes)
@@ -570,7 +570,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   describe "interfaces bulk edit" do
     setup %{conn: conn} do
       device_uid = "test-device-bulk-#{System.unique_integer([:positive])}"
-      ts = DateTime.utc_now() |> DateTime.truncate(:second)
+      ts = DateTime.truncate(DateTime.utc_now(), :second)
 
       Repo.insert_all("ocsf_devices", [
         %{
@@ -665,7 +665,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   end
 
   defp insert_test_interfaces!(device_uid) do
-    ts = DateTime.utc_now() |> DateTime.truncate(:second)
+    ts = DateTime.truncate(DateTime.utc_now(), :second)
 
     Repo.insert_all("discovered_interfaces", [
       %{
@@ -696,7 +696,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   end
 
   defp insert_test_flow!(device_uid, device_ip) do
-    ts = DateTime.utc_now() |> DateTime.truncate(:second)
+    ts = DateTime.truncate(DateTime.utc_now(), :second)
 
     Repo.insert_all("ocsf_network_activity", [
       %{

@@ -28,14 +28,12 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshOban, AshJsonApi.Resource]
 
-  @services_view_check {ServiceRadar.Policies.Checks.ActorHasPermission,
-                        permission: "services.view"}
-  @services_create_check {ServiceRadar.Policies.Checks.ActorHasPermission,
-                          permission: "services.create"}
-  @services_update_check {ServiceRadar.Policies.Checks.ActorHasPermission,
-                          permission: "services.update"}
-  @services_run_check {ServiceRadar.Policies.Checks.ActorHasPermission,
-                       permission: "services.run"}
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
+
+  @services_view_check {ActorHasPermission, permission: "services.view"}
+  @services_create_check {ActorHasPermission, permission: "services.create"}
+  @services_update_check {ActorHasPermission, permission: "services.update"}
+  @services_run_check {ActorHasPermission, permission: "services.run"}
   @service_check_fields [
     :name,
     :description,
@@ -208,10 +206,11 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
         # The actual check execution will be handled by the agent
         # This action just updates the last_check_at timestamp
         # and can trigger notifications to the assigned agent
+        require Logger
+
         check = changeset.data
 
         # Log the check execution request
-        require Logger
         Logger.info("Executing service check: #{check.name} (#{check.id})")
 
         mark_checked(changeset)

@@ -23,6 +23,8 @@ defmodule ServiceRadar.Identity.OAuthClient.Credentials do
   display purposes.
   """
 
+  alias ServiceRadar.Identity.OAuthClient
+
   @secret_prefix "sr_"
   @secret_length 32
 
@@ -109,7 +111,7 @@ defmodule ServiceRadar.Identity.OAuthClient.Credentials do
       end
   """
   @spec create_client(user_id :: Ecto.UUID.t(), opts :: keyword()) ::
-          {:ok, ServiceRadar.Identity.OAuthClient.t(), raw_secret :: String.t()}
+          {:ok, OAuthClient.t(), raw_secret :: String.t()}
           | {:error, term()}
   def create_client(user_id, opts) do
     {raw_secret, _prefix} = generate_secret()
@@ -126,7 +128,7 @@ defmodule ServiceRadar.Identity.OAuthClient.Credentials do
       client_secret: raw_secret
     }
 
-    case ServiceRadar.Identity.OAuthClient
+    case OAuthClient
          |> Ash.Changeset.for_create(:create, params)
          |> Ash.create(actor: actor) do
       {:ok, client} ->
@@ -148,10 +150,10 @@ defmodule ServiceRadar.Identity.OAuthClient.Credentials do
   `{:ok, client}` if credentials are valid, `{:error, :invalid_credentials}` otherwise.
   """
   @spec validate_credentials(client_id :: String.t(), client_secret :: String.t()) ::
-          {:ok, ServiceRadar.Identity.OAuthClient.t()} | {:error, :invalid_credentials}
+          {:ok, OAuthClient.t()} | {:error, :invalid_credentials}
   def validate_credentials(client_id, client_secret) do
     # Use the authenticate action which handles timing-safe comparison
-    case ServiceRadar.Identity.OAuthClient.authenticate(client_id, client_secret) do
+    case OAuthClient.authenticate(client_id, client_secret) do
       {:ok, client} ->
         {:ok, client}
 

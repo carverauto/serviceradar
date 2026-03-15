@@ -17,17 +17,20 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
 
   use ExUnit.CaseTemplate
 
+  alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.Auth.Guardian
+
   using do
     quote do
+      use ServiceRadarWebNGWeb, :verified_routes
+
+      import Phoenix.ConnTest
+      import Plug.Conn
+      import ServiceRadarWebNGWeb.ConnCase
       # The default endpoint for testing
       @endpoint ServiceRadarWebNGWeb.Endpoint
 
-      use ServiceRadarWebNGWeb, :verified_routes
-
       # Import conveniences for testing with connections
-      import Plug.Conn
-      import Phoenix.ConnTest
-      import ServiceRadarWebNGWeb.ConnCase
     end
   end
 
@@ -54,12 +57,12 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   """
   def register_and_log_in_user(%{conn: conn} = context) do
     user = ServiceRadarWebNG.AccountsFixtures.user_fixture()
-    scope = ServiceRadarWebNG.Accounts.Scope.for_user(user)
+    scope = Scope.for_user(user)
 
     opts =
       context
       |> Map.take([:token_authenticated_at])
-      |> Enum.into([])
+      |> Enum.to_list()
 
     %{conn: log_in_user(conn, user, opts), user: user, scope: scope}
   end
@@ -74,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   def log_in_user(conn, user, _opts \\ []) do
     # In a single deployment, DB connection's search_path determines the schema
     # Generate a Guardian JWT token for the user
-    {:ok, token, _claims} = ServiceRadarWebNG.Auth.Guardian.create_access_token(user)
+    {:ok, token, _claims} = Guardian.create_access_token(user)
 
     conn
     |> Phoenix.ConnTest.init_test_session(%{})
@@ -94,12 +97,12 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   """
   def register_and_log_in_api_user(%{conn: conn} = context) do
     user = ServiceRadarWebNG.AccountsFixtures.user_fixture()
-    scope = ServiceRadarWebNG.Accounts.Scope.for_user(user)
+    scope = Scope.for_user(user)
 
     opts =
       context
       |> Map.take([:token_authenticated_at])
-      |> Enum.into([])
+      |> Enum.to_list()
 
     %{conn: log_in_api_user(conn, user, opts), user: user, scope: scope}
   end
@@ -115,9 +118,8 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   def log_in_api_user(conn, user, _opts \\ []) do
     # In a single deployment, DB connection's search_path determines the schema
     # Generate a Guardian JWT token for the user
-    {:ok, token, _claims} = ServiceRadarWebNG.Auth.Guardian.create_access_token(user)
+    {:ok, token, _claims} = Guardian.create_access_token(user)
 
-    conn
-    |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")
+    Plug.Conn.put_req_header(conn, "authorization", "Bearer #{token}")
   end
 end

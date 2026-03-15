@@ -7,6 +7,9 @@ defmodule ServiceRadar.Plugins.Manifest do
   unsafe defaults from being imported.
   """
 
+  alias ServiceRadar.Plugins.ConfigSchema
+  alias ServiceRadar.Plugins.ValueUtils
+
   @enforce_keys [:id, :name, :version, :entrypoint, :capabilities, :outputs, :resources]
   defstruct [
     :id,
@@ -53,8 +56,6 @@ defmodule ServiceRadar.Plugins.Manifest do
     "tcp_close",
     "udp_sendto"
   ]
-
-  alias ServiceRadar.Plugins.{ConfigSchema, ValueUtils}
 
   @doc """
   Parse and validate a plugin manifest from YAML.
@@ -321,8 +322,7 @@ defmodule ServiceRadar.Plugins.Manifest do
     end
   end
 
-  defp validate_runtime(_runtime, errors),
-    do: ["runtime must be a string" | errors]
+  defp validate_runtime(_runtime, errors), do: ["runtime must be a string" | errors]
 
   defp required_positive_int(map, key, errors) do
     int_field(

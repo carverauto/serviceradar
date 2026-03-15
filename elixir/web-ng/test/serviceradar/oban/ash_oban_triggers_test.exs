@@ -10,10 +10,13 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  require Ash.Query
-
+  alias Ash.Page.Keyset
   alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadar.Monitoring.{Alert, ServiceCheck, PollingSchedule}
+  alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Monitoring.PollingSchedule
+  alias ServiceRadar.Monitoring.ServiceCheck
+
+  require Ash.Query
 
   # =============================================================================
   # OnboardingPackage.expire_packages trigger
@@ -86,7 +89,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.read()
 
       needing_expiration =
-        if is_struct(expiration_page, Ash.Page.Keyset),
+        if is_struct(expiration_page, Keyset),
           do: expiration_page.results,
           else: expiration_page
 
@@ -123,7 +126,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.read()
 
       needing_expiration =
-        if is_struct(expiration_page, Ash.Page.Keyset),
+        if is_struct(expiration_page, Keyset),
           do: expiration_page.results,
           else: expiration_page
 
@@ -147,7 +150,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.read()
 
       needing_expiration =
-        if is_struct(expiration_page, Ash.Page.Keyset),
+        if is_struct(expiration_page, Keyset),
           do: expiration_page.results,
           else: expiration_page
 
@@ -182,7 +185,8 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
       # Manually set last_check_at to the past
       {:ok, overdue_check} =
-        Ecto.Changeset.change(overdue_check, %{last_check_at: past_time})
+        overdue_check
+        |> Ecto.Changeset.change(%{last_check_at: past_time})
         |> ServiceRadar.Repo.update()
 
       # Create a fresh check with no last_check_at (should be due)
@@ -198,7 +202,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.Query.for_read(:due_for_check, %{}, actor: system_actor())
         |> Ash.read()
 
-      due_checks = if is_struct(due_page, Ash.Page.Keyset), do: due_page.results, else: due_page
+      due_checks = if is_struct(due_page, Keyset), do: due_page.results, else: due_page
       ids = Enum.map(due_checks, & &1.id)
       assert overdue_check.id in ids
       assert fresh_check.id in ids
@@ -219,7 +223,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.Query.for_read(:due_for_check, %{}, actor: system_actor())
         |> Ash.read()
 
-      due_checks = if is_struct(due_page, Ash.Page.Keyset), do: due_page.results, else: due_page
+      due_checks = if is_struct(due_page, Keyset), do: due_page.results, else: due_page
       ids = Enum.map(due_checks, & &1.id)
       refute disabled.id in ids
     end
@@ -232,7 +236,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.Changeset.for_update(:execute, %{}, actor: system_actor())
         |> Ash.update()
 
-      assert executed.last_check_at != nil
+      assert executed.last_check_at
     end
   end
 
@@ -260,7 +264,8 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
       # Manually set last_executed_at
       {:ok, overdue} =
-        Ecto.Changeset.change(schedule, %{last_executed_at: past_time})
+        schedule
+        |> Ecto.Changeset.change(%{last_executed_at: past_time})
         |> ServiceRadar.Repo.update()
 
       # Create a fresh schedule with no last_executed_at (should be due)
@@ -284,7 +289,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.read()
 
       due_schedules =
-        if is_struct(due_page, Ash.Page.Keyset), do: due_page.results, else: due_page
+        if is_struct(due_page, Keyset), do: due_page.results, else: due_page
 
       ids = Enum.map(due_schedules, & &1.id)
       assert overdue.id in ids
@@ -310,7 +315,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.read()
 
       due_schedules =
-        if is_struct(due_page, Ash.Page.Keyset), do: due_page.results, else: due_page
+        if is_struct(due_page, Keyset), do: due_page.results, else: due_page
 
       ids = Enum.map(due_schedules, & &1.id)
       refute manual.id in ids
@@ -341,7 +346,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.read()
 
       due_schedules =
-        if is_struct(due_page, Ash.Page.Keyset), do: due_page.results, else: due_page
+        if is_struct(due_page, Keyset), do: due_page.results, else: due_page
 
       ids = Enum.map(due_schedules, & &1.id)
       refute disabled.id in ids
@@ -366,7 +371,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.Changeset.for_update(:execute, %{}, actor: system_actor())
         |> Ash.update()
 
-      assert executed.last_executed_at != nil
+      assert executed.last_executed_at
       assert executed.execution_count == 1
     end
 
@@ -484,7 +489,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.read()
 
       pending_alerts =
-        if is_struct(pending_page, Ash.Page.Keyset), do: pending_page.results, else: pending_page
+        if is_struct(pending_page, Keyset), do: pending_page.results, else: pending_page
 
       ids = Enum.map(pending_alerts, & &1.id)
       assert pending_alert.id in ids
@@ -506,7 +511,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.update()
 
       assert escalated.status == :escalated
-      assert escalated.escalated_at != nil
+      assert escalated.escalated_at
     end
 
     test "pending excludes resolved alerts" do
@@ -529,7 +534,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.read()
 
       pending_alerts =
-        if is_struct(pending_page, Ash.Page.Keyset), do: pending_page.results, else: pending_page
+        if is_struct(pending_page, Keyset), do: pending_page.results, else: pending_page
 
       ids = Enum.map(pending_alerts, & &1.id)
       refute resolved.id in ids
@@ -552,7 +557,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.read()
 
       needing_notification =
-        if is_struct(needing_notification_page, Ash.Page.Keyset),
+        if is_struct(needing_notification_page, Keyset),
           do: needing_notification_page.results,
           else: needing_notification_page
 
@@ -571,7 +576,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.update()
 
       assert notified.notification_count == 1
-      assert notified.last_notification_at != nil
+      assert notified.last_notification_at
     end
   end
 
@@ -605,8 +610,8 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         )
         |> Ash.update()
 
-      assert locked.lock_token != nil
-      assert locked.locked_at != nil
+      assert locked.lock_token
+      assert locked.locked_at
       assert locked.locked_by == "node-1@localhost"
     end
 

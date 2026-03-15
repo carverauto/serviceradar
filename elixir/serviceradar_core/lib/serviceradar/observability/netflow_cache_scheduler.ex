@@ -3,13 +3,11 @@ defmodule ServiceRadar.Observability.NetflowCacheScheduler do
   Ensures NetFlow metadata cache refresh jobs are scheduled when Oban is available.
   """
 
-  alias ServiceRadar.Observability.{
-    NetflowExporterCacheRefreshWorker,
-    NetflowInterfaceCacheRefreshWorker
-  }
-
   use ServiceRadar.ObanEnsureScheduled,
-    workers: [NetflowExporterCacheRefreshWorker, NetflowInterfaceCacheRefreshWorker],
+    workers: [
+      ServiceRadar.Observability.NetflowExporterCacheRefreshWorker,
+      ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker
+    ],
     label: "NetFlow cache scheduler",
     tick: :schedule,
     named_start?: true

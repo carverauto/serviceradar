@@ -6,14 +6,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
-  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Ash.Page
-  alias ServiceRadar.Monitoring.{Alert, OcsfEvent}
-  alias ServiceRadar.Observability.{StatefulAlertEngine, StatefulAlertRule}
+  alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.Observability.StatefulAlertEngine
+  alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -99,7 +101,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         metadata_value(alert.metadata, ["event_id"]) == to_string(threshold_event.id)
       end)
 
-    assert alert != nil
+    assert alert
     assert alert.status in [:pending, :acknowledged, :escalated]
 
     later = DateTime.add(base_time, 180, :second)

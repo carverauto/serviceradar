@@ -16,10 +16,10 @@ defmodule ServiceRadarWebNG.Edge do
   - `ServiceRadarWebNG.Edge.ComponentTemplates` - Template listing from datasvc
   """
 
-  alias ServiceRadarWebNG.Edge.OnboardingToken
-  alias ServiceRadarWebNG.Edge.OnboardingPackages
-  alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.ComponentTemplates
+  alias ServiceRadarWebNG.Edge.OnboardingEvents
+  alias ServiceRadarWebNG.Edge.OnboardingPackages
+  alias ServiceRadarWebNG.Edge.OnboardingToken
 
   # Delegate token operations
   defdelegate encode_onboarding_token(package_id, download_token, core_api_url \\ nil),

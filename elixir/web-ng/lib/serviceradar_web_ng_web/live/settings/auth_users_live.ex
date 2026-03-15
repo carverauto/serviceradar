@@ -9,9 +9,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.User
 
+  alias Phoenix.LiveView.JS
   alias ServiceRadarWebNG.AdminApi
   alias ServiceRadarWebNGWeb.SettingsComponents
-  alias Phoenix.LiveView.JS
 
   @impl true
   def mount(_params, _session, socket) do
@@ -83,18 +83,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
 
     case AdminApi.create_user(scope, attrs) do
       {:ok, _user} ->
-        {:noreply, reload_users(socket |> put_flash(:info, "User created"))}
+        {:noreply, socket |> put_flash(:info, "User created") |> reload_users()}
 
       {:error, error} ->
         {:noreply, put_flash(socket, :error, format_ash_error(error))}
     end
   end
 
-  def handle_event(
-        "update_role_profile",
-        %{"user_id" => id, "role_profile_id" => profile_id},
-        socket
-      ) do
+  def handle_event("update_role_profile", %{"user_id" => id, "role_profile_id" => profile_id}, socket) do
     scope = socket.assigns.current_scope
     profile_id = normalize_profile_id(profile_id)
 
@@ -144,8 +140,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
 
   @impl true
   def event_mapping do
-    Permit.Phoenix.LiveView.default_event_mapping()
-    |> Map.merge(%{
+    Map.merge(Permit.Phoenix.LiveView.default_event_mapping(), %{
       "update_role_profile" => :update,
       "deactivate" => :update,
       "reactivate" => :update,
@@ -540,10 +535,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
 
     details = format_http_error_details(body)
 
-    if details != "" do
-      "HTTP #{status}: #{base} (#{details})"
-    else
+    if details == "" do
       "HTTP #{status}: #{base}"
+    else
+      "HTTP #{status}: #{base} (#{details})"
     end
   end
 
@@ -561,7 +556,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   defp format_http_error_detail_item(%{"field" => field, "message" => message}) do
     field = to_string(field)
     message = to_string(message)
-    if field != "", do: "#{field}: #{message}", else: message
+    if field == "", do: message, else: "#{field}: #{message}"
   end
 
   defp format_http_error_detail_item(%{"message" => message}), do: to_string(message)
@@ -616,7 +611,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
         profile.system and to_string(profile.system_name || "") == system_name
       end)
 
-    {role, if(profile, do: profile.id, else: nil)}
+    {role, if(profile, do: profile.id)}
   end
 
   defp role_from_legacy("admin"), do: :admin

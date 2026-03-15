@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
   """
 
   use Phoenix.Component
+
   import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
 
   # ---------------------------------------------------------------------------

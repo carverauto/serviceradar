@@ -5,11 +5,12 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIpDedupTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, IdentityReconciler}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()

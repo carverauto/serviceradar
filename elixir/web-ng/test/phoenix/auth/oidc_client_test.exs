@@ -76,9 +76,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
       result1 = OIDCClient.fetch_discovery_metadata("http://invalid.local.test")
 
       result2 =
-        OIDCClient.fetch_discovery_metadata(
-          "http://invalid.local.test/.well-known/openid-configuration"
-        )
+        OIDCClient.fetch_discovery_metadata("http://invalid.local.test/.well-known/openid-configuration")
 
       # Both should fail the same way (connectivity)
       assert {:error, :discovery_failed} = result1

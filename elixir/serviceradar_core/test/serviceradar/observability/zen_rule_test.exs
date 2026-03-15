@@ -1,11 +1,13 @@
 defmodule ServiceRadar.Observability.ZenRuleTest do
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
+  alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Observability.{ZenRule, ZenRuleSync}
+  alias ServiceRadar.Observability.ZenRule
+  alias ServiceRadar.Observability.ZenRuleSync
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -55,7 +57,7 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
   end
 
   test "rejects invalid name or subject", %{actor: actor} do
-    {:error, %Ash.Error.Invalid{errors: errors}} =
+    {:error, %Invalid{errors: errors}} =
       ZenRule
       |> Ash.Changeset.for_create(
         :create,
@@ -71,7 +73,7 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
 
     assert Enum.any?(errors, &(&1.field == :name))
 
-    {:error, %Ash.Error.Invalid{errors: errors}} =
+    {:error, %Invalid{errors: errors}} =
       ZenRule
       |> Ash.Changeset.for_create(
         :create,

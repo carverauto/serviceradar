@@ -5,13 +5,15 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.TestSupport
 
   require Ash.Query
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
-  alias ServiceRadar.TestSupport
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -113,8 +115,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
 
       # Verify it was registered with medium confidence
       query =
-        DeviceIdentifier
-        |> Ash.Query.for_read(:lookup, %{
+        Ash.Query.for_read(DeviceIdentifier, :lookup, %{
           identifier_type: :mac,
           identifier_value: la_mac,
           partition: "default"
@@ -141,8 +142,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
       assert :ok = IdentityReconciler.register_identifiers(device.uid, ids, actor: actor)
 
       query =
-        DeviceIdentifier
-        |> Ash.Query.for_read(:lookup, %{
+        Ash.Query.for_read(DeviceIdentifier, :lookup, %{
           identifier_type: :mac,
           identifier_value: gu_mac,
           partition: "default"
@@ -249,7 +249,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
   end
 
   defp mac_suffix do
-    System.unique_integer([:positive])
+    [:positive]
+    |> System.unique_integer()
     |> rem(256)
     |> Integer.to_string(16)
     |> String.pad_leading(2, "0")

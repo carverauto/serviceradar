@@ -8,11 +8,11 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileSeeder do
 
   use ServiceRadar.DelayedSeeder
 
-  require Logger
-  require Ash.Query
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.SNMPProfiles.SNMPProfile
+
+  require Ash.Query
+  require Logger
 
   @spec seed() :: :ok | {:error, term()}
   def seed do

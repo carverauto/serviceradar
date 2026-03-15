@@ -8,12 +8,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsers do
 
   @impl true
   def call(conn, opts) do
-    try do
-      Plug.Parsers.call(conn, opts)
-    rescue
-      _err in [Plug.Parsers.ParseError] ->
-        send_malformed_request(conn)
-    end
+    Plug.Parsers.call(conn, opts)
+  rescue
+    _err in [Plug.Parsers.ParseError] ->
+      send_malformed_request(conn)
   end
 
   defp send_malformed_request(conn) do

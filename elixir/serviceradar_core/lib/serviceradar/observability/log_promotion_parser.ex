@@ -94,8 +94,7 @@ defmodule ServiceRadar.Observability.LogPromotionParser do
   end
 
   defp normalize_decoded(entries, subject, received_at) when is_list(entries) do
-    entries
-    |> Enum.flat_map(&normalize_entry(&1, subject, received_at))
+    Enum.flat_map(entries, &normalize_entry(&1, subject, received_at))
   end
 
   defp normalize_decoded(entry, subject, received_at) when is_map(entry) do
@@ -305,8 +304,8 @@ defmodule ServiceRadar.Observability.LogPromotionParser do
   end
 
   defp build_resource_fallback(entry) do
-    ["host", "hostname", "remote_addr", "source", "ip", "ip_address"]
-    |> Enum.reduce(%{}, fn key, acc ->
+    Enum.reduce(["host", "hostname", "remote_addr", "source", "ip", "ip_address"], %{}, fn key,
+                                                                                           acc ->
       value = first_string(entry, [key])
       if value && value != "", do: Map.put(acc, key, value), else: acc
     end)
@@ -345,15 +344,11 @@ defmodule ServiceRadar.Observability.LogPromotionParser do
   # OTEL protobuf logs can end up JSON-encoded with `body` as a char-code array
   # (e.g. [84,101,115,116] for "Test"). Treat that as a string.
   defp string_from_value(value) when is_list(value) do
-    case Enum.all?(value, &is_integer/1) do
-      true ->
-        value
-        |> to_string()
-        |> String.trim()
-        |> blank_to_nil()
-
-      false ->
-        nil
+    if Enum.all?(value, &is_integer/1) do
+      value
+      |> to_string()
+      |> String.trim()
+      |> blank_to_nil()
     end
   end
 

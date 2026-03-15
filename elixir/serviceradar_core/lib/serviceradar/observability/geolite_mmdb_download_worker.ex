@@ -15,13 +15,13 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     # Daily refresh; don't let retries/parallel instances hammer GitHub.
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
+  import Ecto.Query, only: [from: 2]
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
-
-  import Ecto.Query, only: [from: 2]
 
   require Logger
 
@@ -47,9 +47,10 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      case check_existing_job() do
-        true -> {:ok, :already_scheduled}
-        false -> %{} |> new() |> ObanSupport.safe_insert()
+      if check_existing_job() do
+        {:ok, :already_scheduled}
+      else
+        %{} |> new() |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
@@ -95,8 +96,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
       File.mkdir_p!(dir)
 
       results =
-        files
-        |> Enum.map(fn {name, url} ->
+        Enum.map(files, fn {name, url} ->
           dest = Path.join(dir, name)
           download_file(url, dest, timeout_ms)
         end)
@@ -128,9 +128,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
 
     try do
       # Stream to disk to avoid loading large MMDBs in memory.
-      _resp =
-        url
-        |> Req.get!(req_opts ++ [into: File.stream!(tmp)])
+      _resp = Req.get!(url, req_opts ++ [into: File.stream!(tmp)])
 
       File.rename!(tmp, dest_path)
       Logger.info("GeoLite MMDB updated: #{Path.basename(dest_path)}", file: dest_path)

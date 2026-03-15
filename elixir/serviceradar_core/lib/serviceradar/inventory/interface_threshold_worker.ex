@@ -37,14 +37,14 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.SweepJobs.ObanSupport
 
-  require Logger
   require Ash.Query
+  require Logger
 
   # How often to run the evaluator (1 minute)
   @evaluation_interval_seconds 60
 
   # Cooldown period to avoid duplicate alerts for same interface (5 minutes)
-  @alert_cooldown_ms :timer.minutes(5)
+  @alert_cooldown_ms to_timeout(minute: 5)
 
   @severity_map %{
     "emergency" => OCSF.severity_fatal(),
@@ -65,12 +65,10 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      case check_existing_job() do
-        true ->
-          {:ok, :already_scheduled}
-
-        false ->
-          %{} |> new() |> ObanSupport.safe_insert()
+      if check_existing_job() do
+        {:ok, :already_scheduled}
+      else
+        %{} |> new() |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
@@ -269,8 +267,6 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         utilization_pct =
           if is_number(metric_value) and max_bytes_per_sec > 0 do
             Float.round(metric_value / max_bytes_per_sec * 100, 1)
-          else
-            nil
           end
 
         {effective_threshold, if_speed_bps, utilization_pct}
@@ -565,25 +561,28 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         %{"threshold_type" => threshold_type}
       end
 
-    OCSF.build_metadata(
+    [
       version: "1.7.0",
       product_name: "ServiceRadar Core",
       correlation_uid:
         "metric_threshold:#{setting.device_id}:#{setting.interface_uid}:#{metric_name}:#{System.unique_integer([:positive])}"
-    )
+    ]
+    |> OCSF.build_metadata()
     |> Map.put(
       "serviceradar",
-      %{
-        "source" => "metric",
-        "device_id" => setting.device_id,
-        "interface_uid" => setting.interface_uid,
-        "metric" => metric_name,
-        "comparison" => to_string(comparison),
-        "threshold_value" => threshold,
-        "metric_value" => metric_value,
-        "duration_seconds" => duration_seconds
-      }
-      |> Map.merge(utilization_fields)
+      Map.merge(
+        %{
+          "source" => "metric",
+          "device_id" => setting.device_id,
+          "interface_uid" => setting.interface_uid,
+          "metric" => metric_name,
+          "comparison" => to_string(comparison),
+          "threshold_value" => threshold,
+          "metric_value" => metric_value,
+          "duration_seconds" => duration_seconds
+        },
+        utilization_fields
+      )
     )
   end
 
@@ -723,9 +722,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   defp normalize_metrics(_), do: []
 
   defp normalize_metric_thresholds(metrics) when is_map(metrics) do
-    metrics
-    |> Enum.map(fn {metric, config} -> {normalize_metric_name(metric), config} end)
-    |> Map.new()
+    Map.new(metrics, fn {metric, config} -> {normalize_metric_name(metric), config} end)
   end
 
   defp normalize_metric_thresholds(_), do: %{}

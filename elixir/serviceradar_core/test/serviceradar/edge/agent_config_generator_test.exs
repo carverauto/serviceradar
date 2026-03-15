@@ -258,7 +258,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
 
       # Should have sysmon_config field with disabled values
-      assert config.sysmon_config != nil
+      assert config.sysmon_config
       assert config.sysmon_config.enabled == false
       assert config.sysmon_config.sample_interval == "10s"
       assert config.sysmon_config.collect_cpu == false
@@ -276,7 +276,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       # Create a custom sysmon profile (this would normally be done through the seeder/UI)
       # For now, we just verify that the config includes sysmon and has a version
-      assert config1.sysmon_config != nil
+      assert config1.sysmon_config
       assert String.starts_with?(config1.config_version, "v")
 
       # Same config should produce same hash

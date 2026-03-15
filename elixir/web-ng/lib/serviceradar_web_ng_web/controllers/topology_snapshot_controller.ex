@@ -2,10 +2,11 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
   use Phoenix.Controller, formats: [:html, :json]
 
   import Plug.Conn
-  require Logger
 
   alias ServiceRadarWebNG.Topology.GodViewStream
   alias ServiceRadarWebNGWeb.FeatureFlags
+
+  require Logger
 
   def show(conn, _params) do
     if FeatureFlags.god_view_enabled?() do

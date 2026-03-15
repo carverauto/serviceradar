@@ -5,21 +5,21 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   use GenServer
 
+  alias Ash.Page.Keyset
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.Monitoring.{Alert, AlertGenerator, OcsfEvent, WebhookNotifier}
-
-  alias ServiceRadar.Observability.{
-    StatefulAlertRule,
-    StatefulAlertRuleHistory,
-    StatefulAlertRuleState
-  }
-
+  alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Monitoring.AlertGenerator
+  alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.Monitoring.WebhookNotifier
+  alias ServiceRadar.Observability.StatefulAlertRule
+  alias ServiceRadar.Observability.StatefulAlertRuleHistory
+  alias ServiceRadar.Observability.StatefulAlertRuleState
   alias ServiceRadar.ProcessRegistry
 
   require Logger
 
-  @rules_cache_ms :timer.seconds(60)
+  @rules_cache_ms to_timeout(minute: 1)
 
   @spec evaluate_logs([map()]) :: :ok | {:error, term()}
   def evaluate_logs(rows) when is_list(rows) do
@@ -78,7 +78,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp call(message) do
-    GenServer.call(via_tuple(), message, :timer.seconds(15))
+    GenServer.call(via_tuple(), message, to_timeout(second: 15))
   catch
     :exit, {:noproc, _} ->
       {:error, :engine_not_running}
@@ -149,7 +149,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       {state, []}
   end
 
-  defp unwrap_page({:ok, %Ash.Page.Keyset{results: results}}), do: results
+  defp unwrap_page({:ok, %Keyset{results: results}}), do: results
   defp unwrap_page({:ok, results}) when is_list(results), do: results
   defp unwrap_page(_), do: []
 
@@ -159,7 +159,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       |> Ash.Query.for_read(:read, %{})
       |> Ash.read(state.ash_opts)
       |> case do
-        {:ok, %Ash.Page.Keyset{results: results}} -> results
+        {:ok, %Keyset{results: results}} -> results
         {:ok, results} when is_list(results) -> results
         _ -> []
       end
@@ -308,7 +308,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       is_binary(snapshot.alert_id) ->
         maybe_renotify(snapshot, rule, now)
 
-      cooldown_until && DateTime.compare(now, cooldown_until) == :lt ->
+      cooldown_until && DateTime.before?(now, cooldown_until) ->
         record_history(rule, snapshot, :cooldown, now, nil, %{
           "window_count" => snapshot.window_count
         })
@@ -508,51 +508,57 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
     source = source_record_details(record)
 
-    %{
-      time: now,
-      class_uid: class_uid,
-      category_uid: category_uid,
-      type_uid: OCSF.type_uid(class_uid, activity_id),
-      activity_id: activity_id,
-      activity_name: OCSF.log_activity_name(activity_id),
-      severity_id: severity_id,
-      severity: OCSF.severity_name(severity_id),
-      message: message,
-      status_id: OCSF.status_failure(),
-      status: OCSF.status_name(OCSF.status_failure()),
-      metadata:
-        OCSF.build_metadata(
-          version: "1.7.0",
-          product_name: "ServiceRadar Core",
-          correlation_uid: "stateful_rule:#{rule.id}:#{snapshot.group_key}"
-        )
-        |> Map.put(:serviceradar, %{
-          stateful_rule: true,
-          rule_id: to_string(rule.id),
-          group_key: snapshot.group_key
-        }),
-      actor: OCSF.build_actor(app_name: "serviceradar.core", process: "stateful_alert_engine"),
-      log_name: rule.event["log_name"] || rule.event[:log_name] || "alert.rule.threshold",
-      log_provider: "serviceradar.core",
-      log_level: log_level_for_severity(severity_id)
-    }
-    |> Map.put(:unmapped, build_unmapped(rule, snapshot, source))
+    Map.put(
+      %{
+        time: now,
+        class_uid: class_uid,
+        category_uid: category_uid,
+        type_uid: OCSF.type_uid(class_uid, activity_id),
+        activity_id: activity_id,
+        activity_name: OCSF.log_activity_name(activity_id),
+        severity_id: severity_id,
+        severity: OCSF.severity_name(severity_id),
+        message: message,
+        status_id: OCSF.status_failure(),
+        status: OCSF.status_name(OCSF.status_failure()),
+        metadata:
+          [
+            version: "1.7.0",
+            product_name: "ServiceRadar Core",
+            correlation_uid: "stateful_rule:#{rule.id}:#{snapshot.group_key}"
+          ]
+          |> OCSF.build_metadata()
+          |> Map.put(:serviceradar, %{
+            stateful_rule: true,
+            rule_id: to_string(rule.id),
+            group_key: snapshot.group_key
+          }),
+        actor: OCSF.build_actor(app_name: "serviceradar.core", process: "stateful_alert_engine"),
+        log_name: rule.event["log_name"] || rule.event[:log_name] || "alert.rule.threshold",
+        log_provider: "serviceradar.core",
+        log_level: log_level_for_severity(severity_id)
+      },
+      :unmapped,
+      build_unmapped(rule, snapshot, source)
+    )
   end
 
   defp build_unmapped(rule, snapshot, source) do
-    %{
-      "rule_id" => to_string(rule.id),
-      "rule_name" => rule.name,
-      "group_key" => snapshot.group_key,
-      "group_values" => snapshot.group_values,
-      "threshold" => rule.threshold,
-      "window_seconds" => rule.window_seconds,
-      "bucket_seconds" => rule.bucket_seconds,
-      "window_count" => snapshot.window_count,
-      "cooldown_seconds" => rule.cooldown_seconds,
-      "renotify_seconds" => rule.renotify_seconds
-    }
-    |> Map.merge(source)
+    Map.merge(
+      %{
+        "rule_id" => to_string(rule.id),
+        "rule_name" => rule.name,
+        "group_key" => snapshot.group_key,
+        "group_values" => snapshot.group_values,
+        "threshold" => rule.threshold,
+        "window_seconds" => rule.window_seconds,
+        "bucket_seconds" => rule.bucket_seconds,
+        "window_count" => snapshot.window_count,
+        "cooldown_seconds" => rule.cooldown_seconds,
+        "renotify_seconds" => rule.renotify_seconds
+      },
+      source
+    )
   end
 
   defp severity_id(alert_overrides) do
@@ -635,7 +641,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     attributes = Map.get(log, :attributes) || %{}
     resource_attributes = Map.get(log, :resource_attributes) || %{}
 
-    [
+    Enum.all?([
       match_subject_prefix(subject, match),
       match_service_name_value(fetch_attr(log, :service_name), match),
       match_severity_values(
@@ -646,22 +652,20 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       match_body_value(fetch_attr(log, :body), match),
       match_map(attributes, match["attribute_equals"]),
       match_map(resource_attributes, match["resource_attribute_equals"])
-    ]
-    |> Enum.all?()
+    ])
   end
 
   defp event_matches?(event, match) do
     {attributes, resource_attributes} = event_match_sources(event)
 
-    [
+    Enum.all?([
       match_subject_prefix(fetch_attr(event, :log_name), match),
       match_service_name_value(fetch_attr(event, :log_provider), match),
       match_severity_values(fetch_attr(event, :severity_id), fetch_attr(event, :severity), match),
       match_body_value(fetch_attr(event, :message), match),
       match_map(attributes, match["attribute_equals"]),
       match_map(resource_attributes, match["resource_attribute_equals"])
-    ]
-    |> Enum.all?()
+    ])
   end
 
   defp match_subject_prefix(_subject, match) when map_size(match) == 0, do: false
@@ -768,7 +772,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     attributes = Map.get(log, :attributes, %{})
 
     get_nested_value(attributes, "serviceradar.ingest.subject") ||
-      get_nested_value(attributes, "serviceradar.ingest") |> get_nested_value("subject")
+      attributes |> get_nested_value("serviceradar.ingest") |> get_nested_value("subject")
   end
 
   defp build_group(nil, _log), do: {:ok, "global", %{}}
@@ -907,8 +911,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp normalize_bucket_counts(bucket_counts) when is_map(bucket_counts) do
-    bucket_counts
-    |> Enum.reduce(%{}, fn {key, value}, acc ->
+    Enum.reduce(bucket_counts, %{}, fn {key, value}, acc ->
       case Integer.parse(to_string(key)) do
         {bucket, _} -> Map.put(acc, bucket, value)
         :error -> acc
@@ -917,8 +920,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp stringify_bucket_counts(bucket_counts) do
-    bucket_counts
-    |> Enum.reduce(%{}, fn {key, value}, acc ->
+    Enum.reduce(bucket_counts, %{}, fn {key, value}, acc ->
       Map.put(acc, to_string(key), value)
     end)
   end

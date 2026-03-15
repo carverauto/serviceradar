@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.AlertLive.Show do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
@@ -225,7 +226,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     variant = severity_variant(assigns.value)
     label = severity_label(assigns.value)
 
-    assigns = assign(assigns, :variant, variant) |> assign(:label, label)
+    assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
@@ -256,7 +257,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     variant = status_variant(assigns.value)
     label = status_label(assigns.value)
 
-    assigns = assign(assigns, :variant, variant) |> assign(:label, label)
+    assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>

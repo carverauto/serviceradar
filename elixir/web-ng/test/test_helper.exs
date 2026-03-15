@@ -1,3 +1,5 @@
+alias Ecto.Adapters.SQL
+
 ExUnit.start()
 
 # Test suite should exercise app behavior, not startup migration gating.
@@ -11,7 +13,7 @@ end
 repo = ServiceRadar.Repo
 
 if System.get_env("CI") not in ["1", "true", "TRUE"] do
-  case Ecto.Adapters.SQL.query(repo, "SELECT 1", []) do
+  case SQL.query(repo, "SELECT 1", []) do
     {:ok, _} ->
       :ok
 
@@ -23,7 +25,7 @@ end
 
 # Create OCSF-aligned device inventory table (OCSF v1.7.0 Device object)
 _ =
-  Ecto.Adapters.SQL.query!(
+  SQL.query!(
     repo,
     """
     CREATE TABLE IF NOT EXISTS ocsf_devices (
@@ -81,7 +83,7 @@ _ =
       {"metadata", "jsonb"}
     ],
     fn {col, type} ->
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         repo,
         "ALTER TABLE ocsf_devices ADD COLUMN IF NOT EXISTS #{col} #{type}",
         []
@@ -90,7 +92,7 @@ _ =
   )
 
 _ =
-  Ecto.Adapters.SQL.query!(
+  SQL.query!(
     repo,
     """
     CREATE TABLE IF NOT EXISTS gateways (
@@ -119,7 +121,7 @@ _ =
       {"partition_id", "uuid"}
     ],
     fn {col, type} ->
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         repo,
         "ALTER TABLE gateways ADD COLUMN IF NOT EXISTS #{col} #{type}",
         []
@@ -129,7 +131,7 @@ _ =
 
 # Create logs table for SRQL UUID parameter testing
 _ =
-  Ecto.Adapters.SQL.query!(
+  SQL.query!(
     repo,
     """
     CREATE TABLE IF NOT EXISTS logs (

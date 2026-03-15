@@ -5,6 +5,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   use GenServer
 
+  alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub
   alias ServiceRadar.Edge.AgentCommand
@@ -49,7 +50,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
           AgentCommand.acknowledge(command, %{message: Map.get(data, :message)}, actor: actor)
         end
 
-      {:error, %Ash.Error.Query.NotFound{}} ->
+      {:error, %NotFound{}} ->
         :ok
 
       {:error, reason} ->
@@ -79,7 +80,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
             :ok
         end
 
-      {:error, %Ash.Error.Query.NotFound{}} ->
+      {:error, %NotFound{}} ->
         :ok
 
       {:error, reason} ->
@@ -95,7 +96,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
       {:ok, command} ->
         handle_result(command, data, actor)
 
-      {:error, %Ash.Error.Query.NotFound{}} ->
+      {:error, %NotFound{}} ->
         :ok
 
       {:error, reason} ->

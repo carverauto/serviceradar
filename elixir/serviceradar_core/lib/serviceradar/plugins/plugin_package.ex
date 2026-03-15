@@ -12,6 +12,8 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  alias ServiceRadar.Plugins.Validations.Manifest
+
   @package_fields [
     :name,
     :description,
@@ -79,13 +81,13 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     create :create do
       accept @package_create_fields
 
-      validate ServiceRadar.Plugins.Validations.Manifest
+      validate Manifest
     end
 
     update :update do
       accept @package_fields
 
-      validate ServiceRadar.Plugins.Validations.Manifest
+      validate Manifest
     end
 
     update :approve do

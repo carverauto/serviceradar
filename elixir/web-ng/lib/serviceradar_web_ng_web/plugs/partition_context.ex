@@ -41,9 +41,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.PartitionContext do
       end
   """
 
-  import Plug.Conn
-
   @behaviour Plug
+
+  import Plug.Conn
 
   @partition_header "x-partition-id"
 

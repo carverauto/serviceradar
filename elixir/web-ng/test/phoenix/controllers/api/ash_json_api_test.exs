@@ -9,7 +9,6 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   """
 
   use ServiceRadarWebNGWeb.ConnCase, async: true
-
   use ServiceRadarWebNG.AshTestHelpers
 
   # Use API bearer token authentication

@@ -1,13 +1,14 @@
 defmodule ServiceRadar.Observability.LogPromotionTest do
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias Ecto.Adapters.SQL, as: SQL
   alias Postgrex.Result
-  alias ServiceRadar.Observability.{EventRule, LogPromotion}
+  alias ServiceRadar.Observability.EventRule
+  alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -87,7 +88,8 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
       |> Ash.create()
 
     baseline =
-      SQL.query!(Repo, "SELECT COUNT(*) FROM ocsf_events WHERE message = $1", [message])
+      Repo
+      |> SQL.query!("SELECT COUNT(*) FROM ocsf_events WHERE message = $1", [message])
       |> Map.fetch!(:rows)
       |> List.first()
       |> List.first()

@@ -23,8 +23,7 @@ defmodule ServiceRadar.Plugins.PayloadUtils do
   @spec enforce_size_chunks([list()], (list() -> {:ok, [list()]} | {:error, [String.t()]})) ::
           {:ok, [list()]} | {:error, [String.t()]}
   def enforce_size_chunks(chunks, split_chunk_fun) when is_function(split_chunk_fun, 1) do
-    chunks
-    |> Enum.reduce_while({:ok, []}, fn chunk, {:ok, acc} ->
+    Enum.reduce_while(chunks, {:ok, []}, fn chunk, {:ok, acc} ->
       case split_chunk_fun.(chunk) do
         {:ok, split_chunks} -> {:cont, {:ok, acc ++ split_chunks}}
         {:error, _} = error -> {:halt, error}
@@ -41,7 +40,8 @@ defmodule ServiceRadar.Plugins.PayloadUtils do
         ) :: {:ok, [list()]} | {:error, [String.t()]}
   def split_chunk_until_fits(chunk, hard_limit, max_items, payload_builder, oversized_message)
       when is_list(chunk) and is_integer(hard_limit) and hard_limit > 0 and is_integer(max_items) and
-             max_items > 0 and is_function(payload_builder, 1) do
+             max_items > 0 and
+             is_function(payload_builder, 1) do
     do_split_chunk_until_fits(chunk, hard_limit, max_items, payload_builder, oversized_message)
   end
 

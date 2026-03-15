@@ -13,6 +13,8 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
+  import Ecto.Query, only: [from: 2]
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.NetflowSettings
@@ -20,7 +22,6 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
-  import Ecto.Query, only: [from: 2]
 
   @default_dir "/var/lib/serviceradar/geoip"
   @default_timeout_ms 20_000
@@ -34,9 +35,10 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      case check_existing_job() do
-        true -> {:ok, :already_scheduled}
-        false -> %{} |> new() |> ObanSupport.safe_insert()
+      if check_existing_job() do
+        {:ok, :already_scheduled}
+      else
+        %{} |> new() |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
@@ -147,9 +149,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
     ]
 
     try do
-      _resp =
-        url
-        |> Req.get!(req_opts ++ [into: File.stream!(tmp)])
+      _resp = Req.get!(url, req_opts ++ [into: File.stream!(tmp)])
 
       File.rename!(tmp, dest_path)
       Logger.info("Ipinfo MMDB updated", file: dest_path)
@@ -165,7 +165,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
        when is_binary(path) and is_integer(seconds) and seconds > 0 do
     case File.stat(path) do
       {:ok, %File.Stat{mtime: mtime}} ->
-        now = DateTime.utc_now() |> DateTime.to_unix(:second)
+        now = DateTime.to_unix(DateTime.utc_now(), :second)
 
         modified =
           mtime

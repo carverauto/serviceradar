@@ -23,7 +23,8 @@ defmodule ServiceRadarWebNGWeb.SRQLBuilderSortTest do
 
   test "filters do not break sort and limit assembly" do
     state =
-      Builder.default_state("devices", 25)
+      "devices"
+      |> Builder.default_state(25)
       |> Map.put("filters", [
         %{"field" => "hostname", "op" => "contains", "value" => "srv"}
       ])

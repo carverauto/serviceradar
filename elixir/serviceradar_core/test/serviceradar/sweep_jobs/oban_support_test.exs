@@ -2,7 +2,9 @@ defmodule ServiceRadar.SweepJobs.ObanSupportTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker
-  alias ServiceRadar.SweepJobs.{ObanSupport, SweepDataCleanupWorker, SweepMonitorWorker}
+  alias ServiceRadar.SweepJobs.ObanSupport
+  alias ServiceRadar.SweepJobs.SweepDataCleanupWorker
+  alias ServiceRadar.SweepJobs.SweepMonitorWorker
   alias ServiceRadar.SweepJobs.SweepScheduleReconciler
 
   test "reports Oban unavailable when no instance is running" do

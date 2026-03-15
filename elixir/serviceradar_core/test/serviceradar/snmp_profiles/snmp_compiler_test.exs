@@ -9,13 +9,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
+  alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
-  alias ServiceRadar.AgentConfig.ConfigServer
 
   require Ash.Query
 

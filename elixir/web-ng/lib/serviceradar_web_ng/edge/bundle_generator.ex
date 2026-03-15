@@ -103,15 +103,14 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     image_tag = Keyword.get(opts, :image_tag, "latest")
     component_type = effective_component_type(package.component_type)
 
-    """
+    String.trim("""
     curl -fsSL "#{base_url}/api/edge-packages/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
     docker run -d --name serviceradar-#{component_type} \\
       -v $(pwd)/certs:/etc/serviceradar/certs:ro \\
       -v $(pwd)/config:/etc/serviceradar/config:ro \\
       ghcr.io/carverauto/serviceradar-#{component_type}:#{image_tag}
-    """
-    |> String.trim()
+    """)
   end
 
   @doc """
@@ -121,12 +120,11 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   def systemd_install_command(package, download_token, opts \\ []) do
     base_url = Keyword.get(opts, :base_url, default_base_url())
 
-    """
+    String.trim("""
     curl -fsSL "#{base_url}/api/edge-packages/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
     sudo ./install.sh
-    """
-    |> String.trim()
+    """)
   end
 
   @doc """
@@ -137,12 +135,11 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     base_url = Keyword.get(opts, :base_url, default_base_url())
     namespace = Keyword.get(opts, :namespace, "serviceradar")
 
-    """
+    String.trim("""
     curl -fsSL "#{base_url}/api/edge-packages/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
     kubectl apply -f kubernetes/ -n #{namespace}
-    """
-    |> String.trim()
+    """)
   end
 
   # Private functions
@@ -294,12 +291,12 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     if component_type == "agent" and is_binary(enrollment_token) do
       return_agent_enroll_script(package, enrollment_token)
     else
-      """
+      String.trim("""
       #!/bin/bash
       # ServiceRadar Edge Component Installer
       # Component: #{s_component_type}
       # Package ID: #{s_package_id}
-      # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+      # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
 
       set -e
 
@@ -451,8 +448,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
       echo ""
       echo "Installation complete!"
-      """
-      |> String.trim()
+      """)
     end
   end
 
@@ -552,26 +548,15 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   # Kubernetes manifest generation
 
-  defp generate_kubernetes_files(
-         package_dir,
-         package,
-         cert_pem,
-         key_pem,
-         ca_chain_pem,
-         join_token,
-         opts
-       ) do
+  defp generate_kubernetes_files(package_dir, package, cert_pem, key_pem, ca_chain_pem, join_token, opts) do
     namespace = Keyword.get(opts, :namespace, "serviceradar")
     image_tag = Keyword.get(opts, :image_tag, "latest")
 
     [
       {"#{package_dir}/kubernetes/namespace.yaml", generate_k8s_namespace(namespace)},
-      {"#{package_dir}/kubernetes/secret.yaml",
-       generate_k8s_secret(package, cert_pem, key_pem, ca_chain_pem, namespace)},
-      {"#{package_dir}/kubernetes/configmap.yaml",
-       generate_k8s_configmap(package, join_token, namespace, opts)},
-      {"#{package_dir}/kubernetes/deployment.yaml",
-       generate_k8s_deployment(package, namespace, image_tag)},
+      {"#{package_dir}/kubernetes/secret.yaml", generate_k8s_secret(package, cert_pem, key_pem, ca_chain_pem, namespace)},
+      {"#{package_dir}/kubernetes/configmap.yaml", generate_k8s_configmap(package, join_token, namespace, opts)},
+      {"#{package_dir}/kubernetes/deployment.yaml", generate_k8s_deployment(package, namespace, image_tag)},
       {"#{package_dir}/kubernetes/kustomization.yaml", generate_k8s_kustomization()}
     ]
   end
@@ -801,8 +786,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
         {:ok, token} -> token
         _ -> nil
       end
-    else
-      nil
     end
   end
 
@@ -810,11 +793,11 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     s_package_id = sanitize_shell_arg(package.id)
     s_token = sanitize_shell_arg(token)
 
-    """
+    String.trim("""
     #!/bin/bash
     # ServiceRadar Agent Enrollment
     # Package ID: #{s_package_id}
-    # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
 
     set -e
 
@@ -823,8 +806,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
     echo ""
     echo "Enrollment complete."
-    """
-    |> String.trim()
+    """)
   end
 
   defp quick_start_section("agent", token) when is_binary(token) do

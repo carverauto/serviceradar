@@ -62,12 +62,12 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   The PollJob resource uses AshStateMachine to enforce valid transitions.
   """
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.GatewayProcess
   alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.Monitoring.PollJob
+
+  require Logger
 
   @doc """
   Execute a polling schedule.
@@ -248,10 +248,7 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
     end
   end
 
-  defp find_gateway(%{
-         assignment_mode: :partition,
-         assigned_partition_id: partition_id
-       }) do
+  defp find_gateway(%{assignment_mode: :partition, assigned_partition_id: partition_id}) do
     # Find gateway in specific partition
     if is_nil(partition_id) do
       {:error, :no_partition_assigned}
@@ -269,10 +266,7 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
     end
   end
 
-  defp find_gateway(%{
-         assignment_mode: :specific,
-         assigned_gateway_id: gateway_id
-       }) do
+  defp find_gateway(%{assignment_mode: :specific, assigned_gateway_id: gateway_id}) do
     # Use specifically assigned gateway
     if is_nil(gateway_id) do
       {:error, :no_gateway_assigned}
@@ -348,7 +342,7 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
   defp resolve_gateway_pid_from_registry(gateway) do
     gid = gateway[:gateway_id] || gateway[:id]
-    if gid, do: lookup_gateway_pid(gid), else: nil
+    if gid, do: lookup_gateway_pid(gid)
   end
 
   defp lookup_gateway_pid(gid) do
