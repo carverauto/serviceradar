@@ -43,6 +43,9 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.Workers.ProvisionLeafWorker
 
+  @server_fields [:edge_site_id, :upstream_url, :local_listen]
+  @internal_server_actions [:provision, :connect, :disconnect]
+
   postgres do
     table "nats_leaf_servers"
     repo ServiceRadar.Repo
@@ -80,7 +83,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
     create :create do
       description "Create NATS leaf server for an edge site"
-      accept [:edge_site_id, :upstream_url, :local_listen]
+      accept @server_fields
 
       # Trigger provisioning after creation
       change fn changeset, _context ->
@@ -170,17 +173,10 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   end
 
   policies do
-    # System actors can manage all servers
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admins can read servers
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    admin_action_type(:read)
 
     # Create is done internally
     policy action_type(:create) do
@@ -188,13 +184,13 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     end
 
     # Status updates are internal
-    policy action([:provision, :connect, :disconnect]) do
+    policy action(@internal_server_actions) do
       authorize_if always()
     end
 
     # Reprovision requires admin
     policy action(:reprovision) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
   end
 

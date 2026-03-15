@@ -31,6 +31,16 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
 
   @identifier_types [:agent_id, :armis_device_id, :integration_id, :netbox_device_id, :mac, :ip]
   @confidence_levels [:strong, :medium, :weak]
+  @register_fields [
+    :device_id,
+    :identifier_type,
+    :identifier_value,
+    :partition,
+    :confidence,
+    :source,
+    :verified,
+    :metadata
+  ]
 
   postgres do
     table "device_identifiers"
@@ -98,16 +108,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     create :register do
       description "Register a new identifier for a device"
 
-      accept [
-        :device_id,
-        :identifier_type,
-        :identifier_value,
-        :partition,
-        :confidence,
-        :source,
-        :verified,
-        :metadata
-      ]
+      accept @register_fields
 
       change fn changeset, _context ->
         now = DateTime.utc_now()
@@ -138,16 +139,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     create :upsert do
       description "Create or update identifier"
 
-      accept [
-        :device_id,
-        :identifier_type,
-        :identifier_value,
-        :partition,
-        :confidence,
-        :source,
-        :verified,
-        :metadata
-      ]
+      accept @register_fields
 
       upsert? true
       upsert_identity :unique_identifier
@@ -164,21 +156,11 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    # Read access for authenticated users
-    # DB connection's search_path determines the schema.
-    policy action_type(:read) do
-      authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
-    end
-
-    # Create/update: operators and admins
-    policy action([:register, :upsert, :touch, :verify, :reassign_device]) do
-      authorize_if expr(^actor(:role) in [:operator, :admin])
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action([:register, :upsert, :touch, :verify, :reassign_device])
   end
 
   attributes do

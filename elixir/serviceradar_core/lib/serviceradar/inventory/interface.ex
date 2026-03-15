@@ -25,6 +25,36 @@ defmodule ServiceRadar.Inventory.Interface do
                          permission: "devices.update"}
   @devices_delete_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                          permission: "devices.delete"}
+  @interface_fields [
+    :timestamp,
+    :device_id,
+    :interface_uid,
+    :agent_id,
+    :gateway_id,
+    :device_ip,
+    :if_index,
+    :if_name,
+    :if_descr,
+    :if_alias,
+    :if_speed,
+    :speed_bps,
+    :if_phys_address,
+    :ip_addresses,
+    :if_admin_status,
+    :if_oper_status,
+    :if_type,
+    :if_type_name,
+    :interface_kind,
+    :classifications,
+    :classification_meta,
+    :classification_source,
+    :mtu,
+    :duplex,
+    :metadata,
+    :available_metrics,
+    :partition,
+    :created_at
+  ]
 
   postgres do
     table "discovered_interfaces"
@@ -59,36 +89,7 @@ defmodule ServiceRadar.Inventory.Interface do
     defaults [:read]
 
     create :create do
-      accept [
-        :timestamp,
-        :device_id,
-        :interface_uid,
-        :agent_id,
-        :gateway_id,
-        :device_ip,
-        :if_index,
-        :if_name,
-        :if_descr,
-        :if_alias,
-        :if_speed,
-        :speed_bps,
-        :if_phys_address,
-        :ip_addresses,
-        :if_admin_status,
-        :if_oper_status,
-        :if_type,
-        :if_type_name,
-        :interface_kind,
-        :classifications,
-        :classification_meta,
-        :classification_source,
-        :mtu,
-        :duplex,
-        :metadata,
-        :available_metrics,
-        :partition,
-        :created_at
-      ]
+      accept @interface_fields
     end
 
     update :reassign_device do

@@ -12,6 +12,8 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  @settings_fields [:retention_days, :cleanup_interval_minutes, :batch_size, :enabled]
+
   postgres do
     table "device_cleanup_settings"
     repo ServiceRadar.Repo
@@ -48,13 +50,13 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
 
     create :create do
       description "Create device cleanup settings"
-      accept [:retention_days, :cleanup_interval_minutes, :batch_size, :enabled]
+      accept @settings_fields
       change set_attribute(:key, "default")
     end
 
     update :update do
       description "Update device cleanup settings"
-      accept [:retention_days, :cleanup_interval_minutes, :batch_size, :enabled]
+      accept @settings_fields
     end
 
     action :run_cleanup do

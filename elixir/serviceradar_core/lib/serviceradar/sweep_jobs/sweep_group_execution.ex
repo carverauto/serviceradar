@@ -34,6 +34,9 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @execution_start_fields [:sweep_group_id, :agent_id, :config_version]
+  @execution_result_fields [:hosts_total, :hosts_available, :hosts_failed]
+
   postgres do
     table "sweep_group_executions"
     repo ServiceRadar.Repo
@@ -54,7 +57,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
     create :start do
       description "Start a new execution"
 
-      accept [:sweep_group_id, :agent_id, :config_version]
+      accept @execution_start_fields
 
       change set_attribute(:status, :running)
       change set_attribute(:started_at, &DateTime.utc_now/0)
@@ -64,7 +67,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
       description "Mark execution as completed"
       require_atomic? false
 
-      accept [:hosts_total, :hosts_available, :hosts_failed]
+      accept @execution_result_fields
 
       change set_attribute(:status, :completed)
       change set_attribute(:completed_at, &DateTime.utc_now/0)
@@ -113,7 +116,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
     update :update_progress do
       description "Update execution progress"
 
-      accept [:hosts_total, :hosts_available, :hosts_failed]
+      accept @execution_result_fields
     end
 
     read :by_group do
@@ -137,32 +140,12 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
   end
 
   policies do
-    # System actors can do anything
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # System can create and update executions
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # All authenticated users can read executions
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    system_bypass()
+    operator_action_type([:create, :update])
+    admin_action_type(:destroy)
+    read_all()
   end
 
   attributes do

@@ -41,6 +41,9 @@ defmodule ServiceRadar.Edge.EdgeSite do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Changes.AfterAction
 
+  @site_create_fields [:name, :slug, :nats_leaf_url]
+  @site_update_fields [:name, :nats_leaf_url]
+
   postgres do
     table "edge_sites"
     repo ServiceRadar.Repo
@@ -76,7 +79,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
 
     create :create do
       description "Create a new edge site"
-      accept [:name, :slug, :nats_leaf_url]
+      accept @site_create_fields
 
       # Validate and normalize slug
       change fn changeset, _context ->
@@ -116,7 +119,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
 
     update :update do
       description "Update edge site details"
-      accept [:name, :nats_leaf_url]
+      accept @site_update_fields
     end
 
     update :activate do
@@ -143,29 +146,10 @@ defmodule ServiceRadar.Edge.EdgeSite do
   end
 
   policies do
-    # System actors can manage all sites
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admins can manage sites
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    admin_action_type([:read, :create, :update, :destroy])
   end
 
   changes do

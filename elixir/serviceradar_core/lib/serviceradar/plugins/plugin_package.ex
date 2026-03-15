@@ -32,6 +32,12 @@ defmodule ServiceRadar.Plugins.PluginPackage do
   ]
 
   @package_create_fields [:plugin_id, :version | @package_fields]
+  @approval_fields [
+    :approved_capabilities,
+    :approved_permissions,
+    :approved_resources,
+    :approved_by
+  ]
 
   postgres do
     table "plugin_packages"
@@ -84,7 +90,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     update :approve do
       description "Approve a staged plugin package for distribution"
 
-      accept [:approved_capabilities, :approved_permissions, :approved_resources, :approved_by]
+      accept @approval_fields
 
       change transition_state(:approved)
       change set_attribute(:approved_at, &DateTime.utc_now/0)

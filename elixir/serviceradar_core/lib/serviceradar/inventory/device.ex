@@ -44,6 +44,87 @@ defmodule ServiceRadar.Inventory.Device do
                          permission: "devices.delete"}
   @devices_bulk_delete_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                               permission: "devices.bulk_delete"}
+  @device_create_fields [
+    :uid,
+    :type_id,
+    :type,
+    :name,
+    :hostname,
+    :ip,
+    :mac,
+    :uid_alt,
+    :vendor_name,
+    :model,
+    :domain,
+    :zone,
+    :subnet_uid,
+    :vlan_uid,
+    :region,
+    :first_seen_time,
+    :last_seen_time,
+    :created_time,
+    :modified_time,
+    :risk_level_id,
+    :risk_level,
+    :risk_score,
+    :is_managed,
+    :is_compliant,
+    :is_trusted,
+    :os,
+    :hw_info,
+    :network_interfaces,
+    :owner,
+    :org,
+    :groups,
+    :agent_list,
+    :gateway_id,
+    :agent_id,
+    :management_device_id,
+    :discovery_sources,
+    :tags,
+    :is_available,
+    :metadata
+  ]
+  @device_update_fields [
+    :name,
+    :hostname,
+    :ip,
+    :mac,
+    :vendor_name,
+    :model,
+    :domain,
+    :zone,
+    :risk_level_id,
+    :risk_level,
+    :risk_score,
+    :is_managed,
+    :is_compliant,
+    :is_trusted,
+    :os,
+    :hw_info,
+    :network_interfaces,
+    :owner,
+    :org,
+    :groups,
+    :agent_list,
+    :is_available,
+    :tags,
+    :metadata,
+    :group_id,
+    :last_seen_time
+  ]
+  @gateway_sync_fields [
+    :agent_id,
+    :management_device_id,
+    :hostname,
+    :ip,
+    :is_available,
+    :is_managed,
+    :is_trusted,
+    :discovery_sources,
+    :last_seen_time,
+    :metadata
+  ]
 
   alias ServiceRadar.Inventory.IdentityReconciler
   require Ash.Query
@@ -147,47 +228,7 @@ defmodule ServiceRadar.Inventory.Device do
     end
 
     create :create do
-      accept [
-        :uid,
-        :type_id,
-        :type,
-        :name,
-        :hostname,
-        :ip,
-        :mac,
-        :uid_alt,
-        :vendor_name,
-        :model,
-        :domain,
-        :zone,
-        :subnet_uid,
-        :vlan_uid,
-        :region,
-        :first_seen_time,
-        :last_seen_time,
-        :created_time,
-        :modified_time,
-        :risk_level_id,
-        :risk_level,
-        :risk_score,
-        :is_managed,
-        :is_compliant,
-        :is_trusted,
-        :os,
-        :hw_info,
-        :network_interfaces,
-        :owner,
-        :org,
-        :groups,
-        :agent_list,
-        :gateway_id,
-        :agent_id,
-        :management_device_id,
-        :discovery_sources,
-        :tags,
-        :is_available,
-        :metadata
-      ]
+      accept @device_create_fields
 
       change fn changeset, _context ->
         now = DateTime.utc_now()
@@ -200,52 +241,14 @@ defmodule ServiceRadar.Inventory.Device do
     end
 
     update :update do
-      accept [
-        :name,
-        :hostname,
-        :ip,
-        :mac,
-        :vendor_name,
-        :model,
-        :domain,
-        :zone,
-        :risk_level_id,
-        :risk_level,
-        :risk_score,
-        :is_managed,
-        :is_compliant,
-        :is_trusted,
-        :os,
-        :hw_info,
-        :network_interfaces,
-        :owner,
-        :org,
-        :groups,
-        :agent_list,
-        :is_available,
-        :tags,
-        :metadata,
-        :group_id,
-        :last_seen_time
-      ]
+      accept @device_update_fields
 
       change set_attribute(:modified_time, &DateTime.utc_now/0)
       validate ServiceRadar.Inventory.Validations.AgentManaged
     end
 
     update :gateway_sync do
-      accept [
-        :agent_id,
-        :management_device_id,
-        :hostname,
-        :ip,
-        :is_available,
-        :is_managed,
-        :is_trusted,
-        :discovery_sources,
-        :last_seen_time,
-        :metadata
-      ]
+      accept @gateway_sync_fields
 
       change set_attribute(:deleted_at, nil)
       change set_attribute(:deleted_by, nil)

@@ -40,6 +40,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Edge.PubSub
 
+  @package_fields [:collector_type, :site, :hostname, :config_overrides, :edge_site_id]
+
   postgres do
     table "collector_packages"
     repo ServiceRadar.Repo
@@ -95,7 +97,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
     create :create do
       description "Create a new collector package (triggers async provisioning)"
-      accept [:collector_type, :site, :hostname, :config_overrides, :edge_site_id]
+      accept @package_fields
 
       argument :user_name, :string do
         allow_nil? true
@@ -284,23 +286,11 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    # Admins can manage packages
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action(:revoke) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    admin_action_type([:read, :create])
+    admin_action(:revoke)
   end
 
   changes do

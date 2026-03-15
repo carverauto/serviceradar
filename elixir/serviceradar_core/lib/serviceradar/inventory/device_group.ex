@@ -28,6 +28,8 @@ defmodule ServiceRadar.Inventory.DeviceGroup do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  @group_fields [:name, :desc, :type, :parent_id, :metadata]
+
   postgres do
     table "device_groups"
     repo ServiceRadar.Repo
@@ -74,11 +76,11 @@ defmodule ServiceRadar.Inventory.DeviceGroup do
     end
 
     create :create do
-      accept [:name, :desc, :type, :parent_id, :metadata]
+      accept @group_fields
     end
 
     update :update do
-      accept [:name, :desc, :type, :parent_id, :metadata]
+      accept @group_fields
     end
 
     update :increment_count do
