@@ -1,6 +1,9 @@
 defmodule ServiceRadar.Plugins.Policies do
   @moduledoc false
 
+  @plugins_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "settings.plugins.manage"}
+
   defmacro manage_action_types(action_types \\ [:create, :update, :destroy]) do
     quote do
       import ServiceRadar.Policies
@@ -12,8 +15,7 @@ defmodule ServiceRadar.Plugins.Policies do
       end
 
       policy action_type(unquote(action_types)) do
-        authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                      permission: "settings.plugins.manage"}
+        authorize_if unquote(Macro.escape(@plugins_manage_check))
       end
     end
   end
@@ -29,8 +31,7 @@ defmodule ServiceRadar.Plugins.Policies do
       end
 
       policy action(unquote(actions)) do
-        authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                      permission: "settings.plugins.manage"}
+        authorize_if unquote(Macro.escape(@plugins_manage_check))
       end
     end
   end

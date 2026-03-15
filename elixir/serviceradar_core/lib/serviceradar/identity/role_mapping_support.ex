@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Identity.RoleMappingSupport do
   @moduledoc false
 
-  @allowed_roles [:viewer, :helpdesk, :operator, :admin]
+  @allowed_roles ServiceRadar.Identity.Constants.allowed_roles()
   @allowed_role_strings Map.new(@allowed_roles, &{Atom.to_string(&1), &1})
 
   def allowed_roles, do: @allowed_roles

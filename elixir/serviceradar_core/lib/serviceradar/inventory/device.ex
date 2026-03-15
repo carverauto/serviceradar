@@ -34,6 +34,17 @@ defmodule ServiceRadar.Inventory.Device do
     extensions: [AshJsonApi.Resource],
     primary_read_warning?: false
 
+  @devices_view_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                       permission: "devices.view"}
+  @devices_create_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "devices.create"}
+  @devices_update_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "devices.update"}
+  @devices_delete_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "devices.delete"}
+  @devices_bulk_delete_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                              permission: "devices.bulk_delete"}
+
   alias ServiceRadar.Inventory.IdentityReconciler
   require Ash.Query
 
@@ -355,27 +366,26 @@ defmodule ServiceRadar.Inventory.Device do
 
     # Read access: authenticated users (schema isolation via search_path)
     policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.view"}
+      authorize_if @devices_view_check
     end
 
     # Create devices: operators/admins (schema isolation via search_path)
     policy action_type(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.create"}
+      authorize_if @devices_create_check
     end
 
     # Update devices: operators/admins (schema isolation via search_path)
     policy action_type(:update) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.update"}
+      authorize_if @devices_update_check
     end
 
     # Destroy devices: operators/admins (schema isolation via search_path)
     policy action_type(:destroy) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.delete"}
+      authorize_if @devices_delete_check
     end
 
     policy action(:bulk_soft_delete) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "devices.bulk_delete"}
+      authorize_if @devices_bulk_delete_check
     end
   end
 

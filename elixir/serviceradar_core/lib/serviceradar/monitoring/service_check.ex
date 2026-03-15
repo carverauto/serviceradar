@@ -28,6 +28,15 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshOban, AshJsonApi.Resource]
 
+  @services_view_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                        permission: "services.view"}
+  @services_create_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                          permission: "services.create"}
+  @services_update_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                          permission: "services.update"}
+  @services_run_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                       permission: "services.run"}
+
   postgres do
     table "service_checks"
     repo ServiceRadar.Repo
@@ -228,29 +237,27 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
 
     # Read access: authenticated users with permission
     policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "services.view"}
+      authorize_if @services_view_check
     end
 
     # Create checks
     policy action(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "services.create"}
+      authorize_if @services_create_check
     end
 
     # Update checks
     policy action([:update, :enable, :disable, :reassign_device]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "services.update"}
+      authorize_if @services_update_check
     end
 
     # Record results: Operators/admins
     policy action([:record_result, :reset_failures]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "services.run"}
+      authorize_if @services_run_check
     end
 
     # Execute action: Operators/admins, or AshOban (no actor)
     policy action(:execute) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "services.run"}
+      authorize_if @services_run_check
       authorize_if ServiceRadar.Policies.Checks.ActorIsNil
     end
   end

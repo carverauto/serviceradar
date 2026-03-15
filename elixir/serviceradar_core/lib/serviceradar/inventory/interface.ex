@@ -19,6 +19,13 @@ defmodule ServiceRadar.Inventory.Interface do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  @devices_view_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                       permission: "devices.view"}
+  @devices_update_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "devices.update"}
+  @devices_delete_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "devices.delete"}
+
   postgres do
     table "discovered_interfaces"
     repo ServiceRadar.Repo
@@ -139,20 +146,20 @@ defmodule ServiceRadar.Inventory.Interface do
     end
 
     policy action_type(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.update"}
+      authorize_if @devices_update_check
     end
 
     # Read access for authenticated users
     policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.view"}
+      authorize_if @devices_view_check
     end
 
     policy action_type(:update) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.update"}
+      authorize_if @devices_update_check
     end
 
     policy action_type(:destroy) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.delete"}
+      authorize_if @devices_delete_check
     end
   end
 

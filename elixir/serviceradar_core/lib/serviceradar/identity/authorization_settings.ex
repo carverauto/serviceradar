@@ -12,6 +12,10 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
     notifiers: [ServiceRadar.Identity.AuthorizationSettingsNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
+  @allowed_roles ServiceRadar.Identity.Constants.allowed_roles()
+  @auth_manage_permission ServiceRadar.Identity.Constants.auth_manage_permission()
+  @auth_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                      permission: @auth_manage_permission}
   @settings_fields [:default_role, :role_mappings]
 
   postgres do
@@ -55,13 +59,11 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
     end
 
     policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
     end
 
     policy action([:create, :update]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
     end
   end
 
@@ -77,7 +79,7 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
       allow_nil? false
       default :viewer
       public? true
-      constraints one_of: [:viewer, :helpdesk, :operator, :admin]
+      constraints one_of: @allowed_roles
       description "Default role assigned when no mapping matches"
     end
 

@@ -28,6 +28,11 @@ defmodule ServiceRadar.Identity.User do
     notifiers: [ServiceRadar.Identity.UserNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
+  @allowed_roles ServiceRadar.Identity.Constants.allowed_roles()
+  @auth_manage_permission ServiceRadar.Identity.Constants.auth_manage_permission()
+  @auth_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                      permission: @auth_manage_permission}
+
   postgres do
     table "ng_users"
     repo ServiceRadar.Repo
@@ -143,7 +148,7 @@ defmodule ServiceRadar.Identity.User do
       argument :role, :atom do
         allow_nil? true
         default :viewer
-        constraints one_of: [:viewer, :helpdesk, :operator, :admin]
+        constraints one_of: @allowed_roles
       end
 
       argument :external_id, :string do
@@ -283,16 +288,14 @@ defmodule ServiceRadar.Identity.User do
     policy action([:by_email, :authenticate]) do
       authorize_if ServiceRadar.Policies.Checks.ActorIsNil
 
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
     end
 
     # Read access:
     # - Admins (settings.auth.manage) can read any user
     # - Users can read themselves
     policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
 
       authorize_if expr(id == ^actor(:id))
     end
@@ -304,15 +307,13 @@ defmodule ServiceRadar.Identity.User do
 
     # Admin-managed user creation
     policy action(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
     end
 
     # JIT provisioning is performed as a SystemActor in the web layer.
     # Allow admins to use it intentionally; deny regular users.
     policy action(:provision_sso_user) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
     end
 
     # Self-service updates and audit markers
@@ -325,20 +326,18 @@ defmodule ServiceRadar.Identity.User do
            ]) do
       authorize_if expr(id == ^actor(:id))
 
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
     end
 
     # Admin-only user management
     policy action([
              :update_role,
              :update_role_profile,
-             :admin_set_password,
-             :deactivate,
-             :reactivate
-           ]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+           :admin_set_password,
+           :deactivate,
+           :reactivate
+         ]) do
+      authorize_if @auth_manage_check
     end
   end
 
@@ -367,7 +366,7 @@ defmodule ServiceRadar.Identity.User do
       allow_nil? false
       default :viewer
       public? true
-      constraints one_of: [:viewer, :helpdesk, :operator, :admin]
+      constraints one_of: @allowed_roles
       description "User's role for authorization"
     end
 

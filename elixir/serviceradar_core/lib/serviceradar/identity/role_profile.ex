@@ -13,6 +13,9 @@ defmodule ServiceRadar.Identity.RoleProfile do
 
   require Ash.Query
 
+  @rbac_manage_permission ServiceRadar.Identity.Constants.rbac_manage_permission()
+  @rbac_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                      permission: @rbac_manage_permission}
   @profile_fields [:name, :description, :permissions]
 
   postgres do
@@ -79,13 +82,11 @@ defmodule ServiceRadar.Identity.RoleProfile do
     end
 
     policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.rbac.manage"}
+      authorize_if @rbac_manage_check
     end
 
     policy action([:create, :create_system, :update, :destroy]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.rbac.manage"}
+      authorize_if @rbac_manage_check
     end
   end
 

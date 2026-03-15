@@ -35,6 +35,9 @@ defmodule ServiceRadar.Identity.AuthSettings do
     extensions: [AshCloak],
     authorizers: [Ash.Policy.Authorizer]
 
+  @auth_manage_permission ServiceRadar.Identity.Constants.auth_manage_permission()
+  @auth_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                      permission: @auth_manage_permission}
   @settings_accept [
     :mode,
     :provider_type,
@@ -147,13 +150,11 @@ defmodule ServiceRadar.Identity.AuthSettings do
     end
 
     policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
     end
 
     policy action([:create, :update]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
     end
   end
 

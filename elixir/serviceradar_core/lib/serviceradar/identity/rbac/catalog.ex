@@ -5,10 +5,10 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
   Permissions are grouped by section and action-level keys.
   """
 
-  @all_roles [:viewer, :helpdesk, :operator, :admin]
-  @operator_roles [:operator, :admin]
-  @helpdesk_roles [:helpdesk, :operator, :admin]
-  @admin_roles [:admin]
+  @all_roles ServiceRadar.Identity.Constants.all_roles()
+  @operator_roles ServiceRadar.Identity.Constants.operator_roles()
+  @helpdesk_roles ServiceRadar.Identity.Constants.helpdesk_roles()
+  @admin_roles ServiceRadar.Identity.Constants.admin_roles()
 
   @catalog [
     %{
