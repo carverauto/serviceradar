@@ -32,6 +32,7 @@ mix_release(
     run_assets = False,
     extra_dirs = [
         "elixir/connection",
+        "elixir/elixir_uuid",
         "elixir/serviceradar_core",
         "elixir/serviceradar_srql",
         "elixir/vendor/opentelemetry_oban",
@@ -41,6 +42,7 @@ mix_release(
     ],
     extra_dir_srcs = [
         "//elixir/connection:srcs",
+        "//elixir/elixir_uuid:srcs",
         "//elixir/serviceradar_core:srcs",
         "//elixir/serviceradar_srql:srcs",
         "//elixir/vendor/opentelemetry_oban:srcs",
