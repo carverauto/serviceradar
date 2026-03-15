@@ -8,6 +8,22 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleState do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @state_fields [
+    :rule_id,
+    :group_key,
+    :group_values,
+    :window_seconds,
+    :bucket_seconds,
+    :current_bucket_start,
+    :bucket_counts,
+    :last_seen_at,
+    :last_fired_at,
+    :last_notification_at,
+    :cooldown_until,
+    :alert_id
+  ]
+  @state_upsert_fields @state_fields -- [:rule_id, :group_key]
+
   postgres do
     table "stateful_alert_rule_states"
     repo ServiceRadar.Repo
@@ -23,56 +39,21 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleState do
     end
 
     create :upsert do
-      accept [
-        :rule_id,
-        :group_key,
-        :group_values,
-        :window_seconds,
-        :bucket_seconds,
-        :current_bucket_start,
-        :bucket_counts,
-        :last_seen_at,
-        :last_fired_at,
-        :last_notification_at,
-        :cooldown_until,
-        :alert_id
-      ]
+      accept @state_fields
 
       upsert? true
       upsert_identity :unique_state
 
-      upsert_fields [
-        :group_values,
-        :window_seconds,
-        :bucket_seconds,
-        :current_bucket_start,
-        :bucket_counts,
-        :last_seen_at,
-        :last_fired_at,
-        :last_notification_at,
-        :cooldown_until,
-        :alert_id,
-        :updated_at
-      ]
+      upsert_fields @state_upsert_fields ++ [:updated_at]
     end
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action(:upsert) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action(:upsert)
   end
 
   changes do

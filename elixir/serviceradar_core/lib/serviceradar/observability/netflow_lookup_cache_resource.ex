@@ -36,21 +36,11 @@ defmodule ServiceRadar.Observability.NetflowLookupCacheResource do
       end
 
       policies do
-        bypass always() do
-          authorize_if actor_attribute_equals(:role, :system)
-        end
+        import ServiceRadar.Policies
 
-        policy action_type(:read) do
-          authorize_if actor_attribute_equals(:role, :viewer)
-          authorize_if actor_attribute_equals(:role, :operator)
-          authorize_if actor_attribute_equals(:role, :admin)
-        end
-
-        policy action(:upsert) do
-          authorize_if actor_attribute_equals(:role, :operator)
-          authorize_if actor_attribute_equals(:role, :admin)
-          authorize_if actor_attribute_equals(:role, :system)
-        end
+        system_bypass()
+        read_viewer_plus()
+        operator_action(:upsert)
       end
 
       attributes do

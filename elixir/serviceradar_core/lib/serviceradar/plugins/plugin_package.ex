@@ -38,6 +38,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     :approved_resources,
     :approved_by
   ]
+  @denial_fields [:denied_reason]
 
   postgres do
     table "plugin_packages"
@@ -98,14 +99,14 @@ defmodule ServiceRadar.Plugins.PluginPackage do
 
     update :deny do
       description "Deny a staged plugin package"
-      accept [:denied_reason]
+      accept @denial_fields
 
       change transition_state(:denied)
     end
 
     update :revoke do
       description "Revoke an approved plugin package"
-      accept [:denied_reason]
+      accept @denial_fields
 
       change transition_state(:revoked)
     end

@@ -20,18 +20,12 @@ defmodule ServiceRadar.Observability.IpLookupCacheResource do
       case read_policy do
         :public ->
           quote do
-            policy action_type(:read) do
-              authorize_if always()
-            end
+            read_all()
           end
 
         :restricted ->
           quote do
-            policy action_type(:read) do
-              authorize_if actor_attribute_equals(:role, :viewer)
-              authorize_if actor_attribute_equals(:role, :operator)
-              authorize_if actor_attribute_equals(:role, :admin)
-            end
+            read_viewer_plus()
           end
       end
 
@@ -74,9 +68,9 @@ defmodule ServiceRadar.Observability.IpLookupCacheResource do
       end
 
       policies do
-        bypass always() do
-          authorize_if actor_attribute_equals(:role, :system)
-        end
+        import ServiceRadar.Policies
+
+        system_bypass()
 
         unquote(read_policy_ast)
 

@@ -32,6 +32,12 @@ defmodule ServiceRadar.Identity.User do
   @auth_manage_permission ServiceRadar.Identity.Constants.auth_manage_permission()
   @auth_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                       permission: @auth_manage_permission}
+  @user_admin_fields [:email, :display_name, :role, :role_profile_id]
+  @user_profile_fields [:email, :display_name]
+  @display_name_fields [:display_name]
+  @email_fields [:email]
+  @role_fields [:role]
+  @role_profile_fields [:role_profile_id]
 
   postgres do
     table "ng_users"
@@ -107,7 +113,7 @@ defmodule ServiceRadar.Identity.User do
 
     create :create do
       description "Create a new user (admin or system use)"
-      accept [:email, :display_name, :role, :role_profile_id]
+      accept @user_admin_fields
 
       argument :password, :string do
         allow_nil? true
@@ -120,7 +126,7 @@ defmodule ServiceRadar.Identity.User do
 
     create :register_with_password do
       description "Register a new user with email and password"
-      accept [:email, :display_name]
+      accept @user_profile_fields
 
       change ServiceRadar.Identity.Changes.AssignFirstUserRole
 
@@ -143,7 +149,7 @@ defmodule ServiceRadar.Identity.User do
     # JIT provisioning for SSO users
     create :provision_sso_user do
       description "Create a user from SSO claims (JIT provisioning)"
-      accept [:email, :display_name]
+      accept @user_profile_fields
 
       argument :role, :atom do
         allow_nil? true
@@ -173,11 +179,11 @@ defmodule ServiceRadar.Identity.User do
     end
 
     update :update do
-      accept [:display_name]
+      accept @display_name_fields
     end
 
     update :update_email do
-      accept [:email]
+      accept @email_fields
       require_atomic? false
 
       argument :current_password, :string do
@@ -193,14 +199,14 @@ defmodule ServiceRadar.Identity.User do
     end
 
     update :update_role do
-      accept [:role]
+      accept @role_fields
       require_atomic? false
       change ServiceRadar.Identity.Changes.DisallowLastAdminLockout
       change ServiceRadar.Identity.Changes.InvalidateUserRbacCache
     end
 
     update :update_role_profile do
-      accept [:role_profile_id]
+      accept @role_profile_fields
       change ServiceRadar.Identity.Changes.InvalidateUserRbacCache
     end
 

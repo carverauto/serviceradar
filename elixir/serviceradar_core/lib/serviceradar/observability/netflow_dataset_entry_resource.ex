@@ -43,13 +43,10 @@ defmodule ServiceRadar.Observability.NetflowDatasetEntryResource do
       end
 
       policies do
-        bypass always() do
-          authorize_if actor_attribute_equals(:role, :system)
-        end
+        import ServiceRadar.Policies
 
-        policy action_type(:read) do
-          authorize_if always()
-        end
+        system_bypass()
+        read_all()
 
         policy action([:create, :destroy]) do
           authorize_if actor_attribute_equals(:role, :system)
