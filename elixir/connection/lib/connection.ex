@@ -92,6 +92,8 @@ defmodule Connection do
 
   @behaviour :gen_server
 
+  use Boundary, exports: :all
+
   @doc """
   Called when the connection process is first started. `start_link/3` will block
   until it returns.

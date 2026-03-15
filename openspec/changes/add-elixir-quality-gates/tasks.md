@@ -19,7 +19,7 @@
 ## 4. Documentation
 
 - [x] 4.1 Document the standard Elixir analyzer contract and local usage in repo docs
-- [x] 4.2 Record the deferred issue #3029 candidates (`Styler`, `Boundary`, `rustywind`, `ex_dna`, `ex_slop`) as follow-up evaluation work
+- [x] 4.2 Record the issue #3029 follow-up candidates (`Styler`, `Boundary`, `rustywind`, `ex_dna`, `ex_slop`) and keep any deferred items explicit in the repository-owned change record
 
 ## 5. Deferred Analyzer Follow-Up
 
@@ -29,4 +29,5 @@
 - [x] 5.4 Reduce or remediate representative duplicate-code findings so `ex_dna` can pass in managed projects
 - [x] 5.5 Re-run the managed analyzer contract for representative Mix projects and tune findings or suppressions in version-controlled config
 - [x] 5.6 Add `Styler` to the managed formatter stack across the `elixir/` workspace and absorb the baseline rewrite needed for `mix format --check-formatted` to stay green
-- [x] 5.7 Keep `Boundary` and `rustywind` explicitly deferred with recorded rationale
+- [x] 5.7 Add `Boundary` to the managed analyzer contract through a root-namespace compiler rollout that keeps the initial enforcement surface broad enough to compile cleanly
+- [x] 5.8 Keep `rustywind` explicitly deferred with recorded rationale
