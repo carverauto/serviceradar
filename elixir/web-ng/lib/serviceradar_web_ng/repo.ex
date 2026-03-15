@@ -6,6 +6,10 @@ defmodule ServiceRadarWebNG.Repo do
   It exists for backwards compatibility with existing code.
   """
 
+  use Boundary,
+    deps: [ServiceRadarWebNG],
+    exports: :all
+
   # Re-export ServiceRadar.Repo functionality
   defdelegate all(queryable, opts \\ []), to: ServiceRadar.Repo
   defdelegate get(queryable, id, opts \\ []), to: ServiceRadar.Repo

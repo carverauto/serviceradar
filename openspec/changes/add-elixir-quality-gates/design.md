@@ -52,7 +52,8 @@ Issue #3029 lists a broad tool wishlist. Some items are immediate quality gates 
 - Add the `:boundary` compiler in `:dev` and `:test` for each first-party Mix project under `elixir/`.
 - Declare a broad root boundary for each project namespace so `mix compile --warnings-as-errors` can enforce architectural wiring without forcing a large rewrite.
 - Export the root namespaces broadly in the initial pass to establish the compiler-enforced contract with a stable baseline.
-- Leave deeper sub-boundary modeling as follow-up work after the root rollout is green.
+- Start deeper sub-boundary modeling only after the root rollout is green, and prefer seams that do not change cross-app dependency contracts in the first narrowing pass.
+- Use internal app contexts such as `ServiceRadarWebNG.Accounts` and `ServiceRadarWebNG.SRQL` as the first narrowing targets before attempting cross-app domain boundaries inside `serviceradar_core`.
 
 ## Risks / Trade-offs
 

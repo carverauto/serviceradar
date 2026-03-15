@@ -31,3 +31,4 @@
 - [x] 5.6 Add `Styler` to the managed formatter stack across the `elixir/` workspace and absorb the baseline rewrite needed for `mix format --check-formatted` to stay green
 - [x] 5.7 Add `Boundary` to the managed analyzer contract through a root-namespace compiler rollout that keeps the initial enforcement surface broad enough to compile cleanly
 - [x] 5.8 Keep `rustywind` explicitly deferred with recorded rationale
+- [x] 5.9 Start post-rollout Boundary narrowing in app-internal seams that keep cross-app dependency contracts stable

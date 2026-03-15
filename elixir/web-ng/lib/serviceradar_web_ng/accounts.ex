@@ -6,6 +6,10 @@ defmodule ServiceRadarWebNG.Accounts do
   Session management is handled by Guardian JWT tokens.
   """
 
+  use Boundary,
+    deps: [ServiceRadarWebNG],
+    exports: :all
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.Users, as: AshUsers
   alias ServiceRadarWebNG.Accounts.UserNotifier

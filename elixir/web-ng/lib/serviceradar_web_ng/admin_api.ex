@@ -5,6 +5,10 @@ defmodule ServiceRadarWebNG.AdminApi do
   Uses a configurable client module for HTTP or local (test) execution.
   """
 
+  use Boundary,
+    deps: [ServiceRadarWebNG],
+    exports: :all
+
   @type scope :: ServiceRadarWebNG.Accounts.Scope.t()
 
   @callback list_users(scope(), map()) :: {:ok, list()} | {:error, term()}

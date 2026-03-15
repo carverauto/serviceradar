@@ -16,6 +16,10 @@ defmodule ServiceRadarWebNG.Edge do
   - `ServiceRadarWebNG.Edge.ComponentTemplates` - Template listing from datasvc
   """
 
+  use Boundary,
+    deps: [ServiceRadarWebNG],
+    exports: :all
+
   alias ServiceRadarWebNG.Edge.ComponentTemplates
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.OnboardingPackages

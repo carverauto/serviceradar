@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
   @behaviour ServiceRadarWebNG.AdminApi
 
   alias ServiceRadarWebNG.Auth.Guardian
-  alias ServiceRadarWebNGWeb.Endpoint
+  alias ServiceRadarWebNG.EndpointConfig
 
   @impl true
   def list_users(scope, params) do
@@ -132,13 +132,13 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
   end
 
   defp internal_base_url do
-    http = Endpoint.config(:http)
+    http = ServiceRadarWebNGWeb.Endpoint.config(:http)
 
     if is_list(http) do
       port = Keyword.get(http, :port, 4000)
       "http://127.0.0.1:#{port}"
     else
-      Endpoint.url()
+      EndpointConfig.base_url()
     end
   end
 

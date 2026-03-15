@@ -8,6 +8,10 @@ defmodule ServiceRadarWebNG.Graph do
   ServiceRadar uses the `serviceradar` AGE graph (see `docs/docs/age-graph-schema.md`).
   """
 
+  use Boundary,
+    deps: [ServiceRadarWebNG],
+    exports: :all
+
   alias ServiceRadarWebNG.Repo
 
   @doc """
