@@ -143,18 +143,18 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       end)
 
     {:ok,
-     Native.encode_snapshot(
-       snapshot.schema_version,
-       snapshot.revision,
-       nodes,
-       edges,
-       edge_meta,
-       edge_directional,
-       byte_size(root),
-       byte_size(affected),
-       byte_size(healthy),
-       byte_size(unknown)
-     )}
+     Native.encode_snapshot(%{
+       schema_version: snapshot.schema_version,
+       revision: snapshot.revision,
+       nodes: nodes,
+       edges: edges,
+       edge_meta: edge_meta,
+       edge_directional: edge_directional,
+       root_bitmap_bytes: byte_size(root),
+       affected_bitmap_bytes: byte_size(affected),
+       healthy_bitmap_bytes: byte_size(healthy),
+       unknown_bitmap_bytes: byte_size(unknown)
+     })}
   end
 
   defp build_projection(actor) do
