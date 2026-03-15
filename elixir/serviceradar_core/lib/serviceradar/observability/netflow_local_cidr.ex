@@ -8,6 +8,10 @@ defmodule ServiceRadar.Observability.NetflowLocalCidr do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @netflow_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "settings.netflow.manage"}
+  @netflow_local_cidr_fields [:partition, :label, :cidr, :enabled]
+
   postgres do
     table "netflow_local_cidrs"
     repo ServiceRadar.Repo
@@ -20,11 +24,11 @@ defmodule ServiceRadar.Observability.NetflowLocalCidr do
     defaults [:read, :destroy]
 
     create :create do
-      accept [:partition, :label, :cidr, :enabled]
+      accept @netflow_local_cidr_fields
     end
 
     update :update do
-      accept [:partition, :label, :cidr, :enabled]
+      accept @netflow_local_cidr_fields
     end
 
     read :list do
@@ -39,18 +43,15 @@ defmodule ServiceRadar.Observability.NetflowLocalCidr do
     end
 
     policy action_type(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.netflow.manage"}
+      authorize_if @netflow_manage_check
     end
 
     policy action_type(:update) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.netflow.manage"}
+      authorize_if @netflow_manage_check
     end
 
     policy action_type(:destroy) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.netflow.manage"}
+      authorize_if @netflow_manage_check
     end
 
     policy action_type(:read) do

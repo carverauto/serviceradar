@@ -11,6 +11,21 @@ defmodule ServiceRadar.Observability.NetflowAppClassificationRule do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @netflow_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "settings.netflow.manage"}
+  @classification_rule_fields [
+    :partition,
+    :enabled,
+    :priority,
+    :protocol_num,
+    :dst_port,
+    :src_port,
+    :dst_cidr,
+    :src_cidr,
+    :app_label,
+    :notes
+  ]
+
   postgres do
     table "netflow_app_classification_rules"
     repo ServiceRadar.Repo
@@ -21,33 +36,11 @@ defmodule ServiceRadar.Observability.NetflowAppClassificationRule do
     defaults [:read, :destroy]
 
     create :create do
-      accept [
-        :partition,
-        :enabled,
-        :priority,
-        :protocol_num,
-        :dst_port,
-        :src_port,
-        :dst_cidr,
-        :src_cidr,
-        :app_label,
-        :notes
-      ]
+      accept @classification_rule_fields
     end
 
     update :update do
-      accept [
-        :partition,
-        :enabled,
-        :priority,
-        :protocol_num,
-        :dst_port,
-        :src_port,
-        :dst_cidr,
-        :src_cidr,
-        :app_label,
-        :notes
-      ]
+      accept @classification_rule_fields
     end
 
     read :list do
@@ -62,18 +55,15 @@ defmodule ServiceRadar.Observability.NetflowAppClassificationRule do
     end
 
     policy action_type(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.netflow.manage"}
+      authorize_if @netflow_manage_check
     end
 
     policy action_type(:update) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.netflow.manage"}
+      authorize_if @netflow_manage_check
     end
 
     policy action_type(:destroy) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.netflow.manage"}
+      authorize_if @netflow_manage_check
     end
 
     policy action_type(:read) do
