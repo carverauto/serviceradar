@@ -3,9 +3,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   Ingests mapper interface and topology results into CNPG and projects topology into AGE.
   """
 
-  # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
-  # credo:disable-for-this-file Credo.Check.Refactor.Nesting
-
   require Logger
   require Ash.Query
 
@@ -114,6 +111,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   @required_topology_metrics ~w(ifInOctets ifInUcastPkts ifOutOctets ifOutUcastPkts)
   @required_topology_metrics_hc ~w(ifHCInOctets ifHCInUcastPkts ifHCOutOctets ifHCOutUcastPkts)
+  @truthy_string_values MapSet.new(~w(true 1 yes on))
+  @falsey_string_values MapSet.new(~w(false 0 no off))
+  @topology_evidence_classes ["direct", "inferred", "endpoint-attachment"]
 
   @doc false
   def topology_metric_bootstrap_targets(records) when is_list(records) do
@@ -178,16 +178,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp parse_optional_bool(v) when is_boolean(v), do: v
 
   defp parse_optional_bool(v) when is_binary(v) do
-    case String.downcase(String.trim(v)) do
-      "true" -> true
-      "1" -> true
-      "yes" -> true
-      "on" -> true
-      "false" -> false
-      "0" -> false
-      "no" -> false
-      "off" -> false
-      _ -> nil
+    normalized = v |> String.trim() |> String.downcase()
+
+    cond do
+      MapSet.member?(@truthy_string_values, normalized) -> true
+      MapSet.member?(@falsey_string_values, normalized) -> false
+      true -> nil
     end
   end
 
@@ -710,83 +706,96 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp infer_device_role(grouped, current_ip) do
-    device_ip_count =
-      grouped
-      |> Enum.map(&normalize_alias_ip(&1.device_ip))
-      |> Enum.filter(&valid_alias_ip?/1)
-      |> Enum.uniq()
-      |> length()
-
-    stable_records =
-      grouped
-      |> Enum.filter(&(normalize_alias_ip(&1.device_ip) == current_ip))
-
-    stable_l3_alias_count =
-      stable_records
-      |> Enum.flat_map(&List.wrap(&1.ip_addresses))
-      |> Enum.map(&normalize_alias_ip/1)
-      |> Enum.filter(&valid_alias_ip?/1)
-      |> Enum.reject(&(&1 == current_ip))
-      |> Enum.uniq()
-      |> length()
-
-    bridge_like_count =
-      Enum.count(grouped, fn r ->
-        kind = String.downcase(to_string(r.interface_kind || ""))
-        kind in ["bridge", "virtual", "tunnel"]
-      end)
-
-    physical_like_count =
-      Enum.count(grouped, fn r ->
-        kind = String.downcase(to_string(r.interface_kind || ""))
-        kind in ["physical", "aggregate"]
-      end)
-
-    wireless_like_count =
-      Enum.count(grouped, fn r ->
-        if_name = String.downcase(to_string(r.if_name || ""))
-        String.starts_with?(if_name, "wl") or String.contains?(if_name, "wlan")
-      end)
-
-    router_score =
-      0
-      |> add_score(stable_l3_alias_count >= 3, 55)
-      |> add_score(device_ip_count == 1, 20)
-      |> add_score(physical_like_count > 0, 10)
-
-    ap_bridge_score =
-      0
-      |> add_score(device_ip_count >= 3, 45)
-      |> add_score(wireless_like_count > 0, 30)
-      |> add_score(bridge_like_count > 0, 20)
-      |> add_score(stable_l3_alias_count <= 1, 10)
-
-    switch_l2_score =
-      0
-      |> add_score(stable_l3_alias_count == 0, 35)
-      |> add_score(device_ip_count == 1, 20)
-      |> add_score(physical_like_count >= 8, 20)
-
-    host_score =
-      0
-      |> add_score(stable_l3_alias_count <= 1, 20)
-      |> add_score(device_ip_count == 1, 15)
-      |> add_score(bridge_like_count == 0, 10)
-
-    candidates = [
-      {"router", router_score},
-      {"ap_bridge", ap_bridge_score},
-      {"switch_l2", switch_l2_score},
-      {"host", host_score}
-    ]
-
-    {best_role, best_score} = Enum.max_by(candidates, fn {_role, score} -> score end)
+    metrics = device_role_metrics(grouped, current_ip)
+    {best_role, best_score} = Enum.max_by(role_candidates(metrics), fn {_role, score} -> score end)
 
     if best_score < 50 do
       %{role: "unknown", confidence: best_score, source: "mapper_role_heuristic_v1"}
     else
       %{role: best_role, confidence: best_score, source: "mapper_role_heuristic_v1"}
     end
+  end
+
+  defp device_role_metrics(grouped, current_ip) do
+    stable_records = Enum.filter(grouped, &(normalize_alias_ip(&1.device_ip) == current_ip))
+
+    %{
+      device_ip_count: device_ip_count(grouped),
+      stable_l3_alias_count: stable_l3_alias_count(stable_records, current_ip),
+      bridge_like_count: count_interface_kinds(grouped, ["bridge", "virtual", "tunnel"]),
+      physical_like_count: count_interface_kinds(grouped, ["physical", "aggregate"]),
+      wireless_like_count: wireless_like_count(grouped)
+    }
+  end
+
+  defp device_ip_count(grouped) do
+    grouped
+    |> Enum.map(&normalize_alias_ip(&1.device_ip))
+    |> Enum.filter(&valid_alias_ip?/1)
+    |> Enum.uniq()
+    |> length()
+  end
+
+  defp stable_l3_alias_count(stable_records, current_ip) do
+    stable_records
+    |> Enum.flat_map(&List.wrap(&1.ip_addresses))
+    |> Enum.map(&normalize_alias_ip/1)
+    |> Enum.filter(&valid_alias_ip?/1)
+    |> Enum.reject(&(&1 == current_ip))
+    |> Enum.uniq()
+    |> length()
+  end
+
+  defp count_interface_kinds(grouped, kinds) when is_list(kinds) do
+    Enum.count(grouped, fn record ->
+      kind = String.downcase(to_string(record.interface_kind || ""))
+      kind in kinds
+    end)
+  end
+
+  defp wireless_like_count(grouped) do
+    Enum.count(grouped, fn record ->
+      if_name = String.downcase(to_string(record.if_name || ""))
+      String.starts_with?(if_name, "wl") or String.contains?(if_name, "wlan")
+    end)
+  end
+
+  defp role_candidates(metrics) do
+    [
+      {"router", router_role_score(metrics)},
+      {"ap_bridge", ap_bridge_role_score(metrics)},
+      {"switch_l2", switch_l2_role_score(metrics)},
+      {"host", host_role_score(metrics)}
+    ]
+  end
+
+  defp router_role_score(metrics) do
+    0
+    |> add_score(metrics.stable_l3_alias_count >= 3, 55)
+    |> add_score(metrics.device_ip_count == 1, 20)
+    |> add_score(metrics.physical_like_count > 0, 10)
+  end
+
+  defp ap_bridge_role_score(metrics) do
+    0
+    |> add_score(metrics.device_ip_count >= 3, 45)
+    |> add_score(metrics.wireless_like_count > 0, 30)
+    |> add_score(metrics.bridge_like_count > 0, 20)
+    |> add_score(metrics.stable_l3_alias_count <= 1, 10)
+  end
+
+  defp switch_l2_role_score(metrics) do
+    0
+    |> add_score(metrics.stable_l3_alias_count == 0, 35)
+    |> add_score(metrics.device_ip_count == 1, 20)
+    |> add_score(metrics.physical_like_count >= 8, 20)
+  end
+
+  defp host_role_score(metrics) do
+    0
+    |> add_score(metrics.stable_l3_alias_count <= 1, 20)
+    |> add_score(metrics.device_ip_count == 1, 15)
+    |> add_score(metrics.bridge_like_count == 0, 10)
   end
 
   defp add_score(score, true, add), do: score + add
@@ -1215,30 +1224,25 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     Repo.all(query)
     |> Enum.group_by(&elem(&1, 0))
-    |> Map.new(fn {ip, entries} ->
-      uid =
-        entries
-        |> Enum.sort_by(&device_ip_resolution_rank/1)
-        |> Enum.find_value(fn
-          {_ip, uid, _metadata} ->
-            normalized_uid = normalize_string(uid)
-
-            if canonical_topology_uid?(normalized_uid) do
-              uid
-            else
-              nil
-            end
-
-          _ ->
-            nil
-        end)
-
-      {ip, uid}
-    end)
+    |> Map.new(fn {ip, entries} -> {ip, canonical_uid_for_ip_entries(entries)} end)
   rescue
     e ->
       Logger.warning("Device UID lookup failed: #{inspect(e)}")
       %{}
+  end
+
+  defp canonical_uid_for_ip_entries(entries) do
+    entries
+    |> Enum.sort_by(&device_ip_resolution_rank/1)
+    |> Enum.find_value(fn
+      {_ip, uid, _metadata} -> maybe_canonical_topology_uid(uid)
+      _ -> nil
+    end)
+  end
+
+  defp maybe_canonical_topology_uid(uid) do
+    normalized_uid = normalize_string(uid)
+    if canonical_topology_uid?(normalized_uid), do: uid, else: nil
   end
 
   defp device_ip_resolution_rank({_ip, uid, metadata}) do
@@ -1353,33 +1357,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp canonicalize_wireguard_interface_device_ids(interfaces) do
     ips =
       interfaces
-      |> Enum.filter(fn iface ->
-        device_id = normalize_string(Map.get(iface, :device_id) || Map.get(iface, "device_id"))
-        not canonical_topology_uid?(device_id)
-      end)
-      |> Enum.map(fn iface ->
-        normalize_interface_ip(Map.get(iface, :device_ip) || Map.get(iface, "device_ip"))
-      end)
+      |> Enum.filter(&wireguard_device_id_needs_resolution?/1)
+      |> Enum.map(&wireguard_device_ip/1)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
     ip_to_uid = lookup_device_uids_by_ip(ips)
+    Enum.map(interfaces, &put_canonical_wireguard_device_id(&1, ip_to_uid))
+  end
 
-    Enum.map(interfaces, fn iface ->
-      device_id = normalize_string(Map.get(iface, :device_id) || Map.get(iface, "device_id"))
+  defp wireguard_device_id_needs_resolution?(iface) do
+    iface
+    |> Map.get(:device_id, Map.get(iface, "device_id"))
+    |> normalize_string()
+    |> canonical_topology_uid?()
+    |> Kernel.not()
+  end
 
-      if canonical_topology_uid?(device_id) do
-        iface
-      else
-        device_ip =
-          normalize_interface_ip(Map.get(iface, :device_ip) || Map.get(iface, "device_ip"))
+  defp wireguard_device_ip(iface) do
+    normalize_interface_ip(Map.get(iface, :device_ip) || Map.get(iface, "device_ip"))
+  end
 
-        case Map.get(ip_to_uid, device_ip) do
-          uid when is_binary(uid) -> Map.put(iface, :device_id, uid)
-          _ -> iface
-        end
+  defp put_canonical_wireguard_device_id(iface, ip_to_uid) do
+    if wireguard_device_id_needs_resolution?(iface) do
+      case Map.get(ip_to_uid, wireguard_device_ip(iface)) do
+        uid when is_binary(uid) -> Map.put(iface, :device_id, uid)
+        _ -> iface
       end
-    end)
+    else
+      iface
+    end
   end
 
   @doc false
@@ -1390,105 +1397,134 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     context = inference_context(records)
 
     interfaces
-    |> Enum.map(fn iface ->
-      tunnel_name =
-        normalize_string(Map.get(iface, :tunnel_name) || Map.get(iface, "tunnel_name")) ||
-          wireguard_name_from_iface(
-            Map.get(iface, :if_name) || Map.get(iface, "if_name"),
-            Map.get(iface, :if_descr) || Map.get(iface, "if_descr")
-          )
+    |> Enum.map(&normalize_wireguard_interface/1)
+    |> Enum.filter(&valid_wireguard_interface?/1)
+    |> latest_wireguard_interfaces()
+    |> Enum.group_by(& &1.tunnel_name)
+    |> Enum.flat_map(&infer_wireguard_group(&1, devices_by_uid, existing, context))
+  end
 
-      tunnel_ip =
-        normalize_interface_ip(Map.get(iface, :tunnel_ip) || Map.get(iface, "tunnel_ip")) ||
-          first_wireguard_interface_ip(
-            Map.get(iface, :ip_addresses) || Map.get(iface, "ip_addresses") || []
-          )
+  defp normalize_wireguard_interface(iface) do
+    %{
+      device_id: normalize_string(Map.get(iface, :device_id) || Map.get(iface, "device_id")),
+      timestamp: Map.get(iface, :timestamp) || Map.get(iface, "timestamp"),
+      tunnel_name: wireguard_tunnel_name(iface),
+      tunnel_ip: wireguard_tunnel_ip(iface)
+    }
+  end
 
-      %{
-        device_id: normalize_string(Map.get(iface, :device_id) || Map.get(iface, "device_id")),
-        timestamp: Map.get(iface, :timestamp) || Map.get(iface, "timestamp"),
-        tunnel_name: tunnel_name,
-        tunnel_ip: tunnel_ip
-      }
-    end)
-    |> Enum.filter(fn iface ->
-      is_binary(iface.device_id) and is_binary(iface.tunnel_name) and is_binary(iface.tunnel_ip)
-    end)
+  defp wireguard_tunnel_name(iface) do
+    normalize_string(Map.get(iface, :tunnel_name) || Map.get(iface, "tunnel_name")) ||
+      wireguard_name_from_iface(
+        Map.get(iface, :if_name) || Map.get(iface, "if_name"),
+        Map.get(iface, :if_descr) || Map.get(iface, "if_descr")
+      )
+  end
+
+  defp wireguard_tunnel_ip(iface) do
+    normalize_interface_ip(Map.get(iface, :tunnel_ip) || Map.get(iface, "tunnel_ip")) ||
+      first_wireguard_interface_ip(
+        Map.get(iface, :ip_addresses) || Map.get(iface, "ip_addresses") || []
+      )
+  end
+
+  defp valid_wireguard_interface?(iface) do
+    is_binary(iface.device_id) and is_binary(iface.tunnel_name) and is_binary(iface.tunnel_ip)
+  end
+
+  defp latest_wireguard_interfaces(interfaces) do
+    interfaces
     |> Enum.group_by(fn iface -> {iface.device_id, iface.tunnel_name} end)
     |> Enum.map(fn {_key, rows} ->
       Enum.max_by(rows, fn row -> row.timestamp || DateTime.from_unix!(0) end)
     end)
-    |> Enum.group_by(& &1.tunnel_name)
-    |> Enum.flat_map(fn {tunnel_name, members} ->
-      uniq_members = Enum.uniq_by(members, & &1.device_id)
+  end
 
-      if length(uniq_members) != 2 do
+  defp infer_wireguard_group({_tunnel_name, members}, devices_by_uid, existing, context) do
+    case unique_wireguard_members(members) do
+      [left, right] ->
+        build_wireguard_link_pair(left, right, devices_by_uid, existing, context)
+
+      _ ->
         []
-      else
-        [left, right] = uniq_members
-        left_device = Map.get(devices_by_uid, left.device_id)
-        right_device = Map.get(devices_by_uid, right.device_id)
-        edge_key = normalized_edge_key(left.device_id, right.device_id)
+    end
+  end
 
-        valid_pair? =
-          is_map(left_device) and is_map(right_device) and
-            router_type?(normalize_string(left_device.type), left_device.type_id) and
-            router_type?(normalize_string(right_device.type), right_device.type_id) and
-            not MapSet.member?(existing, edge_key)
+  defp unique_wireguard_members(members) do
+    Enum.uniq_by(members, & &1.device_id)
+  end
 
-        if valid_pair? do
-          {local, neighbor} =
-            if left.device_id <= right.device_id, do: {left, right}, else: {right, left}
+  defp build_wireguard_link_pair(left, right, devices_by_uid, existing, context) do
+    left_device = Map.get(devices_by_uid, left.device_id)
+    right_device = Map.get(devices_by_uid, right.device_id)
+    edge_key = normalized_edge_key(left.device_id, right.device_id)
 
-          local_device = Map.get(devices_by_uid, local.device_id)
-          neighbor_device = Map.get(devices_by_uid, neighbor.device_id)
+    if valid_wireguard_pair?(left_device, right_device, existing, edge_key) do
+      emit_wireguard_link(left, right, left_device, right_device, context)
+    else
+      []
+    end
+  end
 
-          local_ip = normalize_interface_ip(local_device.ip) || local.tunnel_ip
-          neighbor_ip = normalize_interface_ip(neighbor_device.ip) || neighbor.tunnel_ip
+  defp valid_wireguard_pair?(left_device, right_device, existing, edge_key) do
+    is_map(left_device) and is_map(right_device) and
+      router_type?(normalize_string(left_device.type), left_device.type_id) and
+      router_type?(normalize_string(right_device.type), right_device.type_id) and
+      not MapSet.member?(existing, edge_key)
+  end
 
-          if is_binary(local_ip) and is_binary(neighbor_ip) do
-            [
-              %{
-                timestamp: max_wireguard_timestamp(local.timestamp, neighbor.timestamp),
-                agent_id: context.agent_id,
-                gateway_id: context.gateway_id,
-                partition: context.partition || "default",
-                protocol: "wireguard-derived",
-                local_device_ip: local_ip,
-                local_device_id: local.device_id,
-                local_if_index: nil,
-                local_if_name: tunnel_name,
-                neighbor_device_id: neighbor.device_id,
-                neighbor_chassis_id: nil,
-                neighbor_port_id: tunnel_name,
-                neighbor_port_descr: "wireguard",
-                neighbor_system_name:
-                  first_non_blank([
-                    neighbor_device.name,
-                    neighbor_device.hostname,
-                    neighbor.device_id
-                  ]),
-                neighbor_mgmt_addr: neighbor_ip,
-                metadata: %{
-                  "source" => "wireguard-derived",
-                  "evidence_class" => "direct",
-                  "rule" => "exact_wg_interface_name_two_router_endpoints",
-                  "tunnel_name" => tunnel_name,
-                  "confidence_tier" => "high",
-                  "confidence_score" => 95,
-                  "confidence_reason" => "deterministic_wireguard_tunnel_match"
-                },
-                created_at: context.created_at
-              }
-            ]
-          else
-            []
-          end
-        else
-          []
-        end
-      end
-    end)
+  defp emit_wireguard_link(left, right, left_device, right_device, context) do
+    {local, neighbor, local_device, neighbor_device} = canonical_wireguard_pair(left, right, left_device, right_device)
+    local_ip = normalize_interface_ip(local_device.ip) || local.tunnel_ip
+    neighbor_ip = normalize_interface_ip(neighbor_device.ip) || neighbor.tunnel_ip
+
+    if is_binary(local_ip) and is_binary(neighbor_ip) do
+      [build_wireguard_link(local, neighbor, local_ip, neighbor_ip, neighbor_device, context)]
+    else
+      []
+    end
+  end
+
+  defp canonical_wireguard_pair(left, right, left_device, right_device) do
+    if left.device_id <= right.device_id do
+      {left, right, left_device, right_device}
+    else
+      {right, left, right_device, left_device}
+    end
+  end
+
+  defp build_wireguard_link(local, neighbor, local_ip, neighbor_ip, neighbor_device, context) do
+    %{
+      timestamp: max_wireguard_timestamp(local.timestamp, neighbor.timestamp),
+      agent_id: context.agent_id,
+      gateway_id: context.gateway_id,
+      partition: context.partition || "default",
+      protocol: "wireguard-derived",
+      local_device_ip: local_ip,
+      local_device_id: local.device_id,
+      local_if_index: nil,
+      local_if_name: local.tunnel_name,
+      neighbor_device_id: neighbor.device_id,
+      neighbor_chassis_id: nil,
+      neighbor_port_id: local.tunnel_name,
+      neighbor_port_descr: "wireguard",
+      neighbor_system_name: first_non_blank([neighbor_device.name, neighbor_device.hostname, neighbor.device_id]),
+      neighbor_mgmt_addr: neighbor_ip,
+      metadata: wireguard_link_metadata(local.tunnel_name),
+      created_at: context.created_at
+    }
+  end
+
+  defp wireguard_link_metadata(tunnel_name) do
+    %{
+      "source" => "wireguard-derived",
+      "evidence_class" => "direct",
+      "rule" => "exact_wg_interface_name_two_router_endpoints",
+      "tunnel_name" => tunnel_name,
+      "confidence_tier" => "high",
+      "confidence_score" => 95,
+      "confidence_reason" => "deterministic_wireguard_tunnel_match"
+    }
   end
 
   defp wireguard_name_from_iface(if_name, if_descr) do
@@ -1612,15 +1648,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp routable_public_ipv4?(ip) when is_binary(ip) do
     case :inet.parse_address(String.to_charlist(ip)) do
-      {:ok, {a, b, c, d}} ->
-        not (a == 10 or
-               (a == 172 and b in 16..31) or
-               (a == 192 and b == 168) or
-               (a == 169 and b == 254) or
-               a == 127 or
-               a == 0 or
-               a >= 224 or
-               {a, b, c, d} == {255, 255, 255, 255})
+      {:ok, octets} ->
+        not private_or_invalid_ipv4?(octets)
 
       _ ->
         false
@@ -1628,6 +1657,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp routable_public_ipv4?(_ip), do: false
+
+  defp private_or_invalid_ipv4?({10, _, _, _}), do: true
+  defp private_or_invalid_ipv4?({172, b, _, _}) when b in 16..31, do: true
+  defp private_or_invalid_ipv4?({192, 168, _, _}), do: true
+  defp private_or_invalid_ipv4?({169, 254, _, _}), do: true
+  defp private_or_invalid_ipv4?({127, _, _, _}), do: true
+  defp private_or_invalid_ipv4?({0, _, _, _}), do: true
+  defp private_or_invalid_ipv4?({a, _, _, _}) when a >= 224, do: true
+  defp private_or_invalid_ipv4?({255, 255, 255, 255}), do: true
+  defp private_or_invalid_ipv4?(_octets), do: false
 
   defp first_non_blank(values) when is_list(values) do
     values
@@ -1691,35 +1730,28 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp resolve_topology_uid(candidate_uid, candidate_ip, candidate_name, candidate_chassis, index) do
     uid = normalize_string(candidate_uid)
-    ip = normalize_string(candidate_ip)
-    chassis = normalize_mac(candidate_chassis)
 
-    name_candidates =
-      candidate_name
-      |> topology_name_candidates()
+    [
+      resolve_topology_uid_match(index.uid_to_uid, uid),
+      canonical_topology_uid_or_nil(uid),
+      resolve_topology_uid_match(index.ip_to_uid, normalize_string(candidate_ip)),
+      resolve_topology_uid_match(index.mac_to_uid, normalize_mac(candidate_chassis)),
+      resolve_topology_name_match(candidate_name, index)
+    ]
+    |> Enum.find(&is_binary/1)
+  end
 
-    uid_match =
-      if is_binary(uid), do: canonical_uid_from_index(index.uid_to_uid, uid), else: nil
+  defp resolve_topology_uid_match(_index_map, nil), do: nil
+  defp resolve_topology_uid_match(index_map, value), do: canonical_uid_from_index(index_map, value)
 
-    ip_match =
-      if is_binary(ip), do: canonical_uid_from_index(index.ip_to_uid, ip), else: nil
+  defp canonical_topology_uid_or_nil(uid) do
+    if is_binary(uid) and canonical_topology_uid?(uid), do: uid, else: nil
+  end
 
-    mac_match =
-      if is_binary(chassis), do: canonical_uid_from_index(index.mac_to_uid, chassis), else: nil
-
-    name_match =
-      Enum.find_value(name_candidates, fn name ->
-        canonical_uid_from_index(index.name_to_uid, name)
-      end)
-
-    cond do
-      is_binary(uid_match) -> uid_match
-      is_binary(uid) and canonical_topology_uid?(uid) -> uid
-      is_binary(ip_match) -> ip_match
-      is_binary(mac_match) -> mac_match
-      is_binary(name_match) -> name_match
-      true -> nil
-    end
+  defp resolve_topology_name_match(candidate_name, index) do
+    candidate_name
+    |> topology_name_candidates()
+    |> Enum.find_value(&canonical_uid_from_index(index.name_to_uid, &1))
   end
 
   defp preserve_source_endpoint_ids(record) when is_map(record) do
@@ -2022,74 +2054,87 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   @doc false
   def prune_unattributed_unifi_links(records) when is_list(records) do
-    attributed_pairs =
-      records
-      |> Enum.reduce(MapSet.new(), fn record, acc ->
-        if attributed_snmp_like_record?(record) do
-          case topology_pair_key(record) do
-            nil -> acc
-            key -> MapSet.put(acc, key)
-          end
-        else
-          acc
-        end
-      end)
-
-    Enum.reject(records, fn record ->
-      unattributed_unifi_record?(record) and
-        case topology_pair_key(record) do
-          nil -> false
-          key -> MapSet.member?(attributed_pairs, key)
-        end
-    end)
+    attributed_pairs = attributed_topology_pairs(records)
+    Enum.reject(records, &shadowed_unattributed_unifi_record?(&1, attributed_pairs))
   end
 
   def prune_unattributed_unifi_links(records), do: records
 
   @doc false
   def infer_reverse_interface_hints(records) when is_list(records) do
-    hints =
-      Enum.reduce(records, %{}, fn record, acc ->
-        local = normalize_string(Map.get(record, :local_device_id))
-        neighbor = normalize_string(Map.get(record, :neighbor_device_id))
-        hint = reverse_port_hint(record)
-
-        if is_binary(local) and is_binary(neighbor) and is_binary(hint) do
-          key = {neighbor, local}
-          rank = reverse_port_hint_rank(record)
-
-          case Map.get(acc, key) do
-            nil ->
-              Map.put(acc, key, {hint, rank})
-
-            {_existing_hint, existing_rank} ->
-              if rank >= existing_rank, do: Map.put(acc, key, {hint, rank}), else: acc
-          end
-        else
-          acc
-        end
-      end)
-
-    Enum.map(records, fn record ->
-      if reverse_hint_needed?(record) do
-        local = normalize_string(Map.get(record, :local_device_id))
-        neighbor = normalize_string(Map.get(record, :neighbor_device_id))
-
-        case Map.get(hints, {local, neighbor}) do
-          {hint, _rank} ->
-            metadata = Map.get(record, :metadata, %{}) |> Map.put("local_if_name_inferred", hint)
-            %{record | local_if_name: hint, metadata: metadata}
-
-          _ ->
-            record
-        end
-      else
-        record
-      end
-    end)
+    hints = reverse_hint_map(records)
+    Enum.map(records, &apply_reverse_hint(&1, hints))
   end
 
   def infer_reverse_interface_hints(records), do: records
+
+  defp attributed_topology_pairs(records) do
+    Enum.reduce(records, MapSet.new(), &put_attributed_topology_pair/2)
+  end
+
+  defp put_attributed_topology_pair(record, acc) do
+    if attributed_snmp_like_record?(record) do
+      case topology_pair_key(record) do
+        nil -> acc
+        key -> MapSet.put(acc, key)
+      end
+    else
+      acc
+    end
+  end
+
+  defp shadowed_unattributed_unifi_record?(record, attributed_pairs) do
+    unattributed_unifi_record?(record) and
+      case topology_pair_key(record) do
+        nil -> false
+        key -> MapSet.member?(attributed_pairs, key)
+      end
+  end
+
+  defp reverse_hint_map(records) do
+    Enum.reduce(records, %{}, &put_reverse_hint/2)
+  end
+
+  defp put_reverse_hint(record, acc) do
+    local = normalize_string(Map.get(record, :local_device_id))
+    neighbor = normalize_string(Map.get(record, :neighbor_device_id))
+    hint = reverse_port_hint(record)
+
+    if is_binary(local) and is_binary(neighbor) and is_binary(hint) do
+      key = {neighbor, local}
+      rank = reverse_port_hint_rank(record)
+
+      case Map.get(acc, key) do
+        nil -> Map.put(acc, key, {hint, rank})
+        {_existing_hint, existing_rank} when rank >= existing_rank -> Map.put(acc, key, {hint, rank})
+        _ -> acc
+      end
+    else
+      acc
+    end
+  end
+
+  defp apply_reverse_hint(record, hints) do
+    if reverse_hint_needed?(record) do
+      reverse_hint_record(record, hints)
+    else
+      record
+    end
+  end
+
+  defp reverse_hint_record(record, hints) do
+    local = normalize_string(Map.get(record, :local_device_id))
+    neighbor = normalize_string(Map.get(record, :neighbor_device_id))
+
+    case Map.get(hints, {local, neighbor}) do
+      {hint, _rank} ->
+        metadata = Map.get(record, :metadata, %{}) |> Map.put("local_if_name_inferred", hint)
+        %{record | local_if_name: hint, metadata: metadata}
+
+      _ ->
+        record
+    end
+  end
 
   defp reverse_hint_needed?(record) when is_map(record) do
     if_index = Map.get(record, :local_if_index)
@@ -2259,103 +2304,150 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   @doc false
   def normalize_topology(update) when is_map(update) do
-    timestamp = parse_timestamp(get_value(update, ["timestamp", :timestamp]))
-    metadata = get_map(update, ["metadata", :metadata])
-    observation = extract_topology_observation(update, metadata)
-    source_endpoint = get_map(observation, ["source_endpoint", :source_endpoint])
-    target_endpoint = get_map(observation, ["target_endpoint", :target_endpoint])
-    neighbor_identity = get_map(update, ["neighbor_identity", :neighbor_identity])
-    {tier, score, reason} = score_topology_confidence(update, metadata)
-
-    protocol_value =
-      get_string(update, ["protocol", :protocol]) ||
-        get_string(observation, ["source_protocol", :source_protocol]) ||
-        "unknown"
-
-    protocol = normalize_topology_protocol(protocol_value)
-    source = normalize_topology_source(Map.get(metadata, "source"))
-
-    observation_evidence_class =
-      get_string(observation, ["evidence_class", :evidence_class]) ||
-        metadata_value(metadata, "observation_evidence_class")
-
-    evidence_class =
-      classify_topology_evidence_class(
-        protocol,
-        source,
-        reason,
-        metadata,
-        observation_evidence_class
-      )
-
-    tier =
-      get_string(observation, ["confidence_tier", :confidence_tier]) ||
-        metadata_value(metadata, "observation_confidence_tier") ||
-        tier
-
-    neighbor_mgmt_addr =
-      get_string(update, ["neighbor_mgmt_addr", :neighbor_mgmt_addr]) ||
-        get_string(neighbor_identity, ["management_ip", :management_ip, "neighbor_mgmt_addr"]) ||
-        get_string(target_endpoint, ["ip", :ip])
-
-    neighbor_device_id =
-      get_string(update, ["neighbor_device_id", :neighbor_device_id]) ||
-        get_string(neighbor_identity, ["device_id", :device_id]) ||
-        get_string(target_endpoint, ["device_id", :device_id])
-
-    neighbor_chassis_id =
-      get_string(update, ["neighbor_chassis_id", :neighbor_chassis_id]) ||
-        get_string(neighbor_identity, ["chassis_id", :chassis_id]) ||
-        get_string(target_endpoint, ["mac", :mac])
-
-    neighbor_port_id =
-      get_string(update, ["neighbor_port_id", :neighbor_port_id]) ||
-        get_string(neighbor_identity, ["port_id", :port_id]) ||
-        get_string(target_endpoint, ["port_id", :port_id])
-
-    neighbor_port_descr =
-      get_string(update, ["neighbor_port_descr", :neighbor_port_descr]) ||
-        get_string(neighbor_identity, ["port_descr", :port_descr])
-
-    neighbor_system_name =
-      get_string(update, ["neighbor_system_name", :neighbor_system_name]) ||
-        get_string(neighbor_identity, ["system_name", :system_name])
-
-    metadata =
-      metadata
-      |> Map.put("confidence_tier", tier)
-      |> Map.put("confidence_score", score)
-      |> Map.put("confidence_reason", reason)
-      |> Map.put("evidence_class", evidence_class)
-      |> maybe_put_topology_observation_metadata(observation, source_endpoint, target_endpoint)
-      |> maybe_put_neighbor_identity(neighbor_identity)
+    context = topology_normalization_context(update)
+    neighbors = topology_neighbor_fields(update, context)
+    metadata = build_topology_metadata(context)
 
     %{
-      timestamp: timestamp,
+      timestamp: context.timestamp,
       agent_id: get_string(update, ["agent_id", :agent_id]),
       gateway_id: get_string(update, ["gateway_id", :gateway_id]),
       partition: get_string(update, ["partition", :partition]) || "default",
-      protocol: protocol_value,
+      protocol: context.protocol_value,
       local_device_ip: get_string(update, ["local_device_ip", :local_device_ip]),
       local_device_id:
         get_string(update, ["local_device_id", :local_device_id]) ||
-          get_string(source_endpoint, ["device_id", :device_id]),
+          get_string(context.source_endpoint, ["device_id", :device_id]),
       local_if_index: get_integer(update, ["local_if_index", :local_if_index]),
       local_if_name:
         get_string(update, ["local_if_name", :local_if_name]) ||
-          get_string(source_endpoint, ["if_name", :if_name]),
-      neighbor_device_id: neighbor_device_id,
-      neighbor_chassis_id: neighbor_chassis_id,
-      neighbor_port_id: neighbor_port_id,
-      neighbor_port_descr: neighbor_port_descr,
-      neighbor_system_name: neighbor_system_name,
-      neighbor_mgmt_addr: neighbor_mgmt_addr,
+          get_string(context.source_endpoint, ["if_name", :if_name]),
+      neighbor_device_id: neighbors.neighbor_device_id,
+      neighbor_chassis_id: neighbors.neighbor_chassis_id,
+      neighbor_port_id: neighbors.neighbor_port_id,
+      neighbor_port_descr: neighbors.neighbor_port_descr,
+      neighbor_system_name: neighbors.neighbor_system_name,
+      neighbor_mgmt_addr: neighbors.neighbor_mgmt_addr,
       metadata: metadata,
       created_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
     }
   end
 
   def normalize_topology(_update), do: nil
+
+  defp topology_normalization_context(update) do
+    metadata = get_map(update, ["metadata", :metadata])
+    observation = extract_topology_observation(update, metadata)
+    source_endpoint = get_map(observation, ["source_endpoint", :source_endpoint])
+    target_endpoint = get_map(observation, ["target_endpoint", :target_endpoint])
+    neighbor_identity = get_map(update, ["neighbor_identity", :neighbor_identity])
+    {tier, score, reason} = score_topology_confidence(update, metadata)
+    protocol_value = topology_protocol_value(update, observation)
+    protocol = normalize_topology_protocol(protocol_value)
+    source = normalize_topology_source(Map.get(metadata, "source"))
+    observation_evidence_class = topology_observation_evidence_class(observation, metadata)
+    evidence_class = classify_topology_evidence_class(protocol, source, reason, metadata, observation_evidence_class)
+
+    %{
+      timestamp: parse_timestamp(get_value(update, ["timestamp", :timestamp])),
+      metadata: metadata,
+      observation: observation,
+      source_endpoint: source_endpoint,
+      target_endpoint: target_endpoint,
+      neighbor_identity: neighbor_identity,
+      tier:
+        get_string(observation, ["confidence_tier", :confidence_tier]) ||
+          metadata_value(metadata, "observation_confidence_tier") ||
+          tier,
+      score: score,
+      reason: reason,
+      protocol_value: protocol_value,
+      evidence_class: evidence_class
+    }
+  end
+
+  defp topology_protocol_value(update, observation) do
+    get_string(update, ["protocol", :protocol]) ||
+      get_string(observation, ["source_protocol", :source_protocol]) ||
+      "unknown"
+  end
+
+  defp topology_observation_evidence_class(observation, metadata) do
+    get_string(observation, ["evidence_class", :evidence_class]) ||
+      metadata_value(metadata, "observation_evidence_class")
+  end
+
+  defp topology_neighbor_fields(update, context) do
+    %{
+      neighbor_mgmt_addr: topology_neighbor_value(update, context, :neighbor_mgmt_addr),
+      neighbor_device_id: topology_neighbor_value(update, context, :neighbor_device_id),
+      neighbor_chassis_id: topology_neighbor_value(update, context, :neighbor_chassis_id),
+      neighbor_port_id: topology_neighbor_value(update, context, :neighbor_port_id),
+      neighbor_port_descr: topology_neighbor_value(update, context, :neighbor_port_descr),
+      neighbor_system_name: topology_neighbor_value(update, context, :neighbor_system_name)
+    }
+  end
+
+  defp topology_neighbor_value(update, context, field) do
+    candidate_paths =
+      case field do
+        :neighbor_mgmt_addr ->
+          [
+            {update, ["neighbor_mgmt_addr", :neighbor_mgmt_addr]},
+            {context.neighbor_identity, ["management_ip", :management_ip, "neighbor_mgmt_addr"]},
+            {context.target_endpoint, ["ip", :ip]}
+          ]
+
+        :neighbor_device_id ->
+          [
+            {update, ["neighbor_device_id", :neighbor_device_id]},
+            {context.neighbor_identity, ["device_id", :device_id]},
+            {context.target_endpoint, ["device_id", :device_id]}
+          ]
+
+        :neighbor_chassis_id ->
+          [
+            {update, ["neighbor_chassis_id", :neighbor_chassis_id]},
+            {context.neighbor_identity, ["chassis_id", :chassis_id]},
+            {context.target_endpoint, ["mac", :mac]}
+          ]
+
+        :neighbor_port_id ->
+          [
+            {update, ["neighbor_port_id", :neighbor_port_id]},
+            {context.neighbor_identity, ["port_id", :port_id]},
+            {context.target_endpoint, ["port_id", :port_id]}
+          ]
+
+        :neighbor_port_descr ->
+          [
+            {update, ["neighbor_port_descr", :neighbor_port_descr]},
+            {context.neighbor_identity, ["port_descr", :port_descr]}
+          ]
+
+        :neighbor_system_name ->
+          [
+            {update, ["neighbor_system_name", :neighbor_system_name]},
+            {context.neighbor_identity, ["system_name", :system_name]}
+          ]
+      end
+
+    Enum.find_value(candidate_paths, fn {source, keys} -> get_string(source, keys) end)
+  end
+
+  defp build_topology_metadata(context) do
+    context.metadata
+    |> Map.put("confidence_tier", context.tier)
+    |> Map.put("confidence_score", context.score)
+    |> Map.put("confidence_reason", context.reason)
+    |> Map.put("evidence_class", context.evidence_class)
+    |> maybe_put_topology_observation_metadata(
+      context.observation,
+      context.source_endpoint,
+      context.target_endpoint
+    )
+    |> maybe_put_neighbor_identity(context.neighbor_identity)
+  end
 
   defp extract_topology_observation(update, metadata) do
     if topology_v2_contract_consumption_enabled?() do
@@ -2507,40 +2599,37 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp classify_topology_evidence_class(protocol, source, reason, metadata, observation_class) do
-    observation_class = normalize_string(observation_class)
-
-    explicit =
-      metadata
-      |> metadata_value("evidence_class")
-      |> normalize_string()
-
-    cond do
-      observation_class in ["direct", "inferred", "endpoint-attachment"] ->
-        observation_class
-
-      explicit in ["direct", "inferred", "endpoint-attachment"] ->
-        explicit
-
-      protocol in ["lldp", "cdp", "wireguard-derived"] ->
-        "direct"
-
-      protocol == "unifi-api" and String.contains?(source || "", "port-table") ->
-        "endpoint-attachment"
-
-      protocol == "unifi-api" ->
-        "direct"
-
-      (protocol == "snmp-l2" or source == "snmp-arp-fdb") and
-          reason == "single_identifier_inference" ->
-        "endpoint-attachment"
-
-      protocol == "snmp-l2" or source == "snmp-arp-fdb" ->
-        "inferred"
-
-      true ->
-        "inferred"
-    end
+    preferred_topology_evidence_class(observation_class, metadata) ||
+      protocol_topology_evidence_class(protocol, source, reason) ||
+      default_topology_evidence_class(protocol) ||
+      "inferred"
   end
+
+  defp preferred_topology_evidence_class(observation_class, metadata) do
+    [observation_class, metadata_value(metadata, "evidence_class")]
+    |> Enum.map(&normalize_string/1)
+    |> Enum.find(&(&1 in @topology_evidence_classes))
+  end
+
+  defp protocol_topology_evidence_class("unifi-api", source, _reason) do
+    if String.contains?(source || "", "port-table"), do: "endpoint-attachment", else: "direct"
+  end
+
+  defp protocol_topology_evidence_class(protocol, source, "single_identifier_inference")
+       when protocol == "snmp-l2" or source == "snmp-arp-fdb",
+       do: "endpoint-attachment"
+
+  defp protocol_topology_evidence_class(protocol, source, _reason)
+       when protocol == "snmp-l2" or source == "snmp-arp-fdb",
+       do: "inferred"
+
+  defp protocol_topology_evidence_class(_protocol, _source, _reason), do: nil
+
+  defp default_topology_evidence_class(protocol)
+       when protocol in ["lldp", "cdp", "wireguard-derived"],
+       do: "direct"
+
+  defp default_topology_evidence_class(_protocol), do: nil
 
   defp maybe_put_topology_observation_metadata(
          metadata,
@@ -2674,7 +2763,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp insert_bulk([], _resource, _actor, _label), do: :ok
 
-  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defp insert_bulk(records, resource, actor, label) do
     {prepared_records, opts} = prepare_bulk_records(records, resource, actor)
 

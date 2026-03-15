@@ -6,30 +6,12 @@ defmodule ServiceRadar.Jobs.JobScheduleSeeder do
   are seeded into.
   """
 
-  use GenServer
+  use ServiceRadar.DelayedSeeder, callback: :seed_all
 
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Jobs.JobSchedule
-
-  @seed_delay_ms 5_000
-
-  def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-  end
-
-  @impl true
-  def init(_opts) do
-    Process.send_after(self(), :seed, @seed_delay_ms)
-    {:ok, %{}}
-  end
-
-  @impl true
-  def handle_info(:seed, state) do
-    seed_all()
-    {:noreply, state}
-  end
 
   def seed_all do
     if repo_enabled?() do
@@ -91,9 +73,4 @@ defmodule ServiceRadar.Jobs.JobScheduleSeeder do
   end
 
   defp not_found?(_), do: false
-
-  defp repo_enabled? do
-    Application.get_env(:serviceradar_core, :repo_enabled, true) != false &&
-      is_pid(Process.whereis(ServiceRadar.Repo))
-  end
 end

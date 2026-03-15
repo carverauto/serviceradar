@@ -11,6 +11,36 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @event_fields [
+    :time,
+    :class_uid,
+    :category_uid,
+    :type_uid,
+    :activity_id,
+    :activity_name,
+    :severity_id,
+    :severity,
+    :message,
+    :status_id,
+    :status,
+    :status_code,
+    :status_detail,
+    :metadata,
+    :observables,
+    :trace_id,
+    :span_id,
+    :actor,
+    :device,
+    :src_endpoint,
+    :dst_endpoint,
+    :log_name,
+    :log_provider,
+    :log_level,
+    :log_version,
+    :unmapped,
+    :raw_data
+  ]
+
   postgres do
     table "ocsf_events"
     repo ServiceRadar.Repo
@@ -24,35 +54,7 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
     create :record do
       description "Record a new OCSF Event Log Activity entry"
 
-      accept [
-        :time,
-        :class_uid,
-        :category_uid,
-        :type_uid,
-        :activity_id,
-        :activity_name,
-        :severity_id,
-        :severity,
-        :message,
-        :status_id,
-        :status,
-        :status_code,
-        :status_detail,
-        :metadata,
-        :observables,
-        :trace_id,
-        :span_id,
-        :actor,
-        :device,
-        :src_endpoint,
-        :dst_endpoint,
-        :log_name,
-        :log_provider,
-        :log_level,
-        :log_version,
-        :unmapped,
-        :raw_data
-      ]
+      accept @event_fields
 
       change fn changeset, _context ->
         if is_nil(Ash.Changeset.get_attribute(changeset, :time)) do
@@ -65,21 +67,11 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
   end
 
   policies do
-    # (schema isolation is enforced via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action(:record) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action(:record)
   end
 
   changes do

@@ -59,10 +59,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.AgentConfig.Compilers.TargetedProfileResolver
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.SRQLAst
+  alias ServiceRadar.SRQLDeviceMatcher
+  alias ServiceRadar.SRQLQuery
   alias ServiceRadar.SNMPProfiles.CredentialResolver
+  alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
@@ -126,22 +131,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   """
   @spec resolve_profile(String.t() | nil, map()) :: SNMPProfile.t() | nil
   def resolve_profile(device_uid, actor) do
-    try_srql_targeting(device_uid, actor) ||
-      get_default_profile(actor)
-  end
-
-  # Try to find a matching profile via SRQL targeting
-  defp try_srql_targeting(nil, _actor), do: nil
-
-  defp try_srql_targeting(device_uid, actor) do
-    case SrqlTargetResolver.resolve_for_device(device_uid, actor) do
-      {:ok, profile} ->
-        profile
-
-      {:error, reason} ->
-        Logger.warning("SNMPCompiler: SRQL targeting failed - #{inspect(reason)}")
-        nil
-    end
+    TargetedProfileResolver.resolve(device_uid, actor,
+      resolver: &SrqlTargetResolver.resolve_for_device/2,
+      default_resolver: &get_default_profile/1,
+      log_prefix: "SNMPCompiler"
+    )
   end
 
   @doc """
@@ -196,17 +190,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   def execute_target_query(target_query, actor) do
     target_query = String.trim(target_query)
 
-    case ServiceRadarSRQL.Native.parse_ast(target_query) do
-      {:ok, ast_json} ->
-        case Jason.decode(ast_json) do
-          {:ok, ast} ->
-            entity = extract_entity(target_query)
-            execute_parsed_query(entity, ast, actor)
-
-          {:error, reason} ->
-            Logger.warning("SNMPCompiler: failed to decode SRQL AST - #{inspect(reason)}")
-            []
-        end
+    case SRQLAst.parse(target_query) do
+      {:ok, ast} ->
+        entity = SRQLAst.entity(target_query)
+        execute_parsed_query(entity, ast, actor)
 
       {:error, reason} ->
         Logger.warning("SNMPCompiler: failed to parse SRQL query - #{inspect(reason)}")
@@ -216,14 +203,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     e ->
       Logger.error("SNMPCompiler: error executing target query - #{inspect(e)}")
       []
-  end
-
-  # Extract the entity type from SRQL query
-  defp extract_entity(query) when is_binary(query) do
-    case Regex.run(~r/^in:(\S+)/, query) do
-      [_, entity] -> String.downcase(entity)
-      _ -> "devices"
-    end
   end
 
   defp normalize_target_query(target_query, is_default) do
@@ -240,101 +219,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   defp normalize_target_query(query) when is_binary(query) do
-    query = String.trim(query)
-
-    cond do
-      query == "" ->
-        "in:devices"
-
-      String.starts_with?(query, "in:") ->
-        query
-
-      true ->
-        "in:devices " <> query
-    end
+    SRQLQuery.ensure_target(query, :devices)
   end
 
   defp normalize_target_query(_), do: nil
-
-  # Execute query based on entity type
-  defp execute_parsed_query("interfaces", ast, actor) do
-    # Query interfaces, then extract unique devices
-    filters = extract_filters(ast)
-
-    query =
-      Interface
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> apply_interface_filters(filters)
-      |> Ash.Query.distinct(:device_id)
-      |> Ash.Query.load(:device)
-
-    case Page.unwrap(Ash.read(query, actor: actor)) do
-      {:ok, interfaces} ->
-        # Extract unique devices
-        interfaces
-        |> Enum.map(& &1.device)
-        |> Enum.reject(&is_nil/1)
-        |> Enum.uniq_by(& &1.uid)
-
-      {:error, reason} ->
-        Logger.warning("SNMPCompiler: failed to query interfaces - #{inspect(reason)}")
-        []
-    end
-  end
-
-  defp execute_parsed_query(_entity, ast, actor) do
-    # Query devices directly
-    filters = extract_filters(ast)
-
-    query =
-      Device
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> apply_device_filters(filters)
-
-    case Page.unwrap(Ash.read(query, actor: actor)) do
-      {:ok, devices} ->
-        devices
-
-      {:error, reason} ->
-        Logger.warning("SNMPCompiler: failed to query devices - #{inspect(reason)}")
-        []
-    end
-  end
-
-  # Extract filter conditions from parsed SRQL AST
-  defp extract_filters(%{"filters" => filters}) when is_list(filters) do
-    Enum.map(filters, fn filter ->
-      %{
-        field: Map.get(filter, "field"),
-        op: Map.get(filter, "op", "eq"),
-        value: Map.get(filter, "value")
-      }
-    end)
-  end
-
-  defp extract_filters(_), do: []
-
-  # Apply filters to interface query
-  defp apply_interface_filters(query, filters) do
-    Enum.reduce(filters, query, fn filter, q ->
-      apply_interface_filter(q, filter)
-    end)
-  end
-
-  defp apply_interface_filter(query, %{field: field, op: op, value: value})
-       when is_binary(field) do
-    mapped = map_interface_field(field)
-
-    if mapped do
-      apply_filter_op(query, mapped, op, value)
-    else
-      query
-    end
-  rescue
-    _ -> query
-  end
-
-  defp apply_interface_filter(query, _), do: query
 
   # Map SRQL interface fields to Ash attributes
   @interface_field_map %{
@@ -360,36 +248,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     "type" => :if_type
   }
 
-  defp map_interface_field(field), do: Map.get(@interface_field_map, field)
-
-  # Apply filters to device query
-  defp apply_device_filters(query, filters) do
-    Enum.reduce(filters, query, fn filter, q ->
-      apply_device_filter(q, filter)
-    end)
-  end
-
-  defp apply_device_filter(query, %{field: field, op: op, value: value})
-       when is_binary(field) do
-    # Handle tag filters specially
-    if String.starts_with?(field, "tags.") do
-      tag_key = String.replace_prefix(field, "tags.", "")
-      Ash.Query.filter(query, fragment("tags @> ?", ^%{tag_key => value}))
-    else
-      mapped = map_device_field(field)
-
-      if mapped do
-        apply_filter_op(query, mapped, op, value)
-      else
-        query
-      end
-    end
-  rescue
-    _ -> query
-  end
-
-  defp apply_device_filter(query, _), do: query
-
   # Map SRQL device fields to Ash attributes
   @device_field_map %{
     "uid" => :uid,
@@ -407,26 +265,59 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     "status" => :status
   }
 
-  defp map_device_field(field), do: Map.get(@device_field_map, field)
+  # Execute query based on entity type
+  defp execute_parsed_query("interfaces", ast, actor) do
+    # Query interfaces, then extract unique devices
+    filters = SRQLDeviceMatcher.extract_filters(ast)
 
-  # Apply filter operation
-  defp apply_filter_op(query, field, op, value) when op in ["eq", "equals"] do
-    Ash.Query.filter_input(query, %{field => %{eq: value}})
+    query =
+      Interface
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> SRQLDeviceMatcher.apply_filters(filters,
+        field_mappings: @interface_field_map,
+        allow_existing_atom_fields?: false,
+        tag_fields?: false,
+        log_prefix: "SNMPCompiler"
+      )
+      |> Ash.Query.distinct(:device_id)
+      |> Ash.Query.load(:device)
+
+    case Page.unwrap(Ash.read(query, actor: actor)) do
+      {:ok, interfaces} ->
+        # Extract unique devices
+        interfaces
+        |> Enum.map(& &1.device)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq_by(& &1.uid)
+
+      {:error, reason} ->
+        Logger.warning("SNMPCompiler: failed to query interfaces - #{inspect(reason)}")
+        []
+    end
   end
 
-  defp apply_filter_op(query, field, op, value) when op in ["contains", "like"] do
-    # Strip % wildcards if present from SRQL like syntax
-    value = value |> String.trim_leading("%") |> String.trim_trailing("%")
-    Ash.Query.filter_input(query, %{field => %{contains: value}})
-  end
+  defp execute_parsed_query(_entity, ast, actor) do
+    # Query devices directly
+    filters = SRQLDeviceMatcher.extract_filters(ast)
 
-  defp apply_filter_op(query, field, "in", value) when is_list(value) do
-    Ash.Query.filter_input(query, %{field => %{in: value}})
-  end
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> SRQLDeviceMatcher.apply_filters(filters,
+        field_mappings: @device_field_map,
+        allow_existing_atom_fields?: false,
+        tag_fields?: true,
+        log_prefix: "SNMPCompiler"
+      )
 
-  defp apply_filter_op(query, field, _op, value) do
-    # Default to equality
-    Ash.Query.filter_input(query, %{field => %{eq: value}})
+    case Page.unwrap(Ash.read(query, actor: actor)) do
+      {:ok, devices} ->
+        devices
+
+      {:error, reason} ->
+        Logger.warning("SNMPCompiler: failed to query devices - #{inspect(reason)}")
+        []
+    end
   end
 
   @doc """
@@ -629,7 +520,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       "name" => device.name || device.hostname || device.uid,
       "host" => host,
       "port" => 161,
-      "version" => format_version(version),
+      "version" => ProtocolFormatter.version(version),
       "poll_interval_seconds" => profile.poll_interval,
       "timeout_seconds" => profile.timeout,
       "retries" => profile.retries,
@@ -693,7 +584,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         "name" => target.name,
         "host" => target.host,
         "port" => target.port,
-        "version" => format_version(target.version),
+        "version" => ProtocolFormatter.version(target.version),
         "poll_interval_seconds" => profile.poll_interval,
         "timeout_seconds" => profile.timeout,
         "retries" => profile.retries,
@@ -897,43 +788,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp compile_v3_auth(credential) do
     %{
       "username" => Map.get(credential, :username),
-      "security_level" => format_security_level(Map.get(credential, :security_level)),
-      "auth_protocol" => format_auth_protocol(Map.get(credential, :auth_protocol)),
+      "security_level" => ProtocolFormatter.security_level(Map.get(credential, :security_level)),
+      "auth_protocol" =>
+        ProtocolFormatter.auth_protocol(Map.get(credential, :auth_protocol), style: :hyphenated),
       "auth_password" => Map.get(credential, :auth_password),
-      "priv_protocol" => format_priv_protocol(Map.get(credential, :priv_protocol)),
+      "priv_protocol" =>
+        ProtocolFormatter.priv_protocol(Map.get(credential, :priv_protocol), style: :hyphenated),
       "priv_password" => Map.get(credential, :priv_password)
     }
   end
-
-  # Format version atom to string
-  defp format_version(:v1), do: "v1"
-  defp format_version(:v2c), do: "v2c"
-  defp format_version(:v3), do: "v3"
-  defp format_version(_), do: "v2c"
-
-  # Format security level atom to string
-  defp format_security_level(:no_auth_no_priv), do: "noAuthNoPriv"
-  defp format_security_level(:auth_no_priv), do: "authNoPriv"
-  defp format_security_level(:auth_priv), do: "authPriv"
-  defp format_security_level(_), do: "noAuthNoPriv"
-
-  # Format auth protocol atom to string
-  defp format_auth_protocol(:md5), do: "MD5"
-  defp format_auth_protocol(:sha), do: "SHA"
-  defp format_auth_protocol(:sha224), do: "SHA-224"
-  defp format_auth_protocol(:sha256), do: "SHA-256"
-  defp format_auth_protocol(:sha384), do: "SHA-384"
-  defp format_auth_protocol(:sha512), do: "SHA-512"
-  defp format_auth_protocol(_), do: nil
-
-  # Format priv protocol atom to string
-  defp format_priv_protocol(:des), do: "DES"
-  defp format_priv_protocol(:aes), do: "AES"
-  defp format_priv_protocol(:aes192), do: "AES-192"
-  defp format_priv_protocol(:aes256), do: "AES-256"
-  defp format_priv_protocol(:aes192c), do: "AES-192-C"
-  defp format_priv_protocol(:aes256c), do: "AES-256-C"
-  defp format_priv_protocol(_), do: nil
 
   @doc """
   Returns disabled SNMP configuration when no profile is assigned.

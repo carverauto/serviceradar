@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
 
   import Phoenix.ChannelTest
 
+  alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNGWeb.UserSocket
 
   @endpoint ServiceRadarWebNGWeb.Endpoint
@@ -10,27 +11,28 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
 
   setup do
     previous_flag = Application.get_env(:serviceradar_web_ng, :god_view_enabled)
+    user = AccountsFixtures.user_fixture()
 
     on_exit(fn ->
       Application.put_env(:serviceradar_web_ng, :god_view_enabled, previous_flag)
     end)
 
-    :ok
+    {:ok, user: user}
   end
 
-  test "join rejects when god view is disabled" do
+  test "join rejects when god view is disabled", %{user: user} do
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, false)
 
     assert {:error, %{reason: "god_view_disabled"}} =
-             socket(UserSocket, "user-id", %{})
+             socket(UserSocket, "user-id", %{current_user: user})
              |> subscribe_and_join(ServiceRadarWebNGWeb.TopologyChannel, @channel, %{})
   end
 
-  test "channel emits binary snapshot frame with expected envelope" do
+  test "channel emits binary snapshot frame with expected envelope", %{user: user} do
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
 
     assert {:ok, _reply, _socket} =
-             socket(UserSocket, "user-id", %{})
+             socket(UserSocket, "user-id", %{current_user: user})
              |> subscribe_and_join(ServiceRadarWebNGWeb.TopologyChannel, @channel, %{})
 
     assert_push "snapshot", {:binary, frame}, 2_000
@@ -56,7 +58,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     assert binary_part(payload, byte_size(payload) - 6, 6) == "ARROW1"
   end
 
-  test "channel emits snapshot_error when snapshot build fails budget guard" do
+  test "channel emits snapshot_error when snapshot build fails budget guard", %{user: user} do
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
 
     original_budget = Application.get_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms)
@@ -71,10 +73,9 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     end)
 
     assert {:ok, _reply, _socket} =
-             socket(UserSocket, "user-id", %{})
+             socket(UserSocket, "user-id", %{current_user: user})
              |> subscribe_and_join(ServiceRadarWebNGWeb.TopologyChannel, @channel, %{})
 
-    assert_push "snapshot_error", %{reason: reason}, 2_000
-    assert reason =~ "real_time_budget_exceeded"
+    assert_push "snapshot_error", %{reason: "snapshot_unavailable"}, 2_000
   end
 end

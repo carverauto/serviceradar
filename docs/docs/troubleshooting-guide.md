@@ -63,6 +63,10 @@ For detailed edge agent documentation, see [Edge Model](./edge-model.md).
 - **Verify API availability**: `curl -k https://<core-host>/healthz`. TLS errors tie back to mismatched certificates—reissue them with the [Self-Signed Certificates guide](./self-signed.md).
 - **Configuration drift**: Most configuration is managed through the web UI and delivered to agents via `GetConfig`. If changes are not taking effect, confirm the agent is online and check `agent-gateway` logs for config fetch errors.
 
+## Observability Rollups
+
+- **Trace cards stale, missing, or zeroed**: Follow the [Observability Rollup Recovery](./observability-rollup-recovery.md) runbook. It covers verifying `platform.otel_trace_summaries`, `platform.traces_stats_5m`, and the periodic Oban jobs that maintain them.
+
 ## SNMP
 
 - **Credential failures**: Review `gateway` logs for `snmp_auth_error`. Ensure v3 auth/privacy keys match the [SNMP ingest guide](./snmp.md) recommendations.

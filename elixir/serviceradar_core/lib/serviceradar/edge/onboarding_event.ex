@@ -19,6 +19,8 @@ defmodule ServiceRadar.Edge.OnboardingEvent do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @event_fields [:event_time, :package_id, :event_type, :actor, :source_ip, :details_json]
+
   postgres do
     table "edge_onboarding_events"
     repo ServiceRadar.Repo
@@ -50,7 +52,7 @@ defmodule ServiceRadar.Edge.OnboardingEvent do
 
     create :record do
       description "Record a new audit event"
-      accept [:event_time, :package_id, :event_type, :actor, :source_ip, :details_json]
+      accept @event_fields
 
       change fn changeset, _context ->
         case Ash.Changeset.get_attribute(changeset, :event_time) do
@@ -64,16 +66,10 @@ defmodule ServiceRadar.Edge.OnboardingEvent do
   end
 
   policies do
-    # Admins and operators can read events
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
+    import ServiceRadar.Policies
 
-    # Only admins can create events directly (normally done via package actions)
-    policy action(:record) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    read_operator_plus()
+    admin_action(:record)
   end
 
   attributes do

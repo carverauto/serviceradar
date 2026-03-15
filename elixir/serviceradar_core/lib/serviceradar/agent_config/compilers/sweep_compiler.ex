@@ -37,7 +37,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Repo
+  alias ServiceRadar.Observability.SRQLRunner
+  alias ServiceRadar.SRQLQuery
   alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
   alias ServiceRadar.Types.Cidr
 
@@ -258,53 +259,30 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   defp get_targets_from_query(_query, _actor), do: []
 
   defp normalize_target_query(query) do
-    query = String.trim(query)
-
-    if String.starts_with?(query, "in:") do
-      query
-    else
-      "in:devices " <> query
-    end
+    SRQLQuery.ensure_target(query, :devices)
   end
 
   defp fetch_srql_device_ips(_query, _cursor, acc) when is_nil(acc), do: MapSet.new()
 
   defp fetch_srql_device_ips(query, cursor, acc) do
-    case translate_srql(query, cursor) do
-      {:ok, %{"sql" => sql} = translation} when is_binary(sql) ->
-        params = Map.get(translation, "params", [])
+    case SRQLRunner.query_page(query,
+           limit: srql_page_limit(),
+           cursor: cursor,
+           direction: "next",
+           text_param_decoder: &decode_cidr_text_param/1
+         ) do
+      {:ok, %{rows: rows, next_cursor: next_cursor}} ->
+        acc = add_ips(acc, rows)
 
-        with {:ok, decoded_params} <- decode_params(params),
-             {:ok, result} <- run_sql(sql, decoded_params) do
-          acc = add_ips(acc, result)
-          next_cursor = next_cursor(translation, result)
-
-          if is_binary(next_cursor) do
-            fetch_srql_device_ips(query, next_cursor, acc)
-          else
-            acc
-          end
+        if is_binary(next_cursor) do
+          fetch_srql_device_ips(query, next_cursor, acc)
         else
-          {:error, reason} ->
-            Logger.warning("SweepCompiler: SRQL query failed - #{inspect(reason)}")
-            acc
+          acc
         end
 
       {:error, reason} ->
-        Logger.warning("SweepCompiler: SRQL translate failed - #{inspect(reason)}")
+        Logger.warning("SweepCompiler: SRQL query failed - #{inspect(reason)}")
         acc
-
-      other ->
-        Logger.warning("SweepCompiler: SRQL translate returned #{inspect(other)}")
-        acc
-    end
-  end
-
-  defp translate_srql(query, cursor) do
-    case ServiceRadarSRQL.Native.translate(query, srql_page_limit(), cursor, "next", nil) do
-      {:ok, json} when is_binary(json) -> Jason.decode(json)
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:unexpected_srql_translate_result, other}}
     end
   end
 
@@ -312,106 +290,20 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     Application.get_env(:serviceradar_core, :sweep_srql_page_limit, @srql_page_limit_default)
   end
 
-  defp run_sql(sql, params) do
-    Ecto.Adapters.SQL.query(Repo, sql, params)
-  end
-
-  defp add_ips(acc, %Postgrex.Result{columns: columns, rows: rows}) do
-    case Enum.find_index(columns, &(&1 == "ip")) do
-      nil ->
-        acc
-
-      index ->
-        Enum.reduce(rows, acc, &put_ip_from_row(&1, &2, index))
-    end
+  defp add_ips(acc, rows) when is_list(rows) do
+    Enum.reduce(rows, acc, &put_ip_from_row/2)
   end
 
   defp add_ips(acc, _), do: acc
 
-  defp put_ip_from_row(row, set, index) do
-    case Enum.at(row, index) do
+  defp put_ip_from_row(row, set) when is_map(row) do
+    case Map.get(row, "ip") do
       value when is_binary(value) -> MapSet.put(set, value)
       _ -> set
     end
   end
 
-  defp next_cursor(translation, %Postgrex.Result{rows: rows}) do
-    limit = get_in(translation, ["pagination", "limit"])
-    candidate = get_in(translation, ["pagination", "next_cursor"])
-
-    if is_integer(limit) and is_binary(candidate) and length(rows) >= limit do
-      candidate
-    else
-      nil
-    end
-  end
-
-  defp next_cursor(_translation, _result), do: nil
-
-  defp decode_params(params) when is_list(params) do
-    params
-    |> Enum.reduce_while({:ok, []}, fn param, {:ok, acc} ->
-      case decode_param(param) do
-        {:ok, decoded} -> {:cont, {:ok, [decoded | acc]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:ok, decoded} -> {:ok, Enum.reverse(decoded)}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp decode_params(_), do: {:error, :invalid_srql_params}
-
-  defp decode_param(%{"t" => "text", "v" => value}) when is_binary(value),
-    do: decode_cidr_text_param(value)
-
-  defp decode_param(%{"t" => "bool", "v" => value}) when is_boolean(value), do: {:ok, value}
-  defp decode_param(%{"t" => "int", "v" => value}) when is_integer(value), do: {:ok, value}
-
-  defp decode_param(%{"t" => "int_array", "v" => values}) when is_list(values) do
-    if Enum.all?(values, &is_integer/1) do
-      {:ok, values}
-    else
-      {:error, :invalid_int_array_param}
-    end
-  end
-
-  defp decode_param(%{"t" => "float", "v" => value}) when is_float(value), do: {:ok, value}
-  defp decode_param(%{"t" => "float", "v" => value}) when is_integer(value), do: {:ok, value / 1}
-
-  defp decode_param(%{"t" => "text_array", "v" => values}) when is_list(values) do
-    if Enum.all?(values, &is_binary/1) do
-      {:ok, values}
-    else
-      {:error, :invalid_text_array_param}
-    end
-  end
-
-  defp decode_param(%{"t" => "timestamptz", "v" => value}) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> {:ok, datetime}
-      _ -> {:error, :invalid_timestamptz_param}
-    end
-  end
-
-  defp decode_param(%{"t" => "uuid", "v" => value}) when is_binary(value) do
-    case Ecto.UUID.dump(value) do
-      {:ok, binary_uuid} -> {:ok, binary_uuid}
-      :error -> {:error, :invalid_uuid_param}
-    end
-  end
-
-  defp decode_param(%{"t" => type, "v" => value})
-       when type in ["inet", "cidr"] and is_binary(value) do
-    case Cidr.dump_to_native(value, []) do
-      {:ok, inet} -> {:ok, inet}
-      _ -> {:error, :invalid_inet_param}
-    end
-  end
-
-  defp decode_param(_), do: {:error, :invalid_srql_param}
+  defp put_ip_from_row(_row, set), do: set
 
   defp decode_cidr_text_param(value) when is_binary(value) do
     if String.contains?(value, "/") do

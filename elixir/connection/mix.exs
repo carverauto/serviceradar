@@ -18,15 +18,16 @@ defmodule Connection.Mixfile do
   end
 
   def application do
-    [
-      applications: []
-    ]
+    []
   end
 
   defp deps() do
     [
       {:ex_doc, "~> 0.22", only: :dev},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:ex_dna, "~> 1.2", only: [:dev, :test], runtime: false},
+      {:ex_slop, "~> 0.2.0", only: [:dev, :test], runtime: false},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test]}
     ]
   end

@@ -3,7 +3,7 @@ pub mod errors;
 pub mod traits;
 pub mod types;
 
-use rustler::{Binary, Env, ResourceArc, Term};
+use rustler::{Binary, Env, NifMap, ResourceArc, Term};
 
 use crate::core::arrow_serde::encode_snapshot_impl;
 use crate::core::causality::evaluate_causal_states_with_reasons_impl;
@@ -20,6 +20,34 @@ use std::sync::RwLock;
 // -----------------------------------------------------------------------------
 // NIF Mappings
 // -----------------------------------------------------------------------------
+
+#[derive(NifMap)]
+struct EncodeSnapshotPayload {
+    schema_version: u32,
+    revision: u64,
+    nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
+    edges: Vec<(u16, u16, u32, u64, u64, String, u8)>,
+    edge_meta: Vec<(String, String, String)>,
+    edge_directional: Vec<(u32, u32, u64, u64)>,
+    root_bitmap_bytes: u32,
+    affected_bitmap_bytes: u32,
+    healthy_bitmap_bytes: u32,
+    unknown_bitmap_bytes: u32,
+}
+
+#[derive(NifMap)]
+struct RuntimeGraphEncodeSnapshotPayload {
+    graph: ResourceArc<RuntimeGraphResource>,
+    schema_version: u16,
+    revision: u64,
+    node_ids: Vec<String>,
+    nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
+    edge_telemetry: Vec<(String, String, u32, u64, u64, String)>,
+    root_bitmap_bytes: usize,
+    affected_bitmap_bytes: usize,
+    healthy_bitmap_bytes: usize,
+    unknown_bitmap_bytes: usize,
+}
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn enrich_edges_telemetry(
@@ -51,19 +79,20 @@ fn layout_nodes_hypergraph(
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
-fn encode_snapshot<'a>(
-    env: Env<'a>,
-    schema_version: u32,
-    revision: u64,
-    nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
-    edges: Vec<(u16, u16, u32, u64, u64, String, u8)>,
-    edge_meta: Vec<(String, String, String)>,
-    edge_directional: Vec<(u32, u32, u64, u64)>,
-    root_bitmap_bytes: u32,
-    affected_bitmap_bytes: u32,
-    healthy_bitmap_bytes: u32,
-    unknown_bitmap_bytes: u32,
-) -> NifResult<Binary<'a>> {
+fn encode_snapshot<'a>(env: Env<'a>, payload: EncodeSnapshotPayload) -> NifResult<Binary<'a>> {
+    let EncodeSnapshotPayload {
+        schema_version,
+        revision,
+        nodes,
+        edges,
+        edge_meta,
+        edge_directional,
+        root_bitmap_bytes,
+        affected_bitmap_bytes,
+        healthy_bitmap_bytes,
+        unknown_bitmap_bytes,
+    } = payload;
+
     encode_snapshot_impl(
         env,
         schema_version,
@@ -269,17 +298,21 @@ fn runtime_graph_indexed_edges(
 #[rustler::nif(schedule = "DirtyCpu")]
 fn runtime_graph_encode_snapshot<'a>(
     env: Env<'a>,
-    graph: ResourceArc<RuntimeGraphResource>,
-    schema_version: u16,
-    revision: u64,
-    node_ids: Vec<String>,
-    nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
-    edge_telemetry: Vec<(String, String, u32, u64, u64, String)>,
-    root_bitmap_bytes: usize,
-    affected_bitmap_bytes: usize,
-    healthy_bitmap_bytes: usize,
-    unknown_bitmap_bytes: usize,
+    payload: RuntimeGraphEncodeSnapshotPayload,
 ) -> NifResult<Binary<'a>> {
+    let RuntimeGraphEncodeSnapshotPayload {
+        graph,
+        schema_version,
+        revision,
+        node_ids,
+        nodes,
+        edge_telemetry,
+        root_bitmap_bytes,
+        affected_bitmap_bytes,
+        healthy_bitmap_bytes,
+        unknown_bitmap_bytes,
+    } = payload;
+
     let guard = graph.links.read().map_err(|_| rustler::Error::BadArg)?;
     let indexed = indexed_edges_from_runtime_rows(&guard, &node_ids);
     let telemetry = indexed_edge_telemetry(&edge_telemetry, &node_ids);

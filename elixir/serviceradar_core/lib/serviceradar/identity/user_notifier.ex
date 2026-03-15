@@ -5,26 +5,26 @@ defmodule ServiceRadar.Identity.UserNotifier do
 
   use Ash.Notifier
 
-  alias ServiceRadar.Events.AuditWriter
+  alias ServiceRadar.Events.AuditNotifier
 
   @impl Ash.Notifier
   def notify(%Ash.Notifier.Notification{
         resource: ServiceRadar.Identity.User,
         action: %{name: action_name},
-        data: record,
-        changeset: changeset
-      }) do
+        data: record
+      } = notification) do
+    actor = AuditNotifier.actor(notification)
+
     case action_name do
       :update_role ->
-        AuditWriter.write_async(
+        AuditNotifier.write_async(notification,
           action: :update,
           resource_type: "user",
           resource_id: record.id,
           resource_name: record.email,
-          actor: get_actor(changeset),
           details: %{
             change: "role_update",
-            old_role: changeset.data.role,
+            old_role: notification.changeset.data.role,
             new_role: record.role
           }
         )
@@ -32,25 +32,23 @@ defmodule ServiceRadar.Identity.UserNotifier do
       :deactivate ->
         ServiceRadar.Identity.Changes.RevokeUserAccess.revoke_user_access(
           record,
-          get_actor(changeset)
+          actor
         )
 
-        AuditWriter.write_async(
+        AuditNotifier.write_async(notification,
           action: :disable,
           resource_type: "user",
           resource_id: record.id,
           resource_name: record.email,
-          actor: get_actor(changeset),
           details: %{change: "deactivate", status: "inactive"}
         )
 
       :reactivate ->
-        AuditWriter.write_async(
+        AuditNotifier.write_async(notification,
           action: :enable,
           resource_type: "user",
           resource_id: record.id,
           resource_name: record.email,
-          actor: get_actor(changeset),
           details: %{change: "reactivate", status: "active"}
         )
 
@@ -62,8 +60,4 @@ defmodule ServiceRadar.Identity.UserNotifier do
   end
 
   def notify(_notification), do: :ok
-
-  defp get_actor(%Ash.Changeset{context: %{private: %{actor: actor}}}), do: actor
-  defp get_actor(%Ash.Changeset{context: %{actor: actor}}), do: actor
-  defp get_actor(_), do: nil
 end

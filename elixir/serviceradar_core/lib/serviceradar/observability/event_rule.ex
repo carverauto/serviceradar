@@ -12,6 +12,8 @@ defmodule ServiceRadar.Observability.EventRule do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @event_rule_fields [:name, :enabled, :priority, :source_type, :source, :match, :event]
+
   postgres do
     table "event_rules"
     repo ServiceRadar.Repo
@@ -35,30 +37,20 @@ defmodule ServiceRadar.Observability.EventRule do
     end
 
     create :create do
-      accept [:name, :enabled, :priority, :source_type, :source, :match, :event]
+      accept @event_rule_fields
     end
 
     update :update do
-      accept [:name, :enabled, :priority, :source_type, :source, :match, :event]
+      accept @event_rule_fields
     end
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action([:create, :update, :destroy]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action([:create, :update, :destroy])
   end
 
   attributes do

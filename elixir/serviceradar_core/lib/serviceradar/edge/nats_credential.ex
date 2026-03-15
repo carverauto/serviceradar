@@ -32,7 +32,10 @@ defmodule ServiceRadar.Edge.NatsCredential do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Edge.PubSub
+
+  @credential_fields [:user_name, :credential_type, :collector_type, :expires_at, :metadata]
 
   postgres do
     table "nats_credentials"
@@ -72,7 +75,7 @@ defmodule ServiceRadar.Edge.NatsCredential do
 
     create :create do
       description "Create a new NATS credential record"
-      accept [:user_name, :credential_type, :collector_type, :expires_at, :metadata]
+      accept @credential_fields
 
       argument :user_public_key, :string, allow_nil?: false
       argument :onboarding_package_id, :uuid
@@ -89,9 +92,8 @@ defmodule ServiceRadar.Edge.NatsCredential do
         )
         |> Ash.Changeset.change_attribute(:status, :active)
         |> Ash.Changeset.change_attribute(:issued_at, DateTime.utc_now())
-        |> Ash.Changeset.after_action(fn _changeset, credential ->
+        |> AfterAction.after_action(fn credential ->
           __MODULE__.broadcast_created(credential)
-          {:ok, credential}
         end)
       end
     end
@@ -112,9 +114,8 @@ defmodule ServiceRadar.Edge.NatsCredential do
           :revoke_reason,
           Ash.Changeset.get_argument(changeset, :reason)
         )
-        |> Ash.Changeset.after_action(fn _changeset, credential ->
+        |> AfterAction.after_action(fn credential ->
           __MODULE__.broadcast_revoked(credential)
-          {:ok, credential}
         end)
       end
     end
@@ -126,25 +127,11 @@ defmodule ServiceRadar.Edge.NatsCredential do
   end
 
   policies do
-    # System actors can manage all credentials
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admins can manage credentials
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action(:revoke) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    admin_action_type([:read, :create])
+    admin_action(:revoke)
   end
 
   changes do

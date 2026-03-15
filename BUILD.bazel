@@ -21,6 +21,9 @@ exports_files([
     "Cargo.toml",
     "Cargo.lock",
     ".tool-versions",
+    "elixir/.credo.base.exs",
+    "elixir/.credo.ex_dna.exs",
+    "elixir/.credo.ex_slop.exs",
 ])
 
 # Custom RBE platform using Oracle Linux 9 based executor image

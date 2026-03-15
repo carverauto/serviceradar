@@ -9,16 +9,14 @@ defmodule ServiceRadar.Inventory.Changes.ScheduleThresholdEvaluator do
 
   use Ash.Resource.Change
 
+  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Inventory.InterfaceThresholdWorker
 
   require Logger
 
   @impl true
   def change(changeset, _opts, _context) do
-    Ash.Changeset.after_action(changeset, fn _changeset, record ->
-      schedule_if_enabled(record)
-      {:ok, record}
-    end)
+    AfterAction.after_action(changeset, &schedule_if_enabled/1)
   end
 
   @impl true

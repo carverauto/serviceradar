@@ -7,12 +7,11 @@ defmodule ServiceRadar.Identity.Changes.InvalidateUserRbacCache do
   """
   use Ash.Resource.Change
 
+  alias ServiceRadar.Changes.AfterAction
+
   @impl true
   def change(changeset, _opts, _context) do
-    Ash.Changeset.after_action(changeset, fn _changeset, user ->
-      ServiceRadar.Identity.RBAC.invalidate_user_cache(user.id)
-      {:ok, user}
-    end)
+    AfterAction.after_action(changeset, &ServiceRadar.Identity.RBAC.invalidate_user_cache(&1.id))
   end
 
   @impl true

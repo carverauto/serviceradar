@@ -54,6 +54,16 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @health_event_fields [
+    :entity_type,
+    :entity_id,
+    :old_state,
+    :new_state,
+    :reason,
+    :node,
+    :metadata
+  ]
+
   postgres do
     table "health_events"
     repo ServiceRadar.Repo
@@ -78,15 +88,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
     create :record do
       description "Record a health state change"
 
-      accept [
-        :entity_type,
-        :entity_id,
-        :old_state,
-        :new_state,
-        :reason,
-        :node,
-        :metadata
-      ]
+      accept @health_event_fields
 
       change set_attribute(:recorded_at, &DateTime.utc_now/0)
 
@@ -175,23 +177,11 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    # Read access: Authenticated users
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Create: Operators/admins can record events
-    policy action(:record) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action(:record)
   end
 
   changes do

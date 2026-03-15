@@ -5,14 +5,12 @@ defmodule ServiceRadar.Edge.Changes.PublishOnboardingEvent do
 
   use Ash.Resource.Change
 
+  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Events.OnboardingWriter
 
   @impl true
   def change(changeset, _opts, _context) do
-    Ash.Changeset.after_action(changeset, fn _changeset, event ->
-      OnboardingWriter.write(event)
-      {:ok, event}
-    end)
+    AfterAction.after_action(changeset, &OnboardingWriter.write/1)
   end
 
   @impl true

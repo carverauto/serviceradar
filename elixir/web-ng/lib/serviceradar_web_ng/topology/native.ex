@@ -23,20 +23,7 @@ defmodule ServiceRadarWebNG.Topology.Native do
   @doc """
   Encode God-View snapshot header + node/edge binary segments.
   """
-  # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-  def encode_snapshot(
-        _schema_version,
-        _revision,
-        _nodes,
-        _edges,
-        _edge_meta,
-        _edge_directional,
-        _root_bitmap_bytes,
-        _affected_bitmap_bytes,
-        _healthy_bitmap_bytes,
-        _unknown_bitmap_bytes
-      ),
-      do: :erlang.nif_error(:nif_not_loaded)
+  def encode_snapshot(_payload), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Evaluate causal states using the Rust/DeepCausality engine.
@@ -100,20 +87,7 @@ defmodule ServiceRadarWebNG.Topology.Native do
   @doc """
   Encode snapshot payload directly from the Rust runtime graph resource edge set.
   """
-  # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-  def runtime_graph_encode_snapshot(
-        _graph_ref,
-        _schema_version,
-        _revision,
-        _node_ids,
-        _nodes,
-        _edge_telemetry,
-        _root_bitmap_bytes,
-        _affected_bitmap_bytes,
-        _healthy_bitmap_bytes,
-        _unknown_bitmap_bytes
-      ),
-      do: :erlang.nif_error(:nif_not_loaded)
+  def runtime_graph_encode_snapshot(_payload), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Decode Apache Arrow IPC frames into Elixir maps.

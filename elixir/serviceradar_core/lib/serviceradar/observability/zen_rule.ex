@@ -6,179 +6,60 @@ defmodule ServiceRadar.Observability.ZenRule do
   the zen consumer can reload them without manual JSON edits.
   """
 
-  use Ash.Resource,
-    domain: ServiceRadar.Observability,
-    data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
-
-  postgres do
-    table "zen_rules"
-    repo ServiceRadar.Repo
-    schema "platform"
-  end
-
-  code_interface do
-    define :list, action: :read
-    define :list_active, action: :active
-    define :create, action: :create
-    define :update, action: :update
-    define :destroy, action: :destroy
-  end
-
-  actions do
-    defaults [:read]
-
-    read :active do
-      filter expr(enabled == true)
-      prepare build(sort: [order: :asc, inserted_at: :asc])
-    end
-
-    create :create do
-      accept [
-        :name,
-        :description,
-        :enabled,
-        :order,
-        :stream_name,
-        :subject,
-        :template,
-        :builder_config,
-        :jdm_definition,
-        :agent_id
-      ]
-
-      change ServiceRadar.Observability.Changes.CompileZenRule
-      change ServiceRadar.Observability.Changes.SyncZenRule
-      validate ServiceRadar.Observability.Validations.ZenRule
-    end
-
-    update :update do
-      accept [
-        :name,
-        :description,
-        :enabled,
-        :order,
-        :stream_name,
-        :subject,
-        :template,
-        :builder_config,
-        :jdm_definition,
-        :agent_id
-      ]
-
-      change ServiceRadar.Observability.Changes.CompileZenRule
-      change ServiceRadar.Observability.Changes.SyncZenRule
-      validate ServiceRadar.Observability.Validations.ZenRule
-    end
-
-    update :set_kv_revision do
-      accept [:kv_revision]
-    end
-
-    destroy :destroy do
-      change ServiceRadar.Observability.Changes.SyncZenRule
-    end
-  end
-
-  policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action([:create, :update, :destroy, :set_kv_revision]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-  end
-
-  changes do
-  end
-
-  attributes do
-    uuid_primary_key :id
-
-    attribute :name, :string do
-      allow_nil? false
-      public? true
-    end
-
-    attribute :description, :string do
-      public? true
-    end
-
-    attribute :enabled, :boolean do
-      default true
-      public? true
-    end
-
-    attribute :order, :integer do
-      default 100
-      public? true
-    end
-
-    attribute :stream_name, :string do
-      allow_nil? false
-      default "events"
-      public? true
-    end
-
-    attribute :subject, :string do
-      allow_nil? false
-      public? true
-    end
-
-    attribute :format, :atom do
-      allow_nil? false
-      default :json
-      public? true
-      constraints one_of: [:json, :protobuf, :otel_metrics]
-    end
-
-    attribute :template, :atom do
-      allow_nil? false
-      public? true
-      constraints one_of: [:passthrough, :strip_full_message, :cef_severity, :snmp_severity]
-    end
-
-    attribute :builder_config, :map do
-      default %{}
-      public? true
-    end
-
-    # User-authored JDM definition from the visual/JSON editor
-    # When present, this takes precedence over template + builder_config
-    attribute :jdm_definition, :map do
-      public? true
-      description "User-authored JDM JSON from the rule editor (takes precedence over template)"
-    end
-
-    attribute :compiled_jdm, :map do
-      default %{}
-      public? false
-    end
-
-    attribute :kv_revision, :integer do
-      public? false
-    end
-
-    attribute :agent_id, :string do
-      allow_nil? false
-      default "default-agent"
-      public? true
-    end
-
-    create_timestamp :inserted_at
-    update_timestamp :updated_at
-  end
-
-  identities do
-    identity :unique_name, [:subject, :name]
-  end
+  use ServiceRadar.Observability.ZenPresetResource,
+    table: "zen_rules",
+    accept: [
+      :name,
+      :description,
+      :enabled,
+      :order,
+      :stream_name,
+      :subject,
+      :template,
+      :builder_config,
+      :jdm_definition,
+      :agent_id
+    ],
+    fields: [
+      {:name, :string, [allow_nil?: false]},
+      {:description, :string, []},
+      {:enabled, :boolean, [default: true]},
+      {:order, :integer, [default: 100]},
+      {:stream_name, :string, [allow_nil?: false, default: "events"]},
+      {:subject, :string, [allow_nil?: false]},
+      {:format, :atom,
+       [allow_nil?: false, default: :json, constraints: [one_of: [:json, :protobuf, :otel_metrics]]]},
+      {:template, :atom,
+       [
+         allow_nil?: false,
+         constraints: [one_of: [:passthrough, :strip_full_message, :cef_severity, :snmp_severity]]
+       ]},
+      {:builder_config, :map, [default: %{}]},
+      {:jdm_definition, :map,
+       [description: "User-authored JDM JSON from the rule editor (takes precedence over template)"]},
+      {:compiled_jdm, :map, [default: %{}, public?: false]},
+      {:kv_revision, :integer, [public?: false]},
+      {:agent_id, :string, [allow_nil?: false, default: "default-agent"]}
+    ],
+    active_sort: [order: :asc, inserted_at: :asc],
+    create_validations: [ServiceRadar.Observability.Validations.ZenRule],
+    update_validations: [ServiceRadar.Observability.Validations.ZenRule],
+    create_changes: [
+      ServiceRadar.Observability.Changes.CompileZenRule,
+      ServiceRadar.Observability.Changes.SyncZenRule
+    ],
+    update_changes: [
+      ServiceRadar.Observability.Changes.CompileZenRule,
+      ServiceRadar.Observability.Changes.SyncZenRule
+    ],
+    destroy_changes: [ServiceRadar.Observability.Changes.SyncZenRule],
+    extra_operator_actions: [:set_kv_revision],
+    extra_code_interface: [quote(do: define(:set_kv_revision, action: :set_kv_revision))],
+    extra_actions: [
+      quote do
+        update :set_kv_revision do
+          accept [:kv_revision]
+        end
+      end
+    ]
 end

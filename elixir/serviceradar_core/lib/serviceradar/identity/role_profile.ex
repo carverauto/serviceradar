@@ -13,6 +13,12 @@ defmodule ServiceRadar.Identity.RoleProfile do
 
   require Ash.Query
 
+  @rbac_manage_permission ServiceRadar.Identity.Constants.rbac_manage_permission()
+  @rbac_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                      permission: @rbac_manage_permission}
+  @profile_fields [:name, :description, :permissions]
+  @system_profile_fields [:system_name | @profile_fields]
+
   postgres do
     table "role_profiles"
     repo ServiceRadar.Repo
@@ -44,7 +50,7 @@ defmodule ServiceRadar.Identity.RoleProfile do
     end
 
     create :create do
-      accept [:name, :description, :permissions]
+      accept @profile_fields
       change set_attribute(:system, false)
       change set_attribute(:system_name, nil)
       validate ServiceRadar.Identity.Validations.PermissionKeys
@@ -52,14 +58,14 @@ defmodule ServiceRadar.Identity.RoleProfile do
     end
 
     create :create_system do
-      accept [:system_name, :name, :description, :permissions]
+      accept @system_profile_fields
       change set_attribute(:system, true)
       validate ServiceRadar.Identity.Validations.PermissionKeys
       change ServiceRadar.Identity.Changes.InvalidateRbacCache
     end
 
     update :update do
-      accept [:name, :description, :permissions]
+      accept @profile_fields
       change ServiceRadar.Identity.Changes.DisallowSystemProfileEdit
       validate ServiceRadar.Identity.Validations.PermissionKeys
       change ServiceRadar.Identity.Changes.InvalidateRbacCache
@@ -72,19 +78,13 @@ defmodule ServiceRadar.Identity.RoleProfile do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.rbac.manage"}
-    end
+    system_bypass()
 
-    policy action([:create, :create_system, :update, :destroy]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.rbac.manage"}
-    end
+    read_with_permission(@rbac_manage_check)
+
+    action_with_permission([:create, :create_system, :update, :destroy], @rbac_manage_check)
   end
 
   attributes do

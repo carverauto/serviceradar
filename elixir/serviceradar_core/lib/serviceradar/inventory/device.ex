@@ -34,6 +34,101 @@ defmodule ServiceRadar.Inventory.Device do
     extensions: [AshJsonApi.Resource],
     primary_read_warning?: false
 
+  @devices_view_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                       permission: "devices.view"}
+  @devices_create_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "devices.create"}
+  @devices_update_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "devices.update"}
+  @devices_delete_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "devices.delete"}
+  @devices_bulk_delete_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                              permission: "devices.bulk_delete"}
+  @device_create_fields [
+    :uid,
+    :type_id,
+    :type,
+    :name,
+    :hostname,
+    :ip,
+    :mac,
+    :uid_alt,
+    :vendor_name,
+    :model,
+    :domain,
+    :zone,
+    :subnet_uid,
+    :vlan_uid,
+    :region,
+    :first_seen_time,
+    :last_seen_time,
+    :created_time,
+    :modified_time,
+    :risk_level_id,
+    :risk_level,
+    :risk_score,
+    :is_managed,
+    :is_compliant,
+    :is_trusted,
+    :os,
+    :hw_info,
+    :network_interfaces,
+    :owner,
+    :org,
+    :groups,
+    :agent_list,
+    :gateway_id,
+    :agent_id,
+    :management_device_id,
+    :discovery_sources,
+    :tags,
+    :is_available,
+    :metadata
+  ]
+  @device_update_fields [
+    :name,
+    :hostname,
+    :ip,
+    :mac,
+    :vendor_name,
+    :model,
+    :domain,
+    :zone,
+    :risk_level_id,
+    :risk_level,
+    :risk_score,
+    :is_managed,
+    :is_compliant,
+    :is_trusted,
+    :os,
+    :hw_info,
+    :network_interfaces,
+    :owner,
+    :org,
+    :groups,
+    :agent_list,
+    :is_available,
+    :tags,
+    :metadata,
+    :group_id,
+    :last_seen_time
+  ]
+  @gateway_sync_fields [
+    :agent_id,
+    :management_device_id,
+    :hostname,
+    :ip,
+    :is_available,
+    :is_managed,
+    :is_trusted,
+    :discovery_sources,
+    :last_seen_time,
+    :metadata
+  ]
+  @group_fields [:group_id]
+  @availability_fields [:is_available]
+  @soft_delete_fields [:deleted_reason, :deleted_by]
+
   alias ServiceRadar.Inventory.IdentityReconciler
   require Ash.Query
 
@@ -136,47 +231,7 @@ defmodule ServiceRadar.Inventory.Device do
     end
 
     create :create do
-      accept [
-        :uid,
-        :type_id,
-        :type,
-        :name,
-        :hostname,
-        :ip,
-        :mac,
-        :uid_alt,
-        :vendor_name,
-        :model,
-        :domain,
-        :zone,
-        :subnet_uid,
-        :vlan_uid,
-        :region,
-        :first_seen_time,
-        :last_seen_time,
-        :created_time,
-        :modified_time,
-        :risk_level_id,
-        :risk_level,
-        :risk_score,
-        :is_managed,
-        :is_compliant,
-        :is_trusted,
-        :os,
-        :hw_info,
-        :network_interfaces,
-        :owner,
-        :org,
-        :groups,
-        :agent_list,
-        :gateway_id,
-        :agent_id,
-        :management_device_id,
-        :discovery_sources,
-        :tags,
-        :is_available,
-        :metadata
-      ]
+      accept @device_create_fields
 
       change fn changeset, _context ->
         now = DateTime.utc_now()
@@ -189,52 +244,14 @@ defmodule ServiceRadar.Inventory.Device do
     end
 
     update :update do
-      accept [
-        :name,
-        :hostname,
-        :ip,
-        :mac,
-        :vendor_name,
-        :model,
-        :domain,
-        :zone,
-        :risk_level_id,
-        :risk_level,
-        :risk_score,
-        :is_managed,
-        :is_compliant,
-        :is_trusted,
-        :os,
-        :hw_info,
-        :network_interfaces,
-        :owner,
-        :org,
-        :groups,
-        :agent_list,
-        :is_available,
-        :tags,
-        :metadata,
-        :group_id,
-        :last_seen_time
-      ]
+      accept @device_update_fields
 
       change set_attribute(:modified_time, &DateTime.utc_now/0)
       validate ServiceRadar.Inventory.Validations.AgentManaged
     end
 
     update :gateway_sync do
-      accept [
-        :agent_id,
-        :management_device_id,
-        :hostname,
-        :ip,
-        :is_available,
-        :is_managed,
-        :is_trusted,
-        :discovery_sources,
-        :last_seen_time,
-        :metadata
-      ]
+      accept @gateway_sync_fields
 
       change set_attribute(:deleted_at, nil)
       change set_attribute(:deleted_by, nil)
@@ -244,7 +261,7 @@ defmodule ServiceRadar.Inventory.Device do
 
     update :assign_to_group do
       description "Assign device to a group"
-      accept [:group_id]
+      accept @group_fields
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
@@ -254,12 +271,12 @@ defmodule ServiceRadar.Inventory.Device do
     end
 
     update :set_availability do
-      accept [:is_available]
+      accept @availability_fields
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
     update :soft_delete do
-      accept [:deleted_reason, :deleted_by]
+      accept @soft_delete_fields
 
       change set_attribute(:deleted_at, &DateTime.utc_now/0)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
@@ -348,35 +365,24 @@ defmodule ServiceRadar.Inventory.Device do
   end
 
   policies do
+    import ServiceRadar.Policies
+
     # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    system_bypass()
 
     # Read access: authenticated users (schema isolation via search_path)
-    policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.view"}
-    end
+    read_with_permission(@devices_view_check)
 
     # Create devices: operators/admins (schema isolation via search_path)
-    policy action_type(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.create"}
-    end
+    action_type_with_permission(:create, @devices_create_check)
 
     # Update devices: operators/admins (schema isolation via search_path)
-    policy action_type(:update) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.update"}
-    end
+    action_type_with_permission(:update, @devices_update_check)
 
     # Destroy devices: operators/admins (schema isolation via search_path)
-    policy action_type(:destroy) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.delete"}
-    end
+    action_type_with_permission(:destroy, @devices_delete_check)
 
-    policy action(:bulk_soft_delete) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "devices.bulk_delete"}
-    end
+    action_with_permission(:bulk_soft_delete, @devices_bulk_delete_check)
   end
 
   attributes do

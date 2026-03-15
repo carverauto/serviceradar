@@ -45,6 +45,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentConfig.Compilers.TargetedProfileResolver
   alias ServiceRadar.SysmonProfiles.SrqlTargetResolver
   alias ServiceRadar.SysmonProfiles.SysmonProfile
 
@@ -102,21 +103,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   """
   @spec resolve_profile(String.t() | nil, map()) :: SysmonProfile.t() | nil
   def resolve_profile(device_uid, actor) do
-    try_srql_targeting(device_uid, actor)
-  end
-
-  # Try to find a matching profile via SRQL targeting
-  defp try_srql_targeting(nil, _actor), do: nil
-
-  defp try_srql_targeting(device_uid, actor) do
-    case SrqlTargetResolver.resolve_for_device(device_uid, actor) do
-      {:ok, profile} ->
-        profile
-
-      {:error, reason} ->
-        Logger.warning("SysmonCompiler: SRQL targeting failed - #{inspect(reason)}")
-        nil
-    end
+    TargetedProfileResolver.resolve(device_uid, actor,
+      resolver: &SrqlTargetResolver.resolve_for_device/2,
+      log_prefix: "SysmonCompiler"
+    )
   end
 
   @doc """

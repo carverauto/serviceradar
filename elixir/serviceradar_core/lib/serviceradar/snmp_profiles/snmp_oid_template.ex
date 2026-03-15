@@ -59,6 +59,8 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @template_fields [:name, :description, :vendor, :category, :oids]
+
   postgres do
     table "snmp_oid_templates"
     repo ServiceRadar.Repo
@@ -69,13 +71,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
     defaults [:read, :destroy]
 
     create :create do
-      accept [
-        :name,
-        :description,
-        :vendor,
-        :category,
-        :oids
-      ]
+      accept @template_fields
 
       change fn changeset, _context ->
         # Custom templates are never builtin
@@ -84,13 +80,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
     end
 
     update :update do
-      accept [
-        :name,
-        :description,
-        :vendor,
-        :category,
-        :oids
-      ]
+      accept @template_fields
 
       require_atomic? false
 
@@ -122,32 +112,23 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
   end
 
   policies do
-    # System actors bypass all checks
+    import ServiceRadar.Policies
 
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admins can create custom templates
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    admin_action_type(:create)
 
     # Can only update/delete non-builtin templates
     policy action_type(:update) do
       forbid_if expr(is_builtin == true)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
 
     policy action_type(:destroy) do
       forbid_if expr(is_builtin == true)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
 
-    # Everyone can read
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    read_all()
   end
 
   attributes do

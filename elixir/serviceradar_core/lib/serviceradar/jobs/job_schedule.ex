@@ -30,6 +30,16 @@ defmodule ServiceRadar.Jobs.JobSchedule do
 
   @identity_reconciliation_job_key "device_identity_reconciliation"
   @identity_reconciliation_cron "*/5 * * * *"
+  @schedule_fields [:cron, :timezone, :args, :enabled, :unique_period_seconds]
+  @schedule_manage_actions [
+    :create,
+    :update,
+    :enable,
+    :disable,
+    :update_last_enqueued,
+    :run_identity_reconciliation
+  ]
+  @schedule_timestamp_fields [:last_enqueued_at]
 
   postgres do
     table "ng_job_schedules"
@@ -78,7 +88,7 @@ defmodule ServiceRadar.Jobs.JobSchedule do
     end
 
     create :create do
-      accept [:job_key, :cron, :timezone, :args, :enabled, :unique_period_seconds]
+      accept [:job_key | @schedule_fields]
 
       validate fn changeset, _context ->
         cron = Ash.Changeset.get_attribute(changeset, :cron)
@@ -89,7 +99,7 @@ defmodule ServiceRadar.Jobs.JobSchedule do
     update :update do
       # Non-atomic: uses function validation for cron expression
       require_atomic? false
-      accept [:cron, :timezone, :args, :enabled, :unique_period_seconds]
+      accept @schedule_fields
 
       validate fn changeset, _context ->
         cron = Ash.Changeset.get_attribute(changeset, :cron)
@@ -112,7 +122,7 @@ defmodule ServiceRadar.Jobs.JobSchedule do
 
     update :update_last_enqueued do
       description "Update the last_enqueued_at timestamp"
-      accept [:last_enqueued_at]
+      accept @schedule_timestamp_fields
     end
 
     update :run_identity_reconciliation do
@@ -145,27 +155,13 @@ defmodule ServiceRadar.Jobs.JobSchedule do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    # Read access: authenticated users with appropriate roles
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
 
     # Operators and admins can create and update
-    policy action([
-             :create,
-             :update,
-             :enable,
-             :disable,
-             :update_last_enqueued,
-             :run_identity_reconciliation
-           ]) do
+    policy action(@schedule_manage_actions) do
       authorize_if actor_attribute_equals(:role, :operator)
       authorize_if actor_attribute_equals(:role, :admin)
       # Allow system operations (no actor)

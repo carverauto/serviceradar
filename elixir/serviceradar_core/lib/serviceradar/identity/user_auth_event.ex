@@ -9,6 +9,8 @@ defmodule ServiceRadar.Identity.UserAuthEvent do
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer
 
+  @event_fields [:user_id, :actor_user_id, :event_type, :auth_method, :ip, :user_agent, :metadata]
+
   require Ash.Query
 
   postgres do
@@ -34,7 +36,7 @@ defmodule ServiceRadar.Identity.UserAuthEvent do
     end
 
     create :create do
-      accept [:user_id, :actor_user_id, :event_type, :auth_method, :ip, :user_agent, :metadata]
+      accept @event_fields
     end
   end
 

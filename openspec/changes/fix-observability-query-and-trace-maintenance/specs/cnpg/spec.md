@@ -85,3 +85,17 @@ The system SHALL provide `platform.otel_metrics_hourly_stats` as a TimescaleDB c
 - **GIVEN** historical OTel metric data spans beyond the supported dashboard window
 - **WHEN** retention maintenance runs for `platform.otel_metrics_hourly_stats`
 - **THEN** rows older than the configured metrics rollup retention window SHALL be removed automatically
+
+### Requirement: Trace rollup freshness is operator-visible
+The system SHALL make missing or stale trace summary assets visible to operators before observability and analytics surfaces silently present stale trace-derived data.
+
+#### Scenario: Missing trace assets surface an operator warning
+- **GIVEN** `platform.otel_trace_summaries` or `platform.traces_stats_5m` is missing
+- **WHEN** an operator opens the traces tab or analytics page
+- **THEN** the UI SHALL display a warning that identifies the missing trace asset
+
+#### Scenario: Stale maintained trace data surfaces an operator warning
+- **GIVEN** raw trace ingest in `platform.otel_traces` is materially newer than `platform.otel_trace_summaries` or `platform.traces_stats_5m`
+- **WHEN** an operator opens the traces tab or analytics page
+- **THEN** the UI SHALL display a warning that the maintained trace backend is stale
+- **AND** the warning SHALL indicate whether the summary table, the rollup, or both are behind raw ingest

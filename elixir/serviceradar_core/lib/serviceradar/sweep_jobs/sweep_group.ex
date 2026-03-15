@@ -35,6 +35,23 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @group_fields [
+    :name,
+    :description,
+    :partition,
+    :agent_id,
+    :enabled,
+    :interval,
+    :schedule_type,
+    :cron_expression,
+    :target_query,
+    :static_targets,
+    :ports,
+    :sweep_modes,
+    :overrides,
+    :profile_id
+  ]
+
   postgres do
     table "sweep_groups"
     repo ServiceRadar.Repo
@@ -53,22 +70,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     defaults [:read, :destroy]
 
     create :create do
-      accept [
-        :name,
-        :description,
-        :partition,
-        :agent_id,
-        :enabled,
-        :interval,
-        :schedule_type,
-        :cron_expression,
-        :target_query,
-        :static_targets,
-        :ports,
-        :sweep_modes,
-        :overrides,
-        :profile_id
-      ]
+      accept @group_fields
 
       change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
       change ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
@@ -77,22 +79,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     update :update do
       require_atomic? false
 
-      accept [
-        :name,
-        :description,
-        :partition,
-        :agent_id,
-        :enabled,
-        :interval,
-        :schedule_type,
-        :cron_expression,
-        :target_query,
-        :static_targets,
-        :ports,
-        :sweep_modes,
-        :overrides,
-        :profile_id
-      ]
+      accept @group_fields
 
       change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
       change ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
@@ -194,32 +181,12 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
   end
 
   policies do
-    # System actors can do anything
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admins and operators can manage sweep groups
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # All authenticated users can read sweep groups
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    system_bypass()
+    operator_action_type([:create, :update])
+    admin_action_type(:destroy)
+    read_all()
   end
 
   attributes do

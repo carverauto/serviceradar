@@ -33,6 +33,9 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
   import Ecto.Query
 
+  require Logger
+
+  alias Ecto.Adapters.SQL
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Stats.{Query, Extract, Compute}
 
@@ -53,6 +56,18 @@ defmodule ServiceRadarWebNGWeb.Stats do
           medium: non_neg_integer(),
           low: non_neg_integer(),
           informational: non_neg_integer()
+        }
+
+  @type trace_rollup_status :: %{
+          healthy?: boolean(),
+          summary_table_present?: boolean(),
+          traces_rollup_present?: boolean(),
+          raw_latest_timestamp: DateTime.t() | nil,
+          summary_latest_timestamp: DateTime.t() | nil,
+          rollup_latest_bucket: DateTime.t() | nil,
+          summary_lag_seconds: non_neg_integer() | nil,
+          rollup_lag_seconds: non_neg_integer() | nil,
+          messages: [String.t()]
         }
 
   @doc """
@@ -255,6 +270,105 @@ defmodule ServiceRadarWebNGWeb.Stats do
     Map.merge(stats, percentages)
   end
 
+  @doc """
+  Check whether the trace summary table and trace rollup backing the UI are
+  present and reasonably fresh compared to raw trace ingest.
+  """
+  @spec trace_rollup_status(keyword()) :: trace_rollup_status()
+  def trace_rollup_status(opts \\ []) do
+    if repo_started?() do
+      do_trace_rollup_status(opts)
+    else
+      empty_trace_rollup_status()
+    end
+  end
+
+  defp do_trace_rollup_status(opts) do
+    threshold_seconds =
+      Keyword.get(opts, :stale_threshold_seconds, trace_rollup_stale_threshold_seconds())
+
+    summary_table_present? = relation_exists?("platform.otel_trace_summaries")
+    traces_rollup_present? = traces_rollup_exists?()
+    raw_latest_timestamp = raw_traces_latest_timestamp()
+
+    summary_latest_timestamp =
+      if summary_table_present? do
+        trace_summaries_latest_timestamp()
+      end
+
+    rollup_latest_bucket =
+      if traces_rollup_present? do
+        traces_rollup_latest_bucket()
+      end
+
+    assess_trace_rollup_status(
+      summary_table_present?: summary_table_present?,
+      traces_rollup_present?: traces_rollup_present?,
+      raw_latest_timestamp: raw_latest_timestamp,
+      summary_latest_timestamp: summary_latest_timestamp,
+      rollup_latest_bucket: rollup_latest_bucket,
+      stale_threshold_seconds: threshold_seconds
+    )
+  rescue
+    error ->
+      Logger.warning("trace rollup health verification failed: #{Exception.message(error)}")
+
+      empty_trace_rollup_status()
+  end
+
+  @doc false
+  @spec assess_trace_rollup_status(keyword()) :: trace_rollup_status()
+  def assess_trace_rollup_status(opts) do
+    summary_table_present? = Keyword.get(opts, :summary_table_present?, false)
+    traces_rollup_present? = Keyword.get(opts, :traces_rollup_present?, false)
+    raw_latest_timestamp = Keyword.get(opts, :raw_latest_timestamp)
+    summary_latest_timestamp = Keyword.get(opts, :summary_latest_timestamp)
+    rollup_latest_bucket = Keyword.get(opts, :rollup_latest_bucket)
+    stale_threshold_seconds = Keyword.get(opts, :stale_threshold_seconds, 1800)
+
+    summary_lag_seconds = lag_seconds(raw_latest_timestamp, summary_latest_timestamp)
+    rollup_lag_seconds = lag_seconds(raw_latest_timestamp, rollup_latest_bucket)
+
+    messages =
+      []
+      |> maybe_add_message(
+        not summary_table_present?,
+        "Missing trace summary table: platform.otel_trace_summaries."
+      )
+      |> maybe_add_message(
+        not traces_rollup_present?,
+        "Missing trace rollup: platform.traces_stats_5m continuous aggregate."
+      )
+      |> maybe_add_message(
+        raw_latest_timestamp && summary_table_present? && is_nil(summary_latest_timestamp),
+        "Trace summaries are empty while raw traces exist."
+      )
+      |> maybe_add_message(
+        raw_latest_timestamp && traces_rollup_present? && is_nil(rollup_latest_bucket),
+        "Trace rollup is empty while raw traces exist."
+      )
+      |> maybe_add_message(
+        stale?(summary_lag_seconds, stale_threshold_seconds),
+        "Trace summaries lag raw traces by #{format_lag(summary_lag_seconds)}."
+      )
+      |> maybe_add_message(
+        stale?(rollup_lag_seconds, stale_threshold_seconds),
+        "Trace rollup lags raw traces by #{format_lag(rollup_lag_seconds)}."
+      )
+
+    %{
+      healthy?: messages == [],
+      summary_table_present?: summary_table_present?,
+      traces_rollup_present?: traces_rollup_present?,
+      raw_latest_timestamp: raw_latest_timestamp,
+      summary_latest_timestamp: summary_latest_timestamp,
+      rollup_latest_bucket: rollup_latest_bucket,
+      summary_lag_seconds: summary_lag_seconds,
+      rollup_lag_seconds: rollup_lag_seconds,
+      messages: messages
+    }
+  end
+
   # Re-export empty defaults for convenience
   defdelegate empty_logs_severity(), to: Extract
   defdelegate empty_traces_summary(), to: Extract
@@ -270,10 +384,113 @@ defmodule ServiceRadarWebNGWeb.Stats do
     %{total: 0, fatal: 0, critical: 0, high: 0, medium: 0, low: 0, informational: 0}
   end
 
+  @spec empty_trace_rollup_status() :: trace_rollup_status()
+  def empty_trace_rollup_status do
+    %{
+      healthy?: true,
+      summary_table_present?: true,
+      traces_rollup_present?: true,
+      raw_latest_timestamp: nil,
+      summary_latest_timestamp: nil,
+      rollup_latest_bucket: nil,
+      summary_lag_seconds: nil,
+      rollup_lag_seconds: nil,
+      messages: []
+    }
+  end
+
   # Get the configured SRQL module
   defp default_srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
+
+  defp relation_exists?(relation_name) when is_binary(relation_name) do
+    case SQL.query(Repo, "SELECT to_regclass($1) IS NOT NULL", [relation_name]) do
+      {:ok, %{rows: [[value]]}} -> value == true
+      _ -> false
+    end
+  end
+
+  defp repo_started?, do: is_pid(Process.whereis(Repo))
+
+  defp traces_rollup_exists? do
+    case SQL.query(
+           Repo,
+           """
+           SELECT EXISTS(
+             SELECT 1
+             FROM timescaledb_information.continuous_aggregates
+             WHERE view_schema = 'platform' AND view_name = 'traces_stats_5m'
+           )
+           """,
+           []
+         ) do
+      {:ok, %{rows: [[value]]}} -> value == true
+      _ -> false
+    end
+  end
+
+  defp raw_traces_latest_timestamp do
+    case SQL.query(Repo, "SELECT max(timestamp) FROM otel_traces", []) do
+      {:ok, %{rows: [[value]]}} -> normalize_datetime(value)
+      _ -> nil
+    end
+  end
+
+  defp trace_summaries_latest_timestamp do
+    case SQL.query(Repo, "SELECT max(timestamp) FROM otel_trace_summaries", []) do
+      {:ok, %{rows: [[value]]}} -> normalize_datetime(value)
+      _ -> nil
+    end
+  end
+
+  defp traces_rollup_latest_bucket do
+    case SQL.query(Repo, "SELECT max(bucket) FROM traces_stats_5m", []) do
+      {:ok, %{rows: [[value]]}} -> normalize_datetime(value)
+      _ -> nil
+    end
+  end
+
+  defp normalize_datetime(%DateTime{} = value), do: value
+  defp normalize_datetime(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
+  defp normalize_datetime(_), do: nil
+
+  defp lag_seconds(%DateTime{} = newer, %DateTime{} = older) do
+    max(DateTime.diff(newer, older, :second), 0)
+  end
+
+  defp lag_seconds(_, _), do: nil
+
+  defp trace_rollup_stale_threshold_seconds do
+    Application.get_env(:serviceradar_web_ng, :trace_rollup_stale_threshold_seconds, 30 * 60)
+  end
+
+  defp stale?(lag_seconds, threshold_seconds)
+       when is_integer(lag_seconds) and is_integer(threshold_seconds) do
+    lag_seconds > threshold_seconds
+  end
+
+  defp stale?(_, _), do: false
+
+  defp maybe_add_message(messages, true, message) when is_binary(message),
+    do: messages ++ [message]
+
+  defp maybe_add_message(messages, _, _), do: messages
+
+  defp format_lag(seconds) when is_integer(seconds) and seconds >= 3600 do
+    hours = div(seconds, 3600)
+    minutes = div(rem(seconds, 3600), 60)
+    "#{hours}h #{minutes}m"
+  end
+
+  defp format_lag(seconds) when is_integer(seconds) and seconds >= 60 do
+    minutes = div(seconds, 60)
+    rem_seconds = rem(seconds, 60)
+    "#{minutes}m #{rem_seconds}s"
+  end
+
+  defp format_lag(seconds) when is_integer(seconds), do: "#{seconds}s"
+  defp format_lag(_), do: "unknown"
 
   defp merge_event_stats(rows, base) when is_list(rows) do
     Enum.reduce(rows, base, fn {severity_id, total_count}, acc ->

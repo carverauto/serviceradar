@@ -1,5 +1,10 @@
 # Credo configuration for web-ng
 # Based on default credo config with customizations for our LiveView components
+{ex_slop_checks, _binding} = Code.eval_file(Path.expand("../.credo.ex_slop.exs", __DIR__))
+{ex_dna_checks, _binding} = Code.eval_file(Path.expand("../.credo.ex_dna.exs", __DIR__))
+
+extra_checks = ex_slop_checks ++ ex_dna_checks
+
 %{
   configs: [
     %{
@@ -14,11 +19,12 @@
         excluded: [~r"/_build/", ~r"/deps/", ~r"/node_modules/"]
       },
       plugins: [],
-      requires: [],
+      requires: ["deps/ex_dna/lib/ex_dna/integrations/credo.ex"],
       strict: false,
       parse_timeout: 5000,
       color: true,
       checks: %{
+        extra: extra_checks,
         enabled: [
           # Consistency Checks
           {Credo.Check.Consistency.ExceptionNames, []},

@@ -189,7 +189,7 @@ repo_config =
         |> put_if.(:server_name_indication, ssl_server_name)
         |> Keyword.put(:verify, if(ssl_verify, do: :verify_peer, else: :verify_none))
 
-      Keyword.merge(base, ssl: true, ssl_opts: ssl_opts)
+      Keyword.put(base, :ssl, ssl_opts)
     else
       base
     end
@@ -222,7 +222,9 @@ config :serviceradar_core,
   health_check_registrar_enabled: false,
   service_heartbeat_enabled: false,
   spiffe_cert_monitor_enabled: false,
-  status_handler_enabled: false
+  status_handler_enabled: false,
+  seeders_enabled: false,
+  log_promotion_consumer_enabled: false
 
 # Disable Oban in tests to avoid AshOban.Scheduler issues
 config :serviceradar_core, Oban, false

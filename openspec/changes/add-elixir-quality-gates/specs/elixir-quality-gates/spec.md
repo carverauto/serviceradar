@@ -18,7 +18,7 @@ The contract SHALL be exposed through documented local commands or Mix aliases s
 
 - **GIVEN** a developer is preparing changes in a first-party Mix project under `elixir/`
 - **WHEN** they run the documented analyzer contract for that app
-- **THEN** the command sequence checks formatting, compile-time warnings, xref output, strict Credo, dependency audit, and any required app-specific analyzers for that app
+- **THEN** the command sequence checks formatting, compile-time warnings, xref output, strict Credo with approved extra checks including duplication analysis, dependency audit, and any required app-specific analyzers for that app
 
 ### Requirement: GitHub Actions Enforces the Analyzer Contract
 

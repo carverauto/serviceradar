@@ -2,7 +2,7 @@
 
 The repo contains eight first-party Mix projects under `elixir/`: `connection`, `datasvc`, `elixir_uuid`, `serviceradar_agent_gateway`, `serviceradar_core`, `serviceradar_core_elx`, `serviceradar_srql`, and `web-ng`. Analyzer support is uneven across that workspace. Some projects already ship `.formatter.exs`, `.credo.exs`, or `dialyxir`, but current CI only runs Credo in dedicated workflows for a subset of the workspace, and there is no spec defining which analyzers must pass before Elixir changes merge.
 
-Issue #3029 lists a broad tool wishlist. Some items are immediate quality gates (`dialyzer`, `credo`, `sobelow`, dependency audits, `mix xref`), while others are opinionated formatter or architecture tools (`Styler`, `Boundary`, `rustywind`, `ex_dna`, `ex_slop`) that can add noise or reshape the codebase. The proposal should establish a stable baseline first, then evaluate optional tools separately.
+Issue #3029 lists a broad tool wishlist. Some items are immediate quality gates (`dialyzer`, `credo`, `sobelow`, dependency audits, `mix xref`), while others are opinionated formatter or architecture tools (`Styler`, `Boundary`, `rustywind`) that can add noise or reshape the codebase. The repo already established the baseline gates, and the remaining follow-up work is to adopt the deferred analyzers that behave like drop-in CI checks (`mix_audit`, `ex_slop`, `ex_dna`) without turning the rollout into an architecture rewrite.
 
 ## Goals / Non-Goals
 
@@ -23,7 +23,7 @@ Issue #3029 lists a broad tool wishlist. Some items are immediate quality gates 
   - Alternative considered: Restrict the change to `web-ng` and `serviceradar_core`.
   - Rationale for rejection: That leaves the rest of the Elixir workspace outside the quality gate and does not meet the stated intent.
 
-- Decision: The required analyzer suite is formatting verification, compile-time warning checks, xref reporting, `mix credo --strict`, dependency auditing, `mix dialyzer`, and `mix sobelow` for Phoenix apps.
+- Decision: The required analyzer suite is formatting verification, compile-time warning checks, xref reporting, `mix credo --strict` with approved `ex_slop` and `ex_dna` checks, dependency auditing (`mix hex.audit` and `mix deps.audit`), `mix dialyzer`, and `mix sobelow` for Phoenix apps.
   - Why: This covers the concrete gaps raised in issue #3029 while staying centered on actionable code-quality and security feedback.
   - Alternative considered: Keep CI at Credo-only and leave the rest to local convention.
   - Rationale for rejection: That does not solve the inconsistency the issue is describing.
@@ -44,13 +44,13 @@ Issue #3029 lists a broad tool wishlist. Some items are immediate quality gates 
   - Alternative considered: Block the whole rollout until every legacy project is brought to zero warnings and full Dialyzer coverage.
   - Rationale for rejection: That turns the quality-gates change into a broad upstream modernization effort.
 
-- Decision: `Styler`, `Boundary`, `rustywind`, `ex_dna`, and `ex_slop` are deferred.
-  - Why: They need a separate benefit/noise evaluation after the baseline gates are in place.
+- Decision: `mix_audit`, `ex_slop`, and `ex_dna` are part of the managed analyzer contract; `Styler`, `Boundary`, and `rustywind` remain deferred.
+  - Why: `mix_audit` and `ex_slop` are drop-in analyzers that fit the existing CI contract. `ex_dna` can also fit that contract when it is wired through Credo with repo-owned exclusions for framework DSL noise and baseline cleanup for the remaining actionable clones. `Styler` is a formatter plugin that intentionally rewrites code and warns it can change program behavior. `Boundary` requires explicit boundary declarations and compiler wiring across the app graph. `rustywind` is a Tailwind class sorter rather than a shared Mix-project analyzer.
 
 ## Risks / Trade-offs
 
 - Dialyzer can add significant CI time and may require PLT caching or staged cleanup.
-- Sobelow and dependency audit tooling can produce noisy findings that require project-specific configuration.
+- Sobelow, dependency audit tooling, and the new Credo-extension checks can produce noisy findings that require project-specific configuration or selective check enablement.
 - Strict analyzer enforcement may surface existing debt that has to be suppressed or fixed before the workflows can go green.
 
 ## Migration Plan

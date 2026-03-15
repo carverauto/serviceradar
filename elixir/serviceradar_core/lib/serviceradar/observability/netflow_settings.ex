@@ -15,6 +15,9 @@ defmodule ServiceRadar.Observability.NetflowSettings do
     extensions: [AshCloak],
     authorizers: [Ash.Policy.Authorizer]
 
+  @netflow_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "settings.netflow.manage"}
+
   postgres do
     table "netflow_settings"
     repo ServiceRadar.Repo
@@ -137,13 +140,11 @@ defmodule ServiceRadar.Observability.NetflowSettings do
     end
 
     policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.netflow.manage"}
+      authorize_if @netflow_manage_check
     end
 
     policy action([:create, :update]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.netflow.manage"}
+      authorize_if @netflow_manage_check
     end
   end
 

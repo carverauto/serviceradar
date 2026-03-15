@@ -30,6 +30,9 @@ defmodule ServiceRadar.Identity.AliasEvents do
   require Ash.Query
   require Logger
 
+  alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Inventory.Device
+
   defmodule AliasRecord do
     @moduledoc """
     Represents alias metadata extracted from device records.
@@ -351,8 +354,8 @@ defmodule ServiceRadar.Identity.AliasEvents do
   def process_and_persist([], _opts), do: {:ok, []}
 
   def process_and_persist(updates, opts) when is_list(updates) do
-    actor = Keyword.get(opts, :actor)
-    confirm_threshold = Keyword.get(opts, :confirm_threshold, 3)
+    actor = actor(opts)
+    confirm_threshold = confirm_threshold(opts)
     events = build_device_alias_events(updates, actor, confirm_threshold)
     {:ok, events}
   end
@@ -400,10 +403,8 @@ defmodule ServiceRadar.Identity.AliasEvents do
   end
 
   defp process_alias(update, alias_type, alias_value, actor, confirm_threshold) do
-    alias ServiceRadar.Identity.DeviceAliasState
-
     # Try to find existing alias
-    case DeviceAliasState.lookup_by_value(alias_type, alias_value, actor: actor) do
+    case lookup_alias_state(alias_type, alias_value, actor) do
       {:ok, [existing | _]} ->
         # Record sighting and maybe transition state
         handle_existing_alias(existing, update, confirm_threshold, actor)
@@ -418,8 +419,6 @@ defmodule ServiceRadar.Identity.AliasEvents do
   end
 
   defp handle_existing_alias(existing, _update, confirm_threshold, actor) do
-    alias ServiceRadar.Identity.DeviceAliasState
-
     # Record the sighting
     case DeviceAliasState.record_sighting(
            existing,
@@ -429,14 +428,12 @@ defmodule ServiceRadar.Identity.AliasEvents do
       {:ok, updated} ->
         # Generate event if state changed
         if updated.state != existing.state do
-          %{
-            device_id: existing.device_id,
-            partition: existing.partition || "",
+          lifecycle_event(
+            existing.device_id,
+            existing.partition || "",
             action: "alias_state_changed",
             reason: "state_transition",
-            timestamp: DateTime.utc_now(),
-            severity: "Info",
-            level: 6,
+            timestamp: now(),
             metadata: %{
               "alias_type" => to_string(existing.alias_type),
               "alias_value" => existing.alias_value,
@@ -444,7 +441,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
               "new_state" => to_string(updated.state),
               "sighting_count" => to_string(updated.sighting_count)
             }
-          }
+          )
         else
           nil
         end
@@ -455,34 +452,32 @@ defmodule ServiceRadar.Identity.AliasEvents do
   end
 
   defp handle_new_alias(update, alias_type, alias_value, actor) do
-    alias ServiceRadar.Identity.DeviceAliasState
+    partition = pick_partition(update.partition, update.device_id)
 
     attrs = %{
       device_id: update.device_id,
-      partition: pick_partition(update.partition, update.device_id),
+      partition: partition,
       alias_type: alias_type,
       alias_value: alias_value,
       metadata: %{
         "source" => "alias_detection",
-        "first_update_timestamp" => DateTime.to_iso8601(update.timestamp || DateTime.utc_now())
+        "first_update_timestamp" => DateTime.to_iso8601(update_timestamp(update.timestamp))
       }
     }
 
     case DeviceAliasState.create_detected(attrs, actor: actor) do
       {:ok, _created} ->
-        %{
-          device_id: update.device_id,
-          partition: pick_partition(update.partition, update.device_id),
+        lifecycle_event(
+          update.device_id,
+          partition,
           action: "alias_detected",
           reason: "new_alias",
-          timestamp: DateTime.utc_now(),
-          severity: "Info",
-          level: 6,
+          timestamp: now(),
           metadata: %{
             "alias_type" => to_string(alias_type),
             "alias_value" => alias_value
           }
-        }
+        )
 
       {:error, _reason} ->
         nil
@@ -505,12 +500,10 @@ defmodule ServiceRadar.Identity.AliasEvents do
   defp sortable_timestamp(_), do: ~U[1970-01-01 00:00:00Z]
 
   defp lookup_existing_alias_records(device_ids, opts) do
-    actor = Keyword.get(opts, :actor)
-
     # Query devices and extract alias records from metadata
-    case ServiceRadar.Inventory.Device
+    case Device
          |> Ash.Query.filter(uid in ^device_ids)
-         |> Ash.read(actor: actor) do
+         |> Ash.read(actor: actor(opts)) do
       {:ok, devices} ->
         devices
         |> Enum.map(fn device ->
@@ -526,16 +519,15 @@ defmodule ServiceRadar.Identity.AliasEvents do
   end
 
   defp build_alias_event(update, current, previous) do
-    %{
-      device_id: update.device_id,
-      partition: pick_partition(update.partition, update.device_id),
+    lifecycle_event(
+      update.device_id,
+      pick_partition(update.partition, update.device_id),
       action: "alias_updated",
       reason: "alias_change",
       timestamp: update_timestamp(update.timestamp),
       severity: "Low",
-      level: 6,
       metadata: build_alias_event_metadata(current, previous)
-    }
+    )
   end
 
   defp build_alias_event_metadata(current, previous) do
@@ -599,6 +591,28 @@ defmodule ServiceRadar.Identity.AliasEvents do
       end
     end
   end
+
+  defp actor(opts), do: Keyword.get(opts, :actor)
+  defp confirm_threshold(opts), do: Keyword.get(opts, :confirm_threshold, 3)
+
+  defp lookup_alias_state(alias_type, alias_value, actor) do
+    DeviceAliasState.lookup_by_value(alias_type, alias_value, actor: actor)
+  end
+
+  defp lifecycle_event(device_id, partition, opts) do
+    %{
+      device_id: device_id,
+      partition: partition,
+      action: Keyword.fetch!(opts, :action),
+      reason: Keyword.fetch!(opts, :reason),
+      timestamp: Keyword.fetch!(opts, :timestamp),
+      severity: Keyword.get(opts, :severity, "Info"),
+      level: Keyword.get(opts, :level, 6),
+      metadata: Keyword.fetch!(opts, :metadata)
+    }
+  end
+
+  defp now, do: DateTime.utc_now()
 
   defp update_timestamp(nil), do: DateTime.utc_now()
 

@@ -35,11 +35,10 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   require Ash.Query
   require Logger
 
-  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.SRQLAst
+  alias ServiceRadar.SRQLDeviceMatcher
+  alias ServiceRadar.SRQLProfileResolver
   alias ServiceRadar.SNMPProfiles.SNMPProfile
-
-  # Device UID regex for validation - prevents SRQL injection via crafted device UIDs
-  @device_uid_regex ~r/^(?:sr:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 
   @doc """
   Resolves the matching SNMP profile for a device using SRQL targeting.
@@ -61,24 +60,11 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   @spec resolve_for_device(String.t(), map()) ::
           {:ok, SNMPProfile.t() | nil} | {:error, term()}
   def resolve_for_device(device_uid, actor) when is_binary(device_uid) do
-    # Validate device_uid is a proper UUID to prevent SRQL injection
-    if Regex.match?(@device_uid_regex, device_uid) do
-      # Load all targeting profiles ordered by priority
-      case load_targeting_profiles(actor) do
-        {:ok, []} ->
-          {:ok, nil}
-
-        {:ok, profiles} ->
-          # Try each profile in order until one matches
-          find_matching_profile(profiles, device_uid, actor)
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    else
-      Logger.debug("SNMPSrqlTargetResolver: skipping invalid device_uid #{inspect(device_uid)}")
-      {:ok, nil}
-    end
+    SRQLProfileResolver.resolve(device_uid, actor,
+      load_profiles: &load_targeting_profiles/1,
+      match_profile: &matches_device?/3,
+      log_prefix: "SNMPSrqlTargetResolver"
+    )
   end
 
   def resolve_for_device(nil, _actor), do: {:ok, nil}
@@ -92,29 +78,6 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
     case Ash.read(query, actor: actor) do
       {:ok, profiles} -> {:ok, profiles}
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # Find the first profile that matches the device
-  defp find_matching_profile([], _device_uid, _actor), do: {:ok, nil}
-
-  defp find_matching_profile([profile | rest], device_uid, actor) do
-    case matches_device?(profile, device_uid, actor) do
-      {:ok, true} ->
-        Logger.debug("SNMPSrqlTargetResolver: profile #{profile.id} matches device #{device_uid}")
-
-        {:ok, profile}
-
-      {:ok, false} ->
-        find_matching_profile(rest, device_uid, actor)
-
-      {:error, reason} ->
-        # Log error but continue trying other profiles
-        Logger.warning(
-          "SNMPSrqlTargetResolver: error evaluating profile #{profile.id}: #{inspect(reason)}"
-        )
-
-        find_matching_profile(rest, device_uid, actor)
     end
   end
 
@@ -139,18 +102,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
 
   # Execute a device match query
   defp execute_device_match(query_string, actor) do
-    case ServiceRadarSRQL.Native.parse_ast(query_string) do
-      {:ok, ast_json} ->
-        case Jason.decode(ast_json) do
-          {:ok, ast} ->
-            check_device_exists(ast, actor)
-
-          {:error, reason} ->
-            {:error, {:json_decode_error, reason}}
-        end
-
-      {:error, reason} ->
-        {:error, {:parse_error, reason}}
+    with {:ok, ast} <- parse_query_ast(query_string) do
+      check_device_exists(ast, actor)
     end
   end
 
@@ -163,107 +116,17 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
     # A full implementation would join with interfaces table
     device_query = "in:devices uid:\"#{device_uid}\""
 
-    case ServiceRadarSRQL.Native.parse_ast(device_query) do
-      {:ok, ast_json} ->
-        case Jason.decode(ast_json) do
-          {:ok, ast} ->
-            check_device_exists(ast, actor)
-
-          {:error, reason} ->
-            {:error, {:json_decode_error, reason}}
-        end
-
-      {:error, reason} ->
-        {:error, {:parse_error, reason}}
+    with {:ok, ast} <- parse_query_ast(device_query) do
+      check_device_exists(ast, actor)
     end
+  end
+
+  defp parse_query_ast(query_string) do
+    SRQLAst.parse(query_string)
   end
 
   # Check if any devices match the parsed SRQL filters
   defp check_device_exists(ast, actor) do
-    filters = extract_filters(ast)
-
-    query =
-      Device
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> apply_srql_filters(filters)
-      |> Ash.Query.limit(1)
-
-    case Ash.read_one(query, actor: actor) do
-      {:ok, nil} -> {:ok, false}
-      {:ok, _device} -> {:ok, true}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # Extract filter conditions from parsed SRQL AST
-  defp extract_filters(%{"filters" => filters}) when is_list(filters) do
-    Enum.map(filters, fn filter ->
-      %{
-        field: Map.get(filter, "field"),
-        op: Map.get(filter, "op", "eq"),
-        value: Map.get(filter, "value")
-      }
-    end)
-  end
-
-  defp extract_filters(_), do: []
-
-  # Apply SRQL filters to an Ash query
-  defp apply_srql_filters(query, filters) do
-    Enum.reduce(filters, query, fn filter, q ->
-      apply_filter(q, filter)
-    end)
-  end
-
-  defp apply_filter(query, %{field: field, op: op, value: value}) when is_binary(field) do
-    # Handle JSON tag filters before mapping to atoms, since "tags.foo"
-    # is not a concrete Device attribute.
-    if String.starts_with?(field, "tags.") do
-      tag_key = String.replace_prefix(field, "tags.", "")
-      apply_tag_filter(query, tag_key, value)
-    else
-      mapped_field = map_field(field)
-      apply_standard_filter(query, mapped_field, op, value)
-    end
-  rescue
-    e ->
-      # Log the error but continue - unknown fields are skipped gracefully
-      Logger.debug(
-        "SNMPSrqlTargetResolver: skipping filter #{field} #{op} #{inspect(value)}: #{Exception.message(e)}"
-      )
-
-      query
-  end
-
-  defp apply_filter(query, _), do: query
-
-  # Map SRQL field names to Device attribute names
-  defp map_field("hostname"), do: :hostname
-  defp map_field("uid"), do: :uid
-  defp map_field("type"), do: :type_id
-  defp map_field("os"), do: :os
-  defp map_field("status"), do: :status
-  defp map_field(field), do: String.to_existing_atom(field)
-
-  # Apply a standard equality filter
-  defp apply_standard_filter(query, field, "eq", value) when is_atom(field) do
-    Ash.Query.filter_input(query, %{field => %{eq: value}})
-  end
-
-  defp apply_standard_filter(query, field, "contains", value) when is_atom(field) do
-    Ash.Query.filter_input(query, %{field => %{contains: value}})
-  end
-
-  defp apply_standard_filter(query, field, "in", value) when is_atom(field) and is_list(value) do
-    Ash.Query.filter_input(query, %{field => %{in: value}})
-  end
-
-  defp apply_standard_filter(query, _field, _op, _value), do: query
-
-  # Apply a tag filter using JSONB containment
-  defp apply_tag_filter(query, tag_key, tag_value) do
-    # Use Ash fragment for JSONB filter
-    # tags @> '{"key": "value"}'::jsonb
-    Ash.Query.filter(query, fragment("tags @> ?", ^%{tag_key => tag_value}))
+    SRQLDeviceMatcher.match_ast(ast, actor, log_prefix: "SNMPSrqlTargetResolver")
   end
 end

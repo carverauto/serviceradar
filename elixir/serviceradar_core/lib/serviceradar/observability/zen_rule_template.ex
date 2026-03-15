@@ -3,136 +3,34 @@ defmodule ServiceRadar.Observability.ZenRuleTemplate do
   Templates for Zen rule builder presets.
   """
 
-  use Ash.Resource,
-    domain: ServiceRadar.Observability,
-    data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
-
-  postgres do
-    table "zen_rule_templates"
-    repo ServiceRadar.Repo
-    schema "platform"
-  end
-
-  code_interface do
-    define :list, action: :read
-    define :create, action: :create
-    define :update, action: :update
-    define :destroy, action: :destroy
-  end
-
-  actions do
-    defaults [:read, :destroy]
-
-    create :create do
-      accept [
-        :name,
-        :description,
-        :enabled,
-        :order,
-        :stream_name,
-        :subject,
-        :template,
-        :builder_config,
-        :agent_id
-      ]
-
-      validate ServiceRadar.Observability.Validations.ZenRuleTemplate
-    end
-
-    update :update do
-      accept [
-        :name,
-        :description,
-        :enabled,
-        :order,
-        :stream_name,
-        :subject,
-        :template,
-        :builder_config,
-        :agent_id
-      ]
-
-      validate ServiceRadar.Observability.Validations.ZenRuleTemplate
-    end
-  end
-
-  policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action([:create, :update, :destroy]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-  end
-
-  changes do
-  end
-
-  attributes do
-    uuid_primary_key :id
-
-    attribute :name, :string do
-      allow_nil? false
-      public? true
-    end
-
-    attribute :description, :string do
-      public? true
-    end
-
-    attribute :enabled, :boolean do
-      default true
-      public? true
-    end
-
-    attribute :order, :integer do
-      default 100
-      public? true
-    end
-
-    attribute :stream_name, :string do
-      allow_nil? false
-      default "events"
-      public? true
-    end
-
-    attribute :subject, :string do
-      allow_nil? false
-      public? true
-    end
-
-    attribute :template, :atom do
-      allow_nil? false
-      public? true
-      constraints one_of: [:passthrough, :strip_full_message, :cef_severity, :snmp_severity]
-    end
-
-    attribute :builder_config, :map do
-      default %{}
-      public? true
-    end
-
-    attribute :agent_id, :string do
-      allow_nil? false
-      default "default-agent"
-      public? true
-    end
-
-    create_timestamp :inserted_at
-    update_timestamp :updated_at
-  end
-
-  identities do
-    identity :unique_name, [:subject, :name]
-  end
+  use ServiceRadar.Observability.ZenPresetResource,
+    table: "zen_rule_templates",
+    accept: [
+      :name,
+      :description,
+      :enabled,
+      :order,
+      :stream_name,
+      :subject,
+      :template,
+      :builder_config,
+      :agent_id
+    ],
+    fields: [
+      {:name, :string, [allow_nil?: false]},
+      {:description, :string, []},
+      {:enabled, :boolean, [default: true]},
+      {:order, :integer, [default: 100]},
+      {:stream_name, :string, [allow_nil?: false, default: "events"]},
+      {:subject, :string, [allow_nil?: false]},
+      {:template, :atom,
+       [
+         allow_nil?: false,
+         constraints: [one_of: [:passthrough, :strip_full_message, :cef_severity, :snmp_severity]]
+       ]},
+      {:builder_config, :map, [default: %{}]},
+      {:agent_id, :string, [allow_nil?: false, default: "default-agent"]}
+    ],
+    create_validations: [ServiceRadar.Observability.Validations.ZenRuleTemplate],
+    update_validations: [ServiceRadar.Observability.Validations.ZenRuleTemplate]
 end

@@ -37,7 +37,10 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     extensions: [AshStateMachine, AshCloak]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Edge.PubSub
+
+  @package_fields [:collector_type, :site, :hostname, :config_overrides, :edge_site_id]
 
   postgres do
     table "collector_packages"
@@ -94,7 +97,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
     create :create do
       description "Create a new collector package (triggers async provisioning)"
-      accept [:collector_type, :site, :hostname, :config_overrides, :edge_site_id]
+      accept @package_fields
 
       argument :user_name, :string do
         allow_nil? true
@@ -155,15 +158,12 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
       change fn changeset, _context ->
         # Enqueue provisioning job and broadcast after creation
-        Ash.Changeset.after_action(changeset, fn _changeset, package ->
+        AfterAction.after_action_result(changeset, fn package ->
           # Broadcast creation event
           __MODULE__.broadcast_created(package)
 
           # Enqueue async provisioning
-          case ServiceRadar.Edge.Workers.ProvisionCollectorWorker.enqueue(package.id) do
-            {:ok, _job} -> {:ok, package}
-            {:error, reason} -> {:error, reason}
-          end
+          ServiceRadar.Edge.Workers.ProvisionCollectorWorker.enqueue(package.id)
         end)
       end
     end
@@ -207,9 +207,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
         # Encrypt NATS credentials and TLS private key using AshCloak
         |> AshCloak.encrypt_and_set(:nats_creds_ciphertext, creds_content)
         |> AshCloak.encrypt_and_set(:tls_key_pem_ciphertext, tls_key_pem)
-        |> Ash.Changeset.after_action(fn _changeset, package ->
+        |> AfterAction.after_action(fn package ->
           __MODULE__.broadcast_status_changed(package, old_status, :ready)
-          {:ok, package}
         end)
       end
     end
@@ -230,9 +229,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
           :error_message,
           Ash.Changeset.get_argument(changeset, :error_message)
         )
-        |> Ash.Changeset.after_action(fn _changeset, package ->
+        |> AfterAction.after_action(fn package ->
           __MODULE__.broadcast_status_changed(package, old_status, :failed)
-          {:ok, package}
         end)
       end
     end
@@ -279,58 +277,20 @@ defmodule ServiceRadar.Edge.CollectorPackage do
           :revoke_reason,
           Ash.Changeset.get_argument(changeset, :reason)
         )
-        |> Ash.Changeset.put_context(:old_status, old_status)
-      end
-
-      # After revoking the package, revoke the NATS credential and broadcast
-      # Schema isolation is handled by the DB connection's search_path
-      change fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn changeset, package ->
-          # Revoke associated NATS credential
-          if package.nats_credential_id do
-            actor = SystemActor.system(:collector_package)
-
-            case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id,
-                   actor: actor
-                 ) do
-              {:ok, credential} when not is_nil(credential) ->
-                credential
-                |> Ash.Changeset.for_update(:revoke, %{reason: "Package revoked"})
-                |> Ash.update(actor: actor)
-
-              _ ->
-                :ok
-            end
-          end
-
-          # Broadcast status change
-          old_status = changeset.context[:old_status] || :unknown
+        |> AfterAction.after_action(fn package ->
+          revoke_associated_nats_credential(package)
           __MODULE__.broadcast_status_changed(package, old_status, :revoked)
-
-          {:ok, package}
         end)
       end
     end
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    # Admins can manage packages
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action(:revoke) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    admin_action_type([:read, :create])
+    admin_action(:revoke)
   end
 
   changes do
@@ -515,5 +475,23 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   @doc false
   def broadcast_status_changed(package, old_status, new_status) do
     PubSub.broadcast_package_status_changed(package, old_status, new_status)
+  end
+
+  defp revoke_associated_nats_credential(%{nats_credential_id: nil}), do: :ok
+
+  defp revoke_associated_nats_credential(package) do
+    actor = SystemActor.system(:collector_package)
+
+    case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id, actor: actor) do
+      {:ok, credential} when not is_nil(credential) ->
+        credential
+        |> Ash.Changeset.for_update(:revoke, %{reason: "Package revoked"})
+        |> Ash.update(actor: actor)
+
+      _ ->
+        :ok
+    end
+
+    :ok
   end
 end

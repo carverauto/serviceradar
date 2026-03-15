@@ -10,8 +10,8 @@
 - [x] 2.4 Add automated tests for trace summary scheduling recovery, orphaned job cleanup, and summary cleanup behavior.
 
 ## 3. Verification and Operations
-- [ ] 3.1 Add verification for missing trace rollups or stale trace summary freshness before the UI silently serves stale data.
-- [ ] 3.2 Document the demo remediation flow for clearing orphaned trace refresh jobs and rebuilding current trace summary state.
+- [x] 3.1 Add verification for missing trace rollups or stale trace summary freshness before the UI silently serves stale data.
+- [x] 3.2 Document the demo remediation flow for clearing orphaned trace refresh jobs and rebuilding current trace summary state.
 - [ ] 3.3 Re-validate `/observability` logs and traces behavior in demo after the changes are applied.
 
 ## 4. Alert Retention

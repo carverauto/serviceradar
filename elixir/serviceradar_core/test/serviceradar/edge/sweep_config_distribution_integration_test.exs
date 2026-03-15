@@ -32,7 +32,7 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
   } do
     unique_id = System.unique_integer([:positive])
     device_uid = "device-#{unique_id}"
-    device_ip = "10.0.1.10"
+    device_ip = "10.0.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}"
 
     {:ok, _device} =
       Device

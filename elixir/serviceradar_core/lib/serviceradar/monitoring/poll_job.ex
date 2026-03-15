@@ -43,6 +43,20 @@ defmodule ServiceRadar.Monitoring.PollJob do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshJsonApi.Resource]
 
+  @poll_job_fields [
+    :schedule_id,
+    :schedule_name,
+    :check_count,
+    :check_ids,
+    :gateway_id,
+    :agent_id,
+    :priority,
+    :timeout_seconds,
+    :metadata
+  ]
+  @poll_job_dispatch_fields [:gateway_id]
+  @poll_job_start_fields [:agent_id]
+
   postgres do
     table "poll_jobs"
     repo ServiceRadar.Repo
@@ -140,24 +154,14 @@ defmodule ServiceRadar.Monitoring.PollJob do
     create :create do
       description "Create a new poll job for a schedule"
 
-      accept [
-        :schedule_id,
-        :schedule_name,
-        :check_count,
-        :check_ids,
-        :gateway_id,
-        :agent_id,
-        :priority,
-        :timeout_seconds,
-        :metadata
-      ]
+      accept @poll_job_fields
     end
 
     # State machine transition actions
 
     update :dispatch do
       description "Mark job as dispatching (finding a gateway)"
-      accept [:gateway_id]
+      accept @poll_job_dispatch_fields
 
       change transition_state(:dispatching)
       change set_attribute(:dispatched_at, &DateTime.utc_now/0)
@@ -165,7 +169,7 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :start do
       description "Mark job as running on a gateway/agent"
-      accept [:agent_id]
+      accept @poll_job_start_fields
 
       change transition_state(:running)
       change set_attribute(:started_at, &DateTime.utc_now/0)
@@ -283,30 +287,21 @@ defmodule ServiceRadar.Monitoring.PollJob do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    # Read access: authenticated users with appropriate roles
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
 
     # Create for operators and admins
     policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_operator()
 
       # Allow system (AshOban/orchestrator) to create jobs
       authorize_if ServiceRadar.Policies.Checks.ActorIsNil
     end
 
     policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_operator()
 
       # Allow system transitions
       authorize_if ServiceRadar.Policies.Checks.ActorIsNil

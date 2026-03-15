@@ -10,16 +10,14 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.ConfigServer
+  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Inventory.{Device, Interface, InterfaceSettings}
   alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.{SNMPOIDConfig, SNMPProfile, SNMPTarget}
 
   @impl true
   def change(changeset, _opts, _context) do
-    Ash.Changeset.after_action(changeset, fn _changeset, record ->
-      sync(record)
-      {:ok, record}
-    end)
+    AfterAction.after_action(changeset, &sync/1)
   end
 
   @impl true

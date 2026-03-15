@@ -98,6 +98,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
        service_count: 0,
        sample_size: 0
      })
+     |> assign(:trace_rollup_status, Stats.empty_trace_rollup_status())
      |> assign(:metrics_stats, %{
        total: 0,
        slow_spans: 0,
@@ -956,6 +957,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
 
           <.observability_tabs :if={@active_tab != "netflows"} active={@active_tab} />
+
+          <div :if={@active_tab == "traces" and trace_rollup_warning?(@trace_rollup_status)}>
+            <div role="alert" class="alert alert-warning">
+              <.icon name="hero-exclamation-triangle" class="size-5" />
+              <div class="text-sm">
+                <div class="font-semibold">Trace rollups need attention</div>
+                <div>{trace_rollup_warning_text(@trace_rollup_status)}</div>
+              </div>
+            </div>
+          </div>
 
           <.log_summary :if={@active_tab == "logs"} summary={@summary} />
           <.event_summary :if={@active_tab == "events"} summary={@event_summary} />
@@ -6434,6 +6445,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     socket
     |> assign(:trace_stats, load_trace_stats(srql_module, scope))
     |> assign(:trace_latency, trace_latency)
+    |> assign(:trace_rollup_status, Stats.trace_rollup_status())
     |> assign(:metrics_stats, empty_metrics_stats())
   end
 
@@ -8391,4 +8403,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       v -> v |> to_string() |> String.slice(0, 300)
     end
   end
+
+  defp trace_rollup_warning?(%{healthy?: false}), do: true
+  defp trace_rollup_warning?(_), do: false
+
+  defp trace_rollup_warning_text(%{messages: messages}) when is_list(messages) do
+    messages
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" ")
+  end
+
+  defp trace_rollup_warning_text(_), do: "Trace observability data may be stale."
 end

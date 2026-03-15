@@ -103,6 +103,71 @@ defmodule ServiceRadar.Infrastructure.Agent do
   @doc "Returns type name for a given type_id"
   def type_name(type_id), do: Map.get(@type_names, type_id, "Unknown")
 
+  @agent_registration_fields [
+    :uid,
+    :name,
+    :type_id,
+    :type,
+    :uid_alt,
+    :vendor_name,
+    :version,
+    :policies,
+    :gateway_id,
+    :device_uid,
+    :capabilities,
+    :host,
+    :port,
+    :spiffe_identity,
+    :metadata
+  ]
+  @agent_connected_upsert_fields [
+    :name,
+    :type_id,
+    :type,
+    :uid_alt,
+    :vendor_name,
+    :version,
+    :policies,
+    :gateway_id,
+    :device_uid,
+    :capabilities,
+    :host,
+    :port,
+    :spiffe_identity,
+    :metadata,
+    :last_seen_time,
+    :modified_time,
+    :status,
+    :is_healthy
+  ]
+  @agent_update_fields [
+    :name,
+    :capabilities,
+    :host,
+    :port,
+    :policies,
+    :metadata,
+    :plugin_engine_max_memory_mb,
+    :plugin_engine_max_cpu_ms,
+    :plugin_engine_max_concurrent,
+    :plugin_engine_max_open_connections
+  ]
+  @agent_gateway_sync_fields [
+    :name,
+    :capabilities,
+    :host,
+    :port,
+    :spiffe_identity,
+    :metadata,
+    :version,
+    :type_id,
+    :device_uid,
+    :config_source
+  ]
+  @agent_heartbeat_fields [:is_healthy, :capabilities, :config_source]
+  @agent_gateway_fields [:gateway_id]
+  @agent_device_fields [:device_uid]
+
   use Ash.Resource,
     domain: ServiceRadar.Infrastructure,
     data_layer: AshPostgres.DataLayer,
@@ -212,23 +277,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
     create :register do
       description "Register a new agent (starts in connecting state)"
 
-      accept [
-        :uid,
-        :name,
-        :type_id,
-        :type,
-        :uid_alt,
-        :vendor_name,
-        :version,
-        :policies,
-        :gateway_id,
-        :device_uid,
-        :capabilities,
-        :host,
-        :port,
-        :spiffe_identity,
-        :metadata
-      ]
+      accept @agent_registration_fields
 
       change fn changeset, _context ->
         now = DateTime.utc_now()
@@ -246,47 +295,12 @@ defmodule ServiceRadar.Infrastructure.Agent do
     create :register_connected do
       description "Register a new agent as already connected (skips connecting state)"
 
-      accept [
-        :uid,
-        :name,
-        :type_id,
-        :type,
-        :uid_alt,
-        :vendor_name,
-        :version,
-        :policies,
-        :gateway_id,
-        :device_uid,
-        :capabilities,
-        :host,
-        :port,
-        :spiffe_identity,
-        :metadata
-      ]
+      accept @agent_registration_fields
 
       upsert? true
       upsert_identity :unique_uid
 
-      upsert_fields [
-        :name,
-        :type_id,
-        :type,
-        :uid_alt,
-        :vendor_name,
-        :version,
-        :policies,
-        :gateway_id,
-        :device_uid,
-        :capabilities,
-        :host,
-        :port,
-        :spiffe_identity,
-        :metadata,
-        :last_seen_time,
-        :modified_time,
-        :status,
-        :is_healthy
-      ]
+      upsert_fields @agent_connected_upsert_fields
 
       change fn changeset, _context ->
         now = DateTime.utc_now()
@@ -304,18 +318,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
     end
 
     update :update do
-      accept [
-        :name,
-        :capabilities,
-        :host,
-        :port,
-        :policies,
-        :metadata,
-        :plugin_engine_max_memory_mb,
-        :plugin_engine_max_cpu_ms,
-        :plugin_engine_max_concurrent,
-        :plugin_engine_max_open_connections
-      ]
+      accept @agent_update_fields
 
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
@@ -323,25 +326,14 @@ defmodule ServiceRadar.Infrastructure.Agent do
     update :gateway_sync do
       description "Sync agent metadata from the agent-gateway"
 
-      accept [
-        :name,
-        :capabilities,
-        :host,
-        :port,
-        :spiffe_identity,
-        :metadata,
-        :version,
-        :type_id,
-        :device_uid,
-        :config_source
-      ]
+      accept @agent_gateway_sync_fields
 
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
     update :heartbeat do
       description "Update last_seen_time and health status (for connected agents)"
-      accept [:is_healthy, :capabilities, :config_source]
+      accept @agent_heartbeat_fields
 
       change set_attribute(:last_seen_time, &DateTime.utc_now/0)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
@@ -352,7 +344,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :establish_connection do
       description "Mark agent as connected (from connecting state)"
-      accept [:gateway_id]
+      accept @agent_gateway_fields
 
       change transition_state(:connected)
       change set_attribute(:is_healthy, true)
@@ -440,14 +432,14 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :reassign_device do
       description "Reassign agent to a new device (used during merges)"
-      accept [:device_uid]
+      accept @agent_device_fields
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
     # Legacy compatibility actions (mapped to state machine)
     update :connect do
       description "Mark agent as connected to a gateway (legacy - use establish_connection)"
-      accept [:gateway_id]
+      accept @agent_gateway_fields
 
       change transition_state(:connected)
       change set_attribute(:is_healthy, true)
@@ -482,30 +474,11 @@ defmodule ServiceRadar.Infrastructure.Agent do
   end
 
   policies do
-    # System actors can see all agents
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Read access
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Allow create/update
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action_type([:create, :update])
   end
 
   changes do

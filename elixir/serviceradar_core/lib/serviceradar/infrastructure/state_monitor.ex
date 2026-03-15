@@ -184,18 +184,11 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   defp check_gateways(state, actor) do
     timeout_threshold = DateTime.add(DateTime.utc_now(), -state.gateway_timeout, :millisecond)
 
-    case list_stale_gateways(timeout_threshold, actor) do
-      {:ok, gateways} ->
-        Enum.each(gateways, fn gateway ->
-          handle_stale_gateway(gateway, actor)
-        end)
-
-        length(gateways)
-
-      {:error, reason} ->
-        Logger.error("Failed to check gateways", reason: inspect(reason))
-        0
-    end
+    run_check(
+      fn -> list_stale_gateways(timeout_threshold, actor) end,
+      fn gateway -> handle_stale_gateway(gateway, actor) end,
+      "gateways"
+    )
   end
 
   defp list_stale_gateways(timeout_threshold, actor) do
@@ -217,38 +210,24 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     old_state = gateway.status
     action = if old_state == :healthy, do: :degrade, else: :go_offline
 
-    result =
-      gateway
-      |> Ash.Changeset.for_update(action, %{reason: "heartbeat_timeout"}, actor: actor)
-      |> Ash.update()
-
-    case result do
-      {:ok, _updated_gateway} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.error("Failed to transition gateway",
-          gateway_id: gateway.id,
-          reason: inspect(reason)
-        )
-    end
+    transition_resource(
+      gateway,
+      action,
+      %{reason: "heartbeat_timeout"},
+      actor,
+      "gateway",
+      gateway_id: gateway.id
+    )
   end
 
   defp check_agents(state, actor) do
     timeout_threshold = DateTime.add(DateTime.utc_now(), -state.agent_timeout, :millisecond)
 
-    case list_stale_agents(timeout_threshold, actor) do
-      {:ok, agents} ->
-        Enum.each(agents, fn agent ->
-          handle_stale_agent(agent, actor)
-        end)
-
-        length(agents)
-
-      {:error, reason} ->
-        Logger.error("Failed to check agents", reason: inspect(reason))
-        0
-    end
+    run_check(
+      fn -> list_stale_agents(timeout_threshold, actor) end,
+      fn agent -> handle_stale_agent(agent, actor) end,
+      "agents"
+    )
   end
 
   defp list_stale_agents(timeout_threshold, actor) do
@@ -267,36 +246,15 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       agent_uid: agent.uid
     )
 
-    result =
-      agent
-      |> Ash.Changeset.for_update(:lose_connection, %{}, actor: actor)
-      |> Ash.update()
-
-    case result do
-      {:ok, _updated_agent} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.error("Failed to transition agent",
-          agent_uid: agent.uid,
-          reason: inspect(reason)
-        )
-    end
+    transition_resource(agent, :lose_connection, %{}, actor, "agent", agent_uid: agent.uid)
   end
 
   defp check_checkers(state, actor) do
-    case list_failing_checkers(state.checker_failure_threshold, actor) do
-      {:ok, checkers} ->
-        Enum.each(checkers, fn checker ->
-          handle_failing_checker(checker, actor)
-        end)
-
-        length(checkers)
-
-      {:error, reason} ->
-        Logger.error("Failed to check checkers", reason: inspect(reason))
-        0
-    end
+    run_check(
+      fn -> list_failing_checkers(state.checker_failure_threshold, actor) end,
+      fn checker -> handle_failing_checker(checker, actor) end,
+      "checkers"
+    )
   end
 
   defp list_failing_checkers(threshold, actor) do
@@ -316,19 +274,41 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       consecutive_failures: checker.consecutive_failures
     )
 
+    transition_resource(
+      checker,
+      :mark_failing,
+      %{reason: "consecutive_failures"},
+      actor,
+      "checker",
+      checker_id: checker.id
+    )
+  end
+
+  defp run_check(list_fun, handle_fun, resource_name) do
+    case list_fun.() do
+      {:ok, resources} ->
+        Enum.each(resources, handle_fun)
+        length(resources)
+
+      {:error, reason} ->
+        Logger.error("Failed to check #{resource_name}", reason: inspect(reason))
+        0
+    end
+  end
+
+  defp transition_resource(resource, action, params, actor, resource_name, metadata) do
     result =
-      checker
-      |> Ash.Changeset.for_update(:mark_failing, %{reason: "consecutive_failures"}, actor: actor)
+      resource
+      |> Ash.Changeset.for_update(action, params, actor: actor)
       |> Ash.update()
 
     case result do
-      {:ok, _updated_checker} ->
+      {:ok, _updated_resource} ->
         :ok
 
       {:error, reason} ->
-        Logger.error("Failed to transition checker",
-          checker_id: checker.id,
-          reason: inspect(reason)
+        Logger.error("Failed to transition #{resource_name}",
+          Keyword.put(metadata, :reason, inspect(reason))
         )
     end
   end

@@ -3,41 +3,10 @@ defmodule ServiceRadar.Observability.DiskMetricHourly do
   Hourly disk metric rollups from `disk_metrics_hourly`.
   """
 
-  use Ash.Resource,
-    domain: ServiceRadar.Observability,
-    data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshJsonApi.Resource]
-
-  postgres do
-    table "disk_metrics_hourly"
-    repo ServiceRadar.Repo
-    schema "platform"
-    migrate? false
-  end
-
-  json_api do
-    type "disk_metric_hourly"
-
-    routes do
-      base "/disk_metrics_hourly"
-      index :read
-    end
-  end
-
-  resource do
-    require_primary_key? false
-  end
-
-  actions do
-    defaults [:read]
-  end
-
-  policies do
-    policy action_type(:read) do
-      authorize_if always()
-    end
-  end
+  use ServiceRadar.Observability.HourlyMetricResource,
+    table: "disk_metrics_hourly",
+    type: "disk_metric_hourly",
+    route: "/disk_metrics_hourly"
 
   attributes do
     attribute :bucket, :utc_datetime_usec do

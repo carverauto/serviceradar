@@ -35,6 +35,29 @@ defmodule ServiceRadar.Identity.AuthSettings do
     extensions: [AshCloak],
     authorizers: [Ash.Policy.Authorizer]
 
+  @auth_manage_permission ServiceRadar.Identity.Constants.auth_manage_permission()
+  @auth_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                      permission: @auth_manage_permission}
+  @settings_accept [
+    :mode,
+    :provider_type,
+    :oidc_client_id,
+    :oidc_discovery_url,
+    :oidc_scopes,
+    :saml_idp_metadata_url,
+    :saml_idp_metadata_xml,
+    :saml_sp_entity_id,
+    :saml_pinned_cert_fingerprints,
+    :jwt_public_key_pem,
+    :jwt_jwks_url,
+    :jwt_issuer,
+    :jwt_audience,
+    :jwt_header_name,
+    :claim_mappings,
+    :is_enabled,
+    :allow_password_fallback
+  ]
+
   postgres do
     table "auth_settings"
     repo ServiceRadar.Repo
@@ -63,25 +86,7 @@ defmodule ServiceRadar.Identity.AuthSettings do
     create :create do
       description "Create initial auth settings"
 
-      accept [
-        :mode,
-        :provider_type,
-        :oidc_client_id,
-        :oidc_discovery_url,
-        :oidc_scopes,
-        :saml_idp_metadata_url,
-        :saml_idp_metadata_xml,
-        :saml_sp_entity_id,
-        :saml_pinned_cert_fingerprints,
-        :jwt_public_key_pem,
-        :jwt_jwks_url,
-        :jwt_issuer,
-        :jwt_audience,
-        :jwt_header_name,
-        :claim_mappings,
-        :is_enabled,
-        :allow_password_fallback
-      ]
+      accept @settings_accept
 
       argument :oidc_client_secret, :string do
         sensitive? true
@@ -117,25 +122,7 @@ defmodule ServiceRadar.Identity.AuthSettings do
         description "SAML private key (will be encrypted)"
       end
 
-      accept [
-        :mode,
-        :provider_type,
-        :oidc_client_id,
-        :oidc_discovery_url,
-        :oidc_scopes,
-        :saml_idp_metadata_url,
-        :saml_idp_metadata_xml,
-        :saml_sp_entity_id,
-        :saml_pinned_cert_fingerprints,
-        :jwt_public_key_pem,
-        :jwt_jwks_url,
-        :jwt_issuer,
-        :jwt_audience,
-        :jwt_header_name,
-        :claim_mappings,
-        :is_enabled,
-        :allow_password_fallback
-      ]
+      accept @settings_accept
 
       # Encrypt secrets before save
       change fn changeset, _context ->
@@ -158,19 +145,13 @@ defmodule ServiceRadar.Identity.AuthSettings do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
-    end
+    system_bypass()
 
-    policy action([:create, :update]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
-    end
+    read_with_permission(@auth_manage_check)
+
+    action_with_permission([:create, :update], @auth_manage_check)
   end
 
   defp maybe_encrypt_secret(changeset, arg_name, encrypted_attr) do

@@ -19,6 +19,8 @@ defmodule ServiceRadar.Inventory.MergeAudit do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @merge_audit_fields [:from_device_id, :to_device_id, :reason, :confidence_score, :source, :details]
+
   postgres do
     table "merge_audit"
     repo ServiceRadar.Repo
@@ -72,7 +74,7 @@ defmodule ServiceRadar.Inventory.MergeAudit do
 
     create :record do
       description "Record a merge event"
-      accept [:from_device_id, :to_device_id, :reason, :confidence_score, :source, :details]
+      accept @merge_audit_fields
 
       change fn changeset, _context ->
         Ash.Changeset.change_new_attribute(changeset, :created_at, DateTime.utc_now())
@@ -81,20 +83,11 @@ defmodule ServiceRadar.Inventory.MergeAudit do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    # Read access for authenticated users
-    policy action_type(:read) do
-      authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
-    end
-
-    # Only operators/admins can create merge audit entries
-    policy action(:record) do
-      authorize_if expr(^actor(:role) in [:operator, :admin])
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action(:record)
   end
 
   attributes do

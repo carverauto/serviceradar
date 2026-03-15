@@ -54,6 +54,8 @@ defmodule ServiceRadar.Plugins.Manifest do
     "udp_sendto"
   ]
 
+  alias ServiceRadar.Plugins.{ConfigSchema, ValueUtils}
+
   @doc """
   Parse and validate a plugin manifest from YAML.
   """
@@ -121,8 +123,6 @@ defmodule ServiceRadar.Plugins.Manifest do
   end
 
   def from_map(_), do: {:error, ["manifest must be a map"]}
-
-  alias ServiceRadar.Plugins.ConfigSchema
 
   @doc """
   Validate an optional JSON config schema bundled with the plugin.
@@ -196,24 +196,15 @@ defmodule ServiceRadar.Plugins.Manifest do
   end
 
   defp required_string_list(map, key, errors) do
-    case fetch(map, key) do
-      value when is_list(value) ->
-        {normalize_string_list(value), validate_string_list(key, value, errors)}
-
-      nil ->
-        {[], ["missing required field: #{key}" | errors]}
-
-      _ ->
-        {[], ["#{key} must be a list of strings" | errors]}
-    end
-  end
-
-  defp validate_string_list(key, list, errors) do
-    if Enum.all?(list, &is_binary/1) and list != [] do
-      errors
-    else
-      ["#{key} must be a non-empty list of strings" | errors]
-    end
+    required_list_field(
+      map,
+      key,
+      errors,
+      &normalize_string_list/1,
+      fn list -> Enum.all?(list, &is_binary/1) and list != [] end,
+      "#{key} must be a non-empty list of strings",
+      "#{key} must be a list of strings"
+    )
   end
 
   defp required_map(map, key, errors) do
@@ -334,70 +325,52 @@ defmodule ServiceRadar.Plugins.Manifest do
     do: ["runtime must be a string" | errors]
 
   defp required_positive_int(map, key, errors) do
-    case normalize_int(fetch(map, key)) do
-      value when is_integer(value) and value > 0 ->
-        {value, errors}
-
-      nil ->
-        {nil, ["missing required field: resources.#{key}" | errors]}
-
-      _ ->
-        {nil, ["resources.#{key} must be a positive integer" | errors]}
-    end
+    int_field(
+      map,
+      key,
+      errors,
+      required?: true,
+      valid?: &(&1 > 0),
+      missing_message: "missing required field: resources.#{key}",
+      invalid_message: "resources.#{key} must be a positive integer"
+    )
   end
 
   defp optional_nonneg_int(map, key, errors) do
-    case normalize_int(fetch(map, key)) do
-      nil -> {nil, errors}
-      value when is_integer(value) and value >= 0 -> {value, errors}
-      _ -> {nil, ["resources.#{key} must be a non-negative integer" | errors]}
-    end
+    int_field(
+      map,
+      key,
+      errors,
+      required?: false,
+      valid?: &(&1 >= 0),
+      invalid_message: "resources.#{key} must be a non-negative integer"
+    )
   end
 
   defp optional_string_list(map, key, errors) do
-    case fetch(map, key) do
-      nil ->
-        {[], errors}
-
-      value when is_list(value) ->
-        {normalize_string_list(value), validate_optional_string_list(key, value, errors)}
-
-      _ ->
-        {[], ["#{key} must be a list of strings" | errors]}
-    end
+    optional_list_field(
+      map,
+      key,
+      errors,
+      &normalize_string_list/1,
+      fn list -> Enum.all?(list, &is_binary/1) end,
+      "#{key} must be a list of strings"
+    )
   end
 
   defp optional_int_list(map, key, errors) do
-    case fetch(map, key) do
-      nil ->
-        {[], errors}
-
-      value when is_list(value) ->
-        {normalize_int_list(value), validate_int_list(key, value, errors)}
-
-      _ ->
-        {[], ["#{key} must be a list of integers" | errors]}
-    end
-  end
-
-  defp validate_int_list(key, list, errors) do
-    if Enum.all?(list, fn item -> is_integer(normalize_int(item)) end) do
-      errors
-    else
-      ["#{key} must be a list of integers" | errors]
-    end
-  end
-
-  defp validate_optional_string_list(key, list, errors) do
-    if Enum.all?(list, &is_binary/1) do
-      errors
-    else
-      ["#{key} must be a list of strings" | errors]
-    end
+    optional_list_field(
+      map,
+      key,
+      errors,
+      &normalize_int_list/1,
+      fn list -> Enum.all?(list, fn item -> is_integer(normalize_int(item)) end) end,
+      "#{key} must be a list of integers"
+    )
   end
 
   defp fetch(map, key) when is_map(map) do
-    Map.get(map, key) || Map.get(map, to_string(key))
+    ValueUtils.raw_value(map, [key, to_string(key)])
   end
 
   defp normalize_map(nil), do: nil
@@ -430,4 +403,73 @@ defmodule ServiceRadar.Plugins.Manifest do
   end
 
   defp normalize_int(_), do: nil
+
+  defp required_list_field(
+         map,
+         key,
+         errors,
+         normalize_fun,
+         valid_fun,
+         invalid_message,
+         type_message
+       ) do
+    case fetch(map, key) do
+      nil ->
+        {[], ["missing required field: #{key}" | errors]}
+
+      value when is_list(value) ->
+        normalized = normalize_fun.(value)
+
+        if valid_fun.(value) do
+          {normalized, errors}
+        else
+          {normalized, [invalid_message | errors]}
+        end
+
+      _ ->
+        {[], [type_message | errors]}
+    end
+  end
+
+  defp optional_list_field(map, key, errors, normalize_fun, valid_fun, invalid_message) do
+    case fetch(map, key) do
+      nil ->
+        {[], errors}
+
+      value when is_list(value) ->
+        normalized = normalize_fun.(value)
+
+        if valid_fun.(value) do
+          {normalized, errors}
+        else
+          {normalized, [invalid_message | errors]}
+        end
+
+      _ ->
+        {[], [invalid_message | errors]}
+    end
+  end
+
+  defp int_field(map, key, errors, opts) do
+    raw = fetch(map, key)
+    value = normalize_int(raw)
+    required? = Keyword.get(opts, :required?, false)
+    valid_fun = Keyword.fetch!(opts, :valid?)
+    invalid_message = Keyword.fetch!(opts, :invalid_message)
+    missing_message = Keyword.get(opts, :missing_message)
+
+    cond do
+      is_nil(raw) and required? ->
+        {nil, [missing_message | errors]}
+
+      is_nil(raw) ->
+        {nil, errors}
+
+      is_integer(value) and valid_fun.(value) ->
+        {value, errors}
+
+      true ->
+        {nil, [invalid_message | errors]}
+    end
+  end
 end

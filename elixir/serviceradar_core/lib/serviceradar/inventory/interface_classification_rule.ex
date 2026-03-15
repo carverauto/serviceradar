@@ -12,6 +12,23 @@ defmodule ServiceRadar.Inventory.InterfaceClassificationRule do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  @classification_rule_fields [
+    :name,
+    :enabled,
+    :priority,
+    :vendor_pattern,
+    :model_pattern,
+    :sys_descr_pattern,
+    :if_name_pattern,
+    :if_descr_pattern,
+    :if_alias_pattern,
+    :if_type_ids,
+    :ip_cidr_allow,
+    :ip_cidr_deny,
+    :classifications,
+    :metadata
+  ]
+
   postgres do
     table "interface_classification_rules"
     repo ServiceRadar.Repo
@@ -43,66 +60,21 @@ defmodule ServiceRadar.Inventory.InterfaceClassificationRule do
     end
 
     create :create do
-      accept [
-        :name,
-        :enabled,
-        :priority,
-        :vendor_pattern,
-        :model_pattern,
-        :sys_descr_pattern,
-        :if_name_pattern,
-        :if_descr_pattern,
-        :if_alias_pattern,
-        :if_type_ids,
-        :ip_cidr_allow,
-        :ip_cidr_deny,
-        :classifications,
-        :metadata
-      ]
+      accept @classification_rule_fields
     end
 
     update :update do
-      accept [
-        :name,
-        :enabled,
-        :priority,
-        :vendor_pattern,
-        :model_pattern,
-        :sys_descr_pattern,
-        :if_name_pattern,
-        :if_descr_pattern,
-        :if_alias_pattern,
-        :if_type_ids,
-        :ip_cidr_allow,
-        :ip_cidr_deny,
-        :classifications,
-        :metadata
-      ]
+      accept @classification_rule_fields
     end
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:read) do
-      authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
-    end
+    system_bypass()
+    operator_action_type([:create, :update])
+    admin_action_type(:destroy)
+    read_viewer_plus()
   end
 
   attributes do

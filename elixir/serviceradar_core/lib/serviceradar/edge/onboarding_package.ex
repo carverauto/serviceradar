@@ -28,6 +28,38 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshOban]
 
+  @package_fields [
+    :label,
+    :component_id,
+    :component_type,
+    :parent_type,
+    :parent_id,
+    :gateway_id,
+    :site,
+    :security_mode,
+    :selectors,
+    :checker_kind,
+    :checker_config_json,
+    :metadata_json,
+    :notes,
+    :created_by,
+    :downstream_spiffe_id
+  ]
+  @token_fields [
+    :join_token_ciphertext,
+    :join_token_expires_at,
+    :bundle_ciphertext,
+    :download_token_hash,
+    :download_token_expires_at,
+    :downstream_spiffe_id,
+    :downstream_entry_id
+  ]
+  @metadata_fields [:metadata_json]
+  @activation_fields [:activated_from_ip, :last_seen_spiffe_id]
+  @soft_delete_fields [:deleted_by, :deleted_reason]
+  @admin_only_actions [:activate, :revoke, :soft_delete]
+  @operator_actions [:deliver, :update_tokens, :update_metadata]
+
   postgres do
     table "edge_onboarding_packages"
     repo ServiceRadar.Repo
@@ -98,42 +130,18 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     end
 
     create :create do
-      accept [
-        :label,
-        :component_id,
-        :component_type,
-        :parent_type,
-        :parent_id,
-        :gateway_id,
-        :site,
-        :security_mode,
-        :selectors,
-        :checker_kind,
-        :checker_config_json,
-        :metadata_json,
-        :notes,
-        :created_by,
-        :downstream_spiffe_id
-      ]
+      accept @package_fields
     end
 
     update :update_tokens do
       description "Update token fields after generation"
 
-      accept [
-        :join_token_ciphertext,
-        :join_token_expires_at,
-        :bundle_ciphertext,
-        :download_token_hash,
-        :download_token_expires_at,
-        :downstream_spiffe_id,
-        :downstream_entry_id
-      ]
+      accept @token_fields
     end
 
     update :update_metadata do
       description "Update metadata fields for the package"
-      accept [:metadata_json]
+      accept @metadata_fields
     end
 
     update :deliver do
@@ -144,7 +152,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
     update :activate do
       description "Mark package as activated (edge component running)"
-      accept [:activated_from_ip, :last_seen_spiffe_id]
+      accept @activation_fields
 
       change transition_state(:activated)
       change set_attribute(:activated_at, &DateTime.utc_now/0)
@@ -165,7 +173,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
     update :soft_delete do
       description "Soft delete a package"
-      accept [:deleted_by, :deleted_reason]
+      accept @soft_delete_fields
 
       change transition_state(:deleted)
       change set_attribute(:deleted_at, &DateTime.utc_now/0)
@@ -173,43 +181,31 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
+
+    system_bypass()
 
     # Schema isolation is enforced by the DB connection's search_path.
     # Policies here only check role-based access.
 
     # Read access: Admins/operators can read
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
+    read_operator_plus()
 
     # Create packages: Admins/operators can create
-    policy action(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
+    operator_action(:create)
 
     # State transitions: Admins only (except deliver and update_tokens)
-    policy action([:activate, :revoke, :soft_delete]) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    admin_action(@admin_only_actions)
 
     # Expire action: Admins or AshOban scheduler (no actor)
     policy action(:expire) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
       # Allow AshOban scheduler (no actor) to expire packages
       authorize_if ServiceRadar.Policies.Checks.ActorIsNil
     end
 
     # Operators can also deliver and update tokens
-    policy action([:deliver, :update_tokens, :update_metadata]) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
+    operator_action(@operator_actions)
   end
 
   changes do

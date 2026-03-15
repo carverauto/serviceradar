@@ -16,9 +16,6 @@ defmodule ServiceRadar.NetworkDiscovery.RouteAnalyzer do
   emits ECMP branches, and detects loops/blackholes.
   """
 
-  # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
-  # credo:disable-for-this-file Credo.Check.Refactor.Nesting
-
   import Bitwise
 
   @default_max_hops 16
@@ -63,91 +60,83 @@ defmodule ServiceRadar.NetworkDiscovery.RouteAnalyzer do
   defp walk(state, device_id, visited, hops, depth) do
     cond do
       depth >= state.max_hops ->
-        %{
-          status: :max_hops,
-          destination_ip: state.destination_ip,
-          start_device_id: first_hop_device(hops, device_id),
-          hops: Enum.reverse(hops),
-          terminal_device_id: device_id,
-          reason: "maximum_hops_exceeded"
-        }
+        route_result(state, :max_hops, device_id, hops, "maximum_hops_exceeded")
 
       MapSet.member?(visited, device_id) ->
-        %{
-          status: :loop,
-          destination_ip: state.destination_ip,
-          start_device_id: first_hop_device(hops, device_id),
-          hops: Enum.reverse(hops),
-          terminal_device_id: device_id,
-          reason: "loop_detected"
-        }
+        route_result(state, :loop, device_id, hops, "loop_detected")
 
       true ->
-        routes = Map.get(state.routes_by_device, device_id, [])
-
-        case longest_prefix_match(routes, state.destination_int) do
-          nil ->
-            %{
-              status: :blackhole,
-              destination_ip: state.destination_ip,
-              start_device_id: first_hop_device(hops, device_id),
-              hops: Enum.reverse(hops),
-              terminal_device_id: device_id,
-              reason: "no_matching_route"
-            }
-
-          %{prefix: prefix, prefix_length: prefix_length} = match ->
-            branches = normalize_next_hops(match)
-
-            hop = %{
-              device_id: device_id,
-              selected_prefix: prefix,
-              prefix_length: prefix_length,
-              ecmp_branches: branches
-            }
-
-            if branches == [] do
-              %{
-                status: :delivered,
-                destination_ip: state.destination_ip,
-                start_device_id: first_hop_device(hops, device_id),
-                hops: Enum.reverse([hop | hops]),
-                terminal_device_id: device_id,
-                reason: "connected_or_terminal_route"
-              }
-            else
-              next_device =
-                branches
-                |> Enum.sort_by(fn b ->
-                  {
-                    Map.get(b, :target_device_id) || Map.get(b, "target_device_id") || "",
-                    Map.get(b, :next_hop_ip) || Map.get(b, "next_hop_ip") || ""
-                  }
-                end)
-                |> List.first()
-                |> Map.get(:target_device_id)
-
-              if is_binary(next_device) and String.trim(next_device) != "" do
-                walk(
-                  state,
-                  next_device,
-                  MapSet.put(visited, device_id),
-                  [hop | hops],
-                  depth + 1
-                )
-              else
-                %{
-                  status: :blackhole,
-                  destination_ip: state.destination_ip,
-                  start_device_id: first_hop_device(hops, device_id),
-                  hops: Enum.reverse([hop | hops]),
-                  terminal_device_id: device_id,
-                  reason: "next_hop_without_target_device"
-                }
-              end
-            end
-        end
+        resolve_route(state, device_id, visited, hops, depth)
     end
+  end
+
+  defp resolve_route(state, device_id, visited, hops, depth) do
+    case longest_prefix_match(Map.get(state.routes_by_device, device_id, []), state.destination_int) do
+      nil ->
+        route_result(state, :blackhole, device_id, hops, "no_matching_route")
+
+      match ->
+        continue_from_match(state, device_id, visited, hops, depth, match)
+    end
+  end
+
+  defp continue_from_match(state, device_id, visited, hops, depth, match) do
+    hop = build_hop(device_id, match)
+    hop_path = [hop | hops]
+
+    case next_device_from_branches(hop.ecmp_branches) do
+      :connected ->
+        route_result(state, :delivered, device_id, hop_path, "connected_or_terminal_route")
+
+      {:ok, next_device} ->
+        walk(state, next_device, MapSet.put(visited, device_id), hop_path, depth + 1)
+
+      :missing_target ->
+        route_result(state, :blackhole, device_id, hop_path, "next_hop_without_target_device")
+    end
+  end
+
+  defp build_hop(device_id, %{prefix: prefix, prefix_length: prefix_length} = match) do
+    %{
+      device_id: device_id,
+      selected_prefix: prefix,
+      prefix_length: prefix_length,
+      ecmp_branches: normalize_next_hops(match)
+    }
+  end
+
+  defp next_device_from_branches([]), do: :connected
+
+  defp next_device_from_branches(branches) do
+    case branches |> Enum.sort_by(&branch_sort_key/1) |> List.first() |> Map.get(:target_device_id) do
+      next_device when is_binary(next_device) ->
+        if String.trim(next_device) == "" do
+          :missing_target
+        else
+          {:ok, next_device}
+        end
+
+      _ ->
+        :missing_target
+    end
+  end
+
+  defp branch_sort_key(branch) do
+    {
+      Map.get(branch, :target_device_id) || Map.get(branch, "target_device_id") || "",
+      Map.get(branch, :next_hop_ip) || Map.get(branch, "next_hop_ip") || ""
+    }
+  end
+
+  defp route_result(state, status, device_id, hops, reason) do
+    %{
+      status: status,
+      destination_ip: state.destination_ip,
+      start_device_id: first_hop_device(hops, device_id),
+      hops: Enum.reverse(hops),
+      terminal_device_id: device_id,
+      reason: reason
+    }
   end
 
   defp first_hop_device([last | _], _fallback), do: Map.get(last, :device_id)

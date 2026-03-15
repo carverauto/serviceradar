@@ -19,6 +19,23 @@ defmodule ServiceRadar.Infrastructure.Partition do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @partition_fields [
+    :name,
+    :slug,
+    :description,
+    :enabled,
+    :cidr_ranges,
+    :default_gateway,
+    :dns_servers,
+    :site,
+    :region,
+    :environment,
+    :connectivity_type,
+    :proxy_endpoint,
+    :metadata
+  ]
+  @partition_update_fields @partition_fields -- [:slug]
+
   postgres do
     table "partitions"
     repo ServiceRadar.Repo
@@ -62,21 +79,7 @@ defmodule ServiceRadar.Infrastructure.Partition do
     end
 
     create :create do
-      accept [
-        :name,
-        :slug,
-        :description,
-        :enabled,
-        :cidr_ranges,
-        :default_gateway,
-        :dns_servers,
-        :site,
-        :region,
-        :environment,
-        :connectivity_type,
-        :proxy_endpoint,
-        :metadata
-      ]
+      accept @partition_fields
 
       change fn changeset, _context ->
         now = DateTime.utc_now()
@@ -88,20 +91,7 @@ defmodule ServiceRadar.Infrastructure.Partition do
     end
 
     update :update do
-      accept [
-        :name,
-        :description,
-        :enabled,
-        :cidr_ranges,
-        :default_gateway,
-        :dns_servers,
-        :site,
-        :region,
-        :environment,
-        :connectivity_type,
-        :proxy_endpoint,
-        :metadata
-      ]
+      accept @partition_update_fields
 
       change set_attribute(:updated_at, &DateTime.utc_now/0)
     end
@@ -120,29 +110,12 @@ defmodule ServiceRadar.Infrastructure.Partition do
   end
 
   policies do
-    # Import common policy checks
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Read access
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Create partitions: Admins only
-    policy action(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Update/enable/disable: Admins only
-    policy action([:update, :enable, :disable]) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    admin_action(:create)
+    admin_action([:update, :enable, :disable])
   end
 
   changes do

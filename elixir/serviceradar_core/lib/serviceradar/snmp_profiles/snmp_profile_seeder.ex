@@ -6,31 +6,13 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileSeeder do
   when no explicit targeting profile matches.
   """
 
-  use GenServer
+  use ServiceRadar.DelayedSeeder
 
   require Logger
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.SNMPProfiles.SNMPProfile
-
-  @seed_delay_ms 5_000
-
-  def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-  end
-
-  @impl true
-  def init(_opts) do
-    Process.send_after(self(), :seed, @seed_delay_ms)
-    {:ok, %{}}
-  end
-
-  @impl true
-  def handle_info(:seed, state) do
-    seed()
-    {:noreply, state}
-  end
 
   @spec seed() :: :ok | {:error, term()}
   def seed do

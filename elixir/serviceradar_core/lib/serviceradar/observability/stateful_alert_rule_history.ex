@@ -11,6 +11,15 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleHistory do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @history_fields [
+    :event_time,
+    :rule_id,
+    :group_key,
+    :event_type,
+    :alert_id,
+    :details
+  ]
+
   postgres do
     table "stateful_alert_rule_history"
     repo ServiceRadar.Repo
@@ -33,14 +42,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleHistory do
     end
 
     create :record do
-      accept [
-        :event_time,
-        :rule_id,
-        :group_key,
-        :event_type,
-        :alert_id,
-        :details
-      ]
+      accept @history_fields
 
       change fn changeset, _context ->
         if is_nil(Ash.Changeset.get_attribute(changeset, :event_time)) do
@@ -53,21 +55,11 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleHistory do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action(:record) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action(:record)
   end
 
   changes do

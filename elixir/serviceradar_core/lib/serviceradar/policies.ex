@@ -68,6 +68,127 @@ defmodule ServiceRadar.Policies do
     end
   end
 
+  @doc """
+  Allow system actors to bypass all policy checks.
+  """
+  defmacro system_bypass do
+    quote do
+      bypass always() do
+        authorize_if actor_attribute_equals(:role, :system)
+      end
+    end
+  end
+
+  @doc """
+  Allow all authenticated actors in the deployment to read.
+  """
+  defmacro read_all do
+    quote do
+      policy action_type(:read) do
+        authorize_if always()
+      end
+    end
+  end
+
+  @doc """
+  Allow viewers, operators, and admins to read.
+  """
+  defmacro read_viewer_plus do
+    quote do
+      policy action_type(:read) do
+        authorize_if is_viewer()
+      end
+    end
+  end
+
+  @doc """
+  Allow reads when the actor satisfies the provided permission check.
+  """
+  defmacro read_with_permission(check) do
+    quote do
+      policy action_type(:read) do
+        authorize_if unquote(check)
+      end
+    end
+  end
+
+  @doc """
+  Allow operators and admins to read.
+  """
+  defmacro read_operator_plus do
+    quote do
+      policy action_type(:read) do
+        authorize_if is_operator()
+      end
+    end
+  end
+
+  @doc """
+  Restrict one or more action types to admins.
+  """
+  defmacro admin_action_type(action_type_or_types) do
+    quote do
+      policy action_type(unquote(action_type_or_types)) do
+        authorize_if is_admin()
+      end
+    end
+  end
+
+  @doc """
+  Restrict one or more action types to operators and admins.
+  """
+  defmacro operator_action_type(action_type_or_types) do
+    quote do
+      policy action_type(unquote(action_type_or_types)) do
+        authorize_if is_operator()
+      end
+    end
+  end
+
+  @doc """
+  Restrict one or more named actions to admins.
+  """
+  defmacro admin_action(actions) do
+    quote do
+      policy action(unquote(actions)) do
+        authorize_if is_admin()
+      end
+    end
+  end
+
+  @doc """
+  Restrict one or more named actions to operators and admins.
+  """
+  defmacro operator_action(actions) do
+    quote do
+      policy action(unquote(actions)) do
+        authorize_if is_operator()
+      end
+    end
+  end
+
+  @doc """
+  Restrict one or more action types to actors satisfying the provided permission check.
+  """
+  defmacro action_type_with_permission(action_type_or_types, check) do
+    quote do
+      policy action_type(unquote(action_type_or_types)) do
+        authorize_if unquote(check)
+      end
+    end
+  end
+
+  @doc """
+  Restrict one or more named actions to actors satisfying the provided permission check.
+  """
+  defmacro action_with_permission(actions, check) do
+    quote do
+      policy action(unquote(actions)) do
+        authorize_if unquote(check)
+      end
+    end
+  end
+
   # ===========================================================================
   # Partition-Aware Policies
   # ===========================================================================

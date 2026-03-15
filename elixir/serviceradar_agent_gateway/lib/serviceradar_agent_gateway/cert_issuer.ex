@@ -134,8 +134,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
       end
     rescue
       error ->
-        Logger.error("[CertIssuer] Failed to issue cert: #{Exception.message(error)}")
-        {:error, :certificate_issue_failed}
+        {:error, {:certificate_issue_failed, error}}
     after
       File.rm_rf(temp_dir)
     end
@@ -153,10 +152,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   end
 
   defp ensure_serial(path) do
-    case File.exists?(path) do
-      true -> :ok
-      false -> File.write(path, "01\n")
-    end
+    if File.exists?(path), do: :ok, else: File.write(path, "01\n")
   end
 
   defp build_bundle(cert_pem, key_pem, ca_chain_pem) do
@@ -188,9 +184,6 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     DNS.1 = #{cn}
     """
 
-    case File.write(path, contents) do
-      :ok -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+    File.write(path, contents)
   end
 end

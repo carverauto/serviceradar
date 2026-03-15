@@ -14,6 +14,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceSNMPCredential
+  alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SrqlTargetResolver
   alias ServiceRadar.Vault
@@ -105,12 +106,22 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
   def to_mapper_credentials(%{} = credential) do
     %{
-      "version" => format_version(Map.get(credential, :version)),
+      "version" => ProtocolFormatter.version(Map.get(credential, :version), allow_binary?: true),
       "community" => Map.get(credential, :community),
       "username" => Map.get(credential, :username),
-      "auth_protocol" => format_auth_protocol(Map.get(credential, :auth_protocol)),
+      "auth_protocol" =>
+        ProtocolFormatter.auth_protocol(
+          Map.get(credential, :auth_protocol),
+          style: :compact,
+          allow_binary?: true
+        ),
       "auth_password" => Map.get(credential, :auth_password),
-      "privacy_protocol" => format_priv_protocol(Map.get(credential, :priv_protocol)),
+      "privacy_protocol" =>
+        ProtocolFormatter.priv_protocol(
+          Map.get(credential, :priv_protocol),
+          style: :compact,
+          allow_binary?: true
+        ),
       "privacy_password" => Map.get(credential, :priv_password)
     }
     |> compact_map()
@@ -276,33 +287,6 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   defp present?(nil), do: false
   defp present?(""), do: false
   defp present?(_), do: true
-
-  defp format_version(:v1), do: "v1"
-  defp format_version(:v2c), do: "v2c"
-  defp format_version(:v3), do: "v3"
-  defp format_version(nil), do: "v2c"
-  defp format_version(other) when is_binary(other), do: other
-  defp format_version(_), do: "v2c"
-
-  defp format_auth_protocol(nil), do: nil
-  defp format_auth_protocol(:md5), do: "MD5"
-  defp format_auth_protocol(:sha), do: "SHA"
-  defp format_auth_protocol(:sha224), do: "SHA224"
-  defp format_auth_protocol(:sha256), do: "SHA256"
-  defp format_auth_protocol(:sha384), do: "SHA384"
-  defp format_auth_protocol(:sha512), do: "SHA512"
-  defp format_auth_protocol(protocol) when is_binary(protocol), do: String.upcase(protocol)
-  defp format_auth_protocol(_), do: nil
-
-  defp format_priv_protocol(nil), do: nil
-  defp format_priv_protocol(:des), do: "DES"
-  defp format_priv_protocol(:aes), do: "AES"
-  defp format_priv_protocol(:aes192), do: "AES192"
-  defp format_priv_protocol(:aes256), do: "AES256"
-  defp format_priv_protocol(:aes192c), do: "AES192"
-  defp format_priv_protocol(:aes256c), do: "AES256"
-  defp format_priv_protocol(protocol) when is_binary(protocol), do: String.upcase(protocol)
-  defp format_priv_protocol(_), do: nil
 
   defp compact_map(map) do
     Map.reject(map, fn {_key, value} -> value in [nil, ""] end)

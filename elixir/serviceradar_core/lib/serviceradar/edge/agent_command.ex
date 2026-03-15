@@ -14,6 +14,17 @@ defmodule ServiceRadar.Edge.AgentCommand do
 
   import Ash.Expr
 
+  @command_fields [
+    :command_type,
+    :agent_id,
+    :partition_id,
+    :payload,
+    :context,
+    :ttl_seconds,
+    :expires_at,
+    :requested_by
+  ]
+
   postgres do
     table "agent_commands"
     repo ServiceRadar.Repo
@@ -61,16 +72,7 @@ defmodule ServiceRadar.Edge.AgentCommand do
     end
 
     create :create do
-      accept [
-        :command_type,
-        :agent_id,
-        :partition_id,
-        :payload,
-        :context,
-        :ttl_seconds,
-        :expires_at,
-        :requested_by
-      ]
+      accept @command_fields
 
       change fn changeset, _context ->
         ttl = Ash.Changeset.get_attribute(changeset, :ttl_seconds) || 60
@@ -162,14 +164,10 @@ defmodule ServiceRadar.Edge.AgentCommand do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
+    system_bypass()
+    read_operator_plus()
 
     policy action([
              :create,

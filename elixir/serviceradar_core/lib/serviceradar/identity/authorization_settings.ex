@@ -12,6 +12,12 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
     notifiers: [ServiceRadar.Identity.AuthorizationSettingsNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
+  @allowed_roles ServiceRadar.Identity.Constants.allowed_roles()
+  @auth_manage_permission ServiceRadar.Identity.Constants.auth_manage_permission()
+  @auth_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                      permission: @auth_manage_permission}
+  @settings_fields [:default_role, :role_mappings]
+
   postgres do
     table "authorization_settings"
     repo ServiceRadar.Repo
@@ -35,32 +41,26 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
 
     create :create do
       description "Create authorization settings"
-      accept [:default_role, :role_mappings]
+      accept @settings_fields
       change set_attribute(:key, "default")
       validate ServiceRadar.Identity.Validations.RoleMappings
     end
 
     update :update do
       description "Update authorization settings"
-      accept [:default_role, :role_mappings]
+      accept @settings_fields
       validate ServiceRadar.Identity.Validations.RoleMappings
     end
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
-    end
+    system_bypass()
 
-    policy action([:create, :update]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
-    end
+    read_with_permission(@auth_manage_check)
+
+    action_with_permission([:create, :update], @auth_manage_check)
   end
 
   attributes do
@@ -75,7 +75,7 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
       allow_nil? false
       default :viewer
       public? true
-      constraints one_of: [:viewer, :helpdesk, :operator, :admin]
+      constraints one_of: @allowed_roles
       description "Default role assigned when no mapping matches"
     end
 

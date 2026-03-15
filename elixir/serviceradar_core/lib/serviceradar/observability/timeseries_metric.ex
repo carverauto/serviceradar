@@ -6,37 +6,10 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
   migrations that match the Go schema exactly.
   """
 
-  use Ash.Resource,
-    domain: ServiceRadar.Observability,
-    data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshJsonApi.Resource]
-
-  postgres do
-    table "timeseries_metrics"
-    repo ServiceRadar.Repo
-    schema "platform"
-    # Don't generate migrations - table is managed by raw SQL migration
-    # that creates TimescaleDB hypertable matching Go schema
-    migrate? false
-  end
-
-  json_api do
-    type "timeseries_metric"
-
-    routes do
-      base "/timeseries_metrics"
-
-      index :read
-    end
-  end
-
-  # DB connection's search_path determines the schema
-
-  resource do
-    # TimescaleDB hypertables don't have traditional primary keys
-    require_primary_key? false
-  end
+  use ServiceRadar.Observability.RawMetricResource,
+    table: "timeseries_metrics",
+    type: "timeseries_metric",
+    route: "/timeseries_metrics"
 
   actions do
     defaults [:read]
@@ -76,16 +49,6 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
         :metadata,
         :created_at
       ]
-    end
-  end
-
-  policies do
-    policy action_type(:read) do
-      authorize_if always()
-    end
-
-    policy action(:create) do
-      authorize_if always()
     end
   end
 

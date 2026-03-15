@@ -32,6 +32,10 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  @alias_fields [:device_id, :partition, :alias_type, :alias_value, :metadata]
+  @metadata_fields [:metadata]
+  @device_fields [:device_id]
+
   postgres do
     table "device_alias_states"
     repo ServiceRadar.Repo
@@ -99,7 +103,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
 
     create :detect do
       description "Create a new alias detection"
-      accept [:device_id, :partition, :alias_type, :alias_value, :metadata]
+      accept @alias_fields
 
       change fn changeset, _context ->
         now = DateTime.utc_now()
@@ -113,7 +117,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
 
     update :record_sighting do
       description "Record a new sighting and confirm if threshold is met"
-      accept [:metadata]
+      accept @metadata_fields
       argument :confirm_threshold, :integer, default: 3
 
       change atomic_update(:last_seen_at, expr(now()))
@@ -133,7 +137,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
 
     update :reassign_device do
       description "Reassign alias state to a new device (used during merges)"
-      accept [:device_id]
+      accept @device_fields
       change set_attribute(:updated_at, &DateTime.utc_now/0)
     end
 
@@ -149,7 +153,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
       description "Promote detected alias to confirmed via sweep match (bypass threshold)"
       # Non-atomic due to metadata merge function
       require_atomic? false
-      accept [:metadata]
+      accept @metadata_fields
 
       change transition_state(:confirmed)
       change set_attribute(:last_seen_at, &DateTime.utc_now/0)
@@ -172,7 +176,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
 
     update :update_metadata do
       description "Update alias metadata (triggers updated state)"
-      accept [:metadata]
+      accept @metadata_fields
 
       change transition_state(:updated)
       change set_attribute(:last_seen_at, &DateTime.utc_now/0)
@@ -219,11 +223,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
       authorize_if always()
     end
 
-    policy action_type(:create) do
-      authorize_if always()
-    end
-
-    policy action_type(:update) do
+    policy action_type([:create, :update]) do
       authorize_if always()
     end
   end

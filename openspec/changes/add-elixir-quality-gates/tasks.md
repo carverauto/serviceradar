@@ -20,3 +20,12 @@
 
 - [x] 4.1 Document the standard Elixir analyzer contract and local usage in repo docs
 - [x] 4.2 Record the deferred issue #3029 candidates (`Styler`, `Boundary`, `rustywind`, `ex_dna`, `ex_slop`) as follow-up evaluation work
+
+## 5. Deferred Analyzer Follow-Up
+
+- [x] 5.1 Update the managed analyzer contract to run `mix deps.audit` and approved `ex_slop` Credo checks across the `elixir/` workspace
+- [x] 5.2 Add any shared analyzer configuration needed to keep `ex_slop` actionable without ad hoc CI exceptions
+- [x] 5.3 Add `ex_dna` to the managed analyzer contract with repo-owned configuration that suppresses framework DSL noise without ad hoc CI exceptions
+- [x] 5.4 Reduce or remediate representative duplicate-code findings so `ex_dna` can pass in managed projects
+- [x] 5.5 Re-run the managed analyzer contract for representative Mix projects and tune findings or suppressions in version-controlled config
+- [x] 5.6 Keep `Styler`, `Boundary`, and `rustywind` explicitly deferred with recorded rationale

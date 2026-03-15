@@ -19,6 +19,44 @@ defmodule ServiceRadar.Inventory.Interface do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  @devices_view_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                       permission: "devices.view"}
+  @devices_update_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "devices.update"}
+  @devices_delete_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                         permission: "devices.delete"}
+  @interface_fields [
+    :timestamp,
+    :device_id,
+    :interface_uid,
+    :agent_id,
+    :gateway_id,
+    :device_ip,
+    :if_index,
+    :if_name,
+    :if_descr,
+    :if_alias,
+    :if_speed,
+    :speed_bps,
+    :if_phys_address,
+    :ip_addresses,
+    :if_admin_status,
+    :if_oper_status,
+    :if_type,
+    :if_type_name,
+    :interface_kind,
+    :classifications,
+    :classification_meta,
+    :classification_source,
+    :mtu,
+    :duplex,
+    :metadata,
+    :available_metrics,
+    :partition,
+    :created_at
+  ]
+  @device_fields [:device_id]
+
   postgres do
     table "discovered_interfaces"
     repo ServiceRadar.Repo
@@ -52,41 +90,12 @@ defmodule ServiceRadar.Inventory.Interface do
     defaults [:read]
 
     create :create do
-      accept [
-        :timestamp,
-        :device_id,
-        :interface_uid,
-        :agent_id,
-        :gateway_id,
-        :device_ip,
-        :if_index,
-        :if_name,
-        :if_descr,
-        :if_alias,
-        :if_speed,
-        :speed_bps,
-        :if_phys_address,
-        :ip_addresses,
-        :if_admin_status,
-        :if_oper_status,
-        :if_type,
-        :if_type_name,
-        :interface_kind,
-        :classifications,
-        :classification_meta,
-        :classification_source,
-        :mtu,
-        :duplex,
-        :metadata,
-        :available_metrics,
-        :partition,
-        :created_at
-      ]
+      accept @interface_fields
     end
 
     update :reassign_device do
       description "Reassign interface records to a new device (used during merges)"
-      accept [:device_id]
+      accept @device_fields
     end
 
     destroy :destroy do
@@ -133,27 +142,19 @@ defmodule ServiceRadar.Inventory.Interface do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.update"}
-    end
+    # System actors can perform all operations (schema isolation via search_path)
+    system_bypass()
+
+    action_type_with_permission(:create, @devices_update_check)
 
     # Read access for authenticated users
-    policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.view"}
-    end
+    read_with_permission(@devices_view_check)
 
-    policy action_type(:update) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.update"}
-    end
+    action_type_with_permission(:update, @devices_update_check)
 
-    policy action_type(:destroy) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.delete"}
-    end
+    action_type_with_permission(:destroy, @devices_delete_check)
   end
 
   attributes do

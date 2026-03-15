@@ -35,6 +35,18 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @result_fields [
+    :execution_id,
+    :ip,
+    :hostname,
+    :status,
+    :response_time_ms,
+    :sweep_modes_results,
+    :open_ports,
+    :error_message,
+    :device_id
+  ]
+
   postgres do
     table "sweep_host_results"
     repo ServiceRadar.Repo
@@ -60,33 +72,13 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
     defaults [:read, :destroy]
 
     create :create do
-      accept [
-        :execution_id,
-        :ip,
-        :hostname,
-        :status,
-        :response_time_ms,
-        :sweep_modes_results,
-        :open_ports,
-        :error_message,
-        :device_id
-      ]
+      accept @result_fields
     end
 
     create :bulk_create do
       description "Bulk create host results from sweep"
 
-      accept [
-        :execution_id,
-        :ip,
-        :hostname,
-        :status,
-        :response_time_ms,
-        :sweep_modes_results,
-        :open_ports,
-        :error_message,
-        :device_id
-      ]
+      accept @result_fields
     end
 
     read :by_execution do
@@ -131,27 +123,12 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
   end
 
   policies do
-    # System actors can do anything
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # System can create results (from sweep execution)
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # All authenticated users can read results
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    system_bypass()
+    operator_action_type(:create)
+    admin_action_type(:destroy)
+    read_all()
   end
 
   attributes do

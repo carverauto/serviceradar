@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.NetworkDiscovery.TopologyLink
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
+  alias ServiceRadar.Observability.TimeseriesSeriesKey
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Topology.GodViewStream
   alias ServiceRadarWebNG.Topology.Native
@@ -2213,28 +2214,28 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
   end
 
   defp insert_metric(timestamp, device_id, if_index, metric_name, value) do
+    row = %{
+      timestamp: timestamp,
+      gateway_id: "gw-god-view-test-#{System.unique_integer([:positive])}",
+      agent_id: "agent-god-view-test",
+      metric_name: metric_name,
+      metric_type: "gauge",
+      device_id: device_id,
+      value: value * 1.0,
+      unit: "",
+      tags: %{},
+      partition: "default",
+      scale: 1.0,
+      is_delta: true,
+      target_device_ip: nil,
+      if_index: if_index,
+      metadata: %{},
+      created_at: DateTime.utc_now()
+    }
+
     Repo.insert_all(
       "timeseries_metrics",
-      [
-        %{
-          timestamp: timestamp,
-          gateway_id: "gw-god-view-test-#{System.unique_integer([:positive])}",
-          agent_id: "agent-god-view-test",
-          metric_name: metric_name,
-          metric_type: "gauge",
-          device_id: device_id,
-          value: value * 1.0,
-          unit: "",
-          tags: %{},
-          partition: "default",
-          scale: 1.0,
-          is_delta: true,
-          target_device_ip: nil,
-          if_index: if_index,
-          metadata: %{},
-          created_at: DateTime.utc_now()
-        }
-      ],
+      [Map.put(row, :series_key, TimeseriesSeriesKey.build(row))],
       timeout: 30_000
     )
   end
