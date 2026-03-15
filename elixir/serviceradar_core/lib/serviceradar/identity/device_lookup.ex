@@ -191,25 +191,13 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   def lookup_detected_aliases_by_ip([], _opts), do: %{}
 
   def lookup_detected_aliases_by_ip(ips, opts) do
-    actor = Keyword.get(opts, :actor)
-    partition = Keyword.get(opts, :partition)
-    include_deleted = Keyword.get(opts, :include_deleted, false)
-
-    case read_detected_alias_states(ips, partition, actor) do
-      {:ok, []} ->
-        %{}
-
-      {:ok, aliases} ->
-        devices = load_alias_devices(aliases, actor, include_deleted)
-        build_detected_alias_map(devices, aliases)
-
-      {:error, _} ->
-        %{}
-    end
-  rescue
-    e ->
-      Logger.warning("Detected alias lookup failed: #{inspect(e)}")
-      %{}
+    lookup_alias_state_map(
+      ips,
+      opts,
+      &read_detected_alias_states/3,
+      &build_detected_alias_map/2,
+      "Detected alias lookup failed"
+    )
   end
 
   defp fetch_cache_hits(unique_ips, true), do: IdentityCache.get_batch(unique_ips)
@@ -433,25 +421,35 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   defp lookup_aliases_by_ip([], _opts), do: %{}
 
   defp lookup_aliases_by_ip(ips, opts) do
+    lookup_alias_state_map(
+      ips,
+      opts,
+      &read_alias_states/3,
+      &build_alias_map/2,
+      "Alias lookup failed"
+    )
+  end
+
+  defp lookup_alias_state_map(ips, opts, reader, builder, error_message) do
     actor = Keyword.get(opts, :actor)
     partition = Keyword.get(opts, :partition)
     include_deleted = Keyword.get(opts, :include_deleted, false)
 
-    case read_alias_states(ips, partition, actor) do
+    case reader.(ips, partition, actor) do
       {:ok, []} ->
         %{}
 
       {:ok, aliases} ->
         aliases
         |> load_alias_devices(actor, include_deleted)
-        |> build_alias_map(aliases)
+        |> builder.(aliases)
 
       {:error, _} ->
         %{}
     end
   rescue
     e ->
-      Logger.warning("Alias lookup failed: #{inspect(e)}")
+      Logger.warning("#{error_message}: #{inspect(e)}")
       %{}
   end
 

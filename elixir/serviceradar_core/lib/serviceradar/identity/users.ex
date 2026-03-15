@@ -30,11 +30,8 @@ defmodule ServiceRadar.Identity.Users do
   """
   @spec get_by_email(String.t(), keyword()) :: User.t() | nil
   def get_by_email(email, opts \\ []) when is_binary(email) do
-    actor = Keyword.get(opts, :actor)
-    authorize? = Keyword.get(opts, :authorize?, true)
-
     case User
-         |> Ash.Query.for_read(:by_email, %{email: email}, actor: actor, authorize?: authorize?)
+         |> Ash.Query.for_read(:by_email, %{email: email}, read_opts(opts, true))
          |> Ash.read_one() do
       {:ok, user} -> user
       {:error, _} -> nil
@@ -59,10 +56,7 @@ defmodule ServiceRadar.Identity.Users do
   @spec get_by_email_and_password(String.t(), String.t(), keyword()) :: User.t() | nil
   def get_by_email_and_password(email, password, opts \\ [])
       when is_binary(email) and is_binary(password) do
-    actor = Keyword.get(opts, :actor)
-    authorize? = Keyword.get(opts, :authorize?, true)
-
-    case User.authenticate(email, password, actor: actor, authorize?: authorize?) do
+    case User.authenticate(email, password, read_opts(opts, true)) do
       {:ok, %User{} = user} ->
         user
 
@@ -92,10 +86,7 @@ defmodule ServiceRadar.Identity.Users do
   """
   @spec get(String.t(), keyword()) :: {:ok, User.t()} | {:error, :not_found}
   def get(id, opts \\ []) when is_binary(id) do
-    actor = Keyword.get(opts, :actor)
-    authorize? = Keyword.get(opts, :authorize?, false)
-
-    case Ash.get(User, id, actor: actor, authorize?: authorize?) do
+    case Ash.get(User, id, read_opts(opts, false)) do
       {:ok, user} -> {:ok, user}
       {:error, %Ash.Error.Query.NotFound{}} -> {:error, :not_found}
       {:error, _} -> {:error, :not_found}
@@ -126,14 +117,8 @@ defmodule ServiceRadar.Identity.Users do
   """
   @spec register_with_password(map(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def register_with_password(attrs, opts \\ []) do
-    actor = Keyword.get(opts, :actor)
-    authorize? = Keyword.get(opts, :authorize?, false)
-
     User
-    |> Ash.Changeset.for_create(:register_with_password, attrs,
-      actor: actor,
-      authorize?: authorize?
-    )
+    |> Ash.Changeset.for_create(:register_with_password, attrs, read_opts(opts, false))
     |> Ash.create()
   end
 
@@ -227,14 +212,12 @@ defmodule ServiceRadar.Identity.Users do
   """
   @spec list(keyword()) :: {:ok, [User.t()]} | {:error, Ash.Error.t()}
   def list(opts \\ []) do
-    actor = Keyword.get(opts, :actor)
-    authorize? = Keyword.get(opts, :authorize?, false)
     limit = Keyword.get(opts, :limit, 100)
     role = Keyword.get(opts, :role)
     status = Keyword.get(opts, :status)
 
     User
-    |> Ash.Query.for_read(:read, %{}, actor: actor, authorize?: authorize?)
+    |> Ash.Query.for_read(:read, %{}, read_opts(opts, false))
     |> maybe_filter_role(role)
     |> maybe_filter_status(status)
     |> Ash.Query.sort(inserted_at: :desc)
@@ -258,12 +241,16 @@ defmodule ServiceRadar.Identity.Users do
     Ash.Query.filter(query, expr(status == ^status))
   end
 
-  defp update_user(user, action, attrs, opts, mutate \\ &Function.identity/1) do
-    actor = Keyword.get(opts, :actor)
-    authorize? = Keyword.get(opts, :authorize?, true)
+  defp read_opts(opts, default_authorize?) do
+    [actor: actor(opts), authorize?: authorize?(opts, default_authorize?)]
+  end
 
+  defp actor(opts), do: Keyword.get(opts, :actor)
+  defp authorize?(opts, default), do: Keyword.get(opts, :authorize?, default)
+
+  defp update_user(user, action, attrs, opts, mutate \\ &Function.identity/1) do
     user
-    |> Ash.Changeset.for_update(action, attrs, actor: actor, authorize?: authorize?)
+    |> Ash.Changeset.for_update(action, attrs, read_opts(opts, true))
     |> mutate.()
     |> Ash.update()
   end

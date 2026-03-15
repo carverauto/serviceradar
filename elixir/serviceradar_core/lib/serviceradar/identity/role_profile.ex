@@ -13,6 +13,8 @@ defmodule ServiceRadar.Identity.RoleProfile do
 
   require Ash.Query
 
+  @profile_fields [:name, :description, :permissions]
+
   postgres do
     table "role_profiles"
     repo ServiceRadar.Repo
@@ -44,7 +46,7 @@ defmodule ServiceRadar.Identity.RoleProfile do
     end
 
     create :create do
-      accept [:name, :description, :permissions]
+      accept @profile_fields
       change set_attribute(:system, false)
       change set_attribute(:system_name, nil)
       validate ServiceRadar.Identity.Validations.PermissionKeys
@@ -59,7 +61,7 @@ defmodule ServiceRadar.Identity.RoleProfile do
     end
 
     update :update do
-      accept [:name, :description, :permissions]
+      accept @profile_fields
       change ServiceRadar.Identity.Changes.DisallowSystemProfileEdit
       validate ServiceRadar.Identity.Validations.PermissionKeys
       change ServiceRadar.Identity.Changes.InvalidateRbacCache

@@ -12,6 +12,8 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
     notifiers: [ServiceRadar.Identity.AuthorizationSettingsNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
+  @settings_fields [:default_role, :role_mappings]
+
   postgres do
     table "authorization_settings"
     repo ServiceRadar.Repo
@@ -35,14 +37,14 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
 
     create :create do
       description "Create authorization settings"
-      accept [:default_role, :role_mappings]
+      accept @settings_fields
       change set_attribute(:key, "default")
       validate ServiceRadar.Identity.Validations.RoleMappings
     end
 
     update :update do
       description "Update authorization settings"
-      accept [:default_role, :role_mappings]
+      accept @settings_fields
       validate ServiceRadar.Identity.Validations.RoleMappings
     end
   end
