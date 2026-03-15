@@ -13,9 +13,9 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  require Ash.Query
-
   alias ServiceRadar.Infrastructure.Gateway
+
+  require Ash.Query
 
   describe "gateway registration" do
     test "can register a gateway with required fields" do
@@ -43,9 +43,9 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
     test "sets timestamps on registration" do
       gateway = gateway_fixture()
 
-      assert gateway.first_registered != nil
-      assert gateway.first_seen != nil
-      assert gateway.last_seen != nil
+      assert gateway.first_registered
+      assert gateway.first_seen
+      assert gateway.last_seen
       assert DateTime.diff(DateTime.utc_now(), gateway.first_registered, :second) < 60
     end
 
@@ -84,7 +84,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       assert updated.metadata == %{"environment" => "production"}
       assert updated.agent_count == 5
       assert updated.checker_count == 10
-      assert updated.updated_at != nil
+      assert updated.updated_at
     end
 
     test "viewer can update gateway metadata", %{gateway: gateway} do
@@ -170,7 +170,8 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
       # Create a degraded gateway
       {:ok, gateway_degraded} =
-        gateway_fixture(%{id: "gateway-degraded"})
+        %{id: "gateway-degraded"}
+        |> gateway_fixture()
         |> Ash.Changeset.for_update(:degrade, %{}, actor: system_actor())
         |> Ash.update()
 
@@ -277,11 +278,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       # Note: Partition assignment would need to be done through update or fixture
       # For now, we test with partition_id filter in actor context
 
-      {:ok,
-       partition_a: partition_a,
-       partition_b: partition_b,
-       gateway_a: gateway_a,
-       gateway_b: gateway_b}
+      {:ok, partition_a: partition_a, partition_b: partition_b, gateway_a: gateway_a, gateway_b: gateway_b}
     end
 
     test "can read gateways without partition context", %{gateway_a: gateway_a} do

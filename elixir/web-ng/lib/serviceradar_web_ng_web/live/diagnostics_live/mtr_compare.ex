@@ -1,9 +1,12 @@
 defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import Ash.Expr
 
-  alias ServiceRadar.Observability.{MtrHop, MtrTrace}
+  alias Ash.Page.Keyset
+  alias ServiceRadar.Observability.MtrHop
+  alias ServiceRadar.Observability.MtrTrace
 
   require Ash.Query
 
@@ -62,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
       |> Ash.Query.limit(50)
 
     case Ash.read(query, scope: socket.assigns.current_scope) do
-      {:ok, %Ash.Page.Keyset{results: results}} ->
+      {:ok, %Keyset{results: results}} ->
         assign(socket, :recent_traces, Enum.map(results, &trace_to_compare_map/1))
 
       {:ok, results} when is_list(results) ->
@@ -113,9 +116,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
       |> Ash.Query.limit(1)
 
     case Ash.read(query, scope: scope) do
-      {:ok, %Ash.Page.Keyset{results: [trace | _]}} -> {:ok, trace}
+      {:ok, %Keyset{results: [trace | _]}} -> {:ok, trace}
       {:ok, [trace | _]} -> {:ok, trace}
-      {:ok, %Ash.Page.Keyset{results: []}} -> {:error, :not_found}
+      {:ok, %Keyset{results: []}} -> {:error, :not_found}
       {:ok, []} -> {:error, :not_found}
       {:error, reason} -> {:error, reason}
     end
@@ -129,7 +132,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
       |> Ash.Query.limit(256)
 
     case Ash.read(query, scope: scope) do
-      {:ok, %Ash.Page.Keyset{results: results}} -> {:ok, results}
+      {:ok, %Keyset{results: results}} -> {:ok, results}
       {:ok, results} when is_list(results) -> {:ok, results}
       {:error, reason} -> {:error, reason}
     end
@@ -364,14 +367,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   defp diff_row_class(:removed), do: "bg-error/10"
   defp diff_row_class(_), do: ""
 
-  defp diff_icon(:changed),
-    do: Phoenix.HTML.raw("<span class=\"text-warning\" title=\"Changed\">~</span>")
+  defp diff_icon(:changed), do: Phoenix.HTML.raw(~s(<span class="text-warning" title="Changed">~</span>))
 
-  defp diff_icon(:added),
-    do: Phoenix.HTML.raw("<span class=\"text-info\" title=\"New hop\">+</span>")
+  defp diff_icon(:added), do: Phoenix.HTML.raw(~s(<span class="text-info" title="New hop">+</span>))
 
-  defp diff_icon(:removed),
-    do: Phoenix.HTML.raw("<span class=\"text-error\" title=\"Missing hop\">-</span>")
+  defp diff_icon(:removed), do: Phoenix.HTML.raw(~s(<span class="text-error" title="Missing hop">-</span>))
 
   defp diff_icon(_), do: ""
 end

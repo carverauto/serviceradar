@@ -5,7 +5,10 @@ defmodule ServiceRadarWebNG.Application do
 
   use Application
 
+  alias Swoosh.Adapters.Local.Storage.Manager
+
   require Logger
+
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   @impl true
@@ -30,8 +33,7 @@ defmodule ServiceRadarWebNG.Application do
       |> maybe_add_grpc_supervisor()
       |> Kernel.++([
         # DNS cluster for Kubernetes deployments
-        {DNSCluster,
-         query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
+        {DNSCluster, query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
       ])
       |> maybe_add_local_mailer_storage()
 
@@ -87,8 +89,8 @@ defmodule ServiceRadarWebNG.Application do
 
   defp maybe_add_local_mailer_storage(children) do
     if Application.get_env(:serviceradar_web_ng, :local_mailer, false) do
-      case Process.whereis(Swoosh.Adapters.Local.Storage.Manager) do
-        nil -> children ++ [Swoosh.Adapters.Local.Storage.Manager]
+      case Process.whereis(Manager) do
+        nil -> children ++ [Manager]
         _pid -> children
       end
     else
@@ -275,7 +277,7 @@ defmodule ServiceRadarWebNG.Application do
 
   @sobelow_skip ["DOS.StringToAtom"]
   defp release_cookie do
-    cookie = System.get_env("RELEASE_COOKIE", "serviceradar_dev_cookie") |> String.trim()
+    cookie = "RELEASE_COOKIE" |> System.get_env("serviceradar_dev_cookie") |> String.trim()
 
     if cookie != "" and Regex.match?(~r/\A[0-9A-Za-z_.@-]{1,255}\z/, cookie) do
       String.to_atom(cookie)

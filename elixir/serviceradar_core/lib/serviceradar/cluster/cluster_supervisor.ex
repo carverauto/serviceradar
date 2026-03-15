@@ -37,7 +37,10 @@ defmodule ServiceRadar.ClusterSupervisor do
     topologies = Application.get_env(:libcluster, :topologies, [])
 
     children =
-      if topologies != [] do
+      if topologies == [] do
+        Logger.info("Cluster disabled - no topologies configured")
+        []
+      else
         Logger.info(
           "Starting cluster supervisor with topologies: #{inspect(Keyword.keys(topologies))}"
         )
@@ -45,9 +48,6 @@ defmodule ServiceRadar.ClusterSupervisor do
         [
           {Cluster.Supervisor, [topologies, [name: ServiceRadar.ClusterSupervisor.Cluster]]}
         ]
-      else
-        Logger.info("Cluster disabled - no topologies configured")
-        []
       end
 
     Supervisor.init(children, strategy: :one_for_one)

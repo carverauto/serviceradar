@@ -8,13 +8,15 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
+  import Ecto.Query
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
-  alias ServiceRadar.Inventory.{Device, DeviceCleanupSettings}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
-  import Ecto.Query
   require Ash.Query
   require Logger
 
@@ -29,12 +31,10 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
           {:ok, Oban.Job.t() | :already_scheduled | :disabled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      case check_existing_job() do
-        true ->
-          {:ok, :already_scheduled}
-
-        false ->
-          schedule_from_settings()
+      if check_existing_job() do
+        {:ok, :already_scheduled}
+      else
+        schedule_from_settings()
       end
     else
       {:error, :oban_unavailable}
@@ -99,7 +99,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
         limit: 1
       )
 
-    ServiceRadar.Repo.exists?(query, prefix: ObanSupport.prefix())
+    Repo.exists?(query, prefix: ObanSupport.prefix())
   end
 
   defp schedule_from_settings do
@@ -173,8 +173,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     uids = Enum.map(records, & &1.uid)
 
     {deleted_count, _} =
-      from(d in "ocsf_devices", where: d.uid in ^uids)
-      |> Repo.delete_all(prefix: "platform")
+      Repo.delete_all(from(d in "ocsf_devices", where: d.uid in ^uids), prefix: "platform")
 
     {%{stats | deleted: stats.deleted + deleted_count}, deleted_count}
   rescue

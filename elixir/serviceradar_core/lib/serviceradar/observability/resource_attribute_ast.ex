@@ -28,14 +28,16 @@ defmodule ServiceRadar.Observability.ResourceAttributeAst do
   end
 
   defp maybe_primary_key(clauses, false), do: clauses
-  defp maybe_primary_key(clauses, true), do: clauses ++ [quote(do: primary_key? true)]
+  defp maybe_primary_key(clauses, true), do: clauses ++ [quote(do: primary_key?(true))]
 
   defp maybe_default(clauses, :__no_default__), do: clauses
+
   defp maybe_default(clauses, default) do
     clauses ++ [quote(do: default(unquote(Macro.escape(default))))]
   end
 
   defp maybe_description(clauses, nil), do: clauses
+
   defp maybe_description(clauses, description),
     do: clauses ++ [quote(do: description(unquote(Macro.escape(description))))]
 
@@ -46,5 +48,7 @@ defmodule ServiceRadar.Observability.ResourceAttributeAst do
   end
 
   defp maybe_sensitive(clauses, nil), do: clauses
-  defp maybe_sensitive(clauses, sensitive?), do: clauses ++ [quote(do: sensitive?(unquote(sensitive?)))]
+
+  defp maybe_sensitive(clauses, sensitive?),
+    do: clauses ++ [quote(do: sensitive?(unquote(sensitive?)))]
 end

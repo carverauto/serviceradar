@@ -130,10 +130,11 @@ defmodule ServiceRadar.Jobs.JobSchedule do
       require_atomic? false
 
       change fn changeset, _context ->
+        require Logger
+
         schedule = changeset.data
         actor = ServiceRadar.Actors.SystemActor.system(:identity_reconciliation_job)
 
-        require Logger
         Logger.info("Starting identity reconciliation job #{schedule.job_key} (#{schedule.id})")
 
         max_merges = extract_max_merges(schedule.args)

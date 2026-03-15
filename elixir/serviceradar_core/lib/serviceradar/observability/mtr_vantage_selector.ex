@@ -104,15 +104,16 @@ defmodule ServiceRadar.Observability.MtrVantageSelector do
   end
 
   defp normalize_candidate(candidate) when is_map(candidate) do
-    agent_id = get_value(candidate, [:agent_id, "agent_id"]) |> normalize_string()
+    agent_id = candidate |> get_value([:agent_id, "agent_id"]) |> normalize_string()
 
     if is_nil(agent_id) do
       nil
     else
       %{
         agent_id: agent_id,
-        partition_id: get_value(candidate, [:partition_id, "partition_id"]) |> normalize_string(),
-        gateway_id: get_value(candidate, [:gateway_id, "gateway_id"]) |> normalize_string(),
+        partition_id:
+          candidate |> get_value([:partition_id, "partition_id"]) |> normalize_string(),
+        gateway_id: candidate |> get_value([:gateway_id, "gateway_id"]) |> normalize_string(),
         status: get_value(candidate, [:status, "status"]),
         capabilities:
           normalize_capabilities(get_value(candidate, [:capabilities, "capabilities"])),
@@ -143,9 +144,9 @@ defmodule ServiceRadar.Observability.MtrVantageSelector do
 
   defp affinity_component(candidate, target_ctx) do
     target_partition =
-      get_value(target_ctx, [:partition_id, "partition_id"]) |> normalize_string()
+      target_ctx |> get_value([:partition_id, "partition_id"]) |> normalize_string()
 
-    target_gateway = get_value(target_ctx, [:gateway_id, "gateway_id"]) |> normalize_string()
+    target_gateway = target_ctx |> get_value([:gateway_id, "gateway_id"]) |> normalize_string()
 
     cond do
       match?(
@@ -179,12 +180,14 @@ defmodule ServiceRadar.Observability.MtrVantageSelector do
   end
 
   defp freshness_component(candidate) do
-    with %DateTime{} = dt <- normalize_datetime(candidate.last_success_at) do
-      age_sec = DateTime.diff(DateTime.utc_now(), dt, :second)
-      bounded_age = min(max(age_sec, 0), @freshness_horizon_seconds)
-      1.0 - bounded_age / @freshness_horizon_seconds
-    else
-      _ -> 0.0
+    case normalize_datetime(candidate.last_success_at) do
+      %DateTime{} = dt ->
+        age_sec = DateTime.diff(DateTime.utc_now(), dt, :second)
+        bounded_age = min(max(age_sec, 0), @freshness_horizon_seconds)
+        1.0 - bounded_age / @freshness_horizon_seconds
+
+      _ ->
+        0.0
     end
   end
 

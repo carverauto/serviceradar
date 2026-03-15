@@ -310,9 +310,7 @@ defmodule ServiceRadar.Core.ResultProcessor do
 
   defp apply_canonical_device_id(update, snapshot) do
     if is_binary(snapshot.canonical_device_id) and snapshot.canonical_device_id != "" do
-      metadata =
-        update.metadata
-        |> Map.put("canonical_device_id", snapshot.canonical_device_id)
+      metadata = Map.put(update.metadata, "canonical_device_id", snapshot.canonical_device_id)
 
       %{update | device_id: snapshot.canonical_device_id, metadata: metadata}
     else

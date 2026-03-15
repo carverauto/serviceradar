@@ -61,7 +61,11 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
-  require ServiceRadar.SNMPProfiles.CredentialDsl
+  alias ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
+  alias ServiceRadar.SNMPProfiles.Changes.ValidateSrqlQuery
+  alias ServiceRadar.SNMPProfiles.CredentialDsl
+
+  require CredentialDsl
 
   @profile_fields [
     :name,
@@ -94,20 +98,20 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     create :create do
       accept @profile_create_fields
 
-      ServiceRadar.SNMPProfiles.CredentialDsl.credential_action_arguments()
+      CredentialDsl.credential_action_arguments()
 
-      change ServiceRadar.SNMPProfiles.Changes.ValidateSrqlQuery
-      change ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
+      change ValidateSrqlQuery
+      change EncryptCredentials
     end
 
     update :update do
       accept @profile_fields
 
-      ServiceRadar.SNMPProfiles.CredentialDsl.credential_action_arguments()
+      CredentialDsl.credential_action_arguments()
 
       require_atomic? false
-      change ServiceRadar.SNMPProfiles.Changes.ValidateSrqlQuery
-      change ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
+      change ValidateSrqlQuery
+      change EncryptCredentials
     end
 
     update :set_as_default do
@@ -246,7 +250,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     end
 
     # SNMP credentials (profile-scoped, encrypted at rest)
-    ServiceRadar.SNMPProfiles.CredentialDsl.credential_attributes()
+    CredentialDsl.credential_attributes()
 
     timestamps()
   end

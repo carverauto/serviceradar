@@ -4,8 +4,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
-  alias ServiceRadar.NetworkDiscovery.TopologyLink
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
+  alias ServiceRadar.NetworkDiscovery.TopologyLink
   alias ServiceRadar.Observability.TimeseriesSeriesKey
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Topology.GodViewStream
@@ -748,9 +748,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
 
     endpoint =
       Device
-      |> Ash.Query.for_read(:by_uid, %{uid: endpoint_to_flip, include_deleted: false},
-        actor: actor
-      )
+      |> Ash.Query.for_read(:by_uid, %{uid: endpoint_to_flip, include_deleted: false}, actor: actor)
       |> Ash.read_one!()
 
     endpoint
@@ -2022,9 +2020,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       ])
 
     actual_pairs =
-      snapshot.edges
-      |> Enum.map(fn edge -> normalized_pair(edge.source, edge.target) end)
-      |> MapSet.new()
+      MapSet.new(snapshot.edges, fn edge -> normalized_pair(edge.source, edge.target) end)
 
     assert actual_pairs == expected_pairs
 
@@ -2159,25 +2155,26 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
   end
 
   defp mapper_topology_links_for_projection do
-    from(t in "mapper_topology_links",
-      prefix: "platform",
-      select: %{
-        timestamp: t.timestamp,
-        protocol: t.protocol,
-        local_device_id: t.local_device_id,
-        local_device_ip: t.local_device_ip,
-        local_if_index: t.local_if_index,
-        local_if_name: t.local_if_name,
-        neighbor_device_id: t.neighbor_device_id,
-        neighbor_chassis_id: t.neighbor_chassis_id,
-        neighbor_port_id: t.neighbor_port_id,
-        neighbor_port_descr: t.neighbor_port_descr,
-        neighbor_system_name: t.neighbor_system_name,
-        neighbor_mgmt_addr: t.neighbor_mgmt_addr,
-        metadata: t.metadata
-      }
+    Repo.all(
+      from(t in "mapper_topology_links",
+        prefix: "platform",
+        select: %{
+          timestamp: t.timestamp,
+          protocol: t.protocol,
+          local_device_id: t.local_device_id,
+          local_device_ip: t.local_device_ip,
+          local_if_index: t.local_if_index,
+          local_if_name: t.local_if_name,
+          neighbor_device_id: t.neighbor_device_id,
+          neighbor_chassis_id: t.neighbor_chassis_id,
+          neighbor_port_id: t.neighbor_port_id,
+          neighbor_port_descr: t.neighbor_port_descr,
+          neighbor_system_name: t.neighbor_system_name,
+          neighbor_mgmt_addr: t.neighbor_mgmt_addr,
+          metadata: t.metadata
+        }
+      )
     )
-    |> Repo.all()
   end
 
   defp await_runtime_graph_refresh(graph_ref, attempts \\ 20)

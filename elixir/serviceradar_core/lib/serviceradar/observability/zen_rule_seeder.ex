@@ -8,11 +8,11 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
 
   use ServiceRadar.DelayedSeeder, callback: :seed_all
 
-  require Logger
-  require Ash.Query
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.ZenRule
+
+  require Ash.Query
+  require Logger
 
   def seed_all do
     if repo_enabled?() do
@@ -48,10 +48,7 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
 
     case Ash.read(query, opts) do
       {:ok, rules} ->
-        existing =
-          rules
-          |> Enum.map(&{&1.name, &1.subject})
-          |> MapSet.new()
+        existing = MapSet.new(rules, &{&1.name, &1.subject})
 
         existing = rename_legacy_rules(rules, existing, opts)
 

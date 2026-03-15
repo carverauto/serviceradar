@@ -36,8 +36,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       result = MapperResultsIngestor.normalize_interface(update)
 
-      assert result != nil
-      assert result.available_metrics != nil
+      assert result
+      assert result.available_metrics
       assert length(result.available_metrics) == 2
 
       [first, second] = result.available_metrics
@@ -75,8 +75,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       result = MapperResultsIngestor.normalize_interface(update)
 
-      assert result != nil
-      assert result.available_metrics != nil
+      assert result
+      assert result.available_metrics
       assert length(result.available_metrics) == 1
 
       [metric] = result.available_metrics
@@ -100,7 +100,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       result = MapperResultsIngestor.normalize_interface(update)
 
-      assert result != nil
+      assert result
       assert result.available_metrics == nil
     end
 
@@ -114,7 +114,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       result = MapperResultsIngestor.normalize_interface(update)
 
-      assert result != nil
+      assert result
       assert result.available_metrics == nil
     end
 
@@ -129,7 +129,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       result = MapperResultsIngestor.normalize_interface(update)
 
-      assert result != nil
+      assert result
       assert result.available_metrics == nil
     end
 
@@ -150,8 +150,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       result = MapperResultsIngestor.normalize_interface(update)
 
-      assert result != nil
-      assert result.available_metrics != nil
+      assert result
+      assert result.available_metrics
       assert length(result.available_metrics) == 5
 
       categories = Enum.map(result.available_metrics, & &1["category"])
@@ -176,8 +176,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       result = MapperResultsIngestor.normalize_interface(update)
 
-      assert result != nil
-      assert result.available_metrics != nil
+      assert result
+      assert result.available_metrics
       [first, second] = result.available_metrics
 
       assert first["supports_64bit"] == true
@@ -202,8 +202,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       result = MapperResultsIngestor.normalize_interface(update)
 
-      assert result != nil
-      assert result.available_metrics != nil
+      assert result
+      assert result.available_metrics
       [metric] = result.available_metrics
 
       # The normalize_metric function should handle the various key formats
@@ -238,7 +238,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       result = MapperResultsIngestor.normalize_interface(update)
 
-      assert result != nil
+      assert result
       assert result.device_id == "device-001"
       assert result.device_ip == "192.168.1.1"
       assert result.if_index == 1
@@ -248,7 +248,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert result.if_speed == 1_000_000_000
       assert result.if_admin_status == 1
       assert result.if_oper_status == 1
-      assert result.available_metrics != nil
+      assert result.available_metrics
       assert length(result.available_metrics) == 1
     end
 
@@ -270,7 +270,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       result = MapperResultsIngestor.normalize_interface(update)
 
-      assert result != nil
+      assert result
       assert result.metadata["source"] == "snmp"
       assert result.metadata["discovery_id"] == "abc"
       refute Map.has_key?(result.metadata, "unifi_api_urls")
@@ -293,7 +293,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       result = MapperResultsIngestor.normalize_interface(update)
 
-      assert result != nil
+      assert result
 
       assert result.metadata["unifi_api_urls"] ==
                "https://192.168.2.1/proxy/network/integration/v1"
@@ -923,7 +923,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
   describe "infer_wireguard_tunnel_links/3" do
     test "infers farm01 to tonka01 wireguard edge from matching tunnel interface name" do
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      now = DateTime.truncate(DateTime.utc_now(), :second)
 
       records = [
         %{
@@ -988,7 +988,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
     end
 
     test "does not add duplicate wireguard edges when one already exists" do
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      now = DateTime.truncate(DateTime.utc_now(), :second)
 
       records = [
         %{

@@ -13,9 +13,11 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   import Bitwise
 
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
-  alias ServiceRadar.EventWriter.{FieldParser, OCSF}
+  alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.AlertGenerator
-  alias ServiceRadar.Observability.{LogPubSub, StatefulAlertEngine}
+  alias ServiceRadar.Observability.LogPubSub
+  alias ServiceRadar.Observability.StatefulAlertEngine
 
   require Logger
 
@@ -198,18 +200,21 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     priority = normalize_string(payload["priority"])
 
     attributes =
-      %{
-        "falco" => %{
-          "uuid" => normalize_string(payload["uuid"]),
-          "rule" => normalize_string(payload["rule"]),
-          "priority" => priority,
-          "output" => normalize_string(payload["output"]),
-          "source" => normalize_string(payload["source"]),
-          "tags" => normalize_tags(payload["tags"]),
-          "output_fields" => output_fields
-        }
-      }
-      |> attach_ingest_metadata(metadata, subject)
+      attach_ingest_metadata(
+        %{
+          "falco" => %{
+            "uuid" => normalize_string(payload["uuid"]),
+            "rule" => normalize_string(payload["rule"]),
+            "priority" => priority,
+            "output" => normalize_string(payload["output"]),
+            "source" => normalize_string(payload["source"]),
+            "tags" => normalize_tags(payload["tags"]),
+            "output_fields" => output_fields
+          }
+        },
+        metadata,
+        subject
+      )
 
     resource_attributes =
       %{}
@@ -256,7 +261,8 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
          message: message
        }) do
     metadata =
-      build_event_metadata(payload, subject, output_fields)
+      payload
+      |> build_event_metadata(subject, output_fields)
       |> Map.put("serviceradar", %{
         "source_log_id" => log_uuid,
         "promotion" => "falco_priority_auto"
@@ -300,31 +306,32 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   defp insert_log_rows(rows) do
     rows_for_insert = Enum.map(rows, &encode_text_columns/1)
 
-    case ServiceRadar.Repo.insert_all("logs", rows_for_insert,
-           on_conflict: :nothing,
-           returning: false
-         ) do
-      {count, _} -> count
-    end
+    {count, _} =
+      ServiceRadar.Repo.insert_all("logs", rows_for_insert,
+        on_conflict: :nothing,
+        returning: false
+      )
+
+    count
   end
 
   defp insert_event_rows([]), do: {0, []}
 
   defp insert_event_rows(rows) do
-    case ServiceRadar.Repo.insert_all("ocsf_events", rows,
-           on_conflict: :nothing,
-           returning: [:id]
-         ) do
-      {count, inserted} ->
-        inserted_ids = MapSet.new(Enum.map(inserted, & &1.id))
+    {count, inserted} =
+      ServiceRadar.Repo.insert_all("ocsf_events", rows,
+        on_conflict: :nothing,
+        returning: [:id]
+      )
 
-        inserted_rows =
-          rows
-          |> Enum.filter(&MapSet.member?(inserted_ids, &1.id))
-          |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
+    inserted_ids = MapSet.new(Enum.map(inserted, & &1.id))
 
-        {count, inserted_rows}
-    end
+    inserted_rows =
+      rows
+      |> Enum.filter(&MapSet.member?(inserted_ids, &1.id))
+      |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
+
+    {count, inserted_rows}
   end
 
   defp dedupe_rows_by_conflict_key(rows, key_fun)
@@ -448,13 +455,15 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   end
 
   defp build_observables(payload, output_fields) do
-    [
-      maybe_observable(normalize_string(payload["hostname"]), "Hostname", 1),
-      maybe_observable(normalize_string(payload["rule"]), "Rule Name", 99),
-      maybe_observable(normalize_string(output_fields["container.id"]), "Container ID", 99),
-      maybe_observable(normalize_string(output_fields["k8s.pod.name"]), "Kubernetes Pod", 99)
-    ]
-    |> Enum.reject(&is_nil/1)
+    Enum.reject(
+      [
+        maybe_observable(normalize_string(payload["hostname"]), "Hostname", 1),
+        maybe_observable(normalize_string(payload["rule"]), "Rule Name", 99),
+        maybe_observable(normalize_string(output_fields["container.id"]), "Container ID", 99),
+        maybe_observable(normalize_string(output_fields["k8s.pod.name"]), "Kubernetes Pod", 99)
+      ],
+      &is_nil/1
+    )
   end
 
   defp build_actor(output_fields) do
@@ -544,13 +553,11 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
 
   defp deterministic_uuid(key) do
     <<a1::32, a2::16, a3::16, a4::16, a5::48, _rest::binary>> = :crypto.hash(:sha256, key)
-    versioned_a3 = band(a3, 0x0FFF) |> bor(0x4000)
-    versioned_a4 = band(a4, 0x3FFF) |> bor(0x8000)
+    versioned_a3 = a3 |> band(0x0FFF) |> bor(0x4000)
+    versioned_a4 = a4 |> band(0x3FFF) |> bor(0x8000)
 
-    :io_lib.format(
-      "~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b",
-      [a1, a2, versioned_a3, versioned_a4, a5]
-    )
+    "~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b"
+    |> :io_lib.format([a1, a2, versioned_a3, versioned_a4, a5])
     |> IO.iodata_to_binary()
   end
 

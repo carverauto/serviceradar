@@ -28,6 +28,10 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     extensions: [AshStateMachine, AshCloak],
     notifiers: [ServiceRadar.Integrations.IntegrationSourceNotifier]
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Integrations.Changes.PublishSyncLog
+
   @source_fields [
     :name,
     :endpoint,
@@ -162,7 +166,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       argument :device_count, :integer, default: 0
 
       change transition_state(:running)
-      change {ServiceRadar.Integrations.Changes.PublishSyncLog, stage: :started}
+      change {PublishSyncLog, stage: :started}
     end
 
     update :sync_success do
@@ -182,7 +186,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       change atomic_update(:last_error_message, expr(nil))
       change atomic_update(:consecutive_failures, expr(0))
       change atomic_update(:total_syncs, expr(total_syncs + 1))
-      change {ServiceRadar.Integrations.Changes.PublishSyncLog, stage: :finished}
+      change {PublishSyncLog, stage: :finished}
     end
 
     update :sync_failed do
@@ -203,7 +207,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       change atomic_update(:last_error_message, expr(^arg(:error_message)))
       change atomic_update(:consecutive_failures, expr(consecutive_failures + 1))
       change atomic_update(:total_syncs, expr(total_syncs + 1))
-      change {ServiceRadar.Integrations.Changes.PublishSyncLog, stage: :finished}
+      change {PublishSyncLog, stage: :finished}
     end
 
     update :record_sync do
@@ -479,9 +483,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   identities do
     identity :unique_name, [:name]
   end
-
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Infrastructure.Agent
 
   defp validate_agent_availability(changeset, _context) do
     # DB connection's search_path determines the schema

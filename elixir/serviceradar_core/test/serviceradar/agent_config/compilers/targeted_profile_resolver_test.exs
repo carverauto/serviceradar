@@ -14,7 +14,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.TargetedProfileResolverTest do
 
     assert TargetedProfileResolver.resolve("device-1", :actor,
              resolver: fn "device-1", :actor -> {:ok, profile} end
-           ) == profile
+           ) ==
+             profile
   end
 
   test "falls back to the default resolver when targeting misses" do

@@ -9,6 +9,6 @@
     :ecto_sql
   ],
   subdirectories: ["priv/*/migrations"],
-  plugins: [Spark.Formatter],
+  plugins: [Styler, Spark.Formatter],
   inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"]
 ]

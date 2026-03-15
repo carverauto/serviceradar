@@ -34,16 +34,16 @@ defmodule ServiceRadar.Inventory.Device do
     extensions: [AshJsonApi.Resource],
     primary_read_warning?: false
 
-  @devices_view_check {ServiceRadar.Policies.Checks.ActorHasPermission,
-                       permission: "devices.view"}
-  @devices_create_check {ServiceRadar.Policies.Checks.ActorHasPermission,
-                         permission: "devices.create"}
-  @devices_update_check {ServiceRadar.Policies.Checks.ActorHasPermission,
-                         permission: "devices.update"}
-  @devices_delete_check {ServiceRadar.Policies.Checks.ActorHasPermission,
-                         permission: "devices.delete"}
-  @devices_bulk_delete_check {ServiceRadar.Policies.Checks.ActorHasPermission,
-                              permission: "devices.bulk_delete"}
+  alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
+
+  require Ash.Query
+
+  @devices_view_check {ActorHasPermission, permission: "devices.view"}
+  @devices_create_check {ActorHasPermission, permission: "devices.create"}
+  @devices_update_check {ActorHasPermission, permission: "devices.update"}
+  @devices_delete_check {ActorHasPermission, permission: "devices.delete"}
+  @devices_bulk_delete_check {ActorHasPermission, permission: "devices.bulk_delete"}
   @device_create_fields [
     :uid,
     :type_id,
@@ -128,9 +128,6 @@ defmodule ServiceRadar.Inventory.Device do
   @group_fields [:group_id]
   @availability_fields [:is_available]
   @soft_delete_fields [:deleted_reason, :deleted_by]
-
-  alias ServiceRadar.Inventory.IdentityReconciler
-  require Ash.Query
 
   postgres do
     table "ocsf_devices"

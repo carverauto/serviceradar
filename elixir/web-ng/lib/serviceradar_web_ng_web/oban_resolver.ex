@@ -24,8 +24,7 @@ defmodule ServiceRadarWebNGWeb.ObanResolver do
   @impl true
   def resolve_refresh(_user), do: 5
 
-  defp admin_access?(%{user: _} = scope),
-    do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
+  defp admin_access?(%{user: _} = scope), do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
 
   defp admin_access?(_), do: false
 end

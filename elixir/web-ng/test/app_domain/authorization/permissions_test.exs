@@ -1,8 +1,8 @@
 defmodule ServiceRadarWebNG.Authorization.PermissionsTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.AuthorizationSettings
+  alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Authorization
 

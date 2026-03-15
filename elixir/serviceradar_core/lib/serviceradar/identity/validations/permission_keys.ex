@@ -38,9 +38,7 @@ defmodule ServiceRadar.Identity.Validations.PermissionKeys do
   defp validate_permissions(perms) do
     allowed = MapSet.new(Catalog.permission_keys())
 
-    invalid =
-      perms
-      |> Enum.reject(&MapSet.member?(allowed, &1))
+    invalid = Enum.reject(perms, &MapSet.member?(allowed, &1))
 
     if invalid == [] do
       :ok

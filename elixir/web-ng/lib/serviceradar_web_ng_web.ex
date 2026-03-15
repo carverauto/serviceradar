@@ -23,10 +23,11 @@ defmodule ServiceRadarWebNGWeb do
     quote do
       use Phoenix.Router, helpers: false
 
-      # Import common connection and controller functions to use in pipelines
-      import Plug.Conn
       import Phoenix.Controller
       import Phoenix.LiveView.Router
+
+      # Import common connection and controller functions to use in pipelines
+      import Plug.Conn
     end
   end
 
@@ -39,7 +40,6 @@ defmodule ServiceRadarWebNGWeb do
   def controller do
     quote do
       use Phoenix.Controller, formats: [:html, :json]
-
       use Gettext, backend: ServiceRadarWebNGWeb.Gettext
 
       import Plug.Conn
@@ -86,15 +86,15 @@ defmodule ServiceRadarWebNGWeb do
       import Phoenix.HTML
       # Core UI components
       import ServiceRadarWebNGWeb.CoreComponents
-      import ServiceRadarWebNGWeb.UIComponents
       import ServiceRadarWebNGWeb.QueryBuilderComponents
-      import ServiceRadarWebNGWeb.SRQLComponents
       import ServiceRadarWebNGWeb.ReactComponents
+      import ServiceRadarWebNGWeb.SRQLComponents
+      import ServiceRadarWebNGWeb.UIComponents
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS
-      alias ServiceRadarWebNGWeb.Layouts
       alias ServiceRadarWebNG.RBAC
+      alias ServiceRadarWebNGWeb.Layouts
 
       # Routes generation with the ~p sigil
       unquote(verified_routes())

@@ -6,13 +6,14 @@ defmodule ServiceRadar.Inventory.SyncIngestorAgentIdTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.TestSupport
 
   require Ash.Query
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{DeviceIdentifier, SyncIngestor}
-  alias ServiceRadar.TestSupport
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -40,8 +41,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorAgentIdTest do
 
       # Verify agent_id was registered as a strong identifier
       query =
-        DeviceIdentifier
-        |> Ash.Query.for_read(:lookup, %{
+        Ash.Query.for_read(DeviceIdentifier, :lookup, %{
           identifier_type: :agent_id,
           identifier_value: agent_id,
           partition: "default"

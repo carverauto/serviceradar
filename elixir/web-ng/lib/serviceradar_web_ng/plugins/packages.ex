@@ -3,14 +3,14 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   Context module for plugin packages and review workflow.
   """
 
-  require Ash.Query
-
+  alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
-  alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadarWebNG.Plugins.GitHubImporter
   alias ServiceRadarWebNG.Plugins.Storage
+
+  require Ash.Query
 
   @default_limit 100
   @max_limit 500

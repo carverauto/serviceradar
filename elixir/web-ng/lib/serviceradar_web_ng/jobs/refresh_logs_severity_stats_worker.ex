@@ -5,10 +5,12 @@ defmodule ServiceRadarWebNG.Jobs.RefreshLogsSeverityStatsWorker do
 
   use Oban.Worker, queue: :maintenance, max_attempts: 3
 
+  alias ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker
+
   @impl Oban.Worker
   def perform(job) do
-    ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker.perform(job)
+    RefreshLogsSeverityStatsWorker.perform(job)
   end
 
-  defdelegate refresh_sql, to: ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker
+  defdelegate refresh_sql, to: RefreshLogsSeverityStatsWorker
 end

@@ -55,12 +55,6 @@ else
     types: ServiceRadar.PostgresTypes
 end
 
-# Enable cluster in dev for testing
-config :serviceradar_core,
-  env: :dev,
-  cluster_enabled: true,
-  status_handler_enabled: true
-
 # Oban in dev mode
 config :serviceradar_core, Oban,
   engine: Oban.Engines.Basic,
@@ -71,3 +65,9 @@ config :serviceradar_core, Oban,
     Oban.Plugins.Pruner,
     {Oban.Plugins.Cron, crontab: []}
   ]
+
+# Enable cluster in dev for testing
+config :serviceradar_core,
+  env: :dev,
+  cluster_enabled: true,
+  status_handler_enabled: true

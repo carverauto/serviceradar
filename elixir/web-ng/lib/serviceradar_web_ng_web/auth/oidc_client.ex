@@ -14,11 +14,11 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   by the ConfigCache for performance.
   """
 
-  require Logger
-
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
-  alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
+  alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
+
+  require Logger
 
   @discovery_suffix "/.well-known/openid-configuration"
 
@@ -164,7 +164,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
              {:ok, response} <- Req.get(url, OutboundURLPolicy.req_opts()) do
           case response do
             %{status: 200, body: metadata} ->
-              ConfigCache.put_cached(cache_key, metadata, ttl: :timer.minutes(60))
+              ConfigCache.put_cached(cache_key, metadata, ttl: to_timeout(hour: 1))
               {:ok, metadata}
 
             %{status: status} ->
@@ -228,7 +228,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
              {:ok, response} <- Req.get(jwks_uri, OutboundURLPolicy.req_opts()) do
           case response do
             %{status: 200, body: %{"keys" => keys}} ->
-              ConfigCache.put_cached(cache_key, keys, ttl: :timer.minutes(60))
+              ConfigCache.put_cached(cache_key, keys, ttl: to_timeout(hour: 1))
               {:ok, keys}
 
             %{status: status} ->
@@ -278,24 +278,22 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   end
 
   defp verify_jwt_with_key(token, jwk_map) do
-    try do
-      # Convert the JWK map to a JOSE.JWK struct
-      jwk = JOSE.JWK.from_map(jwk_map)
+    # Convert the JWK map to a JOSE.JWK struct
+    jwk = JOSE.JWK.from_map(jwk_map)
 
-      # Verify the token signature and decode
-      case JOSE.JWT.verify_strict(jwk, [jwk_map["alg"] || "RS256"], token) do
-        {true, %JOSE.JWT{fields: claims}, _jws} ->
-          {:ok, claims}
+    # Verify the token signature and decode
+    case JOSE.JWT.verify_strict(jwk, [jwk_map["alg"] || "RS256"], token) do
+      {true, %JOSE.JWT{fields: claims}, _jws} ->
+        {:ok, claims}
 
-        {false, _, _} ->
-          Logger.warning("JWT signature verification failed")
-          {:error, :invalid_signature}
-      end
-    rescue
-      e ->
-        Logger.error("JWT verification error: #{inspect(e)}")
-        {:error, :verification_failed}
+      {false, _, _} ->
+        Logger.warning("JWT signature verification failed")
+        {:error, :invalid_signature}
     end
+  rescue
+    e ->
+      Logger.error("JWT verification error: #{inspect(e)}")
+      {:error, :verification_failed}
   end
 
   defp get_claim(claims, path) when is_binary(path) do
@@ -311,10 +309,10 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   end
 
   defp generate_state do
-    :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+    32 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
   end
 
   defp generate_nonce do
-    :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+    32 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
   end
 end

@@ -13,6 +13,9 @@ defmodule ServiceRadar.Policies.Checks do
       end
   """
 
+  alias Ash.Policy.Authorizer
+  alias Ash.Policy.SimpleCheck
+
   defmodule ActorHasRole do
     @moduledoc """
     Check if the actor has a specific role.
@@ -27,7 +30,7 @@ defmodule ServiceRadar.Policies.Checks do
         authorize_if {ServiceRadar.Policies.Checks.ActorHasRole, role: :admin}
         authorize_if {ServiceRadar.Policies.Checks.ActorHasRole, roles: [:admin, :operator]}
     """
-    use Ash.Policy.SimpleCheck
+    use SimpleCheck
 
     @impl true
     def describe(opts) do
@@ -42,7 +45,7 @@ defmodule ServiceRadar.Policies.Checks do
 
     # Ash may call match?/3 with the authorizer as the 2nd arg and the opts as the 3rd arg.
     # Normalize that shape so our checks don't crash.
-    def match?(actor, %Ash.Policy.Authorizer{}, opts) when is_list(opts) do
+    def match?(actor, %Authorizer{}, opts) when is_list(opts) do
       match?(actor, opts, %{})
     end
 
@@ -64,7 +67,7 @@ defmodule ServiceRadar.Policies.Checks do
     @moduledoc """
     Check if the actor is an admin.
     """
-    use Ash.Policy.SimpleCheck
+    use SimpleCheck
 
     @impl true
     def describe(_opts), do: "actor is admin"
@@ -85,7 +88,7 @@ defmodule ServiceRadar.Policies.Checks do
     @moduledoc """
     Check if the actor is an operator or admin.
     """
-    use Ash.Policy.SimpleCheck
+    use SimpleCheck
 
     @impl true
     def describe(_opts), do: "actor is operator or admin"
@@ -110,7 +113,7 @@ defmodule ServiceRadar.Policies.Checks do
 
       * `:attribute` - The attribute to check (default: :user_id)
     """
-    use Ash.Policy.SimpleCheck
+    use SimpleCheck
 
     @impl true
     def describe(opts) do
@@ -124,7 +127,7 @@ defmodule ServiceRadar.Policies.Checks do
 
     # Ash may call match?/3 with the authorizer as the 2nd arg and the opts as the 3rd arg.
     # When that happens, use the authorizer's changeset as the context.
-    def match?(actor, %Ash.Policy.Authorizer{} = authorizer, opts) when is_list(opts) do
+    def match?(actor, %Authorizer{} = authorizer, opts) when is_list(opts) do
       match?(actor, opts, %{changeset: Map.get(authorizer, :changeset)})
     end
 
@@ -148,7 +151,7 @@ defmodule ServiceRadar.Policies.Checks do
 
       * `:permission` - Permission key string (e.g., \"devices.delete\")
     """
-    use Ash.Policy.SimpleCheck
+    use SimpleCheck
 
     alias ServiceRadar.Identity.RBAC
 
@@ -163,7 +166,7 @@ defmodule ServiceRadar.Policies.Checks do
     def match?(nil, _opts, _context), do: false
 
     # Ash may call match?/3 with the authorizer as the 2nd arg and the opts as the 3rd arg.
-    def match?(actor, %Ash.Policy.Authorizer{}, opts) when is_list(opts) do
+    def match?(actor, %Authorizer{}, opts) when is_list(opts) do
       match?(actor, opts, %{})
     end
 
@@ -187,7 +190,7 @@ defmodule ServiceRadar.Policies.Checks do
     @moduledoc """
     Check if the actor is missing (used for internal/system-triggered actions).
     """
-    use Ash.Policy.SimpleCheck
+    use SimpleCheck
 
     @impl true
     def describe(_opts), do: "actor is nil"

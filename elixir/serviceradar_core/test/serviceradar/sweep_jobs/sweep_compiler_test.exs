@@ -11,7 +11,7 @@ defmodule ServiceRadar.SweepJobs.SweepCompilerTest do
     test "empty config is valid" do
       config = %{
         "groups" => [],
-        "compiled_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+        "compiled_at" => DateTime.to_iso8601(DateTime.utc_now()),
         "config_hash" => "abc123"
       }
 
@@ -39,7 +39,7 @@ defmodule ServiceRadar.SweepJobs.SweepCompilerTest do
             }
           }
         ],
-        "compiled_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+        "compiled_at" => DateTime.to_iso8601(DateTime.utc_now()),
         "config_hash" => "abc123"
       }
 
@@ -48,7 +48,7 @@ defmodule ServiceRadar.SweepJobs.SweepCompilerTest do
 
     test "config missing groups key is invalid" do
       config = %{
-        "compiled_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+        "compiled_at" => DateTime.to_iso8601(DateTime.utc_now())
       }
 
       assert {:error, "Config missing 'groups' key"} = SweepCompiler.validate(config)

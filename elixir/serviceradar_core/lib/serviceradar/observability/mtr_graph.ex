@@ -12,10 +12,10 @@ defmodule ServiceRadar.Observability.MtrGraph do
   Stale MTR_PATH edges are pruned after a configurable interval (default 24 hours).
   """
 
-  require Logger
-
   alias ServiceRadar.Graph
   alias ServiceRadar.Repo
+
+  require Logger
 
   @stale_hours 24
 
@@ -27,7 +27,7 @@ defmodule ServiceRadar.Observability.MtrGraph do
   @spec project_traces(list(map()), map()) :: :ok
   def project_traces(results, status) when is_list(results) do
     agent_id = status[:agent_id] || "unknown"
-    observed_at = DateTime.utc_now() |> DateTime.to_iso8601()
+    observed_at = DateTime.to_iso8601(DateTime.utc_now())
 
     # Collect all hop IPs across all traces for batch device lookup
     all_ips =

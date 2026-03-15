@@ -1,5 +1,6 @@
 defmodule ServiceRadarWebNG.Api.SpatialController do
   use ServiceRadarWebNGWeb, :controller
+
   import Ecto.Query
 
   alias ServiceRadar.Spatial.SurveySample

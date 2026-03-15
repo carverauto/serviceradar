@@ -8,13 +8,15 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerInterfaceMacTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.TestSupport
 
   require Ash.Query
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
-  alias ServiceRadar.TestSupport
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -54,8 +56,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerInterfaceMacTest do
 
     # Verify: MAC is registered to the polled device, not the agent
     mac_query =
-      DeviceIdentifier
-      |> Ash.Query.for_read(:lookup, %{
+      Ash.Query.for_read(DeviceIdentifier, :lookup, %{
         identifier_type: :mac,
         identifier_value: "0EEA1432D278",
         partition: "default"
@@ -66,8 +67,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerInterfaceMacTest do
 
     # Verify: no agent_id identifier was registered for the polled device
     polled_identifiers_query =
-      DeviceIdentifier
-      |> Ash.Query.for_read(:by_device, %{device_id: polled_device.uid})
+      Ash.Query.for_read(DeviceIdentifier, :by_device, %{device_id: polled_device.uid})
 
     assert {:ok, polled_identifiers} = Ash.read(polled_identifiers_query, actor: actor)
 
@@ -138,7 +138,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerInterfaceMacTest do
   end
 
   defp mac_suffix do
-    System.unique_integer([:positive])
+    [:positive]
+    |> System.unique_integer()
     |> rem(256)
     |> Integer.to_string(16)
     |> String.pad_leading(2, "0")

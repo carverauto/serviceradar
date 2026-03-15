@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
 
   use ServiceRadarWebNGWeb, :live_component
 
+  alias Ash.Error.Invalid
   alias ServiceRadar.Observability.EventRule
 
   @severity_options [
@@ -696,7 +697,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
         send(self(), {:rule_created, rule})
         {:noreply, assign(socket, :saving, false)}
 
-      {:error, %Ash.Error.Invalid{} = error} ->
+      {:error, %Invalid{} = error} ->
         error_message = format_ash_error(error)
         {:noreply, socket |> assign(:saving, false) |> assign(:error, error_message)}
 
@@ -728,7 +729,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
             send(self(), {:rule_updated, updated_rule})
             {:noreply, assign(socket, :saving, false)}
 
-          {:error, %Ash.Error.Invalid{} = error} ->
+          {:error, %Invalid{} = error} ->
             error_message = format_ash_error(error)
             {:noreply, socket |> assign(:saving, false) |> assign(:error, error_message)}
 
@@ -837,8 +838,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
     |> Enum.reduce(%{}, &parse_key_value_pair/2)
   end
 
-  defp parse_key_value_pair([_full, key, json_value], acc)
-       when binary_part(json_value, 0, 1) == "{" do
+  defp parse_key_value_pair([_full, key, json_value], acc) when binary_part(json_value, 0, 1) == "{" do
     case Jason.decode(json_value) do
       {:ok, decoded} -> Map.put(acc, key, decoded)
       _ -> Map.put(acc, key, json_value)
@@ -850,7 +850,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
   end
 
   defp flatten_for_suggestions(attributes) when is_map(attributes) do
-    Enum.flat_map(attributes, fn
+    attributes
+    |> Enum.flat_map(fn
       {section, values} when is_map(values) ->
         Enum.map(values, fn {k, v} -> {"#{section}.#{k}", stringify(v)} end)
 
@@ -896,7 +897,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 
-  defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do
+  defp format_ash_error(%Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", fn
       %{field: field, message: message} when is_atom(field) ->
         "#{field}: #{message}"

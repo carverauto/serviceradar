@@ -10,13 +10,13 @@ defmodule ServiceRadar.Identity.RBAC do
   Permissions are stored as `MapSet.t(String.t())` for O(1) membership checks.
   """
 
-  require Ash.Query
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
+
+  require Ash.Query
 
   @spec catalog() :: list()
   def catalog, do: Catalog.catalog()
@@ -82,8 +82,7 @@ defmodule ServiceRadar.Identity.RBAC do
 
   @doc "Clears the process-level RBAC cache."
   def clear_process_cache do
-    Process.get_keys()
-    |> Enum.each(fn
+    Enum.each(Process.get_keys(), fn
       {:rbac_permissions, _} = key -> Process.delete(key)
       _ -> :ok
     end)

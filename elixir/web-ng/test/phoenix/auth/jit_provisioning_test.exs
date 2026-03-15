@@ -10,10 +10,10 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
 
   use ServiceRadarWebNG.DataCase, async: true
 
+  import ServiceRadarWebNG.AccountsFixtures
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
-
-  import ServiceRadarWebNG.AccountsFixtures
 
   describe "User.provision_sso_user/2" do
     setup do
@@ -35,7 +35,7 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
       assert user.external_id == "oidc|12345"
       assert user.role == :viewer
       # SSO users should be auto-confirmed
-      assert user.confirmed_at != nil
+      assert user.confirmed_at
     end
 
     test "creates a new user with SAML provider", %{actor: actor} do
@@ -210,7 +210,7 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
       if original_timestamp do
         assert DateTime.compare(updated.authenticated_at, original_timestamp) in [:gt, :eq]
       else
-        assert updated.authenticated_at != nil
+        assert updated.authenticated_at
       end
     end
 
@@ -245,12 +245,12 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
       }
 
       assert {:ok, user} = User.provision_sso_user(params, actor: actor)
-      assert user.confirmed_at != nil
+      assert user.confirmed_at
     end
 
     test "confirmed_at is set to current time", %{actor: actor} do
       # confirmed_at is persisted through Postgres, which may truncate precision (seconds).
-      before = DateTime.utc_now() |> DateTime.truncate(:second)
+      before = DateTime.truncate(DateTime.utc_now(), :second)
 
       params = %{
         email: "timestamp_test@example.com",
@@ -260,7 +260,7 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
       }
 
       {:ok, user} = User.provision_sso_user(params, actor: actor)
-      after_time = DateTime.utc_now() |> DateTime.truncate(:second)
+      after_time = DateTime.truncate(DateTime.utc_now(), :second)
 
       assert DateTime.compare(user.confirmed_at, before) in [:gt, :eq]
       assert DateTime.compare(user.confirmed_at, after_time) in [:lt, :eq]

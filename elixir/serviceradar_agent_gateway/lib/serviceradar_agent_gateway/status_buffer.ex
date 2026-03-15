@@ -8,9 +8,9 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
 
   use GenServer
 
-  require Logger
-
   alias ServiceRadarAgentGateway.StatusProcessor
+
+  require Logger
 
   @default_max_entries 100
   @default_flush_interval_ms 5_000

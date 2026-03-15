@@ -112,23 +112,21 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   def update_command(%{collector_type: :falcosidekick} = package, download_token, opts) do
     base_url = Keyword.get_lazy(opts, :base_url, &default_base_url/0)
 
-    """
+    String.trim("""
     curl -fsSL "#{base_url}/api/collectors/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
     cd collector-package-#{short_id(package.id)} && \\
     ./deploy.sh
-    """
-    |> String.trim()
+    """)
   end
 
   def update_command(package, download_token, opts) do
     base_url = Keyword.get_lazy(opts, :base_url, &default_base_url/0)
 
-    """
+    String.trim("""
     curl -fsSL "#{base_url}/api/collectors/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
     cd collector-package-#{short_id(package.id)} && \\
     sudo ./update.sh
-    """
-    |> String.trim()
+    """)
   end
 
   # Private functions
@@ -176,7 +174,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     # ServiceRadar Flowgger Configuration
     # Package ID: #{package.id}
     # Site: #{site}
-    # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
 
     [input]
     type = "udp"
@@ -218,7 +216,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     # ServiceRadar OpenTelemetry Collector Configuration
     # Package ID: #{package.id}
     # Site: #{site}
-    # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
 
     [server]
     bind_address = "0.0.0.0"
@@ -363,7 +361,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     # Falcosidekick Helm Values for ServiceRadar
     # Package ID: #{package.id}
     # Site: #{package.site || "default"}
-    # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
     #
     # Usage:
     #   helm upgrade -n #{namespace} #{release_name} falcosecurity/falcosidekick \\
@@ -424,7 +422,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     #!/bin/bash
     # ServiceRadar Falcosidekick Deploy Script
     # Package ID: #{s_package_id}
-    # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
     #
     # Verifies the shared runtime cert secret exists, then deploys/upgrades
     # Falcosidekick via Helm with the generated values file.
@@ -494,7 +492,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     # ServiceRadar Collector Update Script
     # Collector: #{s_collector_type}
     # Package ID: #{s_package_id}
-    # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
     #
     # This script updates credentials, certificates, and configuration for an
     # already-installed collector service. Install the collector package first.
@@ -860,8 +858,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   end
 
   # Extract NATS leaf URL from preloaded edge site, if available
-  defp edge_site_nats_url(%{edge_site: %EdgeSite{nats_leaf_url: url}})
-       when is_binary(url) and url != "" do
+  defp edge_site_nats_url(%{edge_site: %EdgeSite{nats_leaf_url: url}}) when is_binary(url) and url != "" do
     url
   end
 

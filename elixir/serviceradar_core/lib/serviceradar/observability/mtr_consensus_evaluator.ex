@@ -60,8 +60,7 @@ defmodule ServiceRadar.Observability.MtrConsensusEvaluator do
     }
   end
 
-  def aggregate_weighted_votes(_, _),
-    do: aggregate_weighted_votes([], %{})
+  def aggregate_weighted_votes(_, _), do: aggregate_weighted_votes([], %{})
 
   @spec classify([outcome()], policy()) :: %{
           classification: atom(),
@@ -223,7 +222,8 @@ defmodule ServiceRadar.Observability.MtrConsensusEvaluator do
   end
 
   defp consensus_threshold(policy) do
-    get_float(policy, [:consensus_threshold, "consensus_threshold"], @default_consensus_threshold)
+    policy
+    |> get_float([:consensus_threshold, "consensus_threshold"], @default_consensus_threshold)
     |> clamp01()
   end
 

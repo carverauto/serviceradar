@@ -7,7 +7,10 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
   payloads for plugins.
   """
 
-  alias ServiceRadar.Plugins.{IdentityUtils, MapUtils, PluginInputs, ValueUtils}
+  alias ServiceRadar.Plugins.IdentityUtils
+  alias ServiceRadar.Plugins.MapUtils
+  alias ServiceRadar.Plugins.PluginInputs
+  alias ServiceRadar.Plugins.ValueUtils
 
   @type resolved_input :: %{
           required(:name) => String.t(),
@@ -22,8 +25,7 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
 
   def build_payloads(base_payload, resolved_inputs, opts)
       when is_map(base_payload) and is_list(resolved_inputs) do
-    resolved_inputs
-    |> Enum.reduce_while({:ok, []}, fn resolved_input, {:ok, acc} ->
+    Enum.reduce_while(resolved_inputs, {:ok, []}, fn resolved_input, {:ok, acc} ->
       case build_input_payloads(base_payload, resolved_input, opts) do
         {:ok, []} -> {:cont, {:ok, acc}}
         {:ok, payloads} -> {:cont, {:ok, acc ++ payloads}}

@@ -80,7 +80,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
         |> Ash.update()
 
       assert dispatching.status == :dispatching
-      assert dispatching.dispatched_at != nil
+      assert dispatching.dispatched_at
 
       # Transition to running
       {:ok, running} =
@@ -89,7 +89,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
         |> Ash.update()
 
       assert running.status == :running
-      assert running.started_at != nil
+      assert running.started_at
       assert running.agent_id == "agent-001"
 
       # Complete the job
@@ -103,10 +103,10 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
         |> Ash.update()
 
       assert completed.status == :completed
-      assert completed.completed_at != nil
+      assert completed.completed_at
       assert completed.success_count == 2
       assert completed.failure_count == 0
-      assert completed.duration_ms != nil
+      assert completed.duration_ms
       assert completed.duration_ms > 0
     end
 

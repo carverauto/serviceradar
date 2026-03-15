@@ -11,6 +11,8 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Types.Jsonb
+
   @event_fields [
     :time,
     :class_uid,
@@ -143,12 +145,12 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
       public? true
     end
 
-    attribute :metadata, ServiceRadar.Types.Jsonb do
+    attribute :metadata, Jsonb do
       default %{}
       public? true
     end
 
-    attribute :observables, ServiceRadar.Types.Jsonb do
+    attribute :observables, Jsonb do
       default []
       public? true
     end
@@ -161,22 +163,22 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
       public? true
     end
 
-    attribute :actor, ServiceRadar.Types.Jsonb do
+    attribute :actor, Jsonb do
       default %{}
       public? true
     end
 
-    attribute :device, ServiceRadar.Types.Jsonb do
+    attribute :device, Jsonb do
       default %{}
       public? true
     end
 
-    attribute :src_endpoint, ServiceRadar.Types.Jsonb do
+    attribute :src_endpoint, Jsonb do
       default %{}
       public? true
     end
 
-    attribute :dst_endpoint, ServiceRadar.Types.Jsonb do
+    attribute :dst_endpoint, Jsonb do
       default %{}
       public? true
     end
@@ -197,7 +199,7 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
       public? true
     end
 
-    attribute :unmapped, ServiceRadar.Types.Jsonb do
+    attribute :unmapped, Jsonb do
       default %{}
       public? true
     end

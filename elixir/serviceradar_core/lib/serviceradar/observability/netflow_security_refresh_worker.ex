@@ -11,20 +11,16 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
+  import Ecto.Query, only: [from: 2]
+
   alias ServiceRadar.Actors.SystemActor
-
-  alias ServiceRadar.Observability.{
-    IpThreatIntelCache,
-    NetflowPortAnomalyFlag,
-    NetflowPortScanFlag,
-    NetflowSettings,
-    SRQLRunner
-  }
-
+  alias ServiceRadar.Observability.IpThreatIntelCache
+  alias ServiceRadar.Observability.NetflowPortAnomalyFlag
+  alias ServiceRadar.Observability.NetflowPortScanFlag
+  alias ServiceRadar.Observability.NetflowSettings
+  alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
-
-  import Ecto.Query, only: [from: 2]
 
   require Logger
 
@@ -39,9 +35,10 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      case check_existing_job() do
-        true -> {:ok, :already_scheduled}
-        false -> %{} |> new() |> ObanSupport.safe_insert()
+      if check_existing_job() do
+        {:ok, :already_scheduled}
+      else
+        %{} |> new() |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
@@ -144,7 +141,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
     q =
       ~s|in:flows time:#{time_token} stats:"count_distinct(dst_endpoint_port) as unique_ports by src_endpoint_ip" sort:unique_ports:desc limit:#{limit}|
 
-    rows = SRQLRunner.query(q) |> unwrap_rows()
+    rows = q |> SRQLRunner.query() |> unwrap_rows()
 
     Enum.each(rows, fn row ->
       src_ip = Map.get(row, "src_endpoint_ip") || Map.get(row, :src_endpoint_ip)

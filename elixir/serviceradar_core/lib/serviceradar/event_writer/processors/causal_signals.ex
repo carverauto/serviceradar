@@ -68,10 +68,10 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
-    with %{normalized: normalized, payload: payload, raw_data: raw_data, metadata: row_metadata} <-
-           parse_components(%{data: data, metadata: metadata}) do
-      build_ocsf_event_row(normalized, payload, raw_data, row_metadata)
-    else
+    case parse_components(%{data: data, metadata: metadata}) do
+      %{normalized: normalized, payload: payload, raw_data: raw_data, metadata: row_metadata} ->
+        build_ocsf_event_row(normalized, payload, raw_data, row_metadata)
+
       nil ->
         nil
     end
@@ -125,9 +125,10 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp insert_rows(_table, []), do: 0
 
   defp insert_rows(table, rows) when is_list(rows) do
-    case ServiceRadar.Repo.insert_all(table, rows, on_conflict: :nothing, returning: false) do
-      {count, _} -> count
-    end
+    {count, _} =
+      ServiceRadar.Repo.insert_all(table, rows, on_conflict: :nothing, returning: false)
+
+    count
   end
 
   defp persist_to_ocsf?(%{normalized: normalized}) when is_map(normalized) do
@@ -510,7 +511,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp build_context(_type, _id), do: nil
 
   defp signal_domains(payload, signal_type) do
-    normalized =
+    case_result =
       case payload["signal_domains"] do
         values when is_list(values) ->
           Enum.map(values, &normalize_domain/1)
@@ -518,6 +519,9 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
         _ ->
           [normalize_domain(payload["signal_domain"] || signal_type)]
       end
+
+    normalized =
+      case_result
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
@@ -670,13 +674,11 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp deterministic_uuid(key) do
     <<a1::32, a2::16, a3::16, a4::16, a5::48, _rest::binary>> = :crypto.hash(:sha256, key)
     # Set version 4 and variant 10xx for UUID compliance.
-    versioned_a3 = Bitwise.band(a3, 0x0FFF) |> Bitwise.bor(0x4000)
-    versioned_a4 = Bitwise.band(a4, 0x3FFF) |> Bitwise.bor(0x8000)
+    versioned_a3 = a3 |> Bitwise.band(0x0FFF) |> Bitwise.bor(0x4000)
+    versioned_a4 = a4 |> Bitwise.band(0x3FFF) |> Bitwise.bor(0x8000)
 
-    :io_lib.format(
-      "~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b",
-      [a1, a2, versioned_a3, versioned_a4, a5]
-    )
+    "~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b"
+    |> :io_lib.format([a1, a2, versioned_a3, versioned_a4, a5])
     |> IO.iodata_to_binary()
   end
 
@@ -719,9 +721,10 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp arancini_prefix(_), do: nil
 
   defp normalize_raw_data(data) when is_binary(data) do
-    case String.valid?(data) do
-      true -> data
-      false -> Base.encode64(data)
+    if String.valid?(data) do
+      data
+    else
+      Base.encode64(data)
     end
   end
 

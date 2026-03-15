@@ -1,4 +1,6 @@
 defmodule Mix.Tasks.Graph.Ready do
+  @shortdoc "Verifies AGE graph readiness"
+
   @moduledoc """
   Verifies CNPG connectivity and Apache AGE graph readiness.
 
@@ -8,8 +10,6 @@ defmodule Mix.Tasks.Graph.Ready do
   use Mix.Task
 
   alias ServiceRadarWebNG.Graph
-
-  @shortdoc "Verifies AGE graph readiness"
 
   def run(_args) do
     Mix.Task.run("app.start")
@@ -23,9 +23,7 @@ defmodule Mix.Tasks.Graph.Ready do
       {:error, error} ->
         Mix.shell().error("✗ Graph query failed: #{inspect(error)}")
 
-        Mix.shell().error(
-          "Check CNPG_* env vars and that AGE is installed/enabled on the target database"
-        )
+        Mix.shell().error("Check CNPG_* env vars and that AGE is installed/enabled on the target database")
 
         exit({:shutdown, 1})
     end

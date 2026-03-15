@@ -4,8 +4,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Viz do
   @type inferred ::
           :none
           | {:timeseries, %{x: String.t(), y: String.t(), points: list({DateTime.t(), number()})}}
-          | {:categories,
-             %{label: String.t(), value: String.t(), items: list({String.t(), number()})}}
+          | {:categories, %{label: String.t(), value: String.t(), items: list({String.t(), number()})}}
 
   @max_points 120
   @max_categories 12
@@ -30,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Viz do
   defp infer_timeseries([]), do: {:error, :no_rows}
 
   defp infer_timeseries([first | _] = rows) do
-    keys = Map.keys(first) |> Enum.map(&to_string/1)
+    keys = first |> Map.keys() |> Enum.map(&to_string/1)
 
     x_key =
       Enum.find(keys, fn k ->
@@ -54,7 +53,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Viz do
   defp infer_categories([]), do: {:error, :no_rows}
 
   defp infer_categories([first | _] = rows) do
-    keys = Map.keys(first) |> Enum.map(&to_string/1)
+    keys = first |> Map.keys() |> Enum.map(&to_string/1)
 
     # Only infer categories if we have explicit aggregation columns
     # Don't use arbitrary numeric columns like type_id, id, etc.

@@ -44,6 +44,8 @@ defmodule ServiceRadar.DataService.Client do
 
   use GenServer
 
+  alias Proto.KVService.Stub
+
   require Logger
 
   @default_host "datasvc"
@@ -72,9 +74,10 @@ defmodule ServiceRadar.DataService.Client do
   """
   @spec connected?() :: boolean()
   def connected? do
-    case safe_call(:connected?, 1_000) do
-      true -> true
-      _ -> false
+    if safe_call(:connected?, 1_000) do
+      true
+    else
+      false
     end
   end
 
@@ -438,8 +441,7 @@ defmodule ServiceRadar.DataService.Client do
     case build_cred_opts(config) do
       {:ok, cred_opts} ->
         connect_opts =
-          cred_opts
-          |> Keyword.put(:adapter_opts, connect_timeout: config.connect_timeout_ms)
+          Keyword.put(cred_opts, :adapter_opts, connect_timeout: config.connect_timeout_ms)
 
         GRPC.Stub.connect(endpoint, connect_opts)
 
@@ -496,8 +498,7 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   defp normalize_sec_mode(%{sec_mode: sec_mode, ssl: ssl} = config) do
-    sec_mode
-    |> normalize_sec_mode_value(ssl, config)
+    normalize_sec_mode_value(sec_mode, ssl, config)
   end
 
   defp normalize_sec_mode_value(nil, ssl, config), do: default_sec_mode(ssl, config)
@@ -597,7 +598,7 @@ defmodule ServiceRadar.DataService.Client do
       ttl_seconds: ttl
     }
 
-    case Proto.KVService.Stub.put(channel, request, timeout: timeout) do
+    case Stub.put(channel, request, timeout: timeout) do
       {:ok, _response} ->
         :ok
 
@@ -616,7 +617,7 @@ defmodule ServiceRadar.DataService.Client do
 
     request = %Proto.GetRequest{key: key}
 
-    case Proto.KVService.Stub.get(channel, request, timeout: timeout) do
+    case Stub.get(channel, request, timeout: timeout) do
       {:ok, %Proto.GetResponse{found: true, value: value}} ->
         {:ok, value}
 
@@ -638,7 +639,7 @@ defmodule ServiceRadar.DataService.Client do
 
     request = %Proto.GetRequest{key: key}
 
-    case Proto.KVService.Stub.get(channel, request, timeout: timeout) do
+    case Stub.get(channel, request, timeout: timeout) do
       {:ok, %Proto.GetResponse{found: true, value: value, revision: revision}} ->
         {:ok, value, revision}
 
@@ -660,7 +661,7 @@ defmodule ServiceRadar.DataService.Client do
 
     request = %Proto.DeleteRequest{key: key}
 
-    case Proto.KVService.Stub.delete(channel, request, timeout: timeout) do
+    case Stub.delete(channel, request, timeout: timeout) do
       {:ok, _response} ->
         :ok
 
@@ -679,7 +680,7 @@ defmodule ServiceRadar.DataService.Client do
 
     request = %Proto.ListKeysRequest{prefix: prefix}
 
-    case Proto.KVService.Stub.list_keys(channel, request, timeout: timeout) do
+    case Stub.list_keys(channel, request, timeout: timeout) do
       {:ok, %Proto.ListKeysResponse{keys: keys}} ->
         {:ok, keys}
 
@@ -710,7 +711,7 @@ defmodule ServiceRadar.DataService.Client do
       ttl_seconds: ttl
     }
 
-    case Proto.KVService.Stub.put_many(channel, request, timeout: timeout) do
+    case Stub.put_many(channel, request, timeout: timeout) do
       {:ok, _response} ->
         :ok
 

@@ -59,9 +59,7 @@ defmodule ServiceRadar.Plugins.ManifestTest do
   end
 
   test "resource requests must be positive integers" do
-    manifest =
-      @valid_manifest
-      |> put_in(["resources", "requested_memory_mb"], -1)
+    manifest = put_in(@valid_manifest, ["resources", "requested_memory_mb"], -1)
 
     assert {:error, errors} = Manifest.from_map(manifest)
     assert "resources.requested_memory_mb must be a positive integer" in errors

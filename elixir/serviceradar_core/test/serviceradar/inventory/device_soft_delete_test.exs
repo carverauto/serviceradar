@@ -1,24 +1,21 @@
 defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
   use ExUnit.Case, async: false
 
-  @moduletag :integration
+  import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
-
-  alias ServiceRadar.Inventory.{
-    Device,
-    DeviceCleanupSettings,
-    DeviceCleanupWorker,
-    DeviceIdentifier,
-    SyncIngestor
-  }
-
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupSettings
+  alias ServiceRadar.Inventory.DeviceCleanupWorker
+  alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   require Ash.Query
-  import Ecto.Query
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -141,11 +138,14 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
 
     old_cutoff = DateTime.add(DateTime.utc_now(), -2 * 86_400, :second)
 
-    from(d in "ocsf_devices",
-      where: d.uid == ^old_device.uid,
-      update: [set: [deleted_at: ^old_cutoff]]
+    Repo.update_all(
+      from(d in "ocsf_devices",
+        where: d.uid == ^old_device.uid,
+        update: [set: [deleted_at: ^old_cutoff]]
+      ),
+      [],
+      prefix: "platform"
     )
-    |> Repo.update_all([], prefix: "platform")
 
     job = struct(Oban.Job, args: %{"manual" => true})
     assert :ok = DeviceCleanupWorker.perform(job)
@@ -254,8 +254,7 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     octet_5 = rem(div(seed, 256), 256)
     octet_6 = rem(seed, 256)
 
-    [0xAA, 0xBB, 0xCC, octet_4, octet_5, octet_6]
-    |> Enum.map_join(":", fn octet ->
+    Enum.map_join([0xAA, 0xBB, 0xCC, octet_4, octet_5, octet_6], ":", fn octet ->
       octet
       |> Integer.to_string(16)
       |> String.pad_leading(2, "0")

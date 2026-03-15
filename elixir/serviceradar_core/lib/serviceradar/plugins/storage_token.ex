@@ -8,8 +8,7 @@ defmodule ServiceRadar.Plugins.StorageToken do
   @default_download_ttl_seconds 86_400
 
   @spec download_url(String.t(), String.t() | nil) :: String.t() | nil
-  def download_url(package_id, object_key)
-      when is_binary(package_id) and is_binary(object_key) do
+  def download_url(package_id, object_key) when is_binary(package_id) and is_binary(object_key) do
     base_url = public_url()
     secret = signing_secret()
 

@@ -51,8 +51,8 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert agent.port == 50_051
       assert agent.is_healthy == true
       assert "icmp" in agent.capabilities
-      assert agent.first_seen_time != nil
-      assert agent.last_seen_time != nil
+      assert agent.first_seen_time
+      assert agent.last_seen_time
     end
 
     test "creates agent with SPIFFE identity", %{actor: actor, unique_id: unique_id} do
@@ -295,7 +295,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       assert DateTime.compare(updated.last_seen_time, original_last_seen) in [:gt, :eq]
       # At minimum, the timestamp should be set
-      assert updated.last_seen_time != nil
+      assert updated.last_seen_time
     end
 
     test "can update capabilities", %{actor: actor, unique_id: unique_id} do

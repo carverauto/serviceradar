@@ -3,10 +3,10 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
   Issues agent mTLS bundles by calling the agent-gateway over ERTS RPC.
   """
 
-  require Logger
-
   alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.GatewayTracker
+
+  require Logger
 
   @default_timeout 30_000
 
@@ -38,8 +38,7 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
   end
 
   defp lookup_gateway_node_from_tracker(gateway_id) do
-    [Node.self() | Node.list()]
-    |> Enum.find_value({:error, :gateway_unavailable}, fn node ->
+    Enum.find_value([Node.self() | Node.list()], {:error, :gateway_unavailable}, fn node ->
       case :rpc.call(node, GatewayTracker, :get_gateway, [gateway_id], 1_500) do
         %{node: tracker_node} when is_atom(tracker_node) -> {:ok, tracker_node}
         _ -> false
@@ -51,9 +50,7 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
     timeout = Keyword.get(opts, :timeout_ms, @default_timeout)
     validity_days = Keyword.get(opts, :validity_days)
 
-    rpc_opts =
-      []
-      |> maybe_put(:validity_days, validity_days)
+    rpc_opts = maybe_put([], :validity_days, validity_days)
 
     case :rpc.call(
            node,

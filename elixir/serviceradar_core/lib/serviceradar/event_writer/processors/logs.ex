@@ -15,18 +15,17 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias Opentelemetry.Proto.Collector.Logs.V1.ExportLogsServiceRequest
-
-  alias Opentelemetry.Proto.Common.V1.{
-    AnyValue,
-    ArrayValue,
-    InstrumentationScope,
-    KeyValue,
-    KeyValueList
-  }
-
-  alias Opentelemetry.Proto.Logs.V1.{LogRecord, ResourceLogs, ScopeLogs}
+  alias Opentelemetry.Proto.Common.V1.AnyValue
+  alias Opentelemetry.Proto.Common.V1.ArrayValue
+  alias Opentelemetry.Proto.Common.V1.InstrumentationScope
+  alias Opentelemetry.Proto.Common.V1.KeyValue
+  alias Opentelemetry.Proto.Common.V1.KeyValueList
+  alias Opentelemetry.Proto.Logs.V1.LogRecord
+  alias Opentelemetry.Proto.Logs.V1.ResourceLogs
+  alias Opentelemetry.Proto.Logs.V1.ScopeLogs
   alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.Observability.{LogPromotion, LogPubSub}
+  alias ServiceRadar.Observability.LogPromotion
+  alias ServiceRadar.Observability.LogPubSub
 
   require Logger
 
@@ -69,17 +68,17 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     rows_for_insert = Enum.map(rows, &encode_text_columns/1)
 
     # DB connection's search_path determines the schema
-    case ServiceRadar.Repo.insert_all(
-           table_name(),
-           rows_for_insert,
-           on_conflict: :nothing,
-           returning: false
-         ) do
-      {count, _} ->
-        maybe_promote_logs(rows)
-        LogPubSub.broadcast_ingest(%{count: count})
-        {:ok, count}
-    end
+    {count, _} =
+      ServiceRadar.Repo.insert_all(
+        table_name(),
+        rows_for_insert,
+        on_conflict: :nothing,
+        returning: false
+      )
+
+    maybe_promote_logs(rows)
+    LogPubSub.broadcast_ingest(%{count: count})
+    {:ok, count}
   end
 
   defp parse_log_payload({:ok, json}, _data, metadata) do
@@ -150,8 +149,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     scope_name = FieldParser.get_field(json, "scope_name", "scopeName")
     scope_version = FieldParser.get_field(json, "scope_version", "scopeVersion")
 
-    json["scope"]
-    |> merge_scope_fields(scope_name, scope_version)
+    merge_scope_fields(json["scope"], scope_name, scope_version)
   end
 
   defp parse_scope_fields(_), do: {nil, nil}
@@ -334,8 +332,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          _service_instance,
          _resource_attributes,
          _metadata
-       ),
-       do: []
+       ), do: []
 
   defp parse_scope(%InstrumentationScope{name: name, version: version}), do: {name, version}
   defp parse_scope(_), do: {nil, nil}
@@ -415,7 +412,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   defp source_kind(_), do: nil
 
   defp generated_uuid do
-    Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    Ecto.UUID.dump!(Ecto.UUID.generate())
   end
 
   defp encode_text_columns(row) when is_map(row) do

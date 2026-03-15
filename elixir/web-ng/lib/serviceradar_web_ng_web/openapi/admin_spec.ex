@@ -69,13 +69,11 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
       },
       "/api/admin/users" => %{
         "get" => op("List users", "Users", response: "AnyArray"),
-        "post" =>
-          op("Create user", "Users", body: "AnyObject", response: "AnyObject", status: "201")
+        "post" => op("Create user", "Users", body: "AnyObject", response: "AnyObject", status: "201")
       },
       "/api/admin/users/{id}" => %{
         "get" => op("Get user", "Users", params: [:id], response: "AnyObject"),
-        "patch" =>
-          op("Update user", "Users", params: [:id], body: "AnyObject", response: "AnyObject")
+        "patch" => op("Update user", "Users", params: [:id], body: "AnyObject", response: "AnyObject")
       },
       "/api/admin/users/{id}/deactivate" => %{
         "post" => op("Deactivate user", "Users", params: [:id], response: "AnyObject")
@@ -84,8 +82,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
         "post" => op("Reactivate user", "Users", params: [:id], response: "AnyObject")
       },
       "/api/admin/authorization-settings" => %{
-        "get" =>
-          op("Get authorization settings", "Authorization", response: "AuthorizationSettings"),
+        "get" => op("Get authorization settings", "Authorization", response: "AuthorizationSettings"),
         "put" =>
           op("Update authorization settings", "Authorization",
             body: "AuthorizationSettingsUpdate",
@@ -96,15 +93,13 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
         "get" =>
           op("Get BMP settings", "BMP Settings",
             response: "BmpSettings",
-            description:
-              "Returns deployment-level BMP ingestion and God-View causal overlay settings."
+            description: "Returns deployment-level BMP ingestion and God-View causal overlay settings."
           ),
         "put" =>
           op("Update BMP settings", "BMP Settings",
             body: "BmpSettingsUpdate",
             response: "BmpSettings",
-            description:
-              "Updates one or more BMP settings. Triggers retention policy refresh and runtime cache refresh."
+            description: "Updates one or more BMP settings. Triggers retention policy refresh and runtime cache refresh."
           )
       },
       "/api/admin/role-profiles/catalog" => %{
@@ -112,8 +107,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
       },
       "/api/admin/role-profiles" => %{
         "get" => op("List role profiles", "Role Profiles", response: "AnyArray"),
-        "post" =>
-          op("Create role profile", "Role Profiles", body: "AnyObject", response: "AnyObject")
+        "post" => op("Create role profile", "Role Profiles", body: "AnyObject", response: "AnyObject")
       },
       "/api/admin/role-profiles/{id}" => %{
         "get" => op("Get role profile", "Role Profiles", params: [:id], response: "AnyObject"),
@@ -123,12 +117,10 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
             body: "AnyObject",
             response: "AnyObject"
           ),
-        "delete" =>
-          op("Delete role profile", "Role Profiles", params: [:id], response: "AnyObject")
+        "delete" => op("Delete role profile", "Role Profiles", params: [:id], response: "AnyObject")
       },
       "/api/admin/topology/route-analysis" => %{
-        "post" =>
-          op("Analyze topology route", "Topology", body: "AnyObject", response: "AnyObject")
+        "post" => op("Analyze topology route", "Topology", body: "AnyObject", response: "AnyObject")
       },
       "/api/admin/edge-packages/defaults" => %{
         "get" => op("Get edge package defaults", "Edge", response: "AnyObject")
@@ -159,13 +151,11 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
       },
       "/api/admin/plugins/{id}" => %{
         "get" => op("Get plugin", "Plugins", params: [:id], response: "AnyObject"),
-        "patch" =>
-          op("Update plugin", "Plugins", params: [:id], body: "AnyObject", response: "AnyObject")
+        "patch" => op("Update plugin", "Plugins", params: [:id], body: "AnyObject", response: "AnyObject")
       },
       "/api/admin/plugin-packages" => %{
         "get" => op("List plugin packages", "Plugin Packages", response: "AnyArray"),
-        "post" =>
-          op("Create plugin package", "Plugin Packages", body: "AnyObject", response: "AnyObject")
+        "post" => op("Create plugin package", "Plugin Packages", body: "AnyObject", response: "AnyObject")
       },
       "/api/admin/plugin-packages/{id}" => %{
         "get" => op("Get plugin package", "Plugin Packages", params: [:id], response: "AnyObject")
@@ -185,20 +175,16 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
           )
       },
       "/api/admin/plugin-packages/{id}/approve" => %{
-        "post" =>
-          op("Approve plugin package", "Plugin Packages", params: [:id], response: "AnyObject")
+        "post" => op("Approve plugin package", "Plugin Packages", params: [:id], response: "AnyObject")
       },
       "/api/admin/plugin-packages/{id}/deny" => %{
-        "post" =>
-          op("Deny plugin package", "Plugin Packages", params: [:id], response: "AnyObject")
+        "post" => op("Deny plugin package", "Plugin Packages", params: [:id], response: "AnyObject")
       },
       "/api/admin/plugin-packages/{id}/revoke" => %{
-        "post" =>
-          op("Revoke plugin package", "Plugin Packages", params: [:id], response: "AnyObject")
+        "post" => op("Revoke plugin package", "Plugin Packages", params: [:id], response: "AnyObject")
       },
       "/api/admin/plugin-packages/{id}/restage" => %{
-        "post" =>
-          op("Restage plugin package", "Plugin Packages", params: [:id], response: "AnyObject")
+        "post" => op("Restage plugin package", "Plugin Packages", params: [:id], response: "AnyObject")
       },
       "/api/admin/plugin-assignments" => %{
         "get" => op("List plugin assignments", "Plugin Assignments", response: "AnyArray"),
@@ -232,8 +218,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
         "post" => op("Revoke collector", "Collectors", params: [:id], response: "AnyObject")
       },
       "/api/admin/collectors/{id}/download" => %{
-        "post" =>
-          op("Download collector package", "Collectors", params: [:id], response: "AnyObject")
+        "post" => op("Download collector package", "Collectors", params: [:id], response: "AnyObject")
       },
       "/api/admin/nats/account" => %{
         "get" => op("Get NATS account status", "NATS", response: "AnyObject")

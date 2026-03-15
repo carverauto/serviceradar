@@ -43,6 +43,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  import Ecto.Query
+
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
@@ -50,10 +52,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
-  import Ecto.Query
-
-  require Logger
   require Ash.Query
+  require Logger
 
   @impl true
   def table_name, do: "ocsf_network_activity"
@@ -82,17 +82,17 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
   defp insert_sweep_rows(rows, messages) do
     # DB connection's search_path determines the schema
-    case ServiceRadar.Repo.insert_all(
-           table_name(),
-           rows,
-           on_conflict: :nothing,
-           returning: false
-         ) do
-      {count, _} ->
-        # Also update device inventory via SweepResultsIngestor
-        process_inventory_updates(messages)
-        {:ok, count}
-    end
+    {count, _} =
+      Repo.insert_all(
+        table_name(),
+        rows,
+        on_conflict: :nothing,
+        returning: false
+      )
+
+    # Also update device inventory via SweepResultsIngestor
+    process_inventory_updates(messages)
+    {:ok, count}
   end
 
   # Process inventory updates for sweep results
@@ -168,7 +168,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       # Lookup existing devices
       actor = SystemActor.system(:sweep_processor)
       device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor, include_deleted: true)
-      timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
+      timestamp = DateTime.truncate(DateTime.utc_now(), :second)
 
       update_availability(results, device_map, timestamp, actor)
     end
@@ -271,11 +271,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       |> Enum.reject(&is_nil/1)
       |> Enum.map(& &1.canonical_device_id)
 
-    unless Enum.empty?(available_uids) do
-      from(d in {"ocsf_devices", Device},
-        where: d.uid in ^available_uids
-      )
-      |> Repo.update_all(
+    if !Enum.empty?(available_uids) do
+      Repo.update_all(from(d in {"ocsf_devices", Device}, where: d.uid in ^available_uids),
         set: [is_available: true, last_seen_time: timestamp, modified_time: timestamp]
       )
     end
@@ -292,11 +289,10 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       |> Enum.reject(&is_nil/1)
       |> Enum.map(& &1.canonical_device_id)
 
-    unless Enum.empty?(unavailable_uids) do
-      from(d in {"ocsf_devices", Device},
-        where: d.uid in ^unavailable_uids
+    if !Enum.empty?(unavailable_uids) do
+      Repo.update_all(from(d in {"ocsf_devices", Device}, where: d.uid in ^unavailable_uids),
+        set: [is_available: false, modified_time: timestamp]
       )
-      |> Repo.update_all(set: [is_available: false, modified_time: timestamp])
     end
   end
 
@@ -482,13 +478,13 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
     scanned_list =
       case scanned do
-        list when is_list(list) -> Enum.map(list, &to_integer/1) |> Enum.reject(&is_nil/1)
+        list when is_list(list) -> list |> Enum.map(&to_integer/1) |> Enum.reject(&is_nil/1)
         _ -> []
       end
 
     open_list =
       case open do
-        list when is_list(list) -> Enum.map(list, &to_integer/1) |> Enum.reject(&is_nil/1)
+        list when is_list(list) -> list |> Enum.map(&to_integer/1) |> Enum.reject(&is_nil/1)
         _ -> []
       end
 

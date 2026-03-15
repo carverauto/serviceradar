@@ -57,17 +57,17 @@ defmodule ServiceRadar.Actors.Device do
 
   use GenServer, restart: :transient
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device, as: DeviceResource
 
+  require Logger
+
   # Configuration
-  @hibernate_after :timer.minutes(5)
-  @event_flush_interval :timer.seconds(30)
+  @hibernate_after to_timeout(minute: 5)
+  @event_flush_interval to_timeout(second: 30)
   @event_buffer_max 100
-  @health_check_interval :timer.seconds(60)
-  @idle_timeout :timer.minutes(30)
+  @health_check_interval to_timeout(minute: 1)
+  @idle_timeout to_timeout(minute: 30)
 
   # Health states
   @health_states [:unknown, :healthy, :degraded, :unhealthy, :offline]
@@ -361,7 +361,7 @@ defmodule ServiceRadar.Actors.Device do
     event = %{
       type: :health_check,
       timestamp: DateTime.utc_now(),
-      data: Map.merge(result, %{status: new_health.status})
+      data: Map.put(result, :status, new_health.status)
     }
 
     new_state = %{new_state | events: [event | new_state.events]}
@@ -415,7 +415,7 @@ defmodule ServiceRadar.Actors.Device do
   @impl true
   def terminate(reason, state) do
     # Flush pending events before terminating
-    unless Enum.empty?(state.events) do
+    if !Enum.empty?(state.events) do
       do_flush_events(state)
     end
 

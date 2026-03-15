@@ -35,6 +35,9 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
+  alias ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
+
   @group_fields [
     :name,
     :description,
@@ -72,8 +75,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     create :create do
       accept @group_fields
 
-      change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
-      change ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
+      change ScheduleSweepMonitor
+      change ValidateSrqlQuery
     end
 
     update :update do
@@ -81,13 +84,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
       accept @group_fields
 
-      change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
-      change ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
+      change ScheduleSweepMonitor
+      change ValidateSrqlQuery
     end
 
     update :enable do
       change set_attribute(:enabled, true)
-      change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
+      change ScheduleSweepMonitor
     end
 
     update :disable do

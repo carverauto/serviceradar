@@ -28,10 +28,10 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
       |> maybe_add_filter("source", source)
       |> Enum.join(" ")
 
-    if filters != "" do
-      "#{base} #{filters}"
-    else
+    if filters == "" do
       base
+    else
+      "#{base} #{filters}"
     end
   end
 
@@ -75,10 +75,10 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
       |> maybe_add_filter("service_type", service_type)
       |> Enum.join(" ")
 
-    if filters != "" do
-      "#{base} #{filters}"
-    else
+    if filters == "" do
       base
+    else
+      "#{base} #{filters}"
     end
   end
 

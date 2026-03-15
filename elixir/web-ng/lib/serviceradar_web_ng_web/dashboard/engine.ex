@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Dashboard.Engine do
   @moduledoc false
 
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table
   alias ServiceRadarWebNGWeb.Dashboard.Registry
 
   @type srql_response :: map()
@@ -17,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Engine do
 
     {table_plugins, other_plugins} =
       Enum.split_with(plugins, fn plugin ->
-        plugin == ServiceRadarWebNGWeb.Dashboard.Plugins.Table
+        plugin == Table
       end)
 
     other_panels =
@@ -69,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Engine do
   end
 
   defp fallback_panel(srql_response) do
-    plugin_panel(ServiceRadarWebNGWeb.Dashboard.Plugins.Table, srql_response)
+    plugin_panel(Table, srql_response)
   end
 
   defp plugin_id(plugin) do

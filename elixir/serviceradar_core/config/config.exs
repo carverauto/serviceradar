@@ -6,6 +6,61 @@
 
 import Config
 
+# Ash configuration
+config :ash,
+  include_embedded_source_by_default?: false,
+  default_page_type: :keyset,
+  policies: [no_filter_static_forbidden_reads?: false]
+
+# AshOban configuration
+config :ash_oban,
+  oban_name: Oban,
+  oban_module: ServiceRadar.Oban.Router
+
+# Default Oban configuration (can be overridden by host app)
+config :serviceradar_core, Oban,
+  engine: Oban.Engines.Basic,
+  repo: ServiceRadar.Repo,
+  prefix: "platform",
+  queues: [
+    default: 10,
+    alerts: 5,
+    service_checks: 10,
+    notifications: 5,
+    onboarding: 3,
+    events: 10,
+    sweeps: 20,
+    edge: 10,
+    integrations: 5,
+    nats_accounts: 3,
+    maintenance: 5,
+    monitoring: 5
+  ],
+  plugins: [
+    Oban.Plugins.Pruner,
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
+     ]}
+  ],
+  peer: Oban.Peers.Database
+
+# Mailer configuration
+config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
+
+# Plugin blob storage download configuration (used to generate signed download URLs)
+config :serviceradar_core, :plugin_storage,
+  public_url: nil,
+  signing_secret: nil,
+  download_ttl_seconds: 86_400
+
+config :serviceradar_core,
+  age_graph_name: "platform_graph"
+
+# Cluster configuration (disabled by default)
+config :serviceradar_core,
+  cluster_enabled: false
+
 # Register Ash domains
 config :serviceradar_core,
   ecto_repos: [ServiceRadar.Repo],
@@ -27,22 +82,23 @@ config :serviceradar_core,
     ServiceRadar.Spatial
   ]
 
-# Mailer configuration
-config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
+config :serviceradar_core,
+  mtr_automation_enabled: false,
+  mtr_automation_baseline_enabled: false,
+  mtr_automation_trigger_enabled: false,
+  mtr_automation_consensus_enabled: false,
+  mtr_baseline_tick_ms: 60_000,
+  mtr_consensus_cohort_retention_ms: 300_000
 
-# Disable Swoosh API client (not needed for Local adapter)
-config :swoosh, :api_client, false
+config :serviceradar_core,
+  run_startup_migrations: false
 
-# Ash configuration
-config :ash,
-  include_embedded_source_by_default?: false,
-  default_page_type: :keyset,
-  policies: [no_filter_static_forbidden_reads?: false]
+# Sweep SRQL paging configuration
+config :serviceradar_core,
+  sweep_srql_page_limit: 500
 
-# AshOban configuration
-config :ash_oban,
-  oban_name: Oban,
-  oban_module: ServiceRadar.Oban.Router
+config :serviceradar_core,
+  topology_v2_contract_consumption_enabled: true
 
 # Spark configuration (Ash DSL)
 config :spark,
@@ -76,64 +132,9 @@ config :spark,
     ]
   ]
 
-# Default Oban configuration (can be overridden by host app)
-config :serviceradar_core, Oban,
-  engine: Oban.Engines.Basic,
-  repo: ServiceRadar.Repo,
-  prefix: "platform",
-  queues: [
-    default: 10,
-    alerts: 5,
-    service_checks: 10,
-    notifications: 5,
-    onboarding: 3,
-    events: 10,
-    sweeps: 20,
-    edge: 10,
-    integrations: 5,
-    nats_accounts: 3,
-    maintenance: 5,
-    monitoring: 5
-  ],
-  plugins: [
-    Oban.Plugins.Pruner,
-    {Oban.Plugins.Cron,
-     crontab: [
-       {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
-     ]}
-  ],
-  peer: Oban.Peers.Database
-
-# Cluster configuration (disabled by default)
-config :serviceradar_core,
-  cluster_enabled: false
-
-# Plugin blob storage download configuration (used to generate signed download URLs)
-config :serviceradar_core, :plugin_storage,
-  public_url: nil,
-  signing_secret: nil,
-  download_ttl_seconds: 86_400
-
-config :serviceradar_core,
-  run_startup_migrations: false
-
-config :serviceradar_core,
-  age_graph_name: "platform_graph"
-
-config :serviceradar_core,
-  topology_v2_contract_consumption_enabled: true
-
-config :serviceradar_core,
-  mtr_automation_enabled: false,
-  mtr_automation_baseline_enabled: false,
-  mtr_automation_trigger_enabled: false,
-  mtr_automation_consensus_enabled: false,
-  mtr_baseline_tick_ms: 60_000,
-  mtr_consensus_cohort_retention_ms: 300_000
-
-# Sweep SRQL paging configuration
-config :serviceradar_core,
-  sweep_srql_page_limit: 500
-
 # Import environment specific config
+
+# Disable Swoosh API client (not needed for Local adapter)
+config :swoosh, :api_client, false
+
 import_config "#{config_env()}.exs"

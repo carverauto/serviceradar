@@ -16,16 +16,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   import Ecto.Query
 
-  require Ash.Query
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Repo
-  alias ServiceRadarWebNG.Topology.RuntimeGraph
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
   alias ServiceRadarWebNG.Topology.Native
+  alias ServiceRadarWebNG.Topology.RuntimeGraph
+
+  require Ash.Query
+  require Logger
 
   @default_real_time_budget_ms 2_000
   @default_snapshot_coalesce_ms 0
@@ -56,7 +56,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     budget_ms = real_time_budget_ms()
 
     with {:ok, projection} <- build_projection(actor),
-         revision <- snapshot_revision(projection.topology_revision, projection.causal_revision),
+         revision = snapshot_revision(projection.topology_revision, projection.causal_revision),
          snapshot = %{
            schema_version: GodViewSnapshot.schema_version(),
            revision: revision,
@@ -261,7 +261,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         Enum.count(edge_node_ids, fn id -> not Map.has_key?(device_by_id, id) end)
 
       pipeline_stats =
-        pipeline_stats(raw_links, edges, edges, nodes, unresolved_endpoints)
+        raw_links
+        |> pipeline_stats(edges, edges, nodes, unresolved_endpoints)
         |> Map.merge(edge_contract_stats)
         |> Map.merge(component_stats(nodes, edges))
 
@@ -270,8 +271,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp pipeline_stats(raw_links, pair_links, final_edges, final_nodes, unresolved_endpoints)
-       when is_list(raw_links) and is_list(pair_links) and is_list(final_edges) and
-              is_list(final_nodes) and is_integer(unresolved_endpoints) do
+       when is_list(raw_links) and is_list(pair_links) and is_list(final_edges) and is_list(final_nodes) and
+              is_integer(unresolved_endpoints) do
     edge_parity_delta = abs(length(raw_links) - length(final_edges))
 
     %{
@@ -293,8 +294,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     }
   end
 
-  defp pipeline_stats(_raw_links, _pair_links, _final_edges, _final_nodes, _unresolved_endpoints),
-    do: %{}
+  defp pipeline_stats(_raw_links, _pair_links, _final_edges, _final_nodes, _unresolved_endpoints), do: %{}
 
   defp component_stats(nodes, edges) when is_list(nodes) and is_list(edges) do
     node_ids =
@@ -332,7 +332,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     isolated =
       Enum.count(node_ids, fn node ->
-        Map.get(adjacency, node, MapSet.new()) |> MapSet.size() == 0
+        adjacency |> Map.get(node, MapSet.new()) |> MapSet.size() == 0
       end)
 
     %{
@@ -581,9 +581,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp apply_layout_coordinates(nodes, coordinates)
-       when is_list(nodes) and is_list(coordinates) do
-    Enum.zip(nodes, coordinates)
+  defp apply_layout_coordinates(nodes, coordinates) when is_list(nodes) and is_list(coordinates) do
+    nodes
+    |> Enum.zip(coordinates)
     |> Enum.map(fn
       {node, {x, y}} when is_integer(x) and is_integer(y) ->
         %{node | x: x, y: y}
@@ -595,8 +595,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp apply_layout_coordinates(nodes, _), do: nodes
 
-  defp apply_cached_coordinates(nodes, coords_by_id)
-       when is_list(nodes) and is_map(coords_by_id) do
+  defp apply_cached_coordinates(nodes, coords_by_id) when is_list(nodes) and is_map(coords_by_id) do
     Enum.map(nodes, fn node ->
       case Map.get(coords_by_id, node.id) do
         {x, y} when is_integer(x) and is_integer(y) -> %{node | x: x, y: y}
@@ -707,7 +706,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp ip_like_id(id) when is_binary(id) do
-    if String.match?(id, ~r/^\d{1,3}(\.\d{1,3}){3}$/), do: id, else: nil
+    if String.match?(id, ~r/^\d{1,3}(\.\d{1,3}){3}$/), do: id
   end
 
   defp ip_like_id(_), do: nil
@@ -756,8 +755,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp node_meta_value(device, keys) when is_map(device) and is_list(keys) do
     metadata = Map.get(device, :metadata) || %{}
 
-    keys
-    |> Enum.find_value(fn key ->
+    Enum.find_value(keys, fn key ->
       case metadata_value(metadata, key) do
         value when is_binary(value) and value != "" -> value
         value when is_integer(value) -> Integer.to_string(value)
@@ -795,7 +793,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     Map.get(metadata, key) ||
       Enum.find_value(Map.keys(metadata), fn
         atom_key when is_atom(atom_key) ->
-          if Atom.to_string(atom_key) == key, do: Map.get(metadata, atom_key), else: nil
+          if Atom.to_string(atom_key) == key, do: Map.get(metadata, atom_key)
 
         _ ->
           nil
@@ -867,8 +865,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp node_oper_up_value(false), do: 2
   defp node_oper_up_value(_), do: 0
 
-  defp edge_label(edge),
-    do: edge_label(edge, Map.get(edge, :flow_pps), Map.get(edge, :capacity_bps))
+  defp edge_label(edge), do: edge_label(edge, Map.get(edge, :flow_pps), Map.get(edge, :capacity_bps))
 
   defp edge_label(edge, flow_pps, capacity_bps) do
     protocol =
@@ -930,7 +927,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     causal_overrides = routing_causal_node_overrides(nodes)
 
     signals =
-      Enum.with_index(nodes)
+      nodes
+      |> Enum.with_index()
       |> Enum.map(fn {node, idx} ->
         base_signal =
           case Map.get(node, :health_signal, :unknown) do
@@ -947,7 +945,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     case Native.evaluate_causal_states_with_reasons(signals, indexed_edges) do
       rows when is_list(rows) and length(rows) == length(nodes) ->
-        Enum.zip(Enum.with_index(nodes), rows)
+        nodes
+        |> Enum.with_index()
+        |> Enum.zip(rows)
         |> Enum.map(fn {{node, idx}, row} ->
           base_state = causal_row_value(row, :state, 3)
           override = Map.get(causal_overrides, idx)
@@ -979,7 +979,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       _ ->
         states = Native.evaluate_causal_states(signals, indexed_edges)
 
-        Enum.zip(Enum.with_index(nodes), states)
+        nodes
+        |> Enum.with_index()
+        |> Enum.zip(states)
         |> Enum.map(fn {{node, idx}, state} ->
           override = Map.get(causal_overrides, idx)
           state = override_state(state, override)
@@ -1010,14 +1012,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       nodes
       |> Enum.with_index()
       |> Enum.reduce(%{}, fn {node, idx}, acc ->
-        node_correlation_keys(node)
+        node
+        |> node_correlation_keys()
         |> Enum.reduce(acc, fn key, inner ->
           Map.update(inner, key, MapSet.new([idx]), &MapSet.put(&1, idx))
         end)
       end)
 
-    fetch_recent_routing_causal_events()
-    |> Enum.reduce(%{}, &apply_routing_event_overrides(&2, indexed_keys, &1))
+    Enum.reduce(fetch_recent_routing_causal_events(), %{}, &apply_routing_event_overrides(&2, indexed_keys, &1))
   end
 
   defp routing_causal_node_overrides(_), do: %{}
@@ -1229,8 +1231,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp event_overlay_override(_),
-    do: %{signal: 1, forced_state: nil, reason: "routing_causal_overlay"}
+  defp event_overlay_override(_), do: %{signal: 1, forced_state: nil, reason: "routing_causal_overlay"}
 
   defp causal_event_dedupe_key(event) when is_map(event) do
     event_identity = map_value(event, :event_identity)
@@ -1252,7 +1253,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     Map.get(map, key) ||
       Enum.find_value(map, fn
         {atom_key, value} when is_atom(atom_key) ->
-          if Atom.to_string(atom_key) == key, do: value, else: nil
+          if Atom.to_string(atom_key) == key, do: value
 
         _ ->
           nil
@@ -1283,24 +1284,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp causal_row_value(_row, _key, default), do: default
 
-  defp override_state(_base_state, %{forced_state: forced}) when forced in [0, 1, 2, 3],
-    do: forced
+  defp override_state(_base_state, %{forced_state: forced}) when forced in [0, 1, 2, 3], do: forced
 
   defp override_state(base_state, _), do: base_state
 
-  defp override_reason(_base_reason, %{reason: reason}) when is_binary(reason) and reason != "",
-    do: reason
+  defp override_reason(_base_reason, %{reason: reason}) when is_binary(reason) and reason != "", do: reason
 
   defp override_reason(base_reason, _), do: base_reason
 
-  defp merge_causal_reason_details(
-         details_json,
-         state,
-         reason,
-         root_index,
-         parent_index,
-         hop_distance
-       ) do
+  defp merge_causal_reason_details(details_json, state, reason, root_index, parent_index, hop_distance) do
     base =
       case details_json do
         value when is_binary(value) ->
@@ -1368,8 +1360,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp confidence_tier(link) do
-    (Map.get(link, :metadata) || %{})
-    |> Map.get("confidence_tier", Map.get(link, :confidence_tier, "unknown"))
+    Map.get(Map.get(link, :metadata) || %{}, "confidence_tier", Map.get(link, :confidence_tier, "unknown"))
   end
 
   defp evidence_class(link) do
@@ -1409,8 +1400,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp normalize_u16(value) when is_integer(value), do: clamp(value, 0, 65_535)
 
-  defp normalize_u16(value) when is_float(value),
-    do: value |> Float.round() |> trunc() |> normalize_u16()
+  defp normalize_u16(value) when is_float(value), do: value |> Float.round() |> trunc() |> normalize_u16()
 
   defp normalize_u16(_), do: 0
 
@@ -1461,8 +1451,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp clamp(value, _min, max) when value > max, do: max
   defp clamp(value, _min, _max), do: value
 
-  defp topology_revision(nodes, indexed_edges)
-       when is_list(nodes) and is_list(indexed_edges) do
+  defp topology_revision(nodes, indexed_edges) when is_list(nodes) and is_list(indexed_edges) do
     node_ids = nodes |> Enum.map(& &1.id) |> Enum.sort()
 
     indexed_edges =
@@ -1512,8 +1501,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp layout_coordinates_cache(_), do: :miss
 
-  defp put_layout_coordinates_cache(topology_revision, nodes)
-       when is_integer(topology_revision) and is_list(nodes) do
+  defp put_layout_coordinates_cache(topology_revision, nodes) when is_integer(topology_revision) and is_list(nodes) do
     coords_by_id =
       Map.new(nodes, fn node ->
         {node.id, {normalize_u16(Map.get(node, :x, 0)), normalize_u16(Map.get(node, :y, 0))}}
@@ -1558,8 +1546,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp unresolved_ratio(_unresolved_directional, _final_edges), do: 0.0
 
-  defp coalesced_snapshot(coalesce_ms)
-       when is_integer(coalesce_ms) and coalesce_ms > 0 do
+  defp coalesced_snapshot(coalesce_ms) when is_integer(coalesce_ms) and coalesce_ms > 0 do
     case :persistent_term.get(@snapshot_cache_key, nil) do
       %{result: result, built_at_ms: built_at_ms}
       when is_map(result) and is_integer(built_at_ms) ->

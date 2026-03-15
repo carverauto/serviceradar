@@ -80,7 +80,7 @@ defmodule ServiceRadar.Observability.ZenPresetResource do
         end
 
         destroy :destroy do
-          unquote_splicing(build_changes_ast(destroy_changes))
+          (unquote_splicing(build_changes_ast(destroy_changes)))
         end
 
         unquote_splicing(extra_actions)

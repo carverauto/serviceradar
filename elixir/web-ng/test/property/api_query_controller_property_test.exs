@@ -35,7 +35,8 @@ defmodule ServiceRadarWebNG.ApiQueryControllerPropertyTest do
 
   property "JSON parser does not crash on malformed JSON bodies" do
     invalid_json =
-      SRQLGenerators.json_map(max_length: 8)
+      [max_length: 8]
+      |> SRQLGenerators.json_map()
       |> StreamData.map(fn payload -> Jason.encode!(payload) <> "x" end)
 
     check all(
@@ -43,7 +44,8 @@ defmodule ServiceRadarWebNG.ApiQueryControllerPropertyTest do
             max_runs: PropertyOpts.max_runs(:slow_property)
           ) do
       conn =
-        Plug.Test.conn("POST", "/api/query", body)
+        "POST"
+        |> Plug.Test.conn("/api/query", body)
         |> Plug.Conn.put_req_header("content-type", "application/json")
         |> ServiceRadarWebNGWeb.Endpoint.call([])
 

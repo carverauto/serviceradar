@@ -9,13 +9,10 @@ defmodule ServiceRadar.SweepJobs.SweepScheduleReconciler do
   use GenServer
 
   alias ServiceRadar.Actors.SystemActor
-
-  alias ServiceRadar.SweepJobs.{
-    ObanSupport,
-    SweepDataCleanupWorker,
-    SweepGroup,
-    SweepMonitorWorker
-  }
+  alias ServiceRadar.SweepJobs.ObanSupport
+  alias ServiceRadar.SweepJobs.SweepDataCleanupWorker
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepMonitorWorker
 
   require Ash.Query
   require Logger

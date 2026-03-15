@@ -43,16 +43,18 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   def settings_tabs(current_path, current_scope \\ nil) do
     path = current_path || ""
 
-    [
-      cluster_tab(path, current_scope),
-      discovery_tab(path, current_scope),
-      network_tab(path, current_scope),
-      events_tab(path, current_scope),
-      edge_ops_tab(path, current_scope),
-      jobs_tab(path, current_scope),
-      auth_tab(path, current_scope)
-    ]
-    |> Enum.filter(&Map.get(&1, :show, true))
+    Enum.filter(
+      [
+        cluster_tab(path, current_scope),
+        discovery_tab(path, current_scope),
+        network_tab(path, current_scope),
+        events_tab(path, current_scope),
+        edge_ops_tab(path, current_scope),
+        jobs_tab(path, current_scope),
+        auth_tab(path, current_scope)
+      ],
+      &Map.get(&1, :show, true)
+    )
   end
 
   defp cluster_tab(path, current_scope) do
@@ -189,27 +191,29 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     can_rbac = RBAC.can?(current_scope, "settings.rbac.manage")
 
     tabs =
-      [
-        %{
-          label: "Users",
-          navigate: ~p"/settings/auth/users",
-          active: String.starts_with?(path, "/settings/auth/users"),
-          show: can_auth
-        },
-        %{
-          label: "Policy Editor",
-          navigate: ~p"/settings/auth/rbac",
-          active: String.starts_with?(path, "/settings/auth/rbac"),
-          show: can_auth or can_rbac
-        },
-        %{
-          label: "Authentication",
-          navigate: ~p"/settings/authentication",
-          active: String.starts_with?(path, "/settings/authentication"),
-          show: can_auth
-        }
-      ]
-      |> Enum.filter(&Map.get(&1, :show, true))
+      Enum.filter(
+        [
+          %{
+            label: "Users",
+            navigate: ~p"/settings/auth/users",
+            active: String.starts_with?(path, "/settings/auth/users"),
+            show: can_auth
+          },
+          %{
+            label: "Policy Editor",
+            navigate: ~p"/settings/auth/rbac",
+            active: String.starts_with?(path, "/settings/auth/rbac"),
+            show: can_auth or can_rbac
+          },
+          %{
+            label: "Authentication",
+            navigate: ~p"/settings/authentication",
+            active: String.starts_with?(path, "/settings/authentication"),
+            show: can_auth
+          }
+        ],
+        &Map.get(&1, :show, true)
+      )
 
     tabs
   end
@@ -254,7 +258,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   def network_tabs(current_path, current_scope \\ nil) do
     path = current_path || ""
 
-    network_tabs_with_state(path)
+    path
+    |> network_tabs_with_state()
     |> Enum.filter(&show_network_tab?(&1.label, current_scope))
   end
 
@@ -314,7 +319,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         []
       end
 
-    tabs |> Enum.filter(&show_discovery_tab?(&1.label, current_scope))
+    Enum.filter(tabs, &show_discovery_tab?(&1.label, current_scope))
   end
 
   defp network_active?(path) do
@@ -389,31 +394,30 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     can_plugins = RBAC.can?(current_scope, "plugins.view")
 
     tabs =
-      [
-        %{
-          label: "Host Health",
-          navigate: ~p"/settings/sysmon",
-          active: String.starts_with?(path, "/settings/sysmon"),
-          show: can_sysmon
-        },
-        %{
-          label: "Deploy",
-          navigate: ~p"/settings/agents/deploy",
-          active:
-            String.starts_with?(path, "/settings/agents/deploy") or
-              String.starts_with?(path, "/admin/edge-packages"),
-          show: can_edge
-        },
-        %{
-          label: "Plugins",
-          navigate: ~p"/settings/agents/plugins",
-          active:
-            String.starts_with?(path, "/settings/agents/plugins") or
-              String.starts_with?(path, "/admin/plugins"),
-          show: can_plugins
-        }
-      ]
-      |> Enum.filter(&Map.get(&1, :show, true))
+      Enum.filter(
+        [
+          %{
+            label: "Host Health",
+            navigate: ~p"/settings/sysmon",
+            active: String.starts_with?(path, "/settings/sysmon"),
+            show: can_sysmon
+          },
+          %{
+            label: "Deploy",
+            navigate: ~p"/settings/agents/deploy",
+            active:
+              String.starts_with?(path, "/settings/agents/deploy") or String.starts_with?(path, "/admin/edge-packages"),
+            show: can_edge
+          },
+          %{
+            label: "Plugins",
+            navigate: ~p"/settings/agents/plugins",
+            active: String.starts_with?(path, "/settings/agents/plugins") or String.starts_with?(path, "/admin/plugins"),
+            show: can_plugins
+          }
+        ],
+        &Map.get(&1, :show, true)
+      )
 
     tabs
   end
@@ -445,42 +449,41 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     can_edge = if current_scope, do: RBAC.can?(current_scope, "settings.edge.manage"), else: false
     can_plugins = if current_scope, do: RBAC.can?(current_scope, "plugins.view"), else: false
 
-    [
-      %{
-        label: "Edge Sites",
-        navigate: ~p"/admin/edge-sites",
-        active: String.starts_with?(path, "/admin/edge-sites"),
-        show: can_edge or is_nil(current_scope)
-      },
-      %{
-        label: "Data Collectors",
-        navigate: ~p"/admin/collectors",
-        active: String.starts_with?(path, "/admin/collectors"),
-        show: can_edge or is_nil(current_scope)
-      },
-      %{
-        label: "Agents",
-        navigate: ~p"/settings/agents/deploy",
-        active:
-          String.starts_with?(path, "/settings/agents/deploy") or
-            String.starts_with?(path, "/admin/edge-packages"),
-        show: can_edge
-      },
-      %{
-        label: "Host Health",
-        navigate: ~p"/settings/sysmon",
-        active: String.starts_with?(path, "/settings/sysmon"),
-        show: can_sysmon
-      },
-      %{
-        label: "Plugins",
-        navigate: ~p"/settings/agents/plugins",
-        active:
-          String.starts_with?(path, "/settings/agents/plugins") or
-            String.starts_with?(path, "/admin/plugins"),
-        show: can_plugins
-      }
-    ]
-    |> Enum.filter(&Map.get(&1, :show, true))
+    Enum.filter(
+      [
+        %{
+          label: "Edge Sites",
+          navigate: ~p"/admin/edge-sites",
+          active: String.starts_with?(path, "/admin/edge-sites"),
+          show: can_edge or is_nil(current_scope)
+        },
+        %{
+          label: "Data Collectors",
+          navigate: ~p"/admin/collectors",
+          active: String.starts_with?(path, "/admin/collectors"),
+          show: can_edge or is_nil(current_scope)
+        },
+        %{
+          label: "Agents",
+          navigate: ~p"/settings/agents/deploy",
+          active:
+            String.starts_with?(path, "/settings/agents/deploy") or String.starts_with?(path, "/admin/edge-packages"),
+          show: can_edge
+        },
+        %{
+          label: "Host Health",
+          navigate: ~p"/settings/sysmon",
+          active: String.starts_with?(path, "/settings/sysmon"),
+          show: can_sysmon
+        },
+        %{
+          label: "Plugins",
+          navigate: ~p"/settings/agents/plugins",
+          active: String.starts_with?(path, "/settings/agents/plugins") or String.starts_with?(path, "/admin/plugins"),
+          show: can_plugins
+        }
+      ],
+      &Map.get(&1, :show, true)
+    )
   end
 end

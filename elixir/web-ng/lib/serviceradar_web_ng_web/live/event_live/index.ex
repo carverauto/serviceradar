@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.EventLive.Index do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import Ecto.Query
@@ -41,12 +42,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   @impl true
   def handle_params(params, uri, socket) do
-    socket =
-      socket
-      |> SRQLPage.load_list(params, uri, :events,
-        default_limit: @default_limit,
-        max_limit: @max_limit
-      )
+    socket = SRQLPage.load_list(socket, params, uri, :events, default_limit: @default_limit, max_limit: @max_limit)
 
     # Compute summary from CAGG when possible, else fallback to page results
     summary =
@@ -91,8 +87,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "events")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "events")}
   end
 
   @impl true
@@ -321,7 +316,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     variant = severity_variant(assigns.value)
     label = severity_label(assigns.value)
 
-    assigns = assign(assigns, :variant, variant) |> assign(:label, label)
+    assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
@@ -445,8 +440,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     end)
   end
 
-  defp compute_summary(_),
-    do: %{total: 0, fatal: 0, critical: 0, high: 0, medium: 0, low: 0, informational: 0}
+  defp compute_summary(_), do: %{total: 0, fatal: 0, critical: 0, high: 0, medium: 0, low: 0, informational: 0}
 
   defp refresh_events(socket) do
     srql = Map.get(socket.assigns, :srql, %{})
@@ -484,8 +478,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
       rows = Repo.all(query)
 
       summary =
-        %{total: 0, fatal: 0, critical: 0, high: 0, medium: 0, low: 0, informational: 0}
-        |> merge_event_stats(rows)
+        merge_event_stats(
+          %{total: 0, fatal: 0, critical: 0, high: 0, medium: 0, low: 0, informational: 0},
+          rows
+        )
 
       {:ok, summary}
     end

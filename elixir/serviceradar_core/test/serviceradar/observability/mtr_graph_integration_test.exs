@@ -5,12 +5,12 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Observability.MtrGraph
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   @test_node_ids [
     "mtr:10.0.0.1",
@@ -229,7 +229,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
       |> DateTime.add(-48 * 3600, :second)
       |> DateTime.to_iso8601()
 
-    graph = graph_name() |> String.replace("'", "\\'")
+    graph = String.replace(graph_name(), "'", "\\'")
 
     SQL.query(
       Repo,
@@ -304,7 +304,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
 
   defp cleanup_graph(ids) when is_list(ids) do
     quoted_ids = Enum.map_join(ids, ", ", &("'" <> &1 <> "'"))
-    graph = graph_name() |> String.replace("'", "\\'")
+    graph = String.replace(graph_name(), "'", "\\'")
     cypher = "MATCH (n) WHERE n.id IN [#{quoted_ids}] DETACH DELETE n"
 
     _ =
@@ -318,7 +318,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
   end
 
   defp cypher_rows(cypher) do
-    graph = graph_name() |> String.replace("'", "\\'")
+    graph = String.replace(graph_name(), "'", "\\'")
 
     sql = """
     SELECT ag_catalog.agtype_to_text(result)

@@ -8,7 +8,9 @@ defmodule ServiceRadar.Plugins.TargetBatchParams do
   - chunk generation with payload-size guardrails.
   """
 
-  alias ServiceRadar.Plugins.{IdentityUtils, MapUtils, PayloadUtils}
+  alias ServiceRadar.Plugins.IdentityUtils
+  alias ServiceRadar.Plugins.MapUtils
+  alias ServiceRadar.Plugins.PayloadUtils
 
   @schema_id "serviceradar.plugin_target_batch_params.v1"
   @soft_limit_bytes 262_144
@@ -162,8 +164,7 @@ defmodule ServiceRadar.Plugins.TargetBatchParams do
       end)
 
     errors =
-      payloads
-      |> Enum.flat_map(fn payload ->
+      Enum.flat_map(payloads, fn payload ->
         case do_validate(payload) do
           :ok -> []
           {:error, errs} -> errs

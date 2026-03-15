@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.LogLive.Show do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
@@ -44,8 +45,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
           error_msg = format_error(reason)
 
           if String.contains?(error_msg, "unsupported filter") do
-            {nil,
-             "Log detail view is not available - the logs entity does not support ID-based filtering."}
+            {nil, "Log detail view is not available - the logs entity does not support ID-based filtering."}
           else
             {nil, "Failed to load log: #{error_msg}"}
           end
@@ -77,9 +77,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   def handle_info({:rule_creation_failed, reason}, socket) do
-    {:noreply,
-     socket
-     |> put_flash(:error, "Failed to create rule: #{format_error(reason)}")}
+    {:noreply, put_flash(socket, :error, "Failed to create rule: #{format_error(reason)}")}
   end
 
   @impl true
@@ -131,8 +129,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   # RBAC check - only operators and admins can create rules
-  defp can_create_rules?(%{user: _} = scope),
-    do: ServiceRadarWebNG.RBAC.can?(scope, "observability.rules.create")
+  defp can_create_rules?(%{user: _} = scope), do: ServiceRadarWebNG.RBAC.can?(scope, "observability.rules.create")
 
   defp can_create_rules?(_), do: false
 
@@ -209,8 +206,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     end
   end
 
-  defp extract_scope_from_attributes(scope_name, scope_version, _attributes),
-    do: {scope_name, scope_version}
+  defp extract_scope_from_attributes(scope_name, scope_version, _attributes), do: {scope_name, scope_version}
 
   defp drop_attribute_keys(attributes, keys) when is_map(attributes) do
     Enum.reduce(keys, attributes, fn key, acc -> Map.delete(acc, key) end)
@@ -218,8 +214,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp drop_attribute_keys(attributes, _keys), do: attributes
 
-  defp unwrap_nested_attributes(%{"attributes" => %{} = nested} = attributes)
-       when map_size(attributes) == 1 do
+  defp unwrap_nested_attributes(%{"attributes" => %{} = nested} = attributes) when map_size(attributes) == 1 do
     nested
   end
 
@@ -234,8 +229,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp put_service_from_resource(log, _resource_attributes), do: log
 
-  defp put_source_device_from_resource(log, resource_attributes, scope)
-       when is_map(resource_attributes) do
+  defp put_source_device_from_resource(log, resource_attributes, scope) when is_map(resource_attributes) do
     case source_device_uid(resource_attributes, scope) do
       nil -> log
       device_uid -> Map.put(log, "source_device_uid", device_uid)
@@ -537,7 +531,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
           Map.put(acc, key, String.trim(plain_value))
       end)
 
-    if map_size(result) > 0, do: result, else: nil
+    if map_size(result) > 0, do: result
   end
 
   defp flatten_attribute_values(values) when is_map(values) do
@@ -648,7 +642,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     variant = severity_variant(assigns.value)
     label = severity_label(assigns.value)
 
-    assigns = assign(assigns, :variant, variant) |> assign(:label, label)
+    assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
 
     ~H"""
     <.ui_badge variant={@variant} size="sm">{@label}</.ui_badge>

@@ -2,7 +2,6 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
-
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0]
 
   setup %{conn: conn} do

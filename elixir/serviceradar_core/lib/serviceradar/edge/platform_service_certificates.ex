@@ -3,12 +3,12 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
   Issues platform service mTLS certificates with stable identifiers.
   """
 
-  require Ash.Query
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.OnboardingPackages
+
+  require Ash.Query
+  require Logger
 
   @default_partition_id "platform"
   @default_sync_component_id "platform-sync"

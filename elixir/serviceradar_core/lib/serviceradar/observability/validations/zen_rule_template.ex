@@ -4,6 +4,7 @@ defmodule ServiceRadar.Observability.Validations.ZenRuleTemplate do
   """
 
   use Ash.Resource.Validation
+
   alias ServiceRadar.Observability.Validations.ZenRuleCommon
 
   @impl true

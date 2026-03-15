@@ -701,12 +701,10 @@ defmodule ServiceRadar.SPIFFE do
 
         if String.starts_with?(uri_str, @spiffe_uri_prefix) do
           uri_str
-        else
-          nil
         end
 
       {:uniformResourceIdentifier, uri} when is_binary(uri) ->
-        if String.starts_with?(uri, @spiffe_uri_prefix), do: uri, else: nil
+        if String.starts_with?(uri, @spiffe_uri_prefix), do: uri
 
       _ ->
         nil
@@ -786,8 +784,7 @@ defmodule ServiceRadar.SPIFFE do
   end
 
   defp get_cert_mtimes(dir) do
-    ["svid.pem", "svid-key.pem", "bundle.pem"]
-    |> Enum.map(fn file ->
+    Map.new(["svid.pem", "svid-key.pem", "bundle.pem"], fn file ->
       path = Path.join(dir, file)
 
       case File.stat(path) do
@@ -795,11 +792,11 @@ defmodule ServiceRadar.SPIFFE do
         _ -> {file, nil}
       end
     end)
-    |> Map.new()
   end
 
   defp config(key, default) do
-    Application.get_env(:serviceradar_core, :spiffe, [])
+    :serviceradar_core
+    |> Application.get_env(:spiffe, [])
     |> Keyword.get(key, default)
   end
 end

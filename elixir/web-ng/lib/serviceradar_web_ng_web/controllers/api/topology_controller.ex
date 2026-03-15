@@ -88,8 +88,7 @@ defmodule ServiceRadarWebNG.Api.TopologyController do
     end
   end
 
-  defp normalize_route_analysis_request(_),
-    do: {:error, :invalid_request, "request body is required"}
+  defp normalize_route_analysis_request(_), do: {:error, :invalid_request, "request body is required"}
 
   defp normalize_routes_by_device(value) when is_map(value), do: value
   defp normalize_routes_by_device(_), do: nil
@@ -121,12 +120,10 @@ defmodule ServiceRadarWebNG.Api.TopologyController do
   defp route_analysis_json(_), do: %{}
 
   defp hop_json(hop) when is_map(hop) do
-    hop
-    |> Map.update(:ecmp_branches, [], fn branches ->
+    Map.update(hop, :ecmp_branches, [], fn branches ->
       Enum.map(branches, fn branch ->
         %{
-          target_device_id:
-            Map.get(branch, :target_device_id) || Map.get(branch, "target_device_id"),
+          target_device_id: Map.get(branch, :target_device_id) || Map.get(branch, "target_device_id"),
           next_hop_ip: Map.get(branch, :next_hop_ip) || Map.get(branch, "next_hop_ip"),
           interface: Map.get(branch, :interface) || Map.get(branch, "interface")
         }

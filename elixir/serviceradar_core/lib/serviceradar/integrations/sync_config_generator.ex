@@ -5,10 +5,10 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   Schema isolation is handled by the database connection's search_path.
   """
 
-  require Ash.Query
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.IntegrationSource
+
+  require Ash.Query
 
   @default_heartbeat_interval_sec 30
   @default_config_poll_interval_sec 300
@@ -80,9 +80,9 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
     credentials = normalize_credentials(source.credentials || %{})
     credentials = put_optional(credentials, "page_size", source.page_size)
     source_type = source.source_type && Atom.to_string(source.source_type)
-    prefix = if source_type, do: "#{source_type}/", else: nil
+    prefix = if source_type, do: "#{source_type}/"
 
-    %{
+    compact_map(%{
       "type" => source_type,
       "endpoint" => source.endpoint,
       "prefix" => prefix,
@@ -99,8 +99,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
       "batch_size" => get_setting(source.settings, "batch_size"),
       "insecure_skip_verify" => get_setting(source.settings, "insecure_skip_verify"),
       "sync_service_id" => to_string(source.id)
-    }
-    |> compact_map()
+    })
   end
 
   defp first_custom_field(fields) when is_list(fields) do
@@ -145,7 +144,8 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
       |> canonicalize_for_hash()
       |> Jason.encode!()
 
-    :crypto.hash(:sha256, canonical)
+    :sha256
+    |> :crypto.hash(canonical)
     |> Base.encode16(case: :lower)
   end
 

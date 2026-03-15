@@ -40,8 +40,8 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
 
   require Logger
 
-  @heartbeat_interval :timer.seconds(30)
-  @stale_threshold :timer.minutes(2)
+  @heartbeat_interval to_timeout(second: 30)
+  @stale_threshold to_timeout(minute: 2)
 
   # DB connection's search_path determines the schema
   defstruct [:partition_id, :gateway_id, :domain, :status, :registered_at, :entity_type]

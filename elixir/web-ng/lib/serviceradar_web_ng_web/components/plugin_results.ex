@@ -3,10 +3,10 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
 
   use Phoenix.Component
 
-  require Logger
-
   import Phoenix.HTML, only: [raw: 1]
   import ServiceRadarWebNGWeb.UIComponents
+
+  require Logger
 
   attr :display, :list, default: []
   attr :fallback, :map, default: %{}
@@ -32,15 +32,14 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   end
 
   defp normalize_display(display) when is_list(display) do
-    Enum.reduce(display, [], fn item, acc ->
+    display
+    |> Enum.reduce([], fn item, acc ->
       cond do
         is_map(item) and supported_widget?(item) ->
           [stringify_keys(item) | acc]
 
         is_map(item) ->
-          Logger.warning(
-            "Unsupported plugin widget: #{inspect(Map.get(item, "widget") || Map.get(item, :widget))}"
-          )
+          Logger.warning("Unsupported plugin widget: #{inspect(Map.get(item, "widget") || Map.get(item, :widget))}")
 
           acc
 
@@ -53,11 +52,9 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
 
   defp normalize_display(_), do: []
 
-  defp supported_widget?(%{"widget" => widget}) when is_binary(widget),
-    do: widget in supported_widgets()
+  defp supported_widget?(%{"widget" => widget}) when is_binary(widget), do: widget in supported_widgets()
 
-  defp supported_widget?(%{widget: widget}) when is_binary(widget),
-    do: widget in supported_widgets()
+  defp supported_widget?(%{widget: widget}) when is_binary(widget), do: widget in supported_widgets()
 
   defp supported_widget?(_), do: false
 
@@ -170,7 +167,8 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   defp render_widget(_), do: nil
 
   defp normalize_table_rows(%{"rows" => rows}) when is_list(rows) do
-    Enum.map(rows, fn
+    rows
+    |> Enum.map(fn
       %{"key" => key, "value" => value} -> {to_string(key), format_value(value)}
       %{:key => key, :value => value} -> {to_string(key), format_value(value)}
       _ -> {"", ""}
@@ -179,8 +177,7 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   end
 
   defp normalize_table_rows(%{"data" => data}) when is_map(data) do
-    data
-    |> Enum.map(fn {key, value} -> {to_string(key), format_value(value)} end)
+    Enum.map(data, fn {key, value} -> {to_string(key), format_value(value)} end)
   end
 
   defp normalize_table_rows(_), do: []
@@ -341,9 +338,7 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   end
 
   defp stringify_keys(%{} = map) do
-    map
-    |> Enum.map(fn {key, value} -> {to_string(key), stringify_keys(value)} end)
-    |> Map.new()
+    Map.new(map, fn {key, value} -> {to_string(key), stringify_keys(value)} end)
   end
 
   defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)

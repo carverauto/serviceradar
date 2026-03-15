@@ -151,11 +151,9 @@ defmodule ServiceRadar.Edge.OnboardingEvents do
 
     query =
       if since do
-        OnboardingEvent
-        |> Ash.Query.for_read(:recent, %{since: since}, actor: actor)
+        Ash.Query.for_read(OnboardingEvent, :recent, %{since: since}, actor: actor)
       else
-        OnboardingEvent
-        |> Ash.Query.for_read(:read, %{}, actor: actor)
+        Ash.Query.for_read(OnboardingEvent, :read, %{}, actor: actor)
       end
 
     query

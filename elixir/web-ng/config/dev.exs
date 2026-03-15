@@ -11,19 +11,19 @@ cnpg_cert_dir = System.get_env("CNPG_CERT_DIR", "")
 cnpg_ca_file =
   System.get_env(
     "CNPG_CA_FILE",
-    if(cnpg_cert_dir != "", do: Path.join(cnpg_cert_dir, "root.pem"), else: "")
+    if(cnpg_cert_dir == "", do: "", else: Path.join(cnpg_cert_dir, "root.pem"))
   )
 
 cnpg_cert_file =
   System.get_env(
     "CNPG_CERT_FILE",
-    if(cnpg_cert_dir != "", do: Path.join(cnpg_cert_dir, "workstation.pem"), else: "")
+    if(cnpg_cert_dir == "", do: "", else: Path.join(cnpg_cert_dir, "workstation.pem"))
   )
 
 cnpg_key_file =
   System.get_env(
     "CNPG_KEY_FILE",
-    if(cnpg_cert_dir != "", do: Path.join(cnpg_cert_dir, "workstation-key.pem"), else: "")
+    if(cnpg_cert_dir == "", do: "", else: Path.join(cnpg_cert_dir, "workstation-key.pem"))
   )
 
 cnpg_verify_peer = cnpg_ssl_mode in ~w(verify-ca verify-full)
@@ -58,6 +58,27 @@ cnpg_ssl_opts =
     end
   end)
 
+# Do not include metadata nor timestamps in development logs
+config :logger, :default_formatter, format: "[$level] $message\n"
+
+# Initialize plugs at runtime for faster development compilation
+config :phoenix, :plug_init_mode, :runtime
+
+# Set a higher stacktrace during development. Avoid configuring such
+# in production as building large stacktraces may be expensive.
+config :phoenix, :stacktrace_depth, 20
+
+config :phoenix_live_view,
+  # Include debug annotations and locations in rendered markup.
+  # Changing this configuration will require mix clean and a full recompile.
+  debug_heex_annotations: true,
+  debug_attributes: true,
+  # Enable helpful, but potentially expensive runtime checks
+  enable_expensive_runtime_checks: true
+
+# Configure ServiceRadar.Mailer (used by AshAuthentication in serviceradar_core)
+config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
+
 # Configure ServiceRadar.Repo from serviceradar_core
 config :serviceradar_core, ServiceRadar.Repo,
   username: System.get_env("CNPG_USERNAME", "postgres"),
@@ -71,6 +92,12 @@ config :serviceradar_core, ServiceRadar.Repo,
   pool_size: 10,
   parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
   types: ServiceRadar.PostgresTypes
+
+# Set env for serviceradar_core (enables Vault fallback key in dev)
+config :serviceradar_core, env: :dev
+
+config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian,
+  secret_key: "dev_token_signing_secret_at_least_32_chars_long!"
 
 # For development, we disable any cache and enable
 # debugging and code reloading.
@@ -95,16 +122,6 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
     esbuild: {Esbuild, :install_and_run, [:serviceradar_web_ng, ~w(--sourcemap=inline --watch)]},
     tailwind: {Tailwind, :install_and_run, [:serviceradar_web_ng, ~w(--watch)]}
   ]
-
-# AshAuthentication token signing secret for development
-config :serviceradar_web_ng,
-       :token_signing_secret,
-       "dev_token_signing_secret_at_least_32_chars_long!"
-
-config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian,
-  secret_key: "dev_token_signing_secret_at_least_32_chars_long!"
-
-config :serviceradar_web_ng, :base_url, System.get_env("BASE_URL", "http://192.168.2.134:4000")
 
 # ## SSL Support
 #
@@ -144,37 +161,18 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
     ]
   ]
 
+# API authentication for CLI tools
+# In production, use proper secrets management
+config :serviceradar_web_ng, :api_auth, api_keys: [System.get_env("SERVICERADAR_API_KEY", "dev-api-key-for-testing")]
+config :serviceradar_web_ng, :base_url, System.get_env("BASE_URL", "http://192.168.2.134:4000")
+
+# AshAuthentication token signing secret for development
+config :serviceradar_web_ng,
+       :token_signing_secret,
+       "dev_token_signing_secret_at_least_32_chars_long!"
+
 # Enable dev routes for dashboard and mailbox
 config :serviceradar_web_ng, dev_routes: true
 
-# Do not include metadata nor timestamps in development logs
-config :logger, :default_formatter, format: "[$level] $message\n"
-
-# Set a higher stacktrace during development. Avoid configuring such
-# in production as building large stacktraces may be expensive.
-config :phoenix, :stacktrace_depth, 20
-
-# Initialize plugs at runtime for faster development compilation
-config :phoenix, :plug_init_mode, :runtime
-
-config :phoenix_live_view,
-  # Include debug annotations and locations in rendered markup.
-  # Changing this configuration will require mix clean and a full recompile.
-  debug_heex_annotations: true,
-  debug_attributes: true,
-  # Enable helpful, but potentially expensive runtime checks
-  enable_expensive_runtime_checks: true
-
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
-
-# Configure ServiceRadar.Mailer (used by AshAuthentication in serviceradar_core)
-config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
-
-# API authentication for CLI tools
-# In production, use proper secrets management
-config :serviceradar_web_ng, :api_auth,
-  api_keys: [System.get_env("SERVICERADAR_API_KEY", "dev-api-key-for-testing")]
-
-# Set env for serviceradar_core (enables Vault fallback key in dev)
-config :serviceradar_core, env: :dev

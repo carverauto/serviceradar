@@ -18,7 +18,7 @@ defmodule ServiceRadar.GatewayRegistrationWorker do
 
   require Logger
 
-  @heartbeat_interval :timer.seconds(30)
+  @heartbeat_interval to_timeout(second: 30)
 
   defstruct [:gateway_id, :partition, :domain, :status, :registered_at]
 

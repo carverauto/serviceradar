@@ -16,9 +16,8 @@ defmodule ServiceRadar.Observability.Validations.WindowBucket do
 
     with :ok <- validate_positive(:window_seconds, window),
          :ok <- validate_positive(:bucket_seconds, bucket),
-         :ok <- validate_positive(:threshold, threshold),
-         :ok <- validate_bucket_divides_window(window, bucket) do
-      :ok
+         :ok <- validate_positive(:threshold, threshold) do
+      validate_bucket_divides_window(window, bucket)
     end
   end
 

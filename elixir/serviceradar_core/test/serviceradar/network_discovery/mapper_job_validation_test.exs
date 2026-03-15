@@ -1,6 +1,7 @@
 defmodule ServiceRadar.NetworkDiscovery.MapperJobValidationTest do
   use ExUnit.Case, async: false
 
+  alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.NetworkDiscovery.MapperJob
@@ -34,7 +35,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobValidationTest do
   test "rejects unknown agent ids" do
     actor = SystemActor.system(:test)
 
-    {:error, %Ash.Error.Invalid{errors: errors}} =
+    {:error, %Invalid{errors: errors}} =
       MapperJob
       |> Ash.Changeset.for_create(:create, %{name: "job-bad", agent_id: "missing-agent"},
         actor: actor
@@ -57,7 +58,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobValidationTest do
       )
       |> Ash.create(actor: actor)
 
-    {:error, %Ash.Error.Invalid{errors: errors}} =
+    {:error, %Invalid{errors: errors}} =
       MapperJob
       |> Ash.Changeset.for_create(
         :create,
@@ -85,7 +86,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobValidationTest do
       )
       |> Ash.create(actor: actor)
 
-    {:error, %Ash.Error.Invalid{errors: errors}} =
+    {:error, %Invalid{errors: errors}} =
       job
       |> Ash.Changeset.for_update(:update, %{agent_id: "missing-agent"}, actor: actor)
       |> Ash.update(actor: actor)

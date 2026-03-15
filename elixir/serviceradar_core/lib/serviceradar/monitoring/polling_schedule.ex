@@ -49,7 +49,13 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
   ]
   @schedule_update_fields @schedule_fields -- [:schedule_type]
   @schedule_manage_actions [:create, :update, :enable, :disable]
-  @schedule_runtime_actions [:execute, :record_result, :acquire_lock, :release_lock, :trigger_manual]
+  @schedule_runtime_actions [
+    :execute,
+    :record_result,
+    :acquire_lock,
+    :release_lock,
+    :trigger_manual
+  ]
 
   postgres do
     table "polling_schedules"
@@ -161,10 +167,11 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       require_atomic? false
 
       change fn changeset, _context ->
+        require Logger
+
         schedule = changeset.data
         execution_count = schedule.execution_count || 0
 
-        require Logger
         Logger.info("Executing polling schedule: #{schedule.name} (#{schedule.id})")
 
         # Dispatch to gateway and collect results
@@ -271,13 +278,13 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       require_atomic? false
 
       change fn changeset, _context ->
+        require Logger
+
         schedule = changeset.data
 
-        require Logger
         Logger.info("Manually triggering polling schedule: #{schedule.name} (#{schedule.id})")
 
-        changeset
-        |> Ash.Changeset.change_attribute(:last_executed_at, DateTime.utc_now())
+        Ash.Changeset.change_attribute(changeset, :last_executed_at, DateTime.utc_now())
       end
     end
   end
@@ -507,8 +514,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
                   else
                     fragment("? + interval '1 second' * ?", last_executed_at, interval_seconds)
                   end
-                else
-                  nil
                 end
               )
 
@@ -517,8 +522,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
               expr(
                 if last_check_count > 0 do
                   last_success_count * 100.0 / last_check_count
-                else
-                  nil
                 end
               )
   end

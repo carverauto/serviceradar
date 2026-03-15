@@ -41,13 +41,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
 
   @behaviour ServiceRadar.AgentConfig.Compiler
 
-  require Ash.Query
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.TargetedProfileResolver
   alias ServiceRadar.SysmonProfiles.SrqlTargetResolver
   alias ServiceRadar.SysmonProfiles.SysmonProfile
+
+  require Ash.Query
+  require Logger
 
   @impl true
   def config_type, do: :sysmon

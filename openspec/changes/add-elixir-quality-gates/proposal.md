@@ -12,8 +12,8 @@ Issue #3029 calls out a real gap in the Elixir toolchain: analyzer coverage is i
 - Consolidate repo-owned Elixir quality enforcement into a matrix-style GitHub Actions workflow or equivalent reusable workflow pattern that covers every first-party Mix project under `elixir/`
 - Version-control exclusions and suppressions for generated or vendored code so analyzer output stays actionable
 - Allow narrowly scoped temporary waivers in repository-owned workflow metadata for legacy forks that cannot yet satisfy a specific analyzer without upstream remediation
-- Adopt the viable deferred issue #3029 analyzers that behave as drop-in quality gates today: `mix_audit` (`mix deps.audit`), `ex_slop`, and `ex_dna` through Credo integration
-- Keep `Styler`, `Boundary`, and `rustywind` deferred because they are not drop-in CI gates for this workspace: `Styler` rewrites code and can change behavior, `Boundary` requires explicit architectural boundary modeling, and `rustywind` belongs to Tailwind/frontend formatting rather than the shared Mix analyzer contract
+- Adopt the viable issue #3029 follow-up analyzers that fit the managed workspace contract today: `mix_audit` (`mix deps.audit`), `ex_slop`, and `ex_dna` through Credo integration, plus `Styler` through the repo-owned formatter stack
+- Keep `Boundary` and `rustywind` deferred because they are not drop-in CI gates for this workspace: `Boundary` requires explicit architectural boundary modeling, and `rustywind` belongs to Tailwind/frontend formatting rather than the shared Mix analyzer contract
 
 ## Impact
 

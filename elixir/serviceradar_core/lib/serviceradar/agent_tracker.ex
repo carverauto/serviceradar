@@ -22,8 +22,8 @@ defmodule ServiceRadar.AgentTracker do
   require Logger
 
   @table :agent_tracker
-  @stale_threshold_ms :timer.minutes(2)
-  @cleanup_interval_ms :timer.minutes(1)
+  @stale_threshold_ms to_timeout(minute: 2)
+  @cleanup_interval_ms to_timeout(minute: 1)
 
   # Client API
 
@@ -66,7 +66,8 @@ defmodule ServiceRadar.AgentTracker do
   def list_agents do
     now = System.monotonic_time(:millisecond)
 
-    :ets.tab2list(@table)
+    @table
+    |> :ets.tab2list()
     |> Enum.map(fn {_key, info} ->
       age_ms = now - Map.get(info, :last_seen_mono, now)
       Map.put(info, :active, age_ms < @stale_threshold_ms)
@@ -158,10 +159,11 @@ defmodule ServiceRadar.AgentTracker do
 
   defp cleanup_stale_agents do
     now = System.monotonic_time(:millisecond)
-    stale_threshold = now - :timer.hours(24)
+    stale_threshold = now - to_timeout(day: 1)
 
     # Remove agents that haven't been seen in 24 hours
-    :ets.tab2list(@table)
+    @table
+    |> :ets.tab2list()
     |> Enum.each(fn {agent_id, info} ->
       last_seen_mono = Map.get(info, :last_seen_mono, now)
 

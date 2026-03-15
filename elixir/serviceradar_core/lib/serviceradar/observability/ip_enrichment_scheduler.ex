@@ -8,7 +8,8 @@ defmodule ServiceRadar.Observability.IpEnrichmentScheduler do
 
   use GenServer
 
-  alias ServiceRadar.Observability.{IpEnrichmentCleanupWorker, IpEnrichmentRefreshWorker}
+  alias ServiceRadar.Observability.IpEnrichmentCleanupWorker
+  alias ServiceRadar.Observability.IpEnrichmentRefreshWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 

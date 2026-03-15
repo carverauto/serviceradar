@@ -11,11 +11,11 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
 
+  import Ecto.Query, only: [from: 2]
+
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadar.Types.Cidr
-
-  import Ecto.Query, only: [from: 2]
 
   require Logger
 
@@ -32,9 +32,10 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      case check_existing_job() do
-        true -> {:ok, :already_scheduled}
-        false -> %{} |> new() |> ObanSupport.safe_insert()
+      if check_existing_job() do
+        {:ok, :already_scheduled}
+      else
+        %{} |> new() |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
@@ -142,12 +143,12 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   defp parse_provider_payload(_), do: {:error, :invalid_payload}
 
   defp normalize_provider_rows(rows) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
     rows
     |> Enum.reduce(%{}, fn row, acc ->
       cidr = value(row, "cidr")
-      provider = value(row, "provider") |> normalize_label()
+      provider = row |> value("provider") |> normalize_label()
 
       with true <- is_binary(cidr),
            true <- cidr != "",
@@ -160,9 +161,9 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
         Map.put(acc, key, %{
           cidr: native_cidr,
           provider: provider,
-          service: value(row, "service") |> blank_to_nil(),
-          region: value(row, "region") |> blank_to_nil(),
-          ip_version: value(row, "ip_version") |> blank_to_nil(),
+          service: row |> value("service") |> blank_to_nil(),
+          region: row |> value("region") |> blank_to_nil(),
+          ip_version: row |> value("ip_version") |> blank_to_nil(),
           inserted_at: now
         })
       else
@@ -173,56 +174,54 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   end
 
   defp promote_snapshot(source_url, payload, rows, etag) do
-    snapshot_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    snapshot_id = Ecto.UUID.dump!(Ecto.UUID.generate())
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
-    Repo.transaction(
-      fn ->
-        {1, _} =
-          Repo.insert_all(
-            "netflow_provider_dataset_snapshots",
-            [
-              %{
-                id: snapshot_id,
-                source_url: source_url,
-                source_etag: etag,
-                source_sha256: sha256(payload),
-                fetched_at: now,
-                promoted_at: nil,
-                is_active: false,
-                record_count: length(rows),
-                metadata: %{format: "all_providers.json"},
-                inserted_at: now,
-                updated_at: now
-              }
-            ],
-            prefix: "platform",
-            timeout: @db_timeout_ms
-          )
-
-        rows_to_insert = Enum.map(rows, &Map.put(&1, :snapshot_id, snapshot_id))
-        count = insert_provider_rows(rows_to_insert)
-
-        Repo.query!(
-          "UPDATE platform.netflow_provider_dataset_snapshots SET is_active = FALSE, updated_at = now() WHERE id <> $1 AND is_active = TRUE",
-          [snapshot_id],
+    fn ->
+      {1, _} =
+        Repo.insert_all(
+          "netflow_provider_dataset_snapshots",
+          [
+            %{
+              id: snapshot_id,
+              source_url: source_url,
+              source_etag: etag,
+              source_sha256: sha256(payload),
+              fetched_at: now,
+              promoted_at: nil,
+              is_active: false,
+              record_count: length(rows),
+              metadata: %{format: "all_providers.json"},
+              inserted_at: now,
+              updated_at: now
+            }
+          ],
+          prefix: "platform",
           timeout: @db_timeout_ms
         )
 
-        Repo.query!(
-          "UPDATE platform.netflow_provider_dataset_snapshots SET is_active = TRUE, promoted_at = now(), updated_at = now() WHERE id = $1",
-          [snapshot_id],
-          timeout: @db_timeout_ms
-        )
+      rows_to_insert = Enum.map(rows, &Map.put(&1, :snapshot_id, snapshot_id))
+      count = insert_provider_rows(rows_to_insert)
 
-        if count == 0 do
-          Repo.rollback(:no_rows_inserted)
-        else
-          :ok
-        end
-      end,
-      timeout: @db_timeout_ms
-    )
+      Repo.query!(
+        "UPDATE platform.netflow_provider_dataset_snapshots SET is_active = FALSE, updated_at = now() WHERE id <> $1 AND is_active = TRUE",
+        [snapshot_id],
+        timeout: @db_timeout_ms
+      )
+
+      Repo.query!(
+        "UPDATE platform.netflow_provider_dataset_snapshots SET is_active = TRUE, promoted_at = now(), updated_at = now() WHERE id = $1",
+        [snapshot_id],
+        timeout: @db_timeout_ms
+      )
+
+      if count == 0 do
+        Repo.rollback(:no_rows_inserted)
+      else
+        :ok
+      end
+    end
+    |> Repo.transaction(timeout: @db_timeout_ms)
     |> case do
       {:ok, :ok} -> :ok
       {:error, reason} -> {:error, reason}
@@ -235,8 +234,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   end
 
   defp header(headers, name) when is_list(headers) do
-    headers
-    |> Enum.find_value(fn
+    Enum.find_value(headers, fn
       {^name, value} -> value
       {k, value} when is_binary(k) and is_binary(name) -> if String.downcase(k) == name, do: value
       _ -> nil
@@ -246,7 +244,8 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   defp header(_, _), do: nil
 
   defp sha256(payload) when is_binary(payload) do
-    :crypto.hash(:sha256, payload)
+    :sha256
+    |> :crypto.hash(payload)
     |> Base.encode16(case: :lower)
   end
 

@@ -7,7 +7,8 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   """
 
   alias ServiceRadar.Observability.SRQLRunner
-  alias ServiceRadar.Plugins.{MapUtils, ValueUtils}
+  alias ServiceRadar.Plugins.MapUtils
+  alias ServiceRadar.Plugins.ValueUtils
 
   @supported_entities MapSet.new(["devices", "interfaces"])
 
@@ -29,8 +30,8 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
     |> Enum.reduce_while({:ok, []}, fn input_def, {:ok, acc} ->
       with {:ok, descriptor} <- normalize_input_def(input_def),
            :ok <- validate_entity(descriptor.entity),
-           {:ok, rows} <- runner.query(descriptor.query, query_opts),
-           normalized_rows <- normalize_rows(rows) do
+           {:ok, rows} <- runner.query(descriptor.query, query_opts) do
+        normalized_rows = normalize_rows(rows)
         {:cont, {:ok, [Map.put(descriptor, :rows, normalized_rows) | acc]}}
       else
         {:error, errors} when is_list(errors) -> {:halt, {:error, errors}}

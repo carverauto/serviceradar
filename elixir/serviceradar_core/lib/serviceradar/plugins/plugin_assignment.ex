@@ -8,6 +8,9 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Plugins.Changes.ApplyConfigDefaults
+  alias ServiceRadar.Plugins.Validations.AssignmentParams
+
   @mutable_fields [
     :source,
     :source_key,
@@ -51,16 +54,16 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     create :create do
       accept @create_fields
 
-      change ServiceRadar.Plugins.Changes.ApplyConfigDefaults
+      change ApplyConfigDefaults
       validate ServiceRadar.Plugins.Validations.PackageApproved
-      validate ServiceRadar.Plugins.Validations.AssignmentParams
+      validate AssignmentParams
     end
 
     update :update do
       accept @mutable_fields
 
-      change ServiceRadar.Plugins.Changes.ApplyConfigDefaults
-      validate ServiceRadar.Plugins.Validations.AssignmentParams
+      change ApplyConfigDefaults
+      validate AssignmentParams
     end
   end
 

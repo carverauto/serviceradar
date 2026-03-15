@@ -1,11 +1,23 @@
 import Config
 
-config :serviceradar_core_elx,
-  namespace: ServiceRadarCoreElx
+config :ash,
+  include_embedded_source_by_default?: false,
+  default_page_type: :keyset,
+  policies: [no_filter_static_forbidden_reads?: false]
+
+config :ash_oban, oban_name: Oban
 
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id, :node]
+
+config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
+
+# Plugin blob storage download configuration (used to generate signed download URLs)
+config :serviceradar_core, :plugin_storage,
+  public_url: nil,
+  signing_secret: nil,
+  download_ttl_seconds: 86_400
 
 config :serviceradar_core,
   ecto_repos: [ServiceRadar.Repo],
@@ -27,20 +39,8 @@ config :serviceradar_core,
     ServiceRadar.Spatial
   ]
 
-# Plugin blob storage download configuration (used to generate signed download URLs)
-config :serviceradar_core, :plugin_storage,
-  public_url: nil,
-  signing_secret: nil,
-  download_ttl_seconds: 86_400
-
-config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
-
-config :ash,
-  include_embedded_source_by_default?: false,
-  default_page_type: :keyset,
-  policies: [no_filter_static_forbidden_reads?: false]
-
-config :ash_oban, oban_name: Oban
+config :serviceradar_core_elx,
+  namespace: ServiceRadarCoreElx
 
 config :spark,
   formatter: [

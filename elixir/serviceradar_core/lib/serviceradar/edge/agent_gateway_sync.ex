@@ -7,14 +7,18 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   agent-gateway release.
   """
 
-  require Logger
-  require Ash.Query
   import Ash.Expr
 
+  alias Ash.Error.Invalid
+  alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.Inventory.{Device, IdentityReconciler}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.IdentityReconciler
+
+  require Ash.Query
+  require Logger
 
   @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
@@ -107,7 +111,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     device_update = build_device_update_from_agent(agent_id, attrs)
 
     # Resolve device ID using DIRE
-    case IdentityReconciler.resolve_device_id(device_update, actor: actor) do
+    case resolve_device_id_for_agent(device_update, actor) do
       {:ok, device_uid} ->
         # Create or update the device record
         case upsert_device_for_agent(device_uid, agent_id, attrs, actor) do
@@ -135,6 +139,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  defp resolve_device_id_for_agent(device_update, actor) do
+    apply(IdentityReconciler, :resolve_device_id, [device_update, [actor: actor]])
+  end
+
   defp build_device_update_from_agent(agent_id, attrs) do
     %{
       device_id: nil,
@@ -151,7 +159,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   defp upsert_device_for_agent(device_uid, agent_id, attrs, actor) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
     hostname = Map.get(attrs, :hostname)
     source_ip = Map.get(attrs, :source_ip) || Map.get(attrs, :host)
@@ -291,7 +299,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         Logger.debug("Updated device #{device.uid} for agent #{agent_id}")
         :ok
 
-      {:error, %Ash.Error.Invalid{} = error} ->
+      {:error, %Invalid{} = error} ->
         if stale_record_error?(error) do
           force_gateway_sync_update(device.uid, update_attrs, actor)
         else
@@ -354,9 +362,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     source_ip = Map.get(attrs, :source_ip) || Map.get(attrs, :host)
     canonical_agent_id = canonicalize_agent_uid(agent_id)
 
-    query =
-      Agent
-      |> Ash.Query.for_read(:by_device, %{device_uid: device_uid}, actor: actor)
+    query = Ash.Query.for_read(Agent, :by_device, %{device_uid: device_uid}, actor: actor)
 
     case Ash.read(query, actor: actor) do
       {:ok, agents} ->
@@ -547,7 +553,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     |> Map.new()
   end
 
-  defp stale_record_error?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+  defp stale_record_error?(%Invalid{errors: errors}) when is_list(errors) do
     Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
   end
 
@@ -579,10 +585,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  defp not_found_error?(%Ash.Error.Query.NotFound{}), do: true
+  defp not_found_error?(%NotFound{}), do: true
 
-  defp not_found_error?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
-    Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1))
+  defp not_found_error?(%Invalid{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &match?(%NotFound{}, &1))
   end
 
   defp not_found_error?(_error), do: false

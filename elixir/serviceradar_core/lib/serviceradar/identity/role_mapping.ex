@@ -35,8 +35,6 @@ defmodule ServiceRadar.Identity.RoleMapping do
 
       if role && value && source && matches?(source, value, claim_key, claims) do
         role
-      else
-        nil
       end
     end)
   end

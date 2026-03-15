@@ -24,7 +24,7 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   require Logger
 
   @table_name :agent_config_cache
-  @default_ttl_ms :timer.minutes(5)
+  @default_ttl_ms to_timeout(minute: 5)
 
   # Client API
 
@@ -197,7 +197,7 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
 
   defp schedule_cleanup do
     # Run cleanup every minute
-    Process.send_after(self(), :cleanup, :timer.minutes(1))
+    Process.send_after(self(), :cleanup, to_timeout(minute: 1))
   end
 
   defp cleanup_expired do

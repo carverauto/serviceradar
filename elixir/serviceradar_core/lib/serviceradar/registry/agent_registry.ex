@@ -135,8 +135,7 @@ defmodule ServiceRadar.AgentRegistry do
   """
   @spec find_agents_for_partition(String.t()) :: [map()]
   def find_agents_for_partition(partition_id) do
-    find_agents()
-    |> Enum.filter(&(&1[:partition_id] == partition_id))
+    Enum.filter(find_agents(), &(&1[:partition_id] == partition_id))
   end
 
   @doc """
@@ -144,8 +143,7 @@ defmodule ServiceRadar.AgentRegistry do
   """
   @spec find_agents_for_domain(String.t()) :: [map()]
   def find_agents_for_domain(domain) do
-    find_agents()
-    |> Enum.filter(&(&1[:domain] == domain))
+    Enum.filter(find_agents(), &(&1[:domain] == domain))
   end
 
   @doc """
@@ -155,7 +153,8 @@ defmodule ServiceRadar.AgentRegistry do
   """
   @spec find_available_agent_for_domain(String.t()) :: map() | nil
   def find_available_agent_for_domain(domain) do
-    find_agents_for_domain(domain)
+    domain
+    |> find_agents_for_domain()
     |> Enum.find(&(&1[:status] == :connected))
   end
 
@@ -164,8 +163,7 @@ defmodule ServiceRadar.AgentRegistry do
   """
   @spec find_agents_for_gateway(node()) :: [map()]
   def find_agents_for_gateway(gateway_node) do
-    find_agents()
-    |> Enum.filter(&(&1[:gateway_node] == gateway_node))
+    Enum.filter(find_agents(), &(&1[:gateway_node] == gateway_node))
   end
 
   @doc """
@@ -173,8 +171,7 @@ defmodule ServiceRadar.AgentRegistry do
   """
   @spec find_agents_with_capability(atom()) :: [map()]
   def find_agents_with_capability(capability) do
-    find_agents()
-    |> Enum.filter(fn agent ->
+    Enum.filter(find_agents(), fn agent ->
       capability in Map.get(agent, :capabilities, [])
     end)
   end
@@ -210,8 +207,7 @@ defmodule ServiceRadar.AgentRegistry do
   """
   @spec find_agents_with_grpc() :: [map()]
   def find_agents_with_grpc do
-    find_agents()
-    |> Enum.filter(fn agent ->
+    Enum.filter(find_agents(), fn agent ->
       is_binary(agent[:grpc_host]) and is_integer(agent[:grpc_port]) and agent[:grpc_port] > 0
     end)
   end

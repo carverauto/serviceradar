@@ -22,10 +22,12 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
 
   use GenServer
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.AgentConfig.{Compiler, ConfigCache, ConfigInstance}
+  alias ServiceRadar.AgentConfig.Compiler
+  alias ServiceRadar.AgentConfig.ConfigCache
+  alias ServiceRadar.AgentConfig.ConfigInstance
+
+  require Logger
 
   # Client API
 

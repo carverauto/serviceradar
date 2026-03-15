@@ -2,11 +2,14 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
-  require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, DeviceEnrichmentRules, SyncIngestor}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceEnrichmentRules
+  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
+
+  require Ash.Query
 
   setup_all do
     test_rules_dir = Path.join(System.tmp_dir!(), "serviceradar-device-rules-empty")
@@ -523,7 +526,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   end
 
   defp fetch_device_by_ip!(actor, ip) do
-    query = Device |> Ash.Query.filter(ip == ^ip)
+    query = Ash.Query.filter(Device, ip == ^ip)
     assert {:ok, result} = Ash.read(query, actor: actor)
 
     devices =
@@ -547,7 +550,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   end
 
   defp unique_ip do
-    Stream.repeatedly(fn -> System.unique_integer([:positive, :monotonic]) end)
+    fn -> System.unique_integer([:positive, :monotonic]) end
+    |> Stream.repeatedly()
     |> Enum.find_value(fn n ->
       octet2 = rem(div(n, 65_025), 250) + 1
       octet3 = rem(div(n, 255), 250) + 1

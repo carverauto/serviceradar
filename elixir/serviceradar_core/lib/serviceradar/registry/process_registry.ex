@@ -169,7 +169,7 @@ defmodule ServiceRadar.ProcessRegistry do
   """
   @spec count_by_type(atom()) :: non_neg_integer()
   def count_by_type(type) do
-    select_by_type(type) |> length()
+    type |> select_by_type() |> length()
   end
 
   # ============================================================================
@@ -227,7 +227,8 @@ defmodule ServiceRadar.ProcessRegistry do
   """
   @spec find_gateways() :: [map()]
   def find_gateways do
-    select_by_type(:gateway)
+    :gateway
+    |> select_by_type()
     |> Enum.map(fn {key, pid, metadata} ->
       Map.merge(metadata, %{key: key, pid: pid})
     end)
@@ -251,8 +252,7 @@ defmodule ServiceRadar.ProcessRegistry do
   """
   @spec find_available_gateways() :: [map()]
   def find_available_gateways do
-    find_gateways()
-    |> Enum.filter(&(&1[:status] == :available))
+    Enum.filter(find_gateways(), &(&1[:status] == :available))
   end
 
   @doc """
@@ -299,7 +299,8 @@ defmodule ServiceRadar.ProcessRegistry do
   """
   @spec find_agents() :: [map()]
   def find_agents do
-    select_by_type(:agent)
+    :agent
+    |> select_by_type()
     |> Enum.map(fn {key, pid, metadata} ->
       Map.merge(metadata, %{key: key, pid: pid})
     end)

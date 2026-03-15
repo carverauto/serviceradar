@@ -1,11 +1,12 @@
 defmodule ServiceRadarWebNGWeb.EventLive.Show do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
 
-  require Ash.Query
-
   alias ServiceRadar.Monitoring.Alert
+
+  require Ash.Query
 
   @impl true
   def mount(_params, _session, socket) do
@@ -39,8 +40,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           error_msg = format_error(reason)
 
           if String.contains?(error_msg, "unsupported filter") do
-            {nil,
-             "Event detail view is not available - the events entity does not support filtering by id."}
+            {nil, "Event detail view is not available - the events entity does not support filtering by id."}
           else
             {nil, "Failed to load event: #{error_msg}"}
           end
@@ -123,9 +123,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp event_summary(assigns) do
     source = event_source(assigns.event)
 
-    assigns =
-      assigns
-      |> assign(:source, source)
+    assigns = assign(assigns, :source, source)
 
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 p-6">
@@ -328,7 +326,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     variant = severity_variant(assigns.value)
     label = severity_label(assigns.value)
 
-    assigns = assign(assigns, :variant, variant) |> assign(:label, label)
+    assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
 
     ~H"""
     <.ui_badge variant={@variant} size="sm">{@label}</.ui_badge>
@@ -505,8 +503,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         {:ok, [alert | _]} -> alert
         _ -> nil
       end
-    else
-      nil
     end
   end
 

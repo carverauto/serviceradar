@@ -1,11 +1,14 @@
 defmodule ServiceRadar.Ash.Page do
   @moduledoc false
 
+  alias Ash.Page.Keyset
+  alias Ash.Page.Offset
+
   @spec unwrap(any()) :: {:ok, any()} | {:error, any()}
-  def unwrap(%Ash.Page.Keyset{results: results}), do: {:ok, results}
-  def unwrap(%Ash.Page.Offset{results: results}), do: {:ok, results}
-  def unwrap({:ok, %Ash.Page.Keyset{results: results}}), do: {:ok, results}
-  def unwrap({:ok, %Ash.Page.Offset{results: results}}), do: {:ok, results}
+  def unwrap(%Keyset{results: results}), do: {:ok, results}
+  def unwrap(%Offset{results: results}), do: {:ok, results}
+  def unwrap({:ok, %Keyset{results: results}}), do: {:ok, results}
+  def unwrap({:ok, %Offset{results: results}}), do: {:ok, results}
   def unwrap({:ok, results}), do: {:ok, results}
   def unwrap({:error, _} = error), do: error
   def unwrap(results), do: {:ok, results}

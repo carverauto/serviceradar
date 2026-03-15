@@ -25,13 +25,15 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   use GenServer
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Infrastructure.{Agent, Checker, Gateway}
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.Checker
+  alias ServiceRadar.Infrastructure.Gateway
 
   require Logger
 
-  @default_check_interval :timer.seconds(30)
-  @default_gateway_timeout :timer.minutes(2)
-  @default_agent_timeout :timer.minutes(5)
+  @default_check_interval to_timeout(second: 30)
+  @default_gateway_timeout to_timeout(minute: 2)
+  @default_agent_timeout to_timeout(minute: 5)
   @default_checker_failure_threshold 3
 
   defstruct [
@@ -164,7 +166,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       Task.async(fn -> check_checkers(state, actor) end)
     ]
 
-    results = Task.await_many(tasks, :timer.seconds(30))
+    results = Task.await_many(tasks, to_timeout(second: 30))
 
     duration = System.monotonic_time(:millisecond) - start_time
 
@@ -307,7 +309,8 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
         :ok
 
       {:error, reason} ->
-        Logger.error("Failed to transition #{resource_name}",
+        Logger.error(
+          "Failed to transition #{resource_name}",
           Keyword.put(metadata, :reason, inspect(reason))
         )
     end

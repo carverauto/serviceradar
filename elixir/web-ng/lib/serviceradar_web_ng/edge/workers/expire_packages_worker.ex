@@ -27,11 +27,12 @@ defmodule ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker do
     max_attempts: 3
 
   import Ash.Expr
-  require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.Workers.RecordEventWorker
+
+  require Ash.Query
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do

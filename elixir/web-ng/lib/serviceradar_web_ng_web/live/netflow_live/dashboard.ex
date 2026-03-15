@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.FlowStatComponents
@@ -10,9 +11,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   require Ash.Query
   require Logger
+
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
-  @refresh_interval_ms :timer.seconds(60)
+  @refresh_interval_ms to_timeout(minute: 1)
 
   @time_windows [
     {"1h", "Last 1 Hour"},
@@ -189,8 +191,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   def handle_event("drill_down_conversation", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
          row when not is_nil(row) <- Enum.at(socket.assigns.top_conversations, i) do
-      {:noreply,
-       drill_down(socket, "src_ip:#{srql_quote(row.src_ip)} dst_ip:#{srql_quote(row.dst_ip)}")}
+      {:noreply, drill_down(socket, "src_ip:#{srql_quote(row.src_ip)} dst_ip:#{srql_quote(row.dst_ip)}")}
     else
       _ -> {:noreply, socket}
     end
@@ -734,7 +735,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       end)
     ]
 
-    results = safe_await_many(tasks, :timer.seconds(15))
+    results = safe_await_many(tasks, to_timeout(second: 15))
 
     summary = Map.get(results, :summary, %{})
     timeseries = Map.get(results, :timeseries, [])
@@ -804,12 +805,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> enrich_top_n_ips()
   end
 
-  defp ensure_selected_interface(%{assigns: %{top_interfaces: []}} = socket),
-    do: assign(socket, :selected_interface, nil)
+  defp ensure_selected_interface(%{assigns: %{top_interfaces: []}} = socket), do: assign(socket, :selected_interface, nil)
 
-  defp ensure_selected_interface(
-         %{assigns: %{selected_interface: selected, top_interfaces: top_interfaces}} = socket
-       ) do
+  defp ensure_selected_interface(%{assigns: %{selected_interface: selected, top_interfaces: top_interfaces}} = socket) do
     samplers = MapSet.new(top_interfaces, & &1.sampler)
 
     if is_binary(selected) and MapSet.member?(samplers, selected) do
@@ -880,16 +878,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
     tasks = [
       Task.async(fn ->
-        {:ingress,
-         load_iface_downsample(srql_mod, scope, "#{base} direction:ingress", bucket, value_field)}
+        {:ingress, load_iface_downsample(srql_mod, scope, "#{base} direction:ingress", bucket, value_field)}
       end),
       Task.async(fn ->
-        {:egress,
-         load_iface_downsample(srql_mod, scope, "#{base} direction:egress", bucket, value_field)}
+        {:egress, load_iface_downsample(srql_mod, scope, "#{base} direction:egress", bucket, value_field)}
       end)
     ]
 
-    results = safe_await_many(tasks, :timer.seconds(10))
+    results = safe_await_many(tasks, to_timeout(second: 10))
     ingress = Map.get(results, :ingress, [])
     egress = Map.get(results, :egress, [])
 
@@ -905,7 +901,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     egress_map = Map.new(egress, fn %{t: t, v: v} -> {t, to_rate.(v)} end)
 
     points =
-      Map.keys(ingress_map)
+      ingress_map
+      |> Map.keys()
       |> Enum.concat(Map.keys(egress_map))
       |> Enum.uniq()
       |> Enum.sort()
@@ -947,8 +944,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       {"#{base} stats:sum(bytes_total) as total_bytes", :total_bytes, "total_bytes"},
       {"#{base} stats:sum(packets_total) as total_packets", :total_packets, "total_packets"},
       {"#{base} stats:count(*) as flow_count", :flow_count, "flow_count"},
-      {"#{base} stats:count_distinct(src_endpoint_ip) as unique_talkers", :unique_talkers,
-       "unique_talkers"}
+      {"#{base} stats:count_distinct(src_endpoint_ip) as unique_talkers", :unique_talkers, "unique_talkers"}
     ]
 
     queries
@@ -1298,8 +1294,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
     if app do
       Phoenix.HTML.raw(
-        "#{Phoenix.HTML.html_escape(port) |> Phoenix.HTML.safe_to_string()}" <>
-          " <span class=\"text-xs text-base-content/50\">(#{Phoenix.HTML.html_escape(app) |> Phoenix.HTML.safe_to_string()})</span>"
+        "#{port |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()}" <>
+          " <span class=\"text-xs text-base-content/50\">(#{app |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()})</span>"
       )
     else
       port
@@ -1408,11 +1404,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     scope = Map.get(socket.assigns, :current_scope)
 
     ips =
-      Enum.concat([
+      [
         Enum.map(socket.assigns.top_talkers, & &1.ip),
         Enum.map(socket.assigns.top_listeners, & &1.ip),
         Enum.flat_map(socket.assigns.top_conversations, fn r -> [r.src_ip, r.dst_ip] end)
-      ])
+      ]
+      |> Enum.concat()
       |> Enum.filter(&is_binary/1)
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == ""))
@@ -1428,7 +1425,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
         Task.async(fn -> {:geo, bulk_geo_iso2(ips, scope)} end)
       ]
 
-      results = safe_await_many(tasks, :timer.seconds(5))
+      results = safe_await_many(tasks, to_timeout(second: 5))
 
       socket
       |> assign(:rdns_map, Map.get(results, :rdns, %{}))
@@ -1505,8 +1502,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
     if hostname do
       Phoenix.HTML.raw(
-        "<span>#{Phoenix.HTML.html_escape(parts) |> Phoenix.HTML.safe_to_string()}" <>
-          "<br/><span class=\"text-xs text-base-content/50\">#{Phoenix.HTML.html_escape(hostname) |> Phoenix.HTML.safe_to_string()}</span></span>"
+        "<span>#{parts |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()}" <>
+          "<br/><span class=\"text-xs text-base-content/50\">#{hostname |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()}</span></span>"
       )
     else
       parts

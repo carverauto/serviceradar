@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
 
   require Logger
 
-  @heartbeat_interval :timer.seconds(30)
+  @heartbeat_interval to_timeout(second: 30)
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -113,37 +113,37 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
     partitions = ["production", "staging", "edge-site-1"]
     domains = ["us-west", "us-east", "eu-west"]
 
-    for i <- 1..count do
-      partition = Enum.at(partitions, rem(i - 1, length(partitions)))
-      domain = Enum.at(domains, rem(i - 1, length(domains)))
-      gateway_id = "dev-gateway-#{i}"
+    for_result =
+      for i <- 1..count do
+        partition = Enum.at(partitions, rem(i - 1, length(partitions)))
+        domain = Enum.at(domains, rem(i - 1, length(domains)))
+        gateway_id = "dev-gateway-#{i}"
 
-      gateway_info = %{
-        partition_id: partition,
-        domain: domain,
-        status: :available
-      }
+        gateway_info = %{
+          partition_id: partition,
+          domain: domain,
+          status: :available
+        }
 
-      case ServiceRadar.GatewayRegistry.register_gateway(gateway_id, gateway_info) do
-        {:ok, _pid} ->
-          Logger.debug("[MockCluster] Registered gateway: #{gateway_id}")
+        case ServiceRadar.GatewayRegistry.register_gateway(gateway_id, gateway_info) do
+          {:ok, _pid} ->
+            Logger.debug("[MockCluster] Registered gateway: #{gateway_id}")
 
-          %{
-            gateway_id: gateway_id,
-            partition_id: partition,
-            domain: domain,
-            status: :available
-          }
+            %{
+              gateway_id: gateway_id,
+              partition_id: partition,
+              domain: domain,
+              status: :available
+            }
 
-        {:error, reason} ->
-          Logger.warning(
-            "[MockCluster] Failed to register gateway #{gateway_id}: #{inspect(reason)}"
-          )
+          {:error, reason} ->
+            Logger.warning("[MockCluster] Failed to register gateway #{gateway_id}: #{inspect(reason)}")
 
-          nil
+            nil
+        end
       end
-    end
-    |> Enum.reject(&is_nil/1)
+
+    Enum.reject(for_result, &is_nil/1)
   end
 
   defp register_mock_agents(count) do
@@ -159,35 +159,37 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
 
     statuses = [:connected, :connected, :connected, :degraded, :connected]
 
-    for i <- 1..count do
-      partition = Enum.at(partitions, rem(i - 1, length(partitions)))
-      capabilities = Enum.at(capability_sets, rem(i - 1, length(capability_sets)))
-      status = Enum.at(statuses, rem(i - 1, length(statuses)))
-      agent_id = "dev-agent-#{i}"
+    for_result =
+      for i <- 1..count do
+        partition = Enum.at(partitions, rem(i - 1, length(partitions)))
+        capabilities = Enum.at(capability_sets, rem(i - 1, length(capability_sets)))
+        status = Enum.at(statuses, rem(i - 1, length(statuses)))
+        agent_id = "dev-agent-#{i}"
 
-      agent_info = %{
-        partition_id: partition,
-        capabilities: capabilities,
-        status: status
-      }
+        agent_info = %{
+          partition_id: partition,
+          capabilities: capabilities,
+          status: status
+        }
 
-      case ServiceRadar.AgentRegistry.register_agent(agent_id, agent_info) do
-        {:ok, _pid} ->
-          Logger.debug("[MockCluster] Registered agent: #{agent_id}")
+        case ServiceRadar.AgentRegistry.register_agent(agent_id, agent_info) do
+          {:ok, _pid} ->
+            Logger.debug("[MockCluster] Registered agent: #{agent_id}")
 
-          %{
-            agent_id: agent_id,
-            partition_id: partition,
-            capabilities: capabilities,
-            status: status
-          }
+            %{
+              agent_id: agent_id,
+              partition_id: partition,
+              capabilities: capabilities,
+              status: status
+            }
 
-        {:error, reason} ->
-          Logger.warning("[MockCluster] Failed to register agent #{agent_id}: #{inspect(reason)}")
-          nil
+          {:error, reason} ->
+            Logger.warning("[MockCluster] Failed to register agent #{agent_id}: #{inspect(reason)}")
+            nil
+        end
       end
-    end
-    |> Enum.reject(&is_nil/1)
+
+    Enum.reject(for_result, &is_nil/1)
   end
 
   defp update_heartbeats(gateways, agents) do

@@ -12,31 +12,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias AshPhoenix.Form
-
-  alias ServiceRadar.SweepJobs.{
-    ObanSupport,
-    SweepGroup,
-    SweepGroupExecution,
-    SweepProfile,
-    SweepPubSub
-  }
-
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandsPubSub
-
-  alias ServiceRadar.NetworkDiscovery.{
-    MapperJob,
-    MapperMikrotikController,
-    MapperSeed,
-    MapperUnifiController
-  }
-
-  alias ServiceRadar.Inventory.{DeviceCleanupSettings, DeviceCleanupWorker}
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Inventory.DeviceCleanupSettings
+  alias ServiceRadar.Inventory.DeviceCleanupWorker
+  alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
+  alias ServiceRadar.NetworkDiscovery.MapperSeed
+  alias ServiceRadar.NetworkDiscovery.MapperUnifiController
+  alias ServiceRadar.SweepJobs.ObanSupport
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepGroupExecution
+  alias ServiceRadar.SweepJobs.SweepProfile
+  alias ServiceRadar.SweepJobs.SweepPubSub
   alias ServiceRadarWebNG.RBAC
-
-  @refresh_interval :timer.seconds(15)
-
   alias ServiceRadarWebNGWeb.SRQL.Catalog
+
+  @refresh_interval to_timeout(second: 15)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -356,9 +348,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     with :ok <- require_run_sweeps(socket),
          {:ok, group} <- fetch_sweep_group(scope, id),
          {:ok, _updated} <- Ash.update(group, %{}, action: :run_now, scope: scope) do
-      statuses =
-        socket.assigns.sweep_command_statuses
-        |> mark_command_sent(group.id, "Sweep command queued")
+      statuses = mark_command_sent(socket.assigns.sweep_command_statuses, group.id, "Sweep command queued")
 
       {:noreply,
        socket
@@ -373,9 +363,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         {:noreply, put_flash(socket, :error, "Sweep group not found")}
 
       {:error, reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "Failed to run sweep group: #{format_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to run sweep group: #{format_error(reason)}")}
     end
   end
 
@@ -424,9 +412,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     with :ok <- require_run_discovery(socket),
          {:ok, job} <- fetch_mapper_job(scope, id),
          {:ok, _updated} <- Ash.update(job, %{}, action: :run_now, scope: scope) do
-      statuses =
-        socket.assigns.mapper_command_statuses
-        |> mark_command_sent(job.id, "Discovery command queued")
+      statuses = mark_command_sent(socket.assigns.mapper_command_statuses, job.id, "Discovery command queued")
 
       {:noreply,
        socket
@@ -441,9 +427,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         {:noreply, put_flash(socket, :error, "Discovery job not found")}
 
       {:error, reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "Failed to run discovery job: #{format_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to run discovery job: #{format_error(reason)}")}
     end
   end
 
@@ -470,9 +454,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
          |> push_navigate(to: ~p"/settings/networks/discovery")}
 
       {:error, reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "Failed to save discovery job: #{format_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to save discovery job: #{format_error(reason)}")}
     end
   end
 
@@ -521,25 +503,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   def handle_event("save_group", %{"form" => params}, socket) do
-    scope = socket.assigns.current_scope
-
     require Logger
 
-    params =
-      params
-      |> normalize_static_targets()
+    scope = socket.assigns.current_scope
+
+    params = normalize_static_targets(params)
 
     Logger.debug("[NetworksLive] save_group - params: #{inspect(params)}")
 
-    ash_form =
-      socket.assigns.ash_form
-      |> Form.validate(params)
+    ash_form = Form.validate(socket.assigns.ash_form, params)
 
     case Form.submit(ash_form, params: params) do
       {:ok, group} ->
-        Logger.debug(
-          "[NetworksLive] save_group SUCCESS - saved group.target_query: #{inspect(group.target_query)}"
-        )
+        Logger.debug("[NetworksLive] save_group SUCCESS - saved group.target_query: #{inspect(group.target_query)}")
 
         flash_message = sweep_group_save_message(group.enabled)
 
@@ -550,9 +526,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
          |> push_navigate(to: ~p"/settings/networks")}
 
       {:ok, group, _notifications} ->
-        Logger.debug(
-          "[NetworksLive] save_group SUCCESS - saved group.target_query: #{inspect(group.target_query)}"
-        )
+        Logger.debug("[NetworksLive] save_group SUCCESS - saved group.target_query: #{inspect(group.target_query)}")
 
         flash_message = sweep_group_save_message(group.enabled)
 
@@ -563,9 +537,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
          |> push_navigate(to: ~p"/settings/networks")}
 
       {:error, ash_form} ->
-        Logger.warning(
-          "[NetworksLive] save_group ERROR - form errors: #{inspect(Form.errors(ash_form))}"
-        )
+        Logger.warning("[NetworksLive] save_group ERROR - form errors: #{inspect(Form.errors(ash_form))}")
 
         {:noreply,
          socket
@@ -578,9 +550,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     scope = socket.assigns.current_scope
     params = transform_profile_params(params)
 
-    ash_form =
-      socket.assigns.ash_form
-      |> Form.validate(params)
+    ash_form = Form.validate(socket.assigns.ash_form, params)
 
     case Form.submit(ash_form, params: params) do
       {:ok, _profile} ->
@@ -599,9 +569,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   def handle_event("validate_cleanup_settings", %{"cleanup" => params}, socket) do
-    form =
-      socket.assigns.cleanup_form
-      |> Form.validate(params)
+    form = Form.validate(socket.assigns.cleanup_form, params)
 
     {:noreply, assign(socket, :cleanup_form, to_form(form))}
   end
@@ -609,9 +577,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   def handle_event("save_cleanup_settings", %{"cleanup" => params}, socket) do
     scope = socket.assigns.current_scope
 
-    form =
-      socket.assigns.cleanup_form
-      |> Form.validate(params)
+    form = Form.validate(socket.assigns.cleanup_form, params)
 
     case Form.submit(form, params: params) do
       {:ok, settings} ->
@@ -658,9 +624,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         parse_target_query_to_builder(target_query)
       end
 
-    ash_form =
-      socket.assigns.ash_form
-      |> Form.validate(params)
+    ash_form = Form.validate(socket.assigns.ash_form, params)
 
     socket =
       socket
@@ -686,9 +650,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   def handle_event("validate_profile", %{"form" => params}, socket) do
     params = transform_profile_params(params)
 
-    ash_form =
-      socket.assigns.ash_form
-      |> Form.validate(params)
+    ash_form = Form.validate(socket.assigns.ash_form, params)
 
     builder_sync = socket.assigns.builder_sync
 
@@ -812,9 +774,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> form_params()
       |> Map.put("target_query", query)
 
-    ash_form =
-      socket.assigns.ash_form
-      |> Form.validate(params)
+    ash_form = Form.validate(socket.assigns.ash_form, params)
 
     scope = socket.assigns.current_scope
     device_count = count_target_devices(scope, query)
@@ -1986,8 +1946,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
       # Calculate average drop rate
       drop_rates =
-        executions_with_metrics
-        |> Enum.map(fn e -> get_in(e.scanner_metrics, ["rx_drop_rate_percent"]) || 0.0 end)
+        Enum.map(executions_with_metrics, fn e -> get_in(e.scanner_metrics, ["rx_drop_rate_percent"]) || 0.0 end)
 
       avg_drop_rate =
         if Enum.empty?(drop_rates) do
@@ -2020,13 +1979,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         batch =
           if progress.total_batches, do: "Batch #{progress.batch_num}/#{progress.total_batches}"
 
-        {progress.hosts_processed, progress.hosts_available, progress.hosts_failed,
-         progress.hosts_total, batch}
+        {progress.hosts_processed, progress.hosts_available, progress.hosts_failed, progress.hosts_total, batch}
       else
         processed = Map.get(execution, :hosts_available, 0) + Map.get(execution, :hosts_failed, 0)
 
-        {processed, Map.get(execution, :hosts_available) || 0,
-         Map.get(execution, :hosts_failed) || 0, Map.get(execution, :hosts_total), nil}
+        {processed, Map.get(execution, :hosts_available) || 0, Map.get(execution, :hosts_failed) || 0,
+         Map.get(execution, :hosts_total), nil}
       end
 
     hosts_total_display = compute_hosts_total_display(hosts_total, hosts_processed)
@@ -2243,7 +2201,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp format_number(nil), do: "0"
-  defp format_number(n) when is_float(n), do: Float.round(n, 2) |> to_string()
+  defp format_number(n) when is_float(n), do: n |> Float.round(2) |> to_string()
 
   defp format_number(n) when is_integer(n) do
     n
@@ -2283,10 +2241,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp success_rate_badge(assigns) do
     rate =
       if assigns.execution.hosts_total && assigns.execution.hosts_total > 0 do
-        ((assigns.execution.hosts_available || 0) / assigns.execution.hosts_total * 100)
-        |> Float.round(1)
-      else
-        nil
+        Float.round((assigns.execution.hosts_available || 0) / assigns.execution.hosts_total * 100, 1)
       end
 
     assigns = assign(assigns, :rate, rate)
@@ -2347,8 +2302,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp format_duration(nil), do: "—"
   defp format_duration(ms) when is_integer(ms) and ms < 1000, do: "#{ms}ms"
 
-  defp format_duration(ms) when is_integer(ms) and ms < 60_000,
-    do: "#{Float.round(ms / 1000, 1)}s"
+  defp format_duration(ms) when is_integer(ms) and ms < 60_000, do: "#{Float.round(ms / 1000, 1)}s"
 
   defp format_duration(ms) when is_integer(ms) do
     minutes = div(ms, 60_000)
@@ -2937,22 +2891,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp load_agents(scope) do
     require Logger
 
-    case can_manage_networks?(scope) do
-      false ->
-        []
+    if can_manage_networks?(scope) do
+      result = Ash.read(Agent, domain: ServiceRadar.Infrastructure, scope: scope)
 
-      true ->
-        result = Ash.read(Agent, domain: ServiceRadar.Infrastructure, scope: scope)
+      case result do
+        {:ok, agents} ->
+          Logger.debug("load_agents: loaded #{length(agents)} agents")
+          agents
 
-        case result do
-          {:ok, agents} ->
-            Logger.debug("load_agents: loaded #{length(agents)} agents")
-            agents
-
-          {:error, reason} ->
-            Logger.warning("load_agents: failed to load agents - #{inspect(reason)}")
-            []
-        end
+        {:error, reason} ->
+          Logger.warning("load_agents: failed to load agents - #{inspect(reason)}")
+          []
+      end
+    else
+      []
     end
   end
 
@@ -3090,9 +3042,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         socket
 
       job_id ->
-        statuses =
-          socket.assigns.mapper_command_statuses
-          |> update_command_status(job_id, event_type, data)
+        statuses = update_command_status(socket.assigns.mapper_command_statuses, job_id, event_type, data)
 
         assign(socket, :mapper_command_statuses, statuses)
     end
@@ -3104,9 +3054,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         socket
 
       group_id ->
-        statuses =
-          socket.assigns.sweep_command_statuses
-          |> update_command_status(group_id, event_type, data)
+        statuses = update_command_status(socket.assigns.sweep_command_statuses, group_id, event_type, data)
 
         assign(socket, :sweep_command_statuses, statuses)
     end
@@ -3163,8 +3111,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp command_status_label(%{state: :sent}), do: "Queued"
   defp command_status_label(%{state: :ack}), do: "Acked"
 
-  defp command_status_label(%{state: :progress, progress_percent: percent})
-       when is_integer(percent) do
+  defp command_status_label(%{state: :progress, progress_percent: percent}) when is_integer(percent) do
     "Running #{percent}%"
   end
 
@@ -3254,10 +3201,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     running = List.wrap(running)
     progress_map = progress_map || %{}
 
-    running_ids =
-      running
-      |> Enum.map(&(Map.get(&1, :execution_id) || &1.id))
-      |> MapSet.new()
+    running_ids = MapSet.new(running, &(Map.get(&1, :execution_id) || &1.id))
 
     virtuals =
       progress_map
@@ -3276,8 +3220,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         }
       end)
 
-    (running ++ virtuals)
-    |> Enum.sort_by(&latest_execution_time/1, {:desc, DateTime})
+    Enum.sort_by(running ++ virtuals, &latest_execution_time/1, {:desc, DateTime})
   end
 
   defp latest_execution(executions) do
@@ -3397,8 +3340,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp normalize_mikrotik_fields(fields) do
-    empty_mikrotik_fields()
-    |> Map.merge(fields || %{})
+    Map.merge(empty_mikrotik_fields(), fields || %{})
   end
 
   defp build_mikrotik_fields_from_params(current, params) do
@@ -3533,7 +3475,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp upsert_unifi_controller(_job, params, _scope) when map_size(params) == 0, do: :ok
 
   defp upsert_unifi_controller(job, params, scope) do
-    base_url = Map.get(params, "base_url") |> to_string() |> String.trim()
+    base_url = params |> Map.get("base_url") |> to_string() |> String.trim()
 
     if base_url == "" do
       :ok
@@ -3545,7 +3487,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp upsert_mikrotik_controller(_job, params, _scope) when map_size(params) == 0, do: :ok
 
   defp upsert_mikrotik_controller(job, params, scope) do
-    base_url = Map.get(params, "base_url") |> to_string() |> String.trim()
+    base_url = params |> Map.get("base_url") |> to_string() |> String.trim()
 
     if base_url == "" do
       :ok
@@ -3619,8 +3561,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
-  defp format_error({:agent_offline, agent_id}),
-    do: "Agent #{agent_id} is offline"
+  defp format_error({:agent_offline, agent_id}), do: "Agent #{agent_id} is offline"
 
   defp format_error({:agent_partition_mismatch, agent_id, partition}),
     do: "Agent #{agent_id} is not in partition #{partition}"
@@ -3744,7 +3685,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     case String.split(field, ":", parts: 2) do
       [field_name, value] ->
         field_name = String.trim(field_name)
-        value = String.trim(value) |> String.replace("\\ ", " ")
+        value = value |> String.trim() |> String.replace("\\ ", " ")
 
         {op, final_value} = parse_filter_value(field_name, negated, value)
 
@@ -3762,7 +3703,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp parse_filter_value(field, negated, value) do
     cond do
       list_filter_field?(field) ->
-        normalized = normalize_list_value(value) |> Enum.join(", ")
+        normalized = value |> normalize_list_value() |> Enum.join(", ")
         {maybe_negate_op("equals", negated), normalized}
 
       String.contains?(value, "%") ->
@@ -3949,9 +3890,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> form_params()
         |> Map.put("target_query", query)
 
-      ash_form =
-        socket.assigns.ash_form
-        |> Form.validate(params)
+      ash_form = Form.validate(socket.assigns.ash_form, params)
 
       scope = socket.assigns.current_scope
       device_count = count_target_devices(scope, query)
@@ -4010,8 +3949,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   # Transform comma-separated ports string to array of integers for Ash
   defp transform_profile_params(params) do
-    params
-    |> transform_ports_to_array()
+    transform_ports_to_array(params)
   end
 
   defp transform_ports_to_array(params) do

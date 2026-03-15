@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNGWeb.Auth.TokenRevocation do
   require Logger
 
   @table :revoked_tokens
-  @cleanup_interval :timer.hours(1)
+  @cleanup_interval to_timeout(hour: 1)
   @default_ttl_seconds 30 * 24 * 60 * 60
 
   # Client API
@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.Auth.TokenRevocation do
             ts when is_integer(ts) -> DateTime.from_unix!(ts)
           end
 
-        if DateTime.compare(issued_datetime, revoked_before) == :lt do
+        if DateTime.before?(issued_datetime, revoked_before) do
           {:error, :revoked}
         else
           :ok
@@ -227,7 +227,8 @@ defmodule ServiceRadarWebNGWeb.Auth.TokenRevocation do
 
   defp default_ttl_ms do
     seconds =
-      Application.get_env(:serviceradar_web_ng, :session, [])
+      :serviceradar_web_ng
+      |> Application.get_env(:session, [])
       |> Keyword.get(:absolute_timeout_seconds, @default_ttl_seconds)
 
     max(seconds, 60) * 1_000

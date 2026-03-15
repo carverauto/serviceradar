@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotControllerTest do
     conn = get(conn, ~p"/topology/snapshot/latest")
 
     assert conn.status == 200
-    assert get_resp_header(conn, "content-type") |> List.first() =~ "application/octet-stream"
+    assert conn |> get_resp_header("content-type") |> List.first() =~ "application/octet-stream"
     assert get_resp_header(conn, "x-sr-god-view-schema") != []
     assert get_resp_header(conn, "x-sr-god-view-revision") != []
     assert get_resp_header(conn, "x-sr-god-view-generated-at") != []

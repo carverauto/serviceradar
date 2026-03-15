@@ -5,8 +5,6 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.StatusHandler
   alias ServiceRadar.Edge.AgentCommand
@@ -16,7 +14,10 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
   require Ash.Query
 
+  @moduletag :integration
+
   defmodule TestControlSession do
+    @moduledoc false
     use GenServer
 
     def start_link(opts) do
@@ -65,7 +66,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
         |> Ash.read!(actor: actor)
         |> List.first()
 
-      assert command != nil
+      assert command
       assert command.status == :offline
       assert command.failure_reason == "agent_offline"
     end

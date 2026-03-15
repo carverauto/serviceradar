@@ -17,9 +17,9 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
-  require Logger
-
   alias Ecto.Adapters.SQL
+
+  require Logger
 
   # Upsert traces whose spans fall within a time window [$1, $2).
   # For each matching trace_id, aggregates ALL its spans within 7 days.
@@ -131,7 +131,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     now = DateTime.utc_now()
     start = DateTime.add(now, -7, :day)
 
-    build_windows(start, now)
+    start
+    |> build_windows(now)
     |> Enum.reduce_while(:ok, fn {window_start, window_end}, :ok ->
       case run_upsert(window_start, window_end) do
         :ok -> {:cont, :ok}
@@ -142,9 +143,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   defp build_windows(start, bound) do
     Stream.unfold(start, fn cursor ->
-      if DateTime.compare(cursor, bound) != :lt do
-        nil
-      else
+      if DateTime.before?(cursor, bound) do
         chunk_end = clamp_end(cursor, bound)
         {{cursor, chunk_end}, chunk_end}
       end
@@ -153,7 +152,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   defp clamp_end(cursor, bound) do
     candidate = DateTime.add(cursor, @backfill_chunk_seconds, :second)
-    if DateTime.compare(candidate, bound) == :gt, do: bound, else: candidate
+    if DateTime.after?(candidate, bound), do: bound, else: candidate
   end
 
   defp run_upsert(window_start, window_end) do

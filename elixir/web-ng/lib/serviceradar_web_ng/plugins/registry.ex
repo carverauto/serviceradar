@@ -3,9 +3,9 @@ defmodule ServiceRadarWebNG.Plugins.Registry do
   Context module for plugin root records.
   """
 
-  require Ash.Query
-
   alias ServiceRadar.Plugins.Plugin
+
+  require Ash.Query
 
   @default_limit 100
   @max_limit 500

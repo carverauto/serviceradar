@@ -57,8 +57,6 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
       node_info =
         if is_connected do
           fetch_node_info(node_atom)
-        else
-          nil
         end
 
       # Get node-type-specific info
@@ -100,42 +98,38 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
   end
 
   defp fetch_node_info(node) when is_atom(node) do
-    try do
-      memory = :rpc.call(node, :erlang, :memory, [], 5000)
-      {uptime_ms, _} = :rpc.call(node, :erlang, :statistics, [:wall_clock], 5000)
+    memory = :rpc.call(node, :erlang, :memory, [], 5000)
+    {uptime_ms, _} = :rpc.call(node, :erlang, :statistics, [:wall_clock], 5000)
 
-      %{
-        process_count: :rpc.call(node, :erlang, :system_info, [:process_count], 5000),
-        port_count: :rpc.call(node, :erlang, :system_info, [:port_count], 5000),
-        otp_release: to_string(:rpc.call(node, :erlang, :system_info, [:otp_release], 5000)),
-        schedulers: :rpc.call(node, :erlang, :system_info, [:schedulers], 5000),
-        schedulers_online: :rpc.call(node, :erlang, :system_info, [:schedulers_online], 5000),
-        uptime_ms: uptime_ms,
-        memory_total: memory[:total],
-        memory_processes: memory[:processes],
-        memory_system: memory[:system],
-        memory_atom: memory[:atom],
-        memory_binary: memory[:binary],
-        memory_code: memory[:code],
-        memory_ets: memory[:ets]
-      }
-    rescue
-      _ -> nil
-    catch
-      :exit, _ -> nil
-    end
+    %{
+      process_count: :rpc.call(node, :erlang, :system_info, [:process_count], 5000),
+      port_count: :rpc.call(node, :erlang, :system_info, [:port_count], 5000),
+      otp_release: to_string(:rpc.call(node, :erlang, :system_info, [:otp_release], 5000)),
+      schedulers: :rpc.call(node, :erlang, :system_info, [:schedulers], 5000),
+      schedulers_online: :rpc.call(node, :erlang, :system_info, [:schedulers_online], 5000),
+      uptime_ms: uptime_ms,
+      memory_total: memory[:total],
+      memory_processes: memory[:processes],
+      memory_system: memory[:system],
+      memory_atom: memory[:atom],
+      memory_binary: memory[:binary],
+      memory_code: memory[:code],
+      memory_ets: memory[:ets]
+    }
+  rescue
+    _ -> nil
+  catch
+    :exit, _ -> nil
   end
 
   defp get_node_gateways(node) do
-    ServiceRadar.GatewayRegistry.all_gateways()
-    |> Enum.filter(fn gateway -> Map.get(gateway, :node) == node end)
+    Enum.filter(ServiceRadar.GatewayRegistry.all_gateways(), fn gateway -> Map.get(gateway, :node) == node end)
   rescue
     _ -> []
   end
 
   defp get_node_agents(node) do
-    ServiceRadar.AgentRegistry.all_agents()
-    |> Enum.filter(fn agent -> Map.get(agent, :node) == node end)
+    Enum.filter(ServiceRadar.AgentRegistry.all_agents(), fn agent -> Map.get(agent, :node) == node end)
   rescue
     _ -> []
   end
@@ -421,8 +415,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
         :web ->
           %{
-            description:
-              "Web nodes serve the ServiceRadar web interface and handle user authentication.",
+            description: "Web nodes serve the ServiceRadar web interface and handle user authentication.",
             steps: [
               %{label: "SERVE", description: "Host web interface"},
               %{label: "AUTH", description: "Handle authentication"},

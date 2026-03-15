@@ -5,8 +5,6 @@ defmodule ServiceRadar.Observability.MtrHypertableIntegrationTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.MtrHop
@@ -16,6 +14,8 @@ defmodule ServiceRadar.Observability.MtrHypertableIntegrationTest do
   alias ServiceRadar.TestSupport
 
   require Ash.Query
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -178,7 +178,7 @@ defmodule ServiceRadar.Observability.MtrHypertableIntegrationTest do
       |> Ash.read(actor: actor)
 
     assert length(traces) == 2
-    targets = Enum.map(traces, & &1.target_ip) |> Enum.sort()
+    targets = traces |> Enum.map(& &1.target_ip) |> Enum.sort()
     assert targets == ["1.1.1.1", "9.9.9.9"]
   end
 

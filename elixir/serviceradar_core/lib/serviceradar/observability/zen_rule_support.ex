@@ -28,7 +28,9 @@ defmodule ServiceRadar.Observability.ZenRuleSupport do
 
   def expected_format(_), do: nil
 
-  def valid_format?(subject, format) when is_binary(subject), do: format == expected_format(subject)
+  def valid_format?(subject, format) when is_binary(subject),
+    do: format == expected_format(subject)
+
   def valid_format?(_, _), do: false
 
   def resolve_format(nil), do: {:error, "subject is required"}

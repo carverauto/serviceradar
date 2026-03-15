@@ -6,12 +6,14 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
   interface observations and device context to produce classification tags.
   """
 
-  require Logger
-  require Ash.Query
   import Bitwise
 
   alias ServiceRadar.Ash.Page
-  alias ServiceRadar.Inventory.{Device, InterfaceClassificationRule}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.InterfaceClassificationRule
+
+  require Ash.Query
+  require Logger
 
   @exclusive_classifications ~w(management wan lan vpn loopback virtual)
 
@@ -67,8 +69,7 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
 
     case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, devices} ->
-        devices
-        |> Enum.map(fn device ->
+        Map.new(devices, fn device ->
           {device.uid,
            %{
              vendor_name: device.vendor_name,
@@ -77,7 +78,6 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
              sys_descr: sys_descr_from_metadata(device.metadata || %{})
            }}
         end)
-        |> Map.new()
 
       {:error, reason} ->
         Logger.warning("Interface classifier device context lookup failed: #{inspect(reason)}")
@@ -206,8 +206,8 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
          {:ok, cidr_ip, prefix} <- parse_cidr(cidr),
          true <- tuple_size(ip_tuple) == tuple_size(cidr_ip) do
       mask_bits = prefix
-      ip_int = ip_tuple |> tuple_to_int()
-      cidr_int = cidr_ip |> tuple_to_int()
+      ip_int = tuple_to_int(ip_tuple)
+      cidr_int = tuple_to_int(cidr_ip)
 
       max_bits = tuple_size(ip_tuple) * bits_per_segment(ip_tuple)
       mask = mask_for_bits(max_bits, mask_bits)

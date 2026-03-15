@@ -155,9 +155,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
 
   @impl true
   def handle_event("validate", %{"zen_rule" => params}, socket) do
-    ash_form =
-      socket.assigns.ash_form
-      |> AshPhoenix.Form.validate(params)
+    ash_form = AshPhoenix.Form.validate(socket.assigns.ash_form, params)
 
     {:noreply,
      socket
@@ -202,9 +200,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
       "jdm_definition" => definition
     }
 
-    ash_form =
-      socket.assigns.ash_form
-      |> AshPhoenix.Form.validate(params)
+    ash_form = AshPhoenix.Form.validate(socket.assigns.ash_form, params)
 
     case AshPhoenix.Form.submit(ash_form, params: params) do
       {:ok, rule} ->
@@ -387,8 +383,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
   end
 
   defp normalize_params(_form, params, _action) do
-    params
-    |> normalize_integer("order")
+    normalize_integer(params, "order")
   end
 
   defp normalize_integer(params, key) do

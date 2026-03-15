@@ -1,18 +1,16 @@
 defmodule ServiceRadarWebNG.Api.TopologyControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  alias ServiceRadarWebNG.Auth.Guardian
-
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0]
+
+  alias ServiceRadarWebNG.Auth.Guardian
 
   setup %{conn: conn} do
     user = admin_user_fixture()
     {:ok, token, _claims} = Guardian.create_access_token(user)
 
-    conn =
-      conn
-      |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")
+    conn = Plug.Conn.put_req_header(conn, "authorization", "Bearer #{token}")
 
     %{conn: conn}
   end

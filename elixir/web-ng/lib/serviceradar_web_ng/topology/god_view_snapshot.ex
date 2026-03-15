@@ -108,8 +108,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
 
   defp validate_schema_version(_), do: {:error, :invalid_schema_version}
 
-  defp validate_revision(%{revision: revision}) when is_integer(revision) and revision >= 0,
-    do: :ok
+  defp validate_revision(%{revision: revision}) when is_integer(revision) and revision >= 0, do: :ok
 
   defp validate_revision(_), do: {:error, :invalid_revision}
 
@@ -155,16 +154,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
   defp validate_pipeline_stats(%{}), do: :ok
   defp validate_pipeline_stats(_), do: {:error, :invalid_pipeline_stats}
 
-  defp valid_bitmap_entry?({key, value})
-       when key in [:root_cause, :affected, :healthy, :unknown] and is_binary(value),
-       do: true
+  defp valid_bitmap_entry?({key, value}) when key in [:root_cause, :affected, :healthy, :unknown] and is_binary(value),
+    do: true
 
   defp valid_bitmap_entry?(_), do: false
 
-  defp valid_bitmap_metadata_entry?({key, %{bytes: bytes, count: count}})
-       when key in [:root_cause, :affected, :healthy, :unknown] and is_integer(bytes) and
-              bytes >= 0 and is_integer(count) and count >= 0,
-       do: true
+  defp valid_bitmap_metadata_entry?({key, %{bytes: bytes, count: count}}) do
+    key in [:root_cause, :affected, :healthy, :unknown] and
+      is_integer(bytes) and bytes >= 0 and
+      is_integer(count) and count >= 0
+  end
 
   defp valid_bitmap_metadata_entry?(_), do: false
 

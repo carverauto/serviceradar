@@ -9,9 +9,9 @@ defmodule ServiceRadar.SPIFFE.CertMonitor do
 
   use GenServer
 
-  require Logger
-
   alias ServiceRadar.SPIFFE
+
+  require Logger
 
   @default_check_interval_seconds 600
   @default_warn_threshold_seconds 86_400

@@ -497,8 +497,7 @@ defmodule Connection do
     :proc_lib.hibernate(__MODULE__, :enter_loop, args)
   end
 
-  def enter_loop(mod, backoff, mod_state, name, opts, timeout)
-      when name === self() do
+  def enter_loop(mod, backoff, mod_state, name, opts, timeout) when name === self() do
     s = %Connection{mod: mod, backoff: backoff, mod_state: mod_state, raise: nil}
     :gen_server.enter_loop(__MODULE__, opts, s, timeout)
   end
@@ -515,47 +514,45 @@ defmodule Connection do
 
   @doc false
   def handle_call(request, from, %{mod: mod, mod_state: mod_state} = s) do
-    try do
-      apply(mod, :handle_call, [request, from, mod_state])
-    catch
-      :throw, value ->
-        :erlang.raise(:error, {:nocatch, value}, __STACKTRACE__)
-    else
-      {:noreply, mod_state} = noreply ->
-        put_elem(noreply, 1, %{s | mod_state: mod_state})
+    apply(mod, :handle_call, [request, from, mod_state])
+  catch
+    :throw, value ->
+      :erlang.raise(:error, {:nocatch, value}, __STACKTRACE__)
+  else
+    {:noreply, mod_state} = noreply ->
+      put_elem(noreply, 1, %{s | mod_state: mod_state})
 
-      {:noreply, mod_state, _} = noreply ->
-        put_elem(noreply, 1, %{s | mod_state: mod_state})
+    {:noreply, mod_state, _} = noreply ->
+      put_elem(noreply, 1, %{s | mod_state: mod_state})
 
-      {:reply, _, mod_state} = reply ->
-        put_elem(reply, 2, %{s | mod_state: mod_state})
+    {:reply, _, mod_state} = reply ->
+      put_elem(reply, 2, %{s | mod_state: mod_state})
 
-      {:reply, _, mod_state, _} = reply ->
-        put_elem(reply, 2, %{s | mod_state: mod_state})
+    {:reply, _, mod_state, _} = reply ->
+      put_elem(reply, 2, %{s | mod_state: mod_state})
 
-      {:connect, info, mod_state} ->
-        connect(info, mod_state, s)
+    {:connect, info, mod_state} ->
+      connect(info, mod_state, s)
 
-      {:connect, info, reply, mod_state} ->
-        reply(from, reply)
-        connect(info, mod_state, s)
+    {:connect, info, reply, mod_state} ->
+      reply(from, reply)
+      connect(info, mod_state, s)
 
-      {:disconnect, info, mod_state} ->
-        disconnect(info, mod_state, s)
+    {:disconnect, info, mod_state} ->
+      disconnect(info, mod_state, s)
 
-      {:disconnect, info, reply, mod_state} ->
-        reply(from, reply)
-        disconnect(info, mod_state, s)
+    {:disconnect, info, reply, mod_state} ->
+      reply(from, reply)
+      disconnect(info, mod_state, s)
 
-      {:stop, _, mod_state} = stop ->
-        put_elem(stop, 2, %{s | mod_state: mod_state})
+    {:stop, _, mod_state} = stop ->
+      put_elem(stop, 2, %{s | mod_state: mod_state})
 
-      {:stop, _, _, mod_state} = stop ->
-        put_elem(stop, 3, %{s | mod_state: mod_state})
+    {:stop, _, _, mod_state} = stop ->
+      put_elem(stop, 3, %{s | mod_state: mod_state})
 
-      other ->
-        {:stop, {:bad_return_value, other}, %{s | mod_state: mod_state}}
-    end
+    other ->
+      {:stop, {:bad_return_value, other}, %{s | mod_state: mod_state}}
   end
 
   @doc false
@@ -564,10 +561,7 @@ defmodule Connection do
   end
 
   @doc false
-  def handle_info(
-        {:timeout, backoff, __MODULE__},
-        %{backoff: backoff, mod_state: mod_state} = s
-      ) do
+  def handle_info({:timeout, backoff, __MODULE__}, %{backoff: backoff, mod_state: mod_state} = s) do
     connect(:backoff, mod_state, %{s | backoff: nil})
   end
 
@@ -577,40 +571,34 @@ defmodule Connection do
 
   @doc false
   def code_change(old_vsn, %{mod: mod, mod_state: mod_state} = s, extra) do
-    try do
-      apply(mod, :code_change, [old_vsn, mod_state, extra])
-    catch
-      :throw, value ->
-        exit({{:nocatch, value}, __STACKTRACE__})
-    else
-      {:ok, mod_state} ->
-        {:ok, %{s | mod_state: mod_state}}
-    end
+    apply(mod, :code_change, [old_vsn, mod_state, extra])
+  catch
+    :throw, value ->
+      exit({{:nocatch, value}, __STACKTRACE__})
+  else
+    {:ok, mod_state} ->
+      {:ok, %{s | mod_state: mod_state}}
   end
 
   @doc false
   def format_status(:normal, [pdict, %{mod: mod, mod_state: mod_state}]) do
-    try do
-      apply(mod, :format_status, [:normal, [pdict, mod_state]])
-    catch
-      _, _ ->
-        [{:data, [{~c"State", mod_state}]}]
-    else
-      mod_status ->
-        mod_status
-    end
+    apply(mod, :format_status, [:normal, [pdict, mod_state]])
+  catch
+    _, _ ->
+      [{:data, [{~c"State", mod_state}]}]
+  else
+    mod_status ->
+      mod_status
   end
 
   def format_status(:terminate, [pdict, %{mod: mod, mod_state: mod_state}]) do
-    try do
-      apply(mod, :format_status, [:terminate, [pdict, mod_state]])
-    catch
-      _, _ ->
-        mod_state
-    else
-      mod_state ->
-        mod_state
-    end
+    apply(mod, :format_status, [:terminate, [pdict, mod_state]])
+  catch
+    _, _ ->
+      mod_state
+  else
+    mod_state ->
+      mod_state
   end
 
   @doc false
@@ -670,64 +658,60 @@ defmodule Connection do
   defp unregister({:via, mod, name}), do: apply(mod, :unregister_name, [name])
 
   defp enter_connect(mod, info, mod_state, name, opts) do
-    try do
-      apply(mod, :connect, [info, mod_state])
-    catch
-      :exit, reason ->
-        report_reason = {:EXIT, {reason, __STACKTRACE__}}
-        enter_terminate(mod, mod_state, name, reason, report_reason)
+    apply(mod, :connect, [info, mod_state])
+  catch
+    :exit, reason ->
+      report_reason = {:EXIT, {reason, __STACKTRACE__}}
+      enter_terminate(mod, mod_state, name, reason, report_reason)
 
-      :error, reason ->
-        reason = {reason, __STACKTRACE__}
-        enter_terminate(mod, mod_state, name, reason, {:EXIT, reason})
+    :error, reason ->
+      reason = {reason, __STACKTRACE__}
+      enter_terminate(mod, mod_state, name, reason, {:EXIT, reason})
 
-      :throw, value ->
-        reason = {{:nocatch, value}, __STACKTRACE__}
-        enter_terminate(mod, mod_state, name, reason, {:EXIT, reason})
-    else
-      {:ok, mod_state} ->
-        enter_loop(mod, nil, mod_state, name, opts, :infinity)
+    :throw, value ->
+      reason = {{:nocatch, value}, __STACKTRACE__}
+      enter_terminate(mod, mod_state, name, reason, {:EXIT, reason})
+  else
+    {:ok, mod_state} ->
+      enter_loop(mod, nil, mod_state, name, opts, :infinity)
 
-      {:ok, mod_state, timeout} ->
-        enter_loop(mod, nil, mod_state, name, opts, timeout)
+    {:ok, mod_state, timeout} ->
+      enter_loop(mod, nil, mod_state, name, opts, timeout)
 
-      {:backoff, backoff_timeout, mod_state} ->
-        backoff = start_backoff(backoff_timeout)
-        enter_loop(mod, backoff, mod_state, name, opts, :infinity)
+    {:backoff, backoff_timeout, mod_state} ->
+      backoff = start_backoff(backoff_timeout)
+      enter_loop(mod, backoff, mod_state, name, opts, :infinity)
 
-      {:backoff, backoff_timeout, mod_state, timeout} ->
-        backoff = start_backoff(backoff_timeout)
-        enter_loop(mod, backoff, mod_state, name, opts, timeout)
+    {:backoff, backoff_timeout, mod_state, timeout} ->
+      backoff = start_backoff(backoff_timeout)
+      enter_loop(mod, backoff, mod_state, name, opts, timeout)
 
-      {:stop, reason, mod_state} ->
-        enter_terminate(mod, mod_state, name, reason, {:stop, reason})
+    {:stop, reason, mod_state} ->
+      enter_terminate(mod, mod_state, name, reason, {:stop, reason})
 
-      other ->
-        reason = {:bad_return_value, other}
-        enter_terminate(mod, mod_state, name, reason, {:stop, reason})
-    end
+    other ->
+      reason = {:bad_return_value, other}
+      enter_terminate(mod, mod_state, name, reason, {:stop, reason})
   end
 
   @spec enter_terminate(module, term, term, term, term) :: no_return
   defp enter_terminate(mod, mod_state, name, reason, report_reason) do
-    try do
-      apply(mod, :terminate, [reason, mod_state])
-    catch
-      :exit, reason ->
-        report_reason = {:EXIT, {reason, __STACKTRACE__}}
-        enter_stop(mod, mod_state, name, reason, report_reason)
+    apply(mod, :terminate, [reason, mod_state])
+  catch
+    :exit, reason ->
+      report_reason = {:EXIT, {reason, __STACKTRACE__}}
+      enter_stop(mod, mod_state, name, reason, report_reason)
 
-      :error, reason ->
-        reason = {reason, __STACKTRACE__}
-        enter_stop(mod, mod_state, name, reason, {:EXIT, reason})
+    :error, reason ->
+      reason = {reason, __STACKTRACE__}
+      enter_stop(mod, mod_state, name, reason, {:EXIT, reason})
 
-      :throw, value ->
-        reason = {{:nocatch, value}, __STACKTRACE__}
-        enter_stop(mod, mod_state, name, reason, {:EXIT, reason})
-    else
-      _ ->
-        enter_stop(mod, mod_state, name, reason, report_reason)
-    end
+    :throw, value ->
+      reason = {{:nocatch, value}, __STACKTRACE__}
+      enter_stop(mod, mod_state, name, reason, {:EXIT, reason})
+  else
+    _ ->
+      enter_stop(mod, mod_state, name, reason, report_reason)
   end
 
   @spec enter_stop(module, term, term, term, term) :: no_return
@@ -894,29 +878,27 @@ defmodule Connection do
   defp stop_reason(:exit, reason, _), do: reason
 
   defp handle_async(fun, msg, %{mod: mod, mod_state: mod_state} = s) do
-    try do
-      apply(mod, fun, [msg, mod_state])
-    catch
-      :throw, value ->
-        :erlang.raise(:error, {:nocatch, value}, __STACKTRACE__)
-    else
-      {:noreply, mod_state} = noreply ->
-        put_elem(noreply, 1, %{s | mod_state: mod_state})
+    apply(mod, fun, [msg, mod_state])
+  catch
+    :throw, value ->
+      :erlang.raise(:error, {:nocatch, value}, __STACKTRACE__)
+  else
+    {:noreply, mod_state} = noreply ->
+      put_elem(noreply, 1, %{s | mod_state: mod_state})
 
-      {:noreply, mod_state, _} = noreply ->
-        put_elem(noreply, 1, %{s | mod_state: mod_state})
+    {:noreply, mod_state, _} = noreply ->
+      put_elem(noreply, 1, %{s | mod_state: mod_state})
 
-      {:connect, info, mod_state} ->
-        connect(info, mod_state, s)
+    {:connect, info, mod_state} ->
+      connect(info, mod_state, s)
 
-      {:disconnect, info, mod_state} ->
-        disconnect(info, mod_state, s)
+    {:disconnect, info, mod_state} ->
+      disconnect(info, mod_state, s)
 
-      {:stop, _, mod_state} = stop ->
-        put_elem(stop, 2, %{s | mod_state: mod_state})
+    {:stop, _, mod_state} = stop ->
+      put_elem(stop, 2, %{s | mod_state: mod_state})
 
-      other ->
-        {:stop, {:bad_return_value, other}, %{s | mod_state: mod_state}}
-    end
+    other ->
+      {:stop, {:bad_return_value, other}, %{s | mod_state: mod_state}}
   end
 end

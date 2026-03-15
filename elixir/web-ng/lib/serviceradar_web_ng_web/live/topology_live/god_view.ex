@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   use ServiceRadarWebNGWeb, :live_view
 
-  require Logger
-
   alias ServiceRadarWebNG.Graph, as: AgeGraph
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
   alias ServiceRadarWebNGWeb.FeatureFlags
+
+  require Logger
 
   @default_decode_alert_ms 20.0
   @default_render_alert_ms 40.0
@@ -136,8 +136,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
         requested_mode
       end
 
-    {:noreply,
-     socket |> assign(:zoom_mode, mode) |> push_event("god_view:set_zoom_mode", %{mode: mode})}
+    {:noreply, socket |> assign(:zoom_mode, mode) |> push_event("god_view:set_zoom_mode", %{mode: mode})}
   end
 
   def handle_event("toggle_visual_layer", %{"layer" => layer}, socket) do
@@ -193,8 +192,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
     {:noreply, assign(socket, :controls_collapsed, truthy?(collapsed))}
   end
 
-  defp maybe_emit_client_perf_alert(params, pipeline_stats)
-       when is_map(params) and is_map(pipeline_stats) do
+  defp maybe_emit_client_perf_alert(params, pipeline_stats) when is_map(params) and is_map(pipeline_stats) do
     decode_ms = numeric_ms(Map.get(params, "decode_ms"))
     render_ms = numeric_ms(Map.get(params, "render_ms"))
     node_count = numeric_count(Map.get(params, "node_count"))
@@ -759,8 +757,6 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
         to_hop: mtr_int(row, "to_hop"),
         agent_id: mtr_str(row, "agent_id")
       }
-    else
-      nil
     end
   end
 
@@ -793,7 +789,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   end
 
   defp mtr_atom_match(k, key, value) do
-    if Atom.to_string(k) == key, do: value, else: nil
+    if Atom.to_string(k) == key, do: value
   end
 
   defp mtr_int(row, key) do

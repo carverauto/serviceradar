@@ -5,14 +5,15 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
 
   use ServiceRadarWebNGWeb, :live_view
 
-  require Logger
-  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
-
   import ServiceRadarWebNGWeb.SettingsComponents
 
-  alias ServiceRadar.Inventory.DeviceEnrichmentRules
   alias ServiceRadar.Events.AuditWriter
+  alias ServiceRadar.Inventory.DeviceEnrichmentRules
   alias ServiceRadarWebNG.RBAC
+
+  require Logger
+
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   @default_rules_dir "/var/lib/serviceradar/rules/device-enrichment"
   @match_keys ~w(sys_descr sys_name hostname source sys_object_id_prefixes ip_forwarding)
@@ -269,8 +270,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
              |> assign(:export_yaml, content)}
 
           {:error, reason} ->
-            {:noreply,
-             put_flash(socket, :error, "Failed to read #{file_name}: #{inspect(reason)}")}
+            {:noreply, put_flash(socket, :error, "Failed to read #{file_name}: #{inspect(reason)}")}
         end
     end
   end
@@ -360,9 +360,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
   end
 
   def handle_event("keep_editing_rule", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_discard_rule_modal, false)}
+    {:noreply, assign(socket, :show_discard_rule_modal, false)}
   end
 
   def handle_event("discard_rule_changes", _params, socket) do
@@ -488,9 +486,10 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
   def handle_event("simulate", %{"simulation" => %{"payload" => payload}}, socket) do
     with {:ok, decoded} <- Jason.decode(payload),
          true <- is_map(decoded),
-         update <- normalize_simulation_update(decoded),
-         :ok <- DeviceEnrichmentRules.reload(),
-         classification <- DeviceEnrichmentRules.classify(update) do
+         update = normalize_simulation_update(decoded),
+         :ok <- DeviceEnrichmentRules.reload() do
+      classification = DeviceEnrichmentRules.classify(update)
+
       {:noreply,
        socket
        |> assign(:simulation_form, to_form(%{"payload" => payload}, as: :simulation))
@@ -1037,35 +1036,33 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
   end
 
   defp apply_rules_now do
-    try do
-      case ServiceRadar.Cluster.ClusterStatus.find_coordinator() do
-        nil ->
-          {:error, :no_coordinator}
+    case ServiceRadar.Cluster.ClusterStatus.find_coordinator() do
+      nil ->
+        {:error, :no_coordinator}
 
-        coordinator_node ->
-          case :rpc.call(
-                 coordinator_node,
-                 ServiceRadar.Inventory.DeviceEnrichmentRules,
-                 :reload_cluster,
-                 [],
-                 10_000
-               ) do
-            {:ok, nodes} when is_list(nodes) ->
-              {:ok, nodes}
+      coordinator_node ->
+        case :rpc.call(
+               coordinator_node,
+               DeviceEnrichmentRules,
+               :reload_cluster,
+               [],
+               10_000
+             ) do
+          {:ok, nodes} when is_list(nodes) ->
+            {:ok, nodes}
 
-            {:error, details} ->
-              {:error, details}
+          {:error, details} ->
+            {:error, details}
 
-            {:badrpc, reason} ->
-              {:error, reason}
+          {:badrpc, reason} ->
+            {:error, reason}
 
-            other ->
-              {:error, {:unexpected_response, other}}
-          end
-      end
-    rescue
-      e -> {:error, {:exception, e}}
+          other ->
+            {:error, {:unexpected_response, other}}
+        end
     end
+  rescue
+    e -> {:error, {:exception, e}}
   end
 
   defp rules_dir do
@@ -1140,23 +1137,20 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
       dir
       |> Path.join("*.yaml")
       |> Path.wildcard()
-      |> Enum.map(&Path.basename/1)
-      |> MapSet.new()
+      |> MapSet.new(&Path.basename/1)
 
     inactive_override_files =
       dir
       |> Path.join("*.yaml.disabled")
       |> Path.wildcard()
       |> Enum.map(&Path.basename/1)
-      |> Enum.map(&String.trim_trailing(&1, ".disabled"))
-      |> MapSet.new()
+      |> MapSet.new(&String.trim_trailing(&1, ".disabled"))
 
     builtin_files =
       builtin_rules_dir()
       |> Path.join("*.yaml")
       |> Path.wildcard()
-      |> Enum.map(&Path.basename/1)
-      |> MapSet.new()
+      |> MapSet.new(&Path.basename/1)
 
     all_names =
       override_files
@@ -1189,8 +1183,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
       |> assign(
         :selected_file_mtime,
         if(source == :override and state == :active,
-          do: file_mtime(socket.assigns.rules_dir, normalized_file),
-          else: nil
+          do: file_mtime(socket.assigns.rules_dir, normalized_file)
         )
       )
       |> assign(:rules, rules)
@@ -1328,8 +1321,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
   end
 
   defp stringify_map_keys(map) when is_map(map) do
-    map
-    |> Enum.map(fn {key, value} ->
+    Map.new(map, fn {key, value} ->
       normalized_key =
         case key do
           k when is_atom(k) -> Atom.to_string(k)
@@ -1338,7 +1330,6 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
 
       {normalized_key, stringify_map_keys(value)}
     end)
-    |> Map.new()
   end
 
   defp stringify_map_keys(list) when is_list(list), do: Enum.map(list, &stringify_map_keys/1)
@@ -1464,7 +1455,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     with :ok <- File.mkdir_p(dir),
          {:ok, normalized_name} <- normalize_file_name(file_name),
          :ok <- assert_unmodified(dir, normalized_name, expected_mtime),
-         yaml <- render_rules_yaml(rules),
+         yaml = render_rules_yaml(rules),
          :ok <- File.write(Path.join(dir, normalized_name), yaml) do
       :ok
     else
@@ -1506,7 +1497,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
 
   defp render_rule_yaml(rule) do
     lines =
-      [
+      List.flatten([
         "  - id: #{yaml_scalar(Map.get(rule, "id"))}",
         "    enabled: #{if(Map.get(rule, "enabled", true), do: "true", else: "false")}",
         "    priority: #{Map.get(rule, "priority", 0)}",
@@ -1514,8 +1505,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
         "    reason: #{yaml_scalar(Map.get(rule, "reason", ""))}",
         render_match_yaml(Map.get(rule, "match", %{})),
         render_set_yaml(Map.get(rule, "set", %{}))
-      ]
-      |> List.flatten()
+      ])
 
     Enum.join(lines, "\n")
   end
@@ -1613,7 +1603,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
   end
 
   defp default_rule_form do
-    %{
+    add_default_match_fields(%{
       "id" => "",
       "enabled" => "true",
       "priority" => "1000",
@@ -1624,8 +1614,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
       "set_type" => "",
       "set_type_id" => "",
       "set_model_from_sys_descr_prefix" => ""
-    }
-    |> add_default_match_fields()
+    })
   end
 
   defp default_simulation_payload do

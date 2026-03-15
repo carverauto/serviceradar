@@ -11,12 +11,13 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   """
 
   import Ash.Expr
-  require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Edge.OnboardingEvents
   alias ServiceRadar.Edge.OnboardingPackage
+
+  require Ash.Query
 
   @default_limit 100
   @default_join_token_ttl_seconds 86_400
@@ -136,7 +137,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     join_token = Crypto.generate_token()
     download_token = Crypto.generate_token()
 
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
     join_expires = DateTime.add(now, join_ttl, :second)
     download_expires = DateTime.add(now, download_ttl, :second)
 
@@ -396,7 +397,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
       is_nil(package.download_token_expires_at) ->
         {:error, :no_token}
 
-      DateTime.compare(now, package.download_token_expires_at) == :gt ->
+      DateTime.after?(now, package.download_token_expires_at) ->
         {:error, :expired}
 
       not Crypto.verify_token(token, package.download_token_hash) ->
@@ -421,12 +422,14 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   defp get_actor_name(_), do: "system"
 
   defp default_selectors do
-    Application.get_env(:serviceradar_web_ng, :edge_onboarding, [])
+    :serviceradar_web_ng
+    |> Application.get_env(:edge_onboarding, [])
     |> Keyword.get(:default_selectors, [])
   end
 
   defp default_metadata do
-    Application.get_env(:serviceradar_web_ng, :edge_onboarding, [])
+    :serviceradar_web_ng
+    |> Application.get_env(:edge_onboarding, [])
     |> Keyword.get(:default_metadata, %{})
   end
 
@@ -524,7 +527,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
             |> Ash.update!()
 
           {:ok,
-           Map.put(result, :package, updated)
+           result
+           |> Map.put(:package, updated)
            |> Map.put(:certificate_data, cert_data)}
 
         error ->
@@ -545,7 +549,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     authorize? = Keyword.get(opts, :authorize?, true)
 
     with {:ok, result} <- create(attrs, opts),
-         bundle_ciphertext <- Crypto.encrypt(bundle_pem),
+         bundle_ciphertext = Crypto.encrypt(bundle_pem),
          {:ok, updated} <-
            result.package
            |> Ash.Changeset.for_update(
@@ -578,7 +582,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   end
 
   defp generate_component_id(component_type) do
-    short_id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+    short_id = 8 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
     "#{component_type}-#{short_id}"
   end
 

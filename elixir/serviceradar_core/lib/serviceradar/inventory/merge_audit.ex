@@ -19,7 +19,14 @@ defmodule ServiceRadar.Inventory.MergeAudit do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
-  @merge_audit_fields [:from_device_id, :to_device_id, :reason, :confidence_score, :source, :details]
+  @merge_audit_fields [
+    :from_device_id,
+    :to_device_id,
+    :reason,
+    :confidence_score,
+    :source,
+    :details
+  ]
 
   postgres do
     table "merge_audit"

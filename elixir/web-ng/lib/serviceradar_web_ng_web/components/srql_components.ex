@@ -4,8 +4,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   use Phoenix.Component
 
   import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
-  import ServiceRadarWebNGWeb.UIComponents
   import ServiceRadarWebNGWeb.QueryBuilderComponents
+  import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
@@ -73,9 +73,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   attr(:empty_message, :string, default: "No results.")
 
   def srql_results_table(assigns) do
-    columns =
-      assigns.columns
-      |> normalize_columns(assigns.rows, assigns.max_columns)
+    columns = normalize_columns(assigns.columns, assigns.rows, assigns.max_columns)
 
     columns =
       if Enum.any?(assigns.rows, fn row -> is_map(row) and Map.has_key?(row, "_sparkline") end) do
@@ -225,9 +223,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   attr(:viz, :any, required: true)
 
-  defp categories_viz(
-         %{viz: {:categories, %{label: label, value: value, items: items}}} = assigns
-       ) do
+  defp categories_viz(%{viz: {:categories, %{label: label, value: value, items: items}}} = assigns) do
     max_v =
       items
       |> Enum.map(fn {_k, v} -> to_number(v) end)
@@ -301,14 +297,16 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         ""
 
       {_values, min_v, max_v} when min_v == max_v ->
-        Enum.with_index(values)
+        values
+        |> Enum.with_index()
         |> Enum.map_join(" ", fn {_v, idx} ->
           x = idx_to_x(idx, length(values))
           "#{x},60"
         end)
 
       {_values, min_v, max_v} ->
-        Enum.with_index(values)
+        values
+        |> Enum.with_index()
         |> Enum.map_join(" ", fn {v, idx} ->
           x = idx_to_x(idx, length(values))
           y = 110 - round((v - min_v) / (max_v - min_v) * 100)
@@ -430,12 +428,12 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   defp format_cell_value(_col, value), do: {:text, %{value: to_string(value), title: nil}}
 
   defp severity_column?(col) do
-    col_key = col |> String.downcase()
+    col_key = String.downcase(col)
     col_key in ["severity", "severity_text", "level", "service_status"]
   end
 
   defp time_column?(col) do
-    col_key = col |> String.downcase()
+    col_key = String.downcase(col)
 
     String.ends_with?(col_key, "_at") or String.ends_with?(col_key, "_time") or
       String.ends_with?(col_key, "_timestamp") or

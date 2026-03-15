@@ -3,8 +3,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias ServiceRadar.Observability.ZenRule
+  alias Ash.Page.Keyset
   alias ServiceRadar.Observability.EventRule
+  alias ServiceRadar.Observability.ZenRule
   alias ServiceRadarWebNG.AshTestHelpers
 
   setup %{conn: conn} do
@@ -188,7 +189,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
         EventRule
         |> Ash.read!(scope: scope)
         |> case do
-          %Ash.Page.Keyset{results: results} -> results
+          %Keyset{results: results} -> results
           results when is_list(results) -> results
           _ -> []
         end
@@ -227,7 +228,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
         EventRule
         |> Ash.read!(scope: scope)
         |> case do
-          %Ash.Page.Keyset{results: results} -> results
+          %Keyset{results: results} -> results
           results when is_list(results) -> results
           _ -> []
         end
@@ -289,7 +290,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
     end
   end
 
-  defp unwrap_page({:ok, %Ash.Page.Keyset{results: results}}), do: results
+  defp unwrap_page({:ok, %Keyset{results: results}}), do: results
   defp unwrap_page({:ok, results}) when is_list(results), do: results
   defp unwrap_page(_), do: []
 end

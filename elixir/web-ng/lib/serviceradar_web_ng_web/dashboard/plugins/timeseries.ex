@@ -1,11 +1,12 @@
 defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   @moduledoc false
 
-  use Phoenix.LiveComponent
-
   @behaviour ServiceRadarWebNGWeb.Dashboard.Plugin
 
+  use Phoenix.LiveComponent
+
   import ServiceRadarWebNGWeb.UIComponents, only: [ui_panel: 1]
+
   alias ServiceRadarWebNGWeb.SRQL.Viz
 
   @max_series 6
@@ -37,8 +38,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   def supports?(_), do: false
 
   @impl true
-  def build(%{"results" => results, "viz" => viz} = _srql_response)
-      when is_list(results) and is_map(viz) do
+  def build(%{"results" => results, "viz" => viz} = _srql_response) when is_list(results) and is_map(viz) do
     with {:ok, spec} <- parse_timeseries_spec(viz),
          {:ok, series_points} <- extract_series_points(results, spec) do
       {:ok, %{spec: spec, series_points: series_points}}
@@ -89,9 +89,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp extract_series_points(results, %{x: x, y: y, series: series_key}) do
-    rows =
-      results
-      |> Enum.filter(&is_map/1)
+    rows = Enum.filter(results, &is_map/1)
 
     points =
       Enum.reduce(rows, %{}, fn row, acc ->
@@ -118,8 +116,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       points
       |> Enum.map(fn {series, series_points} ->
         sorted =
-          series_points
-          |> Enum.sort_by(fn {dt, _} -> DateTime.to_unix(dt, :millisecond) end)
+          Enum.sort_by(series_points, fn {dt, _} -> DateTime.to_unix(dt, :millisecond) end)
 
         {series, sorted}
       end)
@@ -209,7 +206,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           end
 
         coords =
-          Enum.with_index(values)
+          values
+          |> Enum.with_index()
           |> Enum.map(fn {v, idx} ->
             x = idx_to_x(idx, length(values))
             y = value_to_y(v, 0, chart_max)
@@ -223,8 +221,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     end
   end
 
-  defp chart_max_from_value(_max_v, _unit, scale_max)
-       when is_number(scale_max) and scale_max > 0 do
+  defp chart_max_from_value(_max_v, _unit, scale_max) when is_number(scale_max) and scale_max > 0 do
     scale_max
   end
 
@@ -244,8 +241,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     chart_max_from_value(max_v, unit, scale_max_for_unit(unit))
   end
 
-  defp combined_chart_max(_series_data, unit),
-    do: chart_max_from_value(nil, unit, scale_max_for_unit(unit))
+  defp combined_chart_max(_series_data, unit), do: chart_max_from_value(nil, unit, scale_max_for_unit(unit))
 
   defp x_ticks(points, compact) when is_list(points) do
     len = length(points)
@@ -265,7 +261,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             true -> len
           end
 
-        tick_indices(len, tick_count)
+        len
+        |> tick_indices(tick_count)
         |> Enum.map(fn idx ->
           {dt, _v} = Enum.at(points, idx)
           {idx_to_x(idx, len), time_label(dt)}
@@ -278,19 +275,16 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp y_ticks(max_v, compact, unit) when is_number(max_v) and max_v > 0 do
     ticks = if compact, do: 3, else: 5
 
-    0..ticks
-    |> Enum.map(fn idx ->
+    Enum.map(0..ticks, fn idx ->
       value = max_v * idx / ticks
       {value_to_y(value, 0, max_v), format_value(value, unit)}
     end)
   end
 
-  defp y_ticks(_max_v, _compact, unit),
-    do: [{value_to_y(0, 0, 1), format_value(0, unit)}]
+  defp y_ticks(_max_v, _compact, unit), do: [{value_to_y(0, 0, 1), format_value(0, unit)}]
 
   defp tick_indices(len, tick_count) when tick_count >= len do
-    0..(len - 1)
-    |> Enum.to_list()
+    Enum.to_list(0..(len - 1))
   end
 
   defp tick_indices(len, tick_count) when tick_count > 1 do
@@ -374,8 +368,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     end
   end
 
-  defp clamp_rate(rate, max_speed)
-       when is_number(rate) and is_number(max_speed) and max_speed > 0 do
+  defp clamp_rate(rate, max_speed) when is_number(rate) and is_number(max_speed) and max_speed > 0 do
     if rate > max_speed do
       max_speed
     else
@@ -450,8 +443,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp deltas(xs, ys) do
-    0..(length(xs) - 2)
-    |> Enum.map(fn i ->
+    Enum.map(0..(length(xs) - 2), fn i ->
       x0 = Enum.at(xs, i)
       x1 = Enum.at(xs, i + 1)
       y0 = Enum.at(ys, i)
@@ -470,8 +462,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp initial_slopes(n, deltas) do
-    0..(n - 1)
-    |> Enum.map(fn i -> slope_at(i, n, deltas) end)
+    Enum.map(0..(n - 1), fn i -> slope_at(i, n, deltas) end)
   end
 
   defp slope_at(0, _n, deltas), do: Enum.at(deltas, 0) || 0.0
@@ -484,8 +475,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp adjust_slopes(base, deltas) do
-    0..(length(deltas) - 1)
-    |> Enum.reduce(base, fn i, acc ->
+    Enum.reduce(0..(length(deltas) - 1), base, fn i, acc ->
       d = Enum.at(deltas, i) || 0.0
       adjust_slope_segment(acc, i, d)
     end)
@@ -516,8 +506,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp build_monotone_segments(xs, ys, slopes, n) do
-    0..(n - 2)
-    |> Enum.map(fn i ->
+    Enum.map(0..(n - 2), fn i ->
       x0 = Enum.at(xs, i)
       y0 = Enum.at(ys, i)
       x1 = Enum.at(xs, i + 1)
@@ -579,8 +568,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     total_secs = max(DateTime.diff(dt1, dt0, :second), 1)
 
     intermediates =
-      1..(factor - 1)
-      |> Enum.map(fn i ->
+      Enum.map(1..(factor - 1), fn i ->
         t = i / factor
         dt = DateTime.add(dt0, round(total_secs * t), :second)
         v = v0 + (v1 - v0) * t
@@ -647,7 +635,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp limit_points(points, max_points) when is_list(points) and length(points) > max_points do
     total = length(points)
-    step = Float.ceil(total / max_points) |> trunc()
+    step = (total / max_points) |> Float.ceil() |> trunc()
     sampled = Enum.take_every(points, step)
     sampled = if length(sampled) > max_points, do: Enum.take(sampled, max_points), else: sampled
 
@@ -867,8 +855,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp traffic_series?(_), do: false
 
   # Compute utilization percentage from current value and max speed
-  defp compute_utilization(value, max_speed)
-       when is_number(value) and is_number(max_speed) and max_speed > 0 do
+  defp compute_utilization(value, max_speed) when is_number(value) and is_number(max_speed) and max_speed > 0 do
     percentage = value / max_speed * 100
     Float.round(percentage, 1)
   end
@@ -903,7 +890,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
     socket =
       socket
-      |> assign(Map.drop(assigns, [:panel_assigns]))
+      |> assign(Map.delete(assigns, :panel_assigns))
       |> assign(panel_assigns || %{})
       |> assign(:compact, compact)
       |> assign(:series_points, series_points)
@@ -934,8 +921,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp series_to_points(series) when is_list(series) do
-    series
-    |> Enum.map(fn item ->
+    Enum.map(series, fn item ->
       name = Map.get(item, :name) || Map.get(item, "name") || "series"
       data = Map.get(item, :data) || Map.get(item, "data") || []
 
@@ -1012,7 +998,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed) do
-    effective_max = if traffic_series?(series), do: max_speed, else: nil
+    effective_max = if traffic_series?(series), do: max_speed
     {stroke, _fill} = series_color(idx)
     display_name = humanize_series_name(series || "series")
     unit = unit_for_series(series, spec, rate_mode)
@@ -1044,14 +1030,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     }
   end
 
-  defp resolve_chart_groups(
-         series_data,
-         combine_all_series,
-         chart_mode,
-         max_speed,
-         compact,
-         combined_title
-       ) do
+  defp resolve_chart_groups(series_data, combine_all_series, chart_mode, max_speed, compact, combined_title) do
     {traffic_series, other_series} = Enum.split_with(series_data, &traffic_series?(&1.raw_series))
 
     cond do
@@ -1541,8 +1520,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp first_dt(series_points) when is_list(series_points) do
-    series_points
-    |> Enum.find_value(fn {_series, points} ->
+    Enum.find_value(series_points, fn {_series, points} ->
       case points do
         [{%DateTime{} = dt, _} | _] -> dt
         _ -> nil
@@ -1553,8 +1531,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp first_dt(_), do: nil
 
   defp last_dt(series_points) when is_list(series_points) do
-    series_points
-    |> Enum.find_value(fn {_series, points} ->
+    Enum.find_value(series_points, fn {_series, points} ->
       case List.last(points) do
         {%DateTime{} = dt, _} -> dt
         _ -> nil

@@ -29,11 +29,12 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Monitoring.{Alert, WebhookNotifier}
+  alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Monitoring.WebhookNotifier
 
   require Logger
 
-  @stats_alert_cooldown :timer.minutes(5)
+  @stats_alert_cooldown to_timeout(minute: 5)
 
   # State for tracking stats alerts (simple module attribute for now)
   # In production, use ETS or GenServer for proper state management
@@ -433,7 +434,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       level: severity_to_level(alert.severity),
       title: alert.title,
       message: alert.description,
-      timestamp: alert.triggered_at |> DateTime.to_iso8601(),
+      timestamp: DateTime.to_iso8601(alert.triggered_at),
       gateway_id: Keyword.get(opts, :gateway_id, "core"),
       service_name: nil,
       details: alert.metadata || %{}
@@ -542,7 +543,8 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       |> maybe_put("log_provider", Map.get(event, :log_provider))
       |> maybe_put("severity", Map.get(event, :severity))
 
-    override_map(alert_config, "metadata")
+    alert_config
+    |> override_map("metadata")
     |> case do
       %{} = override -> Map.merge(base, override)
       _ -> base

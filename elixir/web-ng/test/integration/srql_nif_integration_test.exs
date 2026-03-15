@@ -1,16 +1,8 @@
-if System.get_env("SRQL_INTEGRATION") != "1" do
-  defmodule ServiceRadarWebNG.SRQLNifIntegrationTest do
-    use ExUnit.Case, async: true
-
-    @moduletag :skip
-
-    test "set SRQL_INTEGRATION=1 to enable" do
-      assert true
-    end
-  end
-else
+if System.get_env("SRQL_INTEGRATION") == "1" do
   defmodule ServiceRadarWebNG.SRQLNifIntegrationTest do
     use ExUnit.Case, async: false
+
+    alias Ecto.Adapters.SQL.Sandbox
 
     defmodule PostgrexHelpers do
       @moduledoc false
@@ -139,9 +131,9 @@ else
 
     setup_all do
       owner =
-        Ecto.Adapters.SQL.Sandbox.start_owner!(ServiceRadarWebNG.Repo, shared: true)
+        Sandbox.start_owner!(ServiceRadarWebNG.Repo, shared: true)
 
-      on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(owner) end)
+      on_exit(fn -> Sandbox.stop_owner(owner) end)
 
       conn = start_supervised!({Postgrex, PostgrexHelpers.connection_opts()})
       PostgrexHelpers.create_gateways_table(conn)
@@ -188,6 +180,16 @@ else
       assert gateway["is_healthy"] == true
       assert gateway["agent_count"] == 7
       assert gateway["checker_count"] == 3
+    end
+  end
+else
+  defmodule ServiceRadarWebNG.SRQLNifIntegrationTest do
+    use ExUnit.Case, async: true
+
+    @moduletag :skip
+
+    test "set SRQL_INTEGRATION=1 to enable" do
+      assert true
     end
   end
 end

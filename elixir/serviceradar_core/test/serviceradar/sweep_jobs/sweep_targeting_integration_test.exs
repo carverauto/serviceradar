@@ -10,12 +10,13 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
   """
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -166,7 +167,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       {:ok, entry} = ConfigServer.get_config(:sweep, "default", nil)
 
       assert is_map(entry.config)
-      assert not Enum.empty?(entry.config["groups"])
+      refute Enum.empty?(entry.config["groups"])
 
       # Find our group
       compiled_group =
@@ -174,7 +175,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           g["name"] == "CIDR Compile Group #{unique_id}"
         end)
 
-      assert compiled_group != nil
+      assert compiled_group
       assert matching_device1.ip in compiled_group["targets"]
       assert matching_device2.ip in compiled_group["targets"]
       refute non_matching_device_ip(unique_id, 1) in compiled_group["targets"]
@@ -238,7 +239,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           g["name"] == "Tag Compile Group #{unique_id}"
         end)
 
-      assert compiled_group != nil
+      assert compiled_group
       assert prod_device.ip in compiled_group["targets"]
       # Dev device should not be in targets (different tag value)
     end
@@ -287,7 +288,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           g["name"] == "Combined Targets Group #{unique_id}"
         end)
 
-      assert compiled_group != nil
+      assert compiled_group
       # Should have both criteria-matched and static targets
       assert device.ip in compiled_group["targets"]
       assert "192.168.100.0/24" in compiled_group["targets"]
@@ -325,7 +326,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           g["name"] == "Static Only Group #{unique_id}"
         end)
 
-      assert compiled_group != nil
+      assert compiled_group
       assert "10.0.0.0/24" in compiled_group["targets"]
       assert "192.168.1.1" in compiled_group["targets"]
     end
@@ -515,7 +516,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           g["name"] == "Profile Group #{unique_id}"
         end)
 
-      assert compiled_group != nil
+      assert compiled_group
       assert compiled_group["ports"] == [22, 80, 443, 8080]
       assert compiled_group["modes"] == ["icmp", "tcp"]
       assert compiled_group["settings"]["concurrency"] == 100

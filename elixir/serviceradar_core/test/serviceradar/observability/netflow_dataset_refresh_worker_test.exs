@@ -1,10 +1,8 @@
 defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.Observability.{
-    NetflowOuiDatasetRefreshWorker,
-    NetflowProviderDatasetRefreshWorker
-  }
+  alias ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker
+  alias ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker
 
   describe "ensure_scheduled/0" do
     test "provider worker returns oban_unavailable when Oban is not running" do

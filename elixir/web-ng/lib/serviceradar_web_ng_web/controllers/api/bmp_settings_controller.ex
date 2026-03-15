@@ -9,10 +9,10 @@ defmodule ServiceRadarWebNG.Api.BmpSettingsController do
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Observability.BmpSettings
 
-  require Ash.Query
-
   alias ServiceRadar.Observability.BmpSettings
   alias ServiceRadar.Observability.BmpSettingsRuntime
+
+  require Ash.Query
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -140,8 +140,7 @@ defmodule ServiceRadarWebNG.Api.BmpSettingsController do
       bmp_ocsf_min_severity: settings.bmp_ocsf_min_severity,
       god_view_causal_overlay_window_seconds: settings.god_view_causal_overlay_window_seconds,
       god_view_causal_overlay_max_events: settings.god_view_causal_overlay_max_events,
-      god_view_routing_causal_severity_threshold:
-        settings.god_view_routing_causal_severity_threshold
+      god_view_routing_causal_severity_threshold: settings.god_view_routing_causal_severity_threshold
     }
   end
 

@@ -17,22 +17,18 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
+  import Ecto.Query, only: [from: 2]
+
   alias ServiceRadar.Actors.SystemActor
-
-  alias ServiceRadar.Observability.{
-    GeoIP,
-    IpGeoEnrichmentCache,
-    IpInfo,
-    IpIpinfoCache,
-    IpRdnsCache,
-    NetflowSettings,
-    SRQLRunner
-  }
-
+  alias ServiceRadar.Observability.GeoIP
+  alias ServiceRadar.Observability.IpGeoEnrichmentCache
+  alias ServiceRadar.Observability.IpInfo
+  alias ServiceRadar.Observability.IpIpinfoCache
+  alias ServiceRadar.Observability.IpRdnsCache
+  alias ServiceRadar.Observability.NetflowSettings
+  alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
-
-  import Ecto.Query, only: [from: 2]
 
   require Ash.Query
   require Logger
@@ -52,9 +48,10 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      case check_existing_job() do
-        true -> {:ok, :already_scheduled}
-        false -> %{} |> new() |> ObanSupport.safe_insert()
+      if check_existing_job() do
+        {:ok, :already_scheduled}
+      else
+        %{} |> new() |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
@@ -167,9 +164,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
       error_count: error_count
     }
 
-    changeset =
-      IpRdnsCache
-      |> Ash.Changeset.for_create(:upsert, attrs)
+    changeset = Ash.Changeset.for_create(IpRdnsCache, :upsert, attrs)
 
     case Ash.create(changeset, actor: actor) do
       {:ok, _} ->
@@ -210,8 +205,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     error_count = if is_nil(err), do: 0, else: existing_error_count + 1
 
     attrs =
-      attrs
-      |> Map.merge(%{
+      Map.merge(attrs, %{
         ip: ip,
         looked_up_at: now,
         expires_at: expires_at,
@@ -219,9 +213,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
         error_count: error_count
       })
 
-    changeset =
-      IpGeoEnrichmentCache
-      |> Ash.Changeset.for_create(:upsert, attrs)
+    changeset = Ash.Changeset.for_create(IpGeoEnrichmentCache, :upsert, attrs)
 
     case Ash.create(changeset, actor: actor) do
       {:ok, _} ->
@@ -239,7 +231,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   end
 
   defp existing_error_count(resource, ip, actor) do
-    query = resource |> Ash.Query.for_read(:by_ip, %{ip: ip})
+    query = Ash.Query.for_read(resource, :by_ip, %{ip: ip})
 
     case Ash.read_one(query, actor: actor) do
       {:ok, %{error_count: n}} when is_integer(n) -> n
@@ -327,8 +319,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     error_count = if is_nil(err), do: 0, else: existing_error_count + 1
 
     attrs =
-      (attrs || %{})
-      |> Map.merge(%{
+      Map.merge(attrs || %{}, %{
         ip: ip,
         looked_up_at: now,
         expires_at: expires_at,
@@ -336,9 +327,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
         error_count: error_count
       })
 
-    changeset =
-      IpIpinfoCache
-      |> Ash.Changeset.for_create(:upsert, attrs)
+    changeset = Ash.Changeset.for_create(IpIpinfoCache, :upsert, attrs)
 
     case Ash.create(changeset, actor: actor) do
       {:ok, _} ->
@@ -377,36 +366,38 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   end
 
   defp rdns_lookup(ip, timeout_ms) when is_binary(ip) and is_integer(timeout_ms) do
-    with {:ok, ip_tuple} <- parse_ip(ip) do
-      task =
-        Task.async(fn ->
-          # Uses system resolver; wrapped in a strict timeout at the process level.
-          case :inet.gethostbyaddr(ip_tuple) do
-            {:ok, {:hostent, hostname, _aliases, _addrtype, _len, _addrs}} ->
-              {:ok, hostname}
+    case parse_ip(ip) do
+      {:ok, ip_tuple} ->
+        task = Task.async(fn -> reverse_dns(ip_tuple) end)
 
-            {:error, reason} ->
-              {:error, reason}
-          end
-        end)
+        case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
+          {:ok, {:ok, hostname}} ->
+            {to_string(hostname), "ok", nil}
 
-      case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
-        {:ok, {:ok, hostname}} ->
-          {to_string(hostname), "ok", nil}
+          {:ok, {:error, reason}} ->
+            {nil, "error", inspect(reason)}
 
-        {:ok, {:error, reason}} ->
-          {nil, "error", inspect(reason)}
+          nil ->
+            {nil, "timeout", "timeout"}
+        end
 
-        nil ->
-          {nil, "timeout", "timeout"}
-      end
-    else
       {:error, reason} ->
         {nil, "error", reason}
     end
   end
 
   defp rdns_lookup(_ip, _timeout_ms), do: {nil, "error", "invalid_ip"}
+
+  defp reverse_dns(ip_tuple) do
+    # Uses system resolver; wrapped in a strict timeout at the process level.
+    case :inet.gethostbyaddr(ip_tuple) do
+      {:ok, {:hostent, hostname, _aliases, _addrtype, _len, _addrs}} ->
+        {:ok, hostname}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   defp parse_ip(ip) when is_binary(ip) do
     ip = ip |> String.trim() |> String.split("/", parts: 2) |> List.first()

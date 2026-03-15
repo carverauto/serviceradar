@@ -3,7 +3,8 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   Publishes internal OCSF log activity payloads to NATS as `logs.internal.*`.
   """
 
-  alias ServiceRadar.NATS.{Channels, Connection}
+  alias ServiceRadar.NATS.Channels
+  alias ServiceRadar.NATS.Connection
 
   require Logger
 
@@ -51,18 +52,17 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   defp normalize_timestamp(ts) when is_binary(ts) and ts != "", do: ts
 
   defp normalize_timestamp(ts) when is_integer(ts) do
-    DateTime.from_unix!(ts, :second)
+    ts
+    |> DateTime.from_unix!(:second)
     |> DateTime.to_iso8601()
   rescue
-    _ -> DateTime.utc_now() |> DateTime.to_iso8601()
+    _ -> DateTime.to_iso8601(DateTime.utc_now())
   end
 
-  defp normalize_timestamp(_), do: DateTime.utc_now() |> DateTime.to_iso8601()
+  defp normalize_timestamp(_), do: DateTime.to_iso8601(DateTime.utc_now())
 
   defp stringify_keys(map) when is_map(map) do
-    map
-    |> Enum.map(fn {key, value} -> {to_string(key), stringify_value(value)} end)
-    |> Map.new()
+    Map.new(map, fn {key, value} -> {to_string(key), stringify_value(value)} end)
   end
 
   defp stringify_keys(value), do: value

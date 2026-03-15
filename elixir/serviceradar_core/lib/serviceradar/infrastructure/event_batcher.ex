@@ -52,7 +52,7 @@ defmodule ServiceRadar.Infrastructure.EventBatcher do
   require Logger
 
   @default_batch_size 100
-  @default_flush_interval :timer.seconds(1)
+  @default_flush_interval to_timeout(second: 1)
 
   defstruct [
     :batch_size,

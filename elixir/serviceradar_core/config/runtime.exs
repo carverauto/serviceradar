@@ -3,26 +3,28 @@ import Config
 # Runtime configuration for production deployments.
 # This file is executed at runtime, not compile time.
 
+alias Geolix.Adapter.MMDB2
+alias ServiceRadar.EventWriter.Processors.CausalSignals
+alias ServiceRadar.EventWriter.Processors.Flows
+
 # GeoLite2 MMDB configuration (all environments)
 geolite_dir = System.get_env("GEOLITE_MMDB_DIR", "/var/lib/serviceradar/geoip")
 
 geolite_city_enabled =
-  System.get_env("GEOLITE_CITY_ENABLED", "false")
+  "GEOLITE_CITY_ENABLED"
+  |> System.get_env("false")
   |> String.downcase()
-  |> then(&(&1 in ["1", "true", "yes", "on"]))
-
-config :serviceradar_core,
-  geolite_mmdb_dir: geolite_dir
+  |> Kernel.in(["1", "true", "yes", "on"])
 
 base_geolite_dbs = [
   %{
     id: :geolite2_asn,
-    adapter: Geolix.Adapter.MMDB2,
+    adapter: MMDB2,
     source: Path.join(geolite_dir, "GeoLite2-ASN.mmdb")
   },
   %{
     id: :geolite2_country,
-    adapter: Geolix.Adapter.MMDB2,
+    adapter: MMDB2,
     source: Path.join(geolite_dir, "GeoLite2-Country.mmdb")
   }
 ]
@@ -32,7 +34,7 @@ city_geolite_dbs =
      [
        %{
          id: :geolite2_city,
-         adapter: Geolix.Adapter.MMDB2,
+         adapter: MMDB2,
          source: Path.join(geolite_dir, "GeoLite2-City.mmdb")
        }
      ]) || []
@@ -40,15 +42,18 @@ city_geolite_dbs =
 ipinfo_dbs = [
   %{
     id: :ipinfo_lite,
-    adapter: Geolix.Adapter.MMDB2,
+    adapter: MMDB2,
     source: Path.join(geolite_dir, "ipinfo_lite.mmdb")
   }
 ]
 
 config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
 
-if config_env() == :prod do
+config :serviceradar_core,
   # AshCloak encryption key (required for PII encryption)
+  geolite_mmdb_dir: geolite_dir
+
+if config_env() == :prod do
   cloak_key =
     case System.get_env("CLOAK_KEY") do
       nil -> nil
@@ -76,10 +81,6 @@ if config_env() == :prod do
         :crypto.strong_rand_bytes(32) |> Base.encode64()
       """
 
-  config :serviceradar_core,
-    env: :prod,
-    cloak_key: cloak_key
-
   spiffe_mode =
     case System.get_env("SPIFFE_MODE", "filesystem") do
       "workload_api" -> :workload_api
@@ -93,32 +94,19 @@ if config_env() == :prod do
 
   spiffe_bundle_path = System.get_env("SPIFFE_TRUST_BUNDLE_PATH")
 
-  config :serviceradar_core, :spiffe,
-    mode: spiffe_mode,
-    trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
-    cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-    workload_api_socket: spiffe_socket,
-    trust_bundle_path: spiffe_bundle_path
-
   platform_sync_component_id =
     System.get_env("SERVICERADAR_PLATFORM_SYNC_COMPONENT_ID") || "platform-sync"
-
-  config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
 
   age_graph_name =
     System.get_env("SERVICERADAR_AGE_GRAPH_NAME") ||
       System.get_env("AGE_GRAPH_NAME") ||
       "platform_graph"
 
-  config :serviceradar_core, :age_graph_name, age_graph_name
-
   topology_v2_contract_consumption_enabled =
-    System.get_env("SERVICERADAR_TOPOLOGY_V2_CONSUMPTION_ENABLED", "true")
+    "SERVICERADAR_TOPOLOGY_V2_CONSUMPTION_ENABLED"
+    |> System.get_env("true")
     |> String.downcase()
-    |> then(&(&1 in ["1", "true", "yes", "on"]))
-
-  config :serviceradar_core,
-    topology_v2_contract_consumption_enabled: topology_v2_contract_consumption_enabled
+    |> Kernel.in(["1", "true", "yes", "on"])
 
   parse_bool = fn env_name, default ->
     case System.get_env(env_name) do
@@ -143,20 +131,7 @@ if config_env() == :prod do
     end
   end
 
-  config :serviceradar_core,
-    mapper_topology_edge_stale_minutes:
-      parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
-
   mtr_automation_enabled = parse_bool.("MTR_AUTOMATION_ENABLED", false)
-
-  config :serviceradar_core,
-    mtr_automation_enabled: mtr_automation_enabled,
-    mtr_automation_baseline_enabled:
-      parse_bool.("MTR_AUTOMATION_BASELINE_ENABLED", mtr_automation_enabled),
-    mtr_automation_trigger_enabled:
-      parse_bool.("MTR_AUTOMATION_TRIGGER_ENABLED", mtr_automation_enabled),
-    mtr_automation_consensus_enabled:
-      parse_bool.("MTR_AUTOMATION_CONSENSUS_ENABLED", mtr_automation_enabled)
 
   database_url =
     System.get_env("DATABASE_URL") ||
@@ -166,7 +141,6 @@ if config_env() == :prod do
       """
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
-
   ssl_mode = System.get_env("CNPG_SSL_MODE", "require")
 
   ssl_opts =
@@ -186,7 +160,8 @@ if config_env() == :prod do
   search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
 
   database_timeout =
-    System.get_env("DATABASE_TIMEOUT_MS")
+    "DATABASE_TIMEOUT_MS"
+    |> System.get_env()
     |> case do
       nil -> nil
       "" -> nil
@@ -194,7 +169,8 @@ if config_env() == :prod do
     end
 
   database_pool_timeout =
-    System.get_env("DATABASE_POOL_TIMEOUT_MS")
+    "DATABASE_POOL_TIMEOUT_MS"
+    |> System.get_env()
     |> case do
       nil -> nil
       "" -> nil
@@ -211,7 +187,8 @@ if config_env() == :prod do
   ]
 
   queue_target =
-    System.get_env("DATABASE_QUEUE_TARGET_MS")
+    "DATABASE_QUEUE_TARGET_MS"
+    |> System.get_env()
     |> case do
       nil -> nil
       "" -> nil
@@ -219,7 +196,8 @@ if config_env() == :prod do
     end
 
   queue_interval =
-    System.get_env("DATABASE_QUEUE_INTERVAL_MS")
+    "DATABASE_QUEUE_INTERVAL_MS"
+    |> System.get_env()
     |> case do
       nil -> nil
       "" -> nil
@@ -243,84 +221,50 @@ if config_env() == :prod do
         else: opts
     end)
 
-  config :serviceradar_core, ServiceRadar.Repo, repo_opts
-
-  # Cluster configuration
-  config :serviceradar_core,
-    cluster_enabled: System.get_env("CLUSTER_ENABLED", "true") == "true"
-
-  # Status handler for agent-gateway push results (core-elx only)
-  config :serviceradar_core,
-    status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
-
-  config :serviceradar_core,
-    run_startup_migrations:
-      System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
-
   sweep_srql_page_limit =
-    System.get_env("SWEEP_SRQL_PAGE_LIMIT")
+    "SWEEP_SRQL_PAGE_LIMIT"
+    |> System.get_env()
     |> case do
       nil -> nil
       "" -> nil
       value -> parse_int.(value)
     end
-
-  config :serviceradar_core,
-    sweep_srql_page_limit: sweep_srql_page_limit || 500
 
   sync_ingestor_batch_concurrency =
-    System.get_env("SYNC_INGESTOR_BATCH_CONCURRENCY")
+    "SYNC_INGESTOR_BATCH_CONCURRENCY"
+    |> System.get_env()
     |> case do
       nil -> nil
       "" -> nil
       value -> parse_int.(value)
     end
-
-  config :serviceradar_core,
-    sync_ingestor_batch_concurrency: sync_ingestor_batch_concurrency || 2
-
-  config :serviceradar_core,
-    sync_ingestor_async: System.get_env("SYNC_INGESTOR_ASYNC", "true") in ~w(true 1 yes)
 
   sync_ingestor_coalesce_ms =
-    System.get_env("SYNC_INGESTOR_COALESCE_MS")
+    "SYNC_INGESTOR_COALESCE_MS"
+    |> System.get_env()
     |> case do
       nil -> nil
       "" -> nil
       value -> parse_int.(value)
     end
-
-  config :serviceradar_core,
-    sync_ingestor_coalesce_ms: sync_ingestor_coalesce_ms || 250
 
   sync_ingestor_max_inflight =
-    System.get_env("SYNC_INGESTOR_MAX_INFLIGHT")
+    "SYNC_INGESTOR_MAX_INFLIGHT"
+    |> System.get_env()
     |> case do
       nil -> nil
       "" -> nil
       value -> parse_int.(value)
     end
-
-  config :serviceradar_core,
-    sync_ingestor_max_inflight: sync_ingestor_max_inflight || 2
 
   sync_ingestor_queue_max_chunks =
-    System.get_env("SYNC_INGESTOR_QUEUE_MAX_CHUNKS")
+    "SYNC_INGESTOR_QUEUE_MAX_CHUNKS"
+    |> System.get_env()
     |> case do
       nil -> nil
       "" -> nil
       value -> parse_int.(value)
     end
-
-  config :serviceradar_core,
-    sync_ingestor_queue_max_chunks: sync_ingestor_queue_max_chunks || 10
-
-  config :serviceradar_core,
-    device_enrichment_rules_dir:
-      System.get_env(
-        "DEVICE_ENRICHMENT_RULES_DIR",
-        "/var/lib/serviceradar/rules/device-enrichment"
-      )
 
   plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
 
@@ -356,11 +300,88 @@ if config_env() == :prod do
       end
     end)
 
+  config :serviceradar_core, ServiceRadar.Repo, repo_opts
+  config :serviceradar_core, :age_graph_name, age_graph_name
+  config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
+
+  config :serviceradar_core, :spiffe,
+    mode: spiffe_mode,
+    trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
+    cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
+    workload_api_socket: spiffe_socket,
+    trust_bundle_path: spiffe_bundle_path
+
+  # Cluster configuration
+  config :serviceradar_core,
+    cluster_enabled: System.get_env("CLUSTER_ENABLED", "true") == "true"
+
+  config :serviceradar_core,
+    device_enrichment_rules_dir:
+      System.get_env(
+        "DEVICE_ENRICHMENT_RULES_DIR",
+        "/var/lib/serviceradar/rules/device-enrichment"
+      )
+
+  config :serviceradar_core,
+    env: :prod,
+    cloak_key: cloak_key
+
+  config :serviceradar_core,
+    mapper_topology_edge_stale_minutes:
+      parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
+
+  config :serviceradar_core,
+    mtr_automation_enabled: mtr_automation_enabled,
+    mtr_automation_baseline_enabled:
+      parse_bool.("MTR_AUTOMATION_BASELINE_ENABLED", mtr_automation_enabled),
+    mtr_automation_trigger_enabled:
+      parse_bool.("MTR_AUTOMATION_TRIGGER_ENABLED", mtr_automation_enabled),
+    mtr_automation_consensus_enabled:
+      parse_bool.("MTR_AUTOMATION_CONSENSUS_ENABLED", mtr_automation_enabled)
+
+  config :serviceradar_core,
+    run_startup_migrations:
+      System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
+
+  # Status handler for agent-gateway push results (core-elx only)
+  config :serviceradar_core,
+    status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
+
+  config :serviceradar_core,
+    sweep_srql_page_limit: sweep_srql_page_limit || 500
+
+  config :serviceradar_core,
+    sync_ingestor_async: System.get_env("SYNC_INGESTOR_ASYNC", "true") in ~w(true 1 yes)
+
+  config :serviceradar_core,
+    sync_ingestor_batch_concurrency: sync_ingestor_batch_concurrency || 2
+
+  config :serviceradar_core,
+    sync_ingestor_coalesce_ms: sync_ingestor_coalesce_ms || 250
+
+  config :serviceradar_core,
+    sync_ingestor_max_inflight: sync_ingestor_max_inflight || 2
+
+  config :serviceradar_core,
+    sync_ingestor_queue_max_chunks: sync_ingestor_queue_max_chunks || 10
+
+  config :serviceradar_core,
+    topology_v2_contract_consumption_enabled: topology_v2_contract_consumption_enabled
+
   if plugin_storage_overrides != [] do
     config :serviceradar_core,
            :plugin_storage,
            Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
   end
+
+  # Core NATS connection configuration
+  nats_enabled = System.get_env("NATS_ENABLED", "false") in ~w(true 1 yes)
+  nats_url = System.get_env("NATS_URL", "nats://localhost:4222")
+  nats_uri = URI.parse(nats_url)
+  nats_tls_enabled = System.get_env("NATS_TLS", "false") in ~w(true 1 yes)
+  nats_server_name = System.get_env("NATS_SERVER_NAME", "nats.serviceradar")
+  cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+  nats_creds_file = System.get_env("NATS_CREDS_FILE")
 
   # Oban configuration
   config :serviceradar_core, Oban,
@@ -385,15 +406,6 @@ if config_env() == :prod do
     ],
     peer: Oban.Peers.Database
 
-  # Core NATS connection configuration
-  nats_enabled = System.get_env("NATS_ENABLED", "false") in ~w(true 1 yes)
-  nats_url = System.get_env("NATS_URL", "nats://localhost:4222")
-  nats_uri = URI.parse(nats_url)
-  nats_tls_enabled = System.get_env("NATS_TLS", "false") in ~w(true 1 yes)
-  nats_server_name = System.get_env("NATS_SERVER_NAME", "nats.serviceradar")
-  cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
-  nats_creds_file = System.get_env("NATS_CREDS_FILE")
-
   if nats_enabled && nats_creds_file in [nil, ""] do
     raise """
     NATS_CREDS_FILE is required for NATS JWT auth.
@@ -414,6 +426,13 @@ if config_env() == :prod do
       false
     end
 
+  log_promotion_enabled =
+    System.get_env("LOG_PROMOTION_CONSUMER_ENABLED", "true") in ~w(true 1 yes)
+
+  # EventWriter configuration (NATS JetStream → CNPG consumer)
+  # Enable with EVENT_WRITER_ENABLED=true
+  event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
+
   config :serviceradar_core, ServiceRadar.NATS.Connection,
     host: nats_uri.host || "localhost",
     port: nats_uri.port || 4222,
@@ -422,14 +441,7 @@ if config_env() == :prod do
     creds_file: nats_creds_file,
     tls: nats_tls_config
 
-  log_promotion_enabled =
-    System.get_env("LOG_PROMOTION_CONSUMER_ENABLED", "true") in ~w(true 1 yes)
-
   config :serviceradar_core, :log_promotion_consumer_enabled, log_promotion_enabled
-
-  # EventWriter configuration (NATS JetStream → CNPG consumer)
-  # Enable with EVENT_WRITER_ENABLED=true
-  event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
 
   if event_writer_enabled do
     event_writer_creds = System.get_env("EVENT_WRITER_NATS_CREDS_FILE")
@@ -460,8 +472,6 @@ if config_env() == :prod do
       else
         false
       end
-
-    config :serviceradar_core, :event_writer_enabled, true
 
     config :serviceradar_core, ServiceRadar.EventWriter,
       enabled: true,
@@ -517,38 +527,40 @@ if config_env() == :prod do
         %{
           name: "BMP_CAUSAL",
           subject: "bmp.events.>",
-          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          processor: CausalSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
         %{
           name: "ARANCINI_CAUSAL",
           subject: "arancini.updates.>",
-          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          processor: CausalSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
         %{
           name: "SIEM_CAUSAL",
           subject: "siem.events.>",
-          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          processor: CausalSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
         %{
           name: "SFLOW_RAW",
           subject: "flows.raw.sflow",
-          processor: ServiceRadar.EventWriter.Processors.Flows,
+          processor: Flows,
           batch_size: 50,
           batch_timeout: 500
         },
         %{
           name: "NETFLOW_RAW",
           subject: "flows.raw.netflow",
-          processor: ServiceRadar.EventWriter.Processors.Flows,
+          processor: Flows,
           batch_size: 50,
           batch_timeout: 500
         }
       ]
+
+    config :serviceradar_core, :event_writer_enabled, true
   end
 end

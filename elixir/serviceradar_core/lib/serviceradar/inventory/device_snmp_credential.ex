@@ -11,6 +11,9 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Inventory.Changes.InvalidateSnmpConfigs
+  alias ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
+
   @snmp_credential_fields [
     :version,
     :username,
@@ -35,7 +38,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
     defaults [:read]
 
     destroy :destroy do
-      change ServiceRadar.Inventory.Changes.InvalidateSnmpConfigs
+      change InvalidateSnmpConfigs
     end
 
     create :create do
@@ -45,8 +48,8 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
       argument :auth_password, :string, allow_nil?: true, sensitive?: true
       argument :priv_password, :string, allow_nil?: true, sensitive?: true
 
-      change ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
-      change ServiceRadar.Inventory.Changes.InvalidateSnmpConfigs
+      change EncryptCredentials
+      change InvalidateSnmpConfigs
     end
 
     update :update do
@@ -56,8 +59,8 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
       argument :auth_password, :string, allow_nil?: true, sensitive?: true
       argument :priv_password, :string, allow_nil?: true, sensitive?: true
 
-      change ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
-      change ServiceRadar.Inventory.Changes.InvalidateSnmpConfigs
+      change EncryptCredentials
+      change InvalidateSnmpConfigs
     end
 
     create :upsert do
@@ -74,8 +77,8 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
       argument :priv_password, :string, allow_nil?: true, sensitive?: true
 
       change set_attribute(:device_id, arg(:device_id))
-      change ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
-      change ServiceRadar.Inventory.Changes.InvalidateSnmpConfigs
+      change EncryptCredentials
+      change InvalidateSnmpConfigs
     end
 
     read :by_device do

@@ -11,9 +11,10 @@ defmodule ServiceRadar.Inventory.DeviceTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  require Ash.Query
-
+  alias Ash.Page.Keyset
   alias ServiceRadar.Inventory.Device
+
+  require Ash.Query
 
   describe "device creation" do
     test "can create a device with required fields" do
@@ -41,8 +42,8 @@ defmodule ServiceRadar.Inventory.DeviceTest do
     test "sets first_seen_time and last_seen_time on creation" do
       device = device_fixture()
 
-      assert device.first_seen_time != nil
-      assert device.last_seen_time != nil
+      assert device.first_seen_time
+      assert device.last_seen_time
       assert DateTime.diff(DateTime.utc_now(), device.first_seen_time, :second) < 60
     end
 
@@ -82,7 +83,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       assert {:ok, updated} = result
       assert updated.name == "Updated Name"
       assert updated.is_managed == true
-      assert updated.modified_time != nil
+      assert updated.modified_time
     end
 
     test "admin can update device", %{device: device} do
@@ -122,7 +123,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       # Allow :gt or :eq (in case of very fast execution)
       assert DateTime.compare(touched.last_seen_time, original_last_seen) in [:gt, :eq]
       # But also verify it's at least been updated (modified_time would be set)
-      assert touched.last_seen_time != nil
+      assert touched.last_seen_time
     end
   end
 
@@ -215,7 +216,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
         loaded =
           case result do
-            %Ash.Page.Keyset{results: [first | _]} -> first
+            %Keyset{results: [first | _]} -> first
             [first | _] -> first
             _ -> flunk("expected device result")
           end
@@ -244,7 +245,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       loaded =
         case result do
-          %Ash.Page.Keyset{results: [first | _]} -> first
+          %Keyset{results: [first | _]} -> first
           [first | _] -> first
           _ -> flunk("expected device result")
         end
@@ -267,7 +268,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       loaded =
         case result do
-          %Ash.Page.Keyset{results: [first | _]} -> first
+          %Keyset{results: [first | _]} -> first
           [first | _] -> first
           _ -> flunk("expected device result")
         end

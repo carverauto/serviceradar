@@ -7,7 +7,9 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
   disable stale rows.
   """
 
-  alias ServiceRadar.Plugins.{MapUtils, PluginInputPayloadBuilder, ValueUtils}
+  alias ServiceRadar.Plugins.MapUtils
+  alias ServiceRadar.Plugins.PluginInputPayloadBuilder
+  alias ServiceRadar.Plugins.ValueUtils
 
   @type policy_config :: %{
           required(:policy_id) => String.t(),
@@ -25,7 +27,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
 
   def plan(policy, resolved_inputs, opts) when is_map(policy) and is_list(resolved_inputs) do
     with {:ok, normalized_policy} <- normalize_policy(policy),
-         grouped <- group_rows_by_agent(resolved_inputs),
+         grouped = group_rows_by_agent(resolved_inputs),
          {:ok, assignments} <- build_assignments(normalized_policy, grouped, opts) do
       summary = %{
         matched_rows: grouped.total_rows,
@@ -41,7 +43,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
     do: {:error, ["policy must be an object and resolved inputs must be a list"]}
 
   defp build_assignments(policy, grouped, opts) do
-    generated_at = Keyword.get(opts, :generated_at, DateTime.utc_now() |> DateTime.to_iso8601())
+    generated_at = Keyword.get(opts, :generated_at, DateTime.to_iso8601(DateTime.utc_now()))
     chunk_size = Keyword.get(opts, :chunk_size, 100)
     hard_limit_bytes = Keyword.get(opts, :hard_limit_bytes)
 
@@ -56,9 +58,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
         "template" => policy.params_template
       }
 
-      builder_opts =
-        [chunk_size: chunk_size]
-        |> maybe_put(:hard_limit_bytes, hard_limit_bytes)
+      builder_opts = maybe_put([chunk_size: chunk_size], :hard_limit_bytes, hard_limit_bytes)
 
       case PluginInputPayloadBuilder.build_payloads(base_payload, inputs_for_agent, builder_opts) do
         {:ok, payloads} ->

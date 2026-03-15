@@ -5,20 +5,19 @@ defmodule ServiceRadar.Identity.RoleProfileSeeder do
 
   use ServiceRadar.DelayedSeeder
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Repo
+
+  require Logger
 
   def seed do
     if role_profiles_table_exists?() do
       actor = SystemActor.system(:role_profile_seeder)
       opts = [actor: actor]
 
-      Catalog.system_profiles()
-      |> Enum.each(fn profile ->
+      Enum.each(Catalog.system_profiles(), fn profile ->
         ensure_profile(profile, opts)
       end)
     else

@@ -42,6 +42,9 @@ defmodule ServiceRadar.EventWriter.Config do
   - `EVENT_WRITER_BATCH_TIMEOUT` - Batch timeout in ms (default: 1000)
   """
 
+  alias ServiceRadar.EventWriter.Processors.CausalSignals
+  alias ServiceRadar.EventWriter.Processors.Flows
+
   require Logger
 
   @default_batch_size 100
@@ -173,7 +176,7 @@ defmodule ServiceRadar.EventWriter.Config do
         name: "BMP_CAUSAL",
         stream_name: "events",
         subject: "bmp.events.>",
-        processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+        processor: CausalSignals,
         batch_size: 100,
         batch_timeout: 1_000
       },
@@ -181,7 +184,7 @@ defmodule ServiceRadar.EventWriter.Config do
         name: "ARANCINI_CAUSAL",
         stream_name: "ARANCINI_CAUSAL",
         subject: "arancini.updates.>",
-        processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+        processor: CausalSignals,
         batch_size: 100,
         batch_timeout: 1_000
       },
@@ -189,21 +192,21 @@ defmodule ServiceRadar.EventWriter.Config do
         name: "SIEM_CAUSAL",
         stream_name: "events",
         subject: "siem.events.>",
-        processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+        processor: CausalSignals,
         batch_size: 100,
         batch_timeout: 1_000
       },
       %{
         name: "SFLOW_RAW",
         subject: "flows.raw.sflow",
-        processor: ServiceRadar.EventWriter.Processors.Flows,
+        processor: Flows,
         batch_size: 50,
         batch_timeout: 500
       },
       %{
         name: "NETFLOW_RAW",
         subject: "flows.raw.netflow",
-        processor: ServiceRadar.EventWriter.Processors.Flows,
+        processor: Flows,
         batch_size: 50,
         batch_timeout: 500
       }
@@ -223,8 +226,8 @@ defmodule ServiceRadar.EventWriter.Config do
         resolve_value(Keyword.get(nats_config, :creds_file))
 
     creds_file = normalize(creds_file)
-    jwt = resolve_value(Keyword.get(nats_config, :jwt)) |> normalize()
-    nkey_seed = resolve_value(Keyword.get(nats_config, :nkey_seed)) |> normalize()
+    jwt = nats_config |> Keyword.get(:jwt) |> resolve_value() |> normalize()
+    nkey_seed = nats_config |> Keyword.get(:nkey_seed) |> resolve_value() |> normalize()
     {jwt, nkey_seed} = load_creds(creds_file, jwt, nkey_seed)
 
     %{

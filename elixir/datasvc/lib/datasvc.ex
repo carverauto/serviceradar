@@ -53,7 +53,7 @@ defmodule Datasvc do
   """
   @spec address() :: String.t() | nil
   def address do
-    config() |> Keyword.get(:address)
+    Keyword.get(config(), :address)
   end
 
   @doc """
@@ -61,7 +61,7 @@ defmodule Datasvc do
   """
   @spec default_timeout() :: pos_integer()
   def default_timeout do
-    config() |> Keyword.get(:timeout, @default_timeout)
+    Keyword.get(config(), :timeout, @default_timeout)
   end
 
   @doc """
@@ -86,7 +86,7 @@ defmodule Datasvc do
       addr ->
         addr = normalize_address(addr)
         interceptors = Keyword.get(opts, :interceptors, [])
-        connect_timeout = config() |> Keyword.get(:connect_timeout, @default_connect_timeout)
+        connect_timeout = Keyword.get(config(), :connect_timeout, @default_connect_timeout)
 
         connect_opts =
           interceptors
@@ -114,7 +114,7 @@ defmodule Datasvc do
   end
 
   defp tls_config do
-    config() |> Keyword.get(:tls)
+    Keyword.get(config(), :tls)
   end
 
   @doc """

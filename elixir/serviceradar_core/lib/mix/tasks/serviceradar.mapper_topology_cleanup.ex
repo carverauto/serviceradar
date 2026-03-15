@@ -1,4 +1,6 @@
 defmodule Mix.Tasks.Serviceradar.MapperTopologyCleanup do
+  @shortdoc "Collapse duplicate mapper device identities and cleanup topology links"
+
   @moduledoc """
   One-shot cleanup for mapper identity/topology drift.
 
@@ -16,8 +18,6 @@ defmodule Mix.Tasks.Serviceradar.MapperTopologyCleanup do
   alias ServiceRadar.Repo
 
   require Logger
-
-  @shortdoc "Collapse duplicate mapper device identities and cleanup topology links"
 
   @impl true
   def run(_args) do
@@ -105,7 +105,11 @@ defmodule Mix.Tasks.Serviceradar.MapperTopologyCleanup do
     end)
   end
 
-  defp merge_duplicate_device(%{duplicate_uid: duplicate_uid, canonical: canonical, ip: ip}, actor, acc) do
+  defp merge_duplicate_device(
+         %{duplicate_uid: duplicate_uid, canonical: canonical, ip: ip},
+         actor,
+         acc
+       ) do
     case IdentityReconciler.merge_devices(
            duplicate_uid,
            canonical,
@@ -117,7 +121,10 @@ defmodule Mix.Tasks.Serviceradar.MapperTopologyCleanup do
         %{acc | merged: acc.merged + 1}
 
       {:error, reason} ->
-        Logger.warning("Failed duplicate IP merge #{duplicate_uid} -> #{canonical} for #{ip}: #{inspect(reason)}")
+        Logger.warning(
+          "Failed duplicate IP merge #{duplicate_uid} -> #{canonical} for #{ip}: #{inspect(reason)}"
+        )
+
         %{acc | failed: acc.failed + 1}
     end
   end

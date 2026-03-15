@@ -5,14 +5,14 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
 
   use ServiceRadarWebNGWeb, :controller
 
-  require Ash.Query
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.RBAC
+
+  require Ash.Query
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
@@ -415,7 +415,8 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   end
 
   defp read_full_body(conn, max_bytes) do
-    read_body(conn, length: max_bytes, read_length: 1_000_000)
+    conn
+    |> read_body(length: max_bytes, read_length: 1_000_000)
     |> case do
       {:ok, body, conn} -> {:ok, body, conn}
       {:more, body, conn} -> read_body_more(conn, max_bytes, body, byte_size(body))
@@ -427,7 +428,8 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
     if size >= max_bytes do
       {:error, :payload_too_large}
     else
-      read_body(conn, length: max_bytes - size, read_length: 1_000_000)
+      conn
+      |> read_body(length: max_bytes - size, read_length: 1_000_000)
       |> case do
         {:ok, body, conn} ->
           {:ok, acc <> body, conn}

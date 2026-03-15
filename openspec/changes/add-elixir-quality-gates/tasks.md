@@ -28,4 +28,5 @@
 - [x] 5.3 Add `ex_dna` to the managed analyzer contract with repo-owned configuration that suppresses framework DSL noise without ad hoc CI exceptions
 - [x] 5.4 Reduce or remediate representative duplicate-code findings so `ex_dna` can pass in managed projects
 - [x] 5.5 Re-run the managed analyzer contract for representative Mix projects and tune findings or suppressions in version-controlled config
-- [x] 5.6 Keep `Styler`, `Boundary`, and `rustywind` explicitly deferred with recorded rationale
+- [x] 5.6 Add `Styler` to the managed formatter stack across the `elixir/` workspace and absorb the baseline rewrite needed for `mix format --check-formatted` to stay green
+- [x] 5.7 Keep `Boundary` and `rustywind` explicitly deferred with recorded rationale
