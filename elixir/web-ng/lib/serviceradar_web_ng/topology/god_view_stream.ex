@@ -14,9 +14,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   - `protocol`, `evidence_class`, `confidence_tier`, `confidence_reason`: backend topology evidence metadata.
   """
 
-  # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
-  # credo:disable-for-this-file Credo.Check.Refactor.Nesting
-
   import Ecto.Query
 
   require Ash.Query
@@ -34,6 +31,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @default_snapshot_coalesce_ms 0
   @default_parity_alert_delta 0
   @default_unresolved_directional_ratio_alert 0.6
+  @god_view_evidence_classes ["direct", "inferred", "endpoint-attachment"]
   @drop_counter_key {__MODULE__, :dropped_updates}
   @layout_cache_key {__MODULE__, :layout_cache}
   @snapshot_cache_key {__MODULE__, :snapshot_cache}
@@ -190,52 +188,57 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp runtime_link_to_edge(link) when is_map(link) do
     source = normalize_id(Map.get(link, :local_device_id))
     target = normalize_id(Map.get(link, :neighbor_device_id))
+
+    if is_nil(source) or is_nil(target) or source == target do
+      nil
+    else
+      build_runtime_link_edge(link, source, target)
+    end
+  end
+
+  defp runtime_link_to_edge(_), do: nil
+
+  defp build_runtime_link_edge(link, source, target) do
     local_if_name = normalize_id(Map.get(link, :local_if_name))
     neighbor_if_name = normalize_id(Map.get(link, :neighbor_if_name))
     flow_pps = normalize_u32(Map.get(link, :flow_pps, 0))
     capacity_bps = normalize_u64(Map.get(link, :capacity_bps, 0))
 
-    if is_nil(source) or is_nil(target) or source == target do
-      nil
-    else
-      %{
-        source: source,
-        target: target,
-        kind: "topology",
-        protocol: normalize_id(Map.get(link, :protocol)) || "unknown",
-        evidence_class: evidence_class(link),
-        confidence_tier: confidence_tier(link),
-        confidence_reason: normalize_id(Map.get(link, :confidence_reason)) || "unspecified",
-        local_device_ip: normalize_id(Map.get(link, :local_device_ip)),
-        neighbor_mgmt_addr: normalize_id(Map.get(link, :neighbor_mgmt_addr)),
-        local_if_index: Map.get(link, :local_if_index),
-        local_if_name: local_if_name,
-        neighbor_if_index: Map.get(link, :neighbor_if_index),
-        neighbor_if_name: neighbor_if_name,
-        flow_pps: flow_pps,
-        flow_bps: normalize_u64(Map.get(link, :flow_bps, 0)),
-        capacity_bps: capacity_bps,
-        flow_pps_ab: normalize_u32(Map.get(link, :flow_pps_ab, 0)),
-        flow_pps_ba: normalize_u32(Map.get(link, :flow_pps_ba, 0)),
-        flow_bps_ab: normalize_u64(Map.get(link, :flow_bps_ab, 0)),
-        flow_bps_ba: normalize_u64(Map.get(link, :flow_bps_ba, 0)),
-        telemetry_eligible: Map.get(link, :telemetry_eligible, false) == true,
-        telemetry_source: normalize_id(Map.get(link, :telemetry_source)) || "none",
-        local_if_index_ab: Map.get(link, :local_if_index_ab),
-        local_if_name_ab:
-          normalize_id(Map.get(link, :local_if_name_ab)) || local_if_name || neighbor_if_name ||
-            "",
-        local_if_index_ba: Map.get(link, :local_if_index_ba),
-        local_if_name_ba:
-          normalize_id(Map.get(link, :local_if_name_ba)) || neighbor_if_name || local_if_name ||
-            "",
-        label: edge_label(link, flow_pps, capacity_bps),
-        metadata: Map.get(link, :metadata) || %{}
-      }
-    end
+    %{
+      source: source,
+      target: target,
+      kind: "topology",
+      protocol: normalize_id(Map.get(link, :protocol)) || "unknown",
+      evidence_class: evidence_class(link),
+      confidence_tier: confidence_tier(link),
+      confidence_reason: normalize_id(Map.get(link, :confidence_reason)) || "unspecified",
+      local_device_ip: normalize_id(Map.get(link, :local_device_ip)),
+      neighbor_mgmt_addr: normalize_id(Map.get(link, :neighbor_mgmt_addr)),
+      local_if_index: Map.get(link, :local_if_index),
+      local_if_name: local_if_name,
+      neighbor_if_index: Map.get(link, :neighbor_if_index),
+      neighbor_if_name: neighbor_if_name,
+      flow_pps: flow_pps,
+      flow_bps: normalize_u64(Map.get(link, :flow_bps, 0)),
+      capacity_bps: capacity_bps,
+      flow_pps_ab: normalize_u32(Map.get(link, :flow_pps_ab, 0)),
+      flow_pps_ba: normalize_u32(Map.get(link, :flow_pps_ba, 0)),
+      flow_bps_ab: normalize_u64(Map.get(link, :flow_bps_ab, 0)),
+      flow_bps_ba: normalize_u64(Map.get(link, :flow_bps_ba, 0)),
+      telemetry_eligible: Map.get(link, :telemetry_eligible, false) == true,
+      telemetry_source: normalize_id(Map.get(link, :telemetry_source)) || "none",
+      local_if_index_ab: Map.get(link, :local_if_index_ab),
+      local_if_name_ab: directional_if_name(link, :local_if_name_ab, local_if_name, neighbor_if_name),
+      local_if_index_ba: Map.get(link, :local_if_index_ba),
+      local_if_name_ba: directional_if_name(link, :local_if_name_ba, neighbor_if_name, local_if_name),
+      label: edge_label(link, flow_pps, capacity_bps),
+      metadata: Map.get(link, :metadata) || %{}
+    }
   end
 
-  defp runtime_link_to_edge(_), do: nil
+  defp directional_if_name(link, field, primary_name, fallback_name) do
+    normalize_id(Map.get(link, field)) || primary_name || fallback_name || ""
+  end
 
   defp build_nodes_and_edges(actor, raw_links) do
     canonical_edges =
@@ -353,21 +356,23 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     case :queue.out(queue) do
       {{:value, node}, rest} ->
         neighbors = Map.get(adjacency, node, MapSet.new())
-
-        {rest, visited} =
-          Enum.reduce(neighbors, {rest, visited}, fn neighbor, {q, vis} ->
-            if MapSet.member?(vis, neighbor) do
-              {q, vis}
-            else
-              {:queue.in(neighbor, q), MapSet.put(vis, neighbor)}
-            end
-          end)
+        {rest, visited} = enqueue_unvisited_neighbors(neighbors, rest, visited)
 
         bfs_component_size(rest, adjacency, visited, size + 1)
 
       {:empty, _} ->
         {size, visited}
     end
+  end
+
+  defp enqueue_unvisited_neighbors(neighbors, queue, visited) do
+    Enum.reduce(neighbors, {queue, visited}, fn neighbor, {q, vis} ->
+      if MapSet.member?(vis, neighbor) do
+        {q, vis}
+      else
+        {:queue.in(neighbor, q), MapSet.put(vis, neighbor)}
+      end
+    end)
   end
 
   defp emit_pipeline_stats(measurements) when is_map(measurements) do
@@ -546,27 +551,35 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     if indexed_edges == [] do
       nodes
     else
-      case layout_coordinates_cache(topology_revision) do
-        {:ok, coords_by_id} ->
-          apply_cached_coordinates(nodes, coords_by_id)
-
-        :miss ->
-          node_weights = Enum.map(nodes, &node_layout_weight/1)
-
-          case Native.layout_nodes_hypergraph(length(nodes), indexed_edges, node_weights) do
-            coordinates when is_list(coordinates) and length(coordinates) == length(nodes) ->
-              nodes_with_coords = apply_layout_coordinates(nodes, coordinates)
-              put_layout_coordinates_cache(topology_revision, nodes_with_coords)
-              nodes_with_coords
-
-            _ ->
-              nodes
-          end
-      end
+      apply_layout_from_cache_or_native(nodes, indexed_edges, topology_revision)
     end
   end
 
   defp apply_native_layout_with_indexed_edges(nodes, _, _), do: nodes
+
+  defp apply_layout_from_cache_or_native(nodes, indexed_edges, topology_revision) do
+    case layout_coordinates_cache(topology_revision) do
+      {:ok, coords_by_id} ->
+        apply_cached_coordinates(nodes, coords_by_id)
+
+      :miss ->
+        apply_native_layout_and_cache(nodes, indexed_edges, topology_revision)
+    end
+  end
+
+  defp apply_native_layout_and_cache(nodes, indexed_edges, topology_revision) do
+    node_weights = Enum.map(nodes, &node_layout_weight/1)
+
+    case Native.layout_nodes_hypergraph(length(nodes), indexed_edges, node_weights) do
+      coordinates when is_list(coordinates) and length(coordinates) == length(nodes) ->
+        nodes_with_coords = apply_layout_coordinates(nodes, coordinates)
+        put_layout_coordinates_cache(topology_revision, nodes_with_coords)
+        nodes_with_coords
+
+      _ ->
+        nodes
+    end
+  end
 
   defp apply_layout_coordinates(nodes, coordinates)
        when is_list(nodes) and is_list(coordinates) do
@@ -759,26 +772,24 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp node_meta_float(device, keys) when is_map(device) and is_list(keys) do
     metadata = Map.get(device, :metadata) || %{}
 
-    keys
-    |> Enum.find_value(fn key ->
-      case metadata_value(metadata, key) do
-        value when is_float(value) ->
-          value
-
-        value when is_integer(value) ->
-          value * 1.0
-
-        value when is_binary(value) ->
-          case Float.parse(value) do
-            {parsed, _} -> parsed
-            _ -> nil
-          end
-
-        _ ->
-          nil
-      end
+    Enum.find_value(keys, fn key ->
+      metadata
+      |> metadata_value(key)
+      |> parse_node_meta_float()
     end)
   end
+
+  defp parse_node_meta_float(value) when is_float(value), do: value
+  defp parse_node_meta_float(value) when is_integer(value), do: value * 1.0
+
+  defp parse_node_meta_float(value) when is_binary(value) do
+    case Float.parse(value) do
+      {parsed, _} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_node_meta_float(_value), do: nil
 
   defp metadata_value(metadata, key) when is_map(metadata) and is_binary(key) do
     Map.get(metadata, key) ||
@@ -1006,25 +1017,30 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       end)
 
     fetch_recent_routing_causal_events()
-    |> Enum.reduce(%{}, fn event, overrides ->
-      event_override = event_overlay_override(event)
-
-      event_correlation_keys(event)
-      |> Enum.reduce(overrides, fn key, key_acc ->
-        matched_indexes =
-          case Map.get(indexed_keys, key) do
-            nil -> []
-            node_indexes -> MapSet.to_list(node_indexes)
-          end
-
-        Enum.reduce(matched_indexes, key_acc, fn idx, idx_acc ->
-          Map.put_new(idx_acc, idx, event_override)
-        end)
-      end)
-    end)
+    |> Enum.reduce(%{}, &apply_routing_event_overrides(&2, indexed_keys, &1))
   end
 
   defp routing_causal_node_overrides(_), do: %{}
+
+  defp apply_routing_event_overrides(overrides, indexed_keys, event) do
+    event_override = event_overlay_override(event)
+
+    event
+    |> event_correlation_keys()
+    |> Enum.reduce(overrides, fn key, acc ->
+      put_routing_override_for_key(acc, indexed_keys, key, event_override)
+    end)
+  end
+
+  defp put_routing_override_for_key(overrides, indexed_keys, key, event_override) do
+    indexed_keys
+    |> Map.get(key)
+    |> index_key_matches()
+    |> Enum.reduce(overrides, &Map.put_new(&2, &1, event_override))
+  end
+
+  defp index_key_matches(nil), do: []
+  defp index_key_matches(node_indexes), do: MapSet.to_list(node_indexes)
 
   defp node_correlation_keys(node) when is_map(node) do
     details =
@@ -1358,36 +1374,35 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp evidence_class(link) do
     metadata = Map.get(link, :metadata) || %{}
+    explicit = metadata["evidence_class"] || metadata[:evidence_class] || Map.get(link, :evidence_class)
+    relation_type = metadata["relation_type"] || metadata[:relation_type] || Map.get(link, :relation_type)
 
-    relation_type =
-      metadata["relation_type"] || metadata[:relation_type] || Map.get(link, :relation_type)
+    normalized_evidence_class(explicit) ||
+      evidence_class_from_relation_type(relation_type) ||
+      "unknown"
+  end
 
-    explicit =
-      metadata["evidence_class"] || metadata[:evidence_class] || Map.get(link, :evidence_class)
-
-    normalized =
-      explicit
-      |> to_string()
-      |> String.trim()
-      |> String.downcase()
-
-    cond do
-      normalized in ["direct", "inferred", "endpoint-attachment"] ->
-        normalized
-
-      is_binary(relation_type) and String.upcase(String.trim(relation_type)) == "ATTACHED_TO" ->
-        "endpoint-attachment"
-
-      is_binary(relation_type) and String.upcase(String.trim(relation_type)) == "INFERRED_TO" ->
-        "inferred"
-
-      is_binary(relation_type) and String.upcase(String.trim(relation_type)) == "CONNECTS_TO" ->
-        "direct"
-
-      true ->
-        "unknown"
+  defp normalized_evidence_class(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      normalized when normalized in @god_view_evidence_classes -> normalized
+      _ -> nil
     end
   end
+
+  defp evidence_class_from_relation_type(value) when is_binary(value) do
+    case String.upcase(String.trim(value)) do
+      "ATTACHED_TO" -> "endpoint-attachment"
+      "INFERRED_TO" -> "inferred"
+      "CONNECTS_TO" -> "direct"
+      _ -> nil
+    end
+  end
+
+  defp evidence_class_from_relation_type(_value), do: nil
 
   defp page_results(%{results: results}) when is_list(results), do: results
   defp page_results(_), do: []

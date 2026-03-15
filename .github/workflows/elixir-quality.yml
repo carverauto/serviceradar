@@ -42,14 +42,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Temporary waiver: `mix dialyzer` currently crashes in this legacy fork
-          # before analysis starts because the Dialyxir task cannot resolve
-          # `Dialyxir.Output` under this project boot path.
           - name: connection
             project: elixir/connection
             phoenix: false
             credo: true
-            dialyzer: false
+            dialyzer: true
             warnings_as_errors: true
           - name: datasvc
             project: elixir/datasvc
