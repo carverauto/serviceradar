@@ -27,6 +27,11 @@ defmodule ServiceRadar.Identity.ApiToken do
 
   alias ServiceRadar.Identity.AccessCredentialChanges
 
+  @token_create_fields [:name, :description, :scope, :expires_at, :metadata, :user_id]
+  @token_update_fields [:name, :description, :expires_at, :metadata]
+  @token_usage_fields [:last_used_ip]
+  @token_self_manage_actions [:update, :record_use, :revoke, :disable, :enable]
+
   postgres do
     table "api_tokens"
     repo ServiceRadar.Repo
@@ -70,7 +75,7 @@ defmodule ServiceRadar.Identity.ApiToken do
 
     create :create do
       description "Create a new API token"
-      accept [:name, :description, :scope, :expires_at, :metadata, :user_id]
+      accept @token_create_fields
 
       argument :token, :string do
         allow_nil? false
@@ -92,14 +97,14 @@ defmodule ServiceRadar.Identity.ApiToken do
     end
 
     update :update do
-      accept [:name, :description, :expires_at, :metadata]
+      accept @token_update_fields
     end
 
     update :record_use do
       description "Record token usage"
       # Non-atomic: increments use_count based on current value
       require_atomic? false
-      accept [:last_used_ip]
+      accept @token_usage_fields
 
       change fn changeset, _context ->
         AccessCredentialChanges.record_use(changeset)
@@ -131,15 +136,15 @@ defmodule ServiceRadar.Identity.ApiToken do
   end
 
   policies do
+    import ServiceRadar.Policies
+
     # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    system_bypass()
 
     # Users can read their own tokens
     policy action_type(:read) do
       authorize_if expr(user_id == ^actor(:id))
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
 
     # Users can create tokens for themselves
@@ -147,13 +152,13 @@ defmodule ServiceRadar.Identity.ApiToken do
     # because the record doesn't exist yet. We use a custom check instead.
     policy action(:create) do
       authorize_if ServiceRadar.Identity.ApiToken.Checks.CreatingOwnToken
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
 
     # Users can update/revoke their own tokens
-    policy action([:update, :record_use, :revoke, :disable, :enable]) do
+    policy action(@token_self_manage_actions) do
       authorize_if expr(user_id == ^actor(:id))
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
   end
 
