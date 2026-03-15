@@ -32,6 +32,7 @@ defmodule ServiceRadar.Edge.NatsCredential do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Edge.PubSub
 
   postgres do
@@ -89,9 +90,8 @@ defmodule ServiceRadar.Edge.NatsCredential do
         )
         |> Ash.Changeset.change_attribute(:status, :active)
         |> Ash.Changeset.change_attribute(:issued_at, DateTime.utc_now())
-        |> Ash.Changeset.after_action(fn _changeset, credential ->
+        |> AfterAction.after_action(fn credential ->
           __MODULE__.broadcast_created(credential)
-          {:ok, credential}
         end)
       end
     end
@@ -112,9 +112,8 @@ defmodule ServiceRadar.Edge.NatsCredential do
           :revoke_reason,
           Ash.Changeset.get_argument(changeset, :reason)
         )
-        |> Ash.Changeset.after_action(fn _changeset, credential ->
+        |> AfterAction.after_action(fn credential ->
           __MODULE__.broadcast_revoked(credential)
-          {:ok, credential}
         end)
       end
     end

@@ -39,6 +39,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
     extensions: [AshStateMachine]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Changes.AfterAction
 
   postgres do
     table "edge_sites"
@@ -109,13 +110,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
 
       # Trigger NATS leaf provisioning after creation
       change fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn _changeset, site ->
-          # Create NatsLeafServer and trigger provisioning
-          case create_nats_leaf_server(site) do
-            {:ok, _leaf_server} -> {:ok, site}
-            {:error, reason} -> {:error, reason}
-          end
-        end)
+        AfterAction.after_action_result(changeset, &create_nats_leaf_server/1)
       end
     end
 

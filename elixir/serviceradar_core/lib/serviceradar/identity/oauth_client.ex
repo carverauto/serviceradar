@@ -43,6 +43,8 @@ defmodule ServiceRadar.Identity.OAuthClient do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Identity.AccessCredentialChanges
+
   postgres do
     table "oauth_clients"
     repo ServiceRadar.Repo
@@ -133,19 +135,12 @@ defmodule ServiceRadar.Identity.OAuthClient do
       end
 
       change fn changeset, _context ->
-        secret = Ash.Changeset.get_argument(changeset, :client_secret)
-
-        # Bcrypt hash the secret
-        secret_hash = Bcrypt.hash_pwd_salt(secret)
-
-        # Extract prefix for display
-        secret_prefix = String.slice(secret, 0, 8)
-
-        changeset
-        |> Ash.Changeset.change_attribute(:secret_hash, secret_hash)
-        |> Ash.Changeset.change_attribute(:secret_prefix, secret_prefix)
-        |> Ash.Changeset.change_attribute(:enabled, true)
-        |> Ash.Changeset.change_attribute(:use_count, 0)
+        AccessCredentialChanges.init_secret(changeset,
+          argument: :client_secret,
+          hash_attribute: :secret_hash,
+          prefix_attribute: :secret_prefix,
+          hash_fun: &Bcrypt.hash_pwd_salt/1
+        )
       end
     end
 
@@ -160,12 +155,7 @@ defmodule ServiceRadar.Identity.OAuthClient do
       accept [:last_used_ip]
 
       change fn changeset, _context ->
-        changeset
-        |> Ash.Changeset.change_attribute(:last_used_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(
-          :use_count,
-          (changeset.data.use_count || 0) + 1
-        )
+        AccessCredentialChanges.record_use(changeset)
       end
     end
 
@@ -175,9 +165,7 @@ defmodule ServiceRadar.Identity.OAuthClient do
       require_atomic? false
 
       change fn changeset, _context ->
-        changeset
-        |> Ash.Changeset.change_attribute(:revoked_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(:enabled, false)
+        AccessCredentialChanges.revoke(changeset)
       end
     end
 

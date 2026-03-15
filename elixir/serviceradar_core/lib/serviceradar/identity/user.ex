@@ -110,20 +110,7 @@ defmodule ServiceRadar.Identity.User do
         constraints min_length: 12
       end
 
-      # Hash password if provided
-      change fn changeset, _context ->
-        case Ash.Changeset.get_argument(changeset, :password) do
-          nil ->
-            changeset
-
-          "" ->
-            changeset
-
-          password ->
-            hashed = Bcrypt.hash_pwd_salt(password)
-            Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
-        end
-      end
+      change {ServiceRadar.Identity.Changes.HashPassword, force?: true}
     end
 
     create :register_with_password do
@@ -143,29 +130,9 @@ defmodule ServiceRadar.Identity.User do
         sensitive? true
       end
 
-      # Validate password confirmation matches
-      validate fn changeset, _context ->
-        password = Ash.Changeset.get_argument(changeset, :password)
-        confirmation = Ash.Changeset.get_argument(changeset, :password_confirmation)
+      validate ServiceRadar.Identity.Validations.PasswordConfirmationMatches
 
-        if password == confirmation do
-          :ok
-        else
-          {:error, field: :password_confirmation, message: "does not match password"}
-        end
-      end
-
-      # Hash the password
-      change fn changeset, _context ->
-        password = Ash.Changeset.get_argument(changeset, :password)
-
-        if password do
-          hashed = Bcrypt.hash_pwd_salt(password)
-          Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
-        else
-          changeset
-        end
-      end
+      change {ServiceRadar.Identity.Changes.HashPassword, force?: true}
     end
 
     # JIT provisioning for SSO users
@@ -213,26 +180,7 @@ defmodule ServiceRadar.Identity.User do
         sensitive? true
       end
 
-      # Validate current password is correct
-      validate fn changeset, _context ->
-        current_password = Ash.Changeset.get_argument(changeset, :current_password)
-        user = changeset.data
-
-        cond do
-          is_nil(user.hashed_password) or user.hashed_password == "" ->
-            # User has no password (SSO-only), allow email update without password confirmation
-            :ok
-
-          is_nil(current_password) ->
-            {:error, field: :current_password, message: "is required"}
-
-          Bcrypt.verify_pass(current_password, user.hashed_password) ->
-            :ok
-
-          true ->
-            {:error, field: :current_password, message: "is incorrect"}
-        end
-      end
+      validate {ServiceRadar.Identity.Validations.CurrentPassword, required_message: "is required"}
 
       # Mark email as confirmed since this action is called after token-based
       # verification in the Accounts context
@@ -273,62 +221,13 @@ defmodule ServiceRadar.Identity.User do
         sensitive? true
       end
 
-      # Validate password confirmation matches
-      validate fn changeset, _context ->
-        password = Ash.Changeset.get_argument(changeset, :password)
-        confirmation = Ash.Changeset.get_argument(changeset, :password_confirmation)
+      validate ServiceRadar.Identity.Validations.PasswordConfirmationMatches
 
-        if password == confirmation do
-          :ok
-        else
-          {:error, field: :password_confirmation, message: "does not match password"}
-        end
-      end
+      validate {ServiceRadar.Identity.Validations.CurrentPassword,
+                required_message: "is required to change password",
+                no_password_message: "you don't have a password set"}
 
-      # Validate current password is correct
-      change fn changeset, _context ->
-        current_password = Ash.Changeset.get_argument(changeset, :current_password)
-        user = changeset.data
-
-        cond do
-          # User has no password set - allow password creation without current_password
-          is_nil(user.hashed_password) or user.hashed_password == "" ->
-            if current_password && current_password != "" do
-              Ash.Changeset.add_error(changeset,
-                field: :current_password,
-                message: "you don't have a password set"
-              )
-            else
-              changeset
-            end
-
-          # User has password but current_password not provided - require it
-          is_nil(current_password) or current_password == "" ->
-            Ash.Changeset.add_error(changeset,
-              field: :current_password,
-              message: "is required to change password"
-            )
-
-          # Verify current password
-          Bcrypt.verify_pass(current_password, user.hashed_password) ->
-            changeset
-
-          true ->
-            Ash.Changeset.add_error(changeset, field: :current_password, message: "is incorrect")
-        end
-      end
-
-      # Hash the new password
-      change fn changeset, _context ->
-        password = Ash.Changeset.get_argument(changeset, :password)
-
-        if password do
-          hashed = Bcrypt.hash_pwd_salt(password)
-          Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
-        else
-          changeset
-        end
-      end
+      change {ServiceRadar.Identity.Changes.HashPassword, force?: true}
     end
 
     update :admin_set_password do
@@ -341,11 +240,7 @@ defmodule ServiceRadar.Identity.User do
         constraints min_length: 12
       end
 
-      change fn changeset, _context ->
-        password = Ash.Changeset.get_argument(changeset, :password)
-        hashed = Bcrypt.hash_pwd_salt(password)
-        Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
-      end
+      change {ServiceRadar.Identity.Changes.HashPassword, force?: true}
     end
 
     update :record_authentication do

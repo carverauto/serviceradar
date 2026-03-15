@@ -186,7 +186,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
           end
 
         changeset
-        |> Ash.Changeset.change_attribute(:last_check_at, DateTime.utc_now())
+        |> mark_checked()
         |> Ash.Changeset.change_attribute(:last_result, result)
         |> Ash.Changeset.change_attribute(:consecutive_failures, new_failures)
       end
@@ -213,8 +213,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
         require Logger
         Logger.info("Executing service check: #{check.name} (#{check.id})")
 
-        changeset
-        |> Ash.Changeset.change_attribute(:last_check_at, DateTime.utc_now())
+        mark_checked(changeset)
       end
     end
   end
@@ -257,6 +256,10 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
   end
 
   changes do
+  end
+
+  defp mark_checked(changeset) do
+    Ash.Changeset.change_attribute(changeset, :last_check_at, DateTime.utc_now())
   end
 
   attributes do

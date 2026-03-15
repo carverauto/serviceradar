@@ -11,4 +11,21 @@ defmodule ServiceRadar.Changes.AfterActionTest do
              :ok
            end) == {:ok, record}
   end
+
+  test "run_result preserves the original record for ok tuples" do
+    record = %{id: "record-1"}
+
+    assert AfterAction.run_result(record, fn received_record ->
+             assert received_record == record
+             {:ok, :side_effect_result}
+           end) == {:ok, record}
+  end
+
+  test "run_result returns callback errors unchanged" do
+    record = %{id: "record-1"}
+
+    assert AfterAction.run_result(record, fn _received_record ->
+             {:error, :failed}
+           end) == {:error, :failed}
+  end
 end

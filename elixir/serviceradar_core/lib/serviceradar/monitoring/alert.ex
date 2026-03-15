@@ -264,11 +264,7 @@ defmodule ServiceRadar.Monitoring.Alert do
       require_atomic? false
 
       change fn changeset, _context ->
-        current_count = changeset.data.notification_count || 0
-
-        changeset
-        |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
-        |> Ash.Changeset.change_attribute(:last_notification_at, DateTime.utc_now())
+        increment_notification_tracking(changeset)
       end
     end
 
@@ -291,15 +287,21 @@ defmodule ServiceRadar.Monitoring.Alert do
         # TODO: Implement actual notification dispatch (email, webhook, PubSub, etc.)
         # For now, just record that a notification was sent
 
-        changeset
-        |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
-        |> Ash.Changeset.change_attribute(:last_notification_at, DateTime.utc_now())
+        increment_notification_tracking(changeset, current_count)
       end
     end
 
     update :update_metadata do
       accept [:metadata, :tags]
     end
+  end
+
+  defp increment_notification_tracking(changeset, current_count \\ nil) do
+    current_count = current_count || changeset.data.notification_count || 0
+
+    changeset
+    |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
+    |> Ash.Changeset.change_attribute(:last_notification_at, DateTime.utc_now())
   end
 
   policies do

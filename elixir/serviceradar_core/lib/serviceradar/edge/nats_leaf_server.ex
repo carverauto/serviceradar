@@ -39,6 +39,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     extensions: [AshStateMachine, AshCloak]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.Workers.ProvisionLeafWorker
 
@@ -83,13 +84,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
       # Trigger provisioning after creation
       change fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          # Enqueue async provisioning
-          case ProvisionLeafWorker.enqueue(leaf_server.id) do
-            {:ok, _job} -> {:ok, leaf_server}
-            {:error, reason} -> {:error, reason}
-          end
-        end)
+        AfterAction.after_action_result(changeset, &ProvisionLeafWorker.enqueue(&1.id))
       end
     end
 
@@ -144,10 +139,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
       # Also update the parent EdgeSite status
       change fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          update_edge_site_status(leaf_server, :active)
-          {:ok, leaf_server}
-        end)
+        AfterAction.after_action_result(changeset, &update_edge_site_status(&1, :active))
       end
     end
 
@@ -161,10 +153,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
       # Also update the parent EdgeSite status
       change fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          update_edge_site_status(leaf_server, :offline)
-          {:ok, leaf_server}
-        end)
+        AfterAction.after_action_result(changeset, &update_edge_site_status(&1, :offline))
       end
     end
 
@@ -175,13 +164,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       accept []
 
       change fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          # Enqueue provisioning job
-          case ProvisionLeafWorker.enqueue(leaf_server.id) do
-            {:ok, _job} -> {:ok, leaf_server}
-            {:error, reason} -> {:error, reason}
-          end
-        end)
+        AfterAction.after_action_result(changeset, &ProvisionLeafWorker.enqueue(&1.id))
       end
     end
   end

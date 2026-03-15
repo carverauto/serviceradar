@@ -25,6 +25,8 @@ defmodule ServiceRadar.Identity.ApiToken do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Identity.AccessCredentialChanges
+
   postgres do
     table "api_tokens"
     repo ServiceRadar.Repo
@@ -77,21 +79,15 @@ defmodule ServiceRadar.Identity.ApiToken do
       end
 
       change fn changeset, _context ->
-        token = Ash.Changeset.get_argument(changeset, :token)
-        now = DateTime.utc_now()
-
-        # Hash the token
-        token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
-
-        # Extract prefix for identification
-        token_prefix = String.slice(token, 0, 8)
-
-        changeset
-        |> Ash.Changeset.change_attribute(:token_hash, token_hash)
-        |> Ash.Changeset.change_attribute(:token_prefix, token_prefix)
-        |> Ash.Changeset.change_attribute(:created_at, now)
-        |> Ash.Changeset.change_attribute(:enabled, true)
-        |> Ash.Changeset.change_attribute(:use_count, 0)
+        AccessCredentialChanges.init_secret(changeset,
+          argument: :token,
+          hash_attribute: :token_hash,
+          prefix_attribute: :token_prefix,
+          timestamp_attribute: :created_at,
+          hash_fun: fn raw_token ->
+            :crypto.hash(:sha256, raw_token) |> Base.encode16(case: :lower)
+          end
+        )
       end
     end
 
@@ -106,12 +102,7 @@ defmodule ServiceRadar.Identity.ApiToken do
       accept [:last_used_ip]
 
       change fn changeset, _context ->
-        changeset
-        |> Ash.Changeset.change_attribute(:last_used_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(
-          :use_count,
-          (changeset.data.use_count || 0) + 1
-        )
+        AccessCredentialChanges.record_use(changeset)
       end
     end
 
@@ -124,10 +115,7 @@ defmodule ServiceRadar.Identity.ApiToken do
       change fn changeset, _context ->
         revoked_by = Ash.Changeset.get_argument(changeset, :revoked_by) || "system"
 
-        changeset
-        |> Ash.Changeset.change_attribute(:revoked_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(:revoked_by, revoked_by)
-        |> Ash.Changeset.change_attribute(:enabled, false)
+        AccessCredentialChanges.revoke(changeset, revoked_by: revoked_by)
       end
     end
 

@@ -142,12 +142,7 @@ defmodule ServiceRadar.Identity.Users do
   """
   @spec update_email(User.t(), map(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def update_email(user, attrs, opts \\ []) do
-    actor = Keyword.get(opts, :actor, user)
-    authorize? = Keyword.get(opts, :authorize?, true)
-
-    user
-    |> Ash.Changeset.for_update(:update_email, attrs, actor: actor, authorize?: authorize?)
-    |> Ash.update()
+    update_user(user, :update_email, attrs, Keyword.put_new(opts, :actor, user))
   end
 
   @doc """
@@ -157,9 +152,6 @@ defmodule ServiceRadar.Identity.Users do
   """
   @spec update_password(User.t(), map(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def update_password(user, attrs, opts \\ []) do
-    actor = Keyword.get(opts, :actor, user)
-    authorize? = Keyword.get(opts, :authorize?, true)
-
     # Filter to only valid arguments for change_password action
     valid_keys = [
       :password,
@@ -172,12 +164,7 @@ defmodule ServiceRadar.Identity.Users do
 
     filtered_attrs = Map.take(attrs, valid_keys)
 
-    user
-    |> Ash.Changeset.for_update(:change_password, filtered_attrs,
-      actor: actor,
-      authorize?: authorize?
-    )
-    |> Ash.update()
+    update_user(user, :change_password, filtered_attrs, Keyword.put_new(opts, :actor, user))
   end
 
   @doc """
@@ -187,12 +174,7 @@ defmodule ServiceRadar.Identity.Users do
   """
   @spec update_role(User.t(), atom(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def update_role(user, role, opts \\ []) do
-    actor = Keyword.get(opts, :actor)
-    authorize? = Keyword.get(opts, :authorize?, true)
-
-    user
-    |> Ash.Changeset.for_update(:update_role, %{role: role}, actor: actor, authorize?: authorize?)
-    |> Ash.update()
+    update_user(user, :update_role, %{role: role}, opts)
   end
 
   @doc """
@@ -200,12 +182,7 @@ defmodule ServiceRadar.Identity.Users do
   """
   @spec deactivate(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def deactivate(user, opts \\ []) do
-    actor = Keyword.get(opts, :actor)
-    authorize? = Keyword.get(opts, :authorize?, true)
-
-    user
-    |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor, authorize?: authorize?)
-    |> Ash.update()
+    update_user(user, :deactivate, %{}, opts)
   end
 
   @doc """
@@ -213,12 +190,7 @@ defmodule ServiceRadar.Identity.Users do
   """
   @spec reactivate(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def reactivate(user, opts \\ []) do
-    actor = Keyword.get(opts, :actor)
-    authorize? = Keyword.get(opts, :authorize?, true)
-
-    user
-    |> Ash.Changeset.for_update(:reactivate, %{}, actor: actor, authorize?: authorize?)
-    |> Ash.update()
+    update_user(user, :reactivate, %{}, opts)
   end
 
   @doc """
@@ -226,15 +198,7 @@ defmodule ServiceRadar.Identity.Users do
   """
   @spec record_login(User.t(), atom(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def record_login(user, auth_method, opts \\ []) do
-    actor = Keyword.get(opts, :actor, user)
-    authorize? = Keyword.get(opts, :authorize?, true)
-
-    user
-    |> Ash.Changeset.for_update(:record_login, %{auth_method: auth_method},
-      actor: actor,
-      authorize?: authorize?
-    )
-    |> Ash.update()
+    update_user(user, :record_login, %{auth_method: auth_method}, Keyword.put_new(opts, :actor, user))
   end
 
   @doc """
@@ -242,15 +206,12 @@ defmodule ServiceRadar.Identity.Users do
   """
   @spec confirm(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def confirm(user, opts \\ []) do
-    actor = Keyword.get(opts, :actor, user)
-    authorize? = Keyword.get(opts, :authorize?, false)
-
     now = DateTime.utc_now() |> DateTime.truncate(:second)
+    opts = Keyword.put_new(opts, :actor, user)
 
-    user
-    |> Ash.Changeset.for_update(:update, %{}, actor: actor, authorize?: authorize?)
-    |> Ash.Changeset.force_change_attribute(:confirmed_at, now)
-    |> Ash.update()
+    update_user(user, :update, %{}, opts, fn changeset ->
+      Ash.Changeset.force_change_attribute(changeset, :confirmed_at, now)
+    end)
   end
 
   @doc """
@@ -295,5 +256,15 @@ defmodule ServiceRadar.Identity.Users do
   defp maybe_filter_status(query, status) do
     import Ash.Expr
     Ash.Query.filter(query, expr(status == ^status))
+  end
+
+  defp update_user(user, action, attrs, opts, mutate \\ &Function.identity/1) do
+    actor = Keyword.get(opts, :actor)
+    authorize? = Keyword.get(opts, :authorize?, true)
+
+    user
+    |> Ash.Changeset.for_update(action, attrs, actor: actor, authorize?: authorize?)
+    |> mutate.()
+    |> Ash.update()
   end
 end

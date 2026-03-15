@@ -29,38 +29,21 @@ defmodule ServiceRadar.Identity.Changes.RevokeUserAccess do
     revoked_by = actor_email(actor) || "system"
     policy_actor = SystemActor.system(:revoke_user_access)
 
-    revoke_api_tokens(user.id, policy_actor, revoked_by)
-    revoke_oauth_clients(user.id, policy_actor)
+    revoke_owned_credentials(ApiToken, user.id, policy_actor, %{revoked_by: revoked_by})
+    revoke_owned_credentials(OAuthClient, user.id, policy_actor, %{})
 
     :ok
   end
 
-  defp revoke_api_tokens(user_id, actor, revoked_by) do
-    ApiToken
+  defp revoke_owned_credentials(resource, user_id, actor, attrs) do
+    resource
     |> Ash.Query.for_read(:by_user, %{user_id: user_id}, actor: actor)
     |> Ash.read()
     |> case do
-      {:ok, tokens} ->
-        Enum.each(tokens, fn token ->
-          token
-          |> Ash.Changeset.for_update(:revoke, %{revoked_by: revoked_by}, actor: actor)
-          |> Ash.update()
-        end)
-
-      {:error, _} ->
-        :ok
-    end
-  end
-
-  defp revoke_oauth_clients(user_id, actor) do
-    OAuthClient
-    |> Ash.Query.for_read(:by_user, %{user_id: user_id}, actor: actor)
-    |> Ash.read()
-    |> case do
-      {:ok, clients} ->
-        Enum.each(clients, fn client ->
-          client
-          |> Ash.Changeset.for_update(:revoke, %{}, actor: actor)
+      {:ok, records} ->
+        Enum.each(records, fn record ->
+          record
+          |> Ash.Changeset.for_update(:revoke, attrs, actor: actor)
           |> Ash.update()
         end)
 
