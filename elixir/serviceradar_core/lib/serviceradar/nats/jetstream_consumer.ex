@@ -6,8 +6,9 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   (EventWriter, log promotion, and future consumers) use one consistent path.
   """
 
-  require Logger
   alias Jetstream.API.Util
+
+  require Logger
 
   @default_ack_wait_ns 30_000_000_000
   @default_max_ack_pending 5_000
@@ -79,7 +80,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     topic = "#{js_api(domain)}.CONSUMER.DURABLE.CREATE.#{stream_name}.#{consumer_name}"
 
     payload =
-      %{
+      Jason.encode!(%{
         stream_name: stream_name,
         config:
           compact_map(%{
@@ -94,8 +95,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
             max_deliver: Keyword.get(opts, :max_deliver, @default_max_deliver),
             replay_policy: Keyword.get(opts, :replay_policy, :instant)
           })
-      }
-      |> Jason.encode!()
+      })
 
     case Util.request(connection_ref, topic, payload) do
       {:ok, _} ->

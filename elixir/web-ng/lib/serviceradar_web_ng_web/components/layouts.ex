@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   used by your application.
   """
   use ServiceRadarWebNGWeb, :html
+
   alias ServiceRadarWebNGWeb.FeatureFlags
 
   # Embed all files in layouts/* within this module.

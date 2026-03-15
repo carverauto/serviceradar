@@ -12,12 +12,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.RoleProfile
 
-  require Ash.Query
-
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.RBAC, as: WebRBAC
   alias ServiceRadarWebNGWeb.SettingsComponents
+
+  require Ash.Query
 
   @action_order ~w(view create update delete manage manage_queries bulk_edit bulk_delete import export run)
 
@@ -116,7 +116,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   def handle_event("rename_profile", %{"profile" => params, "profile_id" => profile_id}, socket) do
     scope = socket.assigns.current_scope
     profile = find_profile(socket.assigns.profiles, profile_id)
-    name = (params["name"] || "") |> String.trim()
+    name = String.trim(params["name"] || "")
 
     cond do
       profile == nil ->
@@ -143,11 +143,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
-  def handle_event(
-        "toggle_permission",
-        %{"profile-id" => profile_id, "permission" => permission},
-        socket
-      ) do
+  def handle_event("toggle_permission", %{"profile-id" => profile_id, "permission" => permission}, socket) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
     if profile == nil or profile_locked?(profile) do
@@ -162,11 +158,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
-  def handle_event(
-        "toggle_resource",
-        %{"profile-id" => profile_id, "resource" => resource},
-        socket
-      ) do
+  def handle_event("toggle_resource", %{"profile-id" => profile_id, "resource" => resource}, socket) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
     if profile == nil or profile_locked?(profile) do
@@ -226,11 +218,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     {:noreply, socket}
   end
 
-  def handle_event(
-        "set_profile_permissions",
-        %{"profile-id" => profile_id, "mode" => mode},
-        socket
-      ) do
+  def handle_event("set_profile_permissions", %{"profile-id" => profile_id, "mode" => mode}, socket) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
     if profile == nil or profile_locked?(profile) do
@@ -346,8 +334,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   @impl true
   def event_mapping do
-    Permit.Phoenix.LiveView.default_event_mapping()
-    |> Map.merge(%{
+    Map.merge(Permit.Phoenix.LiveView.default_event_mapping(), %{
       "select_profile" => :read,
       "select_section" => :read,
       "start_rename_profile" => :update,
@@ -891,8 +878,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp resource_label(section_key, section_key, true), do: "All"
 
-  defp resource_label(resource_key, section_key, _),
-    do: resource_short_label(resource_key, section_key)
+  defp resource_label(resource_key, section_key, _), do: resource_short_label(resource_key, section_key)
 
   defp split_permission_key(key) do
     parts = String.split(key, ".")
@@ -942,8 +928,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp group_border_class(grid, resource_index) do
     if MapSet.member?(grid.group_starts, resource_index),
-      do: "border-l border-base-200",
-      else: nil
+      do: "border-l border-base-200"
   end
 
   defp resource_permission_keys(grid, resource) do
@@ -1166,12 +1151,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
     group_starts = MapSet.new([0])
 
-    %{
-      grid
-      | resource_groups: [group],
-        flat_resources: group.resources,
-        group_starts: group_starts
-    }
-    |> Map.put(:active_section, group.section)
+    Map.put(
+      %{grid | resource_groups: [group], flat_resources: group.resources, group_starts: group_starts},
+      :active_section,
+      group.section
+    )
   end
 end

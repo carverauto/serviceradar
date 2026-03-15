@@ -18,9 +18,9 @@ defmodule Datasvc.KV do
 
   """
 
-  require Logger
-
   alias Datasvc.KV.Proto
+
+  require Logger
 
   @doc """
   Lists all keys matching the given prefix.

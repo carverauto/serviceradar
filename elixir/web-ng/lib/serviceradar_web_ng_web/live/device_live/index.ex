@@ -1,18 +1,23 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.UIComponents
   import Ash.Expr
+  import ServiceRadarWebNGWeb.UIComponents
+
+  alias Ash.Error.Changes.InvalidAttribute
+  alias Ash.Error.Changes.Required
+  alias Ash.Error.Invalid
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DevicePubSub
+  alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Ash.Query
   require Logger
-  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
-  alias ServiceRadarWebNG.RBAC
-  alias ServiceRadar.Inventory.DevicePubSub
-  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
-  alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
-  alias ServiceRadar.Inventory.Device
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   @default_limit 20
   @max_limit 100
@@ -249,20 +254,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
            |> put_flash(:info, "Device '#{device.hostname || device.ip}' created successfully.")
            |> push_patch(to: ~p"/devices")}
 
-        {:error, %Ash.Error.Invalid{} = error} ->
+        {:error, %Invalid{} = error} ->
           Logger.warning("Device create failed with validation error: #{inspect(error)}")
 
-          {:noreply,
-           socket
-           |> put_flash(:error, format_device_error(error))}
+          {:noreply, put_flash(socket, :error, format_device_error(error))}
 
         {:error, %Ash.Error.Forbidden{}} ->
           {:noreply, put_flash(socket, :error, "You are not authorized to add devices")}
 
         {:error, :already_exists} ->
-          {:noreply,
-           socket
-           |> put_flash(:error, "A device with this IP address already exists.")}
+          {:noreply, put_flash(socket, :error, "A device with this IP address already exists.")}
 
         {:error, :missing_scope} ->
           Logger.error("Device create failed: missing scope for #{inspect(params)}")
@@ -279,7 +280,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   def handle_event("srql_builder_add_filter", params, socket) do
     socket =
-      SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "devices")
+      socket
+      |> SRQLPage.handle_event("srql_builder_add_filter", params, entity: "devices")
       |> assign(:selected_devices, MapSet.new())
       |> assign(:select_all_matching, false)
       |> assign(:total_matching_count, nil)
@@ -289,7 +291,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   def handle_event("srql_builder_remove_filter", params, socket) do
     socket =
-      SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "devices")
+      socket
+      |> SRQLPage.handle_event("srql_builder_remove_filter", params, entity: "devices")
       |> assign(:selected_devices, MapSet.new())
       |> assign(:select_all_matching, false)
       |> assign(:total_matching_count, nil)
@@ -445,12 +448,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     params = Map.get(socket.assigns, :last_params, %{})
     uri = Map.get(socket.assigns, :last_uri, "/devices")
 
-    socket =
-      socket
-      |> SRQLPage.load_list(params, uri, :devices,
-        default_limit: @default_limit,
-        max_limit: @max_limit
-      )
+    socket = SRQLPage.load_list(socket, params, uri, :devices, default_limit: @default_limit, max_limit: @max_limit)
 
     scope = Map.get(socket.assigns, :current_scope)
     query = Map.get(socket.assigns.srql || %{}, :query, "")
@@ -1724,8 +1722,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     top_item_link =
       if top_item && top_item.name != "Unknown" do
         "/devices?q=" <> URI.encode("in:devices #{assigns.filter_field}:\"#{top_item.name}\"")
-      else
-        nil
       end
 
     assigns =
@@ -1972,7 +1968,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     metadata = row_metadata(row)
 
     classification_source =
-      metadata_value(row, "classification_source")
+      row
+      |> metadata_value("classification_source")
       |> normalize_meta_text()
 
     has_rule = present_text?(metadata_value(row, "classification_rule_id"))
@@ -2094,8 +2091,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     device_path =
       if is_binary(assigns.device_uid) and String.trim(assigns.device_uid) != "" do
         ~p"/devices/#{assigns.device_uid}"
-      else
-        nil
       end
 
     assigns = assign(assigns, :device_path, device_path)
@@ -2214,7 +2209,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         len = length(values)
 
         coords =
-          Enum.with_index(values)
+          values
+          |> Enum.with_index()
           |> Enum.map(fn {v, idx} ->
             x = idx_to_x(idx, len)
             y = 110.0 - (v - min_v) / range * 100.0
@@ -2242,7 +2238,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
     # Build cubic bezier segments
     curve_segments =
-      Enum.zip([coords, tl(coords), tangents, tl(tangents)])
+      [coords, tl(coords), tangents, tl(tangents)]
+      |> Enum.zip()
       |> Enum.map(fn {{x0, y0}, {x1, y1}, t0, t1} ->
         dx = (x1 - x0) / 3.0
         cp1x = x0 + dx
@@ -2273,7 +2270,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp compute_tangents(coords) do
     # Compute slopes between consecutive points
     slopes =
-      Enum.zip(coords, tl(coords))
+      coords
+      |> Enum.zip(tl(coords))
       |> Enum.map(fn {{x0, y0}, {x1, y1}} ->
         dx = x1 - x0
         if dx == 0, do: 0.0, else: (y1 - y0) / dx
@@ -2326,17 +2324,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       {%{}, nil}
     else
       query =
-        [
-          "in:timeseries_metrics",
-          "metric_type:icmp",
-          "uid:(#{Enum.map_join(device_uids, ",", &escape_list_value/1)})",
-          "time:#{@sparkline_window}",
-          "bucket:#{@sparkline_bucket}",
-          "agg:avg",
-          "series:uid",
-          "limit:#{min(length(device_uids) * @sparkline_points_per_device, 4000)}"
-        ]
-        |> Enum.join(" ")
+        Enum.join(
+          [
+            "in:timeseries_metrics",
+            "metric_type:icmp",
+            "uid:(#{Enum.map_join(device_uids, ",", &escape_list_value/1)})",
+            "time:#{@sparkline_window}",
+            "bucket:#{@sparkline_bucket}",
+            "agg:avg",
+            "series:uid",
+            "limit:#{min(length(device_uids) * @sparkline_points_per_device, 4000)}"
+          ],
+          " "
+        )
 
       case srql_module.query(query, %{scope: scope}) do
         {:ok, %{"results" => rows}} when is_list(rows) ->
@@ -2376,28 +2376,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       limit = min(length(device_uids) * 3, 2000)
 
       snmp_query =
-        [
-          "in:snmp_metrics",
-          "uid:(#{list})",
-          "time:#{@presence_window}",
-          "bucket:#{@presence_bucket}",
-          "agg:count",
-          "series:uid",
-          "limit:#{limit}"
-        ]
-        |> Enum.join(" ")
+        Enum.join(
+          [
+            "in:snmp_metrics",
+            "uid:(#{list})",
+            "time:#{@presence_window}",
+            "bucket:#{@presence_bucket}",
+            "agg:count",
+            "series:uid",
+            "limit:#{limit}"
+          ],
+          " "
+        )
 
       sysmon_query =
-        [
-          "in:cpu_metrics",
-          "uid:(#{list})",
-          "time:#{@presence_window}",
-          "bucket:#{@presence_bucket}",
-          "agg:count",
-          "series:uid",
-          "limit:#{limit}"
-        ]
-        |> Enum.join(" ")
+        Enum.join(
+          [
+            "in:cpu_metrics",
+            "uid:(#{list})",
+            "time:#{@presence_window}",
+            "bucket:#{@presence_bucket}",
+            "agg:count",
+            "series:uid",
+            "limit:#{limit}"
+          ],
+          " "
+        )
 
       {snmp_presence, sysmon_presence} =
         [snmp: snmp_query, sysmon: sysmon_query]
@@ -2615,7 +2619,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp get_total_matching_count(scope, query) do
     srql_module = srql_module()
-    query = to_string(query || "") |> String.trim()
+    query = (query || "") |> to_string() |> String.trim()
 
     full_query =
       if query == "" do
@@ -2715,17 +2719,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
-  defp format_single_error(%Ash.Error.Changes.InvalidAttribute{field: field, message: msg}),
-    do: "#{field}: #{msg}"
+  defp format_single_error(%InvalidAttribute{field: field, message: msg}), do: "#{field}: #{msg}"
 
-  defp format_single_error(%Ash.Error.Changes.Required{field: field}),
-    do: "#{field} is required"
+  defp format_single_error(%Required{field: field}), do: "#{field} is required"
 
-  defp format_single_error(%{message: msg}) when is_binary(msg),
-    do: msg
+  defp format_single_error(%{message: msg}) when is_binary(msg), do: msg
 
-  defp format_single_error(err),
-    do: inspect(err)
+  defp format_single_error(err), do: inspect(err)
 
   # Filter helpers for quick filter buttons
   defp has_filter?(srql, field, value) do
@@ -2781,9 +2781,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp device_list_path(query, limit) do
-    params =
-      %{"limit" => limit}
-      |> maybe_put_param("q", query)
+    params = maybe_put_param(%{"limit" => limit}, "q", query)
 
     ~p"/devices?#{params}"
   end
@@ -2808,36 +2806,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   # CSV Import helpers
   @sobelow_skip ["Traversal.FileModule"]
   defp parse_csv_file(path) do
-    try do
-      content = File.read!(path)
-      lines = String.split(content, ~r/\r?\n/, trim: true)
+    content = File.read!(path)
+    lines = String.split(content, ~r/\r?\n/, trim: true)
 
-      case lines do
-        [] ->
-          {:error, ["CSV file is empty"]}
+    case lines do
+      [] ->
+        {:error, ["CSV file is empty"]}
 
-        [header | data_lines] ->
-          headers = parse_csv_line(header)
-          required = ["hostname", "ip"]
-          missing = required -- Enum.map(headers, &String.downcase/1)
+      [header | data_lines] ->
+        headers = parse_csv_line(header)
+        required = ["hostname", "ip"]
+        missing = required -- Enum.map(headers, &String.downcase/1)
 
-          if missing != [] do
-            {:error, ["Missing required columns: #{Enum.join(missing, ", ")}"]}
-          else
-            header_map = headers |> Enum.with_index() |> Map.new()
-            devices = Enum.map(data_lines, &parse_device_row(&1, header_map))
-            valid_devices = Enum.filter(devices, &(&1 != nil))
+        parse_csv_rows(headers, data_lines, missing)
+    end
+  rescue
+    e ->
+      {:error, ["Failed to parse CSV: #{inspect(e)}"]}
+  end
 
-            if valid_devices == [] do
-              {:error, ["No valid device rows found in CSV"]}
-            else
-              {:ok, valid_devices}
-            end
-          end
-      end
-    rescue
-      e ->
-        {:error, ["Failed to parse CSV: #{inspect(e)}"]}
+  defp parse_csv_rows(_headers, _data_lines, missing) when missing != [] do
+    {:error, ["Missing required columns: #{Enum.join(missing, ", ")}"]}
+  end
+
+  defp parse_csv_rows(headers, data_lines, []) do
+    header_map = headers |> Enum.with_index() |> Map.new()
+    devices = Enum.map(data_lines, &parse_device_row(&1, header_map))
+    valid_devices = Enum.filter(devices, &(&1 != nil))
+
+    case valid_devices do
+      [] -> {:error, ["No valid device rows found in CSV"]}
+      _ -> {:ok, valid_devices}
     end
   end
 
@@ -2862,8 +2861,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         type: get_csv_value(values, header_map, "type") || "",
         tags: parse_tags(get_csv_value(values, header_map, "tags"))
       }
-    else
-      nil
     end
   end
 
@@ -2874,7 +2871,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         Map.get(header_map, String.capitalize(column)) ||
         Map.get(header_map, String.upcase(column))
 
-    if index, do: Enum.at(values, index), else: nil
+    if index, do: Enum.at(values, index)
   end
 
   defp parse_tags(nil), do: []
@@ -2949,13 +2946,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     # Generate a UID based on IP (or use a UUID)
     uid = generate_device_uid(device_data.ip)
 
-    create_new_device(uid, device_data, scope)
+    uid
+    |> create_new_device(device_data, scope)
     |> normalize_create_result()
   end
 
   defp normalize_create_result({:ok, device}), do: {:ok, device}
 
-  defp normalize_create_result({:error, %Ash.Error.Invalid{} = error}) do
+  defp normalize_create_result({:error, %Invalid{} = error}) do
     if unique_uid_error?(error) do
       {:error, :already_exists}
     else
@@ -2994,7 +2992,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp generate_device_uid(ip) when is_binary(ip) do
     # Generate a deterministic UID based on IP
     # This allows for upsert behavior on re-import
-    :crypto.hash(:sha256, "manual:#{ip}")
+    :sha256
+    |> :crypto.hash("manual:#{ip}")
     |> Base.encode16(case: :lower)
     |> String.slice(0, 32)
   end
@@ -3041,43 +3040,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     |> Enum.reject(&(&1 == ""))
   end
 
-  defp format_device_error(%Ash.Error.Invalid{errors: errors}) do
+  defp format_device_error(%Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", &format_single_device_error/1)
   end
 
   defp format_device_error(error), do: inspect(error)
 
-  defp format_create_error(%Ash.Error.Invalid{errors: errors}) do
+  defp format_create_error(%Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", &format_single_device_error/1)
   end
 
   defp format_create_error(error), do: inspect(error)
 
-  defp format_single_device_error(%Ash.Error.Changes.InvalidAttribute{
-         field: field,
-         message: msg
-       }),
-       do: "#{field}: #{msg}"
+  defp format_single_device_error(%InvalidAttribute{field: field, message: msg}), do: "#{field}: #{msg}"
 
-  defp format_single_device_error(%Ash.Error.Changes.Required{field: field}),
-    do: "#{field} is required"
+  defp format_single_device_error(%Required{field: field}), do: "#{field} is required"
 
-  defp format_single_device_error(%Ash.Error.Query.NotFound{}),
-    do: "Device not found"
+  defp format_single_device_error(%Ash.Error.Query.NotFound{}), do: "Device not found"
 
-  defp format_single_device_error(%{message: msg}) when is_binary(msg),
-    do: msg
+  defp format_single_device_error(%{message: msg}) when is_binary(msg), do: msg
 
-  defp format_single_device_error(err),
-    do: inspect(err)
+  defp format_single_device_error(err), do: inspect(err)
 
-  defp unique_uid_error?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+  defp unique_uid_error?(%Invalid{errors: errors}) when is_list(errors) do
     Enum.any?(errors, &unique_uid_error_detail?/1)
   end
 
   defp unique_uid_error?(_), do: false
 
-  defp unique_uid_error_detail?(%Ash.Error.Changes.InvalidAttribute{} = error) do
+  defp unique_uid_error_detail?(%InvalidAttribute{} = error) do
     field = Map.get(error, :field)
     validation = Map.get(error, :validation)
     message = Map.get(error, :message)

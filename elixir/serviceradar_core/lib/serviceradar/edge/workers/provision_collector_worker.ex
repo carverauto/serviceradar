@@ -23,14 +23,14 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     max_attempts: 5,
     unique: [period: :infinity, keys: [:package_id]]
 
-  require Ash.Query
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadar.NATS.AccountClient
   alias ServiceRadar.Oban.Router
+
+  require Ash.Query
+  require Logger
 
   @doc """
   Enqueue a credential provisioning job for a collector package.

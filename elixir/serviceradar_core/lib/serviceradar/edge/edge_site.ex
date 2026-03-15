@@ -40,6 +40,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Changes.AfterAction
+  alias ServiceRadar.Edge.NatsLeafServer
 
   @site_create_fields [:name, :slug, :nats_leaf_url]
   @site_update_fields [:name, :nats_leaf_url]
@@ -195,7 +196,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
   end
 
   relationships do
-    has_one :nats_leaf_server, ServiceRadar.Edge.NatsLeafServer do
+    has_one :nats_leaf_server, NatsLeafServer do
       source_attribute :id
       destination_attribute :edge_site_id
     end
@@ -222,7 +223,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
 
     actor = SystemActor.system(:edge_site)
 
-    ServiceRadar.Edge.NatsLeafServer
+    NatsLeafServer
     |> Ash.Changeset.for_create(:create, %{
       edge_site_id: site.id,
       upstream_url: upstream_url,

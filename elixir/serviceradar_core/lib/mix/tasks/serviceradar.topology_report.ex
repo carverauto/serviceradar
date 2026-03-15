@@ -1,4 +1,6 @@
 defmodule Mix.Tasks.Serviceradar.TopologyReport do
+  @shortdoc "Print per-run topology operator report as JSON"
+
   @moduledoc """
   Emits a per-run topology operator report as JSON.
 
@@ -23,8 +25,6 @@ defmodule Mix.Tasks.Serviceradar.TopologyReport do
   alias ServiceRadar.NetworkDiscovery.TopologyLink
   alias ServiceRadar.Repo
 
-  @shortdoc "Print per-run topology operator report as JSON"
-
   @impl true
   def run(args) do
     Mix.Task.run("app.start")
@@ -35,7 +35,7 @@ defmodule Mix.Tasks.Serviceradar.TopologyReport do
       )
 
     lookback_minutes = Keyword.get(opts, :lookback_minutes, 60)
-    cutoff = DateTime.utc_now() |> DateTime.add(-lookback_minutes * 60, :second)
+    cutoff = DateTime.add(DateTime.utc_now(), -lookback_minutes * 60, :second)
 
     report =
       %{

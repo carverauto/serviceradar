@@ -203,7 +203,7 @@ defmodule ServiceRadar.EventWriter.OCSF do
         name: Keyword.get(opts, :product_name, "EventWriter"),
         version: Keyword.get(opts, :product_version, "1.0.0")
       },
-      logged_time: DateTime.utc_now() |> DateTime.to_iso8601()
+      logged_time: DateTime.to_iso8601(DateTime.utc_now())
     }
     |> maybe_put(:correlation_uid, Keyword.get(opts, :correlation_uid))
     |> maybe_put(:original_time, Keyword.get(opts, :original_time))

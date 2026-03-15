@@ -8,13 +8,15 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.SyncIngestor
 
   require Ash.Query
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Ash.Page
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, SyncIngestor}
+  @moduletag :integration
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -211,8 +213,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       refute hd(devices_a).uid == hd(devices_b).uid
 
       query =
-        DeviceIdentifier
-        |> Ash.Query.for_read(:lookup, %{
+        Ash.Query.for_read(DeviceIdentifier, :lookup, %{
           identifier_type: :agent_id,
           identifier_value: scanner_agent_id,
           partition: "default"
@@ -259,14 +260,16 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
   defp unique_mac do
     value = System.unique_integer([:positive])
 
-    for shift <- [40, 32, 24, 16, 8, 0] do
-      value
-      |> Bitwise.bsr(shift)
-      |> Bitwise.band(0xFF)
-      |> Integer.to_string(16)
-      |> String.pad_leading(2, "0")
-      |> String.upcase()
-    end
-    |> Enum.join(":")
+    for_result =
+      for shift <- [40, 32, 24, 16, 8, 0] do
+        value
+        |> Bitwise.bsr(shift)
+        |> Bitwise.band(0xFF)
+        |> Integer.to_string(16)
+        |> String.pad_leading(2, "0")
+        |> String.upcase()
+      end
+
+    Enum.join(for_result, ":")
   end
 end

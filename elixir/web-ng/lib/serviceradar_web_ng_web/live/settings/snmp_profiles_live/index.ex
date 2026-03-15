@@ -18,10 +18,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  require Ash.Query
-
-  import ServiceRadarWebNGWeb.SettingsComponents
   import ServiceRadarWebNGWeb.QueryBuilderComponents
+  import ServiceRadarWebNGWeb.SettingsComponents
 
   alias AshPhoenix.Form
   alias ServiceRadar.Inventory.Device
@@ -31,8 +29,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
-  alias ServiceRadarWebNGWeb.SRQL.Catalog
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.SRQL.Catalog
+
+  require Ash.Query
 
   @impl true
   def mount(_params, _session, socket) do
@@ -149,7 +149,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         normalized_query = normalize_target_query(target_query, profile.is_default)
 
         ash_form =
-          Form.for_update(profile, :update, domain: ServiceRadar.SNMPProfiles, scope: scope)
+          profile
+          |> Form.for_update(:update, domain: ServiceRadar.SNMPProfiles, scope: scope)
           |> maybe_set_target_query(target_query)
 
         {device_count, target_entity} =
@@ -192,7 +193,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   @impl true
   def handle_event("validate_profile", %{"form" => params}, socket) do
     target_query = Map.get(params, "target_query")
-    ash_form = socket.assigns.ash_form |> Form.validate(params)
+    ash_form = Form.validate(socket.assigns.ash_form, params)
 
     {:noreply,
      socket
@@ -216,7 +217,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     # Include selected OID template IDs
     params = Map.put(params, "oid_template_ids", socket.assigns.selected_template_ids)
 
-    ash_form = socket.assigns.ash_form |> Form.validate(params)
+    ash_form = Form.validate(socket.assigns.ash_form, params)
     scope = socket.assigns.current_scope
 
     case Form.submit(ash_form, params: params) do
@@ -402,9 +403,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     query = build_target_query(builder)
 
     # Update the form with the new target_query
-    ash_form =
-      socket.assigns.ash_form
-      |> Form.validate(%{"target_query" => query})
+    ash_form = Form.validate(socket.assigns.ash_form, %{"target_query" => query})
 
     {:noreply,
      socket
@@ -829,9 +828,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
         case create_custom_template(scope, attrs) do
           {:ok, custom_template} ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "Created custom template: #{custom_template.name}")}
+            {:noreply, put_flash(socket, :info, "Created custom template: #{custom_template.name}")}
 
           {:error, _reason} ->
             {:noreply, put_flash(socket, :error, "Failed to create custom template")}
@@ -901,10 +898,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   end
 
   def handle_event("validate_custom_template", %{"form" => params}, socket) do
-    ash_form = socket.assigns.ash_custom_template_form |> Form.validate(params)
+    ash_form = Form.validate(socket.assigns.ash_custom_template_form, params)
 
     {:noreply,
-     assign(socket, :custom_template_form, to_form(ash_form))
+     socket
+     |> assign(:custom_template_form, to_form(ash_form))
      |> assign(:ash_custom_template_form, ash_form)}
   end
 
@@ -914,7 +912,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
     # Convert OIDs to the format expected by the resource
     oids_data =
-      Enum.map(oids, fn oid ->
+      oids
+      |> Enum.map(fn oid ->
         %{
           "oid" => Map.get(oid, "oid", ""),
           "name" => Map.get(oid, "name", ""),
@@ -930,7 +929,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     # Ensure vendor is set to "custom"
     params = Map.put(params, "vendor", "custom")
 
-    ash_form = socket.assigns.ash_custom_template_form |> Form.validate(params)
+    ash_form = Form.validate(socket.assigns.ash_custom_template_form, params)
 
     case Form.submit(ash_form, params: params) do
       {:ok, template} ->
@@ -1006,11 +1005,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     end
   end
 
-  def handle_event(
-        "update_template_oid",
-        %{"index" => index_str, "field" => field} = params,
-        socket
-      ) do
+  def handle_event("update_template_oid", %{"index" => index_str, "field" => field} = params, socket) do
     index =
       case Integer.parse(index_str) do
         {n, _} -> n
@@ -1123,8 +1118,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               # Report as potentially reachable since UDP is connectionless
               %{
                 success: true,
-                message:
-                  "Host #{host}:#{port} is reachable (no SNMP response - check community string)"
+                message: "Host #{host}:#{port} is reachable (no SNMP response - check community string)"
               }
 
             {:error, :econnrefused} ->
@@ -2977,8 +2971,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     case Ash.read(SNMPProfile, scope: scope) do
       {:ok, profiles} ->
         # Sort by priority (highest first), then by name
-        profiles
-        |> Enum.sort_by(fn p -> {-p.priority, p.name} end)
+        Enum.sort_by(profiles, fn p -> {-p.priority, p.name} end)
 
       {:error, _} ->
         []
@@ -3058,8 +3051,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   defp load_all_templates(scope) do
     # Load builtin templates
     builtin =
-      BuiltinTemplates.all_templates()
-      |> Enum.map(fn t ->
+      Enum.map(BuiltinTemplates.all_templates(), fn t ->
         %{
           id: t.id,
           name: t.name,
@@ -3368,7 +3360,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     case String.split(field, ":", parts: 2) do
       [field_name, value] ->
         field_name = String.trim(field_name)
-        value = String.trim(value) |> String.replace("\\ ", " ")
+        value = value |> String.trim() |> String.replace("\\ ", " ")
 
         {op, final_value} = parse_filter_value(negated, value)
 
@@ -3463,8 +3455,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     Form.validate(form, %{"target_query" => target_query})
   end
 
-  defp normalize_filter_op(op) when op in ["contains", "not_contains", "equals", "not_equals"],
-    do: op
+  defp normalize_filter_op(op) when op in ["contains", "not_contains", "equals", "not_equals"], do: op
 
   defp normalize_filter_op(_), do: "contains"
 
@@ -3502,9 +3493,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       builder = socket.assigns.builder
       query = build_target_query(builder)
 
-      ash_form =
-        socket.assigns.ash_form
-        |> Form.validate(%{"target_query" => query})
+      ash_form = Form.validate(socket.assigns.ash_form, %{"target_query" => query})
 
       socket
       |> assign(:ash_form, ash_form)

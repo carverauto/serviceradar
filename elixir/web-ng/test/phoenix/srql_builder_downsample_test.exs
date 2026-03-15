@@ -5,7 +5,8 @@ defmodule ServiceRadarWebNGWeb.SRQLBuilderDownsampleTest do
 
   test "builds downsample tokens for timeseries metrics" do
     state =
-      Builder.default_state("timeseries_metrics", 100)
+      "timeseries_metrics"
+      |> Builder.default_state(100)
       |> Map.put("filters", [])
       |> Map.put("time", "last_24h")
       |> Map.put("bucket", "5m")

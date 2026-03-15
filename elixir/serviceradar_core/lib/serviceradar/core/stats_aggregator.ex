@@ -34,8 +34,8 @@ defmodule ServiceRadar.Core.StatsAggregator do
 
   require Logger
 
-  @default_interval :timer.seconds(10)
-  @default_active_window :timer.hours(24)
+  @default_interval to_timeout(second: 10)
+  @default_active_window to_timeout(day: 1)
   @default_tracked_capabilities ~w(icmp snmp sysmon)
   @default_partition "default"
   # Reserved for future CNPG reconciliation
@@ -261,8 +261,7 @@ defmodule ServiceRadar.Core.StatsAggregator do
 
   defp query_devices do
     # Query all devices - the database is the source of truth
-    Device
-    |> Ash.read()
+    Ash.read(Device)
   end
 
   defp select_canonical_records(devices, meta) do
@@ -392,7 +391,7 @@ defmodule ServiceRadar.Core.StatsAggregator do
         false
 
       {%DateTime{} = existing_seen, %DateTime{} = candidate_seen} ->
-        DateTime.compare(candidate_seen, existing_seen) == :gt
+        DateTime.after?(candidate_seen, existing_seen)
 
       _ ->
         availability_preference(existing, candidate)
@@ -413,9 +412,7 @@ defmodule ServiceRadar.Core.StatsAggregator do
   end
 
   defp compute_device_stats(devices, snapshot, meta, state) do
-    active_threshold =
-      DateTime.utc_now()
-      |> DateTime.add(-state.active_window, :millisecond)
+    active_threshold = DateTime.add(DateTime.utc_now(), -state.active_window, :millisecond)
 
     {snapshot, partitions} =
       Enum.reduce(devices, {snapshot, %{}}, fn device, acc ->
@@ -462,7 +459,7 @@ defmodule ServiceRadar.Core.StatsAggregator do
 
   defp device_active?(device, active_threshold) do
     not is_nil(device.last_seen_at) and
-      DateTime.compare(device.last_seen_at, active_threshold) == :gt
+      DateTime.after?(device.last_seen_at, active_threshold)
   end
 
   defp partition_from_device_id(device_id) when is_binary(device_id) do

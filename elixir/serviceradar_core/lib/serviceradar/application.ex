@@ -49,6 +49,9 @@ defmodule ServiceRadar.Application do
   This ensures edge components remain stateless and can be deployed in untrusted networks.
   """
   use Application
+
+  alias ServiceRadar.Observability.LogPromotionConsumer
+
   require Logger
 
   @impl true
@@ -203,16 +206,12 @@ defmodule ServiceRadar.Application do
   defp vault_child do
     if Application.get_env(:serviceradar_core, :vault_enabled, true) do
       ServiceRadar.Vault
-    else
-      nil
     end
   end
 
   defp repo_child do
     if repo_enabled?() do
       ServiceRadar.Repo
-    else
-      nil
     end
   end
 
@@ -224,25 +223,21 @@ defmodule ServiceRadar.Application do
       # Configure Finch with CAStore so background HTTPS fetches (GeoLite, threat intel, ipinfo)
       # work reliably in Kubernetes.
       opts =
-        case Code.ensure_loaded?(CAStore) and function_exported?(CAStore, :file_path, 0) do
-          true ->
-            Keyword.put(base, :pools, %{
-              default: [
-                conn_opts: [
-                  transport_opts: [
-                    cacertfile: CAStore.file_path()
-                  ]
+        if Code.ensure_loaded?(CAStore) and function_exported?(CAStore, :file_path, 0) do
+          Keyword.put(base, :pools, %{
+            default: [
+              conn_opts: [
+                transport_opts: [
+                  cacertfile: CAStore.file_path()
                 ]
               ]
-            })
-
-          false ->
-            base
+            ]
+          })
+        else
+          base
         end
 
       {Finch, opts}
-    else
-      nil
     end
   end
 
@@ -255,48 +250,36 @@ defmodule ServiceRadar.Application do
         nil -> nil
         oban_config when is_list(oban_config) -> {Oban, oban_config}
       end
-    else
-      nil
     end
   end
 
   defp sweep_schedule_reconciler_child do
     if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.SweepJobs.SweepScheduleReconciler
-    else
-      nil
     end
   end
 
   defp netflow_security_scheduler_child do
     if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Observability.NetflowSecurityScheduler
-    else
-      nil
     end
   end
 
   defp netflow_cache_scheduler_child do
     if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Observability.NetflowCacheScheduler
-    else
-      nil
     end
   end
 
   defp startup_migrations_child do
     if Application.get_env(:serviceradar_core, :run_startup_migrations, false) do
       ServiceRadar.Cluster.StartupMigrations
-    else
-      nil
     end
   end
 
   defp plugin_target_policy_scheduler_child do
     if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Plugins.PluginTargetPolicyScheduler
-    else
-      nil
     end
   end
 
@@ -357,40 +340,30 @@ defmodule ServiceRadar.Application do
   defp status_handler_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.StatusHandler
-    else
-      nil
     end
   end
 
   defp command_status_handler_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.AgentCommands.StatusHandler
-    else
-      nil
     end
   end
 
   defp results_router_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.ResultsRouter
-    else
-      nil
     end
   end
 
   defp grpc_client_supervisor_child do
     if datasvc_enabled?() or spiffe_workload_api?() do
       {GRPC.Client.Supervisor, []}
-    else
-      nil
     end
   end
 
   defp datasvc_client_child do
     if datasvc_enabled?() do
       ServiceRadar.DataService.Client
-    else
-      nil
     end
   end
 
@@ -398,8 +371,6 @@ defmodule ServiceRadar.Application do
     if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Observability.TemplateSeeder
-    else
-      nil
     end
   end
 
@@ -407,16 +378,12 @@ defmodule ServiceRadar.Application do
     if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Observability.ZenRuleSeeder
-    else
-      nil
     end
   end
 
   defp zen_rule_sync_child do
     if repo_enabled?() do
       ServiceRadar.Observability.ZenRuleSync
-    else
-      nil
     end
   end
 
@@ -424,8 +391,6 @@ defmodule ServiceRadar.Application do
     if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Observability.RuleSeeder
-    else
-      nil
     end
   end
 
@@ -433,8 +398,6 @@ defmodule ServiceRadar.Application do
     if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Jobs.JobScheduleSeeder
-    else
-      nil
     end
   end
 
@@ -442,8 +405,6 @@ defmodule ServiceRadar.Application do
     if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Inventory.DeviceCleanupSettingsSeeder
-    else
-      nil
     end
   end
 
@@ -451,8 +412,6 @@ defmodule ServiceRadar.Application do
     if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.SNMPProfiles.SNMPProfileSeeder
-    else
-      nil
     end
   end
 
@@ -460,48 +419,36 @@ defmodule ServiceRadar.Application do
     if repo_enabled?() and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Identity.RoleProfileSeeder
-    else
-      nil
     end
   end
 
   defp ip_enrichment_scheduler_child do
     if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Observability.IpEnrichmentScheduler
-    else
-      nil
     end
   end
 
   defp geolite_mmdb_scheduler_child do
     if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Observability.GeoLiteMmdbScheduler
-    else
-      nil
     end
   end
 
   defp ipinfo_mmdb_scheduler_child do
     if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Observability.IpinfoMmdbScheduler
-    else
-      nil
     end
   end
 
   defp netflow_enrichment_dataset_scheduler_child do
     if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Observability.NetflowEnrichmentDatasetScheduler
-    else
-      nil
     end
   end
 
   defp topology_state_scheduler_child do
     if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.NetworkDiscovery.TopologyStateScheduler
-    else
-      nil
     end
   end
 
@@ -510,8 +457,6 @@ defmodule ServiceRadar.Application do
          repo_enabled?() and
          job_scheduler_node?() do
       ServiceRadar.Observability.MtrBaselineScheduler
-    else
-      nil
     end
   end
 
@@ -520,8 +465,6 @@ defmodule ServiceRadar.Application do
          repo_enabled?() and
          job_scheduler_node?() do
       ServiceRadar.Observability.MtrStateTriggerWorker
-    else
-      nil
     end
   end
 
@@ -530,8 +473,6 @@ defmodule ServiceRadar.Application do
          repo_enabled?() and
          job_scheduler_node?() do
       ServiceRadar.Observability.MtrConsensusWorker
-    else
-      nil
     end
   end
 
@@ -561,7 +502,8 @@ defmodule ServiceRadar.Application do
   end
 
   defp spiffe_workload_api? do
-    Application.get_env(:serviceradar_core, :spiffe, [])
+    :serviceradar_core
+    |> Application.get_env(:spiffe, [])
     |> Keyword.get(:mode, :filesystem)
     |> Kernel.==(:workload_api)
   end
@@ -594,8 +536,6 @@ defmodule ServiceRadar.Application do
   defp nats_connection_child do
     if nats_enabled?() do
       ServiceRadar.NATS.Supervisor
-    else
-      nil
     end
   end
 
@@ -610,8 +550,6 @@ defmodule ServiceRadar.Application do
   defp event_batcher_child do
     if event_batcher_enabled?() do
       ServiceRadar.Infrastructure.EventBatcher
-    else
-      nil
     end
   end
 
@@ -627,8 +565,6 @@ defmodule ServiceRadar.Application do
     if health_check_runner_enabled?() do
       {DynamicSupervisor,
        name: ServiceRadar.Infrastructure.HealthCheckRunnerSupervisor, strategy: :one_for_one}
-    else
-      nil
     end
   end
 
@@ -643,8 +579,6 @@ defmodule ServiceRadar.Application do
   defp health_check_registrar_child do
     if health_check_registrar_enabled?() do
       ServiceRadar.Infrastructure.HealthCheckRegistrar
-    else
-      nil
     end
   end
 
@@ -659,8 +593,6 @@ defmodule ServiceRadar.Application do
   defp service_heartbeat_child do
     if service_heartbeat_enabled?() do
       ServiceRadar.Infrastructure.ServiceHeartbeat
-    else
-      nil
     end
   end
 
@@ -681,32 +613,24 @@ defmodule ServiceRadar.Application do
 
     if enabled and ServiceRadar.SPIFFE.certs_available?() do
       ServiceRadar.SPIFFE.CertMonitor
-    else
-      nil
     end
   end
 
   defp log_promotion_consumer_child do
-    if ServiceRadar.Observability.LogPromotionConsumer.enabled?() do
-      ServiceRadar.Observability.LogPromotionConsumer
-    else
-      nil
+    if LogPromotionConsumer.enabled?() do
+      LogPromotionConsumer
     end
   end
 
   defp nats_ingest_notifier_child do
     if nats_enabled?() do
       ServiceRadar.Observability.NatsIngestNotifier
-    else
-      nil
     end
   end
 
   defp event_writer_child do
     if event_writer_enabled?() do
       Supervisor.child_spec(ServiceRadar.EventWriter.Supervisor, restart: :temporary)
-    else
-      nil
     end
   end
 

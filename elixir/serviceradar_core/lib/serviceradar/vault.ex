@@ -72,7 +72,8 @@ defmodule ServiceRadar.Vault do
     if Application.get_env(:serviceradar_core, :env, :prod) in [:dev, :test] do
       # Development/test only - generates a consistent key based on app name
       # NEVER use this in production
-      :crypto.hash(:sha256, "serviceradar_dev_key_do_not_use_in_prod")
+      :sha256
+      |> :crypto.hash("serviceradar_dev_key_do_not_use_in_prod")
       |> Base.encode64()
     else
       raise """

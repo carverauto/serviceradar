@@ -79,15 +79,8 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
     cert_dir = System.get_env("OTEL_CERT_DIR")
     cert_name = System.get_env("OTEL_CERT_NAME")
 
-    with true <-
-           is_binary(cert_dir) and cert_dir != "" and is_binary(cert_name) and cert_name != "" do
-      ca_file = Path.join(cert_dir, "root.pem")
-      cert_file = Path.join(cert_dir, "#{cert_name}.pem")
-      key_file = Path.join(cert_dir, "#{cert_name}-key.pem")
-
-      missing_files = missing_files([{ca_file, "CA"}, {cert_file, "cert"}, {key_file, "key"}])
-
-      if missing_files == [] do
+    case mtls_paths(cert_dir, cert_name) do
+      {:ok, ca_file, cert_file, key_file} ->
         IO.puts("[OtelSetup] Using mTLS certs from #{cert_dir} (#{cert_name})")
 
         [
@@ -96,19 +89,32 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
           certfile: String.to_charlist(cert_file),
           keyfile: String.to_charlist(key_file)
         ]
-      else
-        missing =
-          Enum.map_join(missing_files, ", ", fn {f, label} -> "#{label}=#{f}" end)
+
+      {:error, :missing_env} ->
+        IO.puts("[OtelSetup] No OTEL_CERT_DIR/OTEL_CERT_NAME set, using verify_none for TLS")
+        [verify: :verify_none]
+
+      {:error, {:missing_files, missing_files}} ->
+        missing = Enum.map_join(missing_files, ", ", fn {f, label} -> "#{label}=#{f}" end)
 
         IO.puts("[OtelSetup] WARNING: Missing TLS files: #{missing}. Using verify_none.")
         [verify: :verify_none]
-      end
-    else
-      _ ->
-        IO.puts("[OtelSetup] No OTEL_CERT_DIR/OTEL_CERT_NAME set, using verify_none for TLS")
-        [verify: :verify_none]
     end
   end
+
+  defp mtls_paths(cert_dir, cert_name)
+       when is_binary(cert_dir) and cert_dir != "" and is_binary(cert_name) and cert_name != "" do
+    ca_file = Path.join(cert_dir, "root.pem")
+    cert_file = Path.join(cert_dir, "#{cert_name}.pem")
+    key_file = Path.join(cert_dir, "#{cert_name}-key.pem")
+
+    case missing_files([{ca_file, "CA"}, {cert_file, "cert"}, {key_file, "key"}]) do
+      [] -> {:ok, ca_file, cert_file, key_file}
+      missing_files -> {:error, {:missing_files, missing_files}}
+    end
+  end
+
+  defp mtls_paths(_cert_dir, _cert_name), do: {:error, :missing_env}
 
   # ============================================================================
   # Private - instrumentation setup

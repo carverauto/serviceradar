@@ -1,11 +1,11 @@
 defmodule Mix.Tasks.Serviceradar.MaybeTest do
-  use Mix.Task
+  @shortdoc "Run DB-backed tests when the database is available"
 
   @moduledoc """
   Runs web-ng tests only when the database is reachable.
   """
 
-  @shortdoc "Run DB-backed tests when the database is available"
+  use Mix.Task
 
   def run(args) do
     if require_db_tests?() do

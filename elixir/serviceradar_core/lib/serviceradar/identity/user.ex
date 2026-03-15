@@ -28,8 +28,16 @@ defmodule ServiceRadar.Identity.User do
     notifiers: [ServiceRadar.Identity.UserNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
-  @allowed_roles ServiceRadar.Identity.Constants.allowed_roles()
-  @auth_manage_permission ServiceRadar.Identity.Constants.auth_manage_permission()
+  alias ServiceRadar.Identity.Changes.DisallowLastAdminLockout
+  alias ServiceRadar.Identity.Changes.HashPassword
+  alias ServiceRadar.Identity.Changes.InvalidateUserRbacCache
+  alias ServiceRadar.Identity.Constants
+  alias ServiceRadar.Identity.Validations.CurrentPassword
+  alias ServiceRadar.Identity.Validations.PasswordConfirmationMatches
+  alias ServiceRadar.Policies.Checks.ActorIsNil
+
+  @allowed_roles Constants.allowed_roles()
+  @auth_manage_permission Constants.auth_manage_permission()
   @auth_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                       permission: @auth_manage_permission}
   @user_admin_fields [:email, :display_name, :role, :role_profile_id]
@@ -136,7 +144,7 @@ defmodule ServiceRadar.Identity.User do
         constraints min_length: 12
       end
 
-      change {ServiceRadar.Identity.Changes.HashPassword, force?: true}
+      change {HashPassword, force?: true}
     end
 
     create :register_with_password do
@@ -156,9 +164,9 @@ defmodule ServiceRadar.Identity.User do
         sensitive? true
       end
 
-      validate ServiceRadar.Identity.Validations.PasswordConfirmationMatches
+      validate PasswordConfirmationMatches
 
-      change {ServiceRadar.Identity.Changes.HashPassword, force?: true}
+      change {HashPassword, force?: true}
     end
 
     # JIT provisioning for SSO users
@@ -206,7 +214,7 @@ defmodule ServiceRadar.Identity.User do
         sensitive? true
       end
 
-      validate {ServiceRadar.Identity.Validations.CurrentPassword, required_message: "is required"}
+      validate {CurrentPassword, required_message: "is required"}
 
       # Mark email as confirmed since this action is called after token-based
       # verification in the Accounts context
@@ -216,13 +224,13 @@ defmodule ServiceRadar.Identity.User do
     update :update_role do
       accept @role_fields
       require_atomic? false
-      change ServiceRadar.Identity.Changes.DisallowLastAdminLockout
-      change ServiceRadar.Identity.Changes.InvalidateUserRbacCache
+      change DisallowLastAdminLockout
+      change InvalidateUserRbacCache
     end
 
     update :update_role_profile do
       accept @role_profile_fields
-      change ServiceRadar.Identity.Changes.InvalidateUserRbacCache
+      change InvalidateUserRbacCache
     end
 
     update :change_password do
@@ -247,13 +255,13 @@ defmodule ServiceRadar.Identity.User do
         sensitive? true
       end
 
-      validate ServiceRadar.Identity.Validations.PasswordConfirmationMatches
+      validate PasswordConfirmationMatches
 
-      validate {ServiceRadar.Identity.Validations.CurrentPassword,
+      validate {CurrentPassword,
                 required_message: "is required to change password",
                 no_password_message: "you don't have a password set"}
 
-      change {ServiceRadar.Identity.Changes.HashPassword, force?: true}
+      change {HashPassword, force?: true}
     end
 
     update :admin_set_password do
@@ -266,7 +274,7 @@ defmodule ServiceRadar.Identity.User do
         constraints min_length: 12
       end
 
-      change {ServiceRadar.Identity.Changes.HashPassword, force?: true}
+      change {HashPassword, force?: true}
     end
 
     update :record_authentication do
@@ -289,7 +297,7 @@ defmodule ServiceRadar.Identity.User do
     update :deactivate do
       description "Deactivate a user account and revoke access"
       require_atomic? false
-      change ServiceRadar.Identity.Changes.DisallowLastAdminLockout
+      change DisallowLastAdminLockout
       change set_attribute(:status, :inactive)
     end
 
@@ -307,7 +315,7 @@ defmodule ServiceRadar.Identity.User do
 
     # Public reads used by authentication flows (no actor available yet)
     policy action(@auth_lookup_actions) do
-      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
+      authorize_if ActorIsNil
 
       authorize_if @auth_manage_check
     end
@@ -323,7 +331,7 @@ defmodule ServiceRadar.Identity.User do
 
     # Public registration (no actor available)
     policy action(:register_with_password) do
-      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
+      authorize_if ActorIsNil
     end
 
     # Admin-managed user creation

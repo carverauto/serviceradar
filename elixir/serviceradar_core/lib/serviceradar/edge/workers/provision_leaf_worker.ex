@@ -15,12 +15,13 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
     max_attempts: 3,
     priority: 1
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadar.Edge.NatsLeafServer
+  alias ServiceRadar.Oban.Router
+
   require Ash.Query
   require Logger
-
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Edge.{EdgeSite, NatsLeafServer}
-  alias ServiceRadar.Oban.Router
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"leaf_server_id" => leaf_server_id}}) do
@@ -81,7 +82,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
         edge_site_slug: edge_site.slug
       })
 
-    checksum = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
+    checksum = :sha256 |> :crypto.hash(data) |> Base.encode16(case: :lower)
     {:ok, checksum}
   end
 

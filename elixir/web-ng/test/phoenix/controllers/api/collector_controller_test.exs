@@ -1,17 +1,16 @@
 defmodule ServiceRadarWebNG.Api.CollectorControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  alias ServiceRadar.Edge.{CollectorPackage, NatsCredential}
-
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
+
+  alias ServiceRadar.Edge.CollectorPackage
+  alias ServiceRadar.Edge.NatsCredential
 
   describe "GET /api/collectors/:id/bundle" do
     test "downloads a standard collector bundle from the public route", %{conn: _conn} do
       {package, token} = create_ready_collector_package(:flowgger)
 
-      conn =
-        build_conn()
-        |> get(~p"/api/collectors/#{package.id}/bundle?token=#{token}")
+      conn = get(build_conn(), ~p"/api/collectors/#{package.id}/bundle?token=#{token}")
 
       assert response_content_type(conn, :gzip) =~ "application/gzip"
 
@@ -33,9 +32,7 @@ defmodule ServiceRadarWebNG.Api.CollectorControllerTest do
           }
         })
 
-      conn =
-        build_conn()
-        |> get(~p"/api/collectors/#{package.id}/bundle?token=#{token}")
+      conn = get(build_conn(), ~p"/api/collectors/#{package.id}/bundle?token=#{token}")
 
       assert response_content_type(conn, :gzip) =~ "application/gzip"
 
@@ -68,7 +65,7 @@ defmodule ServiceRadarWebNG.Api.CollectorControllerTest do
   defp create_ready_collector_package(collector_type, overrides \\ %{}) do
     unique = System.unique_integer([:positive])
     token = "collector-bundle-token-#{unique}"
-    token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+    token_hash = :sha256 |> :crypto.hash(token) |> Base.encode16(case: :lower)
 
     attrs =
       %{

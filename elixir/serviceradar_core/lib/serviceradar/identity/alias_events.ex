@@ -27,11 +27,11 @@ defmodule ServiceRadar.Identity.AliasEvents do
       changed? = AliasEvents.alias_change_detected?(previous, current)
   """
 
-  require Ash.Query
-  require Logger
-
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
+
+  require Ash.Query
+  require Logger
 
   defmodule AliasRecord do
     @moduledoc """
@@ -101,7 +101,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
       |> Enum.sort_by(fn {k, _} -> k end)
       |> Enum.map_join(",", fn {k, v} ->
         trimmed = String.trim(to_string(v))
-        if trimmed != "", do: "#{k}=#{trimmed}", else: k
+        if trimmed == "", do: k, else: "#{k}=#{trimmed}"
       end)
     end
 
@@ -174,30 +174,30 @@ defmodule ServiceRadar.Identity.AliasEvents do
     defp update_service_alias(key, value, svc_acc, ip_acc, record) do
       id = key |> String.replace_prefix("service_alias:", "") |> String.trim()
 
-      if id != "" do
+      if id == "" do
+        {svc_acc, ip_acc}
+      else
         timestamp =
-          if String.trim(to_string(value)) != "",
-            do: String.trim(to_string(value)),
-            else: record.last_seen_at
+          if String.trim(to_string(value)) == "",
+            do: record.last_seen_at,
+            else: String.trim(to_string(value))
 
         {Map.put(svc_acc, id, timestamp), ip_acc}
-      else
-        {svc_acc, ip_acc}
       end
     end
 
     defp update_ip_alias(key, value, svc_acc, ip_acc, record) do
       ip = key |> String.replace_prefix("ip_alias:", "") |> String.trim()
 
-      if ip != "" do
+      if ip == "" do
+        {svc_acc, ip_acc}
+      else
         timestamp =
-          if String.trim(to_string(value)) != "",
-            do: String.trim(to_string(value)),
-            else: record.last_seen_at
+          if String.trim(to_string(value)) == "",
+            do: record.last_seen_at,
+            else: String.trim(to_string(value))
 
         {svc_acc, Map.put(ip_acc, ip, timestamp)}
-      else
-        {svc_acc, ip_acc}
       end
     end
 
@@ -278,7 +278,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
   end
 
   defp build_alias_events(alias_updates, opts) do
-    device_ids = Enum.map(alias_updates, & &1.device_id) |> Enum.sort()
+    device_ids = alias_updates |> Enum.map(& &1.device_id) |> Enum.sort()
     existing_records = lookup_existing_alias_records(device_ids, opts)
 
     events =
@@ -386,20 +386,21 @@ defmodule ServiceRadar.Identity.AliasEvents do
 
   defp alias_values(record) do
     base =
-      [
-        {:ip, record.current_ip},
-        {:service_id, record.current_service_id},
-        {:collector_ip, record.collector_ip}
-      ]
-      |> Enum.reject(fn {_type, value} -> is_nil(value) or value == "" end)
+      Enum.reject(
+        [
+          {:ip, record.current_ip},
+          {:service_id, record.current_service_id},
+          {:collector_ip, record.collector_ip}
+        ],
+        fn {_type, value} -> is_nil(value) or value == "" end
+      )
 
     ip_aliases =
       record.ips
       |> Map.keys()
       |> Enum.map(&{:ip, &1})
 
-    (base ++ ip_aliases)
-    |> Enum.uniq()
+    Enum.uniq(base ++ ip_aliases)
   end
 
   defp process_alias(update, alias_type, alias_value, actor, confirm_threshold) do
@@ -427,7 +428,9 @@ defmodule ServiceRadar.Identity.AliasEvents do
          ) do
       {:ok, updated} ->
         # Generate event if state changed
-        if updated.state != existing.state do
+        if updated.state == existing.state do
+          nil
+        else
           lifecycle_event(
             existing.device_id,
             existing.partition || "",
@@ -442,8 +445,6 @@ defmodule ServiceRadar.Identity.AliasEvents do
               "sighting_count" => to_string(updated.sighting_count)
             }
           )
-        else
-          nil
         end
 
       {:error, _reason} ->
@@ -582,13 +583,13 @@ defmodule ServiceRadar.Identity.AliasEvents do
   defp pick_partition(partition, device_id) do
     partition = String.trim(to_string(partition || ""))
 
-    if partition != "" do
-      partition
-    else
+    if partition == "" do
       case String.split(device_id || "", ":", parts: 2) do
         [part, _rest] when part != "" -> String.trim(part)
         _ -> ""
       end
+    else
+      partition
     end
   end
 

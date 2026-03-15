@@ -282,9 +282,10 @@ defmodule ServiceRadar.Observability.NetflowSettings do
   end
 
   defp maybe_clear_secret(changeset, arg_name, encrypted_attr) do
-    case Ash.Changeset.get_argument(changeset, arg_name) do
-      true -> Ash.Changeset.force_change_attribute(changeset, encrypted_attr, nil)
-      _ -> changeset
+    if Ash.Changeset.get_argument(changeset, arg_name) do
+      Ash.Changeset.force_change_attribute(changeset, encrypted_attr, nil)
+    else
+      changeset
     end
   end
 end

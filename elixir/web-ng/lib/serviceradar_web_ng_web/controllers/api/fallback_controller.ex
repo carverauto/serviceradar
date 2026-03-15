@@ -18,6 +18,8 @@ defmodule ServiceRadarWebNG.Api.FallbackController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  alias Ash.Error.Forbidden
+  alias Ash.Error.Invalid
   alias ServiceRadarWebNGWeb.AuthorizationAudit
 
   require Logger
@@ -44,7 +46,7 @@ defmodule ServiceRadarWebNG.Api.FallbackController do
   end
 
   # Handle Ash authorization errors (policy failures)
-  def call(conn, {:error, %Ash.Error.Forbidden{} = error}) do
+  def call(conn, {:error, %Forbidden{} = error}) do
     AuthorizationAudit.log_failure(conn, error)
 
     conn
@@ -56,7 +58,7 @@ defmodule ServiceRadarWebNG.Api.FallbackController do
   end
 
   # Handle Ash validation errors
-  def call(conn, {:error, %Ash.Error.Invalid{} = error}) do
+  def call(conn, {:error, %Invalid{} = error}) do
     conn
     |> put_status(:unprocessable_entity)
     |> json(%{
@@ -74,8 +76,7 @@ defmodule ServiceRadarWebNG.Api.FallbackController do
   end
 
   # Handle generic Ash errors (catch-all for other Ash error types)
-  def call(conn, {:error, %{__struct__: struct} = error})
-      when struct in [Ash.Error.Forbidden, Ash.Error.Invalid, Ash.Error.Unknown] do
+  def call(conn, {:error, %{__struct__: struct} = error}) when struct in [Forbidden, Invalid, Ash.Error.Unknown] do
     Logger.warning("Unhandled Ash error: #{inspect(error)}")
 
     conn
@@ -106,9 +107,8 @@ defmodule ServiceRadarWebNG.Api.FallbackController do
     end)
   end
 
-  defp format_ash_errors(%Ash.Error.Invalid{errors: errors}) do
-    errors
-    |> Enum.map(fn error ->
+  defp format_ash_errors(%Invalid{errors: errors}) do
+    Enum.map(errors, fn error ->
       case error do
         %{field: field, message: message} when not is_nil(field) ->
           %{field: field, message: message}

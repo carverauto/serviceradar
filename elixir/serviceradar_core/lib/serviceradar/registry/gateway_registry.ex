@@ -127,8 +127,7 @@ defmodule ServiceRadar.GatewayRegistry do
   """
   @spec find_gateways_for_partition(String.t()) :: [map()]
   def find_gateways_for_partition(partition_id) do
-    find_gateways()
-    |> Enum.filter(&(&1[:partition_id] == partition_id))
+    Enum.filter(find_gateways(), &(&1[:partition_id] == partition_id))
   end
 
   @doc """
@@ -139,8 +138,7 @@ defmodule ServiceRadar.GatewayRegistry do
   """
   @spec find_gateways_for_domain(String.t()) :: [map()]
   def find_gateways_for_domain(domain) do
-    find_gateways()
-    |> Enum.filter(&(&1[:domain] == domain))
+    Enum.filter(find_gateways(), &(&1[:domain] == domain))
   end
 
   @doc """

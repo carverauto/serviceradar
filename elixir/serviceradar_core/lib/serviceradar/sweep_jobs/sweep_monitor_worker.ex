@@ -37,10 +37,11 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Events.InternalLogPublisher
-  alias ServiceRadar.SweepJobs.{ObanSupport, SweepGroup}
+  alias ServiceRadar.SweepJobs.ObanSupport
+  alias ServiceRadar.SweepJobs.SweepGroup
 
-  require Logger
   require Ash.Query
+  require Logger
 
   # Grace period added to expected sweep time before considering it missed
   @default_grace_period_seconds 300
@@ -56,12 +57,10 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      case check_existing_job() do
-        true ->
-          {:ok, :already_scheduled}
-
-        false ->
-          %{} |> new() |> ObanSupport.safe_insert()
+      if check_existing_job() do
+        {:ok, :already_scheduled}
+      else
+        %{} |> new() |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
@@ -158,7 +157,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
     expected_by =
       calculate_expected_time(group.last_run_at, interval_seconds, grace_period_seconds)
 
-    if DateTime.compare(now, expected_by) == :gt do
+    if DateTime.after?(now, expected_by) do
       emit_missed_sweep_log(group, now, expected_by)
     else
       Logger.debug("Sweep group is on schedule",

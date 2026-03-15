@@ -16,13 +16,13 @@ defmodule ServiceRadarWebNG.Api.CollectorEnrollController do
 
   use ServiceRadarWebNGWeb, :controller
 
-  require Ash.Query
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadarWebNG.Edge.EnrollmentToken
   alias ServiceRadarWebNGWeb.ClientIP
+
+  require Ash.Query
+  require Logger
 
   @doc """
   GET /api/enroll/collector/:package_id
@@ -145,7 +145,7 @@ defmodule ServiceRadarWebNG.Api.CollectorEnrollController do
         {:error, :invalid_token}
 
       not is_nil(package.download_token_expires_at) and
-          DateTime.compare(DateTime.utc_now(), package.download_token_expires_at) == :gt ->
+          DateTime.after?(DateTime.utc_now(), package.download_token_expires_at) ->
         {:error, :token_expired}
 
       not EnrollmentToken.verify_secret(token_secret, package.download_token_hash) ->

@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLAssertionValidator do
         validity_seconds = DateTime.diff(noa, nb, :second)
 
         cond do
-          DateTime.compare(now, nb) == :lt ->
+          DateTime.before?(now, nb) ->
             {:error, :assertion_not_yet_valid}
 
           DateTime.compare(now, noa) != :lt ->

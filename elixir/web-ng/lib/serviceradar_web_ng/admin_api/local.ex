@@ -113,9 +113,7 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
 
   @impl true
   def list_role_profiles(scope) do
-    query =
-      RoleProfile
-      |> Ash.Query.sort(system: :desc, name: :asc)
+    query = Ash.Query.sort(RoleProfile, system: :desc, name: :asc)
 
     Ash.read(query, scope: scope)
   end
@@ -193,11 +191,9 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
   defp role_from_attrs(%{"role" => role}), do: role
   defp role_from_attrs(_), do: nil
 
-  defp role_profile_id_from_attrs(%{role_profile_id: role_profile_id}),
-    do: normalize_profile_id(role_profile_id)
+  defp role_profile_id_from_attrs(%{role_profile_id: role_profile_id}), do: normalize_profile_id(role_profile_id)
 
-  defp role_profile_id_from_attrs(%{"role_profile_id" => role_profile_id}),
-    do: normalize_profile_id(role_profile_id)
+  defp role_profile_id_from_attrs(%{"role_profile_id" => role_profile_id}), do: normalize_profile_id(role_profile_id)
 
   defp role_profile_id_from_attrs(_), do: nil
 
@@ -222,9 +218,7 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
 
   defp maybe_update_role_profile(user, role_profile_id, scope) do
     user
-    |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: role_profile_id},
-      scope: scope
-    )
+    |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: role_profile_id}, scope: scope)
     |> Ash.update(scope: scope)
   end
 

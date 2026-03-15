@@ -8,15 +8,15 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  require Logger
-
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadarWebNG.Accounts.Scope
 
+  require Logger
+
   # Cache agents and gateways locally since trackers use node-local ETS
   # Data is synced via PubSub broadcasts from gateway nodes
-  @stale_threshold_ms :timer.minutes(2)
+  @stale_threshold_ms to_timeout(minute: 2)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "gateway:platform")
 
       # Refresh every 30 seconds
-      :timer.send_interval(:timer.seconds(30), self(), :refresh)
+      :timer.send_interval(to_timeout(second: 30), self(), :refresh)
     end
 
     cluster_info = load_cluster_info()
@@ -100,8 +100,6 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         delta_ms =
           if is_integer(last_ms) do
             max(now_ms - last_ms, 0)
-          else
-            nil
           end
 
         not is_integer(delta_ms) or delta_ms > @stale_threshold_ms
@@ -732,7 +730,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   defp gateway_id_from(gateway) do
     gateway_id = Map.get(gateway, :gateway_id) || Map.get(gateway, "gateway_id")
 
-    if is_binary(gateway_id) and gateway_id != "", do: gateway_id, else: nil
+    if is_binary(gateway_id) and gateway_id != "", do: gateway_id
   end
 
   defp normalize_gateway_entry(gateway, gateway_id) do
@@ -776,8 +774,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       end)
 
     # Convert to cache format
-    all_agents
-    |> Enum.reduce(%{}, fn agent, acc ->
+    Enum.reduce(all_agents, %{}, fn agent, acc ->
       agent_id = Map.get(agent, :agent_id) || Map.get(agent, "agent_id")
 
       Map.put(acc, agent_id, %{
@@ -803,7 +800,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
       # Clamp delta to non-negative to handle clock skew
       delta_ms =
-        if is_integer(last_heartbeat_ms), do: max(now_ms - last_heartbeat_ms, 0), else: nil
+        if is_integer(last_heartbeat_ms), do: max(now_ms - last_heartbeat_ms, 0)
 
       active = is_integer(delta_ms) and delta_ms < @stale_threshold_ms
       node_str = to_string(gateway.node)

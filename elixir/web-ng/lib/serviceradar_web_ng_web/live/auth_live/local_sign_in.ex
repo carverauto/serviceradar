@@ -16,9 +16,9 @@ defmodule ServiceRadarWebNGWeb.AuthLive.LocalSignIn do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  require Logger
-
   alias ServiceRadarWebNGWeb.Auth.RateLimiter
+
+  require Logger
 
   @impl true
   def render(assigns) do

@@ -13,10 +13,11 @@ defmodule ServiceRadarWebNG.Auth.ErrorHandler do
   - `:invalid_token_type` - Token type doesn't match expected
   """
 
-  use ServiceRadarWebNGWeb, :controller
-  require Logger
-
   @behaviour Guardian.Plug.ErrorHandler
+
+  use ServiceRadarWebNGWeb, :controller
+
+  require Logger
 
   @impl Guardian.Plug.ErrorHandler
   def auth_error(conn, {type, reason}, _opts) do
@@ -46,8 +47,8 @@ defmodule ServiceRadarWebNG.Auth.ErrorHandler do
   end
 
   defp json_request?(conn) do
-    accept = get_req_header(conn, "accept") |> List.first() || ""
-    content_type = get_req_header(conn, "content-type") |> List.first() || ""
+    accept = conn |> get_req_header("accept") |> List.first() || ""
+    content_type = conn |> get_req_header("content-type") |> List.first() || ""
 
     String.contains?(accept, "application/json") or
       String.contains?(content_type, "application/json") or

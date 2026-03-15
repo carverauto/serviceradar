@@ -637,10 +637,10 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
       end)
 
     avg_duration =
-      if durations != [] do
-        Enum.sum(durations) / length(durations)
-      else
+      if durations == [] do
         nil
+      else
+        Enum.sum(durations) / length(durations)
       end
 
     %{
@@ -669,11 +669,9 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   defp normalize_state(state) when is_atom(state), do: state
 
   defp normalize_state(state) when is_binary(state) do
-    try do
-      String.to_existing_atom(state)
-    rescue
-      _ -> :unknown
-    end
+    String.to_existing_atom(state)
+  rescue
+    _ -> :unknown
   end
 
   defp normalize_state(_), do: :unknown
@@ -765,8 +763,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
     end
   end
 
-  defp show_oban_web?(%{user: _} = scope),
-    do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
+  defp show_oban_web?(%{user: _} = scope), do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
 
   defp show_oban_web?(_), do: false
 end

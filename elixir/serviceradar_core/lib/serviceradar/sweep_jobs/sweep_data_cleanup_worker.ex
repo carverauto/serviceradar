@@ -32,10 +32,12 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
-  alias ServiceRadar.Repo
-  alias ServiceRadar.SweepJobs.{ObanSupport, SweepGroupExecution, SweepHostResult}
-
   import Ecto.Query
+
+  alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.ObanSupport
+  alias ServiceRadar.SweepJobs.SweepGroupExecution
+  alias ServiceRadar.SweepJobs.SweepHostResult
 
   require Logger
 
@@ -54,12 +56,10 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      case check_existing_job() do
-        true ->
-          {:ok, :already_scheduled}
-
-        false ->
-          %{} |> new() |> ObanSupport.safe_insert()
+      if check_existing_job() do
+        {:ok, :already_scheduled}
+      else
+        %{} |> new() |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
@@ -193,21 +193,19 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
             where: r.id in ^ids
           )
 
-        case Repo.delete_all(delete_query) do
-          {count, _} ->
-            Logger.debug("SweepDataCleanupWorker: Deleted #{count} #{table} records")
+        {count, _} = Repo.delete_all(delete_query)
+        Logger.debug("SweepDataCleanupWorker: Deleted #{count} #{table} records")
 
-            # Continue with next batch
-            do_cleanup_batch(
-              table,
-              resource,
-              timestamp_field,
-              cutoff,
-              batch_size,
-              extra_filter,
-              %{acc | deleted: acc.deleted + count}
-            )
-        end
+        # Continue with next batch
+        do_cleanup_batch(
+          table,
+          resource,
+          timestamp_field,
+          cutoff,
+          batch_size,
+          extra_filter,
+          %{acc | deleted: acc.deleted + count}
+        )
     end
   rescue
     e ->

@@ -18,15 +18,16 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
   use ServiceRadarWebNGWeb, :controller
 
-  require Logger
-
+  alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNGWeb.Auth.Hooks
-  alias ServiceRadarWebNGWeb.UserAuth
   alias ServiceRadarWebNGWeb.ClientIP
+  alias ServiceRadarWebNGWeb.UserAuth
+
+  require Logger
 
   plug :fetch_session
 
@@ -208,9 +209,9 @@ defmodule ServiceRadarWebNGWeb.AuthController do
       |> put_flash(:info, "Password reset successfully.")
       |> UserAuth.log_in_user(user)
     else
-      {:error, %Ash.Error.Invalid{} = error} ->
+      {:error, %Invalid{} = error} ->
         errors = Ash.Error.to_error_class(error)
-        error_message = errors |> inspect()
+        error_message = inspect(errors)
 
         conn
         |> put_flash(:error, "Failed to reset password: #{error_message}")
@@ -240,9 +241,9 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         |> put_flash(:info, "Account created successfully.")
         |> UserAuth.log_in_user(user)
 
-      {:error, %Ash.Error.Invalid{} = error} ->
+      {:error, %Invalid{} = error} ->
         errors = Ash.Error.to_error_class(error)
-        error_message = errors |> inspect()
+        error_message = inspect(errors)
 
         conn
         |> put_flash(:error, "Failed to create account: #{error_message}")

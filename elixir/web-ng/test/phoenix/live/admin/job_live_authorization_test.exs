@@ -2,7 +2,6 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLiveAuthorizationTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
   import Phoenix.LiveViewTest
-
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, operator_user_fixture: 0]
 
   describe "/admin/jobs authorization" do

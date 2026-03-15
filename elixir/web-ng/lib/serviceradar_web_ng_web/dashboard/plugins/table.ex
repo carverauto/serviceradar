@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   @moduledoc false
 
-  use Phoenix.LiveComponent
-
   @behaviour ServiceRadarWebNGWeb.Dashboard.Plugin
+
+  use Phoenix.LiveComponent
 
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
   import ServiceRadarWebNGWeb.UIComponents, only: [ui_panel: 1]
@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   def update(%{panel_assigns: panel_assigns} = assigns, socket) do
     socket =
       socket
-      |> assign(Map.drop(assigns, [:panel_assigns]))
+      |> assign(Map.delete(assigns, :panel_assigns))
       |> assign(panel_assigns || %{})
 
     {:ok, socket}
@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
       results
       |> Enum.find(&is_map/1)
       |> case do
-        %{} = row -> Map.keys(row) |> Enum.map(&to_string/1)
+        %{} = row -> row |> Map.keys() |> Enum.map(&to_string/1)
         _ -> []
       end
 
@@ -127,11 +127,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
       {:error, :sparklines_not_worth_it}
     else
       sparklines =
-        points
-        |> Enum.map(fn {series, series_points} ->
+        Map.new(points, fn {series, series_points} ->
           {series, Enum.take(series_points, 60)}
         end)
-        |> Enum.into(%{})
 
       {:ok, sparklines}
     end

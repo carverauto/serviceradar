@@ -6,16 +6,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
-  require Ash.Query
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler, Interface}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+
+  require Ash.Query
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -109,9 +112,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       |> Ash.create(actor: actor)
 
     # Verify lookup finds the existing device
-    query =
-      Device
-      |> Ash.Query.for_read(:by_ip, %{ip: ip})
+    query = Ash.Query.for_read(Device, :by_ip, %{ip: ip})
 
     {:ok, devices} = Ash.read(query, actor: actor)
 
@@ -329,8 +330,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
 
     query =
-      DeviceIdentifier
-      |> Ash.Query.for_read(:lookup, %{
+      Ash.Query.for_read(DeviceIdentifier, :lookup, %{
         identifier_type: :mac,
         identifier_value: normalized_mac,
         partition: "default"

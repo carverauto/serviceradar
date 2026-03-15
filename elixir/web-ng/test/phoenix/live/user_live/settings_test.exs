@@ -1,9 +1,10 @@
 defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  alias ServiceRadarWebNG.Accounts
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AccountsFixtures
+
+  alias ServiceRadarWebNG.Accounts
 
   describe "Settings page" do
     test "renders settings page", %{conn: conn} do

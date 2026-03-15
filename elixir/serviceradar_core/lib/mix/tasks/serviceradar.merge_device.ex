@@ -1,4 +1,6 @@
 defmodule Mix.Tasks.Serviceradar.MergeDevice do
+  @shortdoc "Merge a duplicate device into a canonical device"
+
   @moduledoc """
   Merge a duplicate device into a canonical device.
 
@@ -10,8 +12,6 @@ defmodule Mix.Tasks.Serviceradar.MergeDevice do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.IdentityReconciler
-
-  @shortdoc "Merge a duplicate device into a canonical device"
 
   @impl true
   def run(args) do

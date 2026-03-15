@@ -33,8 +33,6 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCStrategy do
       {:ok, settings} ->
         if oidc_enabled?(settings) do
           build_config(settings)
-        else
-          nil
         end
 
       {:error, _} ->

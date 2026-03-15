@@ -1,8 +1,8 @@
 defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadarWebNG.Topology.RuntimeGraph
   alias ServiceRadarWebNG.Topology.Native
+  alias ServiceRadarWebNG.Topology.RuntimeGraph
 
   test "topology_links_query/0 reads canonical backend relation" do
     query = RuntimeGraph.topology_links_query()

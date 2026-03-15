@@ -5,10 +5,11 @@ defmodule ServiceRadar.Inventory.MetricRuleSync do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.InterfaceSettings
-  alias ServiceRadar.Observability.{EventRule, StatefulAlertRule}
+  alias ServiceRadar.Observability.EventRule
+  alias ServiceRadar.Observability.StatefulAlertRule
 
-  require Logger
   require Ash.Query
+  require Logger
 
   @spec sync(InterfaceSettings.t()) :: :ok
   def sync(%InterfaceSettings{} = settings) do

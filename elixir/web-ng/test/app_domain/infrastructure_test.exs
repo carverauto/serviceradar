@@ -1,10 +1,10 @@
 defmodule ServiceRadarWebNG.InfrastructureTest do
   use ServiceRadarWebNG.DataCase, async: true
 
+  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
+
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadarWebNG.Repo
-
-  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   test "list_gateways returns gateways ordered by last_seen desc" do
     Repo.insert_all("gateways", [

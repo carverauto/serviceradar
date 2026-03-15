@@ -11,8 +11,10 @@ defmodule ServiceRadarWebNG.Edge.OnboardingToken do
 
   def encode(package_id, download_token, core_api_url \\ nil) do
     payload =
-      %{pkg: normalize_required_string(package_id), dl: normalize_required_string(download_token)}
-      |> maybe_put_api(core_api_url)
+      maybe_put_api(
+        %{pkg: normalize_required_string(package_id), dl: normalize_required_string(download_token)},
+        core_api_url
+      )
 
     with :ok <- validate_payload(payload),
          {:ok, json} <- Jason.encode(payload) do
@@ -24,10 +26,10 @@ defmodule ServiceRadarWebNG.Edge.OnboardingToken do
     raw = String.trim(raw)
 
     with true <- String.starts_with?(raw, @token_prefix),
-         encoded <- String.replace_prefix(raw, @token_prefix, ""),
+         encoded = String.replace_prefix(raw, @token_prefix, ""),
          {:ok, json} <- Base.url_decode64(encoded, padding: false),
          {:ok, payload} <- Jason.decode(json),
-         payload <- atomize_payload(payload),
+         payload = atomize_payload(payload),
          :ok <- validate_payload(payload) do
       {:ok, payload}
     else

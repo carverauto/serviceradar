@@ -43,6 +43,8 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
 
   alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Infrastructure.Checker
+  alias ServiceRadar.Infrastructure.Gateway
 
   require Logger
 
@@ -399,18 +401,18 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
 
   defp stringify_keys(_), do: %{}
 
-  defp entity_type_from_record(%ServiceRadar.Infrastructure.Gateway{}), do: :gateway
+  defp entity_type_from_record(%Gateway{}), do: :gateway
   defp entity_type_from_record(%ServiceRadar.Infrastructure.Agent{}), do: :agent
-  defp entity_type_from_record(%ServiceRadar.Infrastructure.Checker{}), do: :checker
+  defp entity_type_from_record(%Checker{}), do: :checker
 
   defp entity_type_from_record(%{__struct__: module}),
     do: module |> Module.split() |> List.last() |> String.downcase() |> String.to_atom()
 
   defp entity_type_from_record(_), do: :unknown
 
-  defp entity_id_from_record(%ServiceRadar.Infrastructure.Gateway{id: id}), do: id
+  defp entity_id_from_record(%Gateway{id: id}), do: id
   defp entity_id_from_record(%ServiceRadar.Infrastructure.Agent{uid: uid}), do: uid
-  defp entity_id_from_record(%ServiceRadar.Infrastructure.Checker{id: id}), do: to_string(id)
+  defp entity_id_from_record(%Checker{id: id}), do: to_string(id)
   defp entity_id_from_record(%{id: id}), do: to_string(id)
   defp entity_id_from_record(_), do: nil
 end

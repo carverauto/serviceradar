@@ -1,13 +1,14 @@
 defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.UIComponents
   import ServiceRadarWebNGWeb.PluginResults
+  import ServiceRadarWebNGWeb.UIComponents
 
+  alias Phoenix.LiveView.JS
+  alias ServiceRadar.Observability.ServiceStatusPubSub
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
-  alias ServiceRadar.Observability.ServiceStatusPubSub
-  alias Phoenix.LiveView.JS
 
   @default_limit 200
   @history_per_page 20
@@ -39,7 +40,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   @impl true
   def handle_params(params, uri, socket) do
-    query = Map.get(params, "q") |> normalize_query() || build_query(params)
+    query = params |> Map.get("q") |> normalize_query() || build_query(params)
 
     socket =
       socket
@@ -83,8 +84,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   end
 
   def handle_event("srql_submit", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/services/check")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/services/check")}
   end
 
   def handle_event("srql_builder_toggle", _params, socket) do
@@ -100,18 +100,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   end
 
   def handle_event("srql_builder_run", _params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/services/check")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/services/check")}
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "services")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "services")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "services")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "services")}
   end
 
   @impl true
@@ -210,8 +207,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
     filters = build_filters(params)
     filters = if filters == [], do: ["service_type:plugin"], else: filters
 
-    (base ++ filters ++ ["sort:timestamp:desc"] ++ ["limit:#{@default_limit}"])
-    |> Enum.join(" ")
+    Enum.join(base ++ filters ++ ["sort:timestamp:desc"] ++ ["limit:#{@default_limit}"], " ")
   end
 
   defp build_filters(params) do
@@ -225,8 +221,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   end
 
   defp build_identity_filters(params) do
-    [:service_name, :service_type, :gateway_id, :agent_id, :partition]
-    |> Enum.flat_map(&filter_param(params, &1))
+    Enum.flat_map([:service_name, :service_type, :gateway_id, :agent_id, :partition], &filter_param(params, &1))
   end
 
   defp build_history_fallback_filters(params) do
@@ -239,8 +234,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
         [:service_name, :service_type, :gateway_id, :partition]
       end
 
-    keys
-    |> Enum.flat_map(&filter_param(params, &1))
+    Enum.flat_map(keys, &filter_param(params, &1))
   end
 
   defp filter_param(params, key) do
@@ -326,7 +320,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
         seconds = div(value, 1_000_000_000)
         nanos = rem(value, 1_000_000_000)
 
-        DateTime.from_unix(seconds, :second)
+        seconds
+        |> DateTime.from_unix(:second)
         |> case do
           {:ok, dt} -> {:ok, %{dt | microsecond: {div(nanos, 1000), 6}}}
           error -> error
@@ -403,9 +398,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
     plugin_id = get_in(details, ["labels", "plugin_id"]) || get_in(details, [:labels, :plugin_id])
 
     if is_binary(plugin_id) and plugin_id != "" do
-      Packages.list(%{"plugin_id" => plugin_id, "status" => "approved", "limit" => 1},
-        scope: scope
-      )
+      %{"plugin_id" => plugin_id, "status" => "approved", "limit" => 1}
+      |> Packages.list(scope: scope)
       |> List.first()
       |> case do
         %{display_contract: contract} when is_map(contract) -> contract
@@ -571,7 +565,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
         _ -> {"—", "ghost"}
       end
 
-    assigns = assign(assigns, :label, label) |> assign(:variant, variant)
+    assigns = assigns |> assign(:label, label) |> assign(:variant, variant)
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
@@ -660,7 +654,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   defp safe_param_value(nil), do: nil
 
   defp safe_param_value(value) when is_binary(value) do
-    if String.valid?(value), do: value, else: nil
+    if String.valid?(value), do: value
   end
 
   defp safe_param_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
@@ -720,11 +714,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
     srql_params = %{"q" => query, "limit" => Integer.to_string(@default_limit)}
 
     socket =
-      socket
-      |> SRQLPage.load_list(srql_params, uri, :history,
-        default_limit: @default_limit,
-        max_limit: @default_limit
-      )
+      SRQLPage.load_list(socket, srql_params, uri, :history, default_limit: @default_limit, max_limit: @default_limit)
 
     history = socket.assigns.history
     srql_error = get_in(socket.assigns, [:srql, :error])
@@ -798,8 +788,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
       if filters == [] do
         nil
       else
-        (["in:services" | filters] ++ ["sort:timestamp:desc", "limit:#{@default_limit}"])
-        |> Enum.join(" ")
+        Enum.join(["in:services" | filters] ++ ["sort:timestamp:desc", "limit:#{@default_limit}"], " ")
       end
     end
   end
@@ -813,7 +802,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
       if Enum.any?(history, &(history_key(&1) == key)) do
         history
       else
-        [normalized | history] |> Enum.take(@default_limit)
+        Enum.take([normalized | history], @default_limit)
       end
 
     assign(socket, :history, history)
@@ -821,8 +810,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   defp normalize_status_map(status) when is_map(status) do
     map =
-      status
-      |> Enum.reduce(%{}, fn {key, value}, acc ->
+      Enum.reduce(status, %{}, fn {key, value}, acc ->
         string_key = if is_atom(key), do: Atom.to_string(key), else: to_string(key)
         Map.put(acc, string_key, normalize_status_value(value))
       end)

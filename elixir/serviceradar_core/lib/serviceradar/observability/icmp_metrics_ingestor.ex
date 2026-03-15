@@ -18,18 +18,18 @@ defmodule ServiceRadar.Observability.IcmpMetricsIngestor do
     - timestamp (optional)
   """
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Observability.TimeseriesMetric
   alias ServiceRadar.Observability.TimeseriesSeriesKey
 
+  require Logger
+
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) or is_list(payload) do
     actor = SystemActor.system(:icmp_metrics_ingestor)
-    created_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    created_at = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     rows =
       payload

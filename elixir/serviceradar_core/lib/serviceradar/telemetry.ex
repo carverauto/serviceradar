@@ -399,7 +399,7 @@ defmodule ServiceRadar.Telemetry do
     Logger.debug(
       "Telemetry: #{event_name}",
       measurements: measurements,
-      metadata: Map.drop(metadata, [:timestamp])
+      metadata: Map.delete(metadata, :timestamp)
     )
   end
 

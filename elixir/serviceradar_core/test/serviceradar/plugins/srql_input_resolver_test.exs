@@ -4,6 +4,7 @@ defmodule ServiceRadar.Plugins.SRQLInputResolverTest do
   alias ServiceRadar.Plugins.SRQLInputResolver
 
   defmodule RunnerStub do
+    @moduledoc false
     def query(query, _opts) do
       send(self(), {:srql_query, query})
 
@@ -12,6 +13,7 @@ defmodule ServiceRadar.Plugins.SRQLInputResolverTest do
   end
 
   defmodule ErrorRunnerStub do
+    @moduledoc false
     def query(_query, _opts), do: {:error, :translate_failed}
   end
 

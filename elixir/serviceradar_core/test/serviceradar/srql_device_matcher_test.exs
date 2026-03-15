@@ -1,6 +1,7 @@
 defmodule ServiceRadar.SRQLDeviceMatcherTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SRQLDeviceMatcher
 
   test "extract_filters normalizes SRQL ast filters" do
@@ -22,7 +23,7 @@ defmodule ServiceRadar.SRQLDeviceMatcherTest do
   end
 
   test "apply_filters supports op aliases and custom field mappings" do
-    query = Ash.Query.new(ServiceRadar.Inventory.Device)
+    query = Ash.Query.new(Device)
 
     filters = [
       %{field: "type", op: "equals", value: 3},
@@ -40,7 +41,7 @@ defmodule ServiceRadar.SRQLDeviceMatcherTest do
   end
 
   test "apply_filters skips unknown fields when existing atoms are disabled" do
-    query = Ash.Query.new(ServiceRadar.Inventory.Device)
+    query = Ash.Query.new(Device)
     filters = [%{field: "does_not_exist", op: "eq", value: "x"}]
 
     assert %Ash.Query{} =

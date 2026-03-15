@@ -24,7 +24,8 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, false)
 
     assert {:error, %{reason: "god_view_disabled"}} =
-             socket(UserSocket, "user-id", %{current_user: user})
+             UserSocket
+             |> socket("user-id", %{current_user: user})
              |> subscribe_and_join(ServiceRadarWebNGWeb.TopologyChannel, @channel, %{})
   end
 
@@ -32,18 +33,18 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
 
     assert {:ok, _reply, _socket} =
-             socket(UserSocket, "user-id", %{current_user: user})
+             UserSocket
+             |> socket("user-id", %{current_user: user})
              |> subscribe_and_join(ServiceRadarWebNGWeb.TopologyChannel, @channel, %{})
 
     assert_push "snapshot", {:binary, frame}, 2_000
 
-    assert <<magic::binary-size(4), schema::unsigned-integer-size(8),
-             revision::unsigned-integer-size(64), generated_at_ms::signed-integer-size(64),
-             root_bytes::unsigned-integer-size(32), affected_bytes::unsigned-integer-size(32),
-             healthy_bytes::unsigned-integer-size(32), unknown_bytes::unsigned-integer-size(32),
-             root_count::unsigned-integer-size(32), affected_count::unsigned-integer-size(32),
-             healthy_count::unsigned-integer-size(32), unknown_count::unsigned-integer-size(32),
-             payload::binary>> = frame
+    assert <<magic::binary-size(4), schema::unsigned-integer-size(8), revision::unsigned-integer-size(64),
+             generated_at_ms::signed-integer-size(64), root_bytes::unsigned-integer-size(32),
+             affected_bytes::unsigned-integer-size(32), healthy_bytes::unsigned-integer-size(32),
+             unknown_bytes::unsigned-integer-size(32), root_count::unsigned-integer-size(32),
+             affected_count::unsigned-integer-size(32), healthy_count::unsigned-integer-size(32),
+             unknown_count::unsigned-integer-size(32), payload::binary>> = frame
 
     assert magic == "GVB1"
     assert schema > 0
@@ -73,7 +74,8 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     end)
 
     assert {:ok, _reply, _socket} =
-             socket(UserSocket, "user-id", %{current_user: user})
+             UserSocket
+             |> socket("user-id", %{current_user: user})
              |> subscribe_and_join(ServiceRadarWebNGWeb.TopologyChannel, @channel, %{})
 
     assert_push "snapshot_error", %{reason: "snapshot_unavailable"}, 2_000

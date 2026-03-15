@@ -12,7 +12,7 @@ defmodule ServiceRadar.Integrations.Changes.PublishSyncLog do
   def init(opts) do
     stage = Keyword.fetch!(opts, :stage)
 
-    unless stage in [:started, :finished] do
+    if stage not in [:started, :finished] do
       raise ArgumentError, "stage must be :started or :finished"
     end
 

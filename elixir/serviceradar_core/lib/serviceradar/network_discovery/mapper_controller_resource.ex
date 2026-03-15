@@ -13,9 +13,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperControllerResource do
     secret_description = Keyword.fetch!(opts, :secret_description)
     name_description = Keyword.fetch!(opts, :name_description)
     insecure_description = Keyword.fetch!(opts, :insecure_description)
-    {extra_fields, _binding} = Code.eval_quoted(Keyword.get(opts, :extra_fields, quote(do: [])), [], __CALLER__)
-    {create_accept, _binding} = Code.eval_quoted(Keyword.fetch!(opts, :create_accept), [], __CALLER__)
-    {update_accept, _binding} = Code.eval_quoted(Keyword.fetch!(opts, :update_accept), [], __CALLER__)
+
+    {extra_fields, _binding} =
+      Code.eval_quoted(Keyword.get(opts, :extra_fields, quote(do: [])), [], __CALLER__)
+
+    {create_accept, _binding} =
+      Code.eval_quoted(Keyword.fetch!(opts, :create_accept), [], __CALLER__)
+
+    {update_accept, _binding} =
+      Code.eval_quoted(Keyword.fetch!(opts, :update_accept), [], __CALLER__)
+
     mapper_job_id_field = Macro.var(:mapper_job_id, nil)
     by_job_filter = quote(do: expr(unquote(mapper_job_id_field) == ^arg(:mapper_job_id)))
 

@@ -146,8 +146,6 @@ defmodule ServiceRadar.Observability.SRQLRunner do
 
     if is_integer(limit) and is_binary(candidate) and length(rows) >= limit do
       candidate
-    else
-      nil
     end
   end
 

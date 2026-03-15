@@ -17,9 +17,9 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   - Distributed routing for partition-aware processing
   """
 
-  require Logger
-
   alias ServiceRadarAgentGateway.StatusBuffer
+
+  require Logger
 
   @doc """
   Process a service status update.
@@ -50,7 +50,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   @spec process(map()) :: :ok | {:error, term()}
   def process(status) do
     with :ok <- validate_status(status),
-         status <- normalize_status(status),
+         status = normalize_status(status),
          :ok <- forward(status) do
       # Track this agent for UI visibility
       track_agent(status)
@@ -112,8 +112,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     required_fields = [:service_name, :service_type, :agent_id]
 
     missing =
-      required_fields
-      |> Enum.filter(fn field ->
+      Enum.filter(required_fields, fn field ->
         value = Map.get(status, field)
         is_nil(value) or value == ""
       end)
@@ -208,7 +207,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   # Find a node that has the handler running
   defp find_handler_node(handler) do
-    nodes = [Node.self() | Node.list()] |> Enum.uniq()
+    nodes = Enum.uniq([Node.self() | Node.list()])
 
     # First, try to find nodes with the handler
     handler_nodes =

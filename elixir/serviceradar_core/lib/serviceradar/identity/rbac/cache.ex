@@ -18,7 +18,7 @@ defmodule ServiceRadar.Identity.RBAC.Cache do
   require Logger
 
   @table :rbac_permissions_cache
-  @cleanup_interval :timer.seconds(60)
+  @cleanup_interval to_timeout(minute: 1)
   @default_ttl_seconds 300
 
   # --- Public API ---
@@ -130,7 +130,8 @@ defmodule ServiceRadar.Identity.RBAC.Cache do
   end
 
   defp config_ttl do
-    Application.get_env(:serviceradar_core, __MODULE__, [])
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
     |> Keyword.get(:ttl_seconds, @default_ttl_seconds)
   end
 

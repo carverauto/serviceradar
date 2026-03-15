@@ -80,7 +80,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
              parts.series
            ) do
       {:ok,
-       %{
+       normalize_state(%{
          "entity" => parts.entity,
          "time" => parts.time,
          "bucket" => parts.bucket,
@@ -91,8 +91,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
          "sort_dir" => parts.sort_dir,
          "limit" => parts.limit,
          "filters" => parts.filters
-       }
-       |> normalize_state()}
+       })}
     end
   end
 
@@ -184,8 +183,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp normalize_time(nil), do: ""
 
-  defp normalize_time(time)
-       when time in ["", "last_1h", "last_6h", "last_12h", "last_24h", "last_7d", "last_30d"] do
+  defp normalize_time(time) when time in ["", "last_1h", "last_6h", "last_12h", "last_24h", "last_7d", "last_30d"] do
     time
   end
 
@@ -356,28 +354,28 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       not Map.get(config, :downsample, false) ->
         tokens
 
-      safe_to_string(bucket) |> String.trim() == "" ->
+      bucket |> safe_to_string() |> String.trim() == "" ->
         tokens
 
-      safe_to_string(time) |> String.trim() == "" ->
+      time |> safe_to_string() |> String.trim() == "" ->
         tokens
 
       true ->
-        bucket = safe_to_string(bucket) |> String.trim()
-        agg = safe_to_string(agg) |> String.trim() |> String.downcase()
-        value_field = safe_to_string(value_field) |> String.trim()
-        series = safe_to_string(series) |> String.trim()
+        bucket = bucket |> safe_to_string() |> String.trim()
+        agg = agg |> safe_to_string() |> String.trim() |> String.downcase()
+        value_field = value_field |> safe_to_string() |> String.trim()
+        series = series |> safe_to_string() |> String.trim()
 
         tokens =
           tokens
           |> Kernel.++(["bucket:#{bucket}"])
-          |> Kernel.++(if agg != "", do: ["agg:#{agg}"], else: [])
+          |> Kernel.++(if agg == "", do: [], else: ["agg:#{agg}"])
           |> Kernel.++(maybe_value_field_token(config, value_field))
 
-        if series != "" do
-          tokens ++ ["series:#{series}"]
-        else
+        if series == "" do
           tokens
+        else
+          tokens ++ ["series:#{series}"]
         end
     end
   end
@@ -429,7 +427,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       mergeable
       |> Enum.group_by(fn %{"field" => field, "op" => op} -> {field, op} end)
       |> Enum.map(fn {{field, op}, group} ->
-        values = Enum.map(group, &Map.get(&1, "value")) |> Enum.filter(&(&1 != ""))
+        values = group |> Enum.map(&Map.get(&1, "value")) |> Enum.filter(&(&1 != ""))
         %{"field" => field, "op" => op, "values" => values}
       end)
 
@@ -442,10 +440,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     merged ++ singles
   end
 
-  defp build_merged_filter_token(
-         %{"field" => field, "op" => op, "values" => values},
-         array_fields
-       ) do
+  defp build_merged_filter_token(%{"field" => field, "op" => op, "values" => values}, array_fields) do
     field = field |> safe_to_string() |> String.trim()
     if field == "", do: nil, else: build_filter_by_op(field, op, values, array_fields)
   end
@@ -538,7 +533,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       filters: []
     }
 
-    Enum.reduce_while(tokens, {:ok, parts}, fn token, {:ok, acc} ->
+    tokens
+    |> Enum.reduce_while({:ok, parts}, fn token, {:ok, acc} ->
       case parse_token(token, acc) do
         {:ok, updated} -> {:cont, {:ok, updated}}
         {:error, reason} -> {:halt, {:error, reason}}
@@ -641,9 +637,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   defp parse_filter_field(field) when is_binary(field) do
     field = String.trim(field)
 
-    case String.starts_with?(field, "!") do
-      true -> {String.replace_prefix(field, "!", ""), true}
-      false -> {field, false}
+    if String.starts_with?(field, "!") do
+      {String.replace_prefix(field, "!", ""), true}
+    else
+      {field, false}
     end
   end
 
@@ -675,9 +672,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   defp maybe_unquote("\"" <> value) do
-    case String.ends_with?(value, "\"") do
-      true -> String.trim_trailing(value, "\"")
-      false -> "\"" <> value
+    if String.ends_with?(value, "\"") do
+      String.trim_trailing(value, "\"")
+    else
+      "\"" <> value
     end
   end
 
@@ -718,10 +716,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   defp validate_downsample_fields(config, bucket, agg, value_field, series) do
-    bucket = safe_to_string(bucket) |> String.trim()
-    agg = safe_to_string(agg) |> String.trim() |> String.downcase()
-    value_field = safe_to_string(value_field) |> String.trim()
-    series = safe_to_string(series) |> String.trim()
+    bucket = bucket |> safe_to_string() |> String.trim()
+    agg = agg |> safe_to_string() |> String.trim() |> String.downcase()
+    value_field = value_field |> safe_to_string() |> String.trim()
+    series = series |> safe_to_string() |> String.trim()
 
     cond do
       bucket == "" ->
@@ -766,10 +764,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   defp validate_downsample_unsupported(bucket) do
-    if safe_to_string(bucket) |> String.trim() != "" do
-      {:error, :downsample_not_supported}
-    else
+    if bucket |> safe_to_string() |> String.trim() == "" do
       :ok
+    else
+      {:error, :downsample_not_supported}
     end
   end
 
@@ -809,20 +807,19 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   defp normalize_filters(entity, filters) when is_list(filters) do
-    filters
-    |> Enum.map(fn
+    Enum.map(filters, fn
       %{"field" => field, "op" => op, "value" => value} ->
         %{
           "field" => normalize_filter_field(entity, field),
           "op" => normalize_filter_op(op),
-          "value" => value |> safe_to_string()
+          "value" => safe_to_string(value)
         }
 
       %{} = other ->
         %{
           "field" => normalize_filter_field(entity, Map.get(other, "field")),
           "op" => normalize_filter_op(Map.get(other, "op")),
-          "value" => Map.get(other, "value", "") |> safe_to_string()
+          "value" => other |> Map.get("value", "") |> safe_to_string()
         }
 
       other ->

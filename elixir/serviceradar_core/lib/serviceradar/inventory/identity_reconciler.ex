@@ -27,16 +27,21 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   IP is a "weak" identifier only used when no strong identifiers are present.
   """
 
+  import Bitwise
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, Interface, MergeAudit}
-  alias ServiceRadar.Monitoring.{Alert, ServiceCheck}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Inventory.MergeAudit
+  alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Monitoring.ServiceCheck
 
   require Ash.Query
   require Logger
-  import Bitwise
 
   # Identifier types in priority order (lower index = higher priority)
   @identifier_priority [:agent_id, :armis_device_id, :integration_id, :netbox_device_id, :mac]
@@ -87,12 +92,13 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     ids = extract_strong_identifiers(update)
 
     # Step 1: Lookup by strong identifiers (merge conflicts if multiple IDs found)
-    with {:ok, device_id} when is_binary(device_id) and device_id != "" <-
-           lookup_by_strong_identifiers(ids, actor, update.device_id) do
-      _ = maybe_merge_ip_alias_device(device_id, ids, actor)
-      {:ok, device_id}
-    else
-      _ -> resolve_fallback_device_id(update, ids, actor)
+    case lookup_by_strong_identifiers(ids, actor, update.device_id) do
+      {:ok, device_id} when is_binary(device_id) and device_id != "" ->
+        _ = maybe_merge_ip_alias_device(device_id, ids, actor)
+        {:ok, device_id}
+
+      _ ->
+        resolve_fallback_device_id(update, ids, actor)
     end
   end
 
@@ -116,7 +122,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   @spec extract_strong_identifiers(device_update()) :: strong_identifiers()
   def extract_strong_identifiers(update) do
     metadata = update[:metadata] || %{}
-    partition = (update[:partition] || "default") |> String.trim()
+    partition = String.trim(update[:partition] || "default")
 
     %{
       # agent_id is typically carried in metadata for inventory updates, but some
@@ -126,15 +132,15 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       integration_id: get_integration_id(metadata),
       netbox_id: get_trimmed(metadata, "netbox_device_id"),
       mac: normalize_mac(update[:mac]),
-      ip: (update[:ip] || "") |> String.trim(),
+      ip: String.trim(update[:ip] || ""),
       partition: partition
     }
   end
 
   defp get_agent_id_from_update(update) when is_map(update) do
     case update do
-      %{agent_id: value} when is_binary(value) -> String.trim(value) |> blank_to_nil()
-      %{"agent_id" => value} when is_binary(value) -> String.trim(value) |> blank_to_nil()
+      %{agent_id: value} when is_binary(value) -> value |> String.trim() |> blank_to_nil()
+      %{"agent_id" => value} when is_binary(value) -> value |> String.trim() |> blank_to_nil()
       _ -> nil
     end
   end
@@ -444,10 +450,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     d_variant = (d &&& 0x3FFF) ||| 0x8000
 
     uuid =
-      :io_lib.format(
-        "~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b",
-        [a, b, c_versioned, d_variant, e]
-      )
+      "~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b"
+      |> :io_lib.format([a, b, c_versioned, d_variant, e])
       |> IO.iodata_to_binary()
       |> String.downcase()
 
@@ -499,8 +503,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp maybe_promote_provisional_identity(_device_id, ids, _actor, _partition)
-       when not is_map(ids),
-       do: :ok
+       when not is_map(ids), do: :ok
 
   defp maybe_promote_provisional_identity(device_id, ids, actor, partition) do
     case Device.get_by_uid(device_id, false, actor: actor) do
@@ -521,7 +524,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defp evaluate_and_maybe_promote_provisional_identity(device, metadata, ids, actor, partition) do
     current_non_mac_types = current_non_mac_strong_types(ids)
     existing_non_mac_types = existing_non_mac_identifier_types(device.uid, partition, actor)
-    distinct_types = (current_non_mac_types ++ existing_non_mac_types) |> Enum.uniq()
+    distinct_types = Enum.uniq(current_non_mac_types ++ existing_non_mac_types)
     distinct_type_names = Enum.map(distinct_types, &Atom.to_string/1)
     current_type_names = Enum.map(current_non_mac_types, &Atom.to_string/1)
     total_sightings = non_mac_sighting_total(metadata, current_non_mac_types)
@@ -554,8 +557,9 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp current_non_mac_strong_types(ids) do
-    @strong_non_mac_identifier_types
-    |> Enum.filter(fn type -> present_id?(get_identifier_value(ids, type)) end)
+    Enum.filter(@strong_non_mac_identifier_types, fn type ->
+      present_id?(get_identifier_value(ids, type))
+    end)
   end
 
   defp existing_non_mac_identifier_types(device_id, partition, actor) do
@@ -707,7 +711,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
           )
       else
         blocked_reason = blocked_merge_reason(matches)
-        device_ids = [device_id, canonical_id] |> Enum.uniq()
+        device_ids = Enum.uniq([device_id, canonical_id])
 
         Logger.warning(
           "Blocked register-time merge. " <>
@@ -765,12 +769,10 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     {ip_index, ip_scanned} = build_ip_index(actor)
 
     identifier_duplicates =
-      identifier_index
-      |> Enum.filter(fn {_key, device_ids} -> MapSet.size(device_ids) > 1 end)
+      Enum.filter(identifier_index, fn {_key, device_ids} -> MapSet.size(device_ids) > 1 end)
 
     ip_duplicates =
-      ip_index
-      |> Enum.filter(fn {_key, device_ids} -> MapSet.size(device_ids) > 1 end)
+      Enum.filter(ip_index, fn {_key, device_ids} -> MapSet.size(device_ids) > 1 end)
 
     duplicate_entries = identifier_duplicates ++ ip_duplicates
 
@@ -902,8 +904,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   # MAC-only matches are too noisy (especially interface MACs observed by mapper)
   # and can collapse unrelated devices.
   defp mac_only_matches?(matches) do
-    matches
-    |> Enum.any?() and
+    Enum.any?(matches) and
       Enum.all?(matches, fn
         {:mac, _} -> true
         _ -> false
@@ -914,8 +915,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   # MAC addresses that are locally-administered (medium confidence).
   # Strong identifiers (agent_id, armis_id, etc.) are never medium-confidence.
   defp medium_confidence_only?(matches) do
-    matches
-    |> Enum.all?(fn
+    Enum.all?(matches, fn
       {:mac, %{value: value}} -> locally_administered_mac?(value)
       _ -> false
     end)
@@ -991,7 +991,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       |> Ash.Query.filter(identifier_type in ^@identifier_priority)
       |> Ash.Query.select([:device_id, :identifier_type, :identifier_value, :partition])
 
-    Ash.stream!(query, actor: actor, batch_size: 2000)
+    query
+    |> Ash.stream!(actor: actor, batch_size: 2000)
     |> Enum.reduce({%{}, 0}, &accumulate_identifier_index/2)
   end
 
@@ -1001,7 +1002,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.Query.filter(not is_nil(ip) and ip != "")
 
-    Ash.stream!(query, actor: actor, batch_size: 2000)
+    query
+    |> Ash.stream!(actor: actor, batch_size: 2000)
     |> Enum.reduce({%{}, 0}, &accumulate_ip_index/2)
   end
 
@@ -1084,7 +1086,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defp select_ip_device_id(devices) do
     case select_ip_device(devices) do
       %Device{uid: uid} ->
-        if serviceradar_uuid?(uid), do: uid, else: nil
+        if serviceradar_uuid?(uid), do: uid
 
       _ ->
         nil
@@ -1240,7 +1242,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
         DeviceAliasState
       ]
 
-      Ash.transaction(resources, fn ->
+      resources
+      |> Ash.transaction(fn ->
         with {:ok, %Device{} = from_device} <-
                Device.get_by_uid(from_device_id, false, actor: actor),
              {:ok, %Device{}} <- Device.get_by_uid(to_device_id, false, actor: actor),
@@ -1341,7 +1344,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defp do_unmerge(from_device_id, to_device_id, audit, actor) do
     resources = [Device, DeviceIdentifier, MergeAudit]
 
-    Ash.transaction(resources, fn ->
+    resources
+    |> Ash.transaction(fn ->
       # Recreate the from-device
       with {:ok, _device} <- recreate_device(from_device_id, audit, actor),
            :ok <- reassign_original_identifiers(from_device_id, to_device_id, audit, actor),
@@ -1398,11 +1402,9 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     original_identifier_keys = original_identifier_keys(original_identifiers)
 
     # Find identifiers on the to-device that match the original merge's identifiers
-    case Ash.read(
-           DeviceIdentifier
-           |> Ash.Query.for_read(:by_device, %{device_id: to_device_id}),
-           actor: actor
-         ) do
+    case DeviceIdentifier
+         |> Ash.Query.for_read(:by_device, %{device_id: to_device_id})
+         |> Ash.read(actor: actor) do
       {:ok, current_identifiers} ->
         identifiers_to_reassign =
           Enum.filter(
@@ -1515,9 +1517,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
               not MapSet.member?(existing_keys, {record.timestamp, record.interface_uid})
             end)
 
-          with :ok <- bulk_update_interfaces(to_update, to_id, actor),
-               :ok <- bulk_delete_interfaces(to_delete, actor) do
-            :ok
+          with :ok <- bulk_update_interfaces(to_update, to_id, actor) do
+            bulk_delete_interfaces(to_delete, actor)
           end
         end
 
@@ -1540,8 +1541,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     case Ash.read(existing_query, actor: actor) do
       {:ok, existing} ->
         existing
-        |> Enum.map(&{&1.timestamp, &1.interface_uid})
-        |> MapSet.new()
+        |> MapSet.new(&{&1.timestamp, &1.interface_uid})
         |> then(&{:ok, &1})
 
       {:error, _} = error ->
@@ -1552,19 +1552,21 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defp bulk_update_interfaces([], _to_id, _actor), do: :ok
 
   defp bulk_update_interfaces(records, to_id, actor) do
-    Ash.bulk_update(records, :reassign_device, %{device_id: to_id}, actor: actor)
+    records
+    |> Ash.bulk_update(:reassign_device, %{device_id: to_id}, actor: actor)
     |> normalize_bulk_result()
   end
 
   defp bulk_delete_interfaces([], _actor), do: :ok
 
   defp bulk_delete_interfaces(records, actor) do
-    Ash.bulk_destroy(records, :destroy, %{}, actor: actor)
+    records
+    |> Ash.bulk_destroy(:destroy, %{}, actor: actor)
     |> normalize_bulk_result()
   end
 
   defp bulk_reassign(resource, action, filter_field, filter_value, attrs, actor) do
-    base_query = resource |> Ash.Query.for_read(:read, %{}, actor: actor)
+    base_query = Ash.Query.for_read(resource, :read, %{}, actor: actor)
 
     query =
       case filter_field do
@@ -1583,7 +1585,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
             :ok
 
           {:ok, records} ->
-            Ash.bulk_update(records, action, attrs, actor: actor)
+            records
+            |> Ash.bulk_update(action, attrs, actor: actor)
             |> normalize_bulk_result()
 
           {:error, _} = error ->

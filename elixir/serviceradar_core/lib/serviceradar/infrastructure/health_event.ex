@@ -291,8 +291,9 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
 
   # Helper function for duration calculation
   defp get_last_event(entity_type, entity_id) do
-    require Ash.Query
     alias ServiceRadar.Actors.SystemActor
+
+    require Ash.Query
 
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:health_event)

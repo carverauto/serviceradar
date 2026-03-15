@@ -8,12 +8,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
   use ExUnit.Case, async: false
 
-  require Ash.Query
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+
+  require Ash.Query
 
   @moduletag :integration
 
@@ -152,8 +153,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       # Verify agent_id was registered as a strong identifier
       query =
-        DeviceIdentifier
-        |> Ash.Query.for_read(:lookup, %{
+        Ash.Query.for_read(DeviceIdentifier, :lookup, %{
           identifier_type: :agent_id,
           identifier_value: agent_id,
           partition: "default"

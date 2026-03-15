@@ -28,7 +28,8 @@ defmodule ServiceRadar.Identity.AccessCredentialChanges do
 
   @spec record_use(Ash.Changeset.t()) :: Ash.Changeset.t()
   def record_use(changeset) do
-    use_count = Ash.Changeset.get_attribute(changeset, :use_count) || changeset.data.use_count || 0
+    use_count =
+      Ash.Changeset.get_attribute(changeset, :use_count) || changeset.data.use_count || 0
 
     changeset
     |> Ash.Changeset.change_attribute(:last_used_at, DateTime.utc_now())
@@ -44,11 +45,13 @@ defmodule ServiceRadar.Identity.AccessCredentialChanges do
   end
 
   defp maybe_change_revoked_by(changeset, nil), do: changeset
+
   defp maybe_change_revoked_by(changeset, revoked_by) do
     Ash.Changeset.change_attribute(changeset, :revoked_by, revoked_by)
   end
 
   defp maybe_change_timestamp(changeset, nil, _timestamp), do: changeset
+
   defp maybe_change_timestamp(changeset, attribute, timestamp) do
     Ash.Changeset.change_attribute(changeset, attribute, timestamp)
   end

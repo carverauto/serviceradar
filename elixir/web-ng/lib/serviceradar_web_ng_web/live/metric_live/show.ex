@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.MetricLive.Show do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
@@ -188,9 +189,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
         "#{fmt(x)},#{fmt(y)}"
       end)
 
-    assigns =
-      assigns
-      |> assign(:points, points)
+    assigns = assign(assigns, :points, points)
 
     ~H"""
     <div class="w-full">
@@ -217,7 +216,8 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   defp fmt(num) when is_integer(num), do: Integer.to_string(num)
 
   defp format_ms_number(value) when is_float(value) do
-    :erlang.float_to_binary(value, decimals: 1)
+    value
+    |> :erlang.float_to_binary(decimals: 1)
     |> String.trim_trailing("0")
     |> String.trim_trailing(".")
   end
@@ -270,13 +270,13 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
         |> load_recent(srql, metric)
 
       {:ok, %{"results" => []}} ->
-        assign(socket, :error, "Metric not found") |> assign(:metric, nil)
+        socket |> assign(:error, "Metric not found") |> assign(:metric, nil)
 
       {:error, reason} ->
-        assign(socket, :error, "SRQL error: #{format_error(reason)}") |> assign(:metric, nil)
+        socket |> assign(:error, "SRQL error: #{format_error(reason)}") |> assign(:metric, nil)
 
       {:ok, other} ->
-        assign(socket, :error, "Unexpected response: #{inspect(other)}") |> assign(:metric, nil)
+        socket |> assign(:error, "Unexpected response: #{inspect(other)}") |> assign(:metric, nil)
     end
   end
 
@@ -290,7 +290,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
         |> assign(:histogram, histogram_for_metric(metric, rows))
 
       _ ->
-        assign(socket, :recent, []) |> assign(:histogram, nil)
+        socket |> assign(:recent, []) |> assign(:histogram, nil)
     end
   end
 
@@ -315,8 +315,6 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   defp query_filter(field, value) do
     if is_binary(value) and value != "" do
       "#{field}:\"#{escape_srql(value)}\""
-    else
-      nil
     end
   end
 
@@ -479,7 +477,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
     if non_empty_string?(service) and non_empty_string?(method) do
       "#{service}/#{method}"
     else
-      if non_empty_string?(service), do: service, else: nil
+      if non_empty_string?(service), do: service
     end
   end
 
@@ -549,8 +547,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
 
   defp normalize_metric_type(nil), do: ""
 
-  defp normalize_metric_type(value) when is_binary(value),
-    do: value |> String.trim() |> String.downcase()
+  defp normalize_metric_type(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
 
   defp normalize_metric_type(value), do: value |> to_string() |> normalize_metric_type()
 

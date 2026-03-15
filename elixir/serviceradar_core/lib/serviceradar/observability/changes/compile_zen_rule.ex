@@ -81,5 +81,4 @@ defmodule ServiceRadar.Observability.Changes.CompileZenRule do
         Ash.Changeset.add_error(changeset, field: :template, message: message)
     end
   end
-
 end

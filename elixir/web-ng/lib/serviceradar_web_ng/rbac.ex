@@ -20,8 +20,7 @@ defmodule ServiceRadarWebNG.RBAC do
 
   def permissions_for_scope(_), do: MapSet.new()
 
-  def can?(%Scope{permissions: %MapSet{} = permissions}, permission)
-      when is_binary(permission) do
+  def can?(%Scope{permissions: %MapSet{} = permissions}, permission) when is_binary(permission) do
     MapSet.member?(permissions, permission)
   end
 

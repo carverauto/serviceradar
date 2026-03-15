@@ -13,11 +13,14 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   - Using self-scheduling workers for dynamic/feature-gated periodic work (e.g. netflow enrichment)
   """
 
-  require Logger
-
+  alias Oban.Cron.Expression
   alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadar.Monitoring.{Alert, PollingSchedule, ServiceCheck}
+  alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Monitoring.PollingSchedule
+  alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Oban.Router
+
+  require Logger
 
   @type job_entry :: %{
           id: String.t(),
@@ -111,8 +114,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
 
   defp maybe_sort(jobs, nil, _dir), do: jobs
 
-  defp maybe_sort(jobs, field, dir)
-       when field in [:name, :source, :cron, :last_run_at, :next_run_at] do
+  defp maybe_sort(jobs, field, dir) when field in [:name, :source, :cron, :last_run_at, :next_run_at] do
     sorter = fn job ->
       value = Map.get(job, field)
       # Handle nil values - put them at the end
@@ -166,8 +168,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   """
   @spec ash_oban_jobs() :: [job_entry()]
   def ash_oban_jobs do
-    ash_oban_resources()
-    |> Enum.flat_map(&resource_triggers/1)
+    Enum.flat_map(ash_oban_resources(), &resource_triggers/1)
   end
 
   @doc """
@@ -242,10 +243,10 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   """
   @spec get_recent_runs(module(), keyword()) :: [map()]
   def get_recent_runs(worker, opts \\ []) do
+    import Ecto.Query
+
     limit = Keyword.get(opts, :limit, 5)
     worker_str = inspect(worker)
-
-    import Ecto.Query
 
     try do
       Oban.Job
@@ -266,31 +267,25 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   """
   @spec trigger_job(job_entry()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def trigger_job(%{source: :cron_plugin, worker: worker}) when not is_nil(worker) do
-    try do
-      job = worker.new(%{})
-      Oban.insert(job)
-    rescue
-      e -> {:error, Exception.message(e)}
-    end
+    job = worker.new(%{})
+    Oban.insert(job)
+  rescue
+    e -> {:error, Exception.message(e)}
   end
 
+  # For AshOban, we insert the scheduler worker which will process due records
   def trigger_job(%{source: :ash_oban, worker: worker}) when not is_nil(worker) do
-    # For AshOban, we insert the scheduler worker which will process due records
-    try do
-      job = worker.new(%{})
-      Router.insert(job)
-    rescue
-      e -> {:error, Exception.message(e)}
-    end
+    job = worker.new(%{})
+    Router.insert(job)
+  rescue
+    e -> {:error, Exception.message(e)}
   end
 
   def trigger_job(%{source: :self_scheduling, worker: worker}) when not is_nil(worker) do
-    try do
-      job = worker.new(%{})
-      Router.insert(job)
-    rescue
-      e -> {:error, Exception.message(e)}
-    end
+    job = worker.new(%{})
+    Router.insert(job)
+  rescue
+    e -> {:error, Exception.message(e)}
   end
 
   def trigger_job(_job), do: {:error, :no_worker}
@@ -305,10 +300,10 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   """
   @spec get_execution_stats(module(), keyword()) :: [map()]
   def get_execution_stats(worker, opts \\ []) do
+    import Ecto.Query
+
     hours = Keyword.get(opts, :hours, 24)
     worker_str = inspect(worker)
-
-    import Ecto.Query
 
     try do
       since = DateTime.add(DateTime.utc_now(), -hours, :hour)
@@ -356,10 +351,10 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   """
   @spec get_aggregated_stats(module(), keyword()) :: map()
   def get_aggregated_stats(worker, opts \\ []) do
+    import Ecto.Query
+
     hours = Keyword.get(opts, :hours, 24)
     worker_str = inspect(worker)
-
-    import Ecto.Query
 
     try do
       since = DateTime.add(DateTime.utc_now(), -hours, :hour)
@@ -387,7 +382,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
           DateTime.diff(job.completed_at, job.attempted_at, :millisecond)
         end)
 
-      avg_duration = if durations != [], do: Enum.sum(durations) / length(durations), else: nil
+      avg_duration = if durations == [], do: nil, else: Enum.sum(durations) / length(durations)
 
       %{
         total: total,
@@ -514,20 +509,15 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     |> Macro.underscore()
   end
 
-  defp resource_description(PollingSchedule),
-    do: "Executes polling schedules for service checks"
+  defp resource_description(PollingSchedule), do: "Executes polling schedules for service checks"
 
-  defp resource_description(ServiceCheck),
-    do: "Executes scheduled service checks"
+  defp resource_description(ServiceCheck), do: "Executes scheduled service checks"
 
-  defp resource_description(Alert),
-    do: "Sends alert notifications for active alert rules"
+  defp resource_description(Alert), do: "Sends alert notifications for active alert rules"
 
-  defp resource_description(OnboardingPackage),
-    do: "Expires edge onboarding packages"
+  defp resource_description(OnboardingPackage), do: "Expires edge onboarding packages"
 
-  defp resource_description(_),
-    do: "Executes scheduled actions for Ash resources"
+  defp resource_description(_), do: "Executes scheduled actions for Ash resources"
 
   # Get last run time for a worker
   defp get_last_run(worker) when is_atom(worker) do
@@ -577,14 +567,12 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   end
 
   defp oban_prefix do
-    try do
-      case Application.get_env(:serviceradar_core, Oban) do
-        config when is_list(config) -> Keyword.get(config, :prefix, "platform")
-        _ -> "platform"
-      end
-    rescue
+    case Application.get_env(:serviceradar_core, Oban) do
+      config when is_list(config) -> Keyword.get(config, :prefix, "platform")
       _ -> "platform"
     end
+  rescue
+    _ -> "platform"
   end
 
   defp worker_queue(worker) when is_atom(worker) do
@@ -649,11 +637,11 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   defp next_run_at(nil), do: nil
 
   defp next_run_at(cron) when is_binary(cron) do
-    case Oban.Cron.Expression.parse(cron) do
+    case Expression.parse(cron) do
       {:ok, expr} ->
         now = DateTime.utc_now()
 
-        case Oban.Cron.Expression.next_at(expr, now) do
+        case Expression.next_at(expr, now) do
           %DateTime{} = next -> next
           _ -> nil
         end

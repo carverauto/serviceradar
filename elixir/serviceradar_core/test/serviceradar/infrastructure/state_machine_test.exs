@@ -12,7 +12,9 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Infrastructure.{Agent, Checker, Gateway}
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.Checker
+  alias ServiceRadar.Infrastructure.Gateway
 
   @moduletag :database
 
@@ -237,7 +239,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
 
       assert failing.status == :failing
       assert failing.failure_reason == "timeout"
-      assert failing.last_failure != nil
+      assert failing.last_failure
     end
 
     test "clears failure state", %{actor: actor} do
@@ -249,7 +251,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert cleared.status == :active
       assert cleared.consecutive_failures == 0
       assert cleared.failure_reason == nil
-      assert cleared.last_success != nil
+      assert cleared.last_success
     end
 
     test "records success resets consecutive failures", %{actor: actor} do
@@ -268,7 +270,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       {:ok, success} = update_with_action(with_failures, :record_success, %{}, actor)
 
       assert success.consecutive_failures == 0
-      assert success.last_success != nil
+      assert success.last_success
     end
 
     test "records failure increments consecutive failures", %{actor: actor} do

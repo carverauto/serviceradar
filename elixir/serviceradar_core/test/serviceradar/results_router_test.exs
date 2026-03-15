@@ -10,6 +10,7 @@ defmodule ServiceRadar.ResultsRouterTest do
   alias ServiceRadar.ResultsRouter
 
   defmodule TestIngestor do
+    @moduledoc false
     def ingest_updates(updates, opts) do
       send(self(), {:ingest, updates, opts})
       :ok
@@ -17,6 +18,7 @@ defmodule ServiceRadar.ResultsRouterTest do
   end
 
   defmodule TestSweepIngestor do
+    @moduledoc false
     def ingest_results(results, execution_id, opts) do
       send(self(), {:sweep_ingest, results, execution_id, opts})
       {:ok, %{hosts_total: length(results)}}
@@ -24,6 +26,7 @@ defmodule ServiceRadar.ResultsRouterTest do
   end
 
   defmodule TestSysmonIngestor do
+    @moduledoc false
     def ingest(payload, status) do
       send(self(), {:sysmon_ingest, payload, status})
       :ok
@@ -31,6 +34,7 @@ defmodule ServiceRadar.ResultsRouterTest do
   end
 
   defmodule TestPluginIngestor do
+    @moduledoc false
     def ingest(payload, status) do
       send(self(), {:plugin_ingest, payload, status})
       :ok

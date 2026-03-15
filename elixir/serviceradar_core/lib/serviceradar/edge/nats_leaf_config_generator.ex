@@ -53,7 +53,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
     """
     # NATS Leaf Server Configuration
     # Generated for EdgeSite: #{edge_site.name} (#{edge_site.slug})
-    # Generated at: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    # Generated at: #{DateTime.to_iso8601(DateTime.utc_now())}
 
     server_name: #{server_name}
     logfile: "/var/log/nats/nats.log"
@@ -199,7 +199,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
     # NATS Leaf Server Bundle
 
     **Site:** #{edge_site.name}
-    **Generated:** #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    **Generated:** #{DateTime.to_iso8601(DateTime.utc_now())}
 
     ## Contents
 

@@ -5,6 +5,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetSnapshotResource do
     table = Keyword.fetch!(opts, :table)
     is_active_field = Macro.var(:is_active, nil)
     id_field = Macro.var(:id, nil)
+
     snapshot_fields = [
       :source_url,
       :source_etag,
@@ -15,6 +16,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetSnapshotResource do
       :record_count,
       :metadata
     ]
+
     promotion_fields = [:is_active, :promoted_at]
     active_filter = quote(do: expr(unquote(is_active_field) == true))
     by_id_filter = quote(do: expr(unquote(id_field) == ^arg(:id)))

@@ -53,7 +53,7 @@ defmodule ServiceRadar.Observability.MtrCausalSignalEmitter do
     confidence = to_float(consensus_result[:confidence], 0.0)
     evidence = consensus_result[:evidence] || %{}
     severity_id = severity_id_for(classification, confidence)
-    event_time = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    event_time = DateTime.truncate(DateTime.utc_now(), :microsecond)
     target_device_uid = get(context, [:target_device_uid, "target_device_uid"])
     target_ip = get(context, [:target_ip, "target_ip"])
     partition_id = get(context, [:partition_id, "partition_id"])
@@ -140,13 +140,14 @@ defmodule ServiceRadar.Observability.MtrCausalSignalEmitter do
       log_version: envelope["schema_version"] || @schema_version,
       unmapped: %{"signal_type" => @signal_type},
       raw_data: Jason.encode!(envelope),
-      created_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
+      created_at: DateTime.truncate(DateTime.utc_now(), :microsecond)
     }
   end
 
   defp source_agent_ids(context, outcomes) do
     context_ids =
-      get(context, [:source_agent_ids, "source_agent_ids"])
+      context
+      |> get([:source_agent_ids, "source_agent_ids"])
       |> List.wrap()
       |> Enum.flat_map(fn
         v when is_binary(v) -> [String.trim(v)]

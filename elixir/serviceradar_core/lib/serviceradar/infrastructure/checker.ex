@@ -25,6 +25,8 @@ defmodule ServiceRadar.Infrastructure.Checker do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  alias ServiceRadar.Infrastructure.Changes.PublishStateChange
+
   @checker_fields [
     :name,
     :type,
@@ -132,8 +134,7 @@ defmodule ServiceRadar.Infrastructure.Checker do
       change transition_state(:paused)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :checker, new_state: :paused}
+      change {PublishStateChange, entity_type: :checker, new_state: :paused}
     end
 
     update :resume do
@@ -143,8 +144,7 @@ defmodule ServiceRadar.Infrastructure.Checker do
       change set_attribute(:enabled, true)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :checker, new_state: :active}
+      change {PublishStateChange, entity_type: :checker, new_state: :active}
     end
 
     update :mark_failing do
@@ -156,8 +156,7 @@ defmodule ServiceRadar.Infrastructure.Checker do
       change set_attribute(:last_failure, &DateTime.utc_now/0)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :checker, new_state: :failing}
+      change {PublishStateChange, entity_type: :checker, new_state: :failing}
     end
 
     update :clear_failure do
@@ -169,8 +168,7 @@ defmodule ServiceRadar.Infrastructure.Checker do
       change set_attribute(:last_success, &DateTime.utc_now/0)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :checker, new_state: :active}
+      change {PublishStateChange, entity_type: :checker, new_state: :active}
     end
 
     update :record_success do
@@ -208,8 +206,7 @@ defmodule ServiceRadar.Infrastructure.Checker do
       change set_attribute(:enabled, true)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :checker, new_state: :active}
+      change {PublishStateChange, entity_type: :checker, new_state: :active}
     end
 
     update :disable do
@@ -219,8 +216,7 @@ defmodule ServiceRadar.Infrastructure.Checker do
       change set_attribute(:enabled, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :checker, new_state: :disabled}
+      change {PublishStateChange, entity_type: :checker, new_state: :disabled}
     end
   end
 

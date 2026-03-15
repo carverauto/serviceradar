@@ -4,13 +4,10 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyOps do
   """
 
   alias ServiceRadar.Actors.SystemActor
-
-  alias ServiceRadar.Plugins.{
-    PluginTargetPolicy,
-    PolicyAssignmentPlanner,
-    PolicyAssignmentReconciler,
-    SRQLInputResolver
-  }
+  alias ServiceRadar.Plugins.PluginTargetPolicy
+  alias ServiceRadar.Plugins.PolicyAssignmentPlanner
+  alias ServiceRadar.Plugins.PolicyAssignmentReconciler
+  alias ServiceRadar.Plugins.SRQLInputResolver
 
   require Ash.Query
 
@@ -52,7 +49,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyOps do
     PolicyAssignmentReconciler.reconcile(
       policy_to_plan(policy),
       policy.input_definitions || [],
-      Keyword.merge(opts, chunk_size: policy.chunk_size)
+      Keyword.put(opts, :chunk_size, policy.chunk_size)
     )
   end
 

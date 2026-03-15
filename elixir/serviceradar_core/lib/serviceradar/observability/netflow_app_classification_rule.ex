@@ -11,6 +11,8 @@ defmodule ServiceRadar.Observability.NetflowAppClassificationRule do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Types.Cidr
+
   @netflow_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                          permission: "settings.netflow.manage"}
   @classification_rule_fields [
@@ -115,13 +117,13 @@ defmodule ServiceRadar.Observability.NetflowAppClassificationRule do
       description "Optional source port match"
     end
 
-    attribute :dst_cidr, ServiceRadar.Types.Cidr do
+    attribute :dst_cidr, Cidr do
       public? true
       allow_nil? true
       description "Optional destination CIDR match"
     end
 
-    attribute :src_cidr, ServiceRadar.Types.Cidr do
+    attribute :src_cidr, Cidr do
       public? true
       allow_nil? true
       description "Optional source CIDR match"

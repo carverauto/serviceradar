@@ -75,6 +75,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.2", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2.0", only: [:dev, :test], runtime: false},
+      {:styler, "~> 1.11", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:sobelow, "~> 0.14", only: [:dev, :test], runtime: false},
@@ -93,10 +94,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:protobuf, "~> 0.16.0", override: true},
       {:permit, "~> 0.3.3"},
       {:permit_phoenix, "~> 0.4.0"},
-      {:permit_ecto,
-       github: "curiosum-dev/permit_ecto",
-       ref: "3f5aca703893fe453f9d3d27601e2528bb1a82be",
-       override: true},
+      {:permit_ecto, github: "curiosum-dev/permit_ecto", ref: "3f5aca703893fe453f9d3d27601e2528bb1a82be", override: true},
 
       # Ash Framework - Phoenix integration (UI components)
       {:ash_phoenix, "~> 2.0"},

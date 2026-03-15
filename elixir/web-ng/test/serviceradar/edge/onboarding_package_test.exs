@@ -13,9 +13,10 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  require Ash.Query
-
+  alias Ash.Error.Forbidden
   alias ServiceRadar.Edge.OnboardingPackage
+
+  require Ash.Query
 
   describe "package creation" do
     test "can create a package with required fields" do
@@ -77,7 +78,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       assert {:ok, delivered} = result
       assert delivered.status == :delivered
-      assert delivered.delivered_at != nil
+      assert delivered.delivered_at
     end
 
     test "operator can deliver issued package", %{package: package} do
@@ -142,7 +143,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       assert {:ok, activated} = result
       assert activated.status == :activated
-      assert activated.activated_at != nil
+      assert activated.activated_at
       assert activated.activated_from_ip == "192.168.1.100"
       assert activated.last_seen_spiffe_id == "spiffe://example.org/gateway/test"
     end
@@ -196,7 +197,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       assert {:ok, revoked} = result
       assert revoked.status == :revoked
-      assert revoked.revoked_at != nil
+      assert revoked.revoked_at
     end
 
     test "admin can revoke delivered package", %{package: package} do
@@ -249,7 +250,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         |> Ash.Changeset.for_update(:revoke, %{reason: "Should fail"}, actor: actor)
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
   end
 
@@ -336,7 +337,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       assert {:ok, deleted} = result
       assert deleted.status == :deleted
-      assert deleted.deleted_at != nil
+      assert deleted.deleted_at
       assert deleted.deleted_by == "admin@example.com"
       assert deleted.deleted_reason == "Cleanup"
     end
@@ -369,7 +370,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: "operator"}, actor: actor)
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
   end
 
@@ -381,12 +382,14 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       issued = onboarding_package_fixture(%{label: "Issued Package"})
 
       {:ok, delivered} =
-        onboarding_package_fixture(%{label: "Delivered Package"})
+        %{label: "Delivered Package"}
+        |> onboarding_package_fixture()
         |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, activated} =
-        onboarding_package_fixture(%{label: "Activated Package"})
+        %{label: "Activated Package"}
+        |> onboarding_package_fixture()
         |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
         |> elem(1)
@@ -394,7 +397,8 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         |> Ash.update()
 
       {:ok, revoked} =
-        onboarding_package_fixture(%{label: "Revoked Package"})
+        %{label: "Revoked Package"}
+        |> onboarding_package_fixture()
         |> Ash.Changeset.for_update(:revoke, %{}, actor: actor)
         |> Ash.update()
 

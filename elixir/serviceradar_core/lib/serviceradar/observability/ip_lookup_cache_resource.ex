@@ -75,7 +75,7 @@ defmodule ServiceRadar.Observability.IpLookupCacheResource do
         unquote(read_policy_ast)
 
         policy action(:upsert) do
-          unquote_splicing(upsert_authorizers)
+          (unquote_splicing(upsert_authorizers))
         end
 
         policy action(:destroy) do

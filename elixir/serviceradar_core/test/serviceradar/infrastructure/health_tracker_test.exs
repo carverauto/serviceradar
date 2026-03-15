@@ -12,7 +12,9 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.Infrastructure.{HealthEvent, HealthPubSub, HealthTracker}
+  alias ServiceRadar.Infrastructure.HealthEvent
+  alias ServiceRadar.Infrastructure.HealthPubSub
+  alias ServiceRadar.Infrastructure.HealthTracker
 
   @moduletag :database
 
@@ -54,7 +56,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       assert event.new_state == :degraded
       assert event.reason == :high_latency
       assert event.metadata["latency_ms"] == 500
-      assert event.recorded_at != nil
+      assert event.recorded_at
     end
 
     test "creates a HealthEvent for gateway heartbeat timeout", %{

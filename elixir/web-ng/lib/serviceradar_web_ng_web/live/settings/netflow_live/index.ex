@@ -10,11 +10,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias Ash.Page.Keyset
   alias AshPhoenix.Form
+  alias ServiceRadar.Observability.GeoLiteMmdbDownloadWorker
+  alias ServiceRadar.Observability.IpEnrichmentRefreshWorker
   alias ServiceRadar.Observability.NetflowAppClassificationRule
   alias ServiceRadar.Observability.NetflowLocalCidr
   alias ServiceRadar.Observability.NetflowSettings
-  alias ServiceRadar.Observability.{GeoLiteMmdbDownloadWorker, IpEnrichmentRefreshWorker}
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadarWebNG.RBAC
 
@@ -178,7 +180,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
     case get_cidr(scope, id) do
       nil ->
-        {:noreply, socket |> put_flash(:error, "CIDR not found")}
+        {:noreply, put_flash(socket, :error, "CIDR not found")}
 
       cidr ->
         case Ash.destroy(cidr, scope: scope) do
@@ -189,7 +191,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
              |> assign(:cidrs, load_cidrs(scope))}
 
           {:error, err} ->
-            {:noreply, socket |> put_flash(:error, format_ash_error(err))}
+            {:noreply, put_flash(socket, :error, format_ash_error(err))}
         end
     end
   end
@@ -199,7 +201,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
     case get_app_rule(scope, id) do
       nil ->
-        {:noreply, socket |> put_flash(:error, "Rule not found")}
+        {:noreply, put_flash(socket, :error, "Rule not found")}
 
       rule ->
         case Ash.destroy(rule, actor: scope.user) do
@@ -210,7 +212,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
              |> assign(:app_rules, load_app_rules(scope))}
 
           {:error, _} ->
-            {:noreply, socket |> put_flash(:error, "Failed to delete rule")}
+            {:noreply, put_flash(socket, :error, "Failed to delete rule")}
         end
     end
   end
@@ -218,8 +220,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
   def handle_event("settings_validate", %{"settings" => params}, socket) do
     # Keep the in-memory form state in sync; we intentionally avoid clearing secrets
     # unless the user explicitly checks the "clear" box.
-    {:noreply,
-     assign(socket, :settings_form, merge_settings_form(socket.assigns.settings_form, params))}
+    {:noreply, assign(socket, :settings_form, merge_settings_form(socket.assigns.settings_form, params))}
   end
 
   def handle_event("settings_save", %{"settings" => params}, socket) do
@@ -252,7 +253,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
          |> assign(:settings_form, settings_to_form(updated))}
 
       {:error, err} ->
-        {:noreply, socket |> put_flash(:error, "Failed to save settings: #{inspect(err)}")}
+        {:noreply, put_flash(socket, :error, "Failed to save settings: #{inspect(err)}")}
     end
   end
 
@@ -262,18 +263,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     if RBAC.can?(scope, "settings.netflow.manage") do
       case ObanSupport.safe_insert(GeoLiteMmdbDownloadWorker.new(%{force: true})) do
         {:ok, _job} ->
-          {:noreply, socket |> put_flash(:info, "Queued MMDB refresh job")}
+          {:noreply, put_flash(socket, :info, "Queued MMDB refresh job")}
 
         {:error, :oban_unavailable} ->
-          {:noreply,
-           socket
-           |> put_flash(:error, "Oban is unavailable in this environment.")}
+          {:noreply, put_flash(socket, :error, "Oban is unavailable in this environment.")}
 
         {:error, err} ->
-          {:noreply, socket |> put_flash(:error, "Failed to queue job: #{inspect(err)}")}
+          {:noreply, put_flash(socket, :error, "Failed to queue job: #{inspect(err)}")}
       end
     else
-      {:noreply, socket |> put_flash(:error, "Not authorized")}
+      {:noreply, put_flash(socket, :error, "Not authorized")}
     end
   end
 
@@ -283,18 +282,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     if RBAC.can?(scope, "settings.netflow.manage") do
       case ObanSupport.safe_insert(IpEnrichmentRefreshWorker.new(%{})) do
         {:ok, _job} ->
-          {:noreply, socket |> put_flash(:info, "Queued enrichment refresh job")}
+          {:noreply, put_flash(socket, :info, "Queued enrichment refresh job")}
 
         {:error, :oban_unavailable} ->
-          {:noreply,
-           socket
-           |> put_flash(:error, "Oban is unavailable in this environment.")}
+          {:noreply, put_flash(socket, :error, "Oban is unavailable in this environment.")}
 
         {:error, err} ->
-          {:noreply, socket |> put_flash(:error, "Failed to queue job: #{inspect(err)}")}
+          {:noreply, put_flash(socket, :error, "Failed to queue job: #{inspect(err)}")}
       end
     else
-      {:noreply, socket |> put_flash(:error, "Not authorized")}
+      {:noreply, put_flash(socket, :error, "Not authorized")}
     end
   end
 
@@ -302,22 +299,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     scope = socket.assigns.current_scope
 
     if RBAC.can?(scope, "settings.netflow.manage") do
-      case ObanSupport.safe_insert(
-             ServiceRadar.Observability.IpinfoMmdbDownloadWorker.new(%{force: true})
-           ) do
+      case ObanSupport.safe_insert(ServiceRadar.Observability.IpinfoMmdbDownloadWorker.new(%{force: true})) do
         {:ok, _job} ->
-          {:noreply, socket |> put_flash(:info, "Queued ipinfo MMDB refresh job")}
+          {:noreply, put_flash(socket, :info, "Queued ipinfo MMDB refresh job")}
 
         {:error, :oban_unavailable} ->
-          {:noreply,
-           socket
-           |> put_flash(:error, "Oban is unavailable in this environment.")}
+          {:noreply, put_flash(socket, :error, "Oban is unavailable in this environment.")}
 
         {:error, err} ->
-          {:noreply, socket |> put_flash(:error, "Failed to queue job: #{inspect(err)}")}
+          {:noreply, put_flash(socket, :error, "Failed to queue job: #{inspect(err)}")}
       end
     else
-      {:noreply, socket |> put_flash(:error, "Not authorized")}
+      {:noreply, put_flash(socket, :error, "Not authorized")}
     end
   end
 
@@ -806,7 +799,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
       |> Ash.Query.sort(enabled: :desc, partition: :asc, cidr: :asc)
 
     case Ash.read(query, scope: scope) do
-      {:ok, %Ash.Page.Keyset{} = page} -> page.results
+      {:ok, %Keyset{} = page} -> page.results
       {:ok, rows} when is_list(rows) -> rows
       _ -> []
     end
@@ -819,7 +812,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
       |> Ash.Query.sort(enabled: :desc, priority: :desc, partition: :asc, app_label: :asc)
 
     case Ash.read(query, scope: scope) do
-      {:ok, %Ash.Page.Keyset{} = page} -> page.results
+      {:ok, %Keyset{} = page} -> page.results
       {:ok, rows} when is_list(rows) -> rows
       _ -> []
     end
@@ -869,31 +862,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
   defp settings_to_form(%NetflowSettings{} = settings) do
     # Build a plain form-like map for settings; we only persist on submit.
-    %{
-      "geoip_enabled" => truthy(settings.geoip_enabled),
-      "ipinfo_enabled" => truthy(settings.ipinfo_enabled),
-      "ipinfo_base_url" => settings.ipinfo_base_url || "https://api.ipinfo.io",
-      "threat_intel_enabled" => truthy(settings.threat_intel_enabled),
-      "threat_intel_feed_urls" => settings.threat_intel_feed_urls || [],
-      "anomaly_enabled" => truthy(settings.anomaly_enabled),
-      "anomaly_baseline_window_seconds" =>
-        to_string(settings.anomaly_baseline_window_seconds || 604_800),
-      "anomaly_threshold_percent" => to_string(settings.anomaly_threshold_percent || 300),
-      "port_scan_enabled" => truthy(settings.port_scan_enabled),
-      "port_scan_window_seconds" => to_string(settings.port_scan_window_seconds || 300),
-      "port_scan_unique_ports_threshold" =>
-        to_string(settings.port_scan_unique_ports_threshold || 50)
-    }
-    |> to_form(as: "settings")
+    to_form(
+      %{
+        "geoip_enabled" => truthy(settings.geoip_enabled),
+        "ipinfo_enabled" => truthy(settings.ipinfo_enabled),
+        "ipinfo_base_url" => settings.ipinfo_base_url || "https://api.ipinfo.io",
+        "threat_intel_enabled" => truthy(settings.threat_intel_enabled),
+        "threat_intel_feed_urls" => settings.threat_intel_feed_urls || [],
+        "anomaly_enabled" => truthy(settings.anomaly_enabled),
+        "anomaly_baseline_window_seconds" => to_string(settings.anomaly_baseline_window_seconds || 604_800),
+        "anomaly_threshold_percent" => to_string(settings.anomaly_threshold_percent || 300),
+        "port_scan_enabled" => truthy(settings.port_scan_enabled),
+        "port_scan_window_seconds" => to_string(settings.port_scan_window_seconds || 300),
+        "port_scan_unique_ports_threshold" => to_string(settings.port_scan_unique_ports_threshold || 50)
+      },
+      as: "settings"
+    )
   end
 
   defp settings_to_form(_), do: nil
 
   defp merge_settings_form(form, params) do
     # Phoenix form struct has `.source`; we merge incoming params into it for re-render.
-    merged =
-      form.source
-      |> Map.merge(params || %{})
+    merged = Map.merge(form.source, params || %{})
 
     to_form(merged, as: "settings")
   end
@@ -910,17 +901,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     base = %{
       geoip_enabled: truthy_param?(Map.get(params, "geoip_enabled")),
       ipinfo_enabled: truthy_param?(Map.get(params, "ipinfo_enabled")),
-      ipinfo_base_url: Map.get(params, "ipinfo_base_url") |> to_string() |> String.trim(),
+      ipinfo_base_url: params |> Map.get("ipinfo_base_url") |> to_string() |> String.trim(),
       threat_intel_enabled: truthy_param?(Map.get(params, "threat_intel_enabled")),
       threat_intel_feed_urls: feed_urls,
       anomaly_enabled: truthy_param?(Map.get(params, "anomaly_enabled")),
-      anomaly_baseline_window_seconds:
-        to_int(Map.get(params, "anomaly_baseline_window_seconds"), 604_800),
+      anomaly_baseline_window_seconds: to_int(Map.get(params, "anomaly_baseline_window_seconds"), 604_800),
       anomaly_threshold_percent: to_int(Map.get(params, "anomaly_threshold_percent"), 300),
       port_scan_enabled: truthy_param?(Map.get(params, "port_scan_enabled")),
       port_scan_window_seconds: to_int(Map.get(params, "port_scan_window_seconds"), 300),
-      port_scan_unique_ports_threshold:
-        to_int(Map.get(params, "port_scan_unique_ports_threshold"), 50),
+      port_scan_unique_ports_threshold: to_int(Map.get(params, "port_scan_unique_ports_threshold"), 50),
       clear_ipinfo_api_key: truthy_param?(Map.get(params, "clear_ipinfo_api_key"))
     }
 

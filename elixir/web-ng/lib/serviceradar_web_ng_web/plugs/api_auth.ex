@@ -39,7 +39,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   """
 
   import Plug.Conn
-  require Logger
 
   alias Ash.PlugHelpers
   alias ServiceRadar.Actors.SystemActor
@@ -47,6 +46,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNGWeb.ClientIP
+
+  require Logger
 
   def init(opts), do: opts
 
@@ -144,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
         claims["scope"]
 
       is_list(claims["scopes"]) ->
-        claims["scopes"] |> Enum.join(" ")
+        Enum.join(claims["scopes"], " ")
 
       true ->
         ""
@@ -168,7 +169,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
   defp validate_ash_api_token(conn, token) do
     # Hash the token to compare against stored hash
-    token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+    token_hash = :sha256 |> :crypto.hash(token) |> Base.encode16(case: :lower)
     token_prefix = String.slice(token, 0, 8)
 
     case find_api_token(token_hash, token_prefix) do
@@ -227,7 +228,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   end
 
   defp get_api_keys do
-    Application.get_env(:serviceradar_web_ng, :api_auth, [])
+    :serviceradar_web_ng
+    |> Application.get_env(:api_auth, [])
     |> Keyword.get(:api_keys, [])
   end
 

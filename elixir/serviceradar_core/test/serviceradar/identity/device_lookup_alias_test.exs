@@ -5,12 +5,13 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.{DeviceAliasState, DeviceLookup}
+  alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()

@@ -8,9 +8,9 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
 
   use ServiceRadarWebNG.DataCase, async: true
 
-  alias ServiceRadarWebNG.Auth.Guardian
-
   import ServiceRadarWebNG.AccountsFixtures
+
+  alias ServiceRadarWebNG.Auth.Guardian
 
   describe "subject_for_token/2" do
     test "returns user:id format for user resource" do

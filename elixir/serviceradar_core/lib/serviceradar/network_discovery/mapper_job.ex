@@ -11,6 +11,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.NetworkDiscovery.Validations.AgentAssignment
+
   postgres do
     table "mapper_jobs"
     repo ServiceRadar.Repo
@@ -41,7 +43,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
         :options
       ]
 
-      validate ServiceRadar.NetworkDiscovery.Validations.AgentAssignment
+      validate AgentAssignment
     end
 
     update :update do
@@ -60,7 +62,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
         :options
       ]
 
-      validate ServiceRadar.NetworkDiscovery.Validations.AgentAssignment
+      validate AgentAssignment
     end
 
     update :record_run do

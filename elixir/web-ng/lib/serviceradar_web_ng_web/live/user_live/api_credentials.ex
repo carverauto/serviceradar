@@ -10,10 +10,10 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  on_mount {ServiceRadarWebNGWeb.UserAuth, :require_sudo_mode}
-
   alias ServiceRadar.Identity.OAuthClient
   alias ServiceRadar.Identity.OAuthClient.Credentials
+
+  on_mount {ServiceRadarWebNGWeb.UserAuth, :require_sudo_mode}
 
   @impl true
   def render(assigns) do
@@ -516,9 +516,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
          |> assign(:clients, load_clients(user))}
 
       {:error, error} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "Failed to create client: #{inspect(error)}")}
+        {:noreply, put_flash(socket, :error, "Failed to create client: #{inspect(error)}")}
     end
   end
 
@@ -531,15 +529,11 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
   end
 
   def handle_event("copy_client_id", %{"id" => id}, socket) do
-    {:noreply,
-     socket
-     |> push_event("copy_to_clipboard", %{text: id})}
+    {:noreply, push_event(socket, "copy_to_clipboard", %{text: id})}
   end
 
   def handle_event("copy_value", %{"value" => value}, socket) do
-    {:noreply,
-     socket
-     |> push_event("copy_to_clipboard", %{text: value})}
+    {:noreply, push_event(socket, "copy_to_clipboard", %{text: value})}
   end
 
   def handle_event("open_revoke_modal", %{"id" => id}, socket) do
@@ -626,7 +620,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
   defp status_color(%{enabled: false}), do: "ghost"
 
   defp status_color(%{expires_at: expires_at}) when not is_nil(expires_at) do
-    if DateTime.compare(expires_at, DateTime.utc_now()) == :lt do
+    if DateTime.before?(expires_at, DateTime.utc_now()) do
       "warning"
     else
       "success"
@@ -639,7 +633,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
   defp status_label(%{enabled: false}), do: "Disabled"
 
   defp status_label(%{expires_at: expires_at}) when not is_nil(expires_at) do
-    if DateTime.compare(expires_at, DateTime.utc_now()) == :lt do
+    if DateTime.before?(expires_at, DateTime.utc_now()) do
       "Expired"
     else
       "Active"

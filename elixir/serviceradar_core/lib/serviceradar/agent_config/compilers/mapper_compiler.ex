@@ -8,19 +8,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
   @behaviour ServiceRadar.AgentConfig.Compiler
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
+  alias ServiceRadar.NetworkDiscovery.MapperSeed
+  alias ServiceRadar.NetworkDiscovery.MapperUnifiController
+  alias ServiceRadar.SNMPProfiles.CredentialResolver
+
   require Ash.Query
   require Logger
-
-  alias ServiceRadar.Actors.SystemActor
-
-  alias ServiceRadar.NetworkDiscovery.{
-    MapperJob,
-    MapperMikrotikController,
-    MapperSeed,
-    MapperUnifiController
-  }
-
-  alias ServiceRadar.SNMPProfiles.CredentialResolver
 
   @default_workers 20
   @default_timeout "30s"

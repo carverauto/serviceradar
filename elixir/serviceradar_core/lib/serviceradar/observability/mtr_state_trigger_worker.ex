@@ -6,7 +6,8 @@ defmodule ServiceRadar.Observability.MtrStateTriggerWorker do
   use GenServer
 
   alias ServiceRadar.Infrastructure.HealthPubSub
-  alias ServiceRadar.Observability.{MtrAutomationDispatcher, MtrPolicy}
+  alias ServiceRadar.Observability.MtrAutomationDispatcher
+  alias ServiceRadar.Observability.MtrPolicy
 
   require Logger
 
@@ -46,8 +47,6 @@ defmodule ServiceRadar.Observability.MtrStateTriggerWorker do
     incident_correlation_id =
       if mode == :incident do
         Ecto.UUID.generate()
-      else
-        nil
       end
 
     case MtrPolicy.list_enabled() do

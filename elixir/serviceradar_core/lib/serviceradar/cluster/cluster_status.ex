@@ -260,7 +260,8 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
   end
 
   defp get_topologies do
-    Application.get_env(:libcluster, :topologies, [])
+    :libcluster
+    |> Application.get_env(:topologies, [])
     |> Keyword.keys()
   rescue
     _ -> []

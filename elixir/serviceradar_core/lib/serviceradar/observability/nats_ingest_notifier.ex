@@ -9,10 +9,12 @@ defmodule ServiceRadar.Observability.NatsIngestNotifier do
   `LogPubSub` / `FlowPubSub` with the accumulated count.
   """
   use GenServer
-  require Logger
 
   alias ServiceRadar.NATS.Connection
-  alias ServiceRadar.Observability.{FlowPubSub, LogPubSub}
+  alias ServiceRadar.Observability.FlowPubSub
+  alias ServiceRadar.Observability.LogPubSub
+
+  require Logger
 
   @log_subject "logs.*.processed"
   @flow_subject "flows.*.processed"

@@ -12,9 +12,10 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  require Ash.Query
-
+  alias Ash.Error.Forbidden
   alias ServiceRadar.Infrastructure.Partition
+
+  require Ash.Query
 
   describe "partition creation" do
     test "can create a partition with required fields" do
@@ -42,8 +43,8 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
     test "sets timestamps on creation" do
       partition = partition_fixture()
 
-      assert partition.created_at != nil
-      assert partition.updated_at != nil
+      assert partition.created_at
+      assert partition.updated_at
       assert DateTime.diff(DateTime.utc_now(), partition.created_at, :second) < 60
     end
 
@@ -102,7 +103,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       assert updated.name == "Updated Network"
       assert updated.description == "Updated description"
       assert updated.cidr_ranges == ["172.16.0.0/12"]
-      assert updated.updated_at != nil
+      assert updated.updated_at
     end
 
     test "operator cannot update partition (admin only)", %{partition: partition} do
@@ -113,7 +114,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
         |> Ash.Changeset.for_update(:update, %{name: "Should Fail"}, actor: actor)
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
 
     test "viewer cannot update partition", %{partition: partition} do
@@ -124,7 +125,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
         |> Ash.Changeset.for_update(:update, %{name: "Should Fail"}, actor: actor)
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
   end
 
@@ -143,7 +144,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
         |> Ash.update()
 
       assert disabled.enabled == false
-      assert disabled.updated_at != nil
+      assert disabled.updated_at
     end
 
     test "admin can enable disabled partition", %{partition: partition} do
@@ -172,7 +173,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
         |> Ash.Changeset.for_update(:disable, %{}, actor: actor)
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
   end
 

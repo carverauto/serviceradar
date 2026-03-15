@@ -2,10 +2,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   @moduledoc false
 
   import Ash.Expr
-  require Ash.Query
 
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Repo
+
+  require Ash.Query
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
@@ -64,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
     case Repo.query(query, params ++ [limit]) do
       {:ok, %{rows: rows, columns: columns}} ->
-        {:ok, Enum.map(rows, fn row -> Enum.zip(columns, row) |> Map.new() end)}
+        {:ok, Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end)}
 
       {:error, reason} ->
         {:error, reason}
@@ -107,13 +108,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
          {:ok, %{rows: [[total]]}} <- Repo.query(count_query, params) do
       {:ok,
        %{
-         rows: Enum.map(rows, fn row -> Enum.zip(columns, row) |> Map.new() end),
+         rows: Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end),
          total_count: total || 0,
          page: page,
          per_page: per_page
        }}
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -187,9 +186,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       """
 
       with {:ok, %{rows: [trace_row], columns: trace_cols}} <- Repo.query(trace_query, [trace_id]),
-           trace <- Enum.zip(trace_cols, trace_row) |> Map.new(),
+           trace = trace_cols |> Enum.zip(trace_row) |> Map.new(),
            {:ok, %{rows: hop_rows, columns: hop_cols}} <- Repo.query(hops_query, [trace_id]) do
-        hops = Enum.map(hop_rows, fn row -> Enum.zip(hop_cols, row) |> Map.new() end)
+        hops = Enum.map(hop_rows, fn row -> hop_cols |> Enum.zip(row) |> Map.new() end)
         {:ok, trace, hops}
       else
         {:ok, %{rows: []}} -> {:error, :not_found}
@@ -206,14 +205,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
   def get_trace_detail(_), do: {:error, :invalid_trace_id}
 
-  def suppress_completed_pending_jobs(pending_jobs, traces)
-      when is_list(pending_jobs) and is_list(traces) do
+  def suppress_completed_pending_jobs(pending_jobs, traces) when is_list(pending_jobs) and is_list(traces) do
     completed_command_ids =
       traces
       |> Enum.map(&Map.get(&1, "check_id"))
       |> Enum.reject(&is_nil/1)
-      |> Enum.map(&to_string/1)
-      |> MapSet.new()
+      |> MapSet.new(&to_string/1)
 
     Enum.reject(pending_jobs, fn job ->
       job_id = Map.get(job, :id) || Map.get(job, "id")
@@ -243,25 +240,23 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     idx = 1
 
     {conditions, params, idx} =
-      if target_filter != "" do
-        {conditions ++ ["(target ILIKE $#{idx} OR target_ip ILIKE $#{idx})"],
-         params ++ ["%#{target_filter}%"], idx + 1}
-      else
+      if target_filter == "" do
         {conditions, params, idx}
+      else
+        {conditions ++ ["(target ILIKE $#{idx} OR target_ip ILIKE $#{idx})"], params ++ ["%#{target_filter}%"], idx + 1}
       end
 
     {conditions, params, idx} =
-      if agent_filter != "" do
-        {conditions ++ ["agent_id ILIKE $#{idx}"], params ++ ["%#{agent_filter}%"], idx + 1}
-      else
+      if agent_filter == "" do
         {conditions, params, idx}
+      else
+        {conditions ++ ["agent_id ILIKE $#{idx}"], params ++ ["%#{agent_filter}%"], idx + 1}
       end
 
     {conditions, params, _idx} =
       case {device_uid, device_ip} do
         {uid, ip} when is_binary(uid) and uid != "" and is_binary(ip) and ip != "" ->
-          {conditions ++ ["(device_id::text = $#{idx} OR target_ip = $#{idx + 1})"],
-           params ++ [uid, ip], idx + 2}
+          {conditions ++ ["(device_id::text = $#{idx} OR target_ip = $#{idx + 1})"], params ++ [uid, ip], idx + 2}
 
         {uid, _ip} when is_binary(uid) and uid != "" ->
           {conditions ++ ["device_id::text = $#{idx}"], params ++ [uid], idx + 1}
@@ -525,11 +520,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     end
   end
 
-  defp apply_filter_by_field("", _value, conditions, params, idx, sort),
-    do: {conditions, params, idx, sort}
+  defp apply_filter_by_field("", _value, conditions, params, idx, sort), do: {conditions, params, idx, sort}
 
-  defp apply_filter_by_field(_field, value, conditions, params, idx, sort)
-       when not is_binary(value) or value == "" do
+  defp apply_filter_by_field(_field, value, conditions, params, idx, sort) when not is_binary(value) or value == "" do
     {conditions, params, idx, sort}
   end
 
@@ -551,8 +544,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     end
   end
 
-  defp maybe_add_boolean_filter(nil, _field, conditions, params, idx, sort),
-    do: {conditions, params, idx, sort}
+  defp maybe_add_boolean_filter(nil, _field, conditions, params, idx, sort), do: {conditions, params, idx, sort}
 
   defp maybe_add_boolean_filter(bool_value, field, conditions, params, idx, sort) do
     {conditions ++ ["#{field} = $#{idx}"], params ++ [bool_value], idx + 1, sort}

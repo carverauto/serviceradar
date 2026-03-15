@@ -15,12 +15,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.AuthSettings
 
-  require Logger
-
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
   alias ServiceRadarWebNGWeb.SettingsComponents
+
+  require Logger
 
   @modes [
     {"Password Only", :password_only, "Users authenticate with email and password."},
@@ -35,8 +35,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
   @impl true
   def event_mapping do
-    Permit.Phoenix.LiveView.default_event_mapping()
-    |> Map.merge(%{
+    Map.merge(Permit.Phoenix.LiveView.default_event_mapping(), %{
       "save" => :update,
       "validate" => :read,
       "reset" => :update,
@@ -781,15 +780,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           {:error, error} ->
             Logger.error("Failed to save auth settings: #{inspect(error)}")
 
-            {:noreply,
-             socket
-             |> put_flash(:error, "Failed to save settings. Please check your configuration.")}
+            {:noreply, put_flash(socket, :error, "Failed to save settings. Please check your configuration.")}
         end
 
       {:error, message} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, message)}
+        {:noreply, put_flash(socket, :error, message)}
     end
   end
 
@@ -809,22 +804,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     if discovery_url && discovery_url != "" do
       case test_oidc_discovery(discovery_url) do
         {:ok, endpoints} ->
-          {:noreply,
-           socket
-           |> put_flash(
-             :info,
-             "OIDC configuration valid. Found endpoints: #{Enum.join(endpoints, ", ")}"
-           )}
+          {:noreply, put_flash(socket, :info, "OIDC configuration valid. Found endpoints: #{Enum.join(endpoints, ", ")}")}
 
         {:error, reason} ->
-          {:noreply,
-           socket
-           |> put_flash(:error, "OIDC configuration test failed: #{reason}")}
+          {:noreply, put_flash(socket, :error, "OIDC configuration test failed: #{reason}")}
       end
     else
-      {:noreply,
-       socket
-       |> put_flash(:error, "Please enter a discovery URL first.")}
+      {:noreply, put_flash(socket, :error, "Please enter a discovery URL first.")}
     end
   end
 
@@ -836,33 +822,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       metadata_url && metadata_url != "" ->
         case test_saml_metadata_url(metadata_url) do
           {:ok, entity_id} ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "SAML metadata valid. IdP Entity ID: #{entity_id}")}
+            {:noreply, put_flash(socket, :info, "SAML metadata valid. IdP Entity ID: #{entity_id}")}
 
           {:error, reason} ->
-            {:noreply,
-             socket
-             |> put_flash(:error, "SAML metadata test failed: #{reason}")}
+            {:noreply, put_flash(socket, :error, "SAML metadata test failed: #{reason}")}
         end
 
       metadata_xml && metadata_xml != "" ->
         case test_saml_metadata_xml(metadata_xml) do
           {:ok, entity_id} ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "SAML metadata XML valid. IdP Entity ID: #{entity_id}")}
+            {:noreply, put_flash(socket, :info, "SAML metadata XML valid. IdP Entity ID: #{entity_id}")}
 
           {:error, reason} ->
-            {:noreply,
-             socket
-             |> put_flash(:error, "SAML metadata XML invalid: #{reason}")}
+            {:noreply, put_flash(socket, :error, "SAML metadata XML invalid: #{reason}")}
         end
 
       true ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "Please enter a metadata URL or paste metadata XML first.")}
+        {:noreply, put_flash(socket, :error, "Please enter a metadata URL or paste metadata XML first.")}
     end
   end
 
@@ -909,8 +885,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             :ok
 
           {:error, reason} ->
-            {:error,
-             "OIDC configuration validation failed: #{reason}. Please verify your settings and try again."}
+            {:error, "OIDC configuration validation failed: #{reason}. Please verify your settings and try again."}
         end
     end
   end
@@ -940,8 +915,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         :ok
 
       {:error, reason} ->
-        {:error,
-         "SAML metadata validation failed: #{reason}. Please verify your settings and try again."}
+        {:error, "SAML metadata validation failed: #{reason}. Please verify your settings and try again."}
     end
   end
 
@@ -1040,39 +1014,35 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   end
 
   defp test_saml_metadata_xml(xml) do
-    try do
-      import SweetXml
+    import SweetXml
 
-      # Use safe parser
-      doc = safe_sweetxml_parse(xml)
+    # Use safe parser
+    doc = safe_sweetxml_parse(xml)
 
-      # Try to extract entity ID
-      entity_id =
-        doc
-        |> xpath(
-          ~x"//md:EntityDescriptor/@entityID"s,
-          namespace_conformant: true,
-          namespaces: [md: "urn:oasis:names:tc:SAML:2.0:metadata"]
-        )
+    # Try to extract entity ID
+    entity_id =
+      xpath(doc, ~x"//md:EntityDescriptor/@entityID"s,
+        namespace_conformant: true,
+        namespaces: [md: "urn:oasis:names:tc:SAML:2.0:metadata"]
+      )
 
-      # Fallback without namespace
-      entity_id =
-        if entity_id == "" do
-          xpath(doc, ~x"//EntityDescriptor/@entityID"s)
-        else
-          entity_id
-        end
-
-      if entity_id != "" do
-        {:ok, entity_id}
+    # Fallback without namespace
+    entity_id =
+      if entity_id == "" do
+        xpath(doc, ~x"//EntityDescriptor/@entityID"s)
       else
-        {:error, "Could not find EntityDescriptor with entityID"}
+        entity_id
       end
-    rescue
-      e ->
-        Logger.error("SAML metadata parse error: #{inspect(e)}")
-        {:error, "Failed to parse XML metadata"}
+
+    if entity_id == "" do
+      {:error, "Could not find EntityDescriptor with entityID"}
+    else
+      {:ok, entity_id}
     end
+  rescue
+    e ->
+      Logger.error("SAML metadata parse error: #{inspect(e)}")
+      {:error, "Failed to parse XML metadata"}
   end
 
   defp safe_sweetxml_parse(xml_string) do
@@ -1122,8 +1092,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       "jwt_public_key_pem" => Map.get(settings, :jwt_public_key_pem),
       "jwt_issuer" => Map.get(settings, :jwt_issuer),
       "jwt_audience" => Map.get(settings, :jwt_audience),
-      "claim_mappings" =>
-        Map.get(settings, :claim_mappings, %{"email" => "email", "name" => "name", "sub" => "sub"})
+      "claim_mappings" => Map.get(settings, :claim_mappings, %{"email" => "email", "name" => "name", "sub" => "sub"})
     }
   end
 

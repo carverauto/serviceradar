@@ -33,12 +33,12 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Cluster.ClusterStatus
   alias ServiceRadar.GatewayRegistry
-  alias ServiceRadar.AgentRegistry
   alias ServiceRadarWebNG.RBAC
 
-  @refresh_interval :timer.seconds(10)
+  @refresh_interval to_timeout(second: 10)
 
   @impl true
   def mount(_params, _session, socket) do

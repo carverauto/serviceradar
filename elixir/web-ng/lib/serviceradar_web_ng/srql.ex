@@ -6,13 +6,14 @@ defmodule ServiceRadarWebNG.SRQL do
   then executed directly via Ecto adapters. No intermediate query layers.
   """
 
+  @behaviour ServiceRadarWebNG.SRQLBehaviour
+
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.SRQL.Native
 
   require Logger
-  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
-  @behaviour ServiceRadarWebNG.SRQLBehaviour
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   def query(query, opts \\ %{}) when is_binary(query) do
     query_request(%{
@@ -201,8 +202,6 @@ defmodule ServiceRadarWebNG.SRQL do
 
     if is_integer(limit) and is_binary(candidate) and length(results) >= limit do
       candidate
-    else
-      nil
     end
   end
 
@@ -224,8 +223,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp enrich_downsample_aliases(results, translation)
-       when is_list(results) and is_map(translation) do
+  defp enrich_downsample_aliases(results, translation) when is_list(results) and is_map(translation) do
     query = Map.get(translation, "_query")
     series_field = extract_query_token(query, "series")
 
@@ -344,8 +342,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp decode_param(%{"t" => type, "v" => value})
-       when type in ["inet", "cidr"] and is_binary(value) do
+  defp decode_param(%{"t" => type, "v" => value}) when type in ["inet", "cidr"] and is_binary(value) do
     case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
       {:ok, inet} -> {:ok, inet}
       _ -> {:error, :invalid_inet_param}

@@ -5,13 +5,16 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.MergeAudit
+  alias ServiceRadar.TestSupport
 
   require Ash.Query
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler, MergeAudit}
-  alias ServiceRadar.TestSupport
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -94,7 +97,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
   end
 
   defp mac_suffix do
-    System.unique_integer([:positive])
+    [:positive]
+    |> System.unique_integer()
     |> rem(256)
     |> Integer.to_string(16)
     |> String.pad_leading(2, "0")

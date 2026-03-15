@@ -1,10 +1,10 @@
 defmodule ServiceRadar.SRQLDeviceMatcher do
   @moduledoc false
 
+  alias ServiceRadar.Inventory.Device
+
   require Ash.Query
   require Logger
-
-  alias ServiceRadar.Inventory.Device
 
   @field_mappings %{
     "hostname" => :hostname,
@@ -86,8 +86,6 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
       :error ->
         if Keyword.get(opts, :allow_existing_atom_fields?, true) do
           String.to_existing_atom(field)
-        else
-          nil
         end
     end
   end

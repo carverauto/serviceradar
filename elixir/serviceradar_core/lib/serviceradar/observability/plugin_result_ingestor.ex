@@ -4,22 +4,19 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   and timeseries_metrics.
   """
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.Observability.ServiceIdentity
+  alias ServiceRadar.Observability.ServiceStatus
+  alias ServiceRadar.Observability.TimeseriesMetric
+  alias ServiceRadar.Observability.TimeseriesSeriesKey
 
-  alias ServiceRadar.Observability.{
-    ServiceIdentity,
-    ServiceStatus,
-    TimeseriesMetric,
-    TimeseriesSeriesKey
-  }
+  require Logger
 
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) do
     actor = SystemActor.system(:plugin_result_ingestor)
-    created_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    created_at = DateTime.truncate(DateTime.utc_now(), :microsecond)
     observed_at = resolve_observed_at(payload, status)
     summary = resolve_summary(payload)
     status_label = fetch_string(payload, ["status"])
@@ -35,9 +32,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         available
       )
 
-    with :ok <- insert_status(status_row, actor),
-         :ok <- insert_metrics(payload, status, observed_at, created_at, actor) do
-      :ok
+    with :ok <- insert_status(status_row, actor) do
+      insert_metrics(payload, status, observed_at, created_at, actor)
     end
   rescue
     e ->

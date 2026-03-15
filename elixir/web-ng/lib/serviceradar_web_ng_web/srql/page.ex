@@ -61,13 +61,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
     page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
 
-    display_limit =
-      query
-      |> extract_limit_from_srql(limit, default_limit, max_limit)
+    display_limit = extract_limit_from_srql(query, limit, default_limit, max_limit)
 
     srql =
-      srql
-      |> Map.merge(%{
+      Map.merge(srql, %{
         enabled: true,
         entity: entity,
         page_path: page_path,
@@ -113,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     extra_params = normalize_extra_params(Keyword.get(opts, :extra_params, %{}))
 
     raw_query = normalize_param_to_string(extract_param(params, "q")) || ""
-    query = raw_query |> String.trim()
+    query = String.trim(raw_query)
     query = if query == "", do: to_string(srql[:query] || ""), else: query
 
     limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
@@ -543,10 +540,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       end
       |> String.trim()
 
-    if candidate != "" do
-      candidate
-    else
+    if candidate == "" do
       srql_entity(srql, opts)
+    else
+      candidate
     end
   end
 

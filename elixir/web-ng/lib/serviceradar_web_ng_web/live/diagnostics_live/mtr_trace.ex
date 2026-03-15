@@ -1,10 +1,13 @@
 defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import Ash.Expr
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_sparkline: 1]
 
-  alias ServiceRadar.Observability.{MtrHop, MtrTrace}
+  alias Ash.Page.Keyset
+  alias ServiceRadar.Observability.MtrHop
+  alias ServiceRadar.Observability.MtrTrace
 
   require Ash.Query
 
@@ -364,13 +367,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
         |> Ash.Query.limit(limit)
 
       case Ash.read(query, scope: scope) do
-        {:ok, %Ash.Page.Keyset{results: results}} ->
-          results
-          |> build_sparklines_from_hops()
+        {:ok, %Keyset{results: results}} ->
+          build_sparklines_from_hops(results)
 
         {:ok, results} when is_list(results) ->
-          results
-          |> build_sparklines_from_hops()
+          build_sparklines_from_hops(results)
 
         {:error, _reason} ->
           %{}
@@ -386,9 +387,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       |> Ash.Query.limit(1)
 
     case Ash.read(query, scope: scope) do
-      {:ok, %Ash.Page.Keyset{results: [trace | _]}} -> {:ok, trace}
+      {:ok, %Keyset{results: [trace | _]}} -> {:ok, trace}
       {:ok, [trace | _]} -> {:ok, trace}
-      {:ok, %Ash.Page.Keyset{results: []}} -> {:error, :not_found}
+      {:ok, %Keyset{results: []}} -> {:error, :not_found}
       {:ok, []} -> {:error, :not_found}
       {:error, reason} -> {:error, reason}
     end
@@ -402,7 +403,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       |> Ash.Query.limit(256)
 
     case Ash.read(query, scope: scope) do
-      {:ok, %Ash.Page.Keyset{results: results}} -> {:ok, results}
+      {:ok, %Keyset{results: results}} -> {:ok, results}
       {:ok, results} when is_list(results) -> {:ok, results}
       {:error, reason} -> {:error, reason}
     end

@@ -8,6 +8,8 @@ import Config
 # =============================================================================
 # All OTEL exporter config MUST live here — runtime.exs runs before OTP apps
 # start, so the opentelemetry SDK picks up these values at boot.
+alias Cluster.Strategy.DNSPoll
+
 otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
 
 if otel_endpoint do
@@ -24,13 +26,13 @@ if otel_endpoint do
          retry_max_delay_ms: 5_000
        }}
 
-  config :opentelemetry_exporter,
+  # Log exporter uses the same endpoint/protocol/TLS as traces
+  config :opentelemetry_experimental,
     otlp_protocol: :grpc,
     otlp_endpoint: otel_endpoint,
     ssl_options: ssl_opts
 
-  # Log exporter uses the same endpoint/protocol/TLS as traces
-  config :opentelemetry_experimental,
+  config :opentelemetry_exporter,
     otlp_protocol: :grpc,
     otlp_endpoint: otel_endpoint,
     ssl_options: ssl_opts
@@ -54,7 +56,8 @@ end
 # - Agents connected to this gateway
 
 cluster_strategy =
-  System.get_env("CLUSTER_STRATEGY", "epmd")
+  "CLUSTER_STRATEGY"
+  |> System.get_env("epmd")
   |> String.downcase()
 
 cluster_enabled = System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes)
@@ -109,7 +112,7 @@ topologies =
 
         [
           serviceradar: [
-            strategy: Cluster.Strategy.DNSPoll,
+            strategy: DNSPoll,
             config: [
               polling_interval: 5_000,
               query: dns_query,
@@ -117,7 +120,7 @@ topologies =
             ]
           ],
           serviceradar_core: [
-            strategy: Cluster.Strategy.DNSPoll,
+            strategy: DNSPoll,
             config: [
               polling_interval: 5_000,
               query: core_dns_query,
@@ -137,15 +140,15 @@ topologies =
           |> Enum.map(&String.trim/1)
           |> Enum.map(&String.to_atom/1)
 
-        if hosts != [] do
+        if hosts == [] do
+          []
+        else
           [
             serviceradar: [
               strategy: Cluster.Strategy.Epmd,
               config: [hosts: hosts]
             ]
           ]
-        else
-          []
         end
 
       "gossip" ->
@@ -192,12 +195,21 @@ spiffe_mode =
     _ -> :filesystem
   end
 
+config :serviceradar_core, Oban, false
+config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
+
+config :serviceradar_core, ServiceRadar.PubSub,
+  name: ServiceRadar.PubSub,
+  adapter: Phoenix.PubSub.PG2
+
+# Ensure the gateway never starts the log promotion consumer.
+config :serviceradar_core, :log_promotion_consumer_enabled, false
+
 config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
   cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-  workload_api_socket:
-    System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+  workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
 
 # =============================================================================
 # serviceradar_core Dependencies
@@ -211,26 +223,15 @@ config :serviceradar_core,
   vault_enabled: false,
   datasvc_enabled: false,
   cluster_enabled: System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes),
+  # =============================================================================
+  # PubSub Configuration
+  # =============================================================================
+  # Uses the shared PubSub from serviceradar_core
   cluster_coordinator: false
-
-# Ensure the gateway never starts the log promotion consumer.
-config :serviceradar_core, :log_promotion_consumer_enabled, false
-
-config :serviceradar_core, Oban, false
 
 # Disable Swoosh API client (agent gateway does not send email).
 config :swoosh, :api_client, false
 config :swoosh, local: false
-config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
-
-# =============================================================================
-# PubSub Configuration
-# =============================================================================
-# Uses the shared PubSub from serviceradar_core
-
-config :serviceradar_core, ServiceRadar.PubSub,
-  name: ServiceRadar.PubSub,
-  adapter: Phoenix.PubSub.PG2
 
 # =============================================================================
 # Telemetry Configuration
@@ -238,10 +239,10 @@ config :serviceradar_core, ServiceRadar.PubSub,
 # Attach default handlers for logging cluster events
 
 if config_env() == :prod do
-  config :logger,
-    level: :info
-
   config :logger, :console,
     format: "$time $metadata[$level] $message\n",
     metadata: [:request_id, :gateway_id, :partition_id, :node]
+
+  config :logger,
+    level: :info
 end

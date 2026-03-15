@@ -11,7 +11,8 @@ defmodule ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor do
   use Ash.Resource.Change
 
   alias ServiceRadar.Changes.AfterAction
-  alias ServiceRadar.SweepJobs.{SweepDataCleanupWorker, SweepMonitorWorker}
+  alias ServiceRadar.SweepJobs.SweepDataCleanupWorker
+  alias ServiceRadar.SweepJobs.SweepMonitorWorker
 
   require Logger
 

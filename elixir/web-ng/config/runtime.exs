@@ -1,5 +1,8 @@
 import Config
 
+alias Geolix.Adapter.MMDB2
+alias Swoosh.Adapters.Local
+
 require Logger
 
 # config/runtime.exs is executed for all environments, including
@@ -43,13 +46,13 @@ if otel_endpoint do
          retry_max_delay_ms: 5_000
        }}
 
-  config :opentelemetry_exporter,
+  # Log exporter uses the same endpoint/protocol/TLS as traces
+  config :opentelemetry_experimental,
     otlp_protocol: :grpc,
     otlp_endpoint: otel_endpoint,
     ssl_options: ssl_opts
 
-  # Log exporter uses the same endpoint/protocol/TLS as traces
-  config :opentelemetry_experimental,
+  config :opentelemetry_exporter,
     otlp_protocol: :grpc,
     otlp_endpoint: otel_endpoint,
     ssl_options: ssl_opts
@@ -64,22 +67,20 @@ end
 geolite_dir = System.get_env("GEOLITE_MMDB_DIR", "/var/lib/serviceradar/geoip")
 
 geolite_city_enabled =
-  System.get_env("GEOLITE_CITY_ENABLED", "false")
+  "GEOLITE_CITY_ENABLED"
+  |> System.get_env("false")
   |> String.downcase()
-  |> then(&(&1 in ["1", "true", "yes", "on"]))
-
-config :serviceradar_core,
-  geolite_mmdb_dir: geolite_dir
+  |> Kernel.in(["1", "true", "yes", "on"])
 
 base_geolite_dbs = [
   %{
     id: :geolite2_asn,
-    adapter: Geolix.Adapter.MMDB2,
+    adapter: MMDB2,
     source: Path.join(geolite_dir, "GeoLite2-ASN.mmdb")
   },
   %{
     id: :geolite2_country,
-    adapter: Geolix.Adapter.MMDB2,
+    adapter: MMDB2,
     source: Path.join(geolite_dir, "GeoLite2-Country.mmdb")
   }
 ]
@@ -89,7 +90,7 @@ city_geolite_dbs =
      [
        %{
          id: :geolite2_city,
-         adapter: Geolix.Adapter.MMDB2,
+         adapter: MMDB2,
          source: Path.join(geolite_dir, "GeoLite2-City.mmdb")
        }
      ]) || []
@@ -97,16 +98,19 @@ city_geolite_dbs =
 ipinfo_dbs = [
   %{
     id: :ipinfo_lite,
-    adapter: Geolix.Adapter.MMDB2,
+    adapter: MMDB2,
     source: Path.join(geolite_dir, "ipinfo_lite.mmdb")
   }
 ]
 
-config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
-
 api_keys =
   System.get_env("SERVICERADAR_API_KEYS") ||
     System.get_env("SERVICERADAR_API_KEY")
+
+config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+
+config :serviceradar_core,
+  geolite_mmdb_dir: geolite_dir
 
 if api_keys do
   keys =
@@ -120,20 +124,11 @@ if api_keys do
   end
 end
 
-config :serviceradar_web_ng,
-  device_enrichment_rules_dir:
-    System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
-
 god_view_enabled =
-  System.get_env("SERVICERADAR_GOD_VIEW_ENABLED", "false")
+  "SERVICERADAR_GOD_VIEW_ENABLED"
+  |> System.get_env("false")
   |> String.downcase()
-  |> then(&(&1 in ["1", "true", "yes", "on"]))
-
-config :serviceradar_web_ng, :god_view_enabled, god_view_enabled
-
-config :serviceradar_core,
-  device_enrichment_rules_dir:
-    System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
+  |> Kernel.in(["1", "true", "yes", "on"])
 
 plugin_storage_defaults = Application.get_env(:serviceradar_web_ng, :plugin_storage, [])
 plugin_storage_backend = System.get_env("PLUGIN_STORAGE_BACKEND")
@@ -276,6 +271,16 @@ plugin_storage_overrides =
   )
   |> maybe_put_env_simple.(:signing_secret, plugin_storage_signing_secret)
 
+config :serviceradar_core,
+  device_enrichment_rules_dir:
+    System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
+
+config :serviceradar_web_ng, :god_view_enabled, god_view_enabled
+
+config :serviceradar_web_ng,
+  device_enrichment_rules_dir:
+    System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
+
 if plugin_storage_overrides != [] do
   config :serviceradar_web_ng,
          :plugin_storage,
@@ -388,15 +393,15 @@ if cluster_enabled do
           |> Enum.map(&String.trim/1)
           |> Enum.map(&String.to_atom/1)
 
-        if hosts != [] do
+        if hosts == [] do
+          []
+        else
           [
             serviceradar: [
               strategy: Cluster.Strategy.Epmd,
               config: [hosts: hosts]
             ]
           ]
-        else
-          []
         end
 
       "gossip" ->
@@ -443,16 +448,15 @@ if config_env() != :test do
   oban_enabled =
     System.get_env("SERVICERADAR_WEB_NG_OBAN_ENABLED", "true") in ~w(true 1 yes)
 
-  config :serviceradar_core, :oban_enabled, oban_enabled
-
   # Oban queue limits (plugins are configured in config.exs via Oban.Plugins.Cron)
   oban_default_queue_limit =
-    System.get_env("OBAN_DEFAULT_QUEUE_LIMIT", "10") |> String.to_integer()
+    "OBAN_DEFAULT_QUEUE_LIMIT" |> System.get_env("10") |> String.to_integer()
 
   # web-ng should not execute external/network maintenance jobs (GeoLite/ipinfo downloads,
   # enrichment refresh, threat intel refresh, etc.). core-elx owns those.
   oban_maintenance_queue_limit =
-    System.get_env("OBAN_MAINTENANCE_QUEUE_LIMIT", "0")
+    "OBAN_MAINTENANCE_QUEUE_LIMIT"
+    |> System.get_env("0")
     |> String.to_integer()
     |> then(fn
       n when is_integer(n) and n > 0 -> n
@@ -464,26 +468,28 @@ if config_env() != :test do
   # web-ng should NOT run scheduled jobs - core-elx is the Oban coordinator
   # web-ng only processes jobs, it doesn't schedule them
   queues =
-    [
-      default: oban_default_queue_limit,
-      alerts: 5,
-      service_checks: 10,
-      notifications: 5,
-      onboarding: 3,
-      events: 10,
-      sweeps: 20,
-      edge: 10,
-      integrations: 5
-    ]
-    |> then(fn q ->
-      # Omitting a queue entirely prevents this node from processing jobs in it.
-      # Oban does not accept 0 as a queue limit.
-      if is_integer(oban_maintenance_queue_limit) do
-        Keyword.put(q, :maintenance, oban_maintenance_queue_limit)
-      else
-        q
+    then(
+      [
+        default: oban_default_queue_limit,
+        # Omitting a queue entirely prevents this node from processing jobs in it.
+        # Oban does not accept 0 as a queue limit.
+        alerts: 5,
+        service_checks: 10,
+        notifications: 5,
+        onboarding: 3,
+        events: 10,
+        sweeps: 20,
+        edge: 10,
+        integrations: 5
+      ],
+      fn q ->
+        if is_integer(oban_maintenance_queue_limit) do
+          Keyword.put(q, :maintenance, oban_maintenance_queue_limit)
+        else
+          q
+        end
       end
-    end)
+    )
 
   oban_config = [
     repo: ServiceRadar.Repo,
@@ -505,8 +511,9 @@ if config_env() != :test do
     end
 
   config :serviceradar_core, Oban, oban_config
-  config :serviceradar_core, :start_ash_oban_scheduler, false
   config :serviceradar_core, :log_promotion_consumer_enabled, false
+  config :serviceradar_core, :oban_enabled, oban_enabled
+  config :serviceradar_core, :start_ash_oban_scheduler, false
 end
 
 # Phoenix React Server production configuration
@@ -552,19 +559,19 @@ if config_env() == :prod do
   cnpg_ca_file =
     System.get_env(
       "CNPG_CA_FILE",
-      if(cnpg_cert_dir != "", do: Path.join(cnpg_cert_dir, "root.pem"), else: "")
+      if(cnpg_cert_dir == "", do: "", else: Path.join(cnpg_cert_dir, "root.pem"))
     )
 
   cnpg_cert_file =
     System.get_env(
       "CNPG_CERT_FILE",
-      if(cnpg_cert_dir != "", do: Path.join(cnpg_cert_dir, "workstation.pem"), else: "")
+      if(cnpg_cert_dir == "", do: "", else: Path.join(cnpg_cert_dir, "workstation.pem"))
     )
 
   cnpg_key_file =
     System.get_env(
       "CNPG_KEY_FILE",
-      if(cnpg_cert_dir != "", do: Path.join(cnpg_cert_dir, "workstation-key.pem"), else: "")
+      if(cnpg_cert_dir == "", do: "", else: Path.join(cnpg_cert_dir, "workstation-key.pem"))
     )
 
   cnpg_verify_peer = cnpg_ssl_mode in ~w(verify-ca verify-full)
@@ -616,15 +623,6 @@ if config_env() == :prod do
         """
     end
 
-  # Configure ServiceRadar.Repo from serviceradar_core
-  config :serviceradar_core, ServiceRadar.Repo,
-    url: repo_url,
-    ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
-    socket_options: maybe_ipv6,
-    parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
-    types: ServiceRadar.PostgresTypes
-
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
   # want to use a different value for prod and you most likely don't want
@@ -673,27 +671,19 @@ if config_env() == :prod do
       value -> value |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
     end
 
-  config :serviceradar_web_ng, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
-  config :serviceradar_web_ng, dev_routes: dev_routes
-  config :serviceradar_web_ng, local_mailer: local_mailer
-  config :serviceradar_web_ng, security_mode: security_mode
-
   # Token signing secret for AshAuthentication JWT tokens
   # Falls back to SECRET_KEY_BASE if not explicitly set
   token_signing_secret =
     System.get_env("TOKEN_SIGNING_SECRET") || secret_key_base
 
-  config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
-
-  # Guardian JWT signing secret (same as token_signing_secret for consistency)
-  config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian, secret_key: token_signing_secret
-
   session_idle_seconds =
-    System.get_env("SERVICERADAR_SESSION_IDLE_TIMEOUT_SECONDS")
+    "SERVICERADAR_SESSION_IDLE_TIMEOUT_SECONDS"
+    |> System.get_env()
     |> to_int.()
 
   session_absolute_seconds =
-    System.get_env("SERVICERADAR_SESSION_ABSOLUTE_TIMEOUT_SECONDS")
+    "SERVICERADAR_SESSION_ABSOLUTE_TIMEOUT_SECONDS"
+    |> System.get_env()
     |> to_int.()
 
   session_config = Application.get_env(:serviceradar_web_ng, :session, [])
@@ -712,11 +702,26 @@ if config_env() == :prod do
       session_config
     end
 
-  config :serviceradar_web_ng, :session, session_config
-
-  config :serviceradar_web_ng, :base_url, "https://#{host}"
-
   gateway_addr = System.get_env("SERVICERADAR_GATEWAY_ADDR")
+
+  # Configure ServiceRadar.Repo from serviceradar_core
+  config :serviceradar_core, ServiceRadar.Repo,
+    url: repo_url,
+    ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+    socket_options: maybe_ipv6,
+    parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
+    types: ServiceRadar.PostgresTypes
+
+  # Guardian JWT signing secret (same as token_signing_secret for consistency)
+  config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian, secret_key: token_signing_secret
+  config :serviceradar_web_ng, :base_url, "https://#{host}"
+  config :serviceradar_web_ng, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  config :serviceradar_web_ng, :session, session_config
+  config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
+  config :serviceradar_web_ng, dev_routes: dev_routes
+  config :serviceradar_web_ng, local_mailer: local_mailer
+  config :serviceradar_web_ng, security_mode: security_mode
 
   if is_binary(gateway_addr) and String.trim(gateway_addr) != "" do
     config :serviceradar_web_ng, :gateway_addr, String.trim(gateway_addr)
@@ -775,17 +780,16 @@ if config_env() == :prod do
 
   spiffe_bundle_path = System.get_env("SPIFFE_TRUST_BUNDLE_PATH")
 
+  # Datasvc gRPC client configuration for KV store access
+  # Used for fetching component templates and other KV data
+  datasvc_address = System.get_env("DATASVC_ADDRESS")
+
   config :serviceradar_core, :spiffe,
     mode: spiffe_mode,
     trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
     cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-    workload_api_socket:
-      System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
+    workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
     trust_bundle_path: spiffe_bundle_path
-
-  # Datasvc gRPC client configuration for KV store access
-  # Used for fetching component templates and other KV data
-  datasvc_address = System.get_env("DATASVC_ADDRESS")
 
   if datasvc_address do
     datasvc_cert_dir = System.get_env("DATASVC_CERT_DIR", "/etc/serviceradar/certs")
@@ -857,10 +861,10 @@ if config_env() == :prod do
   mailer_adapter =
     case String.trim(mailer_adapter_env || "") do
       "" ->
-        Swoosh.Adapters.Local
+        Local
 
       "local" ->
-        Swoosh.Adapters.Local
+        Local
 
       "test" ->
         Swoosh.Adapters.Test
@@ -878,9 +882,9 @@ if config_env() == :prod do
 
   config :serviceradar_core, ServiceRadar.Mailer, adapter: mailer_adapter
 
-  if local_mailer or mailer_adapter == Swoosh.Adapters.Local do
-    config :swoosh, local: true
+  if local_mailer or mailer_adapter == Local do
     config :swoosh, :api_client, false
+    config :swoosh, local: true
   end
 
   config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,

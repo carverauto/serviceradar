@@ -9,14 +9,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
-  alias ServiceRadar.Observability.{
-    EventRule,
-    StatefulAlertRule,
-    ZenRule
-  }
-
-  alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
+  alias ServiceRadar.Observability.EventRule
+  alias ServiceRadar.Observability.StatefulAlertRule
+  alias ServiceRadar.Observability.ZenRule
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
 
   @impl true
   def mount(_params, _session, socket) do
@@ -769,8 +766,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
 
     if device_id && interface_uid do
       ~p"/devices/#{device_id}/interfaces/#{interface_uid}"
-    else
-      nil
     end
   end
 

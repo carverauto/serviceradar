@@ -4,6 +4,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
   alias ServiceRadar.Plugins.PolicyAssignmentReconciler
 
   defmodule ResolverV1 do
+    @moduledoc false
     def resolve(_input_defs, _opts) do
       {:ok,
        [
@@ -18,6 +19,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
   end
 
   defmodule ResolverV2 do
+    @moduledoc false
     def resolve(_input_defs, _opts) do
       {:ok,
        [
@@ -32,7 +34,8 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
   end
 
   defmodule MemoryStore do
-    @behaviour ServiceRadar.Plugins.PolicyAssignmentReconciler
+    @moduledoc false
+    @behaviour PolicyAssignmentReconciler
 
     def start_link do
       Agent.start_link(fn -> %{} end, name: __MODULE__)

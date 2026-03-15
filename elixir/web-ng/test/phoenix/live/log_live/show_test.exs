@@ -9,12 +9,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
   """
 
   use ServiceRadarWebNGWeb.ConnCase, async: true
+  use ServiceRadarWebNG.AshTestHelpers
 
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.Repo
-
-  use ServiceRadarWebNG.AshTestHelpers
 
   describe "RBAC for Create Event Rule button" do
     setup %{conn: conn} do
@@ -238,7 +237,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
   defp insert_test_log!(log_id) when is_binary(log_id) do
     {:ok, uuid} = Ecto.UUID.dump(log_id)
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
     Repo.insert_all("logs", [
       %{
@@ -254,8 +253,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
         scope_name: "test-scope",
         scope_version: "1.0.0",
         attributes: Jason.encode!(%{"error" => "connection failed"}),
-        resource_attributes:
-          Jason.encode!(%{"service.name" => "test-service", "service.version" => "1.0.0"}),
+        resource_attributes: Jason.encode!(%{"service.name" => "test-service", "service.version" => "1.0.0"}),
         created_at: now
       }
     ])
@@ -263,7 +261,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
   defp insert_test_log_with_nested_attributes!(log_id) when is_binary(log_id) do
     {:ok, uuid} = Ecto.UUID.dump(log_id)
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
     Repo.insert_all("logs", [
       %{
@@ -292,7 +290,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
   defp insert_test_snmp_log!(log_id) when is_binary(log_id) do
     {:ok, uuid} = Ecto.UUID.dump(log_id)
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
     Repo.insert_all("logs", [
       %{

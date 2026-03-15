@@ -3,7 +3,8 @@ defmodule ServiceRadar.Observability.ZenRuleSyncTest do
 
   import ExUnit.CaptureLog
 
-  alias ServiceRadar.Observability.{ZenRule, ZenRuleSync}
+  alias ServiceRadar.Observability.ZenRule
+  alias ServiceRadar.Observability.ZenRuleSync
 
   test "logs a single transient reconcile message without per-rule warnings" do
     results = [

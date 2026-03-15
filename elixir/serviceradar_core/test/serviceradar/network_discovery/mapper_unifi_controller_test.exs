@@ -2,7 +2,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperUnifiControllerTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.NetworkDiscovery.{MapperJob, MapperUnifiController}
+  alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.NetworkDiscovery.MapperUnifiController
 
   @tag :integration
   setup do

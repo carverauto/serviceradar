@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.AlertLive.Index do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
@@ -30,12 +31,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
 
   @impl true
   def handle_params(params, uri, socket) do
-    socket =
-      socket
-      |> SRQLPage.load_list(params, uri, :alerts,
-        default_limit: @default_limit,
-        max_limit: @max_limit
-      )
+    socket = SRQLPage.load_list(socket, params, uri, :alerts, default_limit: @default_limit, max_limit: @max_limit)
 
     {:noreply, assign(socket, :summary, Stats.alerts_summary())}
   end
@@ -70,8 +66,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "alerts")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "alerts")}
   end
 
   @impl true
@@ -235,7 +230,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
     variant = severity_variant(assigns.value)
     label = severity_label(assigns.value)
 
-    assigns = assign(assigns, :variant, variant) |> assign(:label, label)
+    assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
@@ -266,7 +261,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
     variant = status_variant(assigns.value)
     label = status_label(assigns.value)
 
-    assigns = assign(assigns, :variant, variant) |> assign(:label, label)
+    assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>

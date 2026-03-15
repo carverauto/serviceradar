@@ -12,9 +12,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.User
 
-  alias ServiceRadarWebNG.AdminApi
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.UserAuthEvent
+  alias ServiceRadarWebNG.AdminApi
   alias ServiceRadarWebNGWeb.SettingsComponents
 
   @event_page_limit 50
@@ -114,7 +114,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
     user = socket.assigns.user
     page = socket.assigns.events_page
 
-    after_token = if page, do: Map.get(page, :after), else: nil
+    after_token = if page, do: Map.get(page, :after)
     {events, page} = load_events(scope, user.id, after_token, nil)
 
     {:noreply, socket |> assign(:events, events) |> assign(:events_page, page)}
@@ -125,7 +125,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
     user = socket.assigns.user
     page = socket.assigns.events_page
 
-    before_token = if page, do: Map.get(page, :before), else: nil
+    before_token = if page, do: Map.get(page, :before)
     {events, page} = load_events(scope, user.id, nil, before_token)
 
     {:noreply, socket |> assign(:events, events) |> assign(:events_page, page)}
@@ -175,12 +175,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
   def handle_event("set_password", %{"password" => params}, socket) do
     scope = socket.assigns.current_scope
     user = socket.assigns.user
-    password = (params["password"] || "") |> to_string()
+    password = to_string(params["password"] || "")
 
     cond do
       not ServiceRadarWebNG.RBAC.can?(scope, "settings.auth.manage") ->
-        {:noreply,
-         put_flash(socket, :error, "You don't have permission to manage authentication.")}
+        {:noreply, put_flash(socket, :error, "You don't have permission to manage authentication.")}
 
       String.length(password) < 12 ->
         {:noreply, put_flash(socket, :error, "Password must be at least 12 characters")}
@@ -190,9 +189,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
           with {:ok, record} <- Ash.get(User, user.id, scope: scope),
                {:ok, _updated} <-
                  record
-                 |> Ash.Changeset.for_update(:admin_set_password, %{password: password},
-                   scope: scope
-                 )
+                 |> Ash.Changeset.for_update(:admin_set_password, %{password: password}, scope: scope)
                  |> Ash.update(scope: scope) do
             :ok
           end
@@ -212,8 +209,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
 
   @impl true
   def event_mapping do
-    Permit.Phoenix.LiveView.default_event_mapping()
-    |> Map.merge(%{
+    Map.merge(Permit.Phoenix.LiveView.default_event_mapping(), %{
       "toggle_edit" => :update,
       "validate" => :read,
       "save" => :update,
@@ -521,8 +517,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
 
   defp derive_role_from_profile(attrs, nil, _profiles), do: attrs
 
-  defp derive_role_from_profile(attrs, role_profile_id, profiles)
-       when is_binary(role_profile_id) do
+  defp derive_role_from_profile(attrs, role_profile_id, profiles) when is_binary(role_profile_id) do
     role =
       case Enum.find(profiles, &(&1.id == role_profile_id)) do
         %{system: true, system_name: "admin"} -> :admin
@@ -556,9 +551,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
   defp blank_to_dash(value), do: value
 
   defp load_events(scope, user_id, after_token, before_token) do
-    query =
-      UserAuthEvent
-      |> Ash.Query.for_read(:for_user, %{user_id: user_id}, scope: scope)
+    query = Ash.Query.for_read(UserAuthEvent, :for_user, %{user_id: user_id}, scope: scope)
 
     page_opts =
       [limit: @event_page_limit]

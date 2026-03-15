@@ -63,7 +63,10 @@ defmodule ServiceRadar.ObanEnsureScheduled do
               :ok
 
             {:error, reason} ->
-              Logger.debug(@schedule_label <> " skipped", log_metadata(worker, reason: inspect(reason)))
+              Logger.debug(
+                @schedule_label <> " skipped",
+                log_metadata(worker, reason: inspect(reason))
+              )
           end
         else
           Logger.debug(

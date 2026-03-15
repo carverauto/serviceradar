@@ -11,12 +11,12 @@ defmodule ServiceRadar.Observability.RuleSeeder do
 
   use ServiceRadar.DelayedSeeder, delay_ms: 6_000, callback: :seed_all
 
-  require Logger
-  require Ash.Query
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.StatefulAlertRule
+
+  require Ash.Query
+  require Logger
 
   def seed_all do
     if repo_enabled?() do
@@ -52,10 +52,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
 
     case Ash.read(query, opts) do
       {:ok, rules} ->
-        existing =
-          rules
-          |> Enum.map(& &1.name)
-          |> MapSet.new()
+        existing = MapSet.new(rules, & &1.name)
 
         Enum.each(defaults, fn attrs ->
           seed_rule_if_missing(existing, attrs, resource, opts)

@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadarWebNGWeb.Dashboard.Engine
@@ -56,18 +57,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   def handle_event("srql_builder_run", _params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/dashboard")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/dashboard")}
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "cpu_metrics")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "cpu_metrics")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "cpu_metrics")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "cpu_metrics")}
   end
 
   @impl true

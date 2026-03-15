@@ -8,7 +8,8 @@ defmodule ServiceRadarWebNG.Generators.EdgeOnboardingGenerators do
   end
 
   def download_token do
-    string(:printable, min_length: 1, max_length: 128)
+    :printable
+    |> string(min_length: 1, max_length: 128)
     |> map(&String.trim/1)
     |> filter(&(&1 != ""))
   end
@@ -18,7 +19,8 @@ defmodule ServiceRadarWebNG.Generators.EdgeOnboardingGenerators do
       constant(nil),
       constant("http://localhost:8090"),
       constant("https://example.com"),
-      string(:alphanumeric, min_length: 1, max_length: 24)
+      :alphanumeric
+      |> string(min_length: 1, max_length: 24)
       |> map(fn host -> "https://#{host}.test" end)
     ])
   end

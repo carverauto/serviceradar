@@ -46,8 +46,7 @@ defmodule ServiceRadarWebNG.Edge.Crypto do
       :crypto.crypto_one_time_aead(:aes_256_gcm, key, iv, plaintext, @aad, true)
 
     # Combine IV + ciphertext + tag and base64 encode
-    (iv <> ciphertext <> tag)
-    |> Base.encode64()
+    Base.encode64(iv <> ciphertext <> tag)
   end
 
   @doc """
@@ -92,7 +91,8 @@ defmodule ServiceRadarWebNG.Edge.Crypto do
   """
   @spec hash_token(String.t()) :: String.t()
   def hash_token(token) when is_binary(token) do
-    :crypto.hash(:sha256, token)
+    :sha256
+    |> :crypto.hash(token)
     |> Base.encode16(case: :lower)
   end
 
@@ -128,7 +128,8 @@ defmodule ServiceRadarWebNG.Edge.Crypto do
     b_bytes = :binary.bin_to_list(b)
 
     result =
-      Enum.zip(a_bytes, b_bytes)
+      a_bytes
+      |> Enum.zip(b_bytes)
       |> Enum.reduce(0, fn {x, y}, acc -> Bitwise.bor(acc, Bitwise.bxor(x, y)) end)
 
     result == 0

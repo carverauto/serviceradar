@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
@@ -21,12 +22,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
 
   @impl true
   def handle_params(params, uri, socket) do
-    {:noreply,
-     socket
-     |> SRQLPage.load_list(params, uri, :gateways,
-       default_limit: @default_limit,
-       max_limit: @max_limit
-     )}
+    {:noreply, SRQLPage.load_list(socket, params, uri, :gateways, default_limit: @default_limit, max_limit: @max_limit)}
   end
 
   @impl true
@@ -55,13 +51,11 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "gateways")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "gateways")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "gateways")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "gateways")}
   end
 
   @impl true
@@ -163,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
         _ -> {"Unknown", "ghost"}
       end
 
-    assigns = assign(assigns, :label, label) |> assign(:variant, variant)
+    assigns = assigns |> assign(:label, label) |> assign(:variant, variant)
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>

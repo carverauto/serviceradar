@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
   use Phoenix.Component
   use Gettext, backend: ServiceRadarWebNGWeb.Gettext
 
+  alias Phoenix.HTML.FormField
   alias Phoenix.LiveView.JS
 
   @doc """
@@ -166,8 +167,7 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
     values: ~w(checkbox color date datetime-local email file month number password
                search select tel text textarea time url week hidden)
 
-  attr :field, Phoenix.HTML.FormField,
-    doc: "a form field struct retrieved from the form, for example: @form[:email]"
+  attr :field, FormField, doc: "a form field struct retrieved from the form, for example: @form[:email]"
 
   attr :errors, :list, default: []
   attr :checked, :boolean, doc: "the checked flag for checkbox inputs"
@@ -179,11 +179,10 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
   attr :wrapper_class, :any, default: nil, doc: "override the wrapper class for the input"
   attr :label_class, :any, default: nil, doc: "override the label class for the input"
 
-  attr :rest, :global,
-    include: ~w(accept autocomplete capture cols disabled form list max maxlength min minlength
+  attr :rest, :global, include: ~w(accept autocomplete capture cols disabled form list max maxlength min minlength
                 multiple pattern placeholder readonly required rows size step)
 
-  def input(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
+  def input(%{field: %FormField{} = field} = assigns) do
     # Show errors if the field was used OR if the form has errors (e.g., after submission)
     errors =
       if Phoenix.Component.used_input?(field) || field.errors != [], do: field.errors, else: []
@@ -457,8 +456,7 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
       to: selector,
       time: 300,
       transition:
-        {"transition-all ease-out duration-300",
-         "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95",
+        {"transition-all ease-out duration-300", "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95",
          "opacity-100 translate-y-0 sm:scale-100"}
     )
   end

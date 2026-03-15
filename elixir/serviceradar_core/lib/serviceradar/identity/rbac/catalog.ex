@@ -5,10 +5,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
   Permissions are grouped by section and action-level keys.
   """
 
-  @all_roles ServiceRadar.Identity.Constants.all_roles()
-  @operator_roles ServiceRadar.Identity.Constants.operator_roles()
-  @helpdesk_roles ServiceRadar.Identity.Constants.helpdesk_roles()
-  @admin_roles ServiceRadar.Identity.Constants.admin_roles()
+  alias ServiceRadar.Identity.Constants
+
+  @all_roles Constants.all_roles()
+  @operator_roles Constants.operator_roles()
+  @helpdesk_roles Constants.helpdesk_roles()
+  @admin_roles Constants.admin_roles()
 
   @catalog [
     %{
@@ -349,8 +351,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
     @catalog
     |> Enum.flat_map(& &1.permissions)
     |> Enum.filter(fn permission -> role in permission.default_roles end)
-    |> Enum.map(& &1.key)
-    |> MapSet.new()
+    |> MapSet.new(& &1.key)
   end
 
   def permissions_for_role(role) when is_binary(role) do

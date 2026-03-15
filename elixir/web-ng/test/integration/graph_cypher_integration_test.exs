@@ -1,17 +1,8 @@
-if System.get_env("SRQL_INTEGRATION") != "1" do
-  defmodule ServiceRadarWebNG.GraphCypherIntegrationTest do
-    use ExUnit.Case, async: true
-
-    @moduletag :skip
-
-    test "set SRQL_INTEGRATION=1 to enable" do
-      assert true
-    end
-  end
-else
+if System.get_env("SRQL_INTEGRATION") == "1" do
   defmodule ServiceRadarWebNG.GraphCypherIntegrationTest do
     use ExUnit.Case, async: false
 
+    alias Ecto.Adapters.SQL.Sandbox
     alias ServiceRadarWebNGWeb.Dashboard.Plugins.Topology
 
     @graph_name "platform_graph"
@@ -94,8 +85,8 @@ else
     end
 
     setup_all do
-      owner = Ecto.Adapters.SQL.Sandbox.start_owner!(ServiceRadarWebNG.Repo, shared: true)
-      on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(owner) end)
+      owner = Sandbox.start_owner!(ServiceRadarWebNG.Repo, shared: true)
+      on_exit(fn -> Sandbox.stop_owner(owner) end)
 
       conn = start_supervised!({Postgrex, PostgrexHelpers.connection_opts()})
 
@@ -148,6 +139,16 @@ else
       assert Enum.any?(nodes, &(&1["id"] == "n2"))
       assert [%{"start_id" => "n1", "end_id" => "n2"} | _] = edges
       assert Topology.supports?(%{"results" => [payload]})
+    end
+  end
+else
+  defmodule ServiceRadarWebNG.GraphCypherIntegrationTest do
+    use ExUnit.Case, async: true
+
+    @moduletag :skip
+
+    test "set SRQL_INTEGRATION=1 to enable" do
+      assert true
     end
   end
 end

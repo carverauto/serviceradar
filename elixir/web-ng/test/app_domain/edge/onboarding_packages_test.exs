@@ -1,9 +1,10 @@
 defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
   use ServiceRadarWebNG.DataCase, async: true
 
-  alias ServiceRadarWebNG.Edge.OnboardingPackages
-
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
+
+  alias Ash.Error.Invalid
+  alias ServiceRadarWebNG.Edge.OnboardingPackages
 
   @actor system_actor()
 
@@ -13,18 +14,18 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
 
       assert {:ok, result} = OnboardingPackages.create(attrs, actor: @actor)
 
-      assert result.package.id != nil
+      assert result.package.id
       assert result.package.label == "test-gateway-1"
       assert result.package.component_type == :gateway
       assert result.package.status == :issued
-      assert result.join_token != nil
-      assert result.download_token != nil
+      assert result.join_token
+      assert result.download_token
 
       # Verify tokens are stored encrypted/hashed
-      assert result.package.join_token_ciphertext != nil
-      assert result.package.download_token_hash != nil
-      assert result.package.join_token_expires_at != nil
-      assert result.package.download_token_expires_at != nil
+      assert result.package.join_token_ciphertext
+      assert result.package.download_token_hash
+      assert result.package.join_token_expires_at
+      assert result.package.download_token_expires_at
     end
 
     test "creates a package with custom TTLs", _context do
@@ -46,14 +47,14 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       attrs = %{component_type: :gateway}
 
       assert {:error, error} = OnboardingPackages.create(attrs, actor: @actor)
-      assert is_struct(error, Ash.Error.Invalid)
+      assert is_struct(error, Invalid)
     end
 
     test "fails with invalid component_type", _context do
       attrs = %{label: "test", component_type: :invalid}
 
       assert {:error, error} = OnboardingPackages.create(attrs, actor: @actor)
-      assert is_struct(error, Ash.Error.Invalid)
+      assert is_struct(error, Invalid)
     end
 
     test "normalizes repeated component-type prefixes in component_id", _context do
@@ -154,7 +155,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
                )
 
       assert result.package.status == :delivered
-      assert result.package.delivered_at != nil
+      assert result.package.delivered_at
       assert result.join_token == created.join_token
     end
 
@@ -224,7 +225,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
                )
 
       assert package.status == :revoked
-      assert package.revoked_at != nil
+      assert package.revoked_at
     end
 
     test "fails to revoke already revoked package", _context do
@@ -254,7 +255,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
                )
 
       assert package.status == :deleted
-      assert package.deleted_at != nil
+      assert package.deleted_at
       assert package.deleted_by == "admin@test.com"
       assert package.deleted_reason == "cleanup"
     end
@@ -292,10 +293,10 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
 
       case result do
         {:ok, package_result} ->
-          assert package_result.package.id != nil
+          assert package_result.package.id
           assert package_result.package.label == "test-gateway-cert"
-          assert package_result.join_token != nil
-          assert package_result.download_token != nil
+          assert package_result.join_token
+          assert package_result.download_token
 
           # Certificate data should be present
           if package_result[:certificate_data] do

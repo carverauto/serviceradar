@@ -10,8 +10,6 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
   """
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Inventory.Device
@@ -19,6 +17,8 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -57,8 +57,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           %{
             uid: device_uid,
             hostname: "router-#{unique_id}",
-            ip:
-              "192.168.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}",
+            ip: "192.168.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}",
             type_id: 3,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -133,7 +132,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       refute Enum.empty?(targets)
 
       target_config = Enum.find(targets, fn t -> t["host"] == device.ip end)
-      assert target_config != nil
+      assert target_config
       assert target_config["port"] == 161
       assert target_config["version"] == "v2c"
 
@@ -450,7 +449,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       refute Map.has_key?(payload, "snmp")
 
       snmp_config = agent_config.snmp_config
-      assert snmp_config != nil
+      assert snmp_config
       assert snmp_config.enabled == true
       assert is_list(snmp_config.targets)
       refute Enum.empty?(snmp_config.targets)
@@ -562,15 +561,15 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       targets = entry.config["targets"]
       v3_target = Enum.find(targets, fn t -> t["version"] == "v3" end)
 
-      assert v3_target != nil
-      assert v3_target["v3_auth"] != nil
+      assert v3_target
+      assert v3_target["v3_auth"]
       assert v3_target["v3_auth"]["username"] == "admin"
       assert v3_target["v3_auth"]["security_level"] == "authPriv"
       assert v3_target["v3_auth"]["auth_protocol"] == "SHA"
       assert v3_target["v3_auth"]["priv_protocol"] == "AES"
       # Passwords should be present (may be encrypted)
-      assert v3_target["v3_auth"]["auth_password"] != nil
-      assert v3_target["v3_auth"]["priv_password"] != nil
+      assert v3_target["v3_auth"]["auth_password"]
+      assert v3_target["v3_auth"]["priv_password"]
     end
   end
 end

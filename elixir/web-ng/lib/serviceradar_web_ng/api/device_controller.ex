@@ -173,14 +173,13 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
 
   defp maybe_filter_first_seen_after(query, nil), do: query
 
-  defp maybe_filter_first_seen_after(query, dt),
-    do: Ash.Query.filter(query, first_seen_time >= ^dt)
+  defp maybe_filter_first_seen_after(query, dt), do: Ash.Query.filter(query, first_seen_time >= ^dt)
 
   defp maybe_filter_last_seen_after(query, nil), do: query
   defp maybe_filter_last_seen_after(query, dt), do: Ash.Query.filter(query, last_seen_time >= ^dt)
 
   defp build_export_pagination(devices, %{limit: limit, offset: offset}) do
-    next_offset = if length(devices) >= limit, do: offset + limit, else: nil
+    next_offset = if length(devices) >= limit, do: offset + limit
 
     %{
       "limit" => limit,
@@ -402,13 +401,11 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
 
   defp maybe_filter_gateway_id(query, nil), do: query
 
-  defp maybe_filter_gateway_id(query, gateway_id),
-    do: Ash.Query.filter(query, gateway_id == ^gateway_id)
+  defp maybe_filter_gateway_id(query, gateway_id), do: Ash.Query.filter(query, gateway_id == ^gateway_id)
 
   defp maybe_filter_device_type(query, nil), do: query
 
-  defp maybe_filter_device_type(query, device_type),
-    do: Ash.Query.filter(query, type == ^device_type)
+  defp maybe_filter_device_type(query, device_type), do: Ash.Query.filter(query, type == ^device_type)
 
   defp escape_like(value) do
     value
@@ -418,7 +415,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   end
 
   defp build_pagination(devices, %{limit: limit, offset: offset}) do
-    next_offset = if length(devices) >= limit, do: offset + limit, else: nil
+    next_offset = if length(devices) >= limit, do: offset + limit
 
     %{
       "limit" => limit,

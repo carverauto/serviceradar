@@ -1,9 +1,8 @@
 defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
+  use ServiceRadarWebNG.AshTestHelpers
 
   import Phoenix.LiveViewTest
-
-  use ServiceRadarWebNG.AshTestHelpers
 
   alias ServiceRadarWebNG.AccountsFixtures
 

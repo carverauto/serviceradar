@@ -35,9 +35,9 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
   - Ash policy error handlers
   """
 
-  require Logger
-
   alias ServiceRadarWebNGWeb.ClientIP
+
+  require Logger
 
   @doc """
   Log an authorization failure event.
@@ -134,7 +134,7 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
       partition_id: socket.assigns[:current_partition_id],
       resource: extract_resource(error),
       action: Keyword.get(opts, :action) || extract_action(error),
-      view: socket.view |> to_string(),
+      view: to_string(socket.view),
       timestamp: DateTime.utc_now(),
       details: %{
         error_type: error.__struct__ |> to_string() |> String.split(".") |> List.last()

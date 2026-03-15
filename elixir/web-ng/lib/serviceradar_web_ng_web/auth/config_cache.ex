@@ -23,10 +23,11 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
   """
 
   use GenServer
-  require Logger
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthSettings
+
+  require Logger
 
   @table __MODULE__
   @default_ttl_ms 60_000

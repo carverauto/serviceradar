@@ -11,9 +11,9 @@ defmodule ServiceRadarWebNG.Api.AuthorizationSettingsController do
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.AuthorizationSettings
 
-  require Ash.Query
-
   alias ServiceRadar.Identity.AuthorizationSettings
+
+  require Ash.Query
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 

@@ -5,11 +5,14 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler, MergeAudit}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -49,8 +52,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
     assert {:ok, _} = Device.get_by_uid(device_b.uid, false, actor: actor)
 
     mac_query =
-      DeviceIdentifier
-      |> Ash.Query.for_read(:lookup, %{
+      Ash.Query.for_read(DeviceIdentifier, :lookup, %{
         identifier_type: :mac,
         identifier_value: normalized_mac,
         partition: "default"
@@ -89,8 +91,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
 
     # Verify agent_id identifier was registered
     agent_id_query =
-      DeviceIdentifier
-      |> Ash.Query.for_read(:lookup, %{
+      Ash.Query.for_read(DeviceIdentifier, :lookup, %{
         identifier_type: :agent_id,
         identifier_value: agent_id,
         partition: "default"
@@ -320,7 +321,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
   end
 
   defp mac_suffix do
-    System.unique_integer([:positive])
+    [:positive]
+    |> System.unique_integer()
     |> rem(256)
     |> Integer.to_string(16)
     |> String.pad_leading(2, "0")

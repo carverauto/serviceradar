@@ -3,11 +3,11 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
   Context module for agent plugin assignments.
   """
 
-  require Ash.Query
-
-  alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Observability.ServiceStateRegistry
+  alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadarWebNG.Plugins.Packages
+
+  require Ash.Query
 
   @default_limit 100
   @max_limit 500

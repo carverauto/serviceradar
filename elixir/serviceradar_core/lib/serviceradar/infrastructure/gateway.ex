@@ -24,6 +24,14 @@ defmodule ServiceRadar.Infrastructure.Gateway do
   - `draining` - Gateway is shutting down gracefully
   """
 
+  use Ash.Resource,
+    domain: ServiceRadar.Infrastructure,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshStateMachine, AshJsonApi.Resource]
+
+  alias ServiceRadar.Infrastructure.Changes.PublishStateChange
+
   @role_description "Gateways orchestrate monitoring jobs but do not perform checks directly. They receive scheduled jobs and dispatch work to available agents."
 
   @role_steps [
@@ -47,12 +55,6 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
   @doc "Returns the role steps that gateways perform"
   def role_steps, do: @role_steps
-
-  use Ash.Resource,
-    domain: ServiceRadar.Infrastructure,
-    data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshStateMachine, AshJsonApi.Resource]
 
   postgres do
     table "gateways"
@@ -231,8 +233,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change set_attribute(:last_seen, &DateTime.utc_now/0)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :gateway, new_state: :healthy}
+      change {PublishStateChange, entity_type: :gateway, new_state: :healthy}
     end
 
     update :degrade do
@@ -243,8 +244,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :gateway, new_state: :degraded}
+      change {PublishStateChange, entity_type: :gateway, new_state: :degraded}
     end
 
     update :heartbeat_timeout do
@@ -254,8 +254,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :gateway, new_state: :degraded}
+      change {PublishStateChange, entity_type: :gateway, new_state: :degraded}
     end
 
     update :go_offline do
@@ -266,8 +265,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :gateway, new_state: :offline}
+      change {PublishStateChange, entity_type: :gateway, new_state: :offline}
     end
 
     update :lose_connection do
@@ -277,8 +275,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :gateway, new_state: :offline}
+      change {PublishStateChange, entity_type: :gateway, new_state: :offline}
     end
 
     update :recover do
@@ -287,8 +284,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change transition_state(:recovering)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :gateway, new_state: :recovering}
+      change {PublishStateChange, entity_type: :gateway, new_state: :recovering}
     end
 
     update :restore_health do
@@ -299,8 +295,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change set_attribute(:last_seen, &DateTime.utc_now/0)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :gateway, new_state: :healthy}
+      change {PublishStateChange, entity_type: :gateway, new_state: :healthy}
     end
 
     update :start_maintenance do
@@ -309,8 +304,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change transition_state(:maintenance)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :gateway, new_state: :maintenance}
+      change {PublishStateChange, entity_type: :gateway, new_state: :maintenance}
     end
 
     update :end_maintenance do
@@ -320,8 +314,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change set_attribute(:is_healthy, true)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :gateway, new_state: :healthy}
+      change {PublishStateChange, entity_type: :gateway, new_state: :healthy}
     end
 
     update :start_draining do
@@ -330,8 +323,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change transition_state(:draining)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :gateway, new_state: :draining}
+      change {PublishStateChange, entity_type: :gateway, new_state: :draining}
     end
 
     update :finish_draining do
@@ -341,8 +333,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :gateway, new_state: :offline}
+      change {PublishStateChange, entity_type: :gateway, new_state: :offline}
     end
 
     update :deactivate do
@@ -352,8 +343,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
 
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
-              entity_type: :gateway, new_state: :inactive}
+      change {PublishStateChange, entity_type: :gateway, new_state: :inactive}
     end
   end
 

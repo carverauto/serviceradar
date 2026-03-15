@@ -798,7 +798,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
           |> maybe_put(:keyfile, System.get_env("CNPG_KEY_FILE"))
           |> maybe_put(
             :server_name_indication,
-            System.get_env("CNPG_TLS_SERVER_NAME") |> to_sni()
+            "CNPG_TLS_SERVER_NAME" |> System.get_env() |> to_sni()
           )
 
         opts

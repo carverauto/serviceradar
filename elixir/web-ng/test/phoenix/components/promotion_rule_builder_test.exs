@@ -373,7 +373,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
           Map.put(acc, key, String.trim(plain_value))
       end)
 
-    if map_size(result) > 0, do: result, else: nil
+    if map_size(result) > 0, do: result
   end
 
   defp build_match_map(params) do

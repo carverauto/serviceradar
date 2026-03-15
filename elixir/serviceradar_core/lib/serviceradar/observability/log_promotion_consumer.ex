@@ -5,12 +5,13 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
 
   use Jetstream.PullConsumer
 
-  require Logger
-
   alias Jetstream.API.Consumer
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NATS.JetstreamConsumer
-  alias ServiceRadar.Observability.{LogPromotion, LogPromotionParser}
+  alias ServiceRadar.Observability.LogPromotion
+  alias ServiceRadar.Observability.LogPromotionParser
+
+  require Logger
 
   @default_stream "events"
   @default_consumer "log-promotion"
@@ -185,28 +186,26 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
   end
 
   defp ensure_consumer(config, attempt \\ 0) do
-    case consumer_available?(config) do
-      true ->
-        :ok
+    if consumer_available?(config) do
+      :ok
+    else
+      case create_consumer(config) do
+        :ok ->
+          Logger.info("Log promotion JetStream consumer ready",
+            stream: config.stream_name,
+            consumer: config.consumer_name,
+            filter_subject: config.filter_subject
+          )
 
-      false ->
-        case create_consumer(config) do
-          :ok ->
-            Logger.info("Log promotion JetStream consumer ready",
-              stream: config.stream_name,
-              consumer: config.consumer_name,
-              filter_subject: config.filter_subject
-            )
+        {:error, reason} ->
+          Logger.warning("Failed to create log promotion consumer",
+            reason: inspect(reason),
+            attempt: attempt + 1
+          )
 
-          {:error, reason} ->
-            Logger.warning("Failed to create log promotion consumer",
-              reason: inspect(reason),
-              attempt: attempt + 1
-            )
-
-            Process.sleep(@ensure_retry_ms)
-            ensure_consumer(config, attempt + 1)
-        end
+          Process.sleep(@ensure_retry_ms)
+          ensure_consumer(config, attempt + 1)
+      end
     end
   end
 
@@ -237,9 +236,10 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
   end
 
   defp create_consumer(config) do
-    case Connection.connected?() do
-      true -> create_consumer_when_connected(config)
-      false -> {:error, :not_connected}
+    if Connection.connected?() do
+      create_consumer_when_connected(config)
+    else
+      {:error, :not_connected}
     end
   end
 

@@ -4,8 +4,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias ServiceRadar.NetworkDiscovery.{MapperJob, MapperMikrotikController, MapperUnifiController}
-  alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
+  alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
+  alias ServiceRadar.NetworkDiscovery.MapperUnifiController
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 

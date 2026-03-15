@@ -6,13 +6,14 @@ defmodule ServiceRadar.Observability.SyncLogWriterTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Monitoring.OcsfEvent
-  alias ServiceRadar.Observability.{Log, SyncLogWriter}
+  alias ServiceRadar.Observability.Log
+  alias ServiceRadar.Observability.SyncLogWriter
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()

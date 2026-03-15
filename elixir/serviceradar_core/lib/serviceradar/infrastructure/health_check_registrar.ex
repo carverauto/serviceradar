@@ -47,8 +47,8 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
 
   require Logger
 
-  @default_health_interval :timer.seconds(5)
-  @default_results_interval :timer.minutes(1)
+  @default_health_interval to_timeout(second: 5)
+  @default_results_interval to_timeout(minute: 1)
 
   defstruct [
     :health_interval,
@@ -228,7 +228,8 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
   end
 
   defp register_agent_services(agent_id, services, state) do
-    Enum.map(services, fn service ->
+    services
+    |> Enum.map(fn service ->
       service_config = build_service_config(service, agent_id, state)
 
       case do_register_service(service_config) do
@@ -290,7 +291,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
 
   defp generate_service_id(service) do
     type = service[:service_type] || service[:type] || "svc"
-    id = service[:id] || :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
+    id = service[:id] || 4 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
     "#{type}-#{id}"
   end
 

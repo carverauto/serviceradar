@@ -40,8 +40,7 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
   """
   @spec all_templates() :: [map()]
   def all_templates do
-    all()
-    |> Enum.map(fn template ->
+    Enum.map(all(), fn template ->
       # Generate a stable ID based on vendor and name
       slug =
         template.name

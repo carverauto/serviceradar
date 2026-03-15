@@ -1,12 +1,13 @@
 defmodule ServiceRadarWebNGWeb.Router do
   use ServiceRadarWebNGWeb, :router
-  import AshAdmin.Router
 
+  import AshAdmin.Router
   import Oban.Web.Router
   import Phoenix.LiveDashboard.Router
   import ServiceRadarWebNGWeb.UserAuth
 
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNGWeb.Plugs.GatewayAuth
 
   @csp "default-src 'self'; " <>
          "script-src 'self' blob:; " <>
@@ -31,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     # Passive proxy mode: allow an upstream gateway to authenticate users by
     # injecting a JWT on each request. This plug is a no-op unless
     # auth_settings.mode == passive_proxy.
-    plug(ServiceRadarWebNGWeb.Plugs.GatewayAuth)
+    plug(GatewayAuth)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
   end
@@ -43,7 +44,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:fetch_live_flash)
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
-    plug(ServiceRadarWebNGWeb.Plugs.GatewayAuth)
+    plug(GatewayAuth)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
     plug(:require_authenticated_user)

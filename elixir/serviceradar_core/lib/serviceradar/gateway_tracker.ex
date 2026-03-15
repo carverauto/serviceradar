@@ -26,8 +26,8 @@ defmodule ServiceRadar.GatewayTracker do
   require Logger
 
   @table :gateway_tracker
-  @stale_threshold_ms :timer.minutes(2)
-  @cleanup_interval_ms :timer.minutes(1)
+  @stale_threshold_ms to_timeout(minute: 2)
+  @cleanup_interval_ms to_timeout(minute: 1)
 
   # Client API
 
@@ -136,7 +136,8 @@ defmodule ServiceRadar.GatewayTracker do
   def list_gateways do
     now_ms = System.system_time(:millisecond)
 
-    :ets.tab2list(@table)
+    @table
+    |> :ets.tab2list()
     |> Enum.map(fn {_key, info} ->
       last_heartbeat_ms =
         case Map.get(info, :last_heartbeat) do
@@ -231,10 +232,11 @@ defmodule ServiceRadar.GatewayTracker do
 
   defp cleanup_stale_gateways do
     now_dt = DateTime.utc_now()
-    stale_threshold_seconds = div(:timer.hours(24), 1_000)
+    stale_threshold_seconds = div(to_timeout(day: 1), 1_000)
 
     # Remove gateways that haven't sent heartbeat in 24 hours
-    :ets.tab2list(@table)
+    @table
+    |> :ets.tab2list()
     |> Enum.each(fn {gateway_id, info} ->
       last_heartbeat =
         info

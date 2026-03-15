@@ -8,14 +8,14 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
   use ServiceRadarWebNGWeb, :controller
 
-  require Ash.Query
-
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.ClientIP
+
+  require Ash.Query
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -361,7 +361,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
       is_nil(package.download_token_hash) ->
         {:error, :invalid_token}
 
-      DateTime.compare(DateTime.utc_now(), package.download_token_expires_at) == :gt ->
+      DateTime.after?(DateTime.utc_now(), package.download_token_expires_at) ->
         {:error, :token_expired}
 
       not verify_token_hash(token, package.download_token_hash) ->
@@ -373,7 +373,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   end
 
   defp verify_token_hash(token, hash) do
-    computed_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+    computed_hash = :sha256 |> :crypto.hash(token) |> Base.encode16(case: :lower)
     Plug.Crypto.secure_compare(computed_hash, hash)
   end
 
@@ -580,8 +580,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     return_error(conn, :internal_server_error, "NATS credentials not provisioned")
   end
 
-  defp handle_bundle_error(conn, reason)
-       when reason in [:tls_key_not_found, :tls_cert_not_found] do
+  defp handle_bundle_error(conn, reason) when reason in [:tls_key_not_found, :tls_cert_not_found] do
     return_error(conn, :internal_server_error, "TLS certificates not provisioned")
   end
 

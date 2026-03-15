@@ -13,9 +13,10 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  require Ash.Query
-
+  alias Ash.Error.Forbidden
   alias ServiceRadar.Monitoring.ServiceCheck
+
+  require Ash.Query
 
   describe "service check creation" do
     test "can create a service check with required fields" do
@@ -102,7 +103,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
         |> Ash.Changeset.for_update(:update, %{name: "Should Fail"}, actor: actor)
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
   end
 
@@ -149,7 +150,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
         |> Ash.Changeset.for_update(:disable, %{}, actor: actor)
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
   end
 
@@ -176,7 +177,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
       assert updated.last_result == :success
       assert updated.last_response_time_ms == 150
-      assert updated.last_check_at != nil
+      assert updated.last_check_at
       assert updated.consecutive_failures == 0
     end
 
@@ -283,18 +284,19 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
       # Disabled check
       {:ok, check_disabled} =
-        service_check_fixture(%{name: "Disabled Check"})
+        %{name: "Disabled Check"}
+        |> service_check_fixture()
         |> Ash.Changeset.for_update(:disable, %{}, actor: actor)
         |> Ash.update()
 
       # Failing check
       {:ok, check_failing} =
-        service_check_fixture(%{name: "Failing Check"})
+        %{name: "Failing Check"}
+        |> service_check_fixture()
         |> Ash.Changeset.for_update(:record_result, %{result: :error}, actor: actor)
         |> Ash.update()
 
-      {:ok,
-       check_enabled: check_enabled, check_disabled: check_disabled, check_failing: check_failing}
+      {:ok, check_enabled: check_enabled, check_disabled: check_disabled, check_failing: check_failing}
     end
 
     test "by_id returns specific check", %{check_enabled: check} do

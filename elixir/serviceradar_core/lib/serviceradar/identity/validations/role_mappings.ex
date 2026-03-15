@@ -67,9 +67,8 @@ defmodule ServiceRadar.Identity.Validations.RoleMappings do
          :ok <- validate_value(value),
          :ok <- validate_role(role),
          :ok <- validate_claim(source, claim),
-         :ok <- validate_value_format(source, value),
-         :ok <- validate_claim_format(source, claim) do
-      :ok
+         :ok <- validate_value_format(source, value) do
+      validate_claim_format(source, claim)
     end
   end
 

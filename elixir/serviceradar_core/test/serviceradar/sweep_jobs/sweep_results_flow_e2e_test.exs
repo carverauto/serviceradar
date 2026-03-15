@@ -1,23 +1,19 @@
 defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.NetworkDiscovery.MapperJob
-
-  alias ServiceRadar.SweepJobs.{
-    SweepGroup,
-    SweepGroupExecution,
-    SweepHostResult,
-    SweepResultsIngestor
-  }
-
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepGroupExecution
+  alias ServiceRadar.SweepJobs.SweepHostResult
+  alias ServiceRadar.SweepJobs.SweepResultsIngestor
   alias ServiceRadar.TestSupport
 
   require Ash.Query
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -86,7 +82,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
           %{"port" => 22, "available" => true, "response_time" => 1_200_000},
           %{"port" => 443, "available" => true, "response_time" => 1_500_000}
         ],
-        "last_sweep_time" => DateTime.utc_now() |> DateTime.to_iso8601()
+        "last_sweep_time" => DateTime.to_iso8601(DateTime.utc_now())
       },
       %{
         "host_ip" => new_ip,

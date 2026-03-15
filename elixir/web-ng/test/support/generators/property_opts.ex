@@ -8,7 +8,8 @@ defmodule ServiceRadarWebNG.TestSupport.PropertyOpts do
         _ -> 50
       end
 
-    System.get_env("PROPERTY_MAX_RUNS", Integer.to_string(default))
+    "PROPERTY_MAX_RUNS"
+    |> System.get_env(Integer.to_string(default))
     |> Integer.parse()
     |> case do
       {value, ""} when value > 0 -> value

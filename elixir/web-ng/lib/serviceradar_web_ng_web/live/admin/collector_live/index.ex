@@ -14,14 +14,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
-  require Ash.Query
-
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.NatsCredential
-  alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
   alias ServiceRadarWebNG.Collectors.PubSub, as: CollectorPubSub
+  alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
   alias ServiceRadarWebNG.RBAC
+
+  require Ash.Query
 
   @collector_types [
     {"Syslog Collector (Flowgger)", :flowgger},

@@ -63,6 +63,8 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.SysmonProfiles.Changes.ValidateSrqlQuery
+
   postgres do
     table "sysmon_profiles"
     repo ServiceRadar.Repo
@@ -90,7 +92,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
         :priority
       ]
 
-      change ServiceRadar.SysmonProfiles.Changes.ValidateSrqlQuery
+      change ValidateSrqlQuery
     end
 
     update :update do
@@ -112,7 +114,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
       ]
 
       require_atomic? false
-      change ServiceRadar.SysmonProfiles.Changes.ValidateSrqlQuery
+      change ValidateSrqlQuery
     end
 
     read :list_available do

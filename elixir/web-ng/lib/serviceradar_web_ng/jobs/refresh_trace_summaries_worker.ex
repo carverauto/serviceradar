@@ -5,11 +5,13 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker do
 
   use Oban.Worker, queue: :maintenance, max_attempts: 3
 
+  alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+
   @impl Oban.Worker
   def perform(job) do
-    ServiceRadar.Jobs.RefreshTraceSummariesWorker.perform(job)
+    RefreshTraceSummariesWorker.perform(job)
   end
 
-  defdelegate upsert_sql, to: ServiceRadar.Jobs.RefreshTraceSummariesWorker
-  defdelegate cleanup_batch_sql, to: ServiceRadar.Jobs.RefreshTraceSummariesWorker
+  defdelegate upsert_sql, to: RefreshTraceSummariesWorker
+  defdelegate cleanup_batch_sql, to: RefreshTraceSummariesWorker
 end

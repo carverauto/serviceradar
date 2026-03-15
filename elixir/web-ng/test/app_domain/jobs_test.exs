@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNG.JobsTest do
   use ServiceRadarWebNG.DataCase, async: true
 
+  alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadarWebNG.Jobs
   alias ServiceRadarWebNG.Jobs.Schedule
-  alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadarWebNG.Repo
 
   describe "schedules" do
@@ -26,7 +26,8 @@ defmodule ServiceRadarWebNG.JobsTest do
 
     test "lists recent runs for a scheduled job" do
       {:ok, job} =
-        RefreshTraceSummariesWorker.new(%{}, queue: :maintenance)
+        %{}
+        |> RefreshTraceSummariesWorker.new(queue: :maintenance)
         |> Repo.insert()
 
       runs = Jobs.list_recent_runs("refresh_trace_summaries", limit: 5)

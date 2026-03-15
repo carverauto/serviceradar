@@ -5,12 +5,14 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
 
   use GenServer
 
-  alias ServiceRadar.Observability.{MtrAutomationDispatcher, MtrGraph, MtrPolicy}
+  alias ServiceRadar.Observability.MtrAutomationDispatcher
+  alias ServiceRadar.Observability.MtrGraph
+  alias ServiceRadar.Observability.MtrPolicy
 
   require Logger
 
   @default_tick_ms 60_000
-  @default_prune_interval_ms :timer.hours(1)
+  @default_prune_interval_ms to_timeout(hour: 1)
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -137,10 +139,7 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
   end
 
   defp maybe_prune_stale_edges(
-         %{
-           prune_interval_ms: prune_interval_ms,
-           last_prune_ms: last_prune_ms
-         } = state
+         %{prune_interval_ms: prune_interval_ms, last_prune_ms: last_prune_ms} = state
        ) do
     now_ms = System.monotonic_time(:millisecond)
     interval_ms = max(parse_int(prune_interval_ms, @default_prune_interval_ms), 1)

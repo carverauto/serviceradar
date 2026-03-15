@@ -19,9 +19,7 @@ defmodule ServiceRadarWebNG.EdgeOnboardingTokenPropertyTest do
 
       assert {:ok, payload} = OnboardingToken.decode(token)
 
-      expected =
-        %{pkg: package_id, dl: download_token}
-        |> maybe_put_api(api)
+      expected = maybe_put_api(%{pkg: package_id, dl: download_token}, api)
 
       assert payload == expected
     end

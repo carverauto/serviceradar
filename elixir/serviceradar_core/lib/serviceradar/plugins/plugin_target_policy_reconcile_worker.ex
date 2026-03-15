@@ -9,7 +9,8 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker do
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Plugins.{PluginTargetPolicy, PluginTargetPolicyOps}
+  alias ServiceRadar.Plugins.PluginTargetPolicy
+  alias ServiceRadar.Plugins.PluginTargetPolicyOps
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Ash.Query
@@ -20,9 +21,10 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      case scheduled?() do
-        true -> {:ok, :already_scheduled}
-        false -> %{} |> new() |> ObanSupport.safe_insert()
+      if scheduled?() do
+        {:ok, :already_scheduled}
+      else
+        %{} |> new() |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}

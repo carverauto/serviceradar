@@ -11,6 +11,10 @@ defmodule ServiceRadar.Identity.RoleProfile do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Identity.Changes.DisallowSystemProfileEdit
+  alias ServiceRadar.Identity.Changes.InvalidateRbacCache
+  alias ServiceRadar.Identity.Validations.PermissionKeys
+
   require Ash.Query
 
   @rbac_manage_permission ServiceRadar.Identity.Constants.rbac_manage_permission()
@@ -53,27 +57,27 @@ defmodule ServiceRadar.Identity.RoleProfile do
       accept @profile_fields
       change set_attribute(:system, false)
       change set_attribute(:system_name, nil)
-      validate ServiceRadar.Identity.Validations.PermissionKeys
-      change ServiceRadar.Identity.Changes.InvalidateRbacCache
+      validate PermissionKeys
+      change InvalidateRbacCache
     end
 
     create :create_system do
       accept @system_profile_fields
       change set_attribute(:system, true)
-      validate ServiceRadar.Identity.Validations.PermissionKeys
-      change ServiceRadar.Identity.Changes.InvalidateRbacCache
+      validate PermissionKeys
+      change InvalidateRbacCache
     end
 
     update :update do
       accept @profile_fields
-      change ServiceRadar.Identity.Changes.DisallowSystemProfileEdit
-      validate ServiceRadar.Identity.Validations.PermissionKeys
-      change ServiceRadar.Identity.Changes.InvalidateRbacCache
+      change DisallowSystemProfileEdit
+      validate PermissionKeys
+      change InvalidateRbacCache
     end
 
     destroy :destroy do
-      change ServiceRadar.Identity.Changes.DisallowSystemProfileEdit
-      change ServiceRadar.Identity.Changes.InvalidateRbacCache
+      change DisallowSystemProfileEdit
+      change InvalidateRbacCache
     end
   end
 

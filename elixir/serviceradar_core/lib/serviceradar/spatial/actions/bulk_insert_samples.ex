@@ -6,6 +6,7 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertSamples do
   use Ash.Resource.Change
 
   alias ServiceRadar.Repo
+
   @rf_vector_dims 64
   @ble_vector_dims 64
   @missing_signal_value -100.0
@@ -15,7 +16,7 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertSamples do
       session_id = Ash.Changeset.get_argument(changeset, :session_id)
       samples = Ash.Changeset.get_argument(changeset, :samples)
 
-      now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+      now = NaiveDateTime.truncate(NaiveDateTime.utc_now(), :second)
 
       # Transform decoded Arrow maps into raw Ecto schema maps for Repo.insert_all
       entries =

@@ -46,8 +46,8 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.State do
   def encode_param(%{} = state) do
     with {:ok, normalized} <- normalize(state),
          {:ok, json} <- Jason.encode(normalized),
-         gz when is_binary(gz) <- :zlib.gzip(json),
-         payload <- Base.url_encode64(gz, padding: false) do
+         gz when is_binary(gz) <- :zlib.gzip(json) do
+      payload = Base.url_encode64(gz, padding: false)
       {:ok, @prefix <> payload}
     end
   rescue
@@ -81,9 +81,7 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.State do
   defp normalize(%{} = raw) do
     raw = stringify_keys(raw)
 
-    state =
-      default()
-      |> Map.merge(Map.take(raw, Map.keys(default())))
+    state = Map.merge(default(), Map.take(raw, Map.keys(default())))
 
     with {:ok, graph} <- validate_enum(state["graph"], @allowed_graph),
          {:ok, units} <- validate_enum(state["units"], @allowed_units),
@@ -127,7 +125,7 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.State do
         _ -> nil
       end
 
-    v = if is_binary(v), do: String.trim(v), else: nil
+    v = if is_binary(v), do: String.trim(v)
 
     if v && Enum.member?(allowed, v) do
       {:ok, v}

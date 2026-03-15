@@ -5,10 +5,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   import Ecto.Query
 
-  require Logger
-
   alias ServiceRadar.Graph
   alias ServiceRadar.Repo
+
+  require Logger
+
   @default_stale_minutes 180
   @telemetry_window_minutes 10
   @canonical_rebuild_lock_key 1_104_202_506
@@ -543,7 +544,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp confidence_score(link, metadata) do
-    link_value(link, :confidence_score)
+    link
+    |> link_value(:confidence_score)
     |> parse_confidence_score()
     |> case do
       nil ->
@@ -796,23 +798,24 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp reconcile_competing_same_port_canonical_edges do
-    with {:ok, edges} <- Graph.query(competing_same_port_canonical_edges_query()) do
-      edge_map = Map.new(edges, &{canonical_edge_key(&1), &1})
+    case Graph.query(competing_same_port_canonical_edges_query()) do
+      {:ok, edges} ->
+        edge_map = Map.new(edges, &{canonical_edge_key(&1), &1})
 
-      demotions =
-        edges
-        |> Enum.flat_map(&edge_port_conflicts/1)
-        |> Enum.group_by(fn {port_key, _edge_key} -> port_key end, fn {_port_key, edge_key} ->
-          edge_key
-        end)
-        |> Enum.flat_map(fn {_port_key, edge_keys} ->
-          demotions_for_port_group(edge_keys, edge_map)
-        end)
-        |> Enum.uniq()
+        demotions =
+          edges
+          |> Enum.flat_map(&edge_port_conflicts/1)
+          |> Enum.group_by(fn {port_key, _edge_key} -> port_key end, fn {_port_key, edge_key} ->
+            edge_key
+          end)
+          |> Enum.flat_map(fn {_port_key, edge_keys} ->
+            demotions_for_port_group(edge_keys, edge_map)
+          end)
+          |> Enum.uniq()
 
-      Enum.each(demotions, &demote_canonical_edge_to_attachment/1)
-      {:ok, length(demotions)}
-    else
+        Enum.each(demotions, &demote_canonical_edge_to_attachment/1)
+        {:ok, length(demotions)}
+
       {:error, reason} ->
         Logger.warning("Canonical same-port reconciliation failed: #{inspect(reason)}")
         {:error, reason}
@@ -900,7 +903,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     src_id = Map.get(edge, "src_id")
     dst_id = Map.get(edge, "dst_id")
 
-    if is_binary(src_id) and is_binary(dst_id), do: {src_id, dst_id}, else: nil
+    if is_binary(src_id) and is_binary(dst_id), do: {src_id, dst_id}
   end
 
   defp canonical_edge_key(_), do: nil
@@ -934,7 +937,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   @doc false
   @spec canonical_rebuild_min_edges() :: pos_integer()
   def canonical_rebuild_min_edges do
-    Application.get_env(:serviceradar_core, __MODULE__, [])
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
     |> Keyword.get(:min_canonical_edges, 1)
     |> normalize_positive_int(1)
   end
@@ -957,7 +961,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
          min_canonical_edges
        )
        when is_integer(after_prune_edges) and is_integer(mapper_evidence_edges) and
-              is_binary(stale_cutoff) and is_integer(min_canonical_edges) do
+              is_binary(stale_cutoff) and
+              is_integer(min_canonical_edges) do
     if self_heal_needed?(after_prune_edges, mapper_evidence_edges, min_canonical_edges) do
       Logger.warning(
         "Canonical topology self-heal triggered",
@@ -994,13 +999,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     }
 
     metadata =
-      %{
-        status: status,
-        stale_cutoff: Map.get(stats, :stale_cutoff),
-        prune_result: Map.get(stats, :prune_result),
-        telemetry_refresh: Map.get(stats, :telemetry_refresh)
-      }
-      |> maybe_put_reason(reason)
+      maybe_put_reason(
+        %{
+          status: status,
+          stale_cutoff: Map.get(stats, :stale_cutoff),
+          prune_result: Map.get(stats, :prune_result),
+          telemetry_refresh: Map.get(stats, :telemetry_refresh)
+        },
+        reason
+      )
 
     :telemetry.execute(
       [:serviceradar, :topology, :canonical_rebuild, status],
@@ -1083,47 +1090,49 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp parse_count(_), do: 0
 
   defp refresh_canonical_edge_telemetry(stale_cutoff) when is_binary(stale_cutoff) do
-    with {:ok, edges} <- fetch_canonical_edges(stale_cutoff) do
-      metric_keys = telemetry_metric_keys(edges)
-      pps_by_if = load_packet_pps(metric_keys)
-      bps_by_if = load_octet_bps(metric_keys)
-      capacity_by_if = load_interface_capacity(metric_keys)
-      observed_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    case fetch_canonical_edges(stale_cutoff) do
+      {:ok, edges} ->
+        metric_keys = telemetry_metric_keys(edges)
+        pps_by_if = load_packet_pps(metric_keys)
+        bps_by_if = load_octet_bps(metric_keys)
+        capacity_by_if = load_interface_capacity(metric_keys)
+        observed_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
-      stats =
-        Enum.reduce(
-          edges,
-          %{
-            total_edges: length(edges),
-            interface_source: 0,
-            none_source: 0,
-            render_ready: 0,
-            render_partial: 0,
-            render_unattributed: 0
-          },
-          fn edge, acc ->
-            telemetry =
-              compute_edge_telemetry(edge, pps_by_if, bps_by_if, capacity_by_if, observed_at)
+        stats =
+          Enum.reduce(
+            edges,
+            %{
+              total_edges: length(edges),
+              interface_source: 0,
+              none_source: 0,
+              render_ready: 0,
+              render_partial: 0,
+              render_unattributed: 0
+            },
+            fn edge, acc ->
+              telemetry =
+                compute_edge_telemetry(edge, pps_by_if, bps_by_if, capacity_by_if, observed_at)
 
-            persist_canonical_edge_telemetry(edge, telemetry)
+              persist_canonical_edge_telemetry(edge, telemetry)
 
-            acc = update_render_readiness_stats(acc, edge_render_readiness_class(edge))
-
-            case telemetry.telemetry_source do
-              "interface" -> Map.update!(acc, :interface_source, &(&1 + 1))
-              _ -> Map.update!(acc, :none_source, &(&1 + 1))
+              acc = update_render_readiness_stats(acc, edge_render_readiness_class(edge))
+              update_telemetry_source_stats(acc, telemetry.telemetry_source)
             end
-          end
-        )
+          )
 
-      Logger.info("canonical_edge_telemetry_stats #{inspect(stats)}")
-      {:ok, stats}
-    else
+        Logger.info("canonical_edge_telemetry_stats #{inspect(stats)}")
+        {:ok, stats}
+
       {:error, reason} ->
         Logger.warning("Canonical edge telemetry refresh failed: #{inspect(reason)}")
         {:error, reason}
     end
   end
+
+  defp update_telemetry_source_stats(acc, "interface"),
+    do: Map.update!(acc, :interface_source, &(&1 + 1))
+
+  defp update_telemetry_source_stats(acc, _source), do: Map.update!(acc, :none_source, &(&1 + 1))
 
   defp fetch_canonical_edges(stale_cutoff) when is_binary(stale_cutoff) do
     cypher = """
@@ -1180,17 +1189,19 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp telemetry_metric_keys(edges) when is_list(edges) do
     edges
     |> Enum.flat_map(fn edge ->
-      [
-        metric_key(
-          Map.get(edge, :src_id),
-          Map.get(edge, :local_if_index_ab) || Map.get(edge, :local_if_index)
-        ),
-        metric_key(
-          Map.get(edge, :dst_id),
-          Map.get(edge, :local_if_index_ba) || Map.get(edge, :neighbor_if_index)
-        )
-      ]
-      |> Enum.reject(&is_nil/1)
+      Enum.reject(
+        [
+          metric_key(
+            Map.get(edge, :src_id),
+            Map.get(edge, :local_if_index_ab) || Map.get(edge, :local_if_index)
+          ),
+          metric_key(
+            Map.get(edge, :dst_id),
+            Map.get(edge, :local_if_index_ba) || Map.get(edge, :neighbor_if_index)
+          )
+        ],
+        &is_nil/1
+      )
     end)
     |> Enum.uniq()
   end
@@ -1233,25 +1244,23 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     device_identity = build_device_identity(device_ids)
     accepted_device_ids = telemetry_metric_device_ids(device_identity)
 
-    case accepted_device_ids == [] or if_indexes == [] do
-      true ->
-        %{}
-
-      false ->
-        from(i in "discovered_interfaces",
-          where:
-            fragment(
-              "? = ANY(?)",
-              i.device_id,
-              type(^accepted_device_ids, {:array, :string})
-            ),
-          where: fragment("? = ANY(?)", i.if_index, type(^if_indexes, {:array, :integer})),
-          distinct: [i.device_id, i.if_index],
-          order_by: [asc: i.device_id, asc: i.if_index, desc: i.timestamp],
-          select: {i.device_id, i.if_index, i.speed_bps, i.if_speed}
-        )
-        |> Repo.all()
-        |> Enum.reduce(%{}, fn row, acc -> reduce_capacity_row(row, acc, device_identity) end)
+    if accepted_device_ids == [] or if_indexes == [] do
+      %{}
+    else
+      from(i in "discovered_interfaces",
+        where:
+          fragment(
+            "? = ANY(?)",
+            i.device_id,
+            type(^accepted_device_ids, {:array, :string})
+          ),
+        where: fragment("? = ANY(?)", i.if_index, type(^if_indexes, {:array, :integer})),
+        distinct: [i.device_id, i.if_index],
+        order_by: [asc: i.device_id, asc: i.if_index, desc: i.timestamp],
+        select: {i.device_id, i.if_index, i.speed_bps, i.if_speed}
+      )
+      |> Repo.all()
+      |> Enum.reduce(%{}, fn row, acc -> reduce_capacity_row(row, acc, device_identity) end)
     end
   end
 
@@ -1285,8 +1294,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp build_device_identity(_), do: %{uid_set: MapSet.new(), ip_to_uid: %{}}
 
   defp telemetry_metric_device_ids(%{uid_set: uid_set, ip_to_uid: ip_to_uid}) do
-    (MapSet.to_list(uid_set) ++ Map.keys(ip_to_uid))
-    |> Enum.uniq()
+    Enum.uniq(MapSet.to_list(uid_set) ++ Map.keys(ip_to_uid))
   end
 
   defp telemetry_metric_device_ids(_), do: []
@@ -1378,44 +1386,42 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     {device_identity, accepted_metric_ids, accepted_metric_ips, if_indexes} =
       telemetry_metric_scope(keys)
 
-    case accepted_metric_ids == [] or if_indexes == [] do
-      true ->
-        %{}
-
-      false ->
-        from(m in "timeseries_metrics",
-          where:
-            fragment(
-              "(? = ANY(?)) OR (? = ANY(?))",
-              m.device_id,
-              type(^accepted_metric_ids, {:array, :string}),
-              m.target_device_ip,
-              type(^accepted_metric_ips, {:array, :string})
-            ),
-          where: fragment("? = ANY(?)", m.if_index, type(^if_indexes, {:array, :integer})),
-          where: fragment("? = ANY(?)", m.metric_name, type(^metric_names, {:array, :string})),
-          where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
-          distinct: [m.device_id, m.target_device_ip, m.if_index, m.metric_name],
-          order_by: [
-            asc: m.device_id,
-            asc: m.target_device_ip,
-            asc: m.if_index,
-            asc: m.metric_name,
-            desc: m.timestamp
-          ],
-          select: {m.device_id, m.target_device_ip, m.if_index, m.metric_name, m.value}
+    if accepted_metric_ids == [] or if_indexes == [] do
+      %{}
+    else
+      from(m in "timeseries_metrics",
+        where:
+          fragment(
+            "(? = ANY(?)) OR (? = ANY(?))",
+            m.device_id,
+            type(^accepted_metric_ids, {:array, :string}),
+            m.target_device_ip,
+            type(^accepted_metric_ips, {:array, :string})
+          ),
+        where: fragment("? = ANY(?)", m.if_index, type(^if_indexes, {:array, :integer})),
+        where: fragment("? = ANY(?)", m.metric_name, type(^metric_names, {:array, :string})),
+        where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
+        distinct: [m.device_id, m.target_device_ip, m.if_index, m.metric_name],
+        order_by: [
+          asc: m.device_id,
+          asc: m.target_device_ip,
+          asc: m.if_index,
+          asc: m.metric_name,
+          desc: m.timestamp
+        ],
+        select: {m.device_id, m.target_device_ip, m.if_index, m.metric_name, m.value}
+      )
+      |> Repo.all()
+      |> Enum.reduce(%{}, fn row, acc ->
+        reduce_directional_metric_row(
+          row,
+          acc,
+          device_identity,
+          direction_fun,
+          value_fun,
+          transform_fun
         )
-        |> Repo.all()
-        |> Enum.reduce(%{}, fn row, acc ->
-          reduce_directional_metric_row(
-            row,
-            acc,
-            device_identity,
-            direction_fun,
-            value_fun,
-            transform_fun
-          )
-        end)
+      end)
     end
   end
 
@@ -1569,12 +1575,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     do: Map.update!(acc, :render_unattributed, &(&1 + 1))
 
   defp packet_metric_direction(metric_name)
-       when metric_name in ["ifInUcastPkts", "ifHCInUcastPkts"],
-       do: :in
+       when metric_name in ["ifInUcastPkts", "ifHCInUcastPkts"], do: :in
 
   defp packet_metric_direction(metric_name)
-       when metric_name in ["ifOutUcastPkts", "ifHCOutUcastPkts"],
-       do: :out
+       when metric_name in ["ifOutUcastPkts", "ifHCOutUcastPkts"], do: :out
 
   defp packet_metric_direction(_), do: nil
 
@@ -1787,8 +1791,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp stale_cutoff_iso8601 do
     stale_minutes =
-      Application.get_env(
-        :serviceradar_core,
+      :serviceradar_core
+      |> Application.get_env(
         :mapper_topology_edge_stale_minutes,
         @default_stale_minutes
       )

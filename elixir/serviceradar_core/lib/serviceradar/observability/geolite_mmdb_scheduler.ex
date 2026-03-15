@@ -3,9 +3,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbScheduler do
   Supervisor child that ensures GeoLite MMDB download jobs are scheduled.
   """
 
-  alias ServiceRadar.Observability.GeoLiteMmdbDownloadWorker
-
   use ServiceRadar.ObanEnsureScheduled,
-    workers: [GeoLiteMmdbDownloadWorker],
+    workers: [ServiceRadar.Observability.GeoLiteMmdbDownloadWorker],
     label: "GeoLite MMDB scheduling"
 end

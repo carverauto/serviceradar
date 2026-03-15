@@ -1,13 +1,13 @@
 defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias Ecto.Adapters.SQL
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -65,7 +65,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "upsert_interfaces creates interface nodes and HAS_INTERFACE edges" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     TopologyGraph.upsert_interfaces([
       %{
@@ -93,7 +93,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "upsert_links creates CONNECTS_TO edges between interfaces" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     TopologyGraph.upsert_links([
       %{
@@ -121,7 +121,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "upsert_links falls back when neighbor port metadata is missing" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     TopologyGraph.upsert_links([
       %{
@@ -147,7 +147,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "upsert_links skips low-confidence links from AGE projection" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     TopologyGraph.upsert_links([
       %{
@@ -172,7 +172,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "upsert_links drops LLDP edges without a local interface index" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     TopologyGraph.upsert_links([
       %{
@@ -198,7 +198,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "upsert_links keeps SNMP-L2 inferred edges without a local interface index" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     TopologyGraph.upsert_links([
       %{
@@ -225,7 +225,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "upsert_links drops low-confidence single-identifier inferred edges" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     TopologyGraph.upsert_links([
       %{
@@ -255,7 +255,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "mapper SNMP ARP/FDB single-identifier payload becomes attachment and never backbone edge" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     normalized =
       MapperResultsIngestor.normalize_topology(%{
@@ -309,7 +309,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "upsert_links keeps multiple resolved SNMP-L2 neighbors for one local device" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     TopologyGraph.upsert_links([
       %{
@@ -346,7 +346,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "upsert_links preserves UniFi direct neighbors when SNMP-L2 fallback is also present" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     TopologyGraph.upsert_links([
       %{
@@ -394,7 +394,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "upsert_links is idempotent and updates confidence metadata in place" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     later = DateTime.add(now, 30, :second)
 
     TopologyGraph.upsert_links([
@@ -459,7 +459,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       )
     end)
 
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     stale = DateTime.add(now, -10 * 60, :second)
 
     TopologyGraph.upsert_links([
@@ -507,7 +507,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "synthetic topology replay projects expected farm01 and tonka01 connectivity" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     fixture = synthetic_topology_fixture(now)
     payload = Jason.encode!(fixture.links)
 
@@ -543,7 +543,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "router drops low-confidence inferred neighbors when only the uplink is corroborated" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     insert_device_type("dev-router", "Router")
     insert_device_type("dev-switch-a", "Switch")
@@ -618,7 +618,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   test "canonical rebuild demotes competing same-port direct neighbor to attachment when uplink is corroborated" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     TopologyGraph.upsert_links([
       %{
@@ -743,7 +743,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
   defp cleanup_graph(ids) when is_list(ids) do
     quoted_ids = Enum.map_join(ids, ", ", &("'" <> &1 <> "'"))
-    graph = graph_name() |> String.replace("'", "\\'")
+    graph = String.replace(graph_name(), "'", "\\'")
 
     cypher = "MATCH (n) WHERE n.id IN [#{quoted_ids}] DETACH DELETE n"
 
@@ -758,7 +758,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   defp cypher_rows(cypher) do
-    graph = graph_name() |> String.replace("'", "\\'")
+    graph = String.replace(graph_name(), "'", "\\'")
 
     sql = """
     SELECT ag_catalog.agtype_to_text(result)
@@ -789,7 +789,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   defp synthetic_topology_ids do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     now
     |> synthetic_topology_fixture()

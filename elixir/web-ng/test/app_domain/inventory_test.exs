@@ -1,10 +1,10 @@
 defmodule ServiceRadarWebNG.InventoryTest do
   use ServiceRadarWebNG.DataCase, async: true
 
+  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
+
   alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.Repo
-
-  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   test "list_devices returns devices ordered by last_seen_time desc" do
     suffix = System.unique_integer([:positive])

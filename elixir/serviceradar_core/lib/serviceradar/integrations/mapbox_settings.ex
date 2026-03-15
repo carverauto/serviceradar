@@ -149,10 +149,10 @@ defmodule ServiceRadar.Integrations.MapboxSettings do
       value when is_binary(value) ->
         value = String.trim(value)
 
-        if value != "" do
-          AshCloak.encrypt_and_set(changeset, arg, value)
-        else
+        if value == "" do
           changeset
+        else
+          AshCloak.encrypt_and_set(changeset, arg, value)
         end
 
       _ ->

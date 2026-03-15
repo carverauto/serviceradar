@@ -17,9 +17,9 @@ defmodule ServiceRadar.EventWriter.Supervisor do
 
   use Supervisor
 
-  require Logger
-
   alias ServiceRadar.EventWriter.Config
+
+  require Logger
 
   @doc """
   Starts the EventWriter supervisor.

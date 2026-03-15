@@ -13,13 +13,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias ServiceRadar.Cluster.ClusterStatus
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Jobs.JobCatalog
-  alias ServiceRadar.Cluster.ClusterStatus
   alias ServiceRadarWebNG.RBAC
 
-  @refresh_interval :timer.seconds(10)
-  @stale_threshold_ms :timer.minutes(2)
+  @refresh_interval to_timeout(second: 10)
+  @stale_threshold_ms to_timeout(minute: 2)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -90,8 +90,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         delta_ms =
           if is_integer(last_ms) do
             max(now_ms - last_ms, 0)
-          else
-            nil
           end
 
         not is_integer(delta_ms) or delta_ms > @stale_threshold_ms
@@ -705,7 +703,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   # In a single deployment, all jobs are visible (no filtering needed)
   defp load_job_counts(_scope) do
-    total = JobCatalog.list_all_jobs() |> length()
+    total = length(JobCatalog.list_all_jobs())
     %{total: total}
   end
 
@@ -748,7 +746,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   defp gateway_id_from(gateway) do
     gateway_id = Map.get(gateway, :gateway_id) || Map.get(gateway, "gateway_id")
 
-    if is_binary(gateway_id) and gateway_id != "", do: gateway_id, else: nil
+    if is_binary(gateway_id) and gateway_id != "", do: gateway_id
   end
 
   defp normalize_gateway_entry(gateway, gateway_id) do
@@ -786,8 +784,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         _ -> []
       end)
 
-    all_agents
-    |> Enum.reduce(%{}, fn agent, acc ->
+    Enum.reduce(all_agents, %{}, fn agent, acc ->
       agent_id = Map.get(agent, :agent_id) || Map.get(agent, "agent_id")
 
       Map.put(acc, agent_id, %{
@@ -810,7 +807,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       last_heartbeat_ms = parse_timestamp_to_ms(Map.get(gateway, :last_heartbeat))
 
       delta_ms =
-        if is_integer(last_heartbeat_ms), do: max(now_ms - last_heartbeat_ms, 0), else: nil
+        if is_integer(last_heartbeat_ms), do: max(now_ms - last_heartbeat_ms, 0)
 
       active = is_integer(delta_ms) and delta_ms < @stale_threshold_ms
       node_str = to_string(gateway.node)
@@ -950,8 +947,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
     # Aggregate by queue
     queues =
-      results
-      |> Enum.reduce(%{}, fn {queue, state, count}, acc ->
+      Enum.reduce(results, %{}, fn {queue, state, count}, acc ->
         queue_stats =
           Map.get(acc, queue, %{available: 0, executing: 0, scheduled: 0, retryable: 0})
 

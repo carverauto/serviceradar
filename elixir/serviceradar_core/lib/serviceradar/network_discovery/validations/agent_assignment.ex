@@ -5,10 +5,10 @@ defmodule ServiceRadar.NetworkDiscovery.Validations.AgentAssignment do
 
   use Ash.Resource.Validation
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+
+  require Logger
 
   @impl true
   def atomic(_changeset, _opts, _context), do: :ok

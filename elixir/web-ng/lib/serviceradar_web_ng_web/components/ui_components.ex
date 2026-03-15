@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   """
 
   use Phoenix.Component
+
   import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
 
   attr :variant, :string,
@@ -103,8 +104,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :class, :any, default: nil
   attr :rule_id, :any, default: nil
 
-  attr :rest, :global,
-    include: ~w(name value form disabled phx-change phx-target phx-debounce phx-throttle)
+  attr :rest, :global, include: ~w(name value form disabled phx-change phx-target phx-debounce phx-throttle)
 
   slot :inner_block, required: true
 
@@ -123,9 +123,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :class, :any, default: nil
   attr :rule_id, :any, default: nil
 
-  attr :rest, :global,
-    include:
-      ~w(name value form type placeholder disabled min max step phx-change phx-blur phx-target
+  attr :rest, :global, include: ~w(name value form type placeholder disabled min max step phx-change phx-blur phx-target
                 phx-debounce phx-throttle)
 
   def ui_inline_input(assigns) do
@@ -423,8 +421,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   defp calculate_total_pages(nil, _limit), do: nil
 
-  defp calculate_total_pages(total, limit)
-       when is_integer(total) and total > 0 and is_integer(limit) and limit > 0 do
+  defp calculate_total_pages(total, limit) when is_integer(total) and total > 0 and is_integer(limit) and limit > 0 do
     ceil(total / limit)
   end
 
@@ -451,13 +448,12 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   defp normalize_query_params(_), do: %{}
 
-  defp pagination_text(count, _limit, total)
-       when is_integer(count) and count > 0 and is_integer(total) and total > 0 do
-    "Showing #{count} of #{format_number(total)} result#{if total != 1, do: "s", else: ""}"
+  defp pagination_text(count, _limit, total) when is_integer(count) and count > 0 and is_integer(total) and total > 0 do
+    "Showing #{count} of #{format_number(total)} result#{if total == 1, do: "", else: "s"}"
   end
 
   defp pagination_text(count, _limit, _total) when is_integer(count) and count > 0 do
-    "Showing #{count} result#{if count != 1, do: "s", else: ""}"
+    "Showing #{count} result#{if count == 1, do: "", else: "s"}"
   end
 
   defp pagination_text(_, _, _), do: "No results"

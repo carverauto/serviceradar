@@ -27,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.Auth.Hooks do
   """
 
   alias ServiceRadar.Identity.User
+
   require Logger
 
   @doc """
@@ -225,7 +226,7 @@ defmodule ServiceRadarWebNGWeb.Auth.Hooks.Default do
       user_id: user.id,
       email: email,
       method: source,
-      timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
+      timestamp: DateTime.to_iso8601(DateTime.utc_now())
     )
 
     :ok
@@ -242,7 +243,7 @@ defmodule ServiceRadarWebNGWeb.Auth.Hooks.Default do
       user_id: user.id,
       email: email,
       method: method,
-      timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
+      timestamp: DateTime.to_iso8601(DateTime.utc_now())
     )
 
     :ok
@@ -255,7 +256,7 @@ defmodule ServiceRadarWebNGWeb.Auth.Hooks.Default do
       event_type: :token_generated,
       user_id: user.id,
       token_type: claims["typ"],
-      timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
+      timestamp: DateTime.to_iso8601(DateTime.utc_now())
     )
 
     :ok
@@ -279,7 +280,7 @@ defmodule ServiceRadarWebNGWeb.Auth.Hooks.Default do
       method: context[:method],
       ip: context[:ip],
       user_agent: context[:user_agent],
-      timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
+      timestamp: DateTime.to_iso8601(DateTime.utc_now())
     )
 
     :ok

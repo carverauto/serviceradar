@@ -299,7 +299,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   end
 
   relationships do
-    belongs_to :edge_site, ServiceRadar.Edge.EdgeSite do
+    belongs_to :edge_site, EdgeSite do
       source_attribute :edge_site_id
       allow_nil? false
     end

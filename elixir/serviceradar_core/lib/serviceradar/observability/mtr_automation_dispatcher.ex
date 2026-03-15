@@ -5,10 +5,13 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
   import Ash.Expr
 
+  alias Ash.Page.Keyset
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.Observability.{MtrDispatchWindow, MtrVantageSelector, SRQLRunner}
+  alias ServiceRadar.Observability.MtrDispatchWindow
+  alias ServiceRadar.Observability.MtrVantageSelector
+  alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
 
@@ -47,7 +50,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
         |> Ash.Query.limit(limit)
 
       case Ash.read(query, actor: actor) do
-        {:ok, %Ash.Page.Keyset{results: results}} ->
+        {:ok, %Keyset{results: results}} ->
           Enum.map(results, &device_to_target_ctx/1)
 
         {:ok, results} when is_list(results) ->
@@ -277,7 +280,8 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   defp candidate_agents(target_ctx) do
     target_partition = blank_to_nil(Map.get(target_ctx, :partition_id))
 
-    ProcessRegistry.select_by_type(:agent_control)
+    :agent_control
+    |> ProcessRegistry.select_by_type()
     |> Enum.map(&session_to_candidate/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.filter(fn candidate ->
@@ -303,8 +307,6 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
         control_rtt_ms: metadata_value(metadata, "control_rtt_ms") || 0,
         last_success_at: metadata_value(metadata, "last_success_at")
       }
-    else
-      nil
     end
   end
 
@@ -378,7 +380,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
     case Ash.read(query, actor: actor) do
       {:ok, [%{cooldown_until: %DateTime{} = cooldown_until}]} ->
-        DateTime.compare(cooldown_until, DateTime.utc_now()) == :gt
+        DateTime.after?(cooldown_until, DateTime.utc_now())
 
       _ ->
         false
@@ -478,8 +480,6 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
         gateway_id: gateway_id,
         target_key: target_key
       }
-    else
-      nil
     end
   end
 
@@ -505,7 +505,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
         |> Ash.Query.filter(expr(uid in ^device_uids and is_managed == true and not is_nil(ip)))
 
       case Ash.read(query, actor: actor) do
-        {:ok, %Ash.Page.Keyset{results: devices}} ->
+        {:ok, %Keyset{results: devices}} ->
           filter_targets_by_devices(targets, devices, exclude_armis?)
 
         {:ok, devices} when is_list(devices) ->
@@ -526,8 +526,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   defp filter_targets_by_devices(targets, devices, exclude_armis?) do
     device_map = Map.new(devices, fn device -> {blank_to_nil(device.uid), device} end)
 
-    targets
-    |> Enum.filter(&target_allowed?(&1, device_map, exclude_armis?))
+    Enum.filter(targets, &target_allowed?(&1, device_map, exclude_armis?))
   end
 
   defp target_allowed?(target, device_map, exclude_armis?) do
@@ -618,22 +617,9 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     end
   end
 
-  defp finalize_dispatch(
-         [],
-         _target_ctx,
-         _policy,
-         _mode,
-         _meta
-       ),
-       do: {:error, :dispatch_failed}
+  defp finalize_dispatch([], _target_ctx, _policy, _mode, _meta), do: {:error, :dispatch_failed}
 
-  defp finalize_dispatch(
-         dispatched,
-         target_ctx,
-         policy,
-         mode,
-         meta
-       ) do
+  defp finalize_dispatch(dispatched, target_ctx, policy, mode, meta) do
     transition_class = Map.fetch!(meta, :transition_class)
     incident_correlation_id = Map.fetch!(meta, :incident_correlation_id)
     trigger_mode = Map.fetch!(meta, :trigger_mode)
@@ -727,7 +713,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   defp health_event_target_ip(metadata, entity_id) do
     metadata_value(metadata, "target_ip") ||
       metadata_value(metadata, "ip") ||
-      if(ip_string?(entity_id), do: entity_id, else: nil)
+      if(ip_string?(entity_id), do: entity_id)
   end
 
   defp health_event_target_device_uid(metadata) do
@@ -825,7 +811,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   end
 
   defp atom_key_value(atom_key, key, value) do
-    if Atom.to_string(atom_key) == key, do: value, else: nil
+    if Atom.to_string(atom_key) == key, do: value
   end
 
   defp normalize_srql_target_query(query, limit) when is_binary(query) do

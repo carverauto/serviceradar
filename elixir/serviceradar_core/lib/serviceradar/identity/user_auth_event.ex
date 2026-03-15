@@ -9,9 +9,11 @@ defmodule ServiceRadar.Identity.UserAuthEvent do
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer
 
-  @event_fields [:user_id, :actor_user_id, :event_type, :auth_method, :ip, :user_agent, :metadata]
+  alias ServiceRadar.Identity.User
 
   require Ash.Query
+
+  @event_fields [:user_id, :actor_user_id, :event_type, :auth_method, :ip, :user_agent, :metadata]
 
   postgres do
     table "user_auth_events"
@@ -72,12 +74,12 @@ defmodule ServiceRadar.Identity.UserAuthEvent do
   end
 
   relationships do
-    belongs_to :user, ServiceRadar.Identity.User do
+    belongs_to :user, User do
       attribute_writable? true
       allow_nil? false
     end
 
-    belongs_to :actor_user, ServiceRadar.Identity.User do
+    belongs_to :actor_user, User do
       attribute_writable? true
       allow_nil? true
     end

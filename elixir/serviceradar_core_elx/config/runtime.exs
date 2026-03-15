@@ -1,5 +1,11 @@
 import Config
 
+alias Geolix.Adapter.MMDB2
+alias Oban.Plugins.Cron
+alias ServiceRadar.EventWriter.Processors.CausalSignals
+alias ServiceRadar.EventWriter.Processors.Flows
+alias ServiceRadar.Jobs.AlertsRetentionWorker
+
 parse_int_env = fn env_name, default ->
   case System.get_env(env_name) do
     nil ->
@@ -37,18 +43,18 @@ if otel_endpoint do
          retry_max_delay_ms: 5_000
        }}
 
-  config :opentelemetry_exporter,
-    otlp_protocol: :grpc,
-    otlp_endpoint: otel_endpoint,
-    ssl_options: ssl_opts
-
   # Log exporter uses the same endpoint/protocol/TLS as traces
   config :opentelemetry_experimental,
     otlp_protocol: :grpc,
     otlp_endpoint: otel_endpoint,
     ssl_options: ssl_opts
+
+  config :opentelemetry_exporter,
+    otlp_protocol: :grpc,
+    # No endpoint configured — disable export to avoid connection errors
+    otlp_endpoint: otel_endpoint,
+    ssl_options: ssl_opts
 else
-  # No endpoint configured — disable export to avoid connection errors
   config :opentelemetry,
     traces_exporter: :none
 end
@@ -61,22 +67,20 @@ end
 geolite_dir = System.get_env("GEOLITE_MMDB_DIR", "/var/lib/serviceradar/geoip")
 
 geolite_city_enabled =
-  System.get_env("GEOLITE_CITY_ENABLED", "false")
+  "GEOLITE_CITY_ENABLED"
+  |> System.get_env("false")
   |> String.downcase()
-  |> then(&(&1 in ["1", "true", "yes", "on"]))
-
-config :serviceradar_core,
-  geolite_mmdb_dir: geolite_dir
+  |> Kernel.in(["1", "true", "yes", "on"])
 
 base_geolite_dbs = [
   %{
     id: :geolite2_asn,
-    adapter: Geolix.Adapter.MMDB2,
+    adapter: MMDB2,
     source: Path.join(geolite_dir, "GeoLite2-ASN.mmdb")
   },
   %{
     id: :geolite2_country,
-    adapter: Geolix.Adapter.MMDB2,
+    adapter: MMDB2,
     source: Path.join(geolite_dir, "GeoLite2-Country.mmdb")
   }
 ]
@@ -86,7 +90,7 @@ city_geolite_dbs =
      [
        %{
          id: :geolite2_city,
-         adapter: Geolix.Adapter.MMDB2,
+         adapter: MMDB2,
          source: Path.join(geolite_dir, "GeoLite2-City.mmdb")
        }
      ]) || []
@@ -94,18 +98,17 @@ city_geolite_dbs =
 ipinfo_dbs = [
   %{
     id: :ipinfo_lite,
-    adapter: Geolix.Adapter.MMDB2,
+    adapter: MMDB2,
     source: Path.join(geolite_dir, "ipinfo_lite.mmdb")
   }
 ]
-
-config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
 
 # =============================================================================
 # Cluster Configuration
 # =============================================================================
 cluster_strategy =
-  System.get_env("CLUSTER_STRATEGY", "epmd")
+  "CLUSTER_STRATEGY"
+  |> System.get_env("epmd")
   |> String.downcase()
 
 cluster_enabled = System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes)
@@ -155,15 +158,15 @@ topologies =
           |> Enum.map(&String.trim/1)
           |> Enum.map(&String.to_atom/1)
 
-        if hosts != [] do
+        if hosts == [] do
+          []
+        else
           [
             serviceradar: [
               strategy: Cluster.Strategy.Epmd,
               config: [hosts: hosts]
             ]
           ]
-        else
-          []
         end
 
       "gossip" ->
@@ -194,6 +197,11 @@ topologies =
     []
   end
 
+config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+
+config :serviceradar_core,
+  geolite_mmdb_dir: geolite_dir
+
 if topologies != [] do
   config :libcluster, topologies: topologies
 end
@@ -211,12 +219,10 @@ config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
   cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-  workload_api_socket:
-    System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+  workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
 
 config :serviceradar_core,
-  mapper_topology_edge_stale_minutes:
-    parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
+  mapper_topology_edge_stale_minutes: parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
 
 if config_env() == :prod do
   cloak_key =
@@ -249,20 +255,6 @@ if config_env() == :prod do
   # Core-elx is the cluster coordinator - it runs ClusterSupervisor and ClusterHealth
   cluster_coordinator =
     System.get_env("SERVICERADAR_CLUSTER_COORDINATOR", "true") in ~w(true 1 yes)
-
-  config :serviceradar_core,
-    env: :prod,
-    cloak_key: cloak_key,
-    repo_enabled: System.get_env("SERVICERADAR_CORE_REPO_ENABLED", "true") in ~w(true 1 yes),
-    vault_enabled: System.get_env("SERVICERADAR_CORE_VAULT_ENABLED", "true") in ~w(true 1 yes),
-    registries_enabled:
-      System.get_env("SERVICERADAR_CORE_REGISTRIES_ENABLED", "true") in ~w(true 1 yes),
-    run_startup_migrations:
-      System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes),
-    cluster_enabled: cluster_enabled,
-    cluster_coordinator: cluster_coordinator,
-    # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
-    status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
   plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
 
@@ -298,6 +290,18 @@ if config_env() == :prod do
       end
     end)
 
+  config :serviceradar_core,
+    env: :prod,
+    cloak_key: cloak_key,
+    repo_enabled: System.get_env("SERVICERADAR_CORE_REPO_ENABLED", "true") in ~w(true 1 yes),
+    vault_enabled: System.get_env("SERVICERADAR_CORE_VAULT_ENABLED", "true") in ~w(true 1 yes),
+    registries_enabled: System.get_env("SERVICERADAR_CORE_REGISTRIES_ENABLED", "true") in ~w(true 1 yes),
+    run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes),
+    cluster_enabled: cluster_enabled,
+    cluster_coordinator: cluster_coordinator,
+    # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
+    status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
+
   if plugin_storage_overrides != [] do
     config :serviceradar_core,
            :plugin_storage,
@@ -307,17 +311,12 @@ if config_env() == :prod do
   platform_sync_component_id =
     System.get_env("SERVICERADAR_PLATFORM_SYNC_COMPONENT_ID") || "platform-sync"
 
-  config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
-
   age_graph_name =
     System.get_env("SERVICERADAR_AGE_GRAPH_NAME") ||
       System.get_env("AGE_GRAPH_NAME") ||
       "platform_graph"
 
-  config :serviceradar_core, :age_graph_name, age_graph_name
-
   database_url = System.get_env("DATABASE_URL")
-
   cnpg_host = System.get_env("CNPG_HOST")
   cnpg_port = String.to_integer(System.get_env("CNPG_PORT", "5432"))
   cnpg_database = System.get_env("CNPG_DATABASE", "serviceradar")
@@ -342,25 +341,24 @@ if config_env() == :prod do
   cnpg_ssl_mode = System.get_env("CNPG_SSL_MODE", "disable")
   cnpg_ssl_enabled = cnpg_ssl_mode != "disable"
   cnpg_tls_server_name = System.get_env("CNPG_TLS_SERVER_NAME", cnpg_host || "")
-
   cnpg_cert_dir = System.get_env("CNPG_CERT_DIR", "")
 
   cnpg_ca_file =
     System.get_env(
       "CNPG_CA_FILE",
-      if(cnpg_cert_dir != "", do: Path.join(cnpg_cert_dir, "root.pem"), else: "")
+      if(cnpg_cert_dir == "", do: "", else: Path.join(cnpg_cert_dir, "root.pem"))
     )
 
   cnpg_cert_file =
     System.get_env(
       "CNPG_CERT_FILE",
-      if(cnpg_cert_dir != "", do: Path.join(cnpg_cert_dir, "workstation.pem"), else: "")
+      if(cnpg_cert_dir == "", do: "", else: Path.join(cnpg_cert_dir, "workstation.pem"))
     )
 
   cnpg_key_file =
     System.get_env(
       "CNPG_KEY_FILE",
-      if(cnpg_cert_dir != "", do: Path.join(cnpg_cert_dir, "workstation-key.pem"), else: "")
+      if(cnpg_cert_dir == "", do: "", else: Path.join(cnpg_cert_dir, "workstation-key.pem"))
     )
 
   cnpg_verify_peer = cnpg_ssl_mode in ~w(verify-ca verify-full)
@@ -412,12 +410,6 @@ if config_env() == :prod do
         """
     end
 
-  config :serviceradar_core, ServiceRadar.Repo,
-    url: repo_url,
-    ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
-    socket_options: maybe_ipv6
-
   oban_enabled = System.get_env("SERVICERADAR_CORE_OBAN_ENABLED", "true") in ~w(true 1 yes)
   oban_node = System.get_env("OBAN_NODE")
 
@@ -427,11 +419,6 @@ if config_env() == :prod do
   alerts_retention_days = parse_int_env.("ALERT_RETENTION_DAYS", 3)
   alerts_retention_batch_size = parse_int_env.("ALERT_RETENTION_BATCH_SIZE", 10_000)
   alerts_retention_max_batches = parse_int_env.("ALERT_RETENTION_MAX_BATCHES", 100)
-
-  config :serviceradar_core, ServiceRadar.Jobs.AlertsRetentionWorker,
-    retention_days: alerts_retention_days,
-    batch_size: alerts_retention_batch_size,
-    max_batches: alerts_retention_max_batches
 
   # Enable AshOban scheduler - core-elx is the only service that should run schedulers
   ash_oban_scheduler_enabled =
@@ -457,7 +444,7 @@ if config_env() == :prod do
     ],
     plugins: [
       Oban.Plugins.Pruner,
-      {Oban.Plugins.Cron, crontab: []}
+      {Cron, crontab: []}
     ],
     peer: Oban.Peers.Database
   ]
@@ -481,8 +468,7 @@ if config_env() == :prod do
     {"*/2 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
     {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
     {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance},
-    {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *",
-     ServiceRadar.Jobs.AlertsRetentionWorker, queue: :maintenance}
+    {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance}
   ]
 
   add_cron_entries = fn config, entries ->
@@ -490,9 +476,9 @@ if config_env() == :prod do
       config
       |> Keyword.get(:plugins, [])
       |> Enum.map(fn
-        {Oban.Plugins.Cron, opts} ->
+        {Cron, opts} ->
           crontab = Keyword.get(opts, :crontab, [])
-          {Oban.Plugins.Cron, Keyword.put(opts, :crontab, crontab ++ entries)}
+          {Cron, Keyword.put(opts, :crontab, crontab ++ entries)}
 
         other ->
           other
@@ -503,16 +489,6 @@ if config_env() == :prod do
 
   oban_config = add_cron_entries.(oban_config, extra_cron_entries)
 
-  config :serviceradar_core, :oban_enabled, oban_enabled
-
-  config :serviceradar_core,
-         :periodic_job_stale_threshold_minutes,
-         periodic_job_stale_threshold_minutes
-
-  config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
-
-  config :serviceradar_core, :start_ash_oban_scheduler, ash_oban_scheduler_enabled
-
   local_mailer =
     case System.get_env("SERVICERADAR_LOCAL_MAILER") do
       "true" -> true
@@ -521,16 +497,42 @@ if config_env() == :prod do
       _ -> false
     end
 
+  config :serviceradar_core, AlertsRetentionWorker,
+    retention_days: alerts_retention_days,
+    batch_size: alerts_retention_batch_size,
+    max_batches: alerts_retention_max_batches
+
+  config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
+
+  config :serviceradar_core, ServiceRadar.Repo,
+    url: repo_url,
+    ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+    socket_options: maybe_ipv6
+
+  config :serviceradar_core, :age_graph_name, age_graph_name
+  config :serviceradar_core, :oban_enabled, oban_enabled
+
+  config :serviceradar_core,
+         :periodic_job_stale_threshold_minutes,
+         periodic_job_stale_threshold_minutes
+
+  config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
+  config :serviceradar_core, :start_ash_oban_scheduler, ash_oban_scheduler_enabled
+
   if local_mailer do
-    config :swoosh, local: true
     config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
+
+    config :swoosh, local: true
   else
-    config :swoosh, :api_client, false
-    config :swoosh, local: false
     config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
+
+    config :swoosh, :api_client, false
+
+    # NATS connection configuration (core publisher)
+    config :swoosh, local: false
   end
 
-  # NATS connection configuration (core publisher)
   nats_enabled = System.get_env("NATS_ENABLED", "false") in ~w(true 1 yes)
 
   if nats_enabled do
@@ -601,8 +603,6 @@ if config_env() == :prod do
         false
       end
 
-    config :serviceradar_core, :event_writer_enabled, true
-
     config :serviceradar_core, ServiceRadar.EventWriter,
       enabled: true,
       nats: [
@@ -661,7 +661,7 @@ if config_env() == :prod do
           name: "BMP_CAUSAL",
           stream_name: "events",
           subject: "bmp.events.>",
-          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          processor: CausalSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
@@ -669,7 +669,7 @@ if config_env() == :prod do
           name: "ARANCINI_CAUSAL",
           stream_name: "ARANCINI_CAUSAL",
           subject: "arancini.updates.>",
-          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          processor: CausalSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
@@ -677,24 +677,26 @@ if config_env() == :prod do
           name: "SIEM_CAUSAL",
           stream_name: "events",
           subject: "siem.events.>",
-          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          processor: CausalSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
         %{
           name: "SFLOW_RAW",
           subject: "flows.raw.sflow",
-          processor: ServiceRadar.EventWriter.Processors.Flows,
+          processor: Flows,
           batch_size: 50,
           batch_timeout: 500
         },
         %{
           name: "NETFLOW_RAW",
           subject: "flows.raw.netflow",
-          processor: ServiceRadar.EventWriter.Processors.Flows,
+          processor: Flows,
           batch_size: 50,
           batch_timeout: 500
         }
       ]
+
+    config :serviceradar_core, :event_writer_enabled, true
   end
 end

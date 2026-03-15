@@ -5,7 +5,8 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.IntegrationSource
-  alias ServiceRadar.Observability.{Log, LogPromotion}
+  alias ServiceRadar.Observability.Log
+  alias ServiceRadar.Observability.LogPromotion
 
   require Logger
 
@@ -58,7 +59,8 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
       service_name: "serviceradar.core",
       scope_name: "sync_ingestor",
       attributes:
-        build_attributes(source, stage, result, device_count, error_message)
+        source
+        |> build_attributes(stage, result, device_count, error_message)
         |> Jason.encode!(),
       resource_attributes: Jason.encode!(%{})
     }

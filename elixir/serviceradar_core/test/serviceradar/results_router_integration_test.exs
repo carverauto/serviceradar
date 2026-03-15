@@ -5,12 +5,14 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.ResultsRouter
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -75,8 +77,7 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
     assert device.uid == expected_id
 
     identifier_query =
-      DeviceIdentifier
-      |> Ash.Query.for_read(:lookup, %{
+      Ash.Query.for_read(DeviceIdentifier, :lookup, %{
         identifier_type: :armis_device_id,
         identifier_value: armis_id,
         partition: "default"
@@ -93,7 +94,8 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
   end
 
   defp mac_suffix do
-    System.unique_integer([:positive])
+    [:positive]
+    |> System.unique_integer()
     |> rem(256)
     |> Integer.to_string(16)
     |> String.pad_leading(2, "0")

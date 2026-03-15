@@ -52,13 +52,15 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     }
 
     metadata =
-      %{
-        status: status,
-        stale_threshold_minutes: stale_threshold_minutes(),
-        rescued_jobs: rescued_jobs,
-        discarded_jobs: discarded_jobs
-      }
-      |> maybe_put_reason(reason)
+      maybe_put_reason(
+        %{
+          status: status,
+          stale_threshold_minutes: stale_threshold_minutes(),
+          rescued_jobs: rescued_jobs,
+          discarded_jobs: discarded_jobs
+        },
+        reason
+      )
 
     :telemetry.execute(event, measurements, metadata)
   end
@@ -86,7 +88,8 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
 
     Repo.transaction(fn ->
       stale_jobs =
-        stale_periodic_jobs_query(cutoff)
+        cutoff
+        |> stale_periodic_jobs_query()
         |> Repo.all()
 
       {rescued_jobs, discarded_jobs} = split_stale_jobs(stale_jobs)

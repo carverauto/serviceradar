@@ -8,11 +8,14 @@ defmodule ServiceRadar.Identity.UserNotifier do
   alias ServiceRadar.Events.AuditNotifier
 
   @impl Ash.Notifier
-  def notify(%Ash.Notifier.Notification{
-        resource: ServiceRadar.Identity.User,
-        action: %{name: action_name},
-        data: record
-      } = notification) do
+  def notify(
+        %Ash.Notifier.Notification{
+          resource: ServiceRadar.Identity.User,
+          action: %{name: action_name},
+          data: record
+        } =
+          notification
+      ) do
     actor = AuditNotifier.actor(notification)
 
     case action_name do

@@ -30,14 +30,12 @@ defmodule ServiceRadar.Monitoring.Alert do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshOban, AshJsonApi.Resource]
 
-  alias ServiceRadar.Monitoring.Alert.{
-    AutoEscalateScheduler,
-    AutoEscalateWorker,
-    SendNotificationsScheduler,
-    SendNotificationsWorker
-  }
-
+  alias ServiceRadar.Monitoring.Alert.AutoEscalateScheduler
+  alias ServiceRadar.Monitoring.Alert.AutoEscalateWorker
+  alias ServiceRadar.Monitoring.Alert.SendNotificationsScheduler
+  alias ServiceRadar.Monitoring.Alert.SendNotificationsWorker
   alias ServiceRadar.Oban.AshObanQueueResolver
+
   @alert_trigger_fields [
     :title,
     :description,
@@ -57,7 +55,13 @@ defmodule ServiceRadar.Monitoring.Alert do
     :tags
   ]
   @alert_metadata_fields [:metadata, :tags]
-  @alert_operator_actions [:trigger, :acknowledge, :resolve, :record_notification, :update_metadata]
+  @alert_operator_actions [
+    :trigger,
+    :acknowledge,
+    :resolve,
+    :record_notification,
+    :update_metadata
+  ]
   @alert_admin_actions [:escalate, :suppress, :reopen]
 
   postgres do
@@ -278,12 +282,12 @@ defmodule ServiceRadar.Monitoring.Alert do
       require_atomic? false
 
       change fn changeset, _context ->
+        require Logger
+
         alert = changeset.data
         current_count = alert.notification_count || 0
 
         # Log the notification being sent
-        require Logger
-
         Logger.info(
           "Sending notification for alert: #{alert.title} (#{alert.id}) - severity: #{alert.severity}"
         )

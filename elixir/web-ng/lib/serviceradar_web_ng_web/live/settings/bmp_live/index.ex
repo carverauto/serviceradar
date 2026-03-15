@@ -72,7 +72,7 @@ defmodule ServiceRadarWebNGWeb.Settings.BmpLive.Index do
          |> assign(:settings_form, to_settings_form(updated_params))}
 
       {:error, err} ->
-        {:noreply, socket |> put_flash(:error, "Failed to save settings: #{inspect(err)}")}
+        {:noreply, put_flash(socket, :error, "Failed to save settings: #{inspect(err)}")}
     end
   end
 
@@ -169,12 +169,9 @@ defmodule ServiceRadarWebNGWeb.Settings.BmpLive.Index do
     %{
       "bmp_routing_retention_days" => to_string(settings.bmp_routing_retention_days),
       "bmp_ocsf_min_severity" => to_string(settings.bmp_ocsf_min_severity),
-      "god_view_causal_overlay_window_seconds" =>
-        to_string(settings.god_view_causal_overlay_window_seconds),
-      "god_view_causal_overlay_max_events" =>
-        to_string(settings.god_view_causal_overlay_max_events),
-      "god_view_routing_causal_severity_threshold" =>
-        to_string(settings.god_view_routing_causal_severity_threshold)
+      "god_view_causal_overlay_window_seconds" => to_string(settings.god_view_causal_overlay_window_seconds),
+      "god_view_causal_overlay_max_events" => to_string(settings.god_view_causal_overlay_max_events),
+      "god_view_routing_causal_severity_threshold" => to_string(settings.god_view_routing_causal_severity_threshold)
     }
   end
 
@@ -196,19 +193,15 @@ defmodule ServiceRadarWebNGWeb.Settings.BmpLive.Index do
     Map.merge(form, params)
   end
 
-  defp merge_settings_form(_form, params) when is_map(params),
-    do: Map.merge(default_settings_form(), params)
+  defp merge_settings_form(_form, params) when is_map(params), do: Map.merge(default_settings_form(), params)
 
   defp build_settings_update_params(params) when is_map(params) do
     %{
       bmp_routing_retention_days: int_param(params["bmp_routing_retention_days"], 3),
       bmp_ocsf_min_severity: int_param(params["bmp_ocsf_min_severity"], 4),
-      god_view_causal_overlay_window_seconds:
-        int_param(params["god_view_causal_overlay_window_seconds"], 300),
-      god_view_causal_overlay_max_events:
-        int_param(params["god_view_causal_overlay_max_events"], 512),
-      god_view_routing_causal_severity_threshold:
-        int_param(params["god_view_routing_causal_severity_threshold"], 4)
+      god_view_causal_overlay_window_seconds: int_param(params["god_view_causal_overlay_window_seconds"], 300),
+      god_view_causal_overlay_max_events: int_param(params["god_view_causal_overlay_max_events"], 512),
+      god_view_routing_causal_severity_threshold: int_param(params["god_view_routing_causal_severity_threshold"], 4)
     }
   end
 

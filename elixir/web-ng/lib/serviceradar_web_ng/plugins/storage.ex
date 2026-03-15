@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   Currently supports filesystem storage with signed upload/download URLs.
   """
 
+  alias Jetstream.API.Object
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNGWeb.Endpoint
 
@@ -28,26 +29,22 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   @spec base_path() :: String.t()
   def base_path do
-    config()
-    |> Keyword.get(:base_path, @default_base_path)
+    Keyword.get(config(), :base_path, @default_base_path)
   end
 
   @spec max_upload_bytes() :: pos_integer()
   def max_upload_bytes do
-    config()
-    |> Keyword.get(:max_upload_bytes, @default_max_upload_bytes)
+    Keyword.get(config(), :max_upload_bytes, @default_max_upload_bytes)
   end
 
   @spec upload_ttl_seconds() :: pos_integer()
   def upload_ttl_seconds do
-    config()
-    |> Keyword.get(:upload_ttl_seconds, @default_upload_ttl_seconds)
+    Keyword.get(config(), :upload_ttl_seconds, @default_upload_ttl_seconds)
   end
 
   @spec download_ttl_seconds() :: pos_integer()
   def download_ttl_seconds do
-    config()
-    |> Keyword.get(:download_ttl_seconds, @default_download_ttl_seconds)
+    Keyword.get(config(), :download_ttl_seconds, @default_download_ttl_seconds)
   end
 
   @spec object_key_for(PluginPackage.t()) :: String.t()
@@ -150,7 +147,8 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   @spec sha256(binary()) :: String.t()
   def sha256(payload) do
-    :crypto.hash(:sha256, payload)
+    :sha256
+    |> :crypto.hash(payload)
     |> Base.encode16(case: :lower)
   end
 
@@ -159,29 +157,30 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   end
 
   defp bucket_name do
-    config()
-    |> Keyword.get(:jetstream_bucket, "serviceradar_plugins")
+    Keyword.get(config(), :jetstream_bucket, "serviceradar_plugins")
   end
 
   defp bucket_opts do
     ttl_seconds = Keyword.get(config(), :jetstream_ttl_seconds, 0)
     ttl_ns = if ttl_seconds > 0, do: ttl_seconds * 1_000_000_000, else: 0
 
-    [
-      description: Keyword.get(config(), :jetstream_description),
-      max_bucket_size: Keyword.get(config(), :jetstream_max_bucket_size),
-      max_chunk_size: Keyword.get(config(), :jetstream_max_chunk_size),
-      replicas: Keyword.get(config(), :jetstream_replicas, 1),
-      storage: Keyword.get(config(), :jetstream_storage, :file),
-      ttl: ttl_ns
-    ]
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    Enum.reject(
+      [
+        description: Keyword.get(config(), :jetstream_description),
+        max_bucket_size: Keyword.get(config(), :jetstream_max_bucket_size),
+        max_chunk_size: Keyword.get(config(), :jetstream_max_chunk_size),
+        replicas: Keyword.get(config(), :jetstream_replicas, 1),
+        storage: Keyword.get(config(), :jetstream_storage, :file),
+        ttl: ttl_ns
+      ],
+      fn {_key, value} -> is_nil(value) end
+    )
   end
 
   defp signing_secret do
-    config()
-    |> Keyword.get(:signing_secret) ||
-      Application.fetch_env!(:serviceradar_web_ng, Endpoint)
+    Keyword.get(config(), :signing_secret) ||
+      :serviceradar_web_ng
+      |> Application.fetch_env!(Endpoint)
       |> Keyword.fetch!(:secret_key_base)
   end
 
@@ -262,10 +261,8 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     with_jetstream(fn conn ->
       with {:ok, _} <- ensure_bucket(conn),
            {:ok, io} <- StringIO.open(payload),
-           {:ok, _meta} <- Jetstream.API.Object.put(conn, bucket_name(), object_key, io) do
+           {:ok, _meta} <- Object.put(conn, bucket_name(), object_key, io) do
         :ok
-      else
-        {:error, reason} -> {:error, reason}
       end
     end)
   end
@@ -275,7 +272,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
       with {:ok, _} <- ensure_bucket(conn),
            {:ok, io} <- StringIO.open(""),
            :ok <-
-             Jetstream.API.Object.get(conn, bucket_name(), object_key, fn chunk ->
+             Object.get(conn, bucket_name(), object_key, fn chunk ->
                IO.binwrite(io, chunk)
              end) do
         {_input, output} = StringIO.contents(io)
@@ -288,9 +285,10 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   end
 
   defp delete_blob_jetstream(object_key) do
-    with_jetstream(fn conn ->
-      Jetstream.API.Object.delete(conn, bucket_name(), object_key)
-    end)
+    fn conn ->
+      Object.delete(conn, bucket_name(), object_key)
+    end
+    |> with_jetstream()
     |> case do
       :ok -> :ok
       {:ok, _} -> :ok
@@ -307,9 +305,10 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   end
 
   defp blob_exists_jetstream(object_key) do
-    with_jetstream(fn conn ->
-      Jetstream.API.Object.info(conn, bucket_name(), object_key)
-    end)
+    fn conn ->
+      Object.info(conn, bucket_name(), object_key)
+    end
+    |> with_jetstream()
     |> case do
       {:ok, _meta} -> true
       {:error, %{"code" => 404}} -> false
@@ -332,7 +331,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
         {:ok, :exists}
 
       {:error, %{"code" => 404}} ->
-        Jetstream.API.Object.create_bucket(conn, bucket_name(), bucket_opts())
+        Object.create_bucket(conn, bucket_name(), bucket_opts())
 
       {:error, reason} ->
         {:error, reason}

@@ -3,15 +3,17 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   Maintains the current service state registry.
   """
 
-  require Logger
-
   import Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.Observability.{ServiceState, ServiceStatePubSub}
-  alias ServiceRadar.Plugins.{PluginAssignment, PluginPackage}
+  alias ServiceRadar.Observability.ServiceState
+  alias ServiceRadar.Observability.ServiceStatePubSub
+  alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.PluginPackage
+
+  require Logger
 
   @spec upsert_from_status(map()) :: :ok
   def upsert_from_status(status) when is_map(status) do
@@ -90,10 +92,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   def deactivate_for_package(_), do: :ok
 
   defp deactivate_assignment_with_package(%PluginAssignment{} = assignment, package, actor) do
-    with {:ok, agent} <- Agent.get_by_uid(assignment.agent_uid, actor: actor) do
-      identity = identity_from_agent(agent, package.name, "plugin", assignment.agent_uid)
-      deactivate_by_identity(identity, actor)
-    else
+    case Agent.get_by_uid(assignment.agent_uid, actor: actor) do
+      {:ok, agent} ->
+        identity = identity_from_agent(agent, package.name, "plugin", assignment.agent_uid)
+        deactivate_by_identity(identity, actor)
+
       {:error, reason} ->
         Logger.warning("Failed to resolve agent for assignment: #{inspect(reason)}")
         :ok
@@ -209,10 +212,10 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
     case FieldParser.parse_timestamp(raw) do
       %DateTime{} = dt -> DateTime.truncate(dt, :microsecond)
-      _ -> DateTime.utc_now() |> DateTime.truncate(:microsecond)
+      _ -> DateTime.truncate(DateTime.utc_now(), :microsecond)
     end
   rescue
-    _ -> DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    _ -> DateTime.truncate(DateTime.utc_now(), :microsecond)
   end
 
   defp fetch(status, key) when is_map(status) do

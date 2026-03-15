@@ -11,15 +11,15 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
+  import Ash.Expr
+  import Ecto.Query, only: [from: 2]
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability
   alias ServiceRadar.Observability.NetflowExporterCache
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
-
-  import Ecto.Query, only: [from: 2]
-  import Ash.Expr
 
   require Ash.Query
   require Logger
@@ -34,9 +34,10 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      case check_existing_job() do
-        true -> {:ok, :already_scheduled}
-        false -> %{} |> new() |> ObanSupport.safe_insert()
+      if check_existing_job() do
+        {:ok, :already_scheduled}
+      else
+        %{} |> new() |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
@@ -118,7 +119,8 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
         limit: ^limit
       )
 
-    Repo.all(query)
+    query
+    |> Repo.all()
     |> Enum.map(&to_string/1)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))

@@ -7,7 +7,10 @@ defmodule ServiceRadar.Observability.PresetRuleResource do
     table = Keyword.fetch!(opts, :table)
     {fields, _binding} = Code.eval_quoted(Keyword.fetch!(opts, :fields), [], __CALLER__)
     {accept, _binding} = Code.eval_quoted(Keyword.fetch!(opts, :accept), [], __CALLER__)
-    {identity_fields, _binding} = Code.eval_quoted(Keyword.fetch!(opts, :identity_fields), [], __CALLER__)
+
+    {identity_fields, _binding} =
+      Code.eval_quoted(Keyword.fetch!(opts, :identity_fields), [], __CALLER__)
+
     identity = Keyword.get(opts, :identity, :unique_name)
     create_changes = eval_option(opts, :create_changes, __CALLER__)
     update_changes = eval_option(opts, :update_changes, __CALLER__)
@@ -78,7 +81,7 @@ defmodule ServiceRadar.Observability.PresetRuleResource do
         end
 
         destroy :destroy do
-          unquote_splicing(build_changes_ast(destroy_changes))
+          (unquote_splicing(build_changes_ast(destroy_changes)))
         end
       end
 

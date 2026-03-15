@@ -2,8 +2,12 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
   use ExUnit.Case, async: true
 
   alias Opentelemetry.Proto.Collector.Logs.V1.ExportLogsServiceRequest
-  alias Opentelemetry.Proto.Common.V1.{AnyValue, InstrumentationScope, KeyValue}
-  alias Opentelemetry.Proto.Logs.V1.{LogRecord, ResourceLogs, ScopeLogs}
+  alias Opentelemetry.Proto.Common.V1.AnyValue
+  alias Opentelemetry.Proto.Common.V1.InstrumentationScope
+  alias Opentelemetry.Proto.Common.V1.KeyValue
+  alias Opentelemetry.Proto.Logs.V1.LogRecord
+  alias Opentelemetry.Proto.Logs.V1.ResourceLogs
+  alias Opentelemetry.Proto.Logs.V1.ScopeLogs
   alias Opentelemetry.Proto.Resource.V1.Resource
   alias ServiceRadar.EventWriter.Processors.Logs
 

@@ -119,9 +119,9 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
       if is_map(prop_schema) do
         acc
         |> then(&validate_keys(prop_schema, @allowed_property_keys, prop_path, &1))
-        |> then(&validate_property_type(&1, prop_schema, prop_path))
-        |> then(&validate_property_constraints(&1, prop_schema, prop_path))
-        |> then(&validate_nested_properties(&1, prop_schema, prop_path))
+        |> validate_property_type(prop_schema, prop_path)
+        |> validate_property_constraints(prop_schema, prop_path)
+        |> validate_nested_properties(prop_schema, prop_path)
       else
         ["#{prop_path} must be an object" | acc]
       end

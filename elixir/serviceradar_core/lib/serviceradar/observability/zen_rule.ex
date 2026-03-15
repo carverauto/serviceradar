@@ -28,7 +28,11 @@ defmodule ServiceRadar.Observability.ZenRule do
       {:stream_name, :string, [allow_nil?: false, default: "events"]},
       {:subject, :string, [allow_nil?: false]},
       {:format, :atom,
-       [allow_nil?: false, default: :json, constraints: [one_of: [:json, :protobuf, :otel_metrics]]]},
+       [
+         allow_nil?: false,
+         default: :json,
+         constraints: [one_of: [:json, :protobuf, :otel_metrics]]
+       ]},
       {:template, :atom,
        [
          allow_nil?: false,
@@ -36,7 +40,10 @@ defmodule ServiceRadar.Observability.ZenRule do
        ]},
       {:builder_config, :map, [default: %{}]},
       {:jdm_definition, :map,
-       [description: "User-authored JDM JSON from the rule editor (takes precedence over template)"]},
+       [
+         description:
+           "User-authored JDM JSON from the rule editor (takes precedence over template)"
+       ]},
       {:compiled_jdm, :map, [default: %{}, public?: false]},
       {:kv_revision, :integer, [public?: false]},
       {:agent_id, :string, [allow_nil?: false, default: "default-agent"]}

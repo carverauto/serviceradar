@@ -71,7 +71,10 @@ defmodule ServiceRadar.NetworkDiscovery.RouteAnalyzer do
   end
 
   defp resolve_route(state, device_id, visited, hops, depth) do
-    case longest_prefix_match(Map.get(state.routes_by_device, device_id, []), state.destination_int) do
+    case longest_prefix_match(
+           Map.get(state.routes_by_device, device_id, []),
+           state.destination_int
+         ) do
       nil ->
         route_result(state, :blackhole, device_id, hops, "no_matching_route")
 
@@ -108,7 +111,10 @@ defmodule ServiceRadar.NetworkDiscovery.RouteAnalyzer do
   defp next_device_from_branches([]), do: :connected
 
   defp next_device_from_branches(branches) do
-    case branches |> Enum.sort_by(&branch_sort_key/1) |> List.first() |> Map.get(:target_device_id) do
+    case branches
+         |> Enum.sort_by(&branch_sort_key/1)
+         |> List.first()
+         |> Map.get(:target_device_id) do
       next_device when is_binary(next_device) ->
         if String.trim(next_device) == "" do
           :missing_target
@@ -153,15 +159,17 @@ defmodule ServiceRadar.NetworkDiscovery.RouteAnalyzer do
   defp normalize_route_entry(route) when is_map(route) do
     prefix = Map.get(route, :prefix) || Map.get(route, "prefix")
 
-    with {:ok, network_int, prefix_length} <- parse_cidr(prefix) do
-      %{
-        prefix: prefix,
-        prefix_length: prefix_length,
-        network_int: network_int,
-        next_hops: Map.get(route, :next_hops) || Map.get(route, "next_hops") || []
-      }
-    else
-      _ -> nil
+    case parse_cidr(prefix) do
+      {:ok, network_int, prefix_length} ->
+        %{
+          prefix: prefix,
+          prefix_length: prefix_length,
+          network_int: network_int,
+          next_hops: Map.get(route, :next_hops) || Map.get(route, "next_hops") || []
+        }
+
+      _ ->
+        nil
     end
   end
 
@@ -211,9 +219,8 @@ defmodule ServiceRadar.NetworkDiscovery.RouteAnalyzer do
   defp parse_cidr(_), do: {:error, :invalid_cidr}
 
   defp parse_ipv4(value) when is_binary(value) do
-    with {:ok, {a, b, c, d}} <- :inet.parse_address(String.to_charlist(String.trim(value))) do
-      {:ok, (a <<< 24) + (b <<< 16) + (c <<< 8) + d}
-    else
+    case :inet.parse_address(String.to_charlist(String.trim(value))) do
+      {:ok, {a, b, c, d}} -> {:ok, (a <<< 24) + (b <<< 16) + (c <<< 8) + d}
       _ -> {:error, :invalid_ipv4}
     end
   end

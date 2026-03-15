@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.Auth.RateLimiter do
   require Logger
 
   @table :auth_rate_limiter
-  @cleanup_interval :timer.minutes(5)
+  @cleanup_interval to_timeout(minute: 5)
 
   # Default limits
   @default_limit 5

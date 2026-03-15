@@ -31,9 +31,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
   The plug will automatically skip validation when not in passive_proxy mode.
   """
 
-  import Plug.Conn
+  @behaviour Plug
+
   import Phoenix.Controller, only: [put_flash: 3, redirect: 2]
-  require Logger
+  import Plug.Conn
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
@@ -42,7 +43,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
   alias ServiceRadarWebNGWeb.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
 
-  @behaviour Plug
+  require Logger
 
   @impl Plug
   def init(opts), do: opts
@@ -149,7 +150,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
       :miss ->
         case fetch_jwks(jwks_url) do
           {:ok, keys} ->
-            ConfigCache.put_cached(cache_key, keys, ttl: :timer.minutes(60))
+            ConfigCache.put_cached(cache_key, keys, ttl: to_timeout(hour: 1))
             {:ok, keys}
 
           {:error, _} ->

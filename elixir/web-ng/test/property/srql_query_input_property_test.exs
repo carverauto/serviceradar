@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.SRQLQueryInputPropertyTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
 
+  alias Phoenix.LiveView.Socket
   alias ServiceRadarWebNG.Generators.SRQLGenerators
   alias ServiceRadarWebNG.TestSupport.PropertyOpts
   alias ServiceRadarWebNG.TestSupport.SRQLStub
@@ -31,9 +32,7 @@ defmodule ServiceRadarWebNGWeb.SRQLQueryInputPropertyTest do
             uri <- StreamData.string(:printable, max_length: 160),
             max_runs: PropertyOpts.max_runs()
           ) do
-      socket =
-        %Phoenix.LiveView.Socket{}
-        |> SRQLPage.init("devices", builder_available: true)
+      socket = SRQLPage.init(%Socket{}, "devices", builder_available: true)
 
       params = Map.merge(extra, %{"q" => q, "limit" => limit})
 
@@ -50,7 +49,7 @@ defmodule ServiceRadarWebNGWeb.SRQLQueryInputPropertyTest do
             uri <- StreamData.string(:printable, max_length: 160),
             max_runs: PropertyOpts.max_runs()
           ) do
-      {:ok, socket} = DashboardLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+      {:ok, socket} = DashboardLive.mount(%{}, %{}, %Socket{})
       params = Map.merge(extra, %{"q" => q, "limit" => limit})
       assert {:noreply, _socket} = DashboardLive.handle_params(params, uri, socket)
     end
@@ -63,7 +62,7 @@ defmodule ServiceRadarWebNGWeb.SRQLQueryInputPropertyTest do
             idx <- SRQLGenerators.untrusted_param_value(),
             max_runs: PropertyOpts.max_runs()
           ) do
-      {:ok, socket} = DashboardLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+      {:ok, socket} = DashboardLive.mount(%{}, %{}, %Socket{})
 
       assert {:noreply, socket} = DashboardLive.handle_event("srql_change", %{"q" => q}, socket)
 

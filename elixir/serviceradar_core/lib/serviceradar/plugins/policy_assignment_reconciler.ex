@@ -8,11 +8,8 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   """
 
   alias ServiceRadar.Actors.SystemActor
-
-  alias ServiceRadar.Plugins.{
-    PolicyAssignmentPlanner,
-    SRQLInputResolver
-  }
+  alias ServiceRadar.Plugins.PolicyAssignmentPlanner
+  alias ServiceRadar.Plugins.SRQLInputResolver
 
   require Ash.Query
 
@@ -68,16 +65,12 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   end
 
   defp apply_plan(desired_specs, existing_rows, actor, store) do
-    desired_by_key =
-      desired_specs
-      |> Enum.map(&{&1.assignment_key, &1})
-      |> Map.new()
+    desired_by_key = Map.new(desired_specs, &{&1.assignment_key, &1})
 
     existing_by_key =
       existing_rows
       |> Enum.filter(&is_binary(&1.source_key))
-      |> Enum.map(&{&1.source_key, &1})
-      |> Map.new()
+      |> Map.new(&{&1.source_key, &1})
 
     with {:ok, upsert_stats} <- upsert_desired(desired_by_key, existing_by_key, actor, store),
          {:ok, disabled_count} <- disable_stale(desired_by_key, existing_by_key, actor, store) do
@@ -91,8 +84,8 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   end
 
   defp upsert_desired(desired_by_key, existing_by_key, actor, store) do
-    desired_by_key
-    |> Enum.reduce_while({:ok, %{upserted: 0, unchanged: 0}}, fn {key, spec}, {:ok, stats} ->
+    Enum.reduce_while(desired_by_key, {:ok, %{upserted: 0, unchanged: 0}}, fn {key, spec},
+                                                                              {:ok, stats} ->
       existing = Map.get(existing_by_key, key)
       upsert_one(spec, existing, stats, actor, store)
     end)

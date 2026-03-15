@@ -56,16 +56,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
     live_agent = lookup_registry_agent(uid)
 
-    Logger.debug(
-      "[AgentShow] Looking up agent uid=#{inspect(uid)}, live_agent=#{inspect(live_agent != nil)}"
-    )
+    Logger.debug("[AgentShow] Looking up agent uid=#{inspect(uid)}, live_agent=#{inspect(live_agent != nil)}")
 
     # Get gateway node system info if live agent exists
     gateway_node_info =
       if live_agent && Map.get(live_agent, :node) do
         fetch_node_info(Map.get(live_agent, :node))
-      else
-        nil
       end
 
     # Convert registry data to agent map format (string keys for consistency)
@@ -90,8 +86,6 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           pid when is_pid(pid) -> Map.put(base, "pid", inspect(pid))
           _ -> base
         end
-      else
-        nil
       end
 
     # Prefer registry data (live) over database (may be stale)
@@ -144,55 +138,53 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp fetch_node_info(nil), do: nil
 
+  # Parallelize RPC calls to prevent blocking LiveView if node is unresponsive
   defp fetch_node_info(node) when is_atom(node) do
-    # Parallelize RPC calls to prevent blocking LiveView if node is unresponsive
-    try do
-      tasks = [
-        Task.async(fn -> {:memory, :rpc.call(node, :erlang, :memory, [], 5000)} end),
-        Task.async(fn ->
-          {:wall_clock, :rpc.call(node, :erlang, :statistics, [:wall_clock], 5000)}
-        end),
-        Task.async(fn ->
-          {:process_count, :rpc.call(node, :erlang, :system_info, [:process_count], 5000)}
-        end),
-        Task.async(fn ->
-          {:port_count, :rpc.call(node, :erlang, :system_info, [:port_count], 5000)}
-        end),
-        Task.async(fn ->
-          {:otp_release, :rpc.call(node, :erlang, :system_info, [:otp_release], 5000)}
-        end),
-        Task.async(fn ->
-          {:schedulers, :rpc.call(node, :erlang, :system_info, [:schedulers], 5000)}
-        end),
-        Task.async(fn ->
-          {:schedulers_online, :rpc.call(node, :erlang, :system_info, [:schedulers_online], 5000)}
-        end)
-      ]
+    tasks = [
+      Task.async(fn -> {:memory, :rpc.call(node, :erlang, :memory, [], 5000)} end),
+      Task.async(fn ->
+        {:wall_clock, :rpc.call(node, :erlang, :statistics, [:wall_clock], 5000)}
+      end),
+      Task.async(fn ->
+        {:process_count, :rpc.call(node, :erlang, :system_info, [:process_count], 5000)}
+      end),
+      Task.async(fn ->
+        {:port_count, :rpc.call(node, :erlang, :system_info, [:port_count], 5000)}
+      end),
+      Task.async(fn ->
+        {:otp_release, :rpc.call(node, :erlang, :system_info, [:otp_release], 5000)}
+      end),
+      Task.async(fn ->
+        {:schedulers, :rpc.call(node, :erlang, :system_info, [:schedulers], 5000)}
+      end),
+      Task.async(fn ->
+        {:schedulers_online, :rpc.call(node, :erlang, :system_info, [:schedulers_online], 5000)}
+      end)
+    ]
 
-      results = Task.await_many(tasks, 6000) |> Map.new()
-      memory = results[:memory]
-      {uptime_ms, _} = results[:wall_clock]
+    results = tasks |> Task.await_many(6000) |> Map.new()
+    memory = results[:memory]
+    {uptime_ms, _} = results[:wall_clock]
 
-      %{
-        process_count: results[:process_count],
-        port_count: results[:port_count],
-        otp_release: to_string(results[:otp_release]),
-        schedulers: results[:schedulers],
-        schedulers_online: results[:schedulers_online],
-        uptime_ms: uptime_ms,
-        memory_total: memory[:total],
-        memory_processes: memory[:processes],
-        memory_system: memory[:system],
-        memory_atom: memory[:atom],
-        memory_binary: memory[:binary],
-        memory_code: memory[:code],
-        memory_ets: memory[:ets]
-      }
-    rescue
-      _ -> nil
-    catch
-      :exit, _ -> nil
-    end
+    %{
+      process_count: results[:process_count],
+      port_count: results[:port_count],
+      otp_release: to_string(results[:otp_release]),
+      schedulers: results[:schedulers],
+      schedulers_online: results[:schedulers_online],
+      uptime_ms: uptime_ms,
+      memory_total: memory[:total],
+      memory_processes: memory[:processes],
+      memory_system: memory[:system],
+      memory_atom: memory[:atom],
+      memory_binary: memory[:binary],
+      memory_code: memory[:code],
+      memory_ets: memory[:ets]
+    }
+  rescue
+    _ -> nil
+  catch
+    :exit, _ -> nil
   end
 
   defp load_checks_for_agent(agent_uid, actor) do
@@ -336,8 +328,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp capabilities_card(assigns) do
     # Capability info accepts binary names and internally uses an existing-atom lookup.
     caps_with_info =
-      (assigns.capabilities || [])
-      |> Enum.map(fn cap ->
+      Enum.map(assigns.capabilities || [], fn cap ->
         cap_name = if is_atom(cap), do: Atom.to_string(cap), else: to_string(cap)
         info = ServiceRadar.Infrastructure.Agent.capability_info(cap_name)
         {cap_name, info}
@@ -545,7 +536,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         _ -> {to_string(assigns.type), "ghost"}
       end
 
-    assigns = assign(assigns, :label, label) |> assign(:color, color)
+    assigns = assigns |> assign(:label, label) |> assign(:color, color)
 
     ~H"""
     <span class={"badge badge-#{@color} badge-sm uppercase font-bold w-14 justify-center"}>
@@ -581,7 +572,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         _ -> {"Unknown", "ghost"}
       end
 
-    assigns = assign(assigns, :label, label) |> assign(:variant, variant)
+    assigns = assigns |> assign(:label, label) |> assign(:variant, variant)
 
     ~H"""
     <.ui_badge variant={@variant} size="sm">{@label}</.ui_badge>
@@ -603,7 +594,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         _ -> "ghost"
       end
 
-    assigns = assign(assigns, :type_name, type_name) |> assign(:variant, variant)
+    assigns = assigns |> assign(:type_name, type_name) |> assign(:variant, variant)
 
     ~H"""
     <.ui_badge variant={@variant} size="sm">{@type_name}</.ui_badge>

@@ -1,13 +1,13 @@
 defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Categories do
   @moduledoc false
 
-  use Phoenix.LiveComponent
-
   @behaviour ServiceRadarWebNGWeb.Dashboard.Plugin
 
-  alias ServiceRadarWebNGWeb.SRQL.Viz
+  use Phoenix.LiveComponent
 
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_auto_viz: 1]
+
+  alias ServiceRadarWebNGWeb.SRQL.Viz
 
   @impl true
   def id, do: "categories"
@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Categories do
   def update(%{panel_assigns: panel_assigns} = assigns, socket) do
     socket =
       socket
-      |> assign(Map.drop(assigns, [:panel_assigns]))
+      |> assign(Map.delete(assigns, :panel_assigns))
       |> assign(panel_assigns || %{})
 
     {:ok, socket}

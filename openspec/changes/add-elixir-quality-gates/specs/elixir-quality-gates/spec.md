@@ -6,7 +6,7 @@ The repository SHALL define a standard analyzer contract for every first-party M
 
 The contract SHALL require:
 
-- formatting verification
+- formatting verification through the repository-owned formatter plugin stack
 - compile-time warning checks
 - `mix credo --strict`
 - dependency auditing
@@ -18,7 +18,7 @@ The contract SHALL be exposed through documented local commands or Mix aliases s
 
 - **GIVEN** a developer is preparing changes in a first-party Mix project under `elixir/`
 - **WHEN** they run the documented analyzer contract for that app
-- **THEN** the command sequence checks formatting, compile-time warnings, xref output, strict Credo with approved extra checks including duplication analysis, dependency audit, and any required app-specific analyzers for that app
+- **THEN** the command sequence checks formatting through the repo-owned formatter plugin stack, compile-time warnings, xref output, strict Credo with approved extra checks including duplication analysis, dependency audit, and any required app-specific analyzers for that app
 
 ### Requirement: GitHub Actions Enforces the Analyzer Contract
 

@@ -25,13 +25,20 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   - `viewer_actor/0` - Viewer role (read-only)
   """
 
-  alias ServiceRadar.Identity.{User, ApiToken}
-  alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.Infrastructure.{Gateway, Agent, Checker, Partition}
-  alias ServiceRadar.Monitoring.{Alert, ServiceCheck, PollingSchedule}
-  alias ServiceRadar.Edge.OnboardingPackage
-
   import Ash.Expr
+
+  alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadar.Identity.ApiToken
+  alias ServiceRadar.Identity.User
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.Checker
+  alias ServiceRadar.Infrastructure.Gateway
+  alias ServiceRadar.Infrastructure.Partition
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Monitoring.PollingSchedule
+  alias ServiceRadar.Monitoring.ServiceCheck
+
   require Ash.Query
 
   @doc """

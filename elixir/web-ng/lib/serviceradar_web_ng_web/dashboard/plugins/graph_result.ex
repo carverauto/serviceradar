@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.GraphResult do
   @moduledoc false
 
-  use Phoenix.LiveComponent
-
   @behaviour ServiceRadarWebNGWeb.Dashboard.Plugin
+
+  use Phoenix.LiveComponent
 
   import ServiceRadarWebNGWeb.UIComponents, only: [ui_panel: 1]
 
@@ -16,8 +16,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.GraphResult do
   def title, do: "Graph"
 
   @impl true
-  def supports?(%{"viz" => %{"columns" => columns}, "results" => results})
-      when is_list(columns) and is_list(results) do
+  def supports?(%{"viz" => %{"columns" => columns}, "results" => results}) when is_list(columns) and is_list(results) do
     graphish_viz?(columns) or graphish_results?(results)
   end
 
@@ -47,7 +46,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.GraphResult do
     Enum.any?(results, fn
       %{"nodes" => _nodes, "edges" => _edges} -> true
       %{"vertices" => _v, "edges" => _e} -> true
-      %{"result" => %{} = _} -> true
+      %{"result" => %{}} -> true
       _ -> false
     end)
   end
@@ -71,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.GraphResult do
   def update(%{panel_assigns: panel_assigns} = assigns, socket) do
     socket =
       socket
-      |> assign(Map.drop(assigns, [:panel_assigns]))
+      |> assign(Map.delete(assigns, :panel_assigns))
       |> assign(panel_assigns || %{})
 
     {:ok, socket}

@@ -46,8 +46,7 @@ defmodule ServiceRadarWebNG.Jobs.ReapStalePeriodicJobsWorkerTest do
     assert log =~ Integer.to_string(stale_job.id)
     assert log =~ inspect(RefreshTraceSummariesWorker)
 
-    assert_receive {:telemetry, [:serviceradar, :jobs, :periodic_cleanup, :completed],
-                    measurements, metadata}
+    assert_receive {:telemetry, [:serviceradar, :jobs, :periodic_cleanup, :completed], measurements, metadata}
 
     assert measurements.rescued_count == 1
     assert measurements.discarded_count == 0
@@ -74,7 +73,7 @@ defmodule ServiceRadarWebNG.Jobs.ReapStalePeriodicJobsWorkerTest do
     discarded_job = @repo.get!(Job, stale_job.id)
 
     assert discarded_job.state == "discarded"
-    assert not is_nil(discarded_job.discarded_at)
+    assert discarded_job.discarded_at
   end
 
   test "ignores stale non-periodic jobs" do

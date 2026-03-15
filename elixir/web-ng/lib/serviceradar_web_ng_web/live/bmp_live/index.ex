@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.BmpLive.Index do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
@@ -22,12 +23,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
 
   @impl true
   def handle_params(params, uri, socket) do
-    socket =
-      socket
-      |> SRQLPage.load_list(params, uri, :bmp_events,
-        default_limit: @default_limit,
-        max_limit: @max_limit
-      )
+    socket = SRQLPage.load_list(socket, params, uri, :bmp_events, default_limit: @default_limit, max_limit: @max_limit)
 
     summary = compute_summary(socket.assigns.bmp_events)
 
@@ -43,8 +39,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
   end
 
   def handle_event("srql_submit", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/observability/bmp")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/observability/bmp")}
   end
 
   def handle_event("srql_builder_toggle", _params, socket) do
@@ -60,18 +55,15 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
   end
 
   def handle_event("srql_builder_run", _params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/observability/bmp")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/observability/bmp")}
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "bmp_events")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "bmp_events")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "bmp_events")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "bmp_events")}
   end
 
   @impl true

@@ -266,7 +266,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
       Process.sleep(50)
       after_touch = Device.get_state(pid).last_seen
 
-      assert DateTime.compare(after_touch, before) == :gt
+      assert DateTime.after?(after_touch, before)
     end
   end
 

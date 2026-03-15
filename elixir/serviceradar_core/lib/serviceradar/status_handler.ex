@@ -7,10 +7,10 @@ defmodule ServiceRadar.StatusHandler do
 
   use GenServer
 
-  require Logger
-
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.ResultsRouter
+
+  require Logger
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)

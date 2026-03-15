@@ -13,9 +13,11 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   import Bitwise
 
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
-  alias ServiceRadar.EventWriter.{FieldParser, OCSF}
+  alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.AlertGenerator
-  alias ServiceRadar.Observability.{LogPubSub, StatefulAlertEngine}
+  alias ServiceRadar.Observability.LogPubSub
+  alias ServiceRadar.Observability.StatefulAlertEngine
 
   require Logger
 
@@ -87,9 +89,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       report_rows = Enum.map(entries, & &1.report_row)
       report_count = upsert_report_rows(report_rows)
 
-      finding_rows =
-        entries
-        |> Enum.flat_map(& &1.finding_rows)
+      finding_rows = Enum.flat_map(entries, & &1.finding_rows)
 
       finding_count = upsert_finding_rows(finding_rows)
 
@@ -249,18 +249,21 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
          context: context
        }) do
     attributes =
-      %{
-        "trivy" => %{
-          "event_id" => normalize_string(payload["event_id"]),
-          "report_kind" => normalize_string(payload["report_kind"]),
-          "cluster_id" => normalize_string(payload["cluster_id"]),
-          "resource_version" => normalize_string(payload["resource_version"]),
-          "summary" => normalize_map(payload["summary"]),
-          "owner_ref" => normalize_map(payload["owner_ref"]),
-          "correlation" => normalize_map(payload["correlation"])
-        }
-      }
-      |> attach_ingest_metadata(metadata, subject)
+      attach_ingest_metadata(
+        %{
+          "trivy" => %{
+            "event_id" => normalize_string(payload["event_id"]),
+            "report_kind" => normalize_string(payload["report_kind"]),
+            "cluster_id" => normalize_string(payload["cluster_id"]),
+            "resource_version" => normalize_string(payload["resource_version"]),
+            "summary" => normalize_map(payload["summary"]),
+            "owner_ref" => normalize_map(payload["owner_ref"]),
+            "correlation" => normalize_map(payload["correlation"])
+          }
+        },
+        metadata,
+        subject
+      )
 
     resource_attributes =
       %{}
@@ -311,7 +314,8 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
          context: context
        }) do
     metadata =
-      build_event_metadata(payload, subject, context)
+      payload
+      |> build_event_metadata(subject, context)
       |> Map.put("serviceradar", %{
         "source_log_id" => log_uuid,
         "promotion" => "trivy_priority_auto"
@@ -369,7 +373,8 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     report_payload = normalize_map(report["report"])
 
     summary =
-      normalize_map(payload["summary"])
+      payload["summary"]
+      |> normalize_map()
       |> case do
         value when map_size(value) > 0 -> value
         _ -> normalize_map(report_payload["summary"])
@@ -547,12 +552,13 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp insert_log_rows(rows) do
     rows_for_insert = Enum.map(rows, &encode_text_columns/1)
 
-    case ServiceRadar.Repo.insert_all("logs", rows_for_insert,
-           on_conflict: :nothing,
-           returning: false
-         ) do
-      {count, _} -> count
-    end
+    {count, _} =
+      ServiceRadar.Repo.insert_all("logs", rows_for_insert,
+        on_conflict: :nothing,
+        returning: false
+      )
+
+    count
   end
 
   defp upsert_report_rows([]), do: 0
@@ -595,13 +601,14 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       :updated_at
     ]
 
-    case ServiceRadar.Repo.insert_all("trivy_reports", rows,
-           on_conflict: {:replace, updatable_columns},
-           conflict_target: [:event_uuid],
-           returning: false
-         ) do
-      {count, _} -> count
-    end
+    {count, _} =
+      ServiceRadar.Repo.insert_all("trivy_reports", rows,
+        on_conflict: {:replace, updatable_columns},
+        conflict_target: [:event_uuid],
+        returning: false
+      )
+
+    count
   end
 
   defp upsert_finding_rows([]), do: 0
@@ -634,13 +641,14 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       :updated_at
     ]
 
-    case ServiceRadar.Repo.insert_all("trivy_findings", rows,
-           on_conflict: {:replace, updatable_columns},
-           conflict_target: [:fingerprint],
-           returning: false
-         ) do
-      {count, _} -> count
-    end
+    {count, _} =
+      ServiceRadar.Repo.insert_all("trivy_findings", rows,
+        on_conflict: {:replace, updatable_columns},
+        conflict_target: [:fingerprint],
+        returning: false
+      )
+
+    count
   end
 
   defp dedupe_rows_by_conflict_key(rows, key_fun)
@@ -667,20 +675,20 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp insert_event_rows([]), do: {0, []}
 
   defp insert_event_rows(rows) do
-    case ServiceRadar.Repo.insert_all("ocsf_events", rows,
-           on_conflict: :nothing,
-           returning: [:id]
-         ) do
-      {count, inserted} ->
-        inserted_ids = MapSet.new(Enum.map(inserted, & &1.id))
+    {count, inserted} =
+      ServiceRadar.Repo.insert_all("ocsf_events", rows,
+        on_conflict: :nothing,
+        returning: [:id]
+      )
 
-        inserted_rows =
-          rows
-          |> Enum.filter(&MapSet.member?(inserted_ids, &1.id))
-          |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
+    inserted_ids = MapSet.new(Enum.map(inserted, & &1.id))
 
-        {count, inserted_rows}
-    end
+    inserted_rows =
+      rows
+      |> Enum.filter(&MapSet.member?(inserted_ids, &1.id))
+      |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
+
+    {count, inserted_rows}
   end
 
   defp maybe_create_priority_alerts(events) do
@@ -776,7 +784,8 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
 
   defp summary_counts(payload) do
     summary =
-      normalize_map(payload["summary"])
+      payload["summary"]
+      |> normalize_map()
       |> case do
         value when map_size(value) > 0 -> value
         _ -> normalize_map(get_in(payload, ["report", "report", "summary"]))
@@ -843,7 +852,8 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp status_id_for_severity(_severity_id, _total), do: OCSF.status_failure()
 
   defp severity_text_for_id(severity_id) do
-    OCSF.severity_name(severity_id)
+    severity_id
+    |> OCSF.severity_name()
     |> String.upcase()
   end
 
@@ -887,14 +897,16 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp build_observables(payload, context) do
     artifact = normalize_map(get_in(payload, ["report", "report", "artifact"]))
 
-    [
-      maybe_observable(context["pod_ip"], "IP Address", 2),
-      maybe_observable(context["pod_name"], "Kubernetes Pod", 99),
-      maybe_observable(resource_label(context), "Resource", 99),
-      maybe_observable(normalize_string(artifact["repository"]), "Image Repository", 99),
-      maybe_observable(normalize_string(payload["uid"]), "Kubernetes UID", 99)
-    ]
-    |> Enum.reject(&is_nil/1)
+    Enum.reject(
+      [
+        maybe_observable(context["pod_ip"], "IP Address", 2),
+        maybe_observable(context["pod_name"], "Kubernetes Pod", 99),
+        maybe_observable(resource_label(context), "Resource", 99),
+        maybe_observable(normalize_string(artifact["repository"]), "Image Repository", 99),
+        maybe_observable(normalize_string(payload["uid"]), "Kubernetes UID", 99)
+      ],
+      &is_nil/1
+    )
   end
 
   defp build_actor(payload) do
@@ -980,16 +992,19 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
 
   defp finding_fingerprint(row) do
     fingerprint_source =
-      [
-        row.event_uuid,
-        row.finding_type,
-        row.finding_id,
-        row.title,
-        row.package_name,
-        row.target,
-        row.pod_ip
-      ]
-      |> Enum.map_join("|", &to_string_safe/1)
+      Enum.map_join(
+        [
+          row.event_uuid,
+          row.finding_type,
+          row.finding_id,
+          row.title,
+          row.package_name,
+          row.target,
+          row.pod_ip
+        ],
+        "|",
+        &to_string_safe/1
+      )
 
     Base.encode16(:crypto.hash(:sha256, fingerprint_source), case: :lower)
   end
@@ -1181,7 +1196,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp pod_namespace_for(_pod_name, _resource_namespace), do: nil
 
   defp pod_uid_for(owner_kind, owner_uid) do
-    if pod?(owner_kind), do: owner_uid, else: nil
+    if pod?(owner_kind), do: owner_uid
   end
 
   defp increment_count(counts, key) do
@@ -1211,13 +1226,11 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
 
   defp deterministic_uuid(key) do
     <<a1::32, a2::16, a3::16, a4::16, a5::48, _rest::binary>> = :crypto.hash(:sha256, key)
-    versioned_a3 = band(a3, 0x0FFF) |> bor(0x4000)
-    versioned_a4 = band(a4, 0x3FFF) |> bor(0x8000)
+    versioned_a3 = a3 |> band(0x0FFF) |> bor(0x4000)
+    versioned_a4 = a4 |> band(0x3FFF) |> bor(0x8000)
 
-    :io_lib.format(
-      "~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b",
-      [a1, a2, versioned_a3, versioned_a4, a5]
-    )
+    "~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b"
+    |> :io_lib.format([a1, a2, versioned_a3, versioned_a4, a5])
     |> IO.iodata_to_binary()
   end
 

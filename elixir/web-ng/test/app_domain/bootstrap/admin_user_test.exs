@@ -23,14 +23,12 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUserTest do
     user = Users.get_by_email("root@localhost", authorize?: false)
     assert %User{} = user
     assert user.role == :admin
-    assert user.confirmed_at != nil
-    assert user.hashed_password not in [nil, ""]
+    assert user.confirmed_at
+    refute user.hashed_password in [nil, ""]
 
     assert :ok = AdminUser.ensure_admin_user()
 
-    query =
-      User
-      |> Ash.Query.for_read(:read, %{}, authorize?: false)
+    query = Ash.Query.for_read(User, :read, %{}, authorize?: false)
 
     {:ok, users} = Ash.read(query)
     assert length(users) == 1

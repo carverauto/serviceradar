@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
 
   import Ecto.Query
 
+  alias ServiceRadar.Identity.Users
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AshTestHelpers
 
@@ -37,7 +38,7 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
       |> valid_user_attributes()
       |> Map.put(:password, password)
       |> Map.put(:password_confirmation, password)
-      |> ServiceRadar.Identity.Users.register_with_password(actor: AshTestHelpers.system_actor())
+      |> Users.register_with_password(actor: AshTestHelpers.system_actor())
 
     case role do
       nil ->
@@ -47,7 +48,7 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
         :ok = maybe_ensure_second_admin(user, role)
 
         {:ok, updated} =
-          ServiceRadar.Identity.Users.update_role(user, role,
+          Users.update_role(user, role,
             actor: AshTestHelpers.system_actor(),
             authorize?: false
           )
@@ -64,21 +65,23 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
   defp maybe_ensure_second_admin(user, _role) do
     # If this user is the only admin (common when it's the first registered user),
     # create a second admin before demoting to avoid the "last active admin" guardrail.
-    case other_admin_exists?(user) do
-      true -> :ok
-      false -> _admin = AshTestHelpers.admin_user_fixture()
+    if other_admin_exists?(user) do
+      :ok
+    else
+      _admin = AshTestHelpers.admin_user_fixture()
     end
 
     :ok
   end
 
   defp other_admin_exists?(user) do
+    import Ash.Expr
+
     alias ServiceRadar.Identity.User
 
     require Ash.Query
-    import Ash.Expr
 
-    q = User |> Ash.Query.filter(expr(role == :admin and id != ^user.id))
+    q = Ash.Query.filter(User, expr(role == :admin and id != ^user.id))
 
     case Ash.read_one(q, actor: AshTestHelpers.system_actor()) do
       {:ok, %User{}} -> true
@@ -95,7 +98,7 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
     user = unconfirmed_user_fixture(attrs)
 
     # Confirm the user via Ash
-    {:ok, confirmed_user} = ServiceRadar.Identity.Users.confirm(user)
+    {:ok, confirmed_user} = Users.confirm(user)
     confirmed_user
   end
 
@@ -110,10 +113,10 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
       |> valid_user_attributes()
       |> Map.put(:password, password)
       |> Map.put(:password_confirmation, password)
-      |> ServiceRadar.Identity.Users.register_with_password(actor: AshTestHelpers.system_actor())
+      |> Users.register_with_password(actor: AshTestHelpers.system_actor())
 
     # Confirm the user
-    {:ok, confirmed_user} = ServiceRadar.Identity.Users.confirm(user)
+    {:ok, confirmed_user} = Users.confirm(user)
     confirmed_user
   end
 
@@ -138,7 +141,7 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
       )
 
     # Re-fetch the user from Ash (DB connection handles schema)
-    {:ok, updated_user} = ServiceRadar.Identity.Users.get(user.id)
+    {:ok, updated_user} = Users.get(user.id)
     updated_user
   end
 end

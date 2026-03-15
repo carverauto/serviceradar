@@ -164,7 +164,8 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
         new_metadata = Ash.Changeset.get_argument(changeset, :metadata) || %{}
 
         merged =
-          Map.merge(existing_metadata, new_metadata)
+          existing_metadata
+          |> Map.merge(new_metadata)
           |> Map.put("confirmed_by", "sweep_match")
           |> Map.put("confirmed_at", DateTime.to_iso8601(DateTime.utc_now()))
 

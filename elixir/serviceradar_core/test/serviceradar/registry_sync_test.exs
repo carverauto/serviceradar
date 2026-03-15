@@ -1,9 +1,9 @@
 defmodule ServiceRadar.RegistrySyncTest do
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.ProcessRegistry
+
+  @moduletag :integration
 
   @partition_id "partition-sync"
   @domain "sync-domain"
@@ -74,7 +74,7 @@ defmodule ServiceRadar.RegistrySyncTest do
   end
 
   defp ensure_distribution! do
-    unless Node.alive?() do
+    if !Node.alive?() do
       case System.cmd("epmd", ["-daemon"]) do
         {_, 0} -> :ok
         {output, code} -> raise "Failed to start epmd (#{code}): #{output}"
@@ -140,7 +140,7 @@ defmodule ServiceRadar.RegistrySyncTest do
     Node.connect(peer_node)
     :rpc.call(peer_node, Node, :connect, [node()])
 
-    unless eventually(fn -> peer_node in Node.list() end) do
+    if !eventually(fn -> peer_node in Node.list() end) do
       raise "Failed to connect to peer node #{peer_node}"
     end
   end
@@ -185,13 +185,11 @@ defmodule ServiceRadar.RegistrySyncTest do
   defp eventually(_fun, 0), do: false
 
   defp eventually(fun, attempts) do
-    case fun.() do
-      true ->
-        true
-
-      false ->
-        Process.sleep(200)
-        eventually(fun, attempts - 1)
+    if fun.() do
+      true
+    else
+      Process.sleep(200)
+      eventually(fun, attempts - 1)
     end
   end
 end

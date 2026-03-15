@@ -128,12 +128,15 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     preferred_agent_id = blank_to_nil(Map.get(params, "preferred_agent_id"))
 
     target_selector =
-      %{
-        "srql_query" => query || "in:devices",
-        "device_uids" => resolve_target_device_uids(scope, query, selector_limit),
-        "limit" => selector_limit
-      }
-      |> maybe_put("agent_id", preferred_agent_id)
+      maybe_put(
+        %{
+          "srql_query" => query || "in:devices",
+          "device_uids" => resolve_target_device_uids(scope, query, selector_limit),
+          "limit" => selector_limit
+        },
+        "agent_id",
+        preferred_agent_id
+      )
 
     attrs = %{
       name: String.trim(Map.get(params, "name", "")),
@@ -675,11 +678,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     end
   end
 
-  defp save_profile(:new_profile, _profile, attrs, scope),
-    do: MtrPolicy.create_policy(attrs, scope: scope)
+  defp save_profile(:new_profile, _profile, attrs, scope), do: MtrPolicy.create_policy(attrs, scope: scope)
 
-  defp save_profile(:edit_profile, profile, attrs, scope),
-    do: MtrPolicy.update_policy(profile, attrs, scope: scope)
+  defp save_profile(:edit_profile, profile, attrs, scope), do: MtrPolicy.update_policy(profile, attrs, scope: scope)
 
   defp save_profile(_, _profile, _attrs, _scope), do: {:error, :invalid_form_state}
 
@@ -712,24 +713,18 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       "enabled" => truthy(profile.enabled),
       "target_query" => selector_query(profile),
       "selector_limit" => fallback(Map.get(selector, "limit"), defaults["selector_limit"]),
-      "preferred_agent_id" =>
-        fallback(Map.get(selector, "agent_id"), defaults["preferred_agent_id"]),
+      "preferred_agent_id" => fallback(Map.get(selector, "agent_id"), defaults["preferred_agent_id"]),
       "partition_id" => fallback(profile.partition_id, defaults["partition_id"]),
       "baseline_protocol" => fallback(profile.baseline_protocol, defaults["baseline_protocol"]),
-      "baseline_interval_sec" =>
-        fallback(profile.baseline_interval_sec, defaults["baseline_interval_sec"]),
-      "baseline_canary_vantages" =>
-        fallback(profile.baseline_canary_vantages, defaults["baseline_canary_vantages"]),
+      "baseline_interval_sec" => fallback(profile.baseline_interval_sec, defaults["baseline_interval_sec"]),
+      "baseline_canary_vantages" => fallback(profile.baseline_canary_vantages, defaults["baseline_canary_vantages"]),
       "incident_fanout_max_agents" =>
         fallback(profile.incident_fanout_max_agents, defaults["incident_fanout_max_agents"]),
-      "incident_cooldown_sec" =>
-        fallback(profile.incident_cooldown_sec, defaults["incident_cooldown_sec"]),
+      "incident_cooldown_sec" => fallback(profile.incident_cooldown_sec, defaults["incident_cooldown_sec"]),
       "recovery_capture" => truthy(profile.recovery_capture),
       "consensus_mode" => fallback(profile.consensus_mode, defaults["consensus_mode"]),
-      "consensus_threshold" =>
-        fallback(profile.consensus_threshold, defaults["consensus_threshold"]),
-      "consensus_min_agents" =>
-        fallback(profile.consensus_min_agents, defaults["consensus_min_agents"])
+      "consensus_threshold" => fallback(profile.consensus_threshold, defaults["consensus_threshold"]),
+      "consensus_min_agents" => fallback(profile.consensus_min_agents, defaults["consensus_min_agents"])
     }
   end
 
@@ -744,11 +739,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   end
 
   defp list_connected_agents do
-    try do
-      AgentRegistry.find_agents()
-    rescue
-      _ -> []
-    end
+    AgentRegistry.find_agents()
+  rescue
+    _ -> []
   end
 
   defp agent_id(agent) do
@@ -786,7 +779,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp count_target_devices(scope, target_query) when is_binary(target_query) do
     with normalized when is_binary(normalized) <- normalize_target_query(target_query),
-         full_query <- build_count_query(normalized),
+         full_query = build_count_query(normalized),
          {:ok, %{"results" => [%{"total" => count} | _]}} <-
            srql_module().query(full_query, %{scope: scope}) do
       extract_total_count(count)
@@ -806,8 +799,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       |> String.replace(~r/\s+/, " ")
       |> String.trim()
 
-    "#{normalized} stats:\"count() as total\""
-    |> Kernel.<>(" limit:1")
+    Kernel.<>("#{normalized} stats:\"count() as total\"", " limit:1")
   end
 
   defp extract_total_count(count) when is_integer(count), do: count

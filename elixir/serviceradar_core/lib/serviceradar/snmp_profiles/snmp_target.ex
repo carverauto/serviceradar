@@ -50,7 +50,10 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
-  require ServiceRadar.SNMPProfiles.CredentialDsl
+  alias ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
+  alias ServiceRadar.SNMPProfiles.CredentialDsl
+
+  require CredentialDsl
 
   @target_fields [
     :name,
@@ -81,20 +84,20 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
 
       argument :snmp_profile_id, :uuid, allow_nil?: false
       # All credentials are passed as arguments and encrypted before storage
-      ServiceRadar.SNMPProfiles.CredentialDsl.credential_action_arguments()
+      CredentialDsl.credential_action_arguments()
 
       change manage_relationship(:snmp_profile_id, :snmp_profile, type: :append)
-      change ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
+      change EncryptCredentials
     end
 
     update :update do
       accept @target_fields
 
       # All credentials are passed as arguments and encrypted before storage
-      ServiceRadar.SNMPProfiles.CredentialDsl.credential_action_arguments()
+      CredentialDsl.credential_action_arguments()
 
       require_atomic? false
-      change ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
+      change EncryptCredentials
     end
   end
 
@@ -128,7 +131,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
       description "SNMP port"
     end
 
-    ServiceRadar.SNMPProfiles.CredentialDsl.credential_attributes()
+    CredentialDsl.credential_attributes()
 
     timestamps()
   end

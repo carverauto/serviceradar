@@ -6,19 +6,16 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   is set by CNPG search_path credentials.
   """
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Observability.CpuClusterMetric
+  alias ServiceRadar.Observability.CpuMetric
+  alias ServiceRadar.Observability.DiskMetric
+  alias ServiceRadar.Observability.MemoryMetric
+  alias ServiceRadar.Observability.ProcessMetric
   alias ServiceRadar.Repo
 
-  alias ServiceRadar.Observability.{
-    CpuClusterMetric,
-    CpuMetric,
-    DiskMetric,
-    MemoryMetric,
-    ProcessMetric
-  }
+  require Logger
 
   @default_bulk_create_chunk_size 1_000
 
@@ -38,7 +35,7 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
 
   @doc false
   def build_metrics(sample, context) when is_map(sample) and is_map(context) do
-    created_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    created_at = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     base = %{
       timestamp: context.timestamp,
@@ -105,7 +102,8 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   end
 
   defp build_cpu_records(cpus, base) do
-    Enum.reduce(cpus, [], fn cpu, acc ->
+    cpus
+    |> Enum.reduce([], fn cpu, acc ->
       core_id = parse_integer(fetch_value(cpu, "core_id"))
       usage_percent = parse_float(fetch_value(cpu, "usage_percent"))
       frequency_hz = parse_float(fetch_value(cpu, "frequency_hz"))
@@ -126,7 +124,8 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   end
 
   defp build_cluster_records(clusters, base) do
-    Enum.reduce(clusters, [], fn cluster, acc ->
+    clusters
+    |> Enum.reduce([], fn cluster, acc ->
       name = fetch_string(cluster, "name")
       frequency_hz = parse_float(fetch_value(cluster, "frequency_hz"))
 
@@ -162,7 +161,8 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   end
 
   defp build_disk_records(disks, base) do
-    Enum.reduce(disks, [], fn disk, acc ->
+    disks
+    |> Enum.reduce([], fn disk, acc ->
       mount_point = fetch_string(disk, "mount_point")
       total_bytes = parse_integer(fetch_value(disk, "total_bytes"))
       used_bytes = parse_integer(fetch_value(disk, "used_bytes"))
@@ -188,7 +188,8 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   end
 
   defp build_process_records(processes, base) do
-    Enum.reduce(processes, [], fn process, acc ->
+    processes
+    |> Enum.reduce([], fn process, acc ->
       pid = parse_integer(fetch_value(process, "pid"))
 
       if pid do
@@ -394,16 +395,16 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
     end
   end
 
-  defp parse_timestamp(nil), do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
+  defp parse_timestamp(nil), do: DateTime.truncate(DateTime.utc_now(), :microsecond)
 
   defp parse_timestamp(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
       {:ok, dt, _offset} -> DateTime.truncate(dt, :microsecond)
-      _ -> DateTime.utc_now() |> DateTime.truncate(:microsecond)
+      _ -> DateTime.truncate(DateTime.utc_now(), :microsecond)
     end
   end
 
-  defp parse_timestamp(_value), do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
+  defp parse_timestamp(_value), do: DateTime.truncate(DateTime.utc_now(), :microsecond)
 
   defp fetch_value(map, key) when is_map(map) do
     Map.get(map, key) ||

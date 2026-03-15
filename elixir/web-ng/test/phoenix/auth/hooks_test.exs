@@ -8,11 +8,11 @@ defmodule ServiceRadarWebNGWeb.Auth.HooksTest do
 
   use ServiceRadarWebNG.DataCase, async: true
 
+  import ExUnit.CaptureLog
+  import ServiceRadarWebNG.AccountsFixtures
+
   alias ServiceRadarWebNGWeb.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.Hooks.Default
-
-  import ServiceRadarWebNG.AccountsFixtures
-  import ExUnit.CaptureLog
 
   describe "Hooks.on_user_created/2" do
     test "calls the implementation and returns :ok" do

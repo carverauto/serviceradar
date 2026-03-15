@@ -5,9 +5,9 @@ defmodule ServiceRadar.Cluster.StartupMigrationsTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Cluster.StartupMigrations
+
+  @moduletag :integration
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()

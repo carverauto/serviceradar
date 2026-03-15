@@ -9,22 +9,18 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   is set by CNPG search_path credentials.
   """
 
-  require Logger
+  import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AliasEvents
   alias ServiceRadar.Identity.DeviceAliasState
-
-  alias ServiceRadar.Inventory.{
-    Device,
-    DeviceEnrichmentRules,
-    DeviceIdentifier,
-    IdentityReconciler
-  }
-
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceEnrichmentRules
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Repo
 
-  import Ecto.Query
+  require Logger
 
   # Process in chunks to balance memory vs DB efficiency
   @batch_size 500
@@ -148,7 +144,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
     resolved_updates = Enum.reverse(resolved_updates)
 
-    timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
     device_records = build_device_upsert_records(resolved_updates, timestamp)
     identifier_records = build_identifier_records(resolved_updates)
 
@@ -236,7 +232,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         select: {di.identifier_type, di.identifier_value, di.partition, di.device_id}
       )
 
-    Repo.all(query)
+    query
+    |> Repo.all()
     |> Enum.reduce(%{}, fn {type, value, partition, device_id}, acc ->
       type_atom =
         case type do
@@ -301,7 +298,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
             select: {d.ip, d.uid}
           )
 
-        Repo.all(query)
+        query
+        |> Repo.all()
         |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
         |> Map.new()
     end
@@ -318,7 +316,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         select: {a.alias_value, a.device_id}
       )
 
-    Repo.all(query)
+    query
+    |> Repo.all()
     |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
     |> Map.new()
   rescue
@@ -490,7 +489,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
             select: {d.ip, d.uid}
           )
 
-        Repo.all(query) |> Map.new()
+        query |> Repo.all() |> Map.new()
       end
 
     Enum.map(records, fn record ->
@@ -766,7 +765,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   # Bulk upsert identifiers
   # DB connection's search_path determines the schema
   defp bulk_upsert_identifiers(records) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
     insert_records =
       Enum.map(records, fn r ->
@@ -776,7 +775,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         })
       end)
 
-    unless Enum.empty?(insert_records) do
+    if !Enum.empty?(insert_records) do
       Repo.insert_all(
         DeviceIdentifier,
         insert_records,
@@ -879,8 +878,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp merge_snmp_fingerprint_metadata(metadata, snmp_fingerprint)
-       when is_map(metadata) and map_size(snmp_fingerprint) == 0,
-       do: metadata
+       when is_map(metadata) and map_size(snmp_fingerprint) == 0, do: metadata
 
   defp merge_snmp_fingerprint_metadata(metadata, snmp_fingerprint) when is_map(metadata) do
     system = map_get_any(snmp_fingerprint, ["system", :system])
@@ -1079,7 +1077,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     sys_descr = String.downcase(sys_descr)
 
     Enum.find_value(@vendor_tokens, fn {token, vendor} ->
-      if String.contains?(sys_descr, token), do: vendor, else: nil
+      if String.contains?(sys_descr, token), do: vendor
     end)
   end
 
@@ -1513,9 +1511,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp alias_not_found?(_), do: false
 
   defp get_bool(map, keys) do
-    case get_value(map, keys) do
-      true -> true
-      _ -> false
+    if get_value(map, keys) do
+      true
+    else
+      false
     end
   end
 end

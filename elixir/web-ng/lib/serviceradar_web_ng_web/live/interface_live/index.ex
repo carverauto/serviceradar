@@ -6,8 +6,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
 
   import ServiceRadarWebNGWeb.UIComponents
 
-  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 20
   @max_limit 100
@@ -26,12 +26,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
 
   @impl true
   def handle_params(params, uri, socket) do
-    socket =
-      socket
-      |> SRQLPage.load_list(params, uri, :interfaces,
-        default_limit: @default_limit,
-        max_limit: @max_limit
-      )
+    socket = SRQLPage.load_list(socket, params, uri, :interfaces, default_limit: @default_limit, max_limit: @max_limit)
 
     query = Map.get(socket.assigns.srql || %{}, :query, "")
     current_page = parse_page_param(params)
@@ -68,8 +63,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
   end
 
   def handle_event("srql_builder_run", _params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/interfaces")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/interfaces")}
   end
 
   @impl true

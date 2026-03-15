@@ -26,7 +26,7 @@ defmodule ServiceRadar.ClusterHealth do
 
   require Logger
 
-  @health_check_interval :timer.seconds(30)
+  @health_check_interval to_timeout(second: 30)
 
   defstruct [
     :last_check,

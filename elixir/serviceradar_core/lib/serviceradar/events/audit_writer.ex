@@ -53,10 +53,10 @@ defmodule ServiceRadar.Events.AuditWriter do
   - `:severity` - :informational (default), :low, :medium, :high, :critical
   """
 
-  require Logger
-
   alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.EventWriter.OCSF
+
+  require Logger
 
   @type action :: :create | :read | :update | :delete | atom()
   @type severity :: :informational | :low | :medium | :high | :critical
@@ -252,7 +252,7 @@ defmodule ServiceRadar.Events.AuditWriter do
       |> maybe_put(:email_addr, actor_email)
       |> maybe_put(:name, actor_email)
 
-    if map_size(user) > 0, do: %{user: user}, else: nil
+    if map_size(user) > 0, do: %{user: user}
   end
 
   defp build_actor(_), do: nil

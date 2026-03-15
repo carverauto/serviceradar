@@ -32,9 +32,9 @@ defmodule ServiceRadar.Actors.Telemetry do
   Or add metrics to your existing telemetry supervisor.
   """
 
-  require Logger
-
   alias ServiceRadar.Actors.DeviceRegistry
+
+  require Logger
 
   @prefix [:serviceradar, :actors, :device]
 
@@ -164,8 +164,7 @@ defmodule ServiceRadar.Actors.Telemetry do
 
     # Collect health status distribution
     health_counts =
-      devices
-      |> Enum.reduce(%{}, fn device, acc ->
+      Enum.reduce(devices, %{}, fn device, acc ->
         status = get_in(device, [:health, :status]) || :unknown
         Map.update(acc, status, 1, &(&1 + 1))
       end)
@@ -198,15 +197,13 @@ defmodule ServiceRadar.Actors.Telemetry do
     devices = DeviceRegistry.list_devices()
 
     health_distribution =
-      devices
-      |> Enum.reduce(%{}, fn device, acc ->
+      Enum.reduce(devices, %{}, fn device, acc ->
         status = get_in(device, [:health, :status]) || :unknown
         Map.update(acc, status, 1, &(&1 + 1))
       end)
 
     partition_distribution =
-      devices
-      |> Enum.reduce(%{}, fn device, acc ->
+      Enum.reduce(devices, %{}, fn device, acc ->
         partition = device[:partition_id] || "unassigned"
         Map.update(acc, partition, 1, &(&1 + 1))
       end)

@@ -1,6 +1,5 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
-
   use ServiceRadarWebNG.AshTestHelpers
 
   import Phoenix.LiveViewTest

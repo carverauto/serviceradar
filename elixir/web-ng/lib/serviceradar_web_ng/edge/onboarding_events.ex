@@ -15,8 +15,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Edge.OnboardingEvents, as: AshEvents
   alias ServiceRadar.Edge.OnboardingEvent
+  alias ServiceRadar.Edge.OnboardingEvents, as: AshEvents
 
   @doc """
   Lists events for a specific package, ordered by time descending.

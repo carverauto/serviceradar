@@ -70,7 +70,7 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
 
   require Logger
 
-  @default_interval :timer.seconds(30)
+  @default_interval to_timeout(second: 30)
 
   defstruct [
     :service_type,
@@ -275,16 +275,16 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
   end
 
   defp generate_service_id(service_type) do
-    node_name = Node.self() |> to_string()
+    node_name = to_string(Node.self())
     "#{service_type}-#{node_name}"
   end
 
   defp build_metadata(state) do
     %{
-      node: Node.self() |> to_string(),
+      node: to_string(Node.self()),
       uptime_seconds: DateTime.diff(DateTime.utc_now(), state.started_at, :second),
       heartbeat_count: state.heartbeat_count,
-      version: Application.spec(:serviceradar_core, :vsn) |> to_string(),
+      version: :serviceradar_core |> Application.spec(:vsn) |> to_string(),
       otp_release: System.otp_release(),
       memory_mb: div(:erlang.memory(:total), 1_048_576),
       process_count: :erlang.system_info(:process_count)

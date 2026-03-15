@@ -8,9 +8,9 @@ defmodule ServiceRadarWebNG.Auth.ErrorHandlerTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  alias ServiceRadarWebNG.Auth.ErrorHandler
-
   import ExUnit.CaptureLog
+
+  alias ServiceRadarWebNG.Auth.ErrorHandler
 
   describe "auth_error/3 for JSON API requests" do
     test "returns 401 with JSON for unauthenticated error", %{conn: conn} do
@@ -27,9 +27,7 @@ defmodule ServiceRadarWebNG.Auth.ErrorHandlerTest do
     end
 
     test "returns 401 with JSON for invalid_token error", %{conn: conn} do
-      conn =
-        conn
-        |> put_req_header("accept", "application/json")
+      conn = put_req_header(conn, "accept", "application/json")
 
       conn = ErrorHandler.auth_error(conn, {:invalid_token, :bad_signature}, [])
 
@@ -38,9 +36,7 @@ defmodule ServiceRadarWebNG.Auth.ErrorHandlerTest do
     end
 
     test "returns 401 with JSON for token_expired error", %{conn: conn} do
-      conn =
-        conn
-        |> put_req_header("accept", "application/json")
+      conn = put_req_header(conn, "accept", "application/json")
 
       conn = ErrorHandler.auth_error(conn, {:token_expired, :expired}, [])
 
@@ -49,9 +45,7 @@ defmodule ServiceRadarWebNG.Auth.ErrorHandlerTest do
     end
 
     test "returns 401 with JSON for invalid_token_type error", %{conn: conn} do
-      conn =
-        conn
-        |> put_req_header("accept", "application/json")
+      conn = put_req_header(conn, "accept", "application/json")
 
       conn = ErrorHandler.auth_error(conn, {:invalid_token_type, :wrong_type}, [])
 
@@ -60,14 +54,12 @@ defmodule ServiceRadarWebNG.Auth.ErrorHandlerTest do
     end
 
     test "returns JSON for /api paths", %{conn: conn} do
-      conn =
-        conn
-        |> Map.put(:request_path, "/api/v1/devices")
+      conn = Map.put(conn, :request_path, "/api/v1/devices")
 
       conn = ErrorHandler.auth_error(conn, {:unauthenticated, :no_token}, [])
 
       assert conn.status == 401
-      assert get_resp_header(conn, "content-type") |> List.first() =~ "application/json"
+      assert conn |> get_resp_header("content-type") |> List.first() =~ "application/json"
     end
   end
 

@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorkerTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  alias Ecto.Adapters.SQL
   alias ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker
 
   # Use ServiceRadar.Repo directly for SQL adapter operations
@@ -27,10 +28,10 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorkerTest do
   test "performs incremental upsert when table exists with data" do
     Ecto.Adapters.SQL.Sandbox.unboxed_run(@repo, fn ->
       # Ensure clean state
-      Ecto.Adapters.SQL.query!(@repo, "DROP TABLE IF EXISTS otel_trace_summaries CASCADE", [])
+      SQL.query!(@repo, "DROP TABLE IF EXISTS otel_trace_summaries CASCADE", [])
 
       # Create the summaries table
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         @repo,
         """
         CREATE TABLE otel_trace_summaries (
@@ -56,7 +57,7 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorkerTest do
 
       assert :ok = RefreshTraceSummariesWorker.perform(%Oban.Job{args: %{}})
 
-      Ecto.Adapters.SQL.query!(@repo, "DROP TABLE IF EXISTS otel_trace_summaries CASCADE", [])
+      SQL.query!(@repo, "DROP TABLE IF EXISTS otel_trace_summaries CASCADE", [])
     end)
   end
 end

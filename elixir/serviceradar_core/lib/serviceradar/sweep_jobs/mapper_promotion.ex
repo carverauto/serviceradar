@@ -3,14 +3,14 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
   Promotes eligible sweep-discovered live hosts into on-demand mapper discovery.
   """
 
-  require Ash.Query
-  require Logger
-
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.SweepJobs.SweepGroup
+
+  require Ash.Query
+  require Logger
 
   @default_cooldown_seconds 900
   @promotion_key "sweep_mapper_promotion"
@@ -32,7 +32,7 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
   def promote(results, device_map, sweep_group_id, sweep_agent_id, opts \\ []) do
     actor = Keyword.get(opts, :actor)
     dispatcher = Keyword.get(opts, :dispatcher, &AgentCommandBus.run_mapper_job/2)
-    now = Keyword.get(opts, :now, DateTime.utc_now() |> DateTime.truncate(:second))
+    now = Keyword.get(opts, :now, DateTime.truncate(DateTime.utc_now(), :second))
     cooldown_seconds = Keyword.get(opts, :cooldown_seconds, cooldown_seconds())
     partition = sweep_group_partition(sweep_group_id, actor)
 
@@ -207,7 +207,7 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
     with %{} = promotion <- metadata[@promotion_key],
          cooldown_until when is_binary(cooldown_until) <- promotion["cooldown_until"],
          {:ok, cooldown_at, _offset} <- DateTime.from_iso8601(cooldown_until) do
-      if DateTime.compare(cooldown_at, now) == :gt, do: cooldown_until, else: nil
+      if DateTime.after?(cooldown_at, now), do: cooldown_until
     else
       _ -> nil
     end
@@ -328,8 +328,7 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
          %{status: :suppressed, cooldown_until: cooldown_until},
          _now,
          _cooldown_seconds
-       ),
-       do: cooldown_until
+       ), do: cooldown_until
 
   defp cooldown_until(_decision, _now, _cooldown_seconds), do: nil
 
@@ -397,13 +396,7 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
     Logger.debug("Sweep mapper promotion skipped device=#{device_uid} ip=#{ip} reason=#{reason}")
   end
 
-  defp log_decision(%{
-         status: :failed,
-         device_uid: device_uid,
-         ip: ip,
-         reason: reason,
-         job: job
-       }) do
+  defp log_decision(%{status: :failed, device_uid: device_uid, ip: ip, reason: reason, job: job}) do
     Logger.warning(
       "Sweep mapper promotion failed device=#{device_uid} ip=#{ip} mapper_job=#{job && job.name} reason=#{reason}"
     )

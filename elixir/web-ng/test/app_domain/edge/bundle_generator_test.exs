@@ -1,10 +1,10 @@
 defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
   use ServiceRadarWebNG.DataCase, async: true
 
+  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
+
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.OnboardingPackages
-
-  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   setup do
     # Create a test package
@@ -59,7 +59,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
       {_, install_sh} =
         Enum.find(files, fn {name, _} ->
-          to_string(name) |> String.ends_with?("install.sh")
+          name |> to_string() |> String.ends_with?("install.sh")
         end)
 
       assert install_sh =~ "COMPONENT_TYPE=\"gateway\""
@@ -78,7 +78,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
       {_, config_yaml} =
         Enum.find(files, fn {name, _} ->
-          to_string(name) |> String.ends_with?("config.yaml")
+          name |> to_string() |> String.ends_with?("config.yaml")
         end)
 
       assert config_yaml =~ "component_type:"
@@ -122,15 +122,13 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       end)
 
       {:ok, tarball} =
-        BundleGenerator.create_tarball(package, "", join_token,
-          base_url: "https://demo.serviceradar.cloud"
-        )
+        BundleGenerator.create_tarball(package, "", join_token, base_url: "https://demo.serviceradar.cloud")
 
       {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
 
       {_, config_json} =
         Enum.find(files, fn {name, _} ->
-          to_string(name) |> String.ends_with?("config.json")
+          name |> to_string() |> String.ends_with?("config.json")
         end)
 
       config = Jason.decode!(config_json)
@@ -156,9 +154,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
     test "uses custom base_url option", %{package: package, download_token: download_token} do
       cmd =
-        BundleGenerator.docker_install_command(package, download_token,
-          base_url: "https://custom.example.com"
-        )
+        BundleGenerator.docker_install_command(package, download_token, base_url: "https://custom.example.com")
 
       assert cmd =~ "https://custom.example.com"
     end
@@ -185,9 +181,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
     test "uses custom base_url option", %{package: package, download_token: download_token} do
       cmd =
-        BundleGenerator.systemd_install_command(package, download_token,
-          base_url: "https://my-server.local"
-        )
+        BundleGenerator.systemd_install_command(package, download_token, base_url: "https://my-server.local")
 
       assert cmd =~ "https://my-server.local"
     end
@@ -209,9 +203,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
     test "uses custom namespace option", %{package: package, download_token: download_token} do
       cmd =
-        BundleGenerator.kubernetes_install_command(package, download_token,
-          namespace: "my-namespace"
-        )
+        BundleGenerator.kubernetes_install_command(package, download_token, namespace: "my-namespace")
 
       assert cmd =~ "-n my-namespace"
     end
@@ -242,7 +234,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
       {_, secret_yaml} =
         Enum.find(files, fn {name, _} ->
-          to_string(name) |> String.ends_with?("kubernetes/secret.yaml")
+          name |> to_string() |> String.ends_with?("kubernetes/secret.yaml")
         end)
 
       # Verify secret structure
@@ -263,7 +255,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
       {_, deployment_yaml} =
         Enum.find(files, fn {name, _} ->
-          to_string(name) |> String.ends_with?("kubernetes/deployment.yaml")
+          name |> to_string() |> String.ends_with?("kubernetes/deployment.yaml")
         end)
 
       # Verify deployment has security best practices
@@ -284,7 +276,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
       {_, kustomization} =
         Enum.find(files, fn {name, _} ->
-          to_string(name) |> String.ends_with?("kubernetes/kustomization.yaml")
+          name |> to_string() |> String.ends_with?("kubernetes/kustomization.yaml")
         end)
 
       assert kustomization =~ "kind: Kustomization"

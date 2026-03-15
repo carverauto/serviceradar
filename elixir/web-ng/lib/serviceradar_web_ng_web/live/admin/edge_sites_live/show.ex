@@ -6,12 +6,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
-  require Ash.Query
-
-  alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.CollectorPackage
+  alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator
   alias ServiceRadarWebNG.RBAC
+
+  require Ash.Query
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -53,8 +53,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
         filename = EdgeSiteBundleGenerator.bundle_filename(site)
 
         {:noreply,
-         socket
-         |> push_event("download", %{
+         push_event(socket, "download", %{
            filename: filename,
            content: Base.encode64(tarball),
            content_type: "application/gzip"

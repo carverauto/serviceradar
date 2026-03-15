@@ -62,8 +62,7 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
 
     files = [
       # NATS configuration
-      {"#{bundle_name}/nats/nats-leaf.conf",
-       NatsLeafConfigGenerator.generate_config(edge_site, leaf_server)},
+      {"#{bundle_name}/nats/nats-leaf.conf", NatsLeafConfigGenerator.generate_config(edge_site, leaf_server)},
 
       # Server certificates (for local client connections)
       {"#{bundle_name}/nats/certs/nats-server.pem", leaf_server.server_cert_pem},
@@ -120,36 +119,34 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
 
   @sobelow_skip ["Traversal.FileModule"]
   defp create_tar_gz(files) do
-    try do
-      # Convert files to format expected by :erl_tar
-      file_entries =
-        Enum.map(files, fn {path, content} ->
-          data =
-            case content do
-              nil -> ""
-              _ -> IO.iodata_to_binary(content)
-            end
+    # Convert files to format expected by :erl_tar
+    file_entries =
+      Enum.map(files, fn {path, content} ->
+        data =
+          case content do
+            nil -> ""
+            _ -> IO.iodata_to_binary(content)
+          end
 
-          {String.to_charlist(path), data}
-        end)
+        {String.to_charlist(path), data}
+      end)
 
-      tmp_path =
-        Path.join(
-          System.tmp_dir!(),
-          "serviceradar-edge-site-bundle-#{:erlang.unique_integer([:positive])}.tar.gz"
-        )
+    tmp_path =
+      Path.join(
+        System.tmp_dir!(),
+        "serviceradar-edge-site-bundle-#{:erlang.unique_integer([:positive])}.tar.gz"
+      )
 
-      tar_data =
-        try do
-          :ok = :erl_tar.create(String.to_charlist(tmp_path), file_entries, [:compressed])
-          File.read!(tmp_path)
-        after
-          _ = File.rm(tmp_path)
-        end
+    tar_data =
+      try do
+        :ok = :erl_tar.create(String.to_charlist(tmp_path), file_entries, [:compressed])
+        File.read!(tmp_path)
+      after
+        _ = File.rm(tmp_path)
+      end
 
-      {:ok, tar_data}
-    rescue
-      e -> {:error, {:tar_creation_failed, e}}
-    end
+    {:ok, tar_data}
+  rescue
+    e -> {:error, {:tar_creation_failed, e}}
   end
 end

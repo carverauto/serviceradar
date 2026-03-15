@@ -9,11 +9,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias Ash.Page.Keyset
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Integrations
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.MapboxSettings
-  alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadarWebNG.RBAC
 
   @impl true
@@ -194,9 +195,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
        |> assign(:form_queries, [default_query()])
        |> assign(:form_network_blacklist, "")}
     else
-      {:noreply,
-       socket
-       |> put_flash(:error, "Install and register an agent before adding integrations.")}
+      {:noreply, put_flash(socket, :error, "Install and register an agent before adding integrations.")}
     end
   end
 
@@ -224,8 +223,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
          |> assign(:mapbox_form, mapbox_settings_to_form(updated))}
 
       {:error, err} ->
-        {:noreply,
-         socket |> put_flash(:error, "Failed to save Mapbox settings: #{format_ash_error(err)}")}
+        {:noreply, put_flash(socket, :error, "Failed to save Mapbox settings: #{format_ash_error(err)}")}
     end
   end
 
@@ -339,9 +337,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       blacklist = parse_network_blacklist(socket.assigns.form_network_blacklist)
       params = Map.put(params, "network_blacklist", blacklist)
 
-      form =
-        socket.assigns.create_form.source
-        |> AshPhoenix.Form.validate(params)
+      form = AshPhoenix.Form.validate(socket.assigns.create_form.source, params)
 
       case AshPhoenix.Form.submit(form, params: params, actor: actor) do
         {:ok, _source} ->
@@ -359,9 +355,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
            |> put_flash(:error, "Failed to create integration source")}
       end
     else
-      {:noreply,
-       socket
-       |> put_flash(:error, "Install and register an agent before adding integrations.")}
+      {:noreply, put_flash(socket, :error, "Install and register an agent before adding integrations.")}
     end
   end
 
@@ -379,9 +373,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     blacklist = parse_network_blacklist(socket.assigns.form_network_blacklist)
     params = Map.put(params, "network_blacklist", blacklist)
 
-    form =
-      socket.assigns.edit_form.source
-      |> AshPhoenix.Form.validate(params)
+    form = AshPhoenix.Form.validate(socket.assigns.edit_form.source, params)
 
     case AshPhoenix.Form.submit(form, params: params, actor: actor) do
       {:ok, _source} ->
@@ -456,8 +448,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     enabled = Map.get(params, "enabled", "")
 
     filters = %{}
-    filters = if source_type != "", do: Map.put(filters, :source_type, source_type), else: filters
-    filters = if enabled != "", do: Map.put(filters, :enabled, enabled == "true"), else: filters
+    filters = if source_type == "", do: filters, else: Map.put(filters, :source_type, source_type)
+    filters = if enabled == "", do: filters, else: Map.put(filters, :enabled, enabled == "true")
 
     {:noreply,
      socket
@@ -501,13 +493,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp mapbox_settings_to_form(nil), do: nil
 
   defp mapbox_settings_to_form(%MapboxSettings{} = settings) do
-    %{
-      "enabled" => truthy(settings.enabled),
-      "style_light" => settings.style_light || "mapbox://styles/mapbox/light-v11",
-      "style_dark" => settings.style_dark || "mapbox://styles/mapbox/dark-v11",
-      "clear_access_token" => false
-    }
-    |> to_form(as: "mapbox")
+    to_form(
+      %{
+        "enabled" => truthy(settings.enabled),
+        "style_light" => settings.style_light || "mapbox://styles/mapbox/light-v11",
+        "style_dark" => settings.style_dark || "mapbox://styles/mapbox/dark-v11",
+        "clear_access_token" => false
+      },
+      as: "mapbox"
+    )
   end
 
   defp mapbox_settings_to_form(_), do: nil
@@ -515,8 +509,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp build_mapbox_update_params(params) when is_map(params) do
     base = %{
       enabled: truthy_param?(Map.get(params, "enabled")),
-      style_light: Map.get(params, "style_light") |> to_string() |> String.trim(),
-      style_dark: Map.get(params, "style_dark") |> to_string() |> String.trim(),
+      style_light: params |> Map.get("style_light") |> to_string() |> String.trim(),
+      style_dark: params |> Map.get("style_dark") |> to_string() |> String.trim(),
       clear_access_token: truthy_param?(Map.get(params, "clear_access_token"))
     }
 
@@ -1491,7 +1485,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     |> Ash.Query.sort([:name, :uid])
     |> Ash.read(actor: actor)
     |> case do
-      {:ok, %Ash.Page.Keyset{results: results}} -> results
+      {:ok, %Keyset{results: results}} -> results
       {:ok, results} when is_list(results) -> results
       _ -> []
     end
@@ -1538,7 +1532,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     |> Ash.Query.limit(1)
     |> Ash.read(actor: actor)
     |> case do
-      {:ok, %Ash.Page.Keyset{results: results}} -> results != []
+      {:ok, %Keyset{results: results}} -> results != []
       {:ok, results} when is_list(results) -> results != []
       _ -> false
     end
@@ -1548,6 +1542,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp maybe_filter_enabled(query, %{enabled: value}) when is_boolean(value) do
     require Ash.Query
+
     Ash.Query.filter(query, enabled: value)
   end
 
@@ -1744,7 +1739,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp agent_status_badge(assigns) do
     variant = agent_status_variant(assigns.agent)
     label = agent_status_label(assigns.agent)
-    assigns = assign(assigns, :variant, variant) |> assign(:label, label)
+    assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
@@ -1924,8 +1919,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp credential_placeholder(:syslog), do: ~s({"syslog_host": "0.0.0.0", "syslog_port": 514})
 
-  defp credential_placeholder(:netbox),
-    do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
+  defp credential_placeholder(:netbox), do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
 
   defp credential_placeholder(:nmap), do: ~s({"timing_template": "T4", "extra_args": ""})
   defp credential_placeholder(_), do: ~s({"api_key": "your-key", "api_secret": "your-secret"})

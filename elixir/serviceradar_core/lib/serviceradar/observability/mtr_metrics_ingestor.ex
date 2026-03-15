@@ -28,14 +28,16 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       ]}
   """
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Observability.{MtrGraph, MtrHop, MtrTrace}
+  alias ServiceRadar.Observability.MtrGraph
+  alias ServiceRadar.Observability.MtrHop
+  alias ServiceRadar.Observability.MtrTrace
+
+  require Logger
 
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) or is_list(payload) do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     agent_id = status[:agent_id] || "unknown"
     gateway_id = status[:gateway_id]
     partition = status[:partition]
@@ -71,14 +73,12 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   defp insert_results(results, agent_id, gateway_id, partition, now) do
     actor = SystemActor.system(:mtr_metrics_ingestor)
 
-    Ash.transaction(
-      [MtrTrace, MtrHop],
-      fn ->
-        Enum.reduce_while(results, :ok, fn result, :ok ->
-          reduce_insert_result(result, agent_id, gateway_id, partition, now, actor)
-        end)
-      end
-    )
+    [MtrTrace, MtrHop]
+    |> Ash.transaction(fn ->
+      Enum.reduce_while(results, :ok, fn result, :ok ->
+        reduce_insert_result(result, agent_id, gateway_id, partition, now, actor)
+      end)
+    end)
     |> case do
       {:ok, _} ->
         :ok
@@ -119,15 +119,13 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       with {:ok, _trace} <-
              result
              |> build_trace_row(trace, trace_id, trace_time, agent_id, gateway_id, partition)
-             |> insert_trace(actor),
-           :ok <-
-             insert_trace_hops(
-               map_get_any(trace, ["hops", :hops], []),
-               trace_id,
-               trace_time,
-               actor
-             ) do
-        :ok
+             |> insert_trace(actor) do
+        insert_trace_hops(
+          map_get_any(trace, ["hops", :hops], []),
+          trace_id,
+          trace_time,
+          actor
+        )
       end
     else
       {:error, :missing_target_ip}
@@ -214,8 +212,6 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     mpls_payload =
       if is_list(mpls_labels) and mpls_labels != [] do
         %{"labels" => mpls_labels}
-      else
-        nil
       end
 
     attrs = %{

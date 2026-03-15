@@ -8,8 +8,6 @@ defmodule ServiceRadar.Identity.PolicyTest do
 
   use ServiceRadarWebNG.DataCase, async: false
 
-  alias ServiceRadar.Identity.User
-
   import ServiceRadarWebNG.AshTestHelpers,
     only: [
       admin_user_fixture: 1,
@@ -17,6 +15,9 @@ defmodule ServiceRadar.Identity.PolicyTest do
       viewer_user_fixture: 1,
       actor_for_user: 1
     ]
+
+  alias Ash.Error.Forbidden
+  alias ServiceRadar.Identity.User
 
   defp unwrap_results({:ok, %Ash.Page.Keyset{results: results}}), do: results
   defp unwrap_results({:ok, results}) when is_list(results), do: results
@@ -60,7 +61,7 @@ defmodule ServiceRadar.Identity.PolicyTest do
         |> Ash.Changeset.for_update(:update, %{display_name: "Hacked"})
         |> Ash.update(actor: actor)
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
 
     test "viewer CANNOT change roles", %{viewer: viewer, operator: operator} do
@@ -71,7 +72,7 @@ defmodule ServiceRadar.Identity.PolicyTest do
         |> Ash.Changeset.for_update(:update_role, %{role: :admin})
         |> Ash.update(actor: actor)
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
 
     test "admin can change user roles", %{admin: admin, viewer: viewer} do

@@ -1,10 +1,6 @@
 import Config
 
-# Disable Swoosh API client in tests (no hackney needed)
-config :swoosh, :api_client, false
-
-# Use Test adapter for mailer
-config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
+alias Ecto.Adapters.SQL.Sandbox
 
 # Test database configuration
 read_url_file = fn
@@ -149,11 +145,10 @@ ownership_timeout =
   System.get_env("SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS") ||
     System.get_env("SRQL_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS")
 
-pool_size = if pool_size, do: parse_int.(pool_size), else: nil
-queue_target = if queue_target, do: parse_int.(queue_target), else: nil
-queue_interval = if queue_interval, do: parse_int.(queue_interval), else: nil
-ownership_timeout = if ownership_timeout, do: parse_int.(ownership_timeout), else: nil
-
+pool_size = if pool_size, do: parse_int.(pool_size)
+queue_target = if queue_target, do: parse_int.(queue_target)
+queue_interval = if queue_interval, do: parse_int.(queue_interval)
+ownership_timeout = if ownership_timeout, do: parse_int.(ownership_timeout)
 search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
 
 repo_config =
@@ -161,7 +156,7 @@ repo_config =
     base =
       [
         url: db_url,
-        pool: Ecto.Adapters.SQL.Sandbox,
+        pool: Sandbox,
         pool_size: pool_size || System.schedulers_online() * 2
       ]
       |> then(fn opts ->
@@ -199,10 +194,19 @@ repo_config =
       password: "postgres",
       hostname: "localhost",
       database: "serviceradar_test#{System.get_env("MIX_TEST_PARTITION")}",
-      pool: Ecto.Adapters.SQL.Sandbox,
+      pool: Sandbox,
       pool_size: System.schedulers_online() * 2
     ]
   end
+
+# Reduce log noise in tests
+config :logger, level: :warning
+
+# Disable Oban in tests to avoid AshOban.Scheduler issues
+config :serviceradar_core, Oban, false
+
+# Use Test adapter for mailer
+config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
 
 config :serviceradar_core,
        ServiceRadar.Repo,
@@ -210,24 +214,6 @@ config :serviceradar_core,
        |> Keyword.put(:parameters, search_path: search_path)
        |> Keyword.put(:types, ServiceRadar.PostgresTypes)
        |> Keyword.put(:migration_default_prefix, "platform")
-
-# Disable cluster in tests by default
-config :serviceradar_core,
-  env: :test,
-  cluster_enabled: false,
-  datasvc_enabled: false,
-  state_monitor_enabled: false,
-  event_batcher_enabled: false,
-  health_check_runner_enabled: false,
-  health_check_registrar_enabled: false,
-  service_heartbeat_enabled: false,
-  spiffe_cert_monitor_enabled: false,
-  status_handler_enabled: false,
-  seeders_enabled: false,
-  log_promotion_consumer_enabled: false
-
-# Disable Oban in tests to avoid AshOban.Scheduler issues
-config :serviceradar_core, Oban, false
 
 # Configure Ash domains (needed for validation)
 config :serviceradar_core,
@@ -249,5 +235,20 @@ config :serviceradar_core,
     ServiceRadar.Spatial
   ]
 
-# Reduce log noise in tests
-config :logger, level: :warning
+# Disable cluster in tests by default
+config :serviceradar_core,
+  env: :test,
+  cluster_enabled: false,
+  datasvc_enabled: false,
+  state_monitor_enabled: false,
+  event_batcher_enabled: false,
+  health_check_runner_enabled: false,
+  health_check_registrar_enabled: false,
+  service_heartbeat_enabled: false,
+  spiffe_cert_monitor_enabled: false,
+  status_handler_enabled: false,
+  seeders_enabled: false,
+  log_promotion_consumer_enabled: false
+
+# Disable Swoosh API client in tests (no hackney needed)
+config :swoosh, :api_client, false

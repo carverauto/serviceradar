@@ -1,15 +1,12 @@
 defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest do
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
-  alias ServiceRadar.Observability.{
-    NetflowOuiDatasetRefreshWorker,
-    NetflowProviderDatasetRefreshWorker
-  }
-
+  alias ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker
+  alias ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()
@@ -196,7 +193,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
           end
 
         response =
-          [
+          IO.iodata_to_binary([
             "HTTP/1.1 ",
             Integer.to_string(status),
             " OK\r\n",
@@ -208,8 +205,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
             "\r\n",
             "Connection: close\r\n\r\n",
             body
-          ]
-          |> IO.iodata_to_binary()
+          ])
 
         :ok = :gen_tcp.send(socket, response)
         :gen_tcp.close(socket)

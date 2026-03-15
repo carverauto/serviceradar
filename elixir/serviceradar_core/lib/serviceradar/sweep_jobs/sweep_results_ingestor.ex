@@ -34,26 +34,24 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       )
   """
 
-  require Logger
+  import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
-  alias ServiceRadar.Identity.{DeviceAliasState, DeviceLookup}
+  alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Repo
-
-  alias ServiceRadar.SweepJobs.{
-    MapperPromotion,
-    SweepGroup,
-    SweepGroupExecution,
-    SweepHostResult,
-    SweepMonitorWorker,
-    SweepPubSub
-  }
+  alias ServiceRadar.SweepJobs.MapperPromotion
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepGroupExecution
+  alias ServiceRadar.SweepJobs.SweepHostResult
+  alias ServiceRadar.SweepJobs.SweepMonitorWorker
+  alias ServiceRadar.SweepJobs.SweepPubSub
 
   require Ash.Query
-  import Ecto.Query
+  require Logger
 
   # Process in chunks to balance memory vs DB efficiency
   @batch_size 500
@@ -293,7 +291,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          mapper_promotion_opts
        ) do
     # Step 1: Extract all IPs for bulk device lookup
-    ips = Enum.map(results, &extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+    ips = results |> Enum.map(&extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
     # Step 2: Batch lookup existing devices by IP (confirmed aliases only)
     # DB connection's search_path determines the schema
@@ -314,8 +312,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     # Step 4b: Extract device records from detected aliases
     detected_device_map =
-      Enum.map(detected_alias_map, fn {ip, {record, _alias}} -> {ip, record} end)
-      |> Map.new()
+      Map.new(detected_alias_map, fn {ip, {record, _alias}} -> {ip, record} end)
 
     created_device_map =
       create_available_unknown_devices(
@@ -418,7 +415,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp create_available_unknown_device(result, partition, actor) do
     ip = extract_ip(result)
-    hostname = result["hostname"] |> normalize_hostname()
+    hostname = normalize_hostname(result["hostname"])
 
     ids = %{
       agent_id: nil,
@@ -662,20 +659,20 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         ]
       )
 
-    case Repo.insert_all(
-           SweepHostResult,
-           records,
-           on_conflict: on_conflict_query,
-           conflict_target: [:execution_id, :ip],
-           returning: false
-         ) do
-      {count, _} ->
-        Logger.debug(
-          "SweepResultsIngestor: Inserted #{count} host results (preserving non-zero response times)"
-        )
+    {count, _} =
+      Repo.insert_all(
+        SweepHostResult,
+        records,
+        on_conflict: on_conflict_query,
+        conflict_target: [:execution_id, :ip],
+        returning: false
+      )
 
-        :ok
-    end
+    Logger.debug(
+      "SweepResultsIngestor: Inserted #{count} host results (preserving non-zero response times)"
+    )
+
+    :ok
   rescue
     e ->
       Logger.error("SweepResultsIngestor: Failed to insert host results: #{inspect(e)}")
@@ -686,7 +683,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   @unavailable_threshold 2
 
   defp update_device_availability(results, device_map, sweep_group_id, actor) do
-    timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
 
     available_ips = result_ips_for_status(results, true)
     unavailable_ips = result_ips_for_status(results, false)
@@ -846,9 +843,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # This prevents transient network issues from causing availability flapping
     available_wins_window = get_available_wins_window(sweep_group_id)
 
-    available_wins_cutoff =
-      timestamp
-      |> DateTime.add(-available_wins_window, :second)
+    available_wins_cutoff = DateTime.add(timestamp, -available_wins_window, :second)
 
     sql = """
     UPDATE ocsf_devices
@@ -943,7 +938,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     inc_fields = execution_inc_fields(stats, expected_total_hosts)
 
     set_fields =
-      execution_set_fields(updated_at, scanner_metrics)
+      updated_at
+      |> execution_set_fields(scanner_metrics)
       |> maybe_mark_execution_complete(is_final, completed_at, duration_ms)
 
     update_execution_row(execution_id, inc_fields, set_fields)
@@ -965,11 +961,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp execution_duration_ms(execution_id, true, completed_at) do
     started_at =
-      from(e in SweepGroupExecution,
-        where: e.id == ^execution_id,
-        select: e.started_at
-      )
-      |> Repo.one()
+      Repo.one(from(e in SweepGroupExecution, where: e.id == ^execution_id, select: e.started_at))
 
     case started_at do
       nil -> nil
@@ -1013,41 +1005,45 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp update_execution_row(execution_id, inc_fields, set_fields) do
-    from(e in SweepGroupExecution,
-      where: e.id == ^execution_id
+    Repo.update_all(from(e in SweepGroupExecution, where: e.id == ^execution_id),
+      inc: inc_fields,
+      set: set_fields
     )
-    |> Repo.update_all(inc: inc_fields, set: set_fields)
   end
 
   defp maybe_set_expected_total(_execution_id, nil, _updated_at), do: :ok
 
   defp maybe_set_expected_total(execution_id, expected_total_hosts, updated_at) do
-    from(e in SweepGroupExecution,
-      where:
-        e.id == ^execution_id and (is_nil(e.hosts_total) or e.hosts_total < ^expected_total_hosts),
-      update: [set: [hosts_total: ^expected_total_hosts, updated_at: ^updated_at]]
+    Repo.update_all(
+      from(e in SweepGroupExecution,
+        where:
+          e.id == ^execution_id and
+            (is_nil(e.hosts_total) or e.hosts_total < ^expected_total_hosts),
+        update: [set: [hosts_total: ^expected_total_hosts, updated_at: ^updated_at]]
+      ),
+      []
     )
-    |> Repo.update_all([])
 
     :ok
   end
 
   defp fetch_execution(execution_id) do
-    from(e in SweepGroupExecution,
-      where: e.id == ^execution_id,
-      select: %{
-        id: e.id,
-        sweep_group_id: e.sweep_group_id,
-        agent_id: e.agent_id,
-        started_at: e.started_at,
-        completed_at: e.completed_at,
-        duration_ms: e.duration_ms,
-        hosts_total: e.hosts_total,
-        hosts_available: e.hosts_available,
-        hosts_failed: e.hosts_failed
-      }
+    Repo.one(
+      from(e in SweepGroupExecution,
+        where: e.id == ^execution_id,
+        select: %{
+          id: e.id,
+          sweep_group_id: e.sweep_group_id,
+          agent_id: e.agent_id,
+          started_at: e.started_at,
+          completed_at: e.completed_at,
+          duration_ms: e.duration_ms,
+          hosts_total: e.hosts_total,
+          hosts_available: e.hosts_available,
+          hosts_failed: e.hosts_failed
+        }
+      )
     )
-    |> Repo.one()
   end
 
   defp ensure_execution_exists(
@@ -1061,11 +1057,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # DB connection's search_path determines the schema
     # Check if execution exists
     existing =
-      from(e in SweepGroupExecution,
-        where: e.id == ^execution_id,
-        select: e.id
-      )
-      |> Repo.one()
+      Repo.one(from(e in SweepGroupExecution, where: e.id == ^execution_id, select: e.id))
 
     if existing do
       Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists")
@@ -1102,19 +1094,19 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp detect_multi_agent_conflict(sweep_group_id, agent_id) do
     # Check for recent executions from different agents in the last hour
-    one_hour_ago = DateTime.utc_now() |> DateTime.add(-3600, :second)
+    one_hour_ago = DateTime.add(DateTime.utc_now(), -3600, :second)
 
     recent_agents =
-      from(e in SweepGroupExecution,
-        where:
-          e.sweep_group_id == ^sweep_group_id and
-            e.started_at > ^one_hour_ago and
-            not is_nil(e.agent_id) and
-            e.agent_id != "",
-        select: e.agent_id,
-        distinct: true
+      Repo.all(
+        from(e in SweepGroupExecution,
+          where:
+            e.sweep_group_id == ^sweep_group_id and e.started_at > ^one_hour_ago and
+              not is_nil(e.agent_id) and
+              e.agent_id != "",
+          select: e.agent_id,
+          distinct: true
+        )
       )
-      |> Repo.all()
 
     other_agents = Enum.reject(recent_agents, &(&1 == agent_id))
 
@@ -1210,8 +1202,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         base_query
       end
 
-    query
-    |> Repo.update_all(
+    Repo.update_all(query,
       set: [
         status: :failed,
         completed_at: now,

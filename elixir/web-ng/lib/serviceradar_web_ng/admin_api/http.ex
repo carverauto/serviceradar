@@ -100,8 +100,7 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
     end
   end
 
-  defp normalize_response({:ok, %Req.Response{status: status, body: body}})
-       when status >= 200 and status < 300 do
+  defp normalize_response({:ok, %Req.Response{status: status, body: body}}) when status >= 200 and status < 300 do
     {:ok, normalize_body(body)}
   end
 

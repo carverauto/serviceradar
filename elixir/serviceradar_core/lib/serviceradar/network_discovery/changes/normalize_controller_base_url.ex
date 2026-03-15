@@ -49,7 +49,7 @@ defmodule ServiceRadar.NetworkDiscovery.Changes.NormalizeControllerBaseUrl do
     case normalize_path(changeset, uri.path || "", required_path) do
       {:ok, path} ->
         normalized =
-          %URI{
+          URI.to_string(%URI{
             scheme: uri.scheme,
             userinfo: nil,
             host: uri.host,
@@ -57,8 +57,7 @@ defmodule ServiceRadar.NetworkDiscovery.Changes.NormalizeControllerBaseUrl do
             path: path,
             query: nil,
             fragment: nil
-          }
-          |> URI.to_string()
+          })
 
         Changeset.change_attribute(changeset, :base_url, normalized)
 

@@ -5,8 +5,6 @@ defmodule ServiceRadar.ResultsRouter do
 
   use GenServer
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
@@ -18,6 +16,8 @@ defmodule ServiceRadar.ResultsRouter do
   alias ServiceRadar.Observability.SnmpMetricsIngestor
   alias ServiceRadar.Observability.SysmonMetricsIngestor
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
+
+  require Logger
 
   @duration_regex ~r/(\d+(?:\.\d+)?)(ns|us|µs|μs|ms|s|m|h)/
 
@@ -146,65 +146,60 @@ defmodule ServiceRadar.ResultsRouter do
       scanner_metrics = parse_scanner_metrics(payload)
 
       opts =
-        [
-          sweep_group_id: sweep_group_id,
-          agent_id: status[:agent_id],
-          actor: actor,
-          expected_total_hosts: expected_total_hosts,
-          scanner_metrics: scanner_metrics,
-          chunk_index: status[:chunk_index],
-          total_chunks: status[:total_chunks],
-          is_final: status[:is_final]
-        ]
-        |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
+        Enum.reject(
+          [
+            sweep_group_id: sweep_group_id,
+            agent_id: status[:agent_id],
+            actor: actor,
+            expected_total_hosts: expected_total_hosts,
+            scanner_metrics: scanner_metrics,
+            chunk_index: status[:chunk_index],
+            total_chunks: status[:total_chunks],
+            is_final: status[:is_final]
+          ],
+          fn {_key, value} -> is_nil(value) or value == "" end
+        )
 
       case sweep_ingestor().ingest_results(results, execution_id, opts) do
         :ok -> :ok
         {:ok, _stats} -> :ok
         {:error, reason} -> {:error, reason}
       end
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 
   defp handle_sysmon_metrics(status) do
     # In schema-agnostic mode, DB schema is set by CNPG search_path
-    with {:ok, payload} <- decode_payload(status[:message]) do
-      sysmon_ingestor().ingest(payload, status)
-    else
+    case decode_payload(status[:message]) do
+      {:ok, payload} -> sysmon_ingestor().ingest(payload, status)
       {:error, reason} -> {:error, reason}
     end
   end
 
   defp handle_snmp_metrics(status) do
-    with {:ok, payload} <- decode_payload(status[:message]) do
-      snmp_ingestor().ingest(payload, status)
-    else
+    case decode_payload(status[:message]) do
+      {:ok, payload} -> snmp_ingestor().ingest(payload, status)
       {:error, reason} -> {:error, reason}
     end
   end
 
   defp handle_plugin_results(status) do
-    with {:ok, payload} <- decode_payload(status[:message]) do
-      plugin_ingestor().ingest(payload, status)
-    else
+    case decode_payload(status[:message]) do
+      {:ok, payload} -> plugin_ingestor().ingest(payload, status)
       {:error, reason} -> {:error, reason}
     end
   end
 
   defp handle_icmp_results(status) do
-    with {:ok, payload} <- decode_payload(status[:message]) do
-      icmp_ingestor().ingest(payload, status)
-    else
+    case decode_payload(status[:message]) do
+      {:ok, payload} -> icmp_ingestor().ingest(payload, status)
       {:error, reason} -> {:error, reason}
     end
   end
 
   defp handle_mtr_results(status) do
-    with {:ok, payload} <- decode_payload(status[:message]) do
-      mtr_ingestor().ingest(payload, status)
-    else
+    case decode_payload(status[:message]) do
+      {:ok, payload} -> mtr_ingestor().ingest(payload, status)
       {:error, reason} -> {:error, reason}
     end
   end
@@ -281,8 +276,8 @@ defmodule ServiceRadar.ResultsRouter do
   defp present_id?(_value), do: false
 
   defp deterministic_execution_id(sweep_group_id, last_sweep_time)
-       when is_binary(sweep_group_id) and sweep_group_id != "" and
-              is_binary(last_sweep_time) and last_sweep_time != "" do
+       when is_binary(sweep_group_id) and sweep_group_id != "" and is_binary(last_sweep_time) and
+              last_sweep_time != "" do
     hash = :crypto.hash(:md5, "#{sweep_group_id}:#{last_sweep_time}")
 
     <<a::binary-size(8), b::binary-size(4), c::binary-size(4), d::binary-size(4),
@@ -347,31 +342,33 @@ defmodule ServiceRadar.ResultsRouter do
   defp parse_scanner_metrics(payload) when is_map(payload) do
     value = payload["scanner_stats"]
 
-    if is_map(value), do: value, else: nil
+    if is_map(value), do: value
   end
 
   defp parse_scanner_metrics(_payload), do: nil
 
   defp build_sweep_result(host, last_sweep_time, network) when is_map(host) do
-    with host_ip when is_binary(host_ip) and host_ip != "" <- host_ip(host) do
-      icmp_status = icmp_status(host)
-      canonical_port_results = build_port_scan_results(port_results(host))
+    case host_ip(host) do
+      host_ip when is_binary(host_ip) and host_ip != "" ->
+        icmp_status = icmp_status(host)
+        canonical_port_results = build_port_scan_results(port_results(host))
 
-      base = %{
-        "host_ip" => host_ip,
-        "hostname" => host["hostname"],
-        "available" => host_available(host, icmp_status),
-        "icmp_available" => icmp_available(host, icmp_status),
-        "icmp_response_time_ns" => icmp_response_time_ns(host, icmp_status),
-        "icmp_packet_loss" => icmp_packet_loss(icmp_status),
-        "port_results" => canonical_port_results,
-        "error" => host["error"],
-        "last_sweep_time" => last_sweep_time
-      }
+        base = %{
+          "host_ip" => host_ip,
+          "hostname" => host["hostname"],
+          "available" => host_available(host, icmp_status),
+          "icmp_available" => icmp_available(host, icmp_status),
+          "icmp_response_time_ns" => icmp_response_time_ns(host, icmp_status),
+          "icmp_packet_loss" => icmp_packet_loss(icmp_status),
+          "port_results" => canonical_port_results,
+          "error" => host["error"],
+          "last_sweep_time" => last_sweep_time
+        }
 
-      maybe_put_network(base, network)
-    else
-      _ -> nil
+        maybe_put_network(base, network)
+
+      _ ->
+        nil
     end
   end
 
@@ -479,8 +476,6 @@ defmodule ServiceRadar.ResultsRouter do
 
         if total > 0 do
           total
-        else
-          nil
         end
     end
   end

@@ -1,16 +1,19 @@
 defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
 
-  alias ServiceRadar.Observability.{ServiceState, ServiceStatePubSub, ServiceStatusPubSub}
+  alias ServiceRadar.Observability.ServiceState
+  alias ServiceRadar.Observability.ServiceStatePubSub
+  alias ServiceRadar.Observability.ServiceStatusPubSub
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 50
   @max_limit 200
   @refresh_debounce_ms 750
-  @active_state_window_ms :timer.minutes(15)
+  @active_state_window_ms to_timeout(minute: 15)
   @default_query "in:services time:last_1h sort:timestamp:desc limit:500"
 
   @impl true
@@ -87,13 +90,11 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "services")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "services")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "services")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "services")}
   end
 
   @impl true
@@ -369,7 +370,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         _ -> {"—", "ghost"}
       end
 
-    assigns = assign(assigns, :label, label) |> assign(:variant, variant)
+    assigns = assigns |> assign(:label, label) |> assign(:variant, variant)
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
@@ -428,7 +429,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   defp max_datetime(dt, nil), do: dt
 
   defp max_datetime(dt, current) do
-    if DateTime.compare(dt, current) == :gt, do: dt, else: current
+    if DateTime.after?(dt, current), do: dt, else: current
   end
 
   defp latest_state_timestamp(states) do
@@ -437,7 +438,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         dt
 
       %ServiceState{last_observed_at: %DateTime{} = dt}, acc ->
-        if DateTime.compare(dt, acc) == :gt, do: dt, else: acc
+        if DateTime.after?(dt, acc), do: dt, else: acc
 
       _, acc ->
         acc
@@ -535,15 +536,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     Enum.reduce(unique_services, initial, &accumulate_service/2)
   end
 
-  defp compute_summary(_),
-    do: %{
-      total: 0,
-      available: 0,
-      unavailable: 0,
-      by_check: %{},
-      check_count: 0,
-      last_updated: nil
-    }
+  defp compute_summary(_), do: %{total: 0, available: 0, unavailable: 0, by_check: %{}, check_count: 0, last_updated: nil}
 
   defp compute_state_summary(states) when is_list(states) do
     last_updated = latest_state_timestamp(states)
@@ -565,14 +558,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   defp compute_state_summary(_),
-    do: %{
-      total: 0,
-      available: 0,
-      unavailable: 0,
-      by_check: %{},
-      check_count: 0,
-      last_updated: nil
-    }
+    do: %{total: 0, available: 0, unavailable: 0, by_check: %{}, check_count: 0, last_updated: nil}
 
   defp schedule_refresh(socket) do
     if socket.assigns.refresh_pending do
@@ -586,7 +572,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   defp refresh_services(socket) do
     params = socket.assigns.params || %{}
     params = ensure_default_query(params)
-    uri = Map.get(socket.assigns, :srql, %{}) |> Map.get(:page_path) || "/services"
+    uri = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:page_path) || "/services"
 
     socket =
       socket
@@ -728,7 +714,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   defp safe_param_value(nil), do: nil
 
   defp safe_param_value(value) when is_binary(value) do
-    if String.valid?(value), do: value, else: nil
+    if String.valid?(value), do: value
   end
 
   defp safe_param_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
@@ -830,15 +816,13 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp extract_display_instructions(_), do: []
 
-  defp filter_display_by_contract(display, details, scope)
-       when is_list(display) and is_map(details) do
+  defp filter_display_by_contract(display, details, scope) when is_list(display) and is_map(details) do
     plugin_id = get_in(details, ["labels", "plugin_id"]) || get_in(details, [:labels, :plugin_id])
 
     if is_binary(plugin_id) and plugin_id != "" do
       contract =
-        Packages.list(%{"plugin_id" => plugin_id, "status" => "approved", "limit" => 1},
-          scope: scope
-        )
+        %{"plugin_id" => plugin_id, "status" => "approved", "limit" => 1}
+        |> Packages.list(scope: scope)
         |> List.first()
         |> case do
           %{display_contract: contract} when is_map(contract) -> contract
@@ -974,9 +958,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   defp stringify_keys(%{} = map) do
-    map
-    |> Enum.map(fn {key, value} -> {to_string(key), stringify_keys(value)} end)
-    |> Map.new()
+    Map.new(map, fn {key, value} -> {to_string(key), stringify_keys(value)} end)
   end
 
   defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)

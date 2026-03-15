@@ -1,12 +1,13 @@
 defmodule ServiceRadarWebNGWeb.UserAuthTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
+  import ServiceRadarWebNG.AccountsFixtures
+
   alias Phoenix.LiveView
+  alias Phoenix.Socket.Broadcast
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNGWeb.UserAuth
-
-  import ServiceRadarWebNG.AccountsFixtures
 
   setup %{conn: conn} do
     conn =
@@ -38,11 +39,11 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
       |> put_session(:live_socket_id, live_socket_id)
       |> UserAuth.log_out_user()
 
-      assert_receive %Phoenix.Socket.Broadcast{event: "disconnect", topic: ^live_socket_id}
+      assert_receive %Broadcast{event: "disconnect", topic: ^live_socket_id}
     end
 
     test "works even if user is already logged out", %{conn: conn} do
-      conn = conn |> UserAuth.log_out_user()
+      conn = UserAuth.log_out_user(conn)
       refute get_session(conn, "user_token")
       assert redirected_to(conn) == ~p"/"
     end
@@ -106,7 +107,7 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
 
   describe "on_mount :mount_current_scope" do
     test "assigns nil to current_scope when no token in session", %{conn: conn} do
-      session = conn |> get_session()
+      session = get_session(conn)
 
       socket = %LiveView.Socket{
         endpoint: ServiceRadarWebNGWeb.Endpoint,
@@ -148,7 +149,7 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
     end
 
     test "redirects to login page if there isn't a token", %{conn: conn} do
-      session = conn |> get_session()
+      session = get_session(conn)
 
       socket = %LiveView.Socket{
         endpoint: ServiceRadarWebNGWeb.Endpoint,
@@ -222,12 +223,12 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
 
       UserAuth.disconnect_sessions(user_ids)
 
-      assert_receive %Phoenix.Socket.Broadcast{
+      assert_receive %Broadcast{
         event: "disconnect",
         topic: "users_sessions:user-id-1"
       }
 
-      assert_receive %Phoenix.Socket.Broadcast{
+      assert_receive %Broadcast{
         event: "disconnect",
         topic: "users_sessions:user-id-2"
       }

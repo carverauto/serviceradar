@@ -30,8 +30,8 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
 
   require Logger
 
-  @heartbeat_interval :timer.seconds(30)
-  @stale_threshold :timer.minutes(2)
+  @heartbeat_interval to_timeout(second: 30)
+  @stale_threshold to_timeout(minute: 2)
 
   defstruct [:partition_id, :agent_id, :gateway_id, :capabilities, :status, :registered_at]
 

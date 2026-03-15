@@ -15,8 +15,6 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
   use ServiceRadarWebNGWeb, :controller
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.User
@@ -27,6 +25,8 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.UserAuth
+
+  require Logger
 
   plug :fetch_session
   plug :check_rate_limit when action == :callback
@@ -118,7 +118,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
       Hooks.on_auth_failed(:invalid_state, %{
         method: :oidc,
         ip: get_client_ip(conn),
-        user_agent: get_req_header(conn, "user-agent") |> List.first()
+        user_agent: conn |> get_req_header("user-agent") |> List.first()
       })
 
       conn
@@ -165,7 +165,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   defp handle_code_exchange(conn, code, nonce) do
     with {:ok, tokens} <- OIDCClient.exchange_code(code),
          {:ok, claims} <- OIDCClient.verify_id_token(tokens["id_token"], nonce: nonce),
-         user_info <- OIDCClient.extract_user_info(claims),
+         user_info = OIDCClient.extract_user_info(claims),
          {:ok, user} <- find_or_create_user(user_info, claims) do
       # Record authentication timestamp
       actor = SystemActor.system(:oidc_auth)
@@ -214,7 +214,8 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
     case find_user_by_external_id(external_id, actor) do
       {:ok, user} ->
         # Update display name if changed
-        maybe_update_user(user, name, actor)
+        user
+        |> maybe_update_user(name, actor)
         |> maybe_update_role(resolved_role, actor)
 
       {:error, :not_found} ->
@@ -222,7 +223,8 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
         case User.get_by_email(email, actor: actor) do
           {:ok, user} ->
             # Link existing user to OIDC
-            update_user_external_id(user, external_id, name, actor)
+            user
+            |> update_user_external_id(external_id, name, actor)
             |> maybe_update_role(resolved_role, actor)
 
           {:error, _} ->

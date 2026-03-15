@@ -146,7 +146,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
     end
 
     test "competing evidence mix keeps LLDP/CDP backbone and routes SNMP-L2 single-identifier to auxiliary" do
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      now = DateTime.truncate(DateTime.utc_now(), :second)
 
       lldp =
         MapperResultsIngestor.normalize_topology(%{

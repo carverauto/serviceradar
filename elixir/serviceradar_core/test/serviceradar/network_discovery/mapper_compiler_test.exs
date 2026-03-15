@@ -88,7 +88,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
         scheduled_job["name"] == job_name
       end)
 
-    assert compiled_job != nil
+    assert compiled_job
     assert compiled_job["credentials"]["version"] == "v2c"
     assert compiled_job["credentials"]["community"] == "public"
   end
@@ -128,7 +128,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
         scheduled_job["name"] == job_name
       end)
 
-    assert compiled_job != nil
+    assert compiled_job
     assert compiled_job["credentials"]["version"] == "v2c"
 
     case CredentialResolver.resolve_default(actor) do
@@ -188,7 +188,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
         scheduled_job["name"] == job_name
       end)
 
-    assert compiled_job != nil
+    assert compiled_job
     assert compiled_job["options"]["mikrotik_api_names"] == controller_name
     assert compiled_job["options"]["mikrotik_api_urls"] == "https://192.168.88.1/rest"
   end

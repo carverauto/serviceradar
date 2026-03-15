@@ -1,7 +1,9 @@
 defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import Ecto.Query
+
   alias Phoenix.LiveView.JS
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Stats
@@ -11,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   @default_events_limit 500
   @default_events_recent_limit 50
   @default_metrics_limit 100
-  @refresh_interval_ms :timer.seconds(30)
+  @refresh_interval_ms to_timeout(second: 30)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -123,14 +125,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
     rows = Repo.all(query)
 
-    %{
-      total: 0,
-      critical: 0,
-      error: 0,
-      warning: 0,
-      info: 0
-    }
-    |> merge_event_stats(rows)
+    merge_event_stats(%{total: 0, critical: 0, error: 0, warning: 0, info: 0}, rows)
   rescue
     error ->
       Logger.warning("Failed to query hourly event stats: #{inspect(error)}")
@@ -180,12 +175,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       logs_critical_recent:
         "in:logs time:last_24h severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT,error,ERROR,err,ERR) sort:timestamp:desc limit:5",
       slow_spans: "in:otel_metrics time:last_24h is_slow:true sort:duration_ms:desc limit:25",
-      cpu_metrics:
-        "in:cpu_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
-      memory_metrics:
-        "in:memory_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
-      disk_metrics:
-        "in:disk_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}"
+      cpu_metrics: "in:cpu_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
+      memory_metrics: "in:memory_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
+      disk_metrics: "in:disk_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}"
     }
 
     queries =
@@ -205,10 +197,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         Map.merge(queries, %{
           metrics_total: ~s|in:otel_metrics time:last_24h stats:"count() as total"|,
           metrics_slow: ~s|in:otel_metrics time:last_24h is_slow:true stats:"count() as total"|,
-          metrics_error_http4:
-            ~s|in:otel_metrics time:last_24h http_status_code:4% stats:"count() as total"|,
-          metrics_error_http5:
-            ~s|in:otel_metrics time:last_24h http_status_code:5% stats:"count() as total"|,
+          metrics_error_http4: ~s|in:otel_metrics time:last_24h http_status_code:4% stats:"count() as total"|,
+          metrics_error_http5: ~s|in:otel_metrics time:last_24h http_status_code:5% stats:"count() as total"|,
           metrics_error_grpc:
             ~s|in:otel_metrics time:last_24h !grpc_status_code:0 !grpc_status_code:"" stats:"count() as total"|
         })
@@ -222,14 +212,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         Map.merge(queries, %{
           logs_fatal_count:
             ~s|in:logs severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT) time:last_24h stats:"count() as total"|,
-          logs_error_count:
-            ~s|in:logs severity_text:(error,ERROR,err,ERR) time:last_24h stats:"count() as total"|,
+          logs_error_count: ~s|in:logs severity_text:(error,ERROR,err,ERR) time:last_24h stats:"count() as total"|,
           logs_warning_count:
             ~s|in:logs severity_text:(warning,warn,WARNING,WARN) time:last_24h stats:"count() as total"|,
           logs_info_count:
             ~s|in:logs severity_text:(info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE) time:last_24h stats:"count() as total"|,
-          logs_debug_count:
-            ~s|in:logs severity_text:(debug,trace,DEBUG,TRACE) time:last_24h stats:"count() as total"|
+          logs_debug_count: ~s|in:logs severity_text:(debug,trace,DEBUG,TRACE) time:last_24h stats:"count() as total"|
         })
       else
         queries
@@ -302,8 +290,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       |> Map.put(:logs_severity, logs_severity)
       |> Map.put(:traces_summary, Map.get(initial, :traces_summary))
 
-    {stats, device_availability, events_summary, logs_summary, observability, high_utilization,
-     bandwidth, error} =
+    {stats, device_availability, events_summary, logs_summary, observability, high_utilization, bandwidth, error} =
       build_assigns(results)
 
     socket
@@ -438,8 +425,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         _ -> nil
       end)
 
-    {stats, device_availability, events_summary, logs_summary, observability, high_utilization,
-     bandwidth, error}
+    {stats, device_availability, events_summary, logs_summary, observability, high_utilization, bandwidth, error}
   end
 
   defp extract_rows({:ok, %{"results" => rows}}) when is_list(rows), do: rows
@@ -557,8 +543,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     Map.merge(counts, %{total: length(rows), recent: recent})
   end
 
-  defp build_events_summary(_, _),
-    do: %{critical: 0, error: 0, warning: 0, info: 0, total: 0, recent: []}
+  defp build_events_summary(_, _), do: %{critical: 0, error: 0, warning: 0, info: 0, total: 0, recent: []}
 
   defp build_logs_summary(rows, %{} = counts) when is_list(rows) do
     recent =
@@ -578,17 +563,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     |> Map.put(:recent, recent)
   end
 
-  defp build_logs_summary(_rows, _counts),
-    do: %{fatal: 0, error: 0, warning: 0, info: 0, debug: 0, total: 0, recent: []}
+  defp build_logs_summary(_rows, _counts), do: %{fatal: 0, error: 0, warning: 0, info: 0, debug: 0, total: 0, recent: []}
 
-  defp build_observability_summary(
-         metrics_total,
-         metrics_slow,
-         trace_summary,
-         slow_spans
-       )
-       when is_integer(metrics_total) and is_integer(metrics_slow) and is_map(trace_summary) and
-              is_list(slow_spans) do
+  defp build_observability_summary(metrics_total, metrics_slow, trace_summary, slow_spans)
+       when is_integer(metrics_total) and is_integer(metrics_slow) and is_map(trace_summary) and is_list(slow_spans) do
     traces_count = trace_summary |> Map.get(:total, 0) |> to_int()
     avg_duration_ms = trace_summary |> Map.get(:avg_duration_ms, 0.0) |> to_float()
     error_rate = trace_summary |> Map.get(:error_rate, 0.0) |> to_float() |> Float.round(1)
@@ -609,14 +587,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   end
 
   defp build_observability_summary(_, _, _, _),
-    do: %{
-      metrics_count: 0,
-      traces_count: 0,
-      avg_duration: 0,
-      error_rate: 0.0,
-      slow_spans_count: 0,
-      slow_spans: []
-    }
+    do: %{metrics_count: 0, traces_count: 0, avg_duration: 0, error_rate: 0.0, slow_spans_count: 0, slow_spans: []}
 
   defp to_int(nil), do: 0
   defp to_int(value) when is_integer(value), do: value
@@ -801,9 +772,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   end
 
   defp memory_usage(row) do
-    extract_numeric(
-      Map.get(row, "percent") || Map.get(row, "value") || Map.get(row, "used_percent") || 0
-    )
+    extract_numeric(Map.get(row, "percent") || Map.get(row, "value") || Map.get(row, "used_percent") || 0)
   end
 
   defp disk_usage(row) do
@@ -1743,9 +1712,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     svc = assigns.service
 
     percent =
-      extract_numeric(
-        Map.get(svc, "percent") || Map.get(svc, "value") || Map.get(svc, "used_percent") || 0
-      )
+      extract_numeric(Map.get(svc, "percent") || Map.get(svc, "value") || Map.get(svc, "used_percent") || 0)
 
     host = utilization_host(svc)
 
@@ -2025,7 +1992,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           diff_seconds < 60 -> "Just now"
           diff_seconds < 3600 -> "#{div(diff_seconds, 60)}m ago"
           diff_seconds < 86_400 -> "#{div(diff_seconds, 3600)}h ago"
-          diff_seconds < 604_800 -> "#{div(diff_seconds, 86400)}d ago"
+          diff_seconds < 604_800 -> "#{div(diff_seconds, 86_400)}d ago"
           true -> Calendar.strftime(dt, "%b %d")
         end
 

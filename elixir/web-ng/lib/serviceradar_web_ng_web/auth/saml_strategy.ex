@@ -22,10 +22,10 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
   registered with your IdP.
   """
 
-  require Logger
-
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
+
+  require Logger
 
   @doc """
   Returns true if SAML is enabled and configured.
@@ -135,7 +135,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
       :miss ->
         case fetch_metadata(url) do
           {:ok, xml} ->
-            ConfigCache.put_cached(cache_key, xml, ttl: :timer.hours(1))
+            ConfigCache.put_cached(cache_key, xml, ttl: to_timeout(hour: 1))
             {:ok, {:xml, xml}}
 
           {:error, _} = error ->
@@ -174,28 +174,24 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
   end
 
   defp extract_idp_entity_id({:xml, xml}) when is_binary(xml) do
-    try do
-      import SweetXml
+    import SweetXml
 
-      # Use safe parser
-      doc = safe_sweetxml_parse(xml)
+    # Use safe parser
+    doc = safe_sweetxml_parse(xml)
 
-      entity_id =
-        xpath(
-          doc,
-          ~x"//md:EntityDescriptor/@entityID"s,
-          namespace_conformant: true,
-          namespaces: [md: "urn:oasis:names:tc:SAML:2.0:metadata"]
-        )
+    entity_id =
+      xpath(
+        doc,
+        ~x"//md:EntityDescriptor/@entityID"s,
+        namespace_conformant: true,
+        namespaces: [md: "urn:oasis:names:tc:SAML:2.0:metadata"]
+      )
 
-      if is_binary(entity_id) and String.trim(entity_id) != "" do
-        String.trim(entity_id)
-      else
-        nil
-      end
-    rescue
-      _ -> nil
+    if is_binary(entity_id) and String.trim(entity_id) != "" do
+      String.trim(entity_id)
     end
+  rescue
+    _ -> nil
   end
 
   defp extract_idp_entity_id(_), do: nil

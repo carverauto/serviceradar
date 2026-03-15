@@ -14,14 +14,16 @@ defmodule ServiceRadar.Observability.ServiceIdentity do
     service_name = normalize(fetch(attrs, :service_name), "unknown")
 
     seed =
-      [
-        "agent:#{agent_id}",
-        "gateway:#{gateway_id}",
-        "partition:#{partition}",
-        "type:#{service_type}",
-        "name:#{service_name}"
-      ]
-      |> Enum.join("|")
+      Enum.join(
+        [
+          "agent:#{agent_id}",
+          "gateway:#{gateway_id}",
+          "partition:#{partition}",
+          "type:#{service_type}",
+          "name:#{service_name}"
+        ],
+        "|"
+      )
 
     uuid_from_hash(:crypto.hash(:sha256, "#{@namespace}:#{seed}"))
   end
@@ -53,7 +55,8 @@ defmodule ServiceRadar.Observability.ServiceIdentity do
     c_versioned = (c &&& 0x0FFF) ||| 0x5000
     d_variant = (d &&& 0x3FFF) ||| 0x8000
 
-    :io_lib.format("~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b", [
+    "~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b"
+    |> :io_lib.format([
       a,
       b,
       c_versioned,

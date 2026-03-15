@@ -6,12 +6,9 @@ defmodule ServiceRadar.Observability.MtrConsensusWorker do
   use GenServer
 
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
-
-  alias ServiceRadar.Observability.{
-    MtrCausalSignalEmitter,
-    MtrConsensusEvaluator,
-    MtrPolicy
-  }
+  alias ServiceRadar.Observability.MtrCausalSignalEmitter
+  alias ServiceRadar.Observability.MtrConsensusEvaluator
+  alias ServiceRadar.Observability.MtrPolicy
 
   require Logger
 

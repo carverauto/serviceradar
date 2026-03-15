@@ -8,10 +8,10 @@ defmodule ServiceRadar.Events.AuditWriterTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.TestSupport
+
+  @moduletag :integration
 
   setup_all do
     TestSupport.start_core!()

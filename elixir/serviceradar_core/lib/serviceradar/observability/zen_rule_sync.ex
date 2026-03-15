@@ -12,14 +12,14 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
   use GenServer
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.DataService.Client
   alias ServiceRadar.Observability.ZenRule
 
+  require Logger
+
   @reconcile_delay_ms 5_000
-  @reconcile_interval_ms :timer.minutes(5)
+  @reconcile_interval_ms to_timeout(minute: 5)
 
   defstruct [:ash_opts]
 
@@ -301,6 +301,6 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
   defp datasvc_available? do
     Application.get_env(:serviceradar_core, :datasvc_enabled, true) &&
-      ServiceRadar.DataService.Client.connected?()
+      Client.connected?()
   end
 end

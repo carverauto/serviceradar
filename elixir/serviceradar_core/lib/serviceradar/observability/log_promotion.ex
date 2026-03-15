@@ -3,16 +3,16 @@ defmodule ServiceRadar.Observability.LogPromotion do
   Promotion pipeline from logs to OCSF events using per-deployment rules.
   """
 
-  require Logger
-  require Ash.Query
+  import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.AlertGenerator
-  alias ServiceRadar.Observability.{EventRule, StatefulAlertEngine}
-  alias UUID
+  alias ServiceRadar.Observability.EventRule
+  alias ServiceRadar.Observability.StatefulAlertEngine
 
-  import Ash.Expr
+  require Ash.Query
+  require Logger
 
   @severity_text_map %{
     "fatal" => OCSF.severity_fatal(),
@@ -121,7 +121,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
     attributes = Map.get(log, :attributes) || %{}
     resource_attributes = Map.get(log, :resource_attributes) || %{}
 
-    [
+    Enum.all?([
       match_subject_prefix(subject, match),
       match_service_name(log, match),
       match_severity(log, match),
@@ -129,8 +129,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
       match_event_type(attributes, match),
       match_map(attributes, match["attribute_equals"]),
       match_map(resource_attributes, match["resource_attribute_equals"])
-    ]
-    |> Enum.all?()
+    ])
   end
 
   defp match_subject_prefix(_subject, match) when map_size(match) == 0, do: false
@@ -257,7 +256,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
     attributes = Map.get(log, :attributes, %{})
 
     get_nested_value(attributes, "serviceradar.ingest.subject") ||
-      get_nested_value(attributes, "serviceradar.ingest") |> get_nested_value("subject")
+      attributes |> get_nested_value("serviceradar.ingest") |> get_nested_value("subject")
   end
 
   defp build_event(log, %EventRule{} = rule) do
@@ -316,7 +315,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
       %{"alert" => false} -> nil
       %{"alert" => true} -> %{}
       %{"alert" => %{} = config} -> config
-      _ -> if Map.get(event, :severity_id, 0) >= OCSF.severity_high(), do: %{}, else: nil
+      _ -> if Map.get(event, :severity_id, 0) >= OCSF.severity_high(), do: %{}
     end
   end
 
@@ -342,11 +341,12 @@ defmodule ServiceRadar.Observability.LogPromotion do
       rule_name: rule.name
     }
 
-    OCSF.build_metadata(
+    [
       version: "1.7.0",
       correlation_uid: Map.get(log, :id),
       original_time: Map.get(log, :timestamp)
-    )
+    ]
+    |> OCSF.build_metadata()
     |> Map.put(:serviceradar, provenance)
   end
 

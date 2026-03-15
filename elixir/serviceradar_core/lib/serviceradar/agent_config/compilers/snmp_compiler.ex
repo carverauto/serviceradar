@@ -54,18 +54,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   @behaviour ServiceRadar.AgentConfig.Compiler
 
-  require Ash.Query
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Ash.Page
   alias ServiceRadar.AgentConfig.Compilers.TargetedProfileResolver
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
-  alias ServiceRadar.SRQLAst
-  alias ServiceRadar.SRQLDeviceMatcher
-  alias ServiceRadar.SRQLQuery
   alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
@@ -73,8 +67,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
   alias ServiceRadar.SNMPProfiles.SrqlTargetResolver
+  alias ServiceRadar.SRQLAst
+  alias ServiceRadar.SRQLDeviceMatcher
+  alias ServiceRadar.SRQLQuery
   alias ServiceRadar.Vault
-  alias UUID
+
+  require Ash.Query
+  require Logger
 
   @impl true
   def config_type, do: :snmp
@@ -164,9 +163,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       |> Enum.map(fn device -> compile_device_target(device, profile, oids, actor) end)
       |> Enum.reject(&is_nil/1)
 
-    compiled_targets =
-      profile_targets
-      |> merge_targets(query_targets)
+    compiled_targets = merge_targets(profile_targets, query_targets)
 
     %{
       "enabled" => profile.enabled and compiled_targets != [],
@@ -329,9 +326,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   def load_template_oids(template_ids, actor) when is_list(template_ids) do
     # Load templates from database
-    query =
-      SNMPOIDTemplate
-      |> Ash.Query.filter(id in ^template_ids)
+    query = Ash.Query.filter(SNMPOIDTemplate, id in ^template_ids)
 
     case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, templates} ->
@@ -813,9 +808,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   # Get the default profile
   defp get_default_profile(actor) do
-    query =
-      SNMPProfile
-      |> Ash.Query.for_read(:get_default, %{})
+    query = Ash.Query.for_read(SNMPProfile, :get_default, %{})
 
     case Ash.read_one(query, actor: actor) do
       {:ok, profile} -> profile

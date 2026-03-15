@@ -1,4 +1,5 @@
 defmodule TestWebSock do
+  @moduledoc false
   def run do
     IO.puts("WebSockAdapter exists? #{Code.ensure_loaded?(WebSockAdapter)}")
   end

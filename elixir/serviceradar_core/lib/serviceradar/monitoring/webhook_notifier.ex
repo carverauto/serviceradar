@@ -47,8 +47,8 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
 
   require Logger
 
-  @default_timeout :timer.seconds(10)
-  @default_cooldown :timer.minutes(5)
+  @default_timeout to_timeout(second: 10)
+  @default_cooldown to_timeout(minute: 5)
 
   # Alert level type
   @type alert_level :: :info | :warning | :error
@@ -93,7 +93,7 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
     defstruct [
       :url,
       headers: [],
-      cooldown: :timer.minutes(5),
+      cooldown: to_timeout(minute: 5),
       template: nil,
       enabled: true
     ]
@@ -181,7 +181,8 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
     webhooks =
-      Keyword.get(config, :webhooks, [])
+      config
+      |> Keyword.get(:webhooks, [])
       |> Enum.map(&build_webhook_config/1)
       |> Enum.filter(& &1.enabled)
 
@@ -301,7 +302,7 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
   end
 
   defp ensure_timestamp(%Alert{timestamp: nil} = alert) do
-    %{alert | timestamp: DateTime.utc_now() |> DateTime.to_iso8601()}
+    %{alert | timestamp: DateTime.to_iso8601(DateTime.utc_now())}
   end
 
   defp ensure_timestamp(alert), do: alert
@@ -370,8 +371,7 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
   defp do_http_post(url, payload, headers, http_client) do
     headers_map =
       headers
-      |> Enum.map(fn h -> {h[:key] || h["key"], h[:value] || h["value"]} end)
-      |> Map.new()
+      |> Map.new(fn h -> {h[:key] || h["key"], h[:value] || h["value"]} end)
       |> Map.put_new("content-type", "application/json")
 
     case http_client.post(url,

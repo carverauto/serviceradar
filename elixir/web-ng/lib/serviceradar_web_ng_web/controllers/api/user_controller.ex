@@ -12,9 +12,9 @@ defmodule ServiceRadarWebNG.Api.UserController do
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.User
 
-  require Ash.Query
-
   alias ServiceRadar.Identity.User
+
+  require Ash.Query
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -185,8 +185,6 @@ defmodule ServiceRadarWebNG.Api.UserController do
          {:ok, user} <- maybe_update_role_profile(user, role_profile_id, scope),
          {:ok, user} <- maybe_update_display_name(user, display_name, scope) do
       json(conn, user_to_json(user))
-    else
-      {:error, error} -> {:error, error}
     end
   end
 
@@ -202,9 +200,7 @@ defmodule ServiceRadarWebNG.Api.UserController do
 
   defp maybe_update_role_profile(user, role_profile_id, scope) do
     user
-    |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: role_profile_id},
-      scope: scope
-    )
+    |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: role_profile_id}, scope: scope)
     |> Ash.update(scope: scope)
   end
 

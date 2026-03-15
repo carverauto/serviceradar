@@ -23,11 +23,11 @@ defmodule ServiceRadar.Edge.GatewayProcess do
 
   use GenServer
 
-  require Logger
-
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Edge.AgentProcess
   alias ServiceRadar.GatewayRegistry
+
+  require Logger
 
   @type state :: %{
           gateway_id: String.t(),
@@ -403,7 +403,7 @@ defmodule ServiceRadar.Edge.GatewayProcess do
   end
 
   defp generate_job_id do
-    :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
+    16 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
   end
 
   defp execute_health_check_impl(service, state) do

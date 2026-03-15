@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Observability.NetflowSettingsGeoipStatusTest do
   use ExUnit.Case, async: false
 
+  alias Ash.Error.Forbidden
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.TestSupport
@@ -14,7 +15,7 @@ defmodule ServiceRadar.Observability.NetflowSettingsGeoipStatusTest do
     actor = SystemActor.system(:netflow_geoip_test)
     settings = ensure_settings(actor)
 
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
     assert {:ok, %NetflowSettings{} = updated} =
              NetflowSettings.update_enrichment_status(
@@ -47,7 +48,7 @@ defmodule ServiceRadar.Observability.NetflowSettingsGeoipStatusTest do
     assert updated.geoip_enabled == false
 
     # Only system actors may write status fields.
-    assert {:error, %Ash.Error.Forbidden{}} =
+    assert {:error, %Forbidden{}} =
              NetflowSettings.update_enrichment_status(
                updated,
                %{ip_enrichment_last_error: "nope"},
@@ -77,7 +78,7 @@ defmodule ServiceRadar.Observability.NetflowSettingsGeoipStatusTest do
     end
   end
 
-  defp assert_denied({:error, %Ash.Error.Forbidden{}}), do: :ok
+  defp assert_denied({:error, %Forbidden{}}), do: :ok
 
   # Ash policies may "filter" rather than raise forbidden for reads, which results in NotFound.
   defp assert_denied({:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{} | _]}}),

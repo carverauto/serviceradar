@@ -13,7 +13,10 @@ defmodule ServiceRadar.EventWriter.Health do
       :ok = ServiceRadar.EventWriter.Health.check()
   """
 
-  alias ServiceRadar.EventWriter.{Config, Pipeline, Producer, Supervisor}
+  alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.Pipeline
+  alias ServiceRadar.EventWriter.Producer
+  alias ServiceRadar.EventWriter.Supervisor
 
   @doc """
   Returns the full health status of the EventWriter subsystem.

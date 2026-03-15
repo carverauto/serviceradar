@@ -52,7 +52,7 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
     args = %{
       "package_id" => package_id,
       "event_type" => event_type_str,
-      "event_time" => DateTime.utc_now() |> DateTime.to_iso8601(),
+      "event_time" => DateTime.to_iso8601(DateTime.utc_now()),
       "actor" => Keyword.get(opts, :actor),
       "source_ip" => Keyword.get(opts, :source_ip),
       "details" => Keyword.get(opts, :details, %{})

@@ -48,9 +48,9 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
       assert result.service_version == "1.5.0"
       assert result.status_code == 1
       assert result.status_message == "OK"
-      assert result.attributes != nil
-      assert result.resource_attributes != nil
-      assert result.events != nil
+      assert result.attributes
+      assert result.resource_attributes
+      assert result.events
       assert %DateTime{} = result.timestamp
       assert %DateTime{} = result.created_at
     end

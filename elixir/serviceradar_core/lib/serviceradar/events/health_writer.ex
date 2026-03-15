@@ -77,8 +77,8 @@ defmodule ServiceRadar.Events.HealthWriter do
   defp message_for(event) do
     entity_type = event.entity_type |> to_string() |> humanize()
     entity_id = event.entity_id || "unknown"
-    old_state = event.old_state |> state_label()
-    new_state = event.new_state |> state_label()
+    old_state = state_label(event.old_state)
+    new_state = state_label(event.new_state)
 
     "#{entity_type} #{entity_id} changed from #{old_state} to #{new_state}"
   end
