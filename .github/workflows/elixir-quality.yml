@@ -46,7 +46,7 @@ jobs:
             project: elixir/connection
             phoenix: false
             credo: true
-            dialyzer: false
+            dialyzer: true
             warnings_as_errors: true
           - name: datasvc
             project: elixir/datasvc
@@ -58,7 +58,7 @@ jobs:
             project: elixir/elixir_uuid
             phoenix: false
             credo: true
-            dialyzer: false
+            dialyzer: true
             warnings_as_errors: true
           - name: serviceradar_agent_gateway
             project: elixir/serviceradar_agent_gateway
@@ -108,7 +108,7 @@ jobs:
             ~/.mix
             ${{ matrix.project }}/deps
             ${{ matrix.project }}/_build
-          key: ${{ runner.os }}-elixir-quality-${{ matrix.name }}-${{ hashFiles(format('{0}/mix.exs', matrix.project), format('{0}/mix.lock', matrix.project), format('{0}/.formatter.exs', matrix.project), format('{0}/.credo.exs', matrix.project), format('{0}/.sobelow-conf', matrix.project), '.tool-versions', 'scripts/elixir_quality.sh') }}
+          key: ${{ runner.os }}-elixir-quality-${{ matrix.name }}-${{ hashFiles(format('{0}/mix.exs', matrix.project), format('{0}/mix.lock', matrix.project), format('{0}/.formatter.exs', matrix.project), format('{0}/.credo.exs', matrix.project), format('{0}/.sobelow-conf', matrix.project), 'elixir/.credo.base.exs', 'elixir/.credo.ex_dna.exs', 'elixir/.credo.ex_slop.exs', '.tool-versions', 'scripts/elixir_quality.sh') }}
           restore-keys: |
             ${{ runner.os }}-elixir-quality-${{ matrix.name }}-
 

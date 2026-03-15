@@ -3,7 +3,7 @@ defmodule ServiceRadar.Identity.RoleProfileSeeder do
   Seeds built-in role profiles and keeps them in sync with the RBAC catalog.
   """
 
-  use GenServer
+  use ServiceRadar.DelayedSeeder
 
   require Logger
 
@@ -11,24 +11,6 @@ defmodule ServiceRadar.Identity.RoleProfileSeeder do
   alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Repo
-
-  @seed_delay_ms 5_000
-
-  def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-  end
-
-  @impl true
-  def init(_opts) do
-    Process.send_after(self(), :seed, @seed_delay_ms)
-    {:ok, %{}}
-  end
-
-  @impl true
-  def handle_info(:seed, state) do
-    seed()
-    {:noreply, state}
-  end
 
   def seed do
     if role_profiles_table_exists?() do

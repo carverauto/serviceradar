@@ -111,7 +111,7 @@ defmodule ServiceRadarCore.MixProject do
       # Utilities
       {:jason, "~> 1.4"},
       {:ex_json_schema, "~> 0.10"},
-      {:elixir_uuid, "~> 1.2"},
+      {:elixir_uuid, path: "../elixir_uuid"},
       {:file_system, "~> 1.0"},
       {:yaml_elixir, "~> 2.12"},
       {:req, "~> 0.5"},
@@ -132,6 +132,9 @@ defmodule ServiceRadarCore.MixProject do
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:ex_dna, "~> 1.2", only: [:dev, :test], runtime: false},
+      {:ex_slop, "~> 0.2.0", only: [:dev, :test], runtime: false},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:sourceror, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end

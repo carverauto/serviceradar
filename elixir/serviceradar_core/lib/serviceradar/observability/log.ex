@@ -24,6 +24,27 @@ defmodule ServiceRadar.Observability.Log do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  @log_fields [
+    :timestamp,
+    :observed_timestamp,
+    :trace_id,
+    :span_id,
+    :trace_flags,
+    :severity_text,
+    :severity_number,
+    :body,
+    :event_name,
+    :source,
+    :service_name,
+    :service_version,
+    :service_instance,
+    :scope_name,
+    :scope_version,
+    :scope_attributes,
+    :attributes,
+    :resource_attributes
+  ]
+
   postgres do
     table "logs"
     repo ServiceRadar.Repo
@@ -71,47 +92,16 @@ defmodule ServiceRadar.Observability.Log do
     end
 
     create :create do
-      accept [
-        :timestamp,
-        :observed_timestamp,
-        :trace_id,
-        :span_id,
-        :trace_flags,
-        :severity_text,
-        :severity_number,
-        :body,
-        :event_name,
-        :source,
-        :service_name,
-        :service_version,
-        :service_instance,
-        :scope_name,
-        :scope_version,
-        :scope_attributes,
-        :attributes,
-        :resource_attributes
-      ]
+      accept @log_fields
     end
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    # Read access: Must be authenticated
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Create logs: Operators/admins
-    policy action(:create) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action(:create)
   end
 
   changes do

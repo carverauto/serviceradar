@@ -43,6 +43,13 @@ defmodule ServiceRadar.Identity.OAuthClient do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Identity.AccessCredentialChanges
+
+  @client_create_fields [:name, :description, :scopes, :expires_at, :user_id]
+  @client_update_fields [:name, :description, :expires_at]
+  @client_usage_fields [:last_used_ip]
+  @client_self_manage_actions [:update, :record_use, :revoke, :disable, :enable, :destroy]
+
   postgres do
     table "oauth_clients"
     repo ServiceRadar.Repo
@@ -124,7 +131,7 @@ defmodule ServiceRadar.Identity.OAuthClient do
 
     create :create do
       description "Create a new OAuth client"
-      accept [:name, :description, :scopes, :expires_at, :user_id]
+      accept @client_create_fields
 
       argument :client_secret, :string do
         allow_nil? false
@@ -133,39 +140,27 @@ defmodule ServiceRadar.Identity.OAuthClient do
       end
 
       change fn changeset, _context ->
-        secret = Ash.Changeset.get_argument(changeset, :client_secret)
-
-        # Bcrypt hash the secret
-        secret_hash = Bcrypt.hash_pwd_salt(secret)
-
-        # Extract prefix for display
-        secret_prefix = String.slice(secret, 0, 8)
-
-        changeset
-        |> Ash.Changeset.change_attribute(:secret_hash, secret_hash)
-        |> Ash.Changeset.change_attribute(:secret_prefix, secret_prefix)
-        |> Ash.Changeset.change_attribute(:enabled, true)
-        |> Ash.Changeset.change_attribute(:use_count, 0)
+        AccessCredentialChanges.init_secret(changeset,
+          argument: :client_secret,
+          hash_attribute: :secret_hash,
+          prefix_attribute: :secret_prefix,
+          hash_fun: &Bcrypt.hash_pwd_salt/1
+        )
       end
     end
 
     update :update do
-      accept [:name, :description, :expires_at]
+      accept @client_update_fields
     end
 
     update :record_use do
       description "Record client usage"
       # Non-atomic: increments use_count based on current value
       require_atomic? false
-      accept [:last_used_ip]
+      accept @client_usage_fields
 
       change fn changeset, _context ->
-        changeset
-        |> Ash.Changeset.change_attribute(:last_used_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(
-          :use_count,
-          (changeset.data.use_count || 0) + 1
-        )
+        AccessCredentialChanges.record_use(changeset)
       end
     end
 
@@ -175,9 +170,7 @@ defmodule ServiceRadar.Identity.OAuthClient do
       require_atomic? false
 
       change fn changeset, _context ->
-        changeset
-        |> Ash.Changeset.change_attribute(:revoked_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(:enabled, false)
+        AccessCredentialChanges.revoke(changeset)
       end
     end
 
@@ -197,15 +190,15 @@ defmodule ServiceRadar.Identity.OAuthClient do
   end
 
   policies do
+    import ServiceRadar.Policies
+
     # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    system_bypass()
 
     # Users can read their own clients
     policy action_type(:read) do
       authorize_if expr(user_id == ^actor(:id))
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
 
     # Authenticate action is public (no actor required)
@@ -216,13 +209,13 @@ defmodule ServiceRadar.Identity.OAuthClient do
     # Users can create clients for themselves
     policy action(:create) do
       authorize_if ServiceRadar.Identity.OAuthClient.Checks.CreatingOwnClient
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
 
     # Users can update/revoke/delete their own clients
-    policy action([:update, :record_use, :revoke, :disable, :enable, :destroy]) do
+    policy action(@client_self_manage_actions) do
       authorize_if expr(user_id == ^actor(:id))
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
   end
 

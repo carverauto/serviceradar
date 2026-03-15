@@ -28,6 +28,32 @@ defmodule ServiceRadar.Identity.User do
     notifiers: [ServiceRadar.Identity.UserNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
+  @allowed_roles ServiceRadar.Identity.Constants.allowed_roles()
+  @auth_manage_permission ServiceRadar.Identity.Constants.auth_manage_permission()
+  @auth_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                      permission: @auth_manage_permission}
+  @user_admin_fields [:email, :display_name, :role, :role_profile_id]
+  @user_profile_fields [:email, :display_name]
+  @display_name_fields [:display_name]
+  @email_fields [:email]
+  @role_fields [:role]
+  @role_profile_fields [:role_profile_id]
+  @auth_lookup_actions [:by_email, :authenticate]
+  @self_service_actions [
+    :update,
+    :update_email,
+    :change_password,
+    :record_authentication,
+    :record_login
+  ]
+  @admin_user_management_actions [
+    :update_role,
+    :update_role_profile,
+    :admin_set_password,
+    :deactivate,
+    :reactivate
+  ]
+
   postgres do
     table "ng_users"
     repo ServiceRadar.Repo
@@ -102,7 +128,7 @@ defmodule ServiceRadar.Identity.User do
 
     create :create do
       description "Create a new user (admin or system use)"
-      accept [:email, :display_name, :role, :role_profile_id]
+      accept @user_admin_fields
 
       argument :password, :string do
         allow_nil? true
@@ -110,25 +136,12 @@ defmodule ServiceRadar.Identity.User do
         constraints min_length: 12
       end
 
-      # Hash password if provided
-      change fn changeset, _context ->
-        case Ash.Changeset.get_argument(changeset, :password) do
-          nil ->
-            changeset
-
-          "" ->
-            changeset
-
-          password ->
-            hashed = Bcrypt.hash_pwd_salt(password)
-            Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
-        end
-      end
+      change {ServiceRadar.Identity.Changes.HashPassword, force?: true}
     end
 
     create :register_with_password do
       description "Register a new user with email and password"
-      accept [:email, :display_name]
+      accept @user_profile_fields
 
       change ServiceRadar.Identity.Changes.AssignFirstUserRole
 
@@ -143,40 +156,20 @@ defmodule ServiceRadar.Identity.User do
         sensitive? true
       end
 
-      # Validate password confirmation matches
-      validate fn changeset, _context ->
-        password = Ash.Changeset.get_argument(changeset, :password)
-        confirmation = Ash.Changeset.get_argument(changeset, :password_confirmation)
+      validate ServiceRadar.Identity.Validations.PasswordConfirmationMatches
 
-        if password == confirmation do
-          :ok
-        else
-          {:error, field: :password_confirmation, message: "does not match password"}
-        end
-      end
-
-      # Hash the password
-      change fn changeset, _context ->
-        password = Ash.Changeset.get_argument(changeset, :password)
-
-        if password do
-          hashed = Bcrypt.hash_pwd_salt(password)
-          Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
-        else
-          changeset
-        end
-      end
+      change {ServiceRadar.Identity.Changes.HashPassword, force?: true}
     end
 
     # JIT provisioning for SSO users
     create :provision_sso_user do
       description "Create a user from SSO claims (JIT provisioning)"
-      accept [:email, :display_name]
+      accept @user_profile_fields
 
       argument :role, :atom do
         allow_nil? true
         default :viewer
-        constraints one_of: [:viewer, :helpdesk, :operator, :admin]
+        constraints one_of: @allowed_roles
       end
 
       argument :external_id, :string do
@@ -201,11 +194,11 @@ defmodule ServiceRadar.Identity.User do
     end
 
     update :update do
-      accept [:display_name]
+      accept @display_name_fields
     end
 
     update :update_email do
-      accept [:email]
+      accept @email_fields
       require_atomic? false
 
       argument :current_password, :string do
@@ -213,26 +206,7 @@ defmodule ServiceRadar.Identity.User do
         sensitive? true
       end
 
-      # Validate current password is correct
-      validate fn changeset, _context ->
-        current_password = Ash.Changeset.get_argument(changeset, :current_password)
-        user = changeset.data
-
-        cond do
-          is_nil(user.hashed_password) or user.hashed_password == "" ->
-            # User has no password (SSO-only), allow email update without password confirmation
-            :ok
-
-          is_nil(current_password) ->
-            {:error, field: :current_password, message: "is required"}
-
-          Bcrypt.verify_pass(current_password, user.hashed_password) ->
-            :ok
-
-          true ->
-            {:error, field: :current_password, message: "is incorrect"}
-        end
-      end
+      validate {ServiceRadar.Identity.Validations.CurrentPassword, required_message: "is required"}
 
       # Mark email as confirmed since this action is called after token-based
       # verification in the Accounts context
@@ -240,14 +214,14 @@ defmodule ServiceRadar.Identity.User do
     end
 
     update :update_role do
-      accept [:role]
+      accept @role_fields
       require_atomic? false
       change ServiceRadar.Identity.Changes.DisallowLastAdminLockout
       change ServiceRadar.Identity.Changes.InvalidateUserRbacCache
     end
 
     update :update_role_profile do
-      accept [:role_profile_id]
+      accept @role_profile_fields
       change ServiceRadar.Identity.Changes.InvalidateUserRbacCache
     end
 
@@ -273,62 +247,13 @@ defmodule ServiceRadar.Identity.User do
         sensitive? true
       end
 
-      # Validate password confirmation matches
-      validate fn changeset, _context ->
-        password = Ash.Changeset.get_argument(changeset, :password)
-        confirmation = Ash.Changeset.get_argument(changeset, :password_confirmation)
+      validate ServiceRadar.Identity.Validations.PasswordConfirmationMatches
 
-        if password == confirmation do
-          :ok
-        else
-          {:error, field: :password_confirmation, message: "does not match password"}
-        end
-      end
+      validate {ServiceRadar.Identity.Validations.CurrentPassword,
+                required_message: "is required to change password",
+                no_password_message: "you don't have a password set"}
 
-      # Validate current password is correct
-      change fn changeset, _context ->
-        current_password = Ash.Changeset.get_argument(changeset, :current_password)
-        user = changeset.data
-
-        cond do
-          # User has no password set - allow password creation without current_password
-          is_nil(user.hashed_password) or user.hashed_password == "" ->
-            if current_password && current_password != "" do
-              Ash.Changeset.add_error(changeset,
-                field: :current_password,
-                message: "you don't have a password set"
-              )
-            else
-              changeset
-            end
-
-          # User has password but current_password not provided - require it
-          is_nil(current_password) or current_password == "" ->
-            Ash.Changeset.add_error(changeset,
-              field: :current_password,
-              message: "is required to change password"
-            )
-
-          # Verify current password
-          Bcrypt.verify_pass(current_password, user.hashed_password) ->
-            changeset
-
-          true ->
-            Ash.Changeset.add_error(changeset, field: :current_password, message: "is incorrect")
-        end
-      end
-
-      # Hash the new password
-      change fn changeset, _context ->
-        password = Ash.Changeset.get_argument(changeset, :password)
-
-        if password do
-          hashed = Bcrypt.hash_pwd_salt(password)
-          Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
-        else
-          changeset
-        end
-      end
+      change {ServiceRadar.Identity.Changes.HashPassword, force?: true}
     end
 
     update :admin_set_password do
@@ -341,11 +266,7 @@ defmodule ServiceRadar.Identity.User do
         constraints min_length: 12
       end
 
-      change fn changeset, _context ->
-        password = Ash.Changeset.get_argument(changeset, :password)
-        hashed = Bcrypt.hash_pwd_salt(password)
-        Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
-      end
+      change {ServiceRadar.Identity.Changes.HashPassword, force?: true}
     end
 
     update :record_authentication do
@@ -385,19 +306,17 @@ defmodule ServiceRadar.Identity.User do
     end
 
     # Public reads used by authentication flows (no actor available yet)
-    policy action([:by_email, :authenticate]) do
+    policy action(@auth_lookup_actions) do
       authorize_if ServiceRadar.Policies.Checks.ActorIsNil
 
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
     end
 
     # Read access:
     # - Admins (settings.auth.manage) can read any user
     # - Users can read themselves
     policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
 
       authorize_if expr(id == ^actor(:id))
     end
@@ -409,41 +328,25 @@ defmodule ServiceRadar.Identity.User do
 
     # Admin-managed user creation
     policy action(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
     end
 
     # JIT provisioning is performed as a SystemActor in the web layer.
     # Allow admins to use it intentionally; deny regular users.
     policy action(:provision_sso_user) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
     end
 
     # Self-service updates and audit markers
-    policy action([
-             :update,
-             :update_email,
-             :change_password,
-             :record_authentication,
-             :record_login
-           ]) do
+    policy action(@self_service_actions) do
       authorize_if expr(id == ^actor(:id))
 
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+      authorize_if @auth_manage_check
     end
 
     # Admin-only user management
-    policy action([
-             :update_role,
-             :update_role_profile,
-             :admin_set_password,
-             :deactivate,
-             :reactivate
-           ]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.auth.manage"}
+    policy action(@admin_user_management_actions) do
+      authorize_if @auth_manage_check
     end
   end
 
@@ -472,7 +375,7 @@ defmodule ServiceRadar.Identity.User do
       allow_nil? false
       default :viewer
       public? true
-      constraints one_of: [:viewer, :helpdesk, :operator, :admin]
+      constraints one_of: @allowed_roles
       description "User's role for authorization"
     end
 

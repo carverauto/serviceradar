@@ -10,137 +10,118 @@ defmodule ServiceRadar.AgentConfig.ConfigVersion do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  require ServiceRadar.AgentConfig.ResourceAttributes
+
+  @create_fields [
+    :config_instance_id,
+    :version,
+    :compiled_config,
+    :content_hash,
+    :source_ids,
+    :actor_id,
+    :actor_email,
+    :change_reason
+  ]
+
   postgres do
-    table "agent_config_versions"
-    repo ServiceRadar.Repo
-    schema "platform"
+    table("agent_config_versions")
+    repo(ServiceRadar.Repo)
+    schema("platform")
 
     custom_indexes do
-      index [:config_instance_id, :version],
+      index([:config_instance_id, :version],
         unique: true,
         name: "agent_config_versions_instance_version_idx"
+      )
     end
   end
 
   actions do
-    defaults [:read]
+    defaults([:read])
 
     create :create do
-      accept [
-        :config_instance_id,
-        :version,
-        :compiled_config,
-        :content_hash,
-        :source_ids,
-        :actor_id,
-        :actor_email,
-        :change_reason
-      ]
+      accept(@create_fields)
     end
 
     read :for_instance do
-      argument :config_instance_id, :uuid, allow_nil?: false
+      argument(:config_instance_id, :uuid, allow_nil?: false)
 
-      filter expr(config_instance_id == ^arg(:config_instance_id))
+      filter(expr(config_instance_id == ^arg(:config_instance_id)))
 
-      prepare build(sort: [version: :desc])
+      prepare(build(sort: [version: :desc]))
     end
 
     read :by_version do
-      argument :config_instance_id, :uuid, allow_nil?: false
-      argument :version, :integer, allow_nil?: false
+      argument(:config_instance_id, :uuid, allow_nil?: false)
+      argument(:version, :integer, allow_nil?: false)
 
-      get? true
+      get?(true)
 
-      filter expr(
-               config_instance_id == ^arg(:config_instance_id) and
-                 version == ^arg(:version)
-             )
+      filter(
+        expr(
+          config_instance_id == ^arg(:config_instance_id) and
+            version == ^arg(:version)
+        )
+      )
     end
   end
 
   policies do
-    # System actors can do anything
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admins can read version history
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # System creates versions (use authorize?: false when calling)
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    admin_action_type([:read, :create])
   end
 
   attributes do
-    uuid_primary_key :id
+    uuid_primary_key(:id)
 
     attribute :config_instance_id, :uuid do
-      allow_nil? false
-      public? true
-      description "The config instance this version belongs to"
+      allow_nil?(false)
+      public?(true)
+      description("The config instance this version belongs to")
     end
 
     attribute :version, :integer do
-      allow_nil? false
-      public? true
-      description "Version number"
+      allow_nil?(false)
+      public?(true)
+      description("Version number")
     end
 
-    attribute :compiled_config, :map do
-      allow_nil? false
-      public? true
-      default %{}
-      description "Compiled configuration at this version"
-    end
-
-    attribute :content_hash, :string do
-      allow_nil? false
-      public? true
-      description "SHA256 hash of compiled_config"
-    end
-
-    attribute :source_ids, {:array, :uuid} do
-      allow_nil? false
-      public? true
-      default []
-      description "IDs of source resources at this version"
-    end
+    ServiceRadar.AgentConfig.ResourceAttributes.config_snapshot_attributes(
+      compiled_config_description: "Compiled configuration at this version",
+      content_hash_description: "SHA256 hash of compiled_config",
+      source_ids_description: "IDs of source resources at this version"
+    )
 
     attribute :actor_id, :uuid do
-      allow_nil? true
-      public? true
-      description "ID of user who made this change"
+      allow_nil?(true)
+      public?(true)
+      description("ID of user who made this change")
     end
 
     attribute :actor_email, :string do
-      allow_nil? true
-      public? true
-      description "Email of user who made this change"
+      allow_nil?(true)
+      public?(true)
+      description("Email of user who made this change")
     end
 
     attribute :change_reason, :string do
-      allow_nil? true
-      public? true
-      description "Reason for this version change"
+      allow_nil?(true)
+      public?(true)
+      description("Reason for this version change")
     end
 
-    create_timestamp :created_at
+    create_timestamp(:created_at)
   end
 
   relationships do
     belongs_to :config_instance, ServiceRadar.AgentConfig.ConfigInstance do
-      allow_nil? false
-      attribute_type :uuid
-      define_attribute? false
-      destination_attribute :id
-      source_attribute :config_instance_id
+      allow_nil?(false)
+      attribute_type(:uuid)
+      define_attribute?(false)
+      destination_attribute(:id)
+      source_attribute(:config_instance_id)
     end
   end
 end

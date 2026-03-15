@@ -25,6 +25,13 @@ defmodule ServiceRadar.Identity.ApiToken do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Identity.AccessCredentialChanges
+
+  @token_create_fields [:name, :description, :scope, :expires_at, :metadata, :user_id]
+  @token_update_fields [:name, :description, :expires_at, :metadata]
+  @token_usage_fields [:last_used_ip]
+  @token_self_manage_actions [:update, :record_use, :revoke, :disable, :enable]
+
   postgres do
     table "api_tokens"
     repo ServiceRadar.Repo
@@ -68,7 +75,7 @@ defmodule ServiceRadar.Identity.ApiToken do
 
     create :create do
       description "Create a new API token"
-      accept [:name, :description, :scope, :expires_at, :metadata, :user_id]
+      accept @token_create_fields
 
       argument :token, :string do
         allow_nil? false
@@ -77,41 +84,30 @@ defmodule ServiceRadar.Identity.ApiToken do
       end
 
       change fn changeset, _context ->
-        token = Ash.Changeset.get_argument(changeset, :token)
-        now = DateTime.utc_now()
-
-        # Hash the token
-        token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
-
-        # Extract prefix for identification
-        token_prefix = String.slice(token, 0, 8)
-
-        changeset
-        |> Ash.Changeset.change_attribute(:token_hash, token_hash)
-        |> Ash.Changeset.change_attribute(:token_prefix, token_prefix)
-        |> Ash.Changeset.change_attribute(:created_at, now)
-        |> Ash.Changeset.change_attribute(:enabled, true)
-        |> Ash.Changeset.change_attribute(:use_count, 0)
+        AccessCredentialChanges.init_secret(changeset,
+          argument: :token,
+          hash_attribute: :token_hash,
+          prefix_attribute: :token_prefix,
+          timestamp_attribute: :created_at,
+          hash_fun: fn raw_token ->
+            :crypto.hash(:sha256, raw_token) |> Base.encode16(case: :lower)
+          end
+        )
       end
     end
 
     update :update do
-      accept [:name, :description, :expires_at, :metadata]
+      accept @token_update_fields
     end
 
     update :record_use do
       description "Record token usage"
       # Non-atomic: increments use_count based on current value
       require_atomic? false
-      accept [:last_used_ip]
+      accept @token_usage_fields
 
       change fn changeset, _context ->
-        changeset
-        |> Ash.Changeset.change_attribute(:last_used_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(
-          :use_count,
-          (changeset.data.use_count || 0) + 1
-        )
+        AccessCredentialChanges.record_use(changeset)
       end
     end
 
@@ -124,10 +120,7 @@ defmodule ServiceRadar.Identity.ApiToken do
       change fn changeset, _context ->
         revoked_by = Ash.Changeset.get_argument(changeset, :revoked_by) || "system"
 
-        changeset
-        |> Ash.Changeset.change_attribute(:revoked_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(:revoked_by, revoked_by)
-        |> Ash.Changeset.change_attribute(:enabled, false)
+        AccessCredentialChanges.revoke(changeset, revoked_by: revoked_by)
       end
     end
 
@@ -143,15 +136,15 @@ defmodule ServiceRadar.Identity.ApiToken do
   end
 
   policies do
+    import ServiceRadar.Policies
+
     # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    system_bypass()
 
     # Users can read their own tokens
     policy action_type(:read) do
       authorize_if expr(user_id == ^actor(:id))
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
 
     # Users can create tokens for themselves
@@ -159,13 +152,13 @@ defmodule ServiceRadar.Identity.ApiToken do
     # because the record doesn't exist yet. We use a custom check instead.
     policy action(:create) do
       authorize_if ServiceRadar.Identity.ApiToken.Checks.CreatingOwnToken
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
 
     # Users can update/revoke their own tokens
-    policy action([:update, :record_use, :revoke, :disable, :enable]) do
+    policy action(@token_self_manage_actions) do
       authorize_if expr(user_id == ^actor(:id))
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
   end
 

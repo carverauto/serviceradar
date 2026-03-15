@@ -8,14 +8,15 @@ defmodule ServiceRadar.Observability.Changes.CompileZenRule do
 
   use Ash.Resource.Change
 
+  alias ServiceRadar.Observability.ZenRuleSupport
   alias ServiceRadar.Observability.ZenRuleTemplates
 
   @impl true
   def change(changeset, _opts, _context) do
-    jdm_definition = attribute_or_existing(changeset, :jdm_definition)
-    subject = attribute_or_existing(changeset, :subject)
+    jdm_definition = ZenRuleSupport.attribute_or_existing(changeset, :jdm_definition)
+    subject = ZenRuleSupport.attribute_or_existing(changeset, :subject)
 
-    case resolve_format(subject) do
+    case ZenRuleSupport.resolve_format(subject) do
       {:ok, format} ->
         changeset = Ash.Changeset.force_change_attribute(changeset, :format, format)
 
@@ -29,10 +30,10 @@ defmodule ServiceRadar.Observability.Changes.CompileZenRule do
 
   @impl true
   def atomic(changeset, _opts, _context) do
-    jdm_definition = attribute_or_existing(changeset, :jdm_definition)
-    subject = attribute_or_existing(changeset, :subject)
+    jdm_definition = ZenRuleSupport.attribute_or_existing(changeset, :jdm_definition)
+    subject = ZenRuleSupport.attribute_or_existing(changeset, :subject)
 
-    with {:ok, format} <- resolve_format(subject),
+    with {:ok, format} <- ZenRuleSupport.resolve_format(subject),
          {:ok, payload} <- atomic_payload(format, jdm_definition, changeset) do
       {:atomic, payload}
     else
@@ -59,8 +60,8 @@ defmodule ServiceRadar.Observability.Changes.CompileZenRule do
   end
 
   defp atomic_payload(format, _jdm_definition, changeset) do
-    template = attribute_or_existing(changeset, :template)
-    builder_config = attribute_or_existing(changeset, :builder_config) || %{}
+    template = ZenRuleSupport.attribute_or_existing(changeset, :template)
+    builder_config = ZenRuleSupport.attribute_or_existing(changeset, :builder_config) || %{}
 
     case ZenRuleTemplates.compile(template, builder_config) do
       {:ok, compiled} -> {:ok, %{format: format, compiled_jdm: compiled}}
@@ -69,8 +70,8 @@ defmodule ServiceRadar.Observability.Changes.CompileZenRule do
   end
 
   defp compile_from_template(changeset) do
-    template = attribute_or_existing(changeset, :template)
-    builder_config = attribute_or_existing(changeset, :builder_config) || %{}
+    template = ZenRuleSupport.attribute_or_existing(changeset, :template)
+    builder_config = ZenRuleSupport.attribute_or_existing(changeset, :builder_config) || %{}
 
     case ZenRuleTemplates.compile(template, builder_config) do
       {:ok, compiled} ->
@@ -81,19 +82,4 @@ defmodule ServiceRadar.Observability.Changes.CompileZenRule do
     end
   end
 
-  defp attribute_or_existing(changeset, attribute) do
-    Ash.Changeset.get_attribute(changeset, attribute) || Map.get(changeset.data, attribute)
-  end
-
-  defp resolve_format(nil), do: {:error, "subject is required"}
-
-  defp resolve_format(subject) when is_binary(subject) do
-    cond do
-      subject == "otel.metrics.raw" -> {:ok, :otel_metrics}
-      String.starts_with?(subject, "logs.otel") -> {:ok, :protobuf}
-      true -> {:ok, :json}
-    end
-  end
-
-  defp resolve_format(_), do: {:error, "invalid subject"}
 end

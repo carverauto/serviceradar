@@ -12,6 +12,34 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  @package_fields [
+    :name,
+    :description,
+    :entrypoint,
+    :runtime,
+    :outputs,
+    :manifest,
+    :config_schema,
+    :display_contract,
+    :wasm_object_key,
+    :content_hash,
+    :signature,
+    :source_type,
+    :source_repo_url,
+    :source_commit,
+    :gpg_key_id,
+    :gpg_verified_at
+  ]
+
+  @package_create_fields [:plugin_id, :version | @package_fields]
+  @approval_fields [
+    :approved_capabilities,
+    :approved_permissions,
+    :approved_resources,
+    :approved_by
+  ]
+  @denial_fields [:denied_reason]
+
   postgres do
     table "plugin_packages"
     repo ServiceRadar.Repo
@@ -49,49 +77,13 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     end
 
     create :create do
-      accept [
-        :plugin_id,
-        :name,
-        :version,
-        :description,
-        :entrypoint,
-        :runtime,
-        :outputs,
-        :manifest,
-        :config_schema,
-        :display_contract,
-        :wasm_object_key,
-        :content_hash,
-        :signature,
-        :source_type,
-        :source_repo_url,
-        :source_commit,
-        :gpg_key_id,
-        :gpg_verified_at
-      ]
+      accept @package_create_fields
 
       validate ServiceRadar.Plugins.Validations.Manifest
     end
 
     update :update do
-      accept [
-        :name,
-        :description,
-        :entrypoint,
-        :runtime,
-        :outputs,
-        :manifest,
-        :config_schema,
-        :display_contract,
-        :wasm_object_key,
-        :content_hash,
-        :signature,
-        :source_type,
-        :source_repo_url,
-        :source_commit,
-        :gpg_key_id,
-        :gpg_verified_at
-      ]
+      accept @package_fields
 
       validate ServiceRadar.Plugins.Validations.Manifest
     end
@@ -99,7 +91,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     update :approve do
       description "Approve a staged plugin package for distribution"
 
-      accept [:approved_capabilities, :approved_permissions, :approved_resources, :approved_by]
+      accept @approval_fields
 
       change transition_state(:approved)
       change set_attribute(:approved_at, &DateTime.utc_now/0)
@@ -107,14 +99,14 @@ defmodule ServiceRadar.Plugins.PluginPackage do
 
     update :deny do
       description "Deny a staged plugin package"
-      accept [:denied_reason]
+      accept @denial_fields
 
       change transition_state(:denied)
     end
 
     update :revoke do
       description "Revoke an approved plugin package"
-      accept [:denied_reason]
+      accept @denial_fields
 
       change transition_state(:revoked)
     end
@@ -130,28 +122,9 @@ defmodule ServiceRadar.Plugins.PluginPackage do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Plugins.Policies
 
-    policy action_type(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.plugins.manage"}
-    end
-
-    policy action_type(:update) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.plugins.manage"}
-    end
-
-    policy action_type(:destroy) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.plugins.manage"}
-    end
-
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    manage_action_types()
   end
 
   attributes do

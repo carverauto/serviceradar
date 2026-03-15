@@ -28,6 +28,8 @@ defmodule ServiceRadar.AgentConfig.Compiler do
       end
   """
 
+  alias ServiceRadar.AgentConfig.ResourceAttributes
+
   @type partition :: String.t()
   @type agent_id :: String.t() | nil
   @type config_type :: :sweep | :sysmon | :snmp | :mapper
@@ -90,7 +92,7 @@ defmodule ServiceRadar.AgentConfig.Compiler do
   """
   @spec config_types() :: [config_type()]
   def config_types do
-    Map.keys(@compilers)
+    ResourceAttributes.config_types()
   end
 
   @doc """

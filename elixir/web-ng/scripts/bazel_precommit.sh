@@ -112,7 +112,7 @@ EOF
   export GIT="$GIT_WRAP_DIR/git"
 fi
 
-mkdir -p "$WORKDIR/elixir/web-ng" "$WORKDIR/rust/srql" "$WORKDIR/rust/kvutil" "$WORKDIR/proto" "$WORKDIR/elixir/connection" "$WORKDIR/elixir/serviceradar_core" "$WORKDIR/elixir/serviceradar_srql" "$WORKDIR/elixir/datasvc" "$WORKDIR/elixir/vendor/opentelemetry_oban"
+mkdir -p "$WORKDIR/elixir" "$WORKDIR/elixir/web-ng" "$WORKDIR/rust/srql" "$WORKDIR/rust/kvutil" "$WORKDIR/proto" "$WORKDIR/elixir/connection" "$WORKDIR/elixir/serviceradar_core" "$WORKDIR/elixir/serviceradar_srql" "$WORKDIR/elixir/datasvc" "$WORKDIR/elixir/vendor/opentelemetry_oban"
 
 copy_dir() {
   src="$1"
@@ -136,6 +136,11 @@ copy_dir "$WEB_NG_SRC" "$WORKDIR/elixir/web-ng"
 if [ -f "$ROOT/.tool-versions" ]; then
   cp "$ROOT/.tool-versions" "$WORKDIR/elixir/web-ng/.tool-versions"
 fi
+for shared_credo in .credo.base.exs .credo.ex_dna.exs .credo.ex_slop.exs; do
+  if [ -f "$ROOT/elixir/$shared_credo" ]; then
+    cp "$ROOT/elixir/$shared_credo" "$WORKDIR/elixir/$shared_credo"
+  fi
+done
 copy_dir "$ROOT/rust/srql" "$WORKDIR/rust/srql"
 copy_dir "$ROOT/rust/kvutil" "$WORKDIR/rust/kvutil"
 copy_dir "$ROOT/proto" "$WORKDIR/proto"

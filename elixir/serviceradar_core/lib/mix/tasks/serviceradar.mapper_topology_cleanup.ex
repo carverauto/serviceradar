@@ -8,9 +8,6 @@ defmodule Mix.Tasks.Serviceradar.MapperTopologyCleanup do
   Usage:
     mix serviceradar.mapper_topology_cleanup
   """
-
-  # credo:disable-for-this-file Credo.Check.Refactor.Nesting
-
   use Mix.Task
 
   alias ServiceRadar.Actors.SystemActor
@@ -95,26 +92,33 @@ defmodule Mix.Tasks.Serviceradar.MapperTopologyCleanup do
   end
 
   defp merge_duplicate_sets(duplicate_sets, actor) do
-    Enum.reduce(duplicate_sets, %{merged: 0, failed: 0}, fn set, acc ->
-      Enum.reduce(set.duplicates, acc, fn duplicate_uid, inner_acc ->
-        case IdentityReconciler.merge_devices(
-               duplicate_uid,
-               set.canonical,
-               actor: actor,
-               reason: "manual_mapper_ip_identity_collapse",
-               details: %{"ip" => set.ip}
-             ) do
-          :ok ->
-            %{inner_acc | merged: inner_acc.merged + 1}
+    duplicate_sets
+    |> merge_operations()
+    |> Enum.reduce(%{merged: 0, failed: 0}, &merge_duplicate_device(&1, actor, &2))
+  end
 
-          {:error, reason} ->
-            Logger.warning(
-              "Failed duplicate IP merge #{duplicate_uid} -> #{set.canonical} for #{set.ip}: #{inspect(reason)}"
-            )
-
-            %{inner_acc | failed: inner_acc.failed + 1}
-        end
+  defp merge_operations(duplicate_sets) do
+    Enum.flat_map(duplicate_sets, fn set ->
+      Enum.map(set.duplicates, fn duplicate_uid ->
+        %{duplicate_uid: duplicate_uid, canonical: set.canonical, ip: set.ip}
       end)
     end)
+  end
+
+  defp merge_duplicate_device(%{duplicate_uid: duplicate_uid, canonical: canonical, ip: ip}, actor, acc) do
+    case IdentityReconciler.merge_devices(
+           duplicate_uid,
+           canonical,
+           actor: actor,
+           reason: "manual_mapper_ip_identity_collapse",
+           details: %{"ip" => ip}
+         ) do
+      :ok ->
+        %{acc | merged: acc.merged + 1}
+
+      {:error, reason} ->
+        Logger.warning("Failed duplicate IP merge #{duplicate_uid} -> #{canonical} for #{ip}: #{inspect(reason)}")
+        %{acc | failed: acc.failed + 1}
+    end
   end
 end

@@ -708,6 +708,7 @@ defmodule Connection do
     end
   end
 
+  @spec enter_terminate(module, term, term, term, term) :: no_return
   defp enter_terminate(mod, mod_state, name, reason, report_reason) do
     try do
       apply(mod, :terminate, [reason, mod_state])
@@ -729,6 +730,7 @@ defmodule Connection do
     end
   end
 
+  @spec enter_stop(module, term, term, term, term) :: no_return
   defp enter_stop(_, _, _, :normal, {:stop, :normal}), do: exit(:normal)
   defp enter_stop(_, _, _, :shutdown, {:stop, :shutdown}), do: exit(:shutdown)
 

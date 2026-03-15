@@ -6,13 +6,13 @@ defmodule ServiceRadar.Inventory.Changes.InvalidateSnmpConfigs do
   use Ash.Resource.Change
 
   alias ServiceRadar.AgentConfig.ConfigServer
+  alias ServiceRadar.Changes.AfterAction
 
   @impl true
   def change(changeset, _opts, _context) do
-    Ash.Changeset.after_action(changeset, fn _changeset, record ->
+    AfterAction.after_action(changeset, fn _record ->
       ConfigServer.invalidate(:snmp)
       ConfigServer.invalidate(:mapper)
-      {:ok, record}
     end)
   end
 

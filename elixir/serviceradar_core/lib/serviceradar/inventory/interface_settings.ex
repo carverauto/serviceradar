@@ -18,6 +18,24 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  @interface_settings_fields [
+    :favorited,
+    :metrics_enabled,
+    :metrics_selected,
+    :metric_thresholds,
+    :metric_groups,
+    :metrics_interval_seconds,
+    :threshold_enabled,
+    :threshold_value,
+    :threshold_comparison,
+    :threshold_metric,
+    :threshold_duration_seconds,
+    :threshold_severity,
+    :tags
+  ]
+  @interface_key_fields [:device_id, :interface_uid]
+  @interface_create_fields @interface_key_fields ++ @interface_settings_fields
+
   postgres do
     table "interface_settings"
     repo ServiceRadar.Repo
@@ -50,43 +68,13 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     defaults [:read, :destroy]
 
     create :create do
-      accept [
-        :device_id,
-        :interface_uid,
-        :favorited,
-        :metrics_enabled,
-        :metrics_selected,
-        :metric_thresholds,
-        :metric_groups,
-        :metrics_interval_seconds,
-        :threshold_enabled,
-        :threshold_value,
-        :threshold_comparison,
-        :threshold_metric,
-        :threshold_duration_seconds,
-        :threshold_severity,
-        :tags
-      ]
+      accept @interface_create_fields
 
       change ServiceRadar.Inventory.Changes.NormalizeInterfaceMetricsConfig
     end
 
     update :update do
-      accept [
-        :favorited,
-        :metrics_enabled,
-        :metrics_selected,
-        :metric_thresholds,
-        :metric_groups,
-        :metrics_interval_seconds,
-        :threshold_enabled,
-        :threshold_value,
-        :threshold_comparison,
-        :threshold_metric,
-        :threshold_duration_seconds,
-        :threshold_severity,
-        :tags
-      ]
+      accept @interface_settings_fields
 
       change ServiceRadar.Inventory.Changes.NormalizeInterfaceMetricsConfig
     end
@@ -99,21 +87,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
       argument :device_id, :string, allow_nil?: false
       argument :interface_uid, :string, allow_nil?: false
 
-      accept [
-        :favorited,
-        :metrics_enabled,
-        :metrics_selected,
-        :metric_thresholds,
-        :metric_groups,
-        :metrics_interval_seconds,
-        :threshold_enabled,
-        :threshold_value,
-        :threshold_comparison,
-        :threshold_metric,
-        :threshold_duration_seconds,
-        :threshold_severity,
-        :tags
-      ]
+      accept @interface_settings_fields
 
       change set_attribute(:device_id, arg(:device_id))
       change set_attribute(:interface_uid, arg(:interface_uid))
@@ -206,32 +180,12 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    # Admins and operators can manage interface settings
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # All authenticated users can read
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :viewer)
-    end
+    system_bypass()
+    operator_action_type([:create, :update])
+    admin_action_type(:destroy)
+    read_viewer_plus()
   end
 
   attributes do

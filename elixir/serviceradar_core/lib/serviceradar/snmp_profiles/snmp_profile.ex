@@ -61,6 +61,27 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  require ServiceRadar.SNMPProfiles.CredentialDsl
+
+  @profile_fields [
+    :name,
+    :description,
+    :poll_interval,
+    :timeout,
+    :retries,
+    :enabled,
+    :target_query,
+    :priority,
+    :version,
+    :username,
+    :security_level,
+    :auth_protocol,
+    :priv_protocol,
+    :oid_template_ids
+  ]
+
+  @profile_create_fields [:is_default | @profile_fields]
+
   postgres do
     table "snmp_profiles"
     repo ServiceRadar.Repo
@@ -71,53 +92,18 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     defaults [:read, :destroy]
 
     create :create do
-      accept [
-        :name,
-        :description,
-        :poll_interval,
-        :timeout,
-        :retries,
-        :is_default,
-        :enabled,
-        :target_query,
-        :priority,
-        :version,
-        :username,
-        :security_level,
-        :auth_protocol,
-        :priv_protocol,
-        :oid_template_ids
-      ]
+      accept @profile_create_fields
 
-      argument :community, :string, allow_nil?: true, sensitive?: true
-      argument :auth_password, :string, allow_nil?: true, sensitive?: true
-      argument :priv_password, :string, allow_nil?: true, sensitive?: true
+      ServiceRadar.SNMPProfiles.CredentialDsl.credential_action_arguments()
 
       change ServiceRadar.SNMPProfiles.Changes.ValidateSrqlQuery
       change ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
     end
 
     update :update do
-      accept [
-        :name,
-        :description,
-        :poll_interval,
-        :timeout,
-        :retries,
-        :enabled,
-        :target_query,
-        :priority,
-        :version,
-        :username,
-        :security_level,
-        :auth_protocol,
-        :priv_protocol,
-        :oid_template_ids
-      ]
+      accept @profile_fields
 
-      argument :community, :string, allow_nil?: true, sensitive?: true
-      argument :auth_password, :string, allow_nil?: true, sensitive?: true
-      argument :priv_password, :string, allow_nil?: true, sensitive?: true
+      ServiceRadar.SNMPProfiles.CredentialDsl.credential_action_arguments()
 
       require_atomic? false
       change ServiceRadar.SNMPProfiles.Changes.ValidateSrqlQuery
@@ -171,30 +157,17 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
   end
 
   policies do
-    # System actors bypass all checks
+    import ServiceRadar.Policies
 
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admins can create and update
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Everyone can read
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    system_bypass()
+    admin_action_type(:create)
+    admin_action_type(:update)
+    read_all()
 
     # Cannot delete default profiles
     policy action_type(:destroy) do
       forbid_if expr(is_default == true)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
   end
 
@@ -273,58 +246,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     end
 
     # SNMP credentials (profile-scoped, encrypted at rest)
-    attribute :version, :atom do
-      allow_nil? false
-      default :v2c
-      public? true
-      constraints one_of: [:v1, :v2c, :v3]
-      description "SNMP protocol version for this profile"
-    end
-
-    attribute :community_encrypted, :binary do
-      allow_nil? true
-      public? false
-      description "Encrypted community string for SNMPv1/v2c"
-    end
-
-    attribute :username, :string do
-      allow_nil? true
-      public? true
-      description "Username for SNMPv3"
-    end
-
-    attribute :security_level, :atom do
-      allow_nil? true
-      public? true
-      constraints one_of: [:no_auth_no_priv, :auth_no_priv, :auth_priv]
-      description "SNMPv3 security level"
-    end
-
-    attribute :auth_protocol, :atom do
-      allow_nil? true
-      public? true
-      constraints one_of: [:md5, :sha, :sha224, :sha256, :sha384, :sha512]
-      description "SNMPv3 authentication protocol"
-    end
-
-    attribute :auth_password_encrypted, :binary do
-      allow_nil? true
-      public? false
-      description "Encrypted SNMPv3 auth password"
-    end
-
-    attribute :priv_protocol, :atom do
-      allow_nil? true
-      public? true
-      constraints one_of: [:des, :aes, :aes192, :aes256, :aes192c, :aes256c]
-      description "SNMPv3 privacy (encryption) protocol"
-    end
-
-    attribute :priv_password_encrypted, :binary do
-      allow_nil? true
-      public? false
-      description "Encrypted SNMPv3 privacy password"
-    end
+    ServiceRadar.SNMPProfiles.CredentialDsl.credential_attributes()
 
     timestamps()
   end

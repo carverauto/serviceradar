@@ -38,6 +38,27 @@ defmodule ServiceRadar.Monitoring.Alert do
   }
 
   alias ServiceRadar.Oban.AshObanQueueResolver
+  @alert_trigger_fields [
+    :title,
+    :description,
+    :severity,
+    :source_type,
+    :source_id,
+    :event_id,
+    :event_time,
+    :service_check_id,
+    :device_uid,
+    :agent_uid,
+    :metric_name,
+    :metric_value,
+    :threshold_value,
+    :comparison,
+    :metadata,
+    :tags
+  ]
+  @alert_metadata_fields [:metadata, :tags]
+  @alert_operator_actions [:trigger, :acknowledge, :resolve, :record_notification, :update_metadata]
+  @alert_admin_actions [:escalate, :suppress, :reopen]
 
   postgres do
     table "alerts"
@@ -176,24 +197,7 @@ defmodule ServiceRadar.Monitoring.Alert do
     create :trigger do
       description "Trigger a new alert"
 
-      accept [
-        :title,
-        :description,
-        :severity,
-        :source_type,
-        :source_id,
-        :event_id,
-        :event_time,
-        :service_check_id,
-        :device_uid,
-        :agent_uid,
-        :metric_name,
-        :metric_value,
-        :threshold_value,
-        :comparison,
-        :metadata,
-        :tags
-      ]
+      accept @alert_trigger_fields
 
       change set_attribute(:triggered_at, &DateTime.utc_now/0)
     end
@@ -264,11 +268,7 @@ defmodule ServiceRadar.Monitoring.Alert do
       require_atomic? false
 
       change fn changeset, _context ->
-        current_count = changeset.data.notification_count || 0
-
-        changeset
-        |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
-        |> Ash.Changeset.change_attribute(:last_notification_at, DateTime.utc_now())
+        increment_notification_tracking(changeset)
       end
     end
 
@@ -291,53 +291,34 @@ defmodule ServiceRadar.Monitoring.Alert do
         # TODO: Implement actual notification dispatch (email, webhook, PubSub, etc.)
         # For now, just record that a notification was sent
 
-        changeset
-        |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
-        |> Ash.Changeset.change_attribute(:last_notification_at, DateTime.utc_now())
+        increment_notification_tracking(changeset, current_count)
       end
     end
 
     update :update_metadata do
-      accept [:metadata, :tags]
+      accept @alert_metadata_fields
     end
   end
 
+  defp increment_notification_tracking(changeset, current_count \\ nil) do
+    current_count = current_count || changeset.data.notification_count || 0
+
+    changeset
+    |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
+    |> Ash.Changeset.change_attribute(:last_notification_at, DateTime.utc_now())
+  end
+
   policies do
-    # Import common policy checks
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Read access: authenticated users with appropriate roles
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Trigger alerts: Operators/admins
-    policy action(:trigger) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Acknowledge/resolve: Operators/admins
-    policy action([:acknowledge, :resolve, :record_notification, :update_metadata]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Escalate/suppress/reopen: Admins only
-    policy action([:escalate, :suppress, :reopen]) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action(@alert_operator_actions)
+    admin_action(@alert_admin_actions)
 
     # Send notification: Operators/admins, or AshOban (no actor)
     policy action(:send_notification) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_operator()
 
       # Allow AshOban scheduler (no actor) to send notifications
       authorize_if ServiceRadar.Policies.Checks.ActorIsNil

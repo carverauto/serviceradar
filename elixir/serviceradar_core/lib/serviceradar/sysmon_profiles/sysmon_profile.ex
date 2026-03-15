@@ -141,32 +141,11 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
   end
 
   policies do
-    # System actors can do anything
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admins can manage profiles
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Non-admin users can read profiles
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :viewer)
-    end
+    system_bypass()
+    admin_action_type([:create, :update, :destroy])
+    read_viewer_plus()
   end
 
   attributes do

@@ -68,6 +68,6 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotControllerTest do
 
     assert conn.status == 500
     assert body["error"] == "snapshot_build_failed"
-    assert body["reason"] =~ "real_time_budget_exceeded"
+    refute Map.has_key?(body, "reason")
   end
 end

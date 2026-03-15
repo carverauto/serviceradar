@@ -39,8 +39,12 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     extensions: [AshStateMachine, AshCloak]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.Workers.ProvisionLeafWorker
+
+  @server_fields [:edge_site_id, :upstream_url, :local_listen]
+  @internal_server_actions [:provision, :connect, :disconnect]
 
   postgres do
     table "nats_leaf_servers"
@@ -79,17 +83,11 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
     create :create do
       description "Create NATS leaf server for an edge site"
-      accept [:edge_site_id, :upstream_url, :local_listen]
+      accept @server_fields
 
       # Trigger provisioning after creation
       change fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          # Enqueue async provisioning
-          case ProvisionLeafWorker.enqueue(leaf_server.id) do
-            {:ok, _job} -> {:ok, leaf_server}
-            {:error, reason} -> {:error, reason}
-          end
-        end)
+        AfterAction.after_action_result(changeset, &ProvisionLeafWorker.enqueue(&1.id))
       end
     end
 
@@ -144,10 +142,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
       # Also update the parent EdgeSite status
       change fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          update_edge_site_status(leaf_server, :active)
-          {:ok, leaf_server}
-        end)
+        AfterAction.after_action_result(changeset, &update_edge_site_status(&1, :active))
       end
     end
 
@@ -161,10 +156,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
       # Also update the parent EdgeSite status
       change fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          update_edge_site_status(leaf_server, :offline)
-          {:ok, leaf_server}
-        end)
+        AfterAction.after_action_result(changeset, &update_edge_site_status(&1, :offline))
       end
     end
 
@@ -175,29 +167,16 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       accept []
 
       change fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          # Enqueue provisioning job
-          case ProvisionLeafWorker.enqueue(leaf_server.id) do
-            {:ok, _job} -> {:ok, leaf_server}
-            {:error, reason} -> {:error, reason}
-          end
-        end)
+        AfterAction.after_action_result(changeset, &ProvisionLeafWorker.enqueue(&1.id))
       end
     end
   end
 
   policies do
-    # System actors can manage all servers
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admins can read servers
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    admin_action_type(:read)
 
     # Create is done internally
     policy action_type(:create) do
@@ -205,13 +184,13 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     end
 
     # Status updates are internal
-    policy action([:provision, :connect, :disconnect]) do
+    policy action(@internal_server_actions) do
       authorize_if always()
     end
 
     # Reprovision requires admin
     policy action(:reprovision) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if is_admin()
     end
   end
 

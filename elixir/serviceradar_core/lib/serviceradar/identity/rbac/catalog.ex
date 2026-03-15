@@ -5,6 +5,11 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
   Permissions are grouped by section and action-level keys.
   """
 
+  @all_roles ServiceRadar.Identity.Constants.all_roles()
+  @operator_roles ServiceRadar.Identity.Constants.operator_roles()
+  @helpdesk_roles ServiceRadar.Identity.Constants.helpdesk_roles()
+  @admin_roles ServiceRadar.Identity.Constants.admin_roles()
+
   @catalog [
     %{
       section: "analytics",
@@ -14,13 +19,13 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "analytics.view",
           label: "View analytics",
           description: "View analytics dashboards and queries",
-          default_roles: [:viewer, :helpdesk, :operator, :admin]
+          default_roles: @all_roles
         },
         %{
           key: "analytics.manage_queries",
           label: "Manage analytics queries",
           description: "Create and manage saved analytics queries",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         }
       ]
     },
@@ -32,49 +37,49 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "devices.view",
           label: "View devices",
           description: "View device inventory and details",
-          default_roles: [:viewer, :helpdesk, :operator, :admin]
+          default_roles: @all_roles
         },
         %{
           key: "devices.create",
           label: "Create devices",
           description: "Create devices and inventory records",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "devices.update",
           label: "Update devices",
           description: "Edit device properties and metadata",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "devices.bulk_edit",
           label: "Bulk edit devices",
           description: "Apply tags and bulk edits to devices",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "devices.delete",
           label: "Delete devices",
           description: "Delete devices and inventory records",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "devices.bulk_delete",
           label: "Bulk delete devices",
           description: "Bulk delete device inventory records",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "devices.import",
           label: "Import devices",
           description: "Import devices via CSV",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "devices.export",
           label: "Export devices",
           description: "Export device inventory",
-          default_roles: [:viewer, :helpdesk, :operator, :admin]
+          default_roles: @all_roles
         }
       ]
     },
@@ -86,31 +91,31 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "services.view",
           label: "View services",
           description: "View service checks and status",
-          default_roles: [:viewer, :helpdesk, :operator, :admin]
+          default_roles: @all_roles
         },
         %{
           key: "services.create",
           label: "Create services",
           description: "Create service checks",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "services.update",
           label: "Update services",
           description: "Update service checks",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "services.delete",
           label: "Delete services",
           description: "Delete service checks",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "services.run",
           label: "Run services",
           description: "Trigger service checks and runs",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         }
       ]
     },
@@ -122,67 +127,67 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "observability.logs.view",
           label: "View logs",
           description: "View logs and log detail pages",
-          default_roles: [:viewer, :helpdesk, :operator, :admin]
+          default_roles: @all_roles
         },
         %{
           key: "observability.metrics.view",
           label: "View metrics",
           description: "View metrics and metric detail pages",
-          default_roles: [:viewer, :helpdesk, :operator, :admin]
+          default_roles: @all_roles
         },
         %{
           key: "observability.traces.view",
           label: "View traces",
           description: "View traces and trace detail pages",
-          default_roles: [:viewer, :helpdesk, :operator, :admin]
+          default_roles: @all_roles
         },
         %{
           key: "observability.events.view",
           label: "View events",
           description: "View events and event detail pages",
-          default_roles: [:viewer, :helpdesk, :operator, :admin]
+          default_roles: @all_roles
         },
         %{
           key: "observability.netflow.view",
           label: "View netflow",
           description: "View netflow and flow detail pages",
-          default_roles: [:viewer, :helpdesk, :operator, :admin]
+          default_roles: @all_roles
         },
         %{
           key: "observability.alerts.view",
           label: "View alerts",
           description: "View alerts and alert detail pages",
-          default_roles: [:viewer, :helpdesk, :operator, :admin]
+          default_roles: @all_roles
         },
         %{
           key: "observability.rules.view",
           label: "View rules",
           description: "View observability rule definitions",
-          default_roles: [:viewer, :helpdesk, :operator, :admin]
+          default_roles: @all_roles
         },
         %{
           key: "observability.rules.create",
           label: "Create rules",
           description: "Create observability rules",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "observability.rules.update",
           label: "Update rules",
           description: "Update observability rules",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "observability.rules.delete",
           label: "Delete rules",
           description: "Delete observability rules",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "observability.alerts.manage",
           label: "Manage alerts",
           description: "Acknowledge and resolve alerts",
-          default_roles: [:helpdesk, :operator, :admin]
+          default_roles: @helpdesk_roles
         }
       ]
     },
@@ -194,67 +199,67 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "settings.view",
           label: "View settings",
           description: "View settings pages",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "settings.auth.manage",
           label: "Manage users and auth",
           description: "Manage users, roles, and auth settings",
-          default_roles: [:admin]
+          default_roles: @admin_roles
         },
         %{
           key: "settings.rbac.manage",
           label: "Manage RBAC policies",
           description: "Manage role profiles and permissions",
-          default_roles: [:admin]
+          default_roles: @admin_roles
         },
         %{
           key: "settings.networks.manage",
           label: "Manage networks",
           description: "Manage sweep groups and discovery",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "settings.netflow.manage",
           label: "Manage NetFlow settings",
           description: "Manage NetFlow enrichment and directionality settings",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "settings.integrations.manage",
           label: "Manage integrations",
           description: "Manage integration sources and sync configuration",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "settings.snmp_profiles.manage",
           label: "Manage SNMP profiles",
           description: "Manage SNMP profiles",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "settings.sysmon_profiles.manage",
           label: "Manage Sysmon profiles",
           description: "Manage Sysmon profiles",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "settings.jobs.manage",
           label: "Manage jobs",
           description: "Trigger or manage background jobs",
-          default_roles: [:admin]
+          default_roles: @admin_roles
         },
         %{
           key: "settings.plugins.manage",
           label: "Manage plugins",
           description: "Manage plugin packages and assignments",
-          default_roles: [:admin]
+          default_roles: @admin_roles
         },
         %{
           key: "settings.edge.manage",
           label: "Manage edge packages",
           description: "Manage edge onboarding packages",
-          default_roles: [:admin]
+          default_roles: @admin_roles
         }
       ]
     },
@@ -266,25 +271,25 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "plugins.view",
           label: "View plugins",
           description: "View plugins and plugin packages",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "plugins.stage",
           label: "Stage plugin packages",
           description: "Stage (upload/import) plugin packages for review",
-          default_roles: [:admin]
+          default_roles: @admin_roles
         },
         %{
           key: "plugins.approve",
           label: "Approve plugin packages",
           description: "Approve/deny/revoke plugin packages",
-          default_roles: [:admin]
+          default_roles: @admin_roles
         },
         %{
           key: "plugins.assign",
           label: "Assign plugins",
           description: "Assign plugins to agents and resources",
-          default_roles: [:admin]
+          default_roles: @admin_roles
         }
       ]
     },
@@ -296,13 +301,13 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "networks.sweeps.run",
           label: "Run sweeps now",
           description: "Trigger on-demand network sweeps",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         },
         %{
           key: "networks.discovery.run",
           label: "Run discovery now",
           description: "Trigger on-demand discovery jobs",
-          default_roles: [:operator, :admin]
+          default_roles: @operator_roles
         }
       ]
     }

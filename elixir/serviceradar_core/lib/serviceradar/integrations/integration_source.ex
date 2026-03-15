@@ -28,6 +28,23 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     extensions: [AshStateMachine, AshCloak],
     notifiers: [ServiceRadar.Integrations.IntegrationSourceNotifier]
 
+  @source_fields [
+    :name,
+    :endpoint,
+    :agent_id,
+    :gateway_id,
+    :partition,
+    :poll_interval_seconds,
+    :discovery_interval_seconds,
+    :sweep_interval_seconds,
+    :page_size,
+    :network_blacklist,
+    :queries,
+    :custom_fields,
+    :settings
+  ]
+  @source_create_fields [:source_type | @source_fields]
+
   postgres do
     table "integration_sources"
     repo ServiceRadar.Repo
@@ -84,22 +101,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     end
 
     create :create do
-      accept [
-        :name,
-        :source_type,
-        :endpoint,
-        :agent_id,
-        :gateway_id,
-        :partition,
-        :poll_interval_seconds,
-        :discovery_interval_seconds,
-        :sweep_interval_seconds,
-        :page_size,
-        :network_blacklist,
-        :queries,
-        :custom_fields,
-        :settings
-      ]
+      accept @source_create_fields
 
       argument :credentials, :map do
         description "Credentials map (will be encrypted)"
@@ -125,21 +127,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       # Non-atomic due to credentials encoding and agent availability check
       require_atomic? false
 
-      accept [
-        :name,
-        :endpoint,
-        :agent_id,
-        :gateway_id,
-        :partition,
-        :poll_interval_seconds,
-        :discovery_interval_seconds,
-        :sweep_interval_seconds,
-        :page_size,
-        :network_blacklist,
-        :queries,
-        :custom_fields,
-        :settings
-      ]
+      accept @source_fields
 
       argument :credentials, :map do
         description "New credentials (will be encrypted)"
@@ -266,22 +254,11 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    # Read: admins, operators, and viewers
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :viewer)
-    end
-
-    # Create/Update/Delete: admins only
-    policy action_type([:create, :update, :destroy]) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    admin_action_type([:create, :update, :destroy])
   end
 
   changes do

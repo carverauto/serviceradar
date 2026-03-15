@@ -4,6 +4,7 @@ defmodule ServiceRadar.Identity.RoleMapping do
   """
 
   alias ServiceRadar.Identity.AuthorizationSettings
+  alias ServiceRadar.Identity.RoleMappingSupport
 
   @default_role :viewer
 
@@ -27,10 +28,10 @@ defmodule ServiceRadar.Identity.RoleMapping do
 
   defp match_mappings(mappings, claims) do
     Enum.find_value(mappings, fn mapping ->
-      source = normalize_value(get_key(mapping, "source"))
-      value = normalize_value(get_key(mapping, "value"))
-      role = normalize_role(get_key(mapping, "role"))
-      claim_key = normalize_value(get_key(mapping, "claim"))
+      source = normalize_value(RoleMappingSupport.get_key(mapping, "source"))
+      value = normalize_value(RoleMappingSupport.get_key(mapping, "value"))
+      role = RoleMappingSupport.normalize_role(RoleMappingSupport.get_key(mapping, "role"))
+      claim_key = normalize_value(RoleMappingSupport.get_key(mapping, "claim"))
 
       if role && value && source && matches?(source, value, claim_key, claims) do
         role
@@ -53,7 +54,9 @@ defmodule ServiceRadar.Identity.RoleMapping do
   end
 
   defp matches?("email_domain", value, _claim_key, claims) do
-    email = normalize_value(get_key(claims, "email")) || normalize_value(get_key(claims, "mail"))
+    email =
+      normalize_value(RoleMappingSupport.get_key(claims, "email")) ||
+        normalize_value(RoleMappingSupport.get_key(claims, "mail"))
 
     case email do
       nil -> false
@@ -62,7 +65,10 @@ defmodule ServiceRadar.Identity.RoleMapping do
   end
 
   defp matches?("email", value, _claim_key, claims) do
-    email = normalize_value(get_key(claims, "email")) || normalize_value(get_key(claims, "mail"))
+    email =
+      normalize_value(RoleMappingSupport.get_key(claims, "email")) ||
+        normalize_value(RoleMappingSupport.get_key(claims, "mail"))
+
     email == value
   end
 
@@ -72,7 +78,7 @@ defmodule ServiceRadar.Identity.RoleMapping do
     if claim_key == "" do
       false
     else
-      claim_value = get_key(claims, claim_key)
+      claim_value = RoleMappingSupport.get_key(claims, claim_key)
 
       case claim_value do
         list when is_list(list) -> Enum.any?(list, &(normalize_value(&1) == value))
@@ -86,7 +92,7 @@ defmodule ServiceRadar.Identity.RoleMapping do
   defp extract_claim_values(claims, keys) do
     keys
     |> Enum.flat_map(fn key ->
-      case get_key(claims, key) do
+      case RoleMappingSupport.get_key(claims, key) do
         nil -> []
         list when is_list(list) -> Enum.map(list, &normalize_value/1)
         value -> split_values(value)
@@ -112,30 +118,4 @@ defmodule ServiceRadar.Identity.RoleMapping do
 
   defp normalize_value(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_value(value), do: to_string(value)
-
-  defp normalize_role(nil), do: nil
-  defp normalize_role(role) when role in [:viewer, :helpdesk, :operator, :admin], do: role
-
-  defp normalize_role(role) when is_binary(role) do
-    case role do
-      "viewer" -> :viewer
-      "helpdesk" -> :helpdesk
-      "operator" -> :operator
-      "admin" -> :admin
-      _ -> nil
-    end
-  end
-
-  defp get_key(map, key) when is_map(map) and is_binary(key) do
-    Map.get(map, key) || get_atom_key(map, key)
-  end
-
-  defp get_key(map, key) when is_map(map), do: Map.get(map, key)
-
-  defp get_atom_key(map, key) do
-    atom_key = String.to_existing_atom(key)
-    Map.get(map, atom_key)
-  rescue
-    ArgumentError -> nil
-  end
 end

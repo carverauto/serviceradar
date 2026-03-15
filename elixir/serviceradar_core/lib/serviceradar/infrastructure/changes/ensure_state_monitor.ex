@@ -12,16 +12,14 @@ defmodule ServiceRadar.Infrastructure.Changes.EnsureStateMonitor do
 
   use Ash.Resource.Change
 
+  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Infrastructure.StateMonitor
 
   require Logger
 
   @impl true
   def change(changeset, _opts, _context) do
-    Ash.Changeset.after_action(changeset, fn _changeset, record ->
-      ensure_state_monitor_running()
-      {:ok, record}
-    end)
+    AfterAction.after_action(changeset, fn _record -> ensure_state_monitor_running() end)
   end
 
   @impl true

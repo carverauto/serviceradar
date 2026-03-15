@@ -9,6 +9,8 @@ defmodule ServiceRadar.Plugins.PluginInputs do
   execution or API credentials.
   """
 
+  alias ServiceRadar.Plugins.{IdentityUtils, MapUtils, PayloadUtils}
+
   @schema_id "serviceradar.plugin_inputs.v1"
   @soft_limit_bytes 262_144
   @hard_limit_bytes 1_000_000
@@ -96,11 +98,8 @@ defmodule ServiceRadar.Plugins.PluginInputs do
   def validate(_), do: {:error, ["plugin inputs payload must be an object"]}
 
   @spec payload_size_bytes(map()) :: non_neg_integer()
-  def payload_size_bytes(payload) when is_map(payload) do
-    payload
-    |> Jason.encode!()
-    |> byte_size()
-  end
+  def payload_size_bytes(payload) when is_map(payload),
+    do: PayloadUtils.payload_size_bytes(payload)
 
   @spec chunk_single_input_payloads(map(), input_descriptor(), [map()], keyword()) ::
           {:ok, [map()]} | {:error, [String.t()]}
@@ -108,7 +107,13 @@ defmodule ServiceRadar.Plugins.PluginInputs do
 
   def chunk_single_input_payloads(base_payload, input, items, opts)
       when is_map(base_payload) and is_map(input) and is_list(items) do
-    chunk_size = clamp_chunk_size(Keyword.get(opts, :chunk_size, @default_chunk_size))
+    chunk_size =
+      PayloadUtils.clamp_chunk_size(
+        Keyword.get(opts, :chunk_size, @default_chunk_size),
+        @default_chunk_size,
+        @max_items_per_input
+      )
+
     hard_limit = Keyword.get(opts, :hard_limit_bytes, @hard_limit_bytes)
 
     normalized_items =
@@ -132,8 +137,8 @@ defmodule ServiceRadar.Plugins.PluginInputs do
   end
 
   defp build_payloads(base_payload, input, chunks) do
-    payload_base = stringify_keys(base_payload)
-    input = stringify_keys(input)
+    payload_base = MapUtils.stringify_keys(base_payload)
+    input = MapUtils.stringify_keys(input)
     total = length(chunks)
 
     payloads =
@@ -171,55 +176,33 @@ defmodule ServiceRadar.Plugins.PluginInputs do
   end
 
   defp validate_payload_sizes(payloads, hard_limit) do
-    oversized = Enum.filter(payloads, &(payload_size_bytes(&1) > hard_limit))
-
-    if oversized == [] do
-      :ok
-    else
-      {:error, ["generated plugin inputs payload exceeds hard size limit"]}
-    end
+    PayloadUtils.validate_payload_sizes(
+      payloads,
+      hard_limit,
+      "generated plugin inputs payload exceeds hard size limit"
+    )
   end
 
   defp enforce_size_chunks(base_payload, input, chunks, hard_limit) do
-    chunks
-    |> Enum.reduce_while({:ok, []}, fn chunk, {:ok, acc} ->
-      case split_chunk_until_fits(base_payload, input, chunk, hard_limit) do
-        {:ok, split_chunks} -> {:cont, {:ok, acc ++ split_chunks}}
-        {:error, _} = error -> {:halt, error}
-      end
-    end)
+    PayloadUtils.enforce_size_chunks(
+      chunks,
+      &split_chunk_until_fits(base_payload, input, &1, hard_limit)
+    )
   end
 
   defp split_chunk_until_fits(base_payload, input, chunk, hard_limit) do
-    if chunk == [] do
-      {:ok, []}
-    else
-      test_payload =
-        build_test_payload(base_payload, input, chunk)
-
-      cond do
-        payload_size_bytes(test_payload) <= hard_limit and length(chunk) <= @max_items_per_input ->
-          {:ok, [chunk]}
-
-        length(chunk) == 1 ->
-          {:error, ["single input item exceeds hard size limit"]}
-
-        true ->
-          midpoint = div(length(chunk), 2)
-          {left, right} = Enum.split(chunk, midpoint)
-
-          with {:ok, left_chunks} <- split_chunk_until_fits(base_payload, input, left, hard_limit),
-               {:ok, right_chunks} <-
-                 split_chunk_until_fits(base_payload, input, right, hard_limit) do
-            {:ok, left_chunks ++ right_chunks}
-          end
-      end
-    end
+    PayloadUtils.split_chunk_until_fits(
+      chunk,
+      hard_limit,
+      @max_items_per_input,
+      &build_test_payload(base_payload, input, &1),
+      "single input item exceeds hard size limit"
+    )
   end
 
   defp build_test_payload(base_payload, input, chunk) do
-    payload_base = stringify_keys(base_payload)
-    input = stringify_keys(input)
+    payload_base = MapUtils.stringify_keys(base_payload)
+    input = MapUtils.stringify_keys(input)
 
     payload_base
     |> Map.put("schema", @schema_id)
@@ -237,22 +220,12 @@ defmodule ServiceRadar.Plugins.PluginInputs do
   end
 
   defp do_validate(params) do
-    resolved = ExJsonSchema.Schema.resolve(@schema)
-
-    case ExJsonSchema.Validator.validate(resolved, params) do
-      :ok ->
-        size = payload_size_bytes(params)
-
-        if size > @hard_limit_bytes do
-          {:error,
-           ["plugin inputs payload exceeds hard size limit of #{@hard_limit_bytes} bytes"]}
-        else
-          :ok
-        end
-
-      {:error, errors} ->
-        {:error, Enum.map(errors, &format_error/1)}
-    end
+    PayloadUtils.validate_schema_and_size(
+      params,
+      @schema,
+      @hard_limit_bytes,
+      "plugin inputs payload exceeds hard size limit of #{@hard_limit_bytes} bytes"
+    )
   end
 
   defp plugin_inputs_payload?(%{"schema" => @schema_id}), do: true
@@ -263,38 +236,12 @@ defmodule ServiceRadar.Plugins.PluginInputs do
   defp normalize_item(_), do: %{}
 
   defp item_sort_key(item) do
-    cond do
-      is_binary(item["uid"]) and item["uid"] != "" -> "uid:" <> item["uid"]
-      is_binary(item["id"]) and item["id"] != "" -> "id:" <> item["id"]
-      true -> Jason.encode!(item)
-    end
+    IdentityUtils.item_identity(item)
   end
 
   defp chunk_hash(items) do
-    hash =
-      items
-      |> Enum.sort_by(&item_sort_key/1)
-      |> :erlang.term_to_binary()
-      |> then(&:crypto.hash(:sha256, &1))
-
-    Base.encode16(hash, case: :lower)
+    IdentityUtils.chunk_hash(items, &item_sort_key/1)
   end
 
-  defp clamp_chunk_size(value) when is_integer(value) and value > 0 do
-    min(value, @max_items_per_input)
-  end
-
-  defp clamp_chunk_size(_), do: @default_chunk_size
-
-  defp stringify_keys(%{} = map) do
-    map
-    |> Enum.map(fn {key, value} -> {to_string(key), stringify_keys(value)} end)
-    |> Map.new()
-  end
-
-  defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
-  defp stringify_keys(value), do: value
-
-  defp format_error(%ExJsonSchema.Validator.Error{} = error), do: inspect(error)
-  defp format_error(other), do: inspect(other)
+  defp stringify_keys(value), do: MapUtils.stringify_keys(value)
 end

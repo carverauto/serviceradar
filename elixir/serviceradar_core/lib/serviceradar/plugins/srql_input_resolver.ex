@@ -7,6 +7,7 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   """
 
   alias ServiceRadar.Observability.SRQLRunner
+  alias ServiceRadar.Plugins.{MapUtils, ValueUtils}
 
   @supported_entities MapSet.new(["devices", "interfaces"])
 
@@ -45,14 +46,17 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   def resolve(_input_defs, _opts), do: {:error, ["input definitions must be a list"]}
 
   defp normalize_input_def(input_def) when is_map(input_def) do
-    name = string_value(input_def, [:name, "name"])
-    entity = input_def |> string_value([:entity, "entity"]) |> normalize_entity()
-    raw_query = string_value(input_def, [:query, "query"])
+    name = ValueUtils.string_value(input_def, [:name, "name"])
+
+    entity =
+      input_def |> ValueUtils.string_value([:entity, "entity"]) |> ValueUtils.normalize_entity()
+
+    raw_query = ValueUtils.string_value(input_def, [:query, "query"])
 
     cond do
-      blank?(name) -> {:error, ["input definition is missing name"]}
-      blank?(entity) -> {:error, ["input definition is missing entity"]}
-      blank?(raw_query) -> {:error, ["input definition is missing query"]}
+      ValueUtils.blank_string?(name) -> {:error, ["input definition is missing name"]}
+      ValueUtils.blank_string?(entity) -> {:error, ["input definition is missing entity"]}
+      ValueUtils.blank_string?(raw_query) -> {:error, ["input definition is missing query"]}
       true -> {:ok, %{name: name, entity: entity, query: normalize_query(raw_query, entity)}}
     end
   end
@@ -72,7 +76,7 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
 
     case Regex.run(~r/^in:([a-zA-Z0-9_]+)/, trimmed) do
       [_, declared] ->
-        if normalize_entity(declared) == entity do
+        if ValueUtils.normalize_entity(declared) == entity do
           trimmed
         else
           "in:#{entity} " <> trimmed
@@ -84,42 +88,8 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   end
 
   defp normalize_rows(rows) do
-    Enum.map(rows, &stringify_keys/1)
+    Enum.map(rows, &MapUtils.stringify_keys/1)
   end
-
-  defp stringify_keys(%{} = map) do
-    map
-    |> Enum.map(fn {k, v} -> {to_string(k), stringify_keys(v)} end)
-    |> Map.new()
-  end
-
-  defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
-  defp stringify_keys(value), do: value
-
-  defp normalize_entity(entity) when is_binary(entity) do
-    entity
-    |> String.trim()
-    |> String.downcase()
-  end
-
-  defp normalize_entity(entity) when is_atom(entity),
-    do: entity |> Atom.to_string() |> normalize_entity()
-
-  defp normalize_entity(_), do: ""
-
-  defp string_value(map, keys) do
-    keys
-    |> Enum.find_value(fn key -> Map.get(map, key) end)
-    |> case do
-      nil -> nil
-      value when is_binary(value) -> String.trim(value)
-      value when is_atom(value) -> Atom.to_string(value)
-      _ -> nil
-    end
-  end
-
-  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
-  defp blank?(_), do: true
 
   defp format_error(reason), do: "failed to execute SRQL input query: #{inspect(reason)}"
 end

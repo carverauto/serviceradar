@@ -26,6 +26,7 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
 
   use Ash.Resource.Change
 
+  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Infrastructure.HealthTracker
 
   require Logger
@@ -48,10 +49,7 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
     old_state = Ash.Changeset.get_data(changeset, :status)
 
     # Add after_action hook to publish the event
-    Ash.Changeset.after_action(changeset, fn _changeset, record ->
-      publish_event(record, old_state, opts, context)
-      {:ok, record}
-    end)
+    AfterAction.after_action(changeset, &publish_event(&1, old_state, opts, context))
   end
 
   @impl true

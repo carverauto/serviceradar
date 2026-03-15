@@ -11,6 +11,15 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  @snmp_credential_fields [
+    :version,
+    :username,
+    :security_level,
+    :auth_protocol,
+    :priv_protocol
+  ]
+  @device_snmp_credential_fields [:device_id | @snmp_credential_fields]
+
   postgres do
     table "device_snmp_credentials"
     repo ServiceRadar.Repo
@@ -30,14 +39,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
     end
 
     create :create do
-      accept [
-        :device_id,
-        :version,
-        :username,
-        :security_level,
-        :auth_protocol,
-        :priv_protocol
-      ]
+      accept @device_snmp_credential_fields
 
       argument :community, :string, allow_nil?: true, sensitive?: true
       argument :auth_password, :string, allow_nil?: true, sensitive?: true
@@ -48,13 +50,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
     end
 
     update :update do
-      accept [
-        :version,
-        :username,
-        :security_level,
-        :auth_protocol,
-        :priv_protocol
-      ]
+      accept @snmp_credential_fields
 
       argument :community, :string, allow_nil?: true, sensitive?: true
       argument :auth_password, :string, allow_nil?: true, sensitive?: true
@@ -71,13 +67,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
 
       argument :device_id, :string, allow_nil?: false
 
-      accept [
-        :version,
-        :username,
-        :security_level,
-        :auth_protocol,
-        :priv_protocol
-      ]
+      accept @snmp_credential_fields
 
       argument :community, :string, allow_nil?: true, sensitive?: true
       argument :auth_password, :string, allow_nil?: true, sensitive?: true
@@ -96,27 +86,12 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    system_bypass()
+    operator_action_type([:create, :update])
+    admin_action_type(:destroy)
+    read_all()
   end
 
   attributes do

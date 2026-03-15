@@ -25,6 +25,21 @@ defmodule ServiceRadar.Infrastructure.Checker do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  @checker_fields [
+    :name,
+    :type,
+    :description,
+    :enabled,
+    :config,
+    :interval_seconds,
+    :timeout_seconds,
+    :retries,
+    :target_type,
+    :target_filter,
+    :agent_uid
+  ]
+  @checker_update_fields @checker_fields -- [:type]
+
   postgres do
     table "checkers"
     repo ServiceRadar.Repo
@@ -91,19 +106,7 @@ defmodule ServiceRadar.Infrastructure.Checker do
     end
 
     create :create do
-      accept [
-        :name,
-        :type,
-        :description,
-        :enabled,
-        :config,
-        :interval_seconds,
-        :timeout_seconds,
-        :retries,
-        :target_type,
-        :target_filter,
-        :agent_uid
-      ]
+      accept @checker_fields
 
       change fn changeset, _context ->
         now = DateTime.utc_now()
@@ -115,18 +118,7 @@ defmodule ServiceRadar.Infrastructure.Checker do
     end
 
     update :update do
-      accept [
-        :name,
-        :description,
-        :enabled,
-        :config,
-        :interval_seconds,
-        :timeout_seconds,
-        :retries,
-        :target_type,
-        :target_filter,
-        :agent_uid
-      ]
+      accept @checker_update_fields
 
       change set_attribute(:updated_at, &DateTime.utc_now/0)
     end
@@ -233,31 +225,12 @@ defmodule ServiceRadar.Infrastructure.Checker do
   end
 
   policies do
-    # Import common policy checks
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Read access
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Create checkers
-    policy action(:create) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Update/enable/disable
-    policy action([:update, :enable, :disable]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action(:create)
+    operator_action([:update, :enable, :disable])
   end
 
   changes do

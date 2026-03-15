@@ -31,6 +31,16 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     %{key: "select", label: "SELECT", description: "Find available agents"},
     %{key: "dispatch", label: "DISPATCH", description: "RPC work to agents"}
   ]
+  @gateway_registration_fields [
+    :id,
+    :component_id,
+    :registration_source,
+    :spiffe_identity,
+    :metadata,
+    :created_by,
+    :partition_id
+  ]
+  @gateway_status_fields [:is_healthy, :agent_count, :checker_count]
 
   @doc "Returns the role description for gateways"
   def role_description, do: @role_description
@@ -179,15 +189,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     create :register do
       description "Register a new gateway (starts in healthy state)"
 
-      accept [
-        :id,
-        :component_id,
-        :registration_source,
-        :spiffe_identity,
-        :metadata,
-        :created_by,
-        :partition_id
-      ]
+      accept @gateway_registration_fields
 
       change fn changeset, _context ->
         now = DateTime.utc_now()
@@ -212,7 +214,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
     update :heartbeat do
       description "Update last_seen and health status"
-      accept [:is_healthy, :agent_count, :checker_count]
+      accept @gateway_status_fields
 
       change set_attribute(:last_seen, &DateTime.utc_now/0)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
@@ -356,31 +358,12 @@ defmodule ServiceRadar.Infrastructure.Gateway do
   end
 
   policies do
-    # System actors can see all gateways
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Read access
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Registration
-    policy action(:register) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Allow updates
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action(:register)
+    operator_action_type(:update)
   end
 
   changes do

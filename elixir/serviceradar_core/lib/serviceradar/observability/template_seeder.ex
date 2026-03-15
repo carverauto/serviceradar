@@ -6,7 +6,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
   search_path determines which schema templates are seeded into.
   """
 
-  use GenServer
+  use ServiceRadar.DelayedSeeder, callback: :seed_all
 
   require Logger
   require Ash.Query
@@ -18,24 +18,6 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
     StatefulAlertRuleTemplate,
     ZenRuleTemplate
   }
-
-  @seed_delay_ms 5_000
-
-  def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-  end
-
-  @impl true
-  def init(_opts) do
-    Process.send_after(self(), :seed, @seed_delay_ms)
-    {:ok, %{}}
-  end
-
-  @impl true
-  def handle_info(:seed, state) do
-    seed_all()
-    {:noreply, state}
-  end
 
   def seed_all do
     if repo_enabled?() do
@@ -366,10 +348,5 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
         alert: %{}
       }
     ]
-  end
-
-  defp repo_enabled? do
-    Application.get_env(:serviceradar_core, :repo_enabled, true) != false &&
-      is_pid(Process.whereis(ServiceRadar.Repo))
   end
 end

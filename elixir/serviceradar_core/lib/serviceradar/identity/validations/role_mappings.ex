@@ -5,9 +5,10 @@ defmodule ServiceRadar.Identity.Validations.RoleMappings do
 
   use Ash.Resource.Validation
 
+  alias ServiceRadar.Identity.RoleMappingSupport
+
   @allowed_sources ["groups", "email_domain", "email", "claim"]
   @allowed_keys ["source", "value", "role", "claim"]
-  @allowed_roles [:viewer, :helpdesk, :operator, :admin]
 
   @impl true
   def atomic(_changeset, _opts, _context), do: :ok
@@ -56,10 +57,10 @@ defmodule ServiceRadar.Identity.Validations.RoleMappings do
   end
 
   defp validate_mapping(mapping) do
-    source = get_key(mapping, "source")
-    value = get_key(mapping, "value")
-    role = get_key(mapping, "role")
-    claim = get_key(mapping, "claim")
+    source = RoleMappingSupport.get_key(mapping, "source")
+    value = RoleMappingSupport.get_key(mapping, "value")
+    role = RoleMappingSupport.get_key(mapping, "role")
+    claim = RoleMappingSupport.get_key(mapping, "claim")
 
     with :ok <- validate_keys(mapping),
          :ok <- validate_source(source),
@@ -93,14 +94,17 @@ defmodule ServiceRadar.Identity.Validations.RoleMappings do
   defp validate_value(_), do: {:error, "value is required"}
 
   defp validate_role(role) when is_binary(role) do
-    role_atom = String.to_existing_atom(role)
+    role_atom = RoleMappingSupport.normalize_role(role)
     validate_role(role_atom)
-  rescue
-    ArgumentError -> {:error, "role must be one of: viewer, helpdesk, operator, admin"}
   end
 
-  defp validate_role(role) when role in @allowed_roles, do: :ok
-  defp validate_role(_), do: {:error, "role must be one of: viewer, helpdesk, operator, admin"}
+  defp validate_role(role) do
+    if role in RoleMappingSupport.allowed_roles() do
+      :ok
+    else
+      {:error, "role must be one of: viewer, helpdesk, operator, admin"}
+    end
+  end
 
   defp validate_claim("claim", claim) do
     if is_binary(claim) and String.trim(claim) != "" do
@@ -159,17 +163,4 @@ defmodule ServiceRadar.Identity.Validations.RoleMappings do
   end
 
   defp validate_claim_format(_, _), do: :ok
-
-  defp get_key(map, key) when is_map(map) and is_binary(key) do
-    Map.get(map, key) || get_atom_key(map, key)
-  end
-
-  defp get_key(map, key) when is_map(map), do: Map.get(map, key)
-
-  defp get_atom_key(map, key) do
-    atom_key = String.to_existing_atom(key)
-    Map.get(map, atom_key)
-  rescue
-    ArgumentError -> nil
-  end
 end
