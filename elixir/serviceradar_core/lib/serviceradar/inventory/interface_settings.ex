@@ -33,6 +33,8 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     :threshold_severity,
     :tags
   ]
+  @interface_key_fields [:device_id, :interface_uid]
+  @interface_create_fields @interface_key_fields ++ @interface_settings_fields
 
   postgres do
     table "interface_settings"
@@ -66,7 +68,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     defaults [:read, :destroy]
 
     create :create do
-      accept [:device_id, :interface_uid | @interface_settings_fields]
+      accept @interface_create_fields
 
       change ServiceRadar.Inventory.Changes.NormalizeInterfaceMetricsConfig
     end

@@ -102,6 +102,17 @@ defmodule ServiceRadar.Policies do
   end
 
   @doc """
+  Allow reads when the actor satisfies the provided permission check.
+  """
+  defmacro read_with_permission(check) do
+    quote do
+      policy action_type(:read) do
+        authorize_if unquote(check)
+      end
+    end
+  end
+
+  @doc """
   Allow operators and admins to read.
   """
   defmacro read_operator_plus do
@@ -152,6 +163,28 @@ defmodule ServiceRadar.Policies do
     quote do
       policy action(unquote(actions)) do
         authorize_if is_operator()
+      end
+    end
+  end
+
+  @doc """
+  Restrict one or more action types to actors satisfying the provided permission check.
+  """
+  defmacro action_type_with_permission(action_type_or_types, check) do
+    quote do
+      policy action_type(unquote(action_type_or_types)) do
+        authorize_if unquote(check)
+      end
+    end
+  end
+
+  @doc """
+  Restrict one or more named actions to actors satisfying the provided permission check.
+  """
+  defmacro action_with_permission(actions, check) do
+    quote do
+      policy action(unquote(actions)) do
+        authorize_if unquote(check)
       end
     end
   end

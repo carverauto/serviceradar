@@ -145,17 +145,13 @@ defmodule ServiceRadar.Identity.AuthSettings do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if @auth_manage_check
-    end
+    system_bypass()
 
-    policy action([:create, :update]) do
-      authorize_if @auth_manage_check
-    end
+    read_with_permission(@auth_manage_check)
+
+    action_with_permission([:create, :update], @auth_manage_check)
   end
 
   defp maybe_encrypt_secret(changeset, arg_name, encrypted_attr) do

@@ -41,6 +41,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     :verified,
     :metadata
   ]
+  @device_fields [:device_id]
 
   postgres do
     table "device_identifiers"
@@ -132,7 +133,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
 
     update :reassign_device do
       description "Reassign identifier to a new device (used during merges)"
-      accept [:device_id]
+      accept @device_fields
       change set_attribute(:last_seen, &DateTime.utc_now/0)
     end
 

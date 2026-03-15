@@ -17,6 +17,7 @@ defmodule ServiceRadar.Identity.RoleProfile do
   @rbac_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                       permission: @rbac_manage_permission}
   @profile_fields [:name, :description, :permissions]
+  @system_profile_fields [:system_name | @profile_fields]
 
   postgres do
     table "role_profiles"
@@ -57,7 +58,7 @@ defmodule ServiceRadar.Identity.RoleProfile do
     end
 
     create :create_system do
-      accept [:system_name, :name, :description, :permissions]
+      accept @system_profile_fields
       change set_attribute(:system, true)
       validate ServiceRadar.Identity.Validations.PermissionKeys
       change ServiceRadar.Identity.Changes.InvalidateRbacCache
@@ -77,17 +78,13 @@ defmodule ServiceRadar.Identity.RoleProfile do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if @rbac_manage_check
-    end
+    system_bypass()
 
-    policy action([:create, :create_system, :update, :destroy]) do
-      authorize_if @rbac_manage_check
-    end
+    read_with_permission(@rbac_manage_check)
+
+    action_with_permission([:create, :create_system, :update, :destroy], @rbac_manage_check)
   end
 
   attributes do

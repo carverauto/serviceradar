@@ -55,6 +55,7 @@ defmodule ServiceRadar.Inventory.Interface do
     :partition,
     :created_at
   ]
+  @device_fields [:device_id]
 
   postgres do
     table "discovered_interfaces"
@@ -94,7 +95,7 @@ defmodule ServiceRadar.Inventory.Interface do
 
     update :reassign_device do
       description "Reassign interface records to a new device (used during merges)"
-      accept [:device_id]
+      accept @device_fields
     end
 
     destroy :destroy do
@@ -141,27 +142,19 @@ defmodule ServiceRadar.Inventory.Interface do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:create) do
-      authorize_if @devices_update_check
-    end
+    # System actors can perform all operations (schema isolation via search_path)
+    system_bypass()
+
+    action_type_with_permission(:create, @devices_update_check)
 
     # Read access for authenticated users
-    policy action_type(:read) do
-      authorize_if @devices_view_check
-    end
+    read_with_permission(@devices_view_check)
 
-    policy action_type(:update) do
-      authorize_if @devices_update_check
-    end
+    action_type_with_permission(:update, @devices_update_check)
 
-    policy action_type(:destroy) do
-      authorize_if @devices_delete_check
-    end
+    action_type_with_permission(:destroy, @devices_delete_check)
   end
 
   attributes do

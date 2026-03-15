@@ -223,11 +223,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
       authorize_if always()
     end
 
-    policy action_type(:create) do
-      authorize_if always()
-    end
-
-    policy action_type(:update) do
+    policy action_type([:create, :update]) do
       authorize_if always()
     end
   end

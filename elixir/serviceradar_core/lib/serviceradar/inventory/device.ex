@@ -125,6 +125,9 @@ defmodule ServiceRadar.Inventory.Device do
     :last_seen_time,
     :metadata
   ]
+  @group_fields [:group_id]
+  @availability_fields [:is_available]
+  @soft_delete_fields [:deleted_reason, :deleted_by]
 
   alias ServiceRadar.Inventory.IdentityReconciler
   require Ash.Query
@@ -258,7 +261,7 @@ defmodule ServiceRadar.Inventory.Device do
 
     update :assign_to_group do
       description "Assign device to a group"
-      accept [:group_id]
+      accept @group_fields
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
@@ -268,12 +271,12 @@ defmodule ServiceRadar.Inventory.Device do
     end
 
     update :set_availability do
-      accept [:is_available]
+      accept @availability_fields
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
     update :soft_delete do
-      accept [:deleted_reason, :deleted_by]
+      accept @soft_delete_fields
 
       change set_attribute(:deleted_at, &DateTime.utc_now/0)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
@@ -362,34 +365,24 @@ defmodule ServiceRadar.Inventory.Device do
   end
 
   policies do
+    import ServiceRadar.Policies
+
     # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    system_bypass()
 
     # Read access: authenticated users (schema isolation via search_path)
-    policy action_type(:read) do
-      authorize_if @devices_view_check
-    end
+    read_with_permission(@devices_view_check)
 
     # Create devices: operators/admins (schema isolation via search_path)
-    policy action_type(:create) do
-      authorize_if @devices_create_check
-    end
+    action_type_with_permission(:create, @devices_create_check)
 
     # Update devices: operators/admins (schema isolation via search_path)
-    policy action_type(:update) do
-      authorize_if @devices_update_check
-    end
+    action_type_with_permission(:update, @devices_update_check)
 
     # Destroy devices: operators/admins (schema isolation via search_path)
-    policy action_type(:destroy) do
-      authorize_if @devices_delete_check
-    end
+    action_type_with_permission(:destroy, @devices_delete_check)
 
-    policy action(:bulk_soft_delete) do
-      authorize_if @devices_bulk_delete_check
-    end
+    action_with_permission(:bulk_soft_delete, @devices_bulk_delete_check)
   end
 
   attributes do

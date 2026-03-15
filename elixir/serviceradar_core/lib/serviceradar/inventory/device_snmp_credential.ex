@@ -18,6 +18,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
     :auth_protocol,
     :priv_protocol
   ]
+  @device_snmp_credential_fields [:device_id | @snmp_credential_fields]
 
   postgres do
     table "device_snmp_credentials"
@@ -38,7 +39,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
     end
 
     create :create do
-      accept [:device_id | @snmp_credential_fields]
+      accept @device_snmp_credential_fields
 
       argument :community, :string, allow_nil?: true, sensitive?: true
       argument :auth_password, :string, allow_nil?: true, sensitive?: true

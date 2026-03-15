@@ -38,6 +38,21 @@ defmodule ServiceRadar.Identity.User do
   @email_fields [:email]
   @role_fields [:role]
   @role_profile_fields [:role_profile_id]
+  @auth_lookup_actions [:by_email, :authenticate]
+  @self_service_actions [
+    :update,
+    :update_email,
+    :change_password,
+    :record_authentication,
+    :record_login
+  ]
+  @admin_user_management_actions [
+    :update_role,
+    :update_role_profile,
+    :admin_set_password,
+    :deactivate,
+    :reactivate
+  ]
 
   postgres do
     table "ng_users"
@@ -291,7 +306,7 @@ defmodule ServiceRadar.Identity.User do
     end
 
     # Public reads used by authentication flows (no actor available yet)
-    policy action([:by_email, :authenticate]) do
+    policy action(@auth_lookup_actions) do
       authorize_if ServiceRadar.Policies.Checks.ActorIsNil
 
       authorize_if @auth_manage_check
@@ -323,26 +338,14 @@ defmodule ServiceRadar.Identity.User do
     end
 
     # Self-service updates and audit markers
-    policy action([
-             :update,
-             :update_email,
-             :change_password,
-             :record_authentication,
-             :record_login
-           ]) do
+    policy action(@self_service_actions) do
       authorize_if expr(id == ^actor(:id))
 
       authorize_if @auth_manage_check
     end
 
     # Admin-only user management
-    policy action([
-             :update_role,
-             :update_role_profile,
-           :admin_set_password,
-           :deactivate,
-           :reactivate
-         ]) do
+    policy action(@admin_user_management_actions) do
       authorize_if @auth_manage_check
     end
   end
