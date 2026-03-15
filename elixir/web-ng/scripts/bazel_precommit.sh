@@ -112,7 +112,7 @@ EOF
   export GIT="$GIT_WRAP_DIR/git"
 fi
 
-mkdir -p "$WORKDIR/elixir" "$WORKDIR/elixir/web-ng" "$WORKDIR/rust/srql" "$WORKDIR/rust/kvutil" "$WORKDIR/proto" "$WORKDIR/elixir/connection" "$WORKDIR/elixir/serviceradar_core" "$WORKDIR/elixir/serviceradar_srql" "$WORKDIR/elixir/datasvc" "$WORKDIR/elixir/vendor/opentelemetry_oban"
+mkdir -p "$WORKDIR/elixir" "$WORKDIR/elixir/web-ng" "$WORKDIR/rust/srql" "$WORKDIR/rust/kvutil" "$WORKDIR/proto" "$WORKDIR/elixir/connection" "$WORKDIR/elixir/elixir_uuid" "$WORKDIR/elixir/serviceradar_core" "$WORKDIR/elixir/serviceradar_srql" "$WORKDIR/elixir/datasvc" "$WORKDIR/elixir/vendor/opentelemetry_oban"
 
 copy_dir() {
   src="$1"
@@ -145,6 +145,7 @@ copy_dir "$ROOT/rust/srql" "$WORKDIR/rust/srql"
 copy_dir "$ROOT/rust/kvutil" "$WORKDIR/rust/kvutil"
 copy_dir "$ROOT/proto" "$WORKDIR/proto"
 copy_dir "$ROOT/elixir/connection" "$WORKDIR/elixir/connection"
+copy_dir "$ROOT/elixir/elixir_uuid" "$WORKDIR/elixir/elixir_uuid"
 copy_dir "$ROOT/elixir/serviceradar_core" "$WORKDIR/elixir/serviceradar_core"
 copy_dir "$ROOT/elixir/serviceradar_srql" "$WORKDIR/elixir/serviceradar_srql"
 copy_dir "$ROOT/elixir/datasvc" "$WORKDIR/elixir/datasvc"
