@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.Changes.ScheduleAlertCleanup do
 
   use Ash.Resource.Change
 
+  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Observability.StatefulAlertCleanupWorker
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -16,10 +17,7 @@ defmodule ServiceRadar.Observability.Changes.ScheduleAlertCleanup do
 
   @impl true
   def change(changeset, _opts, _context) do
-    Ash.Changeset.after_action(changeset, fn _changeset, record ->
-      schedule_cleanup(record)
-      {:ok, record}
-    end)
+    AfterAction.after_action(changeset, &schedule_cleanup/1)
   end
 
   @impl true

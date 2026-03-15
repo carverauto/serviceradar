@@ -5,6 +5,7 @@ defmodule ServiceRadar.Integrations.Changes.PublishSyncLog do
 
   use Ash.Resource.Change
 
+  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Observability.SyncLogWriter
 
   @impl true
@@ -24,7 +25,7 @@ defmodule ServiceRadar.Integrations.Changes.PublishSyncLog do
     result = Ash.Changeset.get_argument(changeset, :result)
     error_message = Ash.Changeset.get_argument(changeset, :error_message)
 
-    Ash.Changeset.after_action(changeset, fn _changeset, source ->
+    AfterAction.after_action(changeset, fn source ->
       case opts.stage do
         :started ->
           SyncLogWriter.write_start(source, device_count: device_count)
@@ -36,8 +37,6 @@ defmodule ServiceRadar.Integrations.Changes.PublishSyncLog do
             error_message: error_message
           )
       end
-
-      {:ok, source}
     end)
   end
 

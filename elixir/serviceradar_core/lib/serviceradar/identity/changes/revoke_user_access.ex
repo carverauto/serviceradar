@@ -8,13 +8,14 @@ defmodule ServiceRadar.Identity.Changes.RevokeUserAccess do
   use Ash.Resource.Change
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AshContext
   alias ServiceRadar.Identity.ApiToken
   alias ServiceRadar.Identity.OAuthClient
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
     Ash.Changeset.after_action(changeset, fn _changeset, user, context ->
-      actor = get_actor(context)
+      actor = AshContext.actor(context)
       revoke_user_access(user, actor)
       {:ok, user}
     end)
@@ -67,10 +68,6 @@ defmodule ServiceRadar.Identity.Changes.RevokeUserAccess do
         :ok
     end
   end
-
-  defp get_actor(%{private: %{actor: actor}}), do: actor
-  defp get_actor(%{actor: actor}), do: actor
-  defp get_actor(_), do: nil
 
   defp actor_email(%{email: email}) when is_binary(email), do: email
   defp actor_email(_), do: nil
