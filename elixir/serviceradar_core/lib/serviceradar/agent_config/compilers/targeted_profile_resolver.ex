@@ -4,7 +4,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.TargetedProfileResolver do
   require Logger
 
   @spec resolve(String.t() | nil, term(), keyword()) :: term() | nil
-  def resolve(nil, _actor, _opts), do: nil
+  def resolve(nil, actor, opts), do: resolve_default_profile(actor, opts)
 
   def resolve(device_uid, actor, opts) when is_binary(device_uid) do
     resolve_targeted_profile(device_uid, actor, opts) ||

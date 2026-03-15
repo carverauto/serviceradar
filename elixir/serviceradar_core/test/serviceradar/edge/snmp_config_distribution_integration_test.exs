@@ -57,7 +57,8 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           %{
             uid: device_uid,
             hostname: "router-#{unique_id}",
-            ip: "192.168.1.#{rem(unique_id, 254) + 1}",
+            ip:
+              "192.168.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}",
             type_id: 3,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -72,7 +73,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Default SNMP Profile",
+            name: "Default SNMP Profile #{unique_id}",
             is_default: false,
             enabled: true,
             poll_interval: 60,
@@ -158,7 +159,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           %{
             uid: device_uid,
             hostname: "core-switch-#{unique_id}",
-            ip: "10.0.#{rem(unique_id, 254) + 1}.1",
+            ip: "10.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}.1",
             type_id: 3,
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
@@ -173,7 +174,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Core Switch Profile",
+            name: "Core Switch Profile #{unique_id}",
             target_query: ~s(in:devices hostname:"core-switch-#{unique_id}"),
             priority: 1_000_000 + unique_id,
             enabled: true,
@@ -416,7 +417,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           :create,
           %{
             name: "Test Target",
-            host: "10.10.10.#{rem(unique_id, 254) + 1}",
+            host: "10.10.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}",
             port: 161,
             version: :v2c,
             community: "test",
@@ -523,7 +524,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
           :create,
           %{
             name: "SNMPv3 Target",
-            host: "10.20.30.#{rem(unique_id, 254) + 1}",
+            host: "10.20.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}",
             port: 161,
             version: :v3,
             username: "admin",
