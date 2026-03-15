@@ -32,6 +32,25 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshOban]
 
+  @schedule_fields [
+    :name,
+    :description,
+    :schedule_type,
+    :interval_seconds,
+    :cron_expression,
+    :assignment_mode,
+    :assigned_gateway_id,
+    :assigned_partition_id,
+    :assigned_domain,
+    :priority,
+    :max_concurrent,
+    :timeout_seconds,
+    :metadata
+  ]
+  @schedule_update_fields @schedule_fields -- [:schedule_type]
+  @schedule_manage_actions [:create, :update, :enable, :disable]
+  @schedule_runtime_actions [:execute, :record_result, :acquire_lock, :release_lock, :trigger_manual]
+
   postgres do
     table "polling_schedules"
     repo ServiceRadar.Repo
@@ -101,21 +120,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
     end
 
     create :create do
-      accept [
-        :name,
-        :description,
-        :schedule_type,
-        :interval_seconds,
-        :cron_expression,
-        :assignment_mode,
-        :assigned_gateway_id,
-        :assigned_partition_id,
-        :assigned_domain,
-        :priority,
-        :max_concurrent,
-        :timeout_seconds,
-        :metadata
-      ]
+      accept @schedule_fields
 
       # Validate schedule configuration
       validate fn changeset, _context ->
@@ -139,20 +144,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
     end
 
     update :update do
-      accept [
-        :name,
-        :description,
-        :interval_seconds,
-        :cron_expression,
-        :assignment_mode,
-        :assigned_gateway_id,
-        :assigned_partition_id,
-        :assigned_domain,
-        :priority,
-        :max_concurrent,
-        :timeout_seconds,
-        :metadata
-      ]
+      accept @schedule_update_fields
     end
 
     update :enable do
@@ -291,26 +283,16 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
   end
 
   policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
+    import ServiceRadar.Policies
+
+    system_bypass()
+    read_viewer_plus()
+
+    policy action(@schedule_manage_actions) do
+      authorize_if is_operator()
     end
 
-    # All authenticated users can read schedules
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Operators and admins can create and update schedules
-    policy action([:create, :update, :enable, :disable]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Execute, lock management - operators, admins, or system (AshOban)
-    policy action([:execute, :record_result, :acquire_lock, :release_lock, :trigger_manual]) do
+    policy action(@schedule_runtime_actions) do
       authorize_if actor_attribute_equals(:role, :operator)
       authorize_if actor_attribute_equals(:role, :admin)
       # Allow AshOban scheduler (no actor) to execute

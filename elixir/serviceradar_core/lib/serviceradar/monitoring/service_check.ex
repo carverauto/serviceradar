@@ -36,6 +36,26 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
                           permission: "services.update"}
   @services_run_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                        permission: "services.run"}
+  @service_check_fields [
+    :name,
+    :description,
+    :check_type,
+    :target,
+    :port,
+    :interval_seconds,
+    :timeout_seconds,
+    :retries,
+    :config,
+    :warning_threshold_ms,
+    :critical_threshold_ms,
+    :agent_uid,
+    :device_uid,
+    :metadata
+  ]
+  @service_check_update_fields @service_check_fields -- [:check_type, :device_uid]
+  @service_check_result_fields [:last_response_time_ms, :last_error]
+  @service_check_manage_actions [:update, :enable, :disable, :reassign_device]
+  @service_check_runtime_actions [:record_result, :reset_failures]
 
   postgres do
     table "service_checks"
@@ -124,39 +144,11 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
     end
 
     create :create do
-      accept [
-        :name,
-        :description,
-        :check_type,
-        :target,
-        :port,
-        :interval_seconds,
-        :timeout_seconds,
-        :retries,
-        :config,
-        :warning_threshold_ms,
-        :critical_threshold_ms,
-        :agent_uid,
-        :device_uid,
-        :metadata
-      ]
+      accept @service_check_fields
     end
 
     update :update do
-      accept [
-        :name,
-        :description,
-        :target,
-        :port,
-        :interval_seconds,
-        :timeout_seconds,
-        :retries,
-        :config,
-        :warning_threshold_ms,
-        :critical_threshold_ms,
-        :agent_uid,
-        :metadata
-      ]
+      accept @service_check_update_fields
     end
 
     update :reassign_device do
@@ -176,7 +168,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
       description "Record the result of a check execution"
       # Non-atomic: computes consecutive_failures based on current value
       require_atomic? false
-      accept [:last_response_time_ms, :last_error]
+      accept @service_check_result_fields
 
       argument :result, :atom do
         allow_nil? false
@@ -228,12 +220,9 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
   end
 
   policies do
-    # Import common policy checks
+    import ServiceRadar.Policies
 
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    system_bypass()
 
     # Read access: authenticated users with permission
     policy action_type(:read) do
@@ -246,12 +235,12 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
     end
 
     # Update checks
-    policy action([:update, :enable, :disable, :reassign_device]) do
+    policy action(@service_check_manage_actions) do
       authorize_if @services_update_check
     end
 
     # Record results: Operators/admins
-    policy action([:record_result, :reset_failures]) do
+    policy action(@service_check_runtime_actions) do
       authorize_if @services_run_check
     end
 

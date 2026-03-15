@@ -13,6 +13,8 @@ defmodule ServiceRadar.Integrations.MapboxSettings do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshCloak]
 
+  @mapbox_fields [:enabled, :style_light, :style_dark]
+
   postgres do
     table "mapbox_settings"
     repo ServiceRadar.Repo
@@ -46,7 +48,7 @@ defmodule ServiceRadar.Integrations.MapboxSettings do
     end
 
     create :create do
-      accept [:enabled, :style_light, :style_dark]
+      accept @mapbox_fields
 
       argument :access_token, :string do
         sensitive? true
@@ -68,7 +70,7 @@ defmodule ServiceRadar.Integrations.MapboxSettings do
     update :update do
       require_atomic? false
 
-      accept [:enabled, :style_light, :style_dark]
+      accept @mapbox_fields
 
       argument :access_token, :string do
         sensitive? true
@@ -89,21 +91,11 @@ defmodule ServiceRadar.Integrations.MapboxSettings do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :viewer)
-    end
-
-    policy action([:create, :update]) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    system_bypass()
+    read_viewer_plus()
+    operator_action([:create, :update])
   end
 
   attributes do
