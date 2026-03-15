@@ -111,7 +111,7 @@ defmodule ServiceRadarCore.MixProject do
       # Utilities
       {:jason, "~> 1.4"},
       {:ex_json_schema, "~> 0.10"},
-      {:elixir_uuid, "~> 1.2"},
+      {:elixir_uuid, path: "../elixir_uuid"},
       {:file_system, "~> 1.0"},
       {:yaml_elixir, "~> 2.12"},
       {:req, "~> 0.5"},
