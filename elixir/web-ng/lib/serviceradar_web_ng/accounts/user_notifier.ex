@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNG.Accounts.UserNotifier do
   end
 
   defp mailer_from do
-    mailer_config = Application.get_env(:serviceradar_web_ng, ServiceRadarWebNG.Mailer, [])
+    mailer_config = Application.get_env(:serviceradar_web_ng, Mailer, [])
 
     from_name = Keyword.get(mailer_config, :from_name, "ServiceRadarWebNG")
     from_email = Keyword.get(mailer_config, :from_email, "contact@example.com")
