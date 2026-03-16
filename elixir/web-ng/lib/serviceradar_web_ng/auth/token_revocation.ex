@@ -76,7 +76,7 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocation do
 
     case :ets.lookup(@table, marker_jti) do
       [{^marker_jti, %{revoked_before: revoked_before}}] ->
-        if DateTime.compare(issued_at, revoked_before) == :lt do
+        if DateTime.before?(issued_at, revoked_before) do
           {:error, :user_revoked}
         else
           :ok

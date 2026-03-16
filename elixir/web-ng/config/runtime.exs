@@ -2,6 +2,7 @@ import Config
 
 alias Geolix.Adapter.MMDB2
 alias Swoosh.Adapters.Local
+alias Swoosh.Adapters.Test
 
 require Logger
 
@@ -314,10 +315,12 @@ config :serviceradar_core,
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
 
 config :serviceradar_web_ng, :god_view_enabled, god_view_enabled
-config :serviceradar_web_ng, :runtime_capabilities, runtime_capabilities
+
 config :serviceradar_web_ng,
-  :managed_device_limit,
-  to_int.(System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT"))
+       :managed_device_limit,
+       to_int.(System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT"))
+
+config :serviceradar_web_ng, :runtime_capabilities, runtime_capabilities
 
 config :serviceradar_web_ng,
   device_enrichment_rules_dir:
@@ -907,14 +910,14 @@ if config_env() == :prod do
   smtp_relay_password = System.get_env("SMTP_RELAY_PASSWORD")
 
   smtp_relay_auth =
-    case System.get_env("SMTP_RELAY_AUTH", "if_available") |> String.trim() |> String.downcase() do
+    case "SMTP_RELAY_AUTH" |> System.get_env("if_available") |> String.trim() |> String.downcase() do
       "always" -> :always
       "never" -> :never
       _ -> :if_available
     end
 
   smtp_relay_tls =
-    case System.get_env("SMTP_RELAY_TLS", "if_available") |> String.trim() |> String.downcase() do
+    case "SMTP_RELAY_TLS" |> System.get_env("if_available") |> String.trim() |> String.downcase() do
       "always" -> :always
       "never" -> :never
       _ -> :if_available
@@ -931,7 +934,7 @@ if config_env() == :prod do
         Local
 
       "test" ->
-        Swoosh.Adapters.Test
+        Test
 
       adapter ->
         if String.contains?(adapter, ".") do
@@ -947,7 +950,7 @@ if config_env() == :prod do
   mailer_config = [adapter: mailer_adapter]
 
   mailer_config =
-    if mailer_adapter in [Local, Swoosh.Adapters.Test] or is_nil(smtp_relay_host) do
+    if mailer_adapter in [Local, Test] or is_nil(smtp_relay_host) do
       mailer_config
     else
       mailer_config
@@ -962,6 +965,7 @@ if config_env() == :prod do
     end
 
   config :serviceradar_core, ServiceRadar.Mailer, mailer_config
+
   config :serviceradar_web_ng, ServiceRadarWebNG.Mailer, mailer_config
 
   if local_mailer or mailer_adapter == Local do
