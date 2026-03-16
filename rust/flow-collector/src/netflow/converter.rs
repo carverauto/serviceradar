@@ -3,10 +3,10 @@ use log::debug;
 use netflow_parser::NetflowPacket;
 use netflow_parser::protocol::ProtocolTypes;
 use netflow_parser::static_versions::v5::V5;
-use netflow_parser::variable_versions::data_number::{DataNumber, FieldValue};
-use netflow_parser::variable_versions::ipfix_lookup::ReverseInformationElement;
-use netflow_parser::variable_versions::ipfix_lookup::{IANAIPFixField, IPFixField};
-use netflow_parser::variable_versions::v9_lookup::V9Field;
+use netflow_parser::variable_versions::field_value::{DataNumber, FieldValue};
+use netflow_parser::variable_versions::ipfix::lookup::ReverseInformationElement;
+use netflow_parser::variable_versions::ipfix::lookup::{IANAIPFixField, IPFixField};
+use netflow_parser::variable_versions::v9::lookup::V9Field;
 use std::net::{IpAddr, SocketAddr};
 
 pub struct Converter {
@@ -208,9 +208,8 @@ impl Converter {
                 }
                 FlowSetBody::NoTemplate(info) => {
                     debug!(
-                        "V9 flowset skipped - no template for ID {} (available: {:?}, {} bytes raw data)",
+                        "V9 flowset skipped - no template for ID {} ({} bytes raw data)",
                         info.template_id,
-                        info.available_templates,
                         info.raw_data.len()
                     );
                 }
@@ -492,9 +491,8 @@ impl Converter {
                 }
                 FlowSetBody::NoTemplate(info) => {
                     debug!(
-                        "IPFIX flowset skipped - no template for ID {} (available: {:?}, {} bytes raw data)",
+                        "IPFIX flowset skipped - no template for ID {} ({} bytes raw data)",
                         info.template_id,
-                        info.available_templates,
                         info.raw_data.len()
                     );
                 }
@@ -554,6 +552,7 @@ fn data_number_to_u32(dn: &DataNumber) -> u32 {
         DataNumber::I64(v) => v.max(0).min(i64::from(u32::MAX)) as u32,
         DataNumber::U128(v) => v.min(u128::from(u32::MAX)) as u32,
         DataNumber::I128(v) => v.max(0).min(i128::from(u32::MAX)) as u32,
+        _ => 0,
     }
 }
 
@@ -571,13 +570,14 @@ fn data_number_to_u64(dn: &DataNumber) -> u64 {
         DataNumber::I64(v) => v.max(0) as u64,
         DataNumber::U128(v) => v.min(u128::from(u64::MAX)) as u64,
         DataNumber::I128(v) => v.max(0).min(i128::from(u64::MAX)) as u64,
+        _ => 0,
     }
 }
 
 fn field_value_to_u32(value: &FieldValue) -> u32 {
     match value {
         FieldValue::DataNumber(dn) => data_number_to_u32(dn),
-        FieldValue::Duration(d) => u32::try_from(d.as_millis()).unwrap_or(u32::MAX),
+        FieldValue::Duration(d) => u32::try_from(d.as_duration().as_millis()).unwrap_or(u32::MAX),
         FieldValue::ProtocolType(pt) => u32::from(u8::from(*pt)),
         FieldValue::Float64(f) => f.max(0.0).min(f64::from(u32::MAX)) as u32,
         _ => 0,
@@ -587,7 +587,7 @@ fn field_value_to_u32(value: &FieldValue) -> u32 {
 fn field_value_to_u64(value: &FieldValue) -> u64 {
     match value {
         FieldValue::DataNumber(dn) => data_number_to_u64(dn),
-        FieldValue::Duration(d) => d.as_millis().try_into().unwrap_or(u64::MAX),
+        FieldValue::Duration(d) => d.as_duration().as_millis().try_into().unwrap_or(u64::MAX),
         FieldValue::ProtocolType(pt) => u64::from(u8::from(*pt)),
         FieldValue::Float64(f) => f.max(0.0).min(u64::MAX as f64) as u64,
         _ => 0,
@@ -596,13 +596,7 @@ fn field_value_to_u64(value: &FieldValue) -> u64 {
 
 fn field_value_to_mac_u64(value: &FieldValue) -> u64 {
     match value {
-        FieldValue::MacAddr(mac_str) => {
-            let bytes: Vec<u8> = mac_str
-                .split(':')
-                .filter_map(|s| u8::from_str_radix(s, 16).ok())
-                .collect();
-            mac_to_u64(&bytes)
-        }
+        FieldValue::MacAddr(bytes) => mac_to_u64(bytes),
         _ => 0,
     }
 }
@@ -629,6 +623,7 @@ impl From<Converter> for Vec<flowpb::FlowMessage> {
             NetflowPacket::V7(_) => vec![],
             NetflowPacket::V9(ref v9) => converter.convert_v9(v9),
             NetflowPacket::IPFix(ref ipfix) => converter.convert_ipfix(ipfix),
+            _ => vec![],
         }
     }
 }
@@ -637,7 +632,7 @@ impl From<Converter> for Vec<flowpb::FlowMessage> {
 mod tests {
     use super::*;
     use netflow_parser::protocol::ProtocolTypes;
-    use std::time::Duration;
+    use netflow_parser::variable_versions::field_value::DurationValue;
 
     #[test]
     fn test_mac_to_u64() {
@@ -691,7 +686,10 @@ mod tests {
 
     #[test]
     fn test_field_value_to_u32_duration() {
-        let fv = FieldValue::Duration(Duration::from_millis(28_796_274));
+        let fv = FieldValue::Duration(DurationValue::Millis {
+            value: 28_796_274,
+            width: 4,
+        });
         assert_eq!(field_value_to_u32(&fv), 28_796_274);
     }
 
