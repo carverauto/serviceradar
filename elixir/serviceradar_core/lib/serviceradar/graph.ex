@@ -51,10 +51,10 @@ defmodule ServiceRadar.Graph do
 
     query = """
     SELECT ag_catalog.agtype_to_text(v)
-    FROM ag_catalog.cypher('#{graph}', #{dollar_quote(cypher)}) AS (v agtype)
+    FROM ag_catalog.cypher(#{sql_literal(graph)}, #{sql_literal(cypher)}) AS (v agtype)
     """
 
-    case repo.query(query) do
+    case repo.query(query, [], prepare: :unnamed) do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -84,10 +84,10 @@ defmodule ServiceRadar.Graph do
 
     sql = """
     SELECT ag_catalog.agtype_to_text(result)
-    FROM ag_catalog.cypher('#{graph}', #{dollar_quote(cypher)}) AS (result agtype)
+    FROM ag_catalog.cypher(#{sql_literal(graph)}, #{sql_literal(cypher)}) AS (result agtype)
     """
 
-    case repo.query(sql) do
+    case repo.query(sql, [], prepare: :unnamed) do
       {:ok, %{rows: rows}} ->
         parsed = parse_agtype_results(rows)
         {:ok, parsed}
@@ -123,20 +123,10 @@ defmodule ServiceRadar.Graph do
     Application.get_env(:serviceradar_core, :age_graph_name, @default_graph)
   end
 
-  # Generate a unique dollar-quote tag to safely embed the Cypher query
-  defp dollar_quote(query) do
-    tag = dollar_quote_tag(query)
-    "$#{tag}$#{query}$#{tag}$"
-  end
-
-  defp dollar_quote_tag(query) do
-    tag = "sr_#{Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)}"
-
-    if String.contains?(query, "$#{tag}$") do
-      dollar_quote_tag(query)
-    else
-      tag
-    end
+  # AGE runtime calls are more reliable when graph and cypher are emitted as
+  # quoted SQL literals instead of dollar-quoted prepared statements.
+  defp sql_literal(value) when is_binary(value) do
+    "'" <> String.replace(value, "'", "''") <> "'"
   end
 
   # Parse agtype text results into Elixir values

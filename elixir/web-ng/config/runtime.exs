@@ -2,7 +2,6 @@ import Config
 
 alias Geolix.Adapter.MMDB2
 alias Swoosh.Adapters.Local
-alias Swoosh.Adapters.Test
 
 require Logger
 
@@ -935,9 +934,6 @@ if config_env() == :prod do
       "local" ->
         Local
 
-      "test" ->
-        Test
-
       adapter ->
         if String.contains?(adapter, ".") do
           adapter
@@ -952,7 +948,7 @@ if config_env() == :prod do
   mailer_config = [adapter: mailer_adapter]
 
   mailer_config =
-    if mailer_adapter in [Local, Test] or is_nil(smtp_relay_host) do
+    if mailer_adapter == Local or is_nil(smtp_relay_host) do
       mailer_config
     else
       mailer_config
