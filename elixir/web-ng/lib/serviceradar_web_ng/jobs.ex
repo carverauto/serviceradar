@@ -3,6 +3,11 @@ defmodule ServiceRadarWebNG.Jobs do
   Background job scheduling and catalog management.
   """
 
+  use Boundary,
+    top_level?: true,
+    deps: [ServiceRadarWebNG],
+    exports: :all
+
   import Ecto.Query, warn: false
 
   alias Oban.Cron.Expression

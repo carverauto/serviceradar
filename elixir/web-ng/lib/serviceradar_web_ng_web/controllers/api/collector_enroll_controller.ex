@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.CollectorEnrollController do
+defmodule ServiceRadarWebNGWeb.Api.CollectorEnrollController do
   @moduledoc """
   Legacy API controller for collector enrollment.
 

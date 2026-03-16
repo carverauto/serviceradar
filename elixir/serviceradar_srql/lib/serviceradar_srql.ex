@@ -24,4 +24,6 @@ defmodule ServiceRadarSRQL do
   - `web-ng` - Uses NIF + AshAdapter for web layer queries
   - `serviceradar_core` - Uses NIF for sysmon profile SRQL resolution
   """
+
+  use Boundary, exports: :all
 end

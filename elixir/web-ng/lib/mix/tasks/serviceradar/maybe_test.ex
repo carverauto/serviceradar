@@ -5,6 +5,10 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
   Runs web-ng tests only when the database is reachable.
   """
 
+  use Boundary,
+    top_level?: true,
+    check: [in: false, out: false]
+
   use Mix.Task
 
   def run(args) do

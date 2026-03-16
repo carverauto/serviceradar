@@ -1,0 +1,44 @@
+<% form = to_form(%{"email" => ""}, as: :user) %>
+<section class="mx-auto flex min-h-[70vh] w-full max-w-md items-center px-6 py-16">
+  <div class="w-full rounded-3xl border border-base-300 bg-base-100 p-8 shadow-xl">
+    <div class="space-y-2">
+      <p class="text-xs font-semibold uppercase tracking-[0.24em] text-primary">
+        Account Recovery
+      </p>
+      <h1 class="text-3xl font-semibold text-base-content">Reset your password</h1>
+      <p class="text-sm leading-6 text-base-content/70">
+        Enter the email address tied to this tenant workspace and we will send you a password
+        reset link.
+      </p>
+    </div>
+
+    <.form
+      for={form}
+      id="password-reset-request-form"
+      action={~p"/auth/password-reset"}
+      method="post"
+      class="mt-8 space-y-5"
+    >
+      <.input
+        field={form[:email]}
+        type="email"
+        label="Email"
+        required
+        autocomplete="email"
+        placeholder="you@example.com"
+      />
+
+      <button
+        id="password-reset-request-submit"
+        type="submit"
+        class="btn btn-primary w-full transition-transform duration-200 hover:-translate-y-0.5"
+      >
+        Send reset link
+      </button>
+    </.form>
+
+    <div class="mt-6 text-center text-sm text-base-content/70">
+      <a href={~p"/users/log-in"} class="link link-primary">Back to sign in</a>
+    </div>
+  </div>
+</section>

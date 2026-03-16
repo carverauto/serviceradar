@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.BmpSettingsControllerTest do
+defmodule ServiceRadarWebNGWeb.Api.BmpSettingsControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
   alias ServiceRadarWebNG.AshTestHelpers

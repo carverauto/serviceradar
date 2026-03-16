@@ -3,6 +3,11 @@ defmodule ServiceRadarWebNG.Plugins do
   Context module for plugin registry, packages, and agent assignments.
   """
 
+  use Boundary,
+    top_level?: true,
+    deps: [ServiceRadarWebNG, ServiceRadarWebNG.Web],
+    exports: :all
+
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Registry

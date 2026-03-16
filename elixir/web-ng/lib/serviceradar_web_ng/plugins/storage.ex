@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   alias Jetstream.API.Object
   alias ServiceRadar.Plugins.PluginPackage
-  alias ServiceRadarWebNGWeb.Endpoint
+  alias ServiceRadarWebNG.Web.EndpointConfig
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
@@ -96,12 +96,12 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   @spec upload_url(String.t(), String.t()) :: String.t()
   def upload_url(package_id, token) do
-    Endpoint.url() <> "/api/plugin-packages/#{package_id}/blob?token=#{token}"
+    EndpointConfig.base_url() <> "/api/plugin-packages/#{package_id}/blob?token=#{token}"
   end
 
   @spec download_url(String.t(), String.t()) :: String.t()
   def download_url(package_id, token) do
-    Endpoint.url() <> "/api/plugin-packages/#{package_id}/blob?token=#{token}"
+    EndpointConfig.base_url() <> "/api/plugin-packages/#{package_id}/blob?token=#{token}"
   end
 
   @spec put_blob(String.t(), binary()) :: :ok | {:error, term()}

@@ -2,7 +2,7 @@
 
 The repo contains eight first-party Mix projects under `elixir/`: `connection`, `datasvc`, `elixir_uuid`, `serviceradar_agent_gateway`, `serviceradar_core`, `serviceradar_core_elx`, `serviceradar_srql`, and `web-ng`. Analyzer support is uneven across that workspace. Some projects already ship `.formatter.exs`, `.credo.exs`, or `dialyxir`, but current CI only runs Credo in dedicated workflows for a subset of the workspace, and there is no spec defining which analyzers must pass before Elixir changes merge.
 
-Issue #3029 lists a broad tool wishlist. Some items are immediate quality gates (`dialyzer`, `credo`, `sobelow`, dependency audits, `mix xref`), while others are opinionated formatter or architecture tools (`Styler`, `Boundary`, `rustywind`) that can add noise or reshape the codebase. The repo already established the baseline gates, and the remaining follow-up work is to adopt the deferred analyzers that behave like drop-in CI checks (`mix_audit`, `ex_slop`, `ex_dna`) plus the repo-owned formatter plugin `Styler`, without turning the rollout into an architecture rewrite.
+Issue #3029 lists a broad tool wishlist. Some items are immediate quality gates (`dialyzer`, `credo`, `sobelow`, dependency audits, `mix xref`), while others are opinionated formatter or architecture tools (`Styler`, `Boundary`, `rustywind`) that can add noise or reshape the codebase. The repo already established the baseline gates, and the remaining follow-up work is to adopt the deferred analyzers that can be added without turning the rollout into an architecture rewrite. `mix_audit`, `ex_slop`, `ex_dna`, and `Styler` fit directly. `Boundary` becomes viable once the rollout is scoped to broad root namespaces instead of deep per-domain enforcement.
 
 ## Goals / Non-Goals
 
@@ -44,8 +44,16 @@ Issue #3029 lists a broad tool wishlist. Some items are immediate quality gates 
   - Alternative considered: Block the whole rollout until every legacy project is brought to zero warnings and full Dialyzer coverage.
   - Rationale for rejection: That turns the quality-gates change into a broad upstream modernization effort.
 
-- Decision: `mix_audit`, `ex_slop`, `ex_dna`, and `Styler` are part of the managed analyzer contract; `Boundary` and `rustywind` remain deferred.
-  - Why: `mix_audit`, `ex_slop`, and `ex_dna` fit the existing CI contract. `Styler` fits the contract once it is treated as a repo-owned formatter plugin and the workspace absorbs its baseline rewrite. `Boundary` requires explicit boundary declarations and compiler wiring across the app graph. `rustywind` is a Tailwind class sorter rather than a shared Mix-project analyzer.
+- Decision: `mix_audit`, `ex_slop`, `ex_dna`, `Styler`, and an initial `Boundary` rollout are part of the managed analyzer contract; `rustywind` remains deferred.
+  - Why: `mix_audit`, `ex_slop`, and `ex_dna` fit the existing CI contract. `Styler` fits the contract once it is treated as a repo-owned formatter plugin and the workspace absorbs its baseline rewrite. `Boundary` becomes tractable when the initial rollout models each first-party Mix project through broad root namespace boundaries and compiler wiring, rather than trying to enforce fine-grained domain boundaries immediately. `rustywind` is a Tailwind class sorter rather than a shared Mix-project analyzer.
+
+## Boundary rollout strategy
+
+- Add the `:boundary` compiler in `:dev` and `:test` for each first-party Mix project under `elixir/`.
+- Declare a broad root boundary for each project namespace so `mix compile --warnings-as-errors` can enforce architectural wiring without forcing a large rewrite.
+- Export the root namespaces broadly in the initial pass to establish the compiler-enforced contract with a stable baseline.
+- Start deeper sub-boundary modeling only after the root rollout is green, and prefer seams that do not change cross-app dependency contracts in the first narrowing pass.
+- Use internal app contexts such as `ServiceRadarWebNG.Accounts` and `ServiceRadarWebNG.SRQL` as the first narrowing targets before attempting cross-app domain boundaries inside `serviceradar_core`.
 
 ## Risks / Trade-offs
 

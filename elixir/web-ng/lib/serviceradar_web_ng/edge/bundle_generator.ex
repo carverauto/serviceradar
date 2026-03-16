@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.OnboardingToken
+  alias ServiceRadarWebNG.Web.EndpointConfig
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
@@ -762,7 +763,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp default_base_url do
-    ServiceRadarWebNGWeb.Endpoint.url()
+    EndpointConfig.base_url()
   end
 
   defp default_gateway_addr(base_url) do

@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   use ServiceRadarWebNGWeb, :live_view
 
   use Permit.Phoenix.LiveView,
-    authorization_module: ServiceRadarWebNG.Authorization,
+    authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Identity.AuthSettings
 
   alias ServiceRadar.Identity.AuthSettings

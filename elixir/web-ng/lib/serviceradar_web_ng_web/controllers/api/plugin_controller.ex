@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.PluginController do
+defmodule ServiceRadarWebNGWeb.Api.PluginController do
   @moduledoc """
   JSON API controller for plugin registry operations.
   """
@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNG.Api.PluginController do
   alias ServiceRadarWebNG.Plugins
   alias ServiceRadarWebNG.RBAC
 
-  action_fallback ServiceRadarWebNG.Api.FallbackController
+  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   def index(conn, params) do
     with :ok <- require_authenticated(conn),

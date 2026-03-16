@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.DeviceController do
+defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   @moduledoc """
   Device API controller using Ash resources.
   """

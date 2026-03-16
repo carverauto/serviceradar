@@ -4,7 +4,7 @@ defmodule ServiceRadarWebNG.Authorization.PermissionsTest do
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.User
-  alias ServiceRadarWebNG.Authorization
+  alias ServiceRadarWebNGWeb.Authorization
 
   test "admin can manage auth and user resources" do
     auth = Authorization.can(%User{role: :admin})

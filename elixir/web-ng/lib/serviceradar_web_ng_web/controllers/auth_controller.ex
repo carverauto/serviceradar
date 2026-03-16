@@ -23,13 +23,23 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Guardian
-  alias ServiceRadarWebNGWeb.Auth.Hooks
+  alias ServiceRadarWebNG.Auth.Hooks
   alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.UserAuth
 
   require Logger
 
   plug :fetch_session
+
+  @doc """
+  Shows the password reset request form.
+
+  This lets tenant users initiate account recovery without any control-plane
+  backdoor or operator involvement.
+  """
+  def new_reset_request(conn, _params) do
+    render(conn, :request_reset)
+  end
 
   @doc """
   Handles password login form submission.

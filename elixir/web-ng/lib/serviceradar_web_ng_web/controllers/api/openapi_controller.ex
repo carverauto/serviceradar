@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.OpenapiController do
+defmodule ServiceRadarWebNGWeb.Api.OpenapiController do
   @moduledoc """
   Serves OpenAPI documents for custom JSON controllers.
   """

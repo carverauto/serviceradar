@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.PluginAssignmentController do
+defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentController do
   @moduledoc """
   JSON API controller for plugin assignments to agents.
   """
@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNG.Api.PluginAssignmentController do
   alias ServiceRadarWebNG.Plugins
   alias ServiceRadarWebNG.RBAC
 
-  action_fallback ServiceRadarWebNG.Api.FallbackController
+  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   def index(conn, params) do
     with :ok <- require_authenticated(conn),

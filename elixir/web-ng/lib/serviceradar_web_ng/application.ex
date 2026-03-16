@@ -27,9 +27,9 @@ defmodule ServiceRadarWebNG.Application do
     base_children =
       [
         # Web telemetry
-        ServiceRadarWebNGWeb.Telemetry,
         ServiceRadarWebNG.Topology.RuntimeGraph
       ]
+      |> Kernel.++(web_runtime().web_children())
       |> maybe_add_grpc_supervisor()
       |> Kernel.++([
         # DNS cluster for Kubernetes deployments
@@ -49,20 +49,10 @@ defmodule ServiceRadarWebNG.Application do
     # If we add simpler React components that benefit from SSR, enable Phoenix.React here.
     # react_children = [Phoenix.React]
 
-    # Auth configuration cache, rate limiter, and token revocation (must start after PubSub)
-    auth_children = [
-      ServiceRadarWebNGWeb.Auth.ConfigCache,
-      ServiceRadarWebNGWeb.Auth.RateLimiter,
-      ServiceRadarWebNGWeb.Auth.TokenRevocation,
-      {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}
-    ]
-
-    endpoint_children = [
-      # Start to serve requests, typically the last entry
-      ServiceRadarWebNGWeb.Endpoint
-    ]
-
-    children = base_children ++ pubsub_children ++ auth_children ++ endpoint_children
+    children =
+      base_children ++
+        pubsub_children ++
+        [{Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}]
 
     # Ensure ServiceRadar.Repo is started (may already be started by serviceradar_core)
     ensure_repo_started()
@@ -83,8 +73,12 @@ defmodule ServiceRadarWebNG.Application do
   # whenever the application is updated.
   @impl true
   def config_change(changed, _new, removed) do
-    ServiceRadarWebNGWeb.Endpoint.config_change(changed, removed)
+    web_runtime().config_change(changed, removed)
     :ok
+  end
+
+  defp web_runtime do
+    Module.concat(["ServiceRadarWebNG", "Web", "Runtime"])
   end
 
   defp maybe_add_local_mailer_storage(children) do

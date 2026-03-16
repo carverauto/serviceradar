@@ -30,6 +30,9 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
   ```
   """
 
+  use Boundary,
+    check: [in: false, out: false]
+
   alias ServiceRadar.Edge.NatsLeafConfigGenerator
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)

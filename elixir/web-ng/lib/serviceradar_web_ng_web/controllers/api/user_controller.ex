@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.UserController do
+defmodule ServiceRadarWebNGWeb.Api.UserController do
   @moduledoc """
   JSON API controller for admin user management.
 
@@ -9,14 +9,14 @@ defmodule ServiceRadarWebNG.Api.UserController do
   use ServiceRadarWebNGWeb, :controller
 
   use Permit.Phoenix.Controller,
-    authorization_module: ServiceRadarWebNG.Authorization,
+    authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Identity.User
 
   alias ServiceRadar.Identity.User
 
   require Ash.Query
 
-  action_fallback ServiceRadarWebNG.Api.FallbackController
+  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @doc """
   GET /api/admin/users
