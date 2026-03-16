@@ -908,6 +908,8 @@ if config_env() == :prod do
   smtp_relay_hostname = System.get_env("SMTP_RELAY_HOSTNAME") || host
   smtp_relay_username = System.get_env("SMTP_RELAY_USERNAME")
   smtp_relay_password = System.get_env("SMTP_RELAY_PASSWORD")
+  mail_from_name = System.get_env("SERVICERADAR_MAIL_FROM_NAME") || "ServiceRadar"
+  mail_from_email = System.get_env("SERVICERADAR_MAIL_FROM_EMAIL") || "noreply@serviceradar.cloud"
 
   smtp_relay_auth =
     case "SMTP_RELAY_AUTH" |> System.get_env("if_available") |> String.trim() |> String.downcase() do
@@ -960,6 +962,8 @@ if config_env() == :prod do
       |> Keyword.put(:tls, smtp_relay_tls)
       |> Keyword.put(:ssl, smtp_relay_ssl)
       |> Keyword.put(:hostname, smtp_relay_hostname)
+      |> Keyword.put(:from_name, mail_from_name)
+      |> Keyword.put(:from_email, mail_from_email)
       |> maybe_put_mailer_credential.(:username, smtp_relay_username)
       |> maybe_put_mailer_credential.(:password, smtp_relay_password)
     end

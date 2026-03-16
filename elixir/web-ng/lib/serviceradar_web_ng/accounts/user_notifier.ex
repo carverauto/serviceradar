@@ -17,13 +17,22 @@ defmodule ServiceRadarWebNG.Accounts.UserNotifier do
     email =
       new()
       |> to(recipient_string)
-      |> from({"ServiceRadarWebNG", "contact@example.com"})
+      |> from(mailer_from())
       |> subject(subject)
       |> text_body(body)
 
     with {:ok, _metadata} <- Mailer.deliver(email) do
       {:ok, email}
     end
+  end
+
+  defp mailer_from do
+    mailer_config = Application.get_env(:serviceradar_web_ng, ServiceRadarWebNG.Mailer, [])
+
+    from_name = Keyword.get(mailer_config, :from_name, "ServiceRadarWebNG")
+    from_email = Keyword.get(mailer_config, :from_email, "contact@example.com")
+
+    {from_name, from_email}
   end
 
   @doc """
