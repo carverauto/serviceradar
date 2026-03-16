@@ -14,10 +14,12 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint, cache_static_manifes
 # known as HSTS. If you have a health check endpoint, you may want to exclude it below.
 # Note `:force_ssl` is required to be set at compile-time.
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
-  force_ssl: [rewrite_on: [:x_forwarded_proto]],
-  exclude: [
-    paths: ["/metrics"],
-    hosts: ["localhost", "127.0.0.1"]
+  force_ssl: [
+    rewrite_on: [:x_forwarded_proto],
+    exclude: [
+      paths: ["/metrics"],
+      hosts: ["localhost", "127.0.0.1"]
+    ]
   ]
 
 # Configure Swoosh API Client
