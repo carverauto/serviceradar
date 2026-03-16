@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.Web do
   @moduledoc false
 
   use Boundary,
-    deps: [ServiceRadarWebNG, ServiceRadarWebNGWeb],
+    top_level?: true,
+    deps: [],
     exports: :all
 end

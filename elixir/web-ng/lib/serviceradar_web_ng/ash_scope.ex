@@ -14,7 +14,8 @@ defmodule ServiceRadarWebNG.AshScope do
   """
 
   use Boundary,
-    deps: [ServiceRadarWebNG, ServiceRadarWebNG.Accounts],
+    top_level?: true,
+    deps: [ServiceRadarWebNG.Accounts],
     exports: :all
 end
 

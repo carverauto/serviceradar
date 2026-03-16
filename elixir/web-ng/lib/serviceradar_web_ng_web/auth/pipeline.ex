@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Auth.Pipeline do
+defmodule ServiceRadarWebNGWeb.Auth.Pipeline do
   @moduledoc """
   Guardian authentication pipeline for web requests.
 
@@ -11,13 +11,13 @@ defmodule ServiceRadarWebNG.Auth.Pipeline do
   Add to router pipelines:
 
       pipeline :api_auth do
-        plug ServiceRadarWebNG.Auth.Pipeline
+        plug ServiceRadarWebNGWeb.Auth.Pipeline
       end
 
   Or use specific plugs:
 
-      plug ServiceRadarWebNG.Auth.Pipeline.VerifyHeader
-      plug ServiceRadarWebNG.Auth.Pipeline.LoadResource
+      plug ServiceRadarWebNGWeb.Auth.Pipeline.VerifyHeader
+      plug ServiceRadarWebNGWeb.Auth.Pipeline.LoadResource
 
   ## Token Sources
 
@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNG.Auth.Pipeline do
   use Guardian.Plug.Pipeline,
     otp_app: :serviceradar_web_ng,
     module: ServiceRadarWebNG.Auth.Guardian,
-    error_handler: ServiceRadarWebNG.Auth.ErrorHandler
+    error_handler: ServiceRadarWebNGWeb.Auth.ErrorHandler
 
   # Verify token from Authorization header (optional - allows unauthenticated)
   plug Guardian.Plug.VerifyHeader, claims: %{"typ" => "access"}, allow_blank: true
@@ -41,7 +41,7 @@ defmodule ServiceRadarWebNG.Auth.Pipeline do
   plug Guardian.Plug.LoadResource, allow_blank: true
 end
 
-defmodule ServiceRadarWebNG.Auth.Pipeline.Browser do
+defmodule ServiceRadarWebNGWeb.Auth.Pipeline.Browser do
   @moduledoc """
   Guardian pipeline optimized for browser sessions.
 
@@ -51,7 +51,7 @@ defmodule ServiceRadarWebNG.Auth.Pipeline.Browser do
   use Guardian.Plug.Pipeline,
     otp_app: :serviceradar_web_ng,
     module: ServiceRadarWebNG.Auth.Guardian,
-    error_handler: ServiceRadarWebNG.Auth.ErrorHandler
+    error_handler: ServiceRadarWebNGWeb.Auth.ErrorHandler
 
   # Check session first for browser requests
   plug Guardian.Plug.VerifySession, claims: %{"typ" => "access"}, allow_blank: true
@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNG.Auth.Pipeline.Browser do
   plug Guardian.Plug.LoadResource, allow_blank: true
 end
 
-defmodule ServiceRadarWebNG.Auth.Pipeline.API do
+defmodule ServiceRadarWebNGWeb.Auth.Pipeline.API do
   @moduledoc """
   Guardian pipeline for API requests.
 
@@ -74,7 +74,7 @@ defmodule ServiceRadarWebNG.Auth.Pipeline.API do
   use Guardian.Plug.Pipeline,
     otp_app: :serviceradar_web_ng,
     module: ServiceRadarWebNG.Auth.Guardian,
-    error_handler: ServiceRadarWebNG.Auth.ErrorHandler
+    error_handler: ServiceRadarWebNGWeb.Auth.ErrorHandler
 
   # Verify token from Authorization header (required)
   plug Guardian.Plug.VerifyHeader, claims: %{}, allow_blank: true
@@ -86,7 +86,7 @@ defmodule ServiceRadarWebNG.Auth.Pipeline.API do
   plug Guardian.Plug.EnsureAuthenticated
 end
 
-defmodule ServiceRadarWebNG.Auth.Pipeline.RefreshToken do
+defmodule ServiceRadarWebNGWeb.Auth.Pipeline.RefreshToken do
   @moduledoc """
   Guardian pipeline for refresh token endpoints.
 
@@ -96,7 +96,7 @@ defmodule ServiceRadarWebNG.Auth.Pipeline.RefreshToken do
   use Guardian.Plug.Pipeline,
     otp_app: :serviceradar_web_ng,
     module: ServiceRadarWebNG.Auth.Guardian,
-    error_handler: ServiceRadarWebNG.Auth.ErrorHandler
+    error_handler: ServiceRadarWebNGWeb.Auth.ErrorHandler
 
   # Verify refresh token from Authorization header
   plug Guardian.Plug.VerifyHeader, claims: %{"typ" => "refresh"}

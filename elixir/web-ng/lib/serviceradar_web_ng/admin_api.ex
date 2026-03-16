@@ -6,7 +6,8 @@ defmodule ServiceRadarWebNG.AdminApi do
   """
 
   use Boundary,
-    deps: [ServiceRadarWebNG],
+    top_level?: true,
+    deps: [ServiceRadarWebNG, ServiceRadarWebNG.Auth, ServiceRadarWebNG.Web],
     exports: :all
 
   @type scope :: ServiceRadarWebNG.Accounts.Scope.t()

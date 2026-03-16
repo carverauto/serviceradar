@@ -17,7 +17,8 @@ defmodule ServiceRadarWebNG.Edge do
   """
 
   use Boundary,
-    deps: [ServiceRadarWebNG],
+    top_level?: true,
+    deps: [ServiceRadarWebNG, ServiceRadarWebNG.Web],
     exports: :all
 
   alias ServiceRadarWebNG.Edge.ComponentTemplates

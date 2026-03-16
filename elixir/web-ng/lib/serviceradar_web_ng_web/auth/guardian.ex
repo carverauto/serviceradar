@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
 
   ## Token Revocation
 
-  Tokens can be revoked via `ServiceRadarWebNGWeb.Auth.TokenRevocation`.
+  Tokens can be revoked via `ServiceRadarWebNG.Auth.TokenRevocation`.
   Revoked tokens are rejected during verification even if not expired.
 
   ## Integration with Permit
@@ -29,8 +29,8 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
-  alias ServiceRadarWebNGWeb.Auth.Hooks
-  alias ServiceRadarWebNGWeb.Auth.TokenRevocation
+  alias ServiceRadarWebNG.Auth.Hooks
+  alias ServiceRadarWebNG.Auth.TokenRevocation
 
   @default_idle_timeout_seconds 60 * 60
   @default_absolute_timeout_seconds 30 * 24 * 60 * 60
@@ -147,7 +147,7 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   end
 
   defp check_user_revocation("user:" <> user_id, iat) when not is_nil(iat) do
-    TokenRevocation.check_user_tokens_revoked(user_id, iat)
+    TokenRevocation.check_user_revoked(user_id, iat)
   end
 
   defp check_user_revocation(_, _), do: :ok

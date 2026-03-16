@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.Jobs do
   """
 
   use Boundary,
+    top_level?: true,
     deps: [ServiceRadarWebNG],
     exports: :all
 

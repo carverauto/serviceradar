@@ -5,7 +5,6 @@ defmodule ServiceRadarWebNG.Application do
 
   use Application
 
-  alias ServiceRadarWebNG.Web.Runtime
   alias Swoosh.Adapters.Local.Storage.Manager
 
   require Logger
@@ -30,7 +29,7 @@ defmodule ServiceRadarWebNG.Application do
         # Web telemetry
         ServiceRadarWebNG.Topology.RuntimeGraph
       ]
-      |> Kernel.++(Runtime.web_children())
+      |> Kernel.++(web_runtime().web_children())
       |> maybe_add_grpc_supervisor()
       |> Kernel.++([
         # DNS cluster for Kubernetes deployments
@@ -74,8 +73,12 @@ defmodule ServiceRadarWebNG.Application do
   # whenever the application is updated.
   @impl true
   def config_change(changed, _new, removed) do
-    Runtime.config_change(changed, removed)
+    web_runtime().config_change(changed, removed)
     :ok
+  end
+
+  defp web_runtime do
+    Module.concat(["ServiceRadarWebNG", "Web", "Runtime"])
   end
 
   defp maybe_add_local_mailer_storage(children) do

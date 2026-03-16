@@ -18,7 +18,21 @@ defmodule ServiceRadarWebNGWeb do
   """
 
   use Boundary,
-    deps: [ServiceRadarWebNG, ServiceRadar],
+    deps: [
+      ServiceRadar,
+      ServiceRadarWebNG,
+      ServiceRadarWebNG.Accounts,
+      ServiceRadarWebNG.AdminApi,
+      ServiceRadarWebNG.Audit,
+      ServiceRadarWebNG.Auth,
+      ServiceRadarWebNG.Collectors,
+      ServiceRadarWebNG.Edge,
+      ServiceRadarWebNG.Graph,
+      ServiceRadarWebNG.Jobs,
+      ServiceRadarWebNG.Plugins,
+      ServiceRadarWebNG.RBAC,
+      ServiceRadarWebNG.Topology
+    ],
     exports: :all
 
   def static_paths, do: ~w(assets fonts images favicon.ico robots.txt)

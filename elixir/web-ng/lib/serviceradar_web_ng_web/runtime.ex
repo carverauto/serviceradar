@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNGWeb.Runtime do
       ServiceRadarWebNGWeb.Telemetry,
       ServiceRadarWebNGWeb.Auth.ConfigCache,
       ServiceRadarWebNGWeb.Auth.RateLimiter,
-      ServiceRadarWebNGWeb.Auth.TokenRevocation,
+      ServiceRadarWebNG.Auth.TokenRevocation,
       ServiceRadarWebNGWeb.Endpoint
     ]
   end

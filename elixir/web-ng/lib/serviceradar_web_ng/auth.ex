@@ -1,8 +1,8 @@
-defmodule ServiceRadarWebNG.Audit do
+defmodule ServiceRadarWebNG.Auth do
   @moduledoc false
 
   use Boundary,
     top_level?: true,
-    deps: [ServiceRadarWebNG],
+    deps: [ServiceRadar],
     exports: :all
 end

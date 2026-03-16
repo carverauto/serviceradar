@@ -323,6 +323,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     delete("/sign-out", AuthController, :delete)
 
     # Password reset
+    get("/password-reset", AuthController, :new_reset_request)
     post("/password-reset", AuthController, :request_reset)
     get("/password-reset/:token", AuthController, :show_reset_form)
     put("/password-reset/:token", AuthController, :reset_password)

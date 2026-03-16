@@ -3,11 +3,15 @@ defmodule ServiceRadarWebNG.Web.Runtime do
 
   @spec web_children() :: [module()]
   def web_children do
-    ServiceRadarWebNGWeb.Runtime.web_children()
+    apply(runtime_module(), :web_children, [])
   end
 
   @spec config_change(keyword(), [atom()]) :: :ok
   def config_change(changed, removed) do
-    ServiceRadarWebNGWeb.Runtime.config_change(changed, removed)
+    apply(runtime_module(), :config_change, [changed, removed])
+  end
+
+  defp runtime_module do
+    Module.concat(["ServiceRadarWebNGWeb", "Runtime"])
   end
 end

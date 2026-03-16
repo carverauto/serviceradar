@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNGWeb.Auth.HooksTest do
+defmodule ServiceRadarWebNG.Auth.HooksTest do
   @moduledoc """
   Tests for authentication lifecycle hooks.
 
@@ -11,8 +11,8 @@ defmodule ServiceRadarWebNGWeb.Auth.HooksTest do
   import ExUnit.CaptureLog
   import ServiceRadarWebNG.AccountsFixtures
 
-  alias ServiceRadarWebNGWeb.Auth.Hooks
-  alias ServiceRadarWebNGWeb.Auth.Hooks.Default
+  alias ServiceRadarWebNG.Auth.Hooks
+  alias ServiceRadarWebNG.Auth.Hooks.Default
 
   describe "Hooks.on_user_created/2" do
     test "calls the implementation and returns :ok" do

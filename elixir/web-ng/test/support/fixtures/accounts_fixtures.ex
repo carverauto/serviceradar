@@ -9,7 +9,6 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
   import Ecto.Query
 
   alias ServiceRadar.Identity.Users
-  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AshTestHelpers
 
   def unique_user_email, do: "user#{System.unique_integer()}@example.com"
@@ -126,7 +125,7 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
   end
 
   def user_scope_fixture(user) do
-    Scope.for_user(user)
+    scope_module().for_user(user)
   end
 
   def set_password(user) do
@@ -143,5 +142,9 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
     # Re-fetch the user from Ash (DB connection handles schema)
     {:ok, updated_user} = Users.get(user.id)
     updated_user
+  end
+
+  defp scope_module do
+    Module.concat(["ServiceRadarWebNG", "Accounts", "Scope"])
   end
 end

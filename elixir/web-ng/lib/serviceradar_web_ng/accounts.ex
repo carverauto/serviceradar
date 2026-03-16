@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.Accounts do
   """
 
   use Boundary,
+    top_level?: true,
     deps: [ServiceRadarWebNG],
     exports: :all
 

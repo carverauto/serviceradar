@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.RBAC do
   """
 
   use Boundary,
+    top_level?: true,
     deps: [ServiceRadarWebNG, ServiceRadarWebNG.Accounts],
     exports: :all
 

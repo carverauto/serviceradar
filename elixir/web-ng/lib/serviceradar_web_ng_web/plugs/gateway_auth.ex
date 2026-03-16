@@ -40,7 +40,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
-  alias ServiceRadarWebNGWeb.Auth.Hooks
+  alias ServiceRadarWebNG.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
 
   require Logger

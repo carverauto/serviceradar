@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Audit.UserAuthEvents
-  alias ServiceRadarWebNGWeb.Auth.Hooks
+  alias ServiceRadarWebNG.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.OIDCClient
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
   alias ServiceRadarWebNGWeb.Auth.RateLimiter

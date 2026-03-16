@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNGWeb.Auth.TokenRevocationTest do
+defmodule ServiceRadarWebNG.Auth.TokenRevocationTest do
   @moduledoc """
   Tests for token revocation service.
 
@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNGWeb.Auth.TokenRevocationTest do
 
   use ExUnit.Case, async: false
 
-  alias ServiceRadarWebNGWeb.Auth.TokenRevocation
+  alias ServiceRadarWebNG.Auth.TokenRevocation
 
   # TokenRevocation uses ETS which is started by the application
   # These tests verify the module's public API
