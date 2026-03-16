@@ -254,7 +254,7 @@ declare_multiarch_image_index(
 
 declare_service_container_amd64(
     name = "trapd_image_amd64",
-    runtime = "debian",
+    runtime = "ubuntu",
     image_title = "serviceradar-trapd",
     files = {
         "//rust/trapd:trapd": "usr/local/bin/serviceradar-trapd",
@@ -285,7 +285,7 @@ declare_multiarch_image_index(
 
 declare_service_container_amd64(
     name = "flow_collector_image_amd64",
-    runtime = "debian",
+    runtime = "ubuntu",
     image_title = "serviceradar-flow-collector",
     files = {
         "//rust/flow-collector:flow-collector": "usr/local/bin/serviceradar-flow-collector",
@@ -314,7 +314,7 @@ declare_multiarch_image_index(
 
 declare_service_container_amd64(
     name = "bmp_collector_image_amd64",
-    runtime = "debian",
+    runtime = "ubuntu",
     image_title = "arancini",
     files = {
         "//rust/bmp-collector:bmp-collector": "usr/local/bin/serviceradar-bmp-collector",
@@ -342,7 +342,7 @@ declare_multiarch_image_index(
 
 declare_service_container_amd64(
     name = "rperf_client_image_amd64",
-    runtime = "debian",
+    runtime = "ubuntu",
     image_title = "serviceradar-rperf-client",
     files = {
         "//rust/rperf-client:rperf_checker": "usr/local/bin/serviceradar-rperf-checker",
@@ -400,7 +400,7 @@ declare_multiarch_image_index(
 
 declare_service_container_amd64(
     name = "zen_image_amd64",
-    runtime = "debian",
+    runtime = "ubuntu",
     image_title = "serviceradar-zen",
     files = {
         "//rust/consumers/zen:zen": "usr/local/bin/serviceradar-zen",
