@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.AuthorizationSettingsController do
+defmodule ServiceRadarWebNGWeb.Api.AuthorizationSettingsController do
   @moduledoc """
   JSON API controller for authorization settings management.
 
@@ -8,14 +8,14 @@ defmodule ServiceRadarWebNG.Api.AuthorizationSettingsController do
   use ServiceRadarWebNGWeb, :controller
 
   use Permit.Phoenix.Controller,
-    authorization_module: ServiceRadarWebNG.Authorization,
+    authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Identity.AuthorizationSettings
 
   alias ServiceRadar.Identity.AuthorizationSettings
 
   require Ash.Query
 
-  action_fallback ServiceRadarWebNG.Api.FallbackController
+  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @doc """
   GET /api/admin/authorization-settings

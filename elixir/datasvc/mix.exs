@@ -6,6 +6,7 @@ defmodule Datasvc.MixProject do
       app: :datasvc,
       version: "0.1.0",
       elixir: "~> 1.15",
+      compilers: boundary_compilers() ++ Mix.compilers(),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: "Elixir client for ServiceRadar datasvc gRPC service",
@@ -19,11 +20,16 @@ defmodule Datasvc.MixProject do
     ]
   end
 
+  defp boundary_compilers do
+    if Mix.env() in [:dev, :test], do: [:boundary], else: []
+  end
+
   defp deps do
     [
       {:grpc, "~> 0.9"},
       {:protobuf, "~> 0.16.0", override: true},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:boundary, "~> 0.10.4", runtime: false},
       {:ex_dna, "~> 1.2", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2.0", only: [:dev, :test], runtime: false},
       {:styler, "~> 1.11", only: [:dev, :test], runtime: false},

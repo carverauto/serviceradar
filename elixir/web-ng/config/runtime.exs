@@ -174,6 +174,14 @@ to_bool = fn value ->
   end
 end
 
+maybe_put_mailer_credential = fn config, key, value ->
+  case value do
+    nil -> config
+    "" -> config
+    _ -> Keyword.put(config, key, value)
+  end
+end
+
 normalize_plugin_backend = fn value ->
   cond do
     is_atom(value) ->
@@ -858,6 +866,28 @@ if config_env() == :prod do
     System.get_env("SERVICERADAR_CORE_MAILER_ADAPTER") ||
       System.get_env("SERVICERADAR_MAILER_ADAPTER")
 
+  smtp_relay_host = System.get_env("SMTP_RELAY_HOST")
+  smtp_relay_port = to_int.(System.get_env("SMTP_RELAY_PORT")) || 25
+  smtp_relay_hostname = System.get_env("SMTP_RELAY_HOSTNAME") || host
+  smtp_relay_username = System.get_env("SMTP_RELAY_USERNAME")
+  smtp_relay_password = System.get_env("SMTP_RELAY_PASSWORD")
+
+  smtp_relay_auth =
+    case System.get_env("SMTP_RELAY_AUTH", "if_available") |> String.trim() |> String.downcase() do
+      "always" -> :always
+      "never" -> :never
+      _ -> :if_available
+    end
+
+  smtp_relay_tls =
+    case System.get_env("SMTP_RELAY_TLS", "if_available") |> String.trim() |> String.downcase() do
+      "always" -> :always
+      "never" -> :never
+      _ -> :if_available
+    end
+
+  smtp_relay_ssl = to_bool.(System.get_env("SMTP_RELAY_SSL")) || false
+
   mailer_adapter =
     case String.trim(mailer_adapter_env || "") do
       "" ->
@@ -880,11 +910,31 @@ if config_env() == :prod do
         end
     end
 
-  config :serviceradar_core, ServiceRadar.Mailer, adapter: mailer_adapter
+  mailer_config = [adapter: mailer_adapter]
+
+  mailer_config =
+    if mailer_adapter in [Local, Swoosh.Adapters.Test] or is_nil(smtp_relay_host) do
+      mailer_config
+    else
+      mailer_config
+      |> Keyword.put(:relay, smtp_relay_host)
+      |> Keyword.put(:port, smtp_relay_port)
+      |> Keyword.put(:auth, smtp_relay_auth)
+      |> Keyword.put(:tls, smtp_relay_tls)
+      |> Keyword.put(:ssl, smtp_relay_ssl)
+      |> Keyword.put(:hostname, smtp_relay_hostname)
+      |> maybe_put_mailer_credential.(:username, smtp_relay_username)
+      |> maybe_put_mailer_credential.(:password, smtp_relay_password)
+    end
+
+  config :serviceradar_core, ServiceRadar.Mailer, mailer_config
+  config :serviceradar_web_ng, ServiceRadarWebNG.Mailer, mailer_config
 
   if local_mailer or mailer_adapter == Local do
     config :swoosh, :api_client, false
     config :swoosh, local: true
+  else
+    config :swoosh, local: false
   end
 
   config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,

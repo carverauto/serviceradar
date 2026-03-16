@@ -27,6 +27,8 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   - Token can only be used once (marked as downloaded after use)
   """
 
+  alias ServiceRadarWebNG.Web.EndpointConfig
+
   @default_expiry_hours 24
 
   @doc """
@@ -167,6 +169,6 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   end
 
   defp default_base_url do
-    ServiceRadarWebNGWeb.Endpoint.url()
+    EndpointConfig.base_url()
   end
 end

@@ -10,6 +10,7 @@ The contract SHALL require:
 - compile-time warning checks
 - `mix credo --strict`
 - dependency auditing
+- compiler-enforced architectural boundary checks where the repository declares Boundary root namespaces
 - the app-specific analyzers required by this capability
 
 The contract SHALL be exposed through documented local commands or Mix aliases so developers can run the same checks before opening a pull request.
@@ -18,7 +19,18 @@ The contract SHALL be exposed through documented local commands or Mix aliases s
 
 - **GIVEN** a developer is preparing changes in a first-party Mix project under `elixir/`
 - **WHEN** they run the documented analyzer contract for that app
-- **THEN** the command sequence checks formatting through the repo-owned formatter plugin stack, compile-time warnings, xref output, strict Credo with approved extra checks including duplication analysis, dependency audit, and any required app-specific analyzers for that app
+- **THEN** the command sequence checks formatting through the repo-owned formatter plugin stack, compile-time warnings including compiler-enforced Boundary checks where configured, xref output, strict Credo with approved extra checks including duplication analysis, dependency audit, and any required app-specific analyzers for that app
+
+### Requirement: Boundary Modeling Is Repository Owned
+
+When the workspace adopts `Boundary`, the repository SHALL define the boundary compiler wiring and boundary declarations in version-controlled Mix and Elixir source files rather than ad hoc local configuration.
+
+#### Scenario: Boundary rollout starts from root namespaces
+
+- **WHEN** maintainers add `Boundary` to a first-party Mix project under `elixir/`
+- **THEN** the project declares the `:boundary` compiler in repository-owned Mix config for analyzer environments
+- **AND** the project defines a broad root namespace boundary in version-controlled Elixir source
+- **AND** the initial rollout may export the root namespace broadly to keep the baseline green before introducing narrower sub-boundaries
 
 ### Requirement: GitHub Actions Enforces the Analyzer Contract
 

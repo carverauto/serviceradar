@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNGWeb.UserSessionController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadarWebNG.Accounts
-  alias ServiceRadarWebNGWeb.Auth.TokenRevocation
+  alias ServiceRadarWebNG.Auth.TokenRevocation
   alias ServiceRadarWebNGWeb.UserAuth
 
   @doc """

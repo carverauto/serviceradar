@@ -3,6 +3,11 @@ defmodule ServiceRadarWebNG.RBAC do
   RBAC helpers for web-ng UI and API.
   """
 
+  use Boundary,
+    top_level?: true,
+    deps: [ServiceRadarWebNG, ServiceRadarWebNG.Accounts],
+    exports: :all
+
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadarWebNG.Accounts.Scope
 

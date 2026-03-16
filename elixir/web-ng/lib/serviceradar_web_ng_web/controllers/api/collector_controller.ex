@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.CollectorController do
+defmodule ServiceRadarWebNGWeb.Api.CollectorController do
   @moduledoc """
   JSON API controller for collector package operations.
 
@@ -17,7 +17,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
   require Ash.Query
 
-  action_fallback ServiceRadarWebNG.Api.FallbackController
+  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @doc """
   GET /api/admin/collectors

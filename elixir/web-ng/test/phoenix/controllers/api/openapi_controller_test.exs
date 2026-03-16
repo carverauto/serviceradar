@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.OpenapiControllerTest do
+defmodule ServiceRadarWebNGWeb.Api.OpenapiControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
   alias ServiceRadarWebNG.AshTestHelpers

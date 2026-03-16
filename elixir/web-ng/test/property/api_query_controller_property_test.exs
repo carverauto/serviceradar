@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.ApiQueryControllerPropertyTest do
+defmodule ServiceRadarWebNGWeb.ApiQueryControllerPropertyTest do
   # Mutates global application env (`:srql_module`), so cannot be async.
   use ExUnit.Case, async: false
   use ExUnitProperties
@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNG.ApiQueryControllerPropertyTest do
             max_runs: PropertyOpts.max_runs()
           ) do
       conn = Plug.Test.conn("POST", "/api/query")
-      conn = ServiceRadarWebNG.Api.QueryController.execute(conn, payload)
+      conn = ServiceRadarWebNGWeb.Api.QueryController.execute(conn, payload)
       assert conn.status in [200, 400]
     end
   end

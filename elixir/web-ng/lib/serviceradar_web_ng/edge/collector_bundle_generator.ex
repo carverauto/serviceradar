@@ -43,6 +43,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadarWebNG.Web.EndpointConfig
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
@@ -823,7 +824,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   end
 
   defp default_base_url do
-    ServiceRadarWebNGWeb.Endpoint.url()
+    EndpointConfig.base_url()
   end
 
   defp default_nats_url do

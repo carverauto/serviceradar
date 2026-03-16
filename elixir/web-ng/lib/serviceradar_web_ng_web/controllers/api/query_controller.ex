@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.QueryController do
+defmodule ServiceRadarWebNGWeb.Api.QueryController do
   use ServiceRadarWebNGWeb, :controller
 
   def execute(conn, params) do

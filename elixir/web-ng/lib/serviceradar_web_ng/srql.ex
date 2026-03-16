@@ -8,6 +8,10 @@ defmodule ServiceRadarWebNG.SRQL do
 
   @behaviour ServiceRadarWebNG.SRQLBehaviour
 
+  use Boundary,
+    deps: [ServiceRadarWebNG],
+    exports: :all
+
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.SRQL.Native
 

@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNG.MixProject do
       aliases: aliases(),
       dialyzer: [ignore_warnings: ".dialyzer_ignore.exs"],
       deps: deps(),
-      compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      compilers: boundary_compilers() ++ [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
       usage_rules: usage_rules()
     ]
@@ -44,6 +44,10 @@ defmodule ServiceRadarWebNG.MixProject do
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
+  defp boundary_compilers do
+    if Mix.env() in [:dev, :test], do: [:boundary], else: []
+  end
+
   # Specifies your project dependencies.
   #
   # Type `mix help deps` for examples and options.
@@ -73,6 +77,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:boundary, "~> 0.10.4", runtime: false},
       {:ex_dna, "~> 1.2", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2.0", only: [:dev, :test], runtime: false},
       {:styler, "~> 1.11", only: [:dev, :test], runtime: false},

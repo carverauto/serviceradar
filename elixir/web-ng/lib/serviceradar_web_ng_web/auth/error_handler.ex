@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Auth.ErrorHandler do
+defmodule ServiceRadarWebNGWeb.Auth.ErrorHandler do
   @moduledoc """
   Guardian error handler for authentication failures.
 

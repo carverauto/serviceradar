@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNG.Audit.UserAuthEvents do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.UserAuthEvent
-  alias ServiceRadarWebNGWeb.ClientIP
+  alias ServiceRadarWebNG.ClientIP
 
   def record_login(%Plug.Conn{} = conn, user, auth_method) do
     record(conn, user, "login", auth_method)

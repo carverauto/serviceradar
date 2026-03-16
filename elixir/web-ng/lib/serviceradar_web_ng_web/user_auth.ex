@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
-  alias ServiceRadarWebNGWeb.Auth.TokenRevocation
+  alias ServiceRadarWebNG.Auth.TokenRevocation
 
   require Logger
 

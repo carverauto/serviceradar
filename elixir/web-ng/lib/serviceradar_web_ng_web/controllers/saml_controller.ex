@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Audit.UserAuthEvents
-  alias ServiceRadarWebNGWeb.Auth.Hooks
+  alias ServiceRadarWebNG.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.Auth.SAMLAssertionValidator
   alias ServiceRadarWebNGWeb.Auth.SAMLStrategy

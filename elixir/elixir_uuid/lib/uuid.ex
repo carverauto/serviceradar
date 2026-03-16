@@ -4,6 +4,8 @@ defmodule UUID do
   See [RFC 4122](http://www.ietf.org/rfc/rfc4122.txt).
   """
 
+  use Boundary, exports: :all
+
   # 15 Oct 1582 to 1 Jan 1970.
   @nanosec_intervals_offset 122_192_928_000_000_000
   # Microseconds to nanoseconds factor.

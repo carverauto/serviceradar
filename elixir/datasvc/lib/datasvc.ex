@@ -40,6 +40,8 @@ defmodule Datasvc do
 
   """
 
+  use Boundary, exports: :all
+
   require Logger
 
   @default_timeout 5_000

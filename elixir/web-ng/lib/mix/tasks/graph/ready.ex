@@ -7,6 +7,10 @@ defmodule Mix.Tasks.Graph.Ready do
   Run with: `mix graph.ready`
   """
 
+  use Boundary,
+    top_level?: true,
+    check: [in: false, out: false]
+
   use Mix.Task
 
   alias ServiceRadarWebNG.Graph

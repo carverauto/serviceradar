@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.EdgeController do
+defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   @moduledoc """
   JSON API controller for edge onboarding operations.
 
@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
 
   require Ash.Query
 
-  action_fallback ServiceRadarWebNG.Api.FallbackController
+  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @doc """
   GET /api/admin/edge-packages/defaults

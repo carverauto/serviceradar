@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.RoleProfileController do
+defmodule ServiceRadarWebNGWeb.Api.RoleProfileController do
   @moduledoc """
   JSON API controller for RBAC role profiles.
   """
@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNG.Api.RoleProfileController do
   use ServiceRadarWebNGWeb, :controller
 
   use Permit.Phoenix.Controller,
-    authorization_module: ServiceRadarWebNG.Authorization,
+    authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Identity.RoleProfile
 
   alias ServiceRadar.Identity.RBAC
@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNG.Api.RoleProfileController do
 
   require Ash.Query
 
-  action_fallback ServiceRadarWebNG.Api.FallbackController
+  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @impl true
   # Permit.Phoenix.Controller defaults to preloading records for actions like

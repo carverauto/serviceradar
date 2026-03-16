@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.BmpSettingsController do
+defmodule ServiceRadarWebNGWeb.Api.BmpSettingsController do
   @moduledoc """
   JSON API controller for BMP settings management.
   """
@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNG.Api.BmpSettingsController do
   use ServiceRadarWebNGWeb, :controller
 
   use Permit.Phoenix.Controller,
-    authorization_module: ServiceRadarWebNG.Authorization,
+    authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Observability.BmpSettings
 
   alias ServiceRadar.Observability.BmpSettings
@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNG.Api.BmpSettingsController do
 
   require Ash.Query
 
-  action_fallback ServiceRadarWebNG.Api.FallbackController
+  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @doc """
   GET /api/admin/bmp-settings

@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Auth.ErrorHandlerTest do
+defmodule ServiceRadarWebNGWeb.Auth.ErrorHandlerTest do
   @moduledoc """
   Tests for Guardian authentication error handler.
 
@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNG.Auth.ErrorHandlerTest do
 
   import ExUnit.CaptureLog
 
-  alias ServiceRadarWebNG.Auth.ErrorHandler
+  alias ServiceRadarWebNGWeb.Auth.ErrorHandler
 
   describe "auth_error/3 for JSON API requests" do
     test "returns 401 with JSON for unauthenticated error", %{conn: conn} do

@@ -12,6 +12,11 @@ defmodule ServiceRadarWebNG.AshScope do
 
       Ash.read(query, scope: socket.assigns.current_scope)
   """
+
+  use Boundary,
+    top_level?: true,
+    deps: [ServiceRadarWebNG.Accounts],
+    exports: :all
 end
 
 defimpl Ash.Scope.ToOpts, for: ServiceRadarWebNG.Accounts.Scope do

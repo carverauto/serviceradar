@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
+defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
   import ServiceRadarWebNG.AshTestHelpers,
