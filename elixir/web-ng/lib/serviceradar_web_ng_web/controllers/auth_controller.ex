@@ -207,14 +207,16 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
     with {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "reset"),
          {:ok, user} <-
-           User.change_password(
-             user,
+           user
+           |> Ash.Changeset.for_update(
+             :admin_set_password,
              %{
                password: password,
                password_confirmation: password_confirmation
              },
              actor: actor
-           ) do
+           )
+           |> Ash.update() do
       conn
       |> put_flash(:info, "Password reset successfully.")
       |> UserAuth.log_in_user(user)
