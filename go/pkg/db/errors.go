@@ -22,6 +22,9 @@ var (
 	// Core database errors.
 	ErrFailedOpenDB = errors.New("failed to open database")
 
+	// Netflow errors.
+	ErrNetflowMetricNil = errors.New("netflow metric is nil")
+
 	// CNPG configuration helpers.
 	ErrCNPGConfigMissing   = errors.New("cnpg: missing configuration")
 	ErrCNPGLackingTLSFiles = errors.New("cnpg tls requires cert_file, key_file, and ca_file")

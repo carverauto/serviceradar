@@ -12,7 +12,6 @@ package db
 import (
 	reflect "reflect"
 
-	models "github.com/carverauto/serviceradar/go/pkg/models"
 	gomock "go.uber.org/mock/gomock"
 )
 
