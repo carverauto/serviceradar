@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.UserControllerTest do
+defmodule ServiceRadarWebNGWeb.Api.UserControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
   alias ServiceRadar.Identity.User

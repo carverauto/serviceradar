@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.FallbackController do
+defmodule ServiceRadarWebNGWeb.Api.FallbackController do
   @moduledoc """
   Fallback controller for API error handling.
 

@@ -21,8 +21,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   """
 
   alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadarWebNG.EndpointConfig
   alias ServiceRadarWebNG.Edge.OnboardingToken
+  alias ServiceRadarWebNG.EndpointConfig
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 

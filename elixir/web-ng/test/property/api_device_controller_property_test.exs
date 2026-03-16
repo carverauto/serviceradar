@@ -1,10 +1,10 @@
-defmodule ServiceRadarWebNG.ApiDeviceControllerPropertyTest do
+defmodule ServiceRadarWebNGWeb.ApiDeviceControllerPropertyTest do
   use ServiceRadarWebNG.DataCase, async: true
   use ExUnitProperties
 
-  alias ServiceRadarWebNG.Api.DeviceController
   alias ServiceRadarWebNG.Generators.SRQLGenerators
   alias ServiceRadarWebNG.TestSupport.PropertyOpts
+  alias ServiceRadarWebNGWeb.Api.DeviceController
 
   defp devices_index_params do
     StreamData.fixed_map(%{

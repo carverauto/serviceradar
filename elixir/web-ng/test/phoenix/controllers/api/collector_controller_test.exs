@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.CollectorControllerTest do
+defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]

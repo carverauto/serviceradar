@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.TopologyController do
+defmodule ServiceRadarWebNGWeb.Api.TopologyController do
   @moduledoc """
   JSON API controller for topology analysis helpers.
   """
@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNG.Api.TopologyController do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
 
-  action_fallback ServiceRadarWebNG.Api.FallbackController
+  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @doc """
   POST /api/admin/topology/route-analysis

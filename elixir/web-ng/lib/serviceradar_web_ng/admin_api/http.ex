@@ -128,18 +128,7 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
   defp base_url do
     System.get_env("ADMIN_API_BASE_URL") ||
       Application.get_env(:serviceradar_web_ng, :admin_api_base_url) ||
-      internal_base_url()
-  end
-
-  defp internal_base_url do
-    http = ServiceRadarWebNGWeb.Endpoint.config(:http)
-
-    if is_list(http) do
-      port = Keyword.get(http, :port, 4000)
-      "http://127.0.0.1:#{port}"
-    else
-      EndpointConfig.base_url()
-    end
+      EndpointConfig.internal_base_url()
   end
 
   defp normalize_user(%{} = body) do

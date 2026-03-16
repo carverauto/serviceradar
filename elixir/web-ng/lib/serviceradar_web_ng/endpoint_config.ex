@@ -8,6 +8,23 @@ defmodule ServiceRadarWebNG.EndpointConfig do
     @endpoint.url()
   end
 
+  @spec http_config() :: keyword() | nil
+  def http_config do
+    @endpoint.config(:http)
+  end
+
+  @spec internal_base_url() :: String.t()
+  def internal_base_url do
+    http = http_config()
+
+    if is_list(http) do
+      port = Keyword.get(http, :port, 4000)
+      "http://127.0.0.1:#{port}"
+    else
+      base_url()
+    end
+  end
+
   @spec secret_key_base() :: String.t()
   def secret_key_base do
     case Application.get_env(:serviceradar_web_ng, @endpoint)[:secret_key_base] do

@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.PluginPackageController do
+defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
   @moduledoc """
   JSON API controller for plugin package import and review operations.
   """
@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
-  action_fallback ServiceRadarWebNG.Api.FallbackController
+  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   def index(conn, params) do
     with :ok <- require_authenticated(conn),

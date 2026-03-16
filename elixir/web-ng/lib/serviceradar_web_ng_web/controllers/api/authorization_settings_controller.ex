@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.AuthorizationSettingsController do
+defmodule ServiceRadarWebNGWeb.Api.AuthorizationSettingsController do
   @moduledoc """
   JSON API controller for authorization settings management.
 
@@ -15,7 +15,7 @@ defmodule ServiceRadarWebNG.Api.AuthorizationSettingsController do
 
   require Ash.Query
 
-  action_fallback ServiceRadarWebNG.Api.FallbackController
+  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @doc """
   GET /api/admin/authorization-settings

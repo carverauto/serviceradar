@@ -105,14 +105,14 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   # Mobile God-View Streaming Scope
-  scope "/v1", ServiceRadarWebNG.Api do
+  scope "/v1", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_auth)
 
     get("/stream/:session_id", StreamController, :connect)
   end
 
   # Other scopes may use custom stacks.
-  scope "/api", ServiceRadarWebNG.Api do
+  scope "/api", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_auth)
 
     post("/query", QueryController, :execute)
@@ -124,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   # Admin API (session/JWT auth)
-  scope "/api/admin", ServiceRadarWebNG.Api do
+  scope "/api/admin", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_auth)
 
     get("/openapi", OpenapiController, :admin)
@@ -152,7 +152,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   # Edge onboarding admin API (API key or bearer token auth)
-  scope "/api/admin", ServiceRadarWebNG.Api do
+  scope "/api/admin", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_key_auth)
 
     # Package defaults and templates
@@ -207,7 +207,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   # Edge package download - token-gated (no session auth required)
   # This allows CLI tools to download packages using only the download token
-  scope "/api/admin", ServiceRadarWebNG.Api do
+  scope "/api/admin", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_token_auth)
 
     post("/edge-packages/:id/download", EdgeController, :download)
@@ -216,7 +216,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   # Edge package bundle download - public endpoint with token in query param
   # Allows one-liner curl commands for zero-touch provisioning
-  scope "/api", ServiceRadarWebNG.Api do
+  scope "/api", ServiceRadarWebNGWeb.Api do
     pipe_through(:api)
 
     get("/edge-packages/:id/bundle", EdgeController, :bundle)

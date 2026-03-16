@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.SpatialController do
+defmodule ServiceRadarWebNGWeb.Api.SpatialController do
   use ServiceRadarWebNGWeb, :controller
 
   import Ecto.Query

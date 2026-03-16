@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.AuthorizationSettingsControllerTest do
+defmodule ServiceRadarWebNGWeb.Api.AuthorizationSettingsControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
   alias ServiceRadarWebNG.AshTestHelpers

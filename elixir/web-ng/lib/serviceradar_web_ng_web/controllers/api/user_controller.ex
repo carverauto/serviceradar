@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.UserController do
+defmodule ServiceRadarWebNGWeb.Api.UserController do
   @moduledoc """
   JSON API controller for admin user management.
 
@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNG.Api.UserController do
 
   require Ash.Query
 
-  action_fallback ServiceRadarWebNG.Api.FallbackController
+  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @doc """
   GET /api/admin/users

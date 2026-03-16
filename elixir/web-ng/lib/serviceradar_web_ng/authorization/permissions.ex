@@ -1,7 +1,7 @@
 defmodule ServiceRadarWebNG.Authorization.Permissions do
   @moduledoc false
 
-  use Permit.Permissions, actions_module: ServiceRadarWebNG.Authorization.Actions
+  use Permit.Permissions, actions_module: ServiceRadarWebNGWeb.Authorization.Actions
 
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.AuthSettings

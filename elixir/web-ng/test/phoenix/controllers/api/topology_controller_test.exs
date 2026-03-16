@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.TopologyControllerTest do
+defmodule ServiceRadarWebNGWeb.Api.TopologyControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
   import ServiceRadarWebNG.AshTestHelpers,

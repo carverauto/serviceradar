@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Api.StreamController do
+defmodule ServiceRadarWebNGWeb.Api.StreamController do
   use ServiceRadarWebNGWeb, :controller
 
   require Logger
