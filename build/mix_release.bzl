@@ -603,7 +603,7 @@ mix deps.get --only prod
 # later dependent compilation can load its Rustler NIF from _build/prod/lib.
 EARLY_DEPS=""
 if grep -q '{{:serviceradar_srql,' mix.exs; then
-  EARLY_DEPS="$EARLY_DEPS jason rustler serviceradar_srql"
+  EARLY_DEPS="$EARLY_DEPS boundary decimal jason rustler serviceradar_srql"
 fi
 if [ -n "$EARLY_DEPS" ]; then
   mix deps.compile $EARLY_DEPS

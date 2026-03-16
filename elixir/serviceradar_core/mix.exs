@@ -49,7 +49,7 @@ defmodule ServiceRadarCore.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   defp boundary_compilers do
-    if Mix.env() in [:dev, :test], do: [:boundary], else: []
+    [:boundary]
   end
 
   defp deps do
