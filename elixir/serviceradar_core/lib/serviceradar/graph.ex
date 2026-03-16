@@ -49,12 +49,7 @@ defmodule ServiceRadar.Graph do
     graph = Keyword.get(opts, :graph, default_graph())
     repo = Keyword.get(opts, :repo, Repo)
 
-    query = """
-    SELECT ag_catalog.agtype_to_text(v)
-    FROM ag_catalog.cypher(#{sql_literal(graph)}, #{dollar_quote(cypher)}) AS (v agtype)
-    """
-
-    case repo.query(query, [], prepare: :unnamed) do
+    case query_age(repo, cypher_sql(graph, cypher, :execute, :dollar)) do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -82,12 +77,7 @@ defmodule ServiceRadar.Graph do
     graph = Keyword.get(opts, :graph, default_graph())
     repo = Keyword.get(opts, :repo, Repo)
 
-    sql = """
-    SELECT ag_catalog.agtype_to_text(result)
-    FROM ag_catalog.cypher(#{sql_literal(graph)}, #{dollar_quote(cypher)}) AS (result agtype)
-    """
-
-    case repo.query(sql, [], prepare: :unnamed) do
+    case query_age(repo, cypher_sql(graph, cypher, :query, :dollar)) do
       {:ok, %{rows: rows}} ->
         parsed = parse_agtype_results(rows)
         {:ok, parsed}
@@ -130,6 +120,87 @@ defmodule ServiceRadar.Graph do
   defp dollar_quote(value) when is_binary(value) do
     tag = "$sr_" <> Integer.to_string(:erlang.phash2(value), 16) <> "$"
     tag <> value <> tag
+  end
+
+  defp query_age(repo, sql) do
+    case repo.query(sql, [], prepare: :unnamed) do
+      {:error, reason} = error ->
+        case fallback_sql(sql, reason) do
+          nil -> error
+          fallback -> repo.query(fallback, [], prepare: :unnamed)
+        end
+
+      result ->
+        result
+    end
+  end
+
+  defp cypher_sql(graph, cypher, :execute, quote_style) do
+    """
+    SELECT ag_catalog.agtype_to_text(v)
+    FROM ag_catalog.cypher(#{sql_literal(graph)}, #{quoted_cypher(cypher, quote_style)}) AS (v agtype)
+    """
+  end
+
+  defp cypher_sql(graph, cypher, :query, quote_style) do
+    """
+    SELECT ag_catalog.agtype_to_text(result)
+    FROM ag_catalog.cypher(#{sql_literal(graph)}, #{quoted_cypher(cypher, quote_style)}) AS (result agtype)
+    """
+  end
+
+  defp quoted_cypher(cypher, :dollar), do: dollar_quote(cypher)
+  defp quoted_cypher(cypher, :single), do: sql_literal(cypher)
+
+  # Some AGE builds reject dollar-quoted cstring calls, while others reject
+  # large single-quoted multiline Cypher. Retry with the alternate quoting.
+  defp fallback_sql(sql, %Postgrex.Error{postgres: %{message: message}})
+       when is_binary(message) do
+    cond do
+      String.contains?(message, "unhandled cypher(cstring) function call") ->
+        swap_cypher_quote(sql, :single)
+
+      String.contains?(message, "a dollar-quoted string constant is expected") ->
+        swap_cypher_quote(sql, :dollar)
+
+      true ->
+        nil
+    end
+  end
+
+  defp fallback_sql(_, _), do: nil
+
+  defp swap_cypher_quote(sql, target_style) when is_binary(sql) do
+    case Regex.run(~r/ag_catalog\.cypher\(('(?:''|[^'])*'),\s*(.+?)\)\s+AS\s+\((?:v|result)\s+agtype\)/s, sql, capture: :all_but_first) do
+      [graph_literal, quoted_cypher] ->
+        cypher =
+          case quoted_cypher do
+            <<"$", _::binary>> -> undollar_quote(quoted_cypher)
+            _ -> unsql_literal(quoted_cypher)
+          end
+
+        String.replace(
+          sql,
+          "ag_catalog.cypher(#{graph_literal}, #{quoted_cypher})",
+          "ag_catalog.cypher(#{graph_literal}, #{quoted_cypher(cypher, target_style)})"
+        )
+
+      _ ->
+        nil
+    end
+  end
+
+  defp undollar_quote(quoted) when is_binary(quoted) do
+    [tag, rest] = String.split(quoted, "$", parts: 3) |> Enum.take(-2)
+    delimiter = "$" <> tag <> "$"
+    String.trim_leading(rest, delimiter) |> String.trim_trailing(delimiter)
+  end
+
+  defp unsql_literal(quoted) when is_binary(quoted) do
+    quoted
+    |> String.trim_leading("'")
+    |> String.trim_trailing("'")
+    |> String.replace("''", "'")
   end
 
   # Parse agtype text results into Elixir values
