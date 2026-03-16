@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.NatsCredential
+  alias ServiceRadarWebNG.Capabilities
   alias ServiceRadarWebNG.Collectors.PubSub, as: CollectorPubSub
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
   alias ServiceRadarWebNG.RBAC
@@ -48,6 +49,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
         socket
         |> assign(:page_title, "Collectors")
         |> assign(:collector_types, @collector_types)
+        |> assign(:collectors_enabled, Capabilities.collectors_enabled?())
         |> assign(:show_create_modal, false)
         |> assign(:show_details_modal, false)
         |> assign(:selected_package, nil)
@@ -95,7 +97,11 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
   @impl true
   def handle_event("open_create_modal", _params, socket) do
-    {:noreply, assign(socket, :show_create_modal, true)}
+    if socket.assigns.collectors_enabled do
+      {:noreply, assign(socket, :show_create_modal, true)}
+    else
+      {:noreply, put_flash(socket, :error, collectors_disabled_message())}
+    end
   end
 
   def handle_event("close_create_modal", _params, socket) do
@@ -115,31 +121,35 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   end
 
   def handle_event("create_package", params, socket) do
-    actor = get_actor(socket)
+    if socket.assigns.collectors_enabled do
+      actor = get_actor(socket)
 
-    collector_type = params["collector_type"]
-    site = params["site"]
-    hostname = params["hostname"]
-    edge_site_id = params["edge_site_id"]
-    edge_site_id = if edge_site_id == "", do: nil, else: edge_site_id
+      collector_type = params["collector_type"]
+      site = params["site"]
+      hostname = params["hostname"]
+      edge_site_id = params["edge_site_id"]
+      edge_site_id = if edge_site_id == "", do: nil, else: edge_site_id
 
-    base_url = request_base_url(socket)
+      base_url = request_base_url(socket)
 
-    case create_package(actor, collector_type, site, hostname, edge_site_id, base_url) do
-      {:ok, package, download_token} ->
-        {:noreply,
-         socket
-         |> assign(:created_package, package)
-         |> assign(:created_download_token, download_token)
-         |> assign(
-           :created_install_command,
-           created_install_command(package, download_token, base_url)
-         )
-         |> load_packages(actor)
-         |> put_flash(:info, "Collector package created")}
+      case create_package(actor, collector_type, site, hostname, edge_site_id, base_url) do
+        {:ok, package, download_token} ->
+          {:noreply,
+           socket
+           |> assign(:created_package, package)
+           |> assign(:created_download_token, download_token)
+           |> assign(
+             :created_install_command,
+             created_install_command(package, download_token, base_url)
+           )
+           |> load_packages(actor)
+           |> put_flash(:info, "Collector package created")}
 
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to create package")}
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to create package")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, collectors_disabled_message())}
     end
   end
 
@@ -255,6 +265,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
             </.ui_button>
             <.ui_button
+              :if={@collectors_enabled}
               variant="primary"
               size="sm"
               phx-click="open_create_modal"
@@ -263,6 +274,11 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               <.icon name="hero-plus" class="size-4" /> New Collector
             </.ui_button>
           </div>
+        </div>
+
+        <div :if={not @collectors_enabled} class="alert alert-warning">
+          <.icon name="hero-lock-closed" class="size-5" />
+          <span>Collector onboarding is disabled for this deployment.</span>
         </div>
 
         <.account_status_card
@@ -436,7 +452,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       </.settings_shell>
 
       <.create_modal
-        :if={@show_create_modal}
+        :if={@show_create_modal and @collectors_enabled}
         collector_types={@collector_types}
         edge_sites={@edge_sites}
         created_package={@created_package}
@@ -1007,4 +1023,8 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   defp collector_config_filename("netflow"), do: "netflow.json"
   defp collector_config_filename("falcosidekick"), do: "falcosidekick.yaml"
   defp collector_config_filename(_), do: ""
+
+  defp collectors_disabled_message do
+    "Collector onboarding is disabled for this deployment."
+  end
 end

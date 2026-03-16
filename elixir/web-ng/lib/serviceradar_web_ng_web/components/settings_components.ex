@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadarWebNG.Capabilities
   alias ServiceRadarWebNG.RBAC
 
   attr(:current_path, :string, required: true)
@@ -461,7 +462,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
           label: "Data Collectors",
           navigate: ~p"/admin/collectors",
           active: String.starts_with?(path, "/admin/collectors"),
-          show: can_edge or is_nil(current_scope)
+          show: (can_edge or is_nil(current_scope)) and Capabilities.collectors_enabled?()
         },
         %{
           label: "Agents",

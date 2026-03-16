@@ -130,6 +130,36 @@ god_view_enabled =
   |> String.downcase()
   |> Kernel.in(["1", "true", "yes", "on"])
 
+runtime_capabilities_env = System.get_env("SERVICERADAR_RUNTIME_CAPABILITIES")
+
+normalize_runtime_capability = fn
+  capability when is_binary(capability) ->
+    case String.downcase(String.trim(capability)) do
+      "collectors_enabled" -> :collectors_enabled
+      "leaf_nodes_enabled" -> :leaf_nodes_enabled
+      "device_limit_enforcement_enabled" -> :device_limit_enforcement_enabled
+      _ -> nil
+    end
+
+  _ ->
+    nil
+end
+
+runtime_capabilities =
+  case runtime_capabilities_env do
+    nil ->
+      [configured?: false, enabled: []]
+
+    raw ->
+      enabled =
+        raw
+        |> String.split(",", trim: true)
+        |> Enum.map(normalize_runtime_capability)
+        |> Enum.reject(&is_nil/1)
+
+      [configured?: true, enabled: enabled]
+  end
+
 plugin_storage_defaults = Application.get_env(:serviceradar_web_ng, :plugin_storage, [])
 plugin_storage_backend = System.get_env("PLUGIN_STORAGE_BACKEND")
 plugin_storage_path = System.get_env("PLUGIN_STORAGE_PATH")
@@ -284,6 +314,10 @@ config :serviceradar_core,
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
 
 config :serviceradar_web_ng, :god_view_enabled, god_view_enabled
+config :serviceradar_web_ng, :runtime_capabilities, runtime_capabilities
+config :serviceradar_web_ng,
+  :managed_device_limit,
+  to_int.(System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT"))
 
 config :serviceradar_web_ng,
   device_enrichment_rules_dir:

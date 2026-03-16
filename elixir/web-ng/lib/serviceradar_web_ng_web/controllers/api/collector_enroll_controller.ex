@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorEnrollController do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.CollectorPackage
+  alias ServiceRadarWebNG.Capabilities
   alias ServiceRadarWebNG.Edge.EnrollmentToken
   alias ServiceRadarWebNGWeb.ClientIP
 
@@ -54,12 +55,14 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorEnrollController do
       |> put_status(:bad_request)
       |> json(%{error: "token query parameter is required"})
     else
-      case enroll_with_token(package_id, token_secret, source_ip) do
-        {:ok, result} ->
-          json(conn, result)
+      with :ok <- require_collectors_enabled(conn) do
+        case enroll_with_token(package_id, token_secret, source_ip) do
+          {:ok, result} ->
+            json(conn, result)
 
-        {:error, reason} ->
-          handle_enroll_error(conn, package_id, reason)
+          {:error, reason} ->
+            handle_enroll_error(conn, package_id, reason)
+        end
       end
     end
   end
@@ -250,6 +253,16 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorEnrollController do
       {:ok, nil} -> {:error, :not_found}
       {:ok, package} -> {:ok, package}
       {:error, error} -> {:error, error}
+    end
+  end
+
+  defp require_collectors_enabled(conn) do
+    if Capabilities.collectors_enabled?() do
+      :ok
+    else
+      conn
+      |> put_status(:forbidden)
+      |> json(%{error: "collector onboarding is disabled for this deployment"})
     end
   end
 
