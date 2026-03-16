@@ -6,6 +6,11 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
 
   alias ServiceRadarWebNG.TenantUsage
 
+  @prometheus_reporter :serviceradar_web_ng_prometheus_metrics
+
+  @spec prometheus_reporter() :: atom()
+  def prometheus_reporter, do: @prometheus_reporter
+
   def start_link(arg) do
     Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
   end
@@ -13,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
   @impl true
   def init(_arg) do
     children = [
+      {TelemetryMetricsPrometheus.Core, metrics: metrics(), name: @prometheus_reporter, start_async: false},
       # Telemetry poller will execute the given period measurements
       # every 10_000ms. Learn more here: https://hexdocs.pm/telemetry_metrics
       {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}

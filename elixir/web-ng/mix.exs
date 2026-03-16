@@ -88,6 +88,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:req, "~> 0.5"},
       {:castore, "~> 1.0"},
       {:telemetry_metrics, "~> 1.0"},
+      {:telemetry_metrics_prometheus_core, "~> 1.2"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
