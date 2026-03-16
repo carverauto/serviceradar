@@ -12,7 +12,9 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-fn make_template_event_callback(pending_enabled: bool) -> impl Fn(&TemplateEvent) {
+fn make_template_event_callback(
+    pending_enabled: bool,
+) -> impl Fn(&TemplateEvent) -> Result<(), netflow_parser::TemplateHookError> {
     move |event: &TemplateEvent| {
         use TemplateEvent::*;
         match event {
@@ -21,7 +23,7 @@ fn make_template_event_callback(pending_enabled: bool) -> impl Fn(&TemplateEvent
                 protocol,
             } => {
                 info!(
-                    "Template learned - ID: {}, Protocol: {:?}",
+                    "Template learned - ID: {:?}, Protocol: {:?}",
                     template_id, protocol
                 );
             }
@@ -30,7 +32,7 @@ fn make_template_event_callback(pending_enabled: bool) -> impl Fn(&TemplateEvent
                 protocol,
             } => {
                 warn!(
-                    "Template collision - ID: {}, Protocol: {:?}",
+                    "Template collision - ID: {:?}, Protocol: {:?}",
                     template_id, protocol
                 );
             }
@@ -39,7 +41,7 @@ fn make_template_event_callback(pending_enabled: bool) -> impl Fn(&TemplateEvent
                 protocol,
             } => {
                 debug!(
-                    "Template evicted - ID: {}, Protocol: {:?}",
+                    "Template evicted - ID: {:?}, Protocol: {:?}",
                     template_id, protocol
                 );
             }
@@ -48,7 +50,7 @@ fn make_template_event_callback(pending_enabled: bool) -> impl Fn(&TemplateEvent
                 protocol,
             } => {
                 debug!(
-                    "Template expired - ID: {}, Protocol: {:?}",
+                    "Template expired - ID: {:?}, Protocol: {:?}",
                     template_id, protocol
                 );
             }
@@ -58,19 +60,21 @@ fn make_template_event_callback(pending_enabled: bool) -> impl Fn(&TemplateEvent
             } => {
                 if pending_enabled {
                     debug!(
-                        "Missing template - ID: {}, Protocol: {:?}. \
+                        "Missing template - ID: {:?}, Protocol: {:?}. \
                          Pending flow cache enabled; data queued if capacity allows.",
                         template_id, protocol
                     );
                 } else {
                     warn!(
-                        "Missing template - ID: {}, Protocol: {:?}. \
+                        "Missing template - ID: {:?}, Protocol: {:?}. \
                          Flow data received before template definition - data lost.",
                         template_id, protocol
                     );
                 }
             }
+            _ => {}
         }
+        Ok(())
     }
 }
 
@@ -91,15 +95,15 @@ impl NetflowHandler {
             .on_template_event(make_template_event_callback(pending_enabled));
 
         if let Some(pf) = pending_flows {
-            builder = builder.with_pending_flows(PendingFlowsConfig {
-                max_pending_flows: pf.max_pending_flows,
-                max_entries_per_template: pf.max_entries_per_template,
-                max_entry_size_bytes: pf.max_entry_size_bytes,
-                ttl: Some(Duration::from_secs(pf.ttl_secs)),
-            });
+            let mut pf_config =
+                PendingFlowsConfig::with_ttl(pf.max_pending_flows, Duration::from_secs(pf.ttl_secs));
+            pf_config.max_entries_per_template = pf.max_entries_per_template;
+            pf_config.max_entry_size_bytes = pf.max_entry_size_bytes;
+            builder = builder.with_pending_flows(pf_config);
         }
 
-        let parser = AutoScopedParser::with_builder(builder);
+        let parser = AutoScopedParser::try_with_builder(builder)
+            .expect("failed to build netflow parser");
 
         Self {
             parser: Mutex::new(parser),
@@ -122,7 +126,14 @@ impl FlowHandler for NetflowHandler {
 
         let packets: Vec<_> = {
             let mut parser = self.parser.lock().unwrap();
-            parser.iter_packets_from_source(peer, buf).collect()
+            match parser.iter_packets_from_source(peer, buf) {
+                Ok(iter) => iter.collect(),
+                Err(e) => {
+                    warn!("Failed to parse NetFlow packet from {}: {:?}", peer, e);
+                    self.metrics.parse_errors.fetch_add(1, Ordering::Relaxed);
+                    return vec![];
+                }
+            }
         };
 
         let mut all_messages = Vec::new();
