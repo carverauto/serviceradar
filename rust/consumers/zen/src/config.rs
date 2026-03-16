@@ -324,7 +324,7 @@ impl Config {
     }
 }
 
-fn subject_matches(pattern: &str, subject: &str) -> bool {
+pub(crate) fn subject_matches(pattern: &str, subject: &str) -> bool {
     let pattern_tokens: Vec<&str> = pattern.split('.').collect();
     let subject_tokens: Vec<&str> = subject.split('.').collect();
 
@@ -512,5 +512,13 @@ mod tests {
             cfg.message_format_for_subject("platform.logs.syslog"),
             MessageFormat::Json
         );
+    }
+
+    #[test]
+    fn test_subject_matches_broad_pattern() {
+        assert!(subject_matches("logs.>", "logs.syslog"));
+        assert!(subject_matches("logs.>", "logs.internal.>"));
+        assert!(subject_matches("otel.metrics.>", "otel.metrics.raw"));
+        assert!(!subject_matches("events.>", "logs.syslog"));
     }
 }
