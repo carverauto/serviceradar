@@ -53,7 +53,7 @@ defmodule ServiceRadarWebNG.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:usage_rules, "~> 1.0", only: [:dev]},
+      # {:usage_rules, "~> 1.0", only: [:dev]},  # Commented out for Docker build
       # ServiceRadar Core - Ash domains, cluster, registry
       {:serviceradar_core, path: "../serviceradar_core"},
 

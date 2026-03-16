@@ -77,6 +77,9 @@ defmodule ServiceRadar.Application do
         # RBAC permission cache (shared ETS, must start after PubSub)
         ServiceRadar.Identity.RBAC.Cache,
 
+        # AS Lookup cache for BGP routing (queries GeoIP/ipinfo enrichment caches)
+        as_lookup_child(),
+
         # Minimal HTTP client for background jobs (GeoLite downloads, optional ipinfo refresh)
         finch_child(),
 
@@ -212,6 +215,15 @@ defmodule ServiceRadar.Application do
   defp repo_child do
     if repo_enabled?() do
       ServiceRadar.Repo
+    end
+  end
+
+  defp as_lookup_child do
+    # Start AS lookup cache when repo is available (always enabled)
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.BGP.ASLookup
+    else
+      nil
     end
   end
 

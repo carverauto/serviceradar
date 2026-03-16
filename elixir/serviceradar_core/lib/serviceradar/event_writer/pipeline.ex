@@ -284,8 +284,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:telemetry), do: ServiceRadar.EventWriter.Processors.Telemetry
   defp get_processor(:sflow_raw), do: Flows
-  defp get_processor(:netflow_raw), do: Flows
-  defp get_processor(:netflow), do: Flows
+  defp get_processor(:netflow_raw), do: ServiceRadar.EventWriter.Processors.NetFlowMetrics
+  defp get_processor(:netflow), do: ServiceRadar.EventWriter.Processors.NetFlow
   defp get_processor(_), do: ServiceRadar.EventWriter.Processors.Default
 
   defp stream_to_batcher_name(stream_name) do

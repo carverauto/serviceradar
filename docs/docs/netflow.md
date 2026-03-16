@@ -8,19 +8,288 @@ ServiceRadar ingests flow telemetry to expose traffic matrices, top talkers, and
 
 ## Architecture Overview
 
+ServiceRadar provides **dual pipelines** for NetFlow data to support different use cases:
+
+### Pipeline 1: OCSF Security Flow (Existing)
 ```
-Network Devices → NetFlow Collector → NATS JetStream → Zen Rules → db-event-writer → CNPG/TimescaleDB
-   (v5/v9/IPFIX)    (Rust, UDP:2055)   (Message Broker)  (OCSF Transform)  (Persistence)     (Query via SRQL)
+Network Devices → NetFlow Collector → NATS → Zen Rules → db-event-writer → ocsf_network_activity
+   (v5/v9/IPFIX)    (Rust, UDP:2055)          (OCSF Transform)  (Persistence)
 ```
+
+**Purpose**: Security analysis, OCSF normalization, integration with SIEM tools
+
+### Pipeline 2: Raw Metrics Flow (BGP Support - NEW)
+```
+Network Devices → NetFlow Collector → NATS → EventWriter → netflow_metrics (hypertable)
+   (v5/v9/IPFIX)    (Rust, UDP:2055)          (Raw Storage)      (BGP-enabled)
+```
+
+**Purpose**: Network analysis, BGP routing visibility, performance optimization
 
 **Key Components:**
 - **NetFlow Collector**: Rust daemon listening on UDP port 2055 (configurable)
 - **AutoScopedParser**: RFC-compliant per-source template isolation (0.8.0+)
 - **NATS JetStream**: Reliable message transport with at-least-once delivery
-- **Zen Rules Engine**: Transforms raw flows to OCSF 1.7.0 schema
-- **CNPG/TimescaleDB**: Time-series storage in `netflow_metrics` hypertable
-- **SRQL**: Query flows via `in:flows` queries
-- **Web UI**: NetFlow dashboard for top talkers and traffic analysis
+- **EventWriter**: Elixir/Broadway processor for raw metrics with BGP fields
+- **Zen Rules Engine**: Transforms raw flows to OCSF 1.7.0 schema (security pipeline)
+- **CNPG/TimescaleDB**: Time-series storage with `netflow_metrics` and `ocsf_network_activity` hypertables
+- **SRQL**: Query flows via `in:flows` with BGP field support
+- **Web UI**: NetFlow dashboard with BGP topology visualization
+
+## BGP Routing Support (NEW)
+
+ServiceRadar now captures and visualizes BGP routing information from NetFlow/IPFIX exports, enabling deep insights into AS-level traffic patterns and routing decisions.
+
+### BGP Fields
+
+**AS Path** (`as_path`):
+- Ordered array of AS numbers in the routing path
+- Format: `[SOURCE_AS, INTERMEDIATE_AS, ..., DEST_AS]`
+- Example: `[64512, 64513, 64514]` indicates traffic traversed three autonomous systems
+- Stored as PostgreSQL `INTEGER[]` with GIN index for fast containment queries
+
+**BGP Communities** (`bgp_communities`):
+- Array of 32-bit community values (RFC 1997 format)
+- Format: High 16 bits = AS number, low 16 bits = value
+- Example: `4259840100` = `0xFDE80064` = `65000:100`
+- Enables policy-based routing and traffic engineering visibility
+- Stored as PostgreSQL `INTEGER[]` with GIN index
+
+**Well-Known Communities**:
+- `NO_EXPORT` (0xFFFFFF01): Do not advertise to EBGP peers
+- `NO_ADVERTISE` (0xFFFFFF02): Do not advertise to any peer
+- `NO_EXPORT_SUBCONFED` (0xFFFFFF03): Do not advertise outside sub-confederation
+- `NOPEER` (0xFFFFFF04): Do not advertise to peers
+
+### Querying BGP Data with SRQL
+
+**Find flows traversing specific AS:**
+```bash
+srql "in:flows as_path:[64512] time:last_1h"
+```
+
+**Find flows with specific BGP community:**
+```bash
+srql "in:flows bgp_community:[65000:100] time:last_24h"
+```
+
+**Find flows with well-known community NO_EXPORT:**
+```bash
+srql "in:flows bgp_community:[NO_EXPORT] time:last_6h"
+```
+
+**Combine AS and community filters:**
+```bash
+srql "in:flows as_path:[64512] bgp_community:[65000:100] time:last_1h"
+```
+
+### BGP Visualization in UI
+
+Navigate to **NetFlow → BGP Analysis** to view:
+
+**1. AS Path Display**
+- Visual representation: `AS64512 → AS64513 → AS64514`
+- Hop count and path length metrics
+- Identification of transit vs. direct peers
+
+**2. Traffic by AS Statistics**
+- Top 10 AS numbers by traffic volume
+- Bar chart with bytes/packets/flow count per AS
+- Drill-down to see all flows for a specific AS
+
+**3. Top BGP Communities**
+- Most common communities in your traffic
+- Traffic volume per community
+- Well-known community name mapping
+
+**4. AS Path Diversity Metrics**
+- Unique path count
+- Average path length
+- Maximum path length
+- Path redundancy analysis
+
+**5. AS Topology Graph** (Interactive SVG)
+- Nodes: Autonomous systems sized by traffic volume
+- Edges: AS connections sized by connection traffic
+- Hover tooltips show AS number, bytes, flow count
+- Click-to-filter applies `as_path:[X]` filter
+
+### Database Queries
+
+**Direct PostgreSQL queries for advanced analysis:**
+
+**Find all flows traversing AS 64512:**
+```sql
+SELECT
+  timestamp,
+  src_ip,
+  dst_ip,
+  as_path,
+  bytes_total,
+  packets_total
+FROM netflow_metrics
+WHERE as_path @> ARRAY[64512]
+  AND timestamp > NOW() - INTERVAL '1 hour'
+ORDER BY bytes_total DESC
+LIMIT 20;
+```
+
+**Traffic aggregation by AS:**
+```sql
+SELECT
+  unnest(as_path) AS asn,
+  SUM(bytes_total) AS total_bytes,
+  SUM(packets_total) AS total_packets,
+  COUNT(*) AS flow_count
+FROM netflow_metrics
+WHERE timestamp > NOW() - INTERVAL '1 hour'
+  AND as_path IS NOT NULL
+GROUP BY asn
+ORDER BY total_bytes DESC
+LIMIT 10;
+```
+
+**Find flows with specific BGP community:**
+```sql
+SELECT
+  timestamp,
+  src_ip,
+  dst_ip,
+  as_path,
+  bgp_communities,
+  bytes_total
+FROM netflow_metrics
+WHERE bgp_communities @> ARRAY[4259840100]  -- 65000:100
+  AND timestamp > NOW() - INTERVAL '1 hour'
+ORDER BY timestamp DESC;
+```
+
+**AS path topology (edges between ASNs):**
+```sql
+WITH path_edges AS (
+  SELECT
+    as_path[i] as source_as,
+    as_path[i+1] as dest_as,
+    bytes_total,
+    packets_total
+  FROM netflow_metrics,
+       generate_series(1, array_length(as_path, 1) - 1) i
+  WHERE timestamp > NOW() - INTERVAL '1 hour'
+    AND as_path IS NOT NULL
+    AND array_length(as_path, 1) > 1
+)
+SELECT
+  source_as,
+  dest_as,
+  SUM(bytes_total) as total_bytes,
+  SUM(packets_total) as total_packets,
+  COUNT(*) as flow_count
+FROM path_edges
+GROUP BY source_as, dest_as
+ORDER BY total_bytes DESC
+LIMIT 20;
+```
+
+### GIN Index Performance
+
+The `netflow_metrics` table uses **GIN (Generalized Inverted Index)** indexes for fast array containment queries:
+
+**Indexes:**
+```sql
+CREATE INDEX idx_netflow_metrics_as_path
+  ON netflow_metrics USING GIN (as_path);
+
+CREATE INDEX idx_netflow_metrics_bgp_communities
+  ON netflow_metrics USING GIN (bgp_communities);
+```
+
+**Performance Characteristics:**
+- Containment query (`@>` operator): O(log n) lookup
+- Ideal for queries like: `WHERE as_path @> ARRAY[64512]`
+- Index size: ~30% of table size
+- Update performance: Slightly slower inserts due to index maintenance
+
+**Query Planner Usage:**
+```sql
+EXPLAIN ANALYZE
+SELECT COUNT(*) FROM netflow_metrics
+WHERE as_path @> ARRAY[64512];
+
+-- Output shows:
+-- Bitmap Index Scan on idx_netflow_metrics_as_path
+-- Index Cond: (as_path @> '{64512}'::integer[])
+```
+
+### Device Configuration for BGP Fields
+
+**Cisco IOS-XE (IPFIX with BGP):**
+```cisco
+flow record SERVICERADAR-BGP-RECORD
+  match ipv4 protocol
+  match ipv4 source address
+  match ipv4 destination address
+  match transport source-port
+  match transport destination-port
+  collect counter bytes
+  collect counter packets
+  collect timestamp sys-uptime first
+  collect timestamp sys-uptime last
+  collect routing source as
+  collect routing destination as
+  collect routing next-hop as
+  collect routing source as peer
+  collect routing destination as peer
+  collect bgp source-community-list
+  collect bgp destination-community-list
+
+flow monitor SERVICERADAR-BGP-MONITOR
+  exporter SERVICERADAR-COLLECTOR
+  cache timeout active 60
+  cache timeout inactive 15
+  record SERVICERADAR-BGP-RECORD
+```
+
+**Juniper (IPFIX with BGP):**
+```juniper
+set services flow-monitoring version-ipfix template SERVICERADAR-BGP
+set services flow-monitoring version-ipfix template SERVICERADAR-BGP ipv4-template
+set services flow-monitoring version-ipfix template SERVICERADAR-BGP flow-active-timeout 60
+set services flow-monitoring version-ipfix template SERVICERADAR-BGP flow-inactive-timeout 15
+set services flow-monitoring version-ipfix template SERVICERADAR-BGP source-address <ROUTER-IP>
+set services flow-monitoring version-ipfix template SERVICERADAR-BGP nexthop-learning enable
+set services flow-monitoring version-ipfix template SERVICERADAR-BGP autonomous-system-type origin
+set services flow-monitoring version-ipfix template SERVICERADAR-BGP peer-as-fill-in-first-as
+
+set forwarding-options sampling instance SERVICERADAR-BGP
+set forwarding-options sampling instance SERVICERADAR-BGP family inet output flow-server <COLLECTOR-IP> port 2055
+set forwarding-options sampling instance SERVICERADAR-BGP family inet output flow-server <COLLECTOR-IP> version-ipfix template SERVICERADAR-BGP
+set forwarding-options sampling instance SERVICERADAR-BGP family inet output flow-server <COLLECTOR-IP> autonomous-system-type origin
+```
+
+**Important Notes:**
+- BGP fields are only available in **IPFIX** exports
+- NetFlow v5 and v9 have limited or no BGP support
+- Router must have BGP configured to export BGP fields
+- `bgp_communities` requires explicit configuration in flow record
+
+### Type Conversion Notes (Developers)
+
+**uint32 → int32 Conversion:**
+
+IPFIX defines BGP fields as `unsigned32` (uint32), but PostgreSQL `INTEGER` type is signed (int32):
+- **Max int32 value**: 2,147,483,647
+- **Max uint32 value**: 4,294,967,295
+
+**Handling:**
+- Rust collector passes uint32 values as-is in protobuf
+- Elixir EventWriter caps values at max int32: `min(value, 2_147_483_647)`
+- In practice, AS numbers < 4,294,967,295 (32-bit ASNs)
+- BGP communities typically < 2^31 for standard communities
+
+**Why not BIGINT?**
+- INTEGER[] arrays more efficient for GIN indexes
+- AS numbers > 2^31 are extremely rare
+- Extended communities use different format (not covered here)
 
 ## Collector Layout
 
