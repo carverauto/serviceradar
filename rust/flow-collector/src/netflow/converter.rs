@@ -725,18 +725,6 @@ fn parse_bgp_communities(value: &FieldValue) -> Vec<u32> {
     }
 }
 
-impl From<Converter> for Vec<flowpb::FlowMessage> {
-    fn from(converter: Converter) -> Self {
-        match converter.packet {
-            NetflowPacket::V5(ref v5) => converter.convert_v5(v5),
-            NetflowPacket::V7(_) => vec![],
-            NetflowPacket::V9(ref v9) => converter.convert_v9(v9),
-            NetflowPacket::IPFix(ref ipfix) => converter.convert_ipfix(ipfix),
-            _ => vec![],
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
