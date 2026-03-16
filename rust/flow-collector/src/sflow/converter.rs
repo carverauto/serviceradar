@@ -44,8 +44,8 @@ impl Converter {
                 SflowSample::Counter(_) | SflowSample::ExpandedCounter(_) => {
                     // Skip counter samples — out of scope
                 }
-                SflowSample::Unknown { .. } => {
-                    debug!("Skipping unknown sFlow sample type");
+                SflowSample::DiscardedPacket(_) | SflowSample::Unknown { .. } => {
+                    debug!("Skipping unsupported sFlow sample type");
                 }
             }
         }
