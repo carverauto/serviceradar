@@ -22,7 +22,7 @@ var (
 	// Core database errors.
 	ErrFailedOpenDB = errors.New("failed to open database")
 
-	// Netflow validation errors.
+	// Netflow errors.
 	ErrNetflowMetricNil = errors.New("netflow metric is nil")
 
 	// CNPG configuration helpers.

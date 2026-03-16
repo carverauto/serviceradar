@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y \
 
 # Cache dependencies with real workspace contents
 COPY Cargo.toml Cargo.lock ./
-COPY cmd ./cmd
 COPY rust ./rust
 RUN cargo fetch --locked --manifest-path rust/flow-collector/Cargo.toml
 

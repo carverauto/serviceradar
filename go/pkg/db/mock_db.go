@@ -10,10 +10,8 @@
 package db
 
 import (
-	context "context"
 	reflect "reflect"
 
-	models "github.com/carverauto/serviceradar/go/pkg/models"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -52,18 +50,4 @@ func (m *MockService) Close() error {
 func (mr *MockServiceMockRecorder) Close() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockService)(nil).Close))
-}
-
-// StoreNetflowMetrics mocks base method.
-func (m *MockService) StoreNetflowMetrics(ctx context.Context, metrics []*models.NetflowMetric) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreNetflowMetrics", ctx, metrics)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// StoreNetflowMetrics indicates an expected call of StoreNetflowMetrics.
-func (mr *MockServiceMockRecorder) StoreNetflowMetrics(ctx, metrics any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreNetflowMetrics", reflect.TypeOf((*MockService)(nil).StoreNetflowMetrics), ctx, metrics)
 }

@@ -17,16 +17,10 @@
 // Package db pkg/db/interfaces.go
 package db
 
-import (
-	"context"
-
-	"github.com/carverauto/serviceradar/go/pkg/models"
-)
 
 //go:generate mockgen -source=interfaces.go -destination=mock_db.go -package=db
 
 // Service represents the CNPG-backed database operations used by consumers.
 type Service interface {
 	Close() error
-	StoreNetflowMetrics(ctx context.Context, metrics []*models.NetflowMetric) error
 }
