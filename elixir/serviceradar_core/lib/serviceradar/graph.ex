@@ -123,15 +123,27 @@ defmodule ServiceRadar.Graph do
   end
 
   defp query_age(repo, sql) do
+    do_query_age(repo, sql, 3, nil)
+  end
+
+  defp do_query_age(_repo, _sql, 0, last_error), do: {:error, last_error}
+
+  defp do_query_age(repo, sql, attempts_left, _last_error) do
     case repo.query(sql, [], prepare: :unnamed) do
+      {:ok, _} = result ->
+        result
+
       {:error, reason} = error ->
         case fallback_sql(sql, reason) do
-          nil -> error
-          fallback -> repo.query(fallback, [], prepare: :unnamed)
-        end
+          fallback when is_binary(fallback) and fallback != sql ->
+            do_query_age(repo, fallback, attempts_left - 1, reason)
 
-      result ->
-        result
+          _ when attempts_left > 1 ->
+            do_query_age(repo, sql, attempts_left - 1, reason)
+
+          _ ->
+            error
+        end
     end
   end
 

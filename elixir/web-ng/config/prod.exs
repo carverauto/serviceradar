@@ -16,7 +16,7 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint, cache_static_manifes
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   force_ssl: [rewrite_on: [:x_forwarded_proto]],
   exclude: [
-    # paths: ["/health"],
+    paths: ["/metrics"],
     hosts: ["localhost", "127.0.0.1"]
   ]
 
