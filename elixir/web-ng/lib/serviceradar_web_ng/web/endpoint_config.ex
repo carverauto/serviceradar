@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.EndpointConfig do
+defmodule ServiceRadarWebNG.Web.EndpointConfig do
   @moduledoc false
 
   @endpoint ServiceRadarWebNGWeb.Endpoint

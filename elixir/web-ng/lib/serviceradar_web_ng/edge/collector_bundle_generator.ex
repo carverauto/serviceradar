@@ -43,7 +43,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
-  alias ServiceRadarWebNG.EndpointConfig
+  alias ServiceRadarWebNG.Web.EndpointConfig
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 

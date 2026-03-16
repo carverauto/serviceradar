@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNGWeb.Api.AuthorizationSettingsController do
   use ServiceRadarWebNGWeb, :controller
 
   use Permit.Phoenix.Controller,
-    authorization_module: ServiceRadarWebNG.Authorization,
+    authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Identity.AuthorizationSettings
 
   alias ServiceRadar.Identity.AuthorizationSettings

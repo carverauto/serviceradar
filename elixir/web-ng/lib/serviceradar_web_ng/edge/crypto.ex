@@ -17,7 +17,7 @@ defmodule ServiceRadarWebNG.Edge.Crypto do
   Download tokens are hashed using SHA-256 for secure storage and verification.
   """
 
-  alias ServiceRadarWebNG.EndpointConfig
+  alias ServiceRadarWebNG.Web.EndpointConfig
 
   @token_length 32
   @aad "serviceradar-edge-onboarding"

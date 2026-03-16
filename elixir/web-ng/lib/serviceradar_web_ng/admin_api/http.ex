@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
   @behaviour ServiceRadarWebNG.AdminApi
 
   alias ServiceRadarWebNG.Auth.Guardian
-  alias ServiceRadarWebNG.EndpointConfig
+  alias ServiceRadarWebNG.Web.EndpointConfig
 
   @impl true
   def list_users(scope, params) do

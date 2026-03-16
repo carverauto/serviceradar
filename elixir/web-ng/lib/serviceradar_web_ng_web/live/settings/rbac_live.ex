@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   use ServiceRadarWebNGWeb, :live_view
 
   use Permit.Phoenix.LiveView,
-    authorization_module: ServiceRadarWebNG.Authorization,
+    authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Identity.RoleProfile
 
   alias ServiceRadar.Identity.RBAC

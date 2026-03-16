@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   alias Jetstream.API.Object
   alias ServiceRadar.Plugins.PluginPackage
-  alias ServiceRadarWebNG.EndpointConfig
+  alias ServiceRadarWebNG.Web.EndpointConfig
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 

@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.Api.UserController do
   use ServiceRadarWebNGWeb, :controller
 
   use Permit.Phoenix.Controller,
-    authorization_module: ServiceRadarWebNG.Authorization,
+    authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Identity.User
 
   alias ServiceRadar.Identity.User

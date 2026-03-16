@@ -18,7 +18,8 @@ defmodule ServiceRadarWebNGWeb do
   """
 
   use Boundary,
-    check: [in: false, out: false]
+    deps: [ServiceRadarWebNG, ServiceRadar],
+    exports: :all
 
   def static_paths, do: ~w(assets fonts images favicon.ico robots.txt)
 

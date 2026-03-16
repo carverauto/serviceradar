@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   - Token can only be used once (marked as downloaded after use)
   """
 
-  alias ServiceRadarWebNG.EndpointConfig
+  alias ServiceRadarWebNG.Web.EndpointConfig
 
   @default_expiry_hours 24
 

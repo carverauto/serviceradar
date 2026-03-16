@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.Api.RoleProfileController do
   use ServiceRadarWebNGWeb, :controller
 
   use Permit.Phoenix.Controller,
-    authorization_module: ServiceRadarWebNG.Authorization,
+    authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Identity.RoleProfile
 
   alias ServiceRadar.Identity.RBAC
