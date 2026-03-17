@@ -31,8 +31,7 @@ defmodule ServiceRadarWebNG.Auth.Hooks do
   def on_user_authenticated(user, claims), do: hooks_module().on_user_authenticated(user, claims)
 
   @doc false
-  def on_token_generated(user, token, claims),
-    do: hooks_module().on_token_generated(user, token, claims)
+  def on_token_generated(user, token, claims), do: hooks_module().on_token_generated(user, token, claims)
 
   @doc false
   def enrich_claims(claims, user), do: hooks_module().enrich_claims(claims, user)

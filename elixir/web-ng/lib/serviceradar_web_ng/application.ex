@@ -50,8 +50,8 @@ defmodule ServiceRadarWebNG.Application do
     # react_children = [Phoenix.React]
 
     children =
-      base_children ++
-        pubsub_children ++
+      pubsub_children ++
+        base_children ++
         [{Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}]
 
     # Ensure ServiceRadar.Repo is started (may already be started by serviceradar_core)

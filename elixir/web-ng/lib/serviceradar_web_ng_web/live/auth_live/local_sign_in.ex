@@ -23,7 +23,7 @@ defmodule ServiceRadarWebNGWeb.AuthLive.LocalSignIn do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={%{}}>
       <div class="mx-auto max-w-md p-6">
         <div class="text-center mb-8 space-y-3">
           <div class="flex items-center justify-center gap-3">

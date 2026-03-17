@@ -13,6 +13,7 @@ import (
 const (
 	securityModeMTLS   = "mtls"
 	securityModeSPIFFE = "spiffe"
+	securityModeNone   = "none"
 )
 
 // Validate ensures the configuration is valid.
@@ -80,6 +81,8 @@ func (c *Config) validateSecurity() error {
 	switch mode {
 	case securityModeMTLS:
 	case securityModeSPIFFE:
+	case securityModeNone:
+		return nil
 	default:
 		return fmt.Errorf("%w: %s", errInvalidSecurityMode, c.Security.Mode)
 	}
@@ -93,20 +96,27 @@ func (c *Config) validateSecurity() error {
 
 func (c *Config) validateNATSSecurity() error {
 	if c.NATSSecurity == nil {
-		return errNATSSecurityRequired
+		if strings.TrimSpace(c.NATSCredsFile) == "" {
+			return errNATSSecurityRequired
+		}
+
+		return nil
 	}
 
 	mode := strings.ToLower(string(c.NATSSecurity.Mode))
 
-	if mode != securityModeMTLS {
+	switch mode {
+	case securityModeMTLS:
+		return validateTLSConfig(c.NATSSecurity)
+	case securityModeNone:
+		if strings.TrimSpace(c.NATSCredsFile) == "" {
+			return errNATSCredsRequired
+		}
+
+		return nil
+	default:
 		return errMTLSRequired
 	}
-
-	if err := validateTLSConfig(c.NATSSecurity); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func validateTLSConfig(sec *models.SecurityConfig) error {

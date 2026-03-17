@@ -27,7 +27,7 @@ mod otel_metrics;
 mod rule_watcher;
 mod spiffe;
 
-use config::Config;
+use config::{subject_matches, Config};
 use engine::build_engine;
 use grpc_server::start_grpc_server;
 use message_processor::process_message;
@@ -81,7 +81,7 @@ async fn main() -> Result<()> {
             let mut needs_update = false;
 
             for required in &required_subjects {
-                if !current_subjects.contains(required) {
+                if !current_subjects.iter().any(|existing| subject_matches(existing, required)) {
                     info!(
                         "adding missing subject {} to stream {}",
                         required, cfg.stream_name

@@ -3,6 +3,10 @@ load("//build/packaging:packages.bzl", "PACKAGES")
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files([
+    "config/db-event-writer.json",
+])
+
 serviceradar_package_from_config(
     name = "event-writer",
     config = PACKAGES["event-writer"],

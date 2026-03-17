@@ -130,6 +130,36 @@ god_view_enabled =
   |> String.downcase()
   |> Kernel.in(["1", "true", "yes", "on"])
 
+runtime_capabilities_env = System.get_env("SERVICERADAR_RUNTIME_CAPABILITIES")
+
+normalize_runtime_capability = fn
+  capability when is_binary(capability) ->
+    case String.downcase(String.trim(capability)) do
+      "collectors_enabled" -> :collectors_enabled
+      "leaf_nodes_enabled" -> :leaf_nodes_enabled
+      "device_limit_enforcement_enabled" -> :device_limit_enforcement_enabled
+      _ -> nil
+    end
+
+  _ ->
+    nil
+end
+
+runtime_capabilities =
+  case runtime_capabilities_env do
+    nil ->
+      [configured?: false, enabled: []]
+
+    raw ->
+      enabled =
+        raw
+        |> String.split(",", trim: true)
+        |> Enum.map(normalize_runtime_capability)
+        |> Enum.reject(&is_nil/1)
+
+      [configured?: true, enabled: enabled]
+  end
+
 plugin_storage_defaults = Application.get_env(:serviceradar_web_ng, :plugin_storage, [])
 plugin_storage_backend = System.get_env("PLUGIN_STORAGE_BACKEND")
 plugin_storage_path = System.get_env("PLUGIN_STORAGE_PATH")
@@ -286,6 +316,12 @@ config :serviceradar_core,
 config :serviceradar_web_ng, :god_view_enabled, god_view_enabled
 
 config :serviceradar_web_ng,
+       :managed_device_limit,
+       to_int.(System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT"))
+
+config :serviceradar_web_ng, :runtime_capabilities, runtime_capabilities
+
+config :serviceradar_web_ng,
   device_enrichment_rules_dir:
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
 
@@ -316,8 +352,26 @@ end
 
 # libcluster configuration for ERTS cluster formation
 # Strategy selection: kubernetes, epmd, dns, or gossip (future)
-cluster_strategy = System.get_env("CLUSTER_STRATEGY", "epmd")
-cluster_enabled = System.get_env("CLUSTER_ENABLED", "false") in ~w(true 1 yes)
+hosted_cluster_contract =
+  case System.get_env("SERVICERADAR_HOSTED_CLUSTER_CONTRACT") do
+    nil ->
+      %{}
+
+    raw ->
+      case Jason.decode(raw) do
+        {:ok, contract} when is_map(contract) -> contract
+        _ -> %{}
+      end
+  end
+
+cluster_strategy =
+  get_in(hosted_cluster_contract, ["strategy"]) || System.get_env("CLUSTER_STRATEGY", "epmd")
+
+cluster_enabled =
+  case get_in(hosted_cluster_contract, ["enabled"]) do
+    value when is_boolean(value) -> value
+    _ -> System.get_env("CLUSTER_ENABLED", "false") in ~w(true 1 yes)
+  end
 
 # web-ng participates in the cluster but does NOT run ClusterSupervisor/ClusterHealth
 # Those are managed by core-elx (the cluster coordinator)
@@ -352,16 +406,29 @@ if cluster_enabled do
 
       "dns" ->
         # DNSPoll strategy for bare metal with service discovery
-        dns_query = System.get_env("CLUSTER_DNS_QUERY", "")
-        node_basename = System.get_env("CLUSTER_NODE_BASENAME", "serviceradar_web_ng")
+        dns_query =
+          get_in(hosted_cluster_contract, ["web", "dns_query"]) ||
+            System.get_env("CLUSTER_DNS_QUERY", "")
 
-        core_dns_query = System.get_env("CLUSTER_CORE_DNS_QUERY", "")
-        core_node_basename = System.get_env("CLUSTER_CORE_NODE_BASENAME", "serviceradar_core")
+        node_basename =
+          get_in(hosted_cluster_contract, ["web", "node_basename"]) ||
+            System.get_env("CLUSTER_NODE_BASENAME", "serviceradar_web_ng")
 
-        gateway_dns_query = System.get_env("CLUSTER_GATEWAY_DNS_QUERY", "")
+        core_dns_query =
+          get_in(hosted_cluster_contract, ["web", "core_dns_query"]) ||
+            System.get_env("CLUSTER_CORE_DNS_QUERY", "")
+
+        core_node_basename =
+          get_in(hosted_cluster_contract, ["web", "core_node_basename"]) ||
+            System.get_env("CLUSTER_CORE_NODE_BASENAME", "serviceradar_core")
+
+        gateway_dns_query =
+          get_in(hosted_cluster_contract, ["web", "gateway_dns_query"]) ||
+            System.get_env("CLUSTER_GATEWAY_DNS_QUERY", "")
 
         gateway_node_basename =
-          System.get_env("CLUSTER_GATEWAY_NODE_BASENAME", "serviceradar_agent_gateway")
+          get_in(hosted_cluster_contract, ["web", "gateway_node_basename"]) ||
+            System.get_env("CLUSTER_GATEWAY_NODE_BASENAME", "serviceradar_agent_gateway")
 
         maybe_add_dns_topology = fn topologies, name, query, basename ->
           if query in [nil, ""] do
@@ -711,6 +778,7 @@ if config_env() == :prod do
     end
 
   gateway_addr = System.get_env("SERVICERADAR_GATEWAY_ADDR")
+  gateway_server_name = System.get_env("SERVICERADAR_GATEWAY_SERVER_NAME")
 
   # Configure ServiceRadar.Repo from serviceradar_core
   config :serviceradar_core, ServiceRadar.Repo,
@@ -733,6 +801,10 @@ if config_env() == :prod do
 
   if is_binary(gateway_addr) and String.trim(gateway_addr) != "" do
     config :serviceradar_web_ng, :gateway_addr, String.trim(gateway_addr)
+  end
+
+  if is_binary(gateway_server_name) and String.trim(gateway_server_name) != "" do
+    config :serviceradar_web_ng, :gateway_server_name, String.trim(gateway_server_name)
   end
 
   nats_url = System.get_env("NATS_URL") || System.get_env("SERVICERADAR_NATS_URL")
@@ -871,16 +943,18 @@ if config_env() == :prod do
   smtp_relay_hostname = System.get_env("SMTP_RELAY_HOSTNAME") || host
   smtp_relay_username = System.get_env("SMTP_RELAY_USERNAME")
   smtp_relay_password = System.get_env("SMTP_RELAY_PASSWORD")
+  mail_from_name = System.get_env("SERVICERADAR_MAIL_FROM_NAME") || "ServiceRadar"
+  mail_from_email = System.get_env("SERVICERADAR_MAIL_FROM_EMAIL") || "noreply@serviceradar.cloud"
 
   smtp_relay_auth =
-    case System.get_env("SMTP_RELAY_AUTH", "if_available") |> String.trim() |> String.downcase() do
+    case "SMTP_RELAY_AUTH" |> System.get_env("if_available") |> String.trim() |> String.downcase() do
       "always" -> :always
       "never" -> :never
       _ -> :if_available
     end
 
   smtp_relay_tls =
-    case System.get_env("SMTP_RELAY_TLS", "if_available") |> String.trim() |> String.downcase() do
+    case "SMTP_RELAY_TLS" |> System.get_env("if_available") |> String.trim() |> String.downcase() do
       "always" -> :always
       "never" -> :never
       _ -> :if_available
@@ -896,9 +970,6 @@ if config_env() == :prod do
       "local" ->
         Local
 
-      "test" ->
-        Swoosh.Adapters.Test
-
       adapter ->
         if String.contains?(adapter, ".") do
           adapter
@@ -913,7 +984,7 @@ if config_env() == :prod do
   mailer_config = [adapter: mailer_adapter]
 
   mailer_config =
-    if mailer_adapter in [Local, Swoosh.Adapters.Test] or is_nil(smtp_relay_host) do
+    if mailer_adapter == Local or is_nil(smtp_relay_host) do
       mailer_config
     else
       mailer_config
@@ -923,11 +994,14 @@ if config_env() == :prod do
       |> Keyword.put(:tls, smtp_relay_tls)
       |> Keyword.put(:ssl, smtp_relay_ssl)
       |> Keyword.put(:hostname, smtp_relay_hostname)
+      |> Keyword.put(:from_name, mail_from_name)
+      |> Keyword.put(:from_email, mail_from_email)
       |> maybe_put_mailer_credential.(:username, smtp_relay_username)
       |> maybe_put_mailer_credential.(:password, smtp_relay_password)
     end
 
   config :serviceradar_core, ServiceRadar.Mailer, mailer_config
+
   config :serviceradar_web_ng, ServiceRadarWebNG.Mailer, mailer_config
 
   if local_mailer or mailer_adapter == Local do

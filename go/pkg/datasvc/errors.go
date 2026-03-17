@@ -40,7 +40,6 @@ var (
 	errCAFileRequired         = errors.New("tls.ca_file is required for mTLS")
 	errInvalidSecurityMode    = errors.New("unsupported security mode")
 	errResolverURLNotSet      = errors.New("resolver NATS URL not configured")
-	errResolverTLSRequired    = errors.New("resolver TLS config required")
 	errOperatorConfigNotSet   = errors.New("operator config path not set")
 	errOperatorNotInit        = errors.New("operator not initialized")
 	errResolverPathNotSet     = errors.New("resolver path not configured")

@@ -15,6 +15,120 @@
 
 set -e
 
+replace_line() {
+    file_path="$1"
+    existing_line="$2"
+    replacement_line="$3"
+    tmp_path="${file_path}.tmp"
+
+    awk -v existing="$existing_line" -v replacement="$replacement_line" '
+        $0 == existing {
+            print replacement
+            next
+        }
+
+        { print }
+    ' "$file_path" > "$tmp_path"
+
+    mv "$tmp_path" "$file_path"
+}
+
+patch_log_collector_configs() {
+    flowgger_config_path="${FLOWGGER_CONFIG_PATH:-/etc/serviceradar/flowgger.toml}"
+    otel_config_path="${OTEL_CONFIG_PATH:-/etc/serviceradar/otel.toml}"
+
+    if [ -n "${LOG_COLLECTOR_HEALTH_LISTEN_ADDR:-}" ]; then
+        replace_line \
+            "$CONFIG_PATH" \
+            'listen_addr = "0.0.0.0:50044"' \
+            "listen_addr = \"${LOG_COLLECTOR_HEALTH_LISTEN_ADDR}\""
+    fi
+
+    if [ -n "${FLOWGGER_LISTEN_ADDR:-}" ]; then
+        replace_line \
+            "$flowgger_config_path" \
+            'listen = "0.0.0.0:514"' \
+            "listen = \"${FLOWGGER_LISTEN_ADDR}\""
+    fi
+
+    if [ -n "${FLOWGGER_NATS_URL:-}" ]; then
+        replace_line \
+            "$flowgger_config_path" \
+            'nats_url = "nats://serviceradar-nats:4222"' \
+            "nats_url = \"${FLOWGGER_NATS_URL}\""
+    fi
+
+    if [ -n "${FLOWGGER_NATS_CREDS_FILE:-}" ]; then
+        replace_line \
+            "$flowgger_config_path" \
+            'nats_creds_file = "/var/run/serviceradar/runtime/NATS_CREDS_FILE"' \
+            "nats_creds_file = \"${FLOWGGER_NATS_CREDS_FILE}\""
+    fi
+
+    if [ -n "${FLOWGGER_NATS_SUBJECT:-}" ]; then
+        replace_line \
+            "$flowgger_config_path" \
+            'nats_subject = "logs.syslog"' \
+            "nats_subject = \"${FLOWGGER_NATS_SUBJECT}\""
+    fi
+
+    if [ -n "${FLOWGGER_NATS_STREAM:-}" ]; then
+        replace_line \
+            "$flowgger_config_path" \
+            'nats_stream = "events"' \
+            "nats_stream = \"${FLOWGGER_NATS_STREAM}\""
+    fi
+
+    if [ -n "${OTEL_BIND_ADDRESS:-}" ]; then
+        replace_line \
+            "$otel_config_path" \
+            'bind_address = "0.0.0.0"' \
+            "bind_address = \"${OTEL_BIND_ADDRESS}\""
+    fi
+
+    if [ -n "${OTEL_PORT:-}" ]; then
+        replace_line \
+            "$otel_config_path" \
+            'port = 4317' \
+            "port = ${OTEL_PORT}"
+    fi
+
+    if [ -n "${OTEL_NATS_URL:-}" ]; then
+        replace_line \
+            "$otel_config_path" \
+            'url = "nats://serviceradar-nats:4222"' \
+            "url = \"${OTEL_NATS_URL}\""
+    fi
+
+    if [ -n "${OTEL_NATS_CREDS_FILE:-}" ]; then
+        replace_line \
+            "$otel_config_path" \
+            'creds_file = "/var/run/serviceradar/runtime/NATS_CREDS_FILE"' \
+            "creds_file = \"${OTEL_NATS_CREDS_FILE}\""
+    fi
+
+    if [ -n "${OTEL_SUBJECT:-}" ]; then
+        replace_line \
+            "$otel_config_path" \
+            'subject = "otel"' \
+            "subject = \"${OTEL_SUBJECT}\""
+    fi
+
+    if [ -n "${OTEL_LOGS_SUBJECT:-}" ]; then
+        replace_line \
+            "$otel_config_path" \
+            'logs_subject = "logs.otel"' \
+            "logs_subject = \"${OTEL_LOGS_SUBJECT}\""
+    fi
+
+    if [ -n "${OTEL_STREAM:-}" ]; then
+        replace_line \
+            "$otel_config_path" \
+            'stream = "events"' \
+            "stream = \"${OTEL_STREAM}\""
+    fi
+}
+
 resolve_service_host() {
     service_name="$1"
     override_name="$2"
@@ -67,6 +181,8 @@ if [ ! -f "$CONFIG_PATH" ]; then
     echo "Error: Configuration file not found at $CONFIG_PATH"
     exit 1
 fi
+
+patch_log_collector_configs
 
 echo "Starting ServiceRadar Log Collector with config: $CONFIG_PATH"
 

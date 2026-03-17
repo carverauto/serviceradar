@@ -60,6 +60,27 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
       refute deploy_script =~ "kubectl create secret generic"
       refute values_yaml =~ "serviceradar-falcosidekick-certs"
     end
+
+    test "rejects bundle download when collector capability is disabled", %{conn: _conn} do
+      previous_capabilities = Application.get_env(:serviceradar_web_ng, :runtime_capabilities)
+
+      Application.put_env(:serviceradar_web_ng, :runtime_capabilities,
+        configured?: true,
+        enabled: []
+      )
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_web_ng, :runtime_capabilities, previous_capabilities)
+      end)
+
+      {package, token} = create_ready_collector_package(:flowgger)
+
+      conn = get(build_conn(), ~p"/api/collectors/#{package.id}/bundle?token=#{token}")
+
+      assert json_response(conn, 403) == %{
+               "error" => "collector onboarding is disabled for this deployment"
+             }
+    end
   end
 
   defp create_ready_collector_package(collector_type, overrides \\ %{}) do

@@ -344,7 +344,7 @@ spec:
           {{- toYaml (default (dict) .Values.webNg.resources) | nindent 10 }}
         livenessProbe:
           httpGet:
-            path: /
+            path: /health/live
             port: 4000
           initialDelaySeconds: 30
           periodSeconds: 30
@@ -352,7 +352,7 @@ spec:
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /
+            path: /health/ready
             port: 4000
           initialDelaySeconds: 10
           periodSeconds: 10

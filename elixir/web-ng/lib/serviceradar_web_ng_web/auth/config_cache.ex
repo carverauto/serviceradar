@@ -32,6 +32,7 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
   @table __MODULE__
   @default_ttl_ms 60_000
   @pubsub_topic "auth_settings:changed"
+  @pubsub_server ServiceRadar.PubSub
 
   # Client API
 
@@ -190,7 +191,7 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
     :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
 
     # Subscribe to auth settings changes
-    Phoenix.PubSub.subscribe(ServiceRadarWebNG.PubSub, @pubsub_topic)
+    Phoenix.PubSub.subscribe(@pubsub_server, @pubsub_topic)
 
     ttl_ms = Keyword.get(opts, :ttl_ms, @default_ttl_ms)
 

@@ -120,19 +120,19 @@ func cloneSecurityConfig(sec *models.SecurityConfig) *models.SecurityConfig {
 }
 
 func (n *NATSStore) connect() (*nats.Conn, error) {
-	if n.security == nil {
-		return nil, errMTLSRequired
-	}
+	opts := []nats.Option{}
 
-	tlsConfig, err := getTLSConfig(n.security)
-	if err != nil {
-		return nil, fmt.Errorf("failed to configure TLS: %w", err)
-	}
+	if natsSecurityEnabled(n.security) {
+		tlsConfig, err := getTLSConfig(n.security)
+		if err != nil {
+			return nil, fmt.Errorf("failed to configure TLS: %w", err)
+		}
 
-	opts := []nats.Option{
-		nats.Secure(tlsConfig),
-		nats.RootCAs(n.security.TLS.CAFile),
-		nats.ClientCert(n.security.TLS.CertFile, n.security.TLS.KeyFile),
+		opts = append(opts,
+			nats.Secure(tlsConfig),
+			nats.RootCAs(n.security.TLS.CAFile),
+			nats.ClientCert(n.security.TLS.CertFile, n.security.TLS.KeyFile),
+		)
 	}
 
 	if n.credsFile != "" {
@@ -169,6 +169,10 @@ func (n *NATSStore) connect() (*nats.Conn, error) {
 	}
 
 	return conn, nil
+}
+
+func natsSecurityEnabled(sec *models.SecurityConfig) bool {
+	return sec != nil && strings.ToLower(string(sec.Mode)) == securityModeMTLS
 }
 
 func getTLSConfig(sec *models.SecurityConfig) (*tls.Config, error) {

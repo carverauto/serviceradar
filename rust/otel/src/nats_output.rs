@@ -262,6 +262,45 @@ fn pack_metric_units(
     Ok(chunks)
 }
 
+fn subject_matches(pattern: &str, subject: &str) -> bool {
+    let pattern_tokens: Vec<&str> = pattern.split('.').collect();
+    let subject_tokens: Vec<&str> = subject.split('.').collect();
+
+    let mut subject_index = 0;
+    for (idx, token) in pattern_tokens.iter().enumerate() {
+        match *token {
+            ">" => return idx == pattern_tokens.len() - 1,
+            "*" => {
+                if subject_index >= subject_tokens.len() {
+                    return false;
+                }
+                subject_index += 1;
+            }
+            literal => {
+                if subject_index >= subject_tokens.len() || subject_tokens[subject_index] != literal
+                {
+                    return false;
+                }
+                subject_index += 1;
+            }
+        }
+    }
+
+    subject_index == subject_tokens.len()
+}
+
+fn missing_subjects(existing_subjects: &[String], required_subjects: &[String]) -> Vec<String> {
+    required_subjects
+        .iter()
+        .filter(|required| {
+            !existing_subjects
+                .iter()
+                .any(|existing| subject_matches(existing, required))
+        })
+        .cloned()
+        .collect()
+}
+
 async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> Result<()> {
     debug!("Creating/verifying JetStream stream: {}", config.stream);
     let logs_subject = config
@@ -269,9 +308,8 @@ async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> R
         .clone()
         .unwrap_or_else(|| format!("{}.logs", config.subject));
     let subjects = vec![
-        format!("{}.traces", config.subject),
-        format!("{}.metrics", config.subject),
-        format!("{}.metrics.raw", config.subject),
+        format!("{}.traces.>", config.subject),
+        format!("{}.metrics.>", config.subject),
         logs_subject.clone(),
     ];
     debug!("Stream will handle subjects: {subjects:?}");
@@ -292,10 +330,7 @@ async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> R
             let mut needs_update = false;
             let mut updated_config = stream_info.config.clone();
 
-            let missing_subjects: Vec<_> = subjects
-                .iter()
-                .filter(|s| !existing_subjects.contains(s))
-                .collect();
+            let missing_subjects = missing_subjects(existing_subjects, &subjects);
 
             if !missing_subjects.is_empty() {
                 warn!(
@@ -304,11 +339,9 @@ async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> R
                 );
                 warn!("Current subjects: {existing_subjects:?}");
 
-                for subject in subjects {
-                    if !updated_config.subjects.contains(&subject) {
-                        updated_config.subjects.push(subject);
-                        needs_update = true;
-                    }
+                for subject in missing_subjects {
+                    updated_config.subjects.push(subject);
+                    needs_update = true;
                 }
             }
 
@@ -371,12 +404,11 @@ async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> R
                     let stream_info = stream.info().await?;
                     let mut updated_config = stream_info.config.clone();
                     let mut needs_update = false;
+                    let missing_subjects = missing_subjects(&updated_config.subjects, &subjects);
 
-                    for subject in &subjects {
-                        if !updated_config.subjects.contains(subject) {
-                            updated_config.subjects.push(subject.clone());
-                            needs_update = true;
-                        }
+                    for subject in missing_subjects {
+                        updated_config.subjects.push(subject);
+                        needs_update = true;
                     }
 
                     if updated_config.max_bytes != config.max_bytes {
@@ -555,7 +587,7 @@ impl NATSOutput {
             span_count
         );
 
-        let traces_subject = format!("{}.traces", self.config.subject); // otel.traces
+        let traces_subject = format!("{}.traces.raw", self.config.subject);
         if self.disabled {
             debug!("NATS output disabled; dropping traces");
             return Ok(());
@@ -766,8 +798,8 @@ impl NATSOutput {
         let json_payload = serde_json::to_vec(metrics)?;
         debug!("Encoded metrics data: {} bytes", json_payload.len());
 
-        // Publish to otel metrics subject for derived analytics
-        let otel_metrics_subject = format!("{}.metrics", self.config.subject);
+        // Publish derived metrics beneath the wildcarded OTEL metrics stream prefix.
+        let otel_metrics_subject = format!("{}.metrics.derived", self.config.subject);
         debug!("Publishing performance metrics to subject: {otel_metrics_subject}");
 
         if self.disabled {
@@ -1124,6 +1156,31 @@ mod tests {
             })
             .sum::<usize>();
         assert_eq!(total_spans, 12);
+    }
+
+    #[test]
+    fn subject_matching_respects_nats_wildcards() {
+        assert!(subject_matches("logs.>", "logs.otel"));
+        assert!(subject_matches("logs.*", "logs.otel"));
+        assert!(subject_matches("otel.metrics.>", "otel.metrics.raw"));
+        assert!(!subject_matches("logs.otel", "logs.>"));
+        assert!(!subject_matches("logs.*", "logs.otel.raw"));
+    }
+
+    #[test]
+    fn missing_subjects_skips_required_subjects_covered_by_existing_wildcards() {
+        let existing_subjects = vec!["logs.>".to_string(), "otel.metrics".to_string()];
+        let required_subjects = vec![
+            "logs.otel".to_string(),
+            "logs.audit".to_string(),
+            "otel.metrics".to_string(),
+            "otel.metrics.raw".to_string(),
+        ];
+
+        assert_eq!(
+            missing_subjects(&existing_subjects, &required_subjects),
+            vec!["otel.metrics.raw".to_string()]
+        );
     }
 
     #[test]

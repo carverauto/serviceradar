@@ -4,6 +4,13 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
 
   import Telemetry.Metrics
 
+  alias ServiceRadarWebNG.TenantUsage
+
+  @prometheus_reporter :serviceradar_web_ng_prometheus_metrics
+
+  @spec prometheus_reporter() :: atom()
+  def prometheus_reporter, do: @prometheus_reporter
+
   def start_link(arg) do
     Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
   end
@@ -11,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
   @impl true
   def init(_arg) do
     children = [
+      {TelemetryMetricsPrometheus.Core, metrics: metrics(), name: @prometheus_reporter, start_async: false},
       # Telemetry poller will execute the given period measurements
       # every 10_000ms. Learn more here: https://hexdocs.pm/telemetry_metrics
       {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}
@@ -123,6 +131,13 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
       last_value("serviceradar.cluster.agents.count",
         description: "Number of registered agents in Horde"
       ),
+      last_value("serviceradar.tenant_usage.managed_devices.count",
+        description: "Current count of non-deleted inventory devices known to this deployment runtime"
+      ),
+      last_value("serviceradar.tenant_usage.collectors.count",
+        tags: [:collector_type],
+        description: "Current count of non-revoked collector packages in this deployment, tagged by collector type"
+      ),
 
       # VM Metrics
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
@@ -135,7 +150,8 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
   defp periodic_measurements do
     [
       # Cluster health measurements
-      {__MODULE__, :measure_cluster_health, []}
+      {__MODULE__, :measure_cluster_health, []},
+      {__MODULE__, :measure_tenant_usage, []}
     ]
   end
 
@@ -174,5 +190,26 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
       %{count: agent_count},
       %{}
     )
+  end
+
+  @doc """
+  Emits plan-relevant usage metrics based on runtime-local inventory data.
+  """
+  def measure_tenant_usage do
+    :telemetry.execute(
+      [:serviceradar, :tenant_usage, :managed_devices],
+      %{count: TenantUsage.managed_device_count()},
+      %{}
+    )
+
+    collector_counts = TenantUsage.collector_counts_by_type()
+
+    Enum.each(TenantUsage.collector_usage_types(), fn collector_type ->
+      :telemetry.execute(
+        [:serviceradar, :tenant_usage, :collectors],
+        %{count: Map.get(collector_counts, collector_type, 0)},
+        %{collector_type: collector_type}
+      )
+    end)
   end
 end

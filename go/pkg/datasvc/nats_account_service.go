@@ -265,19 +265,19 @@ func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 }
 
 func buildResolverOptions(security *models.SecurityConfig, credsFile string) ([]nats.Option, error) {
-	if security == nil {
-		return nil, errResolverTLSRequired
-	}
+	opts := []nats.Option{}
 
-	tlsConfig, err := getTLSConfig(security)
-	if err != nil {
-		return nil, fmt.Errorf("resolver TLS config invalid: %w", err)
-	}
+	if natsSecurityEnabled(security) {
+		tlsConfig, err := getTLSConfig(security)
+		if err != nil {
+			return nil, fmt.Errorf("resolver TLS config invalid: %w", err)
+		}
 
-	opts := []nats.Option{
-		nats.Secure(tlsConfig),
-		nats.RootCAs(security.TLS.CAFile),
-		nats.ClientCert(security.TLS.CertFile, security.TLS.KeyFile),
+		opts = append(opts,
+			nats.Secure(tlsConfig),
+			nats.RootCAs(security.TLS.CAFile),
+			nats.ClientCert(security.TLS.CertFile, security.TLS.KeyFile),
+		)
 	}
 
 	if credsFile != "" {

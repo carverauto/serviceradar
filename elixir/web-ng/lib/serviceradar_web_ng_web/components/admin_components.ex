@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.AdminComponents do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadarWebNG.Capabilities
+
   @doc """
   Renders admin section navigation tabs.
   """
@@ -31,7 +33,8 @@ defmodule ServiceRadarWebNGWeb.AdminComponents do
       %{
         label: "Collectors",
         href: "/admin/collectors",
-        active: String.starts_with?(assigns.current_path || "", "/admin/collectors")
+        active: String.starts_with?(assigns.current_path || "", "/admin/collectors"),
+        show: Capabilities.collectors_enabled?()
       },
       %{
         label: "Edge Sites",
@@ -40,7 +43,7 @@ defmodule ServiceRadarWebNGWeb.AdminComponents do
       }
     ]
 
-    assigns = assign(assigns, :tabs, tabs)
+    assigns = assign(assigns, :tabs, Enum.filter(tabs, &Map.get(&1, :show, true)))
 
     ~H"""
     <nav class="mb-6">

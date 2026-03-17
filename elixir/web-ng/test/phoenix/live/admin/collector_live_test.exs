@@ -46,4 +46,25 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
       refute html =~ "/usr/local/bin/serviceradar-cli enroll --token"
     end
   end
+
+  describe "collector capability gating" do
+    test "hides collector creation UI when onboarding is disabled", %{conn: conn} do
+      previous_capabilities = Application.get_env(:serviceradar_web_ng, :runtime_capabilities)
+
+      Application.put_env(:serviceradar_web_ng, :runtime_capabilities,
+        configured?: true,
+        enabled: []
+      )
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_web_ng, :runtime_capabilities, previous_capabilities)
+      end)
+
+      {:ok, _lv, html} = live(conn, ~p"/admin/collectors")
+
+      assert html =~ "Collector onboarding is disabled for this deployment."
+      refute html =~ "New Collector"
+      refute html =~ "Data Collectors"
+    end
+  end
 end

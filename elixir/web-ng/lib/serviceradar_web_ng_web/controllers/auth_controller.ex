@@ -205,16 +205,16 @@ defmodule ServiceRadarWebNGWeb.AuthController do
       }) do
     actor = SystemActor.system(:auth_controller)
 
-    with {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "reset"),
+    with :ok <- validate_reset_password_confirmation(password, password_confirmation),
+         {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "reset"),
          {:ok, user} <-
-           User.change_password(
-             user,
-             %{
-               password: password,
-               password_confirmation: password_confirmation
-             },
+           user
+           |> Ash.Changeset.for_update(
+             :admin_set_password,
+             %{password: password},
              actor: actor
-           ) do
+           )
+           |> Ash.update() do
       conn
       |> put_flash(:info, "Password reset successfully.")
       |> UserAuth.log_in_user(user)
@@ -232,6 +232,14 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         |> put_flash(:error, "Reset password link is invalid or has expired.")
         |> redirect(to: ~p"/users/log-in")
     end
+  end
+
+  defp validate_reset_password_confirmation(password, password_confirmation)
+       when password == password_confirmation,
+       do: :ok
+
+  defp validate_reset_password_confirmation(_password, _password_confirmation) do
+    {:error, :password_confirmation_mismatch}
   end
 
   @doc """
