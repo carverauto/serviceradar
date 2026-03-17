@@ -88,6 +88,9 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   scope "/", ServiceRadarWebNGWeb do
+    get("/health", HealthController, :ready)
+    get("/health/live", HealthController, :live)
+    get("/health/ready", HealthController, :ready)
     get("/metrics", MetricsController, :index)
   end
 
