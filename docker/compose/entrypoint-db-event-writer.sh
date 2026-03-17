@@ -94,21 +94,54 @@ if [ -n "${WAIT_FOR_CNPG:-}" ]; then
     fi
 fi
 
-# Initialize config from template on first run
-CONFIG_PATH="/etc/serviceradar/consumers/db-event-writer.json"
-TEMPLATE_PATH="/etc/serviceradar/templates/db-event-writer.json"
-
+CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/consumers/db-event-writer.json}"
 if [ ! -f "$CONFIG_PATH" ]; then
-    if [ ! -f "$TEMPLATE_PATH" ]; then
-        echo "Error: Template configuration file not found at $TEMPLATE_PATH"
-        exit 1
-    fi
-    echo "First-time setup: Copying template config to writable location..."
-    cp "$TEMPLATE_PATH" "$CONFIG_PATH"
-    echo "Configuration initialized at $CONFIG_PATH"
-else
-    echo "Using existing configuration from $CONFIG_PATH"
+    echo "Error: Configuration file not found at $CONFIG_PATH"
+    exit 1
 fi
+
+echo "Using configuration from $CONFIG_PATH"
+
+NATS_URL_VALUE="${DB_EVENT_WRITER_NATS_URL:-${NATS_URL:-}}"
+NATS_CREDS_FILE_VALUE="${DB_EVENT_WRITER_NATS_CREDS_FILE:-${NATS_CREDS_FILE:-}}"
+LISTEN_ADDR_VALUE="${DB_EVENT_WRITER_LISTEN_ADDR:-}"
+STREAM_NAME_VALUE="${DB_EVENT_WRITER_STREAM_NAME:-}"
+CONSUMER_NAME_VALUE="${DB_EVENT_WRITER_CONSUMER_NAME:-}"
+AGENT_ID_VALUE="${DB_EVENT_WRITER_AGENT_ID:-}"
+GATEWAY_ID_VALUE="${DB_EVENT_WRITER_GATEWAY_ID:-}"
+DISABLE_SECURITY_VALUE="${DB_EVENT_WRITER_DISABLE_SECURITY:-}"
+DISABLE_NATS_SECURITY_VALUE="${DB_EVENT_WRITER_DISABLE_NATS_SECURITY:-}"
+OTEL_ENABLED_VALUE="${DB_EVENT_WRITER_OTEL_ENABLED:-}"
+STREAMS_JSON_VALUE="${DB_EVENT_WRITER_STREAMS_JSON:-}"
+
+jq \
+   --arg nats_url "$NATS_URL_VALUE" \
+   --arg nats_creds_file "$NATS_CREDS_FILE_VALUE" \
+   --arg listen_addr "$LISTEN_ADDR_VALUE" \
+   --arg stream_name "$STREAM_NAME_VALUE" \
+   --arg consumer_name "$CONSUMER_NAME_VALUE" \
+   --arg agent_id "$AGENT_ID_VALUE" \
+   --arg gateway_id "$GATEWAY_ID_VALUE" \
+   --arg disable_security "$DISABLE_SECURITY_VALUE" \
+   --arg disable_nats_security "$DISABLE_NATS_SECURITY_VALUE" \
+   --arg otel_enabled "$OTEL_ENABLED_VALUE" \
+   --arg streams_json "$STREAMS_JSON_VALUE" \
+   '
+   if $listen_addr != "" then .listen_addr = $listen_addr else . end
+   | if $nats_url != "" then .nats_url = $nats_url else . end
+   | if $nats_creds_file != "" then .nats_creds_file = $nats_creds_file else . end
+   | if $stream_name != "" then .stream_name = $stream_name else . end
+   | if $consumer_name != "" then .consumer_name = $consumer_name else . end
+   | if $agent_id != "" then .agent_id = $agent_id else . end
+   | if $gateway_id != "" then .gateway_id = $gateway_id else . end
+   | if $streams_json != "" then .streams = ($streams_json | fromjson) else . end
+   | if ($disable_security | ascii_downcase) == "true" then del(.security) else . end
+   | if ($disable_nats_security | ascii_downcase) == "true" then del(.nats_security) else . end
+   | if ($otel_enabled | ascii_downcase) == "true" then .logging.otel.enabled = true
+     elif ($otel_enabled | ascii_downcase) == "false" then .logging.otel.enabled = false
+     else . end
+   ' "$CONFIG_PATH" > /tmp/config-updated.json
+mv /tmp/config-updated.json "$CONFIG_PATH"
 
 # One-time password injection for CNPG
 CNPG_PASSWORD_VALUE=""

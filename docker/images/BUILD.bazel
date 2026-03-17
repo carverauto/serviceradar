@@ -173,13 +173,14 @@ declare_service_container_amd64(
     files = {
         "//go/cmd/consumers/db-event-writer:db-event-writer": "usr/local/bin/serviceradar-db-event-writer",
         "//docker/compose:entrypoint-db-event-writer.sh": "usr/local/bin/entrypoint.sh",
+        "//build/packaging/event-writer:config/db-event-writer.json": "etc/serviceradar/consumers/db-event-writer.json",
     },
     modes = {
         "usr/local/bin/serviceradar-db-event-writer": "0755",
         "usr/local/bin/entrypoint.sh": "0755",
+        "etc/serviceradar/consumers/db-event-writer.json": "0644",
     },
     empty_dirs = [
-        "etc/serviceradar/consumers",
         "etc/serviceradar/templates",
         "var/lib/serviceradar",
         "var/log/serviceradar",
@@ -198,7 +199,7 @@ declare_service_container_amd64(
     files = {
         "//go/cmd/data-services:data_services": "usr/local/bin/serviceradar-datasvc",
         "//docker/compose:entrypoint-datasvc.sh": "usr/local/bin/entrypoint.sh",
-        "//docker/compose:datasvc.docker.json": "etc/serviceradar/datasvc.json",
+        "//build/packaging/datasvc:config/datasvc.json": "etc/serviceradar/datasvc.json",
     },
     modes = {
         "usr/local/bin/serviceradar-datasvc": "0755",
@@ -223,9 +224,9 @@ declare_service_container_amd64(
     files = {
         "//rust/log-collector:log-collector": "usr/local/bin/serviceradar-log-collector",
         "//docker/compose:entrypoint-log-collector.sh": "usr/local/bin/entrypoint.sh",
-        "//docker/compose:log-collector.docker.toml": "etc/serviceradar/log-collector.toml",
-        "//docker/compose:flowgger.docker.toml": "etc/serviceradar/flowgger.toml",
-        "//docker/compose:otel.docker.toml": "etc/serviceradar/otel.toml",
+        "//build/packaging/log-collector:config/log-collector.toml": "etc/serviceradar/log-collector.toml",
+        "//build/packaging/log-collector:config/flowgger.toml": "etc/serviceradar/flowgger.toml",
+        "//build/packaging/log-collector:config/otel.toml": "etc/serviceradar/otel.toml",
     },
     modes = {
         "usr/local/bin/serviceradar-log-collector": "0755",

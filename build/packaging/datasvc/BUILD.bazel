@@ -3,6 +3,10 @@ load("//build/packaging:packages.bzl", "PACKAGES")
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files([
+    "config/datasvc.json",
+])
+
 serviceradar_package_from_config(
     name = "datasvc",
     config = PACKAGES["datasvc"],

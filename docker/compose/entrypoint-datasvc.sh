@@ -15,6 +15,37 @@
 
 set -e
 
+CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/datasvc.json}"
+
+patch_datasvc_config() {
+    LISTEN_ADDR_VALUE="${DATASVC_LISTEN_ADDR:-}"
+    NATS_URL_VALUE="${DATASVC_NATS_URL:-${NATS_URL:-}}"
+    NATS_CREDS_FILE_VALUE="${DATASVC_NATS_CREDS_FILE:-${NATS_CREDS_FILE:-}}"
+    SECURITY_MODE_VALUE="${DATASVC_SECURITY_MODE:-}"
+    DISABLE_NATS_SECURITY_VALUE="${DATASVC_DISABLE_NATS_SECURITY:-}"
+    BUCKET_VALUE="${DATASVC_BUCKET:-}"
+    DOMAIN_VALUE="${DATASVC_DOMAIN:-}"
+
+    jq \
+       --arg listen_addr "$LISTEN_ADDR_VALUE" \
+       --arg nats_url "$NATS_URL_VALUE" \
+       --arg nats_creds_file "$NATS_CREDS_FILE_VALUE" \
+       --arg security_mode "$SECURITY_MODE_VALUE" \
+       --arg disable_nats_security "$DISABLE_NATS_SECURITY_VALUE" \
+       --arg bucket "$BUCKET_VALUE" \
+       --arg domain "$DOMAIN_VALUE" \
+       '
+       if $listen_addr != "" then .listen_addr = $listen_addr else . end
+       | if $nats_url != "" then .nats_url = $nats_url else . end
+       | if $nats_creds_file != "" then .nats_creds_file = $nats_creds_file else . end
+       | if $bucket != "" then .bucket = $bucket else . end
+       | if $domain != "" then .domain = $domain else del(.domain) end
+       | if $security_mode != "" then .security.mode = $security_mode else . end
+       | if ($disable_nats_security | ascii_downcase) == "true" then del(.nats_security) else . end
+       ' "$CONFIG_PATH" > /tmp/datasvc-config-updated.json
+    mv /tmp/datasvc-config-updated.json "$CONFIG_PATH"
+}
+
 resolve_service_host() {
     service_name="$1"
     override_name="$2"
@@ -42,9 +73,6 @@ resolve_service_port() {
     printf '%s' "$default_value"
 }
 
-# Default config path
-CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/datasvc.json}"
-
 # Check that config file exists
 if [ ! -f "$CONFIG_PATH" ]; then
     echo "ERROR: Configuration file not found at $CONFIG_PATH"
@@ -53,6 +81,8 @@ if [ ! -f "$CONFIG_PATH" ]; then
 fi
 
 echo "Using configuration from $CONFIG_PATH"
+
+patch_datasvc_config
 
 # Wait for NATS to be ready if configured
 if [ -n "${WAIT_FOR_NATS:-}" ]; then

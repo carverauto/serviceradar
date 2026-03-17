@@ -1,0 +1,15 @@
+# ServiceRadar OTEL Collector Configuration for packaged deployments.
+
+[server]
+bind_address = "0.0.0.0"
+port = 4317
+
+[nats]
+url = "nats://serviceradar-nats:4222"
+subject = "otel"
+logs_subject = "logs.otel"
+stream = "events"
+creds_file = "/var/run/serviceradar/runtime/NATS_CREDS_FILE"
+timeout_secs = 30
+max_bytes = 2147483648
+max_age_secs = 1800
