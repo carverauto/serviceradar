@@ -71,3 +71,34 @@ func TestServiceRunReconnectsAfterFatalError(t *testing.T) {
 
 	require.NoError(t, svc.Stop(context.Background()))
 }
+
+func TestServiceSubjectsExpandsDerivedMetricFilter(t *testing.T) {
+	t.Parallel()
+
+	svc := &Service{
+		cfg: &DBEventWriterConfig{
+			Streams: []StreamConfig{
+				{Subject: "logs.otel.processed", Table: "logs"},
+				{Subject: "otel.metrics", Table: "otel_metrics"},
+				{Subject: "otel.traces.raw", Table: "otel_traces"},
+			},
+		},
+	}
+
+	require.Equal(t,
+		[]string{"logs.otel.processed", "otel.metrics.>", "otel.traces.raw"},
+		svc.subjects(),
+	)
+}
+
+func TestServiceSubjectsExpandsLegacyMetricSubject(t *testing.T) {
+	t.Parallel()
+
+	svc := &Service{
+		cfg: &DBEventWriterConfig{
+			Subject: "otel.metrics",
+		},
+	}
+
+	require.Equal(t, []string{"otel.metrics.>"}, svc.subjects())
+}

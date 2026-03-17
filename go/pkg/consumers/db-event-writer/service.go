@@ -384,7 +384,7 @@ func (s *Service) subjects() []string {
 		subjects := make([]string, 0, len(streams))
 		for _, stream := range streams {
 			if stream.Subject != "" {
-				subjects = append(subjects, stream.Subject)
+				subjects = append(subjects, consumerFilterSubject(stream.Subject))
 			}
 		}
 
@@ -392,10 +392,25 @@ func (s *Service) subjects() []string {
 	}
 
 	if s.cfg.Subject != "" {
-		return []string{s.cfg.Subject}
+		return []string{consumerFilterSubject(s.cfg.Subject)}
 	}
 
 	return nil
+}
+
+func consumerFilterSubject(subject string) string {
+	subject = strings.TrimSpace(subject)
+
+	switch subject {
+	case "otel.metrics":
+		// The collector publishes derived metrics under `otel.metrics.*`.
+		// Keep the processor's base-subject routing semantics, but widen the
+		// JetStream consumer filter so those derived subjects are actually
+		// delivered to the db-event-writer.
+		return "otel.metrics.>"
+	default:
+		return subject
+	}
 }
 
 func sleepWithContext(ctx context.Context, d time.Duration) bool {
