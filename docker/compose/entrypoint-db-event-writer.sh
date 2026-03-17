@@ -94,18 +94,22 @@ if [ -n "${WAIT_FOR_CNPG:-}" ]; then
     fi
 fi
 
-CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/consumers/db-event-writer.json}"
-if [ ! -f "$CONFIG_PATH" ]; then
-    echo "Error: Configuration file not found at $CONFIG_PATH"
+SOURCE_CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/consumers/db-event-writer.json}"
+if [ ! -f "$SOURCE_CONFIG_PATH" ]; then
+    echo "Error: Configuration file not found at $SOURCE_CONFIG_PATH"
     exit 1
 fi
 
-echo "Using configuration from $CONFIG_PATH"
+echo "Using configuration from $SOURCE_CONFIG_PATH"
 
 # Copy to a writable location so jq patching works with read-only bind mounts
-WRITABLE_CONFIG="/tmp/db-event-writer-config.json"
-cp "$CONFIG_PATH" "$WRITABLE_CONFIG"
-CONFIG_PATH="$WRITABLE_CONFIG"
+WORKING_CONFIG_PATH="/tmp/db-event-writer-config.json"
+cp "$SOURCE_CONFIG_PATH" "$WORKING_CONFIG_PATH"
+
+write_config_json() {
+    jq "$@" "$WORKING_CONFIG_PATH" > /tmp/config-updated.json
+    mv /tmp/config-updated.json "$WORKING_CONFIG_PATH"
+}
 
 NATS_URL_VALUE="${DB_EVENT_WRITER_NATS_URL:-${NATS_URL:-}}"
 NATS_CREDS_FILE_VALUE="${DB_EVENT_WRITER_NATS_CREDS_FILE:-${NATS_CREDS_FILE:-}}"
@@ -119,7 +123,7 @@ DISABLE_NATS_SECURITY_VALUE="${DB_EVENT_WRITER_DISABLE_NATS_SECURITY:-}"
 OTEL_ENABLED_VALUE="${DB_EVENT_WRITER_OTEL_ENABLED:-}"
 STREAMS_JSON_VALUE="${DB_EVENT_WRITER_STREAMS_JSON:-}"
 
-jq \
+write_config_json \
    --arg nats_url "$NATS_URL_VALUE" \
    --arg nats_creds_file "$NATS_CREDS_FILE_VALUE" \
    --arg listen_addr "$LISTEN_ADDR_VALUE" \
@@ -145,8 +149,7 @@ jq \
    | if ($otel_enabled | ascii_downcase) == "true" then .logging.otel.enabled = true
      elif ($otel_enabled | ascii_downcase) == "false" then .logging.otel.enabled = false
      else . end
-   ' "$CONFIG_PATH" > /tmp/config-updated.json
-mv /tmp/config-updated.json "$CONFIG_PATH"
+   '
 
 # One-time password injection for CNPG
 CNPG_PASSWORD_VALUE=""
@@ -161,11 +164,10 @@ elif [ -n "${CNPG_PASSWORD:-}" ]; then
 fi
 
 if [ -n "$CNPG_PASSWORD_VALUE" ]; then
-    CURRENT_PASSWORD=$(jq -r '.cnpg.password // ""' "$CONFIG_PATH")
+    CURRENT_PASSWORD=$(jq -r '.cnpg.password // ""' "$WORKING_CONFIG_PATH")
     if [ "$CURRENT_PASSWORD" != "$CNPG_PASSWORD_VALUE" ]; then
-        echo "Updating CNPG password in $CONFIG_PATH"
-        jq --arg pwd "$CNPG_PASSWORD_VALUE" '.cnpg.password = $pwd' "$CONFIG_PATH" > /tmp/config-updated.json
-        mv /tmp/config-updated.json "$CONFIG_PATH"
+        echo "Updating CNPG password in $WORKING_CONFIG_PATH"
+        write_config_json --arg pwd "$CNPG_PASSWORD_VALUE" '.cnpg.password = $pwd'
     else
         echo "✅ CNPG password already up to date"
     fi
@@ -177,7 +179,7 @@ fi
 # For plain hosted mode, do not emit a TLS block at all.
 case "$CNPG_SSL_MODE_VALUE" in
     disable|allow|prefer)
-    jq --arg host "$CNPG_HOST_VALUE" \
+    write_config_json --arg host "$CNPG_HOST_VALUE" \
        --argjson port "${CNPG_PORT_VALUE:-5432}" \
        --arg db "$CNPG_DATABASE_VALUE" \
        --arg user "$CNPG_USERNAME_VALUE" \
@@ -190,14 +192,14 @@ case "$CNPG_SSL_MODE_VALUE" in
        | .cnpg.username = $user
        | .cnpg.ssl_mode = $ssl
        | del(.cnpg.tls)
-       ' "$CONFIG_PATH" > /tmp/config-updated.json
+       '
     echo "✅ Ensured CNPG plain config (host=$CNPG_HOST_VALUE port=$CNPG_PORT_VALUE ssl_mode=$CNPG_SSL_MODE_VALUE)"
     ;;
     *)
     # Build TLS config based on whether client certs are provided
 if [ -n "$CNPG_CERT_FILE_VALUE" ] && [ -n "$CNPG_KEY_FILE_VALUE" ]; then
     # Full mTLS with client certs
-    jq --arg host "$CNPG_HOST_VALUE" \
+    write_config_json --arg host "$CNPG_HOST_VALUE" \
        --argjson port "${CNPG_PORT_VALUE:-5432}" \
        --arg db "$CNPG_DATABASE_VALUE" \
        --arg user "$CNPG_USERNAME_VALUE" \
@@ -217,11 +219,11 @@ if [ -n "$CNPG_CERT_FILE_VALUE" ] && [ -n "$CNPG_KEY_FILE_VALUE" ]; then
            cert_file: $cert,
            key_file: $key
          }
-       ' "$CONFIG_PATH" > /tmp/config-updated.json
+       '
     echo "✅ Ensured CNPG mTLS config (host=$CNPG_HOST_VALUE port=$CNPG_PORT_VALUE ssl_mode=$CNPG_SSL_MODE_VALUE)"
 else
     # Server TLS verification only (no client certs)
-    jq --arg host "$CNPG_HOST_VALUE" \
+    write_config_json --arg host "$CNPG_HOST_VALUE" \
        --argjson port "${CNPG_PORT_VALUE:-5432}" \
        --arg db "$CNPG_DATABASE_VALUE" \
        --arg user "$CNPG_USERNAME_VALUE" \
@@ -237,14 +239,13 @@ else
        | .cnpg.tls = {
            ca_file: $ca
          }
-       ' "$CONFIG_PATH" > /tmp/config-updated.json
+       '
     echo "✅ Ensured CNPG TLS config (host=$CNPG_HOST_VALUE port=$CNPG_PORT_VALUE ssl_mode=$CNPG_SSL_MODE_VALUE ca_only=true)"
 fi
     ;;
 esac
-mv /tmp/config-updated.json "$CONFIG_PATH"
 
-echo "Starting ServiceRadar DB Event Writer with config: $CONFIG_PATH"
+echo "Starting ServiceRadar DB Event Writer with config: $WORKING_CONFIG_PATH"
 
 # Start the DB Event Writer service
-exec /usr/local/bin/serviceradar-db-event-writer
+exec /usr/local/bin/serviceradar-db-event-writer --config "$WORKING_CONFIG_PATH"
