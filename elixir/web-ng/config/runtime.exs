@@ -352,8 +352,26 @@ end
 
 # libcluster configuration for ERTS cluster formation
 # Strategy selection: kubernetes, epmd, dns, or gossip (future)
-cluster_strategy = System.get_env("CLUSTER_STRATEGY", "epmd")
-cluster_enabled = System.get_env("CLUSTER_ENABLED", "false") in ~w(true 1 yes)
+hosted_cluster_contract =
+  case System.get_env("SERVICERADAR_HOSTED_CLUSTER_CONTRACT") do
+    nil ->
+      %{}
+
+    raw ->
+      case Jason.decode(raw) do
+        {:ok, contract} when is_map(contract) -> contract
+        _ -> %{}
+      end
+  end
+
+cluster_strategy =
+  get_in(hosted_cluster_contract, ["strategy"]) || System.get_env("CLUSTER_STRATEGY", "epmd")
+
+cluster_enabled =
+  case get_in(hosted_cluster_contract, ["enabled"]) do
+    value when is_boolean(value) -> value
+    _ -> System.get_env("CLUSTER_ENABLED", "false") in ~w(true 1 yes)
+  end
 
 # web-ng participates in the cluster but does NOT run ClusterSupervisor/ClusterHealth
 # Those are managed by core-elx (the cluster coordinator)
@@ -388,16 +406,29 @@ if cluster_enabled do
 
       "dns" ->
         # DNSPoll strategy for bare metal with service discovery
-        dns_query = System.get_env("CLUSTER_DNS_QUERY", "")
-        node_basename = System.get_env("CLUSTER_NODE_BASENAME", "serviceradar_web_ng")
+        dns_query =
+          get_in(hosted_cluster_contract, ["web", "dns_query"]) ||
+            System.get_env("CLUSTER_DNS_QUERY", "")
 
-        core_dns_query = System.get_env("CLUSTER_CORE_DNS_QUERY", "")
-        core_node_basename = System.get_env("CLUSTER_CORE_NODE_BASENAME", "serviceradar_core")
+        node_basename =
+          get_in(hosted_cluster_contract, ["web", "node_basename"]) ||
+            System.get_env("CLUSTER_NODE_BASENAME", "serviceradar_web_ng")
 
-        gateway_dns_query = System.get_env("CLUSTER_GATEWAY_DNS_QUERY", "")
+        core_dns_query =
+          get_in(hosted_cluster_contract, ["web", "core_dns_query"]) ||
+            System.get_env("CLUSTER_CORE_DNS_QUERY", "")
+
+        core_node_basename =
+          get_in(hosted_cluster_contract, ["web", "core_node_basename"]) ||
+            System.get_env("CLUSTER_CORE_NODE_BASENAME", "serviceradar_core")
+
+        gateway_dns_query =
+          get_in(hosted_cluster_contract, ["web", "gateway_dns_query"]) ||
+            System.get_env("CLUSTER_GATEWAY_DNS_QUERY", "")
 
         gateway_node_basename =
-          System.get_env("CLUSTER_GATEWAY_NODE_BASENAME", "serviceradar_agent_gateway")
+          get_in(hosted_cluster_contract, ["web", "gateway_node_basename"]) ||
+            System.get_env("CLUSTER_GATEWAY_NODE_BASENAME", "serviceradar_agent_gateway")
 
         maybe_add_dns_topology = fn topologies, name, query, basename ->
           if query in [nil, ""] do

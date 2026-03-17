@@ -493,12 +493,27 @@ defmodule ServiceRadar.Application do
   end
 
   defp datasvc_enabled? do
-    # Check env var first, then app config
     case System.get_env("DATASVC_ENABLED") do
-      nil -> Application.get_env(:serviceradar_core, :datasvc_enabled, true)
+      nil ->
+        datasvc_connectivity_configured?() or
+          Application.get_env(:serviceradar_core, :datasvc_enabled, true)
+
+      "" ->
+        datasvc_connectivity_configured?() or
+          Application.get_env(:serviceradar_core, :datasvc_enabled, true)
+
       value when value in ["true", "1", "yes"] -> true
       _ -> false
     end
+  end
+
+  defp datasvc_connectivity_configured? do
+    Enum.any?(["DATASVC_ADDRESS", "DATASVC_HOST", "DATASVC_PORT"], fn env_name ->
+      case System.get_env(env_name) do
+        value when is_binary(value) -> String.trim(value) != ""
+        _ -> false
+      end
+    end)
   end
 
   defp spiffe_workload_api? do

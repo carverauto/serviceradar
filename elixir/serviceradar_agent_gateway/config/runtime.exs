@@ -55,12 +55,29 @@ end
 # - Other gateways in the same partition
 # - Agents connected to this gateway
 
-cluster_strategy =
-  "CLUSTER_STRATEGY"
-  |> System.get_env("epmd")
-  |> String.downcase()
+hosted_cluster_contract =
+  case System.get_env("SERVICERADAR_HOSTED_CLUSTER_CONTRACT") do
+    nil ->
+      %{}
 
-cluster_enabled = System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes)
+    raw ->
+      case Jason.decode(raw) do
+        {:ok, contract} when is_map(contract) -> contract
+        _ -> %{}
+      end
+  end
+
+cluster_strategy =
+  get_in(hosted_cluster_contract, ["strategy"]) ||
+    ("CLUSTER_STRATEGY"
+     |> System.get_env("epmd")
+     |> String.downcase())
+
+cluster_enabled =
+  case get_in(hosted_cluster_contract, ["enabled"]) do
+    value when is_boolean(value) -> value
+    _ -> System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes)
+  end
 
 topologies =
   if cluster_enabled do
@@ -103,12 +120,22 @@ topologies =
 
       "dns" ->
         # DNSPoll strategy for bare metal with service discovery
-        dns_query = System.get_env("CLUSTER_DNS_QUERY", "serviceradar.local")
-        node_basename = System.get_env("CLUSTER_NODE_BASENAME", "serviceradar_agent_gateway")
+        dns_query =
+          get_in(hosted_cluster_contract, ["gateway", "dns_query"]) ||
+            System.get_env("CLUSTER_DNS_QUERY", "serviceradar.local")
+
+        node_basename =
+          get_in(hosted_cluster_contract, ["gateway", "node_basename"]) ||
+            System.get_env("CLUSTER_NODE_BASENAME", "serviceradar_agent_gateway")
 
         # Core DNS name (e.g., serviceradar-core.serviceradar.local)
-        core_dns_query = System.get_env("CLUSTER_CORE_DNS_QUERY", dns_query)
-        core_node_basename = System.get_env("CLUSTER_CORE_NODE_BASENAME", "serviceradar_core")
+        core_dns_query =
+          get_in(hosted_cluster_contract, ["gateway", "core_dns_query"]) ||
+            System.get_env("CLUSTER_CORE_DNS_QUERY", dns_query)
+
+        core_node_basename =
+          get_in(hosted_cluster_contract, ["gateway", "core_node_basename"]) ||
+            System.get_env("CLUSTER_CORE_NODE_BASENAME", "serviceradar_core")
 
         [
           serviceradar: [

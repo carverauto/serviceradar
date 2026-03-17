@@ -106,12 +106,29 @@ ipinfo_dbs = [
 # =============================================================================
 # Cluster Configuration
 # =============================================================================
-cluster_strategy =
-  "CLUSTER_STRATEGY"
-  |> System.get_env("epmd")
-  |> String.downcase()
+hosted_cluster_contract =
+  case System.get_env("SERVICERADAR_HOSTED_CLUSTER_CONTRACT") do
+    nil ->
+      %{}
 
-cluster_enabled = System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes)
+    raw ->
+      case Jason.decode(raw) do
+        {:ok, contract} when is_map(contract) -> contract
+        _ -> %{}
+      end
+  end
+
+cluster_strategy =
+  get_in(hosted_cluster_contract, ["strategy"]) ||
+    ("CLUSTER_STRATEGY"
+     |> System.get_env("epmd")
+     |> String.downcase())
+
+cluster_enabled =
+  case get_in(hosted_cluster_contract, ["enabled"]) do
+    value when is_boolean(value) -> value
+    _ -> System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes)
+  end
 
 topologies =
   if cluster_enabled do
@@ -135,8 +152,13 @@ topologies =
         ]
 
       "dns" ->
-        dns_query = System.get_env("CLUSTER_DNS_QUERY", "serviceradar.local")
-        node_basename = System.get_env("CLUSTER_NODE_BASENAME", "serviceradar")
+        dns_query =
+          get_in(hosted_cluster_contract, ["core", "dns_query"]) ||
+            System.get_env("CLUSTER_DNS_QUERY", "serviceradar.local")
+
+        node_basename =
+          get_in(hosted_cluster_contract, ["core", "node_basename"]) ||
+            System.get_env("CLUSTER_NODE_BASENAME", "serviceradar")
 
         [
           serviceradar: [
