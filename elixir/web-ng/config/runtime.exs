@@ -747,6 +747,7 @@ if config_env() == :prod do
     end
 
   gateway_addr = System.get_env("SERVICERADAR_GATEWAY_ADDR")
+  gateway_server_name = System.get_env("SERVICERADAR_GATEWAY_SERVER_NAME")
 
   # Configure ServiceRadar.Repo from serviceradar_core
   config :serviceradar_core, ServiceRadar.Repo,
@@ -769,6 +770,10 @@ if config_env() == :prod do
 
   if is_binary(gateway_addr) and String.trim(gateway_addr) != "" do
     config :serviceradar_web_ng, :gateway_addr, String.trim(gateway_addr)
+  end
+
+  if is_binary(gateway_server_name) and String.trim(gateway_server_name) != "" do
+    config :serviceradar_web_ng, :gateway_server_name, String.trim(gateway_server_name)
   end
 
   nats_url = System.get_env("NATS_URL") || System.get_env("SERVICERADAR_NATS_URL")
