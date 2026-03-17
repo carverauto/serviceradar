@@ -382,9 +382,18 @@ func (s *Service) subjects() []string {
 	streams := s.cfg.GetStreams()
 	if len(streams) > 0 {
 		subjects := make([]string, 0, len(streams))
+		seen := make(map[string]struct{}, len(streams))
+
 		for _, stream := range streams {
 			if stream.Subject != "" {
-				subjects = append(subjects, consumerFilterSubject(stream.Subject))
+				for _, subject := range consumerFilterSubjects(stream.Subject) {
+					if _, ok := seen[subject]; ok {
+						continue
+					}
+
+					seen[subject] = struct{}{}
+					subjects = append(subjects, subject)
+				}
 			}
 		}
 
@@ -392,24 +401,24 @@ func (s *Service) subjects() []string {
 	}
 
 	if s.cfg.Subject != "" {
-		return []string{consumerFilterSubject(s.cfg.Subject)}
+		return consumerFilterSubjects(s.cfg.Subject)
 	}
 
 	return nil
 }
 
-func consumerFilterSubject(subject string) string {
+func consumerFilterSubjects(subject string) []string {
 	subject = strings.TrimSpace(subject)
 
 	switch subject {
-	case "otel.metrics":
+	case "otel.metrics", "otel.metrics.raw":
 		// The collector publishes derived metrics under `otel.metrics.*`.
 		// Keep the processor's base-subject routing semantics, but widen the
 		// JetStream consumer filter so those derived subjects are actually
-		// delivered to the db-event-writer.
-		return "otel.metrics.>"
+		// delivered to the db-event-writer without overlapping filters.
+		return []string{"otel.metrics", "otel.metrics.>"}
 	default:
-		return subject
+		return []string{subject}
 	}
 }
 
