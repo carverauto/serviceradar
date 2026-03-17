@@ -156,7 +156,7 @@ next_delay(Cur, Max) ->
 maybe_restart_channel(no_endpoints, Channel, Endpoints, Compression) ->
     restart_channel(Channel, Endpoints, Compression);
 maybe_restart_channel(undefined_channel, Channel, Endpoints, Compression) ->
-    ensure_channel_started(Channel, Endpoints, Compression);
+    restart_channel(Channel, Endpoints, Compression);
 maybe_restart_channel({stream_down, _}, Channel, Endpoints, Compression) ->
     restart_channel(Channel, Endpoints, Compression);
 maybe_restart_channel({error, {stream_down, _}}, Channel, Endpoints, Compression) ->
@@ -164,7 +164,7 @@ maybe_restart_channel({error, {stream_down, _}}, Channel, Endpoints, Compression
 maybe_restart_channel({error, no_endpoints}, Channel, Endpoints, Compression) ->
     restart_channel(Channel, Endpoints, Compression);
 maybe_restart_channel({error, undefined_channel}, Channel, Endpoints, Compression) ->
-    ensure_channel_started(Channel, Endpoints, Compression);
+    restart_channel(Channel, Endpoints, Compression);
 maybe_restart_channel(_, _Channel, _Endpoints, _Compression) ->
     ok.
 
