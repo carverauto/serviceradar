@@ -449,6 +449,7 @@ services:
       - "50057:50057"
     volumes:
       - ./docker/compose/datasvc.mtls.json:/etc/serviceradar/datasvc.json:ro
+      - ./docker/compose/entrypoint-datasvc.sh:/usr/local/bin/entrypoint.sh:ro
       - cert-data:/etc/serviceradar/certs:ro
       - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
       - datasvc-data:/var/lib/serviceradar
@@ -717,6 +718,7 @@ services:
       - "50041:50041"
     volumes:
       - ./docker/compose/db-event-writer.mtls.json:/etc/serviceradar/templates/db-event-writer.json:ro
+      - ./docker/compose/entrypoint-db-event-writer.sh:/usr/local/bin/entrypoint.sh:ro
       - cert-data:/etc/serviceradar/certs:ro
       - cnpg-credentials:/etc/serviceradar/cnpg:ro
       - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro

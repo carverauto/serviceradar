@@ -82,6 +82,11 @@ fi
 
 echo "Using configuration from $CONFIG_PATH"
 
+# Copy to a writable location so jq patching works with read-only bind mounts
+WRITABLE_CONFIG="/tmp/datasvc-config.json"
+cp "$CONFIG_PATH" "$WRITABLE_CONFIG"
+CONFIG_PATH="$WRITABLE_CONFIG"
+
 patch_datasvc_config
 
 # Wait for NATS to be ready if configured

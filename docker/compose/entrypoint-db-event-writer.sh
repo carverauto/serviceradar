@@ -102,6 +102,11 @@ fi
 
 echo "Using configuration from $CONFIG_PATH"
 
+# Copy to a writable location so jq patching works with read-only bind mounts
+WRITABLE_CONFIG="/tmp/db-event-writer-config.json"
+cp "$CONFIG_PATH" "$WRITABLE_CONFIG"
+CONFIG_PATH="$WRITABLE_CONFIG"
+
 NATS_URL_VALUE="${DB_EVENT_WRITER_NATS_URL:-${NATS_URL:-}}"
 NATS_CREDS_FILE_VALUE="${DB_EVENT_WRITER_NATS_CREDS_FILE:-${NATS_CREDS_FILE:-}}"
 LISTEN_ADDR_VALUE="${DB_EVENT_WRITER_LISTEN_ADDR:-}"
