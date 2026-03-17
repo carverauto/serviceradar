@@ -89,6 +89,7 @@ fi
 
 if [ -n "${ZEN_NATS_URL:-}" ] || \
    [ -n "${ZEN_NATS_CREDS_FILE:-}" ] || \
+   [ -n "${ZEN_DOMAIN:-}" ] || \
    [ -n "${ZEN_STREAM_NAME:-}" ] || \
    [ -n "${ZEN_CONSUMER_NAME:-}" ] || \
    [ -n "${ZEN_AGENT_ID:-}" ] || \
@@ -100,6 +101,7 @@ if [ -n "${ZEN_NATS_URL:-}" ] || \
     jq \
       --arg nats_url "${ZEN_NATS_URL:-}" \
       --arg nats_creds_file "${ZEN_NATS_CREDS_FILE:-}" \
+      --arg domain "${ZEN_DOMAIN:-}" \
       --arg stream_name "${ZEN_STREAM_NAME:-}" \
       --arg consumer_name "${ZEN_CONSUMER_NAME:-}" \
       --arg agent_id "${ZEN_AGENT_ID:-}" \
@@ -109,6 +111,7 @@ if [ -n "${ZEN_NATS_URL:-}" ] || \
       '
       if $nats_url != "" then .nats_url = $nats_url else . end
       | if $nats_creds_file != "" then .nats_creds_file = $nats_creds_file else . end
+      | if $domain != "" then .domain = $domain else del(.domain) end
       | if $stream_name != "" then .stream_name = $stream_name else . end
       | if $consumer_name != "" then .consumer_name = $consumer_name else . end
       | if $agent_id != "" then .agent_id = $agent_id else . end

@@ -168,8 +168,28 @@ else
     echo "⚠️  Warning: No CNPG password provided; config will rely on existing settings"
 fi
 
-# Enforce CNPG TLS/mTLS settings to avoid stale configs
-# Build TLS config based on whether client certs are provided
+# Enforce CNPG connection settings to avoid stale configs
+# For plain hosted mode, do not emit a TLS block at all.
+case "$CNPG_SSL_MODE_VALUE" in
+    disable|allow|prefer)
+    jq --arg host "$CNPG_HOST_VALUE" \
+       --argjson port "${CNPG_PORT_VALUE:-5432}" \
+       --arg db "$CNPG_DATABASE_VALUE" \
+       --arg user "$CNPG_USERNAME_VALUE" \
+       --arg ssl "$CNPG_SSL_MODE_VALUE" \
+       '
+       .cnpg = (.cnpg // {})
+       | .cnpg.host = $host
+       | .cnpg.port = ($port | tonumber)
+       | .cnpg.database = $db
+       | .cnpg.username = $user
+       | .cnpg.ssl_mode = $ssl
+       | del(.cnpg.tls)
+       ' "$CONFIG_PATH" > /tmp/config-updated.json
+    echo "✅ Ensured CNPG plain config (host=$CNPG_HOST_VALUE port=$CNPG_PORT_VALUE ssl_mode=$CNPG_SSL_MODE_VALUE)"
+    ;;
+    *)
+    # Build TLS config based on whether client certs are provided
 if [ -n "$CNPG_CERT_FILE_VALUE" ] && [ -n "$CNPG_KEY_FILE_VALUE" ]; then
     # Full mTLS with client certs
     jq --arg host "$CNPG_HOST_VALUE" \
@@ -215,6 +235,8 @@ else
        ' "$CONFIG_PATH" > /tmp/config-updated.json
     echo "✅ Ensured CNPG TLS config (host=$CNPG_HOST_VALUE port=$CNPG_PORT_VALUE ssl_mode=$CNPG_SSL_MODE_VALUE ca_only=true)"
 fi
+    ;;
+esac
 mv /tmp/config-updated.json "$CONFIG_PATH"
 
 echo "Starting ServiceRadar DB Event Writer with config: $CONFIG_PATH"
