@@ -883,13 +883,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     if is_binary(override) do
       override
     else
-      host = gateway_host(gateway_addr)
-
-      if internal_gateway_host?(host) do
-        host
-      else
-        "serviceradar-agent-gateway"
-      end
+      gateway_host(gateway_addr)
     end
   end
 
@@ -900,16 +894,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
       _ -> gateway_addr
     end
   end
-
-  defp internal_gateway_host?(host) when is_binary(host) do
-    host in [
-      "serviceradar-agent-gateway",
-      "agent-gateway",
-      "agent-gateway.serviceradar"
-    ] or String.ends_with?(host, ".svc.cluster.local")
-  end
-
-  defp internal_gateway_host?(_), do: false
 
   defp derive_gateway_addr(base_url) when is_binary(base_url) do
     case URI.parse(base_url) do

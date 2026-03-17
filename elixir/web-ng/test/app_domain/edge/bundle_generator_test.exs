@@ -105,7 +105,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
   end
 
   describe "gateway defaults" do
-    test "derives gateway addr from base_url and uses gateway service server_name", %{
+    test "derives gateway addr from base_url and uses hosted gateway host as server_name", %{
       package: package,
       join_token: join_token
     } do
@@ -134,7 +134,67 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       config = Jason.decode!(config_json)
 
       assert config["gateway_addr"] == "demo-gw.serviceradar.cloud:50052"
-      assert get_in(config, ["gateway_security", "server_name"]) == "serviceradar-agent-gateway"
+      assert get_in(config, ["gateway_security", "server_name"]) == "demo-gw.serviceradar.cloud"
+    end
+
+    test "uses configured hosted gateway addr and server_name overrides", %{
+      package: package,
+      join_token: join_token
+    } do
+      existing_gateway_addr = Application.get_env(:serviceradar_web_ng, :gateway_addr)
+      existing_gateway_server_name = Application.get_env(:serviceradar_web_ng, :gateway_server_name)
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :gateway_addr,
+        "test-tenant.grpc.serviceradar.cloud:50052"
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :gateway_server_name,
+        "test-tenant.grpc.serviceradar.cloud"
+      )
+
+      on_exit(fn ->
+        if is_nil(existing_gateway_addr) do
+          Application.delete_env(:serviceradar_web_ng, :gateway_addr)
+        else
+          Application.put_env(:serviceradar_web_ng, :gateway_addr, existing_gateway_addr)
+        end
+
+        if is_nil(existing_gateway_server_name) do
+          Application.delete_env(:serviceradar_web_ng, :gateway_server_name)
+        else
+          Application.put_env(
+            :serviceradar_web_ng,
+            :gateway_server_name,
+            existing_gateway_server_name
+          )
+        end
+      end)
+
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          base_url: "https://test-tenant.serviceradar.cloud"
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, config_json} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config.json")
+        end)
+
+      config = Jason.decode!(config_json)
+
+      assert config["gateway_addr"] == "test-tenant.grpc.serviceradar.cloud:50052"
+
+      assert get_in(config, ["gateway_security", "server_name"]) ==
+               "test-tenant.grpc.serviceradar.cloud"
     end
   end
 
