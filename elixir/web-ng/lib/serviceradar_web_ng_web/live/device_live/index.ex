@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.RuntimeLimits
+  alias ServiceRadarWebNG.TenantUsage
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
@@ -49,6 +51,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:device_stats_task, nil)
      |> assign(:limit, @default_limit)
      |> assign(:total_device_count, nil)
+     |> assign(:managed_device_count, nil)
+     |> assign(:managed_device_limit, nil)
+     |> assign(:managed_device_limit_exceeded, false)
      |> assign(:current_page, 1)
      # Device stats for cards
      |> assign(:device_stats, %{
@@ -448,7 +453,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     params = Map.get(socket.assigns, :last_params, %{})
     uri = Map.get(socket.assigns, :last_uri, "/devices")
 
-    socket = SRQLPage.load_list(socket, params, uri, :devices, default_limit: @default_limit, max_limit: @max_limit)
+    socket =
+      socket
+      |> SRQLPage.load_list(params, uri, :devices, default_limit: @default_limit, max_limit: @max_limit)
+      |> assign_managed_device_limit_advisory()
 
     scope = Map.get(socket.assigns, :current_scope)
     query = Map.get(socket.assigns.srql || %{}, :query, "")
@@ -478,6 +486,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       |> start_device_stats_task(token, scope)
     else
       socket
+    end
+  end
+
+  defp assign_managed_device_limit_advisory(socket) do
+    case RuntimeLimits.managed_device_limit() do
+      limit when is_integer(limit) ->
+        managed_device_count = TenantUsage.managed_device_count()
+
+        socket
+        |> assign(:managed_device_limit, limit)
+        |> assign(:managed_device_count, managed_device_count)
+        |> assign(:managed_device_limit_exceeded, managed_device_count > limit)
+
+      _ ->
+        socket
+        |> assign(:managed_device_limit, nil)
+        |> assign(:managed_device_count, nil)
+        |> assign(:managed_device_limit_exceeded, false)
     end
   end
 
@@ -891,6 +917,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                 <.icon name="hero-signal" class="size-4" /> Network Discovery
               </.ui_button>
             </.link>
+          </div>
+        </div>
+
+        <div :if={@managed_device_limit_exceeded} class="mb-4">
+          <div role="alert" class="alert alert-warning">
+            <.icon name="hero-exclamation-triangle" class="size-5" />
+            <div class="text-sm">
+              <div class="font-semibold">Managed device advisory limit exceeded</div>
+              <div>
+                This deployment is using {@managed_device_count} managed devices, above the
+                configured advisory limit of {@managed_device_limit}. Managed device count tracks
+                non-deleted inventory devices.
+              </div>
+            </div>
           </div>
         </div>
         

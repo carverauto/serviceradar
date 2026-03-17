@@ -1,0 +1,22 @@
+# flowgger.toml for packaged ServiceRadar log collector deployments.
+
+[input]
+type = "udp"
+listen = "0.0.0.0:514"
+format = "rfc3164"
+rfc3164_timezone = "local"
+
+[output]
+type = "nats"
+format = "gelf"
+framing = "noop"
+partition = "default"
+nats_url = "nats://serviceradar-nats:4222"
+nats_subject = "logs.syslog"
+nats_stream = "events"
+nats_timeout = 30000
+nats_creds_file = "/var/run/serviceradar/runtime/NATS_CREDS_FILE"
+
+[logging]
+level = "info"
+format = "json"

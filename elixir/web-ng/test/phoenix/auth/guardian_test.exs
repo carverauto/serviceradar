@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
   import ServiceRadarWebNG.AccountsFixtures
 
   alias ServiceRadarWebNG.Auth.Guardian
+  alias ServiceRadarWebNG.Auth.TokenRevocation
 
   describe "subject_for_token/2" do
     test "returns user:id format for user resource" do
@@ -135,6 +136,28 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
       # Tamper with the token
       tampered = token <> "x"
       assert {:error, _reason} = Guardian.verify_token(tampered)
+    end
+
+    test "accepts a new token issued after user-wide revocation" do
+      user = user_fixture()
+
+      assert :ok = TokenRevocation.revoke_all_for_user(user.id, reason: :password_changed)
+      Process.sleep(10)
+
+      {:ok, token, _claims} = Guardian.create_access_token(user)
+
+      assert {:ok, verified_user, claims} = Guardian.verify_token(token, token_type: "access")
+      assert verified_user.id == user.id
+      assert claims["typ"] == "access"
+    end
+
+    test "rejects a token issued before user-wide revocation" do
+      user = user_fixture()
+
+      {:ok, token, _claims} = Guardian.create_access_token(user)
+      assert :ok = TokenRevocation.revoke_all_for_user(user.id, reason: :password_changed)
+
+      assert {:error, :user_revoked} = Guardian.verify_token(token, token_type: "access")
     end
   end
 

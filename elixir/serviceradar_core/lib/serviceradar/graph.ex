@@ -49,12 +49,7 @@ defmodule ServiceRadar.Graph do
     graph = Keyword.get(opts, :graph, default_graph())
     repo = Keyword.get(opts, :repo, Repo)
 
-    query = """
-    SELECT ag_catalog.agtype_to_text(v)
-    FROM ag_catalog.cypher('#{graph}', #{dollar_quote(cypher)}) AS (v agtype)
-    """
-
-    case repo.query(query) do
+    case query_age(repo, graph, cypher, :execute) do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -82,12 +77,7 @@ defmodule ServiceRadar.Graph do
     graph = Keyword.get(opts, :graph, default_graph())
     repo = Keyword.get(opts, :repo, Repo)
 
-    sql = """
-    SELECT ag_catalog.agtype_to_text(result)
-    FROM ag_catalog.cypher('#{graph}', #{dollar_quote(cypher)}) AS (result agtype)
-    """
-
-    case repo.query(sql) do
+    case query_age(repo, graph, cypher, :query) do
       {:ok, %{rows: rows}} ->
         parsed = parse_agtype_results(rows)
         {:ok, parsed}
@@ -123,20 +113,55 @@ defmodule ServiceRadar.Graph do
     Application.get_env(:serviceradar_core, :age_graph_name, @default_graph)
   end
 
-  # Generate a unique dollar-quote tag to safely embed the Cypher query
-  defp dollar_quote(query) do
-    tag = dollar_quote_tag(query)
-    "$#{tag}$#{query}$#{tag}$"
+  defp sql_literal(value) when is_binary(value) do
+    "'" <> String.replace(value, "'", "''") <> "'"
   end
 
-  defp dollar_quote_tag(query) do
-    tag = "sr_#{Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)}"
+  defp dollar_quote(value) when is_binary(value) do
+    tag = "$sr_" <> Integer.to_string(:erlang.phash2(value), 16) <> "$"
+    tag <> value <> tag
+  end
 
-    if String.contains?(query, "$#{tag}$") do
-      dollar_quote_tag(query)
-    else
-      tag
+  defp query_age(repo, graph, cypher, mode) do
+    graph
+    |> candidate_sqls(cypher, mode)
+    |> Enum.reduce_while(nil, fn sql, _last_error ->
+      case repo.query(sql, [], prepare: :unnamed) do
+        {:ok, _} = result -> {:halt, result}
+        {:error, reason} -> {:cont, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, _} = result -> result
+      {:error, _} = error -> error
+      nil -> {:error, :age_query_failed}
     end
+  end
+
+  defp cypher_sql(graph, cypher, :execute, quote_style) do
+    """
+    SELECT ag_catalog.agtype_to_text(v)
+    FROM ag_catalog.cypher(#{sql_literal(graph)}, #{quoted_cypher(cypher, quote_style)}) AS (v agtype)
+    """
+  end
+
+  defp cypher_sql(graph, cypher, :query, quote_style) do
+    """
+    SELECT ag_catalog.agtype_to_text(result)
+    FROM ag_catalog.cypher(#{sql_literal(graph)}, #{quoted_cypher(cypher, quote_style)}) AS (result agtype)
+    """
+  end
+
+  defp quoted_cypher(cypher, :dollar), do: dollar_quote(cypher)
+  defp quoted_cypher(cypher, :single), do: sql_literal(cypher)
+
+  defp candidate_sqls(graph, cypher, mode) do
+    # Some AGE builds oscillate between accepting dollar-quoted and single-quoted
+    # cstring forms across connections. Try a short alternating sequence and
+    # return the first success.
+    [:dollar, :single, :dollar, :single]
+    |> Enum.map(&cypher_sql(graph, cypher, mode, &1))
+    |> Enum.uniq()
   end
 
   # Parse agtype text results into Elixir values

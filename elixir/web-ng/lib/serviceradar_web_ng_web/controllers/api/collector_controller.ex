@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.Capabilities
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.ClientIP
@@ -84,6 +85,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
 
     if collector_type in ["flowgger", "trapd", "netflow", "sflow", "otel", "falcosidekick"] do
       with :ok <- require_authenticated(conn),
+           :ok <- require_collectors_enabled(conn),
            :ok <- require_permission(conn, "settings.edge.manage") do
         attrs = %{
           collector_type: parse_collector_type(collector_type),
@@ -151,12 +153,14 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
     if download_token in [nil, ""] do
       return_error(conn, :bad_request, "download_token is required")
     else
-      case download_with_token(id, download_token, source_ip) do
-        {:ok, result} ->
-          json(conn, result)
+      with :ok <- require_collectors_enabled(conn) do
+        case download_with_token(id, download_token, source_ip) do
+          {:ok, result} ->
+            json(conn, result)
 
-        {:error, reason} ->
-          handle_download_error(conn, reason)
+          {:error, reason} ->
+            handle_download_error(conn, reason)
+        end
       end
     end
   end
@@ -180,15 +184,17 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
     if download_token in [nil, ""] do
       return_error(conn, :bad_request, "token query parameter is required")
     else
-      case bundle_with_token(id, download_token, source_ip) do
-        {:ok, tarball, filename} ->
-          conn
-          |> put_resp_content_type("application/gzip")
-          |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
-          |> send_resp(200, tarball)
+      with :ok <- require_collectors_enabled(conn) do
+        case bundle_with_token(id, download_token, source_ip) do
+          {:ok, tarball, filename} ->
+            conn
+            |> put_resp_content_type("application/gzip")
+            |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
+            |> send_resp(200, tarball)
 
-        {:error, reason} ->
-          handle_bundle_error(conn, reason)
+          {:error, reason} ->
+            handle_bundle_error(conn, reason)
+        end
       end
     end
   end
@@ -592,6 +598,14 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
     case conn.assigns[:current_scope] do
       %Scope{user: user} when not is_nil(user) -> :ok
       _ -> {:error, :unauthorized}
+    end
+  end
+
+  defp require_collectors_enabled(conn) do
+    if Capabilities.collectors_enabled?() do
+      :ok
+    else
+      return_error(conn, :forbidden, "collector onboarding is disabled for this deployment")
     end
   end
 

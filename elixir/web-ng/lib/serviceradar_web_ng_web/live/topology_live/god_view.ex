@@ -301,26 +301,17 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
             </div>
 
             <div
-              :if={
-                empty_topology_message(
-                  @stream_state,
-                  @last_node_count,
-                  @last_edge_count,
-                  @pipeline_stats
-                )
-              }
+              :if={empty_topology_state = empty_topology_state(
+                @stream_state,
+                @last_node_count,
+                @last_edge_count,
+                @pipeline_stats
+              )}
               class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
             >
               <div class="max-w-xl rounded-lg border border-warning/30 bg-base-100/90 px-5 py-4 text-center shadow-lg backdrop-blur-sm">
-                <div class="text-sm font-semibold text-warning">Topology unavailable</div>
-                <div class="mt-1 text-xs text-base-content/70">
-                  {empty_topology_message(
-                    @stream_state,
-                    @last_node_count,
-                    @last_edge_count,
-                    @pipeline_stats
-                  )}
-                </div>
+                <div class="text-sm font-semibold text-warning">{empty_topology_state.title}</div>
+                <div class="mt-1 text-xs text-base-content/70">{empty_topology_state.message}</div>
               </div>
             </div>
 
@@ -898,7 +889,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
 
   defp parse_pipeline_stat(_), do: nil
 
-  defp empty_topology_message(stream_state, last_node_count, last_edge_count, pipeline_stats) do
+  defp empty_topology_state(stream_state, last_node_count, last_edge_count, pipeline_stats) do
     node_count =
       parse_pipeline_stat(last_node_count) ||
         Map.get(pipeline_stats, :final_nodes) ||
@@ -911,10 +902,17 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
 
     cond do
       stream_state == :error ->
-        "The topology stream failed. Check web-ng/runtime-graph logs and AGE topology data."
+        %{
+          title: "Topology unavailable",
+          message: "The topology stream failed. Check web-ng/runtime-graph logs and AGE topology data."
+        }
 
       stream_state == :ok and node_count == 0 and edge_count == 0 ->
-        "No topology nodes or edges were returned from AGE. Verify topology ingestion is writing graph relations."
+        %{
+          title: "No topology data yet",
+          message:
+            "No topology nodes or edges are available yet. Run discovery or mapper jobs to populate graph relations."
+        }
 
       true ->
         nil

@@ -40,6 +40,64 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
+  test "shows advisory when managed-device count exceeds configured limit", %{conn: conn} do
+    previous_limit = Application.get_env(:serviceradar_web_ng, :managed_device_limit)
+    Application.put_env(:serviceradar_web_ng, :managed_device_limit, 1)
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_web_ng, :managed_device_limit, previous_limit)
+    end)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: "advisory-device-#{System.unique_integer([:positive])}",
+        type_id: 0,
+        hostname: "advisory-host-1",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      },
+      %{
+        uid: "advisory-device-#{System.unique_integer([:positive])}",
+        type_id: 0,
+        hostname: "advisory-host-2",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _lv, html} = live(conn, ~p"/devices?limit=10")
+
+    assert html =~ "Managed device advisory limit exceeded"
+    assert html =~ "configured advisory limit of 1"
+    assert html =~ "using 2 managed devices"
+  end
+
+  test "does not show advisory when managed-device count stays within configured limit", %{conn: conn} do
+    previous_limit = Application.get_env(:serviceradar_web_ng, :managed_device_limit)
+    Application.put_env(:serviceradar_web_ng, :managed_device_limit, 2)
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_web_ng, :managed_device_limit, previous_limit)
+    end)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: "within-limit-device-#{System.unique_integer([:positive])}",
+        type_id: 0,
+        hostname: "within-limit-host",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _lv, html} = live(conn, ~p"/devices?limit=10")
+
+    refute html =~ "Managed device advisory limit exceeded"
+  end
+
   test "renders fallback sysmon label when profile data is missing", %{conn: conn} do
     uid = "test-device-sysmon-missing-#{System.unique_integer([:positive])}"
     now = DateTime.truncate(DateTime.utc_now(), :second)

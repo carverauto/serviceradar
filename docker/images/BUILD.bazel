@@ -173,13 +173,14 @@ declare_service_container_amd64(
     files = {
         "//go/cmd/consumers/db-event-writer:db-event-writer": "usr/local/bin/serviceradar-db-event-writer",
         "//docker/compose:entrypoint-db-event-writer.sh": "usr/local/bin/entrypoint.sh",
+        "//build/packaging/event-writer:config/db-event-writer.json": "etc/serviceradar/consumers/db-event-writer.json",
     },
     modes = {
         "usr/local/bin/serviceradar-db-event-writer": "0755",
         "usr/local/bin/entrypoint.sh": "0755",
+        "etc/serviceradar/consumers/db-event-writer.json": "0644",
     },
     empty_dirs = [
-        "etc/serviceradar/consumers",
         "etc/serviceradar/templates",
         "var/lib/serviceradar",
         "var/log/serviceradar",
@@ -198,7 +199,7 @@ declare_service_container_amd64(
     files = {
         "//go/cmd/data-services:data_services": "usr/local/bin/serviceradar-datasvc",
         "//docker/compose:entrypoint-datasvc.sh": "usr/local/bin/entrypoint.sh",
-        "//docker/compose:datasvc.docker.json": "etc/serviceradar/datasvc.json",
+        "//build/packaging/datasvc:config/datasvc.json": "etc/serviceradar/datasvc.json",
     },
     modes = {
         "usr/local/bin/serviceradar-datasvc": "0755",
@@ -223,9 +224,9 @@ declare_service_container_amd64(
     files = {
         "//rust/log-collector:log-collector": "usr/local/bin/serviceradar-log-collector",
         "//docker/compose:entrypoint-log-collector.sh": "usr/local/bin/entrypoint.sh",
-        "//docker/compose:log-collector.docker.toml": "etc/serviceradar/log-collector.toml",
-        "//docker/compose:flowgger.docker.toml": "etc/serviceradar/flowgger.toml",
-        "//docker/compose:otel.docker.toml": "etc/serviceradar/otel.toml",
+        "//build/packaging/log-collector:config/log-collector.toml": "etc/serviceradar/log-collector.toml",
+        "//build/packaging/log-collector:config/flowgger.toml": "etc/serviceradar/flowgger.toml",
+        "//build/packaging/log-collector:config/otel.toml": "etc/serviceradar/otel.toml",
     },
     modes = {
         "usr/local/bin/serviceradar-log-collector": "0755",
@@ -254,7 +255,7 @@ declare_multiarch_image_index(
 
 declare_service_container_amd64(
     name = "trapd_image_amd64",
-    runtime = "debian",
+    runtime = "ubuntu",
     image_title = "serviceradar-trapd",
     files = {
         "//rust/trapd:trapd": "usr/local/bin/serviceradar-trapd",
@@ -285,7 +286,7 @@ declare_multiarch_image_index(
 
 declare_service_container_amd64(
     name = "flow_collector_image_amd64",
-    runtime = "debian",
+    runtime = "ubuntu",
     image_title = "serviceradar-flow-collector",
     files = {
         "//rust/flow-collector:flow-collector": "usr/local/bin/serviceradar-flow-collector",
@@ -314,7 +315,7 @@ declare_multiarch_image_index(
 
 declare_service_container_amd64(
     name = "bmp_collector_image_amd64",
-    runtime = "debian",
+    runtime = "ubuntu",
     image_title = "arancini",
     files = {
         "//rust/bmp-collector:bmp-collector": "usr/local/bin/serviceradar-bmp-collector",
@@ -342,7 +343,7 @@ declare_multiarch_image_index(
 
 declare_service_container_amd64(
     name = "rperf_client_image_amd64",
-    runtime = "debian",
+    runtime = "ubuntu",
     image_title = "serviceradar-rperf-client",
     files = {
         "//rust/rperf-client:rperf_checker": "usr/local/bin/serviceradar-rperf-checker",
@@ -400,14 +401,14 @@ declare_multiarch_image_index(
 
 declare_service_container_amd64(
     name = "zen_image_amd64",
-    runtime = "debian",
+    runtime = "ubuntu",
     image_title = "serviceradar-zen",
     files = {
         "//rust/consumers/zen:zen": "usr/local/bin/serviceradar-zen",
         "//rust/consumers/zen:zen_put_rule": "usr/local/bin/zen-put-rule",
         "//docker/compose:entrypoint-zen.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:zen-install-rules.sh": "usr/local/bin/zen-install-rules.sh",
-        "//docker/compose:zen.docker.json": "etc/serviceradar/zen.json",
+        "//build/packaging/zen:config/zen-consumer.json": "etc/serviceradar/zen.json",
         "//rust/consumers/zen:data/cef_severity.json": "var/lib/serviceradar/data/cef_severity.json",
         "//rust/consumers/zen:data/snmp_severity.json": "var/lib/serviceradar/data/snmp_severity.json",
         "//rust/consumers/zen:data/passthrough.json": "var/lib/serviceradar/data/passthrough.json",

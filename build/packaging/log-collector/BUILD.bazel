@@ -3,6 +3,12 @@ load("//build/packaging:packages.bzl", "PACKAGES")
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files([
+    "config/flowgger.toml",
+    "config/log-collector.toml",
+    "config/otel.toml",
+])
+
 serviceradar_package_from_config(
     name = "log-collector",
     config = PACKAGES["log-collector"],

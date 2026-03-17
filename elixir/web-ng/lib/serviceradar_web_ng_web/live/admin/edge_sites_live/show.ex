@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadarWebNG.Capabilities
   alias ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator
   alias ServiceRadarWebNG.RBAC
 
@@ -23,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
           socket =
             socket
             |> assign(:page_title, site.name)
+            |> assign(:collectors_enabled, Capabilities.collectors_enabled?())
             |> assign(:site, site)
             |> assign(:leaf_server, site.nats_leaf_server)
             |> load_collectors(id, scope)
@@ -159,7 +161,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
         <.nats_url_card site={@site} />
 
-        <.collectors_card collectors={@collectors} site={@site} />
+        <.collectors_card
+          collectors={@collectors}
+          site={@site}
+          collectors_enabled={@collectors_enabled}
+        />
 
         <.danger_zone_card site={@site} />
       </.settings_shell>
@@ -290,7 +296,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
           <.icon name="hero-cpu-chip" class="size-4 text-info" />
           <span class="font-semibold text-sm">Collectors at this Site</span>
         </div>
-        <.ui_button variant="ghost" size="xs" navigate={~p"/admin/collectors"}>
+        <.ui_button
+          :if={@collectors_enabled}
+          variant="ghost"
+          size="xs"
+          navigate={~p"/admin/collectors"}
+        >
           Manage Collectors
         </.ui_button>
       </:header>
@@ -298,10 +309,18 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
       <%= if @collectors == [] do %>
         <div class="text-center py-4 text-sm text-base-content/60">
           No collectors assigned to this site.
-          <.link navigate={~p"/admin/collectors"} class="link link-primary">
+          <.link
+            :if={@collectors_enabled}
+            navigate={~p"/admin/collectors"}
+            class="link link-primary"
+          >
             Create a collector
           </.link>
-          and assign it to this site.
+          <%= if @collectors_enabled do %>
+            and assign it to this site.
+          <% else %>
+            Collector onboarding is disabled for this deployment.
+          <% end %>
         </div>
       <% else %>
         <div class="overflow-x-auto">

@@ -68,7 +68,8 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocation do
     :ok
   end
 
-  @spec check_user_revoked(String.t(), DateTime.t() | nil) :: :ok | {:error, :user_revoked}
+  @spec check_user_revoked(String.t(), DateTime.t() | integer() | binary() | nil) ::
+          :ok | {:error, :user_revoked}
   def check_user_revoked(_user_id, nil), do: :ok
 
   def check_user_revoked(user_id, issued_at) when is_binary(user_id) do
@@ -76,10 +77,21 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocation do
 
     case :ets.lookup(@table, marker_jti) do
       [{^marker_jti, %{revoked_before: revoked_before}}] ->
-        if DateTime.compare(issued_at, revoked_before) == :lt do
-          {:error, :user_revoked}
-        else
-          :ok
+        case normalize_issued_at(issued_at) do
+          {:ok, issued_at_dt} ->
+            if DateTime.before?(issued_at_dt, revoked_before) do
+              {:error, :user_revoked}
+            else
+              :ok
+            end
+
+          :error ->
+            Logger.warning("Unable to normalize token issued_at for revocation check",
+              issued_at: inspect(issued_at),
+              user_id: user_id
+            )
+
+            {:error, :user_revoked}
         end
 
       [] ->
@@ -112,4 +124,25 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocation do
   defp schedule_cleanup do
     Process.send_after(self(), :cleanup, @cleanup_interval)
   end
+
+  defp normalize_issued_at(%DateTime{} = issued_at), do: {:ok, issued_at}
+
+  defp normalize_issued_at(issued_at) when is_integer(issued_at) do
+    DateTime.from_unix(issued_at)
+  end
+
+  defp normalize_issued_at(issued_at) when is_float(issued_at) do
+    issued_at
+    |> trunc()
+    |> DateTime.from_unix()
+  end
+
+  defp normalize_issued_at(issued_at) when is_binary(issued_at) do
+    case Integer.parse(issued_at) do
+      {unix, ""} -> DateTime.from_unix(unix)
+      _ -> :error
+    end
+  end
+
+  defp normalize_issued_at(_issued_at), do: :error
 end
