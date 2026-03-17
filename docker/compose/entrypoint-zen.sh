@@ -95,7 +95,9 @@ if [ -n "${ZEN_NATS_URL:-}" ] || \
    [ -n "${ZEN_AGENT_ID:-}" ] || \
    [ -n "${ZEN_KV_BUCKET:-}" ] || \
    [ -n "${ZEN_LISTEN_ADDR:-}" ] || \
-   [ -n "${ZEN_RESULT_SUBJECT_SUFFIX:-}" ]; then
+   [ -n "${ZEN_RESULT_SUBJECT_SUFFIX:-}" ] || \
+   [ -n "${ZEN_DISABLE_SECURITY:-}" ] || \
+   [ -n "${ZEN_DISABLE_GRPC_SECURITY:-}" ]; then
     echo "Patching Zen config from environment..."
 
     jq \
@@ -108,6 +110,8 @@ if [ -n "${ZEN_NATS_URL:-}" ] || \
       --arg kv_bucket "${ZEN_KV_BUCKET:-}" \
       --arg listen_addr "${ZEN_LISTEN_ADDR:-}" \
       --arg result_subject_suffix "${ZEN_RESULT_SUBJECT_SUFFIX:-}" \
+      --arg disable_security "${ZEN_DISABLE_SECURITY:-}" \
+      --arg disable_grpc_security "${ZEN_DISABLE_GRPC_SECURITY:-}" \
       '
       if $nats_url != "" then .nats_url = $nats_url else . end
       | if $nats_creds_file != "" then .nats_creds_file = $nats_creds_file else . end
@@ -118,6 +122,8 @@ if [ -n "${ZEN_NATS_URL:-}" ] || \
       | if $kv_bucket != "" then .kv_bucket = $kv_bucket else . end
       | if $listen_addr != "" then .listen_addr = $listen_addr else . end
       | if $result_subject_suffix != "" then .result_subject_suffix = $result_subject_suffix else . end
+      | if ($disable_security | ascii_downcase) == "true" then del(.security) else . end
+      | if ($disable_grpc_security | ascii_downcase) == "true" then del(.grpc_security) else . end
       ' "$CONFIG_PATH" > "${CONFIG_PATH}.tmp"
 
     mv "${CONFIG_PATH}.tmp" "$CONFIG_PATH"
