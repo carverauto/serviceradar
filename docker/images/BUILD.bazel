@@ -407,7 +407,7 @@ declare_service_container_amd64(
         "//rust/consumers/zen:zen_put_rule": "usr/local/bin/zen-put-rule",
         "//docker/compose:entrypoint-zen.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:zen-install-rules.sh": "usr/local/bin/zen-install-rules.sh",
-        "//docker/compose:zen.docker.json": "etc/serviceradar/zen.json",
+        "//build/packaging/zen:config/zen-consumer.json": "etc/serviceradar/zen.json",
         "//rust/consumers/zen:data/cef_severity.json": "var/lib/serviceradar/data/cef_severity.json",
         "//rust/consumers/zen:data/snmp_severity.json": "var/lib/serviceradar/data/snmp_severity.json",
         "//rust/consumers/zen:data/passthrough.json": "var/lib/serviceradar/data/passthrough.json",

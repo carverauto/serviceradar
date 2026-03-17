@@ -87,6 +87,39 @@ if [ ! -f "$CONFIG_PATH" ]; then
     exit 1
 fi
 
+if [ -n "${ZEN_NATS_URL:-}" ] || \
+   [ -n "${ZEN_NATS_CREDS_FILE:-}" ] || \
+   [ -n "${ZEN_STREAM_NAME:-}" ] || \
+   [ -n "${ZEN_CONSUMER_NAME:-}" ] || \
+   [ -n "${ZEN_AGENT_ID:-}" ] || \
+   [ -n "${ZEN_KV_BUCKET:-}" ] || \
+   [ -n "${ZEN_LISTEN_ADDR:-}" ] || \
+   [ -n "${ZEN_RESULT_SUBJECT_SUFFIX:-}" ]; then
+    echo "Patching Zen config from environment..."
+
+    jq \
+      --arg nats_url "${ZEN_NATS_URL:-}" \
+      --arg nats_creds_file "${ZEN_NATS_CREDS_FILE:-}" \
+      --arg stream_name "${ZEN_STREAM_NAME:-}" \
+      --arg consumer_name "${ZEN_CONSUMER_NAME:-}" \
+      --arg agent_id "${ZEN_AGENT_ID:-}" \
+      --arg kv_bucket "${ZEN_KV_BUCKET:-}" \
+      --arg listen_addr "${ZEN_LISTEN_ADDR:-}" \
+      --arg result_subject_suffix "${ZEN_RESULT_SUBJECT_SUFFIX:-}" \
+      '
+      if $nats_url != "" then .nats_url = $nats_url else . end
+      | if $nats_creds_file != "" then .nats_creds_file = $nats_creds_file else . end
+      | if $stream_name != "" then .stream_name = $stream_name else . end
+      | if $consumer_name != "" then .consumer_name = $consumer_name else . end
+      | if $agent_id != "" then .agent_id = $agent_id else . end
+      | if $kv_bucket != "" then .kv_bucket = $kv_bucket else . end
+      | if $listen_addr != "" then .listen_addr = $listen_addr else . end
+      | if $result_subject_suffix != "" then .result_subject_suffix = $result_subject_suffix else . end
+      ' "$CONFIG_PATH" > "${CONFIG_PATH}.tmp"
+
+    mv "${CONFIG_PATH}.tmp" "$CONFIG_PATH"
+fi
+
 # Ensure the rules data directory exists and is populated with any mounted rules
 DATA_DIR="${DATA_DIR:-/var/lib/serviceradar/data}"
 RULE_SOURCE_DIR="${RULE_SOURCE_DIR:-/etc/serviceradar/rules}"
