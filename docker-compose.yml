@@ -408,6 +408,7 @@ services:
     image: nats:latest
     platform: linux/amd64
     container_name: serviceradar-nats-mtls
+    entrypoint: ["sh", "/usr/local/bin/entrypoint-nats.sh"]
     ports:
       - "4222:4222"
       - "8222:8222"
@@ -416,6 +417,7 @@ services:
       - nats-data:/data
       - cert-data:/etc/serviceradar/certs:ro
       - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
+      - ./docker/compose/entrypoint-nats.sh:/usr/local/bin/entrypoint-nats.sh:ro
       - ./docker/compose/nats.docker.conf:/etc/nats/nats-server.conf:ro
     command: ["--config", "/etc/nats/nats-server.conf"]
     networks:
