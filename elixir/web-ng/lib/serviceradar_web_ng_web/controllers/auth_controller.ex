@@ -234,9 +234,8 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     end
   end
 
-  defp validate_reset_password_confirmation(password, password_confirmation)
-       when password == password_confirmation,
-       do: :ok
+  defp validate_reset_password_confirmation(password, password_confirmation) when password == password_confirmation,
+    do: :ok
 
   defp validate_reset_password_confirmation(_password, _password_confirmation) do
     {:error, :password_confirmation_mismatch}
