@@ -215,7 +215,6 @@ services:
     image: ghcr.io/carverauto/serviceradar-core-elx:${APP_TAG:-latest}
     container_name: serviceradar-core-elx-mtls
     hostname: core-elx
-    entrypoint: ["/bin/sh", "/usr/local/bin/entrypoint-core-elx.sh"]
     environment:
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
@@ -276,7 +275,6 @@ services:
       - OTEL_SERVICE_NAME=serviceradar-core-elx
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
-      - ./docker/compose/entrypoint-core-elx.sh:/usr/local/bin/entrypoint-core-elx.sh:ro
       - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro
       - cloak-key:/etc/serviceradar/cloak:ro
       - cnpg-credentials:/etc/serviceradar/cnpg:ro
@@ -408,7 +406,6 @@ services:
     image: nats:latest
     platform: linux/amd64
     container_name: serviceradar-nats-mtls
-    entrypoint: ["/bin/sh", "/usr/local/bin/entrypoint-nats.sh"]
     ports:
       - "4222:4222"
       - "8222:8222"
@@ -417,9 +414,15 @@ services:
       - nats-data:/data
       - cert-data:/etc/serviceradar/certs:ro
       - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
-      - ./docker/compose/entrypoint-nats.sh:/usr/local/bin/entrypoint-nats.sh:ro
       - ./docker/compose/nats.docker.conf:/etc/nats/nats-server.conf:ro
     command: ["--config", "/etc/nats/nats-server.conf"]
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      nats-config-init:
+        condition: service_completed_successfully
     networks:
       serviceradar-net:
         aliases:
