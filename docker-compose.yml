@@ -215,6 +215,7 @@ services:
     image: ghcr.io/carverauto/serviceradar-core-elx:${APP_TAG:-latest}
     container_name: serviceradar-core-elx-mtls
     hostname: core-elx
+    entrypoint: ["sh", "/usr/local/bin/entrypoint-core-elx.sh"]
     environment:
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
@@ -275,6 +276,7 @@ services:
       - OTEL_SERVICE_NAME=serviceradar-core-elx
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
+      - ./docker/compose/entrypoint-core-elx.sh:/usr/local/bin/entrypoint-core-elx.sh:ro
       - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro
       - cloak-key:/etc/serviceradar/cloak:ro
       - cnpg-credentials:/etc/serviceradar/cnpg:ro
@@ -282,8 +284,6 @@ services:
       - migrations-data:/var/lib/serviceradar/migrations
       - ${DEVICE_ENRICHMENT_RULES_DIR_HOST:-./docker/compose/rules/device-enrichment}:/var/lib/serviceradar/rules/device-enrichment:ro
     depends_on:
-      core-elx-migrations:
-        condition: service_completed_successfully
       cnpg:
         condition: service_healthy
       nats:
