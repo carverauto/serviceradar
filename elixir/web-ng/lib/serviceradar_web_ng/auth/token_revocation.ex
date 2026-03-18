@@ -77,22 +77,7 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocation do
 
     case :ets.lookup(@table, marker_jti) do
       [{^marker_jti, %{revoked_before: revoked_before}}] ->
-        case normalize_issued_at(issued_at) do
-          {:ok, issued_at_dt} ->
-            if DateTime.before?(issued_at_dt, revoked_before) do
-              {:error, :user_revoked}
-            else
-              :ok
-            end
-
-          :error ->
-            Logger.warning("Unable to normalize token issued_at for revocation check",
-              issued_at: inspect(issued_at),
-              user_id: user_id
-            )
-
-            {:error, :user_revoked}
-        end
+        check_revoked_before(issued_at, revoked_before, user_id)
 
       [] ->
         :ok
@@ -123,6 +108,25 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocation do
 
   defp schedule_cleanup do
     Process.send_after(self(), :cleanup, @cleanup_interval)
+  end
+
+  defp check_revoked_before(issued_at, revoked_before, user_id) do
+    case normalize_issued_at(issued_at) do
+      {:ok, issued_at_dt} ->
+        if DateTime.before?(issued_at_dt, revoked_before) do
+          {:error, :user_revoked}
+        else
+          :ok
+        end
+
+      :error ->
+        Logger.warning(
+          "Unable to normalize token issued_at for revocation check: " <>
+            "issued_at=#{inspect(issued_at)} user_id=#{user_id}"
+        )
+
+        {:error, :user_revoked}
+    end
   end
 
   defp normalize_issued_at(%DateTime{} = issued_at), do: {:ok, issued_at}

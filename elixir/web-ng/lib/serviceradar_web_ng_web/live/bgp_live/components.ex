@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
   """
 
   use Phoenix.Component
+
   import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
 
   @doc """
@@ -38,11 +39,11 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     phx-value-as={item.as_number}
                     class={[
                       "btn btn-xs font-mono flex-1",
-                      @selected_as == item.as_number && "btn-primary" || "btn-ghost"
+                      (@selected_as == item.as_number && "btn-primary") || "btn-ghost"
                     ]}
                     title="Filter BGP view"
                   >
-                    AS <%= item.as_number %>
+                    AS {item.as_number}
                   </button>
                   <.link
                     navigate={"/observability?tab=netflows&q=#{URI.encode_www_form("as_path contains [#{item.as_number}]")}"}
@@ -52,8 +53,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     <.icon name="hero-arrow-top-right-on-square" class="size-3" />
                   </.link>
                 </div>
-
-                <!-- Traffic Bar -->
+                
+    <!-- Traffic Bar -->
                 <div class="flex-1">
                   <div class="relative h-6 bg-base-200 rounded overflow-hidden">
                     <div
@@ -63,15 +64,15 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     </div>
                     <div class="absolute inset-0 flex items-center px-2">
                       <span class="text-xs font-medium text-base-content">
-                        <%= format_bytes(item.bytes) %>
+                        {format_bytes(item.bytes)}
                       </span>
                     </div>
                   </div>
                 </div>
-
-                <!-- Flow Count -->
+                
+    <!-- Flow Count -->
                 <div class="w-20 text-right text-xs text-base-content/60">
-                  <%= item.flow_count %> flows
+                  {item.flow_count} flows
                 </div>
               </div>
             <% end %>
@@ -108,14 +109,14 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     phx-value-community={item.community}
                     class={[
                       "btn btn-xs font-mono",
-                      @selected_community == item.community && "btn-secondary" || "btn-ghost"
+                      (@selected_community == item.community && "btn-secondary") || "btn-ghost"
                     ]}
                   >
-                    <%= decode_community(item.community) %>
+                    {decode_community(item.community)}
                   </button>
                 </div>
-
-                <!-- Traffic Bar -->
+                
+    <!-- Traffic Bar -->
                 <div class="flex-1">
                   <div class="relative h-6 bg-base-200 rounded overflow-hidden">
                     <div
@@ -125,15 +126,15 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     </div>
                     <div class="absolute inset-0 flex items-center px-2">
                       <span class="text-xs font-medium text-base-content">
-                        <%= format_bytes(item.bytes) %>
+                        {format_bytes(item.bytes)}
                       </span>
                     </div>
                   </div>
                 </div>
-
-                <!-- Flow Count -->
+                
+    <!-- Flow Count -->
                 <div class="w-20 text-right text-xs text-base-content/60">
-                  <%= item.flow_count %> flows
+                  {item.flow_count} flows
                 </div>
               </div>
             <% end %>
@@ -158,20 +159,20 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
         <div class="grid grid-cols-2 gap-4">
           <!-- Unique Paths -->
           <div class="stat bg-base-200 rounded-lg">
-            <div class="stat-value text-primary"><%= @path_diversity.unique_paths %></div>
+            <div class="stat-value text-primary">{@path_diversity.unique_paths}</div>
             <div class="stat-title">Unique Paths</div>
           </div>
-
-          <!-- Average Path Length -->
+          
+    <!-- Average Path Length -->
           <div class="stat bg-base-200 rounded-lg">
             <div class="stat-value text-secondary">
-              <%= Float.round(@path_diversity.avg_path_length, 1) %>
+              {Float.round(@path_diversity.avg_path_length, 1)}
             </div>
             <div class="stat-title">Avg Hops</div>
           </div>
         </div>
-
-        <!-- Hop Distribution -->
+        
+    <!-- Hop Distribution -->
         <%= if map_size(@path_diversity.hop_distribution) > 0 do %>
           <div class="mt-4">
             <h4 class="text-sm font-medium text-base-content/70 mb-2">
@@ -181,7 +182,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
               <%= for {hops, count} <- Enum.sort(@path_diversity.hop_distribution) do %>
                 <div class="flex items-center gap-2">
                   <span class="text-xs text-base-content/60 w-16">
-                    <%= hops %> hops
+                    {hops} hops
                   </span>
                   <div class="flex-1 h-4 bg-base-200 rounded overflow-hidden">
                     <div
@@ -191,7 +192,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     </div>
                   </div>
                   <span class="text-xs text-base-content/60 w-12 text-right">
-                    <%= count %>
+                    {count}
                   </span>
                 </div>
               <% end %>
@@ -227,14 +228,12 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
             >
               <!-- Draw edges (connections between ASes) -->
               <%= for {edge, index} <- Enum.with_index(@topology) do %>
-                <%
-                # Calculate positions (simple horizontal layout)
+                <% # Calculate positions (simple horizontal layout)
                 x1 = 100 + index * 150
                 y1 = 200
                 x2 = x1 + 100
                 y2 = 200
-                stroke_width = calculate_edge_width(edge.bytes, @max_edge_bytes)
-                %>
+                stroke_width = calculate_edge_width(edge.bytes, @max_edge_bytes) %>
                 <!-- Connection line -->
                 <line
                   x1={x1}
@@ -258,16 +257,14 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                   text-anchor="middle"
                   class="text-xs fill-base-content/60"
                 >
-                  <%= format_bytes(edge.bytes) %>
+                  {format_bytes(edge.bytes)}
                 </text>
               <% end %>
               <!-- Draw nodes (ASes) -->
               <%= for {edge, index} <- Enum.with_index(@topology) do %>
-                <%
-                x_from = 100 + index * 150
+                <% x_from = 100 + index * 150
                 x_to = x_from + 100
-                y = 200
-                %>
+                y = 200 %>
                 <!-- From AS node -->
                 <circle
                   cx={x_from}
@@ -282,7 +279,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                   text-anchor="middle"
                   class="text-xs font-bold fill-primary-content"
                 >
-                  <%= edge.from_as %>
+                  {edge.from_as}
                 </text>
                 <!-- To AS node (only for last edge to avoid duplicates) -->
                 <%= if index == length(@topology) - 1 do %>
@@ -299,7 +296,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     text-anchor="middle"
                     class="text-xs font-bold fill-primary-content"
                   >
-                    <%= edge.to_as %>
+                    {edge.to_as}
                   </text>
                 <% end %>
               <% end %>
@@ -344,13 +341,19 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
   defp decode_community(community) when is_integer(community) do
     cond do
       # Well-known communities
-      community == 4_294_967_041 -> "NO_EXPORT"
-      community == 4_294_967_042 -> "NO_ADVERTISE"
-      community == 4_294_967_043 -> "NO_EXPORT_SUBCONFED"
+      community == 4_294_967_041 ->
+        "NO_EXPORT"
+
+      community == 4_294_967_042 ->
+        "NO_ADVERTISE"
+
+      community == 4_294_967_043 ->
+        "NO_EXPORT_SUBCONFED"
+
       # Standard format (AS:value)
       true ->
-        as_number = div(community, 65536)
-        value = rem(community, 65536)
+        as_number = div(community, 65_536)
+        value = rem(community, 65_536)
         "#{as_number}:#{value}"
     end
   end
@@ -410,10 +413,10 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
               <tbody>
                 <%= for source <- @sources do %>
                   <tr>
-                    <td class="font-mono text-sm"><%= source.sampler_address %></td>
-                    <td class="text-right"><%= source.observation_count %></td>
-                    <td class="text-right"><%= source.flow_count %></td>
-                    <td class="text-right"><%= format_bytes(source.bytes) %></td>
+                    <td class="font-mono text-sm">{source.sampler_address}</td>
+                    <td class="text-right">{source.observation_count}</td>
+                    <td class="text-right">{source.flow_count}</td>
+                    <td class="text-right">{format_bytes(source.bytes)}</td>
                   </tr>
                 <% end %>
               </tbody>
@@ -436,7 +439,13 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
       <div class="card bg-base-100 border border-base-200 shadow-sm mb-6">
         <div class="card-body">
           <h3 class="card-title text-base">Traffic Over Time (Top ASes)</h3>
-          <div class="h-64" id="timeseries-chart" phx-hook="BGPTimeSeriesChart" data-series={Jason.encode!(@timeseries.series)} data-data={Jason.encode!(@timeseries.data)}>
+          <div
+            class="h-64"
+            id="timeseries-chart"
+            phx-hook="BGPTimeSeriesChart"
+            data-series={Jason.encode!(@timeseries.series)}
+            data-data={Jason.encode!(@timeseries.data)}
+          >
             <!-- Chart will be rendered here by JS hook -->
             <div class="flex items-center justify-center h-full text-base-content/60">
               Chart rendering...
@@ -478,14 +487,14 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                 <%= for path <- @paths do %>
                   <tr>
                     <td class="font-mono text-sm">
-                      <%= Enum.join(path.as_path, " → ") %>
+                      {Enum.join(path.as_path, " → ")}
                     </td>
                     <td class="text-center">
-                      <span class="badge badge-sm"><%= path.path_length %></span>
+                      <span class="badge badge-sm">{path.path_length}</span>
                     </td>
-                    <td class="text-right"><%= format_bytes(path.bytes) %></td>
-                    <td class="text-right"><%= format_number(path.packets) %></td>
-                    <td class="text-right"><%= path.flow_count %></td>
+                    <td class="text-right">{format_bytes(path.bytes)}</td>
+                    <td class="text-right">{format_number(path.packets)}</td>
+                    <td class="text-right">{path.flow_count}</td>
                     <td>
                       <.link
                         navigate={"/observability?tab=netflows&q=#{build_as_path_filter(path.as_path)}"}
@@ -533,17 +542,17 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
               <tbody>
                 <%= for prefix <- @prefixes do %>
                   <tr>
-                    <td class="font-mono text-sm"><%= prefix.prefix %></td>
+                    <td class="font-mono text-sm">{prefix.prefix}</td>
                     <td>
                       <.link
                         navigate={"/observability?tab=netflows&q=as_path+contains+[#{prefix.as_number}]"}
                         class="btn btn-xs btn-ghost font-mono"
                       >
-                        AS <%= prefix.as_number %>
+                        AS {prefix.as_number}
                       </.link>
                     </td>
-                    <td class="text-right"><%= format_bytes(prefix.bytes) %></td>
-                    <td class="text-right"><%= prefix.flow_count %></td>
+                    <td class="text-right">{format_bytes(prefix.bytes)}</td>
+                    <td class="text-right">{prefix.flow_count}</td>
                     <td>
                       <.link
                         navigate={"/observability?tab=netflows&q=dst_ip+in+subnet+#{URI.encode_www_form(prefix.prefix)}"}
@@ -565,6 +574,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
 
   # Helper to format large numbers with commas
   defp format_number(nil), do: "0"
+
   defp format_number(num) when is_integer(num) do
     num
     |> Integer.to_string()

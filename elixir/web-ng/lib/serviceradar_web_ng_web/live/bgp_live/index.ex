@@ -17,10 +17,11 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
 
   use ServiceRadarWebNGWeb, :live_view
 
-  require Logger
+  import ServiceRadarWebNGWeb.BGPLive.Components
 
   alias ServiceRadar.BGP.Stats
-  import ServiceRadarWebNGWeb.BGPLive.Components
+
+  require Logger
 
   @impl true
   def mount(_params, _session, socket) do
@@ -59,30 +60,33 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
 
   @impl true
   def handle_event("filter_by_as", %{"as" => as_number}, socket) do
-    params = build_params(socket, %{
-      as: as_number,
-      community: nil
-    })
+    params =
+      build_params(socket, %{
+        as: as_number,
+        community: nil
+      })
 
     {:noreply, push_patch(socket, to: ~p"/observability/bgp?#{params}")}
   end
 
   @impl true
   def handle_event("filter_by_community", %{"community" => community}, socket) do
-    params = build_params(socket, %{
-      as: nil,
-      community: community
-    })
+    params =
+      build_params(socket, %{
+        as: nil,
+        community: community
+      })
 
     {:noreply, push_patch(socket, to: ~p"/observability/bgp?#{params}")}
   end
 
   @impl true
   def handle_event("clear_filters", _params, socket) do
-    params = build_params(socket, %{
-      as: nil,
-      community: nil
-    })
+    params =
+      build_params(socket, %{
+        as: nil,
+        community: nil
+      })
 
     {:noreply, push_patch(socket, to: ~p"/observability/bgp?#{params}")}
   end
@@ -106,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
 
     {:noreply,
      push_event(socket, "download_csv", %{
-       filename: "bgp_routing_#{socket.assigns.time_range}_#{DateTime.utc_now() |> DateTime.to_unix()}.csv",
+       filename: "bgp_routing_#{socket.assigns.time_range}_#{DateTime.to_unix(DateTime.utc_now())}.csv",
        content: csv_data
      })}
   end
@@ -163,55 +167,48 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
             navigate="/observability?tab=logs"
             class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
           >
-            <.icon name="hero-rectangle-stack" class="size-4" />
-            Logs
+            <.icon name="hero-rectangle-stack" class="size-4" /> Logs
           </.link>
           <.link
             navigate="/observability?tab=traces"
             class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
           >
-            <.icon name="hero-clock" class="size-4" />
-            Traces
+            <.icon name="hero-clock" class="size-4" /> Traces
           </.link>
           <.link
             navigate="/observability?tab=metrics"
             class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
           >
-            <.icon name="hero-chart-bar" class="size-4" />
-            Metrics
+            <.icon name="hero-chart-bar" class="size-4" /> Metrics
           </.link>
           <.link
             navigate="/observability?tab=events"
             class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
           >
-            <.icon name="hero-bell-alert" class="size-4" />
-            Events
+            <.icon name="hero-bell-alert" class="size-4" /> Events
           </.link>
           <.link
             navigate="/observability?tab=alerts"
             class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
           >
-            <.icon name="hero-exclamation-triangle" class="size-4" />
-            Alerts
+            <.icon name="hero-exclamation-triangle" class="size-4" /> Alerts
           </.link>
           <.link
             navigate="/observability?tab=netflows"
             class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
           >
-            <.icon name="hero-arrow-path" class="size-4" />
-            NetFlow
+            <.icon name="hero-arrow-path" class="size-4" /> NetFlow
           </.link>
           <.link
             navigate="/observability/bgp"
             class="btn btn-sm btn-primary rounded-lg flex items-center gap-2"
           >
-            <.icon name="hero-globe-alt" class="size-4" />
-            BGP Routing
+            <.icon name="hero-globe-alt" class="size-4" /> BGP Routing
           </.link>
         </div>
       </div>
-
-      <!-- Header -->
+      
+    <!-- Header -->
       <div class="flex justify-between items-center">
         <div>
           <h1 class="text-2xl font-semibold text-base-content">
@@ -221,8 +218,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
             BGP routing information from NetFlow, sFlow, and BMP sources
           </p>
         </div>
-
-        <!-- Filters -->
+        
+    <!-- Filters -->
         <div class="flex gap-3">
           <!-- Time Range Selector -->
           <select
@@ -235,8 +232,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
             <option value="last_24h" selected={@time_range == "last_24h"}>Last 24 Hours</option>
             <option value="last_7d" selected={@time_range == "last_7d"}>Last 7 Days</option>
           </select>
-
-          <!-- Source Protocol Selector -->
+          
+    <!-- Source Protocol Selector -->
           <select
             phx-change="change_source_protocol"
             name="source_protocol"
@@ -249,8 +246,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
               BGP Peering
             </option>
           </select>
-
-          <!-- Clear Filters Button -->
+          
+    <!-- Clear Filters Button -->
           <%= if @selected_as || @selected_community do %>
             <button phx-click="clear_filters" class="btn btn-sm btn-ghost">
               Clear Filters
@@ -258,18 +255,18 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
           <% end %>
         </div>
       </div>
-
-      <!-- Active Filters Display -->
+      
+    <!-- Active Filters Display -->
       <%= if @selected_as || @selected_community do %>
         <div class="alert alert-info">
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium">Active Filters:</span>
             <%= if @selected_as do %>
-              <span class="badge badge-primary">AS <%= @selected_as %></span>
+              <span class="badge badge-primary">AS {@selected_as}</span>
             <% end %>
             <%= if @selected_community do %>
               <span class="badge badge-primary">
-                Community <%= format_community(@selected_community) %>
+                Community {format_community(@selected_community)}
               </span>
             <% end %>
           </div>
@@ -280,18 +277,17 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
         <!-- Export Button -->
         <div class="flex justify-end mb-4">
           <button phx-click="export_csv" class="btn btn-sm btn-outline gap-2">
-            <.icon name="hero-arrow-down-tray" class="size-4" />
-            Export CSV
+            <.icon name="hero-arrow-down-tray" class="size-4" /> Export CSV
           </button>
         </div>
-
-        <!-- Data Sources Panel -->
+        
+    <!-- Data Sources Panel -->
         <.data_sources_panel sources={@data_sources} />
-
-        <!-- Traffic Time Series -->
+        
+    <!-- Traffic Time Series -->
         <.traffic_timeseries_chart timeseries={@traffic_timeseries} />
-
-        <!-- Main Statistics Grid -->
+        
+    <!-- Main Statistics Grid -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Traffic by AS -->
           <.bgp_traffic_by_as_view
@@ -299,25 +295,25 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
             max_bytes={@max_bytes}
             selected_as={@selected_as}
           />
-
-          <!-- Top BGP Communities -->
+          
+    <!-- Top BGP Communities -->
           <.bgp_top_communities_view
             communities={@communities}
             max_bytes={@max_bytes}
             selected_community={@selected_community}
           />
-
-          <!-- AS Path Diversity -->
+          
+    <!-- AS Path Diversity -->
           <.bgp_path_diversity_panel path_diversity={@path_diversity} />
-
-          <!-- AS Topology Graph -->
+          
+    <!-- AS Topology Graph -->
           <.bgp_topology_visualization topology={@topology} />
         </div>
-
-        <!-- AS Path Details Table -->
+        
+    <!-- AS Path Details Table -->
         <.as_path_details_table paths={@as_path_details} />
-
-        <!-- Prefix Analysis Table -->
+        
+    <!-- Prefix Analysis Table -->
         <.prefix_analysis_table prefixes={@prefix_analysis} />
       <% else %>
         <!-- Empty State -->
@@ -354,13 +350,19 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
   defp format_community(community) when is_integer(community) do
     cond do
       # Well-known communities
-      community == 4_294_967_041 -> "NO_EXPORT"
-      community == 4_294_967_042 -> "NO_ADVERTISE"
-      community == 4_294_967_043 -> "NO_EXPORT_SUBCONFED"
+      community == 4_294_967_041 ->
+        "NO_EXPORT"
+
+      community == 4_294_967_042 ->
+        "NO_ADVERTISE"
+
+      community == 4_294_967_043 ->
+        "NO_EXPORT_SUBCONFED"
+
       # Standard format (AS:value)
       true ->
-        as_number = div(community, 65536)
-        value = rem(community, 65536)
+        as_number = div(community, 65_536)
+        value = rem(community, 65_536)
         "#{as_number}:#{value}"
     end
   end
@@ -381,12 +383,14 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
 
   # Parse integer from string, returning nil if invalid
   defp parse_int(nil), do: nil
+
   defp parse_int(str) when is_binary(str) do
     case Integer.parse(str) do
       {int, ""} -> int
       _ -> nil
     end
   end
+
   defp parse_int(int) when is_integer(int), do: int
 
   # Generate CSV export of current data
@@ -412,11 +416,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
       end)
     ]
     |> List.flatten()
-    |> Enum.map(fn row ->
-      row
-      |> Enum.map(&to_string/1)
-      |> Enum.join(",")
+    |> Enum.map_join("\n", fn row ->
+      Enum.map_join(row, ",", &to_string/1)
     end)
-    |> Enum.join("\n")
   end
 end

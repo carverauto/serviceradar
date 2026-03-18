@@ -301,12 +301,15 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
             </div>
 
             <div
-              :if={empty_topology_state = empty_topology_state(
-                @stream_state,
-                @last_node_count,
-                @last_edge_count,
-                @pipeline_stats
-              )}
+              :if={
+                empty_topology_state =
+                  empty_topology_state(
+                    @stream_state,
+                    @last_node_count,
+                    @last_edge_count,
+                    @pipeline_stats
+                  )
+              }
               class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
             >
               <div class="max-w-xl rounded-lg border border-warning/30 bg-base-100/90 px-5 py-4 text-center shadow-lg backdrop-blur-sm">

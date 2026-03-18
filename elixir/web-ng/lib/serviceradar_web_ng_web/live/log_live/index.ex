@@ -5201,20 +5201,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   # Format AS path as "AS1 → AS2 → AS3"
   defp format_bgp_as_path(nil), do: nil
   defp format_bgp_as_path([]), do: nil
+
   defp format_bgp_as_path(path) when is_list(path) do
-    path
-    |> Enum.map(&to_string/1)
-    |> Enum.join(" → ")
+    Enum.map_join(path, " → ", &to_string/1)
   end
 
   # Format BGP community (decode 32-bit integer to AS:value format)
   defp format_bgp_community(community) when is_integer(community) do
     # Well-known communities (RFC 1997)
     case community do
-      0xFFFFFF01 -> "NO_EXPORT"
-      0xFFFFFF02 -> "NO_ADVERTISE"
-      0xFFFFFF03 -> "NO_EXPORT_SUBCONFED"
-      val when val > 0xFFFF0000 -> "RESERVED (#{val})"
+      0xFFFFFF01 ->
+        "NO_EXPORT"
+
+      0xFFFFFF02 ->
+        "NO_ADVERTISE"
+
+      0xFFFFFF03 ->
+        "NO_EXPORT_SUBCONFED"
+
+      val when val > 0xFFFF0000 ->
+        "RESERVED (#{val})"
+
       val ->
         # Standard format: upper 16 bits = AS, lower 16 bits = value
         as_num = Bitwise.bsr(val, 16)
@@ -5222,12 +5229,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         "#{as_num}:#{value}"
     end
   end
+
   defp format_bgp_community(community) when is_binary(community) do
     case Integer.parse(community) do
       {int_val, ""} -> format_bgp_community(int_val)
       _ -> community
     end
   end
+
   defp format_bgp_community(_), do: "—"
 
   defp normalize_iso2(value) when is_binary(value) do
