@@ -798,8 +798,6 @@ services:
     depends_on:
       cnpg:
         condition: service_healthy
-      core-elx-migrations:
-        condition: service_completed_successfully
       core-elx:
         condition: service_healthy
       log-collector:
