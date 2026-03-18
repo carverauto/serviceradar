@@ -51,8 +51,13 @@ defmodule ServiceRadar.Repo.Migrations.AddUiSlowQueryIndexes do
 
   defp use_concurrent_indexes? do
     case System.get_env("SERVICERADAR_MIGRATION_CONCURRENT_INDEXES") do
-      nil -> System.get_env("MIX_ENV") != "test"
+      nil -> default_concurrent_indexes?()
       value -> value in ~w(true 1 yes)
     end
+  end
+
+  defp default_concurrent_indexes? do
+    System.get_env("MIX_ENV") != "test" and
+      System.get_env("SERVICERADAR_MIGRATION_ONLY") not in ~w(true 1 yes)
   end
 end

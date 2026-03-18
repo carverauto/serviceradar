@@ -124,10 +124,16 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   defp public_tables_for_current_user do
     %{rows: rows} =
       ServiceRadar.Repo.query!(
-        "SELECT tablename FROM pg_tables\n" <>
-          "WHERE schemaname = 'public'\n" <>
-          "AND tableowner = current_user\n" <>
-          "AND tablename <> 'schema_migrations'"
+        "SELECT t.tablename\n" <>
+          "FROM pg_tables t\n" <>
+          "LEFT JOIN pg_class c ON c.relname = t.tablename\n" <>
+          "LEFT JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.schemaname\n" <>
+          "LEFT JOIN pg_depend d ON d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e'\n" <>
+          "LEFT JOIN pg_extension e ON e.oid = d.refobjid\n" <>
+          "WHERE t.schemaname = 'public'\n" <>
+          "AND t.tableowner = current_user\n" <>
+          "AND t.tablename <> 'schema_migrations'\n" <>
+          "AND e.oid IS NULL"
       )
 
     rows

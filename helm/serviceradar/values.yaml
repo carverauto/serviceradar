@@ -504,6 +504,13 @@ dbEventWriter:
   kvBootstrap:
     enabled: true
 logCollector:
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
   # External service configuration for syslog/NetFlow ingestion from outside the cluster.
   # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
   externalService:

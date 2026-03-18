@@ -180,12 +180,7 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
         resources:
-          requests:
-            memory: "256Mi"
-            cpu: "100m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
+          {{- toYaml .Values.logCollector.resources | nindent 10 }}
         securityContext:
           capabilities:
             add: ["NET_BIND_SERVICE"]
