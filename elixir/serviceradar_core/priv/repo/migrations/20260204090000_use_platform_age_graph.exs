@@ -6,6 +6,8 @@ defmodule ServiceRadar.Repo.Migrations.UsePlatformAgeGraph do
   use Ecto.Migration
 
   def up do
+    execute("LOAD 'age'")
+
     execute("""
     DO $$
     DECLARE

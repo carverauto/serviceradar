@@ -27,6 +27,8 @@ defmodule ServiceRadar.Repo.Migrations.AddMapperTopologyLinks do
       add :created_at, :utc_datetime
     end
 
+    execute("LOAD 'age'")
+
     execute("""
     DO $$
     DECLARE
