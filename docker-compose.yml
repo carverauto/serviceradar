@@ -287,10 +287,6 @@ services:
       - migrations-data:/var/lib/serviceradar/migrations
       - ${DEVICE_ENRICHMENT_RULES_DIR_HOST:-./docker/compose/rules/device-enrichment}:/var/lib/serviceradar/rules/device-enrichment:ro
     depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      cloak-keygen:
-        condition: service_completed_successfully
       core-elx-migrations:
         condition: service_completed_successfully
       cnpg:
@@ -427,13 +423,6 @@ services:
       - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
       - ./docker/compose/nats.docker.conf:/etc/nats/nats-server.conf:ro
     command: ["--config", "/etc/nats/nats-server.conf"]
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      nats-config-init:
-        condition: service_completed_successfully
     networks:
       serviceradar-net:
         aliases:
@@ -461,8 +450,6 @@ services:
       - NATS_OPERATOR_SEED=${NATS_OPERATOR_SEED:-}
       - NATS_SYSTEM_ACCOUNT_PUBLIC_KEY=${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY:-}
     depends_on:
-      cert-generator:
-        condition: service_completed_successfully
       nats:
         condition: service_started
     healthcheck:
@@ -491,8 +478,6 @@ services:
       - CONFIG_PATH=/etc/serviceradar/agent.json
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
       datasvc:
         condition: service_healthy
       agent-gateway:
@@ -541,8 +526,6 @@ services:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.gateway.conf:/etc/serviceradar/ssl_dist.conf:ro
     depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
       core-elx:
         condition: service_healthy
       log-collector:
@@ -585,8 +568,6 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
       nats:
         condition: service_started
     networks:
@@ -612,8 +593,6 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
       nats:
         condition: service_started
     networks:
@@ -640,8 +619,6 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
       nats:
         condition: service_started
     networks:
@@ -671,8 +648,6 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
       nats:
         condition: service_started
     networks:
@@ -695,8 +670,6 @@ services:
       - CONFIG_PATH=/etc/serviceradar/zen.json
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
       nats:
         condition: service_started
       datasvc:
@@ -740,8 +713,6 @@ services:
       - CNPG_CERT_FILE=/etc/serviceradar/certs/db-client.pem
       - CNPG_KEY_FILE=/etc/serviceradar/certs/db-client-key.pem
     depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
       nats:
         condition: service_started
       cnpg:
@@ -825,12 +796,6 @@ services:
       - plugin-packages:/var/lib/serviceradar/plugin-packages
       - ${DEVICE_ENRICHMENT_RULES_DIR_HOST:-./docker/compose/rules/device-enrichment}:/var/lib/serviceradar/rules/device-enrichment
     depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      config-updater:
-        condition: service_completed_successfully
-      cloak-keygen:
-        condition: service_completed_successfully
       cnpg:
         condition: service_healthy
       core-elx-migrations:
@@ -860,8 +825,6 @@ services:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
       web-ng:
         condition: service_healthy
     healthcheck:
