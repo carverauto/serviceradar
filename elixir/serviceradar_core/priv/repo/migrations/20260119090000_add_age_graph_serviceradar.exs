@@ -14,6 +14,8 @@ defmodule ServiceRadar.Repo.Migrations.AddAgeGraphServiceradar do
       graph_exists boolean;
       attempts integer := 0;
     BEGIN
+      PERFORM set_config('search_path', 'ag_catalog,"$user",public', true);
+
       SELECT EXISTS(
         SELECT 1 FROM ag_catalog.ag_graph WHERE name = 'serviceradar'
       ) INTO graph_exists;

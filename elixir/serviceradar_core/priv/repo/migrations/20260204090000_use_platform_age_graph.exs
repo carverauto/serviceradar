@@ -15,6 +15,8 @@ defmodule ServiceRadar.Repo.Migrations.UsePlatformAgeGraph do
       graph_name text := 'platform_graph';
       attempts integer := 0;
     BEGIN
+      PERFORM set_config('search_path', 'ag_catalog,"$user",public', true);
+
       SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = graph_name) INTO graph_exists;
       IF NOT graph_exists THEN
         WHILE attempts < 3 AND NOT graph_exists LOOP
