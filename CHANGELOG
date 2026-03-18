@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.4
+
+Docker Compose startup hardening, SaaS integration groundwork, and expanded NetFlow/BGP observability updates.
+
+## Whats New
+
+**1.2.4**
+- Fixed Docker Compose startup and targeted restart behavior by untangling bootstrap dependencies, hardening CNPG/NATS initialization, and resolving web-ng migration/bootstrap issues that blocked `docker compose up -d`.
+- Added SaaS integration groundwork across the platform and tightened Elixir quality enforcement with Boundary and additional analyzers.
+- Expanded NetFlow and routing telemetry support with NetFlow v10/BGP work, parser upgrades, and related observability/dashboard improvements.
+- Improved PostgreSQL stats cards and polished release tooling with better `cut-release` dry-run handling.
+
 # ServiceRadar v1.2.3
 
 ARC runner refresh, migration safety fixes, and more reliable integration test orchestration.
