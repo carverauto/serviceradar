@@ -215,7 +215,7 @@ services:
     image: ghcr.io/carverauto/serviceradar-core-elx:${APP_TAG:-latest}
     container_name: serviceradar-core-elx-mtls
     hostname: core-elx
-    entrypoint: ["sh", "/usr/local/bin/entrypoint-core-elx.sh"]
+    entrypoint: ["/bin/sh", "/usr/local/bin/entrypoint-core-elx.sh"]
     environment:
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
@@ -408,7 +408,7 @@ services:
     image: nats:latest
     platform: linux/amd64
     container_name: serviceradar-nats-mtls
-    entrypoint: ["sh", "/usr/local/bin/entrypoint-nats.sh"]
+    entrypoint: ["/bin/sh", "/usr/local/bin/entrypoint-nats.sh"]
     ports:
       - "4222:4222"
       - "8222:8222"
