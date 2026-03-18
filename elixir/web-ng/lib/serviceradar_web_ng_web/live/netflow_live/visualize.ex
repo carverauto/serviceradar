@@ -204,8 +204,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
             [as_str, value_str] ->
               with {as_num, ""} <- Integer.parse(as_str),
                    {value_num, ""} <- Integer.parse(value_str),
-                   true <- as_num >= 0 and as_num <= 65535,
-                   true <- value_num >= 0 and value_num <= 65535 do
+                   true <- as_num >= 0 and as_num <= 65_535,
+                   true <- value_num >= 0 and value_num <= 65_535 do
                 # Encode as 32-bit integer: (AS << 16) | value
                 encoded = Bitwise.bor(Bitwise.bsl(as_num, 16), value_num)
                 to_string(encoded)
@@ -781,8 +781,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                       </div>
                     </form>
                   </div>
-
-                  <!-- BGP Filters Section -->
+                  
+    <!-- BGP Filters Section -->
                   <div class="col-span-full mt-4 pt-4 border-t border-base-200">
                     <details class="collapse collapse-arrow bg-base-200/30 rounded-lg">
                       <summary class="collapse-title text-xs font-semibold text-base-content/70 min-h-0 py-2 px-3">
@@ -1785,7 +1785,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp sankey_mid_group_by("protocol_group"), do: "protocol_group"
   defp sankey_mid_group_by(_), do: "dst_endpoint_port"
 
-
   attr(:community, :integer, required: true)
 
   defp bgp_community_badge_small(assigns) do
@@ -1793,10 +1792,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
     display_text =
       case community_value do
-        0xFFFFFF01 -> "NO_EXPORT"
-        0xFFFFFF02 -> "NO_ADVERTISE"
-        0xFFFFFF03 -> "NO_EXPORT_SUBCONFED"
-        0xFFFFFF04 -> "NOPEER"
+        0xFFFFFF01 ->
+          "NO_EXPORT"
+
+        0xFFFFFF02 ->
+          "NO_ADVERTISE"
+
+        0xFFFFFF03 ->
+          "NO_EXPORT_SUBCONFED"
+
+        0xFFFFFF04 ->
+          "NOPEER"
+
         _ ->
           as_number = Bitwise.bsr(community_value, 16)
           value = Bitwise.band(community_value, 0xFFFF)
@@ -1843,9 +1850,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       <div class="text-[11px] text-base-content/60 mb-2">
         Filter flows by BGP routing information. Filters are automatically added to your SRQL query.
       </div>
-
-      <!-- Active BGP Filters Display -->
-      <div :if={@has_filters} class="flex items-center gap-2 flex-wrap p-2 bg-primary/5 rounded-md border border-primary/20">
+      
+    <!-- Active BGP Filters Display -->
+      <div
+        :if={@has_filters}
+        class="flex items-center gap-2 flex-wrap p-2 bg-primary/5 rounded-md border border-primary/20"
+      >
         <span class="text-xs text-base-content/60">Active BGP filters:</span>
         <div :if={@as_filter != ""} class="badge badge-primary badge-sm gap-1">
           <span>AS Path: {@as_filter}</span>
@@ -1872,8 +1882,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           </button>
         </div>
       </div>
-
-      <!-- AS Number Filter Input -->
+      
+    <!-- AS Number Filter Input -->
       <div>
         <label class="text-xs font-semibold text-base-content/70 mb-1 block">
           AS Number
@@ -1895,8 +1905,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           Filter flows where AS path contains this autonomous system number
         </div>
       </div>
-
-      <!-- BGP Community Filter Input -->
+      
+    <!-- BGP Community Filter Input -->
       <div>
         <label class="text-xs font-semibold text-base-content/70 mb-1 block">
           BGP Community
@@ -1918,8 +1928,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           </div>
         </form>
       </div>
-
-      <!-- Quick filters for well-known communities -->
+      
+    <!-- Quick filters for well-known communities -->
       <div>
         <label class="text-xs font-semibold text-base-content/70 mb-1 block">
           Well-Known Communities
@@ -1954,8 +1964,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           Quick add filters for RFC 1997 well-known communities
         </div>
       </div>
-
-      <!-- Clear all BGP filters -->
+      
+    <!-- Clear all BGP filters -->
       <div :if={@has_filters} class="pt-2">
         <button
           type="button"
@@ -1973,6 +1983,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp extract_filter_value(query, field) when is_binary(query) do
     # Match patterns like: field:[value] or field:value
     regex = ~r/#{field}:\[?([^\]\s]+)\]?/
+
     case Regex.run(regex, query) do
       [_, value] -> value
       _ -> ""
@@ -1986,15 +1997,23 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     case Integer.parse(value) do
       {community_int, ""} ->
         case community_int do
-          0xFFFFFF01 -> "NO_EXPORT (#{value})"
-          0xFFFFFF02 -> "NO_ADVERTISE (#{value})"
-          0xFFFFFF03 -> "NO_EXPORT_SUBCONFED (#{value})"
+          0xFFFFFF01 ->
+            "NO_EXPORT (#{value})"
+
+          0xFFFFFF02 ->
+            "NO_ADVERTISE (#{value})"
+
+          0xFFFFFF03 ->
+            "NO_EXPORT_SUBCONFED (#{value})"
+
           _ ->
             as_number = Bitwise.bsr(community_int, 16)
             val = Bitwise.band(community_int, 0xFFFF)
             "#{as_number}:#{val}"
         end
-      _ -> value
+
+      _ ->
+        value
     end
   end
 
@@ -2011,7 +2030,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       assigns
       |> assign(:as_path, as_path)
       |> assign(:bgp_communities, bgp_communities)
-      |> assign(:has_bgp_data, length(as_path) > 0 || length(bgp_communities) > 0)
+      |> assign(:has_bgp_data, not Enum.empty?(as_path) or not Enum.empty?(bgp_communities))
       |> assign(:as_path_collapsed, length(as_path) > 10)
 
     ~H"""
@@ -2025,8 +2044,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           <.as_path_display as_path={@as_path} />
         </div>
       </div>
-
-      <!-- BGP Communities Display -->
+      
+    <!-- BGP Communities Display -->
       <div :if={length(@bgp_communities) > 0}>
         <div class="text-xs font-semibold text-base-content/70 mb-1">BGP Communities</div>
         <div class="flex items-center gap-1 flex-wrap">
@@ -2418,8 +2437,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   </div>
                 </div>
               </div>
-
-              <!-- BGP Information Section -->
+              
+    <!-- BGP Information Section -->
               <div class="p-3 rounded-lg border border-base-200 bg-base-200/30 md:col-span-2">
                 <.bgp_section flow={@flow} />
               </div>
