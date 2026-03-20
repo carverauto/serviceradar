@@ -1,4 +1,27 @@
 export const godViewRenderingSelectionMethods = {
+  forceDeckRedraw() {
+    if (typeof this.state?.deck?.redraw === "function") {
+      this.state.deck.redraw(true)
+    }
+  },
+  scheduleSelectionRefresh() {
+    if (!this.state.lastGraph) return
+    const schedule =
+      typeof globalThis !== "undefined" && typeof globalThis.requestAnimationFrame === "function"
+        ? globalThis.requestAnimationFrame.bind(globalThis)
+        : null
+
+    if (schedule) {
+      schedule(() => {
+        if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
+        this.forceDeckRedraw()
+      })
+      return
+    }
+
+    this.renderGraph(this.state.lastGraph)
+    this.forceDeckRedraw()
+  },
   renderSelectionDetails(node) {
     if (!this.state.details) return
     if (!node) {
@@ -37,11 +60,24 @@ export const godViewRenderingSelectionMethods = {
       "Parent",
       nodeMap,
     )
+    const clusterId = typeof d.cluster_id === "string" ? d.cluster_id.trim() : ""
+    const clusterKind = typeof d.cluster_kind === "string" ? d.cluster_kind.trim() : ""
+    const clusterCount = Number(d.cluster_member_count || 0)
+    const clusterExpanded = d.cluster_expanded === true
+    const clusterExpandable = d.cluster_expandable === true
+    const clusterAction =
+      clusterId !== "" && clusterExpandable
+        ? `<div class="pt-2"><button type="button" class="btn btn-xs btn-primary" data-cluster-id="${this.escapeHtml(clusterId)}" data-cluster-expand="${clusterExpanded ? "false" : "true"}">${clusterExpanded ? "Collapse endpoints" : "Expand endpoints"}</button></div>`
+        : ""
     const detailLines = [
       `<div class="font-semibold text-sm mb-1 flex items-center justify-between gap-2"><span>${this.escapeHtml(node.label || "node")}</span><span class="inline-flex items-center justify-end min-w-4">${typeIcon ? `<span class="${this.escapeHtml(typeIcon)} size-4 text-base-content/70" title="${this.escapeHtml(typeLabel || "unknown")}"></span>` : ""}</span></div>`,
       `<div>ID: ${this.escapeHtml(d.id || node.id || "unknown")}</div>`,
       ipLine,
       `<div>Type: ${this.escapeHtml(d.type || "unknown")}</div>`,
+      clusterCount > 0 ? `<div>Cluster Size: ${this.escapeHtml(clusterCount)}</div>` : "",
+      clusterId !== "" && clusterKind !== "endpoint-anchor"
+        ? `<div>Cluster Anchor: ${this.escapeHtml(d.cluster_anchor_label || d.cluster_anchor_id || "unknown")}</div>`
+        : "",
       `<div>State: ${this.escapeHtml(this.stateDisplayName(node.state))}</div>`,
       `<div>Why: ${reason}</div>`,
       rootRef,
@@ -50,6 +86,7 @@ export const godViewRenderingSelectionMethods = {
       `<div>Last Seen: ${this.escapeHtml(d.last_seen || "unknown")}</div>`,
       `<div>ASN: ${this.escapeHtml(d.asn || "unknown")}</div>`,
       `<div>Geo: ${this.escapeHtml([d.geo_city, d.geo_country].filter(Boolean).join(", ") || "unknown")}</div>`,
+      clusterAction,
     ].filter(Boolean)
 
     const nextHtml = detailLines.join("")
@@ -143,30 +180,42 @@ export const godViewRenderingSelectionMethods = {
     const layerId = info?.layer?.id || ""
     if (this.edgeLayerId(layerId)) {
       const key = typeof info?.object?.interactionKey === "string" ? info.object.interactionKey : null
-      if (!key) return
-      this.state.selectedEdgeKey = this.state.selectedEdgeKey === key ? null : key
-      if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
+      if (key) {
+        this.state.selectedEdgeKey = this.state.selectedEdgeKey === key ? null : key
+        if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
+        this.forceDeckRedraw()
+        return
+      }
+
       return
     }
 
-    const picked = info?.object?.index
+    const clickedNode = info?.object || null
+    const picked =
+      Number.isInteger(clickedNode?.index)
+        ? clickedNode.index
+        : (Number.isInteger(info?.index) ? info.index : null)
     if (Number.isInteger(picked)) {
-      this.state.selectedNodeIndex = this.state.selectedNodeIndex === picked ? null : picked
-      if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
-      return
-    }
+      const node = clickedNode || this.state.lastGraph?.nodes?.[picked] || null
+      const clusterDetails = node?.details || {}
+      const clusterId = typeof clusterDetails?.cluster_id === "string" ? clusterDetails.cluster_id.trim() : ""
+      const clusterKind = typeof clusterDetails?.cluster_kind === "string" ? clusterDetails.cluster_kind.trim() : ""
+      const clusterExpandable = clusterDetails?.cluster_expandable === true
+      const clusterExpanded = clusterDetails?.cluster_expanded === true
+      const directExpandKinds = clusterKind === "endpoint-summary" || clusterKind === "endpoint-anchor"
 
-    if (info && info.picked === false) {
-      let changed = false
-      if (this.state.selectedNodeIndex !== null) {
+      if (clusterId !== "" && clusterExpandable && directExpandKinds && typeof this.deps?.setClusterExpanded === "function") {
         this.state.selectedNodeIndex = null
-        changed = true
-      }
-      if (this.state.selectedEdgeKey !== null) {
         this.state.selectedEdgeKey = null
-        changed = true
+        this.deps.setClusterExpanded(clusterId, !clusterExpanded)
+        if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
+        return
       }
-      if (changed && this.state.lastGraph) this.renderGraph(this.state.lastGraph)
+
+      this.state.selectedNodeIndex = this.state.selectedNodeIndex === picked ? null : picked
+
+      this.scheduleSelectionRefresh()
+      return
     }
   },
   selectEdgeLabels(edgeData, shape) {

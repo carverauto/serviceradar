@@ -48,4 +48,19 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     assert html =~ "Topology unavailable"
     assert html =~ "The topology stream failed."
   end
+
+  test "endpoint layer toggle only changes the endpoints control state", %{conn: conn} do
+    {:ok, view, html} = live(conn, ~p"/topology")
+
+    assert html =~ ~s(phx-value-layer="endpoints")
+    assert html =~ ~s(phx-value-layer="backbone")
+    assert html =~ ~s(btn btn-xs btn-primary h-7 min-h-7)
+
+    html = render_click(element(view, ~s(button[phx-value-layer="endpoints"])))
+
+    assert html =~ ~s(phx-value-layer="endpoints")
+    assert html =~ ~s(btn btn-xs btn-ghost h-7 min-h-7)
+    assert html =~ ~s(phx-value-layer="backbone")
+    assert html =~ ~s(btn btn-xs btn-primary h-7 min-h-7)
+  end
 end

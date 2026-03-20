@@ -37,6 +37,7 @@
  * @typedef {object} GodViewLifecycleApi
  * @property {(...args: any[]) => any} ensureDeck
  * @property {(...args: any[]) => any} decodeArrowGraph
+ * @property {(...args: any[]) => any} setClusterExpanded
  */
 
 /**
@@ -62,8 +63,9 @@ export const LAYOUT_DEP_KEYS = ["renderGraph", "stateDisplayName", "edgeTopology
  * @property {(...args: any[]) => any} reshapeGraph
  * @property {(...args: any[]) => any} geoGridData
  * @property {(...args: any[]) => any} ensureDeck
+ * @property {(...args: any[]) => any} setClusterExpanded
  */
-export const RENDERING_DEP_KEYS = ["resolveZoomTier", "setZoomTier", "reshapeGraph", "geoGridData", "ensureDeck"]
+export const RENDERING_DEP_KEYS = ["resolveZoomTier", "setZoomTier", "reshapeGraph", "geoGridData", "ensureDeck", "setClusterExpanded"]
 
 /**
  * @typedef {object} GodViewLifecycleDeps
@@ -126,6 +128,7 @@ export function buildRenderingDeps(context) {
     reshapeGraph: (...args) => context.layout.reshapeGraph(...args),
     geoGridData: (...args) => context.layout.geoGridData(...args),
     ensureDeck: (...args) => context.lifecycle.ensureDeck(...args),
+    setClusterExpanded: (...args) => context.lifecycle.setClusterExpanded(...args),
   }
 }
 

@@ -2509,8 +2509,9 @@ func buildSNMPL2LinksFromNeighbors(
 					"evidence_class":    "endpoint-attachment",
 					"confidence_tier":   "low",
 					"confidence_reason": "single_identifier_inference",
-					// Keep ARP-only observations for recursive target expansion
-					// but do not publish them as topology edges.
+					// Keep ARP-only observations marked for recursive target expansion.
+					// These are also published so downstream topology can surface
+					// low-confidence endpoint attachments behind switches/APs.
 					"candidate_only": "true",
 				},
 			})

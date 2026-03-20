@@ -778,11 +778,11 @@ mod tests {
 
         let positions = layout_nodes_layered(7, &edges, &weights);
 
-        // Weighted anchor should be in top layer.
-        assert!(positions[3].1 < positions[0].1);
-        // High-fanout neighbors should be pushed into lower layers, not same layer ring.
-        assert!(positions[0].1 < positions[1].1);
-        assert!(positions[0].1 < positions[2].1);
+        // Weighted anchor should be in the left-most layer.
+        assert!(positions[3].0 < positions[0].0);
+        // High-fanout neighbors should be pushed into later layers, not same-layer rings.
+        assert!(positions[0].0 < positions[1].0);
+        assert!(positions[0].0 < positions[2].0);
     }
 
     #[test]

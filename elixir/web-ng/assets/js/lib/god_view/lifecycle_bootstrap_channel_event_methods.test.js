@@ -15,6 +15,31 @@ function makeJoin() {
 }
 
 describe("lifecycle_bootstrap_channel_event_methods", () => {
+  it("setClusterExpanded pushes the explicit cluster expansion event", () => {
+    const channel = {push: vi.fn()}
+    const state = {channel}
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapChannelEventMethods))
+
+    ctx.setClusterExpanded("cluster:endpoints:sr:test", true)
+
+    expect(channel.push).toHaveBeenCalledWith("cluster:set_expanded", {
+      cluster_id: "cluster:endpoints:sr:test",
+      expanded: true,
+    })
+  })
+
+  it("collapseAllClusters pushes the cluster collapse event", () => {
+    const channel = {push: vi.fn()}
+    const state = {channel}
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapChannelEventMethods))
+
+    ctx.collapseAllClusters()
+
+    expect(channel.push).toHaveBeenCalledWith("cluster:collapse_all", {})
+  })
+
   it("does not start polling on successful channel join", () => {
     const {handlers, chain} = makeJoin()
     const channel = {join: vi.fn(() => chain)}

@@ -15,7 +15,7 @@ var errNoCDP = errors.New("no cdp")
 
 const testStringTrue = "true"
 
-func TestPublishTopologyLinksSkipsCandidateOnlyPublishing(t *testing.T) {
+func TestPublishTopologyLinksPublishesCandidateOnlyAttachments(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -51,11 +51,15 @@ func TestPublishTopologyLinksSkipsCandidateOnlyPublishing(t *testing.T) {
 
 	engine.publishTopologyLinks(job, links, "192.168.10.1", "SNMP-L2")
 
-	// candidate_only link remains in in-memory results (for recursive targeting)
-	// but only non-candidate links are published downstream.
+	// candidate_only link remains marked for recursive targeting and is also
+	// published downstream so topology can surface endpoint attachments.
 	require.Len(t, job.Results.TopologyLinks, 2)
-	require.Len(t, publisher.topologyLinks, 1)
-	assert.Equal(t, "192.168.10.1", publisher.topologyLinks[0].NeighborMgmtAddr)
+	require.Len(t, publisher.topologyLinks, 2)
+	publishedNeighbors := []string{
+		publisher.topologyLinks[0].NeighborMgmtAddr,
+		publisher.topologyLinks[1].NeighborMgmtAddr,
+	}
+	assert.ElementsMatch(t, []string{"192.168.10.1", "192.168.10.154"}, publishedNeighbors)
 }
 
 func TestPublishTopologyEvidencePublishesSNMPL2EvenWhenLLDPPresent(t *testing.T) {

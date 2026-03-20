@@ -2,6 +2,25 @@ import {Deck, OrthographicView} from "@deck.gl/core"
 import {detectThemeMode, visualForTheme, hudStyleForTheme} from "./lifecycle_bootstrap_state_defaults_methods"
 
 export const godViewLifecycleDomSetupMethods = {
+  redrawDeckAfterClick() {
+    const schedule =
+      typeof globalThis !== "undefined" && typeof globalThis.requestAnimationFrame === "function"
+        ? globalThis.requestAnimationFrame.bind(globalThis)
+        : null
+
+    if (schedule) {
+      schedule(() => {
+        if (typeof this.state?.deck?.redraw === "function") {
+          this.state.deck.redraw(true)
+        }
+      })
+      return
+    }
+
+    if (typeof this.state?.deck?.redraw === "function") {
+      this.state.deck.redraw(true)
+    }
+  },
   sanitizeNavigationHref(rawHref) {
     if (typeof rawHref !== "string") return null
     const href = rawHref.trim()
@@ -34,6 +53,18 @@ export const godViewLifecycleDomSetupMethods = {
         event.preventDefault()
         event.stopPropagation?.()
         this.navigateToHref(href)
+      }
+      return
+    }
+
+    const clusterAction = event.target?.closest?.("[data-cluster-id]")
+    if (clusterAction) {
+      const clusterId = clusterAction.getAttribute("data-cluster-id")
+      const nextExpanded = clusterAction.getAttribute("data-cluster-expand") === "true"
+      if (clusterId) {
+        event.preventDefault()
+        event.stopPropagation?.()
+        this.setClusterExpanded(clusterId, nextExpanded)
       }
       return
     }
@@ -165,7 +196,10 @@ export const godViewLifecycleDomSetupMethods = {
       },
       getTooltip: (...args) => this.deps.getNodeTooltip(...args),
       onHover: (...args) => this.deps.handleHover(...args),
-      onClick: (...args) => this.deps.handlePick(...args),
+      onClick: (...args) => {
+        this.deps.handlePick(...args)
+        this.redrawDeckAfterClick()
+      },
       onViewStateChange: ({viewState}) => {
         this.state.viewState = viewState
         if (!this.state.isProgrammaticViewUpdate) this.state.userCameraLocked = true

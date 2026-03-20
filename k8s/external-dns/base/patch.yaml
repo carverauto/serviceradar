@@ -7,10 +7,13 @@ spec:
         - --source=service
         - --source=ingress
         - --domain-filter=carverauto.dev
+        - --domain-filter=serviceradar.cloud
+        - --domain-filter=guided.dev
+        - --domain-filter=slowburnin.net
         - --provider=cloudflare
         - --cloudflare-dns-records-per-page=5000
-        - --log-level=trace
-        - --policy=sync
+        - --log-level=info
+        - --policy=upsert-only
         - --request-timeout=30s
         - --min-event-sync-interval=5s
         - --events

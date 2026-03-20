@@ -47,6 +47,7 @@ const TOPOLOGY_VISUAL_PROFILES = {
 
 function normalizeTopologyClass(value) {
   const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "endpoint") return "endpoints"
   if (
     normalized === "inferred" ||
     normalized === "endpoints" ||

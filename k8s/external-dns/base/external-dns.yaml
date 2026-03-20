@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: external-dns
-  namespace: default
+  namespace: external-dns-carverauto
 spec:
   strategy:
     type: Recreate
@@ -21,7 +21,10 @@ spec:
           args:
             - --source=service
             - --source=ingress
-            - --domain-filter=
+            - --domain-filter=carverauto.dev
+            - --domain-filter=serviceradar.cloud
+            - --domain-filter=guided.dev
+            - --domain-filter=slowburnin.net
             - --provider=cloudflare
             - --cloudflare-dns-records-per-page=5000 # (optional) configure how many DNS records to fetch per request
             - --log-level=debug
@@ -29,7 +32,7 @@ spec:
             - --txt-owner-id=external-dns-1
             - --managed-record-types=A
             - --managed-record-types=AAAA
-            - --policy=sync
+            - --policy=upsert-only
             - --request-timeout=30s
             - --min-event-sync-interval=5s
             - --events
@@ -41,16 +44,11 @@ spec:
               cpu: 50m
               memory: 64Mi
           env:
-            - name: CF_API_KEY
+            - name: CF_API_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: cloudflare-api-secret
-                  key: CF_API_KEY
-            - name: CF_API_EMAIL
-              valueFrom:
-                secretKeyRef:
-                  name: cloudflare-api-secret
-                  key: CF_API_EMAIL
+                  name: cloudflare-api-token
+                  key: api-token
           livenessProbe:
             httpGet:
               path: /healthz
