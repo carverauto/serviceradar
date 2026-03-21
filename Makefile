@@ -183,6 +183,10 @@ tidy: ## Tidy and format Go code
 	@cd rust/otel && $(RUSTFMT) src/*.rs
 	@cd rust/flowgger && $(RUSTFMT) src/*.rs src/flowgger/*.rs
 
+.PHONY: update-rust-deps
+update-rust-deps: ## Repin Bazel-managed Rust dependencies (use REPIN=<mode>, VERIFY_TARGET=<label>)
+	@./scripts/update-rust-bazel-deps.sh "$(if $(REPIN),$(REPIN),workspace)" "$(if $(VERIFY_TARGET),$(VERIFY_TARGET),//rust/srql:srql_lib)"
+
 .PHONY: get-golangcilint
 get-golangcilint: ## Install golangci-lint
 	@echo "$(COLOR_BOLD)Checking golangci-lint $(GOLANGCI_LINT_VERSION)$(COLOR_RESET)"
