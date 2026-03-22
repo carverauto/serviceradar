@@ -15,11 +15,13 @@ spec:
         app.kubernetes.io/part-of: serviceradar
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       {{- if .Values.faker.gobgp.enabled }}
       initContainers:
       - name: gobgp-binaries
         image: {{ .Values.faker.gobgp.image.repository }}:{{ .Values.faker.gobgp.image.tag }}
         imagePullPolicy: {{ .Values.faker.gobgp.image.pullPolicy | default "IfNotPresent" }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         command:
         - /bin/sh
         - -ec
@@ -35,6 +37,7 @@ spec:
       - name: faker
         image: ghcr.io/carverauto/serviceradar-faker:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "faker") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:
         - containerPort: 8080
           name: http

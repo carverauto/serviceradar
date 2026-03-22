@@ -27,7 +27,22 @@ defmodule ServiceRadar.Repo.Migrations.AddMapperTopologyLinks do
       add :created_at, :utc_datetime
     end
 
-    execute("LOAD 'age'")
+    execute("""
+    DO $$
+    BEGIN
+      BEGIN
+        EXECUTE 'LOAD ''age''';
+      EXCEPTION
+        WHEN insufficient_privilege THEN
+          IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'age') THEN
+            RAISE NOTICE 'Skipping LOAD ''age'' due to insufficient privilege; AGE extension already exists.';
+          ELSE
+            RAISE;
+          END IF;
+      END;
+    END
+    $$;
+    """)
 
     execute("""
     DO $$

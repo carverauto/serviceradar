@@ -10,6 +10,7 @@ describe("rendering_style_edge_topology_methods", () => {
     Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
     expect(methods.edgeTopologyClass({topologyClass: "inferred", label: "BACKBONE"})).toEqual("inferred")
+    expect(methods.edgeTopologyClass({topologyClass: "endpoint"})).toEqual("endpoints")
     expect(methods.edgeTopologyClass({topologyClass: "", label: "LINK ENDPOINT attachment"})).toEqual("unknown")
   })
 

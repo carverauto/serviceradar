@@ -74,11 +74,13 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ $webNgSA }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       {{- if $migrationsEnabled }}
       initContainers:
       - name: wait-migrations
         image: ghcr.io/carverauto/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
         imagePullPolicy: IfNotPresent
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         command: ["/bin/sh", "-c"]
         env:
         - name: CNPG_HOST
@@ -142,6 +144,7 @@ spec:
       - name: web-ng
         image: ghcr.io/carverauto/serviceradar-web-ng:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "webNg") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:
         - containerPort: 4000
           name: http

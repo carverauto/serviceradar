@@ -764,25 +764,26 @@ http_file(
 
 http_file(
     name = "debian_gcc_15_base_amd64_deb",
-    sha256 = "1d4a6d765ae2a64dcdb0d29f042e25d95de97cebec020a6613c778a31a16f11f",
+    # Keep the injected runtime libs aligned with Debian 12 / bookworm.
+    sha256 = "1896a2aacf4ad681ff5eacc24a5b0ca4d5d9c9b9c9e4b6de5197bc1e116ea619",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/gcc-15/gcc-15-base_15.2.0-14_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/g/gcc-12/gcc-12-base_12.2.0-14+deb12u1_amd64.deb",
     ],
 )
 
 http_file(
     name = "debian_libgcc_s1_amd64_deb",
-    sha256 = "db267c9ada5bac62cdc9266a3d3a07013b7f45d77d690adf94dd9643dd3b47b8",
+    sha256 = "3016e62cb4b7cd8038822870601f5ed131befe942774d0f745622cc77d8a88f7",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/gcc-15/libgcc-s1_15.2.0-14_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/g/gcc-12/libgcc-s1_12.2.0-14+deb12u1_amd64.deb",
     ],
 )
 
 http_file(
     name = "debian_libc6_amd64_deb",
-    sha256 = "860e1311cab59aee4b5706b474a3b17cfd3fb6c55d02cf4e2887a0ef4b9435a9",
+    sha256 = "3d8072c73b017e907bbf44b7db870687888a991961d74f1ecbba6b9458f32a2c",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/glibc/libc6_2.42-13_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/g/glibc/libc6_2.36-9+deb12u13_amd64.deb",
     ],
 )
 

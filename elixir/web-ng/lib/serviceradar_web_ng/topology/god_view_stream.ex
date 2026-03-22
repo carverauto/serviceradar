@@ -32,30 +32,40 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @default_parity_alert_delta 0
   @default_unresolved_directional_ratio_alert 0.6
   @god_view_evidence_classes ["direct", "inferred", "endpoint-attachment"]
+  @endpoint_cluster_min_members 4
+  @endpoint_cluster_summary_gap_x 132.0
+  @endpoint_cluster_summary_gap_y 54.0
+  @endpoint_cluster_expanded_gap_x 196.0
+  @endpoint_cluster_expanded_gap_y 72.0
+  @proximity_collision_iterations 8
+  @proximity_collision_min_distance 34.0
   @drop_counter_key {__MODULE__, :dropped_updates}
   @layout_cache_key {__MODULE__, :layout_cache}
   @snapshot_cache_key {__MODULE__, :snapshot_cache}
 
-  @spec latest_snapshot() ::
+  @spec latest_snapshot(map()) ::
           {:ok, %{snapshot: GodViewSnapshot.snapshot(), payload: binary()}} | {:error, term()}
-  def latest_snapshot do
-    coalesce_ms = snapshot_coalesce_ms()
+  def latest_snapshot(opts \\ %{}) do
+    snapshot_opts = normalize_snapshot_options(opts)
+
+    coalesce_ms =
+      if default_snapshot_options?(snapshot_opts), do: snapshot_coalesce_ms(), else: 0
 
     case coalesced_snapshot(coalesce_ms) do
       {:ok, result} ->
         {:ok, result}
 
       :miss ->
-        build_latest_snapshot()
+        build_latest_snapshot(snapshot_opts)
     end
   end
 
-  defp build_latest_snapshot do
+  defp build_latest_snapshot(snapshot_opts) do
     started_at = System.monotonic_time()
     actor = SystemActor.system(:god_view_stream)
     budget_ms = real_time_budget_ms()
 
-    with {:ok, projection} <- build_projection(actor),
+    with {:ok, projection} <- build_projection(actor, snapshot_opts),
          revision = snapshot_revision(projection.topology_revision, projection.causal_revision),
          snapshot = %{
            schema_version: GodViewSnapshot.schema_version(),
@@ -157,14 +167,22 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
      })}
   end
 
-  defp build_projection(actor) do
+  defp build_projection(actor, snapshot_opts) do
     with {:ok, links} <- fetch_topology_links(actor),
          {:ok, nodes, edges, pipeline_stats} <- build_nodes_and_edges(actor, links),
-         {:ok, indexed_edges} <- index_edges(nodes, edges) do
+         {:ok, layout_indexed_edges} <- index_edges(nodes, layout_transport_edges(edges)),
+         {:ok, causal_indexed_edges} <- index_edges(nodes, causal_transport_edges(edges)) do
+      layout_revision = topology_revision(nodes, layout_indexed_edges)
+      nodes = apply_native_layout_with_indexed_edges(nodes, layout_indexed_edges, layout_revision)
+      nodes = resolve_coordinate_collisions(nodes)
+      nodes = resolve_proximity_collisions(nodes)
+      nodes = apply_causal_states(nodes, causal_indexed_edges)
+      {nodes, edges, pipeline_stats} = apply_endpoint_cluster_projection(nodes, edges, pipeline_stats, snapshot_opts)
+      edges = retain_renderable_edges(nodes, edges)
+      {:ok, indexed_edges} = index_edges(nodes, edges)
+      pipeline_stats = rendered_pipeline_stats(pipeline_stats, nodes, edges)
       emit_pipeline_stats(pipeline_stats)
       topology_revision = topology_revision(nodes, indexed_edges)
-      nodes = apply_native_layout_with_indexed_edges(nodes, indexed_edges, topology_revision)
-      nodes = apply_causal_states(nodes, indexed_edges)
       causal_revision = causal_revision(nodes)
       {causal_bitmaps, bitmap_metadata} = build_bitmaps(nodes)
 
@@ -180,6 +198,21 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
        }}
     end
   end
+
+  defp retain_renderable_edges(nodes, edges) when is_list(nodes) and is_list(edges) do
+    node_ids = MapSet.new(Enum.map(nodes, &Map.get(&1, :id)))
+
+    Enum.filter(edges, fn
+      %{source: source, target: target} when is_binary(source) and is_binary(target) ->
+        MapSet.member?(node_ids, source) and MapSet.member?(node_ids, target)
+
+      _ ->
+        false
+    end)
+  end
+
+  defp retain_renderable_edges(_nodes, edges) when is_list(edges), do: edges
+  defp retain_renderable_edges(_nodes, _edges), do: []
 
   defp fetch_topology_links(_actor) do
     RuntimeGraph.get_links()
@@ -241,19 +274,20 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp build_nodes_and_edges(actor, raw_links) do
-    canonical_edges =
+    raw_edges =
       raw_links
       |> Enum.map(&runtime_link_to_edge/1)
       |> Enum.reject(&is_nil/1)
 
-    edge_node_ids = canonical_edges |> Enum.flat_map(&[&1.source, &1.target]) |> Enum.uniq()
+    raw_edge_node_ids = raw_edges |> Enum.flat_map(&[&1.source, &1.target]) |> Enum.uniq()
 
-    with {:ok, devices} <- fetch_devices(actor, edge_node_ids) do
+    with {:ok, devices} <- fetch_devices(actor, raw_edge_node_ids) do
       device_by_id = Map.new(devices, &{&1.uid, &1})
-      node_pps_by_id = node_pps_by_id(canonical_edges)
+      edges = collapse_endpoint_attachments(raw_edges, device_by_id)
+      edge_node_ids = edges |> Enum.flat_map(&[&1.source, &1.target]) |> Enum.uniq()
+      node_pps_by_id = node_pps_by_id(edges)
       node_ids = node_ids(edge_node_ids, devices)
       nodes = build_nodes(node_ids, device_by_id, node_pps_by_id)
-      edges = canonical_edges
 
       edge_contract_stats = edge_contract_stats(edges)
 
@@ -261,7 +295,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         Enum.count(edge_node_ids, fn id -> not Map.has_key?(device_by_id, id) end)
 
       pipeline_stats =
-        raw_links
+        raw_edges
         |> pipeline_stats(edges, edges, nodes, unresolved_endpoints)
         |> Map.merge(edge_contract_stats)
         |> Map.merge(component_stats(nodes, edges))
@@ -295,6 +329,315 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp pipeline_stats(_raw_links, _pair_links, _final_edges, _final_nodes, _unresolved_endpoints), do: %{}
+
+  defp collapse_endpoint_attachments(edges, device_by_id) when is_list(edges) and is_map(device_by_id) do
+    {attachment_edges, other_edges} = Enum.split_with(edges, &endpoint_attachment_edge?/1)
+    incident_profiles = attachment_incident_profiles(edges, device_by_id)
+
+    collapsed =
+      attachment_edges
+      |> Enum.group_by(&attachment_group_key(&1, device_by_id))
+      |> Enum.flat_map(fn
+        {nil, grouped_edges} ->
+          grouped_edges
+
+        {group_key, grouped_edges} ->
+          if ambiguous_low_confidence_attachment_group?(group_key, grouped_edges, device_by_id) do
+            []
+          else
+            [Enum.max_by(grouped_edges, &attachment_edge_rank(&1, device_by_id, incident_profiles))]
+          end
+      end)
+      |> drop_endpoint_identity_bridges(device_by_id)
+
+    other_edges ++ collapsed
+  end
+
+  defp collapse_endpoint_attachments(edges, _device_by_id) when is_list(edges), do: edges
+  defp collapse_endpoint_attachments(_edges, _device_by_id), do: []
+
+  defp attachment_group_key(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    cond do
+      ip = attachment_identity_ip(edge, device_by_id) -> "ip:" <> ip
+      mac = attachment_identity_mac(edge, device_by_id) -> "mac:" <> mac
+      true -> attachment_endpoint_id(edge, device_by_id)
+    end
+  end
+
+  defp attachment_group_key(_edge, _device_by_id), do: nil
+
+  defp attachment_endpoint_id(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    source = normalize_id(Map.get(edge, :source))
+    target = normalize_id(Map.get(edge, :target))
+    source_device = Map.get(device_by_id, source)
+    target_device = Map.get(device_by_id, target)
+    source_endpoint? = endpoint_like_device?(source_device)
+    target_endpoint? = endpoint_like_device?(target_device)
+
+    cond do
+      source_endpoint? and not target_endpoint? -> source
+      target_endpoint? and not source_endpoint? -> target
+      true -> target || source
+    end
+  end
+
+  defp attachment_endpoint_id(_edge, _device_by_id), do: nil
+
+  defp attachment_identity_ip(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    edge
+    |> attachment_endpoint_sides(device_by_id)
+    |> Enum.flat_map(fn {side, endpoint_id, device} ->
+      [node_ip(device, endpoint_id), attachment_side_ip(edge, side, endpoint_id)]
+    end)
+    |> Enum.map(&normalize_ipv4/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort()
+    |> List.first()
+  end
+
+  defp attachment_identity_ip(_edge, _device_by_id), do: nil
+
+  defp attachment_identity_mac(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    edge
+    |> attachment_endpoint_sides(device_by_id)
+    |> Enum.flat_map(fn {side, endpoint_id, device} ->
+      [
+        endpoint_id,
+        node_meta_value(device, ["mac", "mac_address", "endpoint_mac", "primary_mac"]),
+        attachment_side_mac(edge, side)
+      ]
+    end)
+    |> Enum.map(&normalize_mac/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort()
+    |> List.first()
+  end
+
+  defp attachment_identity_mac(_edge, _device_by_id), do: nil
+
+  defp attachment_endpoint_sides(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    source = normalize_id(Map.get(edge, :source))
+    target = normalize_id(Map.get(edge, :target))
+    source_device = Map.get(device_by_id, source)
+    target_device = Map.get(device_by_id, target)
+    source_endpoint? = endpoint_like_device?(source_device)
+    target_endpoint? = endpoint_like_device?(target_device)
+
+    []
+    |> maybe_add_endpoint_side(source_endpoint?, {:source, source, source_device})
+    |> maybe_add_endpoint_side(target_endpoint?, {:target, target, target_device})
+  end
+
+  defp attachment_endpoint_sides(_edge, _device_by_id), do: []
+
+  defp maybe_add_endpoint_side(sides, true, {_side, endpoint_id, _device} = endpoint_side)
+       when is_list(sides) and is_binary(endpoint_id) do
+    [endpoint_side | sides]
+  end
+
+  defp maybe_add_endpoint_side(sides, _include?, _endpoint_side) when is_list(sides), do: sides
+
+  defp attachment_side_ip(edge, :source, _endpoint_id), do: normalize_ipv4(Map.get(edge, :local_device_ip))
+  defp attachment_side_ip(edge, :target, _endpoint_id), do: normalize_ipv4(Map.get(edge, :neighbor_mgmt_addr))
+  defp attachment_side_ip(_edge, _side, _endpoint_id), do: nil
+
+  defp attachment_side_mac(edge, :source) do
+    normalize_mac(Map.get(edge, :local_if_name)) ||
+      normalize_mac(Map.get(edge, :local_if_name_ab)) ||
+      normalize_mac(Map.get(edge, :local_if_name_ba))
+  end
+
+  defp attachment_side_mac(edge, :target) do
+    normalize_mac(Map.get(edge, :neighbor_if_name)) ||
+      normalize_mac(Map.get(edge, :local_if_name_ba)) ||
+      normalize_mac(Map.get(edge, :local_if_name_ab))
+  end
+
+  defp attachment_side_mac(_edge, _side), do: nil
+
+  defp attachment_incident_profiles(edges, device_by_id) when is_list(edges) and is_map(device_by_id) do
+    Enum.reduce(edges, %{}, fn edge, acc ->
+      attachment_edge? = endpoint_attachment_edge?(edge)
+      update_attachment_incident_profile(acc, edge, attachment_edge?)
+    end)
+  end
+
+  defp attachment_incident_profiles(_edges, _device_by_id), do: %{}
+
+  defp update_attachment_incident_profile(acc, edge, attachment_edge?) when is_map(acc) and is_map(edge) do
+    edge
+    |> edge_node_ids()
+    |> Enum.reduce(acc, &put_attachment_incident_profile(&2, &1, attachment_edge?))
+  end
+
+  defp update_attachment_incident_profile(acc, _edge, _attachment_edge?) when is_map(acc), do: acc
+
+  defp put_attachment_incident_profile(acc, node_id, attachment_edge?)
+       when is_map(acc) and is_binary(node_id) and is_boolean(attachment_edge?) do
+    attachment_delta = if(attachment_edge?, do: 1, else: 0)
+    non_attachment_delta = if(attachment_edge?, do: 0, else: 1)
+
+    Map.update(
+      acc,
+      node_id,
+      %{attachment_count: attachment_delta, non_attachment_count: non_attachment_delta},
+      fn profile ->
+        %{
+          attachment_count: profile.attachment_count + attachment_delta,
+          non_attachment_count: profile.non_attachment_count + non_attachment_delta
+        }
+      end
+    )
+  end
+
+  defp put_attachment_incident_profile(acc, _node_id, _attachment_edge?) when is_map(acc), do: acc
+
+  defp drop_endpoint_identity_bridges(edges, device_by_id) when is_list(edges) and is_map(device_by_id) do
+    Enum.reject(edges, &endpoint_identity_bridge_edge?(&1, device_by_id))
+  end
+
+  defp drop_endpoint_identity_bridges(edges, _device_by_id) when is_list(edges), do: edges
+  defp drop_endpoint_identity_bridges(_edges, _device_by_id), do: []
+
+  defp endpoint_identity_bridge_edge?(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    source = normalize_id(Map.get(edge, :source))
+    target = normalize_id(Map.get(edge, :target))
+    source_device = Map.get(device_by_id, source)
+    target_device = Map.get(device_by_id, target)
+
+    endpoint_attachment_edge?(edge) and
+      endpoint_like_device?(source_device) and
+      endpoint_like_device?(target_device) and
+      ((resolved_endpoint_identity?(source, source_device) and anonymous_unresolved_node?(target, target_device)) or
+         (resolved_endpoint_identity?(target, target_device) and anonymous_unresolved_node?(source, source_device)))
+  end
+
+  defp endpoint_identity_bridge_edge?(_edge, _device_by_id), do: false
+
+  defp ambiguous_low_confidence_attachment_group?(group_key, grouped_edges, device_by_id)
+       when is_binary(group_key) and is_list(grouped_edges) and is_map(device_by_id) do
+    if resolved_attachment_group_key?(group_key) do
+      false
+    else
+      distinct_viable_anchors =
+        grouped_edges
+        |> Enum.map(fn edge ->
+          anchor_id = attachment_anchor_id(edge, device_by_id)
+          {anchor_id, Map.get(device_by_id, anchor_id)}
+        end)
+        |> Enum.reject(fn
+          {anchor_id, anchor_device} when is_binary(anchor_id) ->
+            anonymous_unresolved_node?(anchor_id, anchor_device)
+
+          _ ->
+            true
+        end)
+        |> Enum.uniq_by(&elem(&1, 0))
+
+      length(distinct_viable_anchors) > 1 and
+        Enum.all?(grouped_edges, fn edge ->
+          attachment_confidence_rank(Map.get(edge, :confidence_tier)) <= 1 and
+            normalize_id(Map.get(edge, :confidence_reason)) == "single_identifier_inference"
+        end)
+    end
+  end
+
+  defp ambiguous_low_confidence_attachment_group?(nil, grouped_edges, device_by_id)
+       when is_list(grouped_edges) and is_map(device_by_id) do
+    distinct_viable_anchors =
+      grouped_edges
+      |> Enum.map(fn edge ->
+        anchor_id = attachment_anchor_id(edge, device_by_id)
+        {anchor_id, Map.get(device_by_id, anchor_id)}
+      end)
+      |> Enum.reject(fn
+        {anchor_id, anchor_device} when is_binary(anchor_id) ->
+          anonymous_unresolved_node?(anchor_id, anchor_device)
+
+        _ ->
+          true
+      end)
+      |> Enum.uniq_by(&elem(&1, 0))
+
+    length(distinct_viable_anchors) > 1 and
+      Enum.all?(grouped_edges, fn edge ->
+        attachment_confidence_rank(Map.get(edge, :confidence_tier)) <= 1 and
+          normalize_id(Map.get(edge, :confidence_reason)) == "single_identifier_inference"
+      end)
+  end
+
+  defp ambiguous_low_confidence_attachment_group?(_group_key, _grouped_edges, _device_by_id), do: false
+
+  defp resolved_attachment_group_key?("ip:" <> ip), do: normalize_ipv4(ip) != nil
+  defp resolved_attachment_group_key?("mac:" <> mac), do: normalize_mac(mac) != nil
+  defp resolved_attachment_group_key?(_group_key), do: false
+
+  defp attachment_anchor_id(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    source = normalize_id(Map.get(edge, :source))
+    target = normalize_id(Map.get(edge, :target))
+    endpoint_id = attachment_endpoint_id(edge, device_by_id)
+
+    cond do
+      endpoint_id == source -> target
+      endpoint_id == target -> source
+      true -> nil
+    end
+  end
+
+  defp attachment_anchor_id(_edge, _device_by_id), do: nil
+
+  defp attachment_edge_rank(edge, device_by_id, incident_profiles)
+       when is_map(edge) and is_map(device_by_id) and is_map(incident_profiles) do
+    source = normalize_id(Map.get(edge, :source))
+    target = normalize_id(Map.get(edge, :target))
+    endpoint_id = attachment_endpoint_id(edge, device_by_id)
+    anchor_id = if endpoint_id == source, do: target, else: source
+    anchor_device = Map.get(device_by_id, anchor_id)
+    anchor_profile = Map.get(incident_profiles, anchor_id, %{attachment_count: 0, non_attachment_count: 0})
+    confidence_rank = attachment_confidence_rank(Map.get(edge, :confidence_tier))
+    flow_pps = normalize_u32(Map.get(edge, :flow_pps, 0))
+    telemetry_rank = if Map.get(edge, :telemetry_source) == "interface", do: 1, else: 0
+    attachment_rank = if attachment_endpoint_id(edge, device_by_id), do: 1, else: 0
+
+    {
+      attachment_anchor_rank(anchor_id, anchor_device, anchor_profile),
+      if(infrastructure_device?(anchor_device), do: 1, else: 0),
+      if(topology_sighting_device?(anchor_device), do: 0, else: 1),
+      confidence_rank,
+      telemetry_rank,
+      flow_pps,
+      attachment_rank,
+      to_string(anchor_id || "")
+    }
+  end
+
+  defp attachment_edge_rank(_edge, _device_by_id, _incident_profiles), do: {0, 0, 0, 0, 0, 0, 0, ""}
+
+  defp attachment_anchor_rank(anchor_id, anchor_device, %{attachment_count: attachment_count})
+       when is_integer(attachment_count) do
+    cond do
+      access_attachment_anchor?(anchor_device) -> 4
+      infrastructure_device?(anchor_device) -> 3
+      attachment_count >= 4 and not anonymous_unresolved_node?(anchor_id, anchor_device) -> 2
+      anonymous_unresolved_node?(anchor_id, anchor_device) -> 0
+      attachment_count >= 2 -> 1
+      true -> 0
+    end
+  end
+
+  defp attachment_anchor_rank(anchor_id, anchor_device, _profile) do
+    cond do
+      access_attachment_anchor?(anchor_device) -> 3
+      infrastructure_device?(anchor_device) -> 2
+      anonymous_unresolved_node?(anchor_id, anchor_device) -> 0
+      true -> 0
+    end
+  end
+
+  defp attachment_confidence_rank("high"), do: 3
+  defp attachment_confidence_rank("medium"), do: 2
+  defp attachment_confidence_rank("low"), do: 1
+  defp attachment_confidence_rank(_), do: 0
 
   defp component_stats(nodes, edges) when is_list(nodes) and is_list(edges) do
     node_ids =
@@ -557,6 +900,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp apply_native_layout_with_indexed_edges(nodes, _, _), do: nodes
 
+  defp layout_transport_edges(edges) when is_list(edges), do: edges
+
+  defp layout_transport_edges(_), do: []
+
+  defp causal_transport_edges(edges) when is_list(edges) do
+    Enum.reject(edges, &endpoint_attachment_edge?/1)
+  end
+
+  defp causal_transport_edges(_), do: []
+
   defp apply_layout_from_cache_or_native(nodes, indexed_edges, topology_revision) do
     case layout_coordinates_cache(topology_revision) do
       {:ok, coords_by_id} ->
@@ -642,11 +995,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp index_edges(_nodes, _edges), do: {:error, :invalid_nodes}
 
-  defp node_label(nil, id), do: id
+  defp node_label(nil, id), do: ip_like_id(id) || id
 
   defp node_label(device, id) do
     Map.get(device, :name) ||
       Map.get(device, :hostname) ||
+      node_ip(device, id) ||
       id
   end
 
@@ -674,7 +1028,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       geo_country: node_meta_value(device, ["country", "geo_country", "geoip_country"]),
       geo_city: node_meta_value(device, ["city", "geo_city", "geoip_city"]),
       geo_lat: node_geo_lat(device),
-      geo_lon: node_geo_lon(device)
+      geo_lon: node_geo_lon(device),
+      identity_source: node_meta_value(device, ["identity_source"])
     }
 
     case Jason.encode(details) do
@@ -711,6 +1066,24 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp ip_like_id(_), do: nil
 
+  defp normalize_ipv4(value) do
+    value
+    |> normalize_id()
+    |> ip_like_id()
+  end
+
+  defp normalize_mac(value) when is_binary(value) do
+    normalized =
+      value
+      |> String.trim()
+      |> String.downcase()
+      |> String.replace("-", ":")
+
+    if String.match?(normalized, ~r/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/), do: normalized
+  end
+
+  defp normalize_mac(_), do: nil
+
   defp node_type(nil), do: nil
 
   defp node_type(device) do
@@ -722,6 +1095,65 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       metadata_value(metadata, "category") ||
       type_name_from_id(Map.get(device, :type_id))
   end
+
+  defp topology_sighting_device?(%{metadata: metadata}) when is_map(metadata) do
+    normalize_id(metadata_value(metadata, "identity_source")) == "mapper_topology_sighting"
+  end
+
+  defp topology_sighting_device?(_), do: false
+
+  defp normalized_node_type(device) do
+    device
+    |> node_type()
+    |> normalize_id()
+    |> case do
+      nil -> nil
+      type -> String.downcase(type)
+    end
+  end
+
+  defp infrastructure_device?(device) do
+    case normalized_node_type(device) do
+      type when type in ["router", "switch", "hub", "firewall", "load_balancer", "access point", "ap", "ids", "ips"] ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  defp access_attachment_anchor?(device) do
+    case normalized_node_type(device) do
+      type when type in ["switch", "hub", "access point", "ap"] -> true
+      _ -> false
+    end
+  end
+
+  defp endpoint_like_device?(device) do
+    topology_sighting_device?(device) or not infrastructure_device?(device)
+  end
+
+  defp anonymous_unresolved_node?(id, nil) when is_binary(id), do: String.starts_with?(id, "sr:")
+
+  defp anonymous_unresolved_node?(id, device) when is_binary(id) and is_map(device) do
+    String.starts_with?(id, "sr:") and is_nil(node_ip(device, id)) and
+      blank_node_identity?(Map.get(device, :name)) and
+      blank_node_identity?(Map.get(device, :hostname))
+  end
+
+  defp anonymous_unresolved_node?(_id, _device), do: false
+
+  defp resolved_endpoint_identity?(id, device) when is_binary(id) do
+    not is_nil(normalize_ipv4(node_ip(device, id))) or
+      not is_nil(normalize_mac(id)) or
+      not is_nil(normalize_mac(node_meta_value(device, ["mac", "mac_address", "endpoint_mac", "primary_mac"])))
+  end
+
+  defp resolved_endpoint_identity?(_id, _device), do: false
+
+  defp blank_node_identity?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank_node_identity?(nil), do: true
+  defp blank_node_identity?(_value), do: false
 
   defp type_name_from_id(0), do: "unknown"
   defp type_name_from_id(1), do: "server"
@@ -802,9 +1234,19 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp metadata_value(_metadata, _key), do: nil
 
-  defp health_signal(%{is_available: true}), do: :healthy
-  defp health_signal(%{is_available: false}), do: :unhealthy
+  defp health_signal(%{metadata: metadata} = device) when is_map(metadata) do
+    case normalize_id(metadata_value(metadata, "identity_source")) do
+      "mapper_topology_sighting" -> :unknown
+      _ -> health_signal_from_availability(Map.get(device, :is_available))
+    end
+  end
+
+  defp health_signal(%{is_available: value}), do: health_signal_from_availability(value)
   defp health_signal(_), do: :unknown
+
+  defp health_signal_from_availability(true), do: :healthy
+  defp health_signal_from_availability(false), do: :unhealthy
+  defp health_signal_from_availability(_), do: :unknown
 
   defp edge_contract_stats(edges) when is_list(edges) do
     fallback_edges =
@@ -1006,6 +1448,807 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp apply_causal_states(nodes, _), do: nodes
+
+  defp apply_endpoint_cluster_projection(nodes, edges, pipeline_stats, snapshot_opts)
+       when is_list(nodes) and is_list(edges) and is_map(pipeline_stats) and is_map(snapshot_opts) do
+    nodes_by_id = Map.new(nodes, &{&1.id, &1})
+    incident_flags = endpoint_incident_flags(edges)
+    expanded_clusters = Map.get(snapshot_opts, :expanded_clusters, MapSet.new())
+
+    groups =
+      edges
+      |> endpoint_cluster_groups(nodes_by_id, incident_flags)
+      |> Enum.sort_by(& &1.anchor_id)
+
+    if groups == [] do
+      {nodes, edges, pipeline_stats}
+    else
+      summarized_groups = Enum.filter(groups, &(length(&1.endpoint_ids) >= @endpoint_cluster_min_members))
+      summarized_groups_by_anchor = Enum.group_by(summarized_groups, & &1.anchor_id)
+      groups_by_anchor = Enum.group_by(groups, & &1.anchor_id)
+      expanded_groups = Enum.filter(groups, &MapSet.member?(expanded_clusters, &1.cluster_id))
+
+      expanded_cluster_nodes =
+        build_expanded_cluster_nodes(groups_by_anchor, expanded_clusters, nodes_by_id)
+
+      expanded_cluster_nodes_by_id = Map.new(expanded_cluster_nodes, &{&1.id, &1})
+
+      nodes =
+        expanded_groups
+        |> Enum.reduce(nodes_by_id, &layout_expanded_cluster_members(&1, &2, expanded_cluster_nodes_by_id))
+        |> Map.merge(expanded_cluster_nodes_by_id)
+        |> merge_cluster_anchor_details(groups, expanded_clusters)
+
+      collapsed_members =
+        groups
+        |> Enum.reject(&MapSet.member?(expanded_clusters, &1.cluster_id))
+        |> Enum.flat_map(& &1.endpoint_ids)
+        |> MapSet.new()
+
+      expanded_attachment_edge_keys =
+        expanded_groups
+        |> Enum.flat_map(&Map.get(&1, :edges, []))
+        |> MapSet.new(&edge_identity_key/1)
+
+      retained_nodes =
+        nodes
+        |> Map.values()
+        |> Enum.reject(&MapSet.member?(collapsed_members, &1.id))
+
+      cluster_nodes = build_collapsed_cluster_nodes(summarized_groups_by_anchor, expanded_clusters, nodes)
+
+      retained_edges =
+        Enum.reject(
+          edges,
+          &drop_cluster_projection_edge?(&1, collapsed_members, expanded_attachment_edge_keys, expanded_groups)
+        )
+
+      cluster_edges =
+        summarized_groups
+        |> Enum.reject(&MapSet.member?(expanded_clusters, &1.cluster_id))
+        |> Enum.map(&build_endpoint_cluster_edge(&1, nodes))
+
+      expanded_cluster_edges =
+        expanded_groups
+        |> Enum.map(&build_expanded_endpoint_cluster_edge(&1, nodes))
+        |> Enum.reject(&is_nil/1)
+
+      expanded_member_edges = Enum.flat_map(expanded_groups, &build_expanded_endpoint_member_edges(&1))
+
+      next_pipeline_stats =
+        pipeline_stats
+        |> Map.put(:clustered_endpoint_summaries, length(cluster_nodes))
+        |> Map.put(:expanded_endpoint_clusters, MapSet.size(expanded_clusters))
+
+      {retained_nodes ++ cluster_nodes,
+       retained_edges ++ cluster_edges ++ expanded_cluster_edges ++ expanded_member_edges, next_pipeline_stats}
+    end
+  end
+
+  defp apply_endpoint_cluster_projection(nodes, edges, pipeline_stats, _snapshot_opts) do
+    {nodes, edges, pipeline_stats}
+  end
+
+  defp merge_cluster_anchor_details(nodes_by_id, groups, expanded_clusters)
+       when is_map(nodes_by_id) and is_list(groups) and is_struct(expanded_clusters, MapSet) do
+    Enum.reduce(groups, nodes_by_id, fn group, acc ->
+      case Map.get(acc, group.anchor_id) do
+        %{id: anchor_id} = anchor when is_binary(anchor_id) ->
+          details_json =
+            merge_cluster_membership_details(Map.get(anchor, :details_json), %{
+              cluster_id: group.cluster_id,
+              cluster_kind: "endpoint-anchor",
+              cluster_member_count: length(group.endpoint_ids),
+              cluster_expandable: true,
+              cluster_expanded: MapSet.member?(expanded_clusters, group.cluster_id),
+              cluster_anchor_id: group.anchor_id,
+              cluster_anchor_label: Map.get(anchor, :label) || group.anchor_id
+            })
+
+          Map.put(acc, anchor_id, %{anchor | details_json: details_json})
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp merge_cluster_anchor_details(nodes_by_id, _groups, _expanded_clusters) when is_map(nodes_by_id), do: nodes_by_id
+
+  defp endpoint_incident_flags(edges) when is_list(edges) do
+    Enum.reduce(edges, %{}, fn edge, acc ->
+      endpoint_edge? = endpoint_attachment_edge?(edge)
+      Enum.reduce(edge_node_ids(edge), acc, &put_endpoint_incident_flag(&2, &1, endpoint_edge?))
+    end)
+  end
+
+  defp endpoint_incident_flags(_edges), do: %{}
+
+  defp endpoint_cluster_groups(edges, nodes_by_id, incident_flags)
+       when is_list(edges) and is_map(nodes_by_id) and is_map(incident_flags) do
+    edges
+    |> Enum.filter(&endpoint_attachment_edge?/1)
+    |> Enum.reduce(%{}, &accumulate_endpoint_cluster_group(&1, &2, nodes_by_id, incident_flags))
+    |> Map.values()
+    |> Enum.map(fn group ->
+      %{
+        group
+        | endpoint_ids: group.endpoint_ids |> Enum.uniq() |> Enum.sort(),
+          edges: Enum.reverse(group.edges)
+      }
+    end)
+  end
+
+  defp endpoint_cluster_groups(_edges, _nodes_by_id, _incident_flags), do: []
+
+  defp edge_node_ids(edge) when is_map(edge) do
+    [normalize_id(Map.get(edge, :source)), normalize_id(Map.get(edge, :target))]
+  end
+
+  defp edge_node_ids(_edge), do: []
+
+  defp put_endpoint_incident_flag(acc, node_id, endpoint_edge?)
+       when is_map(acc) and is_binary(node_id) and is_boolean(endpoint_edge?) do
+    Map.update(acc, node_id, %{endpoint: endpoint_edge?, non_endpoint: not endpoint_edge?}, fn flags ->
+      %{
+        endpoint: flags.endpoint or endpoint_edge?,
+        non_endpoint: flags.non_endpoint or not endpoint_edge?
+      }
+    end)
+  end
+
+  defp put_endpoint_incident_flag(acc, _node_id, _endpoint_edge?) when is_map(acc), do: acc
+
+  defp layout_expanded_cluster_members(group, acc, expanded_cluster_nodes_by_id)
+       when is_map(acc) and is_map(expanded_cluster_nodes_by_id) do
+    case {Map.get(acc, group.anchor_id), Map.get(expanded_cluster_nodes_by_id, group.cluster_id)} do
+      {%{label: _} = anchor, %{x: hub_x, y: hub_y}} ->
+        member_count = length(group.endpoint_ids)
+        anchor_label = Map.get(anchor, :label) || group.anchor_id
+
+        group.endpoint_ids
+        |> Enum.sort()
+        |> Enum.with_index()
+        |> Enum.reduce(acc, fn {endpoint_id, idx}, inner ->
+          layout_cluster_member(inner, endpoint_id, group, hub_x, hub_y, member_count, idx, anchor_label)
+        end)
+
+      {%{}, %{x: hub_x, y: hub_y}} ->
+        member_count = length(group.endpoint_ids)
+        anchor_label = group.anchor_id
+
+        group.endpoint_ids
+        |> Enum.sort()
+        |> Enum.with_index()
+        |> Enum.reduce(acc, fn {endpoint_id, idx}, inner ->
+          layout_cluster_member(inner, endpoint_id, group, hub_x, hub_y, member_count, idx, anchor_label)
+        end)
+
+      _ ->
+        acc
+    end
+  end
+
+  defp layout_expanded_cluster_members(_group, acc, _expanded_cluster_nodes_by_id) when is_map(acc), do: acc
+
+  defp layout_cluster_member(acc, endpoint_id, group, _hub_x, _hub_y, member_count, _idx, anchor_label)
+       when is_map(acc) and is_binary(endpoint_id) and is_map(group) and is_binary(anchor_label) do
+    case Map.get(acc, endpoint_id) do
+      %{id: ^endpoint_id} = node ->
+        details_json =
+          merge_cluster_membership_details(Map.get(node, :details_json), %{
+            cluster_id: group.cluster_id,
+            cluster_kind: "endpoint-member",
+            cluster_member_count: member_count,
+            cluster_expandable: true,
+            cluster_expanded: true,
+            cluster_anchor_id: group.anchor_id,
+            cluster_anchor_label: anchor_label
+          })
+
+        Map.put(acc, endpoint_id, %{node | details_json: details_json})
+
+      _ ->
+        acc
+    end
+  end
+
+  defp layout_cluster_member(acc, _endpoint_id, _group, _hub_x, _hub_y, _member_count, _idx, _anchor_label)
+       when is_map(acc), do: acc
+
+  defp drop_cluster_projection_edge?(edge, collapsed_members, expanded_attachment_edge_keys, expanded_groups)
+       when is_map(edge) do
+    valid_cluster_projection_edge_args?(collapsed_members, expanded_attachment_edge_keys, expanded_groups) and
+      endpoint_attachment_edge?(edge) and
+      (not MapSet.member?(expanded_attachment_edge_keys, edge_identity_key(edge)) or
+         collapsed_endpoint_member_edge?(edge, collapsed_members) or
+         expanded_group_attachment_edge?(edge, expanded_groups))
+  end
+
+  defp drop_cluster_projection_edge?(_edge, _collapsed_members, _expanded_attachment_edge_keys, _expanded_groups),
+    do: false
+
+  defp valid_cluster_projection_edge_args?(collapsed_members, expanded_attachment_edge_keys, expanded_groups)
+       when is_struct(collapsed_members, MapSet) and is_struct(expanded_attachment_edge_keys, MapSet) and
+              is_list(expanded_groups), do: true
+
+  defp valid_cluster_projection_edge_args?(_collapsed_members, _expanded_attachment_edge_keys, _expanded_groups),
+    do: false
+
+
+  defp expanded_group_attachment_edge?(edge, expanded_groups) when is_map(edge) and is_list(expanded_groups) do
+    Enum.any?(expanded_groups, fn group ->
+      edge_endpoint_member?(edge, group.endpoint_ids) and attachment_anchor_match?(edge, group.anchor_id)
+    end)
+  end
+
+  defp expanded_group_attachment_edge?(_edge, _expanded_groups), do: false
+
+  defp accumulate_endpoint_cluster_group(edge, acc, nodes_by_id, incident_flags)
+       when is_map(acc) and is_map(nodes_by_id) and is_map(incident_flags) do
+    case endpoint_cluster_member_anchor_pair(edge, nodes_by_id, incident_flags) do
+      {endpoint_id, anchor_id} when is_binary(endpoint_id) and is_binary(anchor_id) ->
+        cluster_id = endpoint_cluster_id(anchor_id)
+        group = %{cluster_id: cluster_id, anchor_id: anchor_id, endpoint_ids: [endpoint_id], edges: [edge]}
+
+        Map.update(acc, cluster_id, group, fn existing ->
+          %{
+            existing
+            | endpoint_ids: [endpoint_id | existing.endpoint_ids],
+              edges: [edge | existing.edges]
+          }
+        end)
+
+      _ ->
+        acc
+    end
+  end
+
+  defp accumulate_endpoint_cluster_group(_edge, acc, _nodes_by_id, _incident_flags) when is_map(acc), do: acc
+
+  defp build_collapsed_cluster_nodes(summarized_groups_by_anchor, expanded_clusters, nodes)
+       when is_map(summarized_groups_by_anchor) and is_struct(expanded_clusters, MapSet) and is_map(nodes) do
+    Enum.flat_map(summarized_groups_by_anchor, fn {anchor_id, anchor_groups} ->
+      anchor = Map.get(nodes, anchor_id)
+      visible_groups = Enum.reject(anchor_groups, &MapSet.member?(expanded_clusters, &1.cluster_id))
+      group_count = length(anchor_groups)
+
+      visible_groups
+      |> Enum.sort_by(& &1.cluster_id)
+      |> Enum.with_index()
+      |> Enum.map(fn {group, idx} ->
+        build_endpoint_cluster_node(group, anchor, idx, group_count, nodes)
+      end)
+    end)
+  end
+
+  defp build_collapsed_cluster_nodes(_summarized_groups_by_anchor, _expanded_clusters, _nodes), do: []
+
+  defp build_expanded_cluster_nodes(groups_by_anchor, expanded_clusters, nodes_by_id)
+       when is_map(groups_by_anchor) and is_struct(expanded_clusters, MapSet) and is_map(nodes_by_id) do
+    Enum.flat_map(groups_by_anchor, fn {anchor_id, anchor_groups} ->
+      anchor = Map.get(nodes_by_id, anchor_id)
+      member_count = length(anchor_groups)
+
+      anchor_groups
+      |> Enum.sort_by(& &1.cluster_id)
+      |> Enum.with_index()
+      |> Enum.filter(fn {group, _idx} -> MapSet.member?(expanded_clusters, group.cluster_id) end)
+      |> Enum.map(fn {group, idx} ->
+        build_expanded_endpoint_cluster_node(group, anchor, idx, member_count, nodes_by_id)
+      end)
+    end)
+  end
+
+  defp build_expanded_cluster_nodes(_groups_by_anchor, _expanded_clusters, _nodes_by_id), do: []
+
+  defp endpoint_cluster_member_anchor_pair(edge, nodes_by_id, incident_flags)
+       when is_map(edge) and is_map(nodes_by_id) and is_map(incident_flags) do
+    source = normalize_id(Map.get(edge, :source))
+    target = normalize_id(Map.get(edge, :target))
+    source_node = Map.get(nodes_by_id, source)
+    target_node = Map.get(nodes_by_id, target)
+
+    source_leaf? = endpoint_cluster_member_node?(source, source_node, Map.get(incident_flags, source, %{}))
+    target_leaf? = endpoint_cluster_member_node?(target, target_node, Map.get(incident_flags, target, %{}))
+
+    cond do
+      source_leaf? and not target_leaf? and is_binary(target) -> {source, target}
+      target_leaf? and not source_leaf? and is_binary(source) -> {target, source}
+      true -> nil
+    end
+  end
+
+  defp endpoint_cluster_member_anchor_pair(_edge, _nodes_by_id, _incident_flags), do: nil
+
+  defp endpoint_cluster_member_node?(node_id, node, %{endpoint: true, non_endpoint: false})
+       when is_binary(node_id) and is_map(node) do
+    endpoint_like_node?(node) and not cluster_summary_node?(node)
+  end
+
+  defp endpoint_cluster_member_node?(_node_id, _node, _flags), do: false
+
+  defp endpoint_like_node?(node) when is_map(node) do
+    kind =
+      node
+      |> Map.get(:kind, "endpoint")
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    details =
+      node
+      |> Map.get(:details_json)
+      |> decode_details_json()
+
+    topology_sighting = normalize_id(Map.get(details, "identity_source")) == "mapper_topology_sighting"
+
+    topology_sighting or
+      kind not in [
+        "router",
+        "switch",
+        "hub",
+        "firewall",
+        "load_balancer",
+        "access point",
+        "ap",
+        "ids",
+        "ips",
+        "endpoint-cluster"
+      ]
+  end
+
+  defp endpoint_like_node?(_node), do: false
+
+  defp cluster_summary_node?(node) when is_map(node) do
+    node
+    |> Map.get(:details_json)
+    |> decode_details_json()
+    |> Map.get("cluster_kind") == "endpoint-summary"
+  end
+
+  defp cluster_summary_node?(_node), do: false
+
+  defp endpoint_cluster_id(anchor_id) when is_binary(anchor_id), do: "cluster:endpoints:" <> anchor_id
+  defp endpoint_cluster_id(_anchor_id), do: nil
+
+  defp build_endpoint_cluster_node(group, anchor, idx, total, nodes_by_id) when is_map(group) and is_map(nodes_by_id) do
+    endpoints =
+      group.endpoint_ids
+      |> Enum.map(&Map.get(nodes_by_id, &1))
+      |> Enum.reject(&is_nil/1)
+
+    {x, y} = endpoint_cluster_summary_coordinates(anchor, idx, total)
+    count = length(group.endpoint_ids)
+    sample = List.first(endpoints) || %{}
+    anchor_label = Map.get(anchor || %{}, :label) || Map.get(group, :anchor_id)
+
+    %{
+      id: group.cluster_id,
+      label: "#{count} endpoints",
+      kind: "endpoint-cluster",
+      x: x,
+      y: y,
+      state: endpoint_cluster_state(endpoints),
+      pps: Enum.reduce(endpoints, 0, &(&1.pps + &2)),
+      oper_up: endpoint_cluster_oper_up(endpoints),
+      details_json:
+        normalize_details_json(%{
+          id: group.cluster_id,
+          ip: "cluster",
+          type: "endpoint cluster",
+          cluster_id: group.cluster_id,
+          cluster_kind: "endpoint-summary",
+          cluster_member_count: count,
+          cluster_expandable: true,
+          cluster_expanded: false,
+          cluster_anchor_id: group.anchor_id,
+          cluster_anchor_label: anchor_label,
+          cluster_sample_ip: endpoint_cluster_sample_ip(sample),
+          cluster_sample_label: Map.get(sample, :label),
+          identity_source: "backend_endpoint_cluster"
+        }),
+      geo_lat: nil,
+      geo_lon: nil,
+      health_signal: :unknown
+    }
+  end
+
+  defp build_endpoint_cluster_node(_group, _anchor, _idx, _total, _nodes_by_id), do: %{}
+
+  defp build_expanded_endpoint_cluster_node(group, anchor, idx, total, nodes_by_id)
+       when is_map(group) and is_map(nodes_by_id) do
+    {hub_x, hub_y} = endpoint_cluster_member_centroid(group, nodes_by_id, anchor, idx, total)
+
+    group
+    |> build_endpoint_cluster_node(anchor, idx, total, nodes_by_id)
+    |> Map.merge(%{
+      x: hub_x,
+      y: hub_y,
+      details_json:
+        group
+        |> build_endpoint_cluster_node(anchor, idx, total, nodes_by_id)
+        |> Map.get(:details_json)
+        |> merge_cluster_membership_details(%{cluster_expanded: true})
+    })
+  end
+
+  defp build_expanded_endpoint_cluster_node(_group, _anchor, _idx, _total, _nodes_by_id), do: %{}
+
+  defp build_endpoint_cluster_edge(group, nodes_by_id) when is_map(group) and is_map(nodes_by_id) do
+    edges = Map.get(group, :edges, [])
+    telemetry_eligible = Enum.any?(edges, &(Map.get(&1, :telemetry_eligible) == true))
+
+    %{
+      source: group.anchor_id,
+      target: group.cluster_id,
+      kind: "topology",
+      protocol: "cluster",
+      evidence_class: "endpoint-attachment",
+      confidence_tier: "summary",
+      confidence_reason: "clustered_endpoint_summary",
+      flow_pps: Enum.reduce(edges, 0, &(normalize_u32(Map.get(&1, :flow_pps, 0)) + &2)),
+      flow_bps: Enum.reduce(edges, 0, &(normalize_u64(Map.get(&1, :flow_bps, 0)) + &2)),
+      capacity_bps: Enum.reduce(edges, 0, fn edge, acc -> max(acc, normalize_u64(Map.get(edge, :capacity_bps, 0))) end),
+      flow_pps_ab: 0,
+      flow_pps_ba: 0,
+      flow_bps_ab: 0,
+      flow_bps_ba: 0,
+      telemetry_eligible: telemetry_eligible,
+      telemetry_source: if(telemetry_eligible, do: "interface", else: "none"),
+      local_if_index_ab: nil,
+      local_if_name_ab: "",
+      local_if_index_ba: nil,
+      local_if_name_ba: "",
+      label: "ENDPOINT CLUSTER #{length(group.endpoint_ids)} endpoints",
+      metadata: %{
+        "relation_type" => "ATTACHED_TO",
+        "evidence_class" => "endpoint-attachment",
+        "cluster_id" => group.cluster_id,
+        "cluster_member_count" => length(group.endpoint_ids)
+      }
+    }
+  end
+
+  defp build_endpoint_cluster_edge(_group, _nodes_by_id), do: %{}
+
+  defp build_expanded_endpoint_cluster_edge(group, nodes_by_id) when is_map(group) and is_map(nodes_by_id) do
+    group
+    |> build_endpoint_cluster_edge(nodes_by_id)
+    |> Map.put(:confidence_reason, "expanded_endpoint_cluster")
+  end
+
+  defp build_expanded_endpoint_cluster_edge(_group, _nodes_by_id), do: nil
+
+  defp build_expanded_endpoint_member_edges(group) when is_map(group) do
+    group
+    |> Map.get(:endpoint_ids, [])
+    |> Enum.map(fn endpoint_id ->
+      supporting_edge =
+        Enum.find(Map.get(group, :edges, []), fn edge ->
+          Map.get(edge, :source) == endpoint_id or Map.get(edge, :target) == endpoint_id
+        end)
+
+      build_expanded_endpoint_member_edge(group, endpoint_id, supporting_edge)
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp build_expanded_endpoint_member_edges(_group), do: []
+
+  defp build_expanded_endpoint_member_edge(group, endpoint_id, supporting_edge)
+       when is_map(group) and is_binary(endpoint_id) and is_map(supporting_edge) do
+    telemetry_eligible = Map.get(supporting_edge, :telemetry_eligible, false) == true
+
+    %{
+      source: group.cluster_id,
+      target: endpoint_id,
+      kind: "topology",
+      protocol: "cluster",
+      evidence_class: "endpoint-attachment",
+      confidence_tier: Map.get(supporting_edge, :confidence_tier, "summary"),
+      confidence_reason: "expanded_endpoint_member",
+      flow_pps: normalize_u32(Map.get(supporting_edge, :flow_pps, 0)),
+      flow_bps: normalize_u64(Map.get(supporting_edge, :flow_bps, 0)),
+      capacity_bps: normalize_u64(Map.get(supporting_edge, :capacity_bps, 0)),
+      flow_pps_ab: 0,
+      flow_pps_ba: 0,
+      flow_bps_ab: 0,
+      flow_bps_ba: 0,
+      telemetry_eligible: telemetry_eligible,
+      telemetry_source: if(telemetry_eligible, do: "interface", else: "none"),
+      local_if_index_ab: nil,
+      local_if_name_ab: "",
+      local_if_index_ba: nil,
+      local_if_name_ba: "",
+      label: "ENDPOINT MEMBER",
+      metadata: %{
+        "relation_type" => "ATTACHED_TO",
+        "evidence_class" => "endpoint-attachment",
+        "cluster_id" => group.cluster_id,
+        "cluster_anchor_id" => group.anchor_id
+      }
+    }
+  end
+
+  defp build_expanded_endpoint_member_edge(_group, _endpoint_id, _supporting_edge), do: nil
+
+  defp endpoint_cluster_state(nodes) when is_list(nodes) do
+    states = Enum.map(nodes, &Map.get(&1, :state, 3))
+
+    cond do
+      Enum.any?(states, &(&1 == 0)) -> 0
+      Enum.any?(states, &(&1 == 1)) -> 1
+      Enum.any?(states, &(&1 == 2)) -> 2
+      true -> 3
+    end
+  end
+
+  defp endpoint_cluster_state(_nodes), do: 3
+
+  defp endpoint_cluster_oper_up(nodes) when is_list(nodes) do
+    values = Enum.map(nodes, &node_oper_up_value(Map.get(&1, :oper_up)))
+
+    cond do
+      Enum.any?(values, &(&1 == 2)) -> false
+      Enum.any?(values, &(&1 == 1)) -> true
+      true -> nil
+    end
+  end
+
+  defp endpoint_cluster_oper_up(_nodes), do: nil
+
+  defp endpoint_cluster_summary_coordinates(%{x: anchor_x, y: anchor_y}, idx, total)
+       when is_number(anchor_x) and is_number(anchor_y) and is_integer(idx) and is_integer(total) and total > 0 do
+    y_offset = (idx - (total - 1) / 2) * @endpoint_cluster_summary_gap_y
+    {round(anchor_x + @endpoint_cluster_summary_gap_x), round(anchor_y + y_offset)}
+  end
+
+  defp endpoint_cluster_summary_coordinates(_anchor, _idx, _total), do: {0, 0}
+
+  defp endpoint_cluster_expanded_coordinates(%{x: anchor_x, y: anchor_y}, idx, total)
+       when is_number(anchor_x) and is_number(anchor_y) and is_integer(idx) and is_integer(total) and total > 0 do
+    y_offset = (idx - (total - 1) / 2) * @endpoint_cluster_expanded_gap_y
+    {round(anchor_x + @endpoint_cluster_expanded_gap_x), round(anchor_y + y_offset)}
+  end
+
+  defp endpoint_cluster_expanded_coordinates(_anchor, _idx, _total), do: {0, 0}
+
+  defp endpoint_cluster_member_centroid(group, nodes_by_id, anchor, idx, total)
+       when is_map(group) and is_map(nodes_by_id) do
+    coords =
+      group
+      |> Map.get(:endpoint_ids, [])
+      |> Enum.map(&Map.get(nodes_by_id, &1))
+      |> Enum.filter(&(is_map(&1) and is_number(Map.get(&1, :x)) and is_number(Map.get(&1, :y))))
+      |> Enum.map(&{&1.x, &1.y})
+
+    if coords == [] do
+      endpoint_cluster_expanded_coordinates(anchor, idx, total)
+    else
+      sum_x = Enum.sum(Enum.map(coords, &elem(&1, 0)))
+      sum_y = Enum.sum(Enum.map(coords, &elem(&1, 1)))
+      n = length(coords)
+      {round(sum_x / n), round(sum_y / n)}
+    end
+  end
+
+  defp endpoint_cluster_member_centroid(_group, _nodes_by_id, _anchor, _idx, _total), do: {0, 0}
+
+  defp endpoint_cluster_sample_ip(node) when is_map(node) do
+    node
+    |> Map.get(:details_json)
+    |> decode_details_json()
+    |> Map.get("ip")
+  end
+
+  defp endpoint_cluster_sample_ip(_node), do: nil
+
+  defp merge_cluster_membership_details(details_json, cluster_details) when is_map(cluster_details) do
+    details_json
+    |> decode_details_json()
+    |> Map.merge(stringify_keys(cluster_details))
+    |> normalize_details_json()
+  end
+
+  defp merge_cluster_membership_details(details_json, _cluster_details), do: details_json
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn
+      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
+      {key, value} -> {key, value}
+    end)
+  end
+
+  defp collapsed_endpoint_member_edge?(edge, collapsed_members)
+       when is_map(edge) and is_struct(collapsed_members, MapSet) do
+    endpoint_attachment_edge?(edge) and
+      (MapSet.member?(collapsed_members, Map.get(edge, :source)) or
+         MapSet.member?(collapsed_members, Map.get(edge, :target)))
+  end
+
+  defp collapsed_endpoint_member_edge?(_edge, _collapsed_members), do: false
+
+  defp edge_endpoint_member?(edge, endpoint_ids) when is_map(edge) and is_list(endpoint_ids) do
+    source = Map.get(edge, :source)
+    target = Map.get(edge, :target)
+    source in endpoint_ids or target in endpoint_ids
+  end
+
+  defp edge_endpoint_member?(_edge, _endpoint_ids), do: false
+
+  defp attachment_anchor_match?(edge, anchor_id) when is_map(edge) and is_binary(anchor_id) do
+    Map.get(edge, :source) == anchor_id or Map.get(edge, :target) == anchor_id
+  end
+
+  defp attachment_anchor_match?(_edge, _anchor_id), do: false
+
+  defp edge_identity_key(edge) when is_map(edge) do
+    edge
+    |> Map.take([
+      :source,
+      :target,
+      :kind,
+      :protocol,
+      :evidence_class,
+      :confidence_tier,
+      :confidence_reason,
+      :local_if_index_ab,
+      :local_if_name_ab,
+      :local_if_index_ba,
+      :local_if_name_ba,
+      :label
+    ])
+    |> :erlang.term_to_binary()
+  end
+
+  defp edge_identity_key(edge), do: :erlang.term_to_binary(edge)
+
+  defp rendered_pipeline_stats(pipeline_stats, nodes, edges)
+       when is_map(pipeline_stats) and is_list(nodes) and is_list(edges) do
+    pipeline_stats
+    |> Map.put(:final_edges, length(edges))
+    |> Map.put(:final_nodes, length(nodes))
+    |> Map.put(:final_direct, count_by_evidence(edges, "direct"))
+    |> Map.put(:final_inferred, count_by_evidence(edges, "inferred"))
+    |> Map.put(:final_attachment, count_by_evidence(edges, "endpoint-attachment"))
+  end
+
+  defp rendered_pipeline_stats(pipeline_stats, _nodes, _edges), do: pipeline_stats
+
+  defp resolve_coordinate_collisions(nodes) when is_list(nodes) do
+    nodes_by_id = Map.new(nodes, &{&1.id, &1})
+
+    updated =
+      nodes
+      |> Enum.group_by(fn node -> {Map.get(node, :x), Map.get(node, :y)} end)
+      |> Enum.reduce(nodes_by_id, fn
+        {{x, y}, grouped_nodes}, acc when is_number(x) and is_number(y) and length(grouped_nodes) > 1 ->
+          grouped_nodes
+          |> Enum.sort_by(&to_string(Map.get(&1, :id)))
+          |> Enum.with_index()
+          |> Enum.reduce(acc, fn {node, idx}, inner ->
+            angle = 2 * :math.pi() * idx / length(grouped_nodes) + endpoint_angle_offset(node.id)
+            radius = 18.0 + div(idx, 8) * 12.0
+
+            Map.put(inner, node.id, %{
+              node
+              | x: round(x + radius * :math.cos(angle)),
+                y: round(y + radius * :math.sin(angle))
+            })
+          end)
+
+        {_xy, _grouped_nodes}, acc ->
+          acc
+      end)
+
+    Enum.map(nodes, fn node -> Map.get(updated, node.id, node) end)
+  end
+
+  defp resolve_coordinate_collisions(nodes), do: nodes
+
+  defp resolve_proximity_collisions(nodes) when is_list(nodes) do
+    node_by_id = Map.new(nodes, &{&1.id, &1})
+
+    ids =
+      nodes
+      |> Enum.map(& &1.id)
+      |> Enum.sort()
+
+    pairs =
+      for {left_id, idx} <- Enum.with_index(ids),
+          right_id <- Enum.drop(ids, idx + 1) do
+        {left_id, right_id}
+      end
+
+    relaxed_positions =
+      Enum.reduce(1..@proximity_collision_iterations, map_coordinates(nodes), fn _iteration, positions ->
+        Enum.reduce(pairs, positions, fn {left_id, right_id}, acc ->
+          separate_nearby_pair(acc, node_by_id, left_id, right_id)
+        end)
+      end)
+
+    Enum.map(nodes, fn node ->
+      case Map.get(relaxed_positions, node.id) do
+        {x, y} when is_number(x) and is_number(y) ->
+          %{node | x: round(x), y: round(y)}
+
+        _ ->
+          node
+      end
+    end)
+  end
+
+  defp resolve_proximity_collisions(nodes), do: nodes
+
+  defp map_coordinates(nodes) when is_list(nodes) do
+    Map.new(nodes, fn node ->
+      {node.id, {Map.get(node, :x, 0) * 1.0, Map.get(node, :y, 0) * 1.0}}
+    end)
+  end
+
+  defp map_coordinates(_nodes), do: %{}
+
+  defp separate_nearby_pair(positions, node_by_id, left_id, right_id)
+       when is_map(positions) and is_map(node_by_id) and is_binary(left_id) and is_binary(right_id) do
+    with {left_x, left_y} when is_number(left_x) and is_number(left_y) <- Map.get(positions, left_id),
+         {right_x, right_y} when is_number(right_x) and is_number(right_y) <- Map.get(positions, right_id) do
+      dx = right_x - left_x
+      dy = right_y - left_y
+      distance = :math.sqrt(dx * dx + dy * dy)
+
+      if distance >= @proximity_collision_min_distance do
+        positions
+      else
+        overlap = @proximity_collision_min_distance - distance
+        {ux, uy} = separation_unit_vector(left_id, right_id, dx, dy, distance)
+        left_mobility = collision_mobility(Map.get(node_by_id, left_id))
+        right_mobility = collision_mobility(Map.get(node_by_id, right_id))
+        mobility_total = max(left_mobility + right_mobility, 0.001)
+        left_share = left_mobility / mobility_total
+        right_share = right_mobility / mobility_total
+        x_push = overlap * 0.28
+        y_push = overlap * 0.92
+
+        positions
+        |> Map.put(left_id, {left_x - ux * x_push * left_share, left_y - uy * y_push * left_share})
+        |> Map.put(right_id, {right_x + ux * x_push * right_share, right_y + uy * y_push * right_share})
+      end
+    else
+      _ -> positions
+    end
+  end
+
+  defp separate_nearby_pair(positions, _node_by_id, _left_id, _right_id), do: positions
+
+  defp separation_unit_vector(left_id, right_id, dx, dy, distance)
+       when is_binary(left_id) and is_binary(right_id) and is_number(dx) and is_number(dy) and is_number(distance) do
+    if distance > 0.001 do
+      {dx / distance, dy / distance}
+    else
+      angle = 2 * :math.pi() * :erlang.phash2({left_id, right_id}, 10_000) / 10_000
+      {max(:math.cos(angle), 0.18), :math.sin(angle)}
+    end
+  end
+
+  defp separation_unit_vector(_left_id, _right_id, _dx, _dy, _distance), do: {0.0, 1.0}
+
+  defp collision_mobility(node) when is_map(node) do
+    case node_layout_weight(node) do
+      weight when weight >= 950 -> 0.35
+      weight when weight >= 850 -> 0.55
+      weight when weight >= 600 -> 0.85
+      _ -> 1.2
+    end
+  end
+
+  defp collision_mobility(_node), do: 1.0
+
+  defp endpoint_angle_offset(anchor_id) when is_binary(anchor_id) do
+    2 * :math.pi() * :erlang.phash2(anchor_id, 10_000) / 10_000
+  end
+
+  defp endpoint_angle_offset(_), do: 0.0
 
   defp routing_causal_node_overrides(nodes) when is_list(nodes) do
     indexed_keys =
@@ -1368,10 +2611,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     explicit = metadata["evidence_class"] || metadata[:evidence_class] || Map.get(link, :evidence_class)
     relation_type = metadata["relation_type"] || metadata[:relation_type] || Map.get(link, :relation_type)
 
-    normalized_evidence_class(explicit) ||
-      evidence_class_from_relation_type(relation_type) ||
+    evidence_class_from_relation_type(relation_type) ||
+      normalized_evidence_class(explicit) ||
       "unknown"
   end
+
+  defp endpoint_attachment_edge?(edge) when is_map(edge) do
+    evidence_class(edge) == "endpoint-attachment"
+  end
+
+  defp endpoint_attachment_edge?(_edge), do: false
 
   defp normalized_evidence_class(value) do
     value
@@ -1446,6 +2695,44 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp normalize_details_json(_), do: "{}"
+
+  defp decode_details_json(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _ -> %{}
+    end
+  end
+
+  defp decode_details_json(value) when is_map(value), do: value
+  defp decode_details_json(_value), do: %{}
+
+  defp normalize_snapshot_options(opts) when is_map(opts) do
+    %{
+      expanded_clusters:
+        opts
+        |> Map.get(:expanded_clusters, Map.get(opts, "expanded_clusters", []))
+        |> normalize_expanded_clusters()
+    }
+  end
+
+  defp normalize_snapshot_options(_opts), do: %{expanded_clusters: MapSet.new()}
+
+  defp normalize_expanded_clusters(%MapSet{} = clusters), do: clusters
+
+  defp normalize_expanded_clusters(clusters) when is_list(clusters) do
+    clusters
+    |> Enum.map(&normalize_id/1)
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+  end
+
+  defp normalize_expanded_clusters(_clusters), do: MapSet.new()
+
+  defp default_snapshot_options?(%{expanded_clusters: expanded_clusters}) when is_struct(expanded_clusters, MapSet) do
+    MapSet.size(expanded_clusters) == 0
+  end
+
+  defp default_snapshot_options?(_opts), do: true
 
   defp clamp(value, min, _max) when value < min, do: min
   defp clamp(value, _min, max) when value > max, do: max

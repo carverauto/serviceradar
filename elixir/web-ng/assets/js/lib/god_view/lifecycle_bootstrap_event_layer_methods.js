@@ -22,6 +22,13 @@ export const godViewLifecycleBootstrapEventLayerMethods = {
           mtr_paths:
             typeof layers.mtr_paths === "boolean" ? layers.mtr_paths : prev.mtr_paths !== false,
         }
+        if (
+          prev.endpoints !== false &&
+            this.state.topologyLayers.endpoints === false &&
+            typeof this.collapseAllClusters === "function"
+        ) {
+          this.collapseAllClusters()
+        }
         if (this.state.lastGraph) this.deps.renderGraph(this.state.lastGraph)
       }
     })

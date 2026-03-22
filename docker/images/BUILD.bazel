@@ -18,6 +18,7 @@ load(
     "declare_postgresql_client_symlink_layer",
     "declare_loaded_oci_image_amd64",
     "declare_service_container_amd64",
+    "declare_serviceradar_user_layer",
 )
 
 exports_files([
@@ -40,6 +41,8 @@ declare_loaded_oci_image_amd64(
 )
 
 declare_common_tools_layer()
+
+declare_serviceradar_user_layer()
 
 declare_apk_rootfs_targets([
     ("iputils_ping", "@alpine_iputils_ping_apk//file"),

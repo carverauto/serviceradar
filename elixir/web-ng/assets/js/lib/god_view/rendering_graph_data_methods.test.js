@@ -21,6 +21,11 @@ function baseContext({state = {}, deps = {}, overrides = {}} = {}) {
     visibilityMask: vi.fn((states) => new Uint8Array(states.length).fill(1)),
     computeTraversalMask: vi.fn(() => null),
     edgeEnabledByTopologyLayer: vi.fn(() => true),
+    edgeTopologyClass: vi.fn((edge) => {
+      const normalized = String(edge?.topologyClass || "").trim().toLowerCase()
+      if (normalized === "endpoint") return "endpoints"
+      return normalized || "backbone"
+    }),
     selectEdgeLabels: vi.fn((edges) => edges.map((e) => ({midpoint: e.midpoint, connectionLabel: e.connectionLabel}))),
     formatPps: vi.fn(() => "10 pps"),
     formatCapacity: vi.fn(() => "1G"),
@@ -56,6 +61,7 @@ describe("rendering_graph_data_methods", () => {
     expect(out.edgeData[0].targetId).toEqual("n2")
     expect(out.edgeData[0].connectionLabel).toEqual("MPLS")
     expect(out.edgeData[0].telemetryEligible).toEqual(true)
+    expect(out.edgeData[0].topologyClass).toEqual("backbone")
     expect(out.edgeData[0].flowPpsAb).toEqual(0)
     expect(out.edgeData[0].flowPpsBa).toEqual(0)
     expect(out.edgeData[0].flowBpsAb).toEqual(0)
@@ -187,5 +193,63 @@ describe("rendering_graph_data_methods", () => {
     ])
     expect(out.edgeData.map((edge) => edge.flowPpsAb)).toEqual([70, 50])
     expect(out.edgeData.map((edge) => edge.flowPpsBa)).toEqual([30, 5])
+  })
+
+  it("buildVisibleGraphData hides endpoint-only nodes when the endpoint layer is disabled", () => {
+    const ctx = baseContext({
+      state: {
+        topologyLayers: {backbone: true, inferred: false, endpoints: false},
+      },
+      overrides: {
+        edgeEnabledByTopologyLayer: vi.fn((edge) => String(edge.topologyClass) !== "endpoints"),
+      },
+    })
+
+    const effective = {
+      shape: "local",
+      nodes: [
+        {id: "router", x: 1, y: 2, state: 0, label: "Router", pps: 10, operUp: 1, details: {}},
+        {id: "switch", x: 3, y: 4, state: 1, label: "Switch", pps: 20, operUp: 2, details: {}},
+        {id: "client", x: 5, y: 6, state: 1, label: "Client", pps: 5, operUp: 1, details: {}},
+      ],
+      edges: [
+        {source: 0, target: 1, flowPps: 10, flowBps: 100, capacityBps: 1000, label: "router-switch", topologyClass: "backbone"},
+        {source: 1, target: 2, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "switch-client", topologyClass: "endpoints"},
+      ],
+    }
+
+    const out = ctx.buildVisibleGraphData(effective)
+
+    expect(out.nodeData.map((node) => node.id)).toEqual(["router", "switch"])
+    expect(out.edgeData).toHaveLength(1)
+    expect(out.edgeData[0].sourceId).toEqual("router")
+    expect(out.edgeData[0].targetId).toEqual("switch")
+  })
+
+  it("buildVisibleGraphData keeps endpoint nodes visible when the endpoint layer is enabled", () => {
+    const ctx = baseContext({
+      state: {
+        topologyLayers: {backbone: true, inferred: false, endpoints: true},
+      },
+    })
+
+    const effective = {
+      shape: "local",
+      nodes: [
+        {id: "router", x: 1, y: 2, state: 0, label: "Router", pps: 10, operUp: 1, details: {}},
+        {id: "switch", x: 3, y: 4, state: 1, label: "Switch", pps: 20, operUp: 2, details: {}},
+        {id: "client", x: 5, y: 6, state: 1, label: "Client", pps: 5, operUp: 1, details: {}},
+      ],
+      edges: [
+        {source: 0, target: 1, flowPps: 10, flowBps: 100, capacityBps: 1000, label: "router-switch", topologyClass: "backbone"},
+        {source: 1, target: 2, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "switch-client", topologyClass: "endpoint"},
+      ],
+    }
+
+    const out = ctx.buildVisibleGraphData(effective)
+
+    expect(out.nodeData.map((node) => node.id)).toEqual(["router", "switch", "client"])
+    expect(out.edgeData).toHaveLength(2)
+    expect(out.edgeData[1].topologyClass).toEqual("endpoints")
   })
 })
