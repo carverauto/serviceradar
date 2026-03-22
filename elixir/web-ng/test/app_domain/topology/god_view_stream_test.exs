@@ -24,15 +24,18 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_graph_rows = Native.runtime_graph_get_links(graph_ref)
     runtime_graph_pid = Process.whereis(RuntimeGraph)
+    snapshot_cache_key = {GodViewStream, :snapshot_cache}
 
     if is_pid(runtime_graph_pid) do
       _ = Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), runtime_graph_pid)
     end
 
     Application.put_env(:serviceradar_web_ng, :god_view_snapshot_coalesce_ms, 0)
+    :persistent_term.erase(snapshot_cache_key)
     Native.runtime_graph_replace_links(graph_ref, [])
 
     on_exit(fn ->
+      :persistent_term.erase(snapshot_cache_key)
       Native.runtime_graph_replace_links(graph_ref, original_graph_rows)
 
       if is_nil(previous_coalesce) do
@@ -3467,6 +3470,18 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Enum.max(angular_offsets, fn -> 0.0 end) >= 0.45
     assert Enum.max(angular_offsets, fn -> 0.0 end) <= 1.25
 
+    nearby_backbone_nodes = [{router_x, router_y}, {ap_x, ap_y}]
+
+    assert Enum.all?(nearby_backbone_nodes, fn point ->
+             distance({hub_x, hub_y}, point) >= 78.0
+           end)
+
+    assert Enum.all?(member_points, fn point ->
+             Enum.all?(nearby_backbone_nodes, fn backbone_point ->
+               distance(point, backbone_point) >= 42.0
+             end)
+           end)
+
     backbone_segments = [
       {{router_x, router_y}, {anchor_x, anchor_y}},
       {{anchor_x, anchor_y}, {ap_x, ap_y}}
@@ -3481,6 +3496,107 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
                distance_point_to_segment(point, segment) >= 26.0
              end)
            end)
+
+    assert {:ok, %{snapshot: repeated_snapshot}} =
+             latest_snapshot_for_test(%{expanded_clusters: [cluster_id]})
+
+    repeated_coords =
+      coords_for(
+        repeated_snapshot,
+        [router_uid, switch_uid, ap_uid, cluster_id | Enum.map(endpoint_specs, & &1.uid)]
+      )
+
+    assert repeated_coords == coords
+  end
+
+  test "latest_snapshot/0 does not let expanded snapshots poison the collapsed snapshot cache" do
+    Application.put_env(:serviceradar_web_ng, :god_view_snapshot_coalesce_ms, 5_000)
+    :persistent_term.erase({GodViewStream, :snapshot_cache})
+
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      :persistent_term.erase({GodViewStream, :snapshot_cache})
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_cache_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-cache-switch-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "cluster-cache-switch-#{suffix}", %{
+      ip: "198.51.100.50",
+      type_id: 10,
+      is_available: true
+    })
+
+    endpoint_specs =
+      Enum.map(1..5, fn idx ->
+        uid = "sr:cluster-cache-endpoint-#{suffix}-#{idx}"
+        ip = "198.51.100.#{60 + idx}"
+        mac = "02:00:00:20:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:cc"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 2,
+          is_available: true,
+          metadata: %{"identity_source" => "mapper_topology_sighting", "primary_mac" => mac}
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    rows =
+      Enum.map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.100.50",
+          local_if_name: "edge0",
+          local_if_index: 10,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "medium",
+          confidence_reason: "single_identifier_inference",
+          flow_pps: 3,
+          flow_bps: 300,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 3,
+          flow_pps_ba: 0,
+          flow_bps_ab: 300,
+          flow_bps_ba: 0,
+          telemetry_source: "interface",
+          telemetry_observed_at: "2026-03-22T19:30:00Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    cluster_id = "cluster:endpoints:" <> switch_uid
+
+    assert {:ok, %{snapshot: collapsed_snapshot}} = latest_snapshot_for_test()
+    assert Enum.any?(collapsed_snapshot.nodes, &(&1.id == cluster_id))
+    refute Enum.any?(collapsed_snapshot.nodes, &Enum.any?(endpoint_specs, fn spec -> spec.uid == &1.id end))
+
+    assert {:ok, %{snapshot: expanded_snapshot}} =
+             latest_snapshot_for_test(%{expanded_clusters: [cluster_id]})
+
+    assert expanded_snapshot.revision != collapsed_snapshot.revision
+    assert Enum.all?(endpoint_specs, fn spec -> Enum.any?(expanded_snapshot.nodes, &(&1.id == spec.uid)) end)
+
+    assert {:ok, %{snapshot: collapsed_again}} = latest_snapshot_for_test()
+
+    assert collapsed_again.revision == collapsed_snapshot.revision
+    assert Enum.any?(collapsed_again.nodes, &(&1.id == cluster_id))
+    refute Enum.any?(collapsed_again.nodes, &Enum.any?(endpoint_specs, fn spec -> spec.uid == &1.id end))
   end
 
   defp coords_for(snapshot, node_ids) do
