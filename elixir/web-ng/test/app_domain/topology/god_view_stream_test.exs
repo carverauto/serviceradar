@@ -3051,10 +3051,120 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert cluster_details["cluster_expanded"] == false
 
     edge = find_edge(snapshot, switch_uid, cluster_id)
+    coords = coords_for(snapshot, [switch_uid, cluster_id])
     assert edge
     assert edge.local_if_name_ab == ""
     assert edge.local_if_name_ba == ""
+    assert distance(Map.fetch!(coords, switch_uid), Map.fetch!(coords, cluster_id)) >= 140.0
     assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) >= 1
+  end
+
+  test "latest_snapshot/0 keeps backbone layout horizontal when endpoint attachments are clustered" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_endpoint_layout_test)
+    suffix = System.unique_integer([:positive])
+    router_uid = "sr:layout-router-#{suffix}"
+    switch_uid = "sr:layout-switch-#{suffix}"
+    ap_uid = "sr:layout-ap-#{suffix}"
+
+    create_topology_device(actor, router_uid, "layout-router-#{suffix}", %{
+      ip: "198.51.100.10",
+      type_id: 12,
+      is_available: true
+    })
+
+    create_topology_device(actor, switch_uid, "layout-switch-#{suffix}", %{
+      ip: "198.51.100.11",
+      type_id: 10,
+      is_available: true
+    })
+
+    create_topology_device(actor, ap_uid, "layout-ap-#{suffix}", %{
+      ip: "198.51.100.12",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    endpoint_specs =
+      Enum.map(1..5, fn idx ->
+        uid = "sr:layout-endpoint-#{suffix}-#{idx}"
+        ip = "198.51.100.#{20 + idx}"
+        mac = "02:00:00:10:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 2,
+          is_available: true,
+          metadata: %{"identity_source" => "mapper_topology_sighting", "primary_mac" => mac}
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    rows =
+      [
+        directional_runtime_row(router_uid, switch_uid, 1, 2, 120, 70, 50),
+        directional_runtime_row(switch_uid, ap_uid, 3, 4, 90, 50, 40)
+      ] ++
+        Enum.map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+          %{
+            local_device_id: switch_uid,
+            local_device_ip: "198.51.100.11",
+            local_if_name: "edge0",
+            local_if_index: 10,
+            neighbor_if_name: endpoint_mac,
+            neighbor_if_index: nil,
+            neighbor_device_id: endpoint_uid,
+            neighbor_mgmt_addr: endpoint_ip,
+            protocol: "snmp-l2",
+            evidence_class: "endpoint-attachment",
+            confidence_tier: "medium",
+            confidence_reason: "single_identifier_inference",
+            flow_pps: 5,
+            flow_bps: 500,
+            capacity_bps: 1_000_000_000,
+            flow_pps_ab: 5,
+            flow_pps_ba: 0,
+            flow_bps_ab: 500,
+            flow_bps_ba: 0,
+            telemetry_source: "interface",
+            telemetry_observed_at: "2026-03-22T17:00:00Z",
+            metadata: %{
+              "relation_type" => "ATTACHED_TO",
+              "evidence_class" => "endpoint-attachment"
+            }
+          }
+        end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    cluster_id = "cluster:endpoints:" <> switch_uid
+    coords = coords_for(snapshot, [router_uid, switch_uid, ap_uid, cluster_id])
+
+    assert map_size(coords) == 4
+    assert find_edge(snapshot, router_uid, switch_uid)
+    assert find_edge(snapshot, switch_uid, ap_uid)
+    assert find_edge(snapshot, switch_uid, cluster_id)
+
+    backbone_coords = Enum.map([router_uid, switch_uid, ap_uid], &Map.fetch!(coords, &1))
+    xs = Enum.map(backbone_coords, &elem(&1, 0))
+    ys = Enum.map(backbone_coords, &elem(&1, 1))
+    backbone_x_span = Enum.max(xs) - Enum.min(xs)
+    backbone_y_span = Enum.max(ys) - Enum.min(ys)
+
+    assert backbone_x_span >= 160
+    assert backbone_x_span > backbone_y_span * 2
+
+    assert distance(Map.fetch!(coords, switch_uid), Map.fetch!(coords, cluster_id)) >= 140.0
   end
 
   test "latest_snapshot/0 drops stray attachment edges from the collapsed default view" do
@@ -3206,12 +3316,27 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
 
     actor = SystemActor.system(:god_view_stream_test)
     suffix = System.unique_integer([:positive])
+    router_uid = "sr:cluster-expand-router-#{suffix}"
     switch_uid = "sr:cluster-expand-switch-#{suffix}"
+    ap_uid = "sr:cluster-expand-ap-#{suffix}"
+
+    create_topology_device(actor, router_uid, "cluster-expand-router-#{suffix}", %{
+      ip: "198.51.100.9",
+      type_id: 12,
+      is_available: true
+    })
 
     create_topology_device(actor, switch_uid, "cluster-expand-switch-#{suffix}", %{
       ip: "198.51.100.10",
       type_id: 10,
       is_available: true
+    })
+
+    create_topology_device(actor, ap_uid, "cluster-expand-ap-#{suffix}", %{
+      ip: "198.51.100.11",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
     })
 
     endpoint_specs =
@@ -3231,40 +3356,50 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       end)
 
     rows =
-      Enum.map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
-        %{
-          local_device_id: switch_uid,
-          local_device_ip: "198.51.100.10",
-          local_if_name: "eth1",
-          local_if_index: 1,
-          neighbor_if_name: endpoint_mac,
-          neighbor_if_index: nil,
-          neighbor_device_id: endpoint_uid,
-          neighbor_mgmt_addr: endpoint_ip,
-          protocol: "snmp-l2",
-          evidence_class: "endpoint-attachment",
-          confidence_tier: "medium",
-          confidence_reason: "single_identifier_inference",
-          flow_pps: 3,
-          flow_bps: 300,
-          capacity_bps: 1_000_000_000,
-          flow_pps_ab: 3,
-          flow_pps_ba: 0,
-          flow_bps_ab: 300,
-          flow_bps_ba: 0,
-          telemetry_source: "interface",
-          telemetry_observed_at: "2026-03-19T12:05:00Z",
-          metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "endpoint-attachment"}
-        }
-      end)
+      [
+        directional_runtime_row(router_uid, switch_uid, 1, 2, 110, 70, 40),
+        directional_runtime_row(switch_uid, ap_uid, 3, 4, 85, 45, 40)
+      ] ++
+        Enum.map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+          %{
+            local_device_id: switch_uid,
+            local_device_ip: "198.51.100.10",
+            local_if_name: "eth1",
+            local_if_index: 1,
+            neighbor_if_name: endpoint_mac,
+            neighbor_if_index: nil,
+            neighbor_device_id: endpoint_uid,
+            neighbor_mgmt_addr: endpoint_ip,
+            protocol: "snmp-l2",
+            evidence_class: "endpoint-attachment",
+            confidence_tier: "medium",
+            confidence_reason: "single_identifier_inference",
+            flow_pps: 3,
+            flow_bps: 300,
+            capacity_bps: 1_000_000_000,
+            flow_pps_ab: 3,
+            flow_pps_ba: 0,
+            flow_bps_ab: 300,
+            flow_bps_ba: 0,
+            telemetry_source: "interface",
+            telemetry_observed_at: "2026-03-19T12:05:00Z",
+            metadata: %{
+              "relation_type" => "ATTACHED_TO",
+              "evidence_class" => "endpoint-attachment"
+            }
+          }
+        end)
 
     replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: collapsed_snapshot}} = latest_snapshot_for_test()
 
     cluster_id = "cluster:endpoints:" <> switch_uid
 
     assert {:ok, %{snapshot: snapshot}} =
              latest_snapshot_for_test(%{expanded_clusters: [cluster_id]})
 
+    assert snapshot.revision != collapsed_snapshot.revision
     assert Enum.any?(snapshot.nodes, &(&1.id == cluster_id))
     assert Enum.all?(endpoint_specs, fn spec -> Enum.any?(snapshot.nodes, &(&1.id == spec.uid)) end)
 
@@ -3275,39 +3410,77 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert cluster_details["cluster_expanded"] == true
     assert cluster_details["cluster_anchor_id"] == switch_uid
 
-    coords = coords_for(snapshot, [switch_uid, cluster_id | Enum.map(endpoint_specs, & &1.uid)])
+    coords =
+      coords_for(
+        snapshot,
+        [router_uid, switch_uid, ap_uid, cluster_id | Enum.map(endpoint_specs, & &1.uid)]
+      )
+
     {anchor_x, anchor_y} = Map.fetch!(coords, switch_uid)
     {hub_x, hub_y} = Map.fetch!(coords, cluster_id)
+    {router_x, router_y} = Map.fetch!(coords, router_uid)
+    {ap_x, ap_y} = Map.fetch!(coords, ap_uid)
 
-    assert hub_x > anchor_x + 120
-    assert abs(hub_y - anchor_y) <= 90
+    assert distance({anchor_x, anchor_y}, {hub_x, hub_y}) >= 220.0
     assert find_edge(snapshot, switch_uid, cluster_id)
+    assert find_edge(snapshot, router_uid, switch_uid)
+    assert find_edge(snapshot, switch_uid, ap_uid)
 
-    Enum.each(endpoint_specs, fn spec ->
-      endpoint = Enum.find(snapshot.nodes, &(&1.id == spec.uid))
-      details = Jason.decode!(endpoint.details_json)
-
-      assert details["cluster_id"] == cluster_id
-      assert details["cluster_kind"] == "endpoint-member"
-      assert details["cluster_expanded"] == true
-      assert details["cluster_anchor_id"] == switch_uid
-
-      {x, y} = Map.fetch!(coords, spec.uid)
-      assert find_edge(snapshot, cluster_id, spec.uid)
-      refute find_edge(snapshot, switch_uid, spec.uid)
-      assert distance({hub_x, hub_y}, {x, y}) > 45.0
-    end)
-
-    offsets =
+    member_points =
       Enum.map(endpoint_specs, fn spec ->
-        {x, y} = Map.fetch!(coords, spec.uid)
-        {x - hub_x, y - hub_y}
+        endpoint = Enum.find(snapshot.nodes, &(&1.id == spec.uid))
+        details = Jason.decode!(endpoint.details_json)
+
+        assert details["cluster_id"] == cluster_id
+        assert details["cluster_kind"] == "endpoint-member"
+        assert details["cluster_expanded"] == true
+        assert details["cluster_anchor_id"] == switch_uid
+
+        point = Map.fetch!(coords, spec.uid)
+        assert find_edge(snapshot, cluster_id, spec.uid)
+        refute find_edge(snapshot, switch_uid, spec.uid)
+        assert distance({hub_x, hub_y}, point) >= 70.0
+        assert distance({anchor_x, anchor_y}, point) >= distance({anchor_x, anchor_y}, {hub_x, hub_y}) + 18.0
+        point
       end)
 
-    assert Enum.any?(offsets, fn {dx, _dy} -> dx > 45 end)
-    assert Enum.any?(offsets, fn {dx, _dy} -> dx < -45 end)
-    assert Enum.any?(offsets, fn {_dx, dy} -> dy > 35 end)
-    assert Enum.any?(offsets, fn {_dx, dy} -> dy < -35 end)
+    min_member_spacing =
+      member_points
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {left, idx} ->
+        member_points
+        |> Enum.drop(idx + 1)
+        |> Enum.map(&distance(left, &1))
+      end)
+      |> Enum.min(fn -> 0.0 end)
+
+    assert min_member_spacing >= 30.0
+
+    sector_axis = :math.atan2(hub_y - anchor_y, hub_x - anchor_x)
+
+    angular_offsets =
+      Enum.map(member_points, fn {member_x, member_y} ->
+        member_angle = :math.atan2(member_y - hub_y, member_x - hub_x)
+        abs(angle_delta(member_angle, sector_axis))
+      end)
+
+    assert Enum.max(angular_offsets, fn -> 0.0 end) >= 0.45
+    assert Enum.max(angular_offsets, fn -> 0.0 end) <= 1.25
+
+    backbone_segments = [
+      {{router_x, router_y}, {anchor_x, anchor_y}},
+      {{anchor_x, anchor_y}, {ap_x, ap_y}}
+    ]
+
+    assert Enum.all?(backbone_segments, fn segment ->
+             distance_point_to_segment({hub_x, hub_y}, segment) >= 52.0
+           end)
+
+    assert Enum.all?(member_points, fn point ->
+             Enum.all?(backbone_segments, fn segment ->
+               distance_point_to_segment(point, segment) >= 26.0
+             end)
+           end)
   end
 
   defp coords_for(snapshot, node_ids) do
@@ -3380,6 +3553,29 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     dy = by - ay
     :math.sqrt(dx * dx + dy * dy)
   end
+
+  defp distance_point_to_segment({px, py}, {{ax, ay}, {bx, by}})
+       when is_number(px) and is_number(py) and is_number(ax) and is_number(ay) and is_number(bx) and is_number(by) do
+    abx = bx - ax
+    aby = by - ay
+    segment_length_sq = abx * abx + aby * aby
+
+    if segment_length_sq <= 0.0001 do
+      distance({px, py}, {ax, ay})
+    else
+      t = max(0.0, min(1.0, ((px - ax) * abx + (py - ay) * aby) / segment_length_sq))
+      distance({px, py}, {ax + t * abx, ay + t * aby})
+    end
+  end
+
+  defp distance_point_to_segment(_point, _segment), do: 0.0
+
+  defp angle_delta(left, right) when is_number(left) and is_number(right) do
+    delta = left - right
+    :math.atan2(:math.sin(delta), :math.cos(delta))
+  end
+
+  defp angle_delta(_left, _right), do: 0.0
 
   defp create_topology_device(actor, uid, hostname, attrs \\ %{}) do
     Device

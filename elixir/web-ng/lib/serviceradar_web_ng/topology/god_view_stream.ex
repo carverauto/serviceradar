@@ -37,6 +37,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @endpoint_cluster_summary_gap_y 54.0
   @endpoint_cluster_expanded_gap_x 196.0
   @endpoint_cluster_expanded_gap_y 72.0
+  @endpoint_cluster_expanded_base_radius 86.0
+  @endpoint_cluster_expanded_ring_gap 44.0
+  @endpoint_cluster_expanded_member_clearance 44.0
+  @endpoint_cluster_expanded_hub_clearance 72.0
+  @endpoint_cluster_expanded_orientation_offsets [0.0, 0.38, -0.38, 0.76, -0.76, 1.12, -1.12]
   @proximity_collision_iterations 8
   @proximity_collision_min_distance 34.0
   @drop_counter_key {__MODULE__, :dropped_updates}
@@ -66,7 +71,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     budget_ms = real_time_budget_ms()
 
     with {:ok, projection} <- build_projection(actor, snapshot_opts),
-         revision = snapshot_revision(projection.topology_revision, projection.causal_revision),
+         revision = snapshot_revision(projection.topology_revision, projection.causal_revision, snapshot_opts),
          snapshot = %{
            schema_version: GodViewSnapshot.schema_version(),
            revision: revision,
@@ -900,7 +905,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp apply_native_layout_with_indexed_edges(nodes, _, _), do: nodes
 
-  defp layout_transport_edges(edges) when is_list(edges), do: edges
+  defp layout_transport_edges(edges) when is_list(edges) do
+    Enum.reject(edges, &endpoint_attachment_edge?/1)
+  end
 
   defp layout_transport_edges(_), do: []
 
@@ -1520,14 +1527,276 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         |> Map.put(:clustered_endpoint_summaries, length(cluster_nodes))
         |> Map.put(:expanded_endpoint_clusters, MapSet.size(expanded_clusters))
 
-      {retained_nodes ++ cluster_nodes,
-       retained_edges ++ cluster_edges ++ expanded_cluster_edges ++ expanded_member_edges, next_pipeline_stats}
+      projected_nodes =
+        (retained_nodes ++ cluster_nodes)
+        |> position_endpoint_projection_nodes(groups, expanded_clusters, retained_edges)
+        |> resolve_coordinate_collisions()
+        |> resolve_proximity_collisions()
+
+      {projected_nodes, retained_edges ++ cluster_edges ++ expanded_cluster_edges ++ expanded_member_edges,
+       next_pipeline_stats}
     end
   end
 
   defp apply_endpoint_cluster_projection(nodes, edges, pipeline_stats, _snapshot_opts) do
     {nodes, edges, pipeline_stats}
   end
+
+  defp position_endpoint_projection_nodes(nodes, groups, expanded_clusters, edges)
+       when is_list(nodes) and is_list(groups) and is_struct(expanded_clusters, MapSet) and is_list(edges) do
+    nodes_by_id = Map.new(nodes, &{&1.id, &1})
+    graph_centroid = projection_graph_centroid(nodes, groups)
+    backbone_segments = projection_backbone_segments(nodes_by_id, edges)
+
+    positioned =
+      groups
+      |> Enum.group_by(& &1.anchor_id)
+      |> Enum.reduce(nodes_by_id, fn {_anchor_id, anchor_groups}, acc ->
+        visible_groups =
+          anchor_groups
+          |> Enum.filter(&Map.has_key?(acc, &1.cluster_id))
+          |> Enum.sort_by(& &1.cluster_id)
+
+        total = length(visible_groups)
+
+        visible_groups
+        |> Enum.with_index()
+        |> Enum.reduce(acc, fn {group, idx}, inner ->
+          position_endpoint_projection_group(
+            inner,
+            group,
+            idx,
+            total,
+            expanded_clusters,
+            graph_centroid,
+            backbone_segments
+          )
+        end)
+      end)
+
+    Enum.map(nodes, fn node -> Map.get(positioned, node.id, node) end)
+  end
+
+  defp position_endpoint_projection_nodes(nodes, _groups, _expanded_clusters, _edges) when is_list(nodes), do: nodes
+
+  defp position_endpoint_projection_nodes(_nodes, _groups, _expanded_clusters, _edges), do: []
+
+  defp position_endpoint_projection_group(
+         nodes_by_id,
+         group,
+         idx,
+         total,
+         expanded_clusters,
+         graph_centroid,
+         backbone_segments
+       )
+       when is_map(nodes_by_id) and is_map(group) and is_integer(idx) and is_integer(total) and
+              is_struct(expanded_clusters, MapSet) and is_list(backbone_segments) do
+    expanded? = MapSet.member?(expanded_clusters, group.cluster_id)
+
+    case {Map.get(nodes_by_id, group.anchor_id), Map.get(nodes_by_id, group.cluster_id)} do
+      {%{x: anchor_x, y: anchor_y} = anchor, %{id: cluster_id} = hub}
+      when is_number(anchor_x) and is_number(anchor_y) and is_binary(cluster_id) ->
+        layout =
+          endpoint_cluster_layout(
+            nodes_by_id,
+            group,
+            anchor,
+            idx,
+            total,
+            graph_centroid,
+            backbone_segments,
+            expanded?
+          )
+
+        {hub_x, hub_y} = Map.get(layout, :hub, {Map.get(hub, :x, 0), Map.get(hub, :y, 0)})
+        member_positions = Map.get(layout, :members, %{})
+
+        nodes_by_id
+        |> Map.put(cluster_id, %{hub | x: hub_x, y: hub_y})
+        |> apply_cluster_member_positions(member_positions)
+
+      _ ->
+        nodes_by_id
+    end
+  end
+
+  defp position_endpoint_projection_group(
+         nodes_by_id,
+         _group,
+         _idx,
+         _total,
+         _expanded_clusters,
+         _graph_centroid,
+         _backbone_segments
+       )
+       when is_map(nodes_by_id), do: nodes_by_id
+
+  defp endpoint_cluster_layout(nodes_by_id, group, anchor, idx, total, graph_centroid, backbone_segments, false)
+       when is_map(nodes_by_id) and is_map(group) and is_map(anchor) and is_integer(idx) and is_integer(total) and
+              total > 0 and is_list(backbone_segments) do
+    hub =
+      endpoint_cluster_projection_coordinates(
+        anchor,
+        group,
+        idx,
+        total,
+        graph_centroid,
+        false
+      )
+
+    %{hub: hub, members: %{}}
+  end
+
+  defp endpoint_cluster_layout(nodes_by_id, group, anchor, idx, total, graph_centroid, backbone_segments, true)
+       when is_map(nodes_by_id) and is_map(group) and is_map(anchor) and is_integer(idx) and is_integer(total) and
+              total > 0 and is_list(backbone_segments) do
+    metrics = endpoint_cluster_layout_metrics(group, true)
+
+    {hub_x, hub_y} =
+      endpoint_cluster_projection_coordinates(
+        anchor,
+        group,
+        idx,
+        total,
+        graph_centroid,
+        true
+      )
+
+    base_angle = :math.atan2(hub_y - Map.get(anchor, :y, hub_y), hub_x - Map.get(anchor, :x, hub_x))
+    member_ids = group.endpoint_ids |> Enum.filter(&Map.has_key?(nodes_by_id, &1)) |> Enum.sort()
+    excluded_ids = MapSet.new([group.cluster_id, group.anchor_id | member_ids])
+    obstacle_nodes = endpoint_cluster_obstacle_nodes(nodes_by_id, excluded_ids)
+    obstacle_segments = endpoint_cluster_obstacle_segments(backbone_segments, excluded_ids)
+
+    best_layout =
+      base_angle
+      |> endpoint_cluster_candidate_angles()
+      |> Enum.map(fn angle ->
+        members = endpoint_cluster_member_positions(hub_x, hub_y, member_ids, angle, metrics)
+
+        %{
+          hub: {hub_x, hub_y},
+          members: members,
+          angle: angle,
+          score:
+            endpoint_cluster_layout_score(
+              {hub_x, hub_y},
+              members,
+              obstacle_nodes,
+              obstacle_segments,
+              anchor,
+              base_angle,
+              metrics
+            )
+        }
+      end)
+      |> Enum.min_by(
+        fn candidate ->
+          {candidate.score, abs(angle_delta(candidate.angle, base_angle)), candidate.angle}
+        end,
+        fn ->
+          %{hub: {hub_x, hub_y}, members: %{}, angle: base_angle, score: 0.0}
+        end
+      )
+
+    %{hub: best_layout.hub, members: best_layout.members}
+  end
+
+  defp endpoint_cluster_layout(
+         _nodes_by_id,
+         _group,
+         anchor,
+         _idx,
+         _total,
+         _graph_centroid,
+         _backbone_segments,
+         _expanded?
+       )
+       when is_map(anchor) do
+    %{hub: {Map.get(anchor, :x, 0), Map.get(anchor, :y, 0)}, members: %{}}
+  end
+
+  defp apply_cluster_member_positions(nodes_by_id, member_positions)
+       when is_map(nodes_by_id) and is_map(member_positions) do
+    Enum.reduce(member_positions, nodes_by_id, fn
+      {endpoint_id, {x, y}}, acc when is_binary(endpoint_id) and is_number(x) and is_number(y) ->
+        case Map.get(acc, endpoint_id) do
+          %{id: ^endpoint_id} = node -> Map.put(acc, endpoint_id, %{node | x: round(x), y: round(y)})
+          _ -> acc
+        end
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp apply_cluster_member_positions(nodes_by_id, _member_positions) when is_map(nodes_by_id), do: nodes_by_id
+
+  defp graph_centroid(nodes) when is_list(nodes) do
+    coords =
+      Enum.filter(nodes, fn
+        %{x: x, y: y} when is_number(x) and is_number(y) -> true
+        _ -> false
+      end)
+
+    if coords == [] do
+      {320.0, 160.0}
+    else
+      sum_x = Enum.reduce(coords, 0.0, &(&1.x + &2))
+      sum_y = Enum.reduce(coords, 0.0, &(&1.y + &2))
+      count = max(length(coords), 1)
+      {sum_x / count, sum_y / count}
+    end
+  end
+
+  defp graph_centroid(_nodes), do: {320.0, 160.0}
+
+  defp projection_graph_centroid(nodes, groups) when is_list(nodes) and is_list(groups) do
+    excluded_ids =
+      Enum.reduce(groups, MapSet.new(), fn group, acc ->
+        acc
+        |> MapSet.put(Map.get(group, :cluster_id))
+        |> MapSet.union(MapSet.new(Map.get(group, :endpoint_ids, [])))
+      end)
+
+    structural_nodes =
+      Enum.reject(nodes, fn
+        %{id: id} when is_binary(id) -> MapSet.member?(excluded_ids, id)
+        _ -> false
+      end)
+
+    graph_centroid(structural_nodes)
+  end
+
+  defp projection_graph_centroid(nodes, _groups) when is_list(nodes), do: graph_centroid(nodes)
+  defp projection_graph_centroid(_nodes, _groups), do: {320.0, 160.0}
+
+  defp projection_backbone_segments(nodes_by_id, edges) when is_map(nodes_by_id) and is_list(edges) do
+    edges
+    |> Enum.reject(&endpoint_attachment_edge?/1)
+    |> Enum.reduce([], fn edge, acc ->
+      with source when is_binary(source) <- Map.get(edge, :source),
+           target when is_binary(target) <- Map.get(edge, :target),
+           %{x: source_x, y: source_y} <- Map.get(nodes_by_id, source),
+           %{x: target_x, y: target_y} <- Map.get(nodes_by_id, target),
+           true <- is_number(source_x) and is_number(source_y) and is_number(target_x) and is_number(target_y) do
+        [
+          %{
+            source: source,
+            target: target,
+            from: {source_x * 1.0, source_y * 1.0},
+            to: {target_x * 1.0, target_y * 1.0}
+          }
+          | acc
+        ]
+      else
+        _ -> acc
+      end
+    end)
+  end
+
+  defp projection_backbone_segments(_nodes_by_id, _edges), do: []
 
   defp merge_cluster_anchor_details(nodes_by_id, groups, expanded_clusters)
        when is_map(nodes_by_id) and is_list(groups) and is_struct(expanded_clusters, MapSet) do
@@ -1610,10 +1879,20 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         |> Enum.sort()
         |> Enum.with_index()
         |> Enum.reduce(acc, fn {endpoint_id, idx}, inner ->
-          layout_cluster_member(inner, endpoint_id, group, hub_x, hub_y, member_count, idx, anchor_label)
+          layout_cluster_member(
+            inner,
+            endpoint_id,
+            group,
+            hub_x,
+            hub_y,
+            member_count,
+            idx,
+            anchor_label,
+            anchor
+          )
         end)
 
-      {%{}, %{x: hub_x, y: hub_y}} ->
+      {%{} = anchor, %{x: hub_x, y: hub_y}} ->
         member_count = length(group.endpoint_ids)
         anchor_label = group.anchor_id
 
@@ -1621,7 +1900,17 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         |> Enum.sort()
         |> Enum.with_index()
         |> Enum.reduce(acc, fn {endpoint_id, idx}, inner ->
-          layout_cluster_member(inner, endpoint_id, group, hub_x, hub_y, member_count, idx, anchor_label)
+          layout_cluster_member(
+            inner,
+            endpoint_id,
+            group,
+            hub_x,
+            hub_y,
+            member_count,
+            idx,
+            anchor_label,
+            anchor
+          )
         end)
 
       _ ->
@@ -1631,10 +1920,13 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp layout_expanded_cluster_members(_group, acc, _expanded_cluster_nodes_by_id) when is_map(acc), do: acc
 
-  defp layout_cluster_member(acc, endpoint_id, group, _hub_x, _hub_y, member_count, _idx, anchor_label)
-       when is_map(acc) and is_binary(endpoint_id) and is_map(group) and is_binary(anchor_label) do
+  defp layout_cluster_member(acc, endpoint_id, group, hub_x, hub_y, member_count, idx, anchor_label, anchor)
+       when is_map(acc) and is_binary(endpoint_id) and is_map(group) and is_binary(anchor_label) and is_map(anchor) do
     case Map.get(acc, endpoint_id) do
       %{id: ^endpoint_id} = node ->
+        {x, y} =
+          endpoint_cluster_member_coordinates(anchor, hub_x, hub_y, idx, member_count, endpoint_id)
+
         details_json =
           merge_cluster_membership_details(Map.get(node, :details_json), %{
             cluster_id: group.cluster_id,
@@ -1646,14 +1938,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
             cluster_anchor_label: anchor_label
           })
 
-        Map.put(acc, endpoint_id, %{node | details_json: details_json})
+        Map.put(acc, endpoint_id, %{node | x: x, y: y, details_json: details_json})
 
       _ ->
         acc
     end
   end
 
-  defp layout_cluster_member(acc, _endpoint_id, _group, _hub_x, _hub_y, _member_count, _idx, _anchor_label)
+  defp layout_cluster_member(acc, _endpoint_id, _group, _hub_x, _hub_y, _member_count, _idx, _anchor_label, _anchor)
        when is_map(acc), do: acc
 
   defp drop_cluster_projection_edge?(edge, collapsed_members, expanded_attachment_edge_keys, expanded_groups)
@@ -1674,7 +1966,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp valid_cluster_projection_edge_args?(_collapsed_members, _expanded_attachment_edge_keys, _expanded_groups),
     do: false
-
 
   defp expanded_group_attachment_edge?(edge, expanded_groups) when is_map(edge) and is_list(expanded_groups) do
     Enum.any?(expanded_groups, fn group ->
@@ -2034,6 +2325,418 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp endpoint_cluster_member_centroid(_group, _nodes_by_id, _anchor, _idx, _total), do: {0, 0}
+
+  defp endpoint_cluster_projection_coordinates(anchor, group, idx, total, graph_centroid, expanded?)
+       when is_map(anchor) and is_map(group) and is_integer(idx) and is_integer(total) and total > 0 do
+    radial_gap = endpoint_cluster_radial_gap(group, expanded?)
+    lateral_gap = endpoint_cluster_lateral_gap(group, expanded?)
+    {ux, uy} = endpoint_cluster_outward_unit_vector(anchor, graph_centroid, group.cluster_id)
+    lateral_offset = (idx - (total - 1) / 2) * lateral_gap
+    px = -uy
+    py = ux
+    anchor_x = Map.get(anchor, :x, 0)
+    anchor_y = Map.get(anchor, :y, 0)
+
+    {
+      round(anchor_x + ux * radial_gap + px * lateral_offset),
+      round(anchor_y + uy * radial_gap + py * lateral_offset)
+    }
+  end
+
+  defp endpoint_cluster_projection_coordinates(_anchor, _group, _idx, _total, _graph_centroid, _expanded?) do
+    {0, 0}
+  end
+
+  defp endpoint_cluster_layout_metrics(group, true) when is_map(group) do
+    member_count = max(length(Map.get(group, :endpoint_ids, [])), 1)
+    ring_sizes = endpoint_cluster_ring_sizes(member_count)
+    ring_count = max(length(ring_sizes), 1)
+    max_ring_size = Enum.max(ring_sizes, fn -> 1 end)
+    sector_span = endpoint_cluster_sector_span(member_count, max_ring_size)
+    outer_radius = @endpoint_cluster_expanded_base_radius + max(ring_count - 1, 0) * @endpoint_cluster_expanded_ring_gap
+    lateral_reach = outer_radius * :math.sin(sector_span / 2) + 18.0
+    forward_reach = outer_radius * max(:math.cos(sector_span / 2), 0.2) + 24.0
+
+    %{
+      member_count: member_count,
+      ring_sizes: ring_sizes,
+      sector_span: sector_span,
+      outer_radius: outer_radius,
+      lateral_reach: lateral_reach,
+      forward_reach: forward_reach,
+      member_clearance: @endpoint_cluster_expanded_member_clearance,
+      hub_clearance: @endpoint_cluster_expanded_hub_clearance
+    }
+  end
+
+  defp endpoint_cluster_layout_metrics(group, false) when is_map(group) do
+    member_count = max(length(Map.get(group, :endpoint_ids, [])), 1)
+
+    %{
+      member_count: member_count,
+      lateral_reach: @endpoint_cluster_summary_gap_y + min(16.0, member_count * 1.5),
+      forward_reach: @endpoint_cluster_summary_gap_x + min(42.0, member_count * 4.0)
+    }
+  end
+
+  defp endpoint_cluster_layout_metrics(_group, expanded?) when is_boolean(expanded?) do
+    if expanded? do
+      endpoint_cluster_layout_metrics(%{endpoint_ids: []}, true)
+    else
+      endpoint_cluster_layout_metrics(%{endpoint_ids: []}, false)
+    end
+  end
+
+  defp endpoint_cluster_ring_sizes(member_count) when is_integer(member_count) and member_count > 0 do
+    do_endpoint_cluster_ring_sizes(member_count, 4, [])
+  end
+
+  defp endpoint_cluster_ring_sizes(_member_count), do: [1]
+
+  defp do_endpoint_cluster_ring_sizes(remaining, _capacity, acc) when remaining <= 0 do
+    Enum.reverse(acc)
+  end
+
+  defp do_endpoint_cluster_ring_sizes(remaining, capacity, acc) do
+    size = min(remaining, capacity)
+    do_endpoint_cluster_ring_sizes(remaining - size, capacity + 2, [size | acc])
+  end
+
+  defp endpoint_cluster_sector_span(member_count, max_ring_size)
+       when is_integer(member_count) and is_integer(max_ring_size) do
+    ring_pressure = max(max_ring_size - 4, 0) * 0.12
+    count_pressure = min(member_count, 12) * 0.07
+    min(2.05, max(1.0, 1.0 + ring_pressure + count_pressure))
+  end
+
+  defp endpoint_cluster_sector_span(_member_count, _max_ring_size), do: 1.25
+
+  defp endpoint_cluster_radial_gap(group, true) when is_map(group) do
+    metrics = endpoint_cluster_layout_metrics(group, true)
+
+    @endpoint_cluster_expanded_gap_x +
+      metrics.forward_reach * 0.6 +
+      metrics.lateral_reach * 0.35 +
+      min(34.0, metrics.member_count * 3.0)
+  end
+
+  defp endpoint_cluster_radial_gap(group, false) when is_map(group) do
+    metrics = endpoint_cluster_layout_metrics(group, false)
+    @endpoint_cluster_summary_gap_x + min(42.0, metrics.member_count * 4.0)
+  end
+
+  defp endpoint_cluster_radial_gap(_group, expanded?) when is_boolean(expanded?) do
+    if expanded?, do: @endpoint_cluster_expanded_gap_x, else: @endpoint_cluster_summary_gap_x
+  end
+
+  defp endpoint_cluster_lateral_gap(group, true) when is_map(group) do
+    metrics = endpoint_cluster_layout_metrics(group, true)
+    max(@endpoint_cluster_expanded_gap_y, metrics.lateral_reach * 0.85)
+  end
+
+  defp endpoint_cluster_lateral_gap(group, false) when is_map(group) do
+    metrics = endpoint_cluster_layout_metrics(group, false)
+    @endpoint_cluster_summary_gap_y + min(16.0, metrics.member_count * 1.5)
+  end
+
+  defp endpoint_cluster_lateral_gap(_group, expanded?) when is_boolean(expanded?) do
+    if expanded?, do: @endpoint_cluster_expanded_gap_y, else: @endpoint_cluster_summary_gap_y
+  end
+
+  defp endpoint_cluster_outward_unit_vector(%{x: anchor_x, y: anchor_y}, {center_x, center_y}, cluster_id)
+       when is_number(anchor_x) and is_number(anchor_y) and is_number(center_x) and is_number(center_y) do
+    dx = anchor_x - center_x
+    dy = anchor_y - center_y
+    distance = :math.sqrt(dx * dx + dy * dy)
+
+    if distance > 8.0 do
+      {dx / distance, dy / distance}
+    else
+      angle = endpoint_angle_offset(cluster_id)
+      {:math.cos(angle), :math.sin(angle)}
+    end
+  end
+
+  defp endpoint_cluster_outward_unit_vector(_anchor, _center, cluster_id) when is_binary(cluster_id) do
+    angle = endpoint_angle_offset(cluster_id)
+    {:math.cos(angle), :math.sin(angle)}
+  end
+
+  defp endpoint_cluster_outward_unit_vector(_anchor, _center, _cluster_id), do: {1.0, 0.0}
+
+  defp endpoint_cluster_member_coordinates(anchor, hub_x, hub_y, idx, total, endpoint_id)
+       when is_map(anchor) and is_number(hub_x) and is_number(hub_y) and is_integer(idx) and is_integer(total) and
+              total > 0 and is_binary(endpoint_id) do
+    anchor_x = Map.get(anchor, :x, hub_x)
+    anchor_y = Map.get(anchor, :y, hub_y)
+    axis_angle = :math.atan2(hub_y - anchor_y, hub_x - anchor_x)
+
+    hub_x
+    |> endpoint_cluster_member_positions(
+      hub_y,
+      [endpoint_id],
+      axis_angle,
+      endpoint_cluster_layout_metrics(%{endpoint_ids: Enum.to_list(1..total)}, true),
+      idx
+    )
+    |> Map.get(endpoint_id, {round(hub_x), round(hub_y)})
+  end
+
+  defp endpoint_cluster_member_coordinates(_anchor, hub_x, hub_y, _idx, _total, _endpoint_id)
+       when is_number(hub_x) and is_number(hub_y) do
+    {round(hub_x), round(hub_y)}
+  end
+
+  defp endpoint_cluster_member_positions(hub_x, hub_y, endpoint_ids, sector_center_angle, metrics, start_index \\ 0)
+       when is_number(hub_x) and is_number(hub_y) and is_list(endpoint_ids) and is_number(sector_center_angle) and
+              is_map(metrics) do
+    endpoint_ids
+    |> Enum.with_index(start_index)
+    |> Enum.reduce(%{}, fn {endpoint_id, global_idx}, acc ->
+      case endpoint_cluster_ring_slot(global_idx, Map.get(metrics, :ring_sizes, [length(endpoint_ids)])) do
+        {ring_idx, slot_idx, ring_size} ->
+          sector_span = Map.get(metrics, :sector_span, 1.25)
+          radius = @endpoint_cluster_expanded_base_radius + ring_idx * @endpoint_cluster_expanded_ring_gap
+
+          offset =
+            if ring_size <= 1 do
+              endpoint_angle_offset(endpoint_id) * 0.06
+            else
+              slot_ratio = slot_idx / max(ring_size - 1, 1)
+              -sector_span / 2 + sector_span * slot_ratio + endpoint_angle_offset(endpoint_id) * 0.05
+            end
+
+          angle = sector_center_angle + offset
+
+          Map.put(
+            acc,
+            endpoint_id,
+            {hub_x + radius * :math.cos(angle), hub_y + radius * :math.sin(angle)}
+          )
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp endpoint_cluster_ring_slot(global_idx, ring_sizes)
+       when is_integer(global_idx) and global_idx >= 0 and is_list(ring_sizes) do
+    ring_sizes
+    |> Enum.with_index()
+    |> Enum.reduce_while({global_idx, nil}, fn {ring_size, ring_idx}, {remaining, _acc} ->
+      if remaining < ring_size do
+        {:halt, {remaining, {ring_idx, remaining, ring_size}}}
+      else
+        {:cont, {remaining - ring_size, nil}}
+      end
+    end)
+    |> case do
+      {_remaining, {_ring_idx, _slot_idx, _ring_size} = ring_slot} -> ring_slot
+      _ -> {0, 0, max(List.first(ring_sizes) || 1, 1)}
+    end
+  end
+
+  defp endpoint_cluster_ring_slot(_global_idx, _ring_sizes), do: {0, 0, 1}
+
+  defp endpoint_cluster_candidate_angles(base_angle) when is_number(base_angle) do
+    Enum.map(@endpoint_cluster_expanded_orientation_offsets, &(base_angle + &1))
+  end
+
+  defp endpoint_cluster_candidate_angles(_base_angle), do: [0.0]
+
+  defp endpoint_cluster_obstacle_nodes(nodes_by_id, excluded_ids)
+       when is_map(nodes_by_id) and is_struct(excluded_ids, MapSet) do
+    nodes_by_id
+    |> Map.values()
+    |> Enum.filter(fn
+      %{id: id, x: x, y: y} when is_binary(id) and is_number(x) and is_number(y) ->
+        not MapSet.member?(excluded_ids, id)
+
+      _ ->
+        false
+    end)
+  end
+
+  defp endpoint_cluster_obstacle_nodes(_nodes_by_id, _excluded_ids), do: []
+
+  defp endpoint_cluster_obstacle_segments(backbone_segments, excluded_ids)
+       when is_list(backbone_segments) and is_struct(excluded_ids, MapSet) do
+    Enum.reject(backbone_segments, fn
+      %{source: source, target: target} ->
+        MapSet.member?(excluded_ids, source) or MapSet.member?(excluded_ids, target)
+
+      _ ->
+        true
+    end)
+  end
+
+  defp endpoint_cluster_obstacle_segments(_backbone_segments, _excluded_ids), do: []
+
+  # Mirror TopoMap's rotate-and-translate feature placement idea, but score only a
+  # bounded set of sector orientations around the anchor-relative axis.
+  defp endpoint_cluster_layout_score(
+         {hub_x, hub_y} = hub,
+         members,
+         obstacle_nodes,
+         obstacle_segments,
+         anchor,
+         base_angle,
+         metrics
+       )
+       when is_number(hub_x) and is_number(hub_y) and is_map(members) and is_list(obstacle_nodes) and
+              is_list(obstacle_segments) and is_map(anchor) and is_number(base_angle) and is_map(metrics) do
+    hub_clearance = Map.get(metrics, :hub_clearance, @endpoint_cluster_expanded_hub_clearance)
+    member_clearance = Map.get(metrics, :member_clearance, @endpoint_cluster_expanded_member_clearance)
+    member_points = Map.values(members)
+    anchor_point = {Map.get(anchor, :x, hub_x) * 1.0, Map.get(anchor, :y, hub_y) * 1.0}
+
+    node_penalty =
+      Enum.reduce(obstacle_nodes, 0.0, fn node, acc ->
+        point = {node.x * 1.0, node.y * 1.0}
+
+        acc +
+          overlap_penalty(distance(hub, point), hub_clearance, 12.0) +
+          Enum.reduce(member_points, 0.0, fn member_point, inner ->
+            inner + overlap_penalty(distance(member_point, point), member_clearance, 9.0)
+          end)
+      end)
+
+    segment_penalty =
+      Enum.reduce(obstacle_segments, 0.0, fn %{from: from, to: to}, acc ->
+        hub_penalty = overlap_penalty(distance_point_to_segment(hub, {from, to}), hub_clearance, 14.0)
+
+        member_penalty =
+          Enum.reduce(member_points, 0.0, fn member_point, inner ->
+            inner + overlap_penalty(distance_point_to_segment(member_point, {from, to}), member_clearance, 10.0)
+          end)
+
+        crossing_penalty =
+          Enum.reduce(member_points, 0.0, fn member_point, inner ->
+            if segments_intersect?({hub, member_point}, {from, to}) do
+              inner + 180.0
+            else
+              inner
+            end
+          end)
+
+        anchor_penalty =
+          if segments_intersect?({anchor_point, hub}, {from, to}) do
+            60.0
+          else
+            0.0
+          end
+
+        acc + hub_penalty + member_penalty + crossing_penalty + anchor_penalty
+      end)
+
+    member_spread_penalty =
+      members
+      |> Map.values()
+      |> Enum.with_index()
+      |> Enum.reduce(0.0, fn {left, idx}, acc ->
+        acc +
+          Enum.reduce(Enum.drop(member_points, idx + 1), 0.0, fn right, inner ->
+            inner + overlap_penalty(distance(left, right), member_clearance * 0.92, 8.5)
+          end)
+      end)
+
+    orientation_penalty =
+      members
+      |> Map.values()
+      |> Enum.reduce(abs(angle_delta(base_angle, base_angle)) * 0.0, fn {member_x, member_y}, acc ->
+        member_angle = :math.atan2(member_y - hub_y, member_x - hub_x)
+        acc + abs(angle_delta(member_angle, base_angle)) * 1.4
+      end)
+
+    node_penalty + segment_penalty + member_spread_penalty + orientation_penalty
+  end
+
+  defp endpoint_cluster_layout_score(_hub, _members, _obstacle_nodes, _obstacle_segments, _anchor, _base_angle, _metrics),
+    do: 0.0
+
+  defp overlap_penalty(distance, clearance, scale)
+       when is_number(distance) and is_number(clearance) and is_number(scale) do
+    if distance >= clearance do
+      0.0
+    else
+      overlap = clearance - distance
+      overlap * overlap * scale
+    end
+  end
+
+  defp overlap_penalty(_distance, _clearance, _scale), do: 0.0
+
+  defp distance({ax, ay}, {bx, by}) when is_number(ax) and is_number(ay) and is_number(bx) and is_number(by) do
+    dx = bx - ax
+    dy = by - ay
+    :math.sqrt(dx * dx + dy * dy)
+  end
+
+  defp distance(_left, _right), do: 0.0
+
+  defp distance_point_to_segment({px, py}, {{ax, ay}, {bx, by}})
+       when is_number(px) and is_number(py) and is_number(ax) and is_number(ay) and is_number(bx) and is_number(by) do
+    abx = bx - ax
+    aby = by - ay
+    segment_length_sq = abx * abx + aby * aby
+
+    if segment_length_sq <= 0.0001 do
+      distance({px, py}, {ax, ay})
+    else
+      t = max(0.0, min(1.0, ((px - ax) * abx + (py - ay) * aby) / segment_length_sq))
+      distance({px, py}, {ax + t * abx, ay + t * aby})
+    end
+  end
+
+  defp distance_point_to_segment(_point, _segment), do: 0.0
+
+  defp segments_intersect?({{ax, ay}, {bx, by}}, {{cx, cy}, {dx, dy}})
+       when is_number(ax) and is_number(ay) and is_number(bx) and is_number(by) and is_number(cx) and is_number(cy) and
+              is_number(dx) and is_number(dy) do
+    o1 = segment_orientation({ax, ay}, {bx, by}, {cx, cy})
+    o2 = segment_orientation({ax, ay}, {bx, by}, {dx, dy})
+    o3 = segment_orientation({cx, cy}, {dx, dy}, {ax, ay})
+    o4 = segment_orientation({cx, cy}, {dx, dy}, {bx, by})
+
+    cond do
+      o1 == 0 and on_segment?({ax, ay}, {cx, cy}, {bx, by}) -> true
+      o2 == 0 and on_segment?({ax, ay}, {dx, dy}, {bx, by}) -> true
+      o3 == 0 and on_segment?({cx, cy}, {ax, ay}, {dx, dy}) -> true
+      o4 == 0 and on_segment?({cx, cy}, {bx, by}, {dx, dy}) -> true
+      true -> o1 != o2 and o3 != o4
+    end
+  end
+
+  defp segments_intersect?(_left, _right), do: false
+
+  defp segment_orientation({ax, ay}, {bx, by}, {cx, cy})
+       when is_number(ax) and is_number(ay) and is_number(bx) and is_number(by) and is_number(cx) and is_number(cy) do
+    value = (by - ay) * (cx - bx) - (bx - ax) * (cy - by)
+
+    cond do
+      abs(value) <= 0.001 -> 0
+      value > 0 -> 1
+      true -> 2
+    end
+  end
+
+  defp segment_orientation(_a, _b, _c), do: 0
+
+  defp on_segment?({ax, ay}, {bx, by}, {cx, cy})
+       when is_number(ax) and is_number(ay) and is_number(bx) and is_number(by) and is_number(cx) and is_number(cy) do
+    bx <= max(ax, cx) + 0.001 and bx + 0.001 >= min(ax, cx) and by <= max(ay, cy) + 0.001 and
+      by + 0.001 >= min(ay, cy)
+  end
+
+  defp on_segment?(_a, _b, _c), do: false
+
+  defp angle_delta(left, right) when is_number(left) and is_number(right) do
+    delta = left - right
+    :math.atan2(:math.sin(delta), :math.cos(delta))
+  end
+
+  defp angle_delta(_left, _right), do: 0.0
 
   defp endpoint_cluster_sample_ip(node) when is_map(node) do
     node
@@ -2764,9 +3467,20 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp causal_revision(_), do: 1
 
-  defp snapshot_revision(topology_revision, causal_revision) do
-    stable_positive_hash({topology_revision, causal_revision})
+  defp snapshot_revision(topology_revision, causal_revision, snapshot_opts) do
+    stable_positive_hash({
+      topology_revision,
+      causal_revision,
+      snapshot_option_revision(snapshot_opts)
+    })
   end
+
+  defp snapshot_option_revision(%{expanded_clusters: expanded_clusters}) when is_struct(expanded_clusters, MapSet) do
+    Enum.sort(expanded_clusters)
+  end
+
+  defp snapshot_option_revision(%{}), do: []
+  defp snapshot_option_revision(_snapshot_opts), do: []
 
   defp stable_positive_hash(term) do
     case :erlang.phash2(term, 4_294_967_295) do

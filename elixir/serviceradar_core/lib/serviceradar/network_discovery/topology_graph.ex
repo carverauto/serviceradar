@@ -13,6 +13,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   @default_stale_minutes 180
   @telemetry_window_minutes 10
   @canonical_rebuild_lock_key 1_104_202_506
+  @default_canonical_rebuild_timeout_ms 60_000
+  @default_canonical_edge_telemetry_batch_size 100
   @packet_metric_names ["ifInUcastPkts", "ifOutUcastPkts", "ifHCInUcastPkts", "ifHCOutUcastPkts"]
   @octet_metric_names ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
   @direct_protocols MapSet.new(["lldp", "cdp", "unifi-api", "wireguard-derived"])
@@ -707,21 +709,86 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp with_canonical_rebuild_lock(fun) when is_function(fun, 0) do
-    Repo.transaction(fn ->
-      case Repo.query("SELECT pg_try_advisory_xact_lock($1)", [@canonical_rebuild_lock_key]) do
-        {:ok, %{rows: [[true]]}} ->
-          fun.()
+    Repo.transaction(
+      fn ->
+        case Repo.query("SELECT pg_try_advisory_xact_lock($1)", [@canonical_rebuild_lock_key]) do
+          {:ok, %{rows: [[true]]}} ->
+            fun.()
 
-        {:ok, %{rows: [[false]]}} ->
-          {:busy, lock_skipped_rebuild_stats()}
+          {:ok, %{rows: [[false]]}} ->
+            {:busy, lock_skipped_rebuild_stats()}
 
-        {:ok, _unexpected} ->
-          Repo.rollback(:unexpected_lock_response)
+          {:ok, _unexpected} ->
+            Repo.rollback(:unexpected_lock_response)
 
-        {:error, reason} ->
-          Repo.rollback(reason)
-      end
-    end)
+          {:error, reason} ->
+            Repo.rollback(reason)
+        end
+      end,
+      timeout: canonical_rebuild_timeout_ms()
+    )
+  end
+
+  @doc false
+  @spec canonical_rebuild_timeout_ms() :: pos_integer()
+  def canonical_rebuild_timeout_ms do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:canonical_rebuild_timeout_ms, @default_canonical_rebuild_timeout_ms)
+    |> normalize_positive_int(@default_canonical_rebuild_timeout_ms)
+  end
+
+  @doc false
+  @spec canonical_edge_telemetry_batch_size() :: pos_integer()
+  def canonical_edge_telemetry_batch_size do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(
+      :canonical_edge_telemetry_batch_size,
+      @default_canonical_edge_telemetry_batch_size
+    )
+    |> normalize_positive_int(@default_canonical_edge_telemetry_batch_size)
+  end
+
+  @doc false
+  @spec canonical_edge_telemetry_batch_query([map()]) :: String.t()
+  def canonical_edge_telemetry_batch_query(updates) when is_list(updates) do
+    rows_literal = Enum.map_join(updates, ",\n", &canonical_edge_telemetry_update_literal/1)
+
+    """
+    UNWIND [#{rows_literal}] AS row
+    MATCH (a:Device {id: row.src_id})-[r:CANONICAL_TOPOLOGY]->(b:Device {id: row.dst_id})
+    WHERE r.ingestor = 'mapper_topology_v1'
+    SET r.flow_pps = row.flow_pps
+    SET r.flow_bps = row.flow_bps
+    SET r.capacity_bps = row.capacity_bps
+    SET r.flow_pps_ab = row.flow_pps_ab
+    SET r.flow_pps_ba = row.flow_pps_ba
+    SET r.flow_bps_ab = row.flow_bps_ab
+    SET r.flow_bps_ba = row.flow_bps_ba
+    SET r.telemetry_eligible = row.telemetry_eligible
+    SET r.telemetry_source = row.telemetry_source
+    SET r.telemetry_observed_at = row.telemetry_observed_at
+    """
+  end
+
+  defp canonical_edge_telemetry_update_literal(update) when is_map(update) do
+    [
+      "src_id: #{cypher_value(Map.get(update, :src_id))}",
+      "dst_id: #{cypher_value(Map.get(update, :dst_id))}",
+      "flow_pps: #{cypher_value(Map.get(update, :flow_pps, 0))}",
+      "flow_bps: #{cypher_value(Map.get(update, :flow_bps, 0))}",
+      "capacity_bps: #{cypher_value(Map.get(update, :capacity_bps, 0))}",
+      "flow_pps_ab: #{cypher_value(Map.get(update, :flow_pps_ab, 0))}",
+      "flow_pps_ba: #{cypher_value(Map.get(update, :flow_pps_ba, 0))}",
+      "flow_bps_ab: #{cypher_value(Map.get(update, :flow_bps_ab, 0))}",
+      "flow_bps_ba: #{cypher_value(Map.get(update, :flow_bps_ba, 0))}",
+      "telemetry_eligible: #{cypher_value(Map.get(update, :telemetry_eligible, false))}",
+      "telemetry_source: #{cypher_value(Map.get(update, :telemetry_source, "none"))}",
+      "telemetry_observed_at: #{cypher_value(Map.get(update, :telemetry_observed_at, ""))}"
+    ]
+    |> Enum.join(", ")
+    |> then(&"{#{&1}}")
   end
 
   defp do_rebuild_canonical_device_links do
@@ -1098,30 +1165,36 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         capacity_by_if = load_interface_capacity(metric_keys)
         observed_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
-        stats =
+        {stats, updates} =
           Enum.reduce(
             edges,
-            %{
-              total_edges: length(edges),
-              interface_source: 0,
-              none_source: 0,
-              render_ready: 0,
-              render_partial: 0,
-              render_unattributed: 0
-            },
-            fn edge, acc ->
+            {%{
+               total_edges: length(edges),
+               interface_source: 0,
+               none_source: 0,
+               render_ready: 0,
+               render_partial: 0,
+               render_unattributed: 0
+             }, []},
+            fn edge, {acc, updates} ->
               telemetry =
                 compute_edge_telemetry(edge, pps_by_if, bps_by_if, capacity_by_if, observed_at)
 
-              persist_canonical_edge_telemetry(edge, telemetry)
-
               acc = update_render_readiness_stats(acc, edge_render_readiness_class(edge))
-              update_telemetry_source_stats(acc, telemetry.telemetry_source)
+              acc = update_telemetry_source_stats(acc, telemetry.telemetry_source)
+              {acc, [canonical_edge_telemetry_update(edge, telemetry) | updates]}
             end
           )
 
-        Logger.info("canonical_edge_telemetry_stats #{inspect(stats)}")
-        {:ok, stats}
+        case persist_canonical_edge_telemetry_updates(Enum.reverse(updates)) do
+          :ok ->
+            Logger.info("canonical_edge_telemetry_stats #{inspect(stats)}")
+            {:ok, stats}
+
+          {:error, reason} ->
+            Logger.warning("Canonical edge telemetry refresh failed: #{inspect(reason)}")
+            {:error, reason}
+        end
 
       {:error, reason} ->
         Logger.warning("Canonical edge telemetry refresh failed: #{inspect(reason)}")
@@ -1502,32 +1575,45 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     }
   end
 
-  defp persist_canonical_edge_telemetry(edge, telemetry)
-       when is_map(edge) and is_map(telemetry) do
-    src_id = Graph.escape(Map.get(edge, :src_id))
-    dst_id = Graph.escape(Map.get(edge, :dst_id))
+  defp canonical_edge_telemetry_update(edge, telemetry) when is_map(edge) and is_map(telemetry) do
+    %{
+      src_id: Map.get(edge, :src_id),
+      dst_id: Map.get(edge, :dst_id),
+      flow_pps: Map.get(telemetry, :flow_pps, 0),
+      flow_bps: Map.get(telemetry, :flow_bps, 0),
+      capacity_bps: Map.get(telemetry, :capacity_bps, 0),
+      flow_pps_ab: Map.get(telemetry, :flow_pps_ab, 0),
+      flow_pps_ba: Map.get(telemetry, :flow_pps_ba, 0),
+      flow_bps_ab: Map.get(telemetry, :flow_bps_ab, 0),
+      flow_bps_ba: Map.get(telemetry, :flow_bps_ba, 0),
+      telemetry_eligible: Map.get(telemetry, :telemetry_eligible, false),
+      telemetry_source: Map.get(telemetry, :telemetry_source, "none"),
+      telemetry_observed_at: Map.get(telemetry, :telemetry_observed_at, "")
+    }
+  end
 
-    cypher = """
-    MATCH (a:Device {id: '#{src_id}'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id: '#{dst_id}'})
-    SET r.flow_pps = #{Map.get(telemetry, :flow_pps, 0)}
-    SET r.flow_bps = #{Map.get(telemetry, :flow_bps, 0)}
-    SET r.capacity_bps = #{Map.get(telemetry, :capacity_bps, 0)}
-    SET r.flow_pps_ab = #{Map.get(telemetry, :flow_pps_ab, 0)}
-    SET r.flow_pps_ba = #{Map.get(telemetry, :flow_pps_ba, 0)}
-    SET r.flow_bps_ab = #{Map.get(telemetry, :flow_bps_ab, 0)}
-    SET r.flow_bps_ba = #{Map.get(telemetry, :flow_bps_ba, 0)}
-    SET r.telemetry_eligible = #{if(Map.get(telemetry, :telemetry_eligible, false), do: "true", else: "false")}
-    SET r.telemetry_source = '#{Graph.escape(Map.get(telemetry, :telemetry_source, "none"))}'
-    SET r.telemetry_observed_at = '#{Graph.escape(Map.get(telemetry, :telemetry_observed_at, ""))}'
-    """
+  defp canonical_edge_telemetry_update(_edge, _telemetry), do: %{}
 
-    case Graph.execute(cypher) do
-      :ok ->
-        :ok
+  defp persist_canonical_edge_telemetry_updates([]), do: :ok
 
-      {:error, reason} ->
-        Logger.warning("Canonical edge telemetry upsert failed: #{inspect(reason)}")
-    end
+  defp persist_canonical_edge_telemetry_updates(updates) when is_list(updates) do
+    updates
+    |> Enum.chunk_every(canonical_edge_telemetry_batch_size())
+    |> Enum.reduce_while(:ok, fn batch, :ok ->
+      case Graph.execute(canonical_edge_telemetry_batch_query(batch)) do
+        :ok ->
+          {:cont, :ok}
+
+        {:error, reason} ->
+          Logger.warning(
+            "Canonical edge telemetry upsert failed",
+            reason: inspect(reason),
+            batch_size: length(batch)
+          )
+
+          {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp parse_ifindex(value) when is_integer(value) and value > 0, do: value
@@ -1920,9 +2006,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     "SET #{node}.#{field} = #{cypher_value(value)}"
   end
 
+  defp cypher_value(nil), do: "null"
+  defp cypher_value(value) when is_boolean(value), do: if(value, do: "true", else: "false")
   defp cypher_value(value) when is_integer(value), do: Integer.to_string(value)
-  defp cypher_value(value) when is_float(value), do: Float.to_string(value)
+
+  defp cypher_value(value) when is_float(value),
+    do: :erlang.float_to_binary(value, [:compact, decimals: 8])
+
   defp cypher_value(value) when is_binary(value), do: "'#{Graph.escape(value)}'"
   defp cypher_value(value) when is_atom(value), do: "'#{Graph.escape(value)}'"
-  defp cypher_value(_value), do: "null"
+  defp cypher_value(value), do: "'#{Graph.escape(to_string(value))}'"
 end

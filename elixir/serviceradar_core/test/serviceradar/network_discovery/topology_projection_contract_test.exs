@@ -335,6 +335,53 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert query =~ "RETURN {count: count(r)}"
     end
 
+    test "canonical telemetry batch query updates multiple edges in one UNWIND" do
+      query =
+        TopologyGraph.canonical_edge_telemetry_batch_query([
+          %{
+            src_id: "sr:a",
+            dst_id: "sr:b",
+            flow_pps: 12,
+            flow_bps: 1200,
+            capacity_bps: 1_000_000,
+            flow_pps_ab: 7,
+            flow_pps_ba: 5,
+            flow_bps_ab: 700,
+            flow_bps_ba: 500,
+            telemetry_eligible: true,
+            telemetry_source: "interface",
+            telemetry_observed_at: "2026-03-22T18:44:48Z"
+          },
+          %{
+            src_id: "sr:c",
+            dst_id: "sr:d",
+            flow_pps: 0,
+            flow_bps: 0,
+            capacity_bps: 0,
+            flow_pps_ab: 0,
+            flow_pps_ba: 0,
+            flow_bps_ab: 0,
+            flow_bps_ba: 0,
+            telemetry_eligible: false,
+            telemetry_source: "none",
+            telemetry_observed_at: "2026-03-22T18:44:48Z"
+          }
+        ])
+
+      assert query =~ "UNWIND ["
+
+      assert query =~
+               "MATCH (a:Device {id: row.src_id})-[r:CANONICAL_TOPOLOGY]->(b:Device {id: row.dst_id})"
+
+      assert query =~ "WHERE r.ingestor = 'mapper_topology_v1'"
+      assert query =~ "SET r.flow_pps = row.flow_pps"
+      assert query =~ "SET r.telemetry_source = row.telemetry_source"
+      assert query =~ "src_id: 'sr:a'"
+      assert query =~ "dst_id: 'sr:d'"
+      assert query =~ "telemetry_eligible: true"
+      assert query =~ "telemetry_eligible: false"
+    end
+
     test "canonical rebuild telemetry emits before/after counters on completion" do
       handler_id = "canonical-rebuild-completed-#{System.unique_integer([:positive])}"
 
@@ -390,6 +437,28 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
 
       Application.put_env(:serviceradar_core, TopologyGraph, min_canonical_edges: 3)
       assert TopologyGraph.canonical_rebuild_min_edges() == 3
+    end
+
+    test "canonical rebuild timeout and telemetry batch size honor positive config" do
+      original = Application.get_env(:serviceradar_core, TopologyGraph, [])
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_core, TopologyGraph, original)
+      end)
+
+      Application.put_env(:serviceradar_core, TopologyGraph, [])
+      assert TopologyGraph.canonical_rebuild_timeout_ms() == 60_000
+      assert TopologyGraph.canonical_edge_telemetry_batch_size() == 100
+
+      Application.put_env(
+        :serviceradar_core,
+        TopologyGraph,
+        canonical_rebuild_timeout_ms: 90_000,
+        canonical_edge_telemetry_batch_size: 250
+      )
+
+      assert TopologyGraph.canonical_rebuild_timeout_ms() == 90_000
+      assert TopologyGraph.canonical_edge_telemetry_batch_size() == 250
     end
   end
 
