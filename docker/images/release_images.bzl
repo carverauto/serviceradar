@@ -123,7 +123,7 @@ ROOT=$(@D)/rootfs
 rm -rf "$${ROOT}"
 mkdir -p "$${ROOT}/app"
 tar -xzf "$${TAR}" -C "$${ROOT}/app"
-tar -czf "$@" -C "$${ROOT}" .
+tar -czf "$@" --owner=10001 --group=10001 -C "$${ROOT}" .
 """.replace("___RELEASE_TAR___", release_tar),
         visibility = visibility,
     )
@@ -158,7 +158,7 @@ ROOT=$(@D)/rootfs
 rm -rf "$${{ROOT}}"
 mkdir -p "$${{ROOT}}/app"
 tar -xzf "$${{TAR}}" -C "$${{ROOT}}/app"
-{deb_args}tar -czf "$@" -C "$${{ROOT}}" .
+{deb_args}tar -czf "$@" --owner=10001 --group=10001 -C "$${{ROOT}}" .
 """.format(
             deb_args = deb_args,
         ).replace("___RELEASE_TAR___", release_tar),
@@ -177,6 +177,7 @@ def elixir_release_image_amd64(
         exposed_ports = None,
         extra_tars = None,
         base_image_name = None,
+        user = "10001",
         visibility = None,
         target_compatible_with = None):
     """Build an amd64 OCI image from an Elixir release rootfs tar."""
@@ -196,15 +197,18 @@ def elixir_release_image_amd64(
         "org.opencontainers.image.title": image_title,
     }
 
+    user_layer = "//docker/images:serviceradar_user_layer"
+
     if base_image_name:
         oci_image(
             name = base_image_name,
             base = base,
-            tars = [rootfs_tar],
+            tars = [user_layer, rootfs_tar],
             entrypoint = entrypoint,
             cmd = cmd,
             env = env,
             workdir = workdir,
+            user = user,
             exposed_ports = exposed_ports,
             labels = labels,
             visibility = visibility,
@@ -219,6 +223,7 @@ def elixir_release_image_amd64(
             cmd = cmd,
             env = env,
             workdir = workdir,
+            user = user,
             exposed_ports = exposed_ports,
             labels = labels,
             visibility = visibility,
@@ -229,11 +234,12 @@ def elixir_release_image_amd64(
     oci_image(
         name = name,
         base = base,
-        tars = [rootfs_tar] + extra_tars,
+        tars = [user_layer, rootfs_tar] + extra_tars,
         entrypoint = entrypoint,
         cmd = cmd,
         env = env,
         workdir = workdir,
+        user = user,
         exposed_ports = exposed_ports,
         labels = labels,
         visibility = visibility,

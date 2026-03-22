@@ -36,10 +36,12 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ $gatewaySA }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       containers:
       - name: agent-gateway
         image: ghcr.io/carverauto/serviceradar-agent-gateway:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "agentGateway") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:
         - name: grpc
           containerPort: {{ default 50052 $gateway.service.port }}

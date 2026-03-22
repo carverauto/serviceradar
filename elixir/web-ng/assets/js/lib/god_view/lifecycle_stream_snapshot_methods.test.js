@@ -59,4 +59,37 @@ describe("lifecycle_stream_snapshot_methods", () => {
       /unexpected binary snapshot magic/,
     )
   })
+
+  it("handleSnapshot skips decode and render when revision is unchanged", () => {
+    const state = {
+      lastRevision: 42,
+      lastSnapshotAt: 0,
+      pushEvent: () => {},
+      summary: {textContent: ""},
+    }
+    const deps = {
+      decodeArrowGraph: () => {
+        throw new Error("decode should not run")
+      },
+      graphTopologyStamp: () => "stamp",
+      prepareGraphLayout: () => {
+        throw new Error("layout should not run")
+      },
+      ensureBitmapMetadata: () => ({}),
+      sameTopology: () => false,
+      renderGraph: () => {
+        throw new Error("render should not run")
+      },
+      animateTransition: () => {
+        throw new Error("animate should not run")
+      },
+      normalizePipelineStats: () => ({}),
+    }
+    const methods = createStateBackedContext(state, deps)
+    Object.assign(methods, bindApi(methods, godViewLifecycleStreamSnapshotMethods))
+
+    methods.handleSnapshot(buildFrame([1, 2, 3]))
+
+    expect(state.lastSnapshotAt).toBeGreaterThan(0)
+  })
 })

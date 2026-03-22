@@ -21,28 +21,70 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
 
       true ->
         send(self(), :tick)
-        {:ok, socket}
+        {:ok, socket |> assign(:last_snapshot_revision, nil) |> assign(:expanded_clusters, MapSet.new())}
     end
   end
 
   @impl true
   def handle_info(:tick, socket) do
-    socket =
-      case GodViewStream.latest_snapshot() do
-        {:ok, %{snapshot: snapshot, payload: payload}} ->
-          push(socket, "snapshot_meta", %{pipeline_stats: pipeline_stats(snapshot)})
-          push(socket, "snapshot", {:binary, encode_snapshot_frame(snapshot, payload)})
-
-          socket
-
-        {:error, reason} ->
-          Logger.error("God-View snapshot error: #{inspect(reason)}")
-          push(socket, "snapshot_error", %{reason: "snapshot_unavailable"})
-          socket
-      end
+    socket = push_latest_snapshot(socket)
 
     Process.send_after(self(), :tick, @tick_ms)
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_in("cluster:set_expanded", %{"cluster_id" => cluster_id, "expanded" => expanded}, socket)
+      when is_binary(cluster_id) do
+    expanded_clusters = socket.assigns[:expanded_clusters] || MapSet.new()
+
+    expanded_clusters =
+      if expanded == true do
+        MapSet.put(expanded_clusters, cluster_id)
+      else
+        MapSet.delete(expanded_clusters, cluster_id)
+      end
+
+    socket =
+      socket
+      |> assign(:expanded_clusters, expanded_clusters)
+      |> assign(:last_snapshot_revision, nil)
+      |> push_latest_snapshot()
+
+    {:reply, {:ok, %{}}, socket}
+  end
+
+  def handle_in("cluster:set_expanded", _payload, socket), do: {:reply, {:ok, %{}}, socket}
+
+  @impl true
+  def handle_in("cluster:collapse_all", _payload, socket) do
+    socket =
+      socket
+      |> assign(:expanded_clusters, MapSet.new())
+      |> assign(:last_snapshot_revision, nil)
+      |> push_latest_snapshot()
+
+    {:reply, {:ok, %{}}, socket}
+  end
+
+  defp push_latest_snapshot(socket) do
+    snapshot_opts = %{expanded_clusters: MapSet.to_list(socket.assigns[:expanded_clusters] || MapSet.new())}
+
+    case GodViewStream.latest_snapshot(snapshot_opts) do
+      {:ok, %{snapshot: snapshot, payload: payload}} ->
+        if socket.assigns[:last_snapshot_revision] == snapshot.revision do
+          socket
+        else
+          push(socket, "snapshot_meta", %{pipeline_stats: pipeline_stats(snapshot)})
+          push(socket, "snapshot", {:binary, encode_snapshot_frame(snapshot, payload)})
+          assign(socket, :last_snapshot_revision, snapshot.revision)
+        end
+
+      {:error, reason} ->
+        Logger.error("God-View snapshot error: #{inspect(reason)}")
+        push(socket, "snapshot_error", %{reason: "snapshot_unavailable"})
+        socket
+    end
   end
 
   defp encode_snapshot_frame(snapshot, payload) do

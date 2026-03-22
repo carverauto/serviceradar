@@ -110,7 +110,9 @@ describe("lifecycle_bootstrap_event_methods", () => {
     }
     const deps = {renderGraph: vi.fn()}
     const ctx = createStateBackedContext(state, deps)
-    Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapEventLayerMethods))
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapEventLayerMethods), {
+      collapseAllClusters: vi.fn(),
+    })
 
     ctx.registerLayerEvents()
     handlers["god_view:set_layers"]({layers: {mantle: false, crust: true, atmosphere: false, security: true}})
@@ -118,6 +120,7 @@ describe("lifecycle_bootstrap_event_methods", () => {
 
     expect(state.layers).toEqual({mantle: false, crust: true, atmosphere: false, security: true})
     expect(state.topologyLayers).toEqual({backbone: true, inferred: true, endpoints: false, mtr_paths: true})
+    expect(ctx.collapseAllClusters).toHaveBeenCalledTimes(1)
     expect(deps.renderGraph).toHaveBeenCalledTimes(2)
   })
 

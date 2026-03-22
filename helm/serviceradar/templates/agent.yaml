@@ -32,9 +32,11 @@ spec:
       hostNetwork: {{ $agentHostNetwork }}
       dnsPolicy: {{ ternary "ClusterFirstWithHostNet" "ClusterFirst" $agentHostNetwork }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       initContainers:
         - name: init-checkers
           image: busybox:1.36
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
           command: ['sh', '-c', 'CHECKERS_DIR={{ default "/var/lib/serviceradar/checkers" $agentStorage.basePath }} && mkdir -p "${CHECKERS_DIR}" && cp /config/snmp.json "${CHECKERS_DIR}/snmp.json" && cp /config/external.json "${CHECKERS_DIR}/external.json" && cp /config/rperf-checker.json "${CHECKERS_DIR}/rperf-checker.json" && cp /config/zen-checker.json "${CHECKERS_DIR}/zen-checker.json" && cp /config/flowgger-checker.json "${CHECKERS_DIR}/flowgger-checker.json" && cp /config/trapd-checker.json "${CHECKERS_DIR}/trapd-checker.json" && cp /config/db-event-writer-checker.json "${CHECKERS_DIR}/db-event-writer-checker.json"']
           volumeMounts:
             - name: serviceradar-config
@@ -45,6 +47,7 @@ spec:
         - name: agent
           image: ghcr.io/carverauto/serviceradar-agent:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "agent") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          {{- include "serviceradar.networkContainerSecurityContext" . | nindent 10 }}
           volumeMounts:
           - name: serviceradar-config
             mountPath: /etc/serviceradar
@@ -68,8 +71,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-          securityContext:
-            privileged: true
           resources:
             limits:
               cpu: {{ default "500m" $agentLimits.cpu | quote }}

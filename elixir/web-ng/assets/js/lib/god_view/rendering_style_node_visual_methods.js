@@ -1,6 +1,10 @@
 export const godViewRenderingStyleNodeVisualMethods = {
   nodeMetricText(node, shape) {
-    const clusterCount = Number(node?.clusterCount || 1)
+    const clusterCount = Number(node?.clusterCount || node?.details?.cluster_member_count || 1)
+    const clusterKind = String(node?.details?.cluster_kind || "").trim()
+    if (clusterKind === "endpoint-summary" || clusterKind === "endpoint-member") {
+      return `${clusterCount} endpoint${clusterCount === 1 ? "" : "s"}`
+    }
     if (shape === "global" || shape === "regional") {
       return `${clusterCount} node${clusterCount === 1 ? "" : "s"}`
     }

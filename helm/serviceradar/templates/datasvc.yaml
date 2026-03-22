@@ -23,10 +23,12 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ $datasvcSA }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       containers:
       - name: datasvc
         image: ghcr.io/carverauto/serviceradar-datasvc:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "datasvc") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:
         - containerPort: 50057
           name: grpc

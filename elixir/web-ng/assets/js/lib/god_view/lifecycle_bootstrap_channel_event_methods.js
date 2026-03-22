@@ -1,4 +1,16 @@
 export const godViewLifecycleBootstrapChannelEventMethods = {
+  setClusterExpanded(clusterId, expanded) {
+    const normalized = typeof clusterId === "string" ? clusterId.trim() : ""
+    if (normalized === "" || !this.state.channel) return
+    this.state.channel.push("cluster:set_expanded", {
+      cluster_id: normalized,
+      expanded: expanded === true,
+    })
+  },
+  collapseAllClusters() {
+    if (!this.state.channel) return
+    this.state.channel.push("cluster:collapse_all", {})
+  },
   registerSnapshotChannelEvents(channel) {
     channel.on("snapshot_meta", (msg) => {
       const stats = msg?.pipeline_stats || msg?.pipelineStats

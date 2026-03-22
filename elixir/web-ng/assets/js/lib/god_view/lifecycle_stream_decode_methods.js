@@ -64,6 +64,7 @@ export const godViewLifecycleStreamDecodeMethods = {
           y: Number(nodeY?.get(i) || 0),
           state: Number(nodeState?.get(i) || 3),
           label: this.deps.normalizeDisplayLabel(nodeLabel?.get(i), fallbackLabel),
+          clusterCount: Math.max(1, Number(parsedDetails?.cluster_member_count || 1)),
           pps: Number(nodePps?.get(i) || 0),
           operUp: Number(nodeOperUp?.get(i) || 0),
           geoLat: Number.isFinite(detailLat) ? detailLat : NaN,

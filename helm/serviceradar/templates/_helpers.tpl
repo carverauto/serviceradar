@@ -204,6 +204,40 @@ topologySpreadConstraints:
 {{- end -}}
 
 {{/*
+Restricted-compliant pod-level securityContext.
+Usage: {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+*/}}
+{{- define "serviceradar.podSecurityContext" -}}
+securityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+{{- end -}}
+
+{{/*
+Restricted-compliant container-level securityContext.
+Usage: {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
+*/}}
+{{- define "serviceradar.containerSecurityContext" -}}
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+{{- end -}}
+
+{{/*
+Baseline-compliant container securityContext with NET_RAW (for ICMP/network tools).
+Usage: {{- include "serviceradar.networkContainerSecurityContext" . | nindent 10 }}
+*/}}
+{{- define "serviceradar.networkContainerSecurityContext" -}}
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+    add: ["NET_RAW"]
+{{- end -}}
+
+{{/*
 Generate checksum for db credentials to trigger pod restart when secret changes.
 Uses lookup to get current secret value, falls back to random if not found.
 */}}

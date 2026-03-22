@@ -49,6 +49,7 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
 - Bazel tests/images: `bazel test --config=remote //...`, `bazel run //docker/images:<target>_push`.
+- Bazel-managed Rust dep refresh: `scripts/update-rust-bazel-deps.sh [repin-mode] [verify-target]` or `make update-rust-deps REPIN=workspace`.
 - Web (Next.js) lint/build: `cd web && npm install && npm run lint && npm run build` (if needed).
 - Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`.
 

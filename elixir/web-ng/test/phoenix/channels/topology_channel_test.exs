@@ -59,6 +59,23 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     assert binary_part(payload, byte_size(payload) - 6, 6) == "ARROW1"
   end
 
+  test "channel suppresses duplicate snapshot pushes when revision is unchanged", %{user: user} do
+    Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
+
+    assert {:ok, _reply, socket} =
+             UserSocket
+             |> socket("user-id", %{current_user: user})
+             |> subscribe_and_join(ServiceRadarWebNGWeb.TopologyChannel, @channel, %{})
+
+    assert_push "snapshot", {:binary, _frame}, 2_000
+    assert_push "snapshot_meta", _meta, 2_000
+
+    send(socket.channel_pid, :tick)
+
+    refute_push "snapshot", _duplicate_frame, 500
+    refute_push "snapshot_meta", _duplicate_meta, 500
+  end
+
   test "channel emits snapshot_error when snapshot build fails budget guard", %{user: user} do
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
 

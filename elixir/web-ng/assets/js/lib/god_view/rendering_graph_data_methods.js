@@ -4,11 +4,51 @@ export const godViewRenderingGraphDataMethods = {
     const stateMask = this.visibilityMask(states)
     const traversalMask = effective.shape === "local" ? this.computeTraversalMask(effective) : null
     const mask = new Uint8Array(effective.nodes.length)
+    const topologyLayers = this.state.topologyLayers || {}
+    const endpointIncidentFlags =
+      effective.shape === "local"
+        ? effective.nodes.map(() => ({endpoint: false, nonEndpoint: false}))
+        : null
+
+    const edgeTopologyClass = (edge) => {
+      if (typeof this.edgeTopologyClass === "function") {
+        return this.edgeTopologyClass(edge)
+      }
+
+      const normalized = String(edge?.topologyClass || "").trim().toLowerCase()
+      if (normalized === "endpoint") return "endpoints"
+      return normalized || "unknown"
+    }
+
+    if (endpointIncidentFlags) {
+      for (const edge of effective.edges) {
+        const topologyClass = edgeTopologyClass(edge)
+        const endpointOnly = topologyClass === "endpoints"
+        const source = Number(edge?.source)
+        const target = Number(edge?.target)
+
+        for (const index of [source, target]) {
+          if (!Number.isInteger(index) || index < 0 || index >= endpointIncidentFlags.length) continue
+
+          if (endpointOnly) {
+            endpointIncidentFlags[index].endpoint = true
+          } else {
+            endpointIncidentFlags[index].nonEndpoint = true
+          }
+        }
+      }
+    }
 
     for (let i = 0; i < effective.nodes.length; i += 1) {
       const stateVisible = stateMask[i] === 1
       const traversalVisible = !traversalMask || traversalMask[i] === 1
-      mask[i] = stateVisible && traversalVisible ? 1 : 0
+      const endpointLayerVisible =
+        !endpointIncidentFlags ||
+        topologyLayers.endpoints !== false ||
+        endpointIncidentFlags[i].nonEndpoint ||
+        !endpointIncidentFlags[i].endpoint
+
+      mask[i] = stateVisible && traversalVisible && endpointLayerVisible ? 1 : 0
     }
 
     const visibleNodes = effective.nodes.map((node, index) => ({
@@ -43,6 +83,7 @@ export const godViewRenderingGraphDataMethods = {
         const telemetryEligible = edge.telemetryEligible === false || edge.telemetry_eligible === false
           ? false
           : true
+        const topologyClass = edgeTopologyClass(edge)
         return {
           sourceId,
           targetId,
@@ -60,6 +101,10 @@ export const godViewRenderingGraphDataMethods = {
           label: label.length > 56 ? `${label.slice(0, 56)}...` : label,
           connectionLabel,
           telemetryEligible,
+          topologyClass,
+          topologyClassCounts: edge.topologyClassCounts || null,
+          protocol: String(edge.protocol || ""),
+          evidenceClass: String(edge.evidenceClass || ""),
           interactionKey: `${effective.shape}:${rawEdgeId}`,
         }
       })

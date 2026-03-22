@@ -42,6 +42,8 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotControllerTest do
     assert get_resp_header(conn, "x-sr-god-view-pipeline-raw-links") != []
     assert get_resp_header(conn, "x-sr-god-view-pipeline-unique-pairs") != []
     assert get_resp_header(conn, "x-sr-god-view-pipeline-final-edges") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-final-direct") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-final-attachment") != []
     assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-telemetry-interface") != []
     assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-telemetry-fallback") != []
     assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-unresolved-directional") != []
