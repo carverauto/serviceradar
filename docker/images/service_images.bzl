@@ -4,6 +4,8 @@ load("@rules_oci//oci:defs.bzl", "oci_image", "oci_image_index", "oci_load")
 load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 
 _DEFAULT_PATH = "/usr/local/bin:/usr/bin:/bin"
+_SERVICERADAR_UID = "10001"
+_SERVICERADAR_GID = "10001"
 _LINUX_ARM64_PLATFORM = "//build/platforms:linux_arm64"
 _LINUX_ARM64_SELECT = "//build/platforms:target_linux_arm64"
 _LINUX_MULTIARCH_PLATFORMS = [
@@ -21,6 +23,41 @@ def _common_tools_layers():
     return _platform_select(
         [":common_tools_amd64"],
         [":common_tools_arm64"],
+    )
+
+def declare_serviceradar_user_layer(name = "serviceradar_user_layer", visibility = None):
+    """Create a rootfs layer that adds the serviceradar user and group (10001)."""
+
+    native.genrule(
+        name = name + "_gen",
+        outs = [name + "_passwd", name + "_group"],
+        cmd = """
+echo 'root:x:0:0:root:/root:/bin/sh' > $(location {name}_passwd)
+echo 'serviceradar:x:{uid}:{gid}:serviceradar:/home/serviceradar:/bin/sh' >> $(location {name}_passwd)
+echo 'root:x:0:' > $(location {name}_group)
+echo 'serviceradar:x:{gid}:' >> $(location {name}_group)
+""".format(name = name, uid = _SERVICERADAR_UID, gid = _SERVICERADAR_GID),
+        visibility = visibility,
+    )
+
+    pkg_tar(
+        name = name,
+        files = {
+            ":{}_passwd".format(name): "etc/passwd",
+            ":{}_group".format(name): "etc/group",
+        },
+        empty_dirs = [
+            "home/serviceradar",
+            "app",
+            "var/lib/serviceradar",
+        ],
+        modes = {
+            "etc/passwd": "0644",
+            "etc/group": "0644",
+        },
+        owner = "{}.{}".format(_SERVICERADAR_UID, _SERVICERADAR_GID),
+        package_dir = "/",
+        visibility = visibility,
     )
 
 def _ubuntu_noble_base():
@@ -75,6 +112,7 @@ def service_layer(
         modes = modes,
         empty_dirs = empty_dirs,
         symlinks = symlinks,
+        owner = "{}.{}".format(_SERVICERADAR_UID, _SERVICERADAR_GID),
         package_dir = "/",
         target_compatible_with = target_compatible_with,
         visibility = visibility,
@@ -170,6 +208,7 @@ def service_image_amd64(
         env = None,
         workdir = None,
         exposed_ports = None,
+        user = "10001",
         target_compatible_with = None,
         visibility = None):
     """Create an amd64 OCI image for a straightforward service."""
@@ -187,14 +226,17 @@ def service_image_amd64(
     if target_compatible_with == None:
         target_compatible_with = []
 
+    all_tars = [":serviceradar_user_layer"] + tars
+
     oci_image(
         name = name,
         base = base,
-        tars = tars,
+        tars = all_tars,
         entrypoint = entrypoint,
         cmd = cmd,
         env = env,
         workdir = workdir,
+        user = user,
         exposed_ports = exposed_ports,
         target_compatible_with = target_compatible_with,
         labels = {
@@ -264,6 +306,7 @@ def alpine_service_image_amd64(
         workdir = "/var/lib/serviceradar",
         exposed_ports = None,
         extra_tars = None,
+        user = "10001",
         target_compatible_with = None,
         visibility = None):
     """Create an Alpine-based service image with common tools."""
@@ -282,6 +325,7 @@ def alpine_service_image_amd64(
         env = _service_env(env),
         workdir = workdir,
         exposed_ports = exposed_ports,
+        user = user,
         target_compatible_with = target_compatible_with,
         visibility = visibility,
         image_title = image_title,
@@ -297,6 +341,7 @@ def alpine_netutils_service_image_amd64(
         workdir = "/var/lib/serviceradar",
         exposed_ports = None,
         extra_tars = None,
+        user = "10001",
         target_compatible_with = None,
         visibility = None):
     """Create an Alpine-based service image with netutils and common tools."""
@@ -315,6 +360,7 @@ def alpine_netutils_service_image_amd64(
         env = _service_env(env),
         workdir = workdir,
         exposed_ports = exposed_ports,
+        user = user,
         target_compatible_with = target_compatible_with,
         visibility = visibility,
         image_title = image_title,
@@ -330,6 +376,7 @@ def ubuntu_service_image_amd64(
         workdir = "/var/lib/serviceradar",
         exposed_ports = None,
         extra_tars = None,
+        user = "10001",
         target_compatible_with = None,
         visibility = None):
     """Create an Ubuntu-based service image with common tools."""
@@ -348,6 +395,7 @@ def ubuntu_service_image_amd64(
         env = _service_env(env),
         workdir = workdir,
         exposed_ports = exposed_ports,
+        user = user,
         target_compatible_with = target_compatible_with,
         visibility = visibility,
         image_title = image_title,
@@ -363,6 +411,7 @@ def debian_service_image_amd64(
         workdir = "/var/lib/serviceradar",
         exposed_ports = None,
         extra_tars = None,
+        user = "10001",
         target_compatible_with = None,
         visibility = None):
     """Create a Debian-based service image with common tools."""
@@ -381,6 +430,7 @@ def debian_service_image_amd64(
         env = _service_env(env),
         workdir = workdir,
         exposed_ports = exposed_ports,
+        user = user,
         target_compatible_with = target_compatible_with,
         visibility = visibility,
         image_title = image_title,

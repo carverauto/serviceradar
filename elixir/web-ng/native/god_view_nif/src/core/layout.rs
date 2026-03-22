@@ -410,7 +410,9 @@ pub(crate) fn layout_nodes_layered(
     let comp_total = components.len().max(1) as f64;
     let canvas_left = 40.0_f64;
     let canvas_top = 40.0_f64;
-    let canvas_bottom = 280.0_f64;
+    let min_sep = 24.0_f64;
+    let max_component_size = components.iter().map(|c| c.len()).max().unwrap_or(1) as f64;
+    let canvas_bottom = (canvas_top + (max_component_size * min_sep * 2.0).max(240.0)).min(65000.0);
     let layer_gap = 108.0_f64;
 
     for (comp_idx, component) in components.iter().enumerate() {
@@ -489,7 +491,6 @@ pub(crate) fn layout_nodes_layered(
             }
 
             let x = canvas_left + l as f64 * layer_gap;
-            let min_sep = 24.0_f64;
 
             let desired = nodes
                 .iter()
