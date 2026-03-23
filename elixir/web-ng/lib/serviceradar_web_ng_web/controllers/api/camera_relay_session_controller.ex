@@ -143,9 +143,11 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
       gateway_id: session.gateway_id,
       status: format_value(session.status),
       playback_state: relay_playback_state(session),
+      viewer_count: Map.get(session, :viewer_count, 0),
       lease_expires_at: format_value(session.lease_expires_at),
       media_ingest_id: session.media_ingest_id,
       viewer_stream_path: relay_viewer_stream_path(session, conn),
+      termination_kind: relay_termination_kind(session),
       close_reason: session.close_reason,
       failure_reason: session.failure_reason,
       inserted_at: format_value(session.inserted_at),
@@ -162,6 +164,10 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
   end
 
   defp relay_viewer_stream_path(_session, _conn), do: nil
+
+  defp relay_termination_kind(session) when is_map(session) do
+    Map.get(session, :termination_kind) || Map.get(session, "termination_kind")
+  end
 
   defp relay_playback_state(%{status: status, media_ingest_id: media_ingest_id})
        when status in [:active, "active"] and is_binary(media_ingest_id) and media_ingest_id != "" do

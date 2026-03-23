@@ -39,6 +39,21 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
        })}
     end
 
+    session_loader = fn session_id ->
+      send(parent, {:session_load, session_id})
+
+      {:ok,
+       %{
+         id: session_id,
+         camera_source_id: camera_source_id,
+         stream_profile_id: stream_profile_id,
+         agent_id: "agent-1",
+         gateway_id: "gateway-1",
+         status: :opening,
+         termination_kind: nil
+       }}
+    end
+
     assert {:ok, session} =
              RelaySessionManager.request_open(camera_source_id, stream_profile_id,
                source_fetcher: source_fetcher,
@@ -46,6 +61,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
                session_creator: session_creator,
                dispatch_open: dispatch_open,
                mark_opening: mark_opening,
+               session_loader: session_loader,
                lease_ttl_seconds: 45
              )
 
@@ -65,6 +81,8 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert opts[:lease_ttl_seconds] == 45
 
     assert_receive {:mark_opening, _session_id, _command_id, lease_token, lease_expires_at}
+    assert_receive {:session_load, session_id}
+    assert session.id == session_id
     assert byte_size(lease_token) == 32
     assert %DateTime{} = lease_expires_at
   end
@@ -143,19 +161,34 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
       {:ok, Ecto.UUID.generate()}
     end
 
+    session_loader = fn ^relay_session_id ->
+      send(parent, {:session_load, relay_session_id})
+
+      {:ok,
+       %{
+         id: relay_session_id,
+         agent_id: "agent-2",
+         status: :closing,
+         termination_kind: "manual_stop"
+       }}
+    end
+
     assert {:ok, session} =
              RelaySessionManager.request_close(relay_session_id,
                reason: "viewer disconnected",
                session_fetcher: session_fetcher,
                mark_closing: mark_closing,
-               dispatch_close: dispatch_close
+               dispatch_close: dispatch_close,
+               session_loader: session_loader
              )
 
     assert session.status == :closing
 
     assert_receive {:mark_closing, ^relay_session_id, "viewer disconnected"}
     assert_receive {:dispatch_close, "agent-2", payload, _opts}
+    assert_receive {:session_load, ^relay_session_id}
     assert payload.relay_session_id == relay_session_id
     assert payload.reason == "viewer disconnected"
+    assert session.termination_kind == "manual_stop"
   end
 end

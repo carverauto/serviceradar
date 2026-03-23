@@ -41,6 +41,7 @@ defmodule ServiceRadarCoreElx.MixProject do
 
       # Minimal gRPC footprint for sync/checker coordination
       {:grpc, "~> 0.9"},
+      {:membrane_core, "~> 1.2.6"},
       {:protobuf, "~> 0.16.0", override: true},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:boundary, "~> 0.10.4", runtime: false},

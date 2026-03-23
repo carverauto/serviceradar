@@ -22,6 +22,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
           codec_hint: String.t(),
           container_hint: String.t(),
           lease_token: String.t(),
+          status: String.t(),
+          close_reason: String.t() | nil,
           last_sequence: non_neg_integer(),
           sent_bytes: non_neg_integer(),
           created_at_unix: integer(),
@@ -45,6 +47,10 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     GenServer.call(__MODULE__, {:record_chunk, relay_session_id, media_ingest_id, attrs})
   end
 
+  def mark_closing(relay_session_id, media_ingest_id, attrs \\ %{}) do
+    GenServer.call(__MODULE__, {:mark_closing, relay_session_id, media_ingest_id, attrs})
+  end
+
   def close_session(relay_session_id, media_ingest_id, attrs \\ %{}) do
     GenServer.call(__MODULE__, {:close_session, relay_session_id, media_ingest_id, attrs})
   end
@@ -66,46 +72,63 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
   end
 
   def handle_call({:heartbeat, relay_session_id, media_ingest_id, attrs}, _from, state) do
-    with {:ok, session} <- fetch_and_verify_session(state, relay_session_id, media_ingest_id) do
-      updated =
-        session
-        |> Map.merge(%{
-          last_sequence: normalize_uint(Map.get(attrs, :last_sequence, session.last_sequence)),
-          sent_bytes: normalize_uint(Map.get(attrs, :sent_bytes, session.sent_bytes)),
-          updated_at_unix: now_unix(),
-          lease_expires_at_unix: lease_expiry_unix()
-        })
+    case fetch_and_verify_session(state, relay_session_id, media_ingest_id) do
+      {:ok, session} ->
+        updated =
+          Map.merge(session, %{
+            last_sequence: normalize_uint(Map.get(attrs, :last_sequence, session.last_sequence)),
+            sent_bytes: normalize_uint(Map.get(attrs, :sent_bytes, session.sent_bytes)),
+            updated_at_unix: now_unix(),
+            lease_expires_at_unix: lease_expiry_unix()
+          })
 
-      {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
-    else
+        {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
+
       error ->
         {:reply, error, state}
     end
   end
 
   def handle_call({:record_chunk, relay_session_id, media_ingest_id, attrs}, _from, state) do
-    with {:ok, session} <- fetch_and_verify_session(state, relay_session_id, media_ingest_id) do
-      payload = Map.get(attrs, :payload, <<>>)
+    case fetch_and_verify_session(state, relay_session_id, media_ingest_id) do
+      {:ok, session} ->
+        payload = Map.get(attrs, :payload, <<>>)
 
-      updated =
-        session
-        |> Map.merge(%{
-          last_sequence: normalize_uint(Map.get(attrs, :sequence, session.last_sequence)),
-          sent_bytes: session.sent_bytes + byte_size(payload),
-          updated_at_unix: now_unix()
-        })
+        updated =
+          Map.merge(session, %{
+            last_sequence: normalize_uint(Map.get(attrs, :sequence, session.last_sequence)),
+            sent_bytes: session.sent_bytes + byte_size(payload),
+            updated_at_unix: now_unix()
+          })
 
-      {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
-    else
+        {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
+
+      error ->
+        {:reply, error, state}
+    end
+  end
+
+  def handle_call({:mark_closing, relay_session_id, media_ingest_id, attrs}, _from, state) do
+    case fetch_and_verify_session(state, relay_session_id, media_ingest_id) do
+      {:ok, session} ->
+        updated =
+          session
+          |> Map.put(:status, "closing")
+          |> Map.put(:updated_at_unix, now_unix())
+          |> put_optional_reason(:close_reason, Map.get(attrs, :reason) || Map.get(attrs, :close_reason))
+
+        {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
+
       error ->
         {:reply, error, state}
     end
   end
 
   def handle_call({:close_session, relay_session_id, media_ingest_id, _attrs}, _from, state) do
-    with {:ok, _session} <- fetch_and_verify_session(state, relay_session_id, media_ingest_id) do
-      {:reply, :ok, update_in(state, [:sessions], &Map.delete(&1, relay_session_id))}
-    else
+    case fetch_and_verify_session(state, relay_session_id, media_ingest_id) do
+      {:ok, _session} ->
+        {:reply, :ok, update_in(state, [:sessions], &Map.delete(&1, relay_session_id))}
+
       error ->
         {:reply, error, state}
     end
@@ -131,6 +154,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
       codec_hint: optional_string(attrs, :codec_hint),
       container_hint: optional_string(attrs, :container_hint),
       lease_token: required_string!(attrs, :lease_token),
+      status: "active",
+      close_reason: nil,
       last_sequence: 0,
       sent_bytes: 0,
       created_at_unix: now,
@@ -177,6 +202,15 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     |> to_string()
     |> String.trim()
   end
+
+  defp put_optional_reason(session, _key, nil), do: session
+
+  defp put_optional_reason(session, key, value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: session, else: Map.put(session, key, trimmed)
+  end
+
+  defp put_optional_reason(session, key, value), do: Map.put(session, key, to_string(value))
 
   defp normalize_uint(value) when is_integer(value) and value >= 0, do: value
   defp normalize_uint(_value), do: 0

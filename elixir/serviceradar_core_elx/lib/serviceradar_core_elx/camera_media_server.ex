@@ -13,7 +13,7 @@ defmodule ServiceRadarCoreElx.CameraMediaServer do
   @max_chunk_bytes 262_144
 
   def open_relay_session(request, _stream) do
-    case CameraMediaSessionTracker.open_session(%{
+    case tracker().open_session(%{
            relay_session_id: required_string(request.relay_session_id, "relay_session_id"),
            agent_id: required_string(request.agent_id, "agent_id"),
            gateway_id: required_string(request.gateway_id, "gateway_id"),
@@ -52,7 +52,7 @@ defmodule ServiceRadarCoreElx.CameraMediaServer do
 
   def upload_media(request_stream, _stream) do
     state =
-      Enum.reduce_while(request_stream, %{last_sequence: 0, chunk_count: 0}, fn
+      Enum.reduce_while(request_stream, %{last_sequence: 0, chunk_count: 0, draining: false}, fn
         %Camera.MediaChunk{} = chunk, state ->
           next = handle_media_chunk(chunk, state)
           {:cont, next}
@@ -68,7 +68,7 @@ defmodule ServiceRadarCoreElx.CameraMediaServer do
     %Camera.UploadMediaResponse{
       received: true,
       last_sequence: state.last_sequence,
-      message: "media chunks accepted by core-elx"
+      message: upload_message(state)
     }
   end
 
@@ -76,7 +76,7 @@ defmodule ServiceRadarCoreElx.CameraMediaServer do
     relay_session_id = required_string(request.relay_session_id, "relay_session_id")
     media_ingest_id = required_string(request.media_ingest_id, "media_ingest_id")
 
-    case CameraMediaSessionTracker.heartbeat(relay_session_id, media_ingest_id, %{
+    case tracker().heartbeat(relay_session_id, media_ingest_id, %{
            last_sequence: request.last_sequence,
            sent_bytes: request.sent_bytes
          }) do
@@ -84,7 +84,7 @@ defmodule ServiceRadarCoreElx.CameraMediaServer do
         %Camera.RelayHeartbeatAck{
           accepted: true,
           lease_expires_at_unix: session.lease_expires_at_unix,
-          message: "core heartbeat accepted"
+          message: heartbeat_message(session)
         }
 
       {:error, :not_found} ->
@@ -104,7 +104,7 @@ defmodule ServiceRadarCoreElx.CameraMediaServer do
     relay_session_id = required_string(request.relay_session_id, "relay_session_id")
     media_ingest_id = required_string(request.media_ingest_id, "media_ingest_id")
 
-    case CameraMediaSessionTracker.close_session(relay_session_id, media_ingest_id, %{reason: request.reason}) do
+    case tracker().close_session(relay_session_id, media_ingest_id, %{reason: request.reason}) do
       :ok ->
         %Camera.CloseRelaySessionResponse{closed: true, message: "core relay session closed"}
 
@@ -131,7 +131,7 @@ defmodule ServiceRadarCoreElx.CameraMediaServer do
         message: "media chunk exceeded max size #{@max_chunk_bytes}"
     end
 
-    case CameraMediaSessionTracker.record_chunk(relay_session_id, media_ingest_id, %{
+    case tracker().record_chunk(relay_session_id, media_ingest_id, %{
            sequence: chunk.sequence,
            payload: chunk.payload || <<>>,
            pts: chunk.pts,
@@ -141,8 +141,12 @@ defmodule ServiceRadarCoreElx.CameraMediaServer do
            payload_format: chunk.payload_format,
            track_id: chunk.track_id
          }) do
-      {:ok, _session} ->
-        %{last_sequence: chunk.sequence, chunk_count: state.chunk_count + 1}
+      {:ok, session} ->
+        %{
+          last_sequence: chunk.sequence,
+          chunk_count: state.chunk_count + 1,
+          draining: state.draining || draining_session?(session)
+        }
 
       {:error, :not_found} ->
         raise GRPC.RPCError, status: :not_found, message: "relay session not found"
@@ -151,6 +155,28 @@ defmodule ServiceRadarCoreElx.CameraMediaServer do
         raise GRPC.RPCError, status: :permission_denied, message: "media_ingest_id mismatch"
     end
   end
+
+  defp tracker do
+    Application.get_env(
+      :serviceradar_core_elx,
+      :camera_media_session_tracker_module,
+      CameraMediaSessionTracker
+    )
+  end
+
+  defp heartbeat_message(session) do
+    if draining_session?(session) do
+      "core heartbeat accepted during relay drain"
+    else
+      "core heartbeat accepted"
+    end
+  end
+
+  defp upload_message(%{draining: true}), do: "media chunks accepted during relay drain"
+  defp upload_message(_state), do: "media chunks accepted by core-elx"
+
+  defp draining_session?(%{status: status}), do: status in [:closing, "closing"]
+  defp draining_session?(_session), do: false
 
   defp required_string(value, field_name) do
     case value |> to_string() |> String.trim() do

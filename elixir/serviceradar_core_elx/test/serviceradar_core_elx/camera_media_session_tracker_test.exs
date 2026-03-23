@@ -3,6 +3,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
 
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadarCoreElx.CameraMediaSessionTracker
+  alias ServiceRadarCoreElx.CameraRelay.ViewerRegistry
 
   defmodule RelaySessionLifecycleStub do
     @moduledoc false
@@ -18,45 +19,56 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
 
     def close_session(relay_session_id, media_ingest_id, attrs, opts) do
       send(opts[:test_pid], {:close_session, relay_session_id, media_ingest_id, attrs})
-      {:ok, %{id: relay_session_id, media_ingest_id: media_ingest_id}}
+
+      {:ok,
+       %{
+         id: relay_session_id,
+         media_ingest_id: media_ingest_id,
+         close_reason:
+           Keyword.get(opts, :persisted_close_reason) || Map.get(attrs, :close_reason) ||
+             "viewer idle timeout",
+         failure_reason: Map.get(attrs, :failure_reason)
+       }}
     end
   end
 
   setup do
-    previous_sync_module =
-      Application.get_env(:serviceradar_core_elx, :camera_relay_session_lifecycle)
+    previous_state =
+      CameraMediaSessionTracker
+      |> :sys.get_state()
+      |> clear_tracker_sessions()
 
-    previous_sync_opts =
-      Application.get_env(:serviceradar_core_elx, :camera_relay_session_lifecycle_opts)
+    test_pid = self()
 
-    Application.put_env(
-      :serviceradar_core_elx,
-      :camera_relay_session_lifecycle,
-      RelaySessionLifecycleStub
-    )
-
-    Application.put_env(
-      :serviceradar_core_elx,
-      :camera_relay_session_lifecycle_opts,
-      test_pid: self()
-    )
-
-    restart_tracker!()
+    :sys.replace_state(CameraMediaSessionTracker, fn state ->
+      state
+      |> Map.put(:sessions, %{})
+      |> Map.put(:sync_module, RelaySessionLifecycleStub)
+      |> Map.put(:sync_opts, test_pid: test_pid)
+    end)
 
     on_exit(fn ->
-      restore_env(:camera_relay_session_lifecycle, previous_sync_module)
-      restore_env(:camera_relay_session_lifecycle_opts, previous_sync_opts)
+      CameraMediaSessionTracker
+      |> :sys.get_state()
+      |> clear_tracker_sessions()
+
+      :sys.replace_state(CameraMediaSessionTracker, fn _state -> previous_state end)
     end)
 
     :ok
   end
 
   test "opens, tracks, heartbeats, and closes a core relay session" do
-    :ok = RelayPubSub.subscribe("relay-1")
+    relay_session_id = unique_relay_session_id()
+    viewer_id = unique_viewer_id()
+    :ok = RelayPubSub.subscribe(relay_session_id)
+    :ok = RelayPubSub.subscribe_viewer(relay_session_id, viewer_id)
+    :ok = RelayPubSub.viewer_join(relay_session_id, viewer_id)
+    _ = :sys.get_state(ViewerRegistry)
 
     assert {:ok, session} =
              CameraMediaSessionTracker.open_session(%{
-               relay_session_id: "relay-1",
+               relay_session_id: relay_session_id,
                agent_id: "agent-1",
                gateway_id: "gateway-1",
                camera_source_id: "camera-1",
@@ -64,8 +76,19 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
              })
 
     assert String.starts_with?(session.media_ingest_id, "core-media-")
-    assert_receive {:activate_session, "relay-1", media_ingest_id, %{lease_expires_at_unix: lease_expires_at_unix}}
-    assert_receive {:camera_relay_state, %{relay_session_id: "relay-1", status: "active", playback_state: "ready"}}
+
+    assert_receive {:activate_session, ^relay_session_id, media_ingest_id,
+                    %{lease_expires_at_unix: lease_expires_at_unix, viewer_count: 1}}
+
+    assert_receive {:camera_relay_state,
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      status: "active",
+                      playback_state: "ready",
+                      termination_kind: nil,
+                      viewer_count: 1
+                    }}
+
     assert media_ingest_id == session.media_ingest_id
     assert is_integer(lease_expires_at_unix)
 
@@ -79,7 +102,21 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
 
     assert updated.last_sequence == 7
     assert updated.sent_bytes == 4
-    assert_receive {:camera_relay_chunk, %{relay_session_id: "relay-1", sequence: 7, payload: <<1, 2, 3, 4>>}}
+
+    assert_receive {:camera_relay_viewer_chunk,
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      viewer_id: ^viewer_id,
+                      sequence: 7,
+                      payload: <<1, 2, 3, 4>>
+                    }}
+
+    :ok = RelayPubSub.viewer_leave(relay_session_id, viewer_id)
+    _ = :sys.get_state(ViewerRegistry)
+
+    assert_receive {:heartbeat_session, ^relay_session_id, ^media_ingest_id, %{lease_expires_at_unix: _, viewer_count: 0}}
+
+    assert_receive {:camera_relay_state, %{relay_session_id: ^relay_session_id, viewer_count: 0, termination_kind: nil}}
 
     assert {:ok, heartbeated} =
              CameraMediaSessionTracker.heartbeat(session.relay_session_id, session.media_ingest_id, %{
@@ -89,18 +126,33 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
 
     assert heartbeated.last_sequence == 8
     assert heartbeated.sent_bytes == 20
-    assert_receive {:heartbeat_session, "relay-1", ^media_ingest_id, %{lease_expires_at_unix: renewed_lease}}
+
+    assert_receive {:heartbeat_session, ^relay_session_id, ^media_ingest_id,
+                    %{lease_expires_at_unix: renewed_lease, viewer_count: 0}}
+
     assert is_integer(renewed_lease)
 
     assert :ok = CameraMediaSessionTracker.close_session(session.relay_session_id, session.media_ingest_id)
-    assert_receive {:close_session, "relay-1", ^media_ingest_id, %{close_reason: nil}}
-    assert_receive {:camera_relay_state, %{relay_session_id: "relay-1", status: "closed", playback_state: "closed"}}
+    assert_receive {:close_session, ^relay_session_id, ^media_ingest_id, %{close_reason: nil, viewer_count: 0}}
+
+    assert_receive {:camera_relay_state,
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      status: "closed",
+                      playback_state: "closed",
+                      termination_kind: "viewer_idle",
+                      viewer_count: 0,
+                      close_reason: "viewer idle timeout",
+                      failure_reason: nil
+                    }}
   end
 
   test "rejects duplicate relay session ids" do
+    relay_session_id = unique_relay_session_id()
+
     assert {:ok, _session} =
              CameraMediaSessionTracker.open_session(%{
-               relay_session_id: "relay-1",
+               relay_session_id: relay_session_id,
                agent_id: "agent-1",
                gateway_id: "gateway-1",
                camera_source_id: "camera-1",
@@ -109,7 +161,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
 
     assert {:error, :already_exists} =
              CameraMediaSessionTracker.open_session(%{
-               relay_session_id: "relay-1",
+               relay_session_id: relay_session_id,
                agent_id: "agent-1",
                gateway_id: "gateway-1",
                camera_source_id: "camera-1",
@@ -117,33 +169,230 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
              })
   end
 
-  defp restart_tracker! do
-    if pid = Process.whereis(CameraMediaSessionTracker) do
-      ref = Process.monitor(pid)
-      Process.exit(pid, :kill)
-      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 1_000
-    end
+  test "marks an in-memory relay session closing before terminal teardown" do
+    relay_session_id = unique_relay_session_id()
+    :ok = RelayPubSub.subscribe(relay_session_id)
 
-    wait_for_tracker_start()
+    assert {:ok, session} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: relay_session_id,
+               agent_id: "agent-1",
+               gateway_id: "gateway-1",
+               camera_source_id: "camera-1",
+               stream_profile_id: "main"
+             })
+
+    assert_receive {:camera_relay_state, %{relay_session_id: ^relay_session_id, status: "active", termination_kind: nil}}
+
+    :ok =
+      CameraMediaSessionTracker.mark_closing(relay_session_id, %{
+        close_reason: "viewer idle timeout",
+        viewer_count: 0
+      })
+
+    assert_receive {:camera_relay_state,
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      status: "closing",
+                      playback_state: "closing",
+                      termination_kind: "viewer_idle",
+                      close_reason: "viewer idle timeout",
+                      viewer_count: 0
+                    }}
+
+    media_ingest_id = session.media_ingest_id
+
+    assert :ok =
+             CameraMediaSessionTracker.close_session(
+               session.relay_session_id,
+               session.media_ingest_id,
+               %{reason: "camera relay drain acknowledged"}
+             )
+
+    assert_receive {:close_session, ^relay_session_id, ^media_ingest_id,
+                    %{close_reason: "camera relay drain acknowledged", viewer_count: 0}}
   end
 
-  defp wait_for_tracker_start(attempts \\ 20)
+  test "accepts late heartbeats for a closing relay session without lifecycle churn" do
+    relay_session_id = unique_relay_session_id()
+    :ok = RelayPubSub.subscribe(relay_session_id)
 
-  defp wait_for_tracker_start(0) do
-    raise "camera media session tracker did not restart"
+    assert {:ok, session} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: relay_session_id,
+               agent_id: "agent-1",
+               gateway_id: "gateway-1",
+               camera_source_id: "camera-1",
+               stream_profile_id: "main"
+             })
+
+    assert_receive {:activate_session, ^relay_session_id, media_ingest_id, _attrs}
+    assert_receive {:camera_relay_state, %{relay_session_id: ^relay_session_id, status: "active", termination_kind: nil}}
+
+    :ok =
+      CameraMediaSessionTracker.mark_closing(relay_session_id, %{
+        close_reason: "viewer closed device details",
+        viewer_count: 0
+      })
+
+    assert_receive {:camera_relay_state,
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      status: "closing",
+                      playback_state: "closing",
+                      termination_kind: "manual_stop",
+                      close_reason: "viewer closed device details"
+                    }}
+
+    assert {:ok, updated} =
+             CameraMediaSessionTracker.heartbeat(
+               relay_session_id,
+               media_ingest_id,
+               %{last_sequence: 9, sent_bytes: 42}
+             )
+
+    assert updated.last_sequence == 9
+    assert updated.sent_bytes == 42
+    assert updated.status == "closing"
+
+    refute_receive {:heartbeat_session, ^relay_session_id, ^media_ingest_id, _attrs}, 50
+
+    assert_receive {:camera_relay_state,
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      status: "closing",
+                      playback_state: "closing"
+                    }}
+
+    assert :ok =
+             CameraMediaSessionTracker.close_session(
+               session.relay_session_id,
+               session.media_ingest_id,
+               %{reason: "viewer closed device details"}
+             )
   end
 
-  defp wait_for_tracker_start(attempts) do
-    case Process.whereis(CameraMediaSessionTracker) do
-      nil ->
-        Process.sleep(50)
-        wait_for_tracker_start(attempts - 1)
+  test "drops late media chunks for a closing relay session" do
+    relay_session_id = unique_relay_session_id()
+    viewer_id = unique_viewer_id()
+    :ok = RelayPubSub.subscribe(relay_session_id)
+    :ok = RelayPubSub.subscribe_viewer(relay_session_id, viewer_id)
+    :ok = RelayPubSub.viewer_join(relay_session_id, viewer_id)
+    _ = :sys.get_state(ViewerRegistry)
 
-      _pid ->
-        :ok
-    end
+    assert {:ok, session} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: relay_session_id,
+               agent_id: "agent-1",
+               gateway_id: "gateway-1",
+               camera_source_id: "camera-1",
+               stream_profile_id: "main"
+             })
+
+    assert_receive {:activate_session, ^relay_session_id, media_ingest_id, _attrs}
+    assert_receive {:camera_relay_state, %{relay_session_id: ^relay_session_id, status: "active", termination_kind: nil}}
+
+    :ok =
+      CameraMediaSessionTracker.mark_closing(relay_session_id, %{
+        close_reason: "viewer closed device details",
+        viewer_count: 0
+      })
+
+    assert_receive {:camera_relay_state,
+                    %{relay_session_id: ^relay_session_id, status: "closing", termination_kind: "manual_stop"}}
+
+    assert {:ok, updated} =
+             CameraMediaSessionTracker.record_chunk(relay_session_id, media_ingest_id, %{
+               sequence: 10,
+               codec: "h264",
+               payload_format: "annexb",
+               payload: <<5, 6, 7, 8>>
+             })
+
+    assert updated.last_sequence == 10
+    assert updated.sent_bytes == 4
+    assert updated.status == "closing"
+
+    refute_receive {:camera_relay_viewer_chunk, %{relay_session_id: ^relay_session_id, viewer_id: ^viewer_id}},
+                   50
+
+    assert :ok =
+             CameraMediaSessionTracker.close_session(
+               session.relay_session_id,
+               session.media_ingest_id,
+               %{reason: "viewer closed device details"}
+             )
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core_elx, key)
-  defp restore_env(key, value), do: Application.put_env(:serviceradar_core_elx, key, value)
+  test "broadcasts the persisted close reason when drain acknowledgement closes a requested shutdown" do
+    relay_session_id = unique_relay_session_id()
+    :ok = RelayPubSub.subscribe(relay_session_id)
+    test_pid = self()
+
+    :sys.replace_state(CameraMediaSessionTracker, fn state ->
+      Map.put(state, :sync_opts, test_pid: test_pid, persisted_close_reason: "viewer idle timeout")
+    end)
+
+    assert {:ok, session} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: relay_session_id,
+               agent_id: "agent-1",
+               gateway_id: "gateway-1",
+               camera_source_id: "camera-1",
+               stream_profile_id: "main"
+             })
+
+    assert_receive {:activate_session, ^relay_session_id, media_ingest_id, _attrs}
+    assert_receive {:camera_relay_state, %{relay_session_id: ^relay_session_id, status: "active", termination_kind: nil}}
+
+    :ok =
+      CameraMediaSessionTracker.mark_closing(relay_session_id, %{
+        close_reason: "viewer idle timeout",
+        viewer_count: 0
+      })
+
+    assert_receive {:camera_relay_state,
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      status: "closing",
+                      termination_kind: "viewer_idle",
+                      close_reason: "viewer idle timeout"
+                    }}
+
+    assert :ok =
+             CameraMediaSessionTracker.close_session(
+               session.relay_session_id,
+               session.media_ingest_id,
+               %{reason: "camera relay drain acknowledged"}
+             )
+
+    assert_receive {:close_session, ^relay_session_id, ^media_ingest_id,
+                    %{close_reason: "camera relay drain acknowledged", viewer_count: 0}}
+
+    assert_receive {:camera_relay_state,
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      status: "closed",
+                      playback_state: "closed",
+                      termination_kind: "viewer_idle",
+                      close_reason: "viewer idle timeout"
+                    }}
+  end
+
+  defp clear_tracker_sessions(state) do
+    state
+    |> Map.get(:sessions, %{})
+    |> Map.keys()
+    |> Enum.each(&ServiceRadarCoreElx.CameraRelay.PipelineManager.close_session/1)
+
+    Map.put(state, :sessions, %{})
+  end
+
+  defp unique_relay_session_id do
+    "relay-#{System.unique_integer([:positive])}"
+  end
+
+  defp unique_viewer_id do
+    "viewer-#{System.unique_integer([:positive])}"
+  end
 end

@@ -930,6 +930,79 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "Closed"
       assert html =~ "Open Relay"
     end
+
+    test "does not regress a closing relay back to active from a stale refresh", %{
+      conn: conn,
+      device_uid: device_uid,
+      source: source,
+      profile: profile
+    } do
+      relay_session_id = Ecto.UUID.generate()
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_open_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: source.id,
+           stream_profile_id: profile.id,
+           agent_id: source.assigned_agent_id,
+           gateway_id: source.assigned_gateway_id,
+           status: :opening
+         }}
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_close_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: source.id,
+           stream_profile_id: profile.id,
+           agent_id: source.assigned_agent_id,
+           gateway_id: source.assigned_gateway_id,
+           status: :closing,
+           termination_kind: "manual_stop",
+           close_reason: "viewer closed device details"
+         }}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      view
+      |> element(
+        "button[phx-click='open_camera_relay'][phx-value-camera_source_id='#{source.id}'][phx-value-stream_profile_id='#{profile.id}']"
+      )
+      |> render_click()
+
+      view
+      |> element("button[phx-click='close_camera_relay']")
+      |> render_click()
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_fetch_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: source.id,
+           stream_profile_id: profile.id,
+           agent_id: source.assigned_agent_id,
+           gateway_id: source.assigned_gateway_id,
+           status: :active,
+           media_ingest_id: "core-media-1"
+         }}
+      )
+
+      send(view.pid, {:refresh_camera_relay_session, relay_session_id})
+      html = render(view)
+
+      assert html =~ "Closing"
+      assert html =~ "Manual stop"
+      refute html =~ "Active"
+    end
   end
 
   defp promote_user!(user, role) do

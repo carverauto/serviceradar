@@ -20,6 +20,25 @@ function websocketUrl(path) {
   return url.toString()
 }
 
+function terminationLabel(kind) {
+  switch (kind) {
+    case "failure":
+      return "Failure"
+    case "viewer_idle":
+      return "Viewer idle stop"
+    case "transport_drain":
+      return "Transport drain"
+    case "manual_stop":
+      return "Manual stop"
+    case "source_complete":
+      return "Source complete"
+    case "closed":
+      return "Closed"
+    default:
+      return ""
+  }
+}
+
 export default {
   mounted() {
     this.streamPath = this.el.dataset.streamPath
@@ -105,8 +124,13 @@ export default {
         return
       }
 
+      const termination = terminationLabel(payload.termination_kind)
+
       setText(this.el, "relay-status", `Relay status: ${payload.status}`)
       setText(this.el, "playback-state", `Playback state: ${payload.playback_state}`)
+      setText(this.el, "viewer-count", `Viewer count: ${payload.viewer_count ?? 0}`)
+      setText(this.el, "termination-kind", termination ? `Termination: ${termination}` : "")
+      setText(this.el, "close-reason", payload.close_reason ? `Close reason: ${payload.close_reason}` : "")
       setText(
         this.el,
         "relay-detail",

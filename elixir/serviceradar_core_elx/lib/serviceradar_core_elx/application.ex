@@ -51,6 +51,8 @@ defmodule ServiceRadarCoreElx.Application do
     # AshOban scheduler is started when :start_ash_oban_scheduler = true
 
     children = [
+      ServiceRadarCoreElx.CameraRelay.ViewerRegistry,
+      ServiceRadarCoreElx.CameraRelay.PipelineManager,
       ServiceRadarCoreElx.CameraMediaSessionTracker,
       {GRPC.Server.Supervisor,
        endpoint: ServiceRadarCoreElx.Endpoint,
@@ -66,12 +68,11 @@ defmodule ServiceRadarCoreElx.Application do
   end
 
   defp media_grpc_port do
-    case System.get_env("CORE_ELX_MEDIA_GRPC_PORT", "50062") do
-      value ->
-        case Integer.parse(value) do
-          {port, ""} when port > 0 and port < 65_536 -> port
-          _ -> 50_062
-        end
+    value = System.get_env("CORE_ELX_MEDIA_GRPC_PORT", "50062")
+
+    case Integer.parse(value) do
+      {port, ""} when port > 0 and port < 65_536 -> port
+      _ -> 50_062
     end
   end
 

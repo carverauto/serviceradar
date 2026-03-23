@@ -11,6 +11,7 @@ defmodule ServiceRadar.Camera.RelaySession do
 
   import Ash.Expr
 
+  alias ServiceRadar.Camera.RelayTermination
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @devices_view_check {ActorHasPermission, permission: "devices.view"}
@@ -62,6 +63,7 @@ defmodule ServiceRadar.Camera.RelaySession do
       argument :id, :uuid, allow_nil?: false
       get? true
       filter expr(id == ^arg(:id))
+      prepare build(load: [:termination_kind])
     end
 
     create :create do
@@ -76,14 +78,14 @@ defmodule ServiceRadar.Camera.RelaySession do
     end
 
     update :activate do
-      accept [:media_ingest_id, :lease_expires_at]
+      accept [:media_ingest_id, :lease_expires_at, :viewer_count]
 
       change transition_state(:active)
       change set_attribute(:activated_at, &DateTime.utc_now/0)
     end
 
     update :renew_lease do
-      accept [:lease_expires_at]
+      accept [:lease_expires_at, :viewer_count]
     end
 
     update :request_close do
@@ -94,14 +96,14 @@ defmodule ServiceRadar.Camera.RelaySession do
     end
 
     update :mark_closed do
-      accept [:close_reason]
+      accept [:close_reason, :viewer_count]
 
       change transition_state(:closed)
       change set_attribute(:closed_at, &DateTime.utc_now/0)
     end
 
     update :fail do
-      accept [:failure_reason, :close_reason]
+      accept [:failure_reason, :close_reason, :viewer_count]
 
       change transition_state(:failed)
       change set_attribute(:closed_at, &DateTime.utc_now/0)
@@ -166,6 +168,12 @@ defmodule ServiceRadar.Camera.RelaySession do
       public? true
     end
 
+    attribute :viewer_count, :integer do
+      allow_nil? false
+      public? true
+      default 0
+    end
+
     attribute :requested_by, :string do
       public? true
     end
@@ -213,6 +221,12 @@ defmodule ServiceRadar.Camera.RelaySession do
       source_attribute :stream_profile_id
       destination_attribute :id
       define_attribute? false
+    end
+  end
+
+  calculations do
+    calculate :termination_kind, :string, fn records, _opts ->
+      Enum.map(records, &RelayTermination.kind_string/1)
     end
   end
 end

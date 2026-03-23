@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
           camera_source_id: Ecto.UUID.generate(),
           stream_profile_id: Ecto.UUID.generate(),
           status: :opening,
+          viewer_count: 0,
           media_ingest_id: nil,
           close_reason: nil,
           failure_reason: nil,
@@ -40,11 +41,13 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              "type" => "camera_relay_snapshot",
              "relay_session_id" => ^relay_session_id,
              "status" => "opening",
-             "playback_state" => "pending"
+             "playback_state" => "pending",
+             "termination_kind" => nil,
+             "viewer_count" => 0
            } = Jason.decode!(payload)
 
     Agent.update(session_agent, fn session ->
-      %{session | status: :active, media_ingest_id: "core-media-1"}
+      %{session | status: :active, media_ingest_id: "core-media-1", viewer_count: 2}
     end)
 
     assert {:push, {:text, payload}, state} = CameraRelayStreamHandler.handle_info(:poll, state)
@@ -52,15 +55,23 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
     assert %{
              "status" => "active",
              "playback_state" => "ready",
-             "media_ingest_id" => "core-media-1"
+             "media_ingest_id" => "core-media-1",
+             "viewer_count" => 2
            } = Jason.decode!(payload)
 
-    Agent.update(session_agent, fn session -> %{session | status: :closed} end)
+    Agent.update(session_agent, fn session ->
+      %{session | status: :closed, termination_kind: "viewer_idle", close_reason: "viewer idle timeout"}
+    end)
 
     assert {:stop, :normal, 1000, [{:text, payload}], _state} =
              CameraRelayStreamHandler.handle_info(:poll, state)
 
-    assert %{"status" => "closed", "playback_state" => "closed"} = Jason.decode!(payload)
+    assert %{
+             "status" => "closed",
+             "playback_state" => "closed",
+             "termination_kind" => "viewer_idle",
+             "close_reason" => "viewer idle timeout"
+           } = Jason.decode!(payload)
   end
 
   test "stops when the relay session no longer exists" do
@@ -80,6 +91,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
 
   test "forwards media chunks as websocket binary frames" do
     relay_session_id = Ecto.UUID.generate()
+    viewer_id = Ecto.UUID.generate()
     scope = Scope.for_user(%{id: "viewer-1", email: "viewer@example.com", role: :viewer})
 
     fetcher = fn ^relay_session_id, _opts ->
@@ -89,6 +101,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
          camera_source_id: Ecto.UUID.generate(),
          stream_profile_id: Ecto.UUID.generate(),
          status: :active,
+         viewer_count: 1,
          media_ingest_id: "core-media-1",
          close_reason: nil,
          failure_reason: nil,
@@ -100,6 +113,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
     assert {:push, {:text, _payload}, state} =
              CameraRelayStreamHandler.init(
                relay_session_id: relay_session_id,
+               viewer_id: viewer_id,
                scope: scope,
                fetcher: fetcher,
                poll_interval_ms: 10_000
@@ -107,9 +121,10 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
 
     assert {:push, {:binary, frame}, ^state} =
              CameraRelayStreamHandler.handle_info(
-               {:camera_relay_chunk,
+               {:camera_relay_viewer_chunk,
                 %{
                   relay_session_id: relay_session_id,
+                  viewer_id: viewer_id,
                   media_ingest_id: "core-media-1",
                   sequence: 3,
                   pts: 33_000_000,
@@ -150,5 +165,68 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              3,
              4
            >> = rest
+  end
+
+  test "ignores regressive active snapshots after a relay enters closing" do
+    relay_session_id = Ecto.UUID.generate()
+    scope = Scope.for_user(%{id: "viewer-1", email: "viewer@example.com", role: :viewer})
+
+    fetcher = fn ^relay_session_id, _opts ->
+      {:ok,
+       %{
+         id: relay_session_id,
+         camera_source_id: Ecto.UUID.generate(),
+         stream_profile_id: Ecto.UUID.generate(),
+         status: :active,
+         viewer_count: 1,
+         media_ingest_id: "core-media-1",
+         close_reason: nil,
+         failure_reason: nil,
+         lease_expires_at: DateTime.from_unix!(1_800_000_000),
+         updated_at: DateTime.from_unix!(1_800_000_000)
+       }}
+    end
+
+    assert {:push, {:text, _payload}, state} =
+             CameraRelayStreamHandler.init(
+               relay_session_id: relay_session_id,
+               scope: scope,
+               fetcher: fetcher,
+               poll_interval_ms: 10_000
+             )
+
+    assert {:push, {:text, payload}, state} =
+             CameraRelayStreamHandler.handle_info(
+               {:camera_relay_state,
+                %{
+                  relay_session_id: relay_session_id,
+                  status: "closing",
+                  playback_state: "closing",
+                  termination_kind: "manual_stop",
+                  viewer_count: 0,
+                  close_reason: "viewer closed device details",
+                  updated_at_unix: 1_800_000_010
+                }},
+               state
+             )
+
+    assert %{
+             "status" => "closing",
+             "playback_state" => "closing",
+             "termination_kind" => "manual_stop"
+           } = Jason.decode!(payload)
+
+    assert {:ok, state} =
+             CameraRelayStreamHandler.handle_info(
+               {:camera_relay_state,
+                %{
+                  relay_session_id: relay_session_id,
+                  status: "active",
+                  playback_state: "ready",
+                  viewer_count: 1,
+                  updated_at_unix: 1_800_000_011
+                }},
+               state
+             )
   end
 end

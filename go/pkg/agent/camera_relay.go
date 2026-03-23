@@ -33,6 +33,7 @@ var (
 	errCameraRelayGatewayUnavailable = errors.New("camera relay gateway unavailable")
 	errCameraRelaySessionExists      = errors.New("camera relay session already active")
 	errCameraRelaySessionNotFound    = errors.New("camera relay session not found")
+	errCameraRelayDrainRequested     = errors.New("camera relay drain requested")
 )
 
 const (
@@ -269,6 +270,9 @@ func (m *cameraRelayManager) runSession(
 		if err != nil {
 			return fmt.Errorf("upload media: %w", err)
 		}
+		if relayDrainRequested(resp.GetMessage()) {
+			return errCameraRelayDrainRequested
+		}
 
 		if resp != nil && resp.GetLastSequence() > lastSequence {
 			lastSequence = resp.GetLastSequence()
@@ -281,15 +285,19 @@ func (m *cameraRelayManager) runSession(
 			}
 		}
 
-		if _, err := m.gateway.HeartbeatRelaySession(ctx, &proto.RelayHeartbeat{
+		heartbeatResp, err := m.gateway.HeartbeatRelaySession(ctx, &proto.RelayHeartbeat{
 			RelaySessionId: spec.RelaySessionID,
 			MediaIngestId:  spec.MediaIngestID,
 			AgentId:        spec.AgentID,
 			LastSequence:   lastSequence,
 			SentBytes:      sentBytes,
 			TimestampUnix:  time.Now().Unix(),
-		}); err != nil {
+		})
+		if err != nil {
 			return fmt.Errorf("heartbeat relay session: %w", err)
+		}
+		if relayDrainRequested(heartbeatResp.GetMessage()) {
+			return errCameraRelayDrainRequested
 		}
 
 		batch = batch[:0]
@@ -303,6 +311,10 @@ func (m *cameraRelayManager) runSession(
 			batch = append(batch, buildMediaChunk(spec, chunk))
 			if chunk.IsFinal || len(batch) >= m.batchSize() {
 				if err := flush(); err != nil {
+					if errors.Is(err, errCameraRelayDrainRequested) {
+						closeReason = "camera relay drain acknowledged"
+						return
+					}
 					closeReason = "camera relay upload failed"
 					m.logger.Warn().Err(err).Str("relay_session_id", spec.RelaySessionID).Msg("Camera relay upload failed")
 					return
@@ -442,4 +454,8 @@ func buildMediaChunk(spec cameraRelaySessionSpec, chunk *cameraRelayChunk) *prot
 		Codec:          codec,
 		PayloadFormat:  chunk.PayloadFormat,
 	}
+}
+
+func relayDrainRequested(message string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(message)), "drain")
 }

@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias Ash.Error.Invalid
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadar.Camera.RelayTermination
   alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Identity.DeviceAliasState
@@ -4038,11 +4039,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       {relay_status_label(@last_session.status)}
                     </span>
                     <span
+                      :if={present?(relay_termination_label(@last_session))}
+                      class="text-xs text-info"
+                    >
+                      {relay_termination_label(@last_session)}
+                    </span>
+                    <span
                       :if={present?(Map.get(@last_session, :failure_reason))}
                       class="text-xs text-error"
                       title={Map.get(@last_session, :failure_reason)}
                     >
                       {Map.get(@last_session, :failure_reason)}
+                    </span>
+                    <span
+                      :if={present?(Map.get(@last_session, :close_reason))}
+                      class="text-xs text-warning"
+                      title={Map.get(@last_session, :close_reason)}
+                    >
+                      {Map.get(@last_session, :close_reason)}
                     </span>
                     <.ui_button
                       phx-click="open_camera_relay"
@@ -4099,6 +4113,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                     class="text-xs text-base-content/70"
                   >
                     Playback state: {relay_playback_state(@active_session)}
+                  </div>
+                  <div data-role="viewer-count" class="text-xs text-base-content/70">
+                    Viewer count: {Map.get(@active_session, :viewer_count, 0)}
+                  </div>
+                  <div data-role="termination-kind" class="text-xs text-info/80">
+                    {relay_termination_text(@active_session)}
+                  </div>
+                  <div data-role="close-reason" class="text-xs text-warning/80">
+                    {relay_close_reason_text(@active_session)}
                   </div>
                   <div data-role="binary-stats" class="text-xs text-base-content/60">
                     Chunks: 0  Bytes: 0
@@ -7955,6 +7978,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp relay_playback_state(%{status: status}) when status in [:failed, "failed"], do: "failed"
   defp relay_playback_state(_session), do: "pending"
 
+  defp relay_close_reason_text(session) do
+    case Map.get(session || %{}, :close_reason) do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+        if trimmed == "", do: "", else: "Close reason: #{trimmed}"
+
+      value when is_nil(value) ->
+        ""
+
+      value ->
+        "Close reason: #{value}"
+    end
+  end
+
+  defp relay_termination_label(session) do
+    session
+    |> relay_termination_kind()
+    |> RelayTermination.label()
+    |> case do
+      value when is_binary(value) -> value
+      _other -> ""
+    end
+  end
+
+  defp relay_termination_text(session) do
+    case relay_termination_label(session) do
+      "" -> ""
+      label -> "Termination: #{label}"
+    end
+  end
+
+  defp relay_termination_kind(session) when is_map(session) do
+    Map.get(session, :termination_kind) || Map.get(session, "termination_kind")
+  end
+
+  defp relay_termination_kind(_session), do: nil
+
   defp camera_relay_stream_path(%{id: relay_session_id}) when is_binary(relay_session_id) do
     ~p"/v1/camera-relay-sessions/#{relay_session_id}/stream"
   end
@@ -7972,6 +8032,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp relay_session_terminal?(_session), do: false
 
   defp apply_camera_relay_session_update(socket, session) do
+    current_session = socket.assigns.active_camera_relay_session || socket.assigns.last_camera_relay_session
+    session = prefer_camera_relay_session(current_session, session)
+
     if relay_session_terminal?(session) do
       socket
       |> assign(:active_camera_relay_session, nil)
@@ -7987,6 +8050,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp clear_active_camera_relay_session(socket) do
     assign(socket, :active_camera_relay_session, nil)
+  end
+
+  defp prefer_camera_relay_session(current_session, incoming_session) do
+    if relay_session_regresses?(current_session, incoming_session) do
+      current_session
+    else
+      incoming_session
+    end
+  end
+
+  defp relay_session_regresses?(%{id: current_id} = current_session, %{id: incoming_id} = incoming_session)
+       when is_binary(current_id) and current_id == incoming_id do
+    relay_status_rank(incoming_session) < relay_status_rank(current_session)
+  end
+
+  defp relay_session_regresses?(_current_session, _incoming_session), do: false
+
+  defp relay_status_rank(%{status: status}) do
+    case status do
+      value when value in [:requested, "requested"] -> 0
+      value when value in [:opening, "opening"] -> 1
+      value when value in [:active, "active"] -> 2
+      value when value in [:closing, "closing"] -> 3
+      value when value in [:closed, "closed"] -> 4
+      value when value in [:failed, "failed"] -> 4
+      _other -> 0
+    end
   end
 
   defp schedule_camera_relay_refresh(relay_session_id) when is_binary(relay_session_id) do

@@ -38,6 +38,9 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
         create_session(attrs, actor_or_scope, ash_opts)
       end)
 
+    session_loader =
+      Keyword.get(opts, :session_loader, fn session_id -> fetch_session(session_id, ash_opts) end)
+
     mark_opening =
       Keyword.get(opts, :mark_opening, fn session,
                                           command_id,
@@ -90,7 +93,10 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
              actor
            ) do
         {:ok, command_id} ->
-          mark_opening.(session, command_id, lease_token, lease_expiry(opts), actor)
+          with {:ok, updated_session} <-
+                 mark_opening.(session, command_id, lease_token, lease_expiry(opts), actor) do
+            load_session_result(updated_session, session_loader)
+          end
 
         {:error, reason} = error ->
           _ = mark_failed.(session, reason, actor)
@@ -118,6 +124,8 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     session_fetcher =
       Keyword.get(opts, :session_fetcher, fn session_id -> fetch_session(session_id, ash_opts) end)
 
+    session_loader = Keyword.get(opts, :session_loader, session_fetcher)
+
     mark_closing =
       Keyword.get(opts, :mark_closing, fn session, reason, actor_or_scope ->
         mark_session_closing(session, reason, actor_or_scope, ash_opts)
@@ -140,7 +148,7 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
              actor
            ) do
         {:ok, _command_id} ->
-          {:ok, updated_session}
+          load_session_result(updated_session, session_loader)
 
         {:error, reason} = error ->
           _ = mark_failed.(updated_session, reason, actor)
@@ -204,6 +212,17 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   defp resolve_session(%{id: id}, fetcher) when is_binary(id), do: fetcher.(id)
   defp resolve_session(session_id, fetcher) when is_binary(session_id), do: fetcher.(session_id)
   defp resolve_session(_session_or_id, _fetcher), do: {:error, :invalid_session}
+
+  defp load_session_result(%{id: session_id} = fallback_session, session_loader)
+       when is_binary(session_id) do
+    case session_loader.(session_id) do
+      {:ok, nil} -> {:ok, fallback_session}
+      {:ok, session} -> {:ok, session}
+      {:error, _reason} -> {:ok, fallback_session}
+    end
+  end
+
+  defp load_session_result(session, _session_loader), do: {:ok, session}
 
   defp validate_source_assignment(source) do
     cond do

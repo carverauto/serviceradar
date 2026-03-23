@@ -44,7 +44,14 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
           {:ok, session}
 
         status when status in [:requested, :opening, :active, :closing] ->
-          close_session_record(session, %{close_reason: close_reason(attrs)}, opts)
+          close_session_record(
+            session,
+            %{
+              close_reason: close_reason(session, attrs),
+              viewer_count: normalize_viewer_count(attrs, 0)
+            },
+            opts
+          )
 
         status ->
           {:error, {:invalid_status, status}}
@@ -61,7 +68,8 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
         session,
         %{
           failure_reason: failure_reason(attrs),
-          close_reason: close_reason(attrs)
+          close_reason: close_reason(session, attrs),
+          viewer_count: normalize_viewer_count(attrs, 0)
         },
         opts
       )
@@ -135,9 +143,25 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
 
   defp lease_attrs(attrs) when is_map(attrs) do
     case normalize_lease_expiry(attrs) do
-      {:ok, nil} -> {:ok, %{}}
-      {:ok, lease_expires_at} -> {:ok, %{lease_expires_at: lease_expires_at}}
-      {:error, reason} -> {:error, reason}
+      {:error, reason} ->
+        {:error, reason}
+
+      {:ok, lease_expires_at} ->
+        viewer_count = normalize_optional_viewer_count(attrs)
+
+        cond do
+          is_nil(lease_expires_at) and is_nil(viewer_count) ->
+            {:ok, %{}}
+
+          is_nil(viewer_count) ->
+            {:ok, %{lease_expires_at: lease_expires_at}}
+
+          is_nil(lease_expires_at) ->
+            {:ok, %{viewer_count: viewer_count}}
+
+          true ->
+            {:ok, %{lease_expires_at: lease_expires_at, viewer_count: viewer_count}}
+        end
     end
   end
 
@@ -153,6 +177,14 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
 
       true ->
         {:ok, nil}
+    end
+  end
+
+  defp normalize_optional_viewer_count(attrs) when is_map(attrs) do
+    value = Map.get(attrs, :viewer_count)
+
+    if is_integer(value) and value >= 0 do
+      value
     end
   end
 
@@ -173,13 +205,25 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
     end
   end
 
-  defp close_reason(attrs) when is_map(attrs) do
-    attrs
-    |> Map.get(:close_reason)
-    |> blank_to_default("media ingress closed")
+  defp close_reason(session, attrs) when is_map(attrs) do
+    existing_reason = existing_close_reason(session)
+    incoming_reason = Map.get(attrs, :close_reason)
+
+    if preserve_existing_close_reason?(session, incoming_reason, existing_reason) do
+      existing_reason
+    else
+      blank_to_default(incoming_reason, existing_reason || "media ingress closed")
+    end
   end
 
-  defp close_reason(_attrs), do: "media ingress closed"
+  defp close_reason(session, _attrs), do: existing_close_reason(session) || "media ingress closed"
+
+  defp normalize_viewer_count(attrs, default) when is_map(attrs) do
+    value = Map.get(attrs, :viewer_count, default)
+    if is_integer(value) and value >= 0, do: value, else: default
+  end
+
+  defp normalize_viewer_count(_attrs, default), do: default
 
   defp failure_reason(attrs) when is_map(attrs) do
     attrs
@@ -196,6 +240,45 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
 
   defp blank_to_default(nil, default), do: default
   defp blank_to_default(value, _default), do: to_string(value)
+
+  defp existing_close_reason(session) when is_map(session) do
+    session
+    |> Map.get(:close_reason)
+    |> case do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+        if trimmed == "", do: nil, else: trimmed
+
+      value when not is_nil(value) ->
+        to_string(value)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp existing_close_reason(_session), do: nil
+
+  defp preserve_existing_close_reason?(session, incoming_reason, existing_reason) do
+    closing_session?(session) and present_reason?(existing_reason) and
+      drain_ack_reason?(incoming_reason)
+  end
+
+  defp closing_session?(session) when is_map(session) do
+    Map.get(session, :status) in [:closing, "closing"]
+  end
+
+  defp closing_session?(_session), do: false
+
+  defp present_reason?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_reason?(nil), do: false
+  defp present_reason?(_value), do: true
+
+  defp drain_ack_reason?(value) when is_binary(value) do
+    String.trim(value) == "camera relay drain acknowledged"
+  end
+
+  defp drain_ack_reason?(_value), do: false
 
   defp actor(opts) do
     Keyword.get(opts, :actor, SystemActor.system(@default_actor_component))

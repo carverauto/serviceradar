@@ -72,6 +72,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
            agent_id: "agent-1",
            gateway_id: "gateway-1",
            status: :opening,
+           viewer_count: 0,
            lease_expires_at: DateTime.from_unix!(1_800_000_000),
            inserted_at: DateTime.from_unix!(1_800_000_000),
            updated_at: DateTime.from_unix!(1_800_000_000)
@@ -91,7 +92,9 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       assert body["data"]["id"] == relay_session_id
       assert body["data"]["status"] == "opening"
       assert body["data"]["playback_state"] == "pending"
+      assert body["data"]["viewer_count"] == 0
       assert body["data"]["agent_id"] == "agent-1"
+      assert body["data"]["termination_kind"] == nil
 
       assert body["data"]["viewer_stream_path"] ==
                "/v1/camera-relay-sessions/#{relay_session_id}/stream"
@@ -141,6 +144,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
            agent_id: "agent-2",
            gateway_id: "gateway-2",
            status: :closing,
+           termination_kind: "manual_stop",
+           viewer_count: 0,
            close_reason: "viewer disconnected",
            updated_at: DateTime.from_unix!(1_800_000_100)
          }}
@@ -156,7 +161,9 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       assert body["data"]["id"] == relay_session_id
       assert body["data"]["status"] == "closing"
       assert body["data"]["playback_state"] == "closing"
+      assert body["data"]["viewer_count"] == 0
       assert body["data"]["close_reason"] == "viewer disconnected"
+      assert body["data"]["termination_kind"] == "manual_stop"
 
       assert body["data"]["viewer_stream_path"] ==
                "/v1/camera-relay-sessions/#{relay_session_id}/stream"
@@ -198,6 +205,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
              agent_id: "agent-3",
              gateway_id: "gateway-3",
              status: :active,
+             viewer_count: 2,
              media_ingest_id: "core-media-1",
              updated_at: DateTime.from_unix!(1_800_000_200)
            }}
@@ -214,7 +222,9 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       assert body["data"]["id"] == relay_session_id
       assert body["data"]["status"] == "active"
       assert body["data"]["playback_state"] == "ready"
+      assert body["data"]["viewer_count"] == 2
       assert body["data"]["agent_id"] == "agent-3"
+      assert body["data"]["termination_kind"] == nil
 
       assert body["data"]["viewer_stream_path"] ==
                "/v1/camera-relay-sessions/#{relay_session_id}/stream"

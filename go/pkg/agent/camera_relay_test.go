@@ -12,20 +12,24 @@ import (
 )
 
 type fakeCameraRelayGateway struct {
-	mu              sync.Mutex
-	gatewayID       string
-	openRequests    []*proto.OpenRelaySessionRequest
-	uploadBatches   [][]*proto.MediaChunk
-	heartbeatReqs   []*proto.RelayHeartbeat
-	closeRequests   []*proto.CloseRelaySessionRequest
-	closeNotifyOnce sync.Once
-	closeNotifyCh   chan struct{}
+	mu               sync.Mutex
+	gatewayID        string
+	uploadMessage    string
+	heartbeatMessage string
+	openRequests     []*proto.OpenRelaySessionRequest
+	uploadBatches    [][]*proto.MediaChunk
+	heartbeatReqs    []*proto.RelayHeartbeat
+	closeRequests    []*proto.CloseRelaySessionRequest
+	closeNotifyOnce  sync.Once
+	closeNotifyCh    chan struct{}
 }
 
 func newFakeCameraRelayGateway() *fakeCameraRelayGateway {
 	return &fakeCameraRelayGateway{
-		gatewayID:     "gateway-test-1",
-		closeNotifyCh: make(chan struct{}),
+		gatewayID:        "gateway-test-1",
+		uploadMessage:    "ok",
+		heartbeatMessage: "ok",
+		closeNotifyCh:    make(chan struct{}),
 	}
 }
 
@@ -63,7 +67,7 @@ func (f *fakeCameraRelayGateway) UploadMedia(_ context.Context, chunks []*proto.
 	return &proto.UploadMediaResponse{
 		Received:     true,
 		LastSequence: lastSequence,
-		Message:      "ok",
+		Message:      f.uploadMessage,
 	}, nil
 }
 
@@ -74,7 +78,7 @@ func (f *fakeCameraRelayGateway) HeartbeatRelaySession(_ context.Context, req *p
 	return &proto.RelayHeartbeatAck{
 		Accepted:           true,
 		LeaseExpiresAtUnix: time.Now().Add(30 * time.Second).Unix(),
-		Message:            "ok",
+		Message:            f.heartbeatMessage,
 	}, nil
 }
 
@@ -218,6 +222,104 @@ func TestCameraRelayManagerRejectsDuplicateRelaySession(t *testing.T) {
 	defer cancel()
 	if err := manager.Stop(stopCtx, cameraRelayStopPayload{RelaySessionID: "relay-dup", Reason: "test complete"}); err != nil {
 		t.Fatalf("Stop returned error: %v", err)
+	}
+}
+
+func TestCameraRelayManagerStopsWhenGatewayUploadEntersDrain(t *testing.T) {
+	t.Parallel()
+
+	gateway := newFakeCameraRelayGateway()
+	gateway.uploadMessage = "media chunks accepted during relay drain"
+
+	manager := newCameraRelayManager(gateway, createTestLogger())
+	manager.uploadBatchSize = 1
+	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+		return &sliceCameraRelayStream{
+			chunks: []*cameraRelayChunk{
+				{TrackID: "video", Payload: []byte("a"), Sequence: 1, Codec: "h264", PayloadFormat: "annexb"},
+			},
+		}, nil
+	}
+
+	if _, err := manager.Start(context.Background(), cameraRelaySessionSpec{
+		RelaySessionID:  "relay-drain-upload-1",
+		AgentID:         "agent-1",
+		CameraSourceID:  "camera-1",
+		StreamProfileID: "main",
+		LeaseToken:      "lease-1",
+	}); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+
+	select {
+	case <-gateway.closeNotifyCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for relay session to close after upload drain")
+	}
+
+	gateway.mu.Lock()
+	defer gateway.mu.Unlock()
+
+	if len(gateway.uploadBatches) != 1 {
+		t.Fatalf("expected 1 upload batch, got %d", len(gateway.uploadBatches))
+	}
+	if len(gateway.heartbeatReqs) != 0 {
+		t.Fatalf("expected 0 heartbeats after upload drain, got %d", len(gateway.heartbeatReqs))
+	}
+	if len(gateway.closeRequests) != 1 {
+		t.Fatalf("expected 1 close request, got %d", len(gateway.closeRequests))
+	}
+	if got := gateway.closeRequests[0].GetReason(); got != "camera relay drain acknowledged" {
+		t.Fatalf("expected close reason %q, got %q", "camera relay drain acknowledged", got)
+	}
+}
+
+func TestCameraRelayManagerStopsWhenGatewayHeartbeatEntersDrain(t *testing.T) {
+	t.Parallel()
+
+	gateway := newFakeCameraRelayGateway()
+	gateway.heartbeatMessage = "core heartbeat accepted during relay drain"
+
+	manager := newCameraRelayManager(gateway, createTestLogger())
+	manager.uploadBatchSize = 1
+	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+		return &sliceCameraRelayStream{
+			chunks: []*cameraRelayChunk{
+				{TrackID: "video", Payload: []byte("a"), Sequence: 1, Codec: "h264", PayloadFormat: "annexb"},
+			},
+		}, nil
+	}
+
+	if _, err := manager.Start(context.Background(), cameraRelaySessionSpec{
+		RelaySessionID:  "relay-drain-heartbeat-1",
+		AgentID:         "agent-1",
+		CameraSourceID:  "camera-1",
+		StreamProfileID: "main",
+		LeaseToken:      "lease-1",
+	}); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+
+	select {
+	case <-gateway.closeNotifyCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for relay session to close after heartbeat drain")
+	}
+
+	gateway.mu.Lock()
+	defer gateway.mu.Unlock()
+
+	if len(gateway.uploadBatches) != 1 {
+		t.Fatalf("expected 1 upload batch, got %d", len(gateway.uploadBatches))
+	}
+	if len(gateway.heartbeatReqs) != 1 {
+		t.Fatalf("expected 1 heartbeat before drain close, got %d", len(gateway.heartbeatReqs))
+	}
+	if len(gateway.closeRequests) != 1 {
+		t.Fatalf("expected 1 close request, got %d", len(gateway.closeRequests))
+	}
+	if got := gateway.closeRequests[0].GetReason(); got != "camera relay drain acknowledged" {
+		t.Fatalf("expected close reason %q, got %q", "camera relay drain acknowledged", got)
 	}
 }
 

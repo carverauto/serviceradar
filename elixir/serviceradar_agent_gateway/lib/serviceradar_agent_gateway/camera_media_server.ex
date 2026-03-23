@@ -30,7 +30,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
       raise GRPC.RPCError, status: :invalid_argument, message: "lease_token is required"
     end
 
-    upstream_request = %Camera.OpenRelaySessionRequest{
+    upstream_request = %{
       request
       | agent_id: agent_id,
         gateway_id: gateway_id()
@@ -39,7 +39,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     {:ok, upstream_response} = forward_open_relay_session(upstream_request)
 
     {:ok, session} =
-      CameraMediaSessionTracker.open_session(%{
+      session_tracker().open_session(%{
         relay_session_id: required_string(request.relay_session_id, "relay_session_id"),
         media_ingest_id: upstream_response.media_ingest_id,
         agent_id: agent_id,
@@ -72,22 +72,39 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
   @spec upload_media(Enumerable.t(), GRPC.Server.Stream.t()) :: Camera.UploadMediaResponse.t()
   def upload_media(request_stream, stream) do
     identity = extract_identity_from_stream(stream)
+    {:ok, session_ref} = Agent.start_link(fn -> %{relay_session_id: nil, media_ingest_id: nil} end)
 
-    request_stream
-    |> Stream.map(fn
-      %Camera.MediaChunk{} = chunk ->
-        handle_media_chunk(chunk, identity)
+    try do
+      request_stream
+      |> Stream.map(fn
+        %Camera.MediaChunk{} = chunk ->
+          chunk = handle_media_chunk(chunk, identity)
 
-      other ->
-        other
-    end)
-    |> forward_upload_media()
-    |> case do
-      {:ok, %Camera.UploadMediaResponse{} = response} ->
-        response
+          Agent.update(session_ref, fn _state ->
+            %{
+              relay_session_id: chunk.relay_session_id,
+              media_ingest_id: chunk.media_ingest_id
+            }
+          end)
 
-      {:error, reason} ->
-        raise GRPC.RPCError, status: :unavailable, message: "failed to forward media stream: #{inspect(reason)}"
+          chunk
+
+        other ->
+          other
+      end)
+      |> forwarder().upload_media()
+      |> case do
+        {:ok, %Camera.UploadMediaResponse{} = response} ->
+          maybe_mark_upload_closing(session_ref, response.message)
+          response
+
+        {:error, reason} ->
+          raise GRPC.RPCError,
+            status: :unavailable,
+            message: "failed to forward media stream: #{inspect(reason)}"
+      end
+    after
+      Agent.stop(session_ref, :normal)
     end
   end
 
@@ -97,11 +114,16 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     identity = extract_identity_from_stream(stream)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
 
-    with relay_session_id <- required_string(request.relay_session_id, "relay_session_id"),
-         media_ingest_id <- required_string(request.media_ingest_id, "media_ingest_id"),
-         {:ok, upstream_ack} <- CameraMediaForwarder.heartbeat(request),
+    relay_session_id = required_string(request.relay_session_id, "relay_session_id")
+    media_ingest_id = required_string(request.media_ingest_id, "media_ingest_id")
+
+    with {:ok, upstream_ack} <- forwarder().heartbeat(request),
+         {:ok, _session} <-
+           maybe_mark_closing(relay_session_id, media_ingest_id, %{
+             close_reason: gateway_drain_reason(upstream_ack.message)
+           }),
          {:ok, session} <-
-           CameraMediaSessionTracker.heartbeat(relay_session_id, media_ingest_id, %{
+           session_tracker().heartbeat(relay_session_id, media_ingest_id, %{
              last_sequence: request.last_sequence,
              sent_bytes: request.sent_bytes,
              lease_expires_at_unix: upstream_ack.lease_expires_at_unix
@@ -133,9 +155,9 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     relay_session_id = required_string(request.relay_session_id, "relay_session_id")
     media_ingest_id = required_string(request.media_ingest_id, "media_ingest_id")
 
-    case CameraMediaForwarder.close_relay_session(request) do
+    case forwarder().close_relay_session(request) do
       {:ok, %Camera.CloseRelaySessionResponse{} = upstream_response} ->
-        case CameraMediaSessionTracker.close_session(relay_session_id, media_ingest_id, %{reason: request.reason}) do
+        case session_tracker().close_session(relay_session_id, media_ingest_id, %{reason: request.reason}) do
           :ok ->
             %Camera.CloseRelaySessionResponse{closed: true, message: upstream_response.message}
 
@@ -167,13 +189,13 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
         message: "media chunk exceeded max size #{@max_chunk_bytes}"
     end
 
-    with {:ok, _session} <-
-           CameraMediaSessionTracker.record_chunk(relay_session_id, media_ingest_id, %{
-             sequence: chunk.sequence,
-             payload: chunk.payload || <<>>
-           }) do
-      chunk
-    else
+    case session_tracker().record_chunk(relay_session_id, media_ingest_id, %{
+           sequence: chunk.sequence,
+           payload: chunk.payload || <<>>
+         }) do
+      {:ok, _session} ->
+        chunk
+
       {:error, :not_found} ->
         raise GRPC.RPCError, status: :not_found, message: "relay session not found"
 
@@ -182,8 +204,12 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     end
   end
 
+  defp forwarder do
+    Application.get_env(:serviceradar_agent_gateway, :camera_media_forwarder, CameraMediaForwarder)
+  end
+
   defp forward_open_relay_session(request) do
-    case CameraMediaForwarder.open_relay_session(request) do
+    case forwarder().open_relay_session(request) do
       {:ok, %Camera.OpenRelaySessionResponse{} = response} ->
         {:ok, response}
 
@@ -195,9 +221,67 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     end
   end
 
-  defp forward_upload_media(request_stream) do
-    CameraMediaForwarder.upload_media(request_stream)
+  defp session_tracker do
+    Application.get_env(
+      :serviceradar_agent_gateway,
+      :camera_media_session_tracker_module,
+      CameraMediaSessionTracker
+    )
   end
+
+  defp identity_resolver do
+    Application.get_env(
+      :serviceradar_agent_gateway,
+      :camera_media_identity_resolver,
+      ComponentIdentityResolver
+    )
+  end
+
+  defp maybe_mark_closing(relay_session_id, media_ingest_id, attrs) do
+    if draining_message?(Map.get(attrs, :close_reason)) do
+      session_tracker().mark_closing(relay_session_id, media_ingest_id, attrs)
+    else
+      relay_session_id
+      |> session_tracker().fetch_session()
+      |> case do
+        nil -> {:error, :not_found}
+        session -> {:ok, session}
+      end
+    end
+  end
+
+  defp maybe_mark_upload_closing(session_ref, message) do
+    if draining_message?(message) do
+      %{relay_session_id: relay_session_id, media_ingest_id: media_ingest_id} =
+        Agent.get(session_ref, & &1)
+
+      if is_binary(relay_session_id) and relay_session_id != "" and is_binary(media_ingest_id) and
+           media_ingest_id != "" do
+        _ =
+          session_tracker().mark_closing(relay_session_id, media_ingest_id, %{
+            close_reason: gateway_drain_reason(message)
+          })
+
+        :ok
+      else
+        :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp draining_message?(message) when is_binary(message) do
+    String.contains?(String.downcase(message), "drain")
+  end
+
+  defp draining_message?(_message), do: false
+
+  defp gateway_drain_reason(message) when is_binary(message) do
+    if draining_message?(message), do: "upstream relay drain"
+  end
+
+  defp gateway_drain_reason(_message), do: nil
 
   defp required_agent_id(value) do
     case value do
@@ -247,7 +331,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
 
   defp extract_identity_from_stream(stream) do
     with {:ok, cert_der} <- get_peer_cert(stream),
-         {:ok, identity} <- ComponentIdentityResolver.resolve_from_cert(cert_der) do
+         {:ok, identity} <- identity_resolver().resolve_from_cert(cert_der) do
       identity
     else
       {:error, reason} ->
@@ -260,7 +344,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     adapter = stream.adapter
     payload = stream.payload
 
-    if is_atom(adapter) and function_exported?(adapter, :get_cert, 1) do
+    if is_atom(adapter) and Code.ensure_loaded?(adapter) and function_exported?(adapter, :get_cert, 1) do
       case adapter.get_cert(payload) do
         :undefined -> {:error, :no_certificate}
         cert_der when is_binary(cert_der) -> {:ok, cert_der}

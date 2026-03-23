@@ -1,10 +1,26 @@
 defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadarAgentGateway.CameraMediaSessionTracker
 
   setup do
-    start_supervised!(CameraMediaSessionTracker)
+    previous_state =
+      CameraMediaSessionTracker
+      |> :sys.get_state()
+      |> clear_sessions()
+
+    :sys.replace_state(CameraMediaSessionTracker, fn state ->
+      Map.put(state, :sessions, %{})
+    end)
+
+    on_exit(fn ->
+      CameraMediaSessionTracker
+      |> :sys.get_state()
+      |> clear_sessions()
+
+      :sys.replace_state(CameraMediaSessionTracker, fn _state -> previous_state end)
+    end)
+
     :ok
   end
 
@@ -47,5 +63,47 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
 
     assert :ok = CameraMediaSessionTracker.close_session("relay-1", "core-media-1")
     assert CameraMediaSessionTracker.fetch_session("relay-1") == nil
+  end
+
+  test "marks a session closing and keeps counters moving during drain" do
+    future_expiry = System.os_time(:second) + 60
+
+    assert {:ok, session} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-drain-1",
+               media_ingest_id: "core-media-drain-1",
+               agent_id: "agent-1",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-1",
+               stream_profile_id: "main",
+               lease_token: "lease-drain-1",
+               lease_expires_at_unix: future_expiry
+             })
+
+    assert session.status == "active"
+    assert session.close_reason == nil
+
+    assert {:ok, closing} =
+             CameraMediaSessionTracker.mark_closing("relay-drain-1", "core-media-drain-1", %{
+               close_reason: "upstream relay drain"
+             })
+
+    assert closing.status == "closing"
+    assert closing.close_reason == "upstream relay drain"
+
+    assert {:ok, updated} =
+             CameraMediaSessionTracker.heartbeat("relay-drain-1", "core-media-drain-1", %{
+               last_sequence: 8,
+               sent_bytes: 21
+             })
+
+    assert updated.status == "closing"
+    assert updated.last_sequence == 8
+    assert updated.sent_bytes == 21
+  end
+
+  defp clear_sessions(state) do
+    Map.put(state, :sessions, %{})
   end
 end
