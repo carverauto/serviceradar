@@ -10,7 +10,7 @@ topologySpread:
   whenUnsatisfiable: ScheduleAnyway
 
 global:
-  imageTag: "sha-afe0df0b4f09ffeecdbeefdab5acf28e8bcc992f"
+  imageTag: "sha-03ad74c12d04b0aac7e91da4250cf4e736b2c4c2"
   imagePullPolicy: Always
 
 image:
@@ -23,7 +23,7 @@ image:
     zen: "sha256:a1a2ed631a167642f54260da3d1276ed39d309c7960889b6f7fa75d0b596cd3b"
 
 tools:
-  enabled: false
+  enabled: true
 
 natsCreds:
   autoGenerate: true

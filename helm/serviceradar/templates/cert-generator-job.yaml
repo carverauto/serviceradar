@@ -75,11 +75,13 @@ spec:
     spec:
       serviceAccountName: serviceradar-runtime-cert-generator
       restartPolicy: OnFailure
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: runtime-cert-generator
         image: {{ $certJobImage | quote }}
         imagePullPolicy: IfNotPresent
+        {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
         command: ["/bin/bash", "-c"]
         env:
         - name: SECRET_NAME

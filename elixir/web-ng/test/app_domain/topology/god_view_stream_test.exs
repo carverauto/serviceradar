@@ -3170,6 +3170,145 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert distance(Map.fetch!(coords, switch_uid), Map.fetch!(coords, cluster_id)) >= 140.0
   end
 
+  test "latest_snapshot/0 only clusters source-side access-anchor endpoint attachments" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_access_anchor_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-source-switch-#{suffix}"
+    ap_uid = "sr:cluster-source-ap-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "cluster-source-switch-#{suffix}", %{
+      ip: "198.51.100.30",
+      type_id: 10,
+      is_available: true
+    })
+
+    create_topology_device(actor, ap_uid, "cluster-source-ap-#{suffix}", %{
+      ip: "198.51.100.31",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    local_endpoint_specs =
+      Enum.map(1..6, fn idx ->
+        uid = "sr:cluster-source-local-endpoint-#{suffix}-#{idx}"
+        ip = "198.51.100.#{40 + idx}"
+        mac = "02:00:00:30:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:aa"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 2,
+          is_available: true,
+          metadata: %{"identity_source" => "mapper_topology_sighting", "primary_mac" => mac}
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    reverse_endpoint_specs =
+      Enum.map(1..8, fn idx ->
+        uid = "sr:cluster-source-reverse-endpoint-#{suffix}-#{idx}"
+        ip = "198.51.100.#{80 + idx}"
+        mac = "02:00:00:40:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 2,
+          is_available: true,
+          metadata: %{"identity_source" => "mapper_topology_sighting", "primary_mac" => mac}
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    rows =
+      [
+        directional_runtime_row(switch_uid, ap_uid, 1, 2, 95, 60, 35)
+      ] ++
+        Enum.map(local_endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+          %{
+            local_device_id: ap_uid,
+            local_device_ip: "198.51.100.31",
+            local_if_name: "wifi0",
+            local_if_index: 10,
+            neighbor_if_name: endpoint_mac,
+            neighbor_if_index: nil,
+            neighbor_device_id: endpoint_uid,
+            neighbor_mgmt_addr: endpoint_ip,
+            protocol: "snmp-l2",
+            evidence_class: "endpoint-attachment",
+            confidence_tier: "medium",
+            confidence_reason: "single_identifier_inference",
+            flow_pps: 3,
+            flow_bps: 300,
+            capacity_bps: 1_000_000_000,
+            flow_pps_ab: 3,
+            flow_pps_ba: 0,
+            flow_bps_ab: 300,
+            flow_bps_ba: 0,
+            telemetry_source: "interface",
+            telemetry_observed_at: "2026-03-22T23:45:00Z",
+            metadata: %{
+              "relation_type" => "ATTACHED_TO",
+              "evidence_class" => "endpoint-attachment"
+            }
+          }
+        end) ++
+        Enum.map(reverse_endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+          %{
+            local_device_id: endpoint_uid,
+            local_device_ip: endpoint_ip,
+            local_if_name: endpoint_mac,
+            local_if_index: nil,
+            neighbor_if_name: "unknown",
+            neighbor_if_index: nil,
+            neighbor_device_id: ap_uid,
+            neighbor_mgmt_addr: "198.51.100.31",
+            protocol: "snmp-l2",
+            evidence_class: "endpoint-attachment",
+            confidence_tier: "low",
+            confidence_reason: "single_identifier_inference",
+            flow_pps: 1,
+            flow_bps: 100,
+            capacity_bps: 1_000_000_000,
+            flow_pps_ab: 1,
+            flow_pps_ba: 0,
+            flow_bps_ab: 100,
+            flow_bps_ba: 0,
+            telemetry_source: "none",
+            telemetry_observed_at: "2026-03-22T23:45:00Z",
+            metadata: %{
+              "relation_type" => "ATTACHED_TO",
+              "evidence_class" => "endpoint-attachment"
+            }
+          }
+        end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    ap_cluster_id = "cluster:endpoints:" <> ap_uid
+    ap_cluster = Enum.find(snapshot.nodes, &(&1.id == ap_cluster_id))
+    ap_cluster_details = Jason.decode!(ap_cluster.details_json)
+
+    assert ap_cluster.label == "6 endpoints"
+    assert ap_cluster_details["cluster_kind"] == "endpoint-summary"
+    assert ap_cluster_details["cluster_member_count"] == 6
+    assert ap_cluster_details["cluster_anchor_id"] == ap_uid
+
+    assert find_edge(snapshot, switch_uid, ap_uid)
+    assert find_edge(snapshot, ap_uid, ap_cluster_id)
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> switch_uid))
+  end
+
   test "latest_snapshot/0 drops stray attachment edges from the collapsed default view" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)
