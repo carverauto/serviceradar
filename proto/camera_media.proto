@@ -1,0 +1,105 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package camera;
+
+option go_package = "github.com/carverauto/serviceradar/proto";
+
+// CameraMediaService handles live camera relay control and media uplink.
+// It is intentionally separate from monitoring status/results RPCs.
+service CameraMediaService {
+  // OpenRelaySession reserves an authenticated media ingress session for a camera/profile pair.
+  rpc OpenRelaySession(OpenRelaySessionRequest) returns (OpenRelaySessionResponse) {}
+
+  // UploadMedia streams encoded media chunks for an accepted relay session.
+  rpc UploadMedia(stream MediaChunk) returns (UploadMediaResponse) {}
+
+  // Heartbeat renews the relay session lease and reports edge-side progress.
+  rpc Heartbeat(RelayHeartbeat) returns (RelayHeartbeatAck) {}
+
+  // CloseRelaySession explicitly closes an active or pending relay session.
+  rpc CloseRelaySession(CloseRelaySessionRequest) returns (CloseRelaySessionResponse) {}
+}
+
+message OpenRelaySessionRequest {
+  string relay_session_id = 1;
+  string agent_id = 2;
+  string gateway_id = 3;
+  string camera_source_id = 4;
+  string stream_profile_id = 5;
+  string lease_token = 6;
+  string codec_hint = 7;
+  string container_hint = 8;
+}
+
+message OpenRelaySessionResponse {
+  bool accepted = 1;
+  string message = 2;
+  string media_ingest_id = 3;
+  uint32 max_chunk_bytes = 4;
+  int64 lease_expires_at_unix = 5;
+}
+
+message MediaChunk {
+  string relay_session_id = 1;
+  string media_ingest_id = 2;
+  string agent_id = 3;
+  string track_id = 4;
+  bytes payload = 5;
+  uint64 sequence = 6;
+  int64 pts = 7;
+  int64 dts = 8;
+  bool keyframe = 9;
+  bool is_final = 10;
+  string codec = 11;
+  string payload_format = 12;
+}
+
+message UploadMediaResponse {
+  bool received = 1;
+  uint64 last_sequence = 2;
+  string message = 3;
+}
+
+message RelayHeartbeat {
+  string relay_session_id = 1;
+  string media_ingest_id = 2;
+  string agent_id = 3;
+  uint64 last_sequence = 4;
+  uint64 sent_bytes = 5;
+  uint32 viewer_count = 6;
+  int64 timestamp_unix = 7;
+}
+
+message RelayHeartbeatAck {
+  bool accepted = 1;
+  int64 lease_expires_at_unix = 2;
+  string message = 3;
+}
+
+message CloseRelaySessionRequest {
+  string relay_session_id = 1;
+  string media_ingest_id = 2;
+  string agent_id = 3;
+  string reason = 4;
+}
+
+message CloseRelaySessionResponse {
+  bool closed = 1;
+  string message = 2;
+}

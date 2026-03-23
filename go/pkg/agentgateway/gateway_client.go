@@ -503,3 +503,115 @@ func (g *GatewayClient) ControlStream(ctx context.Context) (grpc.BidiStreamingCl
 
 	return stream, nil
 }
+
+// OpenRelaySession reserves an authenticated camera media ingress session.
+func (g *GatewayClient) OpenRelaySession(ctx context.Context, req *proto.OpenRelaySessionRequest) (*proto.OpenRelaySessionResponse, error) {
+	g.mu.RLock()
+	conn := g.conn
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	client := proto.NewCameraMediaServiceClient(conn)
+	resp, err := client.OpenRelaySession(ctx, req)
+	if err != nil {
+		g.logger.Error().Err(err).Msg("Failed to open camera relay session at gateway")
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to open relay session: %w", err)
+	}
+
+	return resp, nil
+}
+
+// UploadMedia streams camera media chunks to the gateway over the dedicated media service.
+func (g *GatewayClient) UploadMedia(ctx context.Context, chunks []*proto.MediaChunk) (*proto.UploadMediaResponse, error) {
+	g.mu.RLock()
+	conn := g.conn
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	client := proto.NewCameraMediaServiceClient(conn)
+	stream, err := client.UploadMedia(ctx)
+	if err != nil {
+		g.logger.Error().Err(err).Msg("Failed to create camera media upload stream")
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to create media upload stream: %w", err)
+	}
+
+	sentAny := false
+	for _, chunk := range chunks {
+		if chunk == nil {
+			continue
+		}
+		sentAny = true
+		if err := stream.Send(chunk); err != nil {
+			_ = stream.CloseSend()
+			g.markDisconnected()
+			return nil, fmt.Errorf("failed to send media chunk: %w", err)
+		}
+	}
+
+	if !sentAny {
+		_ = stream.CloseSend()
+		return nil, ErrNoChunksToSend
+	}
+
+	resp, err := stream.CloseAndRecv()
+	if err != nil {
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to receive media upload response: %w", err)
+	}
+
+	return resp, nil
+}
+
+// HeartbeatRelaySession renews the lease for an active camera relay session.
+func (g *GatewayClient) HeartbeatRelaySession(ctx context.Context, req *proto.RelayHeartbeat) (*proto.RelayHeartbeatAck, error) {
+	g.mu.RLock()
+	conn := g.conn
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	client := proto.NewCameraMediaServiceClient(conn)
+	resp, err := client.Heartbeat(ctx, req)
+	if err != nil {
+		g.logger.Error().Err(err).Msg("Failed to heartbeat camera relay session")
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to heartbeat relay session: %w", err)
+	}
+
+	return resp, nil
+}
+
+// CloseRelaySession closes an active camera relay session at the gateway.
+func (g *GatewayClient) CloseRelaySession(ctx context.Context, req *proto.CloseRelaySessionRequest) (*proto.CloseRelaySessionResponse, error) {
+	g.mu.RLock()
+	conn := g.conn
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	client := proto.NewCameraMediaServiceClient(conn)
+	resp, err := client.CloseRelaySession(ctx, req)
+	if err != nil {
+		g.logger.Error().Err(err).Msg("Failed to close camera relay session")
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to close relay session: %w", err)
+	}
+
+	return resp, nil
+}

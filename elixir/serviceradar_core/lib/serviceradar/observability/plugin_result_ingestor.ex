@@ -5,6 +5,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.InventoryIngestor
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Observability.ServiceIdentity
   alias ServiceRadar.Observability.ServiceStatus
@@ -32,8 +33,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         available
       )
 
-    with :ok <- insert_status(status_row, actor) do
-      insert_metrics(payload, status, observed_at, created_at, actor)
+    with :ok <- insert_status(status_row, actor),
+         :ok <- insert_metrics(payload, status, observed_at, created_at, actor) do
+      ingest_camera_inventory(payload, status, observed_at, actor)
     end
   rescue
     e ->
@@ -281,6 +283,24 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp parse_metric_number(_), do: nil
+
+  defp ingest_camera_inventory(payload, status, observed_at, actor) do
+    case camera_inventory_ingestor().ingest(payload, status,
+           actor: actor,
+           observed_at: observed_at
+         ) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Camera inventory ingest failed: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp camera_inventory_ingestor do
+    Application.get_env(:serviceradar_core, :camera_inventory_ingestor, InventoryIngestor)
+  end
 
   defp plugin_status_available(nil), do: false
 

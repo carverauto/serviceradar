@@ -65,6 +65,7 @@ config :serviceradar_core,
 config :serviceradar_core,
   ecto_repos: [ServiceRadar.Repo],
   ash_domains: [
+    ServiceRadar.Camera,
     ServiceRadar.Identity,
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,

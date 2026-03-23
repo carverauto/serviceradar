@@ -123,6 +123,98 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
     end
   end
 
+  describe "camera relay dispatch" do
+    test "sends a typed camera open relay command", %{agent_id: agent_id} do
+      {_pid, _metadata} = start_control_session(agent_id, self(), %{partition_id: "default"})
+
+      assert {:ok, _command_id} =
+               AgentCommandBus.start_camera_relay(agent_id, %{
+                 relay_session_id: "relay-1",
+                 camera_source_id: "camera-1",
+                 stream_profile_id: "main",
+                 lease_token: "lease-1",
+                 source_url: "rtsp://camera.local/stream/main",
+                 rtsp_transport: "tcp",
+                 codec_hint: "h264"
+               })
+
+      assert_receive {:send_command, %Monitoring.CommandRequest{} = command, context}, 1_000
+      assert command.command_type == "camera.open_relay"
+
+      payload = Jason.decode!(command.payload_json)
+
+      assert payload["relay_session_id"] == "relay-1"
+      assert payload["camera_source_id"] == "camera-1"
+      assert payload["stream_profile_id"] == "main"
+      assert payload["lease_token"] == "lease-1"
+      assert payload["source_url"] == "rtsp://camera.local/stream/main"
+      assert payload["rtsp_transport"] == "tcp"
+      assert payload["codec_hint"] == "h264"
+
+      assert context.relay_session_id == "relay-1"
+      assert context.camera_source_id == "camera-1"
+      assert context.stream_profile_id == "main"
+      assert context.source_url == "rtsp://camera.local/stream/main"
+    end
+
+    test "resolves source_url from camera inventory before dispatch", %{agent_id: agent_id} do
+      {_pid, _metadata} = start_control_session(agent_id, self(), %{partition_id: "default"})
+      camera_source_id = Ecto.UUID.generate()
+      stream_profile_id = Ecto.UUID.generate()
+
+      fetcher = fn ^camera_source_id, ^stream_profile_id ->
+        {:ok,
+         %{
+           source_url_override: nil,
+           rtsp_transport: "tcp",
+           codec_hint: "h264",
+           container_hint: "annexb",
+           camera_source: %{source_url: "rtsp://camera.local/inventory/main"}
+         }}
+      end
+
+      assert {:ok, _command_id} =
+               AgentCommandBus.start_camera_relay(
+                 agent_id,
+                 %{
+                   relay_session_id: "relay-2",
+                   camera_source_id: camera_source_id,
+                   stream_profile_id: stream_profile_id,
+                   lease_token: "lease-2"
+                 },
+                 camera_profile_fetcher: fetcher
+               )
+
+      assert_receive {:send_command, %Monitoring.CommandRequest{} = command, context}, 1_000
+      payload = Jason.decode!(command.payload_json)
+
+      assert payload["source_url"] == "rtsp://camera.local/inventory/main"
+      assert payload["rtsp_transport"] == "tcp"
+      assert payload["codec_hint"] == "h264"
+      assert payload["container_hint"] == "annexb"
+      assert context.source_url == "rtsp://camera.local/inventory/main"
+    end
+
+    test "sends a typed camera close relay command", %{agent_id: agent_id} do
+      {_pid, _metadata} = start_control_session(agent_id, self(), %{partition_id: "default"})
+
+      assert {:ok, _command_id} =
+               AgentCommandBus.stop_camera_relay(agent_id, %{
+                 relay_session_id: "relay-1",
+                 reason: "viewer disconnected"
+               })
+
+      assert_receive {:send_command, %Monitoring.CommandRequest{} = command, context}, 1_000
+      assert command.command_type == "camera.close_relay"
+
+      payload = Jason.decode!(command.payload_json)
+
+      assert payload["relay_session_id"] == "relay-1"
+      assert payload["reason"] == "viewer disconnected"
+      assert context.relay_session_id == "relay-1"
+    end
+  end
+
   defp ensure_status_handler_started do
     case Process.whereis(StatusHandler) do
       nil -> StatusHandler.start_link([])

@@ -118,6 +118,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/stream/:session_id", StreamController, :connect)
   end
 
+  scope "/v1", ServiceRadarWebNGWeb.Api do
+    pipe_through(:browser_raw_auth)
+
+    get("/camera-relay-sessions/:id/stream", CameraRelayStreamController, :connect)
+  end
+
   # Other scopes may use custom stacks.
   scope "/api", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_auth)
@@ -126,6 +132,9 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/devices", DeviceController, :index)
     get("/devices/ocsf/export", DeviceController, :ocsf_export)
     get("/devices/:uid", DeviceController, :show)
+    post("/camera-relay-sessions", CameraRelaySessionController, :create)
+    get("/camera-relay-sessions/:id", CameraRelaySessionController, :show)
+    post("/camera-relay-sessions/:id/close", CameraRelaySessionController, :close)
 
     get("/spatial/samples", SpatialController, :index)
   end

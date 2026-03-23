@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -46,15 +47,35 @@ type StreamInfo struct {
 	Source   string `json:"source"`
 }
 
+type CameraDescriptor struct {
+	DeviceUID      string                 `json:"device_uid"`
+	Vendor         string                 `json:"vendor"`
+	CameraID       string                 `json:"camera_id"`
+	DisplayName    string                 `json:"display_name,omitempty"`
+	SourceURL      string                 `json:"source_url,omitempty"`
+	StreamProfiles []CameraStreamProfile  `json:"stream_profiles,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+}
+
+type CameraStreamProfile struct {
+	ProfileName       string                 `json:"profile_name"`
+	VendorProfileID   string                 `json:"vendor_profile_id,omitempty"`
+	SourceURLOverride string                 `json:"source_url_override,omitempty"`
+	RTSPTransport     string                 `json:"rtsp_transport,omitempty"`
+	CodecHint         string                 `json:"codec_hint,omitempty"`
+	Metadata          map[string]interface{} `json:"metadata,omitempty"`
+}
+
 type ResultDetails struct {
-	CameraHost      string                 `json:"camera_host"`
-	DeviceInfo      map[string]string      `json:"device_info,omitempty"`
-	DiscoveredAPIs  map[string]any         `json:"discovered_apis,omitempty"`
-	Streams         []StreamInfo           `json:"streams,omitempty"`
-	Endpoints       []EndpointResult       `json:"endpoints"`
-	CollectionError string                 `json:"collection_error,omitempty"`
-	Enrichment      map[string]any         `json:"device_enrichment,omitempty"`
-	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+	CameraHost        string                 `json:"camera_host"`
+	DeviceInfo        map[string]string      `json:"device_info,omitempty"`
+	DiscoveredAPIs    map[string]any         `json:"discovered_apis,omitempty"`
+	Streams           []StreamInfo           `json:"streams,omitempty"`
+	CameraDescriptors []CameraDescriptor     `json:"camera_descriptors,omitempty"`
+	Endpoints         []EndpointResult       `json:"endpoints"`
+	CollectionError   string                 `json:"collection_error,omitempty"`
+	Enrichment        map[string]any         `json:"device_enrichment,omitempty"`
+	Metadata          map[string]interface{} `json:"metadata,omitempty"`
 }
 
 type axisClient struct {
@@ -168,6 +189,7 @@ func run_check() {
 		}
 
 		details.Enrichment = buildEnrichment(details)
+		details.CameraDescriptors = buildCameraDescriptors(details)
 		summary := buildSummary(details)
 		status := deriveStatus(details)
 
@@ -294,14 +316,10 @@ func collectAxisEvents(scheme, host, username, password, sources string, timeout
 	}
 
 	wsURL := fmt.Sprintf("%s://%s/vapix/ws-data-stream?sources=%s", wsScheme, host, sources)
-
-	headers := map[string]string{}
-	if username != "" || password != "" {
-		headers["Authorization"] = "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-	}
+	wsURL = withWebSocketCredentials(wsURL, username, password)
 
 	result := EndpointResult{Path: "/vapix/ws-data-stream"}
-	conn, err := sdk.WebSocketConnectWithHeaders(wsURL, headers, timeout)
+	conn, err := sdk.WebSocketConnect(wsURL, timeout)
 	if err != nil {
 		result.Error = "websocket connect failed: " + err.Error()
 		return nil, result
@@ -391,6 +409,66 @@ func buildEnrichment(details ResultDetails) map[string]any {
 	return enrichment
 }
 
+func buildCameraDescriptors(details ResultDetails) []CameraDescriptor {
+	deviceUID := firstNonEmpty(
+		details.DeviceInfo,
+		"S.Nbr",
+		"SerialNumber",
+		"Serial",
+		"MACAddress",
+		"Network.HWaddress",
+		"root.Network.HWaddress",
+	)
+	if deviceUID == "" {
+		deviceUID = strings.TrimSpace(details.CameraHost)
+	}
+
+	cameraID := firstNonEmpty(details.DeviceInfo, "S.Nbr", "SerialNumber", "Serial")
+	if cameraID == "" {
+		cameraID = strings.TrimSpace(details.CameraHost)
+	}
+
+	if deviceUID == "" || cameraID == "" {
+		return nil
+	}
+
+	descriptor := CameraDescriptor{
+		DeviceUID:   deviceUID,
+		Vendor:      "axis",
+		CameraID:    cameraID,
+		DisplayName: firstNonEmpty(details.DeviceInfo, "ProductFullName", "ProdNbr", "Brand", "ProdShortName"),
+		SourceURL:   firstStreamURL(details.Streams),
+		Metadata: map[string]interface{}{
+			"camera_host": details.CameraHost,
+			"plugin_id":   "axis-camera",
+		},
+	}
+
+	if descriptor.DisplayName == "" {
+		descriptor.DisplayName = details.CameraHost
+	}
+
+	for _, stream := range details.Streams {
+		profile := CameraStreamProfile{
+			ProfileName:       strings.TrimSpace(stream.ID),
+			VendorProfileID:   strings.TrimSpace(stream.ID),
+			SourceURLOverride: strings.TrimSpace(stream.URL),
+			RTSPTransport:     "tcp",
+			CodecHint:         codecFromRTSPURL(stream.URL),
+			Metadata: map[string]interface{}{
+				"auth_mode": stream.AuthMode,
+				"source":    stream.Source,
+			},
+		}
+		if profile.ProfileName == "" {
+			profile.ProfileName = "default"
+		}
+		descriptor.StreamProfiles = append(descriptor.StreamProfiles, profile)
+	}
+
+	return []CameraDescriptor{descriptor}
+}
+
 func buildSummary(details ResultDetails) string {
 	success := countSuccessfulEndpoints(details.Endpoints)
 	model := firstNonEmpty(details.DeviceInfo, "ProdNbr", "ProductFullName")
@@ -466,6 +544,48 @@ func buildRTSPURL(host string, params map[string]string) string {
 		parts = append(parts, key+"="+params[key])
 	}
 	return base + "?" + strings.Join(parts, "&")
+}
+
+func firstStreamURL(streams []StreamInfo) string {
+	for _, stream := range streams {
+		if url := strings.TrimSpace(stream.URL); url != "" {
+			return url
+		}
+	}
+	return ""
+}
+
+func codecFromRTSPURL(url string) string {
+	parts := strings.SplitN(url, "?", 2)
+	if len(parts) != 2 || strings.TrimSpace(parts[1]) == "" {
+		return ""
+	}
+
+	for _, pair := range strings.Split(parts[1], "&") {
+		key, value, ok := strings.Cut(pair, "=")
+		if !ok {
+			continue
+		}
+		if key == "videocodec" {
+			return value
+		}
+	}
+
+	return ""
+}
+
+func withWebSocketCredentials(rawURL, username, password string) string {
+	if strings.TrimSpace(username) == "" && strings.TrimSpace(password) == "" {
+		return rawURL
+	}
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+
+	parsed.User = url.UserPassword(username, password)
+	return parsed.String()
 }
 
 func trimBody(in EndpointResult) EndpointResult {

@@ -107,6 +107,7 @@ config :serviceradar_core, ServiceRadar.Repo, migration_source: "ash_schema_migr
 config :serviceradar_core,
   ash_domains: [
     ServiceRadar.AgentConfig,
+    ServiceRadar.Camera,
     ServiceRadar.Identity,
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,
@@ -203,6 +204,7 @@ config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 config :serviceradar_web_ng,
   ash_domains: [
     ServiceRadar.AgentConfig,
+    ServiceRadar.Camera,
     ServiceRadar.Identity,
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,

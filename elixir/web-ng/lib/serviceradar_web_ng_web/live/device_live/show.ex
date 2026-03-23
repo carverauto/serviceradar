@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   alias Ash.Error.Invalid
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
+  alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
@@ -47,6 +49,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @flows_limit 50
   @availability_window "last_24h"
   @availability_bucket "30m"
+  @camera_relay_poll_interval_ms 1_000
 
   @impl true
   def mount(_params, _session, socket) do
@@ -139,6 +142,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:show_mtr_trace_modal, false)
      |> assign(:selected_mtr_trace, nil)
      |> assign(:selected_mtr_hops, [])
+     |> assign(:camera_sources, [])
+     |> assign(:camera_inventory_error, nil)
+     |> assign(:active_camera_relay_session, nil)
+     |> assign(:last_camera_relay_session, nil)
      # Tab state for device details
      |> assign(:active_tab, "details")}
   end
@@ -244,6 +251,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_info({:command_result, _result}, socket), do: {:noreply, socket}
   def handle_info({:command_ack, _ack}, socket), do: {:noreply, socket}
   def handle_info({:command_progress, _progress}, socket), do: {:noreply, socket}
+
+  def handle_info({:refresh_camera_relay_session, relay_session_id}, socket) do
+    active_session = socket.assigns.active_camera_relay_session
+
+    cond do
+      is_nil(active_session) ->
+        {:noreply, socket}
+
+      active_session.id != relay_session_id ->
+        {:noreply, socket}
+
+      true ->
+        case fetch_camera_relay_session(socket.assigns.current_scope, relay_session_id) do
+          {:ok, nil} ->
+            {:noreply, clear_active_camera_relay_session(socket)}
+
+          {:ok, session} ->
+            {:noreply, apply_camera_relay_session_update(socket, session)}
+
+          {:error, _reason} ->
+            schedule_camera_relay_refresh(relay_session_id)
+            {:noreply, socket}
+        end
+    end
+  end
 
   def handle_info(msg, socket) do
     Logger.debug(fn ->
@@ -491,6 +523,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       extract_flow_results(parallel_results, load_flows_data?)
 
     discovery_jobs = Map.get(parallel_results, :mapper, [])
+    {camera_sources, camera_inventory_error} = Map.get(parallel_results, :camera_sources, {[], nil})
 
     interface_settings = extract_interface_settings(parallel_results, load_interfaces_data?)
 
@@ -540,6 +573,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     active_tab = resolve_active_tab(requested_tab, has_ifaces, has_flows)
     srql = srql_for_tab_if_needed(active_tab, uid, limit, base_srql)
+    active_camera_relay_session = preserve_camera_relay_session(socket, uid)
+    last_camera_relay_session = preserve_last_camera_relay_session(socket, uid)
 
     {:noreply,
      socket
@@ -571,6 +606,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:sysmon_profile_info, sysmon_profile_info)
      |> assign(:available_profiles, available_profiles)
      |> assign(:process_metrics, process_metrics)
+     |> assign(:camera_sources, camera_sources)
+     |> assign(:camera_inventory_error, camera_inventory_error)
+     |> assign(:active_camera_relay_session, active_camera_relay_session)
+     |> assign(:last_camera_relay_session, last_camera_relay_session)
      |> assign(:availability, availability)
      |> assign(:healthcheck_summary, healthcheck_summary)
      |> assign(:sweep_results, sweep_results)
@@ -598,6 +637,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       Task.async(fn -> {:profile, load_sysmon_profile_info(scope, uid)} end),
       Task.async(fn -> {:mapper, load_mapper_jobs_for_device(scope, device_row)} end),
       Task.async(fn -> {:snmp, load_device_snmp_credential(scope, uid)} end),
+      Task.async(fn -> {:camera_sources, load_camera_sources(scope, uid)} end),
       Task.async(fn -> {:aliases, load_ip_aliases(scope, uid, show_stale)} end)
     ]
 
@@ -872,6 +912,72 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:show_stale_aliases, show_stale)
      |> assign(:ip_aliases, ip_aliases)
      |> assign(:ip_alias_error, ip_alias_error)}
+  end
+
+  def handle_event(
+        "open_camera_relay",
+        %{"camera_source_id" => camera_source_id, "stream_profile_id" => stream_profile_id},
+        socket
+      ) do
+    scope = socket.assigns.current_scope
+
+    cond do
+      not can_view_device?(scope) ->
+        {:noreply, put_flash(socket, :error, "You are not authorized to start a camera relay")}
+
+      not is_nil(socket.assigns.active_camera_relay_session) ->
+        {:noreply, put_flash(socket, :error, "Close the current camera relay before starting another")}
+
+      true ->
+        with {:ok, camera_source_id} <- normalize_uuid_param(camera_source_id),
+             {:ok, stream_profile_id} <- normalize_uuid_param(stream_profile_id),
+             {:ok, session} <-
+               relay_session_manager().request_open(
+                 camera_source_id,
+                 stream_profile_id,
+                 scope: scope
+               ) do
+          {:noreply,
+           socket
+           |> assign(:active_camera_relay_session, session)
+           |> assign(:last_camera_relay_session, nil)
+           |> tap(fn _socket -> schedule_camera_relay_refresh(session.id) end)
+           |> put_flash(:info, "Camera relay requested")}
+        else
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, format_camera_relay_error(reason))}
+        end
+    end
+  end
+
+  def handle_event("close_camera_relay", _params, socket) do
+    scope = socket.assigns.current_scope
+    active_session = socket.assigns.active_camera_relay_session
+
+    cond do
+      not can_view_device?(scope) ->
+        {:noreply, put_flash(socket, :error, "You are not authorized to stop a camera relay")}
+
+      is_nil(active_session) ->
+        {:noreply, socket}
+
+      true ->
+        case relay_session_manager().request_close(
+               active_session.id,
+               reason: "viewer closed device details",
+               scope: scope
+             ) do
+          {:ok, session} ->
+            {:noreply,
+             socket
+             |> assign(:active_camera_relay_session, session)
+             |> tap(fn _socket -> schedule_camera_relay_refresh(session.id) end)
+             |> put_flash(:info, "Camera relay closing")}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, format_camera_relay_error(reason))}
+        end
+    end
   end
 
   def handle_event("validate_device", %{"device" => params}, socket) do
@@ -3009,6 +3115,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
               <.agents_section :if={is_map(@device_row)} device_row={@device_row} />
 
+              <.camera_streams_section
+                :if={
+                  camera_streams_visible?(
+                    @camera_sources,
+                    @camera_inventory_error,
+                    @active_camera_relay_session,
+                    @last_camera_relay_session
+                  )
+                }
+                camera_sources={@camera_sources}
+                inventory_error={@camera_inventory_error}
+                active_session={@active_camera_relay_session}
+                last_session={@last_camera_relay_session}
+              />
+
               <.availability_section :if={is_map(@availability)} availability={@availability} />
 
               <.healthcheck_section
@@ -3822,6 +3943,176 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     ~H"""
     <span class={["badge badge-sm", "badge-#{@color}"]}>{@label}</span>
+    """
+  end
+
+  attr :camera_sources, :list, default: []
+  attr :inventory_error, :string, default: nil
+  attr :active_session, :any, default: nil
+  attr :last_session, :any, default: nil
+
+  defp camera_streams_section(assigns) do
+    sources = normalize_camera_sources_for_display(assigns.camera_sources)
+
+    assigns =
+      assigns
+      |> assign(:sources, sources)
+      |> assign(:has_sources, sources != [])
+      |> assign(:active_session_key, camera_relay_session_key(assigns.active_session))
+      |> assign(:last_session_key, camera_relay_session_key(assigns.last_session))
+      |> assign(:active_stream_path, camera_relay_stream_path(assigns.active_session))
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-video-camera" class="size-4 text-secondary" />
+          <span class="text-sm font-semibold">Camera Streams</span>
+        </div>
+        <span :if={@active_session} class="text-xs text-base-content/60">
+          Session {String.slice(@active_session.id || "", 0, 8)}
+        </span>
+      </div>
+
+      <div class="p-4 space-y-4">
+        <div
+          :if={is_binary(@inventory_error)}
+          class="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning"
+        >
+          {@inventory_error}
+        </div>
+
+        <div :if={not @has_sources} class="text-sm text-base-content/60">
+          No relay-capable camera streams are mapped to this device yet.
+        </div>
+
+        <div :for={source <- @sources} class="rounded-xl border border-base-200/80 bg-base-50/40">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200/80 px-4 py-3">
+            <div>
+              <div class="font-medium text-sm">{source.display_name}</div>
+              <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-base-content/60">
+                <span>{String.upcase(source.vendor)}</span>
+                <span :if={present?(source.assigned_agent_id)}>agent {source.assigned_agent_id}</span>
+                <span :if={present?(source.assigned_gateway_id)}>
+                  gateway {source.assigned_gateway_id}
+                </span>
+              </div>
+            </div>
+            <span class="badge badge-outline badge-sm">
+              {length(source.stream_profiles)} profile{if length(source.stream_profiles) == 1,
+                do: "",
+                else: "s"}
+            </span>
+          </div>
+
+          <div class="divide-y divide-base-200/70">
+            <div
+              :for={profile <- source.stream_profiles}
+              class="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+            >
+              <div>
+                <div class="font-medium text-sm">{profile.profile_name}</div>
+                <div class="mt-1 flex flex-wrap gap-2 text-xs text-base-content/60">
+                  <span :if={present?(profile.codec_hint)}>{String.upcase(profile.codec_hint)}</span>
+                  <span :if={present?(profile.container_hint)}>{profile.container_hint}</span>
+                  <span :if={present?(profile.rtsp_transport)}>RTSP {profile.rtsp_transport}</span>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <%= cond do %>
+                  <% @active_session_key == {source.id, profile.id} -> %>
+                    <span class={["badge badge-sm", relay_status_badge_class(@active_session.status)]}>
+                      {relay_status_label(@active_session.status)}
+                    </span>
+                    <.ui_button
+                      :if={relay_session_closable?(@active_session)}
+                      phx-click="close_camera_relay"
+                      variant="outline"
+                      size="xs"
+                    >
+                      Stop Relay
+                    </.ui_button>
+                  <% @last_session_key == {source.id, profile.id} -> %>
+                    <span class={["badge badge-sm", relay_status_badge_class(@last_session.status)]}>
+                      {relay_status_label(@last_session.status)}
+                    </span>
+                    <span
+                      :if={present?(Map.get(@last_session, :failure_reason))}
+                      class="text-xs text-error"
+                      title={Map.get(@last_session, :failure_reason)}
+                    >
+                      {Map.get(@last_session, :failure_reason)}
+                    </span>
+                    <.ui_button
+                      phx-click="open_camera_relay"
+                      phx-value-camera_source_id={source.id}
+                      phx-value-stream_profile_id={profile.id}
+                      variant="outline"
+                      size="xs"
+                    >
+                      Open Relay
+                    </.ui_button>
+                  <% true -> %>
+                    <.ui_button
+                      phx-click="open_camera_relay"
+                      phx-value-camera_source_id={source.id}
+                      phx-value-stream_profile_id={profile.id}
+                      variant="outline"
+                      size="xs"
+                      disabled={not is_nil(@active_session)}
+                    >
+                      Open Relay
+                    </.ui_button>
+                <% end %>
+              </div>
+
+              <div
+                :if={@active_session_key == {source.id, profile.id}}
+                class="basis-full rounded-lg border border-info/20 bg-info/5 p-3"
+              >
+                <div
+                  id={"camera-relay-stream-#{@active_session.id}"}
+                  phx-hook="CameraRelayStatusStream"
+                  phx-update="ignore"
+                  data-stream-path={@active_stream_path}
+                  class="space-y-1"
+                >
+                  <div class="overflow-hidden rounded-md border border-base-300/70 bg-base-300/20">
+                    <canvas
+                      data-role="video-canvas"
+                      class="block aspect-video w-full bg-neutral/80 object-contain"
+                    />
+                  </div>
+                  <div data-role="transport-status" class="text-xs text-base-content/70">
+                    Connecting browser stream...
+                  </div>
+                  <div data-role="player-status" class="text-xs text-base-content/70">
+                    Waiting for browser decoder...
+                  </div>
+                  <div data-role="relay-status" class="text-xs font-medium text-base-content">
+                    Relay status: {relay_status_label(@active_session.status)}
+                  </div>
+                  <div
+                    data-role="playback-state"
+                    data-state={relay_playback_state(@active_session)}
+                    class="text-xs text-base-content/70"
+                  >
+                    Playback state: {relay_playback_state(@active_session)}
+                  </div>
+                  <div data-role="binary-stats" class="text-xs text-base-content/60">
+                    Chunks: 0  Bytes: 0
+                  </div>
+                  <div data-role="relay-detail" class="text-xs text-base-content/60">
+                    Browser viewer channel is attached to the persisted relay session.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
     """
   end
 
@@ -7345,6 +7636,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp load_sweep_results(_scope, _), do: nil
 
+  defp load_camera_sources(scope, device_uid) do
+    case CameraSource.list_for_device(device_uid, load: [:stream_profiles], scope: scope) do
+      {:ok, sources} -> {sources, nil}
+      {:error, error} -> {[], "Failed to load camera inventory: #{format_ash_error(error)}"}
+    end
+  end
+
   defp build_sweep_actor(scope) do
     case scope do
       %{user: user} when not is_nil(user) ->
@@ -7519,6 +7817,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   # RBAC helper - check if user can edit devices
+  defp can_view_device?(scope), do: RBAC.can?(scope, "devices.view")
+
   defp can_edit_device?(scope), do: RBAC.can?(scope, "devices.update")
 
   defp can_manage_device?(scope), do: RBAC.can?(scope, "devices.update")
@@ -7529,6 +7829,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp deleted_device?(_), do: false
+
+  defp preserve_camera_relay_session(socket, device_uid) do
+    if socket.assigns.device_uid == device_uid do
+      socket.assigns.active_camera_relay_session
+    end
+  end
+
+  defp preserve_last_camera_relay_session(socket, device_uid) do
+    if socket.assigns.device_uid == device_uid do
+      socket.assigns.last_camera_relay_session
+    end
+  end
 
   defp load_device(scope, device_uid) do
     case Device.get_by_uid(device_uid, true, scope: scope) do
@@ -7555,6 +7867,171 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp maybe_put_param(params, _key, value) when value in [nil, ""], do: params
   defp maybe_put_param(params, key, value), do: Map.put(params, key, value)
+
+  defp fetch_camera_relay_session(scope, relay_session_id) do
+    fetcher =
+      Application.get_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_fetcher,
+        fn session_id, ash_opts -> RelaySession.get_by_id(session_id, ash_opts) end
+      )
+
+    fetcher.(relay_session_id, scope: scope)
+  end
+
+  defp normalize_camera_sources_for_display(sources) do
+    sources
+    |> Enum.map(fn source ->
+      %{
+        id: source.id,
+        vendor: source.vendor || "camera",
+        display_name: camera_source_display_name(source),
+        assigned_agent_id: source.assigned_agent_id,
+        assigned_gateway_id: source.assigned_gateway_id,
+        stream_profiles:
+          source
+          |> Map.get(:stream_profiles, [])
+          |> Enum.filter(&Map.get(&1, :relay_eligible, false))
+          |> Enum.sort_by(fn profile ->
+            {
+              String.downcase(to_string(Map.get(profile, :profile_name, ""))),
+              to_string(Map.get(profile, :id, ""))
+            }
+          end)
+      }
+    end)
+    |> Enum.reject(&Enum.empty?(&1.stream_profiles))
+    |> Enum.sort_by(fn source ->
+      {
+        String.downcase(source.display_name),
+        String.downcase(to_string(source.vendor))
+      }
+    end)
+  end
+
+  defp camera_source_display_name(source) do
+    source.display_name || source.vendor_camera_id || source.device_uid || "Camera"
+  end
+
+  defp camera_streams_visible?(camera_sources, inventory_error, active_session, last_session) do
+    inventory_error ||
+      not is_nil(active_session) ||
+      not is_nil(last_session) ||
+      camera_sources
+      |> normalize_camera_sources_for_display()
+      |> Enum.any?()
+  end
+
+  defp camera_relay_session_key(nil), do: nil
+
+  defp camera_relay_session_key(session) do
+    {Map.get(session, :camera_source_id), Map.get(session, :stream_profile_id)}
+  end
+
+  defp relay_status_label(status) when is_atom(status), do: status |> Atom.to_string() |> String.capitalize()
+  defp relay_status_label(status) when is_binary(status), do: String.capitalize(status)
+  defp relay_status_label(_), do: "Requested"
+
+  defp relay_status_badge_class(:active), do: "badge-success"
+  defp relay_status_badge_class("active"), do: "badge-success"
+  defp relay_status_badge_class(:opening), do: "badge-warning"
+  defp relay_status_badge_class("opening"), do: "badge-warning"
+  defp relay_status_badge_class(:closing), do: "badge-warning"
+  defp relay_status_badge_class("closing"), do: "badge-warning"
+  defp relay_status_badge_class(:failed), do: "badge-error"
+  defp relay_status_badge_class("failed"), do: "badge-error"
+  defp relay_status_badge_class(_), do: "badge-ghost"
+
+  defp relay_playback_state(%{status: status, media_ingest_id: media_ingest_id})
+       when status in [:active, "active"] and is_binary(media_ingest_id) and media_ingest_id != "" do
+    "ready"
+  end
+
+  defp relay_playback_state(%{status: status}) when status in [:requested, :opening, "requested", "opening"],
+    do: "pending"
+
+  defp relay_playback_state(%{status: status}) when status in [:closing, "closing"], do: "closing"
+  defp relay_playback_state(%{status: status}) when status in [:closed, "closed"], do: "closed"
+  defp relay_playback_state(%{status: status}) when status in [:failed, "failed"], do: "failed"
+  defp relay_playback_state(_session), do: "pending"
+
+  defp camera_relay_stream_path(%{id: relay_session_id}) when is_binary(relay_session_id) do
+    ~p"/v1/camera-relay-sessions/#{relay_session_id}/stream"
+  end
+
+  defp camera_relay_stream_path(_session), do: nil
+
+  defp relay_session_closable?(%{status: status}) do
+    status in [:requested, :opening, :active, "requested", "opening", "active"]
+  end
+
+  defp relay_session_closable?(_session), do: false
+
+  defp relay_session_terminal?(%{status: status}), do: status in [:closed, :failed, "closed", "failed"]
+
+  defp relay_session_terminal?(_session), do: false
+
+  defp apply_camera_relay_session_update(socket, session) do
+    if relay_session_terminal?(session) do
+      socket
+      |> assign(:active_camera_relay_session, nil)
+      |> assign(:last_camera_relay_session, session)
+    else
+      schedule_camera_relay_refresh(session.id)
+
+      socket
+      |> assign(:active_camera_relay_session, session)
+      |> assign(:last_camera_relay_session, nil)
+    end
+  end
+
+  defp clear_active_camera_relay_session(socket) do
+    assign(socket, :active_camera_relay_session, nil)
+  end
+
+  defp schedule_camera_relay_refresh(relay_session_id) when is_binary(relay_session_id) do
+    Process.send_after(
+      self(),
+      {:refresh_camera_relay_session, relay_session_id},
+      camera_relay_poll_interval_ms()
+    )
+  end
+
+  defp schedule_camera_relay_refresh(_relay_session_id), do: :ok
+
+  defp camera_relay_poll_interval_ms do
+    case Application.get_env(
+           :serviceradar_web_ng,
+           :camera_relay_poll_interval_ms,
+           @camera_relay_poll_interval_ms
+         ) do
+      value when is_integer(value) and value >= 0 -> value
+      _other -> @camera_relay_poll_interval_ms
+    end
+  end
+
+  defp relay_session_manager do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :camera_relay_session_manager,
+      ServiceRadar.Camera.RelaySessionManager
+    )
+  end
+
+  defp normalize_uuid_param(value) when is_binary(value) do
+    case Ecto.UUID.cast(String.trim(value)) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :invalid_uuid}
+    end
+  end
+
+  defp normalize_uuid_param(_value), do: {:error, :invalid_uuid}
+
+  defp format_camera_relay_error({:agent_offline, _agent_id}), do: "Assigned agent is offline for this camera source"
+
+  defp format_camera_relay_error(:invalid_uuid), do: "Invalid camera relay request"
+  defp format_camera_relay_error(reason) when is_binary(reason), do: reason
+  defp format_camera_relay_error(reason), do: format_ash_error(reason)
 
   # Update device via Ash
   defp update_device(scope, device_uid, params) do

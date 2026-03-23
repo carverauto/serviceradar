@@ -4,6 +4,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.RelaySourceResolver
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.Edge.AgentConfigGenerator
@@ -194,6 +195,33 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     )
   end
 
+  def start_camera_relay(agent_id, payload, opts \\ []) do
+    payload = normalize_camera_relay_start_payload(payload)
+
+    with {:ok, payload} <- resolve_camera_relay_payload(payload, opts) do
+      opts =
+        add_context(opts, %{
+          relay_session_id: payload.relay_session_id,
+          camera_source_id: payload.camera_source_id,
+          stream_profile_id: payload.stream_profile_id,
+          source_url: payload[:source_url]
+        })
+
+      dispatch(agent_id, "camera.open_relay", payload, opts)
+    end
+  end
+
+  def stop_camera_relay(agent_id, payload, opts \\ []) do
+    payload = normalize_camera_relay_stop_payload(payload)
+
+    opts =
+      add_context(opts, %{
+        relay_session_id: payload.relay_session_id
+      })
+
+    dispatch(agent_id, "camera.close_relay", payload, opts)
+  end
+
   def push_config(agent_id) do
     with {:ok, pid, _metadata} <- lookup_control_session(agent_id),
          {:ok, config} <- AgentConfigGenerator.generate_config(agent_id) do
@@ -229,6 +257,54 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp normalize_camera_relay_start_payload(payload) when is_map(payload) do
+    relay_session_id =
+      Map.get(payload, :relay_session_id) || Map.get(payload, "relay_session_id")
+
+    camera_source_id =
+      Map.get(payload, :camera_source_id) || Map.get(payload, "camera_source_id")
+
+    stream_profile_id =
+      Map.get(payload, :stream_profile_id) || Map.get(payload, "stream_profile_id")
+
+    lease_token = Map.get(payload, :lease_token) || Map.get(payload, "lease_token")
+    source_url = Map.get(payload, :source_url) || Map.get(payload, "source_url")
+    rtsp_transport = Map.get(payload, :rtsp_transport) || Map.get(payload, "rtsp_transport")
+    codec_hint = Map.get(payload, :codec_hint) || Map.get(payload, "codec_hint")
+    container_hint = Map.get(payload, :container_hint) || Map.get(payload, "container_hint")
+
+    %{
+      relay_session_id: relay_session_id,
+      camera_source_id: camera_source_id,
+      stream_profile_id: stream_profile_id,
+      lease_token: lease_token
+    }
+    |> maybe_put(:source_url, source_url)
+    |> maybe_put(:rtsp_transport, rtsp_transport)
+    |> maybe_put(:codec_hint, codec_hint)
+    |> maybe_put(:container_hint, container_hint)
+  end
+
+  defp normalize_camera_relay_start_payload(_payload), do: %{}
+
+  defp normalize_camera_relay_stop_payload(payload) when is_map(payload) do
+    relay_session_id =
+      Map.get(payload, :relay_session_id) || Map.get(payload, "relay_session_id")
+
+    reason = Map.get(payload, :reason) || Map.get(payload, "reason")
+
+    maybe_put(%{relay_session_id: relay_session_id}, :reason, reason)
+  end
+
+  defp normalize_camera_relay_stop_payload(_payload), do: %{}
+
+  defp resolve_camera_relay_payload(payload, opts) do
+    RelaySourceResolver.resolve_start_payload(
+      payload,
+      camera_profile_fetcher: Keyword.get(opts, :camera_profile_fetcher)
+    )
+  end
 
   defp lookup_control_session(agent_id) do
     if registry_available?() do
