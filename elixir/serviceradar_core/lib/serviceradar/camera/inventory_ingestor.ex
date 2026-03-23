@@ -6,6 +6,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadar.EventWriter.FieldParser
 
   require Logger
 
@@ -26,12 +27,13 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     observed_at = Keyword.get(opts, :observed_at) || resolve_observed_at(payload, status)
     source_upsert = Keyword.get(opts, :source_upsert, &upsert_source/2)
     profile_upsert = Keyword.get(opts, :profile_upsert, &upsert_profile/2)
+    descriptors = extract_camera_descriptors(payload)
 
-    payload
-    |> extract_camera_descriptors()
-    |> Enum.reduce_while(:ok, fn descriptor, :ok ->
+    Enum.reduce_while(descriptors, :ok, fn descriptor, :ok ->
       case ingest_descriptor(
              descriptor,
+             descriptors,
+             payload,
              status,
              observed_at,
              actor,
@@ -46,8 +48,18 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   def ingest(_payload, _status, _opts), do: :ok
 
-  defp ingest_descriptor(descriptor, status, observed_at, actor, source_upsert, profile_upsert) do
-    with {:ok, source_attrs} <- normalize_source(descriptor, status),
+  defp ingest_descriptor(
+         descriptor,
+         descriptors,
+         payload,
+         status,
+         observed_at,
+         actor,
+         source_upsert,
+         profile_upsert
+       ) do
+    with {:ok, source_attrs} <-
+           normalize_source(descriptor, descriptors, payload, status, observed_at),
          {:ok, source_record} <- source_upsert.(source_attrs, actor) do
       descriptor
       |> normalize_profiles(observed_at)
@@ -69,7 +81,29 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp normalize_source(descriptor, status) when is_map(descriptor) do
+  @doc """
+  Extract normalized camera descriptors from a plugin result payload.
+  """
+  @spec extract_camera_descriptors(map()) :: [map()]
+  def extract_camera_descriptors(payload) when is_map(payload) do
+    direct_descriptors =
+      payload
+      |> list_value(["camera_descriptors", "cameraDescriptors", "cameras"])
+      |> Enum.filter(&is_map/1)
+
+    if direct_descriptors == [] do
+      payload
+      |> details_payload()
+      |> extract_details_camera_descriptors()
+    else
+      direct_descriptors
+    end
+  end
+
+  def extract_camera_descriptors(_payload), do: []
+
+  defp normalize_source(descriptor, descriptors, payload, status, observed_at)
+       when is_map(descriptor) do
     vendor = string_value(descriptor, ["vendor"])
 
     vendor_camera_id =
@@ -95,30 +129,36 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     if blank?(device_uid) or blank?(vendor) or blank?(vendor_camera_id) do
       {:skip, "missing required camera identity fields"}
     else
+      source_state = derive_source_state(descriptor, descriptors, payload, status, observed_at)
+
       {:ok,
-       %{
-         device_uid: device_uid,
-         vendor: vendor,
-         vendor_camera_id: vendor_camera_id,
-         display_name: string_value(descriptor, ["display_name", "displayName", "name"]),
-         source_url: string_value(descriptor, ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"]),
-         assigned_agent_id:
-           string_value(descriptor, [
-             "assigned_agent_id",
-             "assignedAgentId",
-             "agent_id",
-             "agentId"
-           ]) || status[:agent_id],
-         assigned_gateway_id:
-           string_value(descriptor, [
-             "assigned_gateway_id",
-             "assignedGatewayId",
-             "gateway_id",
-             "gatewayId"
-           ]) ||
-             status[:gateway_id],
-         metadata: map_value(descriptor, ["metadata"]) || %{}
-       }}
+       Map.merge(
+         %{
+           device_uid: device_uid,
+           vendor: vendor,
+           vendor_camera_id: vendor_camera_id,
+           display_name: string_value(descriptor, ["display_name", "displayName", "name"]),
+           source_url:
+             string_value(descriptor, ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"]),
+           assigned_agent_id:
+             string_value(descriptor, [
+               "assigned_agent_id",
+               "assignedAgentId",
+               "agent_id",
+               "agentId"
+             ]) || status[:agent_id],
+           assigned_gateway_id:
+             string_value(descriptor, [
+               "assigned_gateway_id",
+               "assignedGatewayId",
+               "gateway_id",
+               "gatewayId"
+             ]) ||
+               status[:gateway_id],
+           metadata: map_value(descriptor, ["metadata"]) || %{}
+         },
+         source_state
+       )}
     end
   end
 
@@ -223,23 +263,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp extract_camera_descriptors(payload) when is_map(payload) do
-    direct_descriptors =
-      payload
-      |> list_value(["camera_descriptors", "cameraDescriptors", "cameras"])
-      |> Enum.filter(&is_map/1)
-
-    if direct_descriptors == [] do
-      payload
-      |> details_payload()
-      |> extract_details_camera_descriptors()
-    else
-      direct_descriptors
-    end
-  end
-
-  defp extract_camera_descriptors(_payload), do: []
-
   defp extract_details_camera_descriptors(details) when is_map(details) do
     detail_descriptors =
       details
@@ -261,6 +284,226 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp upsert_profile(attrs, actor) do
     StreamProfile.upsert_profile(attrs, actor: actor)
+  end
+
+  defp derive_source_state(descriptor, descriptors, payload, status, observed_at) do
+    matched_events = matching_camera_events(descriptor, descriptors, payload)
+    latest_event = latest_camera_event(matched_events)
+
+    %{}
+    |> maybe_put(
+      :availability_status,
+      event_availability_status(latest_event) || status_availability(status, payload)
+    )
+    |> maybe_put(
+      :availability_reason,
+      event_availability_reason(latest_event) || status_availability_reason(payload)
+    )
+    |> maybe_put(:last_activity_at, event_time(latest_event))
+    |> maybe_put(:last_event_at, event_time(latest_event))
+    |> maybe_put(:last_event_type, event_type(latest_event))
+    |> maybe_put(:last_event_message, event_message(latest_event, observed_at))
+  end
+
+  defp matching_camera_events(descriptor, descriptors, payload) do
+    events = extract_events(payload)
+
+    cond do
+      events == [] ->
+        []
+
+      length(descriptors) == 1 ->
+        events
+
+      true ->
+        Enum.filter(events, &camera_event_matches_descriptor?(&1, descriptor))
+    end
+  end
+
+  defp extract_events(payload) when is_map(payload) do
+    payload
+    |> list_value(["events"])
+    |> Enum.filter(&is_map/1)
+  end
+
+  defp extract_events(_payload), do: []
+
+  defp latest_camera_event(events) when is_list(events) do
+    Enum.max_by(events, &event_sort_key/1, fn -> nil end)
+  end
+
+  defp camera_event_matches_descriptor?(event, descriptor)
+       when is_map(event) and is_map(descriptor) do
+    device = map_value(event, ["device"]) || %{}
+    unmapped = map_value(event, ["unmapped"]) || %{}
+
+    identities =
+      Enum.reject(
+        [
+          string_value(device, ["uid", "device_uid", "deviceUid"]),
+          string_value(device, ["name", "camera_id", "cameraId"]),
+          string_value(unmapped, [
+            "camera_source_id",
+            "camera_device_uid",
+            "camera_id",
+            "cameraId"
+          ])
+        ],
+        &blank?/1
+      )
+
+    device_uid =
+      string_value(descriptor, [
+        "device_uid",
+        "deviceUid",
+        "device_id",
+        "deviceId",
+        "canonical_device_id",
+        "canonicalDeviceId",
+        "uid"
+      ])
+
+    vendor_camera_id =
+      string_value(descriptor, [
+        "vendor_camera_id",
+        "vendorCameraId",
+        "camera_id",
+        "cameraId",
+        "id"
+      ])
+
+    Enum.any?(identities, &(&1 in [device_uid, vendor_camera_id]))
+  end
+
+  defp camera_event_matches_descriptor?(_event, _descriptor), do: false
+
+  defp event_sort_key(event) do
+    event
+    |> event_time()
+    |> case do
+      %DateTime{} = dt -> DateTime.to_unix(dt, :microsecond)
+      _ -> 0
+    end
+  end
+
+  defp event_time(nil), do: nil
+
+  defp event_time(event) when is_map(event) do
+    event
+    |> value(["time", "observed_at", "observedAt"])
+    |> case do
+      nil -> nil
+      value -> DateTime.truncate(FieldParser.parse_timestamp(value), :microsecond)
+    end
+  end
+
+  defp event_type(nil), do: nil
+
+  defp event_type(event) when is_map(event) do
+    event_topic(event) ||
+      string_value(event, ["activity_name", "activityName", "type_name", "typeName"]) ||
+      string_value(event, ["message"])
+  end
+
+  defp event_message(nil, _observed_at), do: nil
+
+  defp event_message(event, observed_at) when is_map(event) do
+    string_value(event, ["message"]) ||
+      event_topic(event) ||
+      "Camera activity observed at #{DateTime.to_iso8601(observed_at)}"
+  end
+
+  defp event_topic(event) when is_map(event) do
+    event
+    |> map_value(["unmapped"])
+    |> case do
+      nil ->
+        nil
+
+      unmapped ->
+        unmapped
+        |> map_value(["axis_ws_payload"])
+        |> case do
+          nil ->
+            nil
+
+          axis_payload ->
+            axis_payload
+            |> value(["params"])
+            |> map_value(["notification"])
+            |> string_value(["topic"])
+        end
+    end
+  end
+
+  defp event_topic(_event), do: nil
+
+  defp event_availability_status(nil), do: nil
+
+  defp event_availability_status(event) when is_map(event) do
+    text =
+      [event_topic(event), string_value(event, ["message", "status", "status_detail"])]
+      |> Enum.reject(&blank?/1)
+      |> Enum.join(" ")
+      |> String.downcase()
+
+    cond do
+      text == "" ->
+        nil
+
+      String.contains?(text, [
+        "video lost",
+        "videolost",
+        "offline",
+        "disconnect",
+        "unavailable",
+        "signal lost"
+      ]) ->
+        "unavailable"
+
+      String.contains?(text, ["restored", "online", "reconnect", "connected", "available"]) ->
+        "available"
+
+      String.contains?(text, ["warning", "degraded", "tamper"]) ->
+        "degraded"
+
+      true ->
+        nil
+    end
+  end
+
+  defp event_availability_reason(nil), do: nil
+
+  defp event_availability_reason(event) when is_map(event) do
+    string_value(event, ["message", "status_detail"]) || event_topic(event)
+  end
+
+  defp status_availability(status, payload) do
+    case status[:available] do
+      true ->
+        "available"
+
+      false ->
+        "unavailable"
+
+      _ ->
+        payload
+        |> string_value(["status"])
+        |> case do
+          "OK" -> "available"
+          "WARNING" -> "degraded"
+          "CRITICAL" -> "unavailable"
+          "UNKNOWN" -> "unavailable"
+          _ -> nil
+        end
+    end
+  end
+
+  defp status_availability_reason(payload) do
+    string_value(payload, ["summary", "message"]) ||
+      payload
+      |> details_payload()
+      |> string_value(["collection_error"])
   end
 
   defp resolve_observed_at(payload, status) do
@@ -343,6 +586,10 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       _ -> default
     end
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, ""), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(nil), do: true

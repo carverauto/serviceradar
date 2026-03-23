@@ -5187,8 +5187,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp netflow_country_iso2(_flow, _side), do: nil
 
-  defp normalize_iso2(nil), do: nil
-
   # BGP data extraction
   defp netflow_bgp_as_path(flow) when is_map(flow) do
     case netflow_value(flow, ["as_path"]) do
@@ -5253,6 +5251,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  defp normalize_iso2(nil), do: nil
   defp normalize_iso2(_), do: nil
 
   # Render country as a flag icon without adding an asset pipeline dependency.

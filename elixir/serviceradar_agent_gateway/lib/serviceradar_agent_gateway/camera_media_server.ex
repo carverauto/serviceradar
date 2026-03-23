@@ -36,22 +36,53 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
         gateway_id: gateway_id()
     }
 
+    relay_session_id = required_string(request.relay_session_id, "relay_session_id")
+    camera_source_id = required_string(request.camera_source_id, "camera_source_id")
+    stream_profile_id = required_string(request.stream_profile_id, "stream_profile_id")
+
     {:ok, upstream_response} = forward_open_relay_session(upstream_request)
 
-    {:ok, session} =
-      session_tracker().open_session(%{
-        relay_session_id: required_string(request.relay_session_id, "relay_session_id"),
-        media_ingest_id: upstream_response.media_ingest_id,
-        agent_id: agent_id,
-        gateway_id: gateway_id(),
-        partition_id: partition_id,
-        camera_source_id: required_string(request.camera_source_id, "camera_source_id"),
-        stream_profile_id: required_string(request.stream_profile_id, "stream_profile_id"),
-        lease_token: request.lease_token,
-        codec_hint: request.codec_hint,
-        container_hint: request.container_hint,
-        lease_expires_at_unix: upstream_response.lease_expires_at_unix
-      })
+    session_attrs = %{
+      relay_session_id: relay_session_id,
+      media_ingest_id: upstream_response.media_ingest_id,
+      agent_id: agent_id,
+      gateway_id: gateway_id(),
+      partition_id: partition_id,
+      camera_source_id: camera_source_id,
+      stream_profile_id: stream_profile_id,
+      lease_token: request.lease_token,
+      codec_hint: request.codec_hint,
+      container_hint: request.container_hint,
+      lease_expires_at_unix: upstream_response.lease_expires_at_unix
+    }
+
+    session =
+      case session_tracker().open_session(session_attrs) do
+        {:ok, session} ->
+          session
+
+        {:error, :already_exists} ->
+          best_effort_close_upstream(
+            relay_session_id,
+            upstream_response.media_ingest_id,
+            agent_id,
+            "duplicate relay session"
+          )
+
+          raise GRPC.RPCError, status: :already_exists, message: "relay session already exists"
+
+        {:error, {:limit_exceeded, limit_kind, limit}} ->
+          best_effort_close_upstream(
+            relay_session_id,
+            upstream_response.media_ingest_id,
+            agent_id,
+            "gateway relay capacity exceeded"
+          )
+
+          raise GRPC.RPCError,
+            status: :resource_exhausted,
+            message: capacity_error_message(limit_kind, limit)
+      end
 
     Logger.info(
       "Opened camera relay session #{session.relay_session_id} for agent #{agent_id} camera=#{session.camera_source_id} profile=#{session.stream_profile_id}"
@@ -221,6 +252,23 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     end
   end
 
+  defp best_effort_close_upstream(relay_session_id, media_ingest_id, agent_id, reason) do
+    case forwarder().close_relay_session(%Camera.CloseRelaySessionRequest{
+           relay_session_id: relay_session_id,
+           media_ingest_id: media_ingest_id,
+           agent_id: agent_id,
+           reason: reason
+         }) do
+      {:ok, _response} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to clean up upstream relay session after gateway admission denial: #{inspect(reason)}")
+
+        :ok
+    end
+  end
+
   defp session_tracker do
     Application.get_env(
       :serviceradar_agent_gateway,
@@ -282,6 +330,14 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
   end
 
   defp gateway_drain_reason(_message), do: nil
+
+  defp capacity_error_message(:agent, limit) do
+    "per-agent relay session limit exceeded (limit=#{limit})"
+  end
+
+  defp capacity_error_message(:gateway, limit) do
+    "per-gateway relay session limit exceeded (limit=#{limit})"
+  end
 
   defp required_agent_id(value) do
     case value do

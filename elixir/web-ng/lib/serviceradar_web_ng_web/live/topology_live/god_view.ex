@@ -1,7 +1,9 @@
 defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Camera.RelaySession
   alias ServiceRadarWebNG.Graph, as: AgeGraph
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
   alias ServiceRadarWebNGWeb.FeatureFlags
 
@@ -10,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   @default_decode_alert_ms 20.0
   @default_render_alert_ms 40.0
   @mtr_paths_cache_ttl_ms 10_000
+  @camera_relay_poll_interval_ms 1_000
+  @camera_relay_tile_limit 4
 
   @impl true
   def mount(_params, _session, socket) do
@@ -52,6 +56,12 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
           endpoints: true,
           mtr_paths: true
         })
+        |> assign(:selected_camera_context, nil)
+        |> assign(:active_camera_relay_session, nil)
+        |> assign(:last_camera_relay_session, nil)
+        |> assign(:camera_relay_viewer_state, nil)
+        |> assign(:camera_relay_tiles, [])
+        |> assign(:camera_relay_tile_notice, nil)
         |> assign(:mtr_paths_cache, nil)
         |> assign(:pipeline_stats, %{})
         |> assign(:controls_collapsed, true)
@@ -188,8 +198,258 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
     {:noreply, update(socket, :controls_collapsed, &(!&1))}
   end
 
+  def handle_event(
+        "god_view_open_camera_relay",
+        %{"camera_source_id" => camera_source_id, "stream_profile_id" => stream_profile_id} = params,
+        socket
+      ) do
+    scope = socket.assigns.current_scope
+
+    cond do
+      not can_view_device?(scope) ->
+        context = selected_camera_context(params)
+
+        {:noreply,
+         socket
+         |> assign(:selected_camera_context, context)
+         |> assign(:camera_relay_viewer_state, viewer_state_from_error(:forbidden))
+         |> put_flash(:error, "You are not authorized to start a camera relay")}
+
+      not is_nil(socket.assigns.active_camera_relay_session) ->
+        {:noreply, put_flash(socket, :error, "Close the current camera relay before starting another")}
+
+      true ->
+        with {:ok, camera_source_id} <- normalize_uuid_param(camera_source_id),
+             {:ok, stream_profile_id} <- normalize_uuid_param(stream_profile_id),
+             {:ok, session} <-
+               relay_session_manager().request_open(
+                 camera_source_id,
+                 stream_profile_id,
+                 scope: scope
+               ) do
+          context = selected_camera_context(params)
+
+          {:noreply,
+           socket
+           |> assign(:selected_camera_context, context)
+           |> assign(:active_camera_relay_session, session)
+           |> assign(:last_camera_relay_session, nil)
+           |> assign(:camera_relay_viewer_state, nil)
+           |> tap(fn _socket -> schedule_camera_relay_refresh(session.id) end)
+           |> put_flash(:info, "Camera relay requested from topology")}
+        else
+          {:error, reason} ->
+            context = selected_camera_context(params)
+
+            {:noreply,
+             socket
+             |> assign(:selected_camera_context, context)
+             |> assign(:camera_relay_viewer_state, viewer_state_from_error(reason))
+             |> put_flash(:error, format_camera_relay_error(reason))}
+        end
+    end
+  end
+
+  def handle_event("close_camera_relay", _params, socket) do
+    scope = socket.assigns.current_scope
+    active_session = socket.assigns.active_camera_relay_session
+
+    cond do
+      not can_view_device?(scope) ->
+        {:noreply,
+         socket
+         |> assign(:camera_relay_viewer_state, viewer_state_from_error(:forbidden))
+         |> put_flash(:error, "You are not authorized to stop a camera relay")}
+
+      is_nil(active_session) ->
+        {:noreply, socket}
+
+      true ->
+        case relay_session_manager().request_close(
+               active_session.id,
+               reason: "viewer closed topology view",
+               scope: scope
+             ) do
+          {:ok, session} ->
+            {:noreply,
+             socket
+             |> assign(:active_camera_relay_session, session)
+             |> assign(:camera_relay_viewer_state, viewer_state_from_session(session))
+             |> tap(fn _socket -> schedule_camera_relay_refresh(session.id) end)
+             |> put_flash(:info, "Camera relay closing")}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, format_camera_relay_error(reason))}
+        end
+    end
+  end
+
+  def handle_event("god_view_open_camera_relay_cluster", %{"camera_tiles" => camera_tiles} = params, socket) do
+    scope = socket.assigns.current_scope
+
+    if can_view_device?(scope) do
+      requested_tiles = normalize_camera_tile_params(camera_tiles)
+      tile_limit = camera_relay_tile_limit()
+      limited_tiles = Enum.take(requested_tiles, tile_limit)
+      omitted_count = max(length(requested_tiles) - length(limited_tiles), 0)
+
+      if limited_tiles == [] do
+        {:noreply,
+         socket
+         |> assign(:camera_relay_tile_notice, "No valid camera relays were available for this cluster")
+         |> put_flash(:error, "No valid camera relays were available for this cluster")}
+      else
+        maybe_close_camera_relay_tiles(socket.assigns.camera_relay_tiles, scope, "replaced by a new topology tile set")
+
+        opened_tiles =
+          Enum.map(limited_tiles, fn tile ->
+            case relay_session_manager().request_open(
+                   tile.camera_source_id,
+                   tile.stream_profile_id,
+                   scope: scope
+                 ) do
+              {:ok, session} ->
+                schedule_camera_relay_refresh(session.id)
+                build_camera_relay_tile(tile, session: session)
+
+              {:error, reason} ->
+                build_camera_relay_tile(tile, viewer_state: viewer_state_from_error(reason))
+            end
+          end)
+
+        notice = cluster_camera_tile_notice(opened_tiles, omitted_count, params)
+
+        {:noreply,
+         socket
+         |> assign(:camera_relay_tiles, opened_tiles)
+         |> assign(:camera_relay_tile_notice, notice)
+         |> put_flash(:info, cluster_camera_tile_flash_message(opened_tiles, omitted_count))}
+      end
+    else
+      {:noreply,
+       socket
+       |> assign(:camera_relay_tile_notice, "You are not authorized to start cluster camera relays")
+       |> put_flash(:error, "You are not authorized to start cluster camera relays")}
+    end
+  end
+
+  def handle_event("close_camera_relay_tile", %{"relay_session_id" => relay_session_id}, socket) do
+    scope = socket.assigns.current_scope
+
+    if can_view_device?(scope) do
+      case normalize_uuid_param(relay_session_id) do
+        {:ok, normalized_id} ->
+          case relay_session_manager().request_close(
+                 normalized_id,
+                 reason: "viewer closed topology tile",
+                 scope: scope
+               ) do
+            {:ok, session} ->
+              schedule_camera_relay_refresh(session.id)
+
+              {:noreply,
+               update_camera_relay_tile(socket, session.id, fn tile ->
+                 tile
+                 |> Map.put(:relay_session, session)
+                 |> Map.put(:viewer_state, viewer_state_from_session(session))
+               end)}
+
+            {:error, reason} ->
+              {:noreply,
+               socket
+               |> assign(:camera_relay_tile_notice, format_camera_relay_error(reason))
+               |> put_flash(:error, format_camera_relay_error(reason))}
+          end
+
+        {:error, _reason} ->
+          {:noreply, socket}
+      end
+    else
+      {:noreply,
+       socket
+       |> assign(:camera_relay_tile_notice, "You are not authorized to stop cluster camera relays")
+       |> put_flash(:error, "You are not authorized to stop cluster camera relays")}
+    end
+  end
+
+  def handle_event("dismiss_camera_relay_tile", %{"tile_id" => tile_id}, socket) do
+    {:noreply,
+     update(socket, :camera_relay_tiles, fn tiles ->
+       Enum.reject(tiles, &(Map.get(&1, :tile_id) == tile_id))
+     end)}
+  end
+
+  def handle_event("close_camera_relay_tile_set", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    if can_view_device?(scope) do
+      maybe_close_camera_relay_tiles(socket.assigns.camera_relay_tiles, scope, "viewer closed topology tile set")
+
+      {:noreply,
+       socket
+       |> assign(:camera_relay_tile_notice, "Cluster camera relays closing")
+       |> assign(:camera_relay_tiles, mark_camera_relay_tiles_closing(socket.assigns.camera_relay_tiles))}
+    else
+      {:noreply,
+       socket
+       |> assign(:camera_relay_tile_notice, "You are not authorized to stop cluster camera relays")
+       |> put_flash(:error, "You are not authorized to stop cluster camera relays")}
+    end
+  end
+
   def handle_event("set_controls_panel", %{"collapsed" => collapsed}, socket) do
     {:noreply, assign(socket, :controls_collapsed, truthy?(collapsed))}
+  end
+
+  @impl true
+  def handle_info({:refresh_camera_relay_session, relay_session_id}, socket) do
+    current_session =
+      socket.assigns.active_camera_relay_session || socket.assigns.last_camera_relay_session
+
+    if is_map(current_session) and Map.get(current_session, :id) == relay_session_id do
+      case fetch_camera_relay_session(socket.assigns.current_scope, relay_session_id) do
+        {:ok, nil} ->
+          {:noreply, assign(socket, :active_camera_relay_session, nil)}
+
+        {:ok, session} ->
+          {:noreply, apply_camera_relay_session_update(socket, session)}
+
+        {:error, reason} ->
+          Logger.warning("Topology camera relay refresh failed for #{relay_session_id}: #{inspect(reason)}")
+
+          {:noreply, assign(socket, :camera_relay_viewer_state, viewer_state_from_error(reason))}
+      end
+    else
+      case fetch_camera_relay_tile_session(socket.assigns.camera_relay_tiles, relay_session_id) do
+        nil ->
+          {:noreply, socket}
+
+        _tile ->
+          case fetch_camera_relay_session(socket.assigns.current_scope, relay_session_id) do
+            {:ok, nil} ->
+              {:noreply,
+               update(socket, :camera_relay_tiles, fn tiles ->
+                 Enum.reject(tiles, &(camera_relay_tile_session_id(&1) == relay_session_id))
+               end)}
+
+            {:ok, session} ->
+              {:noreply,
+               update_camera_relay_tile(socket, relay_session_id, fn tile ->
+                 tile
+                 |> Map.put(:relay_session, session)
+                 |> Map.put(:viewer_state, viewer_state_from_session(session))
+               end)}
+
+            {:error, reason} ->
+              Logger.warning("Topology camera relay tile refresh failed for #{relay_session_id}: #{inspect(reason)}")
+
+              {:noreply,
+               update_camera_relay_tile(socket, relay_session_id, fn tile ->
+                 Map.put(tile, :viewer_state, viewer_state_from_error(reason))
+               end)}
+          end
+      end
+    end
   end
 
   defp maybe_emit_client_perf_alert(params, pipeline_stats) when is_map(params) and is_map(pipeline_stats) do
@@ -668,6 +928,338 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
             </div>
           </div>
         </.ui_panel>
+
+        <.ui_panel :if={
+          @selected_camera_context || @active_camera_relay_session || @last_camera_relay_session
+        }>
+          <:header>
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <div class="text-sm font-semibold">Topology Camera Viewer</div>
+                <div class="text-xs text-base-content/60">
+                  Opened from a God-View camera-capable node.
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span
+                  :if={@active_camera_relay_session}
+                  class={[
+                    "badge badge-sm",
+                    relay_status_badge_class(@active_camera_relay_session.status)
+                  ]}
+                >
+                  {relay_status_label(@active_camera_relay_session.status)}
+                </span>
+                <span
+                  :if={!@active_camera_relay_session && @last_camera_relay_session}
+                  class={[
+                    "badge badge-sm",
+                    relay_status_badge_class(@last_camera_relay_session.status)
+                  ]}
+                >
+                  {relay_status_label(@last_camera_relay_session.status)}
+                </span>
+                <span
+                  :if={@camera_relay_viewer_state}
+                  class={[
+                    "badge badge-sm",
+                    viewer_state_badge_class(@camera_relay_viewer_state.kind)
+                  ]}
+                >
+                  {@camera_relay_viewer_state.title}
+                </span>
+                <button
+                  :if={@active_camera_relay_session}
+                  type="button"
+                  class="btn btn-xs btn-outline"
+                  phx-click="close_camera_relay"
+                >
+                  Stop Relay
+                </button>
+              </div>
+            </div>
+          </:header>
+
+          <div class="space-y-3">
+            <div class="flex flex-wrap items-center gap-2 text-sm">
+              <span class="font-medium text-base-content">
+                {camera_context_label(@selected_camera_context)}
+              </span>
+              <span
+                :if={present?(camera_context_profile_label(@selected_camera_context))}
+                class="badge badge-outline badge-sm"
+              >
+                {camera_context_profile_label(@selected_camera_context)}
+              </span>
+              <.link
+                :if={present?(camera_context_device_uid(@selected_camera_context))}
+                navigate={~p"/devices/#{camera_context_device_uid(@selected_camera_context)}"}
+                class="link link-primary text-xs"
+              >
+                View device
+              </.link>
+            </div>
+
+            <div
+              :if={@camera_relay_viewer_state}
+              class={[
+                "rounded-lg border p-3",
+                viewer_state_container_class(@camera_relay_viewer_state.kind)
+              ]}
+            >
+              <div class="text-sm font-medium">{@camera_relay_viewer_state.title}</div>
+              <div class="mt-1 text-xs leading-5 opacity-90">
+                {@camera_relay_viewer_state.detail}
+              </div>
+              <div
+                :if={present?(@camera_relay_viewer_state.hint)}
+                class="mt-2 text-xs opacity-80"
+              >
+                {@camera_relay_viewer_state.hint}
+              </div>
+            </div>
+
+            <div
+              :if={@active_camera_relay_session}
+              id={"topology-camera-relay-stream-#{@active_camera_relay_session.id}"}
+              phx-hook="CameraRelayStatusStream"
+              phx-update="ignore"
+              data-stream-path={camera_relay_stream_path(@active_camera_relay_session)}
+              class="space-y-1"
+            >
+              <div class="overflow-hidden rounded-md border border-base-300/70 bg-base-300/20">
+                <canvas
+                  data-role="video-canvas"
+                  class="block aspect-video w-full bg-neutral/80 object-contain"
+                />
+              </div>
+              <div data-role="transport-status" class="text-xs text-base-content/70">
+                Connecting browser stream...
+              </div>
+              <div data-role="player-status" class="text-xs text-base-content/70">
+                Waiting for browser decoder...
+              </div>
+              <div data-role="relay-status" class="text-xs font-medium text-base-content">
+                Relay status: {relay_status_label(@active_camera_relay_session.status)}
+              </div>
+              <div
+                data-role="playback-state"
+                data-state={relay_playback_state(@active_camera_relay_session)}
+                class="text-xs text-base-content/70"
+              >
+                Playback state: {relay_playback_state(@active_camera_relay_session)}
+              </div>
+              <div data-role="viewer-count" class="text-xs text-base-content/70">
+                Viewer count: {Map.get(@active_camera_relay_session, :viewer_count, 0)}
+              </div>
+              <div data-role="termination-kind" class="text-xs text-info/80">
+                {relay_termination_text(@active_camera_relay_session)}
+              </div>
+              <div data-role="failure-reason" class="text-xs text-error/80">
+                {relay_failure_reason_text(@active_camera_relay_session)}
+              </div>
+              <div data-role="close-reason" class="text-xs text-warning/80">
+                {relay_close_reason_text(@active_camera_relay_session)}
+              </div>
+              <div data-role="binary-stats" class="text-xs text-base-content/60">
+                Chunks: 0  Bytes: 0
+              </div>
+              <div data-role="relay-detail" class="text-xs text-base-content/60">
+                Browser viewer channel is attached to the persisted relay session.
+              </div>
+            </div>
+
+            <div
+              :if={!@active_camera_relay_session && @last_camera_relay_session}
+              class="rounded-lg border border-base-300/70 bg-base-200/20 p-3 text-xs text-base-content/70"
+            >
+              <div class="font-medium text-base-content">
+                Last relay status: {relay_status_label(@last_camera_relay_session.status)}
+              </div>
+              <div :if={present?(relay_termination_text(@last_camera_relay_session))} class="mt-1">
+                {relay_termination_text(@last_camera_relay_session)}
+              </div>
+              <div :if={present?(relay_failure_reason_text(@last_camera_relay_session))} class="mt-1">
+                {relay_failure_reason_text(@last_camera_relay_session)}
+              </div>
+              <div :if={present?(relay_close_reason_text(@last_camera_relay_session))} class="mt-1">
+                {relay_close_reason_text(@last_camera_relay_session)}
+              </div>
+            </div>
+          </div>
+        </.ui_panel>
+
+        <.ui_panel :if={@camera_relay_tiles != []}>
+          <:header>
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <div class="text-sm font-semibold">Topology Camera Tile Set</div>
+                <div class="text-xs text-base-content/60">
+                  Bounded multi-camera relay viewing from clustered topology endpoints.
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="badge badge-outline badge-sm">
+                  {length(@camera_relay_tiles)} / {camera_relay_tile_limit()}
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-xs btn-outline"
+                  phx-click="close_camera_relay_tile_set"
+                >
+                  Close All
+                </button>
+              </div>
+            </div>
+          </:header>
+
+          <div class="space-y-3">
+            <div
+              :if={present?(@camera_relay_tile_notice)}
+              class="rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-xs text-info-content"
+            >
+              {@camera_relay_tile_notice}
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <div
+                :for={tile <- @camera_relay_tiles}
+                id={"camera-relay-tile-#{camera_relay_tile_dom_id(tile)}"}
+                class="rounded-xl border border-base-300/70 bg-base-200/20 p-3 shadow-sm"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="truncate text-sm font-medium text-base-content">
+                      {camera_relay_tile_label(tile)}
+                    </div>
+                    <div
+                      :if={present?(camera_relay_tile_profile_label(tile))}
+                      class="mt-1 text-xs text-base-content/60"
+                    >
+                      {camera_relay_tile_profile_label(tile)}
+                    </div>
+                    <.link
+                      :if={present?(camera_relay_tile_device_uid(tile))}
+                      navigate={~p"/devices/#{camera_relay_tile_device_uid(tile)}"}
+                      class="link link-primary mt-1 inline-block text-xs"
+                    >
+                      View device
+                    </.link>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span
+                      :if={camera_relay_tile_status_label(tile)}
+                      class={[
+                        "badge badge-sm",
+                        camera_relay_tile_badge_class(tile)
+                      ]}
+                    >
+                      {camera_relay_tile_status_label(tile)}
+                    </span>
+                    <button
+                      :if={camera_relay_tile_session_id(tile)}
+                      type="button"
+                      class="btn btn-xs btn-outline"
+                      phx-click="close_camera_relay_tile"
+                      phx-value-relay_session_id={camera_relay_tile_session_id(tile)}
+                    >
+                      Stop
+                    </button>
+                    <button
+                      :if={!camera_relay_tile_session_id(tile)}
+                      type="button"
+                      class="btn btn-xs btn-ghost"
+                      phx-click="dismiss_camera_relay_tile"
+                      phx-value-tile_id={tile.tile_id}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  :if={camera_relay_tile_active?(tile)}
+                  id={"topology-camera-relay-tile-stream-#{camera_relay_tile_dom_id(tile)}"}
+                  phx-hook="CameraRelayStatusStream"
+                  phx-update="ignore"
+                  data-stream-path={camera_relay_tile_stream_path(tile)}
+                  class="mt-3 space-y-1"
+                >
+                  <div class="overflow-hidden rounded-md border border-base-300/70 bg-base-300/20">
+                    <canvas
+                      data-role="video-canvas"
+                      class="block aspect-video w-full bg-neutral/80 object-contain"
+                    />
+                  </div>
+                  <div data-role="transport-status" class="text-xs text-base-content/70">
+                    Connecting browser stream...
+                  </div>
+                  <div data-role="player-status" class="text-xs text-base-content/70">
+                    Waiting for browser decoder...
+                  </div>
+                  <div data-role="relay-status" class="text-xs font-medium text-base-content">
+                    Relay status: {camera_relay_tile_session_status_label(tile)}
+                  </div>
+                  <div
+                    data-role="playback-state"
+                    data-state={camera_relay_tile_playback_state(tile)}
+                    class="text-xs text-base-content/70"
+                  >
+                    Playback state: {camera_relay_tile_playback_state(tile)}
+                  </div>
+                  <div data-role="viewer-count" class="text-xs text-base-content/70">
+                    Viewer count: {camera_relay_tile_viewer_count(tile)}
+                  </div>
+                  <div data-role="termination-kind" class="text-xs text-info/80">
+                    {camera_relay_tile_termination_text(tile)}
+                  </div>
+                  <div data-role="failure-reason" class="text-xs text-error/80">
+                    {camera_relay_tile_failure_reason_text(tile)}
+                  </div>
+                  <div data-role="close-reason" class="text-xs text-warning/80">
+                    {camera_relay_tile_close_reason_text(tile)}
+                  </div>
+                  <div data-role="binary-stats" class="text-xs text-base-content/60">
+                    Chunks: 0  Bytes: 0
+                  </div>
+                  <div data-role="relay-detail" class="text-xs text-base-content/60">
+                    Cluster tile playback is attached to the persisted relay session.
+                  </div>
+                </div>
+
+                <div
+                  :if={!camera_relay_tile_active?(tile)}
+                  class={[
+                    "mt-3 rounded-lg border p-3 text-xs",
+                    camera_relay_tile_viewer_state_container_class(tile)
+                  ]}
+                >
+                  <div class="font-medium">
+                    {camera_relay_tile_status_label(tile) || "Relay pending"}
+                  </div>
+                  <div
+                    :if={present?(camera_relay_tile_viewer_detail(tile))}
+                    class="mt-1 leading-5 opacity-90"
+                  >
+                    {camera_relay_tile_viewer_detail(tile)}
+                  </div>
+                  <div
+                    :if={present?(camera_relay_tile_failure_reason_text(tile))}
+                    class="mt-1 opacity-90"
+                  >
+                    {camera_relay_tile_failure_reason_text(tile)}
+                  </div>
+                  <div
+                    :if={present?(camera_relay_tile_close_reason_text(tile))}
+                    class="mt-1 opacity-90"
+                  >
+                    {camera_relay_tile_close_reason_text(tile)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </.ui_panel>
       </div>
     </Layouts.app>
     """
@@ -926,6 +1518,559 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   defp normalize_zoom_mode("regional"), do: "regional"
   defp normalize_zoom_mode("local"), do: "local"
   defp normalize_zoom_mode(_), do: "auto"
+
+  defp can_view_device?(scope), do: RBAC.can?(scope, "devices.view")
+
+  defp relay_status_label(status) when is_atom(status), do: status |> Atom.to_string() |> String.capitalize()
+  defp relay_status_label(status) when is_binary(status), do: String.capitalize(status)
+  defp relay_status_label(_), do: "Requested"
+
+  defp relay_status_badge_class(:active), do: "badge-success"
+  defp relay_status_badge_class("active"), do: "badge-success"
+  defp relay_status_badge_class(:opening), do: "badge-warning"
+  defp relay_status_badge_class("opening"), do: "badge-warning"
+  defp relay_status_badge_class(:closing), do: "badge-warning"
+  defp relay_status_badge_class("closing"), do: "badge-warning"
+  defp relay_status_badge_class(:failed), do: "badge-error"
+  defp relay_status_badge_class("failed"), do: "badge-error"
+  defp relay_status_badge_class(_), do: "badge-ghost"
+
+  defp relay_playback_state(%{status: status, media_ingest_id: media_ingest_id})
+       when status in [:active, "active"] and is_binary(media_ingest_id) and media_ingest_id != "", do: "ready"
+
+  defp relay_playback_state(%{status: status}) when status in [:requested, :opening, "requested", "opening"],
+    do: "pending"
+
+  defp relay_playback_state(%{status: status}) when status in [:closing, "closing"], do: "closing"
+  defp relay_playback_state(%{status: status}) when status in [:closed, "closed"], do: "closed"
+  defp relay_playback_state(%{status: status}) when status in [:failed, "failed"], do: "failed"
+  defp relay_playback_state(_session), do: "pending"
+
+  defp relay_close_reason_text(session) do
+    session
+    |> Map.get(:close_reason)
+    |> case do
+      value when is_binary(value) and value != "" -> "Close reason: #{value}"
+      _ -> ""
+    end
+  end
+
+  defp relay_failure_reason_text(session) do
+    session
+    |> Map.get(:failure_reason)
+    |> case do
+      value when is_binary(value) and value != "" -> "Failure reason: #{value}"
+      _ -> ""
+    end
+  end
+
+  defp relay_termination_text(session) do
+    case Map.get(session, :termination_kind) do
+      value when is_binary(value) and value != "" ->
+        "Termination: #{value |> String.replace("_", " ") |> String.capitalize()}"
+
+      _ ->
+        ""
+    end
+  end
+
+  defp camera_relay_stream_path(%{id: relay_session_id}) when is_binary(relay_session_id) do
+    ~p"/v1/camera-relay-sessions/#{relay_session_id}/stream"
+  end
+
+  defp camera_relay_stream_path(_session), do: nil
+
+  defp relay_session_terminal?(%{status: status}), do: status in [:closed, :failed, "closed", "failed"]
+  defp relay_session_terminal?(_session), do: false
+
+  defp apply_camera_relay_session_update(socket, session) do
+    viewer_state = viewer_state_from_session(session)
+
+    if relay_session_terminal?(session) do
+      socket
+      |> assign(:active_camera_relay_session, nil)
+      |> assign(:last_camera_relay_session, session)
+      |> assign(:camera_relay_viewer_state, viewer_state)
+    else
+      schedule_camera_relay_refresh(session.id)
+
+      socket
+      |> assign(:active_camera_relay_session, session)
+      |> assign(:last_camera_relay_session, nil)
+      |> assign(:camera_relay_viewer_state, viewer_state)
+    end
+  end
+
+  defp schedule_camera_relay_refresh(relay_session_id) when is_binary(relay_session_id) do
+    Process.send_after(self(), {:refresh_camera_relay_session, relay_session_id}, camera_relay_poll_interval_ms())
+  end
+
+  defp schedule_camera_relay_refresh(_relay_session_id), do: :ok
+
+  defp camera_relay_poll_interval_ms do
+    case Application.get_env(:serviceradar_web_ng, :camera_relay_poll_interval_ms, @camera_relay_poll_interval_ms) do
+      value when is_integer(value) and value > 0 -> value
+      _other -> @camera_relay_poll_interval_ms
+    end
+  end
+
+  defp relay_session_manager do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :camera_relay_session_manager,
+      ServiceRadar.Camera.RelaySessionManager
+    )
+  end
+
+  defp fetch_camera_relay_session(scope, relay_session_id) do
+    fetcher =
+      Application.get_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_fetcher,
+        fn id, opts -> RelaySession.get_by_id(id, opts) end
+      )
+
+    fetcher.(relay_session_id, scope: scope)
+  end
+
+  defp normalize_uuid_param(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    case Ecto.UUID.cast(trimmed) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :invalid_uuid}
+    end
+  end
+
+  defp normalize_uuid_param(_value), do: {:error, :invalid_uuid}
+
+  defp format_camera_relay_error({:agent_offline, _agent_id}), do: "Assigned agent is offline for this camera source"
+  defp format_camera_relay_error(:forbidden), do: "You are not authorized for camera relay access"
+  defp format_camera_relay_error(:invalid_uuid), do: "Invalid camera relay request"
+  defp format_camera_relay_error(reason) when is_binary(reason), do: reason
+  defp format_camera_relay_error(reason), do: inspect(reason)
+
+  defp viewer_state_from_session(%{status: status} = session) when status in [:failed, "failed"] do
+    reason = Map.get(session, :failure_reason) || Map.get(session, :close_reason) || "camera relay failed"
+    viewer_state_from_error(reason)
+  end
+
+  defp viewer_state_from_session(_session), do: nil
+
+  defp viewer_state_from_error(:forbidden) do
+    %{
+      kind: :unauthorized,
+      title: "Not Authorized",
+      detail: "This viewer does not have permission to open or control camera relays from topology.",
+      hint: "Use an account with device viewing access before retrying."
+    }
+  end
+
+  defp viewer_state_from_error(:invalid_uuid) do
+    %{
+      kind: :relay_error,
+      title: "Invalid Camera Request",
+      detail: "The selected topology camera action did not include a valid relay identifier.",
+      hint: "Refresh topology data and retry from the camera node details panel."
+    }
+  end
+
+  defp viewer_state_from_error({:agent_offline, agent_id}) do
+    %{
+      kind: :unavailable,
+      title: "Camera Relay Unavailable",
+      detail: "Assigned agent #{agent_id} is offline and cannot open the camera relay.",
+      hint: "Verify the edge agent and gateway are connected before retrying."
+    }
+  end
+
+  defp viewer_state_from_error(reason) when is_binary(reason) do
+    normalized_reason = String.trim(reason)
+    classification = classify_camera_relay_issue(normalized_reason)
+
+    case classification do
+      :auth_required ->
+        %{
+          kind: :auth_required,
+          title: "Camera Authentication Required",
+          detail: normalized_reason,
+          hint: "Update camera credentials or source configuration, then retry the relay."
+        }
+
+      :unavailable ->
+        %{
+          kind: :unavailable,
+          title: "Camera Relay Unavailable",
+          detail: normalized_reason,
+          hint: "Check camera reachability, assigned agent/gateway health, and inventory assignment."
+        }
+
+      :unauthorized ->
+        %{
+          kind: :unauthorized,
+          title: "Not Authorized",
+          detail: normalized_reason,
+          hint: "Use an account with camera relay access before retrying."
+        }
+
+      :relay_error ->
+        %{
+          kind: :relay_error,
+          title: "Camera Relay Error",
+          detail: normalized_reason,
+          hint: "Review relay logs and the assigned agent/gateway path for the failure."
+        }
+    end
+  end
+
+  defp viewer_state_from_error(reason), do: viewer_state_from_error(inspect(reason))
+
+  defp classify_camera_relay_issue(reason) when is_binary(reason) do
+    downcased = String.downcase(reason)
+
+    cond do
+      String.contains?(downcased, ["forbidden", "unauthorized", "not authorized"]) ->
+        :unauthorized
+
+      String.contains?(downcased, ["auth", "credential", "forbidden by camera", "access denied"]) ->
+        :auth_required
+
+      String.contains?(downcased, [
+        "offline",
+        "not assigned",
+        "unavailable",
+        "inactive",
+        "streamable",
+        "not found",
+        "reach",
+        "gateway",
+        "agent"
+      ]) ->
+        :unavailable
+
+      true ->
+        :relay_error
+    end
+  end
+
+  defp viewer_state_badge_class(:auth_required), do: "badge-warning"
+  defp viewer_state_badge_class(:unavailable), do: "badge-warning"
+  defp viewer_state_badge_class(:unauthorized), do: "badge-error"
+  defp viewer_state_badge_class(:relay_error), do: "badge-error"
+  defp viewer_state_badge_class(_kind), do: "badge-outline"
+
+  defp viewer_state_container_class(:auth_required) do
+    "border-warning/40 bg-warning/10 text-warning-content"
+  end
+
+  defp viewer_state_container_class(:unavailable) do
+    "border-warning/40 bg-warning/10 text-warning-content"
+  end
+
+  defp viewer_state_container_class(:unauthorized) do
+    "border-error/40 bg-error/10 text-error-content"
+  end
+
+  defp viewer_state_container_class(:relay_error) do
+    "border-error/40 bg-error/10 text-error-content"
+  end
+
+  defp viewer_state_container_class(_kind), do: "border-base-300/70 bg-base-200/20 text-base-content"
+
+  defp normalize_camera_tile_params(camera_tiles) when is_list(camera_tiles) do
+    camera_tiles
+    |> Enum.reduce([], fn tile, acc ->
+      case normalize_camera_tile_param(tile) do
+        nil -> acc
+        normalized -> [normalized | acc]
+      end
+    end)
+    |> Enum.reverse()
+    |> Enum.uniq_by(&{&1.camera_source_id, &1.stream_profile_id})
+  end
+
+  defp normalize_camera_tile_params(_camera_tiles), do: []
+
+  defp normalize_camera_tile_param(%{} = tile) do
+    with {:ok, camera_source_id} <-
+           normalize_uuid_param(Map.get(tile, "camera_source_id") || Map.get(tile, :camera_source_id)),
+         {:ok, stream_profile_id} <-
+           normalize_uuid_param(Map.get(tile, "stream_profile_id") || Map.get(tile, :stream_profile_id)) do
+      %{
+        camera_source_id: camera_source_id,
+        stream_profile_id: stream_profile_id,
+        device_uid: normalize_presence(Map.get(tile, "device_uid") || Map.get(tile, :device_uid)),
+        camera_label: normalize_presence(Map.get(tile, "camera_label") || Map.get(tile, :camera_label)),
+        profile_label: normalize_presence(Map.get(tile, "profile_label") || Map.get(tile, :profile_label))
+      }
+    else
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp normalize_camera_tile_param(_tile), do: nil
+
+  defp build_camera_relay_tile(tile, opts) when is_map(tile) do
+    relay_session = Keyword.get(opts, :session)
+    viewer_state = Keyword.get(opts, :viewer_state)
+
+    %{
+      tile_id:
+        if(is_map(relay_session) and is_binary(Map.get(relay_session, :id)),
+          do: relay_session.id,
+          else: "tile-" <> Ecto.UUID.generate()
+        ),
+      relay_session: relay_session,
+      viewer_state: viewer_state,
+      device_uid: Map.get(tile, :device_uid),
+      camera_label: Map.get(tile, :camera_label),
+      profile_label: Map.get(tile, :profile_label)
+    }
+  end
+
+  defp camera_relay_tile_limit do
+    case Application.get_env(:serviceradar_web_ng, :camera_relay_tile_limit, @camera_relay_tile_limit) do
+      value when is_integer(value) and value > 0 -> value
+      _other -> @camera_relay_tile_limit
+    end
+  end
+
+  defp maybe_close_camera_relay_tiles(camera_relay_tiles, scope, reason)
+       when is_list(camera_relay_tiles) and is_binary(reason) do
+    Enum.each(camera_relay_tiles, fn tile ->
+      case camera_relay_tile_session_id(tile) do
+        relay_session_id when is_binary(relay_session_id) ->
+          _ =
+            relay_session_manager().request_close(
+              relay_session_id,
+              reason: reason,
+              scope: scope
+            )
+
+          :ok
+
+        _other ->
+          :ok
+      end
+    end)
+  end
+
+  defp maybe_close_camera_relay_tiles(_camera_relay_tiles, _scope, _reason), do: :ok
+
+  defp mark_camera_relay_tiles_closing(camera_relay_tiles) when is_list(camera_relay_tiles) do
+    Enum.map(camera_relay_tiles, fn tile ->
+      case Map.get(tile, :relay_session) do
+        %{status: status} = session when status not in [:closed, :failed, "closed", "failed"] ->
+          tile
+          |> Map.put(:relay_session, Map.put(session, :status, :closing))
+          |> Map.put(:viewer_state, viewer_state_from_session(Map.put(session, :status, :closing)))
+
+        _other ->
+          tile
+      end
+    end)
+  end
+
+  defp mark_camera_relay_tiles_closing(_camera_relay_tiles), do: []
+
+  defp cluster_camera_tile_notice(opened_tiles, omitted_count, params)
+       when is_list(opened_tiles) and is_integer(omitted_count) and is_map(params) do
+    cluster_label =
+      params
+      |> Map.get("cluster_label")
+      |> normalize_presence()
+
+    active_count = Enum.count(opened_tiles, &camera_relay_tile_active?/1)
+
+    base =
+      if present?(cluster_label),
+        do: "Opened #{active_count} camera relays from #{cluster_label}.",
+        else: "Opened #{active_count} camera relays from the selected cluster."
+
+    if omitted_count > 0 do
+      "#{base} #{omitted_count} additional cameras were skipped to stay within the tile limit."
+    else
+      base
+    end
+  end
+
+  defp cluster_camera_tile_notice(_opened_tiles, _omitted_count, _params), do: nil
+
+  defp cluster_camera_tile_flash_message(opened_tiles, omitted_count)
+       when is_list(opened_tiles) and is_integer(omitted_count) do
+    active_count = Enum.count(opened_tiles, &camera_relay_tile_active?/1)
+
+    if omitted_count > 0 do
+      "Opened #{active_count} camera relays. #{omitted_count} were skipped to stay within the tile limit."
+    else
+      "Opened #{active_count} camera relays from the selected cluster"
+    end
+  end
+
+  defp fetch_camera_relay_tile_session(camera_relay_tiles, relay_session_id)
+       when is_list(camera_relay_tiles) and is_binary(relay_session_id) do
+    Enum.find(camera_relay_tiles, &(camera_relay_tile_session_id(&1) == relay_session_id))
+  end
+
+  defp fetch_camera_relay_tile_session(_camera_relay_tiles, _relay_session_id), do: nil
+
+  defp update_camera_relay_tile(socket, relay_session_id, updater)
+       when is_binary(relay_session_id) and is_function(updater, 1) do
+    update(socket, :camera_relay_tiles, fn tiles ->
+      Enum.map(tiles, fn tile ->
+        if camera_relay_tile_session_id(tile) == relay_session_id do
+          updater.(tile)
+        else
+          tile
+        end
+      end)
+    end)
+  end
+
+  defp camera_relay_tile_dom_id(tile) do
+    (Map.get(tile, :tile_id) || Ecto.UUID.generate())
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]/u, "-")
+  end
+
+  defp camera_relay_tile_session_id(tile) do
+    tile
+    |> Map.get(:relay_session, %{})
+    |> Map.get(:id)
+  end
+
+  defp camera_relay_tile_label(tile) do
+    Map.get(tile, :camera_label) || "Cluster camera"
+  end
+
+  defp camera_relay_tile_profile_label(tile), do: Map.get(tile, :profile_label)
+  defp camera_relay_tile_device_uid(tile), do: Map.get(tile, :device_uid)
+
+  defp camera_relay_tile_active?(tile) do
+    session = Map.get(tile, :relay_session)
+    is_map(session) and not relay_session_terminal?(session)
+  end
+
+  defp camera_relay_tile_stream_path(tile) do
+    tile
+    |> Map.get(:relay_session)
+    |> camera_relay_stream_path()
+  end
+
+  defp camera_relay_tile_status_label(tile) do
+    cond do
+      is_map(Map.get(tile, :relay_session)) ->
+        relay_status_label(Map.get(tile.relay_session, :status))
+
+      is_map(Map.get(tile, :viewer_state)) ->
+        Map.get(tile.viewer_state, :title)
+
+      true ->
+        nil
+    end
+  end
+
+  defp camera_relay_tile_session_status_label(tile) do
+    tile
+    |> Map.get(:relay_session, %{})
+    |> Map.get(:status)
+    |> relay_status_label()
+  end
+
+  defp camera_relay_tile_badge_class(tile) do
+    cond do
+      is_map(Map.get(tile, :relay_session)) ->
+        relay_status_badge_class(Map.get(tile.relay_session, :status))
+
+      is_map(Map.get(tile, :viewer_state)) ->
+        viewer_state_badge_class(Map.get(tile.viewer_state, :kind))
+
+      true ->
+        "badge-ghost"
+    end
+  end
+
+  defp camera_relay_tile_playback_state(tile) do
+    tile
+    |> Map.get(:relay_session, %{})
+    |> relay_playback_state()
+  end
+
+  defp camera_relay_tile_viewer_count(tile) do
+    tile
+    |> Map.get(:relay_session, %{})
+    |> Map.get(:viewer_count, 0)
+  end
+
+  defp camera_relay_tile_termination_text(tile) do
+    tile
+    |> Map.get(:relay_session)
+    |> case do
+      session when is_map(session) -> relay_termination_text(session)
+      _ -> ""
+    end
+  end
+
+  defp camera_relay_tile_failure_reason_text(tile) do
+    tile
+    |> Map.get(:relay_session)
+    |> case do
+      session when is_map(session) -> relay_failure_reason_text(session)
+      _ -> ""
+    end
+  end
+
+  defp camera_relay_tile_close_reason_text(tile) do
+    tile
+    |> Map.get(:relay_session)
+    |> case do
+      session when is_map(session) -> relay_close_reason_text(session)
+      _ -> ""
+    end
+  end
+
+  defp camera_relay_tile_viewer_detail(tile) do
+    case Map.get(tile, :viewer_state) do
+      %{detail: detail} -> detail
+      _ -> nil
+    end
+  end
+
+  defp camera_relay_tile_viewer_state_container_class(tile) do
+    case Map.get(tile, :viewer_state) do
+      %{kind: kind} -> viewer_state_container_class(kind)
+      _ -> "border-base-300/70 bg-base-200/20 text-base-content"
+    end
+  end
+
+  defp selected_camera_context(params) when is_map(params) do
+    %{
+      device_uid: normalize_presence(Map.get(params, "device_uid")),
+      camera_label: normalize_presence(Map.get(params, "camera_label")),
+      profile_label: normalize_presence(Map.get(params, "profile_label"))
+    }
+  end
+
+  defp selected_camera_context(_params), do: nil
+
+  defp camera_context_label(%{camera_label: value}) when is_binary(value) and value != "", do: value
+  defp camera_context_label(_context), do: "Selected camera"
+
+  defp camera_context_profile_label(%{profile_label: value}) when is_binary(value), do: value
+  defp camera_context_profile_label(_context), do: nil
+
+  defp camera_context_device_uid(%{device_uid: value}) when is_binary(value), do: value
+  defp camera_context_device_uid(_context), do: nil
+
+  defp normalize_presence(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp normalize_presence(_value), do: nil
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_value), do: false
 
   defp truthy?(value) when is_boolean(value), do: value
   defp truthy?(value) when value in ["true", "1", 1, true], do: true

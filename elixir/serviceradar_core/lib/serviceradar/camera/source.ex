@@ -17,6 +17,12 @@ defmodule ServiceRadar.Camera.Source do
     :source_url,
     :assigned_agent_id,
     :assigned_gateway_id,
+    :availability_status,
+    :availability_reason,
+    :last_activity_at,
+    :last_event_at,
+    :last_event_type,
+    :last_event_message,
     :metadata
   ]
 
@@ -58,6 +64,12 @@ defmodule ServiceRadar.Camera.Source do
         :source_url,
         :assigned_agent_id,
         :assigned_gateway_id,
+        :availability_status,
+        :availability_reason,
+        :last_activity_at,
+        :last_event_at,
+        :last_event_type,
+        :last_event_message,
         :metadata
       ]
     end
@@ -78,6 +90,12 @@ defmodule ServiceRadar.Camera.Source do
         :source_url,
         :assigned_agent_id,
         :assigned_gateway_id,
+        :availability_status,
+        :availability_reason,
+        :last_activity_at,
+        :last_event_at,
+        :last_event_type,
+        :last_event_message,
         :metadata
       ]
     end
@@ -125,6 +143,30 @@ defmodule ServiceRadar.Camera.Source do
     end
 
     attribute :assigned_gateway_id, :string do
+      public? true
+    end
+
+    attribute :availability_status, :string do
+      public? true
+    end
+
+    attribute :availability_reason, :string do
+      public? true
+    end
+
+    attribute :last_activity_at, :utc_datetime_usec do
+      public? true
+    end
+
+    attribute :last_event_at, :utc_datetime_usec do
+      public? true
+    end
+
+    attribute :last_event_type, :string do
+      public? true
+    end
+
+    attribute :last_event_message, :string do
       public? true
     end
 

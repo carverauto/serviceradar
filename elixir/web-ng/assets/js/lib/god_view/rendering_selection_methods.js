@@ -69,6 +69,72 @@ export const godViewRenderingSelectionMethods = {
       clusterId !== "" && clusterExpandable
         ? `<div class="pt-2"><button type="button" class="btn btn-xs btn-primary" data-cluster-id="${this.escapeHtml(clusterId)}" data-cluster-expand="${clusterExpanded ? "false" : "true"}">${clusterExpanded ? "Collapse endpoints" : "Expand endpoints"}</button></div>`
         : ""
+    const cameraAvailability =
+      typeof d.camera_availability_status === "string" && d.camera_availability_status.trim() !== ""
+        ? d.camera_availability_status.trim()
+        : null
+    const cameraEventSummary =
+      typeof d.camera_last_event_message === "string" && d.camera_last_event_message.trim() !== ""
+        ? d.camera_last_event_message.trim()
+        : (typeof d.camera_last_event_type === "string" && d.camera_last_event_type.trim() !== ""
+            ? d.camera_last_event_type.trim()
+            : null)
+    const cameraStreams = Array.isArray(d.camera_streams) ? d.camera_streams : []
+    const clusterCameraTiles = Array.isArray(d.cluster_camera_tiles) ? d.cluster_camera_tiles : []
+    const clusterCameraTileCount = Number(d.cluster_camera_tile_count || clusterCameraTiles.length || 0)
+    const cameraActions =
+      cameraStreams.length > 0
+        ? `<div class="pt-2 space-y-2"><div class="text-[10px] uppercase tracking-wide text-base-content/60">Camera Streams</div>${cameraStreams
+            .map((source) => {
+              const sourceName =
+                typeof source?.display_name === "string" && source.display_name.trim() !== ""
+                  ? source.display_name.trim()
+                  : "Camera"
+              const profiles = Array.isArray(source?.stream_profiles) ? source.stream_profiles : []
+              if (
+                typeof source?.camera_source_id !== "string" ||
+                source.camera_source_id.trim() === "" ||
+                profiles.length === 0
+              ) {
+                return ""
+              }
+
+              const profileButtons = profiles
+                .map((profile) => {
+                  const profileName =
+                    typeof profile?.profile_name === "string" && profile.profile_name.trim() !== ""
+                      ? profile.profile_name.trim()
+                      : "Live"
+
+                  if (typeof profile?.stream_profile_id !== "string" || profile.stream_profile_id.trim() === "") {
+                    return ""
+                  }
+
+                  return `<button type="button" class="btn btn-xs btn-secondary mr-1 mt-1" data-camera-source-id="${this.escapeHtml(source.camera_source_id)}" data-stream-profile-id="${this.escapeHtml(profile.stream_profile_id)}" data-camera-device-uid="${this.escapeHtml(d.device_uid || d.id || "")}" data-camera-label="${this.escapeHtml(sourceName)}" data-camera-profile-label="${this.escapeHtml(profileName)}">Open ${this.escapeHtml(profileName)}</button>`
+                })
+                .filter(Boolean)
+                .join("")
+
+              if (profileButtons === "") return ""
+
+              return `<div><div class="text-xs font-medium text-base-content/80">${this.escapeHtml(sourceName)}</div><div>${profileButtons}</div></div>`
+            })
+            .filter(Boolean)
+            .join("")}</div>`
+        : ""
+    const clusterCameraAction =
+      clusterId !== "" && clusterCameraTiles.length > 1
+        ? (() => {
+            const serializedTiles = this.escapeHtml(JSON.stringify(clusterCameraTiles))
+            const visibleCount = clusterCameraTiles.length
+            const totalCount = Number.isFinite(clusterCameraTileCount) && clusterCameraTileCount > 0
+              ? clusterCameraTileCount
+              : visibleCount
+            const suffix = totalCount > visibleCount ? ` (${visibleCount} of ${totalCount})` : ` (${visibleCount})`
+
+            return `<div class="pt-2 space-y-1"><div class="text-[10px] uppercase tracking-wide text-base-content/60">Cluster Cameras</div><button type="button" class="btn btn-xs btn-accent" data-camera-cluster-id="${this.escapeHtml(clusterId)}" data-camera-cluster-label="${this.escapeHtml(node.label || d.cluster_anchor_label || "Camera cluster")}" data-camera-cluster-tiles="${serializedTiles}">Open Camera Tile Set${suffix}</button></div>`
+          })()
+        : ""
     const detailLines = [
       `<div class="font-semibold text-sm mb-1 flex items-center justify-between gap-2"><span>${this.escapeHtml(node.label || "node")}</span><span class="inline-flex items-center justify-end min-w-4">${typeIcon ? `<span class="${this.escapeHtml(typeIcon)} size-4 text-base-content/70" title="${this.escapeHtml(typeLabel || "unknown")}"></span>` : ""}</span></div>`,
       `<div>ID: ${this.escapeHtml(d.id || node.id || "unknown")}</div>`,
@@ -86,7 +152,11 @@ export const godViewRenderingSelectionMethods = {
       `<div>Last Seen: ${this.escapeHtml(d.last_seen || "unknown")}</div>`,
       `<div>ASN: ${this.escapeHtml(d.asn || "unknown")}</div>`,
       `<div>Geo: ${this.escapeHtml([d.geo_city, d.geo_country].filter(Boolean).join(", ") || "unknown")}</div>`,
+      cameraAvailability ? `<div>Camera Availability: ${this.escapeHtml(cameraAvailability)}</div>` : "",
+      cameraEventSummary ? `<div>Camera Activity: ${this.escapeHtml(cameraEventSummary)}</div>` : "",
       clusterAction,
+      clusterCameraAction,
+      cameraActions,
     ].filter(Boolean)
 
     const nextHtml = detailLines.join("")
@@ -196,7 +266,11 @@ export const godViewRenderingSelectionMethods = {
         ? clickedNode.index
         : (Number.isInteger(info?.index) ? info.index : null)
     if (Number.isInteger(picked)) {
-      const node = clickedNode || this.state.lastGraph?.nodes?.[picked] || null
+      const graphNode = this.state.lastGraph?.nodes?.[picked] || null
+      const node =
+        clickedNode && typeof clickedNode === "object" && Object.keys(clickedNode).length > 1
+          ? {...graphNode, ...clickedNode}
+          : (graphNode || clickedNode || null)
       const clusterDetails = node?.details || {}
       const clusterId = typeof clusterDetails?.cluster_id === "string" ? clusterDetails.cluster_id.trim() : ""
       const clusterKind = typeof clusterDetails?.cluster_kind === "string" ? clusterDetails.cluster_kind.trim() : ""

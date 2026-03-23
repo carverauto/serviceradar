@@ -89,6 +89,42 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              )
   end
 
+  test "stops on poll when an already-open relay session goes stale" do
+    relay_session_id = Ecto.UUID.generate()
+    scope = Scope.for_user(%{id: "viewer-1", email: "viewer@example.com", role: :viewer})
+
+    {:ok, session_agent} =
+      Agent.start_link(fn ->
+        %{
+          id: relay_session_id,
+          camera_source_id: Ecto.UUID.generate(),
+          stream_profile_id: Ecto.UUID.generate(),
+          status: :active,
+          viewer_count: 1,
+          media_ingest_id: "core-media-stale-1",
+          close_reason: nil,
+          failure_reason: nil,
+          lease_expires_at: DateTime.from_unix!(1_800_000_000),
+          updated_at: DateTime.from_unix!(1_800_000_000)
+        }
+      end)
+
+    fetcher = fn ^relay_session_id, _opts -> {:ok, Agent.get(session_agent, & &1)} end
+
+    assert {:push, {:text, _payload}, state} =
+             CameraRelayStreamHandler.init(
+               relay_session_id: relay_session_id,
+               scope: scope,
+               fetcher: fetcher,
+               poll_interval_ms: 10_000
+             )
+
+    Agent.update(session_agent, fn _session -> nil end)
+
+    assert {:stop, :normal, {1008, "relay session not found"}, _state} =
+             CameraRelayStreamHandler.handle_info(:poll, state)
+  end
+
   test "forwards media chunks as websocket binary frames" do
     relay_session_id = Ecto.UUID.generate()
     viewer_id = Ecto.UUID.generate()

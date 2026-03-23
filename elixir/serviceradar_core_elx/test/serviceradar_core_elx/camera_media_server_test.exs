@@ -87,6 +87,28 @@ defmodule ServiceRadarCoreElx.CameraMediaServerTest do
                     %{sequence: 27, payload: <<1, 2, 3>>, codec: "h264", payload_format: "annexb"}}
   end
 
+  test "returns not_found for stale relay heartbeats" do
+    Application.put_env(
+      :serviceradar_core_elx,
+      :camera_media_server_heartbeat_result,
+      {:error, :not_found}
+    )
+
+    assert_raise GRPC.RPCError, ~r/relay session not found/, fn ->
+      CameraMediaServer.heartbeat(
+        %Camera.RelayHeartbeat{
+          relay_session_id: "relay-stale-1",
+          media_ingest_id: "core-media-stale-1",
+          last_sequence: 9,
+          sent_bytes: 512
+        },
+        nil
+      )
+    end
+
+    assert_receive {:heartbeat, "relay-stale-1", "core-media-stale-1", %{last_sequence: 9, sent_bytes: 512}}
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core_elx, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core_elx, key, value)
 end

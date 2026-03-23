@@ -14,6 +14,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
   require Logger
 
   @default_lease_seconds 30
+  @default_max_sessions_per_agent 4
+  @default_max_sessions_per_gateway 32
 
   @type session :: %{
           relay_session_id: String.t(),
@@ -71,10 +73,36 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
   @impl true
   def handle_call({:open_session, attrs}, _from, state) do
     session = build_session(attrs)
-    log_session(:info, "Gateway camera relay opened", session)
-    emit_session_event(:opened, session)
 
-    {:reply, {:ok, session}, put_in(state, [:sessions, session.relay_session_id], session)}
+    cond do
+      Map.has_key?(state.sessions, session.relay_session_id) ->
+        {:reply, {:error, :already_exists}, state}
+
+      agent_limit_exceeded?(state, session) ->
+        limit = max_sessions_per_agent()
+
+        log_limit_denied("Gateway camera relay denied: per-agent session limit exceeded", session, %{
+          limit_kind: "agent",
+          limit: limit
+        })
+
+        {:reply, {:error, {:limit_exceeded, :agent, limit}}, state}
+
+      gateway_limit_exceeded?(state) ->
+        limit = max_sessions_per_gateway()
+
+        log_limit_denied("Gateway camera relay denied: per-gateway session limit exceeded", session, %{
+          limit_kind: "gateway",
+          limit: limit
+        })
+
+        {:reply, {:error, {:limit_exceeded, :gateway, limit}}, state}
+
+      true ->
+        log_session(:info, "Gateway camera relay opened", session)
+        emit_session_event(:opened, session)
+        {:reply, {:ok, session}, put_in(state, [:sessions, session.relay_session_id], session)}
+    end
   end
 
   def handle_call({:heartbeat, relay_session_id, media_ingest_id, attrs}, _from, state) do
@@ -85,7 +113,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
             last_sequence: normalize_uint(Map.get(attrs, :last_sequence, session.last_sequence)),
             sent_bytes: normalize_uint(Map.get(attrs, :sent_bytes, session.sent_bytes)),
             updated_at_unix: now_unix(),
-            lease_expires_at_unix: lease_expiry_unix()
+            lease_expires_at_unix: normalize_uint(Map.get(attrs, :lease_expires_at_unix, lease_expiry_unix()))
           })
 
         {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
@@ -190,6 +218,38 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
   defp now_unix, do: System.os_time(:second)
   defp lease_expiry_unix, do: now_unix() + @default_lease_seconds
 
+  defp agent_limit_exceeded?(state, session) do
+    limit = max_sessions_per_agent()
+    limit != :infinity and session_count_for_agent(state, session.agent_id) >= limit
+  end
+
+  defp gateway_limit_exceeded?(state) do
+    limit = max_sessions_per_gateway()
+    limit != :infinity and map_size(state.sessions) >= limit
+  end
+
+  defp session_count_for_agent(state, agent_id) do
+    Enum.count(state.sessions, fn {_relay_session_id, session} ->
+      Map.get(session, :agent_id) == agent_id
+    end)
+  end
+
+  defp max_sessions_per_agent do
+    configured_limit(:camera_relay_max_sessions_per_agent, @default_max_sessions_per_agent)
+  end
+
+  defp max_sessions_per_gateway do
+    configured_limit(:camera_relay_max_sessions_per_gateway, @default_max_sessions_per_gateway)
+  end
+
+  defp configured_limit(key, default) do
+    case Application.get_env(:serviceradar_agent_gateway, key, default) do
+      :infinity -> :infinity
+      value when is_integer(value) and value > 0 -> value
+      _ -> default
+    end
+  end
+
   defp random_id(prefix) do
     suffix =
       8
@@ -271,6 +331,10 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
       :warning -> Logger.warning("#{message}: #{details}")
       _ -> Logger.info("#{message}: #{details}")
     end
+  end
+
+  defp log_limit_denied(message, session, extra) do
+    log_session(:warning, message, session, extra)
   end
 
   defp normalize_uint(value) when is_integer(value) and value >= 0, do: value

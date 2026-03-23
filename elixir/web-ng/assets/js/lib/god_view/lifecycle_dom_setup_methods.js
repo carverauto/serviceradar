@@ -57,6 +57,56 @@ export const godViewLifecycleDomSetupMethods = {
       return
     }
 
+    const cameraAction = event.target?.closest?.("[data-camera-source-id]")
+    if (cameraAction) {
+      const cameraSourceId = cameraAction.getAttribute("data-camera-source-id")
+      const streamProfileId = cameraAction.getAttribute("data-stream-profile-id")
+
+      if (cameraSourceId && streamProfileId && typeof this.state?.pushEvent === "function") {
+        event.preventDefault()
+        event.stopPropagation?.()
+
+        this.state.pushEvent("god_view_open_camera_relay", {
+          camera_source_id: cameraSourceId,
+          stream_profile_id: streamProfileId,
+          device_uid: cameraAction.getAttribute("data-camera-device-uid") || "",
+          camera_label: cameraAction.getAttribute("data-camera-label") || "",
+          profile_label: cameraAction.getAttribute("data-camera-profile-label") || "",
+        })
+      }
+
+      return
+    }
+
+    const clusterCameraAction = event.target?.closest?.("[data-camera-cluster-tiles]")
+    if (clusterCameraAction) {
+      const serializedTiles = clusterCameraAction.getAttribute("data-camera-cluster-tiles")
+
+      if (serializedTiles && typeof this.state?.pushEvent === "function") {
+        let cameraTiles = []
+
+        try {
+          const parsed = JSON.parse(serializedTiles)
+          cameraTiles = Array.isArray(parsed) ? parsed : []
+        } catch (_error) {
+          cameraTiles = []
+        }
+
+        if (cameraTiles.length > 0) {
+          event.preventDefault()
+          event.stopPropagation?.()
+
+          this.state.pushEvent("god_view_open_camera_relay_cluster", {
+            cluster_id: clusterCameraAction.getAttribute("data-camera-cluster-id") || "",
+            cluster_label: clusterCameraAction.getAttribute("data-camera-cluster-label") || "",
+            camera_tiles: cameraTiles,
+          })
+        }
+      }
+
+      return
+    }
+
     const clusterAction = event.target?.closest?.("[data-cluster-id]")
     if (clusterAction) {
       const clusterId = clusterAction.getAttribute("data-cluster-id")

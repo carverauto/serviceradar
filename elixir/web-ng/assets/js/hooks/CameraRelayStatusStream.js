@@ -45,6 +45,8 @@ export default {
     this.socket = null
     this.chunkCount = 0
     this.byteCount = 0
+    this.receivedRelaySnapshot = false
+    this.receivedMediaChunk = false
     this.player = new CameraRelayCanvasPlayer({
       canvas: this.el.querySelector("[data-role='video-canvas']"),
       setStatus: (value) => setText(this.el, "player-status", value),
@@ -81,15 +83,33 @@ export default {
     })
 
     this.socket.addEventListener("close", () => {
-      setText(this.el, "transport-status", "Browser stream closed")
+      if (!this.receivedRelaySnapshot && !this.receivedMediaChunk) {
+        setText(this.el, "transport-status", "Browser stream unavailable or unauthorized")
+        setText(
+          this.el,
+          "relay-detail",
+          "The browser viewer could not attach to this relay session. Check viewer permissions and relay session state."
+        )
+      } else {
+        setText(this.el, "transport-status", "Browser stream closed")
+      }
     })
 
     this.socket.addEventListener("error", () => {
       setText(this.el, "transport-status", "Browser stream error")
+
+      if (!this.receivedRelaySnapshot && !this.receivedMediaChunk) {
+        setText(
+          this.el,
+          "relay-detail",
+          "The browser viewer failed before media attach. The relay may be unavailable or this viewer may not be authorized."
+        )
+      }
     })
 
     this.socket.addEventListener("message", (event) => {
       if (typeof event.data !== "string") {
+        this.receivedMediaChunk = true
         const bytes = event.data?.byteLength || event.data?.size || 0
         this.chunkCount += 1
         this.byteCount += bytes
@@ -124,12 +144,14 @@ export default {
         return
       }
 
+      this.receivedRelaySnapshot = true
       const termination = terminationLabel(payload.termination_kind)
 
       setText(this.el, "relay-status", `Relay status: ${payload.status}`)
       setText(this.el, "playback-state", `Playback state: ${payload.playback_state}`)
       setText(this.el, "viewer-count", `Viewer count: ${payload.viewer_count ?? 0}`)
       setText(this.el, "termination-kind", termination ? `Termination: ${termination}` : "")
+      setText(this.el, "failure-reason", payload.failure_reason ? `Failure reason: ${payload.failure_reason}` : "")
       setText(this.el, "close-reason", payload.close_reason ? `Close reason: ${payload.close_reason}` : "")
       setText(
         this.el,

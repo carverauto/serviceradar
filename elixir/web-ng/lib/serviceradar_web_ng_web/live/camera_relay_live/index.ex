@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
      |> assign(:filters, %{active: "all", terminal: "all"})
      |> assign(:active_sessions, [])
      |> assign(:terminal_sessions, [])
+     |> assign(:terminal_breakdown, [])
      |> assign(:summary, empty_summary())
      |> assign(:refreshed_at, nil)
      |> assign(:error, nil)}
@@ -140,18 +141,21 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
             value={@summary.live_sessions}
             tone="success"
             icon="hero-video-camera"
+            params={filter_params(@filters, %{active: "active"})}
           />
           <.summary_card
             title="Opening"
             value={@summary.opening_sessions}
             tone="warning"
             icon="hero-arrow-path"
+            params={filter_params(@filters, %{active: "opening"})}
           />
           <.summary_card
             title="Closing"
             value={@summary.closing_sessions}
             tone="warning"
             icon="hero-stop-circle"
+            params={filter_params(@filters, %{active: "closing"})}
           />
           <.summary_card
             title="Active Viewers"
@@ -164,8 +168,45 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
             value={@summary.recent_failures}
             tone="error"
             icon="hero-bolt"
+            params={filter_params(@filters, %{terminal: "failed"})}
           />
         </div>
+
+        <section class="rounded-2xl border border-base-200 bg-base-100 shadow-sm">
+          <div class="border-b border-base-200 px-5 py-4">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <h2 class="text-lg font-semibold text-base-content">Terminal Outcome Breakdown</h2>
+                <p class="text-sm text-base-content/60">
+                  Quick drill-down for the most common recent relay shutdown classes.
+                </p>
+              </div>
+              <span class="badge badge-ghost">{length(@terminal_breakdown)} kinds</span>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap gap-3 px-5 py-4">
+            <div :if={@terminal_breakdown == []} class="text-sm text-base-content/60">
+              No terminal relay outcomes yet.
+            </div>
+
+            <.link
+              :for={entry <- @terminal_breakdown}
+              patch={
+                ~p"/observability/camera-relays?#{filter_params(@filters, %{terminal: entry.kind})}"
+              }
+              class="group rounded-xl border border-base-200 bg-base-50 px-4 py-3 transition hover:border-primary/30 hover:bg-primary/5"
+            >
+              <div class="text-xs uppercase tracking-wide text-base-content/45">
+                {entry_label(entry.kind)}
+              </div>
+              <div class="mt-1 flex items-baseline gap-2">
+                <span class="text-2xl font-semibold text-base-content">{entry.count}</span>
+                <span class="text-xs text-base-content/50">recent sessions</span>
+              </div>
+            </.link>
+          </div>
+        </section>
 
         <div class="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
           <section class="rounded-2xl border border-base-200 bg-base-100 shadow-sm">
@@ -222,12 +263,13 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                     <th>Agent</th>
                     <th>Gateway</th>
                     <th>Viewers</th>
+                    <th>Actions</th>
                     <th>Updated</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr :if={@active_sessions == []}>
-                    <td colspan="6" class="py-10 text-center text-sm text-base-content/60">
+                    <td colspan="7" class="py-10 text-center text-sm text-base-content/60">
                       No live relay sessions right now.
                     </td>
                   </tr>
@@ -256,6 +298,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                     <td class="font-mono text-xs">{session.agent_id}</td>
                     <td class="font-mono text-xs">{session.gateway_id}</td>
                     <td>{Map.get(session, :viewer_count, 0)}</td>
+                    <td>
+                      <.session_log_links session={session} />
+                    </td>
                     <td class="text-xs text-base-content/60">
                       {format_datetime(session.updated_at)}
                     </td>
@@ -364,6 +409,10 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                     {display_value(Map.get(session, :failure_reason))}
                   </div>
                 </div>
+
+                <div class="mt-3">
+                  <.session_log_links session={session} />
+                </div>
               </article>
             </div>
           </section>
@@ -385,22 +434,45 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   attr :value, :integer, required: true
   attr :tone, :string, default: "neutral"
   attr :icon, :string, default: "hero-chart-bar"
+  attr :params, :map, default: nil
 
   defp summary_card(assigns) do
     ~H"""
-    <div class={["rounded-2xl border bg-base-100 p-4 shadow-sm", tone_border(@tone)]}>
-      <div class="flex items-center justify-between gap-3">
-        <div>
-          <div class="text-xs uppercase tracking-wide text-base-content/50">{@title}</div>
-          <div class={["mt-2 text-3xl font-semibold tracking-tight", tone_value(@tone)]}>
-            {@value}
+    <%= if is_map(@params) do %>
+      <.link
+        patch={~p"/observability/camera-relays?#{@params}"}
+        class={[
+          "block rounded-2xl border bg-base-100 p-4 shadow-sm transition hover:shadow-md",
+          tone_border(@tone)
+        ]}
+      >
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="text-xs uppercase tracking-wide text-base-content/50">{@title}</div>
+            <div class={["mt-2 text-3xl font-semibold tracking-tight", tone_value(@tone)]}>
+              {@value}
+            </div>
+          </div>
+          <div class={["rounded-xl p-3", tone_bg(@tone)]}>
+            <.icon name={@icon} class={["size-5", tone_icon(@tone)]} />
           </div>
         </div>
-        <div class={["rounded-xl p-3", tone_bg(@tone)]}>
-          <.icon name={@icon} class={["size-5", tone_icon(@tone)]} />
+      </.link>
+    <% else %>
+      <div class={["rounded-2xl border bg-base-100 p-4 shadow-sm", tone_border(@tone)]}>
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="text-xs uppercase tracking-wide text-base-content/50">{@title}</div>
+            <div class={["mt-2 text-3xl font-semibold tracking-tight", tone_value(@tone)]}>
+              {@value}
+            </div>
+          </div>
+          <div class={["rounded-xl p-3", tone_bg(@tone)]}>
+            <.icon name={@icon} class={["size-5", tone_icon(@tone)]} />
+          </div>
         </div>
       </div>
-    </div>
+    <% end %>
     """
   end
 
@@ -427,6 +499,32 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
     """
   end
 
+  attr :session, :map, required: true
+
+  defp session_log_links(assigns) do
+    ~H"""
+    <div class="flex flex-wrap gap-2">
+      <.link navigate={relay_logs_href(@session)} class="btn btn-ghost btn-xs">
+        Relay Logs
+      </.link>
+      <.link
+        :if={present?(Map.get(@session, :agent_id))}
+        navigate={agent_logs_href(@session)}
+        class="btn btn-ghost btn-xs"
+      >
+        Agent Logs
+      </.link>
+      <.link
+        :if={present?(Map.get(@session, :gateway_id))}
+        navigate={gateway_logs_href(@session)}
+        class="btn btn-ghost btn-xs"
+      >
+        Gateway Logs
+      </.link>
+    </div>
+    """
+  end
+
   defp load_sessions(socket) do
     scope = socket.assigns.current_scope
 
@@ -438,6 +536,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
         socket
         |> assign(:active_sessions, filtered_active_sessions)
         |> assign(:terminal_sessions, filtered_terminal_sessions)
+        |> assign(:terminal_breakdown, build_terminal_breakdown(terminal_sessions))
         |> assign(:summary, build_summary(active_sessions, terminal_sessions))
         |> assign(:refreshed_at, DateTime.utc_now())
         |> assign(:error, nil)
@@ -448,6 +547,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
         socket
         |> assign(:active_sessions, [])
         |> assign(:terminal_sessions, [])
+        |> assign(:terminal_breakdown, [])
         |> assign(:summary, empty_summary())
         |> assign(:refreshed_at, DateTime.utc_now())
         |> assign(:error, "Failed to load camera relay session data")
@@ -488,6 +588,14 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
 
   defp empty_summary do
     %{live_sessions: 0, opening_sessions: 0, closing_sessions: 0, active_viewers: 0, recent_failures: 0}
+  end
+
+  defp build_terminal_breakdown(sessions) do
+    sessions
+    |> Enum.map(&(Map.get(&1, :termination_kind) || "closed"))
+    |> Enum.frequencies()
+    |> Enum.sort_by(fn {kind, count} -> {-count, kind} end)
+    |> Enum.map(fn {kind, count} -> %{kind: kind, count: count} end)
   end
 
   defp schedule_refresh do
@@ -603,6 +711,68 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
 
   defp display_value(nil), do: "n/a"
   defp display_value(value), do: to_string(value)
+
+  defp relay_logs_href(session) do
+    observability_logs_href(relay_session_id: Map.get(session, :id))
+  end
+
+  defp agent_logs_href(session) do
+    observability_logs_href(
+      relay_session_id: Map.get(session, :id),
+      agent_id: Map.get(session, :agent_id)
+    )
+  end
+
+  defp gateway_logs_href(session) do
+    observability_logs_href(
+      relay_session_id: Map.get(session, :id),
+      gateway_id: Map.get(session, :gateway_id)
+    )
+  end
+
+  defp observability_logs_href(filters) when is_list(filters) do
+    clauses =
+      Enum.flat_map(filters, fn
+        {field, value} when field in [:relay_session_id, :agent_id, :gateway_id] ->
+          case escaped_query_value(value) do
+            nil -> []
+            escaped -> ["#{field}:\"#{escaped}\""]
+          end
+
+        _other ->
+          []
+      end)
+
+    q =
+      ["in:logs" | clauses] ++
+        ["time:last_24h", "sort:timestamp:desc", "limit:50"]
+
+    "/observability?" <> URI.encode_query(%{tab: "logs", q: Enum.join(q, " "), limit: 50})
+  end
+
+  defp escaped_query_value(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    if trimmed == "" do
+      nil
+    else
+      trimmed
+      |> String.replace("\\", "\\\\")
+      |> String.replace("\"", "\\\"")
+    end
+  end
+
+  defp escaped_query_value(value) when is_nil(value), do: nil
+  defp escaped_query_value(value), do: value |> to_string() |> escaped_query_value()
+
+  defp entry_label("viewer_idle"), do: "Viewer Idle"
+  defp entry_label("manual_stop"), do: "Manual Stop"
+  defp entry_label("transport_drain"), do: "Transport Drain"
+  defp entry_label("source_complete"), do: "Source Complete"
+  defp entry_label("failure"), do: "Failure"
+  defp entry_label("closed"), do: "Closed"
+  defp entry_label(value) when is_binary(value), do: value |> String.replace("_", " ") |> String.capitalize()
+  defp entry_label(_value), do: "Unknown"
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_value), do: false

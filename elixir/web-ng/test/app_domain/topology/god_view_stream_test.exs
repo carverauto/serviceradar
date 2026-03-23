@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
   use ServiceRadarWebNG.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.Source, as: CameraSource
+  alias ServiceRadar.Camera.StreamProfile, as: CameraStreamProfile
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
@@ -86,6 +88,57 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert is_integer(metadata.schema_version)
     assert is_integer(metadata.revision)
     assert is_integer(metadata.budget_ms)
+  end
+
+  test "latest_snapshot/0 includes camera relay metadata on camera-capable nodes" do
+    actor = SystemActor.system(:god_view_stream_camera_inventory_test)
+    suffix = System.unique_integer([:positive])
+    camera_uid = "sr:camera-node-#{suffix}"
+    switch_uid = "sr:camera-switch-#{suffix}"
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+
+    create_topology_device(actor, camera_uid, "camera-#{suffix}.local", %{
+      type_id: 7,
+      vendor_name: "Axis"
+    })
+
+    create_topology_device(actor, switch_uid, "switch-#{suffix}.local", %{type_id: 10})
+    create_topology_link(actor, timestamp, camera_uid, switch_uid, 77)
+
+    %{source: source, profile: profile} = create_camera_inventory(actor, camera_uid)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    camera_node = Enum.find(snapshot.nodes, &(&1.id == camera_uid))
+    assert camera_node
+
+    details = Jason.decode!(camera_node.details_json)
+    assert details["device_uid"] == camera_uid
+    assert details["camera_capable"] == true
+    assert details["camera_availability_status"] == "available"
+    assert details["camera_last_event_type"] == "camera.availability.available"
+    assert details["camera_last_event_message"] == "Camera reachable from assigned edge agent"
+
+    assert [
+             %{
+               "camera_source_id" => source_id,
+               "device_uid" => ^camera_uid,
+               "display_name" => "Lobby Camera",
+               "availability_status" => "available",
+               "last_event_type" => "camera.availability.available",
+               "last_event_message" => "Camera reachable from assigned edge agent",
+               "stream_profiles" => [
+                 %{
+                   "stream_profile_id" => stream_profile_id,
+                   "profile_name" => "Main Stream",
+                   "codec_hint" => "h264"
+                 }
+               ]
+             }
+           ] = details["camera_streams"]
+
+    assert source_id == source.id
+    assert stream_profile_id == profile.id
   end
 
   test "latest_snapshot/0 includes canonical parity and directional mismatch counters" do
@@ -3057,6 +3110,102 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) >= 1
   end
 
+  test "latest_snapshot/0 includes bounded camera tile metadata on clustered endpoints" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_cluster_camera_tiles_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-camera-switch-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "cluster-camera-switch-#{suffix}", %{
+      ip: "192.0.2.50",
+      type_id: 10,
+      is_available: true
+    })
+
+    endpoint_specs =
+      Enum.map(1..5, fn idx ->
+        uid = "sr:cluster-camera-endpoint-#{suffix}-#{idx}"
+        ip = "192.0.2.#{60 + idx}"
+        mac = "02:00:00:10:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:cc"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 2,
+          is_available: true,
+          metadata: %{"identity_source" => "mapper_topology_sighting", "primary_mac" => mac}
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    endpoint_specs
+    |> Enum.take(2)
+    |> Enum.each(fn %{uid: endpoint_uid} ->
+      create_camera_inventory(actor, endpoint_uid)
+    end)
+
+    rows =
+      Enum.map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "192.0.2.50",
+          local_if_name: "eth1",
+          local_if_index: 1,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "medium",
+          confidence_reason: "single_identifier_inference",
+          flow_pps: 5,
+          flow_bps: 500,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 5,
+          flow_pps_ba: 0,
+          flow_bps_ab: 500,
+          flow_bps_ba: 0,
+          telemetry_source: "interface",
+          telemetry_observed_at: "2026-03-19T12:00:00Z",
+          metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "endpoint-attachment"}
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    cluster_id = "cluster:endpoints:" <> switch_uid
+    nodes_by_id = Map.new(snapshot.nodes, &{&1.id, &1})
+
+    cluster_details =
+      nodes_by_id
+      |> Map.fetch!(cluster_id)
+      |> Map.get(:details_json)
+      |> Jason.decode!()
+
+    anchor_details =
+      nodes_by_id
+      |> Map.fetch!(switch_uid)
+      |> Map.get(:details_json)
+      |> Jason.decode!()
+
+    assert cluster_details["cluster_camera_tile_count"] == 2
+    assert length(cluster_details["cluster_camera_tiles"]) == 2
+    assert Enum.all?(cluster_details["cluster_camera_tiles"], &is_binary(&1["camera_source_id"]))
+    assert Enum.all?(cluster_details["cluster_camera_tiles"], &is_binary(&1["stream_profile_id"]))
+
+    assert anchor_details["cluster_camera_tile_count"] == 2
+    assert length(anchor_details["cluster_camera_tiles"]) == 2
+  end
+
   test "latest_snapshot/0 drops stray attachment edges from the collapsed default view" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)
@@ -3418,6 +3567,43 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       actor: actor
     )
     |> Ash.create!()
+  end
+
+  defp create_camera_inventory(actor, device_uid) do
+    {:ok, source} =
+      CameraSource.create_source(
+        %{
+          device_uid: device_uid,
+          vendor: "axis",
+          vendor_camera_id: "axis-#{System.unique_integer([:positive])}",
+          display_name: "Lobby Camera",
+          source_url: "rtsp://camera.local/stream",
+          assigned_agent_id: "agent-camera-god-view",
+          assigned_gateway_id: "gateway-camera-god-view",
+          availability_status: "available",
+          availability_reason: "Camera reachable from assigned edge agent",
+          last_activity_at: ~U[2026-03-23 16:10:00Z],
+          last_event_at: ~U[2026-03-23 16:10:00Z],
+          last_event_type: "camera.availability.available",
+          last_event_message: "Camera reachable from assigned edge agent"
+        },
+        actor: actor
+      )
+
+    {:ok, profile} =
+      CameraStreamProfile.create_profile(
+        %{
+          camera_source_id: source.id,
+          profile_name: "Main Stream",
+          codec_hint: "h264",
+          container_hint: "annexb",
+          rtsp_transport: "tcp",
+          relay_eligible: true
+        },
+        actor: actor
+      )
+
+    %{source: source, profile: profile}
   end
 
   defp replace_runtime_graph_links!(graph_ref, rows) when is_list(rows) do

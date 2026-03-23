@@ -197,6 +197,79 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     assert profile_attrs.codec_hint == "h264"
   end
 
+  test "derives camera availability and activity state from plugin events" do
+    parent = self()
+    observed_at = ~U[2026-03-23 15:45:10Z]
+
+    source_upsert = fn attrs, _actor ->
+      send(parent, {:source_upsert, attrs})
+      {:ok, %{id: Ecto.UUID.generate()}}
+    end
+
+    profile_upsert = fn attrs, _actor ->
+      send(parent, {:profile_upsert, attrs})
+      {:ok, attrs}
+    end
+
+    payload = %{
+      "status" => "CRITICAL",
+      "summary" => "camera stream unavailable",
+      "camera_descriptors" => [
+        %{
+          "device_uid" => "device-state-1",
+          "vendor" => "axis",
+          "camera_id" => "cam-state-1",
+          "display_name" => "Dock Camera",
+          "stream_profiles" => [
+            %{
+              "profile_name" => "main",
+              "profile_id" => "main-state-1",
+              "codec_hint" => "h264"
+            }
+          ]
+        }
+      ],
+      "events" => [
+        %{
+          "id" => "evt-camera-state-1",
+          "time" => "2026-03-23T15:45:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "message" => "AXIS event: tns1:VideoSource/VideoLost",
+          "unmapped" => %{
+            "axis_ws_payload" => %{
+              "params" => %{
+                "notification" => %{
+                  "topic" => "tns1:VideoSource/VideoLost"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+
+    assert :ok =
+             InventoryIngestor.ingest(payload, %{gateway_id: "gateway-state-1"},
+               observed_at: observed_at,
+               source_upsert: source_upsert,
+               profile_upsert: profile_upsert
+             )
+
+    assert_receive {:source_upsert, source_attrs}
+    assert source_attrs.availability_status == "unavailable"
+    assert source_attrs.availability_reason == "AXIS event: tns1:VideoSource/VideoLost"
+    assert source_attrs.last_activity_at == ~U[2026-03-23 15:45:00Z]
+    assert source_attrs.last_event_at == ~U[2026-03-23 15:45:00Z]
+    assert source_attrs.last_event_type == "tns1:VideoSource/VideoLost"
+    assert source_attrs.last_event_message == "AXIS event: tns1:VideoSource/VideoLost"
+
+    assert_receive {:profile_upsert, profile_attrs}
+    assert profile_attrs.profile_name == "main"
+  end
+
   test "skips malformed camera descriptors without failing ingestion" do
     parent = self()
 

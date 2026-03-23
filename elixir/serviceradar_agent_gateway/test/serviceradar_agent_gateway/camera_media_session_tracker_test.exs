@@ -4,6 +4,12 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
   alias ServiceRadarAgentGateway.CameraMediaSessionTracker
 
   setup do
+    previous_agent_limit =
+      Application.get_env(:serviceradar_agent_gateway, :camera_relay_max_sessions_per_agent)
+
+    previous_gateway_limit =
+      Application.get_env(:serviceradar_agent_gateway, :camera_relay_max_sessions_per_gateway)
+
     previous_state =
       CameraMediaSessionTracker
       |> :sys.get_state()
@@ -21,6 +27,9 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
       |> clear_sessions()
 
       :sys.replace_state(CameraMediaSessionTracker, fn _state -> previous_state end)
+
+      restore_env(:camera_relay_max_sessions_per_agent, previous_agent_limit)
+      restore_env(:camera_relay_max_sessions_per_gateway, previous_gateway_limit)
     end)
 
     :ok = attach_telemetry_handler(self())
@@ -30,6 +39,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
 
   test "opens a session with upstream-provided ingest id and updates lifecycle state" do
     future_expiry = System.os_time(:second) + 60
+    renewed_expiry = future_expiry + 30
 
     assert {:ok, session} =
              CameraMediaSessionTracker.open_session(%{
@@ -64,11 +74,13 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
     assert {:ok, heartbeated} =
              CameraMediaSessionTracker.heartbeat("relay-1", "core-media-1", %{
                last_sequence: 6,
-               sent_bytes: 10
+               sent_bytes: 10,
+               lease_expires_at_unix: renewed_expiry
              })
 
     assert heartbeated.last_sequence == 6
     assert heartbeated.sent_bytes == 10
+    assert heartbeated.lease_expires_at_unix == renewed_expiry
 
     assert :ok = CameraMediaSessionTracker.close_session("relay-1", "core-media-1")
 
@@ -128,6 +140,76 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
     assert updated.sent_bytes == 21
   end
 
+  test "enforces the per-agent relay session limit" do
+    Application.put_env(:serviceradar_agent_gateway, :camera_relay_max_sessions_per_agent, 1)
+    Application.put_env(:serviceradar_agent_gateway, :camera_relay_max_sessions_per_gateway, 5)
+
+    assert {:ok, _session} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-agent-limit-1",
+               media_ingest_id: "core-media-agent-limit-1",
+               agent_id: "agent-limit-1",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-1",
+               stream_profile_id: "main",
+               lease_token: "lease-agent-limit-1"
+             })
+
+    assert {:error, {:limit_exceeded, :agent, 1}} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-agent-limit-2",
+               media_ingest_id: "core-media-agent-limit-2",
+               agent_id: "agent-limit-1",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-2",
+               stream_profile_id: "main",
+               lease_token: "lease-agent-limit-2"
+             })
+  end
+
+  test "enforces the per-gateway relay session limit across agents" do
+    Application.put_env(:serviceradar_agent_gateway, :camera_relay_max_sessions_per_agent, 5)
+    Application.put_env(:serviceradar_agent_gateway, :camera_relay_max_sessions_per_gateway, 2)
+
+    assert {:ok, _session} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-gateway-limit-1",
+               media_ingest_id: "core-media-gateway-limit-1",
+               agent_id: "agent-limit-a",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-1",
+               stream_profile_id: "main",
+               lease_token: "lease-gateway-limit-1"
+             })
+
+    assert {:ok, _session} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-gateway-limit-2",
+               media_ingest_id: "core-media-gateway-limit-2",
+               agent_id: "agent-limit-b",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-2",
+               stream_profile_id: "main",
+               lease_token: "lease-gateway-limit-2"
+             })
+
+    assert {:error, {:limit_exceeded, :gateway, 2}} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-gateway-limit-3",
+               media_ingest_id: "core-media-gateway-limit-3",
+               agent_id: "agent-limit-c",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-3",
+               stream_profile_id: "main",
+               lease_token: "lease-gateway-limit-3"
+             })
+  end
+
   defp clear_sessions(state) do
     Map.put(state, :sessions, %{})
   end
@@ -156,6 +238,9 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
       assert Map.get(metadata, key) == value
     end)
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
 
   defp telemetry_handler_id, do: {:camera_media_session_tracker_test, __MODULE__}
 end

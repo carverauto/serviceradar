@@ -323,6 +323,55 @@ func TestCameraRelayManagerStopsWhenGatewayHeartbeatEntersDrain(t *testing.T) {
 	}
 }
 
+func TestCameraRelayManagerClosesUpstreamWhenCameraSourceStartupFails(t *testing.T) {
+	t.Parallel()
+
+	gateway := newFakeCameraRelayGateway()
+	manager := newCameraRelayManager(gateway, createTestLogger())
+	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+		return nil, errors.New("rtsp dial failed")
+	}
+
+	_, err := manager.Start(context.Background(), cameraRelaySessionSpec{
+		RelaySessionID:  "relay-source-fail-1",
+		AgentID:         "agent-1",
+		CameraSourceID:  "camera-1",
+		StreamProfileID: "main",
+		LeaseToken:      "lease-1",
+	})
+	if err == nil {
+		t.Fatal("expected source startup failure, got nil")
+	}
+	if got := err.Error(); got != "rtsp dial failed" {
+		t.Fatalf("expected source startup error, got %q", got)
+	}
+
+	select {
+	case <-gateway.closeNotifyCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for upstream relay close after source startup failure")
+	}
+
+	gateway.mu.Lock()
+	defer gateway.mu.Unlock()
+
+	if len(gateway.openRequests) != 1 {
+		t.Fatalf("expected 1 open request, got %d", len(gateway.openRequests))
+	}
+	if len(gateway.closeRequests) != 1 {
+		t.Fatalf("expected 1 close request, got %d", len(gateway.closeRequests))
+	}
+	if got := gateway.closeRequests[0].GetReason(); got != "source_start_failed" {
+		t.Fatalf("expected close reason %q, got %q", "source_start_failed", got)
+	}
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := manager.Stop(stopCtx, cameraRelayStopPayload{RelaySessionID: "relay-source-fail-1"}); !errors.Is(err, errCameraRelaySessionNotFound) {
+		t.Fatalf("expected errCameraRelaySessionNotFound after startup failure cleanup, got %v", err)
+	}
+}
+
 func TestNormalizeCameraRelaySpecRequiresFields(t *testing.T) {
 	t.Parallel()
 

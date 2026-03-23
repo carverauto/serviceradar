@@ -30,6 +30,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
         GRPC.Stub.send_request(stream, chunk)
       end)
 
+      _ = GRPC.Stub.end_stream(stream)
       GRPC.Stub.recv(stream)
     end)
   end
