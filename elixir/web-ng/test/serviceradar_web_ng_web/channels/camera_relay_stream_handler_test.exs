@@ -42,6 +42,13 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              "relay_session_id" => ^relay_session_id,
              "status" => "opening",
              "playback_state" => "pending",
+             "preferred_playback_transport" => "websocket_h264_annexb_webcodecs",
+             "available_playback_transports" => [
+               "websocket_h264_annexb_webcodecs",
+               "websocket_h264_annexb_jmuxer_mse"
+             ],
+             "playback_codec_hint" => "h264",
+             "playback_container_hint" => "annexb",
              "termination_kind" => nil,
              "viewer_count" => 0
            } = Jason.decode!(payload)
@@ -56,7 +63,12 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              "status" => "active",
              "playback_state" => "ready",
              "media_ingest_id" => "core-media-1",
-             "viewer_count" => 2
+             "viewer_count" => 2,
+             "preferred_playback_transport" => "websocket_h264_annexb_webcodecs",
+             "available_playback_transports" => [
+               "websocket_h264_annexb_webcodecs",
+               "websocket_h264_annexb_jmuxer_mse"
+             ]
            } = Jason.decode!(payload)
 
     Agent.update(session_agent, fn session ->
@@ -70,7 +82,8 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              "status" => "closed",
              "playback_state" => "closed",
              "termination_kind" => "viewer_idle",
-             "close_reason" => "viewer idle timeout"
+             "close_reason" => "viewer idle timeout",
+             "preferred_playback_transport" => "websocket_h264_annexb_webcodecs"
            } = Jason.decode!(payload)
   end
 
@@ -249,7 +262,8 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
     assert %{
              "status" => "closing",
              "playback_state" => "closing",
-             "termination_kind" => "manual_stop"
+             "termination_kind" => "manual_stop",
+             "preferred_playback_transport" => "websocket_h264_annexb_webcodecs"
            } = Jason.decode!(payload)
 
     assert {:ok, state} =

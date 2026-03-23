@@ -95,6 +95,15 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       assert body["data"]["viewer_count"] == 0
       assert body["data"]["agent_id"] == "agent-1"
       assert body["data"]["termination_kind"] == nil
+      assert body["data"]["preferred_playback_transport"] == "websocket_h264_annexb_webcodecs"
+
+      assert body["data"]["available_playback_transports"] == [
+               "websocket_h264_annexb_webcodecs",
+               "websocket_h264_annexb_jmuxer_mse"
+             ]
+
+      assert body["data"]["playback_codec_hint"] == "h264"
+      assert body["data"]["playback_container_hint"] == "annexb"
 
       assert body["data"]["viewer_stream_path"] ==
                "/v1/camera-relay-sessions/#{relay_session_id}/stream"
@@ -164,6 +173,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       assert body["data"]["viewer_count"] == 0
       assert body["data"]["close_reason"] == "viewer disconnected"
       assert body["data"]["termination_kind"] == "manual_stop"
+      assert body["data"]["preferred_playback_transport"] == "websocket_h264_annexb_webcodecs"
 
       assert body["data"]["viewer_stream_path"] ==
                "/v1/camera-relay-sessions/#{relay_session_id}/stream"
@@ -225,6 +235,12 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       assert body["data"]["viewer_count"] == 2
       assert body["data"]["agent_id"] == "agent-3"
       assert body["data"]["termination_kind"] == nil
+      assert body["data"]["preferred_playback_transport"] == "websocket_h264_annexb_webcodecs"
+
+      assert body["data"]["available_playback_transports"] == [
+               "websocket_h264_annexb_webcodecs",
+               "websocket_h264_annexb_jmuxer_mse"
+             ]
 
       assert body["data"]["viewer_stream_path"] ==
                "/v1/camera-relay-sessions/#{relay_session_id}/stream"

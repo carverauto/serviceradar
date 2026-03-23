@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   alias Ash.Error.Invalid
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
+  alias ServiceRadar.Camera.RelayPlayback
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.RelayTermination
   alias ServiceRadar.Camera.Source, as: CameraSource
@@ -4090,6 +4091,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   phx-hook="CameraRelayStatusStream"
                   phx-update="ignore"
                   data-stream-path={@active_stream_path}
+                  data-preferred-playback-transport={
+                    relay_preferred_playback_transport(@active_session)
+                  }
+                  data-available-playback-transports={
+                    relay_available_playback_transports(@active_session)
+                  }
+                  data-playback-codec-hint={relay_playback_codec_hint(@active_session)}
+                  data-playback-container-hint={relay_playback_container_hint(@active_session)}
                   class="space-y-1"
                 >
                   <div class="overflow-hidden rounded-md border border-base-300/70 bg-base-300/20">
@@ -4097,12 +4106,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       data-role="video-canvas"
                       class="block aspect-video w-full bg-neutral/80 object-contain"
                     />
+                    <video
+                      data-role="video-element"
+                      class="hidden aspect-video w-full bg-neutral/80 object-contain"
+                      muted
+                      playsinline
+                      autoplay
+                    />
                   </div>
                   <div data-role="transport-status" class="text-xs text-base-content/70">
                     Connecting browser stream...
                   </div>
                   <div data-role="player-status" class="text-xs text-base-content/70">
                     Waiting for browser decoder...
+                  </div>
+                  <div data-role="compatibility-status" class="text-xs text-base-content/70">
+                    Preferred transport: {relay_preferred_playback_transport(@active_session)}
                   </div>
                   <div data-role="relay-status" class="text-xs font-medium text-base-content">
                     Relay status: {relay_status_label(@active_session.status)}
@@ -7977,6 +7996,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp relay_playback_state(%{status: status}) when status in [:closed, "closed"], do: "closed"
   defp relay_playback_state(%{status: status}) when status in [:failed, "failed"], do: "failed"
   defp relay_playback_state(_session), do: "pending"
+
+  defp relay_preferred_playback_transport(session) do
+    session
+    |> relay_playback_contract()
+    |> Map.get(:preferred_playback_transport, "")
+  end
+
+  defp relay_available_playback_transports(session) do
+    session
+    |> relay_playback_contract()
+    |> Map.get(:available_playback_transports, [])
+    |> Enum.join(",")
+  end
+
+  defp relay_playback_codec_hint(session) do
+    session
+    |> relay_playback_contract()
+    |> Map.get(:playback_codec_hint, "h264")
+  end
+
+  defp relay_playback_container_hint(session) do
+    session
+    |> relay_playback_contract()
+    |> Map.get(:playback_container_hint, "annexb")
+  end
+
+  defp relay_playback_contract(session) when is_map(session), do: RelayPlayback.browser_metadata(session)
+  defp relay_playback_contract(_session), do: RelayPlayback.browser_metadata(%{})
 
   defp relay_close_reason_text(session) do
     case Map.get(session || %{}, :close_reason) do

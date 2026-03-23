@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
 
   @behaviour WebSock
 
+  alias ServiceRadar.Camera.RelayPlayback
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySession
 
@@ -189,7 +190,9 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
   end
 
   defp snapshot(session) do
-    %{
+    session
+    |> RelayPlayback.browser_metadata()
+    |> Map.merge(%{
       type: "camera_relay_snapshot",
       relay_session_id: session.id,
       camera_source_id: session.camera_source_id,
@@ -203,7 +206,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
       close_reason: session.close_reason,
       failure_reason: session.failure_reason,
       updated_at: iso8601(session.updated_at)
-    }
+    })
   end
 
   defp playback_state(%{status: status, media_ingest_id: media_ingest_id})
@@ -278,7 +281,9 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
 
   defp normalize_snapshot(%{relay_session_id: relay_session_id} = payload, state)
        when relay_session_id == state.relay_session_id do
-    %{
+    payload
+    |> RelayPlayback.browser_metadata()
+    |> Map.merge(%{
       type: "camera_relay_snapshot",
       relay_session_id: relay_session_id,
       camera_source_id: Map.get(payload, :camera_source_id),
@@ -292,12 +297,14 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
       close_reason: Map.get(payload, :close_reason),
       failure_reason: Map.get(payload, :failure_reason),
       updated_at: iso8601_from_unix(Map.get(payload, :updated_at_unix))
-    }
+    })
   end
 
   defp normalize_snapshot(%{"relay_session_id" => relay_session_id} = payload, state)
        when relay_session_id == state.relay_session_id do
-    %{
+    payload
+    |> RelayPlayback.browser_metadata()
+    |> Map.merge(%{
       type: "camera_relay_snapshot",
       relay_session_id: relay_session_id,
       camera_source_id: Map.get(payload, "camera_source_id"),
@@ -311,7 +318,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
       close_reason: Map.get(payload, "close_reason"),
       failure_reason: Map.get(payload, "failure_reason"),
       updated_at: iso8601_from_unix(Map.get(payload, "updated_at_unix"))
-    }
+    })
   end
 
   defp normalize_snapshot(_payload, _state), do: nil

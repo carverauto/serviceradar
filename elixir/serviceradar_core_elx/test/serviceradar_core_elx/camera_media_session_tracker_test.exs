@@ -95,6 +95,11 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
                       relay_session_id: ^relay_session_id,
                       status: "active",
                       playback_state: "ready",
+                      preferred_playback_transport: "websocket_h264_annexb_webcodecs",
+                      available_playback_transports: [
+                        "websocket_h264_annexb_webcodecs",
+                        "websocket_h264_annexb_jmuxer_mse"
+                      ],
                       termination_kind: nil,
                       viewer_count: 1
                     }}
@@ -162,6 +167,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
                       relay_session_id: ^relay_session_id,
                       status: "closed",
                       playback_state: "closed",
+                      preferred_playback_transport: "websocket_h264_annexb_webcodecs",
                       termination_kind: "viewer_idle",
                       viewer_count: 0,
                       close_reason: "viewer idle timeout",

@@ -6,6 +6,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaAdapterStub
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaCoreTestServer
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaForwarderProxy
+  alias ServiceRadarAgentGateway.TestSupport.CameraMediaGatewayTestEndpoint
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaIdentityResolverStub
 
   setup do
@@ -290,8 +291,220 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
     assert CameraMediaSessionTracker.fetch_session("relay-negotiation-1") == nil
   end
 
+  test "real Go gateway client negotiates relay media sessions through live gateway and core", %{
+    media_ingest_id: media_ingest_id,
+    lease_expires_at_unix: lease_expires_at_unix,
+    heartbeat_lease_expires_at_unix: heartbeat_lease_expires_at_unix
+  } do
+    cert_dir = Path.join(System.tmp_dir!(), "camera-media-go-client-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(cert_dir)
+    generate_test_mtls_certs!(cert_dir)
+
+    gateway_port = open_port()
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {GRPC.Server.Supervisor,
+         endpoint: CameraMediaGatewayTestEndpoint,
+         port: gateway_port,
+         start_server: true,
+         adapter_opts: [ip: {127, 0, 0, 1}, cred: gateway_server_credential(cert_dir)]},
+        id: {:camera_media_gateway_test_server, gateway_port}
+      )
+    )
+
+    wait_for_server(gateway_port)
+
+    run_go_gateway_client_negotiation!(
+      gateway_port,
+      cert_dir,
+      lease_expires_at_unix,
+      heartbeat_lease_expires_at_unix
+    )
+
+    assert_receive {:core_open_relay_session,
+                    %Camera.OpenRelaySessionRequest{
+                      relay_session_id: "relay-go-client-1",
+                      agent_id: "agent-1",
+                      gateway_id: gateway_id,
+                      camera_source_id: "camera-1",
+                      stream_profile_id: "main",
+                      lease_token: "lease-go-client-1",
+                      codec_hint: "h264",
+                      container_hint: "annexb"
+                    }}
+
+    assert gateway_id == Atom.to_string(node())
+
+    assert_receive {:core_upload_media,
+                    [
+                      %Camera.MediaChunk{
+                        relay_session_id: "relay-go-client-1",
+                        media_ingest_id: ^media_ingest_id,
+                        agent_id: "agent-1",
+                        sequence: 7,
+                        payload: <<1, 2, 3, 4>>,
+                        codec: "h264",
+                        payload_format: "annexb",
+                        track_id: "video"
+                      }
+                    ]}
+
+    assert_receive {:core_heartbeat,
+                    %Camera.RelayHeartbeat{
+                      relay_session_id: "relay-go-client-1",
+                      media_ingest_id: ^media_ingest_id,
+                      agent_id: "agent-1",
+                      last_sequence: 7,
+                      sent_bytes: 4
+                    }}
+
+    assert_receive {:core_close_relay_session,
+                    %Camera.CloseRelaySessionRequest{
+                      relay_session_id: "relay-go-client-1",
+                      media_ingest_id: ^media_ingest_id,
+                      agent_id: "agent-1",
+                      reason: "go integration close"
+                    }}
+
+    assert CameraMediaSessionTracker.fetch_session("relay-go-client-1") == nil
+  end
+
   defp clear_sessions(state) do
     Map.put(state, :sessions, %{})
+  end
+
+  defp run_go_gateway_client_negotiation!(gateway_port, cert_dir, lease_expires_at_unix, heartbeat_lease_expires_at_unix) do
+    repo_root = Path.expand("../../../..", __DIR__)
+
+    {output, status} =
+      System.cmd(
+        "go",
+        [
+          "test",
+          "./go/pkg/agentgateway",
+          "-run",
+          "^TestGatewayClientCameraMediaLiveNegotiation$",
+          "-count=1"
+        ],
+        cd: repo_root,
+        stderr_to_stdout: true,
+        env: [
+          {"SERVICERADAR_CAMERA_GATEWAY_ADDR", "127.0.0.1:#{gateway_port}"},
+          {"SERVICERADAR_CAMERA_GATEWAY_CERT_DIR", cert_dir},
+          {"SERVICERADAR_CAMERA_OPEN_LEASE_EXPIRES_AT_UNIX", Integer.to_string(lease_expires_at_unix)},
+          {"SERVICERADAR_CAMERA_HEARTBEAT_LEASE_EXPIRES_AT_UNIX", Integer.to_string(heartbeat_lease_expires_at_unix)}
+        ]
+      )
+
+    assert status == 0, output
+  end
+
+  defp generate_test_mtls_certs!(cert_dir) do
+    gateway_ext = Path.join(cert_dir, "gateway.ext")
+    client_ext = Path.join(cert_dir, "client.ext")
+
+    File.write!(
+      gateway_ext,
+      "basicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost,IP:127.0.0.1\n"
+    )
+
+    File.write!(
+      client_ext,
+      "basicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=clientAuth\n"
+    )
+
+    run_cmd!("openssl", [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      Path.join(cert_dir, "root-key.pem"),
+      "-out",
+      Path.join(cert_dir, "root.pem"),
+      "-days",
+      "1",
+      "-subj",
+      "/CN=ServiceRadar Test CA"
+    ])
+
+    run_cmd!("openssl", [
+      "req",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      Path.join(cert_dir, "gateway-key.pem"),
+      "-out",
+      Path.join(cert_dir, "gateway.csr"),
+      "-subj",
+      "/CN=localhost"
+    ])
+
+    run_cmd!("openssl", [
+      "x509",
+      "-req",
+      "-in",
+      Path.join(cert_dir, "gateway.csr"),
+      "-CA",
+      Path.join(cert_dir, "root.pem"),
+      "-CAkey",
+      Path.join(cert_dir, "root-key.pem"),
+      "-CAcreateserial",
+      "-out",
+      Path.join(cert_dir, "gateway.pem"),
+      "-days",
+      "1",
+      "-sha256",
+      "-extfile",
+      gateway_ext
+    ])
+
+    run_cmd!("openssl", [
+      "req",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      Path.join(cert_dir, "client-key.pem"),
+      "-out",
+      Path.join(cert_dir, "client.csr"),
+      "-subj",
+      "/CN=agent-1.default.serviceradar"
+    ])
+
+    run_cmd!("openssl", [
+      "x509",
+      "-req",
+      "-in",
+      Path.join(cert_dir, "client.csr"),
+      "-CA",
+      Path.join(cert_dir, "root.pem"),
+      "-CAkey",
+      Path.join(cert_dir, "root-key.pem"),
+      "-CAcreateserial",
+      "-out",
+      Path.join(cert_dir, "client.pem"),
+      "-days",
+      "1",
+      "-sha256",
+      "-extfile",
+      client_ext
+    ])
+  end
+
+  defp gateway_server_credential(cert_dir) do
+    GRPC.Credential.new(
+      ssl: [
+        certfile: Path.join(cert_dir, "gateway.pem"),
+        keyfile: Path.join(cert_dir, "gateway-key.pem"),
+        cacertfile: Path.join(cert_dir, "root.pem"),
+        verify: :verify_peer,
+        fail_if_no_peer_cert: true
+      ]
+    )
   end
 
   defp open_port do
@@ -319,6 +532,12 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
+
+  defp run_cmd!(command, args) do
+    {output, status} = System.cmd(command, args, stderr_to_stdout: true)
+    assert status == 0, output
+    output
+  end
 
   defp ensure_grpc_client_supervisor_started do
     case Process.whereis(GRPC.Client.Supervisor) do

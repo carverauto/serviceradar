@@ -5,6 +5,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
 
   use GenServer
 
+  alias ServiceRadar.Camera.RelayPlayback
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.RelayTermination
@@ -465,7 +466,9 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
   end
 
   defp relay_state_payload(session) do
-    %{
+    session
+    |> RelayPlayback.browser_metadata()
+    |> Map.merge(%{
       relay_session_id: session.relay_session_id,
       camera_source_id: session.camera_source_id,
       stream_profile_id: session.stream_profile_id,
@@ -480,7 +483,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
       sent_bytes: session.sent_bytes,
       last_sequence: session.last_sequence,
       updated_at_unix: session.updated_at_unix
-    }
+    })
   end
 
   defp relay_status(%{status: status}) when status in ["active", "closing", "closed", "failed"], do: status

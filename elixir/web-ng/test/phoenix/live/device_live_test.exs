@@ -849,6 +849,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert render(view) =~ "Opening"
       assert render(view) =~ "Stop Relay"
       assert render(view) =~ "Browser viewer channel is attached to the persisted relay session."
+      assert render(view) =~ "Preferred transport: websocket_h264_annexb_webcodecs"
       assert render(view) =~ "/v1/camera-relay-sessions/#{relay_session_id}/stream"
 
       view
@@ -909,6 +910,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert render(view) =~ "Active"
       assert render(view) =~ "Stop Relay"
       assert render(view) =~ "Playback state: ready"
+      assert render(view) =~ "Preferred transport: websocket_h264_annexb_webcodecs"
 
       Application.put_env(
         :serviceradar_web_ng,

@@ -1,6 +1,13 @@
 import {describe, expect, it} from "vitest"
 
-import {codecStringFromAnnexB, parseRelayChunkFrame} from "./player"
+import {
+  CAMERA_RELAY_MSE_TRANSPORT,
+  CAMERA_RELAY_WEBCODECS_TRANSPORT,
+  codecStringFromAnnexB,
+  detectBrowserPlaybackCapabilities,
+  parseRelayChunkFrame,
+  selectRelayPlaybackTransport,
+} from "./player"
 
 function encodeFrame({
   sequence = 3,
@@ -98,5 +105,81 @@ describe("camera relay player framing", () => {
     const frame = parseRelayChunkFrame(encodeFrame())
 
     expect(codecStringFromAnnexB(frame.payload)).toBe("avc1.64001f")
+  })
+
+  it("selects the current websocket WebCodecs transport when browser capabilities are present", () => {
+    const selection = selectRelayPlaybackTransport(
+      {
+        preferred_playback_transport: CAMERA_RELAY_WEBCODECS_TRANSPORT,
+        available_playback_transports: [CAMERA_RELAY_WEBCODECS_TRANSPORT],
+      },
+      {
+        websocket: true,
+        webcodecs: true,
+        video_decoder: true,
+      }
+    )
+
+    expect(selection.supported).toBe(true)
+    expect(selection.selectedTransport).toBe(CAMERA_RELAY_WEBCODECS_TRANSPORT)
+  })
+
+  it("falls back to the MSE transport when WebCodecs is unavailable", () => {
+    const selection = selectRelayPlaybackTransport(
+      {
+        preferred_playback_transport: CAMERA_RELAY_WEBCODECS_TRANSPORT,
+        available_playback_transports: [
+          CAMERA_RELAY_WEBCODECS_TRANSPORT,
+          CAMERA_RELAY_MSE_TRANSPORT,
+        ],
+      },
+      {
+        websocket: true,
+        webcodecs: false,
+        video_decoder: false,
+        media_source: true,
+        mse_h264: true,
+      }
+    )
+
+    expect(selection.supported).toBe(true)
+    expect(selection.selectedTransport).toBe(CAMERA_RELAY_MSE_TRANSPORT)
+  })
+
+  it("reports missing browser capabilities when no playback transport is usable", () => {
+    const selection = selectRelayPlaybackTransport(
+      {
+        preferred_playback_transport: CAMERA_RELAY_WEBCODECS_TRANSPORT,
+        available_playback_transports: [CAMERA_RELAY_WEBCODECS_TRANSPORT],
+      },
+      {
+        websocket: true,
+        webcodecs: false,
+        video_decoder: false,
+      }
+    )
+
+    expect(selection.supported).toBe(false)
+    expect(selection.selectedTransport).toBeNull()
+    expect(selection.missingCapabilities).toEqual(["webcodecs", "video_decoder"])
+  })
+
+  it("detects WebCodecs support from a browser-like global object", () => {
+    function MediaSource() {}
+    MediaSource.isTypeSupported = () => true
+
+    expect(
+      detectBrowserPlaybackCapabilities({
+        WebSocket: function WebSocket() {},
+        VideoDecoder: function VideoDecoder() {},
+        MediaSource,
+      })
+    ).toEqual({
+      websocket: true,
+      webcodecs: true,
+      video_decoder: true,
+      media_source: true,
+      mse_h264: true,
+    })
   })
 })

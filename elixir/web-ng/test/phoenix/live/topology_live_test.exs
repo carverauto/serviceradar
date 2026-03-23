@@ -154,6 +154,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     assert html =~ "Topology Camera Viewer"
     assert html =~ "Lobby Camera"
     assert html =~ "Main Stream"
+    assert html =~ "Preferred transport: websocket_h264_annexb_webcodecs"
     assert html =~ "/v1/camera-relay-sessions/#{relay_session_id}/stream"
 
     html =

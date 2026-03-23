@@ -1,4 +1,12 @@
-import {CameraRelayCanvasPlayer} from "../lib/camera_relay/player"
+import {
+  CAMERA_RELAY_MSE_TRANSPORT,
+  CAMERA_RELAY_WEBCODECS_TRANSPORT,
+  CameraRelayCanvasPlayer,
+  CameraRelayMsePlayer,
+  detectBrowserPlaybackCapabilities,
+  playbackTransportLabel,
+  selectRelayPlaybackTransport,
+} from "../lib/camera_relay/player"
 
 function setText(root, role, value) {
   const element = root.querySelector(`[data-role="${role}"]`)
@@ -18,6 +26,47 @@ function websocketUrl(path) {
   const url = new URL(path, window.location.href)
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
   return url.toString()
+}
+
+function parseTransportList(value) {
+  if (typeof value !== "string") {
+    return []
+  }
+
+  return value
+    .split(",")
+    .map((transport) => transport.trim())
+    .filter((transport) => transport.length > 0)
+}
+
+function playbackMetadataFromDataset(root) {
+  return {
+    preferred_playback_transport: root.dataset.preferredPlaybackTransport,
+    available_playback_transports: parseTransportList(root.dataset.availablePlaybackTransports),
+    playback_codec_hint: root.dataset.playbackCodecHint,
+    playback_container_hint: root.dataset.playbackContainerHint,
+  }
+}
+
+function playbackMetadataFromSnapshot(payload, previous) {
+  return {
+    preferred_playback_transport:
+      payload.preferred_playback_transport || previous?.preferred_playback_transport || null,
+    available_playback_transports:
+      payload.available_playback_transports || previous?.available_playback_transports || [],
+    playback_codec_hint: payload.playback_codec_hint || previous?.playback_codec_hint || "h264",
+    playback_container_hint:
+      payload.playback_container_hint || previous?.playback_container_hint || "annexb",
+  }
+}
+
+function compatibilityStatus(selection, playbackMetadata) {
+  if (!selection?.supported) {
+    const missing = selection?.missingCapabilities?.join(", ") || "browser media support"
+    return `Unsupported browser transport for ${playbackMetadata?.playback_codec_hint || "camera"} playback (${missing})`
+  }
+
+  return `Browser playback transport: ${playbackTransportLabel(selection.selectedTransport)}`
 }
 
 function terminationLabel(kind) {
@@ -47,15 +96,33 @@ export default {
     this.byteCount = 0
     this.receivedRelaySnapshot = false
     this.receivedMediaChunk = false
-    this.player = new CameraRelayCanvasPlayer({
-      canvas: this.el.querySelector("[data-role='video-canvas']"),
-      setStatus: (value) => setText(this.el, "player-status", value),
-    })
+    this.playbackMetadata = playbackMetadataFromDataset(this.el)
+    this.transportSelection = selectRelayPlaybackTransport(
+      this.playbackMetadata,
+      detectBrowserPlaybackCapabilities(window)
+    )
+    this.player = null
+
+    setText(this.el, "compatibility-status", compatibilityStatus(this.transportSelection, this.playbackMetadata))
 
     if (!this.streamPath) {
       setText(this.el, "transport-status", "Browser stream unavailable")
       return
     }
+
+    if (!this.transportSelection.supported) {
+      this.setSurfaceVisibility(null)
+      setText(this.el, "transport-status", "Browser playback unsupported")
+      setText(this.el, "player-status", "This browser cannot decode the current relay transport.")
+      setText(
+        this.el,
+        "relay-detail",
+        "This viewer requires a supported relay playback transport. The current relay path needs either WebCodecs or an MSE-capable H264 browser."
+      )
+      return
+    }
+
+    this.player = this.buildPlayer()
 
     this.connect()
   },
@@ -73,13 +140,21 @@ export default {
   },
 
   connect() {
-    setText(this.el, "transport-status", "Connecting browser stream…")
+    setText(
+      this.el,
+      "transport-status",
+      `Connecting browser stream via ${playbackTransportLabel(this.transportSelection.selectedTransport)}...`
+    )
 
     this.socket = new WebSocket(websocketUrl(this.streamPath))
     this.socket.binaryType = "arraybuffer"
 
     this.socket.addEventListener("open", () => {
-      setText(this.el, "transport-status", "Browser stream connected")
+      setText(
+        this.el,
+        "transport-status",
+        `Browser stream connected via ${playbackTransportLabel(this.transportSelection.selectedTransport)}`
+      )
     })
 
     this.socket.addEventListener("close", () => {
@@ -144,6 +219,8 @@ export default {
         return
       }
 
+      this.playbackMetadata = playbackMetadataFromSnapshot(payload, this.playbackMetadata)
+      setText(this.el, "compatibility-status", compatibilityStatus(this.transportSelection, this.playbackMetadata))
       this.receivedRelaySnapshot = true
       const termination = terminationLabel(payload.termination_kind)
 
@@ -162,5 +239,39 @@ export default {
       )
       setDataset(this.el, "playback-state", payload.playback_state)
     })
+  },
+
+  buildPlayer() {
+    this.setSurfaceVisibility(this.transportSelection.selectedTransport)
+
+    switch (this.transportSelection.selectedTransport) {
+      case CAMERA_RELAY_WEBCODECS_TRANSPORT:
+        return new CameraRelayCanvasPlayer({
+          canvas: this.el.querySelector("[data-role='video-canvas']"),
+          setStatus: (value) => setText(this.el, "player-status", value),
+        })
+
+      case CAMERA_RELAY_MSE_TRANSPORT:
+        return new CameraRelayMsePlayer({
+          video: this.el.querySelector("[data-role='video-element']"),
+          setStatus: (value) => setText(this.el, "player-status", value),
+        })
+
+      default:
+        return null
+    }
+  },
+
+  setSurfaceVisibility(transport) {
+    const canvas = this.el.querySelector("[data-role='video-canvas']")
+    const video = this.el.querySelector("[data-role='video-element']")
+
+    if (canvas) {
+      canvas.classList.toggle("hidden", transport === CAMERA_RELAY_MSE_TRANSPORT || transport == null)
+    }
+
+    if (video) {
+      video.classList.toggle("hidden", transport !== CAMERA_RELAY_MSE_TRANSPORT)
+    }
   },
 }

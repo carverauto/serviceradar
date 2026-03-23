@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadar.Camera.RelayPlayback
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
@@ -135,7 +136,9 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
   defp normalize_optional_string(_value), do: nil
 
   defp relay_session_json(session, conn) do
-    %{
+    session
+    |> RelayPlayback.browser_metadata()
+    |> Map.merge(%{
       id: session.id,
       camera_source_id: session.camera_source_id,
       stream_profile_id: session.stream_profile_id,
@@ -152,7 +155,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
       failure_reason: session.failure_reason,
       inserted_at: format_value(session.inserted_at),
       updated_at: format_value(session.updated_at)
-    }
+    })
   end
 
   defp format_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
