@@ -78,17 +78,6 @@ helm upgrade --install arc-runner-set \
 
 Adjust names, namespaces, GitHub auth secret, and labels as needed.
 
-Install or upgrade the dedicated BiasArena runner scale set with `k8s/arc/biasarena-runner-values.yaml`:
-
-```bash
-helm upgrade --install biasarena-runner-set \
-  --namespace arc-systems \
-  --create-namespace \
-  --version 0.13.1 \
-  -f ./k8s/arc/biasarena-runner-values.yaml \
-  oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
-```
-
 ## Runner values example
 
 ```yaml
