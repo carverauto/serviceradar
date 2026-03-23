@@ -9,6 +9,10 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
 
   use GenServer
 
+  alias ServiceRadar.Telemetry
+
+  require Logger
+
   @default_lease_seconds 30
 
   @type session :: %{
@@ -67,6 +71,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
   @impl true
   def handle_call({:open_session, attrs}, _from, state) do
     session = build_session(attrs)
+    log_session(:info, "Gateway camera relay opened", session)
+    emit_session_event(:opened, session)
 
     {:reply, {:ok, session}, put_in(state, [:sessions, session.relay_session_id], session)}
   end
@@ -117,6 +123,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
           |> Map.put(:updated_at_unix, now_unix())
           |> put_optional_reason(:close_reason, Map.get(attrs, :reason) || Map.get(attrs, :close_reason))
 
+        log_session(:info, "Gateway camera relay closing", updated)
+        emit_session_event(:closing, updated)
         {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
 
       error ->
@@ -126,7 +134,9 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
 
   def handle_call({:close_session, relay_session_id, media_ingest_id, _attrs}, _from, state) do
     case fetch_and_verify_session(state, relay_session_id, media_ingest_id) do
-      {:ok, _session} ->
+      {:ok, session} ->
+        log_session(:info, "Gateway camera relay closed", session)
+        emit_session_event(:closed, session)
         {:reply, :ok, update_in(state, [:sessions], &Map.delete(&1, relay_session_id))}
 
       error ->
@@ -211,6 +221,57 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
   end
 
   defp put_optional_reason(session, key, value), do: Map.put(session, key, to_string(value))
+
+  defp emit_session_event(event, session, extra_metadata \\ %{}, measurements \\ %{}) do
+    Telemetry.emit_camera_relay_session_event(
+      event,
+      Map.merge(
+        %{
+          relay_boundary: "agent_gateway",
+          relay_session_id: session.relay_session_id,
+          media_ingest_id: session.media_ingest_id,
+          agent_id: session.agent_id,
+          gateway_id: session.gateway_id,
+          partition_id: session.partition_id,
+          camera_source_id: session.camera_source_id,
+          stream_profile_id: session.stream_profile_id,
+          relay_status: session.status,
+          close_reason: Map.get(session, :close_reason)
+        },
+        extra_metadata
+      ),
+      Map.merge(
+        %{
+          sent_bytes: Map.get(session, :sent_bytes, 0),
+          last_sequence: Map.get(session, :last_sequence, 0)
+        },
+        measurements
+      )
+    )
+  end
+
+  defp log_session(level, message, session, extra \\ %{}) do
+    details =
+      extra
+      |> Map.merge(%{
+        relay_session_id: session.relay_session_id,
+        media_ingest_id: session.media_ingest_id,
+        agent_id: session.agent_id,
+        gateway_id: session.gateway_id,
+        partition_id: session.partition_id,
+        camera_source_id: session.camera_source_id,
+        stream_profile_id: session.stream_profile_id,
+        status: session.status,
+        close_reason: Map.get(session, :close_reason)
+      })
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Enum.map_join(" ", fn {key, value} -> "#{key}=#{value}" end)
+
+    case level do
+      :warning -> Logger.warning("#{message}: #{details}")
+      _ -> Logger.info("#{message}: #{details}")
+    end
+  end
 
   defp normalize_uint(value) when is_integer(value) and value >= 0, do: value
   defp normalize_uint(_value), do: 0

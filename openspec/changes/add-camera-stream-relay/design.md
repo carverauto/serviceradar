@@ -149,6 +149,7 @@ The user also called out Membrane specifically. That is the right fit for the re
 ### 8. Teardown
 - When the last viewer detaches, the relay session enters idle state.
 - After the idle TTL, core instructs cleanup and the agent stops the local camera source session.
+- The persisted relay session and browser-facing state snapshots include both the raw close/failure reason and a normalized `termination_kind`.
 
 ### Decision 7: Idle relay sessions are torn down aggressively
 
@@ -157,6 +158,15 @@ The user also called out Membrane specifically. That is the right fit for the re
 **Rationale**:
 - Protects customer bandwidth and camera resources.
 - Prevents abandoned UI tabs from pinning long-lived media sessions.
+
+### Decision 8: Relay state exposes normalized terminal classification
+
+**Choice**: Relay session reads and browser-facing state payloads expose a normalized `termination_kind` field in addition to raw `close_reason` and `failure_reason`.
+
+**Rationale**:
+- Operators need a stable contract for outcomes such as viewer-idle teardown, manual stop, transport drain, source completion, and failure.
+- Raw reason strings remain useful for debugging, but UI/API consumers should not parse freeform text to determine the terminal outcome.
+- Putting the classification on the relay session read model keeps API, websocket, and LiveView consumers aligned on one vocabulary.
 
 ## Risks / Trade-offs
 - **Bandwidth pressure on the edge uplink**

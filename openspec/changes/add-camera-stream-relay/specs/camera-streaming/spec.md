@@ -37,3 +37,19 @@ The system SHALL expose camera stream availability and relay state so operators 
 - **WHEN** the operator requests live view
 - **THEN** the relay session SHALL transition to an error state
 - **AND** the operator-facing response SHALL identify that the stream is unavailable rather than silently showing no video
+
+### Requirement: Relay sessions expose normalized terminal outcomes
+The system SHALL expose a normalized relay termination classification with relay session reads and browser-facing relay state snapshots so clients can distinguish manual stop, viewer-idle teardown, transport drain, source completion, and failure without parsing freeform reason strings.
+
+#### Scenario: Viewer idle teardown is reported to the browser
+- **GIVEN** a relay session that entered closing because the last viewer left
+- **WHEN** the terminal relay session snapshot is published
+- **THEN** the snapshot SHALL include `termination_kind = "viewer_idle"`
+- **AND** MAY also include the raw `close_reason`
+
+#### Scenario: Manual stop is reported separately from transport drain
+- **GIVEN** an operator explicitly stops a relay session
+- **AND** the upstream media path later drains and acknowledges shutdown
+- **WHEN** the relay session is read by API or browser consumers
+- **THEN** the session SHALL preserve the user-facing shutdown classification
+- **AND** SHALL NOT replace it with a transport-only terminal classification

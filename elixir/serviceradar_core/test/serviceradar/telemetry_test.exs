@@ -106,6 +106,42 @@ defmodule ServiceRadar.TelemetryTest do
     end
   end
 
+  describe "emit_camera_relay_session_event/3" do
+    test "emits camera relay lifecycle events with enriched metadata" do
+      test_pid = self()
+
+      :telemetry.attach(
+        "test-handler",
+        [:serviceradar, :camera_relay, :session, :closed],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      Telemetry.emit_camera_relay_session_event(
+        :closed,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          termination_kind: "viewer_idle"
+        },
+        %{viewer_count: 0, sent_bytes: 1024}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :session, :closed], measurements,
+                      metadata}
+
+      assert measurements.viewer_count == 0
+      assert measurements.sent_bytes == 1024
+      assert metadata.relay_boundary == "core_elx"
+      assert metadata.relay_session_id == "relay-1"
+      assert metadata.termination_kind == "viewer_idle"
+      assert metadata.node == node()
+      assert is_integer(metadata.timestamp)
+    end
+  end
+
   describe "span/3" do
     test "emits start and stop events around function execution" do
       test_pid = self()
@@ -174,6 +210,23 @@ defmodule ServiceRadar.TelemetryTest do
       assert [:serviceradar, :gateway, :registered, :count] in metric_names
       assert [:serviceradar, :agent, :connected, :count] in metric_names
       assert [:serviceradar, :registry, :lookup, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :session, :opened, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :session, :viewer_count] in metric_names
+    end
+  end
+
+  describe "camera_relay_metrics/0" do
+    test "returns the camera relay metric subset without unrelated metrics" do
+      metrics = Telemetry.camera_relay_metrics()
+
+      metric_names = Enum.map(metrics, & &1.name)
+
+      assert [:serviceradar, :camera_relay, :session, :opened, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :session, :closing, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :session, :closed, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :session, :failed, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :session, :viewer_count] in metric_names
+      refute [:serviceradar, :cluster, :node_connected, :count] in metric_names
     end
   end
 

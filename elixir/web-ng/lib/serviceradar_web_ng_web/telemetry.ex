@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
 
   import Telemetry.Metrics
 
+  alias ServiceRadar.Telemetry, as: ServiceRadarTelemetry
   alias ServiceRadarWebNG.TenantUsage
 
   @prometheus_reporter :serviceradar_web_ng_prometheus_metrics
@@ -144,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
       summary("vm.total_run_queue_lengths.total"),
       summary("vm.total_run_queue_lengths.cpu"),
       summary("vm.total_run_queue_lengths.io")
-    ]
+    ] ++ ServiceRadarTelemetry.camera_relay_metrics()
   end
 
   defp periodic_measurements do

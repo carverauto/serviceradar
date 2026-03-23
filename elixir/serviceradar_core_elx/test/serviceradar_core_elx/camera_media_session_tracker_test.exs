@@ -48,12 +48,16 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
     end)
 
     on_exit(fn ->
+      :telemetry.detach(telemetry_handler_id(test_pid))
+
       CameraMediaSessionTracker
       |> :sys.get_state()
       |> clear_tracker_sessions()
 
       :sys.replace_state(CameraMediaSessionTracker, fn _state -> previous_state end)
     end)
+
+    :ok = attach_telemetry_handler(test_pid)
 
     :ok
   end
@@ -79,6 +83,12 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
 
     assert_receive {:activate_session, ^relay_session_id, media_ingest_id,
                     %{lease_expires_at_unix: lease_expires_at_unix, viewer_count: 1}}
+
+    assert_receive_telemetry(
+      [:serviceradar, :camera_relay, :session, :opened],
+      %{relay_boundary: "core_elx", relay_session_id: relay_session_id, viewer_count: 1},
+      %{viewer_count: 1}
+    )
 
     assert_receive {:camera_relay_state,
                     %{
@@ -114,6 +124,12 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
     :ok = RelayPubSub.viewer_leave(relay_session_id, viewer_id)
     _ = :sys.get_state(ViewerRegistry)
 
+    assert_receive_telemetry(
+      [:serviceradar, :camera_relay, :session, :viewer_count_changed],
+      %{relay_boundary: "core_elx", relay_session_id: relay_session_id, previous_viewer_count: 1, viewer_count: 0},
+      %{viewer_count: 0}
+    )
+
     assert_receive {:heartbeat_session, ^relay_session_id, ^media_ingest_id, %{lease_expires_at_unix: _, viewer_count: 0}}
 
     assert_receive {:camera_relay_state, %{relay_session_id: ^relay_session_id, viewer_count: 0, termination_kind: nil}}
@@ -134,6 +150,12 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
 
     assert :ok = CameraMediaSessionTracker.close_session(session.relay_session_id, session.media_ingest_id)
     assert_receive {:close_session, ^relay_session_id, ^media_ingest_id, %{close_reason: nil, viewer_count: 0}}
+
+    assert_receive_telemetry(
+      [:serviceradar, :camera_relay, :session, :closed],
+      %{relay_boundary: "core_elx", relay_session_id: relay_session_id, termination_kind: "viewer_idle", viewer_count: 0},
+      %{viewer_count: 0}
+    )
 
     assert_receive {:camera_relay_state,
                     %{
@@ -189,6 +211,12 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
         close_reason: "viewer idle timeout",
         viewer_count: 0
       })
+
+    assert_receive_telemetry(
+      [:serviceradar, :camera_relay, :session, :closing],
+      %{relay_boundary: "core_elx", relay_session_id: relay_session_id, termination_kind: "viewer_idle", viewer_count: 0},
+      %{viewer_count: 0}
+    )
 
     assert_receive {:camera_relay_state,
                     %{
@@ -395,4 +423,37 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
   defp unique_viewer_id do
     "viewer-#{System.unique_integer([:positive])}"
   end
+
+  defp attach_telemetry_handler(test_pid) do
+    :telemetry.attach_many(
+      telemetry_handler_id(test_pid),
+      [
+        [:serviceradar, :camera_relay, :session, :opened],
+        [:serviceradar, :camera_relay, :session, :viewer_count_changed],
+        [:serviceradar, :camera_relay, :session, :closing],
+        [:serviceradar, :camera_relay, :session, :closed],
+        [:serviceradar, :camera_relay, :session, :failed]
+      ],
+      &__MODULE__.handle_telemetry_event/4,
+      test_pid
+    )
+  end
+
+  def handle_telemetry_event(event, measurements, metadata, test_pid) do
+    send(test_pid, {:telemetry_event, event, measurements, metadata})
+  end
+
+  defp assert_receive_telemetry(event, expected_metadata, expected_measurements) do
+    assert_receive {:telemetry_event, ^event, measurements, metadata}
+
+    Enum.each(expected_metadata, fn {key, value} ->
+      assert Map.get(metadata, key) == value
+    end)
+
+    Enum.each(expected_measurements, fn {key, value} ->
+      assert Map.get(measurements, key) == value
+    end)
+  end
+
+  defp telemetry_handler_id(test_pid), do: {:camera_media_session_tracker_test, test_pid}
 end

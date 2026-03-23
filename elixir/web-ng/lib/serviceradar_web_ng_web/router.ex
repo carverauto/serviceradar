@@ -404,6 +404,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/observability/bmp", BmpLive.Index, :index)
       live("/flows", NetflowLive.Visualize, :index)
       live("/observability/bgp", BGPLive.Index, :index)
+      live("/observability/camera-relays", CameraRelayLive.Index, :index)
       live("/observability/metrics/:span_id", MetricLive.Show, :show)
       live("/logs", LogLive.Index, :index)
       live("/logs/:log_id", LogLive.Show, :show)

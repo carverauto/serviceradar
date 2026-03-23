@@ -3227,6 +3227,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           icon="hero-globe-alt"
           active={@active}
         />
+        <.external_tab_button
+          path="/observability/camera-relays"
+          label="Camera Relays"
+          icon="hero-video-camera"
+          active={@active}
+        />
       </div>
     </div>
     """

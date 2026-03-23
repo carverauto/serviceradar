@@ -14,12 +14,16 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
     end)
 
     on_exit(fn ->
+      :telemetry.detach(telemetry_handler_id())
+
       CameraMediaSessionTracker
       |> :sys.get_state()
       |> clear_sessions()
 
       :sys.replace_state(CameraMediaSessionTracker, fn _state -> previous_state end)
     end)
+
+    :ok = attach_telemetry_handler(self())
 
     :ok
   end
@@ -43,6 +47,11 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
     assert session.media_ingest_id == "core-media-1"
     assert session.lease_expires_at_unix == future_expiry
 
+    assert_receive_telemetry(
+      [:serviceradar, :camera_relay, :session, :opened],
+      %{relay_boundary: "agent_gateway", relay_session_id: "relay-1", relay_status: "active"}
+    )
+
     assert {:ok, updated} =
              CameraMediaSessionTracker.record_chunk("relay-1", "core-media-1", %{
                sequence: 5,
@@ -62,6 +71,12 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
     assert heartbeated.sent_bytes == 10
 
     assert :ok = CameraMediaSessionTracker.close_session("relay-1", "core-media-1")
+
+    assert_receive_telemetry(
+      [:serviceradar, :camera_relay, :session, :closed],
+      %{relay_boundary: "agent_gateway", relay_session_id: "relay-1", relay_status: "active"}
+    )
+
     assert CameraMediaSessionTracker.fetch_session("relay-1") == nil
   end
 
@@ -92,6 +107,16 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
     assert closing.status == "closing"
     assert closing.close_reason == "upstream relay drain"
 
+    assert_receive_telemetry(
+      [:serviceradar, :camera_relay, :session, :closing],
+      %{
+        relay_boundary: "agent_gateway",
+        relay_session_id: "relay-drain-1",
+        relay_status: "closing",
+        close_reason: "upstream relay drain"
+      }
+    )
+
     assert {:ok, updated} =
              CameraMediaSessionTracker.heartbeat("relay-drain-1", "core-media-drain-1", %{
                last_sequence: 8,
@@ -106,4 +131,31 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
   defp clear_sessions(state) do
     Map.put(state, :sessions, %{})
   end
+
+  defp attach_telemetry_handler(test_pid) do
+    :telemetry.attach_many(
+      telemetry_handler_id(),
+      [
+        [:serviceradar, :camera_relay, :session, :opened],
+        [:serviceradar, :camera_relay, :session, :closing],
+        [:serviceradar, :camera_relay, :session, :closed]
+      ],
+      &__MODULE__.handle_telemetry_event/4,
+      test_pid
+    )
+  end
+
+  def handle_telemetry_event(event, measurements, metadata, test_pid) do
+    send(test_pid, {:telemetry_event, event, measurements, metadata})
+  end
+
+  defp assert_receive_telemetry(event, expected_metadata) do
+    assert_receive {:telemetry_event, ^event, _measurements, metadata}
+
+    Enum.each(expected_metadata, fn {key, value} ->
+      assert Map.get(metadata, key) == value
+    end)
+  end
+
+  defp telemetry_handler_id, do: {:camera_media_session_tracker_test, __MODULE__}
 end

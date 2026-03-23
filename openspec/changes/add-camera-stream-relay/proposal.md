@@ -12,7 +12,8 @@ If each browser session opens its own camera connection, we will multiply load o
   - edge-originated camera media uplinks,
   - Membrane-managed relay/fan-out in `serviceradar_core_elx`,
   - authorized viewer session creation and teardown,
-  - single-upstream/multi-viewer behavior for the same camera stream.
+  - single-upstream/multi-viewer behavior for the same camera stream,
+  - normalized relay termination classification for API/browser consumers.
 - Normalize camera media inventory into dedicated platform-schema records linked to canonical devices instead of relying on ad hoc JSON metadata in `ocsf_devices`.
 - Extend edge transport so agents can start camera source sessions locally and push media through `serviceradar-agent-gateway` without requiring direct platform-to-camera connectivity.
 - Add a dedicated camera media service/transport for live video uplink and relay control instead of extending the generic monitoring status/results service.
@@ -32,7 +33,7 @@ If each browser session opens its own camera connection, we will multiply load o
   - `elixir/serviceradar_core/**`
   - `elixir/serviceradar_agent_gateway/**`
   - `go/cmd/agent/**`
-  - `proto/monitoring.proto`
+  - `proto/camera_media.proto`
   - `elixir/web-ng/lib/serviceradar_web_ng/topology/**`
   - `elixir/web-ng/lib/serviceradar_web_ng_web/live/topology_live/**`
   - `elixir/serviceradar_core/priv/repo/migrations/**`

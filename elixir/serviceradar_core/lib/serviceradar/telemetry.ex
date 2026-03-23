@@ -82,6 +82,14 @@ defmodule ServiceRadar.Telemetry do
     :lookup_miss
   ]
 
+  @camera_relay_session_events [
+    :opened,
+    :closing,
+    :closed,
+    :failed,
+    :viewer_count_changed
+  ]
+
   # ============================================================================
   # Event Emission
   # ============================================================================
@@ -123,6 +131,15 @@ defmodule ServiceRadar.Telemetry do
   def emit_registry_event(event, metadata \\ %{}, measurements \\ %{})
       when event in @registry_events do
     emit(@prefix ++ [:registry, event], measurements, enrich_metadata(metadata))
+  end
+
+  @doc """
+  Emits a camera relay session lifecycle event.
+  """
+  @spec emit_camera_relay_session_event(atom(), map(), map()) :: :ok
+  def emit_camera_relay_session_event(event, metadata \\ %{}, measurements \\ %{})
+      when event in @camera_relay_session_events do
+    emit(@prefix ++ [:camera_relay, :session, event], measurements, enrich_metadata(metadata))
   end
 
   @doc """
@@ -260,6 +277,42 @@ defmodule ServiceRadar.Telemetry do
         tags: [:status],
         description: "Days remaining before SPIFFE certificate expiration"
       )
+    ] ++ camera_relay_metrics()
+  end
+
+  @doc """
+  Returns the camera relay metric definitions.
+
+  This subset is exposed separately so other apps, such as `web-ng`, can export
+  relay metrics without duplicating the rest of the shared cluster metric set.
+  """
+  @spec camera_relay_metrics() :: list()
+  def camera_relay_metrics do
+    import Telemetry.Metrics
+
+    [
+      counter("serviceradar.camera_relay.session.opened.count",
+        tags: [:relay_boundary, :gateway_id],
+        description: "Number of camera relay sessions opened"
+      ),
+      counter("serviceradar.camera_relay.session.closing.count",
+        tags: [:relay_boundary, :termination_kind],
+        description: "Number of camera relay sessions entering closing state"
+      ),
+      counter("serviceradar.camera_relay.session.closed.count",
+        tags: [:relay_boundary, :termination_kind],
+        description: "Number of camera relay sessions closed"
+      ),
+      counter("serviceradar.camera_relay.session.failed.count",
+        tags: [:relay_boundary, :stage],
+        description: "Number of camera relay session failures"
+      ),
+      last_value("serviceradar.camera_relay.session.viewer_count",
+        event_name: [:serviceradar, :camera_relay, :session, :viewer_count_changed],
+        measurement: :viewer_count,
+        tags: [:relay_boundary, :relay_session_id],
+        description: "Latest viewer count for a camera relay session"
+      )
     ]
   end
 
@@ -358,7 +411,9 @@ defmodule ServiceRadar.Telemetry do
       @prefix ++ [:gateway, :unregistered],
       @prefix ++ [:gateway, :heartbeat_missed],
       @prefix ++ [:agent, :connected],
-      @prefix ++ [:agent, :disconnected]
+      @prefix ++ [:agent, :disconnected],
+      @prefix ++ [:camera_relay, :session, :failed],
+      @prefix ++ [:camera_relay, :session, :closed]
     ]
 
     :telemetry.attach_many(

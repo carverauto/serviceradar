@@ -8,8 +8,11 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.RelayTermination
+  alias ServiceRadar.Telemetry
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
   alias ServiceRadarCoreElx.CameraRelay.ViewerRegistry
+
+  require Logger
 
   @default_lease_seconds 30
 
@@ -97,11 +100,15 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
                  },
                  sync_opts(state)
                ) do
+          log_session(:info, "Core camera relay opened", session)
+          emit_session_event(:opened, session)
           :ok = RelayPubSub.broadcast_state(relay_session_id, relay_state_payload(session))
           {:reply, {:ok, session}, put_in(state, [:sessions, relay_session_id], session)}
         else
           {:error, reason} ->
             _ = pipeline_manager(state).close_session(session.relay_session_id)
+            log_session(:warning, "Core camera relay open failed", session, %{reason: inspect(reason)})
+            emit_session_event(:failed, session, %{reason: inspect(reason), stage: "open"})
             {:reply, {:error, reason}, state}
         end
 
@@ -140,6 +147,8 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
               {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
 
             {:error, reason} ->
+              log_session(:warning, "Core camera relay heartbeat failed", updated, %{reason: inspect(reason)})
+              emit_session_event(:failed, updated, %{reason: inspect(reason), stage: "heartbeat"})
               {:reply, {:error, reason}, state}
           end
         end
@@ -180,6 +189,8 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
               {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
 
             {:error, reason} ->
+              log_session(:warning, "Core camera relay chunk forward failed", updated, %{reason: inspect(reason)})
+              emit_session_event(:failed, updated, %{reason: inspect(reason), stage: "record_chunk"})
               {:reply, {:error, reason}, state}
           end
         end
@@ -223,12 +234,17 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
               |> Map.put(:failure_reason, failure_reason)
               |> Map.put(:updated_at_unix, updated_at_unix)
 
+            log_session(:info, "Core camera relay closed", closed_session)
+            emit_session_event(:closed, closed_session)
+
             :ok =
               RelayPubSub.broadcast_state(relay_session_id, relay_state_payload(closed_session))
 
             {:reply, :ok, update_in(state, [:sessions], &Map.delete(&1, relay_session_id))}
 
           {:error, reason} ->
+            log_session(:warning, "Core camera relay close failed", session, %{reason: inspect(reason)})
+            emit_session_event(:failed, session, %{reason: inspect(reason), stage: "close"})
             {:reply, {:error, reason}, state}
         end
 
@@ -251,6 +267,15 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
             viewer_count: normalized_viewer_count,
             updated_at_unix: now_unix()
           })
+
+        if normalized_viewer_count != session.viewer_count do
+          emit_session_event(
+            :viewer_count_changed,
+            updated,
+            %{previous_viewer_count: session.viewer_count},
+            %{viewer_count: normalized_viewer_count}
+          )
+        end
 
         _ =
           sync_module(state).heartbeat_session(
@@ -282,6 +307,8 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
           |> put_optional_reason(:close_reason, Map.get(attrs, :close_reason))
           |> Map.put(:viewer_count, normalize_uint(Map.get(attrs, :viewer_count, session.viewer_count)))
 
+        log_session(:info, "Core camera relay closing", updated)
+        emit_session_event(:closing, updated)
         :ok = RelayPubSub.broadcast_state(relay_session_id, relay_state_payload(updated))
 
         {:noreply, put_in(state, [:sessions, relay_session_id], updated)}
@@ -378,6 +405,64 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
   end
 
   defp persisted_value(_session, _key, default), do: default
+
+  defp emit_session_event(event, session, extra_metadata \\ %{}, measurements \\ %{}) do
+    Telemetry.emit_camera_relay_session_event(
+      event,
+      Map.merge(session_metadata(session), extra_metadata),
+      Map.merge(
+        %{
+          sent_bytes: Map.get(session, :sent_bytes, 0),
+          last_sequence: Map.get(session, :last_sequence, 0),
+          viewer_count: Map.get(session, :viewer_count, 0)
+        },
+        measurements
+      )
+    )
+  end
+
+  defp session_metadata(session) do
+    %{
+      relay_boundary: "core_elx",
+      relay_session_id: session.relay_session_id,
+      media_ingest_id: Map.get(session, :media_ingest_id),
+      agent_id: Map.get(session, :agent_id),
+      gateway_id: Map.get(session, :gateway_id),
+      camera_source_id: Map.get(session, :camera_source_id),
+      stream_profile_id: Map.get(session, :stream_profile_id),
+      relay_status: relay_status(session),
+      playback_state: playback_state(session),
+      termination_kind: RelayTermination.kind_string(session),
+      viewer_count: Map.get(session, :viewer_count, 0),
+      close_reason: Map.get(session, :close_reason),
+      failure_reason: Map.get(session, :failure_reason)
+    }
+  end
+
+  defp log_session(level, message, session, extra \\ %{}) do
+    details =
+      extra
+      |> Map.merge(%{
+        relay_session_id: session.relay_session_id,
+        media_ingest_id: Map.get(session, :media_ingest_id),
+        agent_id: Map.get(session, :agent_id),
+        gateway_id: Map.get(session, :gateway_id),
+        camera_source_id: Map.get(session, :camera_source_id),
+        stream_profile_id: Map.get(session, :stream_profile_id),
+        status: relay_status(session),
+        termination_kind: RelayTermination.kind_string(session),
+        viewer_count: Map.get(session, :viewer_count, 0),
+        close_reason: Map.get(session, :close_reason),
+        failure_reason: Map.get(session, :failure_reason)
+      })
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Enum.map_join(" ", fn {key, value} -> "#{key}=#{value}" end)
+
+    case level do
+      :warning -> Logger.warning("#{message}: #{details}")
+      _ -> Logger.info("#{message}: #{details}")
+    end
+  end
 
   defp relay_state_payload(session) do
     %{

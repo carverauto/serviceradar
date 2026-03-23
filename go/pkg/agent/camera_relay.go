@@ -176,6 +176,15 @@ func (m *cameraRelayManager) Start(ctx context.Context, spec cameraRelaySessionS
 	spec.MediaIngestID = strings.TrimSpace(openResp.GetMediaIngestId())
 	handle.mediaIngestID = spec.MediaIngestID
 
+	m.logger.Info().
+		Str("relay_session_id", spec.RelaySessionID).
+		Str("media_ingest_id", spec.MediaIngestID).
+		Str("agent_id", spec.AgentID).
+		Str("gateway_id", spec.GatewayID).
+		Str("camera_source_id", spec.CameraSourceID).
+		Str("stream_profile_id", spec.StreamProfileID).
+		Msg("Camera relay upstream session accepted")
+
 	stream, err := m.sourceFactory(spec)
 	if err != nil {
 		m.closeUpstream(spec, handle, "source_start_failed")
@@ -252,6 +261,11 @@ func (m *cameraRelayManager) runSession(
 
 	closeReason := "camera relay completed"
 	defer func() {
+		m.logger.Info().
+			Str("relay_session_id", spec.RelaySessionID).
+			Str("media_ingest_id", spec.MediaIngestID).
+			Str("close_reason", closeReason).
+			Msg("Camera relay session stopping")
 		m.closeUpstream(spec, handle, closeReason)
 	}()
 
@@ -313,6 +327,10 @@ func (m *cameraRelayManager) runSession(
 				if err := flush(); err != nil {
 					if errors.Is(err, errCameraRelayDrainRequested) {
 						closeReason = "camera relay drain acknowledged"
+						m.logger.Info().
+							Str("relay_session_id", spec.RelaySessionID).
+							Str("media_ingest_id", spec.MediaIngestID).
+							Msg("Camera relay drain acknowledged by upstream")
 						return
 					}
 					closeReason = "camera relay upload failed"
@@ -367,7 +385,14 @@ func (m *cameraRelayManager) closeUpstream(spec cameraRelaySessionSpec, handle *
 				Str("relay_session_id", spec.RelaySessionID).
 				Str("reason", reason).
 				Msg("Failed to close upstream camera relay session")
+			return
 		}
+
+		m.logger.Info().
+			Str("relay_session_id", spec.RelaySessionID).
+			Str("media_ingest_id", spec.MediaIngestID).
+			Str("reason", reason).
+			Msg("Closed upstream camera relay session")
 	})
 }
 
