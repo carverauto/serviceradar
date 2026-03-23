@@ -7,10 +7,13 @@ const DEFAULT_NODE_HEIGHT = 54
 const LAYOUT_WIDTH = 640
 const LAYOUT_HEIGHT = 320
 const LAYOUT_PAD = 20
+const BACKBONE_LAYER_GAP_X = 180
+const BACKBONE_LAYER_GAP_Y = 120
+const BACKBONE_COMPONENT_GAP_Y = 180
 
 const ELK_ROOT_OPTIONS = {
   "elk.algorithm": "layered",
-  "elk.direction": "RIGHT",
+  "elk.direction": "DOWN",
   "elk.edgeRouting": "POLYLINE",
   "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
   "elk.layered.considerModelOrder.strategy": "PREFER_NODES",
@@ -19,8 +22,8 @@ const ELK_ROOT_OPTIONS = {
   "elk.layered.nodePlacement.favorStraightEdges": "true",
   "elk.layered.nodePlacement.bk.edgeStraightening": "IMPROVE_STRAIGHTNESS",
   "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",
-  "elk.layered.spacing.nodeNodeBetweenLayers": "150",
-  "elk.spacing.nodeNode": "84",
+  "elk.layered.spacing.nodeNodeBetweenLayers": "120",
+  "elk.spacing.nodeNode": "64",
   "elk.spacing.edgeNode": "48",
   "elk.padding": "[top=48,left=48,bottom=48,right=48]",
 }
@@ -244,6 +247,19 @@ export const godViewLayoutTopologyStateMethods = {
   async computeClientTopologyLayout(graph, layoutKey) {
     const previousGraph = this.state.lastGraph
     const projection = this.collectEndpointProjectionGroups(graph)
+    const layeredPositions = this.computeBackboneLayeredPositions(graph, projection.excludedNodeIds)
+
+    if (layeredPositions instanceof Map && layeredPositions.size > 0) {
+      const withBackbone = this.applyPositionMap(graph, layeredPositions)
+      const withClusters = this.applyEndpointProjectionLayout(withBackbone, projection)
+      const normalized = this.normalizeHorizontalLayout(withClusters)
+      return {
+        ...normalized,
+        _layoutMode: "client-layered",
+        _layoutCacheKey: layoutKey,
+      }
+    }
+
     const layoutGraph = this.buildElkLayoutGraph(graph, projection.excludedNodeIds)
 
     try {
@@ -251,8 +267,9 @@ export const godViewLayoutTopologyStateMethods = {
       const elkResult = await engine.layout(layoutGraph)
       const withBackbone = this.applyElkNodePositions(graph, elkResult)
       const withClusters = this.applyEndpointProjectionLayout(withBackbone, projection)
+      const normalized = this.normalizeHorizontalLayout(withClusters)
       return {
-        ...withClusters,
+        ...normalized,
         _layoutMode: "elk-client",
         _layoutCacheKey: layoutKey,
       }
@@ -461,6 +478,194 @@ export const godViewLayoutTopologyStateMethods = {
       edges,
     }
   },
+  computeBackboneLayeredPositions(graph, excludedNodeIds) {
+    const backbone = this.buildBackboneAdjacency(graph, excludedNodeIds)
+    if (!backbone || backbone.nodeIds.length === 0) return null
+
+    const components = this.connectedBackboneComponents(backbone.nodeIds, backbone.adjacency)
+    if (components.length === 0) return null
+
+    const positions = new Map()
+    let componentOffsetY = 0
+
+    for (const componentIds of components) {
+      const rootId = this.selectBackboneRoot(componentIds, backbone)
+      if (!rootId) continue
+
+      const layers = this.backboneLayersFromRoot(rootId, componentIds, backbone)
+      if (layers.length === 0) continue
+
+      const componentHeight =
+        Math.max(
+          0,
+          ...layers.map((layer) => Math.max(0, (layer.length - 1) * BACKBONE_LAYER_GAP_Y)),
+        ) + BACKBONE_COMPONENT_GAP_Y
+
+      for (let layerIndex = 0; layerIndex < layers.length; layerIndex += 1) {
+        const orderedLayer = this.orderBackboneLayerNodes(layers[layerIndex], layerIndex, positions, backbone)
+        const startY = componentOffsetY - ((orderedLayer.length - 1) * BACKBONE_LAYER_GAP_Y) / 2
+
+        for (let nodeIndex = 0; nodeIndex < orderedLayer.length; nodeIndex += 1) {
+          const nodeId = orderedLayer[nodeIndex]
+          positions.set(nodeId, {
+            x: 60 + layerIndex * BACKBONE_LAYER_GAP_X,
+            y: 300 + startY + nodeIndex * BACKBONE_LAYER_GAP_Y,
+          })
+        }
+      }
+
+      componentOffsetY += componentHeight
+    }
+
+    return positions
+  },
+  buildBackboneAdjacency(graph, excludedNodeIds) {
+    const nodeIds = []
+    const nodeById = new Map()
+    const adjacency = new Map()
+    const depthById = new Map()
+
+    for (let index = 0; index < graph.nodes.length; index += 1) {
+      const node = graph.nodes[index]
+      const nodeId = graphNodeId(node, index)
+      if (excludedNodeIds.has(nodeId)) continue
+      nodeIds.push(nodeId)
+      nodeById.set(nodeId, node)
+      adjacency.set(nodeId, new Set())
+      depthById.set(nodeId, Number(node?.y || 0))
+    }
+
+    for (const edge of graph.edges) {
+      const sourceId = edgeNodeId(graph, edge, "source")
+      const targetId = edgeNodeId(graph, edge, "target")
+      if (!sourceId || !targetId) continue
+      if (!adjacency.has(sourceId) || !adjacency.has(targetId)) continue
+      if (String(edge?.evidenceClass || "") === "endpoint-attachment") continue
+      adjacency.get(sourceId).add(targetId)
+      adjacency.get(targetId).add(sourceId)
+    }
+
+    return {nodeIds, nodeById, adjacency, depthById}
+  },
+  connectedBackboneComponents(nodeIds, adjacency) {
+    const visited = new Set()
+    const components = []
+
+    for (const nodeId of nodeIds) {
+      if (visited.has(nodeId)) continue
+      const queue = [nodeId]
+      const component = []
+      visited.add(nodeId)
+
+      while (queue.length > 0) {
+        const current = queue.shift()
+        component.push(current)
+
+        for (const neighbor of adjacency.get(current) || []) {
+          if (visited.has(neighbor)) continue
+          visited.add(neighbor)
+          queue.push(neighbor)
+        }
+      }
+
+      components.push(component)
+    }
+
+    components.sort((left, right) => right.length - left.length || String(left[0] || "").localeCompare(String(right[0] || "")))
+    return components
+  },
+  selectBackboneRoot(componentIds, backbone) {
+    return [...componentIds].sort((leftId, rightId) => {
+      const leftNode = backbone.nodeById.get(leftId) || {}
+      const rightNode = backbone.nodeById.get(rightId) || {}
+      const leftClusterAnchor = isEndpointAnchorNode(leftNode) ? 1 : 0
+      const rightClusterAnchor = isEndpointAnchorNode(rightNode) ? 1 : 0
+      const leftDegree = (backbone.adjacency.get(leftId) || new Set()).size
+      const rightDegree = (backbone.adjacency.get(rightId) || new Set()).size
+      const leftPps = Number(leftNode?.pps || 0)
+      const rightPps = Number(rightNode?.pps || 0)
+      const leftLabel = String(leftNode?.label || leftId)
+      const rightLabel = String(rightNode?.label || rightId)
+
+      return (
+        leftClusterAnchor - rightClusterAnchor ||
+        rightDegree - leftDegree ||
+        rightPps - leftPps ||
+        leftLabel.localeCompare(rightLabel) ||
+        leftId.localeCompare(rightId)
+      )
+    })[0] || null
+  },
+  backboneLayersFromRoot(rootId, componentIds, backbone) {
+    const componentSet = new Set(componentIds)
+    const visited = new Set([rootId])
+    const queue = [{id: rootId, depth: 0}]
+    const layers = []
+
+    while (queue.length > 0) {
+      const {id, depth} = queue.shift()
+      if (!layers[depth]) layers[depth] = []
+      layers[depth].push(id)
+
+      const neighbors = [...(backbone.adjacency.get(id) || [])]
+        .filter((neighbor) => componentSet.has(neighbor))
+        .sort()
+
+      for (const neighbor of neighbors) {
+        if (visited.has(neighbor)) continue
+        visited.add(neighbor)
+        queue.push({id: neighbor, depth: depth + 1})
+      }
+    }
+
+    return layers
+  },
+  orderBackboneLayerNodes(layerIds, layerIndex, positions, backbone) {
+    if (layerIndex === 0) return [...layerIds]
+
+    return [...layerIds].sort((leftId, rightId) => {
+      const leftParents = [...(backbone.adjacency.get(leftId) || [])]
+        .map((neighbor) => positions.get(neighbor))
+        .filter(Boolean)
+      const rightParents = [...(backbone.adjacency.get(rightId) || [])]
+        .map((neighbor) => positions.get(neighbor))
+        .filter(Boolean)
+
+      const leftCenter =
+        leftParents.length > 0
+          ? leftParents.reduce((sum, point) => sum + Number(point.y || 0), 0) / leftParents.length
+          : Number(backbone.depthById.get(leftId) || 0)
+      const rightCenter =
+        rightParents.length > 0
+          ? rightParents.reduce((sum, point) => sum + Number(point.y || 0), 0) / rightParents.length
+          : Number(backbone.depthById.get(rightId) || 0)
+
+      const leftNode = backbone.nodeById.get(leftId) || {}
+      const rightNode = backbone.nodeById.get(rightId) || {}
+
+      return (
+        leftCenter - rightCenter ||
+        String(leftNode?.label || leftId).localeCompare(String(rightNode?.label || rightId)) ||
+        leftId.localeCompare(rightId)
+      )
+    })
+  },
+  applyPositionMap(graph, positions) {
+    const nodes = graph.nodes.map((node, index) => {
+      const positioned = positions.get(graphNodeId(node, index))
+      if (!positioned) return {...node}
+      return {
+        ...node,
+        x: positioned.x,
+        y: positioned.y,
+      }
+    })
+
+    return {
+      ...graph,
+      nodes,
+    }
+  },
   applyElkNodePositions(graph, elkResult) {
     const positions = collectElkPositions(elkResult, new Map())
     const nodes = graph.nodes.map((node, index) => {
@@ -534,6 +739,49 @@ export const godViewLayoutTopologyStateMethods = {
     return {
       ...graph,
       nodes,
+    }
+  },
+  normalizeHorizontalLayout(graph) {
+    if (!graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) return graph
+
+    const coords = graph.nodes
+      .map((node) => ({
+        node,
+        x: Number(node?.x),
+        y: Number(node?.y),
+      }))
+      .filter((entry) => Number.isFinite(entry.x) && Number.isFinite(entry.y))
+
+    if (coords.length < 2) return graph
+
+    const xs = coords.map((entry) => entry.x)
+    const ys = coords.map((entry) => entry.y)
+    const minX = Math.min(...xs)
+    const maxX = Math.max(...xs)
+    const minY = Math.min(...ys)
+    const maxY = Math.max(...ys)
+    const xSpan = maxX - minX
+    const ySpan = maxY - minY
+
+    if (!Number.isFinite(xSpan) || !Number.isFinite(ySpan) || xSpan <= 0 || ySpan <= 0) return graph
+
+    const targetYSpan = Math.max(220, xSpan * 0.72)
+    if (ySpan <= targetYSpan) return graph
+
+    const centerY = (minY + maxY) / 2
+    const scaleY = targetYSpan / ySpan
+
+    return {
+      ...graph,
+      nodes: graph.nodes.map((node) => {
+        const y = Number(node?.y)
+        if (!Number.isFinite(y)) return node
+
+        return {
+          ...node,
+          y: centerY + ((y - centerY) * scaleY),
+        }
+      }),
     }
   },
   resolveEndpointProjectionAngle(nodes, nodeIndexById, cluster, anchorNode) {

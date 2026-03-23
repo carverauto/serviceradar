@@ -143,20 +143,68 @@ describe("layout_topology_state_methods", () => {
     expect(out.edges[0]).toMatchObject({source: 0, target: 1})
   })
 
+  it("buildElkLayoutGraph uses the horizontal backbone ELK configuration", () => {
+    const context = makeContext()
+    const graph = {
+      nodes: [{id: "a", details: {}}, {id: "b", details: {}}],
+      edges: [{source: 0, target: 1, topologyClass: "backbone", evidenceClass: "direct"}],
+    }
+
+    const out = context.buildElkLayoutGraph(graph, new Set())
+
+    expect(out.layoutOptions["elk.direction"]).toEqual("DOWN")
+    expect(out.layoutOptions["elk.layered.spacing.nodeNodeBetweenLayers"]).toEqual("120")
+    expect(out.layoutOptions["elk.spacing.nodeNode"]).toEqual("64")
+  })
+
+  it("computeBackboneLayeredPositions lays out the backbone horizontally with ordered layers", () => {
+    const context = makeContext()
+    const graph = {
+      nodes: [
+        {id: "core", label: "Core", pps: 1000, details: {}},
+        {id: "ap-a", label: "AP A", pps: 500, details: {}},
+        {id: "ap-b", label: "AP B", pps: 400, details: {}},
+        {id: "switch-a", label: "Switch A", pps: 300, details: {}},
+        {id: "switch-b", label: "Switch B", pps: 200, details: {}},
+        {
+          id: "cluster-summary",
+          label: "4 endpoints",
+          details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-summary"},
+        },
+      ],
+      edges: [
+        {source: 0, target: 1, topologyClass: "backbone", evidenceClass: "direct"},
+        {source: 0, target: 2, topologyClass: "backbone", evidenceClass: "direct"},
+        {source: 1, target: 3, topologyClass: "backbone", evidenceClass: "direct"},
+        {source: 2, target: 4, topologyClass: "backbone", evidenceClass: "direct"},
+        {source: 1, target: 5, topologyClass: "endpoints", evidenceClass: "endpoint-attachment"},
+      ],
+    }
+
+    const positions = context.computeBackboneLayeredPositions(graph, new Set(["cluster-summary"]))
+
+    expect(positions.get("core").x).toEqual(60)
+    expect(positions.get("ap-a").x).toEqual(240)
+    expect(positions.get("ap-b").x).toEqual(240)
+    expect(positions.get("switch-a").x).toEqual(420)
+    expect(positions.get("switch-b").x).toEqual(420)
+    expect(positions.has("cluster-summary")).toEqual(false)
+  })
+
   it("prepareGraphLayout computes ELK client layout and updates state", async () => {
     const context = makeContext()
     const graph = {nodes: [{id: "a"}, {id: "b"}], edges: [{source: 0, target: 1}]}
 
     const out = await context.prepareGraphLayout(graph, 5, "stamp")
 
-    expect(out._layoutMode).toEqual("elk-client")
+    expect(out._layoutMode).toEqual("client-layered")
     expect(out._layoutRevision).toEqual(5)
     expect(out._layoutCacheKey).toEqual("5:stamp:collapsed")
-    expect(context.state.layoutMode).toEqual("elk-client")
+    expect(context.state.layoutMode).toEqual("client-layered")
     expect(context.state.layoutRevision).toEqual(5)
-    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
-    expect(out.nodes[0].x).toEqual(120)
-    expect(out.nodes[1].x).toEqual(260)
+    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(0)
+    expect(out.nodes[0].x).toEqual(60)
+    expect(out.nodes[1].x).toEqual(240)
   })
 
   it("prepareGraphLayout reuses cached results for the same revision and expansion state", async () => {
@@ -166,7 +214,7 @@ describe("layout_topology_state_methods", () => {
     const first = await context.prepareGraphLayout(graph, 9, "stamp")
     const second = await context.prepareGraphLayout(graph, 9, "stamp")
 
-    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
+    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(0)
     expect(second).toBe(first)
   })
 
@@ -247,18 +295,7 @@ describe("layout_topology_state_methods", () => {
     expect(endpoint2.x).toBeGreaterThan(summary.x)
     expect(endpoint1.y).not.toEqual(endpoint2.y)
     expect(endpoint1.x).not.toEqual(endpoint2.x)
-    expect(context.state.layoutEngine.layout).toHaveBeenCalledWith(expect.objectContaining({
-      children: expect.arrayContaining([
-        expect.objectContaining({id: "switch-1"}),
-        expect.objectContaining({id: "cluster-anchor"}),
-      ]),
-      edges: [
-        expect.objectContaining({
-          sources: ["switch-1"],
-          targets: ["cluster-anchor"],
-        }),
-      ],
-    }))
+    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(0)
   })
 
   it("prepareGraphLayout ignores endpoint attachment edges when choosing cluster direction", async () => {
@@ -452,6 +489,46 @@ describe("layout_topology_state_methods", () => {
 
     expect(members.length).toEqual(12)
     expect(members.every((node) => node.x > summary.x)).toEqual(true)
+  })
+
+  it("prepareGraphLayout normalizes overly tall ELK layouts into a horizontal aspect", async () => {
+    const context = makeContext({
+      state: {
+        layoutMode: "auto",
+        layoutRevision: null,
+        layoutCache: new Map(),
+        lastLayoutKey: null,
+        layoutEngine: {
+          layout: vi.fn(async () => ({
+            id: "god-view-root",
+            children: [
+              {id: "a", x: 40, y: 40},
+              {id: "b", x: 180, y: 320},
+              {id: "c", x: 320, y: 620},
+            ],
+          })),
+        },
+        lastGraph: null,
+        lastTopologyStamp: null,
+        lastRevision: null,
+      },
+    })
+
+    const graph = {
+      nodes: [{id: "a", details: {}}, {id: "b", details: {}}, {id: "c", details: {}}],
+      edges: [
+        {source: 0, target: 1, topologyClass: "backbone", evidenceClass: "direct"},
+        {source: 1, target: 2, topologyClass: "backbone", evidenceClass: "direct"},
+      ],
+    }
+
+    const out = await context.prepareGraphLayout(graph, 16, "stamp")
+    const xs = out.nodes.map((node) => node.x)
+    const ys = out.nodes.map((node) => node.y)
+    const xSpan = Math.max(...xs) - Math.min(...xs)
+    const ySpan = Math.max(...ys) - Math.min(...ys)
+
+    expect(xSpan).toBeGreaterThan(ySpan)
   })
 
   it("sameTopology accepts stable backend revisions even if the client stamp changed", () => {
