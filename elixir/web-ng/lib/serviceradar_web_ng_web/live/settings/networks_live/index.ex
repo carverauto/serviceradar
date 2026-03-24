@@ -3742,13 +3742,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> Enum.reject(&(&1 == ""))
   end
 
-  defp normalize_list_value(value) when is_list(value) do
-    value
-    |> Enum.map(&to_string/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-  end
-
   defp update_builder(builder, params) do
     builder
     |> Map.merge(stringify_params(params))

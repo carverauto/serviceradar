@@ -673,8 +673,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       Map.get(svc, "check_name")
   end
 
-  defp service_name_value(_), do: nil
-
   defp service_details_path(svc) do
     ~p"/services/check?#{service_details_params(svc)}"
   end
@@ -776,8 +774,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     "service-card-#{hash}"
   end
 
-  defp card_dom_id(_), do: "service-card-unknown"
-
   defp parse_service_details(service) do
     details = Map.get(service, "details") || Map.get(service, :details)
 
@@ -794,8 +790,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       _ -> %{}
     end
   end
-
-  defp parse_details_json(_), do: %{}
 
   defp extract_display_instructions(details) when is_map(details) do
     Map.get(details, "display") ||

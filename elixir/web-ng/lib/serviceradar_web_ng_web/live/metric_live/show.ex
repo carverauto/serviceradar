@@ -213,7 +213,6 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   end
 
   defp fmt(num) when is_float(num), do: :erlang.float_to_binary(num, decimals: 1)
-  defp fmt(num) when is_integer(num), do: Integer.to_string(num)
 
   defp format_ms_number(value) when is_float(value) do
     value
