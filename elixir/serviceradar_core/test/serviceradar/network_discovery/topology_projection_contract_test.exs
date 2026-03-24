@@ -275,6 +275,35 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
   end
 
   describe "canonical rebuild query contract" do
+    test "mapper upsert queries preserve local-side device ip identity" do
+      payload = %{
+        local_device_id: "sr:ap-a",
+        local_device_ip: "192.168.1.200",
+        neighbor_device_id: "sr:endpoint-a",
+        local_interface_id: "sr:ap-a/wifi0",
+        neighbor_interface_id: "sr:endpoint-a/unknown",
+        protocol: "snmp-l2",
+        local_if_name: "wifi0",
+        local_if_index: 10,
+        neighbor_port_name: "unknown",
+        neighbor_name: nil,
+        neighbor_ip: "192.168.1.62",
+        evidence_class: "endpoint-attachment",
+        confidence_tier: "low",
+        confidence_score: 40,
+        confidence_reason: "single_identifier_inference",
+        observed_at: "2026-03-24T04:45:00Z"
+      }
+
+      backbone_query = TopologyGraph.backbone_link_upsert_query(payload)
+      auxiliary_query = TopologyGraph.auxiliary_link_upsert_query(payload, "ATTACHED_TO")
+
+      assert backbone_query =~ "SET a.ip = '192.168.1.200'"
+      assert backbone_query =~ "SET b.ip = '192.168.1.62'"
+      assert auxiliary_query =~ "SET a.ip = '192.168.1.200'"
+      assert auxiliary_query =~ "SET b.ip = '192.168.1.62'"
+    end
+
     test "upsert query keeps canonical relation syntax stable" do
       query = TopologyGraph.canonical_rebuild_upsert_query("2026-02-25T00:00:00Z")
 

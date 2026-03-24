@@ -830,17 +830,17 @@ export const godViewLayoutTopologyStateMethods = {
   },
   endpointProjectionHubDistance(memberCount, expanded) {
     const count = Math.max(1, Number(memberCount || 1))
-    const base = expanded ? 114 : 82
-    return base + Math.min(54, Math.sqrt(count) * (expanded ? 14 : 9))
+    const base = expanded ? 156 : 82
+    return base + Math.min(72, Math.sqrt(count) * (expanded ? 18 : 9))
   },
   expandedClusterSpiralMetrics(memberCount) {
     const count = Math.max(1, Number(memberCount || 1))
     return {
-      forwardBase: 26 + Math.sqrt(count) * 10,
-      baseRadius: 10,
-      radiusStep: 20,
-      angleStep: 0.94,
-      lateralScale: 0.92,
+      forwardBase: 42 + Math.sqrt(count) * 14,
+      baseRadius: 18,
+      radiusStep: 34,
+      angleStep: 1.02,
+      lateralScale: 1.14,
     }
   },
   expandedClusterSpiralOffset(memberIndex, metrics, memberId) {
@@ -848,7 +848,7 @@ export const godViewLayoutTopologyStateMethods = {
     const radius = metrics.baseRadius + metrics.radiusStep * Math.sqrt(idx + 1)
     const theta = idx * metrics.angleStep + this.endpointAngleOffset(memberId) * 0.12
     return {
-      x: metrics.forwardBase + radius * (1 + Math.cos(theta)) * 0.72,
+      x: metrics.forwardBase + radius * (1 + Math.cos(theta)) * 0.82,
       y: metrics.lateralScale * radius * Math.sin(theta),
     }
   },

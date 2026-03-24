@@ -256,6 +256,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       {:ok,
        %{
          local_device_id: local_device_id,
+         local_device_ip: link_value(link, :local_device_ip),
          neighbor_device_id: neighbor_device_id,
          local_interface_id: local_interface_id,
          neighbor_interface_id: neighbor_interface_id,
@@ -322,8 +323,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp upsert_backbone_link_payload(payload) do
-    cypher = """
+    cypher = backbone_link_upsert_query(payload)
+
+    case Graph.execute(cypher) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("Topology graph upsert failed: #{inspect(reason)}")
+    end
+  end
+
+  @doc false
+  @spec backbone_link_upsert_query(map()) :: String.t()
+  def backbone_link_upsert_query(payload) when is_map(payload) do
+    """
     MERGE (a:Device {id: '#{Graph.escape(payload.local_device_id)}'})
+    #{set_prop("a", "ip", payload.local_device_ip)}
     MERGE (b:Device {id: '#{Graph.escape(payload.neighbor_device_id)}'})
     #{set_prop("b", "name", payload.neighbor_name)}
     #{set_prop("b", "ip", payload.neighbor_ip)}
@@ -361,11 +374,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET rr.observed_at = '#{Graph.escape(payload.observed_at)}'
     SET rr.last_observed_at = '#{Graph.escape(payload.observed_at)}'
     """
-
-    case Graph.execute(cypher) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("Topology graph upsert failed: #{inspect(reason)}")
-    end
   end
 
   defp neighbor_device_id(link) do
@@ -483,9 +491,24 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp upsert_auxiliary_link_payload(payload) do
     relation = evidence_relation_type(payload)
+    cypher = auxiliary_link_upsert_query(payload, relation)
 
-    cypher = """
+    case Graph.execute(cypher) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Auxiliary topology graph upsert failed: #{inspect(reason)}")
+    end
+  end
+
+  @doc false
+  @spec auxiliary_link_upsert_query(map(), String.t()) :: String.t()
+  def auxiliary_link_upsert_query(payload, relation)
+      when is_map(payload) and is_binary(relation) do
+    """
     MERGE (a:Device {id: '#{Graph.escape(payload.local_device_id)}'})
+    #{set_prop("a", "ip", payload.local_device_ip)}
     MERGE (b:Device {id: '#{Graph.escape(payload.neighbor_device_id)}'})
     #{set_prop("b", "name", payload.neighbor_name)}
     #{set_prop("b", "ip", payload.neighbor_ip)}
@@ -512,14 +535,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET r.observed_at = '#{Graph.escape(payload.observed_at)}'
     SET r.last_observed_at = '#{Graph.escape(payload.observed_at)}'
     """
-
-    case Graph.execute(cypher) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Auxiliary topology graph upsert failed: #{inspect(reason)}")
-    end
   end
 
   defp interface_contract_valid?(protocol, payload) do

@@ -298,6 +298,86 @@ describe("layout_topology_state_methods", () => {
     expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(0)
   })
 
+  it("prepareGraphLayout keeps expanded cluster members far enough apart for labels", async () => {
+    const context = makeContext({
+      state: {
+        layoutMode: "auto",
+        layoutRevision: null,
+        layoutCache: new Map(),
+        lastLayoutKey: null,
+        layoutEngine: {
+          layout: vi.fn(async () => ({
+            id: "god-view-root",
+            children: [
+              {id: "switch-1", x: 40, y: 120},
+              {id: "cluster-anchor", x: 180, y: 120},
+            ],
+          })),
+        },
+        lastGraph: null,
+        lastTopologyStamp: null,
+        lastRevision: null,
+      },
+    })
+
+    const graph = {
+      nodes: [
+        {id: "switch-1", details: {}},
+        {
+          id: "cluster-anchor",
+          details: {
+            cluster_id: "cluster:endpoints:test",
+            cluster_kind: "endpoint-anchor",
+            cluster_expanded: true,
+          },
+        },
+        {
+          id: "cluster-summary",
+          details: {
+            cluster_id: "cluster:endpoints:test",
+            cluster_kind: "endpoint-summary",
+            cluster_expanded: true,
+          },
+        },
+        {id: "endpoint-1", details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-member", cluster_expanded: true}},
+        {id: "endpoint-2", details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-member", cluster_expanded: true}},
+        {id: "endpoint-3", details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-member", cluster_expanded: true}},
+        {id: "endpoint-4", details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-member", cluster_expanded: true}},
+        {id: "endpoint-5", details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-member", cluster_expanded: true}},
+      ],
+      edges: [
+        {source: 0, target: 1, topologyClass: "backbone", evidenceClass: "lldp"},
+        {source: 1, target: 2, topologyClass: "endpoints", evidenceClass: "endpoint-attachment"},
+        {source: 2, target: 3, topologyClass: "endpoints", evidenceClass: "endpoint-attachment"},
+        {source: 2, target: 4, topologyClass: "endpoints", evidenceClass: "endpoint-attachment"},
+        {source: 2, target: 5, topologyClass: "endpoints", evidenceClass: "endpoint-attachment"},
+        {source: 2, target: 6, topologyClass: "endpoints", evidenceClass: "endpoint-attachment"},
+        {source: 2, target: 7, topologyClass: "endpoints", evidenceClass: "endpoint-attachment"},
+      ],
+    }
+
+    const out = await context.prepareGraphLayout(graph, 22, "stamp")
+    const summary = out.nodes.find((node) => node.id === "cluster-summary")
+    const members = out.nodes.filter((node) => /^endpoint-/.test(node.id))
+    const pairDistances = []
+
+    for (let i = 0; i < members.length; i += 1) {
+      for (let j = i + 1; j < members.length; j += 1) {
+        const dx = members[i].x - members[j].x
+        const dy = members[i].y - members[j].y
+        pairDistances.push(Math.hypot(dx, dy))
+      }
+    }
+
+    const minDistance = Math.min(...pairDistances)
+    const nearestToHub = Math.min(
+      ...members.map((member) => Math.hypot(member.x - summary.x, member.y - summary.y)),
+    )
+
+    expect(minDistance).toBeGreaterThan(42)
+    expect(nearestToHub).toBeGreaterThan(56)
+  })
+
   it("prepareGraphLayout ignores endpoint attachment edges when choosing cluster direction", async () => {
     const context = makeContext({
       state: {
