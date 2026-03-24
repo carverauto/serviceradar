@@ -3,6 +3,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapter do
   Reference HTTP adapter for relay-scoped analysis worker dispatch.
   """
 
+  alias ServiceRadar.Camera.AnalysisContract
+
   @default_timeout_ms 2_000
 
   def deliver(input, worker, opts \\ []) when is_map(input) and is_map(worker) do
@@ -12,7 +14,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapter do
     timeout_ms = positive_integer(value(worker, :timeout_ms), @default_timeout_ms)
 
     req_opts = [
-      json: input,
+      json: AnalysisContract.encode_transport_input(input),
       headers: normalize_headers(value(worker, :headers, %{})),
       finch: finch,
       retry: false,

@@ -42,6 +42,50 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
     defp test_pid, do: Application.fetch_env!(:serviceradar_core_elx, :analysis_dispatch_test_pid)
   end
 
+  defmodule ResolverStub do
+    @moduledoc false
+
+    def resolve_http_worker(%{registered_worker_id: "worker-registry-1"}) do
+      {:ok,
+       %{
+         worker_id: "worker-registry-1",
+         endpoint_url: "http://worker-registry-1.local/analyze",
+         headers: %{"authorization" => "Bearer registry"},
+         adapter: "http",
+         selection_mode: "worker_id",
+         requested_capability: nil
+       }}
+    end
+
+    def resolve_http_worker(%{required_capability: "object_detection"}) do
+      {:ok,
+       %{
+         worker_id: "worker-registry-capability",
+         endpoint_url: "http://worker-registry-capability.local/analyze",
+         headers: %{},
+         adapter: "http",
+         selection_mode: "capability",
+         requested_capability: "object_detection"
+       }}
+    end
+
+    def resolve_http_worker(%{required_capability: "missing_capability"}) do
+      {:error, :worker_capability_unmatched}
+    end
+
+    def resolve_http_worker(attrs) do
+      {:ok,
+       %{
+         worker_id: Map.fetch!(attrs, :worker_id),
+         endpoint_url: Map.fetch!(attrs, :endpoint_url),
+         headers: Map.get(attrs, :headers, %{}),
+         adapter: "http",
+         selection_mode: "direct",
+         requested_capability: nil
+       }}
+    end
+  end
+
   setup do
     test_pid = self()
 
@@ -59,6 +103,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
       |> Map.put(:adapter, AdapterStub)
       |> Map.put(:adapter_opts, test_pid: test_pid, mode: :success)
       |> Map.put(:result_ingestor, ResultIngestorStub)
+      |> Map.put(:worker_resolver, ResolverStub)
     end)
 
     :sys.replace_state(AnalysisBranchManager, fn state ->
@@ -142,6 +187,85 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
 
     assert :ok = AnalysisDispatchManager.close_http_branch(relay_session_id, branch_id)
     assert :ok = PipelineManager.close_session(relay_session_id)
+  end
+
+  test "resolves a registered worker id before dispatch and emits worker selection telemetry" do
+    relay_session_id = "relay-analysis-dispatch-registry-id"
+    branch_id = "analysis-http-registry-id"
+
+    attach_telemetry_handler(self(), [
+      [:serviceradar, :camera_relay, :analysis, :worker_selected],
+      [:serviceradar, :camera_relay, :analysis, :dispatch_succeeded]
+    ])
+
+    assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
+
+    assert {:ok, branch} =
+             AnalysisDispatchManager.open_http_branch(%{
+               relay_session_id: relay_session_id,
+               branch_id: branch_id,
+               registered_worker_id: "worker-registry-1",
+               policy: %{sample_interval_ms: 0}
+             })
+
+    assert branch.worker_id == "worker-registry-1"
+    assert branch.selection_mode == "worker_id"
+
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :worker_selected], _measurements,
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      branch_id: ^branch_id,
+                      worker_id: "worker-registry-1",
+                      selection_mode: "worker_id",
+                      requested_worker_id: "worker-registry-1"
+                    }},
+                   1_000
+
+    assert :ok =
+             PipelineManager.record_chunk(relay_session_id, %{
+               media_ingest_id: "core-media-analysis-dispatch",
+               sequence: 11,
+               pts: 0,
+               dts: 0,
+               codec: "h264",
+               payload_format: "annexb",
+               track_id: "video",
+               keyframe: true,
+               payload: <<0, 0, 0, 1, 103, 100, 0, 31>>
+             })
+
+    assert_receive {:deliver, _input,
+                    %{worker_id: "worker-registry-1", endpoint_url: "http://worker-registry-1.local/analyze"}},
+                   1_000
+
+    assert :ok = AnalysisDispatchManager.close_http_branch(relay_session_id, branch_id)
+    assert :ok = PipelineManager.close_session(relay_session_id)
+  end
+
+  test "emits bounded selection failure when no registered worker matches the requested capability" do
+    relay_session_id = "relay-analysis-dispatch-selection-failure"
+    branch_id = "analysis-http-selection-failure"
+
+    attach_telemetry_handler(self(), [
+      [:serviceradar, :camera_relay, :analysis, :worker_selection_failed]
+    ])
+
+    assert {:error, :worker_capability_unmatched} =
+             AnalysisDispatchManager.open_http_branch(%{
+               relay_session_id: relay_session_id,
+               branch_id: branch_id,
+               required_capability: "missing_capability",
+               policy: %{sample_interval_ms: 0}
+             })
+
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :worker_selection_failed], _measurements,
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      branch_id: ^branch_id,
+                      requested_capability: "missing_capability",
+                      reason: "worker_capability_unmatched"
+                    }},
+                   1_000
   end
 
   test "drops work when max_in_flight is exceeded and emits drop telemetry" do

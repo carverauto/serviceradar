@@ -5,6 +5,7 @@ defmodule ServiceRadar.Camera.AnalysisContract do
 
   @input_schema "camera_analysis_input.v1"
   @result_schema "camera_analysis_result.v1"
+  @payload_encoding_base64 "base64"
 
   def input_schema, do: @input_schema
   def result_schema, do: @result_schema
@@ -25,6 +26,31 @@ defmodule ServiceRadar.Camera.AnalysisContract do
       payload: Map.get(sample, :payload, <<>>),
       policy: normalize_policy(Map.get(sample, :policy, %{}))
     }
+  end
+
+  def encode_transport_input(input) when is_map(input) do
+    input
+    |> normalize_input_keys()
+    |> Map.update(:payload, "", &encode_payload/1)
+    |> Map.put(:payload_encoding, @payload_encoding_base64)
+  end
+
+  def decode_transport_input(input) when is_map(input) do
+    input = normalize_input_keys(input)
+
+    case {value(input, :payload_encoding), value(input, :payload)} do
+      {@payload_encoding_base64, payload} when is_binary(payload) ->
+        case Base.decode64(payload) do
+          {:ok, decoded} -> {:ok, Map.put(input, :payload, decoded)}
+          :error -> {:error, :invalid_payload}
+        end
+
+      {nil, _payload} ->
+        {:ok, input}
+
+      {_encoding, _payload} ->
+        {:error, :unsupported_payload_encoding}
+    end
   end
 
   def normalize_result(result) when is_map(result) do
@@ -81,6 +107,25 @@ defmodule ServiceRadar.Camera.AnalysisContract do
   end
 
   defp normalize_policy(_policy), do: %{sample_interval_ms: 0, max_queue_len: 0}
+
+  defp normalize_input_keys(value) when is_map(value) do
+    Enum.reduce(value, %{}, fn {key, map_value}, acc ->
+      Map.put(acc, normalize_key(key), map_value)
+    end)
+  end
+
+  defp normalize_key(key) when is_atom(key), do: key
+
+  defp normalize_key(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> key
+  end
+
+  defp normalize_key(key), do: key
+
+  defp encode_payload(payload) when is_binary(payload), do: Base.encode64(payload)
+  defp encode_payload(payload), do: Base.encode64(IO.iodata_to_binary(payload))
 
   defp normalize_map(value) when is_map(value) do
     Enum.reduce(value, %{}, fn {key, map_value}, acc ->

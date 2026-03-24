@@ -4,8 +4,8 @@
 - [x] 1.3 Keep adapter load bounded and subordinate to viewer playback.
 
 ## 2. Result Integration
-- [ ] 2.1 Normalize Boombox-backed worker outputs through the existing analysis result contract.
-- [ ] 2.2 Preserve relay session, branch, and worker provenance through observability ingestion.
+- [x] 2.1 Normalize Boombox-backed worker outputs through the existing analysis result contract.
+- [x] 2.2 Preserve relay session, branch, and worker provenance through observability ingestion.
 
 ## 3. Verification
 - [x] 3.1 Add focused tests for the Boombox adapter lifecycle and bounded behavior.

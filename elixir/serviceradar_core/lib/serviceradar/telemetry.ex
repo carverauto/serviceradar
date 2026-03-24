@@ -97,6 +97,8 @@ defmodule ServiceRadar.Telemetry do
     :sample_emitted,
     :sample_dropped,
     :limit_rejected,
+    :worker_selected,
+    :worker_selection_failed,
     :dispatch_succeeded,
     :dispatch_failed,
     :dispatch_timed_out,
@@ -354,6 +356,14 @@ defmodule ServiceRadar.Telemetry do
       counter("serviceradar.camera_relay.analysis.limit_rejected.count",
         tags: [:relay_boundary, :limit],
         description: "Number of analysis branch requests rejected by limits"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_selected.count",
+        tags: [:relay_boundary, :selection_mode, :worker_id],
+        description: "Number of successful analysis worker selections"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_selection_failed.count",
+        tags: [:relay_boundary, :reason],
+        description: "Number of failed analysis worker selections"
       ),
       counter("serviceradar.camera_relay.analysis.dispatch_succeeded.count",
         tags: [:relay_boundary, :worker_id],

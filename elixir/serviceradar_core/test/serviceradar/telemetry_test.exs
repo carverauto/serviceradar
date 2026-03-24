@@ -211,6 +211,60 @@ defmodule ServiceRadar.TelemetryTest do
       assert metadata.worker_id == "worker-1"
       assert metadata.reason == "http_status_503"
     end
+
+    test "emits worker selection events" do
+      test_pid = self()
+
+      :telemetry.attach_many(
+        "test-handler",
+        [
+          [:serviceradar, :camera_relay, :analysis, :worker_selected],
+          [:serviceradar, :camera_relay, :analysis, :worker_selection_failed]
+        ],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :worker_selected,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          worker_id: "worker-1",
+          selection_mode: "capability",
+          requested_capability: "object_detection"
+        },
+        %{}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :worker_selected], %{},
+                      metadata}
+
+      assert metadata.worker_id == "worker-1"
+      assert metadata.selection_mode == "capability"
+      assert metadata.requested_capability == "object_detection"
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :worker_selection_failed,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          requested_worker_id: "worker-missing",
+          reason: "worker_not_found"
+        },
+        %{}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :worker_selection_failed],
+                      %{}, failure_metadata}
+
+      assert failure_metadata.requested_worker_id == "worker-missing"
+      assert failure_metadata.reason == "worker_not_found"
+    end
   end
 
   describe "span/3" do

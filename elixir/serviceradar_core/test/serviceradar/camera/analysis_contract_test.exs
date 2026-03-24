@@ -67,4 +67,26 @@ defmodule ServiceRadar.Camera.AnalysisContractTest do
     assert result.detection.attributes == %{"zone" => "front"}
     assert result.metadata == %{"pipeline" => "default"}
   end
+
+  test "transport helpers encode and decode bounded payloads for external workers" do
+    input =
+      AnalysisContract.build_input(%{
+        relay_session_id: "relay-1",
+        branch_id: "branch-1",
+        codec: "h264",
+        payload_format: "annexb",
+        keyframe: true,
+        payload: <<0, 255, 1, 2>>
+      })
+
+    encoded = AnalysisContract.encode_transport_input(input)
+
+    assert encoded.payload_encoding == "base64"
+    assert is_binary(encoded.payload)
+
+    assert {:ok, decoded} = AnalysisContract.decode_transport_input(encoded)
+    assert decoded.payload == <<0, 255, 1, 2>>
+    assert decoded.relay_session_id == "relay-1"
+    assert decoded.branch_id == "branch-1"
+  end
 end

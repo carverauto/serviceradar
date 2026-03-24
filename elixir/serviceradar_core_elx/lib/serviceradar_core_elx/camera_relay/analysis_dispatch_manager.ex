@@ -6,6 +6,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
   use GenServer
 
   alias ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker
+  alias ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -43,7 +44,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
        adapter: Keyword.get(opts, :adapter),
        adapter_opts: Keyword.get(opts, :adapter_opts, []),
        result_ingestor: Keyword.get(opts, :result_ingestor),
-       telemetry_module: Keyword.get(opts, :telemetry_module)
+       telemetry_module: Keyword.get(opts, :telemetry_module),
+       worker_resolver: Keyword.get(opts, :worker_resolver, AnalysisWorkerResolver)
      }}
   end
 
@@ -55,38 +57,62 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
     if get_in(state.branches, [relay_session_id, branch_id]) do
       {:reply, {:error, :already_exists}, state}
     else
-      worker_opts =
-        attrs
-        |> Map.put(:task_supervisor, state.task_supervisor)
-        |> maybe_put(:adapter, state.adapter)
-        |> maybe_put(:adapter_opts, state.adapter_opts)
-        |> maybe_put(:result_ingestor, state.result_ingestor)
-        |> maybe_put(:telemetry_module, state.telemetry_module)
+      case resolve_worker(attrs, state) do
+        {:ok, resolved_worker} ->
+          emit_worker_selection_event(
+            state,
+            :worker_selected,
+            attrs,
+            resolved_worker,
+            nil
+          )
 
-      case DynamicSupervisor.start_child(
-             state.dispatch_supervisor,
-             {AnalysisHTTPDispatchWorker, worker_opts}
-           ) do
-        {:ok, pid} ->
-          ref = Process.monitor(pid)
+          worker_opts =
+            attrs
+            |> Map.merge(Map.take(resolved_worker, [:worker_id, :endpoint_url, :headers]))
+            |> Map.put(:task_supervisor, state.task_supervisor)
+            |> maybe_put(:adapter, state.adapter)
+            |> maybe_put(:adapter_opts, state.adapter_opts)
+            |> maybe_put(:result_ingestor, state.result_ingestor)
+            |> maybe_put(:telemetry_module, state.telemetry_module)
 
-          branch = %{
-            relay_session_id: relay_session_id,
-            branch_id: branch_id,
-            pid: pid,
-            monitor_ref: ref,
-            worker_id: Map.get(attrs, :worker_id),
-            endpoint_url: Map.get(attrs, :endpoint_url)
-          }
+          case DynamicSupervisor.start_child(
+                 state.dispatch_supervisor,
+                 {AnalysisHTTPDispatchWorker, worker_opts}
+               ) do
+            {:ok, pid} ->
+              ref = Process.monitor(pid)
 
-          next_state =
-            update_in(state.branches, fn branches ->
-              Map.update(branches, relay_session_id, %{branch_id => branch}, &Map.put(&1, branch_id, branch))
-            end)
+              branch = %{
+                relay_session_id: relay_session_id,
+                branch_id: branch_id,
+                pid: pid,
+                monitor_ref: ref,
+                worker_id: resolved_worker.worker_id,
+                endpoint_url: resolved_worker.endpoint_url,
+                adapter: resolved_worker.adapter,
+                selection_mode: resolved_worker.selection_mode,
+                requested_capability: resolved_worker.requested_capability
+              }
 
-          {:reply, {:ok, branch}, next_state}
+              next_state =
+                update_in(state.branches, fn branches ->
+                  Map.update(
+                    branches,
+                    relay_session_id,
+                    %{branch_id => branch},
+                    &Map.put(&1, branch_id, branch)
+                  )
+                end)
+
+              {:reply, {:ok, branch}, next_state}
+
+            {:error, reason} ->
+              {:reply, {:error, reason}, state}
+          end
 
         {:error, reason} ->
+          emit_worker_selection_event(state, :worker_selection_failed, attrs, nil, reason)
           {:reply, {:error, reason}, state}
       end
     end
@@ -139,6 +165,30 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
+  defp resolve_worker(attrs, state) do
+    state.worker_resolver.resolve_http_worker(attrs)
+  end
+
+  defp emit_worker_selection_event(state, event, attrs, resolved_worker, reason) do
+    telemetry_module = state.telemetry_module || ServiceRadar.Telemetry
+    requested_capability = requested_capability(attrs)
+
+    telemetry_module.emit_camera_relay_analysis_event(
+      event,
+      %{
+        relay_boundary: "core_elx",
+        relay_session_id: required_string!(attrs, :relay_session_id),
+        branch_id: required_string!(attrs, :branch_id),
+        worker_id: resolved_worker && resolved_worker.worker_id,
+        selection_mode: resolved_worker && resolved_worker.selection_mode,
+        requested_worker_id: requested_worker_id(attrs),
+        requested_capability: requested_capability,
+        reason: format_reason(reason)
+      },
+      %{}
+    )
+  end
+
   defp delete_branch(state, relay_session_id, branch_id) do
     updated_relay_branches =
       state.branches
@@ -161,4 +211,36 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
       value -> value
     end
   end
+
+  defp requested_worker_id(attrs) do
+    case attrs
+         |> Map.get(
+           :registered_worker_id,
+           Map.get(attrs, "registered_worker_id", Map.get(attrs, :worker_id, Map.get(attrs, "worker_id")))
+         )
+         |> to_string()
+         |> String.trim() do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp requested_capability(attrs) do
+    case attrs
+         |> Map.get(
+           :required_capability,
+           Map.get(attrs, "required_capability", Map.get(attrs, :capability, Map.get(attrs, "capability")))
+         )
+         |> to_string()
+         |> String.trim() do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp format_reason(nil), do: nil
+  defp format_reason({:unsupported_worker_adapter, adapter}), do: "unsupported_worker_adapter:#{adapter}"
+  defp format_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_reason(reason) when is_binary(reason), do: reason
+  defp format_reason(reason), do: inspect(reason)
 end
