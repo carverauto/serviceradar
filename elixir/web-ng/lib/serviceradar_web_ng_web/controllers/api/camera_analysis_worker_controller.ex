@@ -128,13 +128,27 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
          {:ok, endpoint_url} <- required_string(params, "endpoint_url"),
          {:ok, capabilities} <- normalize_string_list(Map.get(params, "capabilities")),
          {:ok, headers} <- normalize_map(Map.get(params, "headers"), "headers"),
-         {:ok, metadata} <- normalize_map(Map.get(params, "metadata"), "metadata") do
+         {:ok, metadata} <- normalize_map(Map.get(params, "metadata"), "metadata"),
+         {:ok, health_timeout_ms} <-
+           normalize_optional_positive_integer(
+             Map.get(params, "health_timeout_ms"),
+             "health_timeout_ms"
+           ),
+         {:ok, probe_interval_ms} <-
+           normalize_optional_positive_integer(
+             Map.get(params, "probe_interval_ms"),
+             "probe_interval_ms"
+           ) do
       {:ok,
        %{
          worker_id: worker_id,
          display_name: normalize_optional_string(Map.get(params, "display_name")),
          adapter: adapter,
          endpoint_url: endpoint_url,
+         health_endpoint_url: normalize_optional_string(Map.get(params, "health_endpoint_url")),
+         health_path: normalize_optional_string(Map.get(params, "health_path")),
+         health_timeout_ms: health_timeout_ms,
+         probe_interval_ms: probe_interval_ms,
          capabilities: capabilities,
          enabled: normalize_optional_boolean(Map.get(params, "enabled"), true),
          headers: headers,
@@ -149,11 +163,40 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
       |> maybe_put(:display_name, normalize_optional_string(Map.get(params, "display_name")))
       |> maybe_put(:adapter, normalize_optional_string(Map.get(params, "adapter")))
       |> maybe_put(:endpoint_url, normalize_optional_string(Map.get(params, "endpoint_url")))
+      |> maybe_put(
+        :health_endpoint_url,
+        normalize_optional_string(Map.get(params, "health_endpoint_url"))
+      )
+      |> maybe_put(:health_path, normalize_optional_string(Map.get(params, "health_path")))
       |> maybe_put(:enabled, normalize_optional_boolean(Map.get(params, "enabled")))
 
-    with {:ok, attrs} <- maybe_put_string_list(attrs, :capabilities, Map.get(params, "capabilities")),
+    with {:ok, attrs} <-
+           maybe_put_positive_integer(
+             attrs,
+             :health_timeout_ms,
+             Map.get(params, "health_timeout_ms"),
+             "health_timeout_ms"
+           ),
+         {:ok, attrs} <-
+           maybe_put_positive_integer(
+             attrs,
+             :probe_interval_ms,
+             Map.get(params, "probe_interval_ms"),
+             "probe_interval_ms"
+           ),
+         {:ok, attrs} <-
+           maybe_put_string_list(attrs, :capabilities, Map.get(params, "capabilities")),
          {:ok, attrs} <- maybe_put_map(attrs, :headers, Map.get(params, "headers"), "headers") do
       maybe_put_map(attrs, :metadata, Map.get(params, "metadata"), "metadata")
+    end
+  end
+
+  defp maybe_put_positive_integer(attrs, _key, nil, _field_name), do: {:ok, attrs}
+
+  defp maybe_put_positive_integer(attrs, key, value, field_name) do
+    case normalize_optional_positive_integer(value, field_name) do
+      {:ok, normalized} -> {:ok, maybe_put(attrs, key, normalized)}
+      error -> error
     end
   end
 
@@ -226,6 +269,35 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
   defp normalize_optional_boolean("false", _default), do: false
   defp normalize_optional_boolean(_value, default), do: default
 
+  defp normalize_optional_positive_integer(nil, _field_name), do: {:ok, nil}
+
+  defp normalize_optional_positive_integer(value, field_name) when is_integer(value) do
+    if value > 0 do
+      {:ok, value}
+    else
+      {:error, :invalid_request, "#{field_name} must be a positive integer"}
+    end
+  end
+
+  defp normalize_optional_positive_integer(value, field_name) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    if trimmed == "" do
+      {:ok, nil}
+    else
+      case Integer.parse(trimmed) do
+        {parsed, ""} when parsed > 0 ->
+          {:ok, parsed}
+
+        _ ->
+          {:error, :invalid_request, "#{field_name} must be a positive integer"}
+      end
+    end
+  end
+
+  defp normalize_optional_positive_integer(_value, field_name),
+    do: {:error, :invalid_request, "#{field_name} must be a positive integer"}
+
   defp worker_json(worker) do
     %{
       id: worker.id,
@@ -233,13 +305,21 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
       display_name: worker.display_name,
       adapter: worker.adapter,
       endpoint_url: worker.endpoint_url,
+      health_endpoint_url: worker.health_endpoint_url,
+      health_path: worker.health_path,
+      health_timeout_ms: worker.health_timeout_ms,
+      probe_interval_ms: worker.probe_interval_ms,
       capabilities: worker.capabilities || [],
       enabled: worker.enabled,
       health_status: worker.health_status,
       health_reason: worker.health_reason,
+      flapping: worker.flapping || false,
+      flapping_transition_count: worker.flapping_transition_count || 0,
+      flapping_window_size: worker.flapping_window_size || 0,
       consecutive_failures: worker.consecutive_failures || 0,
       header_keys: worker |> Map.get(:headers, %{}) |> Map.keys() |> Enum.sort(),
       metadata: worker.metadata || %{},
+      recent_probe_results: normalize_probe_results(worker.recent_probe_results),
       last_health_transition_at: format_datetime(worker.last_health_transition_at),
       last_healthy_at: format_datetime(worker.last_healthy_at),
       last_failure_at: format_datetime(worker.last_failure_at),
@@ -250,6 +330,19 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
 
   defp format_datetime(nil), do: nil
   defp format_datetime(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+
+  defp normalize_probe_results(results) do
+    results
+    |> List.wrap()
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(fn result ->
+      %{
+        checked_at: Map.get(result, "checked_at") || Map.get(result, :checked_at),
+        status: Map.get(result, "status") || Map.get(result, :status),
+        reason: Map.get(result, "reason") || Map.get(result, :reason)
+      }
+    end)
+  end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

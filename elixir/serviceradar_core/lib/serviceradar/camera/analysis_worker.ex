@@ -12,6 +12,10 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
     :display_name,
     :adapter,
     :endpoint_url,
+    :health_endpoint_url,
+    :health_path,
+    :health_timeout_ms,
+    :probe_interval_ms,
     :capabilities,
     :enabled,
     :health_status,
@@ -20,6 +24,10 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
     :last_healthy_at,
     :last_failure_at,
     :consecutive_failures,
+    :recent_probe_results,
+    :flapping,
+    :flapping_transition_count,
+    :flapping_window_size,
     :headers,
     :metadata
   ]
@@ -91,6 +99,10 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
         :display_name,
         :adapter,
         :endpoint_url,
+        :health_endpoint_url,
+        :health_path,
+        :health_timeout_ms,
+        :probe_interval_ms,
         :capabilities,
         :enabled,
         :health_status,
@@ -99,6 +111,10 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
         :last_healthy_at,
         :last_failure_at,
         :consecutive_failures,
+        :recent_probe_results,
+        :flapping,
+        :flapping_transition_count,
+        :flapping_window_size,
         :headers,
         :metadata
       ]
@@ -117,6 +133,10 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
         :display_name,
         :adapter,
         :endpoint_url,
+        :health_endpoint_url,
+        :health_path,
+        :health_timeout_ms,
+        :probe_interval_ms,
         :capabilities,
         :enabled,
         :health_status,
@@ -125,6 +145,10 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
         :last_healthy_at,
         :last_failure_at,
         :consecutive_failures,
+        :recent_probe_results,
+        :flapping,
+        :flapping_transition_count,
+        :flapping_window_size,
         :headers,
         :metadata
       ]
@@ -164,6 +188,22 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
       public? true
     end
 
+    attribute :health_endpoint_url, :string do
+      public? true
+    end
+
+    attribute :health_path, :string do
+      public? true
+    end
+
+    attribute :health_timeout_ms, :integer do
+      public? true
+    end
+
+    attribute :probe_interval_ms, :integer do
+      public? true
+    end
+
     attribute :capabilities, {:array, :string} do
       allow_nil? false
       public? true
@@ -199,6 +239,30 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
     end
 
     attribute :consecutive_failures, :integer do
+      allow_nil? false
+      public? true
+      default 0
+    end
+
+    attribute :recent_probe_results, {:array, :map} do
+      allow_nil? false
+      public? true
+      default []
+    end
+
+    attribute :flapping, :boolean do
+      allow_nil? false
+      public? true
+      default false
+    end
+
+    attribute :flapping_transition_count, :integer do
+      allow_nil? false
+      public? true
+      default 0
+    end
+
+    attribute :flapping_window_size, :integer do
       allow_nil? false
       public? true
       default 0

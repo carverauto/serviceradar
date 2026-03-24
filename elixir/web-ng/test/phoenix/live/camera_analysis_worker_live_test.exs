@@ -41,6 +41,14 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLiveTest do
     assert html =~ "Registered"
     assert html =~ "Healthy"
     assert html =~ "Unhealthy"
+    assert html =~ "Flapping"
+    assert html =~ "http://alpha.local/readyz"
+    assert html =~ "timeout: 1500 ms"
+    assert html =~ "interval: 10000 ms"
+    assert html =~ "flapping"
+    assert html =~ "4 transitions / 5 probes"
+    assert html =~ "http_status_503"
+    assert html =~ "2026-03-24T15:00:00Z"
 
     assert_receive {:camera_analysis_workers_list, opts}
     assert opts[:scope]

@@ -59,6 +59,7 @@ defmodule ServiceRadarCoreElx.Application do
       ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager,
       {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchSupervisor},
       {Task.Supervisor, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchTaskSupervisor},
+      ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManager,
       ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager,
       ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager,
       ServiceRadarCoreElx.CameraMediaSessionTracker,

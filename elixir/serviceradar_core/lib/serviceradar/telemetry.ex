@@ -99,7 +99,10 @@ defmodule ServiceRadar.Telemetry do
     :limit_rejected,
     :worker_selected,
     :worker_selection_failed,
+    :worker_probe_succeeded,
+    :worker_probe_failed,
     :worker_health_changed,
+    :worker_flapping_changed,
     :worker_failover_succeeded,
     :worker_failover_failed,
     :dispatch_succeeded,
@@ -368,9 +371,21 @@ defmodule ServiceRadar.Telemetry do
         tags: [:relay_boundary, :reason],
         description: "Number of failed analysis worker selections"
       ),
+      counter("serviceradar.camera_relay.analysis.worker_probe_succeeded.count",
+        tags: [:relay_boundary, :worker_id, :adapter],
+        description: "Number of successful camera analysis worker health probes"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_probe_failed.count",
+        tags: [:relay_boundary, :worker_id, :adapter, :reason],
+        description: "Number of failed camera analysis worker health probes"
+      ),
       counter("serviceradar.camera_relay.analysis.worker_health_changed.count",
         tags: [:relay_boundary, :worker_id, :health_status],
         description: "Number of camera analysis worker health state changes"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_flapping_changed.count",
+        tags: [:relay_boundary, :worker_id, :flapping_state],
+        description: "Number of camera analysis worker flapping state changes"
       ),
       counter("serviceradar.camera_relay.analysis.worker_failover_succeeded.count",
         tags: [:relay_boundary, :worker_id, :replacement_worker_id],

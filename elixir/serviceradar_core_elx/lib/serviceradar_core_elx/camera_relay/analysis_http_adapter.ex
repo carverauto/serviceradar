@@ -39,6 +39,36 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapter do
     end
   end
 
+  def probe_health(worker, opts \\ []) when is_map(worker) do
+    request_module = Keyword.get(opts, :request_module, Req)
+    finch = Keyword.get(opts, :finch, ServiceRadar.Finch)
+    timeout_ms = health_timeout_ms(worker)
+
+    req_opts = [
+      headers: normalize_headers(value(worker, :headers, %{})),
+      finch: finch,
+      retry: false,
+      receive_timeout: timeout_ms
+    ]
+
+    case request_module.get(health_endpoint_url(worker), req_opts) do
+      {:ok, %Req.Response{status: status}} when status in 200..299 ->
+        :ok
+
+      {:ok, %Req.Response{status: status, body: body}} ->
+        {:error, {:http_status, status, normalize_body(body)}}
+
+      {:error, %Req.TransportError{reason: :timeout}} ->
+        {:error, :timeout}
+
+      {:error, %Req.TransportError{reason: reason}} ->
+        {:error, {:transport_error, reason}}
+
+      {:error, reason} ->
+        {:error, normalize_error(reason)}
+    end
+  end
+
   defp normalize_response(body) when is_map(body), do: {:ok, [body]}
 
   defp normalize_response(body) when is_list(body) do
@@ -77,6 +107,51 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapter do
 
   defp normalize_error({:timeout, _}), do: :timeout
   defp normalize_error(reason), do: reason
+
+  defp health_endpoint_url(worker) do
+    metadata = value(worker, :metadata, %{})
+
+    case value(worker, :health_endpoint_url) || value(metadata, :health_endpoint_url) do
+      endpoint when is_binary(endpoint) ->
+        case String.trim(endpoint) do
+          "" -> derived_health_endpoint_url(worker, metadata)
+          trimmed -> trimmed
+        end
+
+      _ ->
+        derived_health_endpoint_url(worker, metadata)
+    end
+  end
+
+  defp derived_health_endpoint_url(worker, metadata) do
+    endpoint_url = required_string!(worker, :endpoint_url)
+
+    health_path =
+      normalize_health_path(value(worker, :health_path) || value(metadata, :health_path, "/health"))
+
+    endpoint_url |> URI.parse() |> Map.put(:path, health_path) |> Map.put(:query, nil) |> URI.to_string()
+  end
+
+  defp normalize_health_path(path) when is_binary(path) do
+    trimmed = String.trim(path)
+
+    cond do
+      trimmed == "" -> "/health"
+      String.starts_with?(trimmed, "/") -> trimmed
+      true -> "/" <> trimmed
+    end
+  end
+
+  defp normalize_health_path(_path), do: "/health"
+
+  defp health_timeout_ms(worker) do
+    metadata = value(worker, :metadata, %{})
+
+    positive_integer(
+      value(worker, :health_timeout_ms) || value(metadata, :health_timeout_ms),
+      positive_integer(value(worker, :timeout_ms), @default_timeout_ms)
+    )
+  end
 
   defp required_string!(map, key) do
     case map |> value(key, "") |> to_string() |> String.trim() do

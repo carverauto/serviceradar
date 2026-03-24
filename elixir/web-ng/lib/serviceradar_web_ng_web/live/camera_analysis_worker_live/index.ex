@@ -108,6 +108,12 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
           />
           <.summary_card title="Healthy" value={@summary.healthy} tone="success" icon="hero-heart" />
           <.summary_card title="Unhealthy" value={@summary.unhealthy} tone="error" icon="hero-bolt" />
+          <.summary_card
+            title="Flapping"
+            value={@summary.flapping}
+            tone="warning"
+            icon="hero-arrow-path-rounded-square"
+          />
         </div>
 
         <section class="rounded-2xl border border-base-200 bg-base-100 shadow-sm">
@@ -138,6 +144,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                   <th>Health</th>
                   <th>Failure State</th>
                   <th>Endpoint</th>
+                  <th>Probe</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -178,6 +185,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                       <span class={["badge", health_badge_class(worker.health_status)]}>
                         {worker.health_status || "unknown"}
                       </span>
+                      <span :if={worker.flapping} class="badge badge-warning">flapping</span>
                       <div :if={worker.health_reason} class="text-xs text-base-content/50">
                         {worker.health_reason}
                       </div>
@@ -193,6 +201,9 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                     <div class="text-xs text-base-content/50">
                       last healthy: {format_datetime(worker.last_healthy_at)}
                     </div>
+                    <div class="text-xs text-base-content/50">
+                      {flapping_summary(worker)}
+                    </div>
                   </td>
                   <td>
                     <div
@@ -203,6 +214,22 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                     </div>
                     <div class="text-xs text-base-content/50">
                       headers: {length(worker.header_keys || [])}
+                    </div>
+                  </td>
+                  <td>
+                    <div class="font-mono text-xs text-base-content/70">
+                      {worker.health_endpoint_url || worker.health_path || "/health"}
+                    </div>
+                    <div class="text-xs text-base-content/50">
+                      timeout: {worker.health_timeout_ms || "default"} ms
+                    </div>
+                    <div class="text-xs text-base-content/50">
+                      interval: {worker.probe_interval_ms || "default"} ms
+                    </div>
+                    <div :for={probe <- recent_probes(worker)} class="text-xs text-base-content/50">
+                      {probe_status_label(probe)} {probe_reason_suffix(probe)}at {probe_timestamp(
+                        probe
+                      )}
                     </div>
                   </td>
                   <td>
@@ -248,12 +275,13 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
       total: length(workers),
       enabled: Enum.count(workers, & &1.enabled),
       healthy: Enum.count(workers, &((&1.health_status || "healthy") == "healthy")),
-      unhealthy: Enum.count(workers, &((&1.health_status || "healthy") != "healthy"))
+      unhealthy: Enum.count(workers, &((&1.health_status || "healthy") != "healthy")),
+      flapping: Enum.count(workers, &Map.get(&1, :flapping, false))
     }
   end
 
   defp empty_summary do
-    %{total: 0, enabled: 0, healthy: 0, unhealthy: 0}
+    %{total: 0, enabled: 0, healthy: 0, unhealthy: 0, flapping: 0}
   end
 
   defp health_badge_class("healthy"), do: "badge-success"
@@ -262,6 +290,40 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
 
   defp format_datetime(nil), do: "never"
   defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+
+  defp recent_probes(worker) do
+    worker
+    |> Map.get(:recent_probe_results, [])
+    |> List.wrap()
+    |> Enum.filter(&is_map/1)
+    |> Enum.take(3)
+  end
+
+  defp probe_timestamp(probe) do
+    Map.get(probe, :checked_at) || Map.get(probe, "checked_at") || "unknown"
+  end
+
+  defp probe_status_label(probe) do
+    case Map.get(probe, :status) || Map.get(probe, "status") do
+      nil -> "unknown"
+      status -> to_string(status)
+    end
+  end
+
+  defp probe_reason_suffix(probe) do
+    case Map.get(probe, :reason) || Map.get(probe, "reason") do
+      nil -> ""
+      "" -> ""
+      reason -> "(#{reason}) "
+    end
+  end
+
+  defp flapping_summary(worker) do
+    transition_count = Map.get(worker, :flapping_transition_count, 0)
+    window_size = Map.get(worker, :flapping_window_size, 0)
+    prefix = if Map.get(worker, :flapping, false), do: "flapping", else: "stable"
+    "#{prefix}: #{transition_count} transitions / #{window_size} probes"
+  end
 
   defp camera_analysis_workers do
     Application.get_env(
@@ -294,5 +356,6 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
   defp tone_class("primary"), do: "bg-primary/10 text-primary"
   defp tone_class("success"), do: "bg-success/10 text-success"
   defp tone_class("error"), do: "bg-error/10 text-error"
+  defp tone_class("warning"), do: "bg-warning/10 text-warning"
   defp tone_class(_), do: "bg-base-200 text-base-content"
 end

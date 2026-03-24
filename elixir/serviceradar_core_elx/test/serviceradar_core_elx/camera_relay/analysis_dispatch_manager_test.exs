@@ -109,16 +109,35 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
        }}
     end
 
-    def mark_worker_unhealthy(worker_id, reason) do
-      send(test_pid(), {:mark_worker_unhealthy, worker_id, reason})
+    def mark_worker_unhealthy(worker_id, reason), do: mark_worker_unhealthy(worker_id, reason, [])
 
-      {:ok, %{worker_id: worker_id, health_status: "unhealthy", health_reason: reason}}
+    def mark_worker_unhealthy(worker_id, reason, opts) do
+      send(test_pid(), {:mark_worker_unhealthy, worker_id, reason, opts})
+
+      {:ok,
+       %{
+         worker_id: worker_id,
+         health_status: "unhealthy",
+         health_reason: reason,
+         flapping: false,
+         flapping_transition_count: 0,
+         flapping_window_size: 0
+       }}
     end
 
-    def mark_worker_healthy(worker_id) do
-      send(test_pid(), {:mark_worker_healthy, worker_id})
+    def mark_worker_healthy(worker_id), do: mark_worker_healthy(worker_id, [])
 
-      {:ok, %{worker_id: worker_id, health_status: "healthy"}}
+    def mark_worker_healthy(worker_id, opts) do
+      send(test_pid(), {:mark_worker_healthy, worker_id, opts})
+
+      {:ok,
+       %{
+         worker_id: worker_id,
+         health_status: "healthy",
+         flapping: false,
+         flapping_transition_count: 0,
+         flapping_window_size: 0
+       }}
     end
 
     defp test_pid do
@@ -359,9 +378,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
              })
 
     assert_receive {:deliver, %{sequence: 12}, %{worker_id: "worker-registry-capability-a"}}, 1_000
-    assert_receive {:mark_worker_unhealthy, "worker-registry-capability-a", "http_status_503"}, 1_000
+    assert_receive {:mark_worker_unhealthy, "worker-registry-capability-a", "http_status_503", unhealthy_opts}, 1_000
+    assert unhealthy_opts[:record_probe_history] == true
+    assert unhealthy_opts[:probe_history_limit] == 5
     assert_receive {:deliver, %{sequence: 12}, %{worker_id: "worker-registry-capability-b"}}, 1_000
-    assert_receive {:mark_worker_healthy, "worker-registry-capability-b"}, 1_000
+    assert_receive {:mark_worker_healthy, "worker-registry-capability-b", healthy_opts}, 1_000
+    assert healthy_opts[:record_probe_history] == true
+    assert healthy_opts[:probe_history_limit] == 5
 
     assert_receive {:ingest_result, %{"worker_id" => "worker-registry-capability-b", "sequence" => 12}},
                    1_000

@@ -15,6 +15,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
   @default_max_in_flight 1
   @default_timeout_ms 2_000
   @default_max_failovers 1
+  @default_probe_history_limit 5
 
   def child_spec(opts) do
     %{
@@ -62,6 +63,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
       inflight: %{},
       failover_attempts: 0,
       max_failovers: positive_integer(Map.get(opts, :max_failovers), @default_max_failovers),
+      probe_history_limit: positive_integer(Map.get(opts, :probe_history_limit), @default_probe_history_limit),
       excluded_worker_ids: [worker.worker_id]
     }
 
@@ -212,9 +214,23 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
 
     if failover_eligible?(state, reason) do
       mark_reason = format_reason(reason)
-      _ = state.worker_resolver.mark_worker_unhealthy(state.worker.worker_id, mark_reason)
+      previous_worker = state.worker
 
-      emit_worker_health_changed(next_state, "unhealthy", mark_reason)
+      updated_state =
+        case state.worker_resolver.mark_worker_unhealthy(
+               state.worker.worker_id,
+               mark_reason,
+               record_probe_history: true,
+               probe_history_limit: state.probe_history_limit
+             ) do
+          {:ok, updated_worker} ->
+            emit_worker_health_changed(next_state, "unhealthy", mark_reason)
+            maybe_emit_worker_flapping_changed(next_state, previous_worker, updated_worker)
+            merge_worker_runtime_state(next_state, updated_worker)
+
+          {:error, _reason} ->
+            next_state
+        end
 
       selection_attrs = %{
         required_capability: state.worker.requested_capability,
@@ -223,10 +239,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
 
       case state.worker_resolver.resolve_http_worker(selection_attrs) do
         {:ok, replacement_worker} ->
-          failover_attempt = state.failover_attempts + 1
+          failover_attempt = updated_state.failover_attempts + 1
 
           emit_failover_event(
-            next_state,
+            updated_state,
             :worker_failover_succeeded,
             state.worker.worker_id,
             replacement_worker.worker_id,
@@ -235,7 +251,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
           )
 
           replacement_state =
-            next_state
+            updated_state
             |> Map.put(
               :worker,
               Map.merge(next_state.worker, %{
@@ -244,7 +260,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
                 headers: replacement_worker.headers,
                 selection_mode: replacement_worker.selection_mode,
                 requested_capability: replacement_worker.requested_capability,
-                registry_managed?: replacement_worker.registry_managed?
+                registry_managed?: replacement_worker.registry_managed?,
+                flapping: Map.get(replacement_worker, :flapping, false),
+                flapping_transition_count: Map.get(replacement_worker, :flapping_transition_count, 0),
+                flapping_window_size: Map.get(replacement_worker, :flapping_window_size, 0)
               })
             )
             |> Map.put(:failover_attempts, failover_attempt)
@@ -257,10 +276,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
           {:noreply, replacement_state}
 
         {:error, failover_reason} ->
-          failover_attempt = state.failover_attempts + 1
+          failover_attempt = updated_state.failover_attempts + 1
 
           emit_failover_event(
-            next_state,
+            updated_state,
             :worker_failover_failed,
             state.worker.worker_id,
             nil,
@@ -268,7 +287,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
             format_reason(failover_reason)
           )
 
-          emit_terminal_dispatch_failure(next_state, input, reason, map_size(inflight), failover_attempt)
+          emit_terminal_dispatch_failure(updated_state, input, reason, map_size(inflight), failover_attempt)
       end
     else
       emit_terminal_dispatch_failure(next_state, input, reason, map_size(inflight), state.failover_attempts)
@@ -291,10 +310,19 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
 
   defp maybe_mark_worker_healthy(state) do
     if state.worker.registry_managed? do
-      case state.worker_resolver.mark_worker_healthy(state.worker.worker_id) do
-        {:ok, _worker} ->
+      case state.worker_resolver.mark_worker_healthy(
+             state.worker.worker_id,
+             record_probe_history: true,
+             probe_history_limit: state.probe_history_limit
+           ) do
+        {:ok, updated_worker} ->
           emit_worker_health_changed(state, "healthy", nil)
-          %{state | failover_attempts: 0, excluded_worker_ids: [state.worker.worker_id]}
+          maybe_emit_worker_flapping_changed(state, state.worker, updated_worker)
+
+          state
+          |> merge_worker_runtime_state(updated_worker)
+          |> Map.put(:failover_attempts, 0)
+          |> Map.put(:excluded_worker_ids, [state.worker.worker_id])
 
         {:error, _reason} ->
           state
@@ -319,6 +347,40 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
         failover_attempt: state.failover_attempts
       }
     )
+  end
+
+  defp maybe_emit_worker_flapping_changed(state, previous_worker, updated_worker) do
+    previous_flapping = Map.get(previous_worker, :flapping, false)
+    flapping = Map.get(updated_worker, :flapping, false)
+
+    if previous_flapping != flapping do
+      state.telemetry_module.emit_camera_relay_analysis_event(
+        :worker_flapping_changed,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: state.relay_session_id,
+          branch_id: state.branch_id,
+          worker_id: state.worker.worker_id,
+          previous_flapping: previous_flapping,
+          flapping: flapping,
+          flapping_state: if(flapping, do: "flapping", else: "stable")
+        },
+        %{
+          flapping_transition_count: Map.get(updated_worker, :flapping_transition_count, 0),
+          flapping_window_size: Map.get(updated_worker, :flapping_window_size, 0)
+        }
+      )
+    end
+  end
+
+  defp merge_worker_runtime_state(state, updated_worker) do
+    Map.update!(state, :worker, fn worker ->
+      Map.merge(worker, %{
+        flapping: Map.get(updated_worker, :flapping, false),
+        flapping_transition_count: Map.get(updated_worker, :flapping_transition_count, 0),
+        flapping_window_size: Map.get(updated_worker, :flapping_window_size, 0)
+      })
+    end)
   end
 
   defp emit_failover_event(state, event, from_worker_id, to_worker_id, failover_attempt, reason) do

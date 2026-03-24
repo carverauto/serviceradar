@@ -6,6 +6,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
   alias ServiceRadar.Camera.AnalysisWorker
 
   @supported_http_adapters ["http"]
+  @default_flapping_transition_threshold 3
 
   def resolve_http_worker(attrs, opts \\ []) do
     resource = Keyword.get(opts, :resource, AnalysisWorker)
@@ -39,18 +40,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
 
     with {:ok, worker} <- resource.get_by_worker_id(worker_id, actor_option(opts)),
          false <- is_nil(worker),
+         attrs =
+           %{health_status: "healthy", health_reason: nil, last_healthy_at: now, consecutive_failures: 0}
+           |> maybe_put_recent_probe_result(worker, "healthy", nil, now, opts)
+           |> maybe_put_transition_timestamp(worker, now, "healthy")
+           |> put_flapping_state(worker, opts),
          {:ok, updated_worker} <-
-           resource.update_worker(
-             worker,
-             %{
-               health_status: "healthy",
-               health_reason: nil,
-               last_health_transition_at: now,
-               last_healthy_at: now,
-               consecutive_failures: 0
-             },
-             actor_option(opts)
-           ) do
+           resource.update_worker(worker, attrs, actor_option(opts)) do
       {:ok, normalize_worker(updated_worker)}
     else
       true -> {:error, :worker_not_found}
@@ -65,18 +61,18 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
 
     with {:ok, worker} <- resource.get_by_worker_id(worker_id, actor_option(opts)),
          false <- is_nil(worker),
+         attrs =
+           %{
+             health_status: "unhealthy",
+             health_reason: health_reason,
+             last_failure_at: now,
+             consecutive_failures: map_value(worker, :consecutive_failures, 0) + 1
+           }
+           |> maybe_put_recent_probe_result(worker, "unhealthy", health_reason, now, opts)
+           |> maybe_put_transition_timestamp(worker, now, "unhealthy")
+           |> put_flapping_state(worker, opts),
          {:ok, updated_worker} <-
-           resource.update_worker(
-             worker,
-             %{
-               health_status: "unhealthy",
-               health_reason: health_reason,
-               last_health_transition_at: now,
-               last_failure_at: now,
-               consecutive_failures: map_value(worker, :consecutive_failures, 0) + 1
-             },
-             actor_option(opts)
-           ) do
+           resource.update_worker(worker, attrs, actor_option(opts)) do
       {:ok, normalize_worker(updated_worker)}
     else
       true -> {:error, :worker_not_found}
@@ -181,6 +177,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
       display_name: map_value(worker, :display_name),
       adapter: map_value(worker, :adapter, "http"),
       endpoint_url: map_value(worker, :endpoint_url),
+      health_endpoint_url: map_value(worker, :health_endpoint_url),
+      health_path: map_value(worker, :health_path),
+      health_timeout_ms: map_value(worker, :health_timeout_ms),
+      probe_interval_ms: map_value(worker, :probe_interval_ms),
       capabilities: map_value(worker, :capabilities, []),
       headers: map_value(worker, :headers, %{}),
       enabled: map_value(worker, :enabled, true),
@@ -190,6 +190,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
       last_healthy_at: map_value(worker, :last_healthy_at),
       last_failure_at: map_value(worker, :last_failure_at),
       consecutive_failures: map_value(worker, :consecutive_failures, 0),
+      recent_probe_results: map_value(worker, :recent_probe_results, []),
+      flapping: map_value(worker, :flapping, false),
+      flapping_transition_count: map_value(worker, :flapping_transition_count, 0),
+      flapping_window_size: map_value(worker, :flapping_window_size, 0),
       metadata: map_value(worker, :metadata, %{})
     }
   end
@@ -266,6 +270,71 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
   defp normalize_health_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp normalize_health_reason(reason) when is_binary(reason), do: reason
   defp normalize_health_reason(reason), do: inspect(reason)
+
+  defp maybe_put_transition_timestamp(attrs, worker, now, target_status) do
+    if map_value(worker, :health_status, "healthy") == target_status do
+      attrs
+    else
+      Map.put(attrs, :last_health_transition_at, now)
+    end
+  end
+
+  defp maybe_put_recent_probe_result(attrs, worker, status, reason, checked_at, opts) do
+    if Keyword.get(opts, :record_probe_history, false) do
+      history_limit = Keyword.get(opts, :probe_history_limit, 5)
+
+      entry = %{
+        "checked_at" => DateTime.to_iso8601(checked_at),
+        "status" => status,
+        "reason" => reason
+      }
+
+      history =
+        worker
+        |> map_value(:recent_probe_results, [])
+        |> List.wrap()
+        |> Enum.filter(&is_map/1)
+        |> Enum.take(max(history_limit - 1, 0))
+
+      Map.put(attrs, :recent_probe_results, [entry | history])
+    else
+      attrs
+    end
+  end
+
+  defp put_flapping_state(attrs, worker, opts) do
+    recent_probe_results = Map.get(attrs, :recent_probe_results, map_value(worker, :recent_probe_results, []))
+
+    flapping_metadata = derive_flapping_metadata(recent_probe_results, opts)
+
+    attrs
+    |> Map.put(:flapping, flapping_metadata.flapping)
+    |> Map.put(:flapping_transition_count, flapping_metadata.flapping_transition_count)
+    |> Map.put(:flapping_window_size, flapping_metadata.flapping_window_size)
+  end
+
+  defp derive_flapping_metadata(recent_probe_results, opts) do
+    history =
+      recent_probe_results
+      |> List.wrap()
+      |> Enum.filter(&is_map/1)
+
+    transition_count =
+      history
+      |> Enum.map(fn result -> Map.get(result, "status") || Map.get(result, :status) end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.count(fn [left, right] -> left != right end)
+
+    window_size = length(history)
+    threshold = Keyword.get(opts, :flapping_transition_threshold, @default_flapping_transition_threshold)
+
+    %{
+      flapping: window_size >= threshold + 1 and transition_count >= threshold,
+      flapping_transition_count: transition_count,
+      flapping_window_size: window_size
+    }
+  end
 
   defp present_string(map, key) when is_map(map) do
     case map |> map_value(key) |> to_string() |> String.trim() do

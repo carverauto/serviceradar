@@ -15,7 +15,16 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
          capabilities: ["object_detection", "people_count"],
          enabled: true,
          health_status: "healthy",
-         headers: %{"authorization" => "Bearer token"}
+         flapping: false,
+         flapping_transition_count: 2,
+         flapping_window_size: 4,
+         headers: %{"authorization" => "Bearer token"},
+         recent_probe_results: [
+           %{"checked_at" => "2026-03-24T14:59:00Z", "status" => "healthy", "reason" => nil},
+           %{"checked_at" => "2026-03-24T14:58:30Z", "status" => "healthy", "reason" => nil},
+           %{"checked_at" => "2026-03-24T14:58:00Z", "status" => "unhealthy", "reason" => "http_status_503"},
+           %{"checked_at" => "2026-03-24T14:57:30Z", "status" => "healthy", "reason" => nil}
+         ]
        }}
     end
 
@@ -161,21 +170,37 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
              AnalysisWorkerResolver.mark_worker_unhealthy(
                "worker-http",
                {:http_status, 503, %{}},
-               resource: ResourceStub
+               resource: ResourceStub,
+               record_probe_history: true,
+               probe_history_limit: 5
              )
 
     assert unhealthy_worker.health_status == "unhealthy"
     assert unhealthy_worker.health_reason == "http_status_503"
     assert unhealthy_worker.consecutive_failures == 1
+    assert unhealthy_worker.flapping == true
+    assert unhealthy_worker.flapping_transition_count == 3
+    assert unhealthy_worker.flapping_window_size == 5
+    assert length(unhealthy_worker.recent_probe_results) == 5
+    assert Enum.at(unhealthy_worker.recent_probe_results, 0)["status"] == "unhealthy"
+    assert Enum.at(unhealthy_worker.recent_probe_results, 0)["reason"] == "http_status_503"
+    assert Enum.at(unhealthy_worker.recent_probe_results, 1)["status"] == "healthy"
 
     assert {:ok, healthy_worker} =
              AnalysisWorkerResolver.mark_worker_healthy(
                "worker-http",
-               resource: ResourceStub
+               resource: ResourceStub,
+               record_probe_history: true,
+               probe_history_limit: 5
              )
 
     assert healthy_worker.health_status == "healthy"
     assert healthy_worker.health_reason == nil
     assert healthy_worker.consecutive_failures == 0
+    assert healthy_worker.flapping == false
+    assert healthy_worker.flapping_transition_count == 2
+    assert healthy_worker.flapping_window_size == 5
+    assert length(healthy_worker.recent_probe_results) == 5
+    assert Enum.at(healthy_worker.recent_probe_results, 0)["status"] == "healthy"
   end
 end
