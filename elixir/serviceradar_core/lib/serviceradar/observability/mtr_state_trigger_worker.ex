@@ -131,7 +131,6 @@ defmodule ServiceRadar.Observability.MtrStateTriggerWorker do
 
   defp dispatch_reason_key(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp dispatch_reason_key({kind, _}) when is_atom(kind), do: Atom.to_string(kind)
-  defp dispatch_reason_key(reason), do: inspect(reason)
 
   defp log_dispatch_summary(stats, mode, transition_class, target_key) do
     Logger.info(
