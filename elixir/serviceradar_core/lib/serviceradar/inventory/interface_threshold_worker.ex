@@ -747,7 +747,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
          not is_nil(setting.threshold_value) do
       metric_name = legacy_metric_name_for(setting.threshold_metric)
 
-      if metric_name && metric_selected?(metric_name, selected_metrics) do
+      if metric_selected?(metric_name, selected_metrics) do
         config = %{
           "enabled" => true,
           "comparison" => setting.threshold_comparison,

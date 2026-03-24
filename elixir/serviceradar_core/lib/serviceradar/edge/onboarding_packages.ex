@@ -12,7 +12,6 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
 
   import Ash.Expr
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Edge.OnboardingEvents
   alias ServiceRadar.Edge.OnboardingPackage
@@ -490,51 +489,12 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     component_id = attrs[:component_id] || generate_component_id(attrs[:component_type])
     component_type = attrs[:component_type] || :gateway
 
-    # Generate component certificate
-    with {:ok, cert_data} <-
-           generate_component_certificate(
-             component_id,
-             component_type,
-             partition_id,
-             validity_days: cert_validity
-           ) do
-      # Build the bundle (cert + key + CA chain in a single PEM)
-      bundle_pem = build_certificate_bundle(cert_data)
-      bundle_ciphertext = Crypto.encrypt(bundle_pem)
-
-      # Add the SPIFFE ID to the package
-      attrs_with_cert =
-        attrs
-        |> Map.put(:component_id, component_id)
-        |> Map.put(:downstream_spiffe_id, cert_data.spiffe_id)
-
-      # Create the package with the encrypted bundle
-      case create(attrs_with_cert, opts) do
-        {:ok, result} ->
-          # Update with the certificate bundle using system actor
-          actor = SystemActor.system(:onboarding_packages)
-
-          updated =
-            result.package
-            |> Ash.Changeset.for_update(
-              :update_tokens,
-              %{
-                bundle_ciphertext: bundle_ciphertext,
-                downstream_spiffe_id: cert_data.spiffe_id
-              },
-              actor: actor
-            )
-            |> Ash.update!()
-
-          {:ok,
-           result
-           |> Map.put(:package, updated)
-           |> Map.put(:certificate_data, cert_data)}
-
-        error ->
-          error
-      end
-    end
+    generate_component_certificate(
+      component_id,
+      component_type,
+      partition_id,
+      validity_days: cert_validity
+    )
   end
 
   @doc """
@@ -568,17 +528,6 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
        |> Map.put(:package, updated)
        |> Map.put(:certificate_data, cert_data)}
     end
-  end
-
-  defp build_certificate_bundle(cert_data) do
-    """
-    # Component Certificate
-    #{cert_data.certificate_pem}
-    # Component Private Key
-    #{cert_data.private_key_pem}
-    # CA Chain
-    #{cert_data.ca_chain_pem}
-    """
   end
 
   defp generate_component_id(component_type) do

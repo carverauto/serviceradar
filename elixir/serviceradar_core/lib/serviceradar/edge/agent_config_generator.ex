@@ -261,7 +261,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
       |> Ash.Query.filter(enabled == true)
 
-    case Ash.read(query) do
+    case Ash.read(query, actor: actor) do
       {:ok, checks} ->
         Logger.debug("Loaded #{length(checks)} checks for agent #{agent_id}")
         {:ok, checks}

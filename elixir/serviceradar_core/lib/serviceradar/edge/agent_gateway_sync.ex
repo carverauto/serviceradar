@@ -579,9 +579,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
       %Ash.BulkResult{status: :error, errors: errors} ->
         {:error, List.first(errors) || :bulk_update_failed}
-
-      other ->
-        {:error, other}
     end
   end
 
