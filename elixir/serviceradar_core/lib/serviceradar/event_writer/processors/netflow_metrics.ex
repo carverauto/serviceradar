@@ -332,6 +332,4 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetrics do
   rescue
     _ -> nil
   end
-
-  defp inet_to_string(_), do: nil
 end

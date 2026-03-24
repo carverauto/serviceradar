@@ -582,8 +582,6 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     end
   end
 
-  defp attach_ingest_metadata(attributes, _metadata, _subject), do: attributes || %{}
-
   defp iso8601(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
   defp iso8601(_), do: nil
 

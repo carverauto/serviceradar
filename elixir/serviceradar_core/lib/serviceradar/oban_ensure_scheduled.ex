@@ -31,15 +31,14 @@ defmodule ServiceRadar.ObanEnsureScheduled do
       @schedule_named_start named_start?
       @include_worker_metadata include_worker?
 
-      def start_link(opts \\ []) do
-        opts =
-          if @schedule_named_start do
-            Keyword.put_new(opts, :name, __MODULE__)
-          else
-            opts
-          end
-
-        GenServer.start_link(__MODULE__, %{}, opts)
+      if @schedule_named_start do
+        def start_link(opts \\ []) do
+          GenServer.start_link(__MODULE__, %{}, Keyword.put_new(opts, :name, __MODULE__))
+        end
+      else
+        def start_link(opts \\ []) do
+          GenServer.start_link(__MODULE__, %{}, opts)
+        end
       end
 
       @impl GenServer

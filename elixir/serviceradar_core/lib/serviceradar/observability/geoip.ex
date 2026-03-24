@@ -97,9 +97,6 @@ defmodule ServiceRadar.Observability.GeoIP do
     else
       {:error, _} = err ->
         err
-
-      other ->
-        {:error, other}
     end
   end
 

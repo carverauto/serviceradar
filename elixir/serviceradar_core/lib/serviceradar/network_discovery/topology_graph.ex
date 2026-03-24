@@ -23,6 +23,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   @attachment_evidence_classes MapSet.new(["endpoint-attachment"])
   @inferred_evidence_classes MapSet.new(["inferred"])
 
+  @type projection_payload :: %{
+          local_device_id: String.t(),
+          local_device_ip: term(),
+          neighbor_device_id: String.t(),
+          local_interface_id: String.t(),
+          neighbor_interface_id: String.t(),
+          protocol: String.t(),
+          local_if_name: term(),
+          local_if_index: term(),
+          neighbor_port_name: term(),
+          neighbor_name: term(),
+          neighbor_ip: term(),
+          evidence_class: String.t(),
+          confidence_tier: String.t(),
+          confidence_score: number(),
+          confidence_reason: String.t(),
+          observed_at: String.t()
+        }
+
   @spec upsert_links([map()]) :: :ok
   def upsert_links([]), do: :ok
 
@@ -73,18 +92,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         }
   def projection_diagnostics(links) when is_list(links) do
     Enum.reduce(links, empty_projection_diagnostics(), fn link, diagnostics ->
-      case classify_projection(link) do
-        {:ok, %{mode: :backbone, reason: reason}} ->
-          increment_diagnostic(diagnostics, :accepted, reason)
-
-        {:ok, %{mode: :auxiliary, reason: reason}} ->
-          increment_diagnostic(diagnostics, :accepted, reason)
-
-        {:ok, %{mode: :skip, reason: reason}} ->
-          increment_diagnostic(diagnostics, :rejected, reason)
-
-        {:error, :missing_ids} ->
+      case projection_payload(link) do
+        nil ->
           increment_diagnostic(diagnostics, :rejected, :missing_ids)
+
+        payload ->
+          increment_projection_diagnostic(diagnostics, payload)
       end
     end)
   end
@@ -100,58 +113,65 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   """
   @spec classify_projection(map()) ::
           {:ok,
-           %{mode: :backbone | :auxiliary | :skip, relation: String.t() | nil, payload: map()}}
+           %{
+             mode: :backbone | :auxiliary | :skip,
+             relation: String.t() | nil,
+             payload: projection_payload()
+           }}
           | {:error, :missing_ids}
   def classify_projection(link) when is_map(link) do
-    case build_link_payload(link) do
-      {:ok, payload} ->
-        case projection_mode(payload) do
-          {:backbone, reason} ->
-            {:ok, %{mode: :backbone, relation: "CONNECTS_TO", payload: payload, reason: reason}}
+    with {:ok, payload} <- build_link_payload(link) do
+      case projection_mode(payload) do
+        {:backbone, reason} ->
+          {:ok, %{mode: :backbone, relation: "CONNECTS_TO", payload: payload, reason: reason}}
 
-          {:auxiliary, reason} ->
-            {:ok,
-             %{
-               mode: :auxiliary,
-               relation: evidence_relation_type(payload),
-               payload: payload,
-               reason: reason
-             }}
+        {:auxiliary, reason} ->
+          {:ok,
+           %{
+             mode: :auxiliary,
+             relation: evidence_relation_type(payload),
+             payload: payload,
+             reason: reason
+           }}
 
-          {:skip, reason} ->
-            {:ok, %{mode: :skip, relation: nil, payload: payload, reason: reason}}
-        end
-
-      {:error, :missing_ids} = error ->
-        error
+        {:skip, reason} ->
+          {:ok, %{mode: :skip, relation: nil, payload: payload, reason: reason}}
+      end
     end
   end
 
   defp reduce_topology_link(link, {local_ids, neighbor_index, diagnostics}) do
-    case classify_projection(link) do
-      {:ok, %{mode: :backbone, payload: payload, reason: reason}} ->
-        local_ids = MapSet.put(local_ids, payload.local_device_id)
-        upsert_backbone_link_payload(payload)
-        diagnostics = increment_diagnostic(diagnostics, :accepted, reason)
-
-        neighbor_index =
-          add_neighbor_edge(neighbor_index, payload.local_device_id, payload.neighbor_device_id)
-
-        {local_ids, neighbor_index, diagnostics}
-
-      {:ok, %{mode: :auxiliary, payload: payload, reason: reason}} ->
-        upsert_auxiliary_link_payload(payload)
-        diagnostics = increment_diagnostic(diagnostics, :accepted, reason)
-        {local_ids, neighbor_index, diagnostics}
-
-      {:ok, %{mode: :skip, reason: reason}} ->
-        diagnostics = increment_diagnostic(diagnostics, :rejected, reason)
-        {local_ids, neighbor_index, diagnostics}
-
-      {:error, :missing_ids} ->
+    case projection_payload(link) do
+      nil ->
         Logger.debug("Skipping topology link missing device identifiers")
         diagnostics = increment_diagnostic(diagnostics, :rejected, :missing_ids)
         {local_ids, neighbor_index, diagnostics}
+
+      payload ->
+        case projection_mode(payload) do
+          {:backbone, reason} ->
+            local_ids = MapSet.put(local_ids, payload.local_device_id)
+            upsert_backbone_link_payload(payload)
+            diagnostics = increment_diagnostic(diagnostics, :accepted, reason)
+
+            neighbor_index =
+              add_neighbor_edge(
+                neighbor_index,
+                payload.local_device_id,
+                payload.neighbor_device_id
+              )
+
+            {local_ids, neighbor_index, diagnostics}
+
+          {:auxiliary, reason} ->
+            upsert_auxiliary_link_payload(payload)
+            diagnostics = increment_diagnostic(diagnostics, :accepted, reason)
+            {local_ids, neighbor_index, diagnostics}
+
+          {:skip, reason} ->
+            diagnostics = increment_diagnostic(diagnostics, :rejected, reason)
+            {local_ids, neighbor_index, diagnostics}
+        end
     end
   end
 
@@ -232,46 +252,49 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end
   end
 
-  defp build_link_payload(link) do
-    local_device_id = non_blank(link_value(link, :local_device_id))
-    neighbor_device_id = non_blank(neighbor_device_id(link))
-    local_interface_id = local_interface_id(link, local_device_id)
-    neighbor_port = neighbor_port(link)
-    neighbor_interface_id = neighbor_interface_id(neighbor_device_id, neighbor_port)
-    metadata = link_value(link, :metadata) || %{}
-    protocol = link_value(link, :protocol) || "unknown"
+  @spec build_link_payload(map()) :: {:ok, projection_payload()} | {:error, :missing_ids}
+  defp build_link_payload(link) when is_map(link) do
+    case projection_payload(link) do
+      nil -> {:error, :missing_ids}
+      payload -> {:ok, payload}
+    end
+  end
 
-    evidence_class =
-      map_value(metadata, :evidence_class) ||
-        default_evidence_class_for_protocol(protocol)
+  defp projection_payload(link) when is_map(link) do
+    with local_device_id when is_binary(local_device_id) <-
+           non_blank(link_value(link, :local_device_id)),
+         neighbor_device_id when is_binary(neighbor_device_id) <-
+           non_blank(neighbor_device_id(link)) do
+      local_interface_id = local_interface_id(link, local_device_id)
+      neighbor_port = neighbor_port(link)
+      neighbor_interface_id = neighbor_interface_id(neighbor_device_id, neighbor_port)
+      metadata = link_value(link, :metadata) || %{}
+      protocol = link_value(link, :protocol) || "unknown"
 
-    confidence_tier = confidence_tier(link, metadata)
-    confidence_score = confidence_score(link, metadata)
-    confidence_reason = confidence_reason(link, metadata)
-    observed_at = observed_at(link)
+      evidence_class =
+        map_value(metadata, :evidence_class) ||
+          default_evidence_class_for_protocol(protocol)
 
-    if is_nil(local_device_id) or is_nil(neighbor_device_id) do
-      {:error, :missing_ids}
+      %{
+        local_device_id: local_device_id,
+        local_device_ip: link_value(link, :local_device_ip),
+        neighbor_device_id: neighbor_device_id,
+        local_interface_id: local_interface_id,
+        neighbor_interface_id: neighbor_interface_id,
+        protocol: protocol,
+        local_if_name: link_value(link, :local_if_name),
+        local_if_index: link_value(link, :local_if_index),
+        neighbor_port_name: neighbor_port,
+        neighbor_name: link_value(link, :neighbor_system_name),
+        neighbor_ip: link_value(link, :neighbor_mgmt_addr),
+        evidence_class: evidence_class,
+        confidence_tier: confidence_tier(link, metadata),
+        confidence_score: confidence_score(link, metadata),
+        confidence_reason: confidence_reason(link, metadata),
+        observed_at: observed_at(link)
+      }
     else
-      {:ok,
-       %{
-         local_device_id: local_device_id,
-         local_device_ip: link_value(link, :local_device_ip),
-         neighbor_device_id: neighbor_device_id,
-         local_interface_id: local_interface_id,
-         neighbor_interface_id: neighbor_interface_id,
-         protocol: protocol,
-         local_if_name: link_value(link, :local_if_name),
-         local_if_index: link_value(link, :local_if_index),
-         neighbor_port_name: neighbor_port,
-         neighbor_name: link_value(link, :neighbor_system_name),
-         neighbor_ip: link_value(link, :neighbor_mgmt_addr),
-         evidence_class: evidence_class,
-         confidence_tier: confidence_tier,
-         confidence_score: confidence_score,
-         confidence_reason: confidence_reason,
-         observed_at: observed_at
-       }}
+      _ -> nil
     end
   end
 
@@ -438,6 +461,19 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end
   end
 
+  defp increment_projection_diagnostic(diagnostics, payload) do
+    case projection_mode(payload) do
+      {:backbone, reason} ->
+        increment_diagnostic(diagnostics, :accepted, reason)
+
+      {:auxiliary, reason} ->
+        increment_diagnostic(diagnostics, :accepted, reason)
+
+      {:skip, reason} ->
+        increment_diagnostic(diagnostics, :rejected, reason)
+    end
+  end
+
   defp empty_projection_diagnostics do
     %{accepted: %{}, rejected: %{}, total: 0}
   end
@@ -540,8 +576,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp strict_protocol_interface_identity?(payload) when is_map(payload) do
     valid_ifindex?(payload.local_if_index) or is_binary(non_blank(payload.local_if_name))
   end
-
-  defp strict_protocol_interface_identity?(_payload), do: false
 
   defp valid_ifindex?(value) when is_integer(value), do: value > 0
   defp valid_ifindex?(_value), do: false
@@ -1914,16 +1948,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     |> String.downcase()
   end
 
-  defp normalize_confidence_tier(nil), do: "low"
-
   defp normalize_confidence_tier(value) do
     value
     |> to_string()
     |> String.trim()
     |> String.downcase()
   end
-
-  defp normalize_confidence_reason(nil), do: ""
 
   defp normalize_confidence_reason(value) do
     value
@@ -1965,7 +1995,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end
   end
 
-  defp default_interface_id(nil, _label), do: nil
   defp default_interface_id(device_id, label), do: "#{device_id}/#{label}"
 
   defp non_blank(nil), do: nil

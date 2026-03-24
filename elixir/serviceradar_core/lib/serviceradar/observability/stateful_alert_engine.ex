@@ -582,11 +582,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     case severity_id do
       6 -> "fatal"
       5 -> "critical"
-      4 -> "error"
       3 -> "warning"
-      2 -> "notice"
       1 -> "info"
-      _ -> "unknown"
     end
   end
 
@@ -864,7 +861,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end
   end
 
-  defp fetch_attr(map, key) when is_map(map) and is_binary(key), do: Map.get(map, key)
   defp fetch_attr(_map, _key), do: nil
 
   defp record_bucket_start(record, bucket_seconds) do

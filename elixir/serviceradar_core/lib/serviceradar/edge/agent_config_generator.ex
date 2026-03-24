@@ -122,38 +122,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   """
   @spec generate_config(String.t()) :: {:ok, agent_config()} | {:error, term()}
   def generate_config(agent_id) do
-    case load_agent_checks(agent_id) do
-      {:ok, checks} ->
-        sync_payload = load_sync_payload(agent_id)
-        sweep_config = load_sweep_config(agent_id)
-        mapper_config = load_mapper_config(agent_id)
-        sysmon_config = load_sysmon_config(agent_id)
-        snmp_config = load_snmp_config(agent_id)
-        plugin_assignments = load_plugin_assignments(agent_id)
-        plugin_engine_limits = load_plugin_engine_limits(agent_id)
-
-        plugin_config = %{
-          assignments: plugin_assignments,
-          engine_limits: plugin_engine_limits
-        }
-
-        config =
-          build_config(
-            checks,
-            sync_payload,
-            sweep_config,
-            mapper_config,
-            sysmon_config,
-            snmp_config,
-            plugin_config
-          )
-
-        {:ok, config}
-
-      {:error, reason} ->
-        Logger.error("Failed to load checks for agent #{agent_id}: #{inspect(reason)}")
-        {:error, reason}
-    end
+    {:ok, generate_config!(agent_id)}
+  rescue
+    error ->
+      Logger.error("Failed to generate config for agent #{agent_id}: #{inspect(error)}")
+      {:error, {:database_error, error}}
   end
 
   @doc """
@@ -251,8 +224,34 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     }
   end
 
+  defp generate_config!(agent_id) do
+    checks = load_agent_checks!(agent_id)
+    sync_payload = load_sync_payload(agent_id)
+    sweep_config = load_sweep_config(agent_id)
+    mapper_config = load_mapper_config(agent_id)
+    sysmon_config = load_sysmon_config(agent_id)
+    snmp_config = load_snmp_config(agent_id)
+    plugin_assignments = load_plugin_assignments(agent_id)
+    plugin_engine_limits = load_plugin_engine_limits(agent_id)
+
+    plugin_config = %{
+      assignments: plugin_assignments,
+      engine_limits: plugin_engine_limits
+    }
+
+    build_config(
+      checks,
+      sync_payload,
+      sweep_config,
+      mapper_config,
+      sysmon_config,
+      snmp_config,
+      plugin_config
+    )
+  end
+
   # Load service checks assigned to this agent from the database
-  defp load_agent_checks(agent_id) do
+  defp load_agent_checks!(agent_id) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:agent_config_generator)
 
@@ -261,15 +260,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
       |> Ash.Query.filter(enabled == true)
 
-    case Ash.read(query, actor: actor) do
-      {:ok, checks} ->
-        Logger.debug("Loaded #{length(checks)} checks for agent #{agent_id}")
-        {:ok, checks}
-
-      {:error, reason} ->
-        Logger.error("Error loading checks: #{inspect(reason)}")
-        {:error, {:database_error, reason}}
-    end
+    checks = Ash.read!(query, actor: actor)
+    Logger.debug("Loaded #{length(checks)} checks for agent #{agent_id}")
+    checks
   end
 
   defp load_plugin_assignments(agent_id) do
