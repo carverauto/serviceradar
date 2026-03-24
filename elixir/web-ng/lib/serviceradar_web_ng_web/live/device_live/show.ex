@@ -6174,7 +6174,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     value_field =
       case value_field do
-        nil -> nil
         "" -> nil
         other -> other |> to_string() |> String.trim()
       end
