@@ -38,7 +38,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnnexBToNALU do
           {:buffer,
            {:output,
             %Buffer{
-              payload: nalu,
+              payload: prefixed_annexb_nalu(nalu),
               pts: buffer.pts,
               dts: buffer.dts,
               metadata: Map.put(buffer.metadata || %{}, :payload_format, "nalu")
@@ -76,4 +76,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnnexBToNALU do
 
   defp finish_current(acc, <<>>), do: acc
   defp finish_current(acc, current), do: [current | acc]
+
+  defp prefixed_annexb_nalu(nalu), do: <<0, 0, 0, 1, nalu::binary>>
 end

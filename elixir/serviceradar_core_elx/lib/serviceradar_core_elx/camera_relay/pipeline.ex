@@ -9,6 +9,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
   alias Membrane.WebRTC.Sink, as: WebRTCSink
   alias ServiceRadarCoreElx.CameraRelay.AnalysisSink
   alias ServiceRadarCoreElx.CameraRelay.AnnexBToNALU
+  alias ServiceRadarCoreElx.CameraRelay.BoomboxOutputBin
   alias ServiceRadarCoreElx.CameraRelay.ChunkSource
   alias ServiceRadarCoreElx.CameraRelay.PubSubSink
 
@@ -36,7 +37,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
       |> child(@webrtc_tee, Membrane.Tee)
     ]
 
-    {[spec: spec], %{relay_session_id: relay_session_id, viewers: %{}, analysis_branches: %{}}}
+    {[spec: spec], %{relay_session_id: relay_session_id, viewers: %{}, analysis_branches: %{}, boombox_branches: %{}}}
   end
 
   @impl true
@@ -90,6 +91,28 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
     end
   end
 
+  def handle_call({:add_boombox_branch, branch_id, opts}, _ctx, state) do
+    if Map.has_key?(state.boombox_branches, branch_id) do
+      {[reply: {:error, :already_exists}], state}
+    else
+      sink_name = {:boombox_sink, branch_id}
+      output_pad = Pad.ref(:push_output, {:boombox, branch_id})
+
+      spec =
+        @webrtc_tee
+        |> get_child()
+        |> via_out(output_pad)
+        |> child(sink_name, %BoomboxOutputBin{
+          output: Keyword.fetch!(opts, :output)
+        })
+
+      next_state =
+        put_in(state, [:boombox_branches, branch_id], %{sink_name: sink_name, output_pad: output_pad})
+
+      {[spec: spec, reply: :ok], next_state}
+    end
+  end
+
   def handle_call({:add_analysis_branch, branch_id, opts}, _ctx, state) do
     if Map.has_key?(state.analysis_branches, branch_id) do
       {[reply: {:error, :already_exists}], state}
@@ -123,6 +146,17 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
       {%{sink_name: sink_name, output_pad: output_pad}, analysis_branches} ->
         actions = [remove_link: {@browser_tee, output_pad}, remove_children: sink_name, reply: :ok]
         {actions, %{state | analysis_branches: analysis_branches}}
+    end
+  end
+
+  def handle_call({:remove_boombox_branch, branch_id}, _ctx, state) do
+    case Map.pop(state.boombox_branches, branch_id) do
+      {nil, _boombox_branches} ->
+        {[reply: {:error, :not_found}], state}
+
+      {%{sink_name: sink_name, output_pad: output_pad}, boombox_branches} ->
+        actions = [remove_link: {@webrtc_tee, output_pad}, remove_children: sink_name, reply: :ok]
+        {actions, %{state | boombox_branches: boombox_branches}}
     end
   end
 end

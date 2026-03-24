@@ -54,6 +54,7 @@ defmodule ServiceRadarCoreElx.Application do
       ServiceRadarCoreElx.CameraRelay.ViewerRegistry,
       ServiceRadarCoreElx.CameraRelay.PipelineManager,
       ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager,
+      ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager,
       {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchSupervisor},
       {Task.Supervisor, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchTaskSupervisor},
       ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager,

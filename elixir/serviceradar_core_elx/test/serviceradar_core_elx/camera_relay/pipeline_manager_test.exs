@@ -4,15 +4,18 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
   alias Membrane.WebRTC.Signaling
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager
+  alias ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
 
   setup do
     previous_analysis_state = :sys.get_state(AnalysisBranchManager)
+    previous_boombox_state = :sys.get_state(BoomboxBranchManager)
     test_pid = self()
 
     on_exit(fn ->
       :telemetry.detach(telemetry_handler_id(test_pid))
       :sys.replace_state(AnalysisBranchManager, fn _ -> previous_analysis_state end)
+      :sys.replace_state(BoomboxBranchManager, fn _ -> previous_boombox_state end)
     end)
 
     :ok
@@ -276,6 +279,48 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
     assert :ok = AnalysisBranchManager.close_branch(relay_session_id, branch_id)
     assert :ok = PipelineManager.close_session(relay_session_id)
     Process.exit(subscriber, :kill)
+  end
+
+  test "attaches a boombox output branch without creating another relay session" do
+    relay_session_id = "relay-boombox-output-1"
+    branch_id = "boombox-output-1"
+    output = Path.join(System.tmp_dir!(), "serviceradar-boombox-output-#{System.unique_integer([:positive])}.h264")
+
+    keyframe_payload =
+      <<0, 0, 0, 1, 103, 100, 0, 31, 172, 217, 64, 80, 5, 187, 1, 16, 0, 0, 0, 1, 104, 238, 6, 242, 0, 0, 0, 1, 101, 136,
+        132>>
+
+    assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
+
+    assert {:ok, branch} =
+             BoomboxBranchManager.open_branch(%{
+               relay_session_id: relay_session_id,
+               branch_id: branch_id,
+               output: output
+             })
+
+    assert branch.output == output
+
+    assert :ok =
+             PipelineManager.record_chunk(relay_session_id, %{
+               media_ingest_id: "core-media-boombox",
+               sequence: 1,
+               pts: 0,
+               dts: 0,
+               codec: "h264",
+               payload_format: "annexb",
+               track_id: "video",
+               keyframe: true,
+               payload: keyframe_payload
+             })
+
+    state = :sys.get_state(PipelineManager)
+    assert Map.has_key?(state.sessions, relay_session_id)
+
+    assert :ok = BoomboxBranchManager.close_branch(relay_session_id, branch_id)
+    assert :ok = PipelineManager.close_session(relay_session_id)
+
+    File.rm(output)
   end
 
   defp attach_telemetry_handler(test_pid, events) do

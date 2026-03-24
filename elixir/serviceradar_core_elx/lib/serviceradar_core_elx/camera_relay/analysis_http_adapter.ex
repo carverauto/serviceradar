@@ -16,8 +16,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapter do
       headers: normalize_headers(value(worker, :headers, %{})),
       finch: finch,
       retry: false,
-      receive_timeout: timeout_ms,
-      connect_options: [timeout: timeout_ms]
+      receive_timeout: timeout_ms
     ]
 
     case request_module.post(endpoint_url, req_opts) do
