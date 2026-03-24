@@ -21,6 +21,19 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
     end
   end
 
+  defmodule BareSessionTrackerStub do
+    @moduledoc false
+
+    def fetch_session(relay_session_id) do
+      send(test_pid(), {:fetch_session, relay_session_id})
+      %{relay_session_id: relay_session_id, media_ingest_id: "core-media-1"}
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core_elx, :camera_relay_webrtc_test_pid)
+    end
+  end
+
   defmodule PipelineManagerStub do
     @moduledoc false
 
@@ -131,6 +144,26 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
 
     assert {:error, :not_found} =
              WebRTCSignalingManager.create_session(Ecto.UUID.generate(), server: server_name)
+  end
+
+  test "accepts relay sessions from the real tracker contract" do
+    relay_session_id = Ecto.UUID.generate()
+    server_name = unique_server_name()
+
+    start_supervised!(
+      {WebRTCSignalingManager,
+       name: server_name,
+       session_tracker: BareSessionTrackerStub,
+       pipeline_manager: PipelineManagerStub,
+       session_ttl_ms: 5_000}
+    )
+
+    assert {:ok,
+            %{viewer_session_id: viewer_session_id, signaling_state: "offer_created", offer_sdp: "v=0\r\nstub-offer"}} =
+             WebRTCSignalingManager.create_session(relay_session_id, server: server_name)
+
+    assert_receive {:fetch_session, ^relay_session_id}
+    assert_receive {:add_webrtc_viewer, ^relay_session_id, ^viewer_session_id}
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core_elx, key)

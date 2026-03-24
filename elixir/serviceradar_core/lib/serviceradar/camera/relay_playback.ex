@@ -12,6 +12,8 @@ defmodule ServiceRadar.Camera.RelayPlayback do
   }
 
   def browser_metadata(session_or_payload) when is_map(session_or_payload) do
+    webrtc_playback_transport = explicit_string(session_or_payload, :webrtc_playback_transport)
+
     codec_hint =
       explicit_string(session_or_payload, :playback_codec_hint) ||
         infer_codec_hint(session_or_payload)
@@ -27,9 +29,11 @@ defmodule ServiceRadar.Camera.RelayPlayback do
         [] -> infer_transports(codec_hint, container_hint)
         transports -> transports
       end
+      |> prepend_transport(webrtc_playback_transport)
 
     preferred_playback_transport =
       explicit_string(session_or_payload, :preferred_playback_transport) ||
+        webrtc_playback_transport ||
         List.first(available_playback_transports)
 
     playback_transport_requirements =
@@ -105,6 +109,12 @@ defmodule ServiceRadar.Camera.RelayPlayback do
       _other ->
         []
     end
+  end
+
+  defp prepend_transport(transports, nil), do: transports
+
+  defp prepend_transport(transports, transport) when is_binary(transport) do
+    [transport | Enum.reject(transports, &(&1 == transport))]
   end
 
   defp explicit_string(session_or_payload, key) do

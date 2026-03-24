@@ -47,4 +47,20 @@ defmodule ServiceRadar.Camera.RelayPlaybackTest do
                }
              })
   end
+
+  test "prefers advertised webrtc playback transport when available" do
+    assert %{
+             preferred_playback_transport: "membrane_webrtc",
+             available_playback_transports: [
+               "membrane_webrtc",
+               "websocket_h264_annexb_webcodecs",
+               "websocket_h264_annexb_jmuxer_mse"
+             ]
+           } =
+             RelayPlayback.browser_metadata(%{
+               codec_hint: "h264",
+               container_hint: "annexb",
+               webrtc_playback_transport: "membrane_webrtc"
+             })
+  end
 end

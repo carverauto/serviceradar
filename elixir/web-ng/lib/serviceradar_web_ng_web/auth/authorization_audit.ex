@@ -157,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
   defp extract_resource(%{errors: [%{resource: resource} | _]}), do: inspect(resource)
   defp extract_resource(_), do: "unknown"
 
-  defp extract_action(%{errors: [%{action: action} | _]}), do: action
+  defp extract_action(%{errors: [%{action: action} | _]}), do: format_action(action)
   defp extract_action(_), do: :unknown
 
   defp log_event(event) do
@@ -173,8 +173,8 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
       "Authorization audit:",
       "event=#{event.event_type}",
       "actor=#{event.actor_id}",
-      "resource=#{event[:resource]}",
-      "action=#{event[:action]}"
+      "resource=#{format_field(event[:resource])}",
+      "action=#{format_action(event[:action])}"
     ]
 
     parts =
@@ -193,4 +193,19 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
 
     Enum.join(parts, " ")
   end
+
+  defp format_action(nil), do: "unknown"
+  defp format_action(action) when is_atom(action), do: Atom.to_string(action)
+  defp format_action(action) when is_binary(action), do: action
+
+  defp format_action(%{name: name}) when is_atom(name) or is_binary(name) do
+    format_action(name)
+  end
+
+  defp format_action(action), do: inspect(action)
+
+  defp format_field(nil), do: "unknown"
+  defp format_field(value) when is_atom(value), do: Atom.to_string(value)
+  defp format_field(value) when is_binary(value), do: value
+  defp format_field(value), do: inspect(value)
 end

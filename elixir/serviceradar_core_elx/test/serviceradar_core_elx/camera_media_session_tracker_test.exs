@@ -197,6 +197,25 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
              })
   end
 
+  test "uses a provided media ingest id when reopening a relay session" do
+    relay_session_id = unique_relay_session_id()
+    media_ingest_id = "core-media-reused"
+
+    assert {:ok, session} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: relay_session_id,
+               media_ingest_id: media_ingest_id,
+               agent_id: "agent-1",
+               gateway_id: "gateway-1",
+               camera_source_id: "camera-1",
+               stream_profile_id: "main"
+             })
+
+    assert session.media_ingest_id == media_ingest_id
+
+    assert_receive {:activate_session, ^relay_session_id, ^media_ingest_id, %{lease_expires_at_unix: _, viewer_count: 0}}
+  end
+
   test "marks an in-memory relay session closing before terminal teardown" do
     relay_session_id = unique_relay_session_id()
     :ok = RelayPubSub.subscribe(relay_session_id)

@@ -329,7 +329,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
 
     %{
       relay_session_id: required_string!(attrs, :relay_session_id),
-      media_ingest_id: random_id("core-media"),
+      media_ingest_id: optional_string(attrs, :media_ingest_id) || random_id("core-media"),
       agent_id: required_string!(attrs, :agent_id),
       gateway_id: required_string!(attrs, :gateway_id),
       camera_source_id: required_string!(attrs, :camera_source_id),

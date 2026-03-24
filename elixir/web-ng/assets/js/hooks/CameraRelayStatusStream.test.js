@@ -170,4 +170,87 @@ describe("CameraRelayStatusStream", () => {
     expect(hook.socket).toBeNull()
     expect(hook.peerConnection).toBeInstanceOf(MockPeerConnection)
   })
+
+  it("upgrades websocket-preferred metadata to WebRTC when the relay advertises it", async () => {
+    const element = buildHookElement()
+    element.dataset.webrtcPlaybackTransport = "membrane_webrtc"
+    element.dataset.webrtcSignalingPath = "/api/camera-relay-sessions/test/webrtc/session"
+    element.dataset.webrtcIceServers = JSON.stringify([{urls: ["stun:stun.example.com"]}])
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-2",
+            offer_sdp: "v=0\r\nm=video",
+            ice_servers: [{urls: ["stun:stun.example.com"]}],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+
+    class MockPeerConnection {
+      constructor() {
+        this.handlers = {}
+        this.connectionState = "new"
+      }
+
+      addEventListener(event, callback) {
+        this.handlers[event] = callback
+      }
+
+      async setRemoteDescription(description) {
+        this.remoteDescription = description
+      }
+
+      async createAnswer() {
+        return {type: "answer", sdp: "v=0\r\nm=video"}
+      }
+
+      async setLocalDescription(description) {
+        this.localDescription = description
+      }
+
+      close() {}
+    }
+
+    globalThis.fetch = fetchMock
+    globalThis.document = {
+      querySelector() {
+        return {getAttribute: () => "csrf-token"}
+      },
+    }
+    globalThis.window = {
+      location: new URL("https://example.com/devices/test"),
+      RTCPeerConnection: MockPeerConnection,
+      WebSocket: function WebSocket() {},
+      VideoDecoder: function VideoDecoder() {},
+      MediaSource: class MediaSource {
+        static isTypeSupported() {
+          return true
+        }
+      },
+    }
+
+    const hook = {
+      ...CameraRelayStatusStream,
+      el: element,
+      socket: null,
+      player: null,
+    }
+
+    CameraRelayStatusStream.mounted.call(hook)
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/camera-relay-sessions/test/webrtc/session")
+    expect(element.roles.get("compatibility-status").textContent).toContain("WebRTC relay")
+    expect(hook.peerConnection).toBeInstanceOf(MockPeerConnection)
+  })
 })

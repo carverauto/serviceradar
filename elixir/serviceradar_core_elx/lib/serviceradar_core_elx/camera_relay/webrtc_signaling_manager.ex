@@ -91,7 +91,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
 
   @impl true
   def handle_call({:create_session, relay_session_id, opts}, from, state) do
-    with {:ok, _relay_session} <- session_tracker(state).fetch_session(relay_session_id),
+    with {:ok, _relay_session} <- available_relay_session(session_tracker(state).fetch_session(relay_session_id)),
          {:ok, signaling} <- start_signaling(),
          :ok <- Signaling.register_peer(signaling, message_format: :json_data, pid: self()) do
       viewer_session_id = Ecto.UUID.generate()
@@ -289,6 +289,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
       if session.signaling_pid == signaling_pid, do: {:ok, session}, else: false
     end)
   end
+
+  defp available_relay_session({:ok, relay_session}) when is_map(relay_session), do: {:ok, relay_session}
+  defp available_relay_session(relay_session) when is_map(relay_session), do: {:ok, relay_session}
+  defp available_relay_session(other), do: other
 
   defp refresh_session(session, session_ttl_ms) do
     _ = Process.cancel_timer(session.timer_ref)

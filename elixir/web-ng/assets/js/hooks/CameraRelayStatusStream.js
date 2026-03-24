@@ -49,7 +49,7 @@ function playbackMetadataFromDataset(root) {
   }
 
   return {
-    preferred_playback_transport: root.dataset.preferredPlaybackTransport || webrtcTransport,
+    preferred_playback_transport: webrtcTransport || root.dataset.preferredPlaybackTransport,
     available_playback_transports: availablePlaybackTransports,
     playback_codec_hint: root.dataset.playbackCodecHint,
     playback_container_hint: root.dataset.playbackContainerHint,
@@ -67,8 +67,8 @@ function playbackMetadataFromSnapshot(payload, previous) {
 
   return {
     preferred_playback_transport:
-      payload.preferred_playback_transport ||
       payload.webrtc_playback_transport ||
+      payload.preferred_playback_transport ||
       previous?.preferred_playback_transport ||
       null,
     available_playback_transports: availablePlaybackTransports,

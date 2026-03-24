@@ -24,22 +24,28 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   end
 
   defp do_open_session(camera_source_id, stream_profile_id, opts) do
-    actor = resolve_actor(opts)
-    ash_opts = ash_opts(opts, actor)
-    source_fetcher = Keyword.get(opts, :source_fetcher, fn id -> fetch_source(id, ash_opts) end)
+    requester = resolve_requester(opts)
+    read_ash_opts = read_ash_opts(opts, requester)
+    write_actor = resolve_write_actor(opts)
+    write_ash_opts = write_ash_opts(write_actor)
+
+    source_fetcher =
+      Keyword.get(opts, :source_fetcher, fn id -> fetch_source(id, read_ash_opts) end)
 
     profile_fetcher =
       Keyword.get(opts, :profile_fetcher, fn source_id, profile_id ->
-        fetch_profile(source_id, profile_id, ash_opts)
+        fetch_profile(source_id, profile_id, read_ash_opts)
       end)
 
     session_creator =
       Keyword.get(opts, :session_creator, fn attrs, actor_or_scope ->
-        create_session(attrs, actor_or_scope, ash_opts)
+        create_session(attrs, actor_or_scope, write_ash_opts)
       end)
 
     session_loader =
-      Keyword.get(opts, :session_loader, fn session_id -> fetch_session(session_id, ash_opts) end)
+      Keyword.get(opts, :session_loader, fn session_id ->
+        fetch_session(session_id, read_ash_opts)
+      end)
 
     mark_opening =
       Keyword.get(opts, :mark_opening, fn session,
@@ -53,13 +59,13 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
           lease_token,
           lease_expires_at,
           actor_or_scope,
-          ash_opts
+          write_ash_opts
         )
       end)
 
     mark_failed =
       Keyword.get(opts, :mark_failed, fn session, reason, actor_or_scope ->
-        mark_session_failed(session, reason, actor_or_scope, ash_opts)
+        mark_session_failed(session, reason, actor_or_scope, write_ash_opts)
       end)
 
     dispatch_open = Keyword.get(opts, :dispatch_open, &dispatch_open_command/4)
@@ -75,9 +81,9 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
                agent_id: source.assigned_agent_id,
                gateway_id: source.assigned_gateway_id,
                lease_expires_at: lease_expiry(opts),
-               requested_by: requested_by_id(actor)
+               requested_by: requested_by_id(requester)
              },
-             actor
+             write_actor
            ) do
       lease_token = lease_token()
 
@@ -89,17 +95,23 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
                stream_profile_id: stream_profile_id,
                lease_token: lease_token
              },
-             dispatch_opts(opts, actor),
-             actor
+             dispatch_opts(opts, requester),
+             requester
            ) do
         {:ok, command_id} ->
           with {:ok, updated_session} <-
-                 mark_opening.(session, command_id, lease_token, lease_expiry(opts), actor) do
+                 mark_opening.(
+                   session,
+                   command_id,
+                   lease_token,
+                   lease_expiry(opts),
+                   write_actor
+                 ) do
             load_session_result(updated_session, session_loader)
           end
 
         {:error, reason} = error ->
-          _ = mark_failed.(session, reason, actor)
+          _ = mark_failed.(session, reason, write_actor)
           error
       end
     end
@@ -118,40 +130,44 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   end
 
   defp do_close_session(session_or_id, opts) do
-    actor = resolve_actor(opts)
-    ash_opts = ash_opts(opts, actor)
+    requester = resolve_requester(opts)
+    read_ash_opts = read_ash_opts(opts, requester)
+    write_actor = resolve_write_actor(opts)
+    write_ash_opts = write_ash_opts(write_actor)
 
     session_fetcher =
-      Keyword.get(opts, :session_fetcher, fn session_id -> fetch_session(session_id, ash_opts) end)
+      Keyword.get(opts, :session_fetcher, fn session_id ->
+        fetch_session(session_id, read_ash_opts)
+      end)
 
     session_loader = Keyword.get(opts, :session_loader, session_fetcher)
 
     mark_closing =
       Keyword.get(opts, :mark_closing, fn session, reason, actor_or_scope ->
-        mark_session_closing(session, reason, actor_or_scope, ash_opts)
+        mark_session_closing(session, reason, actor_or_scope, write_ash_opts)
       end)
 
     mark_failed =
       Keyword.get(opts, :mark_failed, fn session, reason, actor_or_scope ->
-        mark_session_failed(session, reason, actor_or_scope, ash_opts)
+        mark_session_failed(session, reason, actor_or_scope, write_ash_opts)
       end)
 
     dispatch_close = Keyword.get(opts, :dispatch_close, &dispatch_close_command/4)
     close_reason = Keyword.get(opts, :reason, "viewer disconnected")
 
     with {:ok, session} <- resolve_session(session_or_id, session_fetcher),
-         {:ok, updated_session} <- mark_closing.(session, close_reason, actor) do
+         {:ok, updated_session} <- mark_closing.(session, close_reason, write_actor) do
       case dispatch_close.(
              updated_session.agent_id,
              %{relay_session_id: updated_session.id, reason: close_reason},
-             dispatch_opts(opts, actor),
-             actor
+             dispatch_opts(opts, requester),
+             requester
            ) do
         {:ok, _command_id} ->
           load_session_result(updated_session, session_loader)
 
         {:error, reason} = error ->
-          _ = mark_failed.(updated_session, reason, actor)
+          _ = mark_failed.(updated_session, reason, write_actor)
           error
       end
     end
@@ -272,7 +288,7 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   defp requested_by_id(%{email: email}) when is_binary(email), do: email
   defp requested_by_id(_), do: nil
 
-  defp resolve_actor(opts) do
+  defp resolve_requester(opts) do
     case Keyword.get(opts, :scope) do
       %{user: user} when not is_nil(user) ->
         user
@@ -282,12 +298,18 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     end
   end
 
-  defp ash_opts(opts, actor) do
+  defp resolve_write_actor(opts) do
+    Keyword.get(opts, :write_actor, SystemActor.system(:camera_relay_session_manager))
+  end
+
+  defp read_ash_opts(opts, actor) do
     case Keyword.get(opts, :scope) do
       nil -> [actor: actor]
       scope -> [scope: scope]
     end
   end
+
+  defp write_ash_opts(actor), do: [actor: actor]
 
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason), do: inspect(reason)

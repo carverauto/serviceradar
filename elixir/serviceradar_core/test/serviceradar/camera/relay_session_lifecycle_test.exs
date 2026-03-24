@@ -59,6 +59,32 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycleTest do
                     %{lease_expires_at: %DateTime{}, viewer_count: 3}}
   end
 
+  test "reuses the existing media ingest id when activating an already-active relay session" do
+    relay_session_id = Ecto.UUID.generate()
+    parent = self()
+
+    session_fetcher = fn ^relay_session_id, _actor ->
+      {:ok, %{id: relay_session_id, status: :active, media_ingest_id: "core-media-1"}}
+    end
+
+    renewer = fn session, attrs, _actor ->
+      send(parent, {:renew_lease, session.id, attrs})
+      {:ok, Map.merge(session, attrs)}
+    end
+
+    assert {:ok, _session} =
+             RelaySessionLifecycle.activate_session(
+               relay_session_id,
+               "core-media-1",
+               %{lease_expires_at_unix: 1_900_000_010, viewer_count: 2},
+               session_fetcher: session_fetcher,
+               renewer: renewer
+             )
+
+    assert_receive {:renew_lease, ^relay_session_id,
+                    %{lease_expires_at: %DateTime{}, viewer_count: 2}}
+  end
+
   test "marks a relay session closed with the media-plane reason" do
     relay_session_id = Ecto.UUID.generate()
     parent = self()

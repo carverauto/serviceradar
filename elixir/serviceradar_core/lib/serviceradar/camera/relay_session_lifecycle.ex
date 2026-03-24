@@ -13,12 +13,15 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
   def activate_session(relay_session_id, media_ingest_id, attrs \\ %{}, opts \\ []) do
     with {:ok, session} <- fetch_session(relay_session_id, opts),
          :ok <- ensure_status(session, [:requested, :opening, :active]),
-         :ok <- ensure_media_ingest_id(session, media_ingest_id),
-         {:ok, normalized_attrs} <- activation_attrs(media_ingest_id, attrs) do
+         :ok <- ensure_media_ingest_id(session, media_ingest_id) do
       if Map.get(session, :status) == :active do
-        renew_lease_session(session, normalized_attrs, opts)
+        with {:ok, normalized_attrs} <- lease_attrs(attrs) do
+          renew_lease_session(session, normalized_attrs, opts)
+        end
       else
-        activate_session_record(session, normalized_attrs, opts)
+        with {:ok, normalized_attrs} <- activation_attrs(media_ingest_id, attrs) do
+          activate_session_record(session, normalized_attrs, opts)
+        end
       end
     end
   end

@@ -143,6 +143,69 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert_receive {:mark_failed, _session_id, :agent_offline}
   end
 
+  test "uses a system actor for relay writes while preserving the viewer requester" do
+    parent = self()
+    camera_source_id = Ecto.UUID.generate()
+    stream_profile_id = Ecto.UUID.generate()
+
+    source_fetcher = fn ^camera_source_id ->
+      {:ok,
+       %{id: camera_source_id, assigned_agent_id: "agent-1", assigned_gateway_id: "gateway-1"}}
+    end
+
+    profile_fetcher = fn ^camera_source_id, ^stream_profile_id ->
+      {:ok, %{id: stream_profile_id, camera_source_id: camera_source_id}}
+    end
+
+    session_creator = fn attrs, actor ->
+      send(parent, {:session_create, attrs, actor})
+      {:ok, Map.put(attrs, :id, Ecto.UUID.generate())}
+    end
+
+    dispatch_open = fn agent_id, payload, opts, actor ->
+      send(parent, {:dispatch_open, agent_id, payload, opts, actor})
+      {:ok, Ecto.UUID.generate()}
+    end
+
+    mark_opening = fn session, command_id, lease_token, lease_expires_at, actor ->
+      send(parent, {:mark_opening, session.id, command_id, lease_token, lease_expires_at, actor})
+
+      {:ok,
+       Map.merge(session, %{
+         command_id: command_id,
+         lease_token: lease_token,
+         lease_expires_at: lease_expires_at,
+         status: :opening
+       })}
+    end
+
+    requester = %{id: "user-1", email: "viewer@example.com", role: :viewer}
+    scope = %{user: requester}
+
+    assert {:ok, _session} =
+             RelaySessionManager.request_open(camera_source_id, stream_profile_id,
+               source_fetcher: source_fetcher,
+               profile_fetcher: profile_fetcher,
+               session_creator: session_creator,
+               dispatch_open: dispatch_open,
+               mark_opening: mark_opening,
+               scope: scope
+             )
+
+    assert_receive {:session_create, create_attrs, create_actor}
+    assert create_attrs.requested_by == "user-1"
+    assert create_actor.role == :system
+
+    assert_receive {:dispatch_open, "agent-1", _payload, opts, dispatch_actor}
+    assert dispatch_actor.id == "user-1"
+    assert opts[:actor].id == "user-1"
+
+    assert_receive {:mark_opening, _session_id, _command_id, _lease_token, _lease_expires_at,
+                    mark_opening_actor}
+
+    assert mark_opening_actor.role == :system
+  end
+
   test "requests close and dispatches a stop command" do
     parent = self()
     relay_session_id = Ecto.UUID.generate()
