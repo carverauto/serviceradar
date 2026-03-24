@@ -154,22 +154,21 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, agent_config()} | {:error, term()}
   def get_config_if_changed(agent_id, current_version) do
-    case generate_config(agent_id) do
-      {:ok, config} ->
-        if config.config_version == current_version do
-          Logger.debug("Config not modified for agent #{agent_id}, version: #{current_version}")
-          :not_modified
-        else
-          Logger.info(
-            "Config changed for agent #{agent_id}: #{current_version} -> #{config.config_version}"
-          )
+    config = generate_config!(agent_id)
 
-          {:ok, config}
-        end
+    if config.config_version == current_version do
+      Logger.debug("Config not modified for agent #{agent_id}, version: #{current_version}")
+      :not_modified
+    else
+      Logger.info(
+        "Config changed for agent #{agent_id}: #{current_version} -> #{config.config_version}"
+      )
 
-      {:error, reason} ->
-        {:error, reason}
+      {:ok, config}
     end
+  rescue
+    error ->
+      {:error, {:database_error, error}}
   end
 
   @doc """

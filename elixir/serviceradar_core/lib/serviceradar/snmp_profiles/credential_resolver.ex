@@ -241,8 +241,6 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     end
   end
 
-  defp ip_literal?(_host), do: false
-
   defp build_credential(nil), do: nil
 
   defp build_credential(%{version: version} = record) do

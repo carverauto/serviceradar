@@ -77,10 +77,12 @@ defmodule ServiceRadar.ObanEnsureScheduled do
         end
       end
 
-      defp log_metadata(worker, metadata) do
-        if @include_worker_metadata do
+      if @include_worker_metadata do
+        defp log_metadata(worker, metadata) do
           Keyword.put(metadata, :worker, inspect(worker))
-        else
+        end
+      else
+        defp log_metadata(_worker, metadata) do
           metadata
         end
       end
