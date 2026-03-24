@@ -1,4 +1,4 @@
-defmodule Monitoring do
+defmodule Flowpb do
   @moduledoc false
 
   use Boundary,

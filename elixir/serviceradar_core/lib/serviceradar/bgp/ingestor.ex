@@ -36,8 +36,9 @@ defmodule ServiceRadar.BGP.Ingestor do
   - `{:bgp_observation, :updated, observation_id, metadata}`
   """
 
-  require Logger
   alias ServiceRadar.Repo
+
+  require Logger
 
   @max_batch_size 1000
 
@@ -115,17 +116,15 @@ defmodule ServiceRadar.BGP.Ingestor do
 
   defp validate_observation(attrs) do
     with :ok <- validate_source_protocol(attrs[:source_protocol]),
-         :ok <- validate_as_path(attrs[:as_path]),
-         :ok <- validate_bgp_communities(attrs[:bgp_communities]) do
-      :ok
+         :ok <- validate_as_path(attrs[:as_path]) do
+      validate_bgp_communities(attrs[:bgp_communities])
     end
   end
 
   defp validate_source_protocol(protocol) when protocol in ["netflow", "sflow", "bgp_peering"],
     do: :ok
 
-  defp validate_source_protocol(nil),
-    do: {:error, "source_protocol is required"}
+  defp validate_source_protocol(nil), do: {:error, "source_protocol is required"}
 
   defp validate_source_protocol(protocol),
     do: {:error, "Invalid source_protocol: #{protocol}. Must be netflow, sflow, or bgp_peering"}

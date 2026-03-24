@@ -4,6 +4,7 @@ defmodule ServiceRadarAgentGateway do
   """
 
   use Boundary,
-    deps: [ServiceRadar],
+    check: [apps: [:serviceradar_core]],
+    deps: [Monitoring, ServiceRadar],
     exports: :all
 end

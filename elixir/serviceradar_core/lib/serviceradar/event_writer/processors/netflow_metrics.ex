@@ -32,10 +32,10 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetrics do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
-  require Logger
-
   alias Flowpb.FlowMessage
   alias ServiceRadar.BGP.Ingestor
+
+  require Logger
 
   @impl true
   def table_name, do: "netflow_metrics"
@@ -57,25 +57,23 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetrics do
   end
 
   @impl true
+  # DB connection's search_path determines the schema
   def parse_message(%{data: data, metadata: metadata}) do
-    # DB connection's search_path determines the schema
-    try do
-      case FlowMessage.decode(data) do
-        {:ok, flow} ->
-          parse_flow_message(flow, metadata)
+    case FlowMessage.decode(data) do
+      {:ok, flow} ->
+        parse_flow_message(flow, metadata)
 
-        flow when is_struct(flow, FlowMessage) ->
-          parse_flow_message(flow, metadata)
+      flow when is_struct(flow, FlowMessage) ->
+        parse_flow_message(flow, metadata)
 
-        {:error, reason} ->
-          Logger.debug("Failed to decode FlowMessage protobuf: #{inspect(reason)}")
-          nil
-      end
-    rescue
-      e ->
-        Logger.debug("Exception decoding FlowMessage: #{inspect(e)}")
+      {:error, reason} ->
+        Logger.debug("Failed to decode FlowMessage protobuf: #{inspect(reason)}")
         nil
     end
+  rescue
+    e ->
+      Logger.debug("Exception decoding FlowMessage: #{inspect(e)}")
+      nil
   end
 
   # Private functions
@@ -88,15 +86,15 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetrics do
 
   defp insert_netflow_metrics_rows(rows) do
     # DB connection's search_path determines the schema
-    case ServiceRadar.Repo.insert_all(
-           table_name(),
-           rows,
-           on_conflict: :nothing,
-           returning: false
-         ) do
-      {count, _} ->
-        {:ok, count}
-    end
+    {count, _} =
+      ServiceRadar.Repo.insert_all(
+        table_name(),
+        rows,
+        on_conflict: :nothing,
+        returning: false
+      )
+
+    {:ok, count}
   end
 
   # DB connection's search_path determines the schema
@@ -114,16 +112,17 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetrics do
     bgp_communities = extract_bgp_communities(flow)
 
     # Upsert BGP observation if BGP data is present
-    bgp_observation_id = upsert_bgp_observation(
-      timestamp,
-      as_path,
-      bgp_communities,
-      src_ip,
-      dst_ip,
-      sampler_address,
-      normalize_u64(flow.bytes),
-      normalize_u64(flow.packets)
-    )
+    bgp_observation_id =
+      upsert_bgp_observation(
+        timestamp,
+        as_path,
+        bgp_communities,
+        src_ip,
+        dst_ip,
+        sampler_address,
+        normalize_u64(flow.bytes),
+        normalize_u64(flow.packets)
+      )
 
     # Build metadata JSON from unmapped fields
     metadata = build_metadata(flow)
@@ -303,12 +302,21 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetrics do
   defp normalize_u64(_), do: nil
 
   defp normalize_port(0), do: nil
-  defp normalize_port(port) when is_integer(port) and port > 0 and port <= 65535, do: port
+  defp normalize_port(port) when is_integer(port) and port > 0 and port <= 65_535, do: port
   defp normalize_port(_), do: nil
 
   # Upsert BGP observation and return observation_id for flow FK
   # Returns nil if no BGP data present or upsert fails
-  defp upsert_bgp_observation(timestamp, as_path, bgp_communities, src_ip, dst_ip, sampler_address, bytes, packets) do
+  defp upsert_bgp_observation(
+         timestamp,
+         as_path,
+         bgp_communities,
+         src_ip,
+         dst_ip,
+         sampler_address,
+         bytes,
+         packets
+       ) do
     # Skip if no AS path (required for BGP observation)
     if is_nil(as_path) or as_path == [] do
       nil
@@ -347,7 +355,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetrics do
   defp inet_to_string(nil), do: nil
 
   defp inet_to_string(%Postgrex.INET{address: address}) do
-    :inet.ntoa(address) |> to_string()
+    address |> :inet.ntoa() |> to_string()
   rescue
     _ -> nil
   end

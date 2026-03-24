@@ -9,8 +9,9 @@ defmodule ServiceRadar.BGP.Stats do
   - AS topology graph data
   """
 
-  require Ash.Query
   alias ServiceRadar.Repo
+
+  require Ash.Query
 
   @doc """
   Get traffic aggregated by AS number.
@@ -177,7 +178,7 @@ defmodule ServiceRadar.BGP.Stats do
     with {:ok, %{rows: [[unique_paths, avg_length]]}} <- Repo.query(unique_query, params),
          {:ok, %{rows: hop_rows}} <- Repo.query(hop_query, params) do
       hop_distribution =
-        Enum.into(hop_rows, %{}, fn [hops, count] -> {hops, count} end)
+        Map.new(hop_rows, fn [hops, count] -> {hops, count} end)
 
       %{
         unique_paths: unique_paths || 0,
@@ -419,7 +420,8 @@ defmodule ServiceRadar.BGP.Stats do
       {:ok, %{rows: rows}} ->
         # Group by time bucket, then by AS
         grouped =
-          Enum.group_by(rows, fn [time_bucket, _as, _bytes] -> time_bucket end)
+          rows
+          |> Enum.group_by(fn [time_bucket, _as, _bytes] -> time_bucket end)
           |> Enum.map(fn {time_bucket, entries} ->
             values = Map.new(entries, fn [_time, as_number, bytes] -> {as_number, bytes || 0} end)
             %{time: time_bucket, values: values}

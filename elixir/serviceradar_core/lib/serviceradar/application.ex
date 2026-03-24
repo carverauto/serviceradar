@@ -222,8 +222,6 @@ defmodule ServiceRadar.Application do
     # Start AS lookup cache when repo is available (always enabled)
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.BGP.ASLookup
-    else
-      nil
     end
   end
 
@@ -514,8 +512,11 @@ defmodule ServiceRadar.Application do
         datasvc_connectivity_configured?() or
           Application.get_env(:serviceradar_core, :datasvc_enabled, true)
 
-      value when value in ["true", "1", "yes"] -> true
-      _ -> false
+      value when value in ["true", "1", "yes"] ->
+        true
+
+      _ ->
+        false
     end
   end
 

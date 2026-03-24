@@ -1817,21 +1817,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     """
   end
 
-  # Helper to format bytes
-  defp format_bytes(bytes) when bytes >= 1_000_000_000 do
-    "#{Float.round(bytes / 1_000_000_000, 2)} GB"
-  end
-
-  defp format_bytes(bytes) when bytes >= 1_000_000 do
-    "#{Float.round(bytes / 1_000_000, 2)} MB"
-  end
-
-  defp format_bytes(bytes) when bytes >= 1_000 do
-    "#{Float.round(bytes / 1_000, 2)} KB"
-  end
-
-  defp format_bytes(bytes), do: "#{bytes} B"
-
   attr(:query, :string, required: true)
 
   defp bgp_filter_inputs(assigns) do
