@@ -454,8 +454,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     |> Enum.map_join(" ", &String.capitalize/1)
   end
 
-  defp humanize_field(field), do: to_string(field)
-
   defp escape_value(value) when is_binary(value) do
     value
     |> String.replace("\\", "\\\\")
@@ -477,8 +475,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       alert: fetch_alert(event, scope)
     }
   end
-
-  defp build_related(_, _scope), do: %{log_id: nil, alert: nil}
 
   defp log_id_from_event(event) do
     metadata = Map.get(event, "metadata") || Map.get(event, :metadata) || %{}
@@ -521,8 +517,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       _ -> nil
     end
   end
-
-  defp parse_datetime(_), do: nil
 
   defp maybe_filter_event_time(query, nil), do: query
 

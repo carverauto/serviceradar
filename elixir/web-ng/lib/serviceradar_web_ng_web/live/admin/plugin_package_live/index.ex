@@ -1713,11 +1713,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp build_create_attrs(params, extra) do
-    extra =
-      case extra do
-        value when is_list(value) -> Map.new(value)
-        value when is_map(value) -> value
-      end
+    extra = Map.new(extra)
 
     source_type = normalize_source_type(params["source_type"])
     manifest = Map.get(extra, :manifest) || Map.get(extra, "manifest")
@@ -1906,8 +1902,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp normalize_assignment_params(params, _config_schema) when is_map(params), do: params
-
-  defp normalize_assignment_params(_params, _config_schema), do: %{}
 
   defp parse_review_params(params) do
     approved_capabilities = parse_list(params["approved_capabilities"])

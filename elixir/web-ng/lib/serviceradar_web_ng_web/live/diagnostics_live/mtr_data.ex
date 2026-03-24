@@ -582,8 +582,6 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     |> String.trim("\"")
   end
 
-  defp normalize_srql_value(_), do: ""
-
   defp parse_boolean(value) when is_binary(value) do
     case String.downcase(String.trim(value)) do
       "true" -> true
@@ -595,6 +593,4 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       _ -> nil
     end
   end
-
-  defp parse_boolean(_), do: nil
 end
