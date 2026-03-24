@@ -11,6 +11,8 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
 
   use Mix.Task
 
+  @dialyzer {:nowarn_function, [run: 1, run_db_tests: 3, maybe_migrate: 0]}
+
   def run(args) do
     if require_db_tests?() do
       repo_config = Application.get_env(:serviceradar_core, ServiceRadar.Repo, [])
@@ -86,8 +88,7 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
     host =
       case hostname do
         host when is_binary(host) -> String.to_charlist(host)
-        host when is_list(host) -> host
-        _ -> ~c"localhost"
+        host -> host
       end
 
     case :gen_tcp.connect(host, port, [:binary, active: false], 1_000) do
