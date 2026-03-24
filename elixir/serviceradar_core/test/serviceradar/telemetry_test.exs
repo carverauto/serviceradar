@@ -142,6 +142,77 @@ defmodule ServiceRadar.TelemetryTest do
     end
   end
 
+  describe "emit_camera_relay_analysis_event/3" do
+    test "emits camera relay analysis events with enriched metadata" do
+      test_pid = self()
+
+      :telemetry.attach(
+        "test-handler",
+        [:serviceradar, :camera_relay, :analysis, :sample_dropped],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :sample_dropped,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          reason: "backpressure"
+        },
+        %{payload_bytes: 1024, queue_length: 9}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :sample_dropped],
+                      measurements, metadata}
+
+      assert measurements.payload_bytes == 1024
+      assert measurements.queue_length == 9
+      assert metadata.relay_boundary == "core_elx"
+      assert metadata.relay_session_id == "relay-1"
+      assert metadata.branch_id == "branch-1"
+      assert metadata.reason == "backpressure"
+      assert metadata.node == node()
+      assert is_integer(metadata.timestamp)
+    end
+
+    test "emits analysis dispatch events" do
+      test_pid = self()
+
+      :telemetry.attach(
+        "test-handler",
+        [:serviceradar, :camera_relay, :analysis, :dispatch_failed],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :dispatch_failed,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          worker_id: "worker-1",
+          reason: "http_status_503"
+        },
+        %{inflight_count: 1, sequence: 7}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :dispatch_failed],
+                      measurements, metadata}
+
+      assert measurements.inflight_count == 1
+      assert measurements.sequence == 7
+      assert metadata.worker_id == "worker-1"
+      assert metadata.reason == "http_status_503"
+    end
+  end
+
   describe "span/3" do
     test "emits start and stop events around function execution" do
       test_pid = self()
@@ -212,6 +283,16 @@ defmodule ServiceRadar.TelemetryTest do
       assert [:serviceradar, :registry, :lookup, :count] in metric_names
       assert [:serviceradar, :camera_relay, :session, :opened, :count] in metric_names
       assert [:serviceradar, :camera_relay, :session, :viewer_count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :branch_opened, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :branch_count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_succeeded, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_failed, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_timed_out, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_dropped, :count] in metric_names
     end
   end
 
@@ -226,6 +307,20 @@ defmodule ServiceRadar.TelemetryTest do
       assert [:serviceradar, :camera_relay, :session, :closed, :count] in metric_names
       assert [:serviceradar, :camera_relay, :session, :failed, :count] in metric_names
       assert [:serviceradar, :camera_relay, :session, :viewer_count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :branch_opened, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :branch_closed, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :sample_emitted, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :sample_dropped, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :limit_rejected, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_succeeded, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_failed, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_timed_out, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_dropped, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :branch_count] in metric_names
       refute [:serviceradar, :cluster, :node_connected, :count] in metric_names
     end
   end

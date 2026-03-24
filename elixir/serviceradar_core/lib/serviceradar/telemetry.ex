@@ -90,6 +90,19 @@ defmodule ServiceRadar.Telemetry do
     :viewer_count_changed
   ]
 
+  @camera_relay_analysis_events [
+    :branch_opened,
+    :branch_closed,
+    :branch_count_changed,
+    :sample_emitted,
+    :sample_dropped,
+    :limit_rejected,
+    :dispatch_succeeded,
+    :dispatch_failed,
+    :dispatch_timed_out,
+    :dispatch_dropped
+  ]
+
   # ============================================================================
   # Event Emission
   # ============================================================================
@@ -140,6 +153,15 @@ defmodule ServiceRadar.Telemetry do
   def emit_camera_relay_session_event(event, metadata \\ %{}, measurements \\ %{})
       when event in @camera_relay_session_events do
     emit(@prefix ++ [:camera_relay, :session, event], measurements, enrich_metadata(metadata))
+  end
+
+  @doc """
+  Emits a camera relay analysis branch or sample event.
+  """
+  @spec emit_camera_relay_analysis_event(atom(), map(), map()) :: :ok
+  def emit_camera_relay_analysis_event(event, metadata \\ %{}, measurements \\ %{})
+      when event in @camera_relay_analysis_events do
+    emit(@prefix ++ [:camera_relay, :analysis, event], measurements, enrich_metadata(metadata))
   end
 
   @doc """
@@ -312,6 +334,48 @@ defmodule ServiceRadar.Telemetry do
         measurement: :viewer_count,
         tags: [:relay_boundary, :relay_session_id],
         description: "Latest viewer count for a camera relay session"
+      ),
+      counter("serviceradar.camera_relay.analysis.branch_opened.count",
+        tags: [:relay_boundary],
+        description: "Number of relay-scoped analysis branches opened"
+      ),
+      counter("serviceradar.camera_relay.analysis.branch_closed.count",
+        tags: [:relay_boundary, :reason],
+        description: "Number of relay-scoped analysis branches closed"
+      ),
+      counter("serviceradar.camera_relay.analysis.sample_emitted.count",
+        tags: [:relay_boundary],
+        description: "Number of analysis samples emitted to workers"
+      ),
+      counter("serviceradar.camera_relay.analysis.sample_dropped.count",
+        tags: [:relay_boundary, :reason],
+        description: "Number of analysis samples dropped by guardrails"
+      ),
+      counter("serviceradar.camera_relay.analysis.limit_rejected.count",
+        tags: [:relay_boundary, :limit],
+        description: "Number of analysis branch requests rejected by limits"
+      ),
+      counter("serviceradar.camera_relay.analysis.dispatch_succeeded.count",
+        tags: [:relay_boundary, :worker_id],
+        description: "Number of successful analysis worker dispatches"
+      ),
+      counter("serviceradar.camera_relay.analysis.dispatch_failed.count",
+        tags: [:relay_boundary, :worker_id, :reason],
+        description: "Number of failed analysis worker dispatches"
+      ),
+      counter("serviceradar.camera_relay.analysis.dispatch_timed_out.count",
+        tags: [:relay_boundary, :worker_id],
+        description: "Number of timed out analysis worker dispatches"
+      ),
+      counter("serviceradar.camera_relay.analysis.dispatch_dropped.count",
+        tags: [:relay_boundary, :worker_id, :reason],
+        description: "Number of dropped analysis worker dispatches"
+      ),
+      last_value("serviceradar.camera_relay.analysis.branch_count",
+        event_name: [:serviceradar, :camera_relay, :analysis, :branch_count_changed],
+        measurement: :branch_count,
+        tags: [:relay_boundary, :relay_session_id],
+        description: "Latest active analysis branch count for a relay session"
       )
     ]
   end

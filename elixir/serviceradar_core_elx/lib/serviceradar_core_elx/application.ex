@@ -53,6 +53,10 @@ defmodule ServiceRadarCoreElx.Application do
     children = [
       ServiceRadarCoreElx.CameraRelay.ViewerRegistry,
       ServiceRadarCoreElx.CameraRelay.PipelineManager,
+      ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager,
+      {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchSupervisor},
+      {Task.Supervisor, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchTaskSupervisor},
+      ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager,
       ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager,
       ServiceRadarCoreElx.CameraMediaSessionTracker,
       {Registry, keys: :unique, name: ServiceRadarCoreElx.CameraMediaIngressRegistry},

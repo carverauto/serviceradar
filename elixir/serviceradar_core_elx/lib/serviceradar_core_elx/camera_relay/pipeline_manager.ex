@@ -24,9 +24,18 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
     GenServer.call(__MODULE__, {:add_webrtc_viewer, relay_session_id, viewer_session_id, signaling, opts})
   end
 
+  def add_analysis_branch(relay_session_id, branch_id, opts \\ [])
+      when is_binary(relay_session_id) and is_binary(branch_id) do
+    GenServer.call(__MODULE__, {:add_analysis_branch, relay_session_id, branch_id, opts})
+  end
+
   def remove_webrtc_viewer(relay_session_id, viewer_session_id)
       when is_binary(relay_session_id) and is_binary(viewer_session_id) do
     GenServer.call(__MODULE__, {:remove_webrtc_viewer, relay_session_id, viewer_session_id})
+  end
+
+  def remove_analysis_branch(relay_session_id, branch_id) when is_binary(relay_session_id) and is_binary(branch_id) do
+    GenServer.call(__MODULE__, {:remove_analysis_branch, relay_session_id, branch_id})
   end
 
   def close_session(relay_session_id) when is_binary(relay_session_id) do
@@ -94,10 +103,38 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
     end
   end
 
+  def handle_call({:add_analysis_branch, relay_session_id, branch_id, opts}, _from, state) do
+    case Map.get(state.sessions, relay_session_id) do
+      %{pipeline_pid: pipeline_pid} ->
+        reply =
+          Membrane.Pipeline.call(
+            pipeline_pid,
+            {:add_analysis_branch, branch_id, opts},
+            Keyword.get(opts, :timeout, 5_000)
+          )
+
+        {:reply, reply, state}
+
+      nil ->
+        {:reply, {:error, :not_found}, state}
+    end
+  end
+
   def handle_call({:remove_webrtc_viewer, relay_session_id, viewer_session_id}, _from, state) do
     case Map.get(state.sessions, relay_session_id) do
       %{pipeline_pid: pipeline_pid} ->
         reply = Membrane.Pipeline.call(pipeline_pid, {:remove_webrtc_viewer, viewer_session_id}, 5_000)
+        {:reply, reply, state}
+
+      nil ->
+        {:reply, {:error, :not_found}, state}
+    end
+  end
+
+  def handle_call({:remove_analysis_branch, relay_session_id, branch_id}, _from, state) do
+    case Map.get(state.sessions, relay_session_id) do
+      %{pipeline_pid: pipeline_pid} ->
+        reply = Membrane.Pipeline.call(pipeline_pid, {:remove_analysis_branch, branch_id}, 5_000)
         {:reply, reply, state}
 
       nil ->

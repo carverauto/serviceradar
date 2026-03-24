@@ -28,6 +28,9 @@ Boombox may be a useful bridge for handing raw media or frames to external proce
 - worker input/output contract
 - event ingestion path
 
+### Boombox remains optional
+The implementation should not require Boombox for every analysis path. The platform-owned branch manager, worker input envelope, and result ingestion contract must stand on their own so deployments can choose direct worker messaging, Boombox, or other external processing adapters without changing relay semantics.
+
 ## Risks
 ### Resource contention
 Analysis work can easily starve viewer playback if it shares the same relay without bounded policies. The implementation must explicitly support rate limits, sampling intervals, and fan-out limits.

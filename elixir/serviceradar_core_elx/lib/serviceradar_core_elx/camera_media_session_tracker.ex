@@ -329,7 +329,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
 
     %{
       relay_session_id: required_string!(attrs, :relay_session_id),
-      media_ingest_id: optional_string(attrs, :media_ingest_id) || random_id("core-media"),
+      media_ingest_id: present_string(attrs, :media_ingest_id) || random_id("core-media"),
       agent_id: required_string!(attrs, :agent_id),
       gateway_id: required_string!(attrs, :gateway_id),
       camera_source_id: required_string!(attrs, :camera_source_id),
@@ -390,6 +390,13 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
     |> Map.get(key, "")
     |> to_string()
     |> String.trim()
+  end
+
+  defp present_string(attrs, key) do
+    case optional_string(attrs, key) do
+      "" -> nil
+      value -> value
+    end
   end
 
   defp normalize_uint(value) when is_integer(value) and value >= 0, do: value
