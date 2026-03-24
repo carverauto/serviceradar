@@ -314,5 +314,4 @@ defmodule ServiceRadar.Observability.MtrConsensusWorker do
   end
 
   defp parse_int(value, _default) when is_integer(value), do: value
-  defp parse_int(_value, default), do: default
 end

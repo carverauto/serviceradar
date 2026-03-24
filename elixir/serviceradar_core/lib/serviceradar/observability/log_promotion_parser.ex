@@ -225,8 +225,6 @@ defmodule ServiceRadar.Observability.LogPromotionParser do
     end
   end
 
-  defp severity_text_from_number(_), do: "INFO"
-
   defp severity_number_for_text(text) do
     case String.upcase(String.trim(text)) do
       "FATAL" -> 23
@@ -322,8 +320,6 @@ defmodule ServiceRadar.Observability.LogPromotionParser do
       end
     end)
   end
-
-  defp first_value(_, _), do: nil
 
   defp first_string(entry, keys) when is_map(entry) do
     Enum.find_value(keys, fn key ->

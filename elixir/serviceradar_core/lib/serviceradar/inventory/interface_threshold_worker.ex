@@ -633,9 +633,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   end
 
   defp severity_from_text(text) when is_binary(text) do
-    text
-    |> String.downcase()
-    |> Map.get(@severity_map, OCSF.severity_unknown())
+    Map.get(@severity_map, String.downcase(text), OCSF.severity_unknown())
   end
 
   defp event_uids(event_config) do

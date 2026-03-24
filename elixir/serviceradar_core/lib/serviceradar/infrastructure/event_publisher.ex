@@ -362,22 +362,15 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
     "#{entity_type} #{entity_id} deregistered"
   end
 
-  defp message_for_event(event_type, entity_type, entity_id, _data) do
-    "#{entity_type} #{entity_id} event #{event_type}"
-  end
-
   defp build_observables(nil), do: []
   defp build_observables(value), do: [OCSF.build_observable(value, "Resource UID", 99)]
 
   defp log_level_for_severity(severity_id) do
     case severity_id do
-      6 -> "fatal"
-      5 -> "critical"
       4 -> "error"
       3 -> "warning"
       2 -> "notice"
       1 -> "info"
-      _ -> "unknown"
     end
   end
 

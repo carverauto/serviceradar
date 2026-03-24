@@ -129,10 +129,7 @@ defmodule ServiceRadar.Observability.MtrStateTriggerWorker do
     |> Map.update!(:reasons, fn reasons -> Map.update(reasons, reason_key, 1, &(&1 + 1)) end)
   end
 
-  defp update_dispatch_stats(stats, _), do: stats
-
   defp dispatch_reason_key(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp dispatch_reason_key({kind, _, _}) when is_atom(kind), do: Atom.to_string(kind)
   defp dispatch_reason_key({kind, _}) when is_atom(kind), do: Atom.to_string(kind)
   defp dispatch_reason_key(reason), do: inspect(reason)
 
