@@ -1036,6 +1036,11 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
               data-playback-container-hint={
                 relay_playback_container_hint(@active_camera_relay_session)
               }
+              data-webrtc-playback-transport={
+                relay_webrtc_playback_transport(@active_camera_relay_session)
+              }
+              data-webrtc-signaling-path={relay_webrtc_signaling_path(@active_camera_relay_session)}
+              data-webrtc-ice-servers={relay_webrtc_ice_servers_json(@active_camera_relay_session)}
               class="space-y-1"
             >
               <div class="overflow-hidden rounded-md border border-base-300/70 bg-base-300/20">
@@ -1210,6 +1215,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
                   }
                   data-playback-codec-hint={relay_playback_codec_hint(tile.session)}
                   data-playback-container-hint={relay_playback_container_hint(tile.session)}
+                  data-webrtc-playback-transport={relay_webrtc_playback_transport(tile.session)}
+                  data-webrtc-signaling-path={relay_webrtc_signaling_path(tile.session)}
+                  data-webrtc-ice-servers={relay_webrtc_ice_servers_json(tile.session)}
                   class="mt-3 space-y-1"
                 >
                   <div class="overflow-hidden rounded-md border border-base-300/70 bg-base-300/20">
@@ -1610,6 +1618,30 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
 
   defp relay_playback_contract(session) when is_map(session), do: RelayPlayback.browser_metadata(session)
   defp relay_playback_contract(_session), do: RelayPlayback.browser_metadata(%{})
+
+  defp relay_webrtc_playback_transport(session) do
+    session
+    |> relay_webrtc_metadata()
+    |> Map.get(:webrtc_playback_transport)
+  end
+
+  defp relay_webrtc_signaling_path(session) do
+    session
+    |> relay_webrtc_metadata()
+    |> Map.get(:webrtc_signaling_path)
+  end
+
+  defp relay_webrtc_ice_servers_json(session) do
+    session
+    |> relay_webrtc_metadata()
+    |> Map.get(:webrtc_ice_servers, [])
+    |> Jason.encode!()
+  end
+
+  defp relay_webrtc_metadata(%{id: _relay_session_id} = session),
+    do: ServiceRadarWebNG.CameraRelayWebRTC.metadata(session)
+
+  defp relay_webrtc_metadata(_session), do: %{}
 
   defp relay_close_reason_text(session) do
     session

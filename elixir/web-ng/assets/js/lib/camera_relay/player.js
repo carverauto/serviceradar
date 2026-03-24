@@ -12,8 +12,10 @@ const MAX_DECODE_QUEUE_SIZE = 12
 
 export const CAMERA_RELAY_WEBCODECS_TRANSPORT = "websocket_h264_annexb_webcodecs"
 export const CAMERA_RELAY_MSE_TRANSPORT = "websocket_h264_annexb_jmuxer_mse"
+export const CAMERA_RELAY_WEBRTC_TRANSPORT = "membrane_webrtc"
 
 const TRANSPORT_REQUIREMENTS = {
+  [CAMERA_RELAY_WEBRTC_TRANSPORT]: ["webrtc", "rtc_peer_connection"],
   [CAMERA_RELAY_WEBCODECS_TRANSPORT]: ["websocket", "webcodecs", "video_decoder"],
   [CAMERA_RELAY_MSE_TRANSPORT]: ["websocket", "media_source", "mse_h264"],
 }
@@ -191,14 +193,20 @@ export function detectBrowserPlaybackCapabilities(browser = globalThis) {
   const mediaSource =
     target.MediaSource ||
     (typeof globalThis !== "undefined" ? globalThis.MediaSource : undefined)
+  const rtcPeerConnection =
+    target.RTCPeerConnection ||
+    (typeof globalThis !== "undefined" ? globalThis.RTCPeerConnection : undefined)
 
   const mediaSourceAvailable = typeof mediaSource === "function"
+  const rtcPeerConnectionAvailable = typeof rtcPeerConnection === "function"
   const mseH264Available =
     mediaSourceAvailable &&
     typeof mediaSource.isTypeSupported === "function" &&
     mediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"')
 
   return {
+    webrtc: rtcPeerConnectionAvailable,
+    rtc_peer_connection: rtcPeerConnectionAvailable,
     websocket: websocketAvailable,
     webcodecs: videoDecoderAvailable,
     video_decoder: videoDecoderAvailable,
@@ -213,6 +221,8 @@ export function playbackRequirementsForTransport(transport) {
 
 export function playbackTransportLabel(transport) {
   switch (transport) {
+    case CAMERA_RELAY_WEBRTC_TRANSPORT:
+      return "WebRTC relay"
     case CAMERA_RELAY_WEBCODECS_TRANSPORT:
       return "WebCodecs websocket"
     case CAMERA_RELAY_MSE_TRANSPORT:

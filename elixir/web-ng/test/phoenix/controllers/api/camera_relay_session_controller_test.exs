@@ -24,6 +24,12 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
     previous_test_pid =
       Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_test_pid)
 
+    previous_webrtc_enabled =
+      Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_enabled)
+
+    previous_webrtc_ice_servers =
+      Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_ice_servers)
+
     Application.put_env(
       :serviceradar_web_ng,
       :camera_relay_session_manager,
@@ -36,12 +42,22 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       self()
     )
 
+    Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_enabled, true)
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :camera_relay_webrtc_ice_servers,
+      [%{urls: ["stun:stun.example.com:3478"]}]
+    )
+
     on_exit(fn ->
       restore_env(:camera_relay_session_manager, previous_manager)
       restore_env(:camera_relay_session_manager_open_result, previous_open_result)
       restore_env(:camera_relay_session_manager_close_result, previous_close_result)
       restore_env(:camera_relay_session_fetcher, previous_fetcher)
       restore_env(:camera_relay_session_manager_test_pid, previous_test_pid)
+      restore_env(:camera_relay_webrtc_enabled, previous_webrtc_enabled)
+      restore_env(:camera_relay_webrtc_ice_servers, previous_webrtc_ice_servers)
     end)
 
     user = admin_user_fixture()
@@ -107,6 +123,14 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
 
       assert body["data"]["viewer_stream_path"] ==
                "/v1/camera-relay-sessions/#{relay_session_id}/stream"
+
+      assert body["data"]["webrtc_enabled"] == true
+      assert body["data"]["webrtc_playback_transport"] == "membrane_webrtc"
+
+      assert body["data"]["webrtc_signaling_path"] ==
+               "/api/camera-relay-sessions/#{relay_session_id}/webrtc/session"
+
+      assert body["data"]["webrtc_ice_servers"] == [%{"urls" => ["stun:stun.example.com:3478"]}]
 
       assert_receive {:open_session, ^camera_source_id, ^stream_profile_id, opts}
       assert match?(%Scope{}, opts[:scope])
@@ -178,6 +202,9 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       assert body["data"]["viewer_stream_path"] ==
                "/v1/camera-relay-sessions/#{relay_session_id}/stream"
 
+      assert body["data"]["webrtc_enabled"] == true
+      assert body["data"]["webrtc_playback_transport"] == "membrane_webrtc"
+
       assert_receive {:close_session, ^relay_session_id, opts}
       assert opts[:reason] == "viewer disconnected"
       assert match?(%Scope{}, opts[:scope])
@@ -244,6 +271,9 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
 
       assert body["data"]["viewer_stream_path"] ==
                "/v1/camera-relay-sessions/#{relay_session_id}/stream"
+
+      assert body["data"]["webrtc_enabled"] == true
+      assert body["data"]["webrtc_playback_transport"] == "membrane_webrtc"
 
       assert_receive {:fetch_session, ^relay_session_id, opts}
       assert match?(%Scope{}, opts[:scope])

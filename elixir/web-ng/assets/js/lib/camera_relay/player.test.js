@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest"
 
 import {
+  CAMERA_RELAY_WEBRTC_TRANSPORT,
   CAMERA_RELAY_MSE_TRANSPORT,
   CAMERA_RELAY_WEBCODECS_TRANSPORT,
   codecStringFromAnnexB,
@@ -87,6 +88,28 @@ function encodeFrame({
 }
 
 describe("camera relay player framing", () => {
+  it("prefers the WebRTC relay transport when advertised and browser support is present", () => {
+    const selection = selectRelayPlaybackTransport(
+      {
+        preferred_playback_transport: CAMERA_RELAY_WEBRTC_TRANSPORT,
+        available_playback_transports: [
+          CAMERA_RELAY_WEBRTC_TRANSPORT,
+          CAMERA_RELAY_WEBCODECS_TRANSPORT,
+        ],
+      },
+      {
+        webrtc: true,
+        rtc_peer_connection: true,
+        websocket: true,
+        webcodecs: true,
+        video_decoder: true,
+      }
+    )
+
+    expect(selection.supported).toBe(true)
+    expect(selection.selectedTransport).toBe(CAMERA_RELAY_WEBRTC_TRANSPORT)
+  })
+
   it("parses camera relay binary frames", () => {
     const frame = parseRelayChunkFrame(encodeFrame())
 
@@ -170,11 +193,14 @@ describe("camera relay player framing", () => {
 
     expect(
       detectBrowserPlaybackCapabilities({
+        RTCPeerConnection: function RTCPeerConnection() {},
         WebSocket: function WebSocket() {},
         VideoDecoder: function VideoDecoder() {},
         MediaSource,
       })
     ).toEqual({
+      webrtc: true,
+      rtc_peer_connection: true,
       websocket: true,
       webcodecs: true,
       video_decoder: true,

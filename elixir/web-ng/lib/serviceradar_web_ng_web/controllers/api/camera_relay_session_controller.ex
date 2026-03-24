@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
   alias ServiceRadar.Camera.RelayPlayback
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.CameraRelayWebRTC
   alias ServiceRadarWebNG.RBAC
 
   action_fallback ServiceRadarWebNGWeb.Api.FallbackController
@@ -138,6 +139,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
   defp relay_session_json(session, conn) do
     session
     |> RelayPlayback.browser_metadata()
+    |> Map.merge(CameraRelayWebRTC.metadata(session))
     |> Map.merge(%{
       id: session.id,
       camera_source_id: session.camera_source_id,

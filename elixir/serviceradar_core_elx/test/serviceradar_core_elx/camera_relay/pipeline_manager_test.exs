@@ -1,6 +1,7 @@
 defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
   use ExUnit.Case, async: false
 
+  alias Membrane.WebRTC.Signaling
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
 
@@ -42,6 +43,34 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
                     }},
                    1_000
 
+    assert :ok = PipelineManager.close_session(relay_session_id)
+  end
+
+  test "attaches a webrtc viewer and emits an SDP offer" do
+    relay_session_id = "relay-webrtc-1"
+    viewer_session_id = "viewer-webrtc-1"
+
+    assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
+    {:ok, signaling_pid} = Signaling.start_link([])
+    signaling = Signaling.new(signaling_pid)
+    :ok = Signaling.register_peer(signaling, message_format: :json_data, pid: self())
+
+    assert :ok =
+             PipelineManager.add_webrtc_viewer(
+               relay_session_id,
+               viewer_session_id,
+               signaling,
+               ice_servers: []
+             )
+
+    assert_receive {:membrane_webrtc_signaling, ^signaling_pid, %{"type" => "sdp_offer", "data" => %{"sdp" => sdp}},
+                    _metadata},
+                   5_000
+
+    assert is_binary(sdp)
+    assert String.contains?(sdp, "m=video")
+
+    assert :ok = PipelineManager.remove_webrtc_viewer(relay_session_id, viewer_session_id)
     assert :ok = PipelineManager.close_session(relay_session_id)
   end
 end

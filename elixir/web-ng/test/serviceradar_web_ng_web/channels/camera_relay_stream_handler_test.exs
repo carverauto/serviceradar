@@ -4,6 +4,30 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler
 
+  setup do
+    previous_enabled = Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_enabled)
+    previous_ice_servers = Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_ice_servers)
+
+    Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_enabled, true)
+    Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_ice_servers, [%{urls: ["stun:stun.example.com:3478"]}])
+
+    on_exit(fn ->
+      if is_nil(previous_enabled) do
+        Application.delete_env(:serviceradar_web_ng, :camera_relay_webrtc_enabled)
+      else
+        Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_enabled, previous_enabled)
+      end
+
+      if is_nil(previous_ice_servers) do
+        Application.delete_env(:serviceradar_web_ng, :camera_relay_webrtc_ice_servers)
+      else
+        Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_ice_servers, previous_ice_servers)
+      end
+    end)
+
+    :ok
+  end
+
   test "pushes an initial relay snapshot and subsequent state changes" do
     relay_session_id = Ecto.UUID.generate()
 
@@ -49,9 +73,15 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              ],
              "playback_codec_hint" => "h264",
              "playback_container_hint" => "annexb",
+             "webrtc_enabled" => true,
+             "webrtc_playback_transport" => "membrane_webrtc",
+             "webrtc_signaling_path" => webrtc_path,
+             "webrtc_ice_servers" => [%{"urls" => ["stun:stun.example.com:3478"]}],
              "termination_kind" => nil,
              "viewer_count" => 0
            } = Jason.decode!(payload)
+
+    assert webrtc_path == "/api/camera-relay-sessions/#{relay_session_id}/webrtc/session"
 
     Agent.update(session_agent, fn session ->
       %{session | status: :active, media_ingest_id: "core-media-1", viewer_count: 2}

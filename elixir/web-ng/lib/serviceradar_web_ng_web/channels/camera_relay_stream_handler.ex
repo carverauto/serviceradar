@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
   alias ServiceRadar.Camera.RelayPlayback
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadarWebNG.CameraRelayWebRTC
 
   require Logger
 
@@ -192,6 +193,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
   defp snapshot(session) do
     session
     |> RelayPlayback.browser_metadata()
+    |> Map.merge(CameraRelayWebRTC.metadata(session))
     |> Map.merge(%{
       type: "camera_relay_snapshot",
       relay_session_id: session.id,

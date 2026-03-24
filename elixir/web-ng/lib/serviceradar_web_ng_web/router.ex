@@ -135,6 +135,25 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/camera-relay-sessions", CameraRelaySessionController, :create)
     get("/camera-relay-sessions/:id", CameraRelaySessionController, :show)
     post("/camera-relay-sessions/:id/close", CameraRelaySessionController, :close)
+    post("/camera-relay-sessions/:id/webrtc/session", CameraRelayWebRTCController, :create_session)
+
+    post(
+      "/camera-relay-sessions/:id/webrtc/session/:viewer_session_id/answer",
+      CameraRelayWebRTCController,
+      :submit_answer
+    )
+
+    post(
+      "/camera-relay-sessions/:id/webrtc/session/:viewer_session_id/candidates",
+      CameraRelayWebRTCController,
+      :add_candidate
+    )
+
+    delete(
+      "/camera-relay-sessions/:id/webrtc/session/:viewer_session_id",
+      CameraRelayWebRTCController,
+      :close_session
+    )
 
     get("/spatial/samples", SpatialController, :index)
   end

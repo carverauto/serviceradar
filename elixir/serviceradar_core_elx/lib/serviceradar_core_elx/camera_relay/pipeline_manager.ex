@@ -19,6 +19,16 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
     GenServer.call(__MODULE__, {:record_chunk, relay_session_id, attrs})
   end
 
+  def add_webrtc_viewer(relay_session_id, viewer_session_id, signaling, opts \\ [])
+      when is_binary(relay_session_id) and is_binary(viewer_session_id) do
+    GenServer.call(__MODULE__, {:add_webrtc_viewer, relay_session_id, viewer_session_id, signaling, opts})
+  end
+
+  def remove_webrtc_viewer(relay_session_id, viewer_session_id)
+      when is_binary(relay_session_id) and is_binary(viewer_session_id) do
+    GenServer.call(__MODULE__, {:remove_webrtc_viewer, relay_session_id, viewer_session_id})
+  end
+
   def close_session(relay_session_id) when is_binary(relay_session_id) do
     GenServer.call(__MODULE__, {:close_session, relay_session_id})
   end
@@ -61,6 +71,34 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
       %{pipeline_pid: pipeline_pid} ->
         send(pipeline_pid, {:media_chunk, Map.put(attrs, :relay_session_id, relay_session_id)})
         {:reply, :ok, state}
+
+      nil ->
+        {:reply, {:error, :not_found}, state}
+    end
+  end
+
+  def handle_call({:add_webrtc_viewer, relay_session_id, viewer_session_id, signaling, opts}, _from, state) do
+    case Map.get(state.sessions, relay_session_id) do
+      %{pipeline_pid: pipeline_pid} ->
+        reply =
+          Membrane.Pipeline.call(
+            pipeline_pid,
+            {:add_webrtc_viewer, viewer_session_id, signaling, opts},
+            Keyword.get(opts, :timeout, 5_000)
+          )
+
+        {:reply, reply, state}
+
+      nil ->
+        {:reply, {:error, :not_found}, state}
+    end
+  end
+
+  def handle_call({:remove_webrtc_viewer, relay_session_id, viewer_session_id}, _from, state) do
+    case Map.get(state.sessions, relay_session_id) do
+      %{pipeline_pid: pipeline_pid} ->
+        reply = Membrane.Pipeline.call(pipeline_pid, {:remove_webrtc_viewer, viewer_session_id}, 5_000)
+        {:reply, reply, state}
 
       nil ->
         {:reply, {:error, :not_found}, state}

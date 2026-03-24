@@ -4099,6 +4099,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   }
                   data-playback-codec-hint={relay_playback_codec_hint(@active_session)}
                   data-playback-container-hint={relay_playback_container_hint(@active_session)}
+                  data-webrtc-playback-transport={relay_webrtc_playback_transport(@active_session)}
+                  data-webrtc-signaling-path={relay_webrtc_signaling_path(@active_session)}
+                  data-webrtc-ice-servers={relay_webrtc_ice_servers_json(@active_session)}
                   class="space-y-1"
                 >
                   <div class="overflow-hidden rounded-md border border-base-300/70 bg-base-300/20">
@@ -8024,6 +8027,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp relay_playback_contract(session) when is_map(session), do: RelayPlayback.browser_metadata(session)
   defp relay_playback_contract(_session), do: RelayPlayback.browser_metadata(%{})
+
+  defp relay_webrtc_playback_transport(session) do
+    session
+    |> relay_webrtc_metadata()
+    |> Map.get(:webrtc_playback_transport)
+  end
+
+  defp relay_webrtc_signaling_path(session) do
+    session
+    |> relay_webrtc_metadata()
+    |> Map.get(:webrtc_signaling_path)
+  end
+
+  defp relay_webrtc_ice_servers_json(session) do
+    session
+    |> relay_webrtc_metadata()
+    |> Map.get(:webrtc_ice_servers, [])
+    |> Jason.encode!()
+  end
+
+  defp relay_webrtc_metadata(%{id: _relay_session_id} = session),
+    do: ServiceRadarWebNG.CameraRelayWebRTC.metadata(session)
+
+  defp relay_webrtc_metadata(_session), do: %{}
 
   defp relay_close_reason_text(session) do
     case Map.get(session || %{}, :close_reason) do

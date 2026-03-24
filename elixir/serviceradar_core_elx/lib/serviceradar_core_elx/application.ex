@@ -53,6 +53,7 @@ defmodule ServiceRadarCoreElx.Application do
     children = [
       ServiceRadarCoreElx.CameraRelay.ViewerRegistry,
       ServiceRadarCoreElx.CameraRelay.PipelineManager,
+      ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager,
       ServiceRadarCoreElx.CameraMediaSessionTracker,
       {Registry, keys: :unique, name: ServiceRadarCoreElx.CameraMediaIngressRegistry},
       ServiceRadarCoreElx.CameraMediaIngressSupervisor,
