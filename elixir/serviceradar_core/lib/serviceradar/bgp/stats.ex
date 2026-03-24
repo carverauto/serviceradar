@@ -270,15 +270,7 @@ defmodule ServiceRadar.BGP.Stats do
   """
   def get_as_path_details(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 50) do
     {time_filter, params} = build_time_filter(time_range)
-
-    protocol_filter =
-      if source_protocol do
-        "AND source_protocol = $#{length(params) + 1}"
-      else
-        ""
-      end
-
-    params = if source_protocol, do: params ++ [source_protocol], else: params
+    {protocol_filter, params} = build_protocol_filter(source_protocol, params)
 
     query = """
     SELECT
@@ -298,15 +290,7 @@ defmodule ServiceRadar.BGP.Stats do
 
     case Repo.query(query, params) do
       {:ok, %{rows: rows}} ->
-        Enum.map(rows, fn [as_path, path_length, bytes, packets, flow_count] ->
-          %{
-            as_path: as_path || [],
-            path_length: path_length || 0,
-            bytes: bytes || 0,
-            packets: packets || 0,
-            flow_count: flow_count || 0
-          }
-        end)
+        Enum.map(rows, &map_as_path_row/1)
 
       {:error, _} ->
         []
@@ -373,25 +357,8 @@ defmodule ServiceRadar.BGP.Stats do
   """
   def get_traffic_timeseries(time_range \\ "last_1h", source_protocol \\ nil, top_n \\ 5) do
     {time_filter, params} = build_time_filter(time_range)
-
-    protocol_filter =
-      if source_protocol do
-        "AND source_protocol = $#{length(params) + 1}"
-      else
-        ""
-      end
-
-    params = if source_protocol, do: params ++ [source_protocol], else: params
-
-    # Determine bucket size based on time range
-    bucket_size =
-      case time_range do
-        "last_1h" -> "1 minute"
-        "last_6h" -> "5 minutes"
-        "last_24h" -> "15 minutes"
-        "last_7d" -> "1 hour"
-        _ -> "5 minutes"
-      end
+    {protocol_filter, params} = build_protocol_filter(source_protocol, params)
+    bucket_size = bucket_size_for(time_range)
 
     query = """
     WITH top_ases AS (
@@ -418,24 +385,7 @@ defmodule ServiceRadar.BGP.Stats do
 
     case Repo.query(query, params) do
       {:ok, %{rows: rows}} ->
-        # Group by time bucket, then by AS
-        grouped =
-          rows
-          |> Enum.group_by(fn [time_bucket, _as, _bytes] -> time_bucket end)
-          |> Enum.map(fn {time_bucket, entries} ->
-            values = Map.new(entries, fn [_time, as_number, bytes] -> {as_number, bytes || 0} end)
-            %{time: time_bucket, values: values}
-          end)
-          |> Enum.sort_by(& &1.time, NaiveDateTime)
-
-        # Get unique AS numbers
-        series =
-          rows
-          |> Enum.map(fn [_time, as_number, _bytes] -> as_number end)
-          |> Enum.uniq()
-          |> Enum.sort()
-
-        %{series: series, data: grouped}
+        %{series: timeseries_series(rows), data: timeseries_data(rows)}
 
       {:error, _} ->
         %{series: [], data: []}
@@ -498,6 +448,48 @@ defmodule ServiceRadar.BGP.Stats do
       {:error, _} ->
         []
     end
+  end
+
+  defp build_protocol_filter(nil, params), do: {"", params}
+
+  defp build_protocol_filter(source_protocol, params) do
+    {"AND source_protocol = $#{length(params) + 1}", params ++ [source_protocol]}
+  end
+
+  defp map_as_path_row([as_path, path_length, bytes, packets, flow_count]) do
+    %{
+      as_path: as_path || [],
+      path_length: path_length || 0,
+      bytes: bytes || 0,
+      packets: packets || 0,
+      flow_count: flow_count || 0
+    }
+  end
+
+  defp bucket_size_for("last_1h"), do: "1 minute"
+  defp bucket_size_for("last_6h"), do: "5 minutes"
+  defp bucket_size_for("last_24h"), do: "15 minutes"
+  defp bucket_size_for("last_7d"), do: "1 hour"
+  defp bucket_size_for(_), do: "5 minutes"
+
+  defp timeseries_data(rows) do
+    rows
+    |> Enum.group_by(fn [time_bucket, _as, _bytes] -> time_bucket end)
+    |> Enum.map(&map_timeseries_bucket/1)
+    |> Enum.sort_by(& &1.time, NaiveDateTime)
+  end
+
+  defp map_timeseries_bucket({time_bucket, entries}) do
+    %{time: time_bucket, values: Map.new(entries, &timeseries_value_entry/1)}
+  end
+
+  defp timeseries_value_entry([_time, as_number, bytes]), do: {as_number, bytes || 0}
+
+  defp timeseries_series(rows) do
+    rows
+    |> Enum.map(fn [_time, as_number, _bytes] -> as_number end)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   # Private helper to build time filter SQL and params

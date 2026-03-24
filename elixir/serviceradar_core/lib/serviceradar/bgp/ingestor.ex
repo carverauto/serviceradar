@@ -129,7 +129,7 @@ defmodule ServiceRadar.BGP.Ingestor do
   defp validate_source_protocol(protocol),
     do: {:error, "Invalid source_protocol: #{protocol}. Must be netflow, sflow, or bgp_peering"}
 
-  defp validate_as_path(as_path) when is_list(as_path) and length(as_path) > 0 do
+  defp validate_as_path([_ | _] = as_path) do
     if Enum.all?(as_path, &valid_as_number?/1) do
       :ok
     else
@@ -245,13 +245,15 @@ defmodule ServiceRadar.BGP.Ingestor do
 
   defp process_batch(observations) do
     Repo.transaction(fn ->
-      Enum.map(observations, fn obs ->
-        case upsert_observation(obs) do
-          {:ok, id} -> id
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
+      Enum.map(observations, &upsert_observation!/1)
     end)
+  end
+
+  defp upsert_observation!(obs) do
+    case upsert_observation(obs) do
+      {:ok, id} -> id
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   defp broadcast_observation(action, observation_id, attrs) do

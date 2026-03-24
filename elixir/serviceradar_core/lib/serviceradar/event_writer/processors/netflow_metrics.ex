@@ -236,62 +236,35 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetrics do
   end
 
   defp build_metadata(flow) do
-    metadata = %{}
-
-    # Add interface information if present
     metadata =
-      if flow.in_if > 0 or flow.out_if > 0 do
-        Map.merge(metadata, %{
-          "in_if" => flow.in_if,
-          "out_if" => flow.out_if
-        })
-      else
-        metadata
-      end
+      %{}
+      |> maybe_put_interfaces(flow)
+      |> maybe_put_positive("observation_domain_id", flow.observation_domain_id)
+      |> maybe_put_string("protocol_name", flow.protocol_name)
+      |> maybe_put_positive("vlan_id", flow.vlan_id)
+      |> maybe_put_positive("sampling_rate", flow.sampling_rate)
+      |> maybe_put_positive("tcp_flags", flow.tcp_flags)
 
-    # Add observation domain if present
-    metadata =
-      if flow.observation_domain_id > 0 do
-        Map.put(metadata, "observation_domain_id", flow.observation_domain_id)
-      else
-        metadata
-      end
-
-    # Add protocol name if present
-    metadata =
-      if flow.protocol_name && flow.protocol_name != "" do
-        Map.put(metadata, "protocol_name", flow.protocol_name)
-      else
-        metadata
-      end
-
-    # Add VLAN information if present
-    metadata =
-      if flow.vlan_id > 0 do
-        Map.put(metadata, "vlan_id", flow.vlan_id)
-      else
-        metadata
-      end
-
-    # Add sampling rate if present
-    metadata =
-      if flow.sampling_rate > 0 do
-        Map.put(metadata, "sampling_rate", flow.sampling_rate)
-      else
-        metadata
-      end
-
-    # Add TCP flags if present
-    metadata =
-      if flow.tcp_flags > 0 do
-        Map.put(metadata, "tcp_flags", flow.tcp_flags)
-      else
-        metadata
-      end
-
-    # Return nil if empty, otherwise return the metadata map
     if metadata == %{}, do: nil, else: metadata
   end
+
+  defp maybe_put_interfaces(metadata, flow) do
+    if flow.in_if > 0 or flow.out_if > 0 do
+      Map.merge(metadata, %{"in_if" => flow.in_if, "out_if" => flow.out_if})
+    else
+      metadata
+    end
+  end
+
+  defp maybe_put_positive(metadata, key, value) when is_integer(value) and value > 0,
+    do: Map.put(metadata, key, value)
+
+  defp maybe_put_positive(metadata, _key, _value), do: metadata
+
+  defp maybe_put_string(metadata, key, value) when is_binary(value) and value != "",
+    do: Map.put(metadata, key, value)
+
+  defp maybe_put_string(metadata, _key, _value), do: metadata
 
   defp normalize_u32(0), do: nil
   defp normalize_u32(val) when is_integer(val), do: val
