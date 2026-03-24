@@ -13,33 +13,48 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCController do
   def create_session(conn, %{"id" => relay_session_id}) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "devices.view"),
-         {:ok, normalized_id} <- CameraRelaySessionController.normalize_uuid_param(relay_session_id, "id"),
-         {:ok, _session} <-
-           CameraRelaySessionController.fetch_relay_session_for_scope(normalized_id, get_scope(conn)),
-         {:ok, signal_session} <- CameraRelayWebRTC.create_session(normalized_id, scope: get_scope(conn)) do
-      conn
-      |> put_status(:created)
-      |> json(%{data: create_session_json(normalized_id, signal_session)})
+         {:ok, normalized_id} <- CameraRelaySessionController.normalize_uuid_param(relay_session_id, "id") do
+      scope = get_scope(conn)
+
+      case CameraRelaySessionController.fetch_relay_session_for_scope(normalized_id, scope) do
+        {:ok, relay_session} ->
+          case CameraRelayWebRTC.create_session(normalized_id, scope: scope) do
+            {:ok, signal_session} ->
+              conn
+              |> put_status(:created)
+              |> json(%{data: create_session_json(normalized_id, signal_session)})
+
+            {:error, :not_found} ->
+              render_missing_or_activating(conn, relay_session)
+
+            {:error, :viewer_session_not_found} ->
+              conn
+              |> put_status(:not_found)
+              |> json(%{
+                error: "viewer_session_not_found",
+                message: "webrtc viewer session was not found"
+              })
+
+            {:error, reason} when is_binary(reason) ->
+              conn
+              |> put_status(:unprocessable_entity)
+              |> json(%{error: "webrtc_unavailable", message: reason})
+
+            {:error, other} ->
+              {:error, other}
+          end
+
+        {:error, :not_found} ->
+          render_missing_or_activating(conn, nil)
+
+        {:error, other} ->
+          {:error, other}
+      end
     else
       {:error, :invalid_request, message} ->
         conn
         |> put_status(:bad_request)
         |> json(%{error: "invalid_request", message: message})
-
-      {:error, :not_found} ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "relay_session_not_found", message: "relay session was not found"})
-
-      {:error, :viewer_session_not_found} ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "viewer_session_not_found", message: "webrtc viewer session was not found"})
-
-      {:error, reason} when is_binary(reason) ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "webrtc_unavailable", message: reason})
 
       {:error, other} ->
         {:error, other}
@@ -185,6 +200,22 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCController do
       "signaling_path" => CameraRelayWebRTC.signaling_path(relay_session_id),
       "ice_servers" => CameraRelayWebRTC.ice_servers()
     })
+  end
+
+  defp render_missing_or_activating(conn, %{status: status})
+       when status in [:requested, :opening, "requested", "opening"] do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: "relay_session_activating",
+      message: "relay session is still activating"
+    })
+  end
+
+  defp render_missing_or_activating(conn, _relay_session) do
+    conn
+    |> put_status(:not_found)
+    |> json(%{error: "relay_session_not_found", message: "relay session was not found"})
   end
 
   defp normalize_candidate(%{"candidate" => %{} = candidate}), do: {:ok, candidate}

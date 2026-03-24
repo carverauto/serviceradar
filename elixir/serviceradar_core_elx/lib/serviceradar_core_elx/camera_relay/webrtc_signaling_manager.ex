@@ -292,6 +292,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
 
   defp available_relay_session({:ok, relay_session}) when is_map(relay_session), do: {:ok, relay_session}
   defp available_relay_session(relay_session) when is_map(relay_session), do: {:ok, relay_session}
+  defp available_relay_session(nil), do: {:error, :not_found}
   defp available_relay_session(other), do: other
 
   defp refresh_session(session, session_ttl_ms) do

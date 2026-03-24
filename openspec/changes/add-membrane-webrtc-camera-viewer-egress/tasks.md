@@ -15,5 +15,5 @@
 
 ## 4. Operations and Verification
 - [x] 4.1 Add focused tests for signaling, relay-scoped viewer lifecycle, and fallback selection.
-- [ ] 4.2 Add manual verification coverage for at least one device-page viewer and one God-View viewer using WebRTC.
+- [x] 4.2 Add manual verification coverage for at least one device-page viewer and one God-View viewer using WebRTC.
 - [x] 4.3 Validate the change with `openspec validate add-membrane-webrtc-camera-viewer-egress --strict`.

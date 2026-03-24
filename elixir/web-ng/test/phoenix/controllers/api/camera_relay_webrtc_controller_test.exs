@@ -173,6 +173,35 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCControllerTest do
     assert body["error"] == "webrtc_unavailable"
   end
 
+  test "returns 409 while the relay session is still activating", %{
+    conn: conn,
+    relay_session_id: relay_session_id
+  } do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :camera_relay_session_fetcher,
+      fn session_id, _opts ->
+        {:ok,
+         %{
+           id: session_id,
+           camera_source_id: Ecto.UUID.generate(),
+           stream_profile_id: Ecto.UUID.generate(),
+           status: :opening,
+           media_ingest_id: nil,
+           viewer_count: 0
+         }}
+      end
+    )
+
+    Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_create_result, {:error, :not_found})
+
+    conn = post(conn, ~p"/api/camera-relay-sessions/#{relay_session_id}/webrtc/session", %{})
+    body = json_response(conn, 409)
+
+    assert body["error"] == "relay_session_activating"
+    assert body["message"] == "relay session is still activating"
+  end
+
   test "closes a relay-scoped webrtc signaling session", %{conn: conn, relay_session_id: relay_session_id} do
     viewer_session_id = Ecto.UUID.generate()
 

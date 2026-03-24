@@ -191,10 +191,9 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
   end
 
   defp snapshot(session) do
-    session
-    |> RelayPlayback.browser_metadata()
-    |> Map.merge(CameraRelayWebRTC.metadata(session))
-    |> Map.merge(%{
+    playback_metadata = playback_metadata(session)
+
+    Map.merge(playback_metadata, %{
       type: "camera_relay_snapshot",
       relay_session_id: session.id,
       camera_source_id: session.camera_source_id,
@@ -209,6 +208,20 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
       failure_reason: session.failure_reason,
       updated_at: iso8601(session.updated_at)
     })
+  end
+
+  defp playback_metadata(session) when is_map(session) do
+    session
+    |> Map.merge(CameraRelayWebRTC.metadata(session))
+    |> RelayPlayback.browser_metadata()
+    |> Map.merge(CameraRelayWebRTC.metadata(session))
+  end
+
+  defp playback_metadata(_session) do
+    %{}
+    |> Map.merge(CameraRelayWebRTC.metadata(%{}))
+    |> RelayPlayback.browser_metadata()
+    |> Map.merge(CameraRelayWebRTC.metadata(%{}))
   end
 
   defp playback_state(%{status: status, media_ingest_id: media_ingest_id})

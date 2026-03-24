@@ -9,6 +9,9 @@ import {
   selectRelayPlaybackTransport,
 } from "../lib/camera_relay/player"
 
+const WEBRTC_CREATE_RETRY_DELAY_MS = 500
+const WEBRTC_CREATE_MAX_ATTEMPTS = 10
+
 function setText(root, role, value) {
   const element = root.querySelector(`[data-role="${role}"]`)
   if (element) {
@@ -110,6 +113,10 @@ function jsonHeaders() {
   }
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 function terminationLabel(kind) {
   switch (kind) {
     case "failure":
@@ -135,6 +142,7 @@ export default {
     this.webrtcSignalingPath = this.el.dataset.webrtcSignalingPath
     this.webrtcIceServers = parseJsonDataset(this.el.dataset.webrtcIceServers, [])
     this.socket = null
+    this.statusSocket = null
     this.peerConnection = null
     this.webrtcViewerSessionId = null
     this.chunkCount = 0
@@ -169,6 +177,7 @@ export default {
 
     if (this.transportSelection.selectedTransport === CAMERA_RELAY_WEBRTC_TRANSPORT) {
       this.setSurfaceVisibility(CAMERA_RELAY_WEBRTC_TRANSPORT)
+      this.connectStatusWebsocket()
       this.connectWebRtc()
       return
     }
@@ -181,6 +190,11 @@ export default {
     if (this.socket) {
       this.socket.close()
       this.socket = null
+    }
+
+    if (this.statusSocket) {
+      this.statusSocket.close()
+      this.statusSocket = null
     }
 
     if (this.player) {
@@ -258,38 +272,29 @@ export default {
         return
       }
 
-      let payload = null
+      this.handleSnapshotMessage(event.data)
+    })
+  },
 
-      try {
-        payload = JSON.parse(event.data)
-      } catch (_error) {
-        setText(this.el, "transport-status", "Browser stream sent invalid payload")
+  connectStatusWebsocket() {
+    if (!this.streamPath) {
+      return
+    }
+
+    this.statusSocket = new WebSocket(websocketUrl(this.streamPath))
+
+    this.statusSocket.addEventListener("message", (event) => {
+      if (typeof event.data !== "string") {
         return
       }
 
-      if (payload.type !== "camera_relay_snapshot") {
-        return
+      this.handleSnapshotMessage(event.data)
+    })
+
+    this.statusSocket.addEventListener("error", () => {
+      if (!this.receivedRelaySnapshot) {
+        setText(this.el, "relay-detail", "Waiting for relay state updates from core.")
       }
-
-      this.playbackMetadata = playbackMetadataFromSnapshot(payload, this.playbackMetadata)
-      setText(this.el, "compatibility-status", compatibilityStatus(this.transportSelection, this.playbackMetadata))
-      this.receivedRelaySnapshot = true
-      const termination = terminationLabel(payload.termination_kind)
-
-      setText(this.el, "relay-status", `Relay status: ${payload.status}`)
-      setText(this.el, "playback-state", `Playback state: ${payload.playback_state}`)
-      setText(this.el, "viewer-count", `Viewer count: ${payload.viewer_count ?? 0}`)
-      setText(this.el, "termination-kind", termination ? `Termination: ${termination}` : "")
-      setText(this.el, "failure-reason", payload.failure_reason ? `Failure reason: ${payload.failure_reason}` : "")
-      setText(this.el, "close-reason", payload.close_reason ? `Close reason: ${payload.close_reason}` : "")
-      setText(
-        this.el,
-        "relay-detail",
-        payload.media_ingest_id
-          ? `Ingress ${payload.media_ingest_id} is attached and browser playback is bound to this relay session.`
-          : "Waiting for core ingest to activate the relay session."
-      )
-      setDataset(this.el, "playback-state", payload.playback_state)
     })
   },
 
@@ -308,17 +313,7 @@ export default {
     setText(this.el, "player-status", "Waiting for WebRTC offer...")
 
     try {
-      const createResponse = await fetch(this.webrtcSignalingPath, {
-        method: "POST",
-        headers: jsonHeaders(),
-        credentials: "same-origin",
-      })
-
-      const createBody = await createResponse.json()
-
-      if (!createResponse.ok) {
-        throw new Error(createBody?.message || "WebRTC viewer session could not be created")
-      }
+      const createBody = await this.createWebRtcViewerSession()
 
       const session = createBody?.data || {}
       const viewerSessionId = session.viewer_session_id
@@ -397,6 +392,42 @@ export default {
     }
   },
 
+  async createWebRtcViewerSession() {
+    let lastError = null
+
+    for (let attempt = 1; attempt <= WEBRTC_CREATE_MAX_ATTEMPTS; attempt += 1) {
+      const createResponse = await fetch(this.webrtcSignalingPath, {
+        method: "POST",
+        headers: jsonHeaders(),
+        credentials: "same-origin",
+      })
+
+      const createBody = await createResponse.json()
+
+      if (createResponse.ok) {
+        return createBody
+      }
+
+      const retryableNotReady =
+        attempt < WEBRTC_CREATE_MAX_ATTEMPTS &&
+        ((createResponse.status === 404 && createBody?.error === "relay_session_not_found") ||
+          (createResponse.status === 409 && createBody?.error === "relay_session_activating"))
+
+      if (!retryableNotReady) {
+        throw new Error(createBody?.message || "WebRTC viewer session could not be created")
+      }
+
+      lastError = createBody?.message || "relay session is still activating"
+      setText(this.el, "transport-status", "Waiting for relay activation...")
+      setText(this.el, "player-status", lastError)
+      await sleep(WEBRTC_CREATE_RETRY_DELAY_MS)
+      setText(this.el, "transport-status", "Creating WebRTC viewer session...")
+      setText(this.el, "player-status", "Waiting for WebRTC offer...")
+    }
+
+    throw new Error(lastError || "WebRTC viewer session could not be created")
+  },
+
   destroyWebRtc() {
     const viewerSessionId = this.webrtcViewerSessionId
 
@@ -418,6 +449,11 @@ export default {
   },
 
   useWebsocketFallback(reason) {
+    if (this.statusSocket) {
+      this.statusSocket.close()
+      this.statusSocket = null
+    }
+
     const fallbackSelection = selectRelayPlaybackTransport(
       {
         ...this.playbackMetadata,
@@ -441,6 +477,44 @@ export default {
     setText(this.el, "player-status", reason)
     setText(this.el, "compatibility-status", compatibilityStatus(this.transportSelection, this.playbackMetadata))
     this.connectWebsocket()
+  },
+
+  handleSnapshotMessage(data) {
+    let payload = null
+
+    try {
+      payload = JSON.parse(data)
+    } catch (_error) {
+      if (this.socket) {
+        setText(this.el, "transport-status", "Browser stream sent invalid payload")
+      }
+
+      return
+    }
+
+    if (payload.type !== "camera_relay_snapshot") {
+      return
+    }
+
+    this.playbackMetadata = playbackMetadataFromSnapshot(payload, this.playbackMetadata)
+    setText(this.el, "compatibility-status", compatibilityStatus(this.transportSelection, this.playbackMetadata))
+    this.receivedRelaySnapshot = true
+    const termination = terminationLabel(payload.termination_kind)
+
+    setText(this.el, "relay-status", `Relay status: ${payload.status}`)
+    setText(this.el, "playback-state", `Playback state: ${payload.playback_state}`)
+    setText(this.el, "viewer-count", `Viewer count: ${payload.viewer_count ?? 0}`)
+    setText(this.el, "termination-kind", termination ? `Termination: ${termination}` : "")
+    setText(this.el, "failure-reason", payload.failure_reason ? `Failure reason: ${payload.failure_reason}` : "")
+    setText(this.el, "close-reason", payload.close_reason ? `Close reason: ${payload.close_reason}` : "")
+    setText(
+      this.el,
+      "relay-detail",
+      payload.media_ingest_id
+        ? `Ingress ${payload.media_ingest_id} is attached and browser playback is bound to this relay session.`
+        : "Waiting for core ingest to activate the relay session."
+    )
+    setDataset(this.el, "playback-state", payload.playback_state)
   },
 
   buildPlayer() {

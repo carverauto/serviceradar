@@ -137,10 +137,9 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
   defp normalize_optional_string(_value), do: nil
 
   defp relay_session_json(session, conn) do
-    session
-    |> RelayPlayback.browser_metadata()
-    |> Map.merge(CameraRelayWebRTC.metadata(session))
-    |> Map.merge(%{
+    playback_metadata = playback_metadata(session)
+
+    Map.merge(playback_metadata, %{
       id: session.id,
       camera_source_id: session.camera_source_id,
       stream_profile_id: session.stream_profile_id,
@@ -158,6 +157,20 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
       inserted_at: format_value(session.inserted_at),
       updated_at: format_value(session.updated_at)
     })
+  end
+
+  defp playback_metadata(session) when is_map(session) do
+    session
+    |> Map.merge(CameraRelayWebRTC.metadata(session))
+    |> RelayPlayback.browser_metadata()
+    |> Map.merge(CameraRelayWebRTC.metadata(session))
+  end
+
+  defp playback_metadata(_session) do
+    %{}
+    |> Map.merge(CameraRelayWebRTC.metadata(%{}))
+    |> RelayPlayback.browser_metadata()
+    |> Map.merge(CameraRelayWebRTC.metadata(%{}))
   end
 
   defp format_value(%DateTime{} = value), do: DateTime.to_iso8601(value)

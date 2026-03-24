@@ -1616,7 +1616,12 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
     |> Map.get(:playback_container_hint, "annexb")
   end
 
-  defp relay_playback_contract(session) when is_map(session), do: RelayPlayback.browser_metadata(session)
+  defp relay_playback_contract(session) when is_map(session) do
+    session
+    |> Map.merge(relay_webrtc_metadata(session))
+    |> RelayPlayback.browser_metadata()
+  end
+
   defp relay_playback_contract(_session), do: RelayPlayback.browser_metadata(%{})
 
   defp relay_webrtc_playback_transport(session) do
