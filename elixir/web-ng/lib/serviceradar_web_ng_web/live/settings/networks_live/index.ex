@@ -3092,8 +3092,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> Map.put(:result_payload, Map.get(data, :payload))
   end
 
-  defp merge_event_status(status, _event_type, _data), do: status
-
   defp command_event_timestamp(data) do
     Map.get(data, :completed_at) ||
       Map.get(data, :updated_at) ||
@@ -3750,8 +3748,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
   end
-
-  defp normalize_list_value(_), do: []
 
   defp update_builder(builder, params) do
     builder

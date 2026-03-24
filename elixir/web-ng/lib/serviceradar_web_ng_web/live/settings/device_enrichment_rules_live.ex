@@ -1105,7 +1105,6 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
   defp audit_action(:apply_now), do: :update
   defp audit_action(:import_yaml), do: :update
   defp audit_action(:export_yaml), do: :read
-  defp audit_action(_), do: :update
 
   defp actor_from_scope(%{user: user}) when is_map(user) do
     %{

@@ -463,8 +463,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     end)
   end
 
-  defp filter_recent_states(_), do: []
-
   defp filter_service_states(states) when is_list(states) do
     Enum.reject(states, fn
       %ServiceState{service_type: service_type} ->
@@ -475,8 +473,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     end)
   end
 
-  defp filter_service_states(_), do: []
-
   defp dedupe_states(states) when is_list(states) do
     states
     |> Enum.filter(&match?(%ServiceState{}, &1))
@@ -486,8 +482,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     end)
     |> Map.values()
   end
-
-  defp dedupe_states(_), do: []
 
   defp state_sort_key(%ServiceState{last_observed_at: %DateTime{} = observed_at}),
     do: {1, DateTime.to_unix(observed_at, :nanosecond)}
@@ -536,8 +530,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     Enum.reduce(unique_services, initial, &accumulate_service/2)
   end
 
-  defp compute_summary(_), do: %{total: 0, available: 0, unavailable: 0, by_check: %{}, check_count: 0, last_updated: nil}
-
   defp compute_state_summary(states) when is_list(states) do
     last_updated = latest_state_timestamp(states)
     initial = base_summary(length(states), last_updated)
@@ -556,9 +548,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       }
     end)
   end
-
-  defp compute_state_summary(_),
-    do: %{total: 0, available: 0, unavailable: 0, by_check: %{}, check_count: 0, last_updated: nil}
 
   defp schedule_refresh(socket) do
     if socket.assigns.refresh_pending do

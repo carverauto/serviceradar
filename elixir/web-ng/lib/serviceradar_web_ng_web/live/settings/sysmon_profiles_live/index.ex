@@ -1100,8 +1100,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     |> Enum.reject(&(&1 == ""))
   end
 
-  defp normalize_list_value(_), do: []
-
   defp update_builder(builder, params) do
     builder
     |> Map.merge(stringify_params(params))

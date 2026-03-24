@@ -432,8 +432,6 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
     end
   end
 
-  defp parse_float(_), do: nil
-
   defp metric_operation(metric) do
     grpc = grpc_operation(metric)
     http = http_operation(metric)

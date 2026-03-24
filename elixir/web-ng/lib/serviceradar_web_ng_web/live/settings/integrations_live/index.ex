@@ -506,8 +506,6 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     )
   end
 
-  defp mapbox_settings_to_form(_), do: nil
-
   defp build_mapbox_update_params(params) when is_map(params) do
     base = %{
       enabled: truthy_param?(Map.get(params, "enabled")),

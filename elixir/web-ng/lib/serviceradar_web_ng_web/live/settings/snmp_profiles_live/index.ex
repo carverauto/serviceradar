@@ -621,9 +621,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             {int, _} -> int
             :error -> 161
           end
-
-        _ ->
-          161
       end
 
     # Validate we have a host
