@@ -26,7 +26,9 @@ defmodule ServiceRadar.SweepJobs.ObanSupport do
     _ -> "platform"
   end
 
-  @spec safe_insert(Oban.Job.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  @type oban_insertable :: Ecto.Changeset.t() | Oban.Job.t()
+
+  @spec safe_insert(oban_insertable()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def safe_insert(job) do
     if available?() do
       try do
