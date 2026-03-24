@@ -125,9 +125,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       {:error, reason} ->
         Logger.warning("runtime_graph_refresh_failed reason=#{inspect(reason)}")
         state
-
-      _ ->
-        state
     end
   end
 

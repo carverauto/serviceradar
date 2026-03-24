@@ -319,15 +319,11 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
            ) do
       filename = BundleGenerator.bundle_filename(package)
       {:ok, tarball, filename}
-    else
-      {:error, reason} -> {:error, reason}
-      {:error, reason, _} -> {:error, reason}
-      {:error, reason, _, _} -> {:error, reason}
     end
   end
 
   defp request_base_url(conn) do
-    scheme = to_string(conn.scheme || :http)
+    scheme = to_string(conn.scheme)
     host = conn.host
 
     port =
@@ -337,7 +333,14 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
         _ -> conn.port
       end
 
-    URI.to_string(%URI{scheme: scheme, host: host, port: port})
+    authority =
+      if is_integer(port) do
+        "#{host}:#{port}"
+      else
+        host
+      end
+
+    "#{scheme}://#{authority}"
   end
 
   defp wrap_bundle_error({:ok, tarball}), do: {:ok, tarball}

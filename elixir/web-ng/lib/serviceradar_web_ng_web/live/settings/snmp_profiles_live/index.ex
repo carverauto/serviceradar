@@ -294,7 +294,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         {:noreply, put_flash(socket, :error, "Profile not found")}
 
       profile ->
-        case Ash.update(profile, :set_as_default, scope: scope) do
+        case profile
+             |> Ash.Changeset.for_update(:set_as_default, %{})
+             |> Ash.update(scope: scope) do
           {:ok, _updated} ->
             {:noreply,
              socket

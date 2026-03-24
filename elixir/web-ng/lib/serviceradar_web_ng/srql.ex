@@ -79,8 +79,6 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp extract_entity(_), do: nil
-
   defp translate(query, limit, cursor, direction, mode) do
     case Native.translate(query, limit, cursor, direction, mode) do
       {:ok, json} when is_binary(json) ->
@@ -216,8 +214,6 @@ defmodule ServiceRadarWebNG.SRQL do
     |> maybe_alias("first_seen_time", "first_seen")
     |> maybe_alias("last_seen_time", "last_seen")
   end
-
-  defp normalize_row_aliases(row), do: row
 
   defp maybe_alias(row, from, to) do
     cond do

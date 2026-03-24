@@ -402,7 +402,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       {:ok, source} ->
         action = if source.enabled, do: :disable, else: :enable
 
-        case Ash.update(source, action, actor: actor) do
+        case source
+             |> Ash.Changeset.for_update(action, %{})
+             |> Ash.update(actor: actor) do
           {:ok, _} ->
             {:noreply,
              socket

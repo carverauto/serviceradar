@@ -248,8 +248,6 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
     |> strip_dangerous_tags()
   end
 
-  defp sanitize_rendered_markdown(_), do: ""
-
   defp strip_unsafe_event_attributes(html) do
     Regex.replace(~r/\s+on[a-z0-9_-]+\s*=\s*(\"[^\"]*\"|'[^']*')/i, html, "")
   end
@@ -280,8 +278,8 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
 
   defp strip_dangerous_tags(html) do
     html
-    |> Regex.replace(~r/<\s*script\b[^>]*>.*?<\s*\/\s*script\s*>/is, "")
-    |> Regex.replace(~r/<\s*iframe\b[^>]*>.*?<\s*\/\s*iframe\s*>/is, "")
+    |> then(&Regex.replace(~r/<\s*script\b[^>]*>.*?<\s*\/\s*script\s*>/is, &1, "", []))
+    |> then(&Regex.replace(~r/<\s*iframe\b[^>]*>.*?<\s*\/\s*iframe\s*>/is, &1, "", []))
   end
 
   defp unquote_attr(value) when is_binary(value) do
@@ -312,8 +310,6 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
       true -> false
     end
   end
-
-  defp safe_markdown_url?(_), do: false
 
   defp status_variant(status) do
     case String.upcase(to_string(status)) do

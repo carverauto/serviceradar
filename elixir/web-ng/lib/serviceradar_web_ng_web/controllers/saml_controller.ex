@@ -381,18 +381,14 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   def get_idp_certificate_fingerprints do
     case SAMLStrategy.get_config() do
       {:ok, config} ->
-        case get_idp_certificates(config) do
-          {:ok, certs} ->
-            fingerprints =
-              certs
-              |> Enum.map(&compute_cert_fingerprint/1)
-              |> Enum.filter(&(&1 != nil))
+        {:ok, certs} = get_idp_certificates(config)
 
-            {:ok, fingerprints}
+        fingerprints =
+          certs
+          |> Enum.map(&compute_cert_fingerprint/1)
+          |> Enum.filter(&(&1 != nil))
 
-          error ->
-            error
-        end
+        {:ok, fingerprints}
 
       error ->
         error
@@ -400,13 +396,8 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   end
 
   defp get_idp_certificates(config) do
-    case config.idp_metadata do
-      {:xml, metadata_xml} ->
-        extract_certificates_from_metadata(metadata_xml)
-
-      _ ->
-        {:ok, []}
-    end
+    {:xml, metadata_xml} = config.idp_metadata
+    extract_certificates_from_metadata(metadata_xml)
   end
 
   defp extract_certificates_from_metadata(xml) do

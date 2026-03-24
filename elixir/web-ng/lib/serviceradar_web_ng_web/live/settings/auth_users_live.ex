@@ -631,7 +631,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   end
 
   defp default_system_profile_id(profiles, system_name) when is_list(profiles) do
-    system_name = to_string(system_name || "")
+    system_name = to_string(system_name)
 
     case Enum.find(profiles, fn profile -> to_string(profile.system_name || "") == system_name end) do
       nil -> nil

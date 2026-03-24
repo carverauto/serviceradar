@@ -463,12 +463,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     scope = socket.assigns.current_scope
 
     case Assignments.delete(id, scope: scope) do
-      :ok ->
-        {:noreply,
-         socket
-         |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
-         |> put_flash(:info, "Assignment removed")}
-
       {:ok, _assignment} ->
         {:noreply,
          socket
@@ -539,7 +533,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       |> list_assignments(scope)
       |> Enum.reduce([], fn assignment, errors ->
         case Assignments.delete(assignment.id, scope: scope) do
-          :ok -> errors
           {:ok, _} -> errors
           {:error, error} -> [format_error(error) | errors]
         end
@@ -550,7 +543,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         _ = maybe_delete_blob(package)
 
         case Packages.delete(id, scope: scope) do
-          :ok -> :ok
           {:ok, _package} -> :ok
           {:error, error} -> {:error, error}
         end
@@ -580,10 +572,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> assign(:show_details_modal, false)
          |> put_flash(:info, "Assignment created")}
 
-      {:error, {:invalid_json, message}} ->
-        Logger.error("Plugin assignment creation failed - invalid JSON: #{message}")
-        {:noreply, put_flash(socket, :error, message)}
-
       {:error, error} ->
         Logger.error("Plugin assignment creation failed: #{inspect(error)}")
         {:noreply, put_flash(socket, :error, "Failed to assign: #{format_error(error)}")}
@@ -604,10 +592,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> assign(:assignment_form, default_assignment_form())
          |> assign(:show_details_modal, false)
          |> put_flash(:info, "Assignment updated")}
-
-      {:error, {:invalid_json, message}} ->
-        Logger.error("Plugin assignment update failed - invalid JSON: #{message}")
-        {:noreply, put_flash(socket, :error, message)}
 
       {:error, error} ->
         Logger.error("Plugin assignment update failed for #{assignment.id}: #{inspect(error)}")
@@ -1665,7 +1649,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp map_present?(map) when is_map(map), do: map_size(map) > 0
-  defp map_present?(_), do: false
 
   defp normalize_map(nil), do: %{}
   defp normalize_map(map) when is_map(map), do: map
@@ -1732,9 +1715,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp build_create_attrs(params, extra) do
     extra =
       case extra do
-        value when is_map(value) -> value
         value when is_list(value) -> Map.new(value)
-        _ -> %{}
+        value when is_map(value) -> value
       end
 
     source_type = normalize_source_type(params["source_type"])
@@ -1757,7 +1739,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp parse_manifest(nil), do: {:error, :invalid_manifest_yaml}
 
   defp parse_manifest(yaml) when is_binary(yaml) do
-    trimmed = String.trim(yaml || "")
+    trimmed = String.trim(yaml)
 
     with true <- trimmed != "" || {:error, :invalid_manifest_yaml},
          {:ok, manifest} <- Manifest.from_yaml(trimmed) do

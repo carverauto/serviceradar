@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNG.Capabilities do
 
   @type config :: %{
           configured?: boolean(),
-          enabled: MapSet.t(capability())
+          enabled: [capability()]
         }
 
   @spec enabled?(capability() | String.t()) :: boolean()
@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNG.Capabilities do
   def enabled?(capability) when capability in @known_capabilities do
     case config() do
       %{configured?: false} -> true
-      %{enabled: enabled} -> MapSet.member?(enabled, capability)
+      %{enabled: enabled} -> capability in enabled
     end
   end
 
@@ -84,16 +84,16 @@ defmodule ServiceRadarWebNG.Capabilities do
     %{configured?: configured?, enabled: enabled}
   end
 
-  defp normalize_config(_), do: %{configured?: false, enabled: MapSet.new()}
+  defp normalize_config(_), do: %{configured?: false, enabled: []}
 
   defp normalize_capability_list(capabilities) when is_list(capabilities) do
     capabilities
     |> Enum.map(&normalize_capability/1)
     |> Enum.reject(&is_nil/1)
-    |> MapSet.new()
+    |> Enum.uniq()
   end
 
-  defp normalize_capability_list(_), do: MapSet.new()
+  defp normalize_capability_list(_), do: []
 
   defp normalize_capability(capability) when capability in @known_capabilities, do: capability
 

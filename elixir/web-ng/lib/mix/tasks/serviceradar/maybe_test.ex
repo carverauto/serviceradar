@@ -84,14 +84,8 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
     end
   end
 
-  defp db_reachable?(hostname, port) do
-    host =
-      case hostname do
-        host when is_binary(host) -> String.to_charlist(host)
-        host -> host
-      end
-
-    case :gen_tcp.connect(host, port, [:binary, active: false], 1_000) do
+  defp db_reachable?(hostname, port) when is_binary(hostname) do
+    case :gen_tcp.connect(String.to_charlist(hostname), port, [:binary, active: false], 1_000) do
       {:ok, socket} ->
         :gen_tcp.close(socket)
         true

@@ -306,7 +306,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       group ->
         action = if group.enabled, do: :disable, else: :enable
 
-        case Ash.update(group, action, scope: scope) do
+        case group
+             |> Ash.Changeset.for_update(action, %{})
+             |> Ash.update(scope: scope) do
           {:ok, _updated} ->
             flash_message = sweep_group_toggle_message(action)
 

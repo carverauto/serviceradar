@@ -178,7 +178,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp safe_to_string(value), do: inspect(value)
 
   defp normalize_series_label(""), do: "overall"
-  defp normalize_series_label(nil), do: "overall"
   defp normalize_series_label(value), do: value
 
   # Chart paths with optional max_y for fixed Y-axis scaling (e.g., interface speed)
@@ -891,7 +890,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     socket =
       socket
       |> assign(Map.delete(assigns, :panel_assigns))
-      |> assign(panel_assigns || %{})
+      |> assign(panel_assigns)
       |> assign(:compact, compact)
       |> assign(:series_points, series_points)
       |> assign(:spec, spec)

@@ -153,9 +153,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
           {:ok, map()} | {:error, term()}
   def create_with_platform_cert(attrs, opts \\ []) do
     opts = build_opts(opts)
-    result = AshPackages.create_with_platform_cert(attrs, opts)
-    maybe_broadcast_package_created(result)
-    result
+    AshPackages.create_with_platform_cert(attrs, opts)
   end
 
   @doc """
@@ -184,16 +182,6 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
       ok
     end
   end
-
-  defp maybe_broadcast_package_created(result)
-       when is_tuple(result) and tuple_size(result) == 2 and elem(result, 0) == :ok and is_map(elem(result, 1)) do
-    case Map.get(elem(result, 1), :package) do
-      nil -> :ok
-      package -> EdgePubSub.broadcast_package_created(package)
-    end
-  end
-
-  defp maybe_broadcast_package_created(_), do: :ok
 
   @doc """
   Delivers a package to a client, verifying the download token.
