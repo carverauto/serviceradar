@@ -67,24 +67,8 @@ type ResultDetails struct {
 	Metadata          map[string]interface{} `json:"metadata,omitempty"`
 }
 
-type axisClient struct {
-	baseURL    string
-	authHeader string
-	timeout    time.Duration
-}
-
-func (c *axisClient) get(ctx context.Context, path string) EndpointResult {
-	req := sdk.HTTPRequest{
-		Method:    "GET",
-		URL:       c.baseURL + path,
-		TimeoutMS: int(c.timeout.Milliseconds()),
-	}
-
-	if c.authHeader != "" {
-		req.Headers = map[string]string{"Authorization": c.authHeader}
-	}
-
-	resp, err := sdk.HTTP.DoContext(ctx, req)
+func getEndpoint(ctx context.Context, client *sdk.CameraHTTPClient, path string) EndpointResult {
+	resp, err := client.GetContext(ctx, path)
 	if err != nil {
 		return EndpointResult{Path: path, Error: err.Error()}
 	}
@@ -116,18 +100,11 @@ func run_check() {
 			return sdk.Unknown("configuration error: host is required"), nil
 		}
 
-		scheme, err := cfg.NormalizedScheme()
+		client, err := sdk.NewCameraHTTPClient(cfg, 10*1e9)
 		if err != nil {
-			return sdk.Unknown("configuration error: scheme must be http or https"), nil
+			return sdk.Unknown("configuration error: " + err.Error()), nil
 		}
-
-		timeout := cfg.ParsedTimeout(10 * time.Second)
-
-		client := &axisClient{
-			baseURL: fmt.Sprintf("%s://%s", scheme, cfg.Host),
-			timeout: timeout,
-		}
-		client.authHeader = cfg.BasicAuthHeader()
+		scheme, _ := cfg.NormalizedScheme()
 
 		ctx := context.Background()
 		details := ResultDetails{
@@ -135,11 +112,11 @@ func run_check() {
 			Endpoints:  make([]EndpointResult, 0, 6),
 			Metadata: map[string]interface{}{
 				"plugin":             "axis-camera",
-				"base_url":           client.baseURL,
+				"base_url":           client.BaseURL,
 				"discover_streams":   cfg.DiscoverStreams,
 				"collect_events":     cfg.CollectEvents,
-				"auth_configured":    client.authHeader != "",
-				"collection_timeout": timeout.String(),
+				"auth_configured":    client.AuthHeader != "",
+				"collection_timeout": client.Timeout.String(),
 			},
 		}
 		resultEvents := make([]sdk.OCSFEvent, 0, 4)
@@ -157,12 +134,12 @@ func run_check() {
 		}
 
 		if cfg.DiscoverStreams {
-			streams, streamRes := collectStreamInfo(ctx, client, cfg.Host, client.authHeader != "")
+			streams, streamRes := collectStreamInfo(ctx, client, cfg.Host, client.AuthHeader != "")
 			details.Endpoints = append(details.Endpoints, streamRes...)
 			details.Streams = streams
 		}
 		if cfg.CollectEvents {
-			events, eventRes := collectAxisEvents(scheme, cfg.Host, cfg.Username, cfg.Password, cfg.EventSources, timeout)
+			events, eventRes := collectAxisEvents(scheme, cfg.Host, cfg.Username, cfg.Password, cfg.EventSources, client.Timeout)
 			details.Endpoints = append(details.Endpoints, eventRes)
 			resultEvents = append(resultEvents, events...)
 		}
@@ -211,22 +188,15 @@ func stream_camera() {
 		return
 	}
 
-	scheme, schemeErr := cfg.NormalizedScheme()
-	if schemeErr != nil {
-		sdk.Log.Error("stream_camera configuration error: scheme must be http or https")
+	client, clientErr := sdk.NewCameraHTTPClient(cfg.Config, 10*1e9)
+	if clientErr != nil {
+		sdk.Log.Error("stream_camera configuration error: " + clientErr.Error())
 		return
 	}
-
-	timeout := cfg.ParsedTimeout(10 * time.Second)
-
-	client := &axisClient{
-		baseURL: fmt.Sprintf("%s://%s", scheme, cfg.Host),
-		timeout: timeout,
-	}
-	client.authHeader = cfg.BasicAuthHeader()
+	timeout := client.Timeout
 
 	// Validate camera reachability/auth with the same lightweight probe used by discovery.
-	probe := client.get(context.Background(), "/axis-cgi/basicdeviceinfo.cgi")
+	probe := getEndpoint(context.Background(), client, "/axis-cgi/basicdeviceinfo.cgi")
 	if probe.Status != 200 || probe.Error != "" {
 		sdk.Log.Error("stream_camera probe failed")
 		return
@@ -238,7 +208,7 @@ func stream_camera() {
 	}
 }
 
-func collectBasicDeviceInfo(ctx context.Context, client *axisClient) (map[string]string, []EndpointResult) {
+func collectBasicDeviceInfo(ctx context.Context, client *sdk.CameraHTTPClient) (map[string]string, []EndpointResult) {
 	paths := []string{
 		"/axis-cgi/basicdeviceinfo.cgi",
 		"/axis-cgi/basicdeviceinfo.cgi?method=getAllProperties",
@@ -246,7 +216,7 @@ func collectBasicDeviceInfo(ctx context.Context, client *axisClient) (map[string
 
 	results := make([]EndpointResult, 0, len(paths))
 	for _, p := range paths {
-		res := client.get(ctx, p)
+		res := getEndpoint(ctx, client, p)
 		if res.Status == 200 {
 			if kv, err := axisref.ParseKeyValueBody(res.Body); err == nil {
 				res.KVCount = len(kv)
@@ -261,8 +231,8 @@ func collectBasicDeviceInfo(ctx context.Context, client *axisClient) (map[string
 	return nil, results
 }
 
-func collectAPIDiscovery(ctx context.Context, client *axisClient) (map[string]any, []EndpointResult) {
-	res := client.get(ctx, "/axis-cgi/apidiscovery.cgi")
+func collectAPIDiscovery(ctx context.Context, client *sdk.CameraHTTPClient) (map[string]any, []EndpointResult) {
+	res := getEndpoint(ctx, client, "/axis-cgi/apidiscovery.cgi")
 	if res.Status != 200 {
 		return nil, []EndpointResult{trimBody(res)}
 	}
@@ -277,9 +247,9 @@ func collectAPIDiscovery(ctx context.Context, client *axisClient) (map[string]an
 	return payload, []EndpointResult{trimBody(res)}
 }
 
-func collectStreamInfo(ctx context.Context, client *axisClient, host string, authConfigured bool) ([]StreamInfo, []EndpointResult) {
-	profileRes := trimBody(client.get(ctx, "/axis-cgi/streamprofile.cgi?list"))
-	statusRes := trimBody(client.get(ctx, "/axis-cgi/streamstatus.cgi"))
+func collectStreamInfo(ctx context.Context, client *sdk.CameraHTTPClient, host string, authConfigured bool) ([]StreamInfo, []EndpointResult) {
+	profileRes := trimBody(getEndpoint(ctx, client, "/axis-cgi/streamprofile.cgi?list"))
+	statusRes := trimBody(getEndpoint(ctx, client, "/axis-cgi/streamstatus.cgi"))
 	results := []EndpointResult{profileRes, statusRes}
 
 	if profileRes.Status != 200 || strings.TrimSpace(profileRes.Body) == "" {
