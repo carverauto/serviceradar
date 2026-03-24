@@ -301,7 +301,10 @@ func TestProtectControllerFixtureLoginBootstrapAndEvents(t *testing.T) {
 	t.Cleanup(func() {
 		protectEventDial = origDial
 	})
-	protectEventDial = func(rawURL string, headers map[string]string, timeout time.Duration) (protectEventConn, error) {
+	protectEventDial = func(rawURL string, headers map[string]string, insecureSkipVerify bool, timeout time.Duration) (protectEventConn, error) {
+		if insecureSkipVerify {
+			t.Fatalf("expected insecure TLS to default false")
+		}
 		dialer := websocket.Dialer{HandshakeTimeout: timeout}
 		reqHeaders := make(http.Header, len(headers))
 		for key, value := range headers {
@@ -559,7 +562,10 @@ func TestCollectProtectEventsReportsStaleLastUpdateID(t *testing.T) {
 	t.Cleanup(func() {
 		protectEventDial = origDial
 	})
-	protectEventDial = func(rawURL string, headers map[string]string, timeout time.Duration) (protectEventConn, error) {
+	protectEventDial = func(rawURL string, headers map[string]string, insecureSkipVerify bool, timeout time.Duration) (protectEventConn, error) {
+		if insecureSkipVerify {
+			t.Fatalf("expected insecure TLS to default false")
+		}
 		dialer := websocket.Dialer{HandshakeTimeout: timeout}
 		reqHeaders := make(http.Header, len(headers))
 		for key, value := range headers {

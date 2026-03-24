@@ -97,8 +97,12 @@ type protectEventConn interface {
 	Close() error
 }
 
-var protectEventDial = func(rawURL string, headers map[string]string, timeout time.Duration) (protectEventConn, error) {
-	return sdk.WebSocketDialWithHeaders(rawURL, headers, timeout)
+var protectEventDial = func(rawURL string, headers map[string]string, insecureSkipVerify bool, timeout time.Duration) (protectEventConn, error) {
+	return sdk.WebSocketDialRequestContext(context.Background(), sdk.WebSocketDialRequest{
+		URL:                rawURL,
+		Headers:            headers,
+		InsecureSkipVerify: insecureSkipVerify,
+	}, timeout)
 }
 
 type ProtectCamera struct {
@@ -695,7 +699,7 @@ func collectProtectEvents(
 	}
 
 	wsURL := fmt.Sprintf("%s://%s%s%s", wsScheme, strings.TrimSpace(cfg.Host), wsPath, query)
-	conn, err := protectEventDial(wsURL, headers, timeout)
+	conn, err := protectEventDial(wsURL, headers, cfg.InsecureSkipVerify, timeout)
 	if err != nil {
 		result.Error = "websocket connect failed: " + err.Error()
 		return nil, result

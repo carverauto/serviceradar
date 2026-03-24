@@ -240,9 +240,21 @@ func TestStreamProtectRTSPReturnsHeartbeatFailureOnIdle(t *testing.T) {
 	}
 }
 
-func TestStreamProtectRTSPRejectsRTSPSURLs(t *testing.T) {
+func TestStreamProtectRTSPAcceptsRTSPSURLs(t *testing.T) {
+	origSession := newProtectRTSPSession
+	t.Cleanup(func() {
+		newProtectRTSPSession = origSession
+	})
+
+	newProtectRTSPSession = func(cfg StreamConfig, timeout time.Duration, sourceURL string) (*protectRTSPSession, error) {
+		if sourceURL != "rtsps://192.168.1.1:7441/example" {
+			t.Fatalf("unexpected source url %q", sourceURL)
+		}
+		return nil, errors.New("dial attempted")
+	}
+
 	err := streamProtectRTSP(StreamConfig{}, time.Second, "rtsps://192.168.1.1:7441/example")
-	if err == nil || err.Error() != "rtsps source urls are not yet supported by the wasm rtsp client" {
+	if err == nil || err.Error() != "dial attempted" {
 		t.Fatalf("unexpected error %v", err)
 	}
 }

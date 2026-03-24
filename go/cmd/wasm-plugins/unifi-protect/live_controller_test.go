@@ -22,14 +22,15 @@ func TestProtectLiveControllerSmoke(t *testing.T) {
 
 	cfg := Config{
 		CameraPluginConfig: sdk.CameraPluginConfig{
-			Host:            host,
-			Scheme:          envOrDefault("UNIFI_PROTECT_LIVE_SCHEME", "https"),
-			Username:        os.Getenv("UNIFI_PROTECT_LIVE_USERNAME"),
-			Password:        os.Getenv("UNIFI_PROTECT_LIVE_PASSWORD"),
-			DiscoverStreams: true,
-			CollectEvents:   envBool("UNIFI_PROTECT_LIVE_COLLECT_EVENTS"),
-			EventSources:    envOrDefault("UNIFI_PROTECT_LIVE_EVENT_SOURCES", "updates"),
-			Timeout:         envOrDefault("UNIFI_PROTECT_LIVE_TIMEOUT", "10s"),
+			Host:               host,
+			Scheme:             envOrDefault("UNIFI_PROTECT_LIVE_SCHEME", "https"),
+			Username:           os.Getenv("UNIFI_PROTECT_LIVE_USERNAME"),
+			Password:           os.Getenv("UNIFI_PROTECT_LIVE_PASSWORD"),
+			InsecureSkipVerify: envBool("UNIFI_PROTECT_LIVE_INSECURE"),
+			DiscoverStreams:    true,
+			CollectEvents:      envBool("UNIFI_PROTECT_LIVE_COLLECT_EVENTS"),
+			EventSources:       envOrDefault("UNIFI_PROTECT_LIVE_EVENT_SOURCES", "updates"),
+			Timeout:            envOrDefault("UNIFI_PROTECT_LIVE_TIMEOUT", "10s"),
 		},
 		APIKey:        os.Getenv("UNIFI_PROTECT_LIVE_API_KEY"),
 		Cookie:        os.Getenv("UNIFI_PROTECT_LIVE_COOKIE"),
@@ -104,10 +105,10 @@ func TestProtectLiveControllerSmoke(t *testing.T) {
 		t.Cleanup(func() {
 			protectEventDial = origDial
 		})
-		protectEventDial = func(rawURL string, headers map[string]string, timeout time.Duration) (protectEventConn, error) {
+		protectEventDial = func(rawURL string, headers map[string]string, insecureSkipVerify bool, timeout time.Duration) (protectEventConn, error) {
 			dialer := websocket.Dialer{
 				HandshakeTimeout: timeout,
-				TLSClientConfig:  &tls.Config{InsecureSkipVerify: insecureTLS}, //nolint:gosec
+				TLSClientConfig:  &tls.Config{InsecureSkipVerify: insecureSkipVerify}, //nolint:gosec
 			}
 			reqHeaders := make(http.Header, len(headers))
 			for key, value := range headers {

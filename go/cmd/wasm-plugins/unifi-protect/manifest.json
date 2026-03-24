@@ -17,7 +17,7 @@
   ],
   "permissions": {
     "allowed_domains": ["*"],
-    "allowed_ports": [80, 443, 7447]
+    "allowed_ports": [80, 443, 7447, 7441]
   },
   "resources": {
     "requested_memory_mb": 64,
@@ -55,6 +55,11 @@
         "type": "string",
         "description": "Request timeout duration",
         "default": "10s"
+      },
+      "insecure_skip_verify": {
+        "type": "boolean",
+        "description": "Allow self-signed or otherwise untrusted TLS certificates for controller APIs and websocket connections",
+        "default": false
       },
       "discover_streams": {
         "type": "boolean",

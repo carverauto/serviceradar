@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -1823,12 +1824,13 @@ func (e *pluginExecution) hostCameraMediaClose(
 }
 
 type httpRequestPayload struct {
-	Method     string            `json:"method"`
-	URL        string            `json:"url"`
-	Headers    map[string]string `json:"headers"`
-	Body       string            `json:"body"`
-	BodyBase64 string            `json:"body_base64"`
-	TimeoutMS  int               `json:"timeout_ms"`
+	Method             string            `json:"method"`
+	URL                string            `json:"url"`
+	Headers            map[string]string `json:"headers"`
+	Body               string            `json:"body"`
+	BodyBase64         string            `json:"body_base64"`
+	TimeoutMS          int               `json:"timeout_ms"`
+	InsecureSkipVerify bool              `json:"insecure_skip_verify"`
 }
 
 type httpResponsePayload struct {
@@ -1896,7 +1898,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		httpReq.Header.Set(key, value)
 	}
 
-	resp, err := e.manager.httpClient.Do(httpReq)
+	resp, err := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify).Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return pluginErrTimeout
@@ -1946,6 +1948,44 @@ func decodeBody(payload httpRequestPayload) ([]byte, error) {
 		return []byte(payload.Body), nil
 	}
 	return nil, nil
+}
+
+func pluginHTTPClient(base *http.Client, insecureSkipVerify bool) *http.Client {
+	if !insecureSkipVerify {
+		if base != nil {
+			return base
+		}
+		return http.DefaultClient
+	}
+
+	client := http.DefaultClient
+	if base != nil {
+		client = base
+	}
+
+	cloned := *client
+	transport := cloned.Transport
+	if baseTransport, ok := transport.(*http.Transport); ok {
+		transport = baseTransport.Clone()
+	} else if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = defaultTransport.Clone()
+	} else {
+		transport = &http.Transport{}
+	}
+
+	httpTransport, ok := transport.(*http.Transport)
+	if !ok {
+		httpTransport = &http.Transport{}
+	}
+	if httpTransport.TLSClientConfig != nil {
+		httpTransport.TLSClientConfig = httpTransport.TLSClientConfig.Clone()
+	} else {
+		httpTransport.TLSClientConfig = &tls.Config{}
+	}
+	httpTransport.TLSClientConfig.InsecureSkipVerify = true //nolint:gosec
+	cloned.Transport = httpTransport
+
+	return &cloned
 }
 
 func flattenHeaders(headers http.Header) map[string]string {
@@ -2264,7 +2304,7 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	if !ok {
 		return pluginErrInvalid
 	}
-	wsURL, headers, parseErr := parseWebSocketConnectPayload(urlBytes)
+	wsURL, headers, insecureSkipVerify, parseErr := parseWebSocketConnectPayload(urlBytes)
 	if parseErr != nil {
 		return pluginErrInvalid
 	}
@@ -2303,6 +2343,9 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	dialer := websocket.Dialer{
 		HandshakeTimeout: timeout,
 	}
+	if insecureSkipVerify {
+		dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+	}
 
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -2328,33 +2371,34 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 }
 
 type websocketConnectPayload struct {
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers,omitempty"`
+	URL                string            `json:"url"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	InsecureSkipVerify bool              `json:"insecure_skip_verify,omitempty"`
 }
 
-func parseWebSocketConnectPayload(raw []byte) (string, http.Header, error) {
+func parseWebSocketConnectPayload(raw []byte) (string, http.Header, bool, error) {
 	payload := strings.TrimSpace(string(raw))
 	if payload == "" {
-		return "", nil, errInvalidPath
+		return "", nil, false, errInvalidPath
 	}
 
 	// Backward-compatible mode: payload is just a URL string.
 	if !strings.HasPrefix(payload, "{") {
-		return payload, nil, nil
+		return payload, nil, false, nil
 	}
 
 	var parsed websocketConnectPayload
 	if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
-		return "", nil, err
+		return "", nil, false, err
 	}
 
 	wsURL := strings.TrimSpace(parsed.URL)
 	if wsURL == "" {
-		return "", nil, errInvalidPath
+		return "", nil, false, errInvalidPath
 	}
 
 	if len(parsed.Headers) == 0 {
-		return wsURL, nil, nil
+		return wsURL, nil, parsed.InsecureSkipVerify, nil
 	}
 
 	headers := make(http.Header, len(parsed.Headers))
@@ -2367,9 +2411,9 @@ func parseWebSocketConnectPayload(raw []byte) (string, http.Header, error) {
 	}
 
 	if len(headers) == 0 {
-		return wsURL, nil, nil
+		return wsURL, nil, parsed.InsecureSkipVerify, nil
 	}
-	return wsURL, headers, nil
+	return wsURL, headers, parsed.InsecureSkipVerify, nil
 }
 
 func (e *pluginExecution) hostWebSocketSend(_ context.Context, mod api.Module, handle, dataPtr, dataLen, timeoutMS uint32) int32 {

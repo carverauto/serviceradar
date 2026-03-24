@@ -2,8 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar-sdk-go/sdk"
@@ -31,10 +29,6 @@ var (
 )
 
 func streamProtectRTSP(cfg StreamConfig, timeout time.Duration, sourceURL string) error {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(sourceURL)), "rtsps://") {
-		return fmt.Errorf("rtsps source urls are not yet supported by the wasm rtsp client")
-	}
-
 	session, err := newProtectRTSPSession(cfg, timeout, sourceURL)
 	if err != nil {
 		return err
@@ -138,7 +132,7 @@ func openProtectRTSPSession(cfg StreamConfig, timeout time.Duration, sourceURL s
 		return nil, err
 	}
 
-	conn, err := sdk.TCPDial(endpoint.Host, endpoint.Port, timeout)
+	conn, err := sdk.DialRTSPTransport(endpoint, timeout, cfg.InsecureSkipVerify)
 	if err != nil {
 		return nil, err
 	}
