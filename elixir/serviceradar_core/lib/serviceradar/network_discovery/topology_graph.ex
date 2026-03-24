@@ -392,8 +392,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       interface_contract_valid?(protocol, payload)
   end
 
-  defp backbone_projectable_link?(_payload), do: false
-
   defp auxiliary_evidence_link?(payload) when is_map(payload) do
     evidence_class = normalize_evidence_class(payload.evidence_class)
     inferred_allowed = inferred_evidence_projectable?(payload)
@@ -401,8 +399,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
     inferred_allowed or attachment_allowed
   end
-
-  defp auxiliary_evidence_link?(_payload), do: false
 
   defp projection_mode(payload) when is_map(payload) do
     cond do
@@ -447,7 +443,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp increment_diagnostic(diag, bucket, reason) when is_map(diag) do
-    reason_key = to_string(reason || :unknown)
+    reason_key = to_string(reason)
 
     diag
     |> update_in([bucket, reason_key], fn
@@ -468,16 +464,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       (confidence_tier in ["high", "medium"] or payload.confidence_score >= 60)
   end
 
-  defp inferred_evidence_projectable?(_payload), do: false
-
   defp allow_single_identifier_inference_projection?(payload) when is_map(payload) do
     protocol = normalize_protocol(payload.protocol)
     confidence_tier = normalize_confidence_tier(payload.confidence_tier)
 
     protocol == "snmp-l2" and confidence_tier in ["high", "medium"]
   end
-
-  defp allow_single_identifier_inference_projection?(_payload), do: false
 
   defp evidence_relation_type(payload) do
     evidence_class = normalize_evidence_class(payload.evidence_class)
@@ -1244,7 +1236,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     case Graph.query(cypher) do
       {:ok, rows} when is_list(rows) -> {:ok, Enum.flat_map(rows, &parse_canonical_edge_row/1)}
       {:error, reason} -> {:error, reason}
-      _ -> {:ok, []}
     end
   end
 
@@ -1294,8 +1285,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     |> Enum.uniq()
   end
 
-  defp telemetry_metric_keys(_), do: []
-
   defp metric_key(device_id, if_index)
        when is_binary(device_id) and is_integer(if_index) and if_index > 0,
        do: {device_id, if_index}
@@ -1312,8 +1301,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     )
   end
 
-  defp load_packet_pps(_), do: %{}
-
   defp load_octet_bps(keys) when is_list(keys) do
     load_directional_metric(
       keys,
@@ -1323,8 +1310,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       fn value -> value * 8 end
     )
   end
-
-  defp load_octet_bps(_), do: %{}
 
   defp load_interface_capacity(keys) when is_list(keys) do
     device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
@@ -1352,8 +1337,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end
   end
 
-  defp load_interface_capacity(_), do: %{}
-
   defp build_device_identity(device_uids) when is_list(device_uids) do
     uid_set =
       device_uids
@@ -1379,18 +1362,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     %{uid_set: uid_set, ip_to_uid: ip_to_uid}
   end
 
-  defp build_device_identity(_), do: %{uid_set: MapSet.new(), ip_to_uid: %{}}
-
   defp telemetry_metric_device_ids(%{uid_set: uid_set, ip_to_uid: ip_to_uid}) do
     Enum.uniq(MapSet.to_list(uid_set) ++ Map.keys(ip_to_uid))
   end
 
-  defp telemetry_metric_device_ids(_), do: []
-
   defp telemetry_metric_ips(%{ip_to_uid: ip_to_uid}) when is_map(ip_to_uid),
     do: Map.keys(ip_to_uid)
-
-  defp telemetry_metric_ips(_), do: []
 
   defp canonical_metric_device_id(device_id, target_ip, identity) do
     cond do

@@ -49,15 +49,12 @@ defmodule ServiceRadar.NetworkDiscovery.Changes.NormalizeControllerBaseUrl do
     case normalize_path(changeset, uri.path || "", required_path) do
       {:ok, path} ->
         normalized =
-          URI.to_string(%URI{
-            scheme: uri.scheme,
-            userinfo: nil,
-            host: uri.host,
-            port: uri.port,
-            path: path,
-            query: nil,
-            fragment: nil
-          })
+          uri
+          |> Map.put(:userinfo, nil)
+          |> Map.put(:path, path)
+          |> Map.put(:query, nil)
+          |> Map.put(:fragment, nil)
+          |> URI.to_string()
 
         Changeset.change_attribute(changeset, :base_url, normalized)
 
