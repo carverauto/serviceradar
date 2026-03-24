@@ -182,6 +182,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/role-profiles", RoleProfileController, :create)
     patch("/role-profiles/:id", RoleProfileController, :update)
     delete("/role-profiles/:id", RoleProfileController, :delete)
+    get("/camera-analysis-workers", CameraAnalysisWorkerController, :index)
+    get("/camera-analysis-workers/:id", CameraAnalysisWorkerController, :show)
+    post("/camera-analysis-workers", CameraAnalysisWorkerController, :create)
+    patch("/camera-analysis-workers/:id", CameraAnalysisWorkerController, :update)
+    post("/camera-analysis-workers/:id/enable", CameraAnalysisWorkerController, :enable)
+    post("/camera-analysis-workers/:id/disable", CameraAnalysisWorkerController, :disable)
 
     post("/topology/route-analysis", TopologyController, :route_analysis)
   end
@@ -424,6 +430,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/flows", NetflowLive.Visualize, :index)
       live("/observability/bgp", BGPLive.Index, :index)
       live("/observability/camera-relays", CameraRelayLive.Index, :index)
+      live("/observability/camera-analysis-workers", CameraAnalysisWorkerLive.Index, :index)
       live("/observability/metrics/:span_id", MetricLive.Show, :show)
       live("/logs", LogLive.Index, :index)
       live("/logs/:log_id", LogLive.Show, :show)

@@ -127,6 +127,12 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
             >
               <.icon name="hero-video-camera" class="size-4" /> Camera Relays
             </.link>
+            <.link
+              navigate={~p"/observability/camera-analysis-workers"}
+              class="btn btn-sm btn-ghost rounded-lg"
+            >
+              <.icon name="hero-cpu-chip" class="size-4" /> Analysis Workers
+            </.link>
           </div>
         </div>
 
