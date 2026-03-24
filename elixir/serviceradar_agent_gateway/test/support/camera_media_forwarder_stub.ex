@@ -1,7 +1,7 @@
 defmodule ServiceRadarAgentGateway.TestSupport.CameraMediaForwarderStub do
   @moduledoc false
 
-  def open_relay_session(request) do
+  def open_relay_session(request, _opts \\ []) do
     notify({:open_relay_session, request})
 
     Application.get_env(
@@ -11,7 +11,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.CameraMediaForwarderStub do
     )
   end
 
-  def upload_media(request_stream) do
+  def upload_media(request_stream, _opts \\ []) do
     chunks = Enum.to_list(request_stream)
     notify({:upload_media, chunks})
 
@@ -22,7 +22,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.CameraMediaForwarderStub do
     )
   end
 
-  def heartbeat(request) do
+  def heartbeat(request, _opts \\ []) do
     notify({:heartbeat, request})
 
     Application.get_env(
@@ -32,7 +32,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.CameraMediaForwarderStub do
     )
   end
 
-  def close_relay_session(request) do
+  def close_relay_session(request, _opts \\ []) do
     notify({:close_relay_session, request})
 
     Application.get_env(

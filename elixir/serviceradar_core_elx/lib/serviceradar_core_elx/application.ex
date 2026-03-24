@@ -54,6 +54,8 @@ defmodule ServiceRadarCoreElx.Application do
       ServiceRadarCoreElx.CameraRelay.ViewerRegistry,
       ServiceRadarCoreElx.CameraRelay.PipelineManager,
       ServiceRadarCoreElx.CameraMediaSessionTracker,
+      {Registry, keys: :unique, name: ServiceRadarCoreElx.CameraMediaIngressRegistry},
+      ServiceRadarCoreElx.CameraMediaIngressSupervisor,
       {GRPC.Server.Supervisor,
        endpoint: ServiceRadarCoreElx.Endpoint,
        port: media_grpc_port(),

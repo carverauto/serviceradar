@@ -1,93 +1,105 @@
 defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
   @moduledoc """
-  Forwards gateway-accepted camera media sessions to the core-elx media ingress.
+  Forwards gateway-accepted camera media sessions to the core-elx ERTS ingress.
 
   The gateway remains the edge-facing trust boundary. Core-elx becomes the
   authoritative ingress for relay session ownership and media pipeline startup.
   """
 
-  alias Camera.CameraMediaService.Stub
+  alias ServiceRadarCoreElx.CameraMediaIngress
 
   require Logger
 
-  @compile {:no_warn_undefined, Stub}
-
-  @default_host "127.0.0.1"
-  @default_port 50_062
   @default_timeout 15_000
 
   def open_relay_session(%Camera.OpenRelaySessionRequest{} = request, opts \\ []) do
-    with_channel(opts, fn channel ->
-      Stub.open_relay_session(channel, request, timeout: timeout(opts))
-    end)
+    case :rpc.call(core_node(opts), ingress_module(opts), :open_relay_session, [request], timeout(opts)) do
+      {:badrpc, reason} ->
+        Logger.error("Failed to open camera relay session on core-elx ingress: #{inspect(reason)}")
+        {:error, :core_unavailable}
+
+      {:ok, %Camera.OpenRelaySessionResponse{} = response, metadata} ->
+        {:ok, response, metadata}
+
+      {:error, _reason} = error ->
+        error
+
+      other ->
+        {:error, {:unexpected_open_response, other}}
+    end
   end
 
   def upload_media(request_stream, opts \\ []) do
-    with_channel(opts, fn channel ->
-      stream = Stub.upload_media(channel, timeout: timeout(opts))
-
-      Enum.each(request_stream, fn chunk ->
-        GRPC.Stub.send_request(stream, chunk)
-      end)
-
-      _ = GRPC.Stub.end_stream(stream)
-      GRPC.Stub.recv(stream)
+    with_ingress_pid(opts, fn ingress_pid ->
+      chunks = Enum.to_list(request_stream)
+      GenServer.call(ingress_pid, {:upload_media, chunks}, timeout(opts))
     end)
   end
 
   def heartbeat(%Camera.RelayHeartbeat{} = request, opts \\ []) do
-    with_channel(opts, fn channel ->
-      Stub.heartbeat(channel, request, timeout: timeout(opts))
+    with_ingress_pid(opts, fn ingress_pid ->
+      GenServer.call(ingress_pid, {:heartbeat, request}, timeout(opts))
     end)
   end
 
   def close_relay_session(%Camera.CloseRelaySessionRequest{} = request, opts \\ []) do
-    with_channel(opts, fn channel ->
-      Stub.close_relay_session(channel, request, timeout: timeout(opts))
+    with_ingress_pid(opts, fn ingress_pid ->
+      GenServer.call(ingress_pid, {:close_relay_session, request}, timeout(opts))
     end)
   end
 
-  defp with_channel(opts, fun) when is_function(fun, 1) do
-    case connect(opts) do
-      {:ok, channel} ->
+  defp with_ingress_pid(opts, fun) when is_function(fun, 1) do
+    case Keyword.get(opts, :ingress_pid) do
+      ingress_pid when is_pid(ingress_pid) ->
         try do
-          fun.(channel)
-        after
-          _ = GRPC.Stub.disconnect(channel)
+          fun.(ingress_pid)
+        catch
+          :exit, reason ->
+            Logger.warning("ERTS camera media ingress call failed: #{inspect(reason)}")
+            {:error, :core_unavailable}
         end
 
-      {:error, reason} = error ->
-        Logger.error("Failed to connect to core-elx camera media ingress: #{inspect(reason)}")
-        error
+      other ->
+        Logger.error("Camera media forwarder missing ingress pid: #{inspect(other)}")
+        {:error, :missing_ingress_pid}
     end
-  end
-
-  defp connect(opts) do
-    endpoint = "#{host(opts)}:#{port(opts)}"
-    connect_opts = Keyword.put(credentials(opts), :adapter_opts, connect_timeout: timeout(opts))
-    GRPC.Stub.connect(endpoint, connect_opts)
-  end
-
-  defp credentials(opts) do
-    if ssl?(opts), do: [cred: GRPC.Credential.new(ssl: [])], else: []
-  end
-
-  defp host(opts), do: opts[:host] || System.get_env("CORE_ELX_MEDIA_HOST", @default_host)
-
-  defp port(opts) do
-    opts[:port] || parse_int(System.get_env("CORE_ELX_MEDIA_GRPC_PORT"), @default_port)
   end
 
   defp timeout(opts), do: opts[:timeout] || @default_timeout
-  defp ssl?(opts), do: opts[:ssl] || System.get_env("CORE_ELX_MEDIA_SSL", "false") in ~w(true 1 yes)
 
-  defp parse_int(nil, default), do: default
-  defp parse_int("", default), do: default
+  defp core_node(opts) do
+    case opts[:core_node] || Application.get_env(:serviceradar_agent_gateway, :camera_media_forwarder_core_node) do
+      node when is_atom(node) ->
+        node
 
-  defp parse_int(value, default) do
-    case Integer.parse(value) do
-      {int, ""} -> int
-      _ -> default
+      nil ->
+        select_core_node()
+
+      other ->
+        raise ArgumentError, "invalid core node for camera media forwarder: #{inspect(other)}"
     end
+  end
+
+  defp select_core_node do
+    Node.list()
+    |> Enum.find(fn node ->
+      case :rpc.call(node, Process, :whereis, [ServiceRadar.ClusterHealth], 5_000) do
+        pid when is_pid(pid) -> true
+        _ -> false
+      end
+    end)
+    |> case do
+      nil -> raise ArgumentError, "no core-elx node available for camera media ingress"
+      node -> node
+    end
+  end
+
+  defp ingress_module(opts) do
+    opts[:ingress_module] ||
+      Application.get_env(
+        :serviceradar_agent_gateway,
+        :camera_media_forwarder_ingress_module,
+        CameraMediaIngress
+      )
   end
 end

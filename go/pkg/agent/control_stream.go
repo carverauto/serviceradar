@@ -455,16 +455,17 @@ func (p *PushLoop) handleCameraRelayOpen(ctx context.Context, cmd *proto.Command
 	p.server.mu.RUnlock()
 
 	state, err := p.cameraRelayManager.Start(ctx, cameraRelaySessionSpec{
-		RelaySessionID:  payload.RelaySessionID,
-		AgentID:         agentID,
-		GatewayID:       p.gateway.GetGatewayID(),
-		CameraSourceID:  payload.CameraSourceID,
-		StreamProfileID: payload.StreamProfileID,
-		LeaseToken:      payload.LeaseToken,
-		SourceURL:       payload.SourceURL,
-		RTSPTransport:   payload.RTSPTransport,
-		CodecHint:       payload.CodecHint,
-		ContainerHint:   payload.ContainerHint,
+		RelaySessionID:     payload.RelaySessionID,
+		AgentID:            agentID,
+		GatewayID:          p.gateway.GetGatewayID(),
+		CameraSourceID:     payload.CameraSourceID,
+		StreamProfileID:    payload.StreamProfileID,
+		LeaseToken:         payload.LeaseToken,
+		PluginAssignmentID: payload.PluginAssignmentID,
+		SourceURL:          payload.SourceURL,
+		RTSPTransport:      payload.RTSPTransport,
+		CodecHint:          payload.CodecHint,
+		ContainerHint:      payload.ContainerHint,
 	})
 	if err != nil {
 		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))

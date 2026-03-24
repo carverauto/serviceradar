@@ -34,6 +34,7 @@ var (
 	errCameraRelaySessionExists      = errors.New("camera relay session already active")
 	errCameraRelaySessionNotFound    = errors.New("camera relay session not found")
 	errCameraRelayDrainRequested     = errors.New("camera relay drain requested")
+	errCameraRelayPluginUnavailable  = errors.New("camera relay streaming plugin unavailable")
 )
 
 const (
@@ -42,14 +43,15 @@ const (
 )
 
 type cameraRelayStartPayload struct {
-	RelaySessionID  string `json:"relay_session_id"`
-	CameraSourceID  string `json:"camera_source_id"`
-	StreamProfileID string `json:"stream_profile_id"`
-	LeaseToken      string `json:"lease_token"`
-	SourceURL       string `json:"source_url,omitempty"`
-	RTSPTransport   string `json:"rtsp_transport,omitempty"`
-	CodecHint       string `json:"codec_hint,omitempty"`
-	ContainerHint   string `json:"container_hint,omitempty"`
+	RelaySessionID     string `json:"relay_session_id"`
+	CameraSourceID     string `json:"camera_source_id"`
+	StreamProfileID    string `json:"stream_profile_id"`
+	LeaseToken         string `json:"lease_token"`
+	PluginAssignmentID string `json:"plugin_assignment_id,omitempty"`
+	SourceURL          string `json:"source_url,omitempty"`
+	RTSPTransport      string `json:"rtsp_transport,omitempty"`
+	CodecHint          string `json:"codec_hint,omitempty"`
+	ContainerHint      string `json:"container_hint,omitempty"`
 }
 
 type cameraRelayStopPayload struct {
@@ -58,17 +60,18 @@ type cameraRelayStopPayload struct {
 }
 
 type cameraRelaySessionSpec struct {
-	RelaySessionID  string
-	MediaIngestID   string
-	AgentID         string
-	GatewayID       string
-	CameraSourceID  string
-	StreamProfileID string
-	LeaseToken      string
-	SourceURL       string
-	RTSPTransport   string
-	CodecHint       string
-	ContainerHint   string
+	RelaySessionID     string
+	MediaIngestID      string
+	AgentID            string
+	GatewayID          string
+	CameraSourceID     string
+	StreamProfileID    string
+	LeaseToken         string
+	PluginAssignmentID string
+	SourceURL          string
+	RTSPTransport      string
+	CodecHint          string
+	ContainerHint      string
 }
 
 type cameraRelaySessionState struct {
@@ -113,12 +116,13 @@ type cameraRelayHandle struct {
 }
 
 type cameraRelayManager struct {
-	mu              sync.Mutex
-	sessions        map[string]*cameraRelayHandle
-	gateway         cameraRelayGateway
-	sourceFactory   cameraRelaySourceFactory
-	logger          logger.Logger
-	uploadBatchSize int
+	mu                  sync.Mutex
+	sessions            map[string]*cameraRelayHandle
+	gateway             cameraRelayGateway
+	sourceFactory       cameraRelaySourceFactory
+	pluginSourceFactory func(context.Context, cameraRelaySessionSpec) (cameraRelayChunkStream, error)
+	logger              logger.Logger
+	uploadBatchSize     int
 }
 
 func newCameraRelayManager(gateway cameraRelayGateway, log logger.Logger) *cameraRelayManager {
@@ -185,7 +189,7 @@ func (m *cameraRelayManager) Start(ctx context.Context, spec cameraRelaySessionS
 		Str("stream_profile_id", spec.StreamProfileID).
 		Msg("Camera relay upstream session accepted")
 
-	stream, err := m.sourceFactory(spec)
+	stream, err := m.openSource(ctx, spec)
 	if err != nil {
 		m.closeUpstream(spec, handle, "source_start_failed")
 		m.unregisterSession(spec.RelaySessionID, handle)
@@ -430,6 +434,20 @@ func (m *cameraRelayManager) batchSize() int {
 	return m.uploadBatchSize
 }
 
+func (m *cameraRelayManager) openSource(ctx context.Context, spec cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+	if strings.TrimSpace(spec.PluginAssignmentID) != "" {
+		if m == nil || m.pluginSourceFactory == nil {
+			return nil, errCameraRelayPluginUnavailable
+		}
+		return m.pluginSourceFactory(ctx, spec)
+	}
+
+	if m == nil || m.sourceFactory == nil {
+		return nil, errCameraRelayPluginUnavailable
+	}
+	return m.sourceFactory(spec)
+}
+
 func normalizeCameraRelaySpec(spec cameraRelaySessionSpec) (cameraRelaySessionSpec, error) {
 	spec.RelaySessionID = strings.TrimSpace(spec.RelaySessionID)
 	spec.MediaIngestID = strings.TrimSpace(spec.MediaIngestID)
@@ -438,6 +456,7 @@ func normalizeCameraRelaySpec(spec cameraRelaySessionSpec) (cameraRelaySessionSp
 	spec.CameraSourceID = strings.TrimSpace(spec.CameraSourceID)
 	spec.StreamProfileID = strings.TrimSpace(spec.StreamProfileID)
 	spec.LeaseToken = strings.TrimSpace(spec.LeaseToken)
+	spec.PluginAssignmentID = strings.TrimSpace(spec.PluginAssignmentID)
 	spec.SourceURL = strings.TrimSpace(spec.SourceURL)
 	spec.RTSPTransport = strings.TrimSpace(spec.RTSPTransport)
 	spec.CodecHint = strings.TrimSpace(spec.CodecHint)

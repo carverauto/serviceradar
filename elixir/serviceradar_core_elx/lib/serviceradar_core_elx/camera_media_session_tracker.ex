@@ -41,6 +41,10 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
     GenServer.cast(__MODULE__, {:sync_viewer_count, relay_session_id, viewer_count})
   end
 
+  def fetch_session(relay_session_id) when is_binary(relay_session_id) do
+    GenServer.call(__MODULE__, {:fetch_session, relay_session_id})
+  end
+
   def close_session(relay_session_id, media_ingest_id, attrs \\ %{}) do
     GenServer.call(__MODULE__, {:close_session, relay_session_id, media_ingest_id, attrs})
   end
@@ -252,6 +256,10 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
       error ->
         {:reply, error, state}
     end
+  end
+
+  def handle_call({:fetch_session, relay_session_id}, _from, state) do
+    {:reply, Map.get(state.sessions, relay_session_id), state}
   end
 
   @impl true

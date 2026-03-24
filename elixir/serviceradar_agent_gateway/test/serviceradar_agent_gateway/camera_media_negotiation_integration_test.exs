@@ -4,7 +4,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
   alias ServiceRadarAgentGateway.CameraMediaServer
   alias ServiceRadarAgentGateway.CameraMediaSessionTracker
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaAdapterStub
-  alias ServiceRadarAgentGateway.TestSupport.CameraMediaCoreTestServer
+  alias ServiceRadarAgentGateway.TestSupport.CameraMediaErtsIngressStub
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaForwarderProxy
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaGatewayTestEndpoint
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaIdentityResolverStub
@@ -21,11 +21,11 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
     previous_test_pid =
       Application.get_env(:serviceradar_agent_gateway, :camera_media_integration_test_pid)
 
-    previous_forwarder_host =
-      Application.get_env(:serviceradar_agent_gateway, :camera_media_test_forwarder_host)
+    previous_forwarder_core_node =
+      Application.get_env(:serviceradar_agent_gateway, :camera_media_test_forwarder_core_node)
 
-    previous_forwarder_port =
-      Application.get_env(:serviceradar_agent_gateway, :camera_media_test_forwarder_port)
+    previous_forwarder_ingress_module =
+      Application.get_env(:serviceradar_agent_gateway, :camera_media_test_forwarder_ingress_module)
 
     previous_media_ingest_id =
       Application.get_env(:serviceradar_agent_gateway, :camera_media_core_test_media_ingest_id)
@@ -54,7 +54,6 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
       Map.put(state, :sessions, %{})
     end)
 
-    port = open_port()
     media_ingest_id = "core-media-negotiation-1"
     lease_expires_at_unix = System.os_time(:second) + 60
     heartbeat_lease_expires_at_unix = lease_expires_at_unix + 30
@@ -78,8 +77,13 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
     )
 
     Application.put_env(:serviceradar_agent_gateway, :camera_media_integration_test_pid, self())
-    Application.put_env(:serviceradar_agent_gateway, :camera_media_test_forwarder_host, "127.0.0.1")
-    Application.put_env(:serviceradar_agent_gateway, :camera_media_test_forwarder_port, port)
+    Application.put_env(:serviceradar_agent_gateway, :camera_media_test_forwarder_core_node, node())
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :camera_media_test_forwarder_ingress_module,
+      CameraMediaErtsIngressStub
+    )
 
     Application.put_env(
       :serviceradar_agent_gateway,
@@ -102,15 +106,6 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
     Application.put_env(:serviceradar_agent_gateway, :camera_relay_max_sessions_per_agent, :infinity)
     Application.put_env(:serviceradar_agent_gateway, :camera_relay_max_sessions_per_gateway, :infinity)
 
-    ensure_grpc_client_supervisor_started()
-
-    start_supervised!(
-      {GRPC.Server.Supervisor,
-       servers: [CameraMediaCoreTestServer], port: port, start_server: true, adapter_opts: [ip: {127, 0, 0, 1}]}
-    )
-
-    wait_for_server(port)
-
     on_exit(fn ->
       CameraMediaSessionTracker
       |> :sys.get_state()
@@ -122,8 +117,13 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
       restore_env(:camera_media_session_tracker_module, previous_tracker)
       restore_env(:camera_media_identity_resolver, previous_identity_resolver)
       restore_env(:camera_media_integration_test_pid, previous_test_pid)
-      restore_env(:camera_media_test_forwarder_host, previous_forwarder_host)
-      restore_env(:camera_media_test_forwarder_port, previous_forwarder_port)
+      restore_env(:camera_media_test_forwarder_core_node, previous_forwarder_core_node)
+
+      restore_env(
+        :camera_media_test_forwarder_ingress_module,
+        previous_forwarder_ingress_module
+      )
+
       restore_env(:camera_media_core_test_media_ingest_id, previous_media_ingest_id)
       restore_env(:camera_media_core_test_lease_expires_at_unix, previous_open_lease)
 
@@ -400,6 +400,13 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
     assert status == 0, output
   end
 
+  defp open_port do
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, packet: :raw, reuseaddr: true])
+    {:ok, port} = :inet.port(socket)
+    :ok = :gen_tcp.close(socket)
+    port
+  end
+
   defp generate_test_mtls_certs!(cert_dir) do
     gateway_ext = Path.join(cert_dir, "gateway.ext")
     client_ext = Path.join(cert_dir, "client.ext")
@@ -507,16 +514,9 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
     )
   end
 
-  defp open_port do
-    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, packet: :raw, reuseaddr: true])
-    {:ok, port} = :inet.port(socket)
-    :ok = :gen_tcp.close(socket)
-    port
-  end
-
   defp wait_for_server(port, attempts \\ 20)
 
-  defp wait_for_server(_port, 0), do: flunk("core camera media test server did not start")
+  defp wait_for_server(_port, 0), do: flunk("camera media test server did not start")
 
   defp wait_for_server(port, attempts) do
     case :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false], 100) do
@@ -537,16 +537,5 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
     {output, status} = System.cmd(command, args, stderr_to_stdout: true)
     assert status == 0, output
     output
-  end
-
-  defp ensure_grpc_client_supervisor_started do
-    case Process.whereis(GRPC.Client.Supervisor) do
-      nil ->
-        start_supervised!({GRPC.Client.Supervisor, []})
-        :ok
-
-      _pid ->
-        :ok
-    end
   end
 end

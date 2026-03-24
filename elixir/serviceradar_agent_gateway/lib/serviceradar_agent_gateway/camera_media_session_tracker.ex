@@ -20,6 +20,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
   @type session :: %{
           relay_session_id: String.t(),
           media_ingest_id: String.t(),
+          ingress_pid: pid() | nil,
+          core_node: node() | nil,
           agent_id: String.t(),
           gateway_id: String.t(),
           partition_id: String.t(),
@@ -184,6 +186,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     %{
       relay_session_id: relay_session_id,
       media_ingest_id: if(media_ingest_id == "", do: random_id("media"), else: media_ingest_id),
+      ingress_pid: Map.get(attrs, :ingress_pid),
+      core_node: Map.get(attrs, :core_node),
       agent_id: required_string!(attrs, :agent_id),
       gateway_id: required_string!(attrs, :gateway_id),
       partition_id: required_string!(attrs, :partition_id),

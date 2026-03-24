@@ -104,6 +104,12 @@ defmodule ServiceRadarAgentGateway.CameraMediaServerTest do
 
     Application.put_env(
       :serviceradar_agent_gateway,
+      :camera_media_session_tracker_fetch_result,
+      %{relay_session_id: "relay-gw-drain-1", media_ingest_id: "core-media-1", ingress_pid: self()}
+    )
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
       :camera_media_session_tracker_mark_closing_result,
       {:ok, %{status: "closing", close_reason: "upstream relay drain"}}
     )

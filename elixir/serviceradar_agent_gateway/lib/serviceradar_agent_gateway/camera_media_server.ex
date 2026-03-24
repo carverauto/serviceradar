@@ -40,11 +40,13 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     camera_source_id = required_string(request.camera_source_id, "camera_source_id")
     stream_profile_id = required_string(request.stream_profile_id, "stream_profile_id")
 
-    {:ok, upstream_response} = forward_open_relay_session(upstream_request)
+    {:ok, upstream_response, forward_metadata} = forward_open_relay_session(upstream_request)
 
     session_attrs = %{
       relay_session_id: relay_session_id,
       media_ingest_id: upstream_response.media_ingest_id,
+      ingress_pid: Map.get(forward_metadata, :ingress_pid),
+      core_node: Map.get(forward_metadata, :core_node),
       agent_id: agent_id,
       gateway_id: gateway_id(),
       partition_id: partition_id,
@@ -66,7 +68,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
             relay_session_id,
             upstream_response.media_ingest_id,
             agent_id,
-            "duplicate relay session"
+            "duplicate relay session",
+            ingress_pid: Map.get(forward_metadata, :ingress_pid)
           )
 
           raise GRPC.RPCError, status: :already_exists, message: "relay session already exists"
@@ -76,7 +79,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
             relay_session_id,
             upstream_response.media_ingest_id,
             agent_id,
-            "gateway relay capacity exceeded"
+            "gateway relay capacity exceeded",
+            ingress_pid: Map.get(forward_metadata, :ingress_pid)
           )
 
           raise GRPC.RPCError,
@@ -107,14 +111,15 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
 
     try do
       request_stream
-      |> Stream.map(fn
+      |> Enum.map(fn
         %Camera.MediaChunk{} = chunk ->
-          chunk = handle_media_chunk(chunk, identity)
+          {chunk, ingress_pid} = handle_media_chunk(chunk, identity)
 
           Agent.update(session_ref, fn _state ->
             %{
               relay_session_id: chunk.relay_session_id,
-              media_ingest_id: chunk.media_ingest_id
+              media_ingest_id: chunk.media_ingest_id,
+              ingress_pid: ingress_pid
             }
           end)
 
@@ -123,7 +128,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
         other ->
           other
       end)
-      |> forwarder().upload_media()
+      |> forwarder().upload_media(ingress_pid: ingress_pid(session_ref))
       |> case do
         {:ok, %Camera.UploadMediaResponse{} = response} ->
           maybe_mark_upload_closing(session_ref, response.message)
@@ -148,7 +153,9 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     relay_session_id = required_string(request.relay_session_id, "relay_session_id")
     media_ingest_id = required_string(request.media_ingest_id, "media_ingest_id")
 
-    with {:ok, upstream_ack} <- forwarder().heartbeat(request),
+    with {:ok, forwarding_session} <- forwarding_session(relay_session_id, media_ingest_id),
+         {:ok, upstream_ack} <-
+           forwarder().heartbeat(request, ingress_pid: Map.get(forwarding_session, :ingress_pid)),
          {:ok, _session} <-
            maybe_mark_closing(relay_session_id, media_ingest_id, %{
              close_reason: gateway_drain_reason(upstream_ack.message)
@@ -186,21 +193,31 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     relay_session_id = required_string(request.relay_session_id, "relay_session_id")
     media_ingest_id = required_string(request.media_ingest_id, "media_ingest_id")
 
-    case forwarder().close_relay_session(request) do
-      {:ok, %Camera.CloseRelaySessionResponse{} = upstream_response} ->
-        case session_tracker().close_session(relay_session_id, media_ingest_id, %{reason: request.reason}) do
-          :ok ->
-            %Camera.CloseRelaySessionResponse{closed: true, message: upstream_response.message}
+    with {:ok, forwarding_session} <- forwarding_session(relay_session_id, media_ingest_id),
+         {:ok, %Camera.CloseRelaySessionResponse{} = upstream_response} <-
+           forwarder().close_relay_session(
+             request,
+             ingress_pid: Map.get(forwarding_session, :ingress_pid)
+           ) do
+      case session_tracker().close_session(relay_session_id, media_ingest_id, %{reason: request.reason}) do
+        :ok ->
+          %Camera.CloseRelaySessionResponse{closed: true, message: upstream_response.message}
 
-          {:error, :not_found} ->
-            raise GRPC.RPCError, status: :not_found, message: "relay session not found"
+        {:error, :not_found} ->
+          raise GRPC.RPCError, status: :not_found, message: "relay session not found"
 
-          {:error, :media_ingest_mismatch} ->
-            raise GRPC.RPCError, status: :permission_denied, message: "media_ingest_id mismatch"
-        end
-
+        {:error, :media_ingest_mismatch} ->
+          raise GRPC.RPCError, status: :permission_denied, message: "media_ingest_id mismatch"
+      end
+    else
       {:error, %GRPC.RPCError{} = error} ->
         raise error
+
+      {:error, :not_found} ->
+        raise GRPC.RPCError, status: :not_found, message: "relay session not found"
+
+      {:error, :media_ingest_mismatch} ->
+        raise GRPC.RPCError, status: :permission_denied, message: "media_ingest_id mismatch"
 
       {:error, reason} ->
         raise GRPC.RPCError, status: :unavailable, message: "failed to close upstream relay session: #{inspect(reason)}"
@@ -224,8 +241,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
            sequence: chunk.sequence,
            payload: chunk.payload || <<>>
          }) do
-      {:ok, _session} ->
-        chunk
+      {:ok, session} ->
+        {chunk, Map.get(session, :ingress_pid)}
 
       {:error, :not_found} ->
         raise GRPC.RPCError, status: :not_found, message: "relay session not found"
@@ -241,8 +258,11 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
 
   defp forward_open_relay_session(request) do
     case forwarder().open_relay_session(request) do
+      {:ok, %Camera.OpenRelaySessionResponse{} = response, metadata} ->
+        {:ok, response, metadata}
+
       {:ok, %Camera.OpenRelaySessionResponse{} = response} ->
-        {:ok, response}
+        {:ok, response, %{}}
 
       {:error, %GRPC.RPCError{} = error} ->
         raise error
@@ -252,13 +272,16 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     end
   end
 
-  defp best_effort_close_upstream(relay_session_id, media_ingest_id, agent_id, reason) do
-    case forwarder().close_relay_session(%Camera.CloseRelaySessionRequest{
-           relay_session_id: relay_session_id,
-           media_ingest_id: media_ingest_id,
-           agent_id: agent_id,
-           reason: reason
-         }) do
+  defp best_effort_close_upstream(relay_session_id, media_ingest_id, agent_id, reason, opts) do
+    case forwarder().close_relay_session(
+           %Camera.CloseRelaySessionRequest{
+             relay_session_id: relay_session_id,
+             media_ingest_id: media_ingest_id,
+             agent_id: agent_id,
+             reason: reason
+           },
+           opts
+         ) do
       {:ok, _response} ->
         :ok
 
@@ -330,6 +353,28 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
   end
 
   defp gateway_drain_reason(_message), do: nil
+
+  defp forwarding_session(relay_session_id, media_ingest_id) do
+    case session_tracker().fetch_session(relay_session_id) do
+      nil ->
+        {:error, :not_found}
+
+      %{media_ingest_id: ^media_ingest_id} = session ->
+        {:ok, session}
+
+      _other ->
+        {:error, :media_ingest_mismatch}
+    end
+  end
+
+  defp ingress_pid(session_ref) do
+    session_ref
+    |> Agent.get(&Map.get(&1, :ingress_pid))
+    |> case do
+      pid when is_pid(pid) -> pid
+      _other -> nil
+    end
+  end
 
   defp capacity_error_message(:agent, limit) do
     "per-agent relay session limit exceeded (limit=#{limit})"

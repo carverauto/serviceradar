@@ -1,0 +1,59 @@
+{
+  "plugin_id": "axis-camera-stream",
+  "name": "AXIS Camera Stream",
+  "version": "0.1.0",
+  "description": "Reference AXIS camera streaming plugin path using the ServiceRadar media host bridge",
+  "entrypoint": "stream_camera",
+  "runtime": "wasi-preview1",
+  "outputs": "serviceradar.camera_stream.v1",
+  "capabilities": [
+    "get_config",
+    "log",
+    "camera_media_stream",
+    "http_request",
+    "tcp_connect",
+    "tcp_read",
+    "tcp_write",
+    "tcp_close"
+  ],
+  "permissions": {
+    "allowed_domains": ["*"],
+    "allowed_ports": [80, 443, 554]
+  },
+  "resources": {
+    "requested_memory_mb": 64,
+    "max_open_connections": 1
+  },
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "host": {
+        "type": "string",
+        "description": "AXIS camera host or IP"
+      },
+      "scheme": {
+        "type": "string",
+        "description": "http or https",
+        "default": "http"
+      },
+      "username": {
+        "type": "string",
+        "description": "Camera API username"
+      },
+      "password": {
+        "type": "string",
+        "description": "Camera API password"
+      },
+      "timeout": {
+        "type": "string",
+        "description": "Request timeout duration",
+        "default": "10s"
+      },
+      "relay": {
+        "type": "object",
+        "description": "Injected relay session context from the agent streaming runtime"
+      }
+    },
+    "required": ["host"]
+  }
+}

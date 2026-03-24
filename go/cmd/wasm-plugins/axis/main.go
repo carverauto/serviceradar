@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -15,16 +13,7 @@ import (
 	"github.com/carverauto/serviceradar/contrib/plugins/go/axis/internal/axisref"
 )
 
-type Config struct {
-	Host            string `json:"host"`
-	Scheme          string `json:"scheme"`
-	Username        string `json:"username"`
-	Password        string `json:"password"`
-	Timeout         string `json:"timeout"`
-	DiscoverStreams bool   `json:"discover_streams"`
-	CollectEvents   bool   `json:"collect_events"`
-	EventSources    string `json:"event_sources"`
-}
+type Config = sdk.CameraPluginConfig
 
 type EndpointResult struct {
 	Path       string        `json:"path"`
@@ -117,8 +106,8 @@ func run_check() {
 		var initCfg Config
 		_ = json.Unmarshal([]byte(`{"host":"x"}`), &initCfg)
 
-		cfg := Config{Scheme: "http", DiscoverStreams: true, CollectEvents: false, EventSources: "events", Timeout: "10s"}
-		if err := sdk.LoadConfig(&cfg); err != nil {
+		cfg, err := sdk.LoadCameraPluginConfig()
+		if err != nil {
 			sdk.Log.Warn("failed to load config: " + err.Error())
 		}
 
@@ -127,28 +116,18 @@ func run_check() {
 			return sdk.Unknown("configuration error: host is required"), nil
 		}
 
-		scheme := strings.ToLower(strings.TrimSpace(cfg.Scheme))
-		if scheme == "" {
-			scheme = "http"
-		}
-		if scheme != "http" && scheme != "https" {
+		scheme, err := cfg.NormalizedScheme()
+		if err != nil {
 			return sdk.Unknown("configuration error: scheme must be http or https"), nil
 		}
 
-		timeout := 10 * time.Second
-		if cfg.Timeout != "" {
-			if parsed, err := time.ParseDuration(cfg.Timeout); err == nil && parsed > 0 {
-				timeout = parsed
-			}
-		}
+		timeout := cfg.ParsedTimeout(10 * time.Second)
 
 		client := &axisClient{
 			baseURL: fmt.Sprintf("%s://%s", scheme, cfg.Host),
 			timeout: timeout,
 		}
-		if cfg.Username != "" || cfg.Password != "" {
-			client.authHeader = "Basic " + base64.StdEncoding.EncodeToString([]byte(cfg.Username+":"+cfg.Password))
-		}
+		client.authHeader = cfg.BasicAuthHeader()
 
 		ctx := context.Background()
 		details := ResultDetails{
@@ -217,6 +196,46 @@ func run_check() {
 
 		return result, nil
 	})
+}
+
+//export stream_camera
+func stream_camera() {
+	cfg, err := loadStreamConfig()
+	if err != nil {
+		sdk.Log.Warn("failed to load stream config: " + err.Error())
+	}
+
+	cfg.Host = strings.TrimSpace(cfg.Host)
+	if cfg.Host == "" {
+		sdk.Log.Error("stream_camera configuration error: host is required")
+		return
+	}
+
+	scheme, schemeErr := cfg.NormalizedScheme()
+	if schemeErr != nil {
+		sdk.Log.Error("stream_camera configuration error: scheme must be http or https")
+		return
+	}
+
+	timeout := cfg.ParsedTimeout(10 * time.Second)
+
+	client := &axisClient{
+		baseURL: fmt.Sprintf("%s://%s", scheme, cfg.Host),
+		timeout: timeout,
+	}
+	client.authHeader = cfg.BasicAuthHeader()
+
+	// Validate camera reachability/auth with the same lightweight probe used by discovery.
+	probe := client.get(context.Background(), "/axis-cgi/basicdeviceinfo.cgi")
+	if probe.Status != 200 || probe.Error != "" {
+		sdk.Log.Error("stream_camera probe failed")
+		return
+	}
+
+	if err := streamAxisRTSP(cfg, timeout); err != nil {
+		sdk.Log.Error("stream_camera rtsp path failed: " + err.Error())
+		return
+	}
 }
 
 func collectBasicDeviceInfo(ctx context.Context, client *axisClient) (map[string]string, []EndpointResult) {
@@ -316,10 +335,10 @@ func collectAxisEvents(scheme, host, username, password, sources string, timeout
 	}
 
 	wsURL := fmt.Sprintf("%s://%s/vapix/ws-data-stream?sources=%s", wsScheme, host, sources)
-	wsURL = withWebSocketCredentials(wsURL, username, password)
+	wsURL = sdk.WithURLUserInfo(wsURL, username, password)
 
 	result := EndpointResult{Path: "/vapix/ws-data-stream"}
-	conn, err := sdk.WebSocketConnect(wsURL, timeout)
+	conn, err := webSocketConnect(wsURL, timeout)
 	if err != nil {
 		result.Error = "websocket connect failed: " + err.Error()
 		return nil, result
@@ -572,20 +591,6 @@ func codecFromRTSPURL(url string) string {
 	}
 
 	return ""
-}
-
-func withWebSocketCredentials(rawURL, username, password string) string {
-	if strings.TrimSpace(username) == "" && strings.TrimSpace(password) == "" {
-		return rawURL
-	}
-
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL
-	}
-
-	parsed.User = url.UserPassword(username, password)
-	return parsed.String()
 }
 
 func trimBody(in EndpointResult) EndpointResult {

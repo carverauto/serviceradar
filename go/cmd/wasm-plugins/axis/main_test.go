@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
+)
 
 func TestBuildRTSPURL(t *testing.T) {
 	url := buildRTSPURL("10.0.0.5", map[string]string{"resolution": "1280x720", "videocodec": "h264"})
@@ -73,10 +77,34 @@ func TestBuildCameraDescriptors(t *testing.T) {
 
 func TestWithWebSocketCredentials(t *testing.T) {
 	rawURL := "wss://camera.local/vapix/ws-data-stream?sources=events"
-	got := withWebSocketCredentials(rawURL, "root", "secret")
+	got := sdk.WithURLUserInfo(rawURL, "root", "secret")
 	want := "wss://root:secret@camera.local/vapix/ws-data-stream?sources=events"
 
 	if got != want {
 		t.Fatalf("unexpected websocket url: %s", got)
+	}
+}
+
+func TestBuildAxisStreamSourceURLPrefersRelaySource(t *testing.T) {
+	cfg := StreamConfig{
+		Config: Config{Host: "10.0.0.5"},
+		Relay: RelayConfig{
+			SourceURL: "rtsp://10.0.0.5/axis-media/media.amp?videocodec=h264&stream=1",
+		},
+	}
+
+	if got := buildAxisStreamSourceURL(cfg); got != cfg.Relay.SourceURL {
+		t.Fatalf("expected relay source url, got %s", got)
+	}
+}
+
+func TestBuildAxisStreamSourceURLFallsBackToDefaultRTSP(t *testing.T) {
+	cfg := StreamConfig{Config: Config{Host: "10.0.0.5"}}
+
+	got := buildAxisStreamSourceURL(cfg)
+	want := "rtsp://10.0.0.5/axis-media/media.amp"
+
+	if got != want {
+		t.Fatalf("unexpected fallback source url: %s", got)
 	}
 }

@@ -8,8 +8,11 @@ ServiceRadar TinyGo/WASM plugin for AXIS cameras via VAPIX.
 - Stream endpoint discovery (profile/status probes + heuristic URLs)
 - Stream endpoint discovery from real `streamprofile.cgi?list` profile parsing
 - Optional AXIS websocket event collection (`/vapix/ws-data-stream`) mapped to OCSF events
-  - Uses WebSocket handshake headers for Authorization when credentials are configured
+  - Uses URL userinfo credentials through the host websocket bridge when credentials are configured
 - Emits `serviceradar.plugin_result.v1` with metrics, summary, and JSON details
+- Includes a reference `stream_camera` entrypoint and `manifest.stream.json` for the new Wasm media host bridge
+  - `stream_camera` now uses a narrow RTSP-over-TCP + interleaved RTP/H264 path suitable for AXIS main-stream relay
+  - Current scope is intentionally narrow: H264 video over RTSP/TCP with basic auth handling and a single H264 video track
 - Includes a narrow `goxis`-derived parser helper (`internal/axisref`) for key=value payload parsing
 
 ## Build
@@ -19,6 +22,12 @@ ServiceRadar TinyGo/WASM plugin for AXIS cameras via VAPIX.
 ```
 
 Output: `dist/plugin.wasm`
+
+The same Wasm artifact exports both:
+- `run_check` for discovery/status/event polling
+- `stream_camera` for the reference live-media bridge path
+
+Use `manifest.json` for the discovery plugin package and `manifest.stream.json` for a dedicated streaming package.
 
 ## Config
 
@@ -44,6 +53,16 @@ Output: `dist/plugin.wasm`
 - `websocket_send`
 - `websocket_recv`
 - `websocket_close`
+
+For the streaming package in `manifest.stream.json`, the required capabilities are:
+- `get_config`
+- `log`
+- `camera_media_stream`
+- `http_request`
+- `tcp_connect`
+- `tcp_read`
+- `tcp_write`
+- `tcp_close`
 
 ## Notes
 - This plugin intentionally does not depend on full `goxis` runtime packages because they include ACAP/native/cgo paths that do not fit TinyGo/WASM constraints.

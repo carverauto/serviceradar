@@ -126,6 +126,21 @@ func (s *blockingCameraRelayStream) Close() error {
 	return nil
 }
 
+type failingCameraRelayStream struct {
+	err error
+}
+
+func (s *failingCameraRelayStream) Recv(_ context.Context) (*cameraRelayChunk, error) {
+	if s.err == nil {
+		return nil, errors.New("camera relay stream failed")
+	}
+	return nil, s.err
+}
+
+func (s *failingCameraRelayStream) Close() error {
+	return nil
+}
+
 func TestCameraRelayManagerStartUploadsMediaAndCloses(t *testing.T) {
 	t.Parallel()
 
@@ -369,6 +384,53 @@ func TestCameraRelayManagerClosesUpstreamWhenCameraSourceStartupFails(t *testing
 	defer cancel()
 	if err := manager.Stop(stopCtx, cameraRelayStopPayload{RelaySessionID: "relay-source-fail-1"}); !errors.Is(err, errCameraRelaySessionNotFound) {
 		t.Fatalf("expected errCameraRelaySessionNotFound after startup failure cleanup, got %v", err)
+	}
+}
+
+func TestCameraRelayManagerClosesUpstreamWhenPluginStreamFails(t *testing.T) {
+	t.Parallel()
+
+	gateway := newFakeCameraRelayGateway()
+	manager := newCameraRelayManager(gateway, createTestLogger())
+	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+		t.Fatal("expected plugin source factory to be used")
+		return nil, nil
+	}
+	manager.pluginSourceFactory = func(_ context.Context, spec cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+		if spec.PluginAssignmentID != "streaming-plugin-1" {
+			t.Fatalf("unexpected plugin assignment id: %s", spec.PluginAssignmentID)
+		}
+		return &failingCameraRelayStream{err: errors.New("plugin terminated unexpectedly")}, nil
+	}
+
+	if _, err := manager.Start(context.Background(), cameraRelaySessionSpec{
+		RelaySessionID:     "relay-plugin-fail-1",
+		AgentID:            "agent-1",
+		CameraSourceID:     "camera-1",
+		StreamProfileID:    "main",
+		LeaseToken:         "lease-1",
+		PluginAssignmentID: "streaming-plugin-1",
+	}); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+
+	select {
+	case <-gateway.closeNotifyCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for upstream relay close after plugin stream failure")
+	}
+
+	gateway.mu.Lock()
+	defer gateway.mu.Unlock()
+
+	if len(gateway.openRequests) != 1 {
+		t.Fatalf("expected 1 open request, got %d", len(gateway.openRequests))
+	}
+	if len(gateway.closeRequests) != 1 {
+		t.Fatalf("expected 1 close request, got %d", len(gateway.closeRequests))
+	}
+	if got := gateway.closeRequests[0].GetReason(); got != "camera relay source failed" {
+		t.Fatalf("expected close reason %q, got %q", "camera relay source failed", got)
 	}
 }
 
