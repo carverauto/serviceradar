@@ -43,11 +43,19 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerControllerTest do
       assert Enum.at(body["data"], 0)["health_timeout_ms"] == 1500
       assert Enum.at(body["data"], 0)["probe_interval_ms"] == 10_000
       assert Enum.at(body["data"], 0)["flapping"] == false
+      assert Enum.at(body["data"], 0)["alert_active"] == false
+      assert Enum.at(body["data"], 0)["routed_alert_active"] == false
       assert Enum.at(body["data"], 0)["recent_probe_results"] != []
       assert Enum.at(body["data"], 1)["health_status"] == "unhealthy"
       assert Enum.at(body["data"], 1)["flapping"] == true
       assert Enum.at(body["data"], 1)["flapping_transition_count"] == 4
       assert Enum.at(body["data"], 1)["flapping_window_size"] == 5
+      assert Enum.at(body["data"], 1)["alert_active"] == true
+      assert Enum.at(body["data"], 1)["alert_state"] == "flapping"
+      assert Enum.at(body["data"], 1)["routed_alert_active"] == true
+
+      assert Enum.at(body["data"], 1)["routed_alert_key"] ==
+               "camera_analysis_worker:worker-beta:flapping"
 
       assert_receive {:camera_analysis_workers_list, opts}
       assert opts[:scope]
@@ -88,6 +96,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerControllerTest do
       assert body["data"]["worker_id"] == "worker-alpha"
       assert body["data"]["health_path"] == "/health"
       assert body["data"]["flapping"] == false
+      assert body["data"]["alert_active"] == false
+      assert body["data"]["routed_alert_active"] == false
       assert Enum.at(body["data"]["recent_probe_results"], 0)["status"] == "healthy"
 
       assert_receive {:camera_analysis_workers_get, ^worker_id, opts}

@@ -103,6 +103,7 @@ defmodule ServiceRadar.Telemetry do
     :worker_probe_failed,
     :worker_health_changed,
     :worker_flapping_changed,
+    :worker_alert_changed,
     :worker_failover_succeeded,
     :worker_failover_failed,
     :dispatch_succeeded,
@@ -386,6 +387,10 @@ defmodule ServiceRadar.Telemetry do
       counter("serviceradar.camera_relay.analysis.worker_flapping_changed.count",
         tags: [:relay_boundary, :worker_id, :flapping_state],
         description: "Number of camera analysis worker flapping state changes"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_alert_changed.count",
+        tags: [:relay_boundary, :worker_id, :alert_state],
+        description: "Number of camera analysis worker alert state changes"
       ),
       counter("serviceradar.camera_relay.analysis.worker_failover_succeeded.count",
         tags: [:relay_boundary, :worker_id, :replacement_worker_id],

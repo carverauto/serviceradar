@@ -28,6 +28,9 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
     :flapping,
     :flapping_transition_count,
     :flapping_window_size,
+    :alert_active,
+    :alert_state,
+    :alert_reason,
     :headers,
     :metadata
   ]
@@ -115,6 +118,9 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
         :flapping,
         :flapping_transition_count,
         :flapping_window_size,
+        :alert_active,
+        :alert_state,
+        :alert_reason,
         :headers,
         :metadata
       ]
@@ -149,6 +155,9 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
         :flapping,
         :flapping_transition_count,
         :flapping_window_size,
+        :alert_active,
+        :alert_state,
+        :alert_reason,
         :headers,
         :metadata
       ]
@@ -266,6 +275,20 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
       allow_nil? false
       public? true
       default 0
+    end
+
+    attribute :alert_active, :boolean do
+      allow_nil? false
+      public? true
+      default false
+    end
+
+    attribute :alert_state, :string do
+      public? true
+    end
+
+    attribute :alert_reason, :string do
+      public? true
     end
 
     attribute :headers, :map do

@@ -274,6 +274,7 @@ defmodule ServiceRadar.TelemetryTest do
         [
           [:serviceradar, :camera_relay, :analysis, :worker_health_changed],
           [:serviceradar, :camera_relay, :analysis, :worker_flapping_changed],
+          [:serviceradar, :camera_relay, :analysis, :worker_alert_changed],
           [:serviceradar, :camera_relay, :analysis, :worker_failover_succeeded]
         ],
         fn event, measurements, metadata, _config ->
@@ -323,6 +324,30 @@ defmodule ServiceRadar.TelemetryTest do
       assert flapping_metadata.previous_flapping == false
       assert flapping_metadata.flapping == true
       assert flapping_metadata.flapping_state == "flapping"
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :worker_alert_changed,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          worker_id: "worker-1",
+          previous_alert_state: nil,
+          alert_state: "flapping",
+          alert_active: true,
+          reason: "status_transitions_threshold"
+        },
+        %{consecutive_failures: 3, flapping_transition_count: 4}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :worker_alert_changed],
+                      %{consecutive_failures: 3, flapping_transition_count: 4}, alert_metadata}
+
+      assert alert_metadata.worker_id == "worker-1"
+      assert alert_metadata.previous_alert_state == nil
+      assert alert_metadata.alert_state == "flapping"
+      assert alert_metadata.alert_active == true
+      assert alert_metadata.reason == "status_transitions_threshold"
 
       Telemetry.emit_camera_relay_analysis_event(
         :worker_failover_succeeded,

@@ -5,6 +5,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
 
   use GenServer
 
+  alias ServiceRadar.Camera.AnalysisWorkerAlertRouter
   alias ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker
   alias ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver
 
@@ -45,7 +46,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
        adapter_opts: Keyword.get(opts, :adapter_opts, []),
        result_ingestor: Keyword.get(opts, :result_ingestor),
        telemetry_module: Keyword.get(opts, :telemetry_module),
-       worker_resolver: Keyword.get(opts, :worker_resolver, AnalysisWorkerResolver)
+       worker_resolver: Keyword.get(opts, :worker_resolver, AnalysisWorkerResolver),
+       alert_router: Keyword.get(opts, :alert_router, AnalysisWorkerAlertRouter)
      }}
   end
 
@@ -72,15 +74,20 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
             |> Map.merge(
               Map.take(resolved_worker, [
                 :worker_id,
+                :display_name,
+                :adapter,
                 :endpoint_url,
+                :capabilities,
                 :headers,
                 :selection_mode,
                 :requested_capability,
                 :registry_managed?
               ])
             )
+            |> Map.put(:worker_adapter, resolved_worker.adapter)
             |> Map.put(:task_supervisor, state.task_supervisor)
             |> Map.put(:worker_resolver, state.worker_resolver)
+            |> Map.put(:alert_router, state.alert_router)
             |> maybe_put(:adapter, state.adapter)
             |> maybe_put(:adapter_opts, state.adapter_opts)
             |> maybe_put(:result_ingestor, state.result_ingestor)

@@ -18,6 +18,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
          flapping: false,
          flapping_transition_count: 2,
          flapping_window_size: 4,
+         alert_active: false,
+         alert_state: nil,
+         alert_reason: nil,
          headers: %{"authorization" => "Bearer token"},
          recent_probe_results: [
            %{"checked_at" => "2026-03-24T14:59:00Z", "status" => "healthy", "reason" => nil},
@@ -181,6 +184,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
     assert unhealthy_worker.flapping == true
     assert unhealthy_worker.flapping_transition_count == 3
     assert unhealthy_worker.flapping_window_size == 5
+    assert unhealthy_worker.alert_active == true
+    assert unhealthy_worker.alert_state == "flapping"
+    assert unhealthy_worker.alert_reason == "status_transitions_threshold"
     assert length(unhealthy_worker.recent_probe_results) == 5
     assert Enum.at(unhealthy_worker.recent_probe_results, 0)["status"] == "unhealthy"
     assert Enum.at(unhealthy_worker.recent_probe_results, 0)["reason"] == "http_status_503"
@@ -200,6 +206,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
     assert healthy_worker.flapping == false
     assert healthy_worker.flapping_transition_count == 2
     assert healthy_worker.flapping_window_size == 5
+    assert healthy_worker.alert_active == false
+    assert healthy_worker.alert_state == nil
+    assert healthy_worker.alert_reason == nil
     assert length(healthy_worker.recent_probe_results) == 5
     assert Enum.at(healthy_worker.recent_probe_results, 0)["status"] == "healthy"
   end

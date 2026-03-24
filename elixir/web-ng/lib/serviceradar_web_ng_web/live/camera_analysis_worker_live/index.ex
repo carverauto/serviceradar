@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Camera.AnalysisWorkerAlertRouter
   alias ServiceRadarWebNG.CameraAnalysisWorkers
   alias ServiceRadarWebNG.RBAC
 
@@ -114,6 +115,12 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
             tone="warning"
             icon="hero-arrow-path-rounded-square"
           />
+          <.summary_card
+            title="Alerts"
+            value={@summary.alerts}
+            tone="error"
+            icon="hero-exclamation-circle"
+          />
         </div>
 
         <section class="rounded-2xl border border-base-200 bg-base-100 shadow-sm">
@@ -186,6 +193,9 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                         {worker.health_status || "unknown"}
                       </span>
                       <span :if={worker.flapping} class="badge badge-warning">flapping</span>
+                      <span :if={worker.alert_active} class="badge badge-error">
+                        alert: {worker.alert_state}
+                      </span>
                       <div :if={worker.health_reason} class="text-xs text-base-content/50">
                         {worker.health_reason}
                       </div>
@@ -203,6 +213,12 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                     </div>
                     <div class="text-xs text-base-content/50">
                       {flapping_summary(worker)}
+                    </div>
+                    <div class="text-xs text-base-content/50">
+                      {alert_summary(worker)}
+                    </div>
+                    <div :if={worker.alert_active} class="text-xs text-base-content/50 font-mono">
+                      {routed_alert_summary(worker)}
                     </div>
                   </td>
                   <td>
@@ -276,12 +292,13 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
       enabled: Enum.count(workers, & &1.enabled),
       healthy: Enum.count(workers, &((&1.health_status || "healthy") == "healthy")),
       unhealthy: Enum.count(workers, &((&1.health_status || "healthy") != "healthy")),
-      flapping: Enum.count(workers, &Map.get(&1, :flapping, false))
+      flapping: Enum.count(workers, &Map.get(&1, :flapping, false)),
+      alerts: Enum.count(workers, &Map.get(&1, :alert_active, false))
     }
   end
 
   defp empty_summary do
-    %{total: 0, enabled: 0, healthy: 0, unhealthy: 0, flapping: 0}
+    %{total: 0, enabled: 0, healthy: 0, unhealthy: 0, flapping: 0, alerts: 0}
   end
 
   defp health_badge_class("healthy"), do: "badge-success"
@@ -323,6 +340,23 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
     window_size = Map.get(worker, :flapping_window_size, 0)
     prefix = if Map.get(worker, :flapping, false), do: "flapping", else: "stable"
     "#{prefix}: #{transition_count} transitions / #{window_size} probes"
+  end
+
+  defp alert_summary(worker) do
+    if Map.get(worker, :alert_active, false) do
+      "alert: #{Map.get(worker, :alert_state) || "active"} (#{Map.get(worker, :alert_reason) || "no reason"})"
+    else
+      "alert: none"
+    end
+  end
+
+  defp routed_alert_summary(worker) do
+    context = AnalysisWorkerAlertRouter.routed_alert_context(worker)
+
+    case context.routed_alert_key do
+      key when is_binary(key) -> "observability key: #{key}"
+      _ -> "observability key: unavailable"
+    end
   end
 
   defp camera_analysis_workers do

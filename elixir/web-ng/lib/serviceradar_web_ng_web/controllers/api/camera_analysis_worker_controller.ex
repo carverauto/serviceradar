@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadar.Camera.AnalysisWorkerAlertRouter
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.CameraAnalysisWorkers
   alias ServiceRadarWebNG.RBAC
@@ -299,33 +300,39 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
     do: {:error, :invalid_request, "#{field_name} must be a positive integer"}
 
   defp worker_json(worker) do
-    %{
-      id: worker.id,
-      worker_id: worker.worker_id,
-      display_name: worker.display_name,
-      adapter: worker.adapter,
-      endpoint_url: worker.endpoint_url,
-      health_endpoint_url: worker.health_endpoint_url,
-      health_path: worker.health_path,
-      health_timeout_ms: worker.health_timeout_ms,
-      probe_interval_ms: worker.probe_interval_ms,
-      capabilities: worker.capabilities || [],
-      enabled: worker.enabled,
-      health_status: worker.health_status,
-      health_reason: worker.health_reason,
-      flapping: worker.flapping || false,
-      flapping_transition_count: worker.flapping_transition_count || 0,
-      flapping_window_size: worker.flapping_window_size || 0,
-      consecutive_failures: worker.consecutive_failures || 0,
-      header_keys: worker |> Map.get(:headers, %{}) |> Map.keys() |> Enum.sort(),
-      metadata: worker.metadata || %{},
-      recent_probe_results: normalize_probe_results(worker.recent_probe_results),
-      last_health_transition_at: format_datetime(worker.last_health_transition_at),
-      last_healthy_at: format_datetime(worker.last_healthy_at),
-      last_failure_at: format_datetime(worker.last_failure_at),
-      inserted_at: format_datetime(worker.inserted_at),
-      updated_at: format_datetime(worker.updated_at)
-    }
+    Map.merge(
+      %{
+        id: worker.id,
+        worker_id: worker.worker_id,
+        display_name: worker.display_name,
+        adapter: worker.adapter,
+        endpoint_url: worker.endpoint_url,
+        health_endpoint_url: worker.health_endpoint_url,
+        health_path: worker.health_path,
+        health_timeout_ms: worker.health_timeout_ms,
+        probe_interval_ms: worker.probe_interval_ms,
+        capabilities: worker.capabilities || [],
+        enabled: worker.enabled,
+        health_status: worker.health_status,
+        health_reason: worker.health_reason,
+        flapping: worker.flapping || false,
+        flapping_transition_count: worker.flapping_transition_count || 0,
+        flapping_window_size: worker.flapping_window_size || 0,
+        alert_active: worker.alert_active || false,
+        alert_state: worker.alert_state,
+        alert_reason: worker.alert_reason,
+        consecutive_failures: worker.consecutive_failures || 0,
+        header_keys: worker |> Map.get(:headers, %{}) |> Map.keys() |> Enum.sort(),
+        metadata: worker.metadata || %{},
+        recent_probe_results: normalize_probe_results(worker.recent_probe_results),
+        last_health_transition_at: format_datetime(worker.last_health_transition_at),
+        last_healthy_at: format_datetime(worker.last_healthy_at),
+        last_failure_at: format_datetime(worker.last_failure_at),
+        inserted_at: format_datetime(worker.inserted_at),
+        updated_at: format_datetime(worker.updated_at)
+      },
+      AnalysisWorkerAlertRouter.routed_alert_context(worker)
+    )
   end
 
   defp format_datetime(nil), do: nil

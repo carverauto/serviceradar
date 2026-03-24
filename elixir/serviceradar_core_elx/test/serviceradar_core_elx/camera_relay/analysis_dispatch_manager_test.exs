@@ -55,9 +55,11 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
       {:ok,
        %{
          worker_id: "worker-registry-1",
+         display_name: "Registry Worker 1",
          endpoint_url: "http://worker-registry-1.local/analyze",
          headers: %{"authorization" => "Bearer registry"},
          adapter: "http",
+         capabilities: [],
          selection_mode: "worker_id",
          requested_capability: nil,
          registry_managed?: true
@@ -71,9 +73,11 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
         {:ok,
          %{
            worker_id: "worker-registry-capability-b",
+           display_name: "Registry Worker Capability B",
            endpoint_url: "http://worker-registry-capability-b.local/analyze",
            headers: %{},
            adapter: "http",
+           capabilities: ["object_detection"],
            selection_mode: "capability",
            requested_capability: "object_detection",
            registry_managed?: true
@@ -82,9 +86,11 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
         {:ok,
          %{
            worker_id: "worker-registry-capability-a",
+           display_name: "Registry Worker Capability A",
            endpoint_url: "http://worker-registry-capability-a.local/analyze",
            headers: %{},
            adapter: "http",
+           capabilities: ["object_detection"],
            selection_mode: "capability",
            requested_capability: "object_detection",
            registry_managed?: true
@@ -96,13 +102,36 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
       {:error, :worker_capability_unmatched}
     end
 
+    def resolve_http_worker(%{required_capability: "single_worker_capability"} = attrs) do
+      excluded = Map.get(attrs, :excluded_worker_ids, [])
+
+      if "worker-registry-single" in excluded do
+        {:error, :worker_unavailable}
+      else
+        {:ok,
+         %{
+           worker_id: "worker-registry-single",
+           display_name: "Registry Worker Single",
+           endpoint_url: "http://worker-registry-single.local/analyze",
+           headers: %{},
+           adapter: "http",
+           capabilities: ["single_worker_capability"],
+           selection_mode: "capability",
+           requested_capability: "single_worker_capability",
+           registry_managed?: true
+         }}
+      end
+    end
+
     def resolve_http_worker(attrs) do
       {:ok,
        %{
          worker_id: Map.fetch!(attrs, :worker_id),
+         display_name: Map.get(attrs, :display_name),
          endpoint_url: Map.fetch!(attrs, :endpoint_url),
          headers: Map.get(attrs, :headers, %{}),
          adapter: "http",
+         capabilities: Map.get(attrs, :capabilities, []),
          selection_mode: "direct",
          requested_capability: nil,
          registry_managed?: false
@@ -140,6 +169,31 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
        }}
     end
 
+    def refresh_worker_alert(worker_id, opts) do
+      send(test_pid(), {:refresh_worker_alert, worker_id, opts})
+
+      {:ok,
+       %{
+         worker_id: worker_id,
+         alert_active: true,
+         alert_state: Keyword.get(opts, :alert_override_state),
+         alert_reason: Keyword.get(opts, :alert_override_reason)
+       }}
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core_elx, :analysis_dispatch_test_pid)
+    end
+  end
+
+  defmodule AlertRouterStub do
+    @moduledoc false
+
+    def route_transition(previous_worker, updated_worker, opts) do
+      send(test_pid(), {:route_worker_alert, previous_worker, updated_worker, opts})
+      :ok
+    end
+
     defp test_pid do
       Application.fetch_env!(:serviceradar_core_elx, :analysis_dispatch_test_pid)
     end
@@ -163,6 +217,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
       |> Map.put(:adapter_opts, test_pid: test_pid, mode: :success)
       |> Map.put(:result_ingestor, ResultIngestorStub)
       |> Map.put(:worker_resolver, ResolverStub)
+      |> Map.put(:alert_router, AlertRouterStub)
     end)
 
     :sys.replace_state(AnalysisBranchManager, fn state ->
@@ -402,6 +457,95 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
 
     assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :dispatch_succeeded], %{sequence: 12},
                     %{worker_id: "worker-registry-capability-b"}},
+                   1_000
+
+    assert :ok = AnalysisDispatchManager.close_http_branch(relay_session_id, branch_id)
+    assert :ok = PipelineManager.close_session(relay_session_id)
+  end
+
+  test "emits worker alert state when capability failover is exhausted" do
+    relay_session_id = "relay-analysis-dispatch-failover-exhausted"
+    branch_id = "analysis-http-failover-exhausted"
+    test_pid = self()
+
+    :sys.replace_state(AnalysisDispatchManager, fn state ->
+      Map.put(
+        state,
+        :adapter_opts,
+        test_pid: test_pid,
+        mode: {:per_worker, %{"worker-registry-single" => :http_error}}
+      )
+    end)
+
+    attach_telemetry_handler(self(), [
+      [:serviceradar, :camera_relay, :analysis, :worker_failover_failed],
+      [:serviceradar, :camera_relay, :analysis, :worker_alert_changed],
+      [:serviceradar, :camera_relay, :analysis, :dispatch_failed]
+    ])
+
+    assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
+
+    assert {:ok, branch} =
+             AnalysisDispatchManager.open_http_branch(%{
+               relay_session_id: relay_session_id,
+               branch_id: branch_id,
+               required_capability: "single_worker_capability",
+               policy: %{sample_interval_ms: 0}
+             })
+
+    assert branch.selection_mode == "capability"
+
+    assert :ok =
+             PipelineManager.record_chunk(relay_session_id, %{
+               media_ingest_id: "core-media-analysis-dispatch",
+               sequence: 21,
+               pts: 0,
+               dts: 0,
+               codec: "h264",
+               payload_format: "annexb",
+               track_id: "video",
+               keyframe: true,
+               payload: <<0, 0, 0, 1, 103, 100, 0, 31>>
+             })
+
+    assert_receive {:deliver, %{sequence: 21}, %{worker_id: "worker-registry-single"}}, 1_000
+    assert_receive {:mark_worker_unhealthy, "worker-registry-single", "http_status_503", _opts}, 1_000
+
+    assert_receive {:refresh_worker_alert, "worker-registry-single", alert_opts}, 1_000
+    assert alert_opts[:alert_override_state] == "failover_exhausted"
+    assert alert_opts[:alert_override_reason] == "worker_unavailable"
+
+    assert_receive {:route_worker_alert, previous_worker, updated_worker, route_opts}, 1_000
+    assert previous_worker.worker_id == "worker-registry-single"
+    assert updated_worker.alert_state == "failover_exhausted"
+    assert route_opts[:transition_source] == "analysis_dispatch"
+    assert route_opts[:relay_session_id] == relay_session_id
+    assert route_opts[:branch_id] == branch_id
+
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :worker_alert_changed],
+                    %{consecutive_failures: 0},
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      branch_id: ^branch_id,
+                      worker_id: "worker-registry-single",
+                      alert_state: "failover_exhausted",
+                      alert_active: true,
+                      reason: "worker_unavailable"
+                    }},
+                   1_000
+
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :worker_failover_failed],
+                    %{failover_attempt: 1},
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      branch_id: ^branch_id,
+                      worker_id: "worker-registry-single",
+                      reason: "worker_unavailable"
+                    }},
+                   1_000
+
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :dispatch_failed], %{sequence: 21},
+                    %{worker_id: "worker-registry-single", reason: "http_status_503"}},
                    1_000
 
     assert :ok = AnalysisDispatchManager.close_http_branch(relay_session_id, branch_id)

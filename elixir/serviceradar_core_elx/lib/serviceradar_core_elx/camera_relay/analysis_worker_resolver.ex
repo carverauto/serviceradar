@@ -7,6 +7,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
 
   @supported_http_adapters ["http"]
   @default_flapping_transition_threshold 3
+  @default_unhealthy_alert_failure_threshold 3
 
   def resolve_http_worker(attrs, opts \\ []) do
     resource = Keyword.get(opts, :resource, AnalysisWorker)
@@ -45,6 +46,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
            |> maybe_put_recent_probe_result(worker, "healthy", nil, now, opts)
            |> maybe_put_transition_timestamp(worker, now, "healthy")
            |> put_flapping_state(worker, opts),
+         attrs = put_alert_state(attrs, worker, opts),
          {:ok, updated_worker} <-
            resource.update_worker(worker, attrs, actor_option(opts)) do
       {:ok, normalize_worker(updated_worker)}
@@ -71,8 +73,23 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
            |> maybe_put_recent_probe_result(worker, "unhealthy", health_reason, now, opts)
            |> maybe_put_transition_timestamp(worker, now, "unhealthy")
            |> put_flapping_state(worker, opts),
+         attrs = put_alert_state(attrs, worker, opts),
          {:ok, updated_worker} <-
            resource.update_worker(worker, attrs, actor_option(opts)) do
+      {:ok, normalize_worker(updated_worker)}
+    else
+      true -> {:error, :worker_not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def refresh_worker_alert(worker_id, opts \\ []) when is_binary(worker_id) do
+    resource = Keyword.get(opts, :resource, AnalysisWorker)
+
+    with {:ok, worker} <- resource.get_by_worker_id(worker_id, actor_option(opts)),
+         false <- is_nil(worker),
+         attrs = put_alert_state(%{}, worker, opts),
+         {:ok, updated_worker} <- resource.update_worker(worker, attrs, actor_option(opts)) do
       {:ok, normalize_worker(updated_worker)}
     else
       true -> {:error, :worker_not_found}
@@ -194,6 +211,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
       flapping: map_value(worker, :flapping, false),
       flapping_transition_count: map_value(worker, :flapping_transition_count, 0),
       flapping_window_size: map_value(worker, :flapping_window_size, 0),
+      alert_active: map_value(worker, :alert_active, false),
+      alert_state: map_value(worker, :alert_state),
+      alert_reason: map_value(worker, :alert_reason),
       metadata: map_value(worker, :metadata, %{})
     }
   end
@@ -263,8 +283,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
     |> Enum.uniq()
   end
 
+  defp normalize_health_reason(nil), do: nil
   defp normalize_health_reason({:unsupported_worker_adapter, adapter}), do: "unsupported_worker_adapter:#{adapter}"
-
   defp normalize_health_reason({:http_status, status, _body}), do: "http_status_#{status}"
   defp normalize_health_reason({:transport_error, reason}), do: "transport_error:#{reason}"
   defp normalize_health_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
@@ -313,6 +333,20 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
     |> Map.put(:flapping_window_size, flapping_metadata.flapping_window_size)
   end
 
+  defp put_alert_state(attrs, worker, opts) do
+    worker_state =
+      worker
+      |> normalize_worker()
+      |> Map.merge(attrs)
+
+    alert_metadata = derive_alert_metadata(worker_state, opts)
+
+    attrs
+    |> Map.put(:alert_active, alert_metadata.alert_active)
+    |> Map.put(:alert_state, alert_metadata.alert_state)
+    |> Map.put(:alert_reason, alert_metadata.alert_reason)
+  end
+
   defp derive_flapping_metadata(recent_probe_results, opts) do
     history =
       recent_probe_results
@@ -334,6 +368,41 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
       flapping_transition_count: transition_count,
       flapping_window_size: window_size
     }
+  end
+
+  defp derive_alert_metadata(worker_state, opts) do
+    unhealthy_threshold =
+      Keyword.get(opts, :worker_alert_failure_threshold, @default_unhealthy_alert_failure_threshold)
+
+    override_state = Keyword.get(opts, :alert_override_state)
+    override_reason = Keyword.get(opts, :alert_override_reason)
+
+    cond do
+      present_string(%{value: override_state}, :value) ->
+        %{
+          alert_active: true,
+          alert_state: to_string(override_state),
+          alert_reason: normalize_health_reason(override_reason)
+        }
+
+      map_value(worker_state, :flapping, false) ->
+        %{
+          alert_active: true,
+          alert_state: "flapping",
+          alert_reason: "status_transitions_threshold"
+        }
+
+      map_value(worker_state, :health_status, "healthy") != "healthy" and
+          map_value(worker_state, :consecutive_failures, 0) >= unhealthy_threshold ->
+        %{
+          alert_active: true,
+          alert_state: "unhealthy",
+          alert_reason: map_value(worker_state, :health_reason) || "consecutive_failures_threshold"
+        }
+
+      true ->
+        %{alert_active: false, alert_state: nil, alert_reason: nil}
+    end
   end
 
   defp present_string(map, key) when is_map(map) do

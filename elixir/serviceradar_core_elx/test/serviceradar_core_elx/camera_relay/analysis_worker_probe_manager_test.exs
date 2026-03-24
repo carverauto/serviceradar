@@ -95,6 +95,19 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManagerTest do
     end
   end
 
+  defmodule AlertRouterStub do
+    @moduledoc false
+
+    def route_transition(previous_worker, updated_worker, opts) do
+      send(test_pid(), {:route_worker_alert, previous_worker, updated_worker, opts})
+      :ok
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core_elx, :analysis_probe_test_pid)
+    end
+  end
+
   setup do
     previous_workers = Application.get_env(:serviceradar_core_elx, :analysis_probe_workers)
     previous_modes = Application.get_env(:serviceradar_core_elx, :analysis_probe_modes)
@@ -245,6 +258,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManagerTest do
          schedule: false,
          resource: ResourceStub,
          worker_resolver: ResolverStub,
+         alert_router: AlertRouterStub,
          telemetry_module: TelemetryStub,
          task_supervisor: task_supervisor,
          adapter_modules: %{"http" => AdapterStub}}
@@ -334,6 +348,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManagerTest do
       %{
         {:unhealthy, "worker-flappy"} => %{
           flapping: true,
+          alert_active: true,
+          alert_state: "flapping",
+          alert_reason: "status_transitions_threshold",
           flapping_transition_count: 3,
           flapping_window_size: 5
         }
@@ -347,6 +364,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManagerTest do
          schedule: false,
          resource: ResourceStub,
          worker_resolver: ResolverStub,
+         alert_router: AlertRouterStub,
          telemetry_module: TelemetryStub,
          task_supervisor: task_supervisor,
          adapter_modules: %{"http" => AdapterStub}}
@@ -361,6 +379,21 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManagerTest do
                       flapping: true,
                       flapping_state: "flapping"
                     }, %{flapping_transition_count: 3, flapping_window_size: 5}}
+
+    assert_receive {:telemetry_event, :worker_alert_changed,
+                    %{
+                      worker_id: "worker-flappy",
+                      previous_alert_state: nil,
+                      alert_state: "flapping",
+                      alert_active: true,
+                      reason: "status_transitions_threshold"
+                    }, %{consecutive_failures: 0, flapping_transition_count: 3}}
+
+    assert_receive {:route_worker_alert, previous_worker, updated_worker, opts}
+    assert previous_worker.worker_id == "worker-flappy"
+    assert updated_worker.alert_state == "flapping"
+    assert opts[:transition_source] == "worker_probe"
+    assert opts[:relay_boundary] == "core_elx"
   end
 
   defp unique_name(prefix) do

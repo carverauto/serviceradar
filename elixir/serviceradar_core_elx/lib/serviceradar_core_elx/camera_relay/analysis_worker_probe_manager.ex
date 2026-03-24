@@ -7,6 +7,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManager do
   use GenServer
 
   alias ServiceRadar.Camera.AnalysisWorker
+  alias ServiceRadar.Camera.AnalysisWorkerAlertRouter
   alias ServiceRadar.Telemetry
   alias ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapter
   alias ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver
@@ -30,6 +31,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManager do
       resource: Keyword.get(opts, :resource, AnalysisWorker),
       telemetry_module: Keyword.get(opts, :telemetry_module, Telemetry),
       worker_resolver: Keyword.get(opts, :worker_resolver, AnalysisWorkerResolver),
+      alert_router: Keyword.get(opts, :alert_router, AnalysisWorkerAlertRouter),
       task_supervisor:
         Keyword.get(opts, :task_supervisor, ServiceRadarCoreElx.CameraRelay.AnalysisDispatchTaskSupervisor),
       adapter_modules: Keyword.get(opts, :adapter_modules, %{"http" => AnalysisHTTPAdapter}),
@@ -131,6 +133,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManager do
         end
 
         maybe_emit_flapping_transition(state, worker, updated_worker)
+        maybe_emit_alert_transition(state, worker, updated_worker)
 
       {:error, _reason} ->
         :ok
@@ -149,6 +152,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManager do
         end
 
         maybe_emit_flapping_transition(state, worker, updated_worker)
+        maybe_emit_alert_transition(state, worker, updated_worker)
 
       {:error, _reason} ->
         :ok
@@ -216,21 +220,56 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManager do
     end
   end
 
+  defp maybe_emit_alert_transition(state, worker, updated_worker) do
+    previous_alert_state = map_value(worker, :alert_state)
+    alert_state = map_value(updated_worker, :alert_state)
+
+    if previous_alert_state != alert_state do
+      state.telemetry_module.emit_camera_relay_analysis_event(
+        :worker_alert_changed,
+        %{
+          relay_boundary: "core_elx",
+          worker_id: worker.worker_id,
+          previous_alert_state: previous_alert_state,
+          alert_state: alert_state,
+          alert_active: map_value(updated_worker, :alert_active, false),
+          reason: map_value(updated_worker, :alert_reason)
+        },
+        %{
+          consecutive_failures: map_value(updated_worker, :consecutive_failures, 0),
+          flapping_transition_count: map_value(updated_worker, :flapping_transition_count, 0)
+        }
+      )
+
+      _ =
+        state.alert_router.route_transition(worker, updated_worker,
+          relay_boundary: "core_elx",
+          transition_source: "worker_probe"
+        )
+    end
+  end
+
   defp normalize_worker(worker) when is_map(worker) do
     %{
       worker_id: map_value(worker, :worker_id),
+      display_name: map_value(worker, :display_name),
       adapter: map_value(worker, :adapter, "http"),
       endpoint_url: map_value(worker, :endpoint_url),
       health_endpoint_url: map_value(worker, :health_endpoint_url),
       health_path: map_value(worker, :health_path),
       health_timeout_ms: map_value(worker, :health_timeout_ms),
       probe_interval_ms: map_value(worker, :probe_interval_ms),
+      capabilities: map_value(worker, :capabilities, []),
       enabled: map_value(worker, :enabled, true),
       health_status: map_value(worker, :health_status, "healthy"),
       health_reason: map_value(worker, :health_reason),
       flapping: map_value(worker, :flapping, false),
       flapping_transition_count: map_value(worker, :flapping_transition_count, 0),
       flapping_window_size: map_value(worker, :flapping_window_size, 0),
+      alert_active: map_value(worker, :alert_active, false),
+      alert_state: map_value(worker, :alert_state),
+      alert_reason: map_value(worker, :alert_reason),
+      consecutive_failures: map_value(worker, :consecutive_failures, 0),
       headers: map_value(worker, :headers, %{}),
       metadata: map_value(worker, :metadata, %{})
     }

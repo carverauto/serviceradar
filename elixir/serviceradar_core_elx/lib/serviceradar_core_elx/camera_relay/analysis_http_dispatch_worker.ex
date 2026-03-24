@@ -7,6 +7,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
   use GenServer
 
   alias ServiceRadar.Camera.AnalysisResultIngestor
+  alias ServiceRadar.Camera.AnalysisWorkerAlertRouter
   alias ServiceRadar.Telemetry
   alias ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager
   alias ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapter
@@ -40,7 +41,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
 
     worker = %{
       worker_id: required_string!(opts, :worker_id),
+      display_name: Map.get(opts, :display_name),
+      adapter: Map.get(opts, :worker_adapter, "http"),
       endpoint_url: required_string!(opts, :endpoint_url),
+      capabilities: Map.get(opts, :capabilities, []),
       headers: Map.get(opts, :headers, %{}),
       timeout_ms: positive_integer(Map.get(opts, :timeout_ms), @default_timeout_ms),
       max_in_flight: positive_integer(Map.get(opts, :max_in_flight), @default_max_in_flight),
@@ -59,6 +63,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
       result_ingestor: Map.get(opts, :result_ingestor, AnalysisResultIngestor),
       telemetry_module: Map.get(opts, :telemetry_module, Telemetry),
       worker_resolver: Map.get(opts, :worker_resolver, AnalysisWorkerResolver),
+      alert_router: Map.get(opts, :alert_router, AnalysisWorkerAlertRouter),
       task_supervisor: Map.get(opts, :task_supervisor, ServiceRadarCoreElx.CameraRelay.AnalysisDispatchTaskSupervisor),
       inflight: %{},
       failover_attempts: 0,
@@ -226,6 +231,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
           {:ok, updated_worker} ->
             emit_worker_health_changed(next_state, "unhealthy", mark_reason)
             maybe_emit_worker_flapping_changed(next_state, previous_worker, updated_worker)
+            maybe_emit_worker_alert_changed(next_state, previous_worker, updated_worker)
             merge_worker_runtime_state(next_state, updated_worker)
 
           {:error, _reason} ->
@@ -256,7 +262,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
               :worker,
               Map.merge(next_state.worker, %{
                 worker_id: replacement_worker.worker_id,
+                display_name: replacement_worker.display_name,
+                adapter: replacement_worker.adapter,
                 endpoint_url: replacement_worker.endpoint_url,
+                capabilities: replacement_worker.capabilities,
                 headers: replacement_worker.headers,
                 selection_mode: replacement_worker.selection_mode,
                 requested_capability: replacement_worker.requested_capability,
@@ -278,8 +287,22 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
         {:error, failover_reason} ->
           failover_attempt = updated_state.failover_attempts + 1
 
+          alerted_state =
+            case state.worker_resolver.refresh_worker_alert(
+                   state.worker.worker_id,
+                   alert_override_state: "failover_exhausted",
+                   alert_override_reason: format_reason(failover_reason)
+                 ) do
+              {:ok, alerted_worker} ->
+                maybe_emit_worker_alert_changed(updated_state, updated_state.worker, alerted_worker)
+                merge_worker_runtime_state(updated_state, alerted_worker)
+
+              {:error, _reason} ->
+                updated_state
+            end
+
           emit_failover_event(
-            updated_state,
+            alerted_state,
             :worker_failover_failed,
             state.worker.worker_id,
             nil,
@@ -287,7 +310,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
             format_reason(failover_reason)
           )
 
-          emit_terminal_dispatch_failure(updated_state, input, reason, map_size(inflight), failover_attempt)
+          emit_terminal_dispatch_failure(alerted_state, input, reason, map_size(inflight), failover_attempt)
       end
     else
       emit_terminal_dispatch_failure(next_state, input, reason, map_size(inflight), state.failover_attempts)
@@ -318,6 +341,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
         {:ok, updated_worker} ->
           emit_worker_health_changed(state, "healthy", nil)
           maybe_emit_worker_flapping_changed(state, state.worker, updated_worker)
+          maybe_emit_worker_alert_changed(state, state.worker, updated_worker)
 
           state
           |> merge_worker_runtime_state(updated_worker)
@@ -373,12 +397,49 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
     end
   end
 
+  defp maybe_emit_worker_alert_changed(state, previous_worker, updated_worker) do
+    previous_alert_state = Map.get(previous_worker, :alert_state)
+    alert_state = Map.get(updated_worker, :alert_state)
+
+    if previous_alert_state != alert_state do
+      state.telemetry_module.emit_camera_relay_analysis_event(
+        :worker_alert_changed,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: state.relay_session_id,
+          branch_id: state.branch_id,
+          worker_id: state.worker.worker_id,
+          previous_alert_state: previous_alert_state,
+          alert_state: alert_state,
+          alert_active: Map.get(updated_worker, :alert_active, false),
+          reason: Map.get(updated_worker, :alert_reason)
+        },
+        %{
+          consecutive_failures: Map.get(updated_worker, :consecutive_failures, 0),
+          flapping_transition_count: Map.get(updated_worker, :flapping_transition_count, 0)
+        }
+      )
+
+      _ =
+        state.alert_router.route_transition(previous_worker, updated_worker,
+          relay_boundary: "core_elx",
+          relay_session_id: state.relay_session_id,
+          branch_id: state.branch_id,
+          transition_source: "analysis_dispatch"
+        )
+    end
+  end
+
   defp merge_worker_runtime_state(state, updated_worker) do
     Map.update!(state, :worker, fn worker ->
       Map.merge(worker, %{
         flapping: Map.get(updated_worker, :flapping, false),
         flapping_transition_count: Map.get(updated_worker, :flapping_transition_count, 0),
-        flapping_window_size: Map.get(updated_worker, :flapping_window_size, 0)
+        flapping_window_size: Map.get(updated_worker, :flapping_window_size, 0),
+        alert_active: Map.get(updated_worker, :alert_active, false),
+        alert_state: Map.get(updated_worker, :alert_state),
+        alert_reason: Map.get(updated_worker, :alert_reason),
+        consecutive_failures: Map.get(updated_worker, :consecutive_failures, Map.get(worker, :consecutive_failures, 0))
       })
     end)
   end
