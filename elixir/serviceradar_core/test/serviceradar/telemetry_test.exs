@@ -265,6 +265,63 @@ defmodule ServiceRadar.TelemetryTest do
       assert failure_metadata.requested_worker_id == "worker-missing"
       assert failure_metadata.reason == "worker_not_found"
     end
+
+    test "emits worker health and failover events" do
+      test_pid = self()
+
+      :telemetry.attach_many(
+        "test-handler",
+        [
+          [:serviceradar, :camera_relay, :analysis, :worker_health_changed],
+          [:serviceradar, :camera_relay, :analysis, :worker_failover_succeeded]
+        ],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :worker_health_changed,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          worker_id: "worker-1",
+          health_status: "unhealthy",
+          reason: "http_status_503"
+        },
+        %{failover_attempt: 0}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :worker_health_changed],
+                      %{failover_attempt: 0}, health_metadata}
+
+      assert health_metadata.worker_id == "worker-1"
+      assert health_metadata.health_status == "unhealthy"
+      assert health_metadata.reason == "http_status_503"
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :worker_failover_succeeded,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          worker_id: "worker-1",
+          replacement_worker_id: "worker-2",
+          reason: "http_status_503"
+        },
+        %{failover_attempt: 1}
+      )
+
+      assert_receive {:event,
+                      [:serviceradar, :camera_relay, :analysis, :worker_failover_succeeded],
+                      %{failover_attempt: 1}, failover_metadata}
+
+      assert failover_metadata.worker_id == "worker-1"
+      assert failover_metadata.replacement_worker_id == "worker-2"
+      assert failover_metadata.reason == "http_status_503"
+    end
   end
 
   describe "span/3" do

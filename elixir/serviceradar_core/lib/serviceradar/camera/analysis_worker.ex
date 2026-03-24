@@ -14,6 +14,12 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
     :endpoint_url,
     :capabilities,
     :enabled,
+    :health_status,
+    :health_reason,
+    :last_health_transition_at,
+    :last_healthy_at,
+    :last_failure_at,
+    :consecutive_failures,
     :headers,
     :metadata
   ]
@@ -28,6 +34,8 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
     define :get_by_id, action: :by_id, args: [:id]
     define :get_by_worker_id, action: :by_worker_id, args: [:worker_id]
     define :list_enabled, action: :enabled
+    define :mark_healthy, action: :mark_healthy
+    define :mark_unhealthy, action: :mark_unhealthy
     define :register_worker, action: :create
     define :update_worker, action: :update
     define :upsert_worker, action: :upsert
@@ -53,6 +61,30 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
       prepare build(sort: [worker_id: :asc])
     end
 
+    update :mark_healthy do
+      accept [:health_reason]
+
+      change set_attribute(:health_status, "healthy")
+      change set_attribute(:consecutive_failures, 0)
+      change set_attribute(:last_health_transition_at, &DateTime.utc_now/0)
+      change set_attribute(:last_healthy_at, &DateTime.utc_now/0)
+      change set_attribute(:health_reason, nil)
+    end
+
+    update :mark_unhealthy do
+      accept [:health_reason]
+
+      argument :health_reason, :string do
+        allow_nil? true
+      end
+
+      change set_attribute(:health_status, "unhealthy")
+      change set_attribute(:last_health_transition_at, &DateTime.utc_now/0)
+      change set_attribute(:last_failure_at, &DateTime.utc_now/0)
+      change set_attribute(:health_reason, arg(:health_reason))
+      change increment(:consecutive_failures, amount: 1)
+    end
+
     create :create do
       accept [
         :worker_id,
@@ -61,6 +93,12 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
         :endpoint_url,
         :capabilities,
         :enabled,
+        :health_status,
+        :health_reason,
+        :last_health_transition_at,
+        :last_healthy_at,
+        :last_failure_at,
+        :consecutive_failures,
         :headers,
         :metadata
       ]
@@ -81,6 +119,12 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
         :endpoint_url,
         :capabilities,
         :enabled,
+        :health_status,
+        :health_reason,
+        :last_health_transition_at,
+        :last_healthy_at,
+        :last_failure_at,
+        :consecutive_failures,
         :headers,
         :metadata
       ]
@@ -130,6 +174,34 @@ defmodule ServiceRadar.Camera.AnalysisWorker do
       allow_nil? false
       public? true
       default true
+    end
+
+    attribute :health_status, :string do
+      allow_nil? false
+      public? true
+      default "healthy"
+    end
+
+    attribute :health_reason, :string do
+      public? true
+    end
+
+    attribute :last_health_transition_at, :utc_datetime_usec do
+      public? true
+    end
+
+    attribute :last_healthy_at, :utc_datetime_usec do
+      public? true
+    end
+
+    attribute :last_failure_at, :utc_datetime_usec do
+      public? true
+    end
+
+    attribute :consecutive_failures, :integer do
+      allow_nil? false
+      public? true
+      default 0
     end
 
     attribute :headers, :map do

@@ -99,6 +99,9 @@ defmodule ServiceRadar.Telemetry do
     :limit_rejected,
     :worker_selected,
     :worker_selection_failed,
+    :worker_health_changed,
+    :worker_failover_succeeded,
+    :worker_failover_failed,
     :dispatch_succeeded,
     :dispatch_failed,
     :dispatch_timed_out,
@@ -364,6 +367,18 @@ defmodule ServiceRadar.Telemetry do
       counter("serviceradar.camera_relay.analysis.worker_selection_failed.count",
         tags: [:relay_boundary, :reason],
         description: "Number of failed analysis worker selections"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_health_changed.count",
+        tags: [:relay_boundary, :worker_id, :health_status],
+        description: "Number of camera analysis worker health state changes"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_failover_succeeded.count",
+        tags: [:relay_boundary, :worker_id, :replacement_worker_id],
+        description: "Number of successful camera analysis worker failovers"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_failover_failed.count",
+        tags: [:relay_boundary, :worker_id, :reason],
+        description: "Number of failed camera analysis worker failovers"
       ),
       counter("serviceradar.camera_relay.analysis.dispatch_succeeded.count",
         tags: [:relay_boundary, :worker_id],

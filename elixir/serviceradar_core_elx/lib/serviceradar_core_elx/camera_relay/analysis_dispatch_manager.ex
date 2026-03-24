@@ -69,8 +69,18 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
 
           worker_opts =
             attrs
-            |> Map.merge(Map.take(resolved_worker, [:worker_id, :endpoint_url, :headers]))
+            |> Map.merge(
+              Map.take(resolved_worker, [
+                :worker_id,
+                :endpoint_url,
+                :headers,
+                :selection_mode,
+                :requested_capability,
+                :registry_managed?
+              ])
+            )
             |> Map.put(:task_supervisor, state.task_supervisor)
+            |> Map.put(:worker_resolver, state.worker_resolver)
             |> maybe_put(:adapter, state.adapter)
             |> maybe_put(:adapter_opts, state.adapter_opts)
             |> maybe_put(:result_ingestor, state.result_ingestor)
@@ -92,7 +102,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
                 endpoint_url: resolved_worker.endpoint_url,
                 adapter: resolved_worker.adapter,
                 selection_mode: resolved_worker.selection_mode,
-                requested_capability: resolved_worker.requested_capability
+                requested_capability: resolved_worker.requested_capability,
+                registry_managed?: resolved_worker.registry_managed?
               }
 
               next_state =
