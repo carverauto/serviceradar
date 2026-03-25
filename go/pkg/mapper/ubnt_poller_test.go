@@ -442,6 +442,116 @@ func TestQuerySingleUniFiAPIFallsBackToInventoryUplinkWhenDetailPayloadDrifts(t 
 	assert.Positive(t, job.Results.Contract.ParseDiagnostics.ParserMismatches["unifi.detail.quarantined"])
 }
 
+func TestQuerySingleUniFiAPIAcceptsKnownInterfacePortDetailsWithoutQuarantine(t *testing.T) {
+	job := &DiscoveryJob{
+		ID: "test-job",
+		Results: &DiscoveryResults{
+			Contract: DiscoveryContract{
+				ParseDiagnostics: DiscoveryParseDiagnostics{
+					ParseFailures:     make(map[string]int),
+					UnknownTopLevel:   make(map[string]int),
+					ParserMismatches:  make(map[string]int),
+					LastFailureByType: make(map[string]string),
+				},
+			},
+		},
+	}
+
+	deviceDetailPayload := []byte(`{
+		"id": "device1",
+		"ipAddress": "192.168.1.1",
+		"name": "Device 1",
+		"macAddress": "00:11:22:33:44:55",
+		"model": "UDM Pro Max",
+		"supported": true,
+		"interfaces": {
+			"ports": [
+				{"idx":1,"state":"UP","connector":"RJ45","maxSpeedMbps":1000,"speedMbps":1000},
+				{"idx":10,"state":"UP","connector":"SFPPLUS","maxSpeedMbps":10000,"speedMbps":1000}
+			]
+		}
+	}`)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sites/site1/devices":
+			assert.Equal(t, "500", r.URL.Query().Get("limit"))
+			w.WriteHeader(http.StatusOK)
+			err := json.NewEncoder(w).Encode(struct {
+				Data []UniFiDevice `json:"data"`
+			}{
+				Data: []UniFiDevice{
+					{
+						ID:        "uplink-device",
+						IPAddress: "192.168.1.254",
+						Name:      "Uplink Device",
+						MAC:       "ff:ee:dd:cc:bb:aa",
+					},
+					{
+						ID:        "device1",
+						IPAddress: "192.168.1.1",
+						Name:      "Device 1",
+						MAC:       "00:11:22:33:44:55",
+						Uplink: UniFiUplink{
+							DeviceID:      "uplink-device",
+							LocalPortIdx:  26,
+							LocalPortName: "Port 26",
+						},
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("encode integration devices response: %v", err)
+			}
+		case "/sites/site1/devices/device1", "/sites/site1/devices/uplink-device":
+			w.WriteHeader(http.StatusOK)
+			_, err := w.Write(deviceDetailPayload)
+			if err != nil {
+				t.Fatalf("write integration device details response: %v", err)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	engine := &DiscoveryEngine{
+		config: &Config{
+			Timeout: 30 * time.Second,
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	apiConfig := UniFiAPIConfig{
+		Name:    "Test API",
+		BaseURL: server.URL,
+		APIKey:  "test-api-key",
+	}
+
+	site := UniFiSite{
+		ID:   "site1",
+		Name: "Site 1",
+	}
+
+	links, err := engine.querySingleUniFiAPI(context.Background(), job, "", apiConfig, site)
+	require.NoError(t, err)
+	require.Len(t, links, 1)
+
+	link := links[0]
+	assert.Equal(t, "UniFi-API", link.Protocol)
+	assert.Equal(t, "192.168.1.254", link.LocalDeviceIP)
+	assert.Equal(t, GenerateDeviceID("ff:ee:dd:cc:bb:aa"), link.LocalDeviceID)
+	assert.Equal(t, int32(26), link.LocalIfIndex)
+	assert.Equal(t, "Port 26", link.LocalIfName)
+	assert.Equal(t, "00:11:22:33:44:55", link.NeighborChassisID)
+	assert.Equal(t, "Device 1", link.NeighborSystemName)
+	assert.Equal(t, "192.168.1.1", link.NeighborMgmtAddr)
+	assert.Equal(t, "unifi-api-uplink", link.Metadata["source"])
+	assert.Equal(t, unifiDetailAdapterV1Direct, link.Metadata["source_adapter_version"])
+	assert.Equal(t, "direct", link.Metadata["source_adapter_shape"])
+	assert.Zero(t, job.Results.Contract.ParseDiagnostics.ParserMismatches["unifi.detail.quarantined"])
+}
+
 func TestQuerySingleUniFiAPIFallsBackToLegacyStatDeviceWhenIntegrationDetailsDrift(t *testing.T) {
 	job := &DiscoveryJob{
 		ID: "test-job",
@@ -881,6 +991,32 @@ func TestParseUniFiDeviceDetailsWithAdaptersFixtures(t *testing.T) {
 		assert.Equal(t, unifiDetailAdapterV1WrappedData, details.AdapterVersion)
 		assert.Equal(t, "wrapped_data", details.AdapterShape)
 		assert.True(t, hasUniFiTopologySignals(details))
+	})
+
+	t.Run("direct interfaces fixture accepted without topology signals", func(t *testing.T) {
+		job := newJob()
+		body := []byte(`{
+			"id": "device1",
+			"ipAddress": "192.168.1.1",
+			"name": "Device 1",
+			"macAddress": "00:11:22:33:44:55",
+			"model": "UDM Pro Max",
+			"supported": true,
+			"interfaces": {
+				"ports": [
+					{"idx":1,"state":"UP","connector":"RJ45","maxSpeedMbps":1000,"speedMbps":1000}
+				]
+			}
+		}`)
+
+		details, parseErr := engine.parseUniFiDeviceDetailsWithAdapters(job, body)
+		require.NoError(t, parseErr)
+		require.NotNil(t, details)
+		assert.Equal(t, unifiDetailAdapterV1Direct, details.AdapterVersion)
+		assert.Equal(t, "direct", details.AdapterShape)
+		assert.False(t, hasUniFiTopologySignals(details))
+		require.Len(t, details.Interfaces.Ports, 1)
+		assert.Zero(t, job.Results.Contract.ParseDiagnostics.ParserMismatches["unifi.detail.quarantined"])
 	})
 
 	t.Run("drift fixture quarantined", func(t *testing.T) {

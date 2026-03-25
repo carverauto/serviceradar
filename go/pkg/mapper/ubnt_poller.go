@@ -147,6 +147,8 @@ type UniFiDeviceDetails struct {
 	PortTable      []UniFiPortEntry `json:"port_table"`
 	PortTableCamel []UniFiPortEntry `json:"portTable"`
 
+	Interfaces UniFiInterfaces `json:"interfaces"`
+
 	Uplink UniFiUplink `json:"uplink"`
 
 	AdapterVersion string `json:"-"`
@@ -622,11 +624,18 @@ func hasUniFiTopologySignals(details *UniFiDeviceDetails) bool {
 		details.Uplink.upstreamDeviceID() != ""
 }
 
+func hasUniFiSupportedDetailShape(details *UniFiDeviceDetails) bool {
+	if details == nil {
+		return false
+	}
+	return hasUniFiTopologySignals(details) || len(details.Interfaces.Ports) > 0
+}
+
 func (e *DiscoveryEngine) parseUniFiDeviceDetailsWithAdapters(
 	job *DiscoveryJob, body []byte) (*UniFiDeviceDetails, error) {
 	var direct UniFiDeviceDetails
 	if err := json.Unmarshal(body, &direct); err == nil {
-		if hasUniFiTopologySignals(&direct) {
+		if hasUniFiSupportedDetailShape(&direct) {
 			direct.AdapterVersion = unifiDetailAdapterV1Direct
 			direct.AdapterShape = "direct"
 			return &direct, nil
@@ -641,12 +650,12 @@ func (e *DiscoveryEngine) parseUniFiDeviceDetailsWithAdapters(
 		Device UniFiDeviceDetails `json:"device"`
 	}
 	if err := json.Unmarshal(body, &wrapped); err == nil {
-		if hasUniFiTopologySignals(&wrapped.Data) {
+		if hasUniFiSupportedDetailShape(&wrapped.Data) {
 			wrapped.Data.AdapterVersion = unifiDetailAdapterV1WrappedData
 			wrapped.Data.AdapterShape = "wrapped_data"
 			return &wrapped.Data, nil
 		}
-		if hasUniFiTopologySignals(&wrapped.Device) {
+		if hasUniFiSupportedDetailShape(&wrapped.Device) {
 			wrapped.Device.AdapterVersion = unifiDetailAdapterV1WrappedNode
 			wrapped.Device.AdapterShape = "wrapped_device"
 			return &wrapped.Device, nil

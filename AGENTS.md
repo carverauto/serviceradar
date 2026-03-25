@@ -77,9 +77,10 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 ## Demo Namespace Helm Refresh
 
 - Build and push images: `make build` then `make push_all`.
-- Capture the tag: `git rev-parse HEAD` and set `appTag: "sha-<sha>"` in `helm/serviceradar/values.yaml`.
 - Deploy to demo: `helm upgrade --install serviceradar helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --atomic`.
   - `values-demo.yaml` carries the `external-dns` annotation for `demo-gw.serviceradar.cloud`; using only `values.yaml` will drop the DNS record.
+- `values-demo.yaml` tracks mutable `latest` tags with `imagePullPolicy: Always` and a rollout-on-upgrade annotation, so a normal `helm upgrade` will refresh demo workloads to the newest pushed images.
+- If you need a reproducible demo build instead of `latest`, override `global.imageTag` (and optional `image.digests`) explicitly for that release.
 - Sanity check: `kubectl get pods -n demo` and `helm status serviceradar -n demo`.
 
 ## Docker Compose Refresh
@@ -437,8 +438,7 @@ Restart the checker using the persisted config:
    - If a single image needs republishing, run `bazel run //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`).
    - Capture the new image identifiers you care about (for example `git rev-parse HEAD` for the commit tag or the full digest printed during the push). You'll use these when refreshing Kubernetes.
 4. Roll the demo namespace:
-   - Restart workloads with `kubectl get deploy -n demo -o name | xargs -r -L1 kubectl rollout restart -n demo`.
-   - Update any digest-pinned workloads (currently the `serviceradar-web-ng` Deployment) so they point at the freshly pushed build, e.g. `kubectl set image deployment/serviceradar-web-ng web-ng=ghcr.io/carverauto/serviceradar-web-ng:sha-$(git rev-parse HEAD) -n demo`.
+   - Run `helm upgrade --install serviceradar helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --atomic` so the mutable-tag demo workloads roll to the newest published `latest` images.
    - Watch for readiness: `kubectl get pods -n demo` until all pods are `1/1` and `Running`.
 5. Close out: verify the demo web UI reports the new version, file follow-up docs, and proceed with GitHub release packaging if required.
 

@@ -99,6 +99,10 @@ spec:
       labels:
         app: serviceradar-log-collector
         app.kubernetes.io/part-of: serviceradar
+      {{- if .Values.global.forceRolloutOnUpgrade }}
+      annotations:
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+      {{- end }}
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}

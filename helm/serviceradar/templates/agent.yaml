@@ -31,6 +31,9 @@ spec:
         app.kubernetes.io/part-of: serviceradar
       annotations:
         checksum/serviceradar-config: {{ include (print $.Template.BasePath "/serviceradar-config.yaml") . | sha256sum }}
+        {{- if .Values.global.forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+        {{- end }}
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ $agentSA }}

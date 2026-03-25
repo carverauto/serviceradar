@@ -19,6 +19,10 @@ spec:
       labels:
         app: serviceradar-datasvc
         app.kubernetes.io/part-of: serviceradar
+      {{- if .Values.global.forceRolloutOnUpgrade }}
+      annotations:
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+      {{- end }}
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
