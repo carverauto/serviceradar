@@ -125,6 +125,7 @@ type PushLoop struct {
 	syncRuntime               *SyncRuntime
 	mtrState                  *mtrCheckerState
 	mtrOnDemandSem            chan struct{}
+	cameraRelayManager        *cameraRelayManager
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -298,6 +299,18 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		interval = defaultPushInterval
 	}
 	debounce, heartbeat := clampStatusIntervals(interval, defaultStatusHeartbeatInterval, interval)
+	cameraRelayManager := newCameraRelayManager(gateway, log)
+	cameraRelayManager.pluginSourceFactory = func(ctx context.Context, spec cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+		server.mu.RLock()
+		pluginManager := server.pluginManager
+		server.mu.RUnlock()
+
+		if pluginManager == nil {
+			return nil, errCameraRelayPluginUnavailable
+		}
+
+		return pluginManager.OpenCameraRelayStream(ctx, spec.PluginAssignmentID, spec)
+	}
 
 	return &PushLoop{
 		server:             server,
@@ -314,6 +327,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		syncRuntime:        NewSyncRuntime(server, gateway, log),
 		mtrState:           newMtrCheckerState(),
 		mtrOnDemandSem:     make(chan struct{}, defaultMaxConcurrentOnDemandMtr),
+		cameraRelayManager: cameraRelayManager,
 	}
 }
 

@@ -106,6 +106,321 @@ defmodule ServiceRadar.TelemetryTest do
     end
   end
 
+  describe "emit_camera_relay_session_event/3" do
+    test "emits camera relay lifecycle events with enriched metadata" do
+      test_pid = self()
+
+      :telemetry.attach(
+        "test-handler",
+        [:serviceradar, :camera_relay, :session, :closed],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      Telemetry.emit_camera_relay_session_event(
+        :closed,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          termination_kind: "viewer_idle"
+        },
+        %{viewer_count: 0, sent_bytes: 1024}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :session, :closed], measurements,
+                      metadata}
+
+      assert measurements.viewer_count == 0
+      assert measurements.sent_bytes == 1024
+      assert metadata.relay_boundary == "core_elx"
+      assert metadata.relay_session_id == "relay-1"
+      assert metadata.termination_kind == "viewer_idle"
+      assert metadata.node == node()
+      assert is_integer(metadata.timestamp)
+    end
+  end
+
+  describe "emit_camera_relay_analysis_event/3" do
+    test "emits camera relay analysis events with enriched metadata" do
+      test_pid = self()
+
+      :telemetry.attach(
+        "test-handler",
+        [:serviceradar, :camera_relay, :analysis, :sample_dropped],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :sample_dropped,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          reason: "backpressure"
+        },
+        %{payload_bytes: 1024, queue_length: 9}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :sample_dropped],
+                      measurements, metadata}
+
+      assert measurements.payload_bytes == 1024
+      assert measurements.queue_length == 9
+      assert metadata.relay_boundary == "core_elx"
+      assert metadata.relay_session_id == "relay-1"
+      assert metadata.branch_id == "branch-1"
+      assert metadata.reason == "backpressure"
+      assert metadata.node == node()
+      assert is_integer(metadata.timestamp)
+    end
+
+    test "emits analysis dispatch events" do
+      test_pid = self()
+
+      :telemetry.attach(
+        "test-handler",
+        [:serviceradar, :camera_relay, :analysis, :dispatch_failed],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :dispatch_failed,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          worker_id: "worker-1",
+          reason: "http_status_503"
+        },
+        %{inflight_count: 1, sequence: 7}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :dispatch_failed],
+                      measurements, metadata}
+
+      assert measurements.inflight_count == 1
+      assert measurements.sequence == 7
+      assert metadata.worker_id == "worker-1"
+      assert metadata.reason == "http_status_503"
+    end
+
+    test "emits worker selection events" do
+      test_pid = self()
+
+      :telemetry.attach_many(
+        "test-handler",
+        [
+          [:serviceradar, :camera_relay, :analysis, :worker_selected],
+          [:serviceradar, :camera_relay, :analysis, :worker_selection_failed]
+        ],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :worker_selected,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          worker_id: "worker-1",
+          selection_mode: "capability",
+          requested_capability: "object_detection"
+        },
+        %{}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :worker_selected], %{},
+                      metadata}
+
+      assert metadata.worker_id == "worker-1"
+      assert metadata.selection_mode == "capability"
+      assert metadata.requested_capability == "object_detection"
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :worker_selection_failed,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          requested_worker_id: "worker-missing",
+          reason: "worker_not_found"
+        },
+        %{}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :worker_selection_failed],
+                      %{}, failure_metadata}
+
+      assert failure_metadata.requested_worker_id == "worker-missing"
+      assert failure_metadata.reason == "worker_not_found"
+    end
+
+    test "emits worker health and failover events" do
+      test_pid = self()
+
+      :telemetry.attach_many(
+        "test-handler",
+        [
+          [:serviceradar, :camera_relay, :analysis, :worker_health_changed],
+          [:serviceradar, :camera_relay, :analysis, :worker_flapping_changed],
+          [:serviceradar, :camera_relay, :analysis, :worker_alert_changed],
+          [:serviceradar, :camera_relay, :analysis, :worker_failover_succeeded]
+        ],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :worker_health_changed,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          worker_id: "worker-1",
+          health_status: "unhealthy",
+          reason: "http_status_503"
+        },
+        %{failover_attempt: 0}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :worker_health_changed],
+                      %{failover_attempt: 0}, health_metadata}
+
+      assert health_metadata.worker_id == "worker-1"
+      assert health_metadata.health_status == "unhealthy"
+      assert health_metadata.reason == "http_status_503"
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :worker_flapping_changed,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          worker_id: "worker-1",
+          previous_flapping: false,
+          flapping: true,
+          flapping_state: "flapping"
+        },
+        %{flapping_transition_count: 3, flapping_window_size: 5}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :worker_flapping_changed],
+                      %{flapping_transition_count: 3, flapping_window_size: 5}, flapping_metadata}
+
+      assert flapping_metadata.worker_id == "worker-1"
+      assert flapping_metadata.previous_flapping == false
+      assert flapping_metadata.flapping == true
+      assert flapping_metadata.flapping_state == "flapping"
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :worker_alert_changed,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          worker_id: "worker-1",
+          previous_alert_state: nil,
+          alert_state: "flapping",
+          alert_active: true,
+          reason: "status_transitions_threshold"
+        },
+        %{consecutive_failures: 3, flapping_transition_count: 4}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :worker_alert_changed],
+                      %{consecutive_failures: 3, flapping_transition_count: 4}, alert_metadata}
+
+      assert alert_metadata.worker_id == "worker-1"
+      assert alert_metadata.previous_alert_state == nil
+      assert alert_metadata.alert_state == "flapping"
+      assert alert_metadata.alert_active == true
+      assert alert_metadata.reason == "status_transitions_threshold"
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :worker_failover_succeeded,
+        %{
+          relay_boundary: "core_elx",
+          relay_session_id: "relay-1",
+          branch_id: "branch-1",
+          worker_id: "worker-1",
+          replacement_worker_id: "worker-2",
+          reason: "http_status_503"
+        },
+        %{failover_attempt: 1}
+      )
+
+      assert_receive {:event,
+                      [:serviceradar, :camera_relay, :analysis, :worker_failover_succeeded],
+                      %{failover_attempt: 1}, failover_metadata}
+
+      assert failover_metadata.worker_id == "worker-1"
+      assert failover_metadata.replacement_worker_id == "worker-2"
+      assert failover_metadata.reason == "http_status_503"
+    end
+
+    test "emits worker probe events" do
+      test_pid = self()
+
+      :telemetry.attach_many(
+        "test-handler",
+        [
+          [:serviceradar, :camera_relay, :analysis, :worker_probe_succeeded],
+          [:serviceradar, :camera_relay, :analysis, :worker_probe_failed]
+        ],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :worker_probe_succeeded,
+        %{
+          relay_boundary: "core_elx",
+          worker_id: "worker-1",
+          adapter: "http"
+        },
+        %{}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :worker_probe_succeeded],
+                      %{}, success_metadata}
+
+      assert success_metadata.worker_id == "worker-1"
+      assert success_metadata.adapter == "http"
+
+      Telemetry.emit_camera_relay_analysis_event(
+        :worker_probe_failed,
+        %{
+          relay_boundary: "core_elx",
+          worker_id: "worker-2",
+          adapter: "http",
+          reason: "http_status_503"
+        },
+        %{}
+      )
+
+      assert_receive {:event, [:serviceradar, :camera_relay, :analysis, :worker_probe_failed],
+                      %{}, failure_metadata}
+
+      assert failure_metadata.worker_id == "worker-2"
+      assert failure_metadata.reason == "http_status_503"
+    end
+  end
+
   describe "span/3" do
     test "emits start and stop events around function execution" do
       test_pid = self()
@@ -174,6 +489,47 @@ defmodule ServiceRadar.TelemetryTest do
       assert [:serviceradar, :gateway, :registered, :count] in metric_names
       assert [:serviceradar, :agent, :connected, :count] in metric_names
       assert [:serviceradar, :registry, :lookup, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :session, :opened, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :session, :viewer_count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :branch_opened, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :branch_count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_succeeded, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_failed, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_timed_out, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_dropped, :count] in metric_names
+    end
+  end
+
+  describe "camera_relay_metrics/0" do
+    test "returns the camera relay metric subset without unrelated metrics" do
+      metrics = Telemetry.camera_relay_metrics()
+
+      metric_names = Enum.map(metrics, & &1.name)
+
+      assert [:serviceradar, :camera_relay, :session, :opened, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :session, :closing, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :session, :closed, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :session, :failed, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :session, :viewer_count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :branch_opened, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :branch_closed, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :sample_emitted, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :sample_dropped, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :limit_rejected, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_succeeded, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_failed, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_timed_out, :count] in metric_names
+
+      assert [:serviceradar, :camera_relay, :analysis, :dispatch_dropped, :count] in metric_names
+      assert [:serviceradar, :camera_relay, :analysis, :branch_count] in metric_names
+      refute [:serviceradar, :cluster, :node_connected, :count] in metric_names
     end
   end
 

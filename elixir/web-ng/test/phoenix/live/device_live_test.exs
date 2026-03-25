@@ -4,11 +4,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Camera.Source, as: CameraSource
+  alias ServiceRadar.Camera.StreamProfile, as: CameraStreamProfile
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperSeed
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
+  alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
@@ -716,11 +719,333 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end
   end
 
+  describe "device show page camera relays" do
+    setup %{conn: conn} do
+      previous_manager = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager)
+      previous_open_result = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_open_result)
+      previous_close_result = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_close_result)
+      previous_fetcher = Application.get_env(:serviceradar_web_ng, :camera_relay_session_fetcher)
+      previous_fetch_result = Application.get_env(:serviceradar_web_ng, :camera_relay_session_fetch_result)
+      previous_poll_interval = Application.get_env(:serviceradar_web_ng, :camera_relay_poll_interval_ms)
+      previous_test_pid = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_test_pid)
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager,
+        CameraRelaySessionManagerStub
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_test_pid,
+        self()
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_fetcher,
+        fn _relay_session_id, _opts ->
+          Application.get_env(:serviceradar_web_ng, :camera_relay_session_fetch_result, {:ok, nil})
+        end
+      )
+
+      Application.put_env(:serviceradar_web_ng, :camera_relay_poll_interval_ms, 30_000)
+
+      on_exit(fn ->
+        restore_env(:camera_relay_session_manager, previous_manager)
+        restore_env(:camera_relay_session_manager_open_result, previous_open_result)
+        restore_env(:camera_relay_session_manager_close_result, previous_close_result)
+        restore_env(:camera_relay_session_fetcher, previous_fetcher)
+        restore_env(:camera_relay_session_fetch_result, previous_fetch_result)
+        restore_env(:camera_relay_poll_interval_ms, previous_poll_interval)
+        restore_env(:camera_relay_session_manager_test_pid, previous_test_pid)
+      end)
+
+      viewer = AshTestHelpers.viewer_user_fixture()
+      device_uid = "test-device-camera-#{System.unique_integer([:positive])}"
+
+      Repo.insert_all("ocsf_devices", [
+        %{
+          uid: device_uid,
+          type_id: 7,
+          hostname: "camera-host",
+          vendor_name: "Axis",
+          is_available: true,
+          first_seen_time: ~U[2100-01-01 00:00:00Z],
+          last_seen_time: ~U[2100-01-01 00:00:00Z]
+        }
+      ])
+
+      %{source: source, profile: profile} = insert_camera_source!(device_uid)
+
+      %{
+        conn: log_in_user(conn, viewer),
+        device_uid: device_uid,
+        source: source,
+        profile: profile
+      }
+    end
+
+    test "renders relay-capable camera streams for viewers", %{
+      conn: conn,
+      device_uid: device_uid,
+      source: source,
+      profile: profile
+    } do
+      {:ok, _view, html} = live(conn, ~p"/devices/#{device_uid}")
+
+      assert html =~ "Camera Streams"
+      assert html =~ source.display_name
+      assert html =~ profile.profile_name
+      assert html =~ "Open Relay"
+    end
+
+    test "opens and closes a camera relay session from device details", %{
+      conn: conn,
+      device_uid: device_uid,
+      source: source,
+      profile: profile
+    } do
+      relay_session_id = Ecto.UUID.generate()
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_open_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: source.id,
+           stream_profile_id: profile.id,
+           agent_id: source.assigned_agent_id,
+           gateway_id: source.assigned_gateway_id,
+           status: :opening
+         }}
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_close_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: source.id,
+           stream_profile_id: profile.id,
+           agent_id: source.assigned_agent_id,
+           gateway_id: source.assigned_gateway_id,
+           status: :closing
+         }}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      view
+      |> element(
+        "button[phx-click='open_camera_relay'][phx-value-camera_source_id='#{source.id}'][phx-value-stream_profile_id='#{profile.id}']"
+      )
+      |> render_click()
+
+      assert_receive {:open_session, ^source.id, ^profile.id, opts}
+      assert opts[:scope].user.role == :viewer
+      assert render(view) =~ "Opening"
+      assert render(view) =~ "Stop Relay"
+      assert render(view) =~ "Browser viewer channel is attached to the persisted relay session."
+      assert render(view) =~ "Preferred transport: websocket_h264_annexb_webcodecs"
+      assert render(view) =~ "/v1/camera-relay-sessions/#{relay_session_id}/stream"
+
+      view
+      |> element("button[phx-click='close_camera_relay']")
+      |> render_click()
+
+      assert_receive {:close_session, ^relay_session_id, opts}
+      assert opts[:scope].user.role == :viewer
+      assert render(view) =~ "Closing"
+    end
+
+    test "refreshes relay session state from persisted relay session records", %{
+      conn: conn,
+      device_uid: device_uid,
+      source: source,
+      profile: profile
+    } do
+      relay_session_id = Ecto.UUID.generate()
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_open_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: source.id,
+           stream_profile_id: profile.id,
+           agent_id: source.assigned_agent_id,
+           gateway_id: source.assigned_gateway_id,
+           status: :opening
+         }}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      view
+      |> element(
+        "button[phx-click='open_camera_relay'][phx-value-camera_source_id='#{source.id}'][phx-value-stream_profile_id='#{profile.id}']"
+      )
+      |> render_click()
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_fetch_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: source.id,
+           stream_profile_id: profile.id,
+           agent_id: source.assigned_agent_id,
+           gateway_id: source.assigned_gateway_id,
+           status: :active,
+           media_ingest_id: "core-media-1"
+         }}
+      )
+
+      send(view.pid, {:refresh_camera_relay_session, relay_session_id})
+      assert render(view) =~ "Active"
+      assert render(view) =~ "Stop Relay"
+      assert render(view) =~ "Playback state: ready"
+      assert render(view) =~ "Preferred transport: websocket_h264_annexb_webcodecs"
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_fetch_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: source.id,
+           stream_profile_id: profile.id,
+           agent_id: source.assigned_agent_id,
+           gateway_id: source.assigned_gateway_id,
+           status: :closed,
+           media_ingest_id: "core-media-1"
+         }}
+      )
+
+      send(view.pid, {:refresh_camera_relay_session, relay_session_id})
+      html = render(view)
+      assert html =~ "Closed"
+      assert html =~ "Open Relay"
+    end
+
+    test "does not regress a closing relay back to active from a stale refresh", %{
+      conn: conn,
+      device_uid: device_uid,
+      source: source,
+      profile: profile
+    } do
+      relay_session_id = Ecto.UUID.generate()
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_open_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: source.id,
+           stream_profile_id: profile.id,
+           agent_id: source.assigned_agent_id,
+           gateway_id: source.assigned_gateway_id,
+           status: :opening
+         }}
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_close_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: source.id,
+           stream_profile_id: profile.id,
+           agent_id: source.assigned_agent_id,
+           gateway_id: source.assigned_gateway_id,
+           status: :closing,
+           termination_kind: "manual_stop",
+           close_reason: "viewer closed device details"
+         }}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      view
+      |> element(
+        "button[phx-click='open_camera_relay'][phx-value-camera_source_id='#{source.id}'][phx-value-stream_profile_id='#{profile.id}']"
+      )
+      |> render_click()
+
+      view
+      |> element("button[phx-click='close_camera_relay']")
+      |> render_click()
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_fetch_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: source.id,
+           stream_profile_id: profile.id,
+           agent_id: source.assigned_agent_id,
+           gateway_id: source.assigned_gateway_id,
+           status: :active,
+           media_ingest_id: "core-media-1"
+         }}
+      )
+
+      send(view.pid, {:refresh_camera_relay_session, relay_session_id})
+      html = render(view)
+
+      assert html =~ "Closing"
+      assert html =~ "Manual stop"
+      refute html =~ "Active"
+    end
+  end
+
   defp promote_user!(user, role) do
     user
     |> Ash.Changeset.for_update(:update_role, %{role: role}, actor: AshTestHelpers.system_actor())
     |> Ash.update!()
   end
+
+  defp insert_camera_source!(device_uid) do
+    {:ok, source} =
+      CameraSource.create_source(
+        %{
+          device_uid: device_uid,
+          vendor: "axis",
+          vendor_camera_id: "axis-#{System.unique_integer([:positive])}",
+          display_name: "Lobby Camera",
+          source_url: "rtsp://camera.local/stream",
+          assigned_agent_id: "agent-camera-1",
+          assigned_gateway_id: "gateway-camera-1"
+        },
+        actor: AshTestHelpers.system_actor()
+      )
+
+    {:ok, profile} =
+      CameraStreamProfile.create_profile(
+        %{
+          camera_source_id: source.id,
+          profile_name: "Main Stream",
+          codec_hint: "h264",
+          container_hint: "annexb",
+          rtsp_transport: "tcp",
+          relay_eligible: true
+        },
+        actor: AshTestHelpers.system_actor()
+      )
+
+    %{source: source, profile: profile}
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
   defp insert_test_interfaces!(device_uid) do
     ts = DateTime.truncate(DateTime.utc_now(), :second)

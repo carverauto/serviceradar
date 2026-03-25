@@ -118,6 +118,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/stream/:session_id", StreamController, :connect)
   end
 
+  scope "/v1", ServiceRadarWebNGWeb.Api do
+    pipe_through(:browser_raw_auth)
+
+    get("/camera-relay-sessions/:id/stream", CameraRelayStreamController, :connect)
+  end
+
   # Other scopes may use custom stacks.
   scope "/api", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_auth)
@@ -126,6 +132,28 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/devices", DeviceController, :index)
     get("/devices/ocsf/export", DeviceController, :ocsf_export)
     get("/devices/:uid", DeviceController, :show)
+    post("/camera-relay-sessions", CameraRelaySessionController, :create)
+    get("/camera-relay-sessions/:id", CameraRelaySessionController, :show)
+    post("/camera-relay-sessions/:id/close", CameraRelaySessionController, :close)
+    post("/camera-relay-sessions/:id/webrtc/session", CameraRelayWebRTCController, :create_session)
+
+    post(
+      "/camera-relay-sessions/:id/webrtc/session/:viewer_session_id/answer",
+      CameraRelayWebRTCController,
+      :submit_answer
+    )
+
+    post(
+      "/camera-relay-sessions/:id/webrtc/session/:viewer_session_id/candidates",
+      CameraRelayWebRTCController,
+      :add_candidate
+    )
+
+    delete(
+      "/camera-relay-sessions/:id/webrtc/session/:viewer_session_id",
+      CameraRelayWebRTCController,
+      :close_session
+    )
 
     get("/spatial/samples", SpatialController, :index)
   end
@@ -154,6 +182,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/role-profiles", RoleProfileController, :create)
     patch("/role-profiles/:id", RoleProfileController, :update)
     delete("/role-profiles/:id", RoleProfileController, :delete)
+    get("/camera-analysis-workers", CameraAnalysisWorkerController, :index)
+    get("/camera-analysis-workers/:id", CameraAnalysisWorkerController, :show)
+    post("/camera-analysis-workers", CameraAnalysisWorkerController, :create)
+    patch("/camera-analysis-workers/:id", CameraAnalysisWorkerController, :update)
+    post("/camera-analysis-workers/:id/enable", CameraAnalysisWorkerController, :enable)
+    post("/camera-analysis-workers/:id/disable", CameraAnalysisWorkerController, :disable)
 
     post("/topology/route-analysis", TopologyController, :route_analysis)
   end
@@ -395,6 +429,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/observability/bmp", BmpLive.Index, :index)
       live("/observability/flows", NetflowLive.Visualize, :index)
       live("/observability/bgp", BGPLive.Index, :index)
+      live("/observability/camera-relays", CameraRelayLive.Index, :index)
+      live("/observability/camera-analysis-workers", CameraAnalysisWorkerLive.Index, :index)
       live("/observability/metrics/:span_id", MetricLive.Show, :show)
       live("/logs", LogLive.Index, :index)
       live("/logs/:log_id", LogLive.Show, :show)

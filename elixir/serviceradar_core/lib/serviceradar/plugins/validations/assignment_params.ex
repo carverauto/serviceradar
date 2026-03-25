@@ -9,6 +9,7 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.PluginInputs
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Plugins.TargetBatchParams
 
   @impl true
@@ -28,13 +29,18 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
 
     with {:ok, schema} <- resolve_schema(schema_from_context, package_id),
          :ok <- validate_batch_params(params),
-         :ok <- validate_params(schema, params) do
+         :ok <- validate_params(schema, params),
+         :ok <- validate_secret_linkage(schema, params),
+         :ok <- validate_auth_linkage(params) do
       :ok
     else
       {:error, {:invalid_batch_params, errors}} ->
         {:error, field: :params, message: Enum.join(errors, "; ")}
 
       {:error, {:invalid_params, errors}} ->
+        {:error, field: :params, message: Enum.join(errors, "; ")}
+
+      {:error, {:invalid_secret_linkage, errors}} ->
         {:error, field: :params, message: Enum.join(errors, "; ")}
 
       {:error, :package_lookup} ->
@@ -78,6 +84,46 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
   end
 
   defp validate_params(_schema, _params), do: :ok
+
+  defp validate_secret_linkage(schema, params) when is_map(params) do
+    case SecretRefs.validate_secret_linkage(schema, params) do
+      :ok -> :ok
+      {:error, errors} -> {:error, {:invalid_secret_linkage, errors}}
+    end
+  end
+
+  defp validate_secret_linkage(_schema, _params), do: :ok
+
+  defp validate_auth_linkage(params) when is_map(params) do
+    auth_mode =
+      params
+      |> Map.get("stream_auth_mode")
+      |> normalize_string()
+
+    secret_ref =
+      params
+      |> Map.get("password_secret_ref")
+      |> normalize_string()
+
+    if auth_mode in ["basic", "digest"] and is_nil(secret_ref) do
+      {:error,
+       {:invalid_secret_linkage,
+        ["password_secret_ref is required when stream_auth_mode requires authentication"]}}
+    else
+      :ok
+    end
+  end
+
+  defp validate_auth_linkage(_params), do: :ok
+
+  defp normalize_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_string(_value), do: nil
 
   defp validate_batch_params(params) when is_map(params) do
     with :ok <- TargetBatchParams.validate(params),

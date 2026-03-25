@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
   use ServiceRadar.DelayedSeeder, callback: :seed_all
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.RelayHealthEventRouter
   alias ServiceRadar.Observability.LogPromotionRuleTemplate
   alias ServiceRadar.Observability.StatefulAlertRuleTemplate
   alias ServiceRadar.Observability.ZenRuleTemplate
@@ -337,6 +338,78 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
         },
         event: %{},
         alert: %{}
+      },
+      %{
+        name: "camera_relay_failure_burst",
+        description: "Alert on repeated camera relay session failures for the same gateway.",
+        priority: 60,
+        enabled: true,
+        signal: :event,
+        group_by: ["gateway_id"],
+        threshold: 3,
+        window_seconds: 600,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        match: %{
+          "subject_prefix" => RelayHealthEventRouter.session_failure_log_name()
+        },
+        event: %{
+          "log_name" => RelayHealthEventRouter.failure_burst_alert_log_name(),
+          "message" => "Camera relay failure burst detected"
+        },
+        alert: %{
+          "title" => "Camera Relay Failure Burst",
+          "severity" => "warning"
+        }
+      },
+      %{
+        name: "camera_relay_gateway_saturation",
+        description: "Alert on sustained camera relay saturation denials for the same gateway.",
+        priority: 65,
+        enabled: true,
+        signal: :event,
+        group_by: ["gateway_id", "limit_kind"],
+        threshold: 3,
+        window_seconds: 900,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        match: %{
+          "subject_prefix" => RelayHealthEventRouter.gateway_saturation_log_name()
+        },
+        event: %{
+          "log_name" => RelayHealthEventRouter.gateway_saturation_alert_log_name(),
+          "message" => "Camera relay gateway saturation detected"
+        },
+        alert: %{
+          "title" => "Camera Relay Gateway Saturation",
+          "severity" => "critical"
+        }
+      },
+      %{
+        name: "camera_relay_viewer_idle_churn",
+        description: "Alert on repeated viewer-idle relay shutdowns for the same camera source.",
+        priority: 70,
+        enabled: true,
+        signal: :event,
+        group_by: ["camera_source_id"],
+        threshold: 5,
+        window_seconds: 900,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        match: %{
+          "subject_prefix" => RelayHealthEventRouter.viewer_idle_log_name()
+        },
+        event: %{
+          "log_name" => RelayHealthEventRouter.viewer_idle_churn_alert_log_name(),
+          "message" => "Camera relay viewer idle churn detected"
+        },
+        alert: %{
+          "title" => "Camera Relay Viewer Idle Churn",
+          "severity" => "warning"
+        }
       }
     ]
   end

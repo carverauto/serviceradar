@@ -4,6 +4,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.RelaySourceResolver
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.Edge.AgentConfigGenerator
@@ -194,10 +195,36 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     )
   end
 
-  def push_config(agent_id) do
-    with {:ok, pid, _metadata} <- lookup_control_session(agent_id),
-         {:ok, config} <- AgentConfigGenerator.generate_config(agent_id) do
-      response = AgentConfigGenerator.to_proto_response(config)
+  def start_camera_relay(agent_id, payload, opts \\ []) do
+    payload = normalize_camera_relay_start_payload(payload)
+
+    with {:ok, payload} <- resolve_camera_relay_payload(payload, opts) do
+      opts =
+        add_context(opts, %{
+          relay_session_id: payload.relay_session_id,
+          camera_source_id: payload.camera_source_id,
+          stream_profile_id: payload.stream_profile_id,
+          source_url: payload[:source_url]
+        })
+
+      dispatch(agent_id, "camera.open_relay", payload, opts)
+    end
+  end
+
+  def stop_camera_relay(agent_id, payload, opts \\ []) do
+    payload = normalize_camera_relay_stop_payload(payload)
+
+    opts =
+      add_context(opts, %{
+        relay_session_id: payload.relay_session_id
+      })
+
+    dispatch(agent_id, "camera.close_relay", payload, opts)
+  end
+
+  def push_config(agent_id) when is_binary(agent_id) do
+    with {:ok, pid, _metadata} <- lookup_control_session(agent_id) do
+      response = AgentConfigGenerator.generate_proto_response(agent_id)
 
       case GenServer.call(pid, {:push_config, response}, @send_timeout) do
         :ok -> :ok
@@ -205,7 +232,12 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         other -> {:error, other}
       end
     end
+  rescue
+    error ->
+      {:error, {:database_error, error}}
   end
+
+  def push_config(_agent_id), do: {:error, :invalid_agent_id}
 
   def push_config_for_type(config_type) do
     capability = capability_for_config_type(config_type)
@@ -230,6 +262,54 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
+  defp normalize_camera_relay_start_payload(payload) when is_map(payload) do
+    relay_session_id =
+      Map.get(payload, :relay_session_id) || Map.get(payload, "relay_session_id")
+
+    camera_source_id =
+      Map.get(payload, :camera_source_id) || Map.get(payload, "camera_source_id")
+
+    stream_profile_id =
+      Map.get(payload, :stream_profile_id) || Map.get(payload, "stream_profile_id")
+
+    lease_token = Map.get(payload, :lease_token) || Map.get(payload, "lease_token")
+    source_url = Map.get(payload, :source_url) || Map.get(payload, "source_url")
+    rtsp_transport = Map.get(payload, :rtsp_transport) || Map.get(payload, "rtsp_transport")
+    codec_hint = Map.get(payload, :codec_hint) || Map.get(payload, "codec_hint")
+    container_hint = Map.get(payload, :container_hint) || Map.get(payload, "container_hint")
+
+    %{
+      relay_session_id: relay_session_id,
+      camera_source_id: camera_source_id,
+      stream_profile_id: stream_profile_id,
+      lease_token: lease_token
+    }
+    |> maybe_put(:source_url, source_url)
+    |> maybe_put(:rtsp_transport, rtsp_transport)
+    |> maybe_put(:codec_hint, codec_hint)
+    |> maybe_put(:container_hint, container_hint)
+  end
+
+  defp normalize_camera_relay_start_payload(_payload), do: %{}
+
+  defp normalize_camera_relay_stop_payload(payload) when is_map(payload) do
+    relay_session_id =
+      Map.get(payload, :relay_session_id) || Map.get(payload, "relay_session_id")
+
+    reason = Map.get(payload, :reason) || Map.get(payload, "reason")
+
+    maybe_put(%{relay_session_id: relay_session_id}, :reason, reason)
+  end
+
+  defp normalize_camera_relay_stop_payload(_payload), do: %{}
+
+  defp resolve_camera_relay_payload(payload, opts) do
+    RelaySourceResolver.resolve_start_payload(
+      payload,
+      camera_profile_fetcher: Keyword.get(opts, :camera_profile_fetcher)
+    )
+  end
+
   defp lookup_control_session(agent_id) do
     if registry_available?() do
       lookup_registered_session(agent_id)
@@ -250,7 +330,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp ensure_session_alive(pid, metadata, agent_id) do
     if process_alive?(pid) do
-      {:ok, pid, metadata || %{}}
+      {:ok, pid, metadata}
     else
       {:error, {:agent_offline, agent_id}}
     end
@@ -260,22 +340,28 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     if registry_available?() do
       :agent_control
       |> ProcessRegistry.select_by_type()
-      |> Enum.map(fn {key, pid, metadata} ->
-        agent_id = elem(key, 1)
-        metadata = metadata || %{}
-
-        %{
-          agent_id: agent_id,
-          pid: pid,
-          metadata: metadata,
-          partition_id: partition_from_metadata(metadata),
-          capabilities: capabilities_from_metadata(metadata)
-        }
-      end)
-      |> Enum.filter(fn %{pid: pid} -> process_alive?(pid) end)
+      |> Enum.map(&build_online_session/1)
+      |> Enum.filter(&valid_online_session?/1)
     else
       []
     end
+  end
+
+  defp build_online_session({key, pid, metadata}) do
+    agent_id = elem(key, 1)
+    metadata = if(is_map(metadata), do: metadata, else: %{})
+
+    %{
+      agent_id: agent_id,
+      pid: pid,
+      metadata: metadata,
+      partition_id: partition_from_metadata(metadata),
+      capabilities: capabilities_from_metadata(metadata)
+    }
+  end
+
+  defp valid_online_session?(%{agent_id: agent_id, pid: pid}) do
+    is_binary(agent_id) and process_alive?(pid)
   end
 
   defp pick_online_agent(partition, capability) do

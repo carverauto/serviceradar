@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
 
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadarWebNG.Plugins.Packages
 
   require Ash.Query
@@ -44,6 +45,16 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
 
   def get(_id, _opts), do: {:error, :not_found}
 
+  defp get_raw(id, opts) when is_binary(id) do
+    scope = Keyword.get(opts, :scope)
+
+    case read_one_by_id_raw(id, scope) do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, assignment} -> {:ok, assignment}
+      {:error, error} -> {:error, error}
+    end
+  end
+
   @spec create(map(), keyword()) :: {:ok, PluginAssignment.t()} | {:error, term()}
   def create(attrs, opts \\ [])
 
@@ -52,11 +63,13 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     attrs = drop_nil_values(attrs)
 
     schema = fetch_config_schema(attrs, scope)
+    attrs = prepare_secret_params(attrs, schema, %{})
 
     PluginAssignment
     |> Ash.Changeset.for_create(:create, attrs)
     |> Ash.Changeset.set_context(%{config_schema: schema})
     |> create_resource(scope)
+    |> maybe_redact_assignment()
   end
 
   def create(_attrs, _opts), do: {:error, :invalid_attributes}
@@ -68,13 +81,15 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     scope = Keyword.get(opts, :scope)
     attrs = drop_nil_values(attrs)
 
-    with {:ok, assignment} <- get(id, scope: scope) do
+    with {:ok, assignment} <- get_raw(id, scope: scope) do
       schema = fetch_config_schema(%{plugin_package_id: assignment.plugin_package_id}, scope)
+      attrs = prepare_secret_params(attrs, schema, assignment.params || %{})
 
       assignment
       |> Ash.Changeset.for_update(:update, attrs)
       |> Ash.Changeset.set_context(%{config_schema: schema})
       |> update_resource(scope)
+      |> maybe_redact_assignment()
     end
   end
 
@@ -109,17 +124,33 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
 
   def delete(_id, _opts), do: {:error, :invalid_attributes}
 
-  defp read(query, nil), do: Ash.read!(query)
-  defp read(query, scope), do: Ash.read!(query, scope: scope)
+  defp read(query, nil), do: query |> Ash.read!() |> Enum.map(&redact_assignment/1)
+  defp read(query, scope), do: query |> Ash.read!(scope: scope) |> Enum.map(&redact_assignment/1)
 
   defp read_one_by_id(id, nil) do
     PluginAssignment
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^id)
     |> Ash.read_one()
+    |> maybe_redact_assignment()
   end
 
   defp read_one_by_id(id, scope) do
+    PluginAssignment
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one(scope: scope)
+    |> maybe_redact_assignment()
+  end
+
+  defp read_one_by_id_raw(id, nil) do
+    PluginAssignment
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one()
+  end
+
+  defp read_one_by_id_raw(id, scope) do
     PluginAssignment
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^id)
@@ -171,6 +202,25 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     attrs
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
+  end
+
+  defp prepare_secret_params(attrs, schema, existing_params) do
+    params = Map.get(attrs, :params) || Map.get(attrs, "params")
+
+    if is_map(params) do
+      Map.put(attrs, :params, SecretRefs.prepare_params_for_storage(schema, params, existing_params))
+    else
+      attrs
+    end
+  end
+
+  defp maybe_redact_assignment({:ok, %PluginAssignment{} = assignment}), do: {:ok, redact_assignment(assignment)}
+
+  defp maybe_redact_assignment({:ok, nil}), do: {:ok, nil}
+  defp maybe_redact_assignment(other), do: other
+
+  defp redact_assignment(%PluginAssignment{} = assignment) do
+    %{assignment | params: SecretRefs.public_params(assignment.params || %{})}
   end
 
   defp fetch_config_schema(attrs, scope) do

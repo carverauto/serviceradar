@@ -72,31 +72,35 @@ The agent MUST execute plugins in a sandboxed Wasm runtime with resource limits 
 ### Requirement: Host Function Capabilities
 Plugins SHALL access external resources only through declared host functions, and the agent SHALL enforce capability and permission checks on each call.
 
-#### Scenario: HTTP proxy allowlist
-- **GIVEN** a plugin with `allowed_domains: ["api.example.com"]`
-- **WHEN** the plugin calls `http_request` for `https://api.example.com/health`
-- **THEN** the agent performs the request and returns the response
+The runtime SHALL support authenticated HTTP requests through headers for VAPIX API access and SHALL continue enforcing allowlists for domains, networks, and ports.
 
-#### Scenario: HTTP proxy denied
-- **GIVEN** a plugin with `allowed_domains: ["api.example.com"]`
-- **WHEN** the plugin calls `http_request` for `https://google.com/`
-- **THEN** the agent denies the request
-- **AND** returns a permission error to the plugin
+#### Scenario: Authenticated VAPIX request succeeds with allowlist
+- **GIVEN** a plugin configured with `http_request` capability and allowlisted AXIS domain/IP
+- **AND** an HTTP request that includes authorization headers
+- **WHEN** the plugin issues the request
+- **THEN** the agent SHALL forward the request and return response payload to the plugin
+
+#### Scenario: Authenticated request denied by allowlist
+- **GIVEN** a plugin configured with `http_request` capability
+- **AND** an HTTP request to a non-allowlisted AXIS endpoint
+- **WHEN** the plugin issues the request
+- **THEN** the agent SHALL deny the request regardless of headers
 
 ### Requirement: Standardized Plugin Results
 Plugins MUST report results using the `serviceradar.plugin_result.v1` schema, and the agent MUST map those results into `GatewayServiceStatus`.
 
-#### Scenario: OK result mapping
-- **GIVEN** a plugin result with `status: "OK"` and a summary string
-- **WHEN** the agent submits the status to the gateway
-- **THEN** `GatewayServiceStatus.available` is `true`
-- **AND** `GatewayServiceStatus.message` contains the result JSON
+Plugin results MAY include optional enrichment and event blocks. When present, core ingestion SHALL parse and route them without breaking service status ingestion.
 
-#### Scenario: CRITICAL result mapping
-- **GIVEN** a plugin result with `status: "CRITICAL"`
-- **WHEN** the agent submits the status to the gateway
-- **THEN** `GatewayServiceStatus.available` is `false`
-- **AND** the summary is preserved in the result payload
+#### Scenario: Plugin result with enrichment and events
+- **GIVEN** a plugin result payload containing valid `device_enrichment` and `events`
+- **WHEN** the payload is ingested
+- **THEN** service status ingestion SHALL still persist status/summary
+- **AND** enrichment and event data SHALL be routed to their respective processors
+
+#### Scenario: Plugin result without enrichment and events
+- **GIVEN** a plugin result payload containing only status and summary
+- **WHEN** the payload is ingested
+- **THEN** ingestion SHALL behave exactly as before
 
 ### Requirement: Plugin Result Ingestion Compatibility
 The gateway/core ingestion pipeline MUST accept `serviceradar.plugin_result.v1` payloads without breaking existing checker ingestion, and it MUST preserve perfdata and structured metrics.

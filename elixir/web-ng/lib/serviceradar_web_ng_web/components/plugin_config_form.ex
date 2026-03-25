@@ -34,6 +34,19 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
           </label>
 
           <%= case input_type(prop) do %>
+            <% :secret -> %>
+              <input
+                type="password"
+                name={input_name(@base_name, name)}
+                value=""
+                class="input input-bordered w-full"
+                placeholder={secret_placeholder(@params, name)}
+              />
+              <%= if current_secret_ref(@params, name) do %>
+                <p class="text-xs text-base-content/60">
+                  Stored secret ref: {current_secret_ref(@params, name)}
+                </p>
+              <% end %>
             <% :select -> %>
               <select
                 name={input_name(@base_name, name)}
@@ -117,11 +130,18 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp input_name(base, name), do: "#{base}[#{name}]"
 
   defp input_type(%{"enum" => enum}) when is_list(enum) and enum != [], do: :select
-  defp input_type(%{"type" => "boolean"}), do: :checkbox
-  defp input_type(%{"type" => "integer"}), do: :number
-  defp input_type(%{"type" => "number"}), do: :number
-  defp input_type(%{"type" => "array"}), do: :textarea
+
+  defp input_type(prop) when is_map(prop) do
+    if secret_ref?(prop), do: :secret, else: input_type_from_type(prop)
+  end
+
   defp input_type(_), do: :text
+
+  defp input_type_from_type(%{"type" => "boolean"}), do: :checkbox
+  defp input_type_from_type(%{"type" => "integer"}), do: :number
+  defp input_type_from_type(%{"type" => "number"}), do: :number
+  defp input_type_from_type(%{"type" => "array"}), do: :textarea
+  defp input_type_from_type(_), do: :text
 
   defp text_input_type(%{"format" => "uri"}), do: "url"
   defp text_input_type(%{"format" => "email"}), do: "email"
@@ -140,6 +160,26 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp truthy?(value) when is_boolean(value), do: value
   defp truthy?(value) when is_binary(value), do: String.downcase(value) == "true"
   defp truthy?(_), do: false
+
+  defp secret_ref?(prop), do: Map.get(prop, "secretRef") == true
+
+  defp current_secret_ref(params, name) do
+    case Map.get(params, name) do
+      value when is_binary(value) ->
+        if String.starts_with?(value, "secretref:"), do: value
+
+      _ ->
+        nil
+    end
+  end
+
+  defp secret_placeholder(params, name) do
+    if current_secret_ref(params, name) do
+      "Leave blank to keep existing secret"
+    else
+      ""
+    end
+  end
 
   defp array_placeholder(prop) do
     case get_in(prop, ["items", "type"]) do

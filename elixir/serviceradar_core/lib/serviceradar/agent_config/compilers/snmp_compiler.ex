@@ -712,7 +712,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         Map.get(target, "host") ||
           Map.get(target, "name") ||
           Map.get(target, "id") ||
-          UUID.uuid4()
+          Ecto.UUID.generate()
 
       Map.put_new(acc, key, target)
     end)

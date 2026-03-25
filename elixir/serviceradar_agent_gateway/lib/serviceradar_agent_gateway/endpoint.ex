@@ -11,4 +11,5 @@ defmodule ServiceRadarAgentGateway.Endpoint do
   intercept(GRPC.Server.Interceptors.Logger)
 
   run(ServiceRadarAgentGateway.AgentGatewayServer)
+  run(ServiceRadarAgentGateway.CameraMediaServer)
 end

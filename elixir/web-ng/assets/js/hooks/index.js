@@ -1,4 +1,5 @@
 import BulkEditTagsToggle from "./BulkEditTagsToggle"
+import CameraRelayStatusStream from "./CameraRelayStatusStream"
 import JdmEditorHook from "./JdmEditorHook"
 import LocalTime from "./LocalTime"
 import MapboxFlowMap from "./MapboxFlowMap"
@@ -23,6 +24,7 @@ import BandwidthGauge from "./charts/BandwidthGauge"
 
 export default {
   BulkEditTagsToggle,
+  CameraRelayStatusStream,
   JdmEditorHook,
   LocalTime,
   MapboxFlowMap,

@@ -98,6 +98,83 @@ describe("rendering_selection_methods", () => {
     expect(ctx.state.details.innerHTML).toContain("Geo: unknown")
   })
 
+  it("renders camera relay actions for camera-capable nodes", () => {
+    const ctx = buildContext()
+    ctx.renderSelectionDetails = godViewRenderingSelectionMethods.renderSelectionDetails.bind(ctx)
+
+    ctx.renderSelectionDetails({
+      id: "sr:camera-01",
+      label: "lobby-camera",
+      state: 2,
+      details: {
+        id: "sr:camera-01",
+        device_uid: "sr:camera-01",
+        ip: "192.0.2.44",
+        type: "camera",
+        camera_availability_status: "available",
+        camera_last_event_message: "Camera reachable from assigned edge agent",
+        camera_streams: [
+          {
+            camera_source_id: "11111111-1111-1111-1111-111111111111",
+            display_name: "Lobby Camera",
+            stream_profiles: [
+              {
+                stream_profile_id: "22222222-2222-2222-2222-222222222222",
+                profile_name: "Main Stream",
+              },
+            ],
+          },
+        ],
+      },
+    })
+
+    expect(ctx.state.details.innerHTML).toContain("Camera Streams")
+    expect(ctx.state.details.innerHTML).toContain("Camera Availability: available")
+    expect(ctx.state.details.innerHTML).toContain("Camera Activity: Camera reachable from assigned edge agent")
+    expect(ctx.state.details.innerHTML).toContain("Lobby Camera")
+    expect(ctx.state.details.innerHTML).toContain("Open Main Stream")
+    expect(ctx.state.details.innerHTML).toContain("data-camera-source-id=\"11111111-1111-1111-1111-111111111111\"")
+    expect(ctx.state.details.innerHTML).toContain("data-stream-profile-id=\"22222222-2222-2222-2222-222222222222\"")
+  })
+
+  it("renders a camera tile-set action for cluster-capable nodes", () => {
+    const ctx = buildContext()
+    ctx.renderSelectionDetails = godViewRenderingSelectionMethods.renderSelectionDetails.bind(ctx)
+
+    ctx.renderSelectionDetails({
+      id: "cluster:endpoints:sr:switch-01",
+      label: "5 endpoints",
+      state: 2,
+      details: {
+        id: "cluster:endpoints:sr:switch-01",
+        cluster_id: "cluster:endpoints:sr:switch-01",
+        cluster_kind: "endpoint-summary",
+        cluster_camera_tile_count: 3,
+        cluster_camera_tiles: [
+          {
+            camera_source_id: "11111111-1111-1111-1111-111111111111",
+            stream_profile_id: "22222222-2222-2222-2222-222222222222",
+            device_uid: "sr:camera-01",
+            camera_label: "Lobby Camera",
+            profile_label: "Main Stream",
+          },
+          {
+            camera_source_id: "33333333-3333-3333-3333-333333333333",
+            stream_profile_id: "44444444-4444-4444-4444-444444444444",
+            device_uid: "sr:camera-02",
+            camera_label: "Loading Dock Camera",
+            profile_label: "Main Stream",
+          },
+        ],
+      },
+    })
+
+    expect(ctx.state.details.innerHTML).toContain("Cluster Cameras")
+    expect(ctx.state.details.innerHTML).toContain("Open Camera Tile Set")
+    expect(ctx.state.details.innerHTML).toContain("data-camera-cluster-id=\"cluster:endpoints:sr:switch-01\"")
+    expect(ctx.state.details.innerHTML).toContain("data-camera-cluster-tiles=")
+  })
+
   it("handlePick toggles selected node outside local zoom tier", () => {
     const ctx = buildContext()
     ctx.state.zoomMode = "regional"

@@ -219,6 +219,7 @@ config :serviceradar_core,
 config :serviceradar_core,
   ash_domains: [
     ServiceRadar.AgentConfig,
+    ServiceRadar.Camera,
     ServiceRadar.Edge,
     ServiceRadar.Identity,
     ServiceRadar.Infrastructure,

@@ -133,6 +133,7 @@ defmodule ServiceRadarAgentGateway.Application do
       [
         ServiceRadarAgentGateway.AgentRegistryProxy,
         ServiceRadarAgentGateway.StatusBuffer,
+        ServiceRadarAgentGateway.CameraMediaSessionTracker,
 
         # gRPC server that receives status pushes from Go agents
         {GRPC.Server.Supervisor,

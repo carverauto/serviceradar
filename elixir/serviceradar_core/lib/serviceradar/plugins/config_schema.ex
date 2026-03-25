@@ -9,7 +9,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   @allowed_root_keys ~w(type title description properties required additionalProperties)
   @allowed_property_keys ~w(
     type title description default enum minimum maximum minLength maxLength pattern format items
-    properties required additionalProperties
+    properties required additionalProperties secretRef
   )
   @allowed_types ~w(string integer number boolean array object)
 
@@ -152,6 +152,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
     |> validate_number_constraints(schema, path)
     |> validate_format(schema, path)
     |> validate_items(schema, path)
+    |> validate_secret_ref(schema, path)
   end
 
   defp validate_enum(errors, schema, path) do
@@ -207,6 +208,19 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
       end
     else
       errors
+    end
+  end
+
+  defp validate_secret_ref(errors, schema, path) do
+    case Map.get(schema, "secretRef") do
+      nil ->
+        errors
+
+      value when is_boolean(value) ->
+        errors
+
+      _ ->
+        ["#{path}.secretRef must be a boolean" | errors]
     end
   end
 
