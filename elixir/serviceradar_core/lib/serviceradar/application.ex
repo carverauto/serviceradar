@@ -222,8 +222,6 @@ defmodule ServiceRadar.Application do
     # Start AS lookup cache when repo is available (always enabled)
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.BGP.ASLookup
-    else
-      nil
     end
   end
 
@@ -514,8 +512,11 @@ defmodule ServiceRadar.Application do
         datasvc_connectivity_configured?() or
           Application.get_env(:serviceradar_core, :datasvc_enabled, true)
 
-      value when value in ["true", "1", "yes"] -> true
-      _ -> false
+      value when value in ["true", "1", "yes"] ->
+        true
+
+      _ ->
+        false
     end
   end
 
@@ -665,7 +666,6 @@ defmodule ServiceRadar.Application do
     case System.get_env("EVENT_WRITER_ENABLED") do
       nil -> Application.get_env(:serviceradar_core, :event_writer_enabled, false)
       value when is_binary(value) -> truthy_env_value?(value)
-      _ -> false
     end
   end
 
@@ -673,7 +673,6 @@ defmodule ServiceRadar.Application do
     case System.get_env("MTR_AUTOMATION_ENABLED") do
       nil -> Application.get_env(:serviceradar_core, :mtr_automation_enabled, false)
       value when is_binary(value) -> truthy_env_value?(value)
-      _ -> false
     end
   end
 
@@ -688,9 +687,6 @@ defmodule ServiceRadar.Application do
 
       value when is_binary(value) ->
         truthy_env_value?(value)
-
-      _ ->
-        false
     end
   end
 
@@ -705,9 +701,6 @@ defmodule ServiceRadar.Application do
 
       value when is_binary(value) ->
         truthy_env_value?(value)
-
-      _ ->
-        false
     end
   end
 
@@ -722,9 +715,6 @@ defmodule ServiceRadar.Application do
 
       value when is_binary(value) ->
         truthy_env_value?(value)
-
-      _ ->
-        false
     end
   end
 

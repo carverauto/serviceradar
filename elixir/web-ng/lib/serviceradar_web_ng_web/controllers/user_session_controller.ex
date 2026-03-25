@@ -64,23 +64,18 @@ defmodule ServiceRadarWebNGWeb.UserSessionController do
 
   defp format_password_error(%Ecto.Changeset{} = changeset) do
     changeset
-    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
-      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-      end)
+    |> Map.get(:errors, [])
+    |> Enum.map_join("; ", fn {field, {msg, opts}} ->
+      rendered =
+        Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
+          opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+        end)
+
+      "#{field}: #{rendered}"
     end)
-    |> Enum.flat_map(fn {field, messages} ->
-      Enum.map(messages, fn message -> "#{field}: #{message}" end)
-    end)
-    |> Enum.join("; ")
   end
 
-  defp format_password_error(other) do
-    case other do
-      {:http_error, status, body} -> "HTTP #{status}: #{inspect(body)}"
-      _ -> "unexpected error"
-    end
-  end
+  defp format_password_error(_other), do: "unexpected error"
 
   @doc """
   Logs the user out.

@@ -44,12 +44,14 @@ spec:
         app.kubernetes.io/part-of: serviceradar
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.flowCollectorServiceAccount | default "serviceradar-flow-collector" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: flow-collector
         image: ghcr.io/carverauto/serviceradar-flow-collector{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "flowCollector") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.bindServiceContainerSecurityContext" . | nindent 8 }}
         ports:
         {{- if .Values.flowCollector.service.ports.netflow.enabled }}
         - name: netflow
@@ -99,9 +101,6 @@ spec:
           failureThreshold: 3
         resources:
           {{- toYaml .Values.flowCollector.resources | nindent 10 }}
-        securityContext:
-          capabilities:
-            add: ["NET_BIND_SERVICE"]
         volumeMounts:
         - name: flow-collector-config
           mountPath: /etc/serviceradar
@@ -118,6 +117,7 @@ spec:
       initContainers:
       - name: wait-for-cert-files
         image: alpine:3.20
+        {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
         command: ["/bin/sh", "-ec"]
         args:
         - |
@@ -138,6 +138,7 @@ spec:
           readOnly: true
       - name: wait-for-nats-creds
         image: alpine:3.20
+        {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
         command: ["/bin/sh", "-ec"]
         args:
         - |

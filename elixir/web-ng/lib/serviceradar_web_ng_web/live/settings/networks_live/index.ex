@@ -306,7 +306,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       group ->
         action = if group.enabled, do: :disable, else: :enable
 
-        case Ash.update(group, action, scope: scope) do
+        case group
+             |> Ash.Changeset.for_update(action, %{})
+             |> Ash.update(scope: scope) do
           {:ok, _updated} ->
             flash_message = sweep_group_toggle_message(action)
 
@@ -3090,8 +3092,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> Map.put(:result_payload, Map.get(data, :payload))
   end
 
-  defp merge_event_status(status, _event_type, _data), do: status
-
   defp command_event_timestamp(data) do
     Map.get(data, :completed_at) ||
       Map.get(data, :updated_at) ||
@@ -3741,15 +3741,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
   end
-
-  defp normalize_list_value(value) when is_list(value) do
-    value
-    |> Enum.map(&to_string/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-  end
-
-  defp normalize_list_value(_), do: []
 
   defp update_builder(builder, params) do
     builder

@@ -247,7 +247,6 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   end
 
   defp normalize_for_schema(_schema, params) when is_map(params), do: {params, nil}
-  defp normalize_for_schema(_schema, _params), do: {%{}, nil}
 
   defp normalize_object_params(properties, params) do
     Enum.reduce(properties, params, fn {key, prop_schema}, acc ->

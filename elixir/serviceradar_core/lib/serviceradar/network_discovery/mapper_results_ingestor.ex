@@ -177,7 +177,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   def topology_metric_bootstrap_enabled?(_, _), do: true
 
   defp parse_optional_bool(nil), do: nil
-  defp parse_optional_bool(v) when is_boolean(v), do: v
 
   defp parse_optional_bool(v) when is_binary(v) do
     normalized = v |> String.trim() |> String.downcase()
@@ -188,8 +187,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       true -> nil
     end
   end
-
-  defp parse_optional_bool(_), do: nil
 
   @doc false
   def merge_required_topology_metrics(existing, interface_or_available_metrics \\ nil)
@@ -250,8 +247,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       Logger.warning("Topology interface metric bootstrap failed: #{inspect(e)}")
       :ok
   end
-
-  defp maybe_bootstrap_topology_interface_metrics(_records, _actor), do: :ok
 
   defp ensure_topology_interface_metric_settings(device_id, if_index, actor) do
     with {:ok, interface} <- latest_interface_for_ifindex(device_id, if_index, actor),
@@ -580,17 +575,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       confirm_threshold =
         Application.get_env(:serviceradar_core, :identity_alias_confirm_threshold, 3)
 
-      case AliasEvents.process_and_persist(updates,
-             actor: actor,
-             confirm_threshold: confirm_threshold
-           ) do
-        {:ok, _events} ->
-          :ok
+      {:ok, _events} =
+        AliasEvents.process_and_persist(
+          updates,
+          actor: actor,
+          confirm_threshold: confirm_threshold
+        )
 
-        other ->
-          Logger.warning("Mapper alias state processing failed: #{inspect(other)}")
-          :ok
-      end
+      :ok
     end
   rescue
     e ->
@@ -1794,8 +1786,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     Map.put(record, :metadata, metadata)
   end
 
-  defp preserve_source_endpoint_ids(record), do: record
-
   defp canonical_topology_uid?(uid) when is_binary(uid) do
     IdentityReconciler.serviceradar_uuid?(uid) or IdentityReconciler.service_device_id?(uid)
   end
@@ -2179,8 +2169,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       normalize_string(Map.get(record, :neighbor_port_descr))
   end
 
-  defp reverse_port_hint(_), do: nil
-
   defp reverse_port_hint_rank(record) when is_map(record) do
     protocol = normalize_topology_protocol(Map.get(record, :protocol))
 
@@ -2202,8 +2190,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     protocol_rank * 10 + confidence_rank
   end
-
-  defp reverse_port_hint_rank(_), do: 0
 
   # Some LLDP/CDP identifiers are colon-delimited hex bytes (e.g. "50:6f:72:74:20:31" -> "Port 1").
   defp decode_hex_port_id(value) when is_binary(value) do
@@ -2321,8 +2307,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       _ -> Map.drop(metadata, @unifi_interface_metadata_keys)
     end
   end
-
-  defp sanitize_interface_metadata(_metadata, _update), do: %{}
 
   @doc false
   def normalize_topology(update) when is_map(update) do
@@ -2499,7 +2483,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp normalize_topology_observation_map(map) when is_map(map), do: map
-  defp normalize_topology_observation_map(_), do: %{}
 
   defp decode_topology_observation_json(nil), do: %{}
   defp decode_topology_observation_json(""), do: %{}
@@ -2510,8 +2493,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       _ -> %{}
     end
   end
-
-  defp decode_topology_observation_json(_), do: %{}
 
   defp topology_v2_contract_consumption_enabled? do
     Application.get_env(:serviceradar_core, :topology_v2_contract_consumption_enabled, true) ==
@@ -2603,8 +2584,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp has_canonical_neighbor_device_id?(_update), do: false
-
   defp normalize_topology_protocol(nil), do: "unknown"
 
   defp normalize_topology_protocol(protocol) do
@@ -2637,7 +2616,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp protocol_topology_evidence_class("unifi-api", source, _reason) do
-    if String.contains?(source || "", "port-table"), do: "endpoint-attachment", else: "direct"
+    if String.contains?(source, "port-table"), do: "endpoint-attachment", else: "direct"
   end
 
   defp protocol_topology_evidence_class(protocol, source, "single_identifier_inference")
@@ -2679,13 +2658,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       get_string(target_endpoint, ["uid", :uid])
     )
   end
-
-  defp maybe_put_topology_observation_metadata(
-         metadata,
-         _observation,
-         _source_endpoint,
-         _target_endpoint
-       ), do: metadata
 
   defp maybe_put_metadata_value(metadata, _key, value) when value in [nil, ""], do: metadata
   defp maybe_put_metadata_value(metadata, key, value), do: Map.put(metadata, key, value)
@@ -2826,6 +2798,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp handle_bulk_result(%Ash.BulkResult{status: :success}, _label), do: :ok
 
+  defp handle_bulk_result(%Ash.BulkResult{status: :partial_success, errors: errors}, label) do
+    if timescaledb_pkey_violations?(errors) do
+      Logger.debug(
+        "Mapper #{label}: skipped #{length(List.wrap(errors))} duplicate(s) (TimescaleDB constraint)"
+      )
+
+      :ok
+    else
+      Logger.warning("Mapper #{label} ingestion failed: #{inspect(errors)}")
+      {:error, errors}
+    end
+  end
+
   defp handle_bulk_result(%Ash.BulkResult{status: :error, errors: errors}, label) do
     # Check if all errors are TimescaleDB chunk-prefixed constraint violations
     # These occur because TimescaleDB prefixes constraint names with chunk IDs
@@ -2840,11 +2825,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       Logger.warning("Mapper #{label} ingestion failed: #{inspect(errors)}")
       {:error, errors}
     end
-  end
-
-  defp handle_bulk_result({:error, reason}, label) do
-    Logger.warning("Mapper #{label} ingestion failed: #{inspect(reason)}")
-    {:error, reason}
   end
 
   defp missing_interface_identity?(record) do
@@ -2873,10 +2853,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # which Ash/Ecto can't match to the base constraint "discovered_interfaces_pkey".
   defp timescaledb_pkey_violations?(errors) when is_list(errors) do
     Enum.all?(errors, &timescaledb_pkey_violation?/1)
-  end
-
-  defp timescaledb_pkey_violations?(%Unknown{errors: nested_errors}) do
-    timescaledb_pkey_violations?(nested_errors)
   end
 
   defp timescaledb_pkey_violations?(_), do: false

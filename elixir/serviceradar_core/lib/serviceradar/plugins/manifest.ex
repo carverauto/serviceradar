@@ -111,7 +111,7 @@ defmodule ServiceRadar.Plugins.Manifest do
          entrypoint: entrypoint,
          runtime: normalize_string(runtime),
          capabilities: capabilities,
-         permissions: permissions || %{},
+         permissions: permissions,
          resources: resources,
          outputs: outputs,
          source: source,
@@ -171,7 +171,6 @@ defmodule ServiceRadar.Plugins.Manifest do
     case YamlElixir.read_from_string(yaml) do
       {:ok, value} -> {:ok, value}
       {:error, reason} -> {:error, ["invalid yaml: #{inspect(reason)}"]}
-      value -> {:ok, value}
     end
   rescue
     error -> {:error, ["invalid yaml: #{Exception.message(error)}"]}
@@ -215,9 +214,6 @@ defmodule ServiceRadar.Plugins.Manifest do
 
       nil ->
         {%{}, ["missing required field: #{key}" | errors]}
-
-      _ ->
-        {%{}, ["#{key} must be a map" | errors]}
     end
   end
 
@@ -229,8 +225,6 @@ defmodule ServiceRadar.Plugins.Manifest do
       :error -> ["version must be a valid semver string" | errors]
     end
   end
-
-  defp validate_semver(_version, errors), do: errors
 
   defp optional_positive_int(nil, _key, errors), do: {nil, errors}
 

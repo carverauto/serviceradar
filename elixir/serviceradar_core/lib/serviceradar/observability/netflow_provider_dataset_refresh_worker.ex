@@ -233,15 +233,14 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
     :ok
   end
 
-  defp header(headers, name) when is_list(headers) do
-    Enum.find_value(headers, fn
-      {^name, value} -> value
-      {k, value} when is_binary(k) and is_binary(name) -> if String.downcase(k) == name, do: value
+  defp header(headers, name) do
+    headers
+    |> List.wrap()
+    |> Enum.find_value(fn
+      {k, value} -> if String.downcase(k) == name, do: value
       _ -> nil
     end)
   end
-
-  defp header(_, _), do: nil
 
   defp sha256(payload) when is_binary(payload) do
     :sha256

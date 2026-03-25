@@ -985,7 +985,6 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
 
   defp finding_severity_id(value) do
     value
-    |> Kernel.||("")
     |> String.downcase()
     |> then(&Map.get(@finding_severity_map, &1, OCSF.severity_unknown()))
   end
@@ -1254,8 +1253,6 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       Map.put(attributes, "serviceradar.ingest", ingest)
     end
   end
-
-  defp attach_ingest_metadata(attributes, _metadata, _subject), do: attributes || %{}
 
   defp iso8601(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
   defp iso8601(_), do: nil

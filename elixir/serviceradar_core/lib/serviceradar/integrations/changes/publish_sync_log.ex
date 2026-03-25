@@ -16,7 +16,7 @@ defmodule ServiceRadar.Integrations.Changes.PublishSyncLog do
       raise ArgumentError, "stage must be :started or :finished"
     end
 
-    {:ok, %{stage: stage}}
+    {:ok, stage: stage}
   end
 
   @impl true

@@ -117,8 +117,6 @@ defmodule ServiceRadarWebNGWeb.Api.TopologyController do
     |> Map.update(:hops, [], fn hops -> Enum.map(hops, &hop_json/1) end)
   end
 
-  defp route_analysis_json(_), do: %{}
-
   defp hop_json(hop) when is_map(hop) do
     Map.update(hop, :ecmp_branches, [], fn branches ->
       Enum.map(branches, fn branch ->

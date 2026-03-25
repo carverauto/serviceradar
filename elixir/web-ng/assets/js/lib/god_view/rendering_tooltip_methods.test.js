@@ -68,6 +68,42 @@ describe("rendering_tooltip_methods", () => {
     expect(tooltip.html).toContain("State: Unknown")
   })
 
+  it("shows expand and collapse hints for cluster nodes", () => {
+    const ctx = buildContext()
+    ctx.getNodeTooltip = godViewRenderingTooltipMethods.getNodeTooltip.bind(ctx)
+
+    const collapsedTooltip = ctx.getNodeTooltip({
+      layer: {id: "god-view-nodes"},
+      object: {
+        label: "5 endpoints",
+        state: 1,
+        details: {
+          cluster_id: "cluster:endpoints:sr:test",
+          cluster_kind: "endpoint-summary",
+          cluster_expandable: true,
+          cluster_expanded: false,
+        },
+      },
+    })
+
+    const expandedTooltip = ctx.getNodeTooltip({
+      layer: {id: "god-view-nodes"},
+      object: {
+        label: "5 endpoints",
+        state: 1,
+        details: {
+          cluster_id: "cluster:endpoints:sr:test",
+          cluster_kind: "endpoint-anchor",
+          cluster_expandable: true,
+          cluster_expanded: true,
+        },
+      },
+    })
+
+    expect(collapsedTooltip.html).toContain("Click to expand endpoints")
+    expect(expandedTooltip.html).toContain("Click to collapse endpoints")
+  })
+
   it("handleHover updates cursor to pointer over nodes and grab otherwise", () => {
     const ctx = buildContext()
     ctx.handleHover = godViewRenderingTooltipMethods.handleHover.bind(ctx)

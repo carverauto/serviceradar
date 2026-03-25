@@ -25,5 +25,7 @@ defmodule ServiceRadarSRQL do
   - `serviceradar_core` - Uses NIF for sysmon profile SRQL resolution
   """
 
-  use Boundary, exports: :all
+  use Boundary,
+    top_level?: true,
+    exports: :all
 end

@@ -51,7 +51,7 @@ defmodule ServiceRadar.NetworkDiscovery.RouteAnalyzer do
         max_hops: if(is_integer(max_hops) and max_hops > 0, do: max_hops, else: @default_max_hops)
       }
 
-      {:ok, walk(state, start_device_id, MapSet.new(), [], 0)}
+      {:ok, walk(state, start_device_id, [], [], 0)}
     end
   end
 
@@ -62,7 +62,7 @@ defmodule ServiceRadar.NetworkDiscovery.RouteAnalyzer do
       depth >= state.max_hops ->
         route_result(state, :max_hops, device_id, hops, "maximum_hops_exceeded")
 
-      MapSet.member?(visited, device_id) ->
+      Enum.member?(visited, device_id) ->
         route_result(state, :loop, device_id, hops, "loop_detected")
 
       true ->
@@ -92,7 +92,7 @@ defmodule ServiceRadar.NetworkDiscovery.RouteAnalyzer do
         route_result(state, :delivered, device_id, hop_path, "connected_or_terminal_route")
 
       {:ok, next_device} ->
-        walk(state, next_device, MapSet.put(visited, device_id), hop_path, depth + 1)
+        walk(state, next_device, [device_id | visited], hop_path, depth + 1)
 
       :missing_target ->
         route_result(state, :blackhole, device_id, hop_path, "next_hop_without_target_device")
@@ -224,8 +224,6 @@ defmodule ServiceRadar.NetworkDiscovery.RouteAnalyzer do
       _ -> {:error, :invalid_ipv4}
     end
   end
-
-  defp parse_ipv4(_), do: {:error, :invalid_ipv4}
 
   defp prefix_mask(0), do: 0
   defp prefix_mask(len), do: ((1 <<< len) - 1) <<< (32 - len)

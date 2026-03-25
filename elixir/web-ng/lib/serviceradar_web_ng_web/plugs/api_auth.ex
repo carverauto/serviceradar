@@ -161,9 +161,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       {:error, :not_found} ->
         # Fall back to legacy static API keys
         validate_legacy_api_key(conn, key)
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 
@@ -190,9 +187,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
         {:ok, conn}
 
       {:error, :not_found} ->
-        {:error, :not_found}
-
-      {:error, _} ->
         {:error, :not_found}
     end
   end
@@ -308,9 +302,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
     end
   end
 
-  defp cast_uuid(nil), do: nil
-
-  defp cast_uuid(value) do
+  defp cast_uuid(value) when is_binary(value) do
     case Ecto.UUID.cast(value) do
       {:ok, uuid} -> uuid
       :error -> nil

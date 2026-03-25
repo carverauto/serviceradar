@@ -120,9 +120,9 @@ hosted_cluster_contract =
 
 cluster_strategy =
   get_in(hosted_cluster_contract, ["strategy"]) ||
-    ("CLUSTER_STRATEGY"
-     |> System.get_env("epmd")
-     |> String.downcase())
+    "CLUSTER_STRATEGY"
+    |> System.get_env("epmd")
+    |> String.downcase()
 
 cluster_enabled =
   case get_in(hosted_cluster_contract, ["enabled"]) do

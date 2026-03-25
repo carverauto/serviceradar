@@ -207,13 +207,9 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   end
 
   defp resource_triggers(resource) do
-    case AshOban.Info.oban_triggers(resource) do
-      {:ok, triggers} ->
-        Enum.map(triggers, &trigger_entry(resource, &1))
-
-      _ ->
-        []
-    end
+    resource
+    |> AshOban.Info.oban_triggers()
+    |> Enum.map(&trigger_entry(resource, &1))
   rescue
     _ -> []
   end
@@ -632,9 +628,6 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       ServiceRadar.SweepJobs.SweepDataCleanupWorker
     ]
   end
-
-  # Calculate next run time from cron expression
-  defp next_run_at(nil), do: nil
 
   defp next_run_at(cron) when is_binary(cron) do
     case Expression.parse(cron) do

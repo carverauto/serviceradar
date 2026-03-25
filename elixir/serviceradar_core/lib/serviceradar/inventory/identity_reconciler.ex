@@ -582,7 +582,6 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     _ -> []
   end
 
-  defp maybe_filter_identifier_partition(query, nil), do: query
   defp maybe_filter_identifier_partition(query, ""), do: query
 
   defp maybe_filter_identifier_partition(query, partition) do
@@ -1033,7 +1032,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     if skip_ip_record?(device_id, ip) do
       {acc, count + 1}
     else
-      partition = partition_from_device_id(device_id) || "default"
+      partition = partition_from_device_id(device_id)
       key = {partition, ip}
 
       updated =
@@ -1514,7 +1513,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
                fetch_existing_interface_keys(to_id, interface_uids, timestamps, actor) do
           {to_update, to_delete} =
             Enum.split_with(records, fn record ->
-              not MapSet.member?(existing_keys, {record.timestamp, record.interface_uid})
+              not existing_interface_key?(existing_keys, record)
             end)
 
           with :ok <- bulk_update_interfaces(to_update, to_id, actor) do
@@ -1527,8 +1526,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     end
   end
 
-  defp fetch_existing_interface_keys(_to_id, [], _timestamps, _actor), do: {:ok, MapSet.new()}
-  defp fetch_existing_interface_keys(_to_id, _uids, [], _actor), do: {:ok, MapSet.new()}
+  defp fetch_existing_interface_keys(_to_id, [], _timestamps, _actor), do: {:ok, []}
+  defp fetch_existing_interface_keys(_to_id, _uids, [], _actor), do: {:ok, []}
 
   defp fetch_existing_interface_keys(to_id, interface_uids, timestamps, actor) do
     existing_query =
@@ -1541,7 +1540,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     case Ash.read(existing_query, actor: actor) do
       {:ok, existing} ->
         existing
-        |> MapSet.new(&{&1.timestamp, &1.interface_uid})
+        |> Enum.map(&{&1.timestamp, &1.interface_uid})
         |> then(&{:ok, &1})
 
       {:error, _} = error ->
@@ -1572,38 +1571,31 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       case filter_field do
         :device_id -> Ash.Query.filter(base_query, device_id == ^filter_value)
         :device_uid -> Ash.Query.filter(base_query, device_uid == ^filter_value)
-        _ -> {:error, {:unsupported_filter_field, filter_field}}
       end
 
-    case query do
+    case Ash.read(query, actor: actor) do
+      {:ok, []} ->
+        :ok
+
+      {:ok, records} ->
+        records
+        |> Ash.bulk_update(action, attrs, actor: actor)
+        |> normalize_bulk_result()
+
       {:error, _} = error ->
         error
-
-      _ ->
-        case Ash.read(query, actor: actor) do
-          {:ok, []} ->
-            :ok
-
-          {:ok, records} ->
-            records
-            |> Ash.bulk_update(action, attrs, actor: actor)
-            |> normalize_bulk_result()
-
-          {:error, _} = error ->
-            error
-        end
     end
   end
 
   defp normalize_bulk_result(result) do
     case result do
-      {:ok, _} -> :ok
-      :ok -> :ok
       %Ash.BulkResult{status: :success} -> :ok
       %Ash.BulkResult{} = bulk_result -> {:error, bulk_result}
-      {:error, _} = error -> error
-      other -> {:error, other}
     end
+  end
+
+  defp existing_interface_key?(existing_keys, record) when is_list(existing_keys) do
+    Enum.member?(existing_keys, {record.timestamp, record.interface_uid})
   end
 
   defp maybe_add_identifier(acc, _device_id, _id_type, nil, _partition), do: acc

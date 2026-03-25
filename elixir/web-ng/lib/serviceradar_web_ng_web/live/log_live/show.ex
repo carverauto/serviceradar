@@ -161,8 +161,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     |> put_source_device_from_resource(resource_attributes, scope)
   end
 
-  defp augment_log(log, _scope), do: log
-
   defp extract_resource_from_attributes(attributes) when is_map(attributes) do
     attributes
     |> Map.get("resource")
@@ -186,8 +184,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
         resource
     end
   end
-
-  defp extract_resource_from_attributes(_), do: nil
 
   defp extract_scope_from_attributes(scope_name, scope_version, attributes)
        when scope_name in [nil, ""] or scope_version in [nil, ""] do
@@ -231,12 +227,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp put_source_device_from_resource(log, resource_attributes, scope) when is_map(resource_attributes) do
     case source_device_uid(resource_attributes, scope) do
-      nil -> log
-      device_uid -> Map.put(log, "source_device_uid", device_uid)
+      uid when is_binary(uid) and uid != "" -> Map.put(log, "source_device_uid", uid)
+      _ -> log
     end
   end
-
-  defp put_source_device_from_resource(log, _resource_attributes, _scope), do: log
 
   defp source_device_uid(resource_attributes, scope) when is_map(resource_attributes) do
     resource_attributes
@@ -248,18 +242,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     end
   end
 
-  defp source_device_uid(_resource_attributes, _scope), do: nil
-
   defp lookup_device_uid_by_ip(_ip, nil), do: nil
 
   defp lookup_device_uid_by_ip(ip, scope) when is_binary(ip) do
     case Device.get_by_ip(ip, false, scope: scope) do
-      {:ok, %Device{} = device} -> device.uid
+      {:ok, [%Device{} = device | _]} -> device.uid
+      {:ok, %{results: [%Device{} = device | _]}} -> device.uid
       _ -> nil
     end
   end
-
-  defp lookup_device_uid_by_ip(_ip, _scope), do: nil
 
   defp normalize_source_host(nil), do: nil
 
@@ -736,8 +727,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     |> String.replace("\"", "\\\"")
   end
 
-  defp escape_value(other), do: escape_value(to_string(other))
-
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
   defp format_error(reason) when is_binary(reason), do: reason
@@ -753,7 +742,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp normalize_uuid(id) when is_binary(id), do: id
-  defp normalize_uuid(_), do: "unknown"
 
   defp uuid_to_string(<<a::32, b::16, c::16, d::16, e::48>>) do
     [a, b, c, d, e]
@@ -762,6 +750,4 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     |> Enum.zip([8, 4, 4, 4, 12])
     |> Enum.map_join("-", fn {hex, len} -> String.pad_leading(hex, len, "0") end)
   end
-
-  defp uuid_to_string(_), do: "unknown"
 end
