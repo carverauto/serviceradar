@@ -204,9 +204,9 @@
     },
     "description": "ServiceRadar NATS JetStream service",
     "external_binary": {
-      "extract_path": "nats-server-v2.12.2-linux-amd64/nats-server",
+      "extract_path": "nats-server-v2.12.6-linux-amd64/nats-server",
       "output_path": "/usr/bin/nats-server",
-      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.12.2/nats-server-v2.12.2-linux-amd64.tar.gz"
+      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.12.6/nats-server-v2.12.6-linux-amd64.tar.gz"
     },
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "name": "nats",

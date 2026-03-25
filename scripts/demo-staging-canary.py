@@ -100,7 +100,7 @@ def main() -> int:
         tags["core"] = args.core_tag
 
     # Preserve explicit base chart tags unless already provided.
-    tags.setdefault("nats", "2.12.2-alpine")
+    tags.setdefault("nats", "2.12.6-alpine")
 
     patched_values_yaml = dump_values(values)
     kubectl_patch_application(
