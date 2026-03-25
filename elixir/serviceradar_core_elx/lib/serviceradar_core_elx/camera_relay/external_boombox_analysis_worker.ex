@@ -135,7 +135,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.ExternalBoomboxAnalysisWorker do
     try do
       File.write!(path, payload, [:binary])
 
-      with {:ok, reader} <- BoomboxHelpers.start_reader(path) do
+      with {:ok, %Boombox.Reader{} = reader} <- BoomboxHelpers.start_reader(path) do
         try do
           case Boombox.read(reader) do
             {:ok, %Packet{payload: %VipsImage{} = image}} ->
@@ -178,5 +178,4 @@ defmodule ServiceRadarCoreElx.CameraRelay.ExternalBoomboxAnalysisWorker do
   end
 
   defp error_message(:invalid_input), do: "invalid camera analysis input"
-  defp error_message(reason), do: BoomboxHelpers.format_reason(reason)
 end

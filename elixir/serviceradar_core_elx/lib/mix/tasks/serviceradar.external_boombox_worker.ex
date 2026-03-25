@@ -10,9 +10,8 @@ defmodule Mix.Tasks.Serviceradar.ExternalBoomboxWorker do
 
   alias ServiceRadarCoreElx.CameraRelay.ExternalBoomboxAnalysisWorker
 
-  @impl true
   def run(args) do
-    Mix.Task.run("app.start")
+    {:ok, _started_apps} = Application.ensure_all_started(:serviceradar_core_elx)
 
     {opts, _argv, _invalid} =
       OptionParser.parse(args,
@@ -29,14 +28,14 @@ defmodule Mix.Tasks.Serviceradar.ExternalBoomboxWorker do
         strategy: :one_for_one
       )
 
-    Mix.shell().info("external Boombox worker listening on http://#{format_ip(ip)}:#{port}")
+    IO.puts("external Boombox worker listening on http://#{format_ip(ip)}:#{port}")
     Process.sleep(:infinity)
   end
 
   defp parse_host(host) when is_binary(host) do
     case :inet.parse_address(String.to_charlist(host)) do
       {:ok, address} -> address
-      {:error, _reason} -> raise Mix.Error, "invalid host: #{inspect(host)}"
+      {:error, _reason} -> raise ArgumentError, "invalid host: #{inspect(host)}"
     end
   end
 

@@ -109,11 +109,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
   @impl true
   def terminate(_reason, state) do
     cancel_timer(state.capture_timer_ref)
-
-    if not state.finalized? do
-      _ = AnalysisBranchManager.close_branch(state.relay_session_id, state.branch_id)
-      cleanup_output(state.output_path)
-    end
+    _ = AnalysisBranchManager.close_branch(state.relay_session_id, state.branch_id)
+    cleanup_output(state.output_path)
 
     :ok
   end
@@ -187,14 +184,11 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
   end
 
   defp decode_capture_with_boombox(path) do
-    with {:ok, reader} <- BoomboxHelpers.start_reader(path) do
+    with {:ok, %Boombox.Reader{} = reader} <- BoomboxHelpers.start_reader(path) do
       try do
         case Boombox.read(reader) do
           {:ok, %Packet{payload: %VipsImage{} = image}} ->
             {:ok, %{width: VipsImage.width(image), height: VipsImage.height(image)}}
-
-          {:ok, %Packet{payload: payload}} when is_map(payload) ->
-            {:ok, %{width: map_size(payload), height: 0}}
 
           {:ok, _packet} ->
             {:ok, %{width: 0, height: 0}}

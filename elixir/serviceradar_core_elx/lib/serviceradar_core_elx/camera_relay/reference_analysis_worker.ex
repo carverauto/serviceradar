@@ -133,5 +133,4 @@ defmodule ServiceRadarCoreElx.CameraRelay.ReferenceAnalysisWorker do
   end
 
   defp error_message(:invalid_input), do: "invalid camera analysis input"
-  defp error_message(reason), do: inspect(reason)
 end

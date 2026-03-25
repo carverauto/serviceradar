@@ -1,12 +1,19 @@
 defmodule ServiceRadarCoreElx.CameraRelay.BoomboxHelpers do
   @moduledoc false
 
+  @spec start_reader(binary()) :: {:ok, Boombox.Reader.t()} | {:error, term()}
   def start_reader(path) do
-    {:ok,
-     Boombox.run(
-       input: {:h264, path, transport: :file},
-       output: {:reader, video: :image, audio: false, pace_control: false}
-     )}
+    case Boombox.run(
+           input: {:h264, path, transport: :file},
+           output: {:reader, video: :image, audio: false, pace_control: false}
+         ) do
+      %Boombox.Reader{server_reference: server_reference}
+      when is_pid(server_reference) ->
+        {:ok, %Boombox.Reader{server_reference: server_reference}}
+
+      other ->
+        {:error, {:boombox_start_failed, {:unexpected_reader, inspect(other)}}}
+    end
   rescue
     error -> {:error, {:boombox_start_failed, Exception.message(error)}}
   catch
