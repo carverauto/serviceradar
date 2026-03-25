@@ -44,7 +44,7 @@ defmodule ServiceRadarCoreElx.MixProject do
       {:grpc, "~> 0.9"},
       {:membrane_core, "~> 1.2.6"},
       {:membrane_webrtc_plugin, "~> 0.26.3"},
-      {:boombox, "~> 0.2.8"},
+      {:boombox, path: "vendor/boombox"},
       {:bundlex, github: "membraneframework/bundlex", tag: "v1.5.4", override: true},
       {:elixir_uuid, "~> 1.2", override: true},
       {:protobuf, "~> 0.16.0", override: true},
