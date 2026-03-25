@@ -10,7 +10,7 @@ topologySpread:
   whenUnsatisfiable: ScheduleAnyway
 
 global:
-  imageTag: "sha-fdc6372102cc9173347a68bc9e991d19c5b448d0"
+  imageTag: "sha-f08e1b63477d59dbe7187a2669e8324d9afd4bbd"
   imagePullPolicy: Always
 
 image:
