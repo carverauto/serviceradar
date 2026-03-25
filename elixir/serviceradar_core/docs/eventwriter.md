@@ -407,5 +407,5 @@ To test EventWriter without TLS (development only):
 
 3. Or use a local NATS instance without TLS:
    ```bash
-   docker run -p 4222:4222 nats:latest
+   docker run -p 4222:4222 nats:2.12.6-alpine
    ```

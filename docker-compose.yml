@@ -403,7 +403,7 @@ services:
       - serviceradar-net
 
   nats:
-    image: nats:latest
+    image: nats:2.12.6-alpine
     platform: linux/amd64
     container_name: serviceradar-nats-mtls
     ports:

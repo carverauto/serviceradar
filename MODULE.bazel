@@ -1234,10 +1234,10 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 """,
-    sha256 = "db587fd8b36ac732a8434e748b026ef77ed9cb714a4e57bd010b1de93c2f3801",
-    strip_prefix = "nats-server-v2.12.2-linux-amd64",
+    sha256 = "77fe7dd69ff5144126026b78355900be0ab0bb4339dc61a7621dcc9b9e9d07a6",
+    strip_prefix = "nats-server-v2.12.6-linux-amd64",
     urls = [
-        "https://github.com/nats-io/nats-server/releases/download/v2.12.2/nats-server-v2.12.2-linux-amd64.tar.gz",
+        "https://github.com/nats-io/nats-server/releases/download/v2.12.6/nats-server-v2.12.6-linux-amd64.tar.gz",
     ],
 )
 

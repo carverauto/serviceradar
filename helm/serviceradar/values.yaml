@@ -23,7 +23,7 @@ image:
     appTag: &appTag "latest"
     core: *appTag
     webNg: *appTag
-    nats: "2.12.2-alpine"
+    nats: "2.12.6-alpine"
     datasvc: *appTag
     agent: *appTag
     agentGateway: *appTag

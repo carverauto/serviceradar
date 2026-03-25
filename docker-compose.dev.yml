@@ -68,7 +68,7 @@ services:
 
   # Optional: NATS for messaging (if needed)
   nats:
-    image: nats:latest
+    image: nats:2.12.6-alpine
     container_name: serviceradar-nats
     ports:
       - "4222:4222"  # Client connections
