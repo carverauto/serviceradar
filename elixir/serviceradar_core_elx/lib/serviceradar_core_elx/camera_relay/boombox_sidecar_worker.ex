@@ -7,12 +7,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
 
   use GenServer
 
-  alias Boombox.Packet
   alias ServiceRadar.Camera.AnalysisResultIngestor
   alias ServiceRadar.Telemetry
   alias ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager
   alias ServiceRadarCoreElx.CameraRelay.BoomboxHelpers
-  alias Vix.Vips.Image, as: VipsImage
 
   @default_capture_ms 250
   @default_max_read_bytes 65_536
@@ -54,8 +52,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
       result_ingestor: Map.get(opts, :result_ingestor, AnalysisResultIngestor),
       telemetry_module: Map.get(opts, :telemetry_module, Telemetry),
       capture_timer_ref: nil,
-      captured_input: nil,
-      finalized?: false
+      captured_input: nil
     }
 
     case AnalysisBranchManager.open_branch(%{
@@ -65,10 +62,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
            policy: state.policy
          }) do
       {:ok, _branch} ->
-        timer_ref =
-          if state.capture_ms > 0 do
-            Process.send_after(self(), :capture_timeout, state.capture_ms)
-          end
+        timer_ref = Process.send_after(self(), :capture_timeout, state.capture_ms)
 
         {:ok, %{state | capture_timer_ref: timer_ref}}
 
@@ -115,8 +109,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
     :ok
   end
 
-  defp finalize(%{finalized?: true} = state, _reason), do: {:ok, state}
-
   defp finalize(state, close_reason) do
     cancel_timer(state.capture_timer_ref)
     _ = AnalysisBranchManager.close_branch(state.relay_session_id, state.branch_id)
@@ -136,7 +128,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
     end
 
     cleanup_output(state.output_path)
-    {reply, %{state | finalized?: true, capture_timer_ref: nil}}
+    {reply, %{state | capture_timer_ref: nil}}
   end
 
   defp build_result(%{captured_input: nil}, _close_reason), do: []
@@ -184,27 +176,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
   end
 
   defp decode_capture_with_boombox(path) do
-    with {:ok, %Boombox.Reader{} = reader} <- BoomboxHelpers.start_reader(path) do
-      try do
-        case Boombox.read(reader) do
-          {:ok, %Packet{payload: %VipsImage{} = image}} ->
-            {:ok, %{width: VipsImage.width(image), height: VipsImage.height(image)}}
-
-          {:ok, _packet} ->
-            {:ok, %{width: 0, height: 0}}
-
-          :finished ->
-            {:error, :no_packet}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-      catch
-        :exit, reason -> {:error, {:boombox_read_failed, BoomboxHelpers.format_reason(reason)}}
-      after
-        _ = Boombox.close(reader)
-      end
-    end
+    BoomboxHelpers.decode_capture(path)
   end
 
   defp read_capture_file(path, max_read_bytes) do

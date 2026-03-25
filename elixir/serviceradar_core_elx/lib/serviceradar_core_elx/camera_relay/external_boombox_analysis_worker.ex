@@ -6,10 +6,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.ExternalBoomboxAnalysisWorker do
 
   use Plug.Router
 
-  alias Boombox.Packet
   alias ServiceRadar.Camera.AnalysisContract
   alias ServiceRadarCoreElx.CameraRelay.BoomboxHelpers
-  alias Vix.Vips.Image, as: VipsImage
 
   @default_host {127, 0, 0, 1}
   @default_worker_id "external-boombox-analysis-worker"
@@ -134,28 +132,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.ExternalBoomboxAnalysisWorker do
 
     try do
       File.write!(path, payload, [:binary])
-
-      with {:ok, %Boombox.Reader{} = reader} <- BoomboxHelpers.start_reader(path) do
-        try do
-          case Boombox.read(reader) do
-            {:ok, %Packet{payload: %VipsImage{} = image}} ->
-              {:ok, %{width: VipsImage.width(image), height: VipsImage.height(image)}}
-
-            {:ok, _packet} ->
-              {:ok, %{width: 0, height: 0}}
-
-            :finished ->
-              {:error, :no_packet}
-
-            {:error, reason} ->
-              {:error, reason}
-          end
-        catch
-          :exit, reason -> {:error, {:boombox_read_failed, BoomboxHelpers.format_reason(reason)}}
-        after
-          _ = Boombox.close(reader)
-        end
-      end
+      BoomboxHelpers.decode_capture(path)
     after
       _ = File.rm(path)
     end
