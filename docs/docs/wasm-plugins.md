@@ -33,7 +33,7 @@ Required fields:
 - `entrypoint`: exported Wasm function name (no args)
 - `capabilities`: list of host function capabilities
 - `resources`: requested resource budget
-- `outputs`: must be `serviceradar.plugin_result.v1`
+- `outputs`: `serviceradar.plugin_result.v1` for checker/status plugins or `serviceradar.camera_stream.v1` for camera streaming plugins
 
 Optional fields:
 
@@ -157,6 +157,8 @@ Common capabilities:
 - `log`: emit structured logs
 - `submit_result`: send a plugin result payload
 - `http_request`: perform HTTP through the host proxy
+- `websocket_connect` / `websocket_send` / `websocket_recv` / `websocket_close`
+- `camera_media_stream`: send camera media frames through the host media bridge
 - `tcp_connect` / `tcp_read` / `tcp_write` / `tcp_close`
 - `udp_sendto`
 

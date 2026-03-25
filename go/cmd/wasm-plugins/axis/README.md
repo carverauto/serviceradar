@@ -22,13 +22,19 @@ ServiceRadar TinyGo/WASM plugin for AXIS cameras via VAPIX.
 ./build.sh
 ```
 
-Output: `dist/plugin.wasm`
+Output:
+- `dist/plugin.wasm`
+- `dist/plugin.yaml`
+- `dist/plugin.stream.yaml`
+- `dist/config.schema.json`
+- `dist/config.stream.schema.json`
 
 The same Wasm artifact exports both:
 - `run_check` for discovery/status/event polling
 - `stream_camera` for the reference live-media bridge path
 
-Use `manifest.json` for the discovery plugin package and `manifest.stream.json` for a dedicated streaming package.
+Use `plugin.yaml` for the discovery package and `plugin.stream.yaml` for the streaming package.
+Use `config.schema.json` and `config.stream.schema.json` as the optional JSON config schemas for those packages.
 
 ## Config
 
@@ -56,7 +62,7 @@ Use `manifest.json` for the discovery plugin package and `manifest.stream.json` 
 - `websocket_recv`
 - `websocket_close`
 
-For the streaming package in `manifest.stream.json`, the required capabilities are:
+For the streaming package in `plugin.stream.yaml`, the required capabilities are:
 - `get_config`
 - `log`
 - `camera_media_stream`
