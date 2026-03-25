@@ -126,3 +126,237 @@ The Logs UI SHALL surface OTEL log fields in the detail view, including resource
 - **WHEN** the log record includes OTEL resource/scope/attributes
 - **THEN** the UI SHALL display those OTEL fields alongside time, severity, service, and body
 
+### Requirement: Analysis detections enter observability state
+The system SHALL ingest camera-analysis detections or derived findings into platform observability/event surfaces using a normalized contract.
+
+#### Scenario: Object detection produces a normalized event
+- **GIVEN** an analysis worker reports a person detection for an active relay session
+- **WHEN** the result is ingested by the platform
+- **THEN** the system SHALL create a normalized event or derived signal linked to the relay session and camera source
+- **AND** the result SHALL be queryable through the normal observability surfaces
+
+### Requirement: Analysis events preserve provenance
+The system SHALL preserve provenance between relay sessions, analysis workers, and derived events.
+
+#### Scenario: Operator inspects an analysis result
+- **GIVEN** a derived event produced by camera analysis
+- **WHEN** an operator views the result
+- **THEN** the system SHALL expose the originating relay session and analysis pipeline identity
+- **AND** SHALL distinguish derived analysis output from raw camera state
+
+### Requirement: HTTP worker results are normalized into observability state
+The system SHALL normalize successful HTTP worker responses through the camera analysis result contract before ingesting them into observability state.
+
+#### Scenario: Worker returns a detection payload
+- **GIVEN** the platform dispatches a bounded analysis input to an HTTP worker
+- **WHEN** the worker returns a valid result payload
+- **THEN** the platform SHALL normalize the response as camera analysis output
+- **AND** SHALL ingest the derived result through the normal observability event surfaces
+
+### Requirement: Worker failures are observable
+The system SHALL expose HTTP analysis worker failures and dropped work through telemetry.
+
+#### Scenario: Worker times out
+- **GIVEN** the platform dispatches a bounded analysis input to an HTTP worker
+- **WHEN** the worker times out or returns an invalid response
+- **THEN** the platform SHALL record the failure as analysis dispatch telemetry
+- **AND** SHALL distinguish worker failure from raw relay session failure
+
+### Requirement: Reference analysis workers must preserve analysis provenance
+The system SHALL provide at least one reference analysis worker implementation whose derived outputs preserve relay session, branch, and worker provenance through normal observability ingestion.
+
+#### Scenario: Reference worker emits a derived finding
+- **GIVEN** a relay-scoped analysis branch sends a normalized analysis input to the reference worker
+- **WHEN** the worker returns a valid result payload
+- **THEN** the platform SHALL ingest the derived result through the normal observability path
+- **AND** SHALL preserve the originating relay session, analysis branch, and worker identity
+
+### Requirement: Reference workers may return bounded no-op results
+The system SHALL allow a reference analysis worker to return no derived findings for bounded unsupported or uninteresting inputs.
+
+#### Scenario: Input does not produce a finding
+- **GIVEN** a normalized analysis input that the reference worker intentionally treats as a no-op
+- **WHEN** the worker processes the request
+- **THEN** the worker MAY return an empty result set
+- **AND** the platform SHALL treat that as a successful bounded analysis outcome rather than a relay failure
+
+### Requirement: Boombox-backed analysis preserves observability provenance
+The system SHALL preserve relay session, analysis branch, and worker provenance when ingesting results from Boombox-backed analysis.
+
+#### Scenario: Boombox-backed worker returns a derived finding
+- **GIVEN** a relay-scoped analysis branch bridged through Boombox
+- **WHEN** the downstream worker returns a valid analysis result
+- **THEN** the platform SHALL ingest the result through the normal observability path
+- **AND** SHALL preserve the originating relay session, branch, and worker identity
+
+### Requirement: Boombox sidecar findings preserve observability provenance
+The system SHALL preserve relay session, analysis branch, and worker provenance when ingesting normalized results from a Boombox-backed sidecar worker.
+
+#### Scenario: Sidecar worker returns a derived finding
+- **GIVEN** a relay-scoped Boombox-backed sidecar worker path
+- **WHEN** the sidecar returns a valid normalized analysis result
+- **THEN** the platform SHALL ingest the result through the normal observability path
+- **AND** SHALL preserve the originating relay session, branch, and worker identity
+
+### Requirement: External Boombox worker findings preserve observability provenance
+The system SHALL preserve relay session, analysis branch, and worker provenance when ingesting normalized results from an external Boombox-backed worker.
+
+#### Scenario: External worker returns a derived finding
+- **GIVEN** a relay-scoped analysis branch with an attached external Boombox-backed worker
+- **WHEN** the worker returns a valid normalized analysis result
+- **THEN** the platform SHALL ingest the result through the normal observability path
+- **AND** SHALL preserve the originating relay session, branch, and worker identity
+
+### Requirement: Worker selection remains observable
+The system SHALL emit observable worker identity and selection outcomes for relay-scoped camera analysis dispatch.
+
+#### Scenario: A registered worker is selected successfully
+- **GIVEN** a relay-scoped analysis branch with a resolvable worker target
+- **WHEN** the platform dispatches work to that worker
+- **THEN** observability signals SHALL preserve the selected worker identity
+- **AND** SHALL preserve the originating relay session and branch identity
+
+#### Scenario: Worker selection fails
+- **GIVEN** a relay-scoped analysis branch that requests an unavailable or unmatched worker
+- **WHEN** the platform cannot resolve a valid worker
+- **THEN** the platform SHALL emit an explicit bounded failure signal
+- **AND** SHALL preserve the originating relay session and branch identity in that signal
+
+### Requirement: Worker health and failover remain observable
+The system SHALL emit observable worker health, selection, and failover outcomes for relay-scoped camera analysis dispatch.
+
+#### Scenario: Worker health changes
+- **GIVEN** a registered camera analysis worker
+- **WHEN** the platform marks that worker healthy or unhealthy
+- **THEN** observability signals SHALL preserve the worker identity
+- **AND** SHALL preserve the health reason metadata when present
+
+#### Scenario: Capability-targeted branch fails over
+- **GIVEN** a relay-scoped analysis branch that fails over from one worker to another
+- **WHEN** the platform performs the failover
+- **THEN** observability signals SHALL preserve the originating relay session and branch identity
+- **AND** SHALL preserve the original worker identity, replacement worker identity, and failover attempt count
+
+#### Scenario: Terminal worker selection or failover failure
+- **GIVEN** a relay-scoped analysis branch that cannot resolve or fail over to a healthy worker
+- **WHEN** the platform terminates that selection path
+- **THEN** observability signals SHALL preserve the relay session and branch identity
+- **AND** SHALL emit an explicit bounded failure reason
+
+### Requirement: Camera Analysis Worker Probe Telemetry
+The platform SHALL emit operational telemetry for active camera analysis worker probing.
+
+#### Scenario: Probe succeeds
+- **WHEN** the platform successfully probes a registered camera analysis worker
+- **THEN** it emits a probe success signal including worker identity and adapter metadata
+
+#### Scenario: Probe fails
+- **WHEN** the platform fails to probe a registered camera analysis worker
+- **THEN** it emits a probe failure signal including worker identity and normalized failure reason
+
+#### Scenario: Probe changes worker health state
+- **WHEN** an active probe causes a worker health transition
+- **THEN** the platform emits a health transition signal with the previous and new health states
+
+### Requirement: Probe History Mirrors Emitted Probe Outcomes
+The operator-visible recent probe history SHALL align with the platform’s active probe outcomes.
+
+#### Scenario: Probe failure is visible through management surface
+- **WHEN** the platform emits a failed active probe outcome for a worker
+- **THEN** the worker management surface can show a recent failed probe entry with the same normalized reason
+
+### Requirement: Worker Flapping State Transitions SHALL Emit Observability Signals
+The platform SHALL emit explicit observability signals when a registered camera analysis worker enters or leaves flapping state.
+
+#### Scenario: Worker starts flapping
+- **WHEN** recomputation changes a worker from not flapping to flapping
+- **THEN** the platform SHALL emit a worker flapping transition signal
+- **AND** the signal SHALL include worker identity and bounded transition metadata
+
+#### Scenario: Worker stops flapping
+- **WHEN** recomputation changes a worker from flapping to not flapping
+- **THEN** the platform SHALL emit a worker flapping transition signal indicating recovery
+
+### Requirement: Camera Analysis Worker Degradation SHALL Emit Thresholded Alert Signals
+The platform SHALL emit explicit observability signals when a registered camera analysis worker crosses bounded degradation thresholds.
+
+#### Scenario: Worker alert activates
+- **WHEN** a worker meets a configured degradation threshold such as sustained unhealthy state, flapping, or failover exhaustion
+- **THEN** the platform SHALL emit an alert activation signal for that worker
+- **AND** the signal SHALL include worker identity and normalized alert metadata
+
+#### Scenario: Worker alert clears
+- **WHEN** a worker no longer meets an active degradation threshold
+- **THEN** the platform SHALL emit an alert clear signal for that worker
+
+### Requirement: Camera Analysis Worker Alerts SHALL Be Transition-Based
+The platform SHALL emit worker alert signals on state transitions instead of on every repeated probe or dispatch event.
+
+#### Scenario: Worker remains in the same alert state
+- **WHEN** repeated worker events occur without changing the derived alert state
+- **THEN** the platform SHALL NOT emit a new worker alert transition signal for each repeated event
+
+### Requirement: Camera analysis worker alert transitions generate observability signals
+The platform SHALL route camera analysis worker alert activation and clear transitions into the existing observability event and alert pipeline.
+
+#### Scenario: Worker alert activates
+- **WHEN** a registered camera analysis worker enters an active derived alert state such as sustained unhealthy, flapping, or failover exhausted
+- **THEN** the platform SHALL emit a normalized observability event for that transition
+- **AND** the platform SHALL create or update the corresponding routed alert
+
+#### Scenario: Worker alert clears
+- **WHEN** a registered camera analysis worker leaves an active derived alert state
+- **THEN** the platform SHALL emit a normalized observability recovery or clear signal
+- **AND** the corresponding routed alert SHALL resolve or clear through the standard alert path
+
+### Requirement: Camera analysis worker alert routing is duplicate-safe
+The platform SHALL suppress duplicate routed alerts while the authoritative worker alert state remains unchanged.
+
+#### Scenario: Repeated failures do not create duplicate routed alerts
+- **GIVEN** a camera analysis worker remains in the same derived alert state across multiple repeated probe or dispatch failures
+- **WHEN** additional failures occur without changing that derived alert state
+- **THEN** the platform SHALL NOT emit a new routed alert transition for each repeated failure
+
+### Requirement: Worker assignment visibility uses runtime-derived source of truth
+The platform SHALL derive worker assignment visibility from the authoritative analysis dispatch runtime rather than from stale registry metadata.
+
+#### Scenario: Runtime snapshot backs assignment visibility
+- **WHEN** current assignment visibility is requested for a registered camera analysis worker
+- **THEN** the platform SHALL use the active dispatch snapshot as the source of truth
+- **AND** it SHALL NOT require persistent assignment records in the worker registry
+
+### Requirement: Camera analysis worker alerts participate in notification policy
+The platform SHALL evaluate routed camera analysis worker alerts through the standard notification-policy path used by existing observability alerts.
+
+#### Scenario: Routed worker alert is notification-eligible
+- **GIVEN** a camera analysis worker enters a derived routed alert state
+- **WHEN** the corresponding observability alert is created or activated
+- **THEN** the alert SHALL be eligible for standard notification-policy evaluation
+- **AND** the platform SHALL NOT require a worker-specific notification subsystem
+
+#### Scenario: Routed worker alert clears through the standard path
+- **GIVEN** a routed camera analysis worker alert is active
+- **WHEN** the worker leaves the derived alert state and the routed alert clears
+- **THEN** the notification-policy path SHALL observe the clear through the standard alert lifecycle
+
+### Requirement: Long-lived worker alerts use bounded re-notify semantics
+The platform SHALL rely on the existing alert cooldown and re-notify behavior for sustained routed camera analysis worker alerts.
+
+#### Scenario: Sustained worker degradation re-notifies without duplicate transitions
+- **GIVEN** a routed camera analysis worker alert remains active without changing alert state
+- **WHEN** the standard alert re-notify interval elapses
+- **THEN** the platform SHALL re-notify through the standard alert path
+- **AND** it SHALL NOT emit duplicate routed worker alert transitions for the unchanged worker state
+
+### Requirement: Routed worker alerts expose current notification audit state
+The platform SHALL expose bounded current notification audit state for routed camera analysis worker alerts from the standard alert lifecycle.
+
+#### Scenario: Active routed worker alert has notification audit context
+- **GIVEN** a routed camera analysis worker alert exists in the standard alert model
+- **WHEN** current worker notification audit state is requested
+- **THEN** the platform SHALL expose bounded current fields such as notification count and last notification time
+
+#### Scenario: Worker has no active routed alert
+- **WHEN** a camera analysis worker has no active routed alert
+- **THEN** the platform SHALL NOT claim notification delivery state for that worker
+

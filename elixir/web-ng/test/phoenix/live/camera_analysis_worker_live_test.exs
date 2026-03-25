@@ -10,7 +10,9 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLiveTest do
 
   setup %{conn: conn} do
     previous_module = Application.get_env(:serviceradar_web_ng, :camera_analysis_workers)
-    previous_test_pid = Application.get_env(:serviceradar_web_ng, :camera_analysis_workers_test_pid)
+
+    previous_test_pid =
+      Application.get_env(:serviceradar_web_ng, :camera_analysis_workers_test_pid)
 
     Application.put_env(
       :serviceradar_web_ng,
@@ -43,12 +45,21 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLiveTest do
     assert html =~ "Unhealthy"
     assert html =~ "Flapping"
     assert html =~ "Alerts"
+    assert html =~ "Active Assignments"
     assert html =~ "http://alpha.local/readyz"
+    assert html =~ "active: 2"
+    assert html =~ "relay-alpha-1/branch-alpha-1"
+    assert html =~ "relay-alpha-2/branch-alpha-2"
+    assert html =~ "idle"
     assert html =~ "timeout: 1500 ms"
     assert html =~ "interval: 10000 ms"
     assert html =~ "flapping"
     assert html =~ "4 transitions / 5 probes"
     assert html =~ "alert: flapping"
+    assert html =~ "notification policy: standard_alert (camera_analysis_worker_routed_alert)"
+    assert html =~ "notification policy: inactive"
+    assert html =~ "notification audit: 2 sent, last 2027-01-15 08:02:00 UTC, alert pending"
+    assert html =~ "notification audit: none"
     assert html =~ "status_transitions_threshold"
     assert html =~ "observability key: camera_analysis_worker:worker-beta:flapping"
     assert html =~ "http_status_503"

@@ -9,7 +9,9 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerControllerTest do
 
   setup %{conn: conn} do
     previous_module = Application.get_env(:serviceradar_web_ng, :camera_analysis_workers)
-    previous_test_pid = Application.get_env(:serviceradar_web_ng, :camera_analysis_workers_test_pid)
+
+    previous_test_pid =
+      Application.get_env(:serviceradar_web_ng, :camera_analysis_workers_test_pid)
 
     Application.put_env(
       :serviceradar_web_ng,
@@ -42,17 +44,49 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerControllerTest do
       assert Enum.at(body["data"], 0)["health_endpoint_url"] == "http://alpha.local/readyz"
       assert Enum.at(body["data"], 0)["health_timeout_ms"] == 1500
       assert Enum.at(body["data"], 0)["probe_interval_ms"] == 10_000
+      assert Enum.at(body["data"], 0)["active_assignment_count"] == 2
+      assert length(Enum.at(body["data"], 0)["active_assignments"]) == 2
+
+      assert Enum.at(body["data"], 0)["active_assignments"]
+             |> Enum.at(0)
+             |> Map.get("relay_session_id") == "relay-alpha-1"
+
       assert Enum.at(body["data"], 0)["flapping"] == false
       assert Enum.at(body["data"], 0)["alert_active"] == false
       assert Enum.at(body["data"], 0)["routed_alert_active"] == false
+      assert Enum.at(body["data"], 0)["notification_policy_active"] == false
+      assert Enum.at(body["data"], 0)["notification_policy_eligible"] == false
+      assert Enum.at(body["data"], 0)["notification_audit_active"] == false
+      assert Enum.at(body["data"], 0)["notification_audit_notification_count"] == 0
       assert Enum.at(body["data"], 0)["recent_probe_results"] != []
       assert Enum.at(body["data"], 1)["health_status"] == "unhealthy"
+      assert Enum.at(body["data"], 1)["active_assignment_count"] == 0
+      assert Enum.at(body["data"], 1)["active_assignments"] == []
       assert Enum.at(body["data"], 1)["flapping"] == true
       assert Enum.at(body["data"], 1)["flapping_transition_count"] == 4
       assert Enum.at(body["data"], 1)["flapping_window_size"] == 5
       assert Enum.at(body["data"], 1)["alert_active"] == true
       assert Enum.at(body["data"], 1)["alert_state"] == "flapping"
       assert Enum.at(body["data"], 1)["routed_alert_active"] == true
+      assert Enum.at(body["data"], 1)["notification_policy_active"] == true
+      assert Enum.at(body["data"], 1)["notification_policy_eligible"] == true
+      assert Enum.at(body["data"], 1)["notification_policy_path"] == "standard_alert"
+      assert Enum.at(body["data"], 1)["notification_audit_active"] == true
+
+      assert Enum.at(body["data"], 1)["notification_audit_alert_id"] ==
+               "alert-worker-beta-flapping"
+
+      assert Enum.at(body["data"], 1)["notification_audit_alert_status"] == "pending"
+      assert Enum.at(body["data"], 1)["notification_audit_notification_count"] == 2
+
+      assert Enum.at(body["data"], 1)["notification_audit_last_notification_at"] ==
+               "2027-01-15T08:02:00Z"
+
+      assert Enum.at(body["data"], 1)["notification_audit_suppressed_until"] ==
+               "2027-01-15T08:07:00Z"
+
+      assert Enum.at(body["data"], 1)["notification_policy_source"] ==
+               "camera_analysis_worker_routed_alert"
 
       assert Enum.at(body["data"], 1)["routed_alert_key"] ==
                "camera_analysis_worker:worker-beta:flapping"
@@ -95,9 +129,13 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerControllerTest do
       assert body["data"]["id"] == worker_id
       assert body["data"]["worker_id"] == "worker-alpha"
       assert body["data"]["health_path"] == "/health"
+      assert body["data"]["active_assignment_count"] == 2
+      assert Enum.at(body["data"]["active_assignments"], 0)["branch_id"] == "branch-alpha-1"
       assert body["data"]["flapping"] == false
       assert body["data"]["alert_active"] == false
       assert body["data"]["routed_alert_active"] == false
+      assert body["data"]["notification_policy_active"] == false
+      assert body["data"]["notification_audit_active"] == false
       assert Enum.at(body["data"]["recent_probe_results"], 0)["status"] == "healthy"
 
       assert_receive {:camera_analysis_workers_get, ^worker_id, opts}

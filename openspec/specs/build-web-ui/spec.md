@@ -792,3 +792,120 @@ The web-ng UI SHALL provide unit formatting helpers that convert raw byte/packet
 - **WHEN** the formatter receives `42_300` packets/sec in pps mode
 - **THEN** it returns `"42.3 Kpps"`
 
+### Requirement: Operators can inspect camera analysis workers in web-ng
+The system SHALL provide an operator-facing `web-ng` surface to inspect registered camera analysis workers.
+
+#### Scenario: Operator views worker status
+- **GIVEN** registered camera analysis workers exist
+- **WHEN** an authorized operator opens the worker management surface
+- **THEN** the UI SHALL show worker identity, capabilities, enabled state, and current health state
+- **AND** SHALL show recent failure or failover-relevant metadata when present
+
+### Requirement: Camera Analysis Worker Management Includes Probe Settings
+The operator-facing worker management surface SHALL expose worker probe configuration alongside identity, health, and capability metadata.
+
+#### Scenario: Operator inspects a worker
+- **WHEN** an operator views a registered camera analysis worker
+- **THEN** the surface shows the worker probe endpoint and timeout configuration
+
+#### Scenario: Operator updates probe settings
+- **WHEN** an operator creates or updates a registered camera analysis worker
+- **THEN** the management surface accepts and persists supported probe configuration fields
+
+### Requirement: Camera Analysis Worker Surface Shows Recent Probe Activity
+The operator-facing camera analysis worker management surface SHALL show recent active probe outcomes for each worker.
+
+#### Scenario: Operator inspects a worker with recent probe failures
+- **WHEN** a worker has recent failed probes
+- **THEN** the surface shows recent failure timestamps and normalized reasons
+
+#### Scenario: Operator inspects a stable worker
+- **WHEN** a worker has recent successful probes
+- **THEN** the surface shows recent successful probe activity
+
+### Requirement: Camera Analysis Worker Ops SHALL Show Flapping State
+The authenticated camera analysis worker operator surface SHALL show derived worker flapping state alongside health and recent probe activity.
+
+#### Scenario: Worker is flapping
+- **WHEN** an operator views a worker whose derived flapping state is true
+- **THEN** the surface SHALL display a visible flapping label
+- **AND** it SHALL show the bounded transition count or equivalent flapping context
+
+#### Scenario: Worker is stable
+- **WHEN** an operator views a worker whose derived flapping state is false
+- **THEN** the surface SHALL not display the worker as flapping
+
+### Requirement: Camera Analysis Worker API SHALL Expose Flapping Metadata
+The authenticated worker management API SHALL expose derived flapping state and normalized flapping metadata.
+
+#### Scenario: API returns worker flapping metadata
+- **WHEN** a client reads one or more registered camera analysis workers
+- **THEN** each worker response SHALL include flapping state
+- **AND** the response SHALL include enough bounded metadata to explain why the worker is or is not considered flapping
+
+### Requirement: Camera Analysis Worker Ops SHALL Show Summarized Alert State
+The authenticated camera analysis worker management surface SHALL show summarized worker alert state when bounded degradation thresholds are active.
+
+#### Scenario: Worker has an active alert
+- **WHEN** an operator views a worker with an active thresholded alert state
+- **THEN** the worker surface SHALL display that alert state prominently
+- **AND** it SHALL show enough normalized context to explain the active alert
+
+#### Scenario: Worker has no active alert
+- **WHEN** an operator views a worker without an active thresholded alert state
+- **THEN** the worker surface SHALL indicate that no thresholded alert is active
+
+### Requirement: Worker ops surface can correlate routed alerts
+The authenticated camera analysis worker management surface SHALL expose enough alert-routing context to correlate a worker's current derived alert state with standard observability alerts.
+
+#### Scenario: Worker has a routed alert
+- **WHEN** an operator views a worker with an active routed worker alert
+- **THEN** the surface SHALL show enough normalized alert context to explain that routed alert state
+- **AND** it SHALL allow the operator to recognize that the worker alert is also present in the standard observability flow
+
+#### Scenario: Worker has no routed alert
+- **WHEN** an operator views a worker without an active routed worker alert
+- **THEN** the surface SHALL not claim that a routed alert is active
+
+### Requirement: Worker ops surface shows current assignments
+The authenticated camera analysis worker management surface SHALL show current assignment visibility for each registered worker.
+
+#### Scenario: Worker has active branches
+- **WHEN** an operator views a worker with active relay-scoped analysis branches
+- **THEN** the surface SHALL show the worker's active assignment count
+- **AND** it SHALL display bounded current assignment details
+
+#### Scenario: Worker is idle
+- **WHEN** an operator views a worker with no active assignments
+- **THEN** the surface SHALL indicate that the worker is currently idle
+
+### Requirement: Worker management API returns assignment visibility
+The authenticated worker management API SHALL expose current assignment visibility for registered camera analysis workers.
+
+#### Scenario: API returns assignment counts
+- **WHEN** a client reads one or more registered camera analysis workers
+- **THEN** each worker response SHALL include the active assignment count
+- **AND** it SHALL include bounded current assignment details when any are active
+
+### Requirement: Worker ops surface shows notification-policy context
+The authenticated camera analysis worker management surface SHALL show whether an active routed worker alert is participating in the standard notification-policy path.
+
+#### Scenario: Worker alert is notification-eligible
+- **WHEN** an operator views a worker with an active routed alert that is eligible for standard notification handling
+- **THEN** the surface SHALL show normalized notification-policy context for that worker alert
+
+#### Scenario: Worker has no active routed alert
+- **WHEN** an operator views a worker without an active routed alert
+- **THEN** the surface SHALL not imply that notification-policy routing is active
+
+### Requirement: Worker ops surface shows notification audit state
+The authenticated camera analysis worker management surface SHALL show bounded notification audit state for active routed worker alerts.
+
+#### Scenario: Worker has active routed alert with notifications
+- **WHEN** an operator views a worker with an active routed alert
+- **THEN** the surface SHALL show current notification audit fields such as notification count and last notification time
+
+#### Scenario: Worker has no active routed alert
+- **WHEN** an operator views a worker without an active routed alert
+- **THEN** the surface SHALL not imply that notification delivery has occurred
+

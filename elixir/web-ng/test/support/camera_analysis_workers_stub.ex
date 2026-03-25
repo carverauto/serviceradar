@@ -62,6 +62,37 @@ defmodule ServiceRadarWebNG.TestSupport.CameraAnalysisWorkersStub do
           %{"checked_at" => "2026-03-24T15:00:00Z", "status" => "healthy", "reason" => nil},
           %{"checked_at" => "2026-03-24T14:59:30Z", "status" => "healthy", "reason" => nil}
         ],
+        active_assignment_count: 2,
+        active_assignments: [
+          %{
+            relay_session_id: "relay-alpha-1",
+            branch_id: "branch-alpha-1",
+            worker_id: "worker-alpha",
+            display_name: "Alpha Detector",
+            adapter: "http",
+            capabilities: ["object_detection"],
+            selection_mode: "capability",
+            requested_capability: "object_detection",
+            registry_managed?: true
+          },
+          %{
+            relay_session_id: "relay-alpha-2",
+            branch_id: "branch-alpha-2",
+            worker_id: "worker-alpha",
+            display_name: "Alpha Detector",
+            adapter: "http",
+            capabilities: ["people_count"],
+            selection_mode: "worker_id",
+            requested_capability: nil,
+            registry_managed?: true
+          }
+        ],
+        notification_audit_active: false,
+        notification_audit_alert_id: nil,
+        notification_audit_alert_status: nil,
+        notification_audit_notification_count: 0,
+        notification_audit_last_notification_at: nil,
+        notification_audit_suppressed_until: nil,
         flapping: false,
         flapping_transition_count: 0,
         flapping_window_size: 2,
@@ -92,12 +123,32 @@ defmodule ServiceRadarWebNG.TestSupport.CameraAnalysisWorkersStub do
         last_failure_at: DateTime.from_unix!(1_800_000_100),
         last_health_transition_at: DateTime.from_unix!(1_800_000_100),
         recent_probe_results: [
-          %{"checked_at" => "2026-03-24T15:00:00Z", "status" => "unhealthy", "reason" => "http_status_503"},
+          %{
+            "checked_at" => "2026-03-24T15:00:00Z",
+            "status" => "unhealthy",
+            "reason" => "http_status_503"
+          },
           %{"checked_at" => "2026-03-24T14:59:30Z", "status" => "healthy", "reason" => nil},
-          %{"checked_at" => "2026-03-24T14:59:00Z", "status" => "unhealthy", "reason" => "http_status_503"},
+          %{
+            "checked_at" => "2026-03-24T14:59:00Z",
+            "status" => "unhealthy",
+            "reason" => "http_status_503"
+          },
           %{"checked_at" => "2026-03-24T14:58:30Z", "status" => "healthy", "reason" => nil},
-          %{"checked_at" => "2026-03-24T14:58:00Z", "status" => "unhealthy", "reason" => "http_status_503"}
+          %{
+            "checked_at" => "2026-03-24T14:58:00Z",
+            "status" => "unhealthy",
+            "reason" => "http_status_503"
+          }
         ],
+        active_assignment_count: 0,
+        active_assignments: [],
+        notification_audit_active: true,
+        notification_audit_alert_id: "alert-worker-beta-flapping",
+        notification_audit_alert_status: "pending",
+        notification_audit_notification_count: 2,
+        notification_audit_last_notification_at: DateTime.from_unix!(1_800_000_120),
+        notification_audit_suppressed_until: DateTime.from_unix!(1_800_000_420),
         flapping: true,
         flapping_transition_count: 4,
         flapping_window_size: 5,
@@ -113,8 +164,7 @@ defmodule ServiceRadarWebNG.TestSupport.CameraAnalysisWorkersStub do
   end
 
   defp build_worker(attrs) do
-    struct!(
-      ServiceRadar.Camera.AnalysisWorker,
+    attrs =
       Map.merge(
         %{
           id: Ecto.UUID.generate(),
@@ -135,6 +185,14 @@ defmodule ServiceRadarWebNG.TestSupport.CameraAnalysisWorkersStub do
           last_failure_at: nil,
           last_health_transition_at: nil,
           recent_probe_results: [],
+          active_assignment_count: 0,
+          active_assignments: [],
+          notification_audit_active: false,
+          notification_audit_alert_id: nil,
+          notification_audit_alert_status: nil,
+          notification_audit_notification_count: 0,
+          notification_audit_last_notification_at: nil,
+          notification_audit_suppressed_until: nil,
           flapping: false,
           flapping_transition_count: 0,
           flapping_window_size: 0,
@@ -148,6 +206,39 @@ defmodule ServiceRadarWebNG.TestSupport.CameraAnalysisWorkersStub do
         },
         attrs
       )
+
+    worker =
+      struct!(
+        ServiceRadar.Camera.AnalysisWorker,
+        Map.drop(attrs, [
+          :active_assignment_count,
+          :active_assignments,
+          :notification_audit_active,
+          :notification_audit_alert_id,
+          :notification_audit_alert_status,
+          :notification_audit_notification_count,
+          :notification_audit_last_notification_at,
+          :notification_audit_suppressed_until
+        ])
+      )
+
+    worker
+    |> Map.put(:active_assignment_count, Map.get(attrs, :active_assignment_count, 0))
+    |> Map.put(:active_assignments, Map.get(attrs, :active_assignments, []))
+    |> Map.put(:notification_audit_active, Map.get(attrs, :notification_audit_active, false))
+    |> Map.put(:notification_audit_alert_id, Map.get(attrs, :notification_audit_alert_id))
+    |> Map.put(:notification_audit_alert_status, Map.get(attrs, :notification_audit_alert_status))
+    |> Map.put(
+      :notification_audit_notification_count,
+      Map.get(attrs, :notification_audit_notification_count, 0)
+    )
+    |> Map.put(
+      :notification_audit_last_notification_at,
+      Map.get(attrs, :notification_audit_last_notification_at)
+    )
+    |> Map.put(
+      :notification_audit_suppressed_until,
+      Map.get(attrs, :notification_audit_suppressed_until)
     )
   end
 

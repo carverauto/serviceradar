@@ -121,6 +121,12 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
             tone="error"
             icon="hero-exclamation-circle"
           />
+          <.summary_card
+            title="Active Assignments"
+            value={@summary.active_assignments}
+            tone="primary"
+            icon="hero-cpu-chip"
+          />
         </div>
 
         <section class="rounded-2xl border border-base-200 bg-base-100 shadow-sm">
@@ -150,6 +156,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                   <th>Status</th>
                   <th>Health</th>
                   <th>Failure State</th>
+                  <th>Assignments</th>
                   <th>Endpoint</th>
                   <th>Probe</th>
                   <th>Actions</th>
@@ -219,6 +226,37 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                     </div>
                     <div :if={worker.alert_active} class="text-xs text-base-content/50 font-mono">
                       {routed_alert_summary(worker)}
+                    </div>
+                    <div class="text-xs text-base-content/50">
+                      {notification_policy_summary(worker)}
+                    </div>
+                    <div class="text-xs text-base-content/50">
+                      {notification_audit_summary(worker)}
+                    </div>
+                  </td>
+                  <td>
+                    <div class="text-sm text-base-content">
+                      active: {Map.get(worker, :active_assignment_count, 0)}
+                    </div>
+                    <div
+                      :if={Map.get(worker, :active_assignment_count, 0) == 0}
+                      class="text-xs text-base-content/50"
+                    >
+                      idle
+                    </div>
+                    <div
+                      :for={assignment <- active_assignments(worker)}
+                      class="mt-1 rounded-lg border border-base-200 bg-base-200/40 p-2 text-xs text-base-content/70"
+                    >
+                      <div class="font-mono text-[11px]">
+                        {assignment.relay_session_id}/{assignment.branch_id}
+                      </div>
+                      <div>
+                        mode: {assignment.selection_mode || "unknown"}
+                      </div>
+                      <div :if={assignment.requested_capability}>
+                        capability: {assignment.requested_capability}
+                      </div>
                     </div>
                   </td>
                   <td>
@@ -293,12 +331,22 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
       healthy: Enum.count(workers, &((&1.health_status || "healthy") == "healthy")),
       unhealthy: Enum.count(workers, &((&1.health_status || "healthy") != "healthy")),
       flapping: Enum.count(workers, &Map.get(&1, :flapping, false)),
-      alerts: Enum.count(workers, &Map.get(&1, :alert_active, false))
+      alerts: Enum.count(workers, &Map.get(&1, :alert_active, false)),
+      active_assignments:
+        Enum.reduce(workers, 0, &(&2 + Map.get(&1, :active_assignment_count, 0)))
     }
   end
 
   defp empty_summary do
-    %{total: 0, enabled: 0, healthy: 0, unhealthy: 0, flapping: 0, alerts: 0}
+    %{
+      total: 0,
+      enabled: 0,
+      healthy: 0,
+      unhealthy: 0,
+      flapping: 0,
+      alerts: 0,
+      active_assignments: 0
+    }
   end
 
   defp health_badge_class("healthy"), do: "badge-success"
@@ -311,6 +359,14 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
   defp recent_probes(worker) do
     worker
     |> Map.get(:recent_probe_results, [])
+    |> List.wrap()
+    |> Enum.filter(&is_map/1)
+    |> Enum.take(3)
+  end
+
+  defp active_assignments(worker) do
+    worker
+    |> Map.get(:active_assignments, [])
     |> List.wrap()
     |> Enum.filter(&is_map/1)
     |> Enum.take(3)
@@ -356,6 +412,30 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
     case context.routed_alert_key do
       key when is_binary(key) -> "observability key: #{key}"
       _ -> "observability key: unavailable"
+    end
+  end
+
+  defp notification_policy_summary(worker) do
+    context = AnalysisWorkerAlertRouter.notification_policy_context(worker)
+
+    if context.notification_policy_active do
+      "notification policy: #{context.notification_policy_path} (#{context.notification_policy_source})"
+    else
+      "notification policy: inactive"
+    end
+  end
+
+  defp notification_audit_summary(worker) do
+    if Map.get(worker, :notification_audit_active, false) do
+      count = Map.get(worker, :notification_audit_notification_count, 0)
+
+      last_notification =
+        format_datetime(Map.get(worker, :notification_audit_last_notification_at))
+
+      status = Map.get(worker, :notification_audit_alert_status, "unknown")
+      "notification audit: #{count} sent, last #{last_notification}, alert #{status}"
+    else
+      "notification audit: none"
     end
   end
 

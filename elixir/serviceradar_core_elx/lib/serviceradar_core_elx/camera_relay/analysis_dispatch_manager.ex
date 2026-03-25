@@ -25,6 +25,15 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
     GenServer.call(__MODULE__, {:list_branches, relay_session_id})
   end
 
+  def worker_assignment_snapshot do
+    GenServer.call(__MODULE__, :worker_assignment_snapshot)
+  end
+
+  def report_branch_assignment(relay_session_id, branch_id, attrs)
+      when is_binary(relay_session_id) and is_binary(branch_id) and is_map(attrs) do
+    GenServer.call(__MODULE__, {:report_branch_assignment, relay_session_id, branch_id, attrs})
+  end
+
   @impl true
   def init(opts) do
     {:ok,
@@ -47,7 +56,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
        result_ingestor: Keyword.get(opts, :result_ingestor),
        telemetry_module: Keyword.get(opts, :telemetry_module),
        worker_resolver: Keyword.get(opts, :worker_resolver, AnalysisWorkerResolver),
-       alert_router: Keyword.get(opts, :alert_router, AnalysisWorkerAlertRouter)
+       alert_router: Keyword.get(opts, :alert_router, AnalysisWorkerAlertRouter),
+       assignment_detail_limit: Keyword.get(opts, :assignment_detail_limit, 5)
      }}
   end
 
@@ -106,8 +116,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
                 pid: pid,
                 monitor_ref: ref,
                 worker_id: resolved_worker.worker_id,
+                display_name: resolved_worker.display_name,
                 endpoint_url: resolved_worker.endpoint_url,
                 adapter: resolved_worker.adapter,
+                capabilities: resolved_worker.capabilities,
                 selection_mode: resolved_worker.selection_mode,
                 requested_capability: resolved_worker.requested_capability,
                 registry_managed?: resolved_worker.registry_managed?
@@ -156,6 +168,33 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
       |> Enum.sort_by(& &1.branch_id)
 
     {:reply, branches, state}
+  end
+
+  def handle_call(:worker_assignment_snapshot, _from, state) do
+    {:reply, assignment_snapshot(state), state}
+  end
+
+  def handle_call({:report_branch_assignment, relay_session_id, branch_id, attrs}, _from, state) do
+    next_state =
+      update_in(state.branches, fn branches ->
+        update_in(branches, [relay_session_id, branch_id], fn
+          nil ->
+            nil
+
+          branch ->
+            branch
+            |> Map.put(:worker_id, required_string!(attrs, :worker_id))
+            |> maybe_put(:display_name, Map.get(attrs, :display_name))
+            |> maybe_put(:endpoint_url, Map.get(attrs, :endpoint_url))
+            |> maybe_put(:adapter, Map.get(attrs, :adapter))
+            |> maybe_put(:capabilities, Map.get(attrs, :capabilities))
+            |> maybe_put(:selection_mode, Map.get(attrs, :selection_mode))
+            |> maybe_put(:requested_capability, Map.get(attrs, :requested_capability))
+            |> maybe_put(:registry_managed?, Map.get(attrs, :registry_managed?))
+        end)
+      end)
+
+    {:reply, :ok, next_state}
   end
 
   @impl true
@@ -207,6 +246,44 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
     )
   end
 
+  defp assignment_snapshot(state) do
+    state.branches
+    |> Map.values()
+    |> Enum.flat_map(&Map.values/1)
+    |> Enum.group_by(& &1.worker_id)
+    |> Map.new(fn {worker_id, branches} ->
+      ordered_branches =
+        Enum.sort_by(branches, fn branch ->
+          {branch.relay_session_id, branch.branch_id}
+        end)
+
+      active_assignments =
+        ordered_branches
+        |> Enum.take(state.assignment_detail_limit)
+        |> Enum.map(&assignment_details/1)
+
+      {worker_id,
+       %{
+         active_assignment_count: length(ordered_branches),
+         active_assignments: active_assignments
+       }}
+    end)
+  end
+
+  defp assignment_details(branch) do
+    %{
+      relay_session_id: branch.relay_session_id,
+      branch_id: branch.branch_id,
+      worker_id: branch.worker_id,
+      display_name: branch.display_name,
+      adapter: branch.adapter,
+      capabilities: List.wrap(branch.capabilities),
+      selection_mode: branch.selection_mode,
+      requested_capability: branch.requested_capability,
+      registry_managed?: branch.registry_managed?
+    }
+  end
+
   defp delete_branch(state, relay_session_id, branch_id) do
     updated_relay_branches =
       state.branches
@@ -234,7 +311,11 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
     case attrs
          |> Map.get(
            :registered_worker_id,
-           Map.get(attrs, "registered_worker_id", Map.get(attrs, :worker_id, Map.get(attrs, "worker_id")))
+           Map.get(
+             attrs,
+             "registered_worker_id",
+             Map.get(attrs, :worker_id, Map.get(attrs, "worker_id"))
+           )
          )
          |> to_string()
          |> String.trim() do
@@ -247,7 +328,11 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
     case attrs
          |> Map.get(
            :required_capability,
-           Map.get(attrs, "required_capability", Map.get(attrs, :capability, Map.get(attrs, "capability")))
+           Map.get(
+             attrs,
+             "required_capability",
+             Map.get(attrs, :capability, Map.get(attrs, "capability"))
+           )
          )
          |> to_string()
          |> String.trim() do
@@ -257,7 +342,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
   end
 
   defp format_reason(nil), do: nil
+
   defp format_reason({:unsupported_worker_adapter, adapter}), do: "unsupported_worker_adapter:#{adapter}"
+
   defp format_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason), do: inspect(reason)

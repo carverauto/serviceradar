@@ -72,6 +72,13 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouterTest do
     assert alert_attrs.source_id == "camera_analysis_worker:worker-alpha:unhealthy"
     assert alert_attrs.metadata["camera_analysis_worker_id"] == "worker-alpha"
     assert alert_attrs.metadata["event_id"] == event_attrs.id
+    assert alert_attrs.metadata["notification_policy_path"] == "standard_alert"
+
+    assert alert_attrs.metadata["notification_policy_source"] ==
+             "camera_analysis_worker_routed_alert"
+
+    assert alert_attrs.metadata["notification_policy_eligible"] == true
+    assert "notification-policy" in alert_attrs.tags
   end
 
   test "routes alert clear by recording a recovery event and resolving active alerts" do
@@ -248,6 +255,30 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouterTest do
              "camera_analysis_worker:worker-epsilon:failover_exhausted"
 
     assert context.routed_alert_title =~ "Epsilon Detector"
+  end
+
+  test "builds notification policy context from routed alert state" do
+    worker =
+      worker_fixture(%{
+        worker_id: "worker-zeta",
+        alert_active: true,
+        alert_state: "unhealthy"
+      })
+
+    context = AnalysisWorkerAlertRouter.notification_policy_context(worker)
+
+    assert context.notification_policy_active == true
+    assert context.notification_policy_eligible == true
+    assert context.notification_policy_path == "standard_alert"
+    assert context.notification_policy_source == "camera_analysis_worker_routed_alert"
+  end
+
+  test "returns inactive notification policy context when no routed worker alert is active" do
+    context = AnalysisWorkerAlertRouter.notification_policy_context(%{worker_id: "worker-idle"})
+
+    assert context.notification_policy_active == false
+    assert context.notification_policy_eligible == false
+    assert context.notification_policy_path == nil
   end
 
   defp worker_fixture(overrides) do

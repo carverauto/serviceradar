@@ -10,6 +10,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
   alias ServiceRadar.Camera.AnalysisWorkerAlertRouter
   alias ServiceRadar.Telemetry
   alias ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager
+  alias ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager
   alias ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapter
   alias ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver
 
@@ -64,11 +65,18 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
       telemetry_module: Map.get(opts, :telemetry_module, Telemetry),
       worker_resolver: Map.get(opts, :worker_resolver, AnalysisWorkerResolver),
       alert_router: Map.get(opts, :alert_router, AnalysisWorkerAlertRouter),
-      task_supervisor: Map.get(opts, :task_supervisor, ServiceRadarCoreElx.CameraRelay.AnalysisDispatchTaskSupervisor),
+      dispatch_manager: Map.get(opts, :dispatch_manager, AnalysisDispatchManager),
+      task_supervisor:
+        Map.get(
+          opts,
+          :task_supervisor,
+          ServiceRadarCoreElx.CameraRelay.AnalysisDispatchTaskSupervisor
+        ),
       inflight: %{},
       failover_attempts: 0,
       max_failovers: positive_integer(Map.get(opts, :max_failovers), @default_max_failovers),
-      probe_history_limit: positive_integer(Map.get(opts, :probe_history_limit), @default_probe_history_limit),
+      probe_history_limit:
+        positive_integer(Map.get(opts, :probe_history_limit), @default_probe_history_limit),
       excluded_worker_ids: [worker.worker_id]
     }
 
@@ -127,7 +135,11 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
         case result do
           :ok ->
             state = maybe_mark_worker_healthy(state)
-            emit_dispatch_event(state, :dispatch_succeeded, input, inflight_count: map_size(inflight))
+
+            emit_dispatch_event(state, :dispatch_succeeded, input,
+              inflight_count: map_size(inflight)
+            )
+
             {:noreply, %{state | inflight: inflight}}
 
           {:error, reason} ->
@@ -271,7 +283,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
                 requested_capability: replacement_worker.requested_capability,
                 registry_managed?: replacement_worker.registry_managed?,
                 flapping: Map.get(replacement_worker, :flapping, false),
-                flapping_transition_count: Map.get(replacement_worker, :flapping_transition_count, 0),
+                flapping_transition_count:
+                  Map.get(replacement_worker, :flapping_transition_count, 0),
                 flapping_window_size: Map.get(replacement_worker, :flapping_window_size, 0)
               })
             )
@@ -280,7 +293,11 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
               :excluded_worker_ids,
               Enum.uniq([replacement_worker.worker_id | selection_attrs.excluded_worker_ids])
             )
-            |> start_dispatch_task(input)
+
+          report_current_assignment(replacement_state)
+
+          replacement_state =
+            start_dispatch_task(replacement_state, input)
 
           {:noreply, replacement_state}
 
@@ -294,7 +311,12 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
                    alert_override_reason: format_reason(failover_reason)
                  ) do
               {:ok, alerted_worker} ->
-                maybe_emit_worker_alert_changed(updated_state, updated_state.worker, alerted_worker)
+                maybe_emit_worker_alert_changed(
+                  updated_state,
+                  updated_state.worker,
+                  alerted_worker
+                )
+
                 merge_worker_runtime_state(updated_state, alerted_worker)
 
               {:error, _reason} ->
@@ -310,10 +332,22 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
             format_reason(failover_reason)
           )
 
-          emit_terminal_dispatch_failure(alerted_state, input, reason, map_size(inflight), failover_attempt)
+          emit_terminal_dispatch_failure(
+            alerted_state,
+            input,
+            reason,
+            map_size(inflight),
+            failover_attempt
+          )
       end
     else
-      emit_terminal_dispatch_failure(next_state, input, reason, map_size(inflight), state.failover_attempts)
+      emit_terminal_dispatch_failure(
+        next_state,
+        input,
+        reason,
+        map_size(inflight),
+        state.failover_attempts
+      )
     end
   end
 
@@ -439,7 +473,12 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
         alert_active: Map.get(updated_worker, :alert_active, false),
         alert_state: Map.get(updated_worker, :alert_state),
         alert_reason: Map.get(updated_worker, :alert_reason),
-        consecutive_failures: Map.get(updated_worker, :consecutive_failures, Map.get(worker, :consecutive_failures, 0))
+        consecutive_failures:
+          Map.get(
+            updated_worker,
+            :consecutive_failures,
+            Map.get(worker, :consecutive_failures, 0)
+          )
       })
     end)
   end
@@ -481,7 +520,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
   defp format_reason(reason), do: inspect(reason)
 
   defp required_string!(opts, key) do
-    case opts |> Map.get(key, Map.get(opts, to_string(key), "")) |> to_string() |> String.trim() do
+    case opts
+         |> Map.get(key, Map.get(opts, to_string(key), ""))
+         |> to_string()
+         |> String.trim() do
       "" -> raise ArgumentError, "#{key} is required"
       value -> value
     end
@@ -497,4 +539,21 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
   end
 
   defp positive_integer(_value, default), do: default
+
+  defp report_current_assignment(state) do
+    state.dispatch_manager.report_branch_assignment(
+      state.relay_session_id,
+      state.branch_id,
+      %{
+        worker_id: state.worker.worker_id,
+        display_name: state.worker.display_name,
+        endpoint_url: state.worker.endpoint_url,
+        adapter: state.worker.adapter,
+        capabilities: state.worker.capabilities,
+        selection_mode: state.worker.selection_mode,
+        requested_capability: state.worker.requested_capability,
+        registry_managed?: state.worker.registry_managed?
+      }
+    )
+  end
 end

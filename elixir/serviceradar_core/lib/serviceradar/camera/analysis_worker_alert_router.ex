@@ -105,6 +105,30 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
     }
   end
 
+  @spec notification_policy_context(map()) :: map()
+  def notification_policy_context(worker) when is_map(worker) do
+    routed = routed_alert_context(worker)
+    active? = Map.get(routed, :routed_alert_active, false)
+
+    %{
+      notification_policy_active: active?,
+      notification_policy_eligible: active?,
+      notification_policy_path: if(active?, do: "standard_alert"),
+      notification_policy_source: if(active?, do: "camera_analysis_worker_routed_alert"),
+      notification_policy_reason: if(active?, do: "eligible_via_standard_alert_notification_path")
+    }
+  end
+
+  def notification_policy_context(_worker) do
+    %{
+      notification_policy_active: false,
+      notification_policy_eligible: false,
+      notification_policy_path: nil,
+      notification_policy_source: nil,
+      notification_policy_reason: nil
+    }
+  end
+
   defp route_step(
          %{kind: :activate} = transition,
          actor,
@@ -291,7 +315,8 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
       metadata:
         event.metadata
         |> Map.put("event_id", event.id)
-        |> Map.put("log_name", event.log_name),
+        |> Map.put("log_name", event.log_name)
+        |> Map.merge(alert_notification_policy_metadata(transition)),
       tags: alert_tags(transition)
     }
   end
@@ -404,11 +429,25 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
   end
 
   defp default_alert_title(worker, alert_state) do
-    "Camera Analysis Worker Alert: #{worker.display_name || worker.worker_id} (#{alert_state})"
+    display_name = map_value(worker, :display_name)
+    worker_id = map_value(worker, :worker_id, "unknown-worker")
+    "Camera Analysis Worker Alert: #{display_name || worker_id} (#{alert_state})"
+  end
+
+  defp alert_notification_policy_metadata(transition) do
+    %{
+      "notification_policy_path" => "standard_alert",
+      "notification_policy_source" => "camera_analysis_worker_routed_alert",
+      "notification_policy_eligible" => true,
+      "routed_alert_key" => transition.routing_key
+    }
   end
 
   defp alert_tags(transition) do
-    Enum.reject(["camera-analysis", "analysis-worker", transition.alert_state], &is_nil/1)
+    Enum.reject(
+      ["camera-analysis", "analysis-worker", "notification-policy", transition.alert_state],
+      &is_nil/1
+    )
   end
 
   defp severity_for_transition(%{kind: :clear}), do: {1, "Informational"}

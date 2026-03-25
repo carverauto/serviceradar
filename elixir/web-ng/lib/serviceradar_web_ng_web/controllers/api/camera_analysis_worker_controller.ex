@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
   alias ServiceRadarWebNG.CameraAnalysisWorkers
   alias ServiceRadarWebNG.RBAC
 
-  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
+  action_fallback(ServiceRadarWebNGWeb.Api.FallbackController)
 
   def index(conn, params) do
     with :ok <- require_authenticated(conn),
@@ -73,7 +73,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
          :ok <- require_permission(conn, "settings.edge.manage"),
          {:ok, _worker} <- fetch_worker(id, conn),
          {:ok, attrs} <- normalize_update_attrs(params),
-         {:ok, worker} <- camera_analysis_workers().update_worker(id, attrs, scope: get_scope(conn)) do
+         {:ok, worker} <-
+           camera_analysis_workers().update_worker(id, attrs, scope: get_scope(conn)) do
       json(conn, %{data: worker_json(worker)})
     else
       {:error, :invalid_request, message} ->
@@ -99,7 +100,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "settings.edge.manage"),
          {:ok, _worker} <- fetch_worker(id, conn),
-         {:ok, worker} <- camera_analysis_workers().set_enabled(id, enabled, scope: get_scope(conn)) do
+         {:ok, worker} <-
+           camera_analysis_workers().set_enabled(id, enabled, scope: get_scope(conn)) do
       json(conn, %{data: worker_json(worker)})
     else
       {:error, :invalid_request, message} ->
@@ -115,7 +117,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
 
   defp fetch_worker(id, conn) do
     with {:ok, normalized_id} <- normalize_uuid_param(id, "id"),
-         {:ok, worker} <- camera_analysis_workers().get_worker(normalized_id, scope: get_scope(conn)) do
+         {:ok, worker} <-
+           camera_analysis_workers().get_worker(normalized_id, scope: get_scope(conn)) do
       case worker do
         nil -> {:error, :not_found}
         _ -> {:ok, worker}
@@ -229,11 +232,14 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
      |> Enum.reject(&(&1 == ""))}
   end
 
-  defp normalize_string_list(_values), do: {:error, :invalid_request, "capabilities must be a list of strings"}
+  defp normalize_string_list(_values),
+    do: {:error, :invalid_request, "capabilities must be a list of strings"}
 
   defp normalize_map(nil, _field_name), do: {:ok, %{}}
   defp normalize_map(value, _field_name) when is_map(value), do: {:ok, value}
-  defp normalize_map(_value, field_name), do: {:error, :invalid_request, "#{field_name} must be an object"}
+
+  defp normalize_map(_value, field_name),
+    do: {:error, :invalid_request, "#{field_name} must be an object"}
 
   defp required_string(params, key) do
     case normalize_optional_string(Map.get(params, key)) do
@@ -251,7 +257,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
     end
   end
 
-  defp normalize_uuid_param(_value, field_name), do: {:error, :invalid_request, "#{field_name} is required"}
+  defp normalize_uuid_param(_value, field_name),
+    do: {:error, :invalid_request, "#{field_name} is required"}
 
   defp normalize_optional_string(value) when is_binary(value) do
     case String.trim(value) do
@@ -325,6 +332,18 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
         header_keys: worker |> Map.get(:headers, %{}) |> Map.keys() |> Enum.sort(),
         metadata: worker.metadata || %{},
         recent_probe_results: normalize_probe_results(worker.recent_probe_results),
+        active_assignment_count: Map.get(worker, :active_assignment_count, 0),
+        active_assignments:
+          normalize_active_assignments(Map.get(worker, :active_assignments, [])),
+        notification_audit_active: Map.get(worker, :notification_audit_active, false),
+        notification_audit_alert_id: Map.get(worker, :notification_audit_alert_id),
+        notification_audit_alert_status: Map.get(worker, :notification_audit_alert_status),
+        notification_audit_notification_count:
+          Map.get(worker, :notification_audit_notification_count, 0),
+        notification_audit_last_notification_at:
+          format_datetime(Map.get(worker, :notification_audit_last_notification_at)),
+        notification_audit_suppressed_until:
+          format_datetime(Map.get(worker, :notification_audit_suppressed_until)),
         last_health_transition_at: format_datetime(worker.last_health_transition_at),
         last_healthy_at: format_datetime(worker.last_healthy_at),
         last_failure_at: format_datetime(worker.last_failure_at),
@@ -332,6 +351,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
         updated_at: format_datetime(worker.updated_at)
       },
       AnalysisWorkerAlertRouter.routed_alert_context(worker)
+      |> Map.merge(AnalysisWorkerAlertRouter.notification_policy_context(worker))
     )
   end
 
@@ -347,6 +367,25 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
         checked_at: Map.get(result, "checked_at") || Map.get(result, :checked_at),
         status: Map.get(result, "status") || Map.get(result, :status),
         reason: Map.get(result, "reason") || Map.get(result, :reason)
+      }
+    end)
+  end
+
+  defp normalize_active_assignments(assignments) do
+    assignments
+    |> List.wrap()
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(fn assignment ->
+      %{
+        relay_session_id: Map.get(assignment, :relay_session_id),
+        branch_id: Map.get(assignment, :branch_id),
+        worker_id: Map.get(assignment, :worker_id),
+        display_name: Map.get(assignment, :display_name),
+        adapter: Map.get(assignment, :adapter),
+        capabilities: List.wrap(Map.get(assignment, :capabilities, [])),
+        selection_mode: Map.get(assignment, :selection_mode),
+        requested_capability: Map.get(assignment, :requested_capability),
+        registry_managed?: Map.get(assignment, :registry_managed?, false)
       }
     end)
   end
