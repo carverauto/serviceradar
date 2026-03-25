@@ -147,7 +147,7 @@ defmodule ServiceRadarWebNG.Application do
     # Small delay for EPMD to be ready
     Process.sleep(100)
 
-    case Node.start(node_name, :longnames) do
+    case Node.start(node_name, name_domain: :longnames) do
       {:ok, _pid} ->
         Node.set_cookie(cookie)
         Logger.info("Node started successfully as #{Node.self()} with cookie")

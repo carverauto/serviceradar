@@ -152,8 +152,6 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     merge_scope_fields(json["scope"], scope_name, scope_version)
   end
 
-  defp parse_scope_fields(_), do: {nil, nil}
-
   defp parse_scope_attributes(json) when is_map(json) do
     json
     |> FieldParser.get_field("scope_attributes", "scopeAttributes")
@@ -168,8 +166,6 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     end
   end
 
-  defp parse_scope_attributes(_), do: %{}
-
   defp parse_observed_timestamp(json) when is_map(json) do
     case json["observed_timestamp"] ||
            json["observedTimestamp"] ||
@@ -179,8 +175,6 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       value -> FieldParser.parse_timestamp(value)
     end
   end
-
-  defp parse_observed_timestamp(_), do: nil
 
   defp parse_trace_flags(json) when is_map(json) do
     case json["trace_flags"] || json["traceFlags"] || json["flags"] do
@@ -197,8 +191,6 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         nil
     end
   end
-
-  defp parse_trace_flags(_), do: nil
 
   defp normalize_resource_attributes(json) do
     json

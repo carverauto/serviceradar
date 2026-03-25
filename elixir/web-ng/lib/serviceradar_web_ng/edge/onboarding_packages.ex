@@ -112,6 +112,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   2. Generates a component certificate signed by the platform CA
   3. Includes the encrypted certificate bundle in the package
 
+  In the current single-deployment setup, this may return `{:error, :ca_not_available}`
+  when platform-side certificate issuance is not enabled.
+
   The certificate CN follows the format: `<component_id>.<partition_id>.serviceradar`
 
   ## Options
@@ -150,15 +153,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
           {:ok, map()} | {:error, term()}
   def create_with_platform_cert(attrs, opts \\ []) do
     opts = build_opts(opts)
-
-    case AshPackages.create_with_platform_cert(attrs, opts) do
-      {:ok, %{package: package} = result} ->
-        EdgePubSub.broadcast_package_created(package)
-        {:ok, result}
-
-      other ->
-        other
-    end
+    AshPackages.create_with_platform_cert(attrs, opts)
   end
 
   @doc """

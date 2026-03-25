@@ -1,6 +1,9 @@
 export const godViewLifecycleStreamSnapshotMethods = {
-  handleSnapshot(msg) {
+  async handleSnapshot(msg) {
     const startedAt = performance.now()
+    const requestToken = Number(this.state.layoutRequestToken || 0) + 1
+    this.state.layoutRequestToken = requestToken
+
     try {
       const snapshot = this.parseSnapshotMessage(msg)
       const revision = Number.isFinite(Number(snapshot.revision)) ? Number(snapshot.revision) : this.state.lastRevision
@@ -15,7 +18,8 @@ export const godViewLifecycleStreamSnapshotMethods = {
       const decodeStart = performance.now()
       const rawGraph = this.deps.decodeArrowGraph(bytes)
       const topologyStamp = this.deps.graphTopologyStamp(rawGraph)
-      const graph = this.deps.prepareGraphLayout(rawGraph, revision, topologyStamp)
+      const graph = await this.deps.prepareGraphLayout(rawGraph, revision, topologyStamp)
+      if (requestToken !== this.state.layoutRequestToken) return
       const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
       const bitmapMetadata = this.deps.ensureBitmapMetadata(snapshot.bitmapMetadata, graph.nodes)
 
@@ -34,7 +38,7 @@ export const godViewLifecycleStreamSnapshotMethods = {
         `schema=${snapshot.schemaVersion} revision=${snapshot.revision} nodes=${graph.nodes.length} ` +
         `edges=${graph.edges.length} payload=${bytes.byteLength}B selected=` +
         `${this.state.selectedNodeIndex === null ? "none" : this.state.selectedNodeIndex} visible=` +
-        `${this.state.lastVisibleNodeCount}/${graph.nodes.length}`
+        `${this.state.lastVisibleNodeCount}/${graph.nodes.length} layout=${graph._layoutMode || "unknown"}`
       const renderMs = Math.round((performance.now() - renderStart) * 100) / 100
       const networkMs = Math.round((performance.now() - startedAt) * 100) / 100
 

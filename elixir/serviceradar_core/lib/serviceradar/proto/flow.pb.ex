@@ -83,9 +83,20 @@ defmodule Flowpb.FlowMessage do
   field :mpls_ip, 82, repeated: true, type: :bytes, json_name: "mplsIp"
   field :observation_domain_id, 70, type: :uint32, json_name: "observationDomainId"
   field :observation_point_id, 71, type: :uint32, json_name: "observationPointId"
-  field :layer_stack, 103, repeated: true, type: Flowpb.FlowMessage.LayerStack, json_name: "layerStack", enum: true
+
+  field :layer_stack, 103,
+    repeated: true,
+    type: Flowpb.FlowMessage.LayerStack,
+    json_name: "layerStack",
+    enum: true
+
   field :layer_size, 104, repeated: true, type: :uint32, json_name: "layerSize"
-  field :ipv6_routing_header_addresses, 105, repeated: true, type: :bytes, json_name: "ipv6RoutingHeaderAddresses"
+
+  field :ipv6_routing_header_addresses, 105,
+    repeated: true,
+    type: :bytes,
+    json_name: "ipv6RoutingHeaderAddresses"
+
   field :ipv6_routing_header_seg_left, 106, type: :uint32, json_name: "ipv6RoutingHeaderSegLeft"
   field :protocol_name, 107, type: :string, json_name: "protocolName"
 end

@@ -164,17 +164,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         %Ash.BulkResult{status: :success} ->
           :ok
 
-        %Ash.BulkResult{status: :error, errors: errors} = result ->
+        %Ash.BulkResult{errors: errors} = result ->
           {:error, errors || result}
-
-        {:ok, _} ->
-          :ok
-
-        {:error, error} ->
-          {:error, error}
-
-        other ->
-          {:error, other}
       end
     end
   end

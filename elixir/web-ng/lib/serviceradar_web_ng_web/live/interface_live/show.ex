@@ -1712,9 +1712,6 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp admin_status_text(_), do: "Unknown"
 
   # Interface settings helpers
-  defp load_interface_settings(_scope, nil, _interface_uid), do: nil
-  defp load_interface_settings(_scope, _device_uid, nil), do: nil
-
   defp load_interface_settings(scope, device_uid, interface_uid) do
     case InterfaceSettings.get_by_interface(device_uid, interface_uid, scope: scope) do
       {:ok, settings} -> settings

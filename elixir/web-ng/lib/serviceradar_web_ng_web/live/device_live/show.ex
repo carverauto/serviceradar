@@ -2067,8 +2067,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     ArgumentError -> Map.get(payload, key)
   end
 
-  defp flow_stat_field(_payload, _key), do: nil
-
   defp row_payload(%{"payload" => payload}) when is_map(payload), do: payload
   defp row_payload(%{} = row), do: row
   defp row_payload(_), do: %{}
@@ -3700,8 +3698,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     not has_rule and has_display_values and has_snmp_evidence
   end
 
-  defp snmp_fallback_derived?(_row), do: false
-
   defp normalize_metadata_source(nil), do: ""
 
   defp normalize_metadata_source(value) do
@@ -5054,16 +5050,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp flow_service_label(_), do: nil
-
   defp flow_exporter_name(flow) when is_map(flow) do
     case Map.get(flow, "exporter_name") do
       name when is_binary(name) and name != "" -> name
       _ -> nil
     end
   end
-
-  defp flow_exporter_name(_), do: nil
 
   defp flow_format_number(nil), do: "—"
   defp flow_format_number(n) when is_number(n), do: format_si(n)
@@ -5099,8 +5091,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     Enum.join(tokens, " ")
   end
-
-  defp flow_drilldown_query(_), do: "in:flows time:last_24h sort:time:desc"
 
   defp maybe_add_flow_token(tokens, _field, nil), do: tokens
   defp maybe_add_flow_token(tokens, _field, ""), do: tokens
@@ -6135,8 +6125,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     Enum.sort_by(rows, &timestamp_sort_key/1)
   end
 
-  defp sort_rows_by_timestamp(rows), do: rows
-
   defp timestamp_sort_key(row) when is_map(row) do
     case parse_datetime(Map.get(row, "timestamp")) do
       {:ok, dt} -> DateTime.to_unix(dt, :millisecond)
@@ -6187,7 +6175,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_timestamp(value) do
     case parse_datetime(value) do
       {:ok, %DateTime{} = dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      {:ok, %NaiveDateTime{} = ndt} -> Calendar.strftime(ndt, "%Y-%m-%d %H:%M:%S")
       _ -> "—"
     end
   end
@@ -6361,8 +6348,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp prefer_visual_panels(panels, _results), do: panels
-
   defp drop_category_panels_when_timeseries(panels) when is_list(panels) do
     has_timeseries = Enum.any?(panels, &(&1.plugin == TimeseriesPlugin))
 
@@ -6372,8 +6357,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       panels
     end
   end
-
-  defp drop_category_panels_when_timeseries(panels), do: panels
 
   defp maybe_force_timeseries(panels, results, series_field) do
     has_visual = Enum.any?(panels, &(&1.plugin != TablePlugin))
@@ -6436,7 +6419,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp maybe_put_identity(identity, _key, ""), do: identity
-  defp maybe_put_identity(identity, _key, nil), do: identity
 
   defp maybe_put_identity(identity, key, value) do
     if is_binary(value) and String.trim(value) != "" do
@@ -6495,13 +6477,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     Enum.reject(panels, &low_value_categories_panel?/1)
   end
 
-  defp drop_low_value_categories(_), do: []
-
   defp drop_table_panels(panels) when is_list(panels) do
     Enum.reject(panels, &(&1.plugin == TablePlugin))
   end
-
-  defp drop_table_panels(panels), do: panels
 
   defp low_value_categories_panel?(%{plugin: CategoriesPlugin, assigns: assigns}) do
     case Map.get(assigns, :viz) do
@@ -6532,7 +6510,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     value_field =
       case value_field do
-        nil -> nil
         "" -> nil
         other -> other |> to_string() |> String.trim()
       end
@@ -6984,8 +6961,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp parse_checker_identity(_), do: :error
-
   defp build_healthcheck_summary(rows) do
     # Group by service_name and take most recent status for each
     services_by_name =
@@ -7310,7 +7285,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp truncate_agent_id("—"), do: "—"
-  defp truncate_agent_id(nil), do: "—"
 
   defp truncate_agent_id(agent_id) when is_binary(agent_id) do
     if String.length(agent_id) > 12 do
@@ -7319,8 +7293,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       agent_id
     end
   end
-
-  defp truncate_agent_id(_), do: "—"
 
   defp alias_state_label(nil), do: "Unknown"
 
@@ -7523,7 +7495,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp load_mapper_jobs_for_device(nil, _device_row), do: []
-  defp load_mapper_jobs_for_device(_scope, nil), do: []
 
   defp load_mapper_jobs_for_device(scope, device_row) do
     ip = Map.get(device_row, "ip")
@@ -8355,9 +8326,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       %Ash.BulkResult{status: :error, errors: errors} ->
         {:error, List.first(errors) || :bulk_update_failed}
-
-      other ->
-        {:error, other}
     end
   end
 end

@@ -149,8 +149,6 @@ defmodule ServiceRadar.Observability.SRQLRunner do
     end
   end
 
-  defp next_cursor(_translation, _result), do: nil
-
   defp text_param_decoder(opts) do
     Keyword.get(opts, :text_param_decoder, &default_text_param_decoder/1)
   end

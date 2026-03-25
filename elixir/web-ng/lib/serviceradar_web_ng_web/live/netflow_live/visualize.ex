@@ -467,8 +467,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     end
   end
 
-  defp apply_endpoint_filter(query, _side, _value), do: query
-
   defp apply_mid_filter(query, nil, _mid_value, _port), do: query
 
   defp apply_mid_filter(query, mid_field, mid_value, port) when is_binary(mid_field) do
@@ -495,8 +493,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         query
     end
   end
-
-  defp apply_mid_filter(query, _mid_field, _mid_value, _port), do: query
 
   @impl true
   def render(assigns) do
@@ -1538,8 +1534,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     end
   end
 
-  defp ensure_sort_time_desc(other), do: to_string(other || "")
-
   defp rdns_map_for_flows(flows, scope) when is_list(flows) do
     ips =
       flows
@@ -1571,8 +1565,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         %{}
     end
   end
-
-  defp rdns_map_for_flows(_flows, _scope), do: %{}
 
   defp geo_iso2_map_for_flows(flows, scope) when is_list(flows) do
     ips =
@@ -1607,8 +1599,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     _ -> %{}
   end
 
-  defp geo_iso2_map_for_flows(_flows, _scope), do: %{}
-
   defp flows_window_label_from_query(query, fallback_time) when is_binary(query) and is_binary(fallback_time) do
     # Prefer explicit bracket range, otherwise show the state time token.
     case parse_time_window_from_query(query) do
@@ -1625,9 +1615,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp flows_window_label_from_query(_query, fallback_time), do: human_time_token(fallback_time)
 
-  defp human_time_token(nil), do: nil
-  defp human_time_token(""), do: nil
-
   defp human_time_token(token) when is_binary(token) do
     t = String.trim(token)
 
@@ -1642,8 +1629,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         t
     end
   end
-
-  defp human_time_token(other), do: to_string(other || "")
 
   defp chart_query_from_state(base_query, %{} = state) do
     time = Map.get(state, "time", @default_time)
@@ -1729,8 +1714,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     dst = Enum.find(dims, &(&1 in dst_allowed)) || "dst_cidr"
     [src, mid, dst]
   end
-
-  defp sanitize_sankey_dims(_), do: ["src_cidr", "dst_port", "dst_cidr"]
 
   defp dim_human_label(nil), do: ""
   defp dim_human_label(""), do: ""
@@ -2815,8 +2798,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     end
   end
 
-  defp maybe_add_geo_marker(markers, _side, _ip, _geo), do: markers
-
   defp load_flow_context(flow, scope) when is_map(flow) do
     srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
     user = scope && scope.user
@@ -2897,8 +2878,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     |> String.replace("\r", " ")
     |> String.trim()
   end
-
-  defp escape_value(other), do: escape_value(to_string(other || ""))
 
   defp lookup_device_uid_by_ip_or_mac(_srql_module, _scope, nil, nil), do: nil
 
@@ -3009,7 +2988,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   defp read_port_anomaly(nil, _port), do: nil
-  defp read_port_anomaly(_user, nil), do: nil
 
   defp read_port_anomaly(user, port) when is_integer(port) and port > 0 do
     query = Ash.Query.for_read(NetflowPortAnomalyFlag, :by_port, %{dst_port: port})
@@ -3140,7 +3118,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp bucket_to_seconds("1m"), do: 60
   defp bucket_to_seconds("5m"), do: 300
-  defp bucket_to_seconds("15m"), do: 900
   defp bucket_to_seconds("1h"), do: 3600
   defp bucket_to_seconds(_), do: 300
 
@@ -3379,8 +3356,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     |> Map.values()
   end
 
-  defp sankey_aggregate_edges(other), do: other
-
   defp extract_srql_rows(results) when is_list(results) do
     Enum.map(results, fn
       %{"payload" => %{} = payload} -> payload
@@ -3502,7 +3477,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp run_asn_lookup(asn, :arin), do: fetch_arin_asn(asn)
   defp run_asn_lookup(asn, :ripe), do: fetch_ripe_asn(asn)
-  defp run_asn_lookup(_asn, _), do: {:error, :invalid_registry}
 
   defp normalize_rir_hint(value) when is_binary(value) do
     case String.trim(String.downcase(value)) do
@@ -3591,8 +3565,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     _ -> :miss
   end
 
-  defp arin_cache_get(_), do: :miss
-
   defp arin_cache_put(asn, result) when is_integer(asn) do
     ensure_arin_cache_table()
 
@@ -3605,8 +3577,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   rescue
     _ -> :ok
   end
-
-  defp arin_cache_put(_asn, _result), do: :ok
 
   defp ensure_arin_cache_table do
     case :ets.whereis(@arin_cache_table) do
@@ -3650,8 +3620,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       comment: arin_comment(Map.get(asn_payload, "comment"))
     }
   end
-
-  defp normalize_arin_asn(_), do: %{}
 
   defp normalize_ripe_asn(asn, records) when is_integer(asn) and is_list(records) do
     flat =
@@ -3752,8 +3720,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp arin_error_text(:invalid_asn), do: "Invalid ASN."
   defp arin_error_text({:lookup_failed, _, _, _, _}), do: "ASN lookup failed in ARIN and RIPE."
-  defp arin_error_text(_), do: "ASN lookup failed."
-
   # Use country as a cheap first-pass hint:
   # - US/CA usually ARIN first
   # - everything else RIPE first, with fallback still enabled
@@ -3868,8 +3834,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     end
   end
 
-  defp sankey_endpoint(_row, _side), do: {nil, nil}
-
   defp sankey_mid(%{} = row) do
     find_key = fn prefix ->
       row
@@ -3897,8 +3861,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         {nil, nil, 0}
     end
   end
-
-  defp sankey_mid(_), do: {nil, nil, 0}
 
   defp sankey_mid_label("dst_port", _mid_value, port) when is_integer(port) and port > 0, do: to_string(port)
 
@@ -4117,7 +4079,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
               |> restrict_points_to_keys(keys)
               |> NFQuery.scale_points(scale_fun)
               |> shift_points(diff)
-              |> elem(1)
 
             [%{"type" => "prev", "points" => points}]
           else
@@ -4146,9 +4107,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     end)
   end
 
-  defp restrict_points_to_keys(other, _keys), do: other
-
-  defp shift_points({keys, points}, seconds) when is_list(keys) and is_list(points) and is_integer(seconds) do
+  defp shift_points(points, seconds) when is_list(points) and is_integer(seconds) do
     points =
       Enum.map(points, fn
         %{"t" => t} = point when is_binary(t) ->
@@ -4164,10 +4123,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           other
       end)
 
-    {keys, points}
+    points
   end
-
-  defp shift_points(other, _seconds), do: other
 
   defp parse_time_window_from_query(query) when is_binary(query) do
     case Regex.run(~r/(?:^|\s)time:(?:"([^"]+)"|(\[[^\]]+\])|(\S+))/, query) do
@@ -4177,8 +4134,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       _ -> {:error, :no_time}
     end
   end
-
-  defp parse_time_window_from_query(_), do: {:error, :invalid_query}
 
   defp parse_time_token("last_1h"), do: relative_window(3600)
   defp parse_time_token("last_6h"), do: relative_window(6 * 3600)
@@ -4200,8 +4155,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     end
   end
 
-  defp parse_time_token(_), do: {:error, :invalid_time}
-
   defp relative_window(seconds) when is_integer(seconds) and seconds > 0 do
     end_dt = DateTime.truncate(DateTime.utc_now(), :second)
     start_dt = DateTime.add(end_dt, -seconds, :second)
@@ -4217,13 +4170,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     end
   end
 
-  defp parse_dt(_), do: {:error, :invalid_dt}
-
   defp bracket_range?(token) when is_binary(token) do
     String.starts_with?(token, "[") and String.ends_with?(token, "]")
   end
-
-  defp bracket_range?(_), do: false
 
   defp parse_bracket_range(token) when is_binary(token) do
     token
@@ -4241,8 +4190,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         {:error, :invalid_range}
     end
   end
-
-  defp parse_bracket_range(_), do: {:error, :invalid_range}
 
   defp parse_last_duration_seconds(token) when is_binary(token) do
     case Regex.run(~r/^last_(\d+)([mhd])$/, token) do
@@ -4262,8 +4209,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         {:error, :invalid_last}
     end
   end
-
-  defp parse_last_duration_seconds(_), do: {:error, :invalid_last}
 
   defp format_flow_time_short(nil), do: nil
   defp format_flow_time_short(""), do: nil
@@ -4347,8 +4292,4 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       do: :erlang.float_to_binary(v, decimals: 1),
       else: :erlang.float_to_binary(v, decimals: 2)
   end
-
-  defp format_float(v) when is_integer(v), do: Integer.to_string(v)
-  defp format_float(v) when is_binary(v), do: v
-  defp format_float(_), do: "0"
 end

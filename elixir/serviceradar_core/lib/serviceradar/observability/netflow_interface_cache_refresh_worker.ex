@@ -100,7 +100,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
         }
       end)
 
-    case Ash.bulk_create(NetflowInterfaceCache, :upsert, attrs,
+    case Ash.bulk_create(attrs, NetflowInterfaceCache, :upsert,
            actor: actor,
            domain: Observability,
            return_errors?: true

@@ -49,6 +49,14 @@ export const godViewRenderingTooltipMethods = {
       "Parent",
       nodeMap,
     )
+    const clusterId = typeof d.cluster_id === "string" ? d.cluster_id.trim() : ""
+    const clusterExpanded = d.cluster_expanded === true
+    const clusterExpandable = d.cluster_expandable === true
+    const clusterKind = typeof d.cluster_kind === "string" ? d.cluster_kind.trim() : ""
+    const clusterHint =
+      clusterId !== "" && clusterExpandable && (clusterKind === "endpoint-summary" || clusterKind === "endpoint-anchor")
+        ? `<div class="opacity-80">${clusterExpanded ? "Click to collapse endpoints" : "Click to expand endpoints"}</div>`
+        : ""
     const geo = [d.geo_city, d.geo_country].filter(Boolean).join(", ")
     return {
       html: [
@@ -61,6 +69,7 @@ export const godViewRenderingTooltipMethods = {
         parentRef,
         geo ? `<div>Geo: ${this.escapeHtml(geo)}</div>` : "",
         d.asn ? `<div>ASN: ${this.escapeHtml(d.asn)}</div>` : "",
+        clusterHint,
       ].filter(Boolean).join(""),
       style: tooltipStyle(),
     }

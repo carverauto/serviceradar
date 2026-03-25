@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG do
   """
 
   use Boundary,
+    check: [apps: [:datasvc, :serviceradar_core, :serviceradar_srql]],
     deps: [Datasvc, ServiceRadar, ServiceRadarSRQL],
     exports: :all
 end

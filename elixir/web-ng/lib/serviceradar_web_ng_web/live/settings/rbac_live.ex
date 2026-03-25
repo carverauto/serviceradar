@@ -1126,17 +1126,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end)
   end
 
-  defp format_ash_error({:http_error, status, body}) do
-    message =
-      case body do
-        %{"error" => error} -> error
-        %{"message" => error} -> error
-        _ -> "Request failed"
-      end
-
-    "HTTP #{status}: #{message}"
-  end
-
   defp format_ash_error(_), do: "Unexpected error"
 
   defp section_grid(%{} = grid, section_key) do

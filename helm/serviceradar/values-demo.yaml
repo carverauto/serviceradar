@@ -10,17 +10,20 @@ topologySpread:
   whenUnsatisfiable: ScheduleAnyway
 
 global:
-  imageTag: "latest"
+  imageTag: "sha-fdc6372102cc9173347a68bc9e991d19c5b448d0"
   imagePullPolicy: Always
 
 image:
   registryPullSecret: ghcr-io-cred
   digests:
-    flowCollector: "sha256:bc33e4015dda594e7551112b9e3b18a47561e6cad2c832623abf7ee458a0f552"
-    logCollector: "sha256:be6a1062a02c3cc33bcac17c131ffef6942cf5fc36f94fac3c2f6bd1867cdb34"
-    rperfClient: "sha256:a84806375a722517ba81d80af1071560d2ffa7903cca66dff193a819ed7a3007"
-    trapd: "sha256:9786b6b9ff24bfd584f7c19a2432181d857078902b17e9f21f39b88881f0644c"
-    zen: "sha256:42671e94db34741f511f465c1decf5100b3d60fbb0cb525e293f58ca0c6979b0"
+    flowCollector: "sha256:97f4201ea817680531149ba76b3c08c64b501da6019e9ed5a69e01ecc2214d0c"
+    logCollector: "sha256:269c830ce0aecf8a71f85f4d8819256e67159c20b66ffacd8932a61824062a27"
+    rperfClient: "sha256:016253f9fe9932e9c6ebe2d606195d502d8df84b62e42b48bfb14d2ae86e9e42"
+    trapd: "sha256:b15f49b96dec8136933d134a4f59d16c6ca241567a4a3c7d3a9d586879e594b1"
+    zen: "sha256:a1a2ed631a167642f54260da3d1276ed39d309c7960889b6f7fa75d0b596cd3b"
+
+tools:
+  enabled: true
 
 natsCreds:
   autoGenerate: true
@@ -45,6 +48,7 @@ agentGateway:
       external-dns.alpha.kubernetes.io/hostname: "demo-gw.serviceradar.cloud."
 
 agent:
+  enabled: false
   hostNetwork: false
   pushInterval: "30s"
   statusDebounceInterval: "30s"

@@ -1159,7 +1159,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
           %{
             t: row["timestamp"] || row["bucket"] || row["time_bucket"],
-            v: if(bucket_secs > 0, do: Float.round(count / bucket_secs, 2), else: count)
+            v: Float.round(count / bucket_secs, 2)
           }
         end)
 
@@ -1338,8 +1338,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   rescue
     ArgumentError -> Map.get(payload, key)
   end
-
-  defp get_field(_payload, _key), do: nil
 
   defp row_payload(%{"payload" => payload}) when is_map(payload), do: payload
   defp row_payload(%{} = row), do: row

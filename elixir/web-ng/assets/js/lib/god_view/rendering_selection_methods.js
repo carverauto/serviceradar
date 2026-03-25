@@ -268,9 +268,16 @@ export const godViewRenderingSelectionMethods = {
     if (Number.isInteger(picked)) {
       const graphNode = this.state.lastGraph?.nodes?.[picked] || null
       const node =
-        clickedNode && typeof clickedNode === "object" && Object.keys(clickedNode).length > 1
-          ? {...graphNode, ...clickedNode}
-          : (graphNode || clickedNode || null)
+        graphNode && clickedNode
+          ? {
+              ...graphNode,
+              ...clickedNode,
+              details: {
+                ...(graphNode?.details || {}),
+                ...(clickedNode?.details || {}),
+              },
+            }
+          : (clickedNode || graphNode || null)
       const clusterDetails = node?.details || {}
       const clusterId = typeof clusterDetails?.cluster_id === "string" ? clusterDetails.cluster_id.trim() : ""
       const clusterKind = typeof clusterDetails?.cluster_kind === "string" ? clusterDetails.cluster_kind.trim() : ""

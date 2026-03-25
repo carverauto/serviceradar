@@ -145,8 +145,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
     if value == "", do: "overall", else: value
   end
 
-  defp series_value(_row, _series_key), do: "overall"
-
   defp add_sparklines(results, spec, spark_by_series) do
     Enum.map(results, fn
       %{} = row ->

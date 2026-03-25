@@ -676,9 +676,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
                       type="button"
                       class="btn btn-xs btn-ghost h-7 min-h-7 w-full mt-1"
                       phx-click="reset_view"
-                      title="Reset view to fit all nodes"
+                      title="Reset view and collapse expanded endpoint clusters"
                     >
-                      Reset View
+                      Reset / Collapse
                     </button>
                   </div>
 

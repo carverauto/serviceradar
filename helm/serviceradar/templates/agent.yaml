@@ -5,9 +5,14 @@
 {{- $agentLimits := default (dict) $agentResources.limits -}}
 {{- $agentRequests := default (dict) $agentResources.requests -}}
 {{- $agentHostNetwork := true -}}
+{{- $agentEnabled := true -}}
 {{- if hasKey $agentVals "hostNetwork" -}}
   {{- $agentHostNetwork = $agentVals.hostNetwork -}}
 {{- end -}}
+{{- if hasKey $agentVals "enabled" -}}
+  {{- $agentEnabled = $agentVals.enabled -}}
+{{- end -}}
+{{- if $agentEnabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -118,3 +123,4 @@ metadata:
   name: {{ $agentSA }}
   labels:
     app.kubernetes.io/part-of: serviceradar
+{{- end }}

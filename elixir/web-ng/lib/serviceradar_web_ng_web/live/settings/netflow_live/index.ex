@@ -880,8 +880,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     )
   end
 
-  defp settings_to_form(_), do: nil
-
   defp merge_settings_form(form, params) do
     # Phoenix form struct has `.source`; we merge incoming params into it for re-render.
     merged = Map.merge(form.source, params || %{})

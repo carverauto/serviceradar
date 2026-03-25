@@ -40,7 +40,9 @@ defmodule Datasvc do
 
   """
 
-  use Boundary, exports: :all
+  use Boundary,
+    top_level?: true,
+    exports: :all
 
   require Logger
 

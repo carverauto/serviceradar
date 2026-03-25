@@ -1,8 +1,8 @@
 defmodule ServiceRadar.EventWriter.Processors.NetFlowMetricsTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.EventWriter.Processors.NetFlowMetrics
   alias Flowpb.FlowMessage
+  alias ServiceRadar.EventWriter.Processors.NetFlowMetrics
 
   describe "table_name/0" do
     test "returns correct table name" do
@@ -22,12 +22,12 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetricsTest do
         sampler_address: <<10, 1, 0, 1>>,
         src_addr: <<10, 1, 0, 100>>,
         dst_addr: <<198, 51, 100, 50>>,
-        src_port: 49876,
+        src_port: 49_876,
         dst_port: 443,
         proto: 6,
         bytes: 1_500_000,
         packets: 1000,
-        as_path: [64512, 64515],
+        as_path: [64_512, 64_515],
         bgp_communities: [4_259_840_100],
         in_if: 10,
         out_if: 20,
@@ -50,7 +50,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetricsTest do
       assert %Postgrex.INET{address: {10, 1, 0, 1}, netmask: 32} = row.sampler_address
 
       # Verify ports and protocol
-      assert row.src_port == 49876
+      assert row.src_port == 49_876
       assert row.dst_port == 443
       assert row.protocol == 6
 
@@ -59,7 +59,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetricsTest do
       assert row.packets_total == 1000
 
       # Verify BGP fields
-      assert row.as_path == [64512, 64515]
+      assert row.as_path == [64_512, 64_515]
       assert row.bgp_communities == [4_259_840_100]
 
       # Verify partition
@@ -100,7 +100,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetricsTest do
         dst_addr: <<8, 8, 8, 8>>,
         sampler_address: <<10, 0, 0, 1>>,
         proto: 17,
-        src_port: 12345,
+        src_port: 12_345,
         dst_port: 53
       }
 
@@ -118,9 +118,14 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetricsTest do
   describe "parse_message/1 - IPv6 address conversion" do
     test "converts 16-byte IPv6 addresses to Postgrex.INET" do
       # IPv6: 2001:0db8:85a3:0000:0000:8a2e:0370:7334
-      ipv6_src = <<0x20, 0x01, 0x0D, 0xB8, 0x85, 0xA3, 0x00, 0x00, 0x00, 0x00, 0x8A, 0x2E, 0x03, 0x70, 0x73, 0x34>>
+      ipv6_src =
+        <<0x20, 0x01, 0x0D, 0xB8, 0x85, 0xA3, 0x00, 0x00, 0x00, 0x00, 0x8A, 0x2E, 0x03, 0x70,
+          0x73, 0x34>>
+
       # IPv6: fe80::1
-      ipv6_dst = <<0xFE, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01>>
+      ipv6_dst =
+        <<0xFE, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+          0x00, 0x01>>
 
       flow = %FlowMessage{
         time_received_ns: 1_705_363_200_000_000_000,
@@ -136,7 +141,11 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetricsTest do
 
       row = NetFlowMetrics.parse_message(message)
 
-      assert %Postgrex.INET{address: {0x2001, 0x0DB8, 0x85A3, 0, 0, 0x8A2E, 0x0370, 0x7334}, netmask: 128} = row.src_ip
+      assert %Postgrex.INET{
+               address: {0x2001, 0x0DB8, 0x85A3, 0, 0, 0x8A2E, 0x0370, 0x7334},
+               netmask: 128
+             } = row.src_ip
+
       assert %Postgrex.INET{address: {0xFE80, 0, 0, 0, 0, 0, 0, 1}, netmask: 128} = row.dst_ip
     end
   end
@@ -174,7 +183,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetricsTest do
         proto: 6,
         src_port: 1234,
         dst_port: 5678,
-        as_path: [64512, 64513, 64514, 15169]
+        as_path: [64_512, 64_513, 64_514, 15_169]
       }
 
       encoded = FlowMessage.encode(flow)
@@ -182,7 +191,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetricsTest do
 
       row = NetFlowMetrics.parse_message(message)
 
-      assert row.as_path == [64512, 64513, 64514, 15169]
+      assert row.as_path == [64_512, 64_513, 64_514, 15_169]
     end
   end
 
@@ -197,7 +206,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetricsTest do
         proto: 6,
         src_port: 1234,
         dst_port: 5678,
-        as_path: [64512, 4_294_967_295]
+        as_path: [64_512, 4_294_967_295]
       }
 
       encoded = FlowMessage.encode(flow)
@@ -206,7 +215,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetricsTest do
       row = NetFlowMetrics.parse_message(message)
 
       # 4,294,967,295 should be capped to 2,147,483,647
-      assert row.as_path == [64512, 2_147_483_647]
+      assert row.as_path == [64_512, 2_147_483_647]
     end
   end
 
@@ -296,6 +305,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetricsTest do
   describe "parse_message/1 - timestamp extraction with flow_start_ns" do
     test "uses flow_start_ns when available" do
       flow_start = 1_705_363_100_000_000_000
+
       flow = %FlowMessage{
         time_flow_start_ns: flow_start,
         time_received_ns: 1_705_363_200_000_000_000,
@@ -318,6 +328,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlowMetricsTest do
   describe "parse_message/1 - timestamp extraction with received_ns fallback" do
     test "uses received_ns when flow_start_ns is 0" do
       received_time = 1_705_363_200_000_000_000
+
       flow = %FlowMessage{
         time_flow_start_ns: 0,
         time_received_ns: received_time,
