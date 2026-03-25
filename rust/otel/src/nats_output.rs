@@ -301,6 +301,30 @@ fn missing_subjects(existing_subjects: &[String], required_subjects: &[String]) 
         .collect()
 }
 
+fn subject_is_wildcard(subject: &str) -> bool {
+    subject.split('.').any(|token| matches!(token, "*" | ">"))
+}
+
+fn reconcile_subjects(existing_subjects: &[String], required_subjects: &[String]) -> Vec<String> {
+    let mut reconciled = existing_subjects.to_vec();
+
+    for required in required_subjects {
+        if subject_is_wildcard(required) {
+            reconciled
+                .retain(|existing| existing == required || !subject_matches(required, existing));
+        }
+
+        if !reconciled
+            .iter()
+            .any(|existing| subject_matches(existing, required))
+        {
+            reconciled.push(required.clone());
+        }
+    }
+
+    reconciled
+}
+
 async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> Result<()> {
     debug!("Creating/verifying JetStream stream: {}", config.stream);
     let logs_subject = config
@@ -343,6 +367,23 @@ async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> R
                     updated_config.subjects.push(subject);
                     needs_update = true;
                 }
+            }
+
+            let reconciled_subjects = reconcile_subjects(existing_subjects, &subjects);
+            if reconciled_subjects != *existing_subjects {
+                let removed_subjects: Vec<String> = existing_subjects
+                    .iter()
+                    .filter(|subject| !reconciled_subjects.contains(*subject))
+                    .cloned()
+                    .collect();
+                if !removed_subjects.is_empty() {
+                    warn!(
+                        "Stream '{}' has legacy subjects covered by required wildcards; removing to avoid JetStream overlap: {:?}",
+                        config.stream, removed_subjects
+                    );
+                }
+                updated_config.subjects = reconciled_subjects;
+                needs_update = true;
             }
 
             if updated_config.max_bytes != config.max_bytes {
@@ -402,12 +443,30 @@ async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> R
             match jetstream.get_stream(&config.stream).await {
                 Ok(mut stream) => {
                     let stream_info = stream.info().await?;
+                    let existing_subjects = &stream_info.config.subjects;
                     let mut updated_config = stream_info.config.clone();
                     let mut needs_update = false;
                     let missing_subjects = missing_subjects(&updated_config.subjects, &subjects);
 
                     for subject in missing_subjects {
                         updated_config.subjects.push(subject);
+                        needs_update = true;
+                    }
+
+                    let reconciled_subjects = reconcile_subjects(existing_subjects, &subjects);
+                    if reconciled_subjects != *existing_subjects {
+                        let removed_subjects: Vec<String> = existing_subjects
+                            .iter()
+                            .filter(|subject| !reconciled_subjects.contains(*subject))
+                            .cloned()
+                            .collect();
+                        if !removed_subjects.is_empty() {
+                            warn!(
+                                "Stream '{}' has legacy subjects covered by required wildcards; removing to avoid JetStream overlap: {:?}",
+                                config.stream, removed_subjects
+                            );
+                        }
+                        updated_config.subjects = reconciled_subjects;
                         needs_update = true;
                     }
 
@@ -1180,6 +1239,30 @@ mod tests {
         assert_eq!(
             missing_subjects(&existing_subjects, &required_subjects),
             vec!["otel.metrics.raw".to_string()]
+        );
+    }
+
+    #[test]
+    fn reconcile_subjects_replaces_legacy_specific_subjects_with_required_wildcards() {
+        let existing_subjects = vec![
+            "otel.traces".to_string(),
+            "otel.metrics".to_string(),
+            "otel.metrics.raw".to_string(),
+            "logs.otel".to_string(),
+        ];
+        let required_subjects = vec![
+            "otel.traces.>".to_string(),
+            "otel.metrics.>".to_string(),
+            "logs.otel".to_string(),
+        ];
+
+        assert_eq!(
+            reconcile_subjects(&existing_subjects, &required_subjects),
+            vec![
+                "logs.otel".to_string(),
+                "otel.traces.>".to_string(),
+                "otel.metrics.>".to_string(),
+            ]
         );
     }
 
