@@ -86,7 +86,7 @@ run mix hex.audit
 run mix deps.audit
 
 if [[ "${skip_dialyzer}" != "true" ]]; then
-  run mix dialyzer
+  run mix dialyzer --force-check
 fi
 
 if [[ "${phoenix}" == "true" ]]; then

@@ -18,8 +18,16 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
   @max_chunk_bytes 262_144
   @agent_gateway_component_types [:agent]
 
-  @spec open_relay_session(Camera.OpenRelaySessionRequest.t(), GRPC.Server.Stream.t()) ::
-          Camera.OpenRelaySessionResponse.t()
+  @typep open_relay_session_request :: %Camera.OpenRelaySessionRequest{}
+  @typep open_relay_session_response :: %Camera.OpenRelaySessionResponse{}
+  @typep upload_media_response :: %Camera.UploadMediaResponse{}
+  @typep relay_heartbeat :: %Camera.RelayHeartbeat{}
+  @typep relay_heartbeat_ack :: %Camera.RelayHeartbeatAck{}
+  @typep close_relay_session_request :: %Camera.CloseRelaySessionRequest{}
+  @typep close_relay_session_response :: %Camera.CloseRelaySessionResponse{}
+
+  @spec open_relay_session(open_relay_session_request(), GRPC.Server.Stream.t()) ::
+          open_relay_session_response()
   def open_relay_session(%Camera.OpenRelaySessionRequest{} = request, stream) do
     agent_id = required_agent_id(request.agent_id)
     identity = extract_identity_from_stream(stream)
@@ -105,7 +113,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
               __STACKTRACE__
   end
 
-  @spec upload_media(Enumerable.t(), GRPC.Server.Stream.t()) :: Camera.UploadMediaResponse.t()
+  @spec upload_media(Enumerable.t(), GRPC.Server.Stream.t()) :: upload_media_response()
   def upload_media(request_stream, stream) do
     identity = extract_identity_from_stream(stream)
     {:ok, session_ref} = Agent.start_link(fn -> %{relay_session_id: nil, media_ingest_id: nil} end)
@@ -145,7 +153,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     end
   end
 
-  @spec heartbeat(Camera.RelayHeartbeat.t(), GRPC.Server.Stream.t()) :: Camera.RelayHeartbeatAck.t()
+  @spec heartbeat(relay_heartbeat(), GRPC.Server.Stream.t()) :: relay_heartbeat_ack()
   def heartbeat(request, stream) do
     agent_id = required_agent_id(request.agent_id)
     identity = extract_identity_from_stream(stream)
@@ -184,8 +192,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     end
   end
 
-  @spec close_relay_session(Camera.CloseRelaySessionRequest.t(), GRPC.Server.Stream.t()) ::
-          Camera.CloseRelaySessionResponse.t()
+  @spec close_relay_session(close_relay_session_request(), GRPC.Server.Stream.t()) ::
+          close_relay_session_response()
   def close_relay_session(request, stream) do
     agent_id = required_agent_id(request.agent_id)
     identity = extract_identity_from_stream(stream)
