@@ -136,30 +136,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
             viewer_count: current_viewer_count(state, relay_session_id)
           })
 
-        if closing_session?(session) do
-          :ok = RelayPubSub.broadcast_state(relay_session_id, relay_state_payload(updated))
-          {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
-        else
-          case sync_module(state).heartbeat_session(
-                 relay_session_id,
-                 media_ingest_id,
-                 %{
-                   lease_expires_at_unix: updated.lease_expires_at_unix,
-                   viewer_count: updated.viewer_count
-                 },
-                 sync_opts(state)
-               ) do
-            {:ok, _persisted_session} ->
-              :ok = RelayPubSub.broadcast_state(relay_session_id, relay_state_payload(updated))
-              {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
-
-            {:error, reason} ->
-              log_session(:warning, "Core camera relay heartbeat failed", updated, %{reason: inspect(reason)})
-              emit_session_event(:failed, updated, %{reason: inspect(reason), stage: "heartbeat"})
-              maybe_record_session_failure(updated, %{reason: inspect(reason), stage: "heartbeat"})
-              {:reply, {:error, reason}, state}
-          end
-        end
+        persist_heartbeat(state, relay_session_id, media_ingest_id, session, updated)
 
       error ->
         {:reply, error, state}
@@ -179,30 +156,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
             viewer_count: current_viewer_count(state, relay_session_id)
           })
 
-        if closing_session?(session) do
-          {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
-        else
-          case pipeline_manager(state).record_chunk(relay_session_id, %{
-                 media_ingest_id: media_ingest_id,
-                 sequence: updated.last_sequence,
-                 pts: Map.get(attrs, :pts),
-                 dts: Map.get(attrs, :dts),
-                 codec: optional_string(attrs, :codec),
-                 payload_format: optional_string(attrs, :payload_format),
-                 track_id: optional_string(attrs, :track_id),
-                 keyframe: Map.get(attrs, :keyframe, false) == true,
-                 payload: payload
-               }) do
-            :ok ->
-              {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
-
-            {:error, reason} ->
-              log_session(:warning, "Core camera relay chunk forward failed", updated, %{reason: inspect(reason)})
-              emit_session_event(:failed, updated, %{reason: inspect(reason), stage: "record_chunk"})
-              maybe_record_session_failure(updated, %{reason: inspect(reason), stage: "record_chunk"})
-              {:reply, {:error, reason}, state}
-          end
-        end
+        record_pipeline_chunk(state, relay_session_id, media_ingest_id, attrs, session, updated, payload)
 
       error ->
         {:reply, error, state}
@@ -371,6 +325,71 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
   defp sync_opts(state), do: state.sync_opts
   defp pipeline_manager(state), do: state.pipeline_manager
   defp viewer_registry(state), do: state.viewer_registry
+
+  defp persist_heartbeat(state, relay_session_id, media_ingest_id, session, updated) do
+    if closing_session?(session) do
+      persist_local_heartbeat(state, relay_session_id, updated)
+    else
+      sync_heartbeat(state, relay_session_id, media_ingest_id, updated)
+    end
+  end
+
+  defp persist_local_heartbeat(state, relay_session_id, updated) do
+    :ok = RelayPubSub.broadcast_state(relay_session_id, relay_state_payload(updated))
+    {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
+  end
+
+  defp sync_heartbeat(state, relay_session_id, media_ingest_id, updated) do
+    case sync_module(state).heartbeat_session(
+           relay_session_id,
+           media_ingest_id,
+           %{
+             lease_expires_at_unix: updated.lease_expires_at_unix,
+             viewer_count: updated.viewer_count
+           },
+           sync_opts(state)
+         ) do
+      {:ok, _persisted_session} ->
+        persist_local_heartbeat(state, relay_session_id, updated)
+
+      {:error, reason} ->
+        log_session(:warning, "Core camera relay heartbeat failed", updated, %{reason: inspect(reason)})
+        emit_session_event(:failed, updated, %{reason: inspect(reason), stage: "heartbeat"})
+        maybe_record_session_failure(updated, %{reason: inspect(reason), stage: "heartbeat"})
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp record_pipeline_chunk(state, relay_session_id, media_ingest_id, attrs, session, updated, payload) do
+    if closing_session?(session) do
+      {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
+    else
+      do_record_pipeline_chunk(state, relay_session_id, media_ingest_id, attrs, updated, payload)
+    end
+  end
+
+  defp do_record_pipeline_chunk(state, relay_session_id, media_ingest_id, attrs, updated, payload) do
+    case pipeline_manager(state).record_chunk(relay_session_id, %{
+           media_ingest_id: media_ingest_id,
+           sequence: updated.last_sequence,
+           pts: Map.get(attrs, :pts),
+           dts: Map.get(attrs, :dts),
+           codec: optional_string(attrs, :codec),
+           payload_format: optional_string(attrs, :payload_format),
+           track_id: optional_string(attrs, :track_id),
+           keyframe: Map.get(attrs, :keyframe, false) == true,
+           payload: payload
+         }) do
+      :ok ->
+        {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
+
+      {:error, reason} ->
+        log_session(:warning, "Core camera relay chunk forward failed", updated, %{reason: inspect(reason)})
+        emit_session_event(:failed, updated, %{reason: inspect(reason), stage: "record_chunk"})
+        maybe_record_session_failure(updated, %{reason: inspect(reason), stage: "record_chunk"})
+        {:reply, {:error, reason}, state}
+    end
+  end
 
   defp now_unix, do: System.os_time(:second)
   defp lease_expiry_unix, do: now_unix() + @default_lease_seconds

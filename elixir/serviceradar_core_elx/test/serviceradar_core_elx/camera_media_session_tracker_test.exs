@@ -3,6 +3,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
 
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadarCoreElx.CameraMediaSessionTracker
+  alias ServiceRadarCoreElx.CameraRelay.PipelineManager
   alias ServiceRadarCoreElx.CameraRelay.ViewerRegistry
 
   defmodule RelaySessionLifecycleStub do
@@ -131,11 +132,17 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
 
     assert_receive_telemetry(
       [:serviceradar, :camera_relay, :session, :viewer_count_changed],
-      %{relay_boundary: "core_elx", relay_session_id: relay_session_id, previous_viewer_count: 1, viewer_count: 0},
+      %{
+        relay_boundary: "core_elx",
+        relay_session_id: relay_session_id,
+        previous_viewer_count: 1,
+        viewer_count: 0
+      },
       %{viewer_count: 0}
     )
 
-    assert_receive {:heartbeat_session, ^relay_session_id, ^media_ingest_id, %{lease_expires_at_unix: _, viewer_count: 0}}
+    expected_heartbeat_attrs = %{lease_expires_at_unix: _, viewer_count: 0}
+    assert_receive {:heartbeat_session, ^relay_session_id, ^media_ingest_id, ^expected_heartbeat_attrs}
 
     assert_receive {:camera_relay_state, %{relay_session_id: ^relay_session_id, viewer_count: 0, termination_kind: nil}}
 
@@ -213,7 +220,8 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
 
     assert session.media_ingest_id == media_ingest_id
 
-    assert_receive {:activate_session, ^relay_session_id, ^media_ingest_id, %{lease_expires_at_unix: _, viewer_count: 0}}
+    expected_activate_attrs = %{lease_expires_at_unix: _, viewer_count: 0}
+    assert_receive {:activate_session, ^relay_session_id, ^media_ingest_id, ^expected_activate_attrs}
   end
 
   test "marks an in-memory relay session closing before terminal teardown" do
@@ -436,7 +444,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
     state
     |> Map.get(:sessions, %{})
     |> Map.keys()
-    |> Enum.each(&ServiceRadarCoreElx.CameraRelay.PipelineManager.close_session/1)
+    |> Enum.each(&PipelineManager.close_session/1)
 
     Map.put(state, :sessions, %{})
   end

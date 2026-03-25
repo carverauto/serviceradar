@@ -82,40 +82,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager do
     if get_in(state.branches, [relay_session_id, branch_id]) do
       {:reply, {:error, :already_exists}, state}
     else
-      if relay_branch_count(state, relay_session_id) >= state.max_branches_per_session do
-        emit_event(state, :limit_rejected, relay_session_id, branch_id,
-          limit: "max_boombox_branches_per_session",
-          output: output
-        )
-
-        {:reply, {:error, :limit_reached}, state}
-      else
-        case pipeline_manager(state).add_boombox_branch(relay_session_id, branch_id, output: output) do
-          :ok ->
-            branch = %{
-              relay_session_id: relay_session_id,
-              branch_id: branch_id,
-              output: output,
-              worker_id: optional_string(attrs, :worker_id),
-              camera_source_id: optional_string(attrs, :camera_source_id),
-              camera_device_uid: optional_string(attrs, :camera_device_uid),
-              stream_profile_id: optional_string(attrs, :stream_profile_id)
-            }
-
-            next_state =
-              update_in(state.branches, fn branches ->
-                Map.update(branches, relay_session_id, %{branch_id => branch}, &Map.put(&1, branch_id, branch))
-              end)
-
-            emit_event(next_state, :branch_opened, relay_session_id, branch_id, output: output)
-            emit_branch_count(next_state, relay_session_id, branch_id)
-
-            {:reply, {:ok, branch}, next_state}
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
-      end
+      maybe_open_branch(state, attrs, relay_session_id, branch_id, output)
     end
   end
 
@@ -259,6 +226,47 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager do
   end
 
   defp positive_integer(_value, default), do: default
+
+  defp maybe_open_branch(state, attrs, relay_session_id, branch_id, output) do
+    if relay_branch_count(state, relay_session_id) >= state.max_branches_per_session do
+      emit_event(state, :limit_rejected, relay_session_id, branch_id,
+        limit: "max_boombox_branches_per_session",
+        output: output
+      )
+
+      {:reply, {:error, :limit_reached}, state}
+    else
+      open_branch_in_pipeline(state, attrs, relay_session_id, branch_id, output)
+    end
+  end
+
+  defp open_branch_in_pipeline(state, attrs, relay_session_id, branch_id, output) do
+    case pipeline_manager(state).add_boombox_branch(relay_session_id, branch_id, output: output) do
+      :ok ->
+        branch = %{
+          relay_session_id: relay_session_id,
+          branch_id: branch_id,
+          output: output,
+          worker_id: optional_string(attrs, :worker_id),
+          camera_source_id: optional_string(attrs, :camera_source_id),
+          camera_device_uid: optional_string(attrs, :camera_device_uid),
+          stream_profile_id: optional_string(attrs, :stream_profile_id)
+        }
+
+        next_state =
+          update_in(state.branches, fn branches ->
+            Map.update(branches, relay_session_id, %{branch_id => branch}, &Map.put(&1, branch_id, branch))
+          end)
+
+        emit_event(next_state, :branch_opened, relay_session_id, branch_id, output: output)
+        emit_branch_count(next_state, relay_session_id, branch_id)
+
+        {:reply, {:ok, branch}, next_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
 
   defp required_string!(attrs, key) do
     case attrs |> Map.get(key, "") |> to_string() |> String.trim() do

@@ -81,44 +81,14 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager do
     if get_in(state.branches, [relay_session_id, branch_id]) do
       {:reply, {:error, :already_exists}, state}
     else
-      if current_branch_count >= state.max_branches_per_session do
-        emit_analysis_event(state, :limit_rejected, relay_session_id, branch_id,
-          limit: "max_branches_per_session",
-          sample_interval_ms: policy.sample_interval_ms,
-          max_queue_len: policy.max_queue_len
-        )
-
-        {:reply, {:error, :limit_reached}, state}
-      else
-        case pipeline_manager(state).add_analysis_branch(relay_session_id, branch_id,
-               subscriber: subscriber,
-               policy: policy
-             ) do
-          :ok ->
-            ref = Process.monitor(subscriber)
-
-            branch = %{
-              relay_session_id: relay_session_id,
-              branch_id: branch_id,
-              subscriber: subscriber,
-              monitor_ref: ref,
-              policy: policy
-            }
-
-            next_state =
-              update_in(state.branches, fn branches ->
-                Map.update(branches, relay_session_id, %{branch_id => branch}, &Map.put(&1, branch_id, branch))
-              end)
-
-            branch_count = relay_branch_count(next_state, relay_session_id)
-            emit_branch_lifecycle(next_state, :branch_opened, branch, branch_count, reason: "opened")
-
-            {:reply, {:ok, branch}, next_state}
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
-      end
+      maybe_open_branch(
+        state,
+        relay_session_id,
+        branch_id,
+        subscriber,
+        current_branch_count,
+        policy
+      )
     end
   end
 
@@ -272,6 +242,53 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager do
   end
 
   defp telemetry_module(state), do: state.telemetry_module
+
+  defp maybe_open_branch(state, relay_session_id, branch_id, subscriber, current_branch_count, policy) do
+    if current_branch_count >= state.max_branches_per_session do
+      emit_analysis_event(state, :limit_rejected, relay_session_id, branch_id,
+        limit: "max_branches_per_session",
+        sample_interval_ms: policy.sample_interval_ms,
+        max_queue_len: policy.max_queue_len
+      )
+
+      {:reply, {:error, :limit_reached}, state}
+    else
+      open_branch_in_pipeline(state, relay_session_id, branch_id, subscriber, policy)
+    end
+  end
+
+  defp open_branch_in_pipeline(state, relay_session_id, branch_id, subscriber, policy) do
+    case pipeline_manager(state).add_analysis_branch(
+           relay_session_id,
+           branch_id,
+           subscriber: subscriber,
+           policy: policy
+         ) do
+      :ok ->
+        ref = Process.monitor(subscriber)
+
+        branch = %{
+          relay_session_id: relay_session_id,
+          branch_id: branch_id,
+          subscriber: subscriber,
+          monitor_ref: ref,
+          policy: policy
+        }
+
+        next_state =
+          update_in(state.branches, fn branches ->
+            Map.update(branches, relay_session_id, %{branch_id => branch}, &Map.put(&1, branch_id, branch))
+          end)
+
+        branch_count = relay_branch_count(next_state, relay_session_id)
+        emit_branch_lifecycle(next_state, :branch_opened, branch, branch_count, reason: "opened")
+
+        {:reply, {:ok, branch}, next_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
 
   defp positive_integer(value, _default) when is_integer(value) and value > 0, do: value
 

@@ -69,82 +69,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
     if get_in(state.branches, [relay_session_id, branch_id]) do
       {:reply, {:error, :already_exists}, state}
     else
-      case resolve_worker(attrs, state) do
-        {:ok, resolved_worker} ->
-          emit_worker_selection_event(
-            state,
-            :worker_selected,
-            attrs,
-            resolved_worker,
-            nil
-          )
-
-          worker_opts =
-            attrs
-            |> Map.merge(
-              Map.take(resolved_worker, [
-                :worker_id,
-                :display_name,
-                :adapter,
-                :endpoint_url,
-                :capabilities,
-                :headers,
-                :selection_mode,
-                :requested_capability,
-                :registry_managed?
-              ])
-            )
-            |> Map.put(:worker_adapter, resolved_worker.adapter)
-            |> Map.put(:task_supervisor, state.task_supervisor)
-            |> Map.put(:worker_resolver, state.worker_resolver)
-            |> Map.put(:alert_router, state.alert_router)
-            |> maybe_put(:adapter, state.adapter)
-            |> maybe_put(:adapter_opts, state.adapter_opts)
-            |> maybe_put(:result_ingestor, state.result_ingestor)
-            |> maybe_put(:telemetry_module, state.telemetry_module)
-
-          case DynamicSupervisor.start_child(
-                 state.dispatch_supervisor,
-                 {AnalysisHTTPDispatchWorker, worker_opts}
-               ) do
-            {:ok, pid} ->
-              ref = Process.monitor(pid)
-
-              branch = %{
-                relay_session_id: relay_session_id,
-                branch_id: branch_id,
-                pid: pid,
-                monitor_ref: ref,
-                worker_id: resolved_worker.worker_id,
-                display_name: resolved_worker.display_name,
-                endpoint_url: resolved_worker.endpoint_url,
-                adapter: resolved_worker.adapter,
-                capabilities: resolved_worker.capabilities,
-                selection_mode: resolved_worker.selection_mode,
-                requested_capability: resolved_worker.requested_capability,
-                registry_managed?: resolved_worker.registry_managed?
-              }
-
-              next_state =
-                update_in(state.branches, fn branches ->
-                  Map.update(
-                    branches,
-                    relay_session_id,
-                    %{branch_id => branch},
-                    &Map.put(&1, branch_id, branch)
-                  )
-                end)
-
-              {:reply, {:ok, branch}, next_state}
-
-            {:error, reason} ->
-              {:reply, {:error, reason}, state}
-          end
-
-        {:error, reason} ->
-          emit_worker_selection_event(state, :worker_selection_failed, attrs, nil, reason)
-          {:reply, {:error, reason}, state}
-      end
+      open_http_branch_with_worker(state, attrs, relay_session_id, branch_id)
     end
   end
 
@@ -199,28 +124,106 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
 
   @impl true
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
-    branches =
-      Enum.reduce(state.branches, state.branches, fn {relay_session_id, relay_branches}, acc ->
-        case Enum.find(relay_branches, fn {_branch_id, branch} -> branch.monitor_ref == ref end) do
-          {branch_id, _branch} ->
-            updated_relay_branches = Map.delete(relay_branches, branch_id)
-
-            if map_size(updated_relay_branches) == 0 do
-              Map.delete(acc, relay_session_id)
-            else
-              Map.put(acc, relay_session_id, updated_relay_branches)
-            end
-
-          nil ->
-            acc
-        end
-      end)
-
-    {:noreply, %{state | branches: branches}}
+    {:noreply, %{state | branches: drop_branch_by_monitor_ref(state.branches, ref)}}
   end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp open_http_branch_with_worker(state, attrs, relay_session_id, branch_id) do
+    case resolve_worker(attrs, state) do
+      {:ok, resolved_worker} ->
+        emit_worker_selection_event(state, :worker_selected, attrs, resolved_worker, nil)
+        start_http_branch(state, attrs, relay_session_id, branch_id, resolved_worker)
+
+      {:error, reason} ->
+        emit_worker_selection_event(state, :worker_selection_failed, attrs, nil, reason)
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp start_http_branch(state, attrs, relay_session_id, branch_id, resolved_worker) do
+    worker_opts =
+      attrs
+      |> Map.merge(worker_runtime_attrs(resolved_worker))
+      |> Map.put(:worker_adapter, resolved_worker.adapter)
+      |> Map.put(:task_supervisor, state.task_supervisor)
+      |> Map.put(:worker_resolver, state.worker_resolver)
+      |> Map.put(:alert_router, state.alert_router)
+      |> maybe_put(:adapter, state.adapter)
+      |> maybe_put(:adapter_opts, state.adapter_opts)
+      |> maybe_put(:result_ingestor, state.result_ingestor)
+      |> maybe_put(:telemetry_module, state.telemetry_module)
+
+    case DynamicSupervisor.start_child(state.dispatch_supervisor, {AnalysisHTTPDispatchWorker, worker_opts}) do
+      {:ok, pid} ->
+        ref = Process.monitor(pid)
+        branch = build_branch(relay_session_id, branch_id, pid, ref, resolved_worker)
+        {:reply, {:ok, branch}, put_branch(state, relay_session_id, branch_id, branch)}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp worker_runtime_attrs(resolved_worker) do
+    Map.take(resolved_worker, [
+      :worker_id,
+      :display_name,
+      :adapter,
+      :endpoint_url,
+      :capabilities,
+      :headers,
+      :selection_mode,
+      :requested_capability,
+      :registry_managed?
+    ])
+  end
+
+  defp build_branch(relay_session_id, branch_id, pid, ref, resolved_worker) do
+    %{
+      relay_session_id: relay_session_id,
+      branch_id: branch_id,
+      pid: pid,
+      monitor_ref: ref,
+      worker_id: resolved_worker.worker_id,
+      display_name: resolved_worker.display_name,
+      endpoint_url: resolved_worker.endpoint_url,
+      adapter: resolved_worker.adapter,
+      capabilities: resolved_worker.capabilities,
+      selection_mode: resolved_worker.selection_mode,
+      requested_capability: resolved_worker.requested_capability,
+      registry_managed?: resolved_worker.registry_managed?
+    }
+  end
+
+  defp put_branch(state, relay_session_id, branch_id, branch) do
+    update_in(state.branches, fn branches ->
+      Map.update(branches, relay_session_id, %{branch_id => branch}, &Map.put(&1, branch_id, branch))
+    end)
+  end
+
+  defp drop_branch_by_monitor_ref(branches_by_session, ref) do
+    Enum.reduce(branches_by_session, branches_by_session, fn {relay_session_id, relay_branches}, acc ->
+      remove_monitor_ref(acc, relay_session_id, relay_branches, ref)
+    end)
+  end
+
+  defp remove_monitor_ref(acc, relay_session_id, relay_branches, ref) do
+    case Enum.find(relay_branches, fn {_branch_id, branch} -> branch.monitor_ref == ref end) do
+      {branch_id, _branch} ->
+        updated_relay_branches = Map.delete(relay_branches, branch_id)
+
+        if map_size(updated_relay_branches) == 0 do
+          Map.delete(acc, relay_session_id)
+        else
+          Map.put(acc, relay_session_id, updated_relay_branches)
+        end
+
+      nil ->
+        acc
+    end
+  end
 
   defp resolve_worker(attrs, state) do
     state.worker_resolver.resolve_http_worker(attrs)

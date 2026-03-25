@@ -122,12 +122,23 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager do
   end
 
   defp delete_branch_by_ref(state, ref) do
-    Enum.reduce(state.branches, state, fn {relay_session_id, relay_branches}, acc ->
-      case Enum.find(relay_branches, fn {_branch_id, branch} -> branch.monitor_ref == ref end) do
-        {branch_id, _branch} -> delete_branch(acc, relay_session_id, branch_id)
-        nil -> acc
-      end
+    case find_branch_key_by_ref(state.branches, ref) do
+      {relay_session_id, branch_id} -> delete_branch(state, relay_session_id, branch_id)
+      nil -> state
+    end
+  end
+
+  defp find_branch_key_by_ref(branches_by_session, ref) do
+    Enum.find_value(branches_by_session, fn {relay_session_id, relay_branches} ->
+      branch_key_for_ref(relay_session_id, relay_branches, ref)
     end)
+  end
+
+  defp branch_key_for_ref(relay_session_id, relay_branches, ref) do
+    case Enum.find(relay_branches, fn {_branch_id, branch} -> branch.monitor_ref == ref end) do
+      {branch_id, _branch} -> {relay_session_id, branch_id}
+      nil -> nil
+    end
   end
 
   defp maybe_put(map, _key, nil), do: map

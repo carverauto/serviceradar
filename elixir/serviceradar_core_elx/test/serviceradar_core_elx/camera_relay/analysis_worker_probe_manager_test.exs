@@ -67,11 +67,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManagerTest do
 
     def probe_health(worker, _opts) do
       send(test_pid(), {:probe_health, worker.worker_id, worker.adapter})
-
-      case Map.get(modes(), worker.worker_id, :ok) do
-        :ok -> :ok
-        {:error, reason} -> {:error, reason}
-      end
+      Map.get(modes(), worker.worker_id, :ok)
     end
 
     defp modes do

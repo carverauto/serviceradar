@@ -284,11 +284,47 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
   test "attaches a boombox output branch without creating another relay session" do
     relay_session_id = "relay-boombox-output-1"
     branch_id = "boombox-output-1"
-    output = Path.join(System.tmp_dir!(), "serviceradar-boombox-output-#{System.unique_integer([:positive])}.h264")
+
+    output =
+      Path.join(
+        System.tmp_dir!(),
+        "serviceradar-boombox-output-#{System.unique_integer([:positive])}.h264"
+      )
 
     keyframe_payload =
-      <<0, 0, 0, 1, 103, 100, 0, 31, 172, 217, 64, 80, 5, 187, 1, 16, 0, 0, 0, 1, 104, 238, 6, 242, 0, 0, 0, 1, 101, 136,
-        132>>
+      <<
+        0,
+        0,
+        0,
+        1,
+        103,
+        100,
+        0,
+        31,
+        172,
+        217,
+        64,
+        80,
+        5,
+        187,
+        1,
+        16,
+        0,
+        0,
+        0,
+        1,
+        104,
+        238,
+        6,
+        242,
+        0,
+        0,
+        0,
+        1,
+        101,
+        136,
+        132
+      >>
 
     assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
 

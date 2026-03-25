@@ -56,14 +56,12 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
     @moduledoc false
     def ingest(result) do
       send(test_pid(), {:ingest_result, result})
-
-      case mode() do
-        :ok -> :ok
-        {:error, reason} -> {:error, reason}
-      end
+      mode()
     end
 
-    defp mode, do: Application.get_env(:serviceradar_core_elx, :analysis_dispatch_result_ingestor_mode, :ok)
+    defp mode do
+      Application.get_env(:serviceradar_core_elx, :analysis_dispatch_result_ingestor_mode, :ok)
+    end
 
     defp test_pid, do: Application.fetch_env!(:serviceradar_core_elx, :analysis_dispatch_test_pid)
   end
@@ -417,14 +415,16 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
                policy: %{sample_interval_ms: 0}
              })
 
-    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :worker_selection_failed], _measurements,
-                    %{
-                      relay_session_id: ^relay_session_id,
-                      branch_id: ^branch_id,
-                      requested_capability: "missing_capability",
-                      reason: "worker_capability_unmatched"
-                    }},
-                   1_000
+    assert_receive(
+      {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :worker_selection_failed], _measurements,
+       %{
+         relay_session_id: ^relay_session_id,
+         branch_id: ^branch_id,
+         requested_capability: "missing_capability",
+         reason: "worker_capability_unmatched"
+       }},
+      1_000
+    )
   end
 
   test "fails over once for a capability-targeted branch and preserves the current sample" do

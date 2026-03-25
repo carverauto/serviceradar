@@ -115,68 +115,21 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
 
   def handle_info({ref, {:ok, results}}, state) do
     Process.demonitor(ref, [:flush])
-
-    case Map.pop(state.inflight, ref) do
-      {nil, inflight} ->
-        {:noreply, %{state | inflight: inflight}}
-
-      {%{input: input}, inflight} ->
-        result =
-          Enum.reduce_while(results, :ok, fn worker_result, :ok ->
-            payload = enrich_result(worker_result, input, state.worker.worker_id)
-
-            case state.result_ingestor.ingest(payload) do
-              :ok -> {:cont, :ok}
-              {:error, reason} -> {:halt, {:error, reason}}
-            end
-          end)
-
-        case result do
-          :ok ->
-            state = maybe_mark_worker_healthy(state)
-
-            emit_dispatch_event(state, :dispatch_succeeded, input, inflight_count: map_size(inflight))
-
-            {:noreply, %{state | inflight: inflight}}
-
-          {:error, reason} ->
-            maybe_retry_failed_dispatch(state, input, inflight, reason)
-        end
-    end
+    with_inflight(state, ref, fn state, input, inflight -> handle_dispatch_success(state, input, inflight, results) end)
   end
 
   def handle_info({ref, {:error, :timeout}}, state) do
     Process.demonitor(ref, [:flush])
-
-    case Map.pop(state.inflight, ref) do
-      {nil, inflight} ->
-        {:noreply, %{state | inflight: inflight}}
-
-      {%{input: input}, inflight} ->
-        maybe_retry_failed_dispatch(state, input, inflight, :timeout)
-    end
+    with_inflight(state, ref, &maybe_retry_failed_dispatch(&1, &2, &3, :timeout))
   end
 
   def handle_info({ref, {:error, reason}}, state) do
     Process.demonitor(ref, [:flush])
-
-    case Map.pop(state.inflight, ref) do
-      {nil, inflight} ->
-        {:noreply, %{state | inflight: inflight}}
-
-      {%{input: input}, inflight} ->
-        maybe_retry_failed_dispatch(state, input, inflight, reason)
-    end
+    with_inflight(state, ref, &maybe_retry_failed_dispatch(&1, &2, &3, reason))
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    case Map.pop(state.inflight, ref) do
-      {nil, inflight} ->
-        {:noreply, %{state | inflight: inflight}}
-
-      {%{input: input}, inflight} ->
-        maybe_retry_failed_dispatch(state, input, inflight, reason)
-    end
+    with_inflight(state, ref, &maybe_retry_failed_dispatch(&1, &2, &3, reason))
   end
 
   defp enrich_result(worker_result, input, worker_id) when is_map(worker_result) do
@@ -227,115 +180,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
     next_state = %{state | inflight: inflight}
 
     if failover_eligible?(state, reason) do
-      mark_reason = format_reason(reason)
-      previous_worker = state.worker
-
-      updated_state =
-        case state.worker_resolver.mark_worker_unhealthy(
-               state.worker.worker_id,
-               mark_reason,
-               record_probe_history: true,
-               probe_history_limit: state.probe_history_limit
-             ) do
-          {:ok, updated_worker} ->
-            emit_worker_health_changed(next_state, "unhealthy", mark_reason)
-            maybe_emit_worker_flapping_changed(next_state, previous_worker, updated_worker)
-            maybe_emit_worker_alert_changed(next_state, previous_worker, updated_worker)
-            merge_worker_runtime_state(next_state, updated_worker)
-
-          {:error, _reason} ->
-            next_state
-        end
-
-      selection_attrs = %{
-        required_capability: state.worker.requested_capability,
-        excluded_worker_ids: Enum.uniq([state.worker.worker_id | state.excluded_worker_ids])
-      }
-
-      case state.worker_resolver.resolve_http_worker(selection_attrs) do
-        {:ok, replacement_worker} ->
-          failover_attempt = updated_state.failover_attempts + 1
-
-          emit_failover_event(
-            updated_state,
-            :worker_failover_succeeded,
-            state.worker.worker_id,
-            replacement_worker.worker_id,
-            failover_attempt,
-            mark_reason
-          )
-
-          replacement_state =
-            updated_state
-            |> Map.put(
-              :worker,
-              Map.merge(next_state.worker, %{
-                worker_id: replacement_worker.worker_id,
-                display_name: replacement_worker.display_name,
-                adapter: replacement_worker.adapter,
-                endpoint_url: replacement_worker.endpoint_url,
-                capabilities: replacement_worker.capabilities,
-                headers: replacement_worker.headers,
-                selection_mode: replacement_worker.selection_mode,
-                requested_capability: replacement_worker.requested_capability,
-                registry_managed?: replacement_worker.registry_managed?,
-                flapping: Map.get(replacement_worker, :flapping, false),
-                flapping_transition_count: Map.get(replacement_worker, :flapping_transition_count, 0),
-                flapping_window_size: Map.get(replacement_worker, :flapping_window_size, 0)
-              })
-            )
-            |> Map.put(:failover_attempts, failover_attempt)
-            |> Map.put(
-              :excluded_worker_ids,
-              Enum.uniq([replacement_worker.worker_id | selection_attrs.excluded_worker_ids])
-            )
-
-          report_current_assignment(replacement_state)
-
-          replacement_state =
-            start_dispatch_task(replacement_state, input)
-
-          {:noreply, replacement_state}
-
-        {:error, failover_reason} ->
-          failover_attempt = updated_state.failover_attempts + 1
-
-          alerted_state =
-            case state.worker_resolver.refresh_worker_alert(
-                   state.worker.worker_id,
-                   alert_override_state: "failover_exhausted",
-                   alert_override_reason: format_reason(failover_reason)
-                 ) do
-              {:ok, alerted_worker} ->
-                maybe_emit_worker_alert_changed(
-                  updated_state,
-                  updated_state.worker,
-                  alerted_worker
-                )
-
-                merge_worker_runtime_state(updated_state, alerted_worker)
-
-              {:error, _reason} ->
-                updated_state
-            end
-
-          emit_failover_event(
-            alerted_state,
-            :worker_failover_failed,
-            state.worker.worker_id,
-            nil,
-            failover_attempt,
-            format_reason(failover_reason)
-          )
-
-          emit_terminal_dispatch_failure(
-            alerted_state,
-            input,
-            reason,
-            map_size(inflight),
-            failover_attempt
-          )
-      end
+      retry_failed_dispatch_with_failover(state, next_state, input, inflight, reason)
     else
       emit_terminal_dispatch_failure(
         next_state,
@@ -497,7 +342,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
   end
 
   defp emit_terminal_dispatch_failure(state, input, reason, inflight_count, failover_attempt) do
-    emit_dispatch_event(state, dispatch_failure_event(reason), input,
+    emit_dispatch_event(
+      state,
+      dispatch_failure_event(reason),
+      input,
       reason: format_reason(reason),
       inflight_count: inflight_count,
       failover_attempt: failover_attempt
@@ -508,6 +356,175 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
 
   defp dispatch_failure_event(:timeout), do: :dispatch_timed_out
   defp dispatch_failure_event(_reason), do: :dispatch_failed
+
+  defp retry_failed_dispatch_with_failover(state, next_state, input, inflight, reason) do
+    mark_reason = format_reason(reason)
+    updated_state = mark_worker_unhealthy(next_state, state.worker, mark_reason)
+    selection_attrs = replacement_selection_attrs(state)
+
+    case state.worker_resolver.resolve_http_worker(selection_attrs) do
+      {:ok, replacement_worker} ->
+        handle_failover_success(
+          state,
+          updated_state,
+          input,
+          selection_attrs,
+          replacement_worker,
+          mark_reason
+        )
+
+      {:error, failover_reason} ->
+        handle_failover_failure(
+          state,
+          updated_state,
+          input,
+          inflight,
+          reason,
+          failover_reason
+        )
+    end
+  end
+
+  defp mark_worker_unhealthy(next_state, previous_worker, mark_reason) do
+    case next_state.worker_resolver.mark_worker_unhealthy(
+           next_state.worker.worker_id,
+           mark_reason,
+           record_probe_history: true,
+           probe_history_limit: next_state.probe_history_limit
+         ) do
+      {:ok, updated_worker} ->
+        emit_worker_health_changed(next_state, "unhealthy", mark_reason)
+        maybe_emit_worker_flapping_changed(next_state, previous_worker, updated_worker)
+        maybe_emit_worker_alert_changed(next_state, previous_worker, updated_worker)
+        merge_worker_runtime_state(next_state, updated_worker)
+
+      {:error, _reason} ->
+        next_state
+    end
+  end
+
+  defp replacement_selection_attrs(state) do
+    %{
+      required_capability: state.worker.requested_capability,
+      excluded_worker_ids: Enum.uniq([state.worker.worker_id | state.excluded_worker_ids])
+    }
+  end
+
+  defp handle_failover_success(state, updated_state, input, selection_attrs, replacement_worker, mark_reason) do
+    failover_attempt = updated_state.failover_attempts + 1
+
+    emit_failover_event(
+      updated_state,
+      :worker_failover_succeeded,
+      state.worker.worker_id,
+      replacement_worker.worker_id,
+      failover_attempt,
+      mark_reason
+    )
+
+    replacement_state =
+      updated_state
+      |> put_replacement_worker(replacement_worker)
+      |> Map.put(:failover_attempts, failover_attempt)
+      |> Map.put(
+        :excluded_worker_ids,
+        Enum.uniq([replacement_worker.worker_id | selection_attrs.excluded_worker_ids])
+      )
+
+    report_current_assignment(replacement_state)
+    {:noreply, start_dispatch_task(replacement_state, input)}
+  end
+
+  defp handle_failover_failure(state, updated_state, input, inflight, reason, failover_reason) do
+    failover_attempt = updated_state.failover_attempts + 1
+    alerted_state = refresh_failover_exhausted_alert(state, updated_state, failover_reason)
+
+    emit_failover_event(
+      alerted_state,
+      :worker_failover_failed,
+      state.worker.worker_id,
+      nil,
+      failover_attempt,
+      format_reason(failover_reason)
+    )
+
+    emit_terminal_dispatch_failure(
+      alerted_state,
+      input,
+      reason,
+      map_size(inflight),
+      failover_attempt
+    )
+  end
+
+  defp refresh_failover_exhausted_alert(state, updated_state, failover_reason) do
+    case state.worker_resolver.refresh_worker_alert(
+           state.worker.worker_id,
+           alert_override_state: "failover_exhausted",
+           alert_override_reason: format_reason(failover_reason)
+         ) do
+      {:ok, alerted_worker} ->
+        maybe_emit_worker_alert_changed(updated_state, updated_state.worker, alerted_worker)
+        merge_worker_runtime_state(updated_state, alerted_worker)
+
+      {:error, _reason} ->
+        updated_state
+    end
+  end
+
+  defp put_replacement_worker(state, replacement_worker) do
+    Map.put(
+      state,
+      :worker,
+      Map.merge(state.worker, %{
+        worker_id: replacement_worker.worker_id,
+        display_name: replacement_worker.display_name,
+        adapter: replacement_worker.adapter,
+        endpoint_url: replacement_worker.endpoint_url,
+        capabilities: replacement_worker.capabilities,
+        headers: replacement_worker.headers,
+        selection_mode: replacement_worker.selection_mode,
+        requested_capability: replacement_worker.requested_capability,
+        registry_managed?: replacement_worker.registry_managed?,
+        flapping: Map.get(replacement_worker, :flapping, false),
+        flapping_transition_count: Map.get(replacement_worker, :flapping_transition_count, 0),
+        flapping_window_size: Map.get(replacement_worker, :flapping_window_size, 0)
+      })
+    )
+  end
+
+  defp with_inflight(state, ref, on_input) do
+    case Map.pop(state.inflight, ref) do
+      {nil, inflight} ->
+        {:noreply, %{state | inflight: inflight}}
+
+      {%{input: input}, inflight} ->
+        on_input.(state, input, inflight)
+    end
+  end
+
+  defp handle_dispatch_success(state, input, inflight, results) do
+    case ingest_dispatch_results(state, input, results) do
+      :ok ->
+        next_state = maybe_mark_worker_healthy(state)
+        emit_dispatch_event(next_state, :dispatch_succeeded, input, inflight_count: map_size(inflight))
+        {:noreply, %{next_state | inflight: inflight}}
+
+      {:error, reason} ->
+        maybe_retry_failed_dispatch(state, input, inflight, reason)
+    end
+  end
+
+  defp ingest_dispatch_results(state, input, results) do
+    Enum.reduce_while(results, :ok, fn worker_result, :ok ->
+      payload = enrich_result(worker_result, input, state.worker.worker_id)
+
+      case state.result_ingestor.ingest(payload) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
   defp format_reason({:http_status, status, _body}), do: "http_status_#{status}"
   defp format_reason({:transport_error, reason}), do: "transport_error:#{reason}"

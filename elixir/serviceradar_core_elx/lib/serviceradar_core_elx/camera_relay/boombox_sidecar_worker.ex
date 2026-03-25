@@ -11,6 +11,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
   alias ServiceRadar.Camera.AnalysisResultIngestor
   alias ServiceRadar.Telemetry
   alias ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager
+  alias ServiceRadarCoreElx.CameraRelay.BoomboxHelpers
   alias Vix.Vips.Image, as: VipsImage
 
   @default_capture_ms 250
@@ -133,7 +134,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
           state.result_ingestor.ingest(result)
       end
 
-    if match?({:error, _}, reply), do: emit_dispatch_event(state, :dispatch_failed, reason: format_reason(elem(reply, 1)))
+    if match?({:error, _}, reply) do
+      emit_dispatch_event(state, :dispatch_failed, reason: BoomboxHelpers.format_reason(elem(reply, 1)))
+    end
+
     cleanup_output(state.output_path)
     {reply, %{state | finalized?: true, capture_timer_ref: nil}}
   end
@@ -183,7 +187,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
   end
 
   defp decode_capture_with_boombox(path) do
-    with {:ok, reader} <- start_boombox_reader(path) do
+    with {:ok, reader} <- BoomboxHelpers.start_reader(path) do
       try do
         case Boombox.read(reader) do
           {:ok, %Packet{payload: %VipsImage{} = image}} ->
@@ -202,24 +206,11 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
             {:error, reason}
         end
       catch
-        :exit, reason -> {:error, {:boombox_read_failed, format_reason(reason)}}
+        :exit, reason -> {:error, {:boombox_read_failed, BoomboxHelpers.format_reason(reason)}}
       after
         _ = Boombox.close(reader)
       end
     end
-  end
-
-  defp start_boombox_reader(path) do
-    {:ok,
-     Boombox.run(
-       input: {:h264, path, transport: :file},
-       output: {:reader, video: :image, audio: false, pace_control: false}
-     )}
-  rescue
-    error -> {:error, {:boombox_start_failed, Exception.message(error)}}
-  catch
-    :exit, reason -> {:error, {:boombox_start_failed, format_reason(reason)}}
-    kind, reason -> {:error, {kind, format_reason(reason)}}
   end
 
   defp read_capture_file(path, max_read_bytes) do
@@ -313,11 +304,4 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
 
   defp extract_sequence(nil), do: 0
   defp extract_sequence(input), do: Map.get(input, :sequence, 0)
-
-  defp format_reason({:error, reason}), do: format_reason(reason)
-  defp format_reason({%_{} = exception, _stacktrace}), do: Exception.message(exception)
-  defp format_reason(%_{} = exception), do: Exception.message(exception)
-  defp format_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp format_reason(reason) when is_binary(reason), do: reason
-  defp format_reason(reason), do: inspect(reason)
 end

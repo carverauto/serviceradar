@@ -124,10 +124,14 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
     relay_session_id = Ecto.UUID.generate()
     server_name = unique_server_name()
 
-    start_supervised!(
-      {WebRTCSignalingManager,
-       name: server_name, session_tracker: SessionTrackerStub, pipeline_manager: PipelineManagerStub, session_ttl_ms: 10}
-    )
+    manager_opts = [
+      name: server_name,
+      session_tracker: SessionTrackerStub,
+      pipeline_manager: PipelineManagerStub,
+      session_ttl_ms: 10
+    ]
+
+    start_supervised!({WebRTCSignalingManager, manager_opts})
 
     assert {:ok, %{viewer_session_id: viewer_session_id}} =
              WebRTCSignalingManager.create_session(relay_session_id, server: server_name)

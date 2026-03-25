@@ -8,6 +8,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.ExternalBoomboxAnalysisWorker do
 
   alias Boombox.Packet
   alias ServiceRadar.Camera.AnalysisContract
+  alias ServiceRadarCoreElx.CameraRelay.BoomboxHelpers
   alias Vix.Vips.Image, as: VipsImage
 
   @default_host {127, 0, 0, 1}
@@ -134,7 +135,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.ExternalBoomboxAnalysisWorker do
     try do
       File.write!(path, payload, [:binary])
 
-      with {:ok, reader} <- start_boombox_reader(path) do
+      with {:ok, reader} <- BoomboxHelpers.start_reader(path) do
         try do
           case Boombox.read(reader) do
             {:ok, %Packet{payload: %VipsImage{} = image}} ->
@@ -150,7 +151,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.ExternalBoomboxAnalysisWorker do
               {:error, reason}
           end
         catch
-          :exit, reason -> {:error, {:boombox_read_failed, format_reason(reason)}}
+          :exit, reason -> {:error, {:boombox_read_failed, BoomboxHelpers.format_reason(reason)}}
         after
           _ = Boombox.close(reader)
         end
@@ -158,19 +159,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.ExternalBoomboxAnalysisWorker do
     after
       _ = File.rm(path)
     end
-  end
-
-  defp start_boombox_reader(path) do
-    {:ok,
-     Boombox.run(
-       input: {:h264, path, transport: :file},
-       output: {:reader, video: :image, audio: false, pace_control: false}
-     )}
-  rescue
-    error -> {:error, {:boombox_start_failed, Exception.message(error)}}
-  catch
-    :exit, reason -> {:error, {:boombox_start_failed, format_reason(reason)}}
-    kind, reason -> {:error, {kind, format_reason(reason)}}
   end
 
   defp temp_capture_path do
@@ -189,13 +177,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.ExternalBoomboxAnalysisWorker do
     Map.get(input, key, Map.get(input, to_string(key), default))
   end
 
-  defp format_reason({:error, reason}), do: format_reason(reason)
-  defp format_reason({%_{} = exception, _stacktrace}), do: Exception.message(exception)
-  defp format_reason(%_{} = exception), do: Exception.message(exception)
-  defp format_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp format_reason(reason) when is_binary(reason), do: reason
-  defp format_reason(reason), do: inspect(reason)
-
   defp error_message(:invalid_input), do: "invalid camera analysis input"
-  defp error_message(reason), do: format_reason(reason)
+  defp error_message(reason), do: BoomboxHelpers.format_reason(reason)
 end

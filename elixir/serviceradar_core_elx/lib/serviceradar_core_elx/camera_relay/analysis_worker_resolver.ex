@@ -167,25 +167,29 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
               worker.worker_id not in excluded_worker_ids
           end)
 
-        case Enum.find(matching_workers, &(healthy_worker?(&1) and http_worker?(&1))) do
-          nil ->
-            if Enum.empty?(matching_workers) do
-              {:error, :worker_capability_unmatched}
-            else
-              {:error, :worker_unavailable}
-            end
-
-          worker ->
-            {:ok,
-             worker
-             |> Map.put(:selection_mode, "capability")
-             |> Map.put(:requested_capability, requested_capability)
-             |> Map.put(:registry_managed?, true)}
-        end
+        matching_workers
+        |> Enum.find(&(healthy_worker?(&1) and http_worker?(&1)))
+        |> capability_resolution_result(matching_workers, requested_capability)
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp capability_resolution_result(nil, matching_workers, _requested_capability) do
+    if Enum.empty?(matching_workers) do
+      {:error, :worker_capability_unmatched}
+    else
+      {:error, :worker_unavailable}
+    end
+  end
+
+  defp capability_resolution_result(worker, _matching_workers, requested_capability) do
+    {:ok,
+     worker
+     |> Map.put(:selection_mode, "capability")
+     |> Map.put(:requested_capability, requested_capability)
+     |> Map.put(:registry_managed?, true)}
   end
 
   defp normalize_worker(worker) when is_map(worker) do

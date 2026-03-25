@@ -47,7 +47,8 @@ defmodule ServiceRadarCoreElx.CameraMediaServer do
     end
   rescue
     error in ArgumentError ->
-      raise GRPC.RPCError, status: :invalid_argument, message: Exception.message(error)
+      reraise GRPC.RPCError.exception(status: :invalid_argument, message: Exception.message(error)),
+              __STACKTRACE__
   end
 
   def upload_media(request_stream, _stream) do
