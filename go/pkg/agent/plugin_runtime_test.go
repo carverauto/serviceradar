@@ -275,6 +275,10 @@ func TestPluginManagerOpenCameraRelayStreamUsesStreamingBridge(t *testing.T) {
 }
 
 func TestPluginManagerOpenCameraRelayStreamWithWazeroPlugin(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Wazero camera stream integration in short mode")
+	}
+
 	manager := NewPluginManager(t.Context(), PluginManagerConfig{
 		Logger:        logger.NewTestLogger(),
 		CacheDir:      t.TempDir(),

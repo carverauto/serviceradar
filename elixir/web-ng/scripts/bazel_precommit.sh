@@ -59,6 +59,11 @@ if [ -z "${OPENSSL_INCLUDE_DIR:-}" ] && [ -d /usr/include/openssl ]; then
   export OPENSSL_INCLUDE_DIR=/usr/include
 fi
 
+# Hex can time out in CI when a precommit run needs to fetch a large dependency
+# graph from scratch. Bias toward reliability in Bazel precommit runs.
+export HEX_HTTP_CONCURRENCY="${HEX_HTTP_CONCURRENCY:-1}"
+export HEX_HTTP_TIMEOUT="${HEX_HTTP_TIMEOUT:-120}"
+
 ROOT="${TEST_SRCDIR:?}/${TEST_WORKSPACE:?}"
 WEB_NG_SRC="${ROOT}/elixir/web-ng"
 
@@ -207,7 +212,19 @@ fi
 if [ ! -f "$MIX_HOME/rebar3" ]; then
   mix local.rebar --force
 fi
-if ! mix deps.get; then
+deps_get_ok=0
+for attempt in 1 2 3; do
+  if mix deps.get; then
+    deps_get_ok=1
+    break
+  fi
+
+  if [ "$attempt" -lt 3 ]; then
+    sleep $((attempt * 5))
+  fi
+done
+
+if [ "$deps_get_ok" -ne 1 ]; then
   echo "mix deps.get failed; git diagnostics:" >&2
   if command -v git >/dev/null 2>&1; then
     echo "git binary: $(command -v git)" >&2
