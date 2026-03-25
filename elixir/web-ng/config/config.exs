@@ -56,7 +56,9 @@ config :logger, :default_formatter,
     :absolute_timeout_seconds,
     :remote_ip,
     :ip,
-    :user_agent
+    :user_agent,
+    :relay_session_id,
+    :viewer_id
   ]
 
 # Use Jason for JSON parsing in Phoenix

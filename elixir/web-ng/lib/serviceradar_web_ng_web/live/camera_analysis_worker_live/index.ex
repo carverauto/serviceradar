@@ -332,8 +332,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
       unhealthy: Enum.count(workers, &((&1.health_status || "healthy") != "healthy")),
       flapping: Enum.count(workers, &Map.get(&1, :flapping, false)),
       alerts: Enum.count(workers, &Map.get(&1, :alert_active, false)),
-      active_assignments:
-        Enum.reduce(workers, 0, &(&2 + Map.get(&1, :active_assignment_count, 0)))
+      active_assignments: Enum.reduce(workers, 0, &(&2 + Map.get(&1, :active_assignment_count, 0)))
     }
   end
 

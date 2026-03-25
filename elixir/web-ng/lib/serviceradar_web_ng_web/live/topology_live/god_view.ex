@@ -287,90 +287,12 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
 
   def handle_event("god_view_open_camera_relay_cluster", %{"camera_tiles" => camera_tiles} = params, socket) do
     scope = socket.assigns.current_scope
-
-    if can_view_device?(scope) do
-      requested_tiles = normalize_camera_tile_params(camera_tiles)
-      tile_limit = camera_relay_tile_limit()
-      limited_tiles = Enum.take(requested_tiles, tile_limit)
-      omitted_count = max(length(requested_tiles) - length(limited_tiles), 0)
-
-      if limited_tiles == [] do
-        {:noreply,
-         socket
-         |> assign(:camera_relay_tile_notice, "No valid camera relays were available for this cluster")
-         |> put_flash(:error, "No valid camera relays were available for this cluster")}
-      else
-        maybe_close_camera_relay_tiles(socket.assigns.camera_relay_tiles, scope, "replaced by a new topology tile set")
-
-        opened_tiles =
-          Enum.map(limited_tiles, fn tile ->
-            case relay_session_manager().request_open(
-                   tile.camera_source_id,
-                   tile.stream_profile_id,
-                   scope: scope
-                 ) do
-              {:ok, session} ->
-                schedule_camera_relay_refresh(session.id)
-                build_camera_relay_tile(tile, session: session)
-
-              {:error, reason} ->
-                build_camera_relay_tile(tile, viewer_state: viewer_state_from_error(reason))
-            end
-          end)
-
-        notice = cluster_camera_tile_notice(opened_tiles, omitted_count, params)
-
-        {:noreply,
-         socket
-         |> assign(:camera_relay_tiles, opened_tiles)
-         |> assign(:camera_relay_tile_notice, notice)
-         |> put_flash(:info, cluster_camera_tile_flash_message(opened_tiles, omitted_count))}
-      end
-    else
-      {:noreply,
-       socket
-       |> assign(:camera_relay_tile_notice, "You are not authorized to start cluster camera relays")
-       |> put_flash(:error, "You are not authorized to start cluster camera relays")}
-    end
+    {:noreply, open_camera_relay_cluster(socket, scope, camera_tiles, params)}
   end
 
   def handle_event("close_camera_relay_tile", %{"relay_session_id" => relay_session_id}, socket) do
     scope = socket.assigns.current_scope
-
-    if can_view_device?(scope) do
-      case normalize_uuid_param(relay_session_id) do
-        {:ok, normalized_id} ->
-          case relay_session_manager().request_close(
-                 normalized_id,
-                 reason: "viewer closed topology tile",
-                 scope: scope
-               ) do
-            {:ok, session} ->
-              schedule_camera_relay_refresh(session.id)
-
-              {:noreply,
-               update_camera_relay_tile(socket, session.id, fn tile ->
-                 tile
-                 |> Map.put(:relay_session, session)
-                 |> Map.put(:viewer_state, viewer_state_from_session(session))
-               end)}
-
-            {:error, reason} ->
-              {:noreply,
-               socket
-               |> assign(:camera_relay_tile_notice, format_camera_relay_error(reason))
-               |> put_flash(:error, format_camera_relay_error(reason))}
-          end
-
-        {:error, _reason} ->
-          {:noreply, socket}
-      end
-    else
-      {:noreply,
-       socket
-       |> assign(:camera_relay_tile_notice, "You are not authorized to stop cluster camera relays")
-       |> put_flash(:error, "You are not authorized to stop cluster camera relays")}
-    end
+    {:noreply, close_camera_relay_tile(socket, scope, relay_session_id)}
   end
 
   def handle_event("dismiss_camera_relay_tile", %{"tile_id" => tile_id}, socket) do
@@ -408,48 +330,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
       socket.assigns.active_camera_relay_session || socket.assigns.last_camera_relay_session
 
     if is_map(current_session) and Map.get(current_session, :id) == relay_session_id do
-      case fetch_camera_relay_session(socket.assigns.current_scope, relay_session_id) do
-        {:ok, nil} ->
-          {:noreply, assign(socket, :active_camera_relay_session, nil)}
-
-        {:ok, session} ->
-          {:noreply, apply_camera_relay_session_update(socket, session)}
-
-        {:error, reason} ->
-          Logger.warning("Topology camera relay refresh failed for #{relay_session_id}: #{inspect(reason)}")
-
-          {:noreply, assign(socket, :camera_relay_viewer_state, viewer_state_from_error(reason))}
-      end
+      {:noreply, refresh_active_camera_relay_session(socket, relay_session_id)}
     else
-      case fetch_camera_relay_tile_session(socket.assigns.camera_relay_tiles, relay_session_id) do
-        nil ->
-          {:noreply, socket}
-
-        _tile ->
-          case fetch_camera_relay_session(socket.assigns.current_scope, relay_session_id) do
-            {:ok, nil} ->
-              {:noreply,
-               update(socket, :camera_relay_tiles, fn tiles ->
-                 Enum.reject(tiles, &(camera_relay_tile_session_id(&1) == relay_session_id))
-               end)}
-
-            {:ok, session} ->
-              {:noreply,
-               update_camera_relay_tile(socket, relay_session_id, fn tile ->
-                 tile
-                 |> Map.put(:relay_session, session)
-                 |> Map.put(:viewer_state, viewer_state_from_session(session))
-               end)}
-
-            {:error, reason} ->
-              Logger.warning("Topology camera relay tile refresh failed for #{relay_session_id}: #{inspect(reason)}")
-
-              {:noreply,
-               update_camera_relay_tile(socket, relay_session_id, fn tile ->
-                 Map.put(tile, :viewer_state, viewer_state_from_error(reason))
-               end)}
-          end
-      end
+      {:noreply, refresh_camera_relay_tile_session(socket, relay_session_id)}
     end
   end
 
@@ -2019,14 +1902,161 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   defp update_camera_relay_tile(socket, relay_session_id, updater)
        when is_binary(relay_session_id) and is_function(updater, 1) do
     update(socket, :camera_relay_tiles, fn tiles ->
-      Enum.map(tiles, fn tile ->
-        if camera_relay_tile_session_id(tile) == relay_session_id do
-          updater.(tile)
-        else
-          tile
-        end
-      end)
+      Enum.map(tiles, &maybe_update_camera_relay_tile(&1, relay_session_id, updater))
     end)
+  end
+
+  defp open_camera_relay_cluster(socket, scope, camera_tiles, params) do
+    if can_view_device?(scope) do
+      open_authorized_camera_relay_cluster(socket, scope, camera_tiles, params)
+    else
+      socket
+      |> assign(:camera_relay_tile_notice, "You are not authorized to start cluster camera relays")
+      |> put_flash(:error, "You are not authorized to start cluster camera relays")
+    end
+  end
+
+  defp open_authorized_camera_relay_cluster(socket, scope, camera_tiles, params) do
+    requested_tiles = normalize_camera_tile_params(camera_tiles)
+    tile_limit = camera_relay_tile_limit()
+    limited_tiles = Enum.take(requested_tiles, tile_limit)
+    omitted_count = max(length(requested_tiles) - length(limited_tiles), 0)
+
+    case limited_tiles do
+      [] ->
+        socket
+        |> assign(:camera_relay_tile_notice, "No valid camera relays were available for this cluster")
+        |> put_flash(:error, "No valid camera relays were available for this cluster")
+
+      _ ->
+        maybe_close_camera_relay_tiles(
+          socket.assigns.camera_relay_tiles,
+          scope,
+          "replaced by a new topology tile set"
+        )
+
+        opened_tiles = open_cluster_camera_relay_tiles(limited_tiles, scope)
+        notice = cluster_camera_tile_notice(opened_tiles, omitted_count, params)
+
+        socket
+        |> assign(:camera_relay_tiles, opened_tiles)
+        |> assign(:camera_relay_tile_notice, notice)
+        |> put_flash(:info, cluster_camera_tile_flash_message(opened_tiles, omitted_count))
+    end
+  end
+
+  defp open_cluster_camera_relay_tiles(limited_tiles, scope) when is_list(limited_tiles) do
+    Enum.map(limited_tiles, &open_cluster_camera_relay_tile(&1, scope))
+  end
+
+  defp open_cluster_camera_relay_tile(tile, scope) when is_map(tile) do
+    case relay_session_manager().request_open(
+           tile.camera_source_id,
+           tile.stream_profile_id,
+           scope: scope
+         ) do
+      {:ok, session} ->
+        schedule_camera_relay_refresh(session.id)
+        build_camera_relay_tile(tile, session: session)
+
+      {:error, reason} ->
+        build_camera_relay_tile(tile, viewer_state: viewer_state_from_error(reason))
+    end
+  end
+
+  defp close_camera_relay_tile(socket, scope, relay_session_id) do
+    if can_view_device?(scope) do
+      close_authorized_camera_relay_tile(socket, scope, relay_session_id)
+    else
+      socket
+      |> assign(:camera_relay_tile_notice, "You are not authorized to stop cluster camera relays")
+      |> put_flash(:error, "You are not authorized to stop cluster camera relays")
+    end
+  end
+
+  defp close_authorized_camera_relay_tile(socket, scope, relay_session_id) do
+    with {:ok, normalized_id} <- normalize_uuid_param(relay_session_id),
+         {:ok, session} <-
+           relay_session_manager().request_close(
+             normalized_id,
+             reason: "viewer closed topology tile",
+             scope: scope
+           ) do
+      schedule_camera_relay_refresh(session.id)
+
+      update_camera_relay_tile(socket, session.id, fn tile ->
+        tile
+        |> Map.put(:relay_session, session)
+        |> Map.put(:viewer_state, viewer_state_from_session(session))
+      end)
+    else
+      {:error, :invalid_uuid} ->
+        socket
+
+      {:error, reason} ->
+        socket
+        |> assign(:camera_relay_tile_notice, format_camera_relay_error(reason))
+        |> put_flash(:error, format_camera_relay_error(reason))
+    end
+  end
+
+  defp refresh_active_camera_relay_session(socket, relay_session_id) do
+    case fetch_camera_relay_session(socket.assigns.current_scope, relay_session_id) do
+      {:ok, nil} ->
+        assign(socket, :active_camera_relay_session, nil)
+
+      {:ok, session} ->
+        apply_camera_relay_session_update(socket, session)
+
+      {:error, reason} ->
+        Logger.warning("Topology camera relay refresh failed for #{relay_session_id}: #{inspect(reason)}")
+
+        assign(socket, :camera_relay_viewer_state, viewer_state_from_error(reason))
+    end
+  end
+
+  defp refresh_camera_relay_tile_session(socket, relay_session_id) do
+    case fetch_camera_relay_tile_session(socket.assigns.camera_relay_tiles, relay_session_id) do
+      nil ->
+        socket
+
+      _tile ->
+        apply_camera_relay_tile_refresh(
+          socket,
+          relay_session_id,
+          fetch_camera_relay_session(socket.assigns.current_scope, relay_session_id)
+        )
+    end
+  end
+
+  defp apply_camera_relay_tile_refresh(socket, relay_session_id, {:ok, nil}) do
+    update(socket, :camera_relay_tiles, fn tiles ->
+      Enum.reject(tiles, &(camera_relay_tile_session_id(&1) == relay_session_id))
+    end)
+  end
+
+  defp apply_camera_relay_tile_refresh(socket, relay_session_id, {:ok, session}) do
+    update_camera_relay_tile(socket, relay_session_id, fn tile ->
+      tile
+      |> Map.put(:relay_session, session)
+      |> Map.put(:viewer_state, viewer_state_from_session(session))
+    end)
+  end
+
+  defp apply_camera_relay_tile_refresh(socket, relay_session_id, {:error, reason}) do
+    Logger.warning("Topology camera relay tile refresh failed for #{relay_session_id}: #{inspect(reason)}")
+
+    update_camera_relay_tile(socket, relay_session_id, fn tile ->
+      Map.put(tile, :viewer_state, viewer_state_from_error(reason))
+    end)
+  end
+
+  defp maybe_update_camera_relay_tile(tile, relay_session_id, updater) do
+    if camera_relay_tile_session_id(tile) == relay_session_id do
+      updater.(tile)
+    else
+      tile
+    end
   end
 
   defp camera_relay_tile_dom_id(tile) do
@@ -2152,8 +2182,6 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
       profile_label: normalize_presence(Map.get(params, "profile_label"))
     }
   end
-
-  defp selected_camera_context(_params), do: nil
 
   defp camera_context_label(%{camera_label: value}) when is_binary(value) and value != "", do: value
   defp camera_context_label(_context), do: "Selected camera"

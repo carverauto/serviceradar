@@ -232,14 +232,12 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
      |> Enum.reject(&(&1 == ""))}
   end
 
-  defp normalize_string_list(_values),
-    do: {:error, :invalid_request, "capabilities must be a list of strings"}
+  defp normalize_string_list(_values), do: {:error, :invalid_request, "capabilities must be a list of strings"}
 
   defp normalize_map(nil, _field_name), do: {:ok, %{}}
   defp normalize_map(value, _field_name) when is_map(value), do: {:ok, value}
 
-  defp normalize_map(_value, field_name),
-    do: {:error, :invalid_request, "#{field_name} must be an object"}
+  defp normalize_map(_value, field_name), do: {:error, :invalid_request, "#{field_name} must be an object"}
 
   defp required_string(params, key) do
     case normalize_optional_string(Map.get(params, key)) do
@@ -257,8 +255,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
     end
   end
 
-  defp normalize_uuid_param(_value, field_name),
-    do: {:error, :invalid_request, "#{field_name} is required"}
+  defp normalize_uuid_param(_value, field_name), do: {:error, :invalid_request, "#{field_name} is required"}
 
   defp normalize_optional_string(value) when is_binary(value) do
     case String.trim(value) do
@@ -333,24 +330,22 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
         metadata: worker.metadata || %{},
         recent_probe_results: normalize_probe_results(worker.recent_probe_results),
         active_assignment_count: Map.get(worker, :active_assignment_count, 0),
-        active_assignments:
-          normalize_active_assignments(Map.get(worker, :active_assignments, [])),
+        active_assignments: normalize_active_assignments(Map.get(worker, :active_assignments, [])),
         notification_audit_active: Map.get(worker, :notification_audit_active, false),
         notification_audit_alert_id: Map.get(worker, :notification_audit_alert_id),
         notification_audit_alert_status: Map.get(worker, :notification_audit_alert_status),
-        notification_audit_notification_count:
-          Map.get(worker, :notification_audit_notification_count, 0),
+        notification_audit_notification_count: Map.get(worker, :notification_audit_notification_count, 0),
         notification_audit_last_notification_at:
           format_datetime(Map.get(worker, :notification_audit_last_notification_at)),
-        notification_audit_suppressed_until:
-          format_datetime(Map.get(worker, :notification_audit_suppressed_until)),
+        notification_audit_suppressed_until: format_datetime(Map.get(worker, :notification_audit_suppressed_until)),
         last_health_transition_at: format_datetime(worker.last_health_transition_at),
         last_healthy_at: format_datetime(worker.last_healthy_at),
         last_failure_at: format_datetime(worker.last_failure_at),
         inserted_at: format_datetime(worker.inserted_at),
         updated_at: format_datetime(worker.updated_at)
       },
-      AnalysisWorkerAlertRouter.routed_alert_context(worker)
+      worker
+      |> AnalysisWorkerAlertRouter.routed_alert_context()
       |> Map.merge(AnalysisWorkerAlertRouter.notification_policy_context(worker))
     )
   end

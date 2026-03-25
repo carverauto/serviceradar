@@ -130,6 +130,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp input_name(base, name), do: "#{base}[#{name}]"
 
   defp input_type(%{"enum" => enum}) when is_list(enum) and enum != [], do: :select
+
   defp input_type(prop) when is_map(prop) do
     if secret_ref?(prop), do: :secret, else: input_type_from_type(prop)
   end
@@ -165,9 +166,10 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp current_secret_ref(params, name) do
     case Map.get(params, name) do
       value when is_binary(value) ->
-        if String.starts_with?(value, "secretref:"), do: value, else: nil
+        if String.starts_with?(value, "secretref:"), do: value
 
-      _ -> nil
+      _ ->
+        nil
     end
   end
 

@@ -70,8 +70,7 @@ defmodule ServiceRadarWebNG.CameraAnalysisWorkers do
 
   defp maybe_filter_enabled(query, nil), do: query
 
-  defp maybe_filter_enabled(query, enabled) when is_boolean(enabled),
-    do: Ash.Query.filter(query, enabled == ^enabled)
+  defp maybe_filter_enabled(query, enabled) when is_boolean(enabled), do: Ash.Query.filter(query, enabled == ^enabled)
 
   defp maybe_filter_enabled(query, _enabled), do: query
 
@@ -86,8 +85,6 @@ defmodule ServiceRadarWebNG.CameraAnalysisWorkers do
       enrich_worker(worker, snapshot, Map.get(audit_contexts, worker.worker_id, %{}))
     end)
   end
-
-  defp enrich_worker(nil), do: nil
 
   defp enrich_worker(worker) do
     enrich_worker(

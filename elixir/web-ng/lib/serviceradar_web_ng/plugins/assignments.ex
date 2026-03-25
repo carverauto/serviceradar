@@ -214,8 +214,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     end
   end
 
-  defp maybe_redact_assignment({:ok, %PluginAssignment{} = assignment}),
-    do: {:ok, redact_assignment(assignment)}
+  defp maybe_redact_assignment({:ok, %PluginAssignment{} = assignment}), do: {:ok, redact_assignment(assignment)}
 
   defp maybe_redact_assignment({:ok, nil}), do: {:ok, nil}
   defp maybe_redact_assignment(other), do: other

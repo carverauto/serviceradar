@@ -5,10 +5,10 @@ defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadar.Plugins.SecretRefs
 
   action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 

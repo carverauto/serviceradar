@@ -1094,26 +1094,21 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp node_kind(device), do: node_type(device) || "device"
 
   defp node_details_json(device, id, camera_sources) do
-    device_uid = normalize_id(Map.get(device || %{}, :uid)) || id
+    device = device || %{}
+    device_uid = normalize_id(Map.get(device, :uid)) || id
     camera_state = summarize_camera_state(camera_sources)
 
     details = %{
       id: id,
       device_uid: device_uid,
-      name: Map.get(device || %{}, :name),
-      hostname: Map.get(device || %{}, :hostname),
+      name: Map.get(device, :name),
+      hostname: Map.get(device, :hostname),
       ip: node_ip(device, id),
       type: node_type(device),
-      type_id: Map.get(device || %{}, :type_id),
-      vendor: Map.get(device || %{}, :vendor_name),
-      model: Map.get(device || %{}, :model),
-      last_seen:
-        case Map.get(device || %{}, :last_seen_time) do
-          %DateTime{} = dt -> DateTime.to_iso8601(dt)
-          %NaiveDateTime{} = ndt -> NaiveDateTime.to_iso8601(ndt)
-          value when is_binary(value) -> value
-          _ -> nil
-        end,
+      type_id: Map.get(device, :type_id),
+      vendor: Map.get(device, :vendor_name),
+      model: Map.get(device, :model),
+      last_seen: node_last_seen(device),
       asn: node_meta_value(device, ["asn", "geo_asn", "armis_asn"]),
       geo_country: node_meta_value(device, ["country", "geo_country", "geoip_country"]),
       geo_city: node_meta_value(device, ["city", "geo_city", "geoip_city"]),
@@ -1435,6 +1430,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp node_geo_lon(device) do
     node_meta_float(device, ["longitude", "geo_lon", "geoip_lon", "lon"])
+  end
+
+  defp node_last_seen(device) when is_map(device) do
+    case Map.get(device, :last_seen_time) do
+      %DateTime{} = dt -> DateTime.to_iso8601(dt)
+      %NaiveDateTime{} = ndt -> NaiveDateTime.to_iso8601(ndt)
+      value when is_binary(value) -> value
+      _ -> nil
+    end
   end
 
   defp node_meta_value(nil, _keys), do: nil
@@ -4233,41 +4237,53 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp cluster_camera_tiles_for_node(_node), do: []
 
   defp cluster_camera_tile_from_source(source) when is_map(source) do
-    camera_source_id = normalize_id(Map.get(source, "camera_source_id") || Map.get(source, :camera_source_id))
-    device_uid = normalize_id(Map.get(source, "device_uid") || Map.get(source, :device_uid))
+    profile = cluster_camera_source_profile(source)
 
-    profile =
-      source
-      |> Map.get("stream_profiles", Map.get(source, :stream_profiles, []))
-      |> List.first()
+    attrs = %{
+      camera_source_id: source_value(source, "camera_source_id", :camera_source_id),
+      device_uid: source_value(source, "device_uid", :device_uid),
+      stream_profile_id: source_value(profile, "stream_profile_id", :stream_profile_id),
+      profile_name: source_value(profile, "profile_name", :profile_name),
+      camera_label: cluster_camera_source_label(source)
+    }
 
-    stream_profile_id =
-      normalize_id(Map.get(profile || %{}, "stream_profile_id") || Map.get(profile || %{}, :stream_profile_id))
-
-    profile_name = Map.get(profile || %{}, "profile_name") || Map.get(profile || %{}, :profile_name)
-
-    if missing_topology_camera_value?(camera_source_id) or
-         missing_topology_camera_value?(device_uid) or
-         missing_topology_camera_value?(stream_profile_id) or
-         missing_topology_camera_value?(profile_name) do
+    if incomplete_cluster_camera_tile_attrs?(attrs) do
       nil
     else
       %{
-        camera_source_id: camera_source_id,
-        stream_profile_id: stream_profile_id,
-        device_uid: device_uid,
-        camera_label:
-          Map.get(source, "display_name") ||
-            Map.get(source, :display_name) ||
-            Map.get(source, "vendor_camera_id") ||
-            Map.get(source, :vendor_camera_id) ||
-            device_uid,
-        profile_label: profile_name
+        camera_source_id: attrs.camera_source_id,
+        stream_profile_id: attrs.stream_profile_id,
+        device_uid: attrs.device_uid,
+        camera_label: attrs.camera_label || attrs.device_uid,
+        profile_label: attrs.profile_name
       }
     end
   end
 
   defp cluster_camera_tile_from_source(_source), do: nil
+
+  defp cluster_camera_source_profile(source) when is_map(source) do
+    source
+    |> Map.get("stream_profiles", Map.get(source, :stream_profiles, []))
+    |> List.first()
+  end
+
+  defp incomplete_cluster_camera_tile_attrs?(attrs) when is_map(attrs) do
+    Enum.any?(~w(camera_source_id device_uid stream_profile_id profile_name)a, fn key ->
+      missing_topology_camera_value?(Map.get(attrs, key))
+    end)
+  end
+
+  defp cluster_camera_source_label(source) when is_map(source) do
+    source_value(source, "display_name", :display_name) ||
+      source_value(source, "vendor_camera_id", :vendor_camera_id)
+  end
+
+  defp source_value(source, string_key, atom_key) when is_map(source) and is_binary(string_key) and is_atom(atom_key) do
+    normalize_id(Map.get(source, string_key) || Map.get(source, atom_key))
+  end
+
+  defp source_value(_source, _string_key, _atom_key), do: nil
 
   defp merge_cluster_membership_details(details_json, cluster_details) when is_map(cluster_details) do
     details_json
