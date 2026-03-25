@@ -43,7 +43,7 @@ spec:
       containers:
       - name: spiffe-legacy-cleanup
         image: ghcr.io/carverauto/serviceradar-tools:{{ $toolsTag }}
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         command: ["/bin/sh", "-c"]
         args:
         - |

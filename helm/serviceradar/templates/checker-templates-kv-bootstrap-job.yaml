@@ -21,7 +21,7 @@ spec:
       containers:
         - name: kv-bootstrap
           image: ghcr.io/carverauto/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           env:
             - name: NATS_URL
               value: "tls://serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local:4222"

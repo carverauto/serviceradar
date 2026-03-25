@@ -15,6 +15,9 @@ global:
   imageTag: "latest"
   # Image pull policy: IfNotPresent (default), Always (for staging/mutable tags), Never
   imagePullPolicy: IfNotPresent
+  # When true, stamp the pod template with a Helm-managed revision so a normal
+  # `helm upgrade` rolls mutable-tag workloads and pulls fresh images.
+  forceRolloutOnUpgrade: false
 
 image:
   registryPullSecret: ghcr-io-cred

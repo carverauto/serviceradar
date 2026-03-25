@@ -18,6 +18,9 @@ spec:
         app.kubernetes.io/part-of: serviceradar
       annotations:
         checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
+        {{- if .Values.global.forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+        {{- end }}
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer" }}
