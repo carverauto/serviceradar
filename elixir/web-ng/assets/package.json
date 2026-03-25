@@ -6,8 +6,8 @@
   "scripts": {
     "build:css": "tailwindcss --input=css/app.css --output=../priv/static/assets/css/app.css",
     "build:css:minify": "tailwindcss --input=css/app.css --output=../priv/static/assets/css/app.css --minify",
-    "build:js": "esbuild js/app.js js/theme_init.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file",
-    "build:js:minify": "esbuild js/app.js js/theme_init.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file --minify",
+    "build:js": "esbuild js/app.js js/theme_init.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --alias:stream=stream-browserify --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file",
+    "build:js:minify": "esbuild js/app.js js/theme_init.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --alias:stream=stream-browserify --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file --minify",
     "test": "bunx vitest run js/lib/god_view/*.test.js",
     "test:god_view:contracts": "bunx vitest run js/lib/god_view/*contract*.test.js js/lib/god_view/renderer_deps.test.js",
     "lint": "bunx eslint js/**/*.js",
@@ -29,9 +29,15 @@
     "d3": "^7.9.0",
     "d3-sankey": "^0.12.3",
     "elkjs": "^0.11.1",
+    "events": "^3.3.0",
+    "jmuxer": "^2.1.0",
     "mapbox-gl": "^3.18.1",
+    "phoenix": "^1.8.5",
+    "phoenix_html": "^4.3.0",
+    "phoenix_live_view": "^1.1.27",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "stream-browserify": "^3.0.0"
   },
   "devDependencies": {
     "@tailwindcss/cli": "4.1.12",

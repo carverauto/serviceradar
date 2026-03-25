@@ -133,7 +133,7 @@ defmodule ServiceRadar.Events.AuditWriter do
       now = DateTime.utc_now()
 
       event = %{
-        id: UUID.uuid4(),
+        id: Ecto.UUID.generate(),
         time: now,
         class_uid: OCSF.class_event_log_activity(),
         category_uid: OCSF.category_system_activity(),

@@ -33,9 +33,11 @@ import (
 const controlStreamReconnectDelay = 5 * time.Second
 
 const (
-	commandTypeMapperRun = "mapper.run_job"
-	commandTypeSweepRun  = "sweep.run_group"
-	commandTypeMtrRun    = "mtr.run"
+	commandTypeMapperRun       = "mapper.run_job"
+	commandTypeSweepRun        = "sweep.run_group"
+	commandTypeMtrRun          = "mtr.run"
+	commandTypeCameraRelayOpen = "camera.open_relay"
+	commandTypeCameraRelayStop = "camera.close_relay"
 )
 
 const defaultOnDemandMtrDeadline = 45 * time.Second
@@ -243,6 +245,10 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleSweepRun(ctx, cmd, sender)
 		case commandTypeMtrRun:
 			p.handleMtrRun(ctx, cmd, sender)
+		case commandTypeCameraRelayOpen:
+			p.handleCameraRelayOpen(ctx, cmd, sender)
+		case commandTypeCameraRelayStop:
+			p.handleCameraRelayStop(ctx, cmd, sender)
 		default:
 			_ = sender.Send(commandResult(cmd, false, "unsupported command", nil))
 		}
@@ -428,6 +434,76 @@ func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, 
 		Msg("On-demand MTR trace completed")
 
 	_ = sender.Send(commandResult(cmd, true, "mtr trace completed", resultPayload))
+}
+
+func (p *PushLoop) handleCameraRelayOpen(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
+	if p.cameraRelayManager == nil {
+		_ = sender.Send(commandResult(cmd, false, "camera relay manager unavailable", nil))
+		return
+	}
+
+	payload := cameraRelayStartPayload{}
+	if len(cmd.PayloadJson) > 0 {
+		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
+			_ = sender.Send(commandResult(cmd, false, "invalid camera relay payload", nil))
+			return
+		}
+	}
+
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	p.server.mu.RUnlock()
+
+	state, err := p.cameraRelayManager.Start(ctx, cameraRelaySessionSpec{
+		RelaySessionID:     payload.RelaySessionID,
+		AgentID:            agentID,
+		GatewayID:          p.gateway.GetGatewayID(),
+		CameraSourceID:     payload.CameraSourceID,
+		StreamProfileID:    payload.StreamProfileID,
+		LeaseToken:         payload.LeaseToken,
+		PluginAssignmentID: payload.PluginAssignmentID,
+		SourceURL:          payload.SourceURL,
+		RTSPTransport:      payload.RTSPTransport,
+		CodecHint:          payload.CodecHint,
+		ContainerHint:      payload.ContainerHint,
+	})
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))
+		return
+	}
+
+	_ = sender.Send(commandResult(cmd, true, "camera relay started", map[string]interface{}{
+		"relay_session_id":      state.RelaySessionID,
+		"media_ingest_id":       state.MediaIngestID,
+		"lease_expires_at_unix": state.LeaseExpiresAtUnix,
+	}))
+}
+
+func (p *PushLoop) handleCameraRelayStop(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
+	if p.cameraRelayManager == nil {
+		_ = sender.Send(commandResult(cmd, false, "camera relay manager unavailable", nil))
+		return
+	}
+
+	payload := cameraRelayStopPayload{}
+	if len(cmd.PayloadJson) > 0 {
+		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
+			_ = sender.Send(commandResult(cmd, false, "invalid camera relay stop payload", nil))
+			return
+		}
+	}
+
+	stopCtx, cancel := context.WithTimeout(ctx, defaultCameraRelayCloseTimeout)
+	defer cancel()
+
+	if err := p.cameraRelayManager.Stop(stopCtx, payload); err != nil {
+		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))
+		return
+	}
+
+	_ = sender.Send(commandResult(cmd, true, "camera relay stopped", map[string]interface{}{
+		"relay_session_id": payload.RelaySessionID,
+	}))
 }
 
 func (p *PushLoop) tryAcquireOnDemandMtrSlot() bool {

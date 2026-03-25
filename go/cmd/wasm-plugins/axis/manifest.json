@@ -40,9 +40,16 @@
         "type": "string",
         "description": "Camera API username"
       },
-      "password": {
+      "password_secret_ref": {
         "type": "string",
-        "description": "Camera API password"
+        "description": "Secret reference for the camera API password",
+        "secretRef": true
+      },
+      "stream_auth_mode": {
+        "type": "string",
+        "description": "Expected RTSP stream authentication mode",
+        "default": "unknown",
+        "enum": ["none", "basic", "digest", "unknown"]
       },
       "timeout": {
         "type": "string",
@@ -58,6 +65,10 @@
         "type": "boolean",
         "description": "Collect camera events from VAPIX websocket stream",
         "default": false
+      },
+      "event_topic_filters": {
+        "type": "string",
+        "description": "Comma or newline separated VAPIX topic filters for websocket events"
       },
       "event_sources": {
         "type": "string",

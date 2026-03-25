@@ -71,7 +71,7 @@ pushd "${project}" >/dev/null
 
 run mix deps.get
 run mix deps.compile
-run mix format --check-formatted
+run env MIX_BUILD_PATH="${MIX_BUILD_PATH:-_build/format_check}" mix format --check-formatted
 
 if [[ "${skip_warnings_as_errors}" == "true" ]]; then
   run mix compile
@@ -86,7 +86,7 @@ run mix hex.audit
 run mix deps.audit
 
 if [[ "${skip_dialyzer}" != "true" ]]; then
-  run mix dialyzer
+  run mix dialyzer --force-check
 fi
 
 if [[ "${phoenix}" == "true" ]]; then

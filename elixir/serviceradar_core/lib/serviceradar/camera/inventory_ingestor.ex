@@ -1,0 +1,1019 @@
+defmodule ServiceRadar.Camera.InventoryIngestor do
+  @moduledoc """
+  Ingests camera discovery descriptors from plugin results into normalized inventory.
+  """
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.Source
+  alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.IdentityReconciler
+
+  require Ash.Query
+  require Logger
+
+  @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
+  def ingest(payload, status, opts \\ [])
+
+  def ingest(payload, status, opts) when is_list(payload) do
+    payload
+    |> Enum.find(&is_map/1)
+    |> case do
+      nil -> :ok
+      entry -> ingest(entry, status, opts)
+    end
+  end
+
+  def ingest(payload, status, opts) when is_map(payload) do
+    context = build_ingest_context(payload, status, opts)
+    descriptors = context.descriptors
+
+    Enum.reduce_while(descriptors, :ok, fn descriptor, :ok ->
+      case ingest_descriptor(descriptor, context) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  def ingest(_payload, _status, _opts), do: :ok
+
+  defp ingest_descriptor(descriptor, context) do
+    descriptor =
+      resolve_descriptor_device_uid(
+        descriptor,
+        context.status,
+        context.actor,
+        context.resolve_device_uid
+      )
+
+    with {:ok, source_attrs} <-
+           normalize_source(
+             descriptor,
+             context.descriptors,
+             context.payload,
+             context.status,
+             context.observed_at
+           ),
+         {:ok, source_record} <- context.source_upsert.(source_attrs, context.actor) do
+      descriptor
+      |> normalize_profiles(context.observed_at)
+      |> Enum.reduce_while(:ok, fn profile_attrs, :ok ->
+        attrs = Map.put(profile_attrs, :camera_source_id, source_record.id)
+
+        case context.profile_upsert.(attrs, context.actor) do
+          {:ok, _profile} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    else
+      {:skip, reason} ->
+        Logger.debug("Skipping camera descriptor during inventory ingest: #{reason}")
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp build_ingest_context(payload, status, opts) do
+    %{
+      payload: payload,
+      status: status,
+      actor: Keyword.get(opts, :actor, SystemActor.system(:camera_inventory_ingestor)),
+      observed_at: Keyword.get(opts, :observed_at) || resolve_observed_at(payload, status),
+      source_upsert: Keyword.get(opts, :source_upsert, &upsert_source/2),
+      profile_upsert: Keyword.get(opts, :profile_upsert, &upsert_profile/2),
+      resolve_device_uid: Keyword.get(opts, :resolve_device_uid, &default_resolve_device_uid/3),
+      descriptors: extract_camera_descriptors(payload)
+    }
+  end
+
+  @doc """
+  Extract normalized camera descriptors from a plugin result payload.
+  """
+  @spec extract_camera_descriptors(map()) :: [map()]
+  def extract_camera_descriptors(payload) when is_map(payload) do
+    direct_descriptors =
+      payload
+      |> list_value(["camera_descriptors", "cameraDescriptors", "cameras"])
+      |> Enum.filter(&is_map/1)
+
+    if direct_descriptors == [] do
+      payload
+      |> details_payload_or_self()
+      |> extract_details_camera_descriptors()
+    else
+      direct_descriptors
+    end
+  end
+
+  def extract_camera_descriptors(_payload), do: []
+
+  defp normalize_source(descriptor, descriptors, payload, status, observed_at)
+       when is_map(descriptor) do
+    vendor = string_value(descriptor, ["vendor"])
+
+    vendor_camera_id =
+      string_value(descriptor, [
+        "vendor_camera_id",
+        "vendorCameraId",
+        "camera_id",
+        "cameraId",
+        "id"
+      ])
+
+    device_uid =
+      string_value(descriptor, [
+        "device_uid",
+        "deviceUid",
+        "device_id",
+        "deviceId",
+        "canonical_device_id",
+        "canonicalDeviceId",
+        "uid"
+      ])
+
+    if blank?(device_uid) or blank?(vendor) or blank?(vendor_camera_id) do
+      {:skip, "missing required camera identity fields"}
+    else
+      source_state = derive_source_state(descriptor, descriptors, payload, status, observed_at)
+
+      {:ok,
+       Map.merge(
+         %{
+           device_uid: device_uid,
+           vendor: vendor,
+           vendor_camera_id: vendor_camera_id,
+           display_name: string_value(descriptor, ["display_name", "displayName", "name"]),
+           source_url:
+             string_value(descriptor, ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"]),
+           assigned_agent_id:
+             string_value(descriptor, [
+               "assigned_agent_id",
+               "assignedAgentId",
+               "agent_id",
+               "agentId"
+             ]) || status[:agent_id],
+           assigned_gateway_id:
+             string_value(descriptor, [
+               "assigned_gateway_id",
+               "assignedGatewayId",
+               "gateway_id",
+               "gatewayId"
+             ]) ||
+               status[:gateway_id],
+           metadata: map_value(descriptor, ["metadata"]) || %{}
+         },
+         source_state
+       )}
+    end
+  end
+
+  defp normalize_profiles(descriptor, observed_at) do
+    profiles =
+      descriptor
+      |> list_value(["stream_profiles", "streamProfiles", "profiles"])
+      |> Enum.map(&normalize_profile(&1, observed_at))
+      |> Enum.reject(&is_nil/1)
+
+    if profiles == [] do
+      case normalize_default_profile(descriptor, observed_at) do
+        nil -> []
+        profile -> [profile]
+      end
+    else
+      profiles
+    end
+  end
+
+  defp normalize_profile(profile, observed_at) when is_map(profile) do
+    profile_name = string_value(profile, ["profile_name", "profileName", "name", "profile"])
+
+    profile_name =
+      cond do
+        not blank?(profile_name) ->
+          profile_name
+
+        not blank?(
+          string_value(profile, [
+            "vendor_profile_id",
+            "vendorProfileId",
+            "profile_id",
+            "profileId",
+            "id"
+          ])
+        ) ->
+          string_value(profile, [
+            "vendor_profile_id",
+            "vendorProfileId",
+            "profile_id",
+            "profileId",
+            "id"
+          ])
+
+        true ->
+          nil
+      end
+
+    if blank?(profile_name) do
+      nil
+    else
+      %{
+        profile_name: profile_name,
+        vendor_profile_id:
+          string_value(profile, [
+            "vendor_profile_id",
+            "vendorProfileId",
+            "profile_id",
+            "profileId",
+            "id"
+          ]),
+        source_url_override:
+          string_value(profile, [
+            "source_url_override",
+            "sourceUrlOverride",
+            "source_url",
+            "sourceUrl",
+            "rtsp_url",
+            "rtspUrl"
+          ]),
+        rtsp_transport: string_value(profile, ["rtsp_transport", "rtspTransport", "transport"]),
+        codec_hint: string_value(profile, ["codec_hint", "codecHint", "codec"]),
+        container_hint: string_value(profile, ["container_hint", "containerHint", "container"]),
+        relay_eligible: boolean_value(profile, ["relay_eligible", "relayEligible"], true),
+        last_seen_at: observed_at,
+        metadata: normalize_profile_metadata(map_value(profile, ["metadata"]) || %{})
+      }
+    end
+  end
+
+  defp normalize_profile(_profile, _observed_at), do: nil
+
+  defp normalize_default_profile(descriptor, observed_at) do
+    if blank?(string_value(descriptor, ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"])) and
+         blank?(string_value(descriptor, ["codec_hint", "codecHint", "codec"])) do
+      nil
+    else
+      %{
+        profile_name: "default",
+        vendor_profile_id: string_value(descriptor, ["vendor_profile_id", "vendorProfileId"]),
+        source_url_override: nil,
+        rtsp_transport:
+          string_value(descriptor, ["rtsp_transport", "rtspTransport", "transport"]),
+        codec_hint: string_value(descriptor, ["codec_hint", "codecHint", "codec"]),
+        container_hint:
+          string_value(descriptor, ["container_hint", "containerHint", "container"]),
+        relay_eligible: boolean_value(descriptor, ["relay_eligible", "relayEligible"], true),
+        last_seen_at: observed_at,
+        metadata: map_value(descriptor, ["profile_metadata", "profileMetadata"]) || %{}
+      }
+    end
+  end
+
+  defp extract_details_camera_descriptors(details) when is_map(details) do
+    detail_descriptors =
+      details
+      |> list_value(["camera_descriptors", "cameraDescriptors", "cameras"])
+      |> Enum.filter(&is_map/1)
+
+    if detail_descriptors == [] do
+      generic_descriptors = extract_enrichment_camera_descriptors(details)
+
+      if generic_descriptors == [] do
+        infer_axis_camera_descriptors(details)
+      else
+        generic_descriptors
+      end
+    else
+      detail_descriptors
+    end
+  end
+
+  defp extract_details_camera_descriptors(_details), do: []
+
+  defp upsert_source(attrs, actor) do
+    Source.upsert_source(attrs, actor: actor)
+  end
+
+  defp upsert_profile(attrs, actor) do
+    StreamProfile.upsert_profile(attrs, actor: actor)
+  end
+
+  defp derive_source_state(descriptor, descriptors, payload, status, observed_at) do
+    matched_events = matching_camera_events(descriptor, descriptors, payload)
+    latest_event = latest_camera_event(matched_events)
+
+    %{}
+    |> maybe_put(
+      :availability_status,
+      event_availability_status(latest_event) || status_availability(status, payload)
+    )
+    |> maybe_put(
+      :availability_reason,
+      event_availability_reason(latest_event) || status_availability_reason(payload)
+    )
+    |> maybe_put(:last_activity_at, event_time(latest_event))
+    |> maybe_put(:last_event_at, event_time(latest_event))
+    |> maybe_put(:last_event_type, event_type(latest_event))
+    |> maybe_put(:last_event_message, event_message(latest_event, observed_at))
+  end
+
+  defp matching_camera_events(descriptor, descriptors, payload) do
+    events = extract_events(payload)
+
+    cond do
+      events == [] ->
+        []
+
+      length(descriptors) == 1 ->
+        events
+
+      true ->
+        Enum.filter(events, &camera_event_matches_descriptor?(&1, descriptor))
+    end
+  end
+
+  defp extract_events(payload) when is_map(payload) do
+    payload
+    |> list_value(["events"])
+    |> Enum.filter(&is_map/1)
+  end
+
+  defp latest_camera_event(events) when is_list(events) do
+    Enum.max_by(events, &event_sort_key/1, fn -> nil end)
+  end
+
+  defp camera_event_matches_descriptor?(event, descriptor)
+       when is_map(event) and is_map(descriptor) do
+    device = map_value(event, ["device"]) || %{}
+    unmapped = map_value(event, ["unmapped"]) || %{}
+
+    identities =
+      Enum.reject(
+        [
+          string_value(device, ["uid", "device_uid", "deviceUid"]),
+          string_value(device, ["name", "camera_id", "cameraId"]),
+          string_value(unmapped, [
+            "camera_source_id",
+            "camera_device_uid",
+            "camera_id",
+            "cameraId"
+          ])
+        ],
+        &blank?/1
+      )
+
+    device_uid =
+      string_value(descriptor, [
+        "device_uid",
+        "deviceUid",
+        "device_id",
+        "deviceId",
+        "canonical_device_id",
+        "canonicalDeviceId",
+        "uid"
+      ])
+
+    vendor_camera_id =
+      string_value(descriptor, [
+        "vendor_camera_id",
+        "vendorCameraId",
+        "camera_id",
+        "cameraId",
+        "id"
+      ])
+
+    Enum.any?(identities, &(&1 in [device_uid, vendor_camera_id]))
+  end
+
+  defp event_sort_key(event) do
+    event
+    |> event_time()
+    |> case do
+      %DateTime{} = dt -> DateTime.to_unix(dt, :microsecond)
+      _ -> 0
+    end
+  end
+
+  defp event_time(nil), do: nil
+
+  defp event_time(event) when is_map(event) do
+    event
+    |> value(["time", "observed_at", "observedAt"])
+    |> case do
+      nil -> nil
+      value -> DateTime.truncate(FieldParser.parse_timestamp(value), :microsecond)
+    end
+  end
+
+  defp event_type(nil), do: nil
+
+  defp event_type(event) when is_map(event) do
+    event_topic(event) ||
+      string_value(event, ["activity_name", "activityName", "type_name", "typeName"]) ||
+      string_value(event, ["message"])
+  end
+
+  defp event_message(nil, _observed_at), do: nil
+
+  defp event_message(event, observed_at) when is_map(event) do
+    string_value(event, ["message"]) ||
+      event_topic(event) ||
+      "Camera activity observed at #{DateTime.to_iso8601(observed_at)}"
+  end
+
+  defp event_topic(event) when is_map(event) do
+    event
+    |> map_value(["unmapped"])
+    |> case do
+      nil ->
+        nil
+
+      unmapped ->
+        unmapped
+        |> map_value(["axis_ws_payload"])
+        |> case do
+          nil ->
+            nil
+
+          axis_payload ->
+            axis_payload
+            |> value(["params"])
+            |> map_value(["notification"])
+            |> string_value(["topic"])
+        end
+    end
+  end
+
+  defp event_availability_status(nil), do: nil
+
+  defp event_availability_status(event) when is_map(event) do
+    text =
+      [event_topic(event), string_value(event, ["message", "status", "status_detail"])]
+      |> Enum.reject(&blank?/1)
+      |> Enum.join(" ")
+      |> String.downcase()
+
+    cond do
+      text == "" ->
+        nil
+
+      String.contains?(text, [
+        "video lost",
+        "videolost",
+        "offline",
+        "disconnect",
+        "unavailable",
+        "signal lost"
+      ]) ->
+        "unavailable"
+
+      String.contains?(text, ["restored", "online", "reconnect", "connected", "available"]) ->
+        "available"
+
+      String.contains?(text, ["warning", "degraded", "tamper"]) ->
+        "degraded"
+
+      true ->
+        nil
+    end
+  end
+
+  defp event_availability_reason(nil), do: nil
+
+  defp event_availability_reason(event) when is_map(event) do
+    string_value(event, ["message", "status_detail"]) || event_topic(event)
+  end
+
+  defp status_availability(status, payload) do
+    case status[:available] do
+      true ->
+        "available"
+
+      false ->
+        "unavailable"
+
+      _ ->
+        payload
+        |> string_value(["status"])
+        |> case do
+          "OK" -> "available"
+          "WARNING" -> "degraded"
+          "CRITICAL" -> "unavailable"
+          "UNKNOWN" -> "unavailable"
+          _ -> nil
+        end
+    end
+  end
+
+  defp status_availability_reason(payload) do
+    string_value(payload, ["summary", "message"]) ||
+      payload
+      |> details_payload()
+      |> string_value(["collection_error"])
+  end
+
+  defp resolve_observed_at(payload, status) do
+    candidate =
+      value(payload, ["observed_at", "observedAt"]) ||
+        status[:agent_timestamp] ||
+        status[:timestamp]
+
+    case candidate do
+      %DateTime{} = dt ->
+        DateTime.truncate(dt, :microsecond)
+
+      value when is_binary(value) ->
+        case DateTime.from_iso8601(value) do
+          {:ok, dt, _offset} -> DateTime.truncate(dt, :microsecond)
+          _ -> DateTime.truncate(DateTime.utc_now(), :microsecond)
+        end
+
+      _ ->
+        DateTime.truncate(DateTime.utc_now(), :microsecond)
+    end
+  end
+
+  defp value(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      Map.get(map, key) || Map.get(map, to_string(key))
+    end)
+  end
+
+  defp value(_map, _keys), do: nil
+
+  defp details_payload(payload) when is_map(payload) do
+    case value(payload, ["details"]) do
+      value when is_map(value) ->
+        value
+
+      value when is_binary(value) ->
+        case Jason.decode(value) do
+          {:ok, decoded} when is_map(decoded) -> decoded
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp details_payload_or_self(payload) when is_map(payload) do
+    details_payload(payload) || payload
+  end
+
+  defp string_value(map, keys) do
+    case value(map, keys) do
+      nil -> nil
+      value when is_binary(value) -> String.trim(value)
+      value when is_atom(value) -> Atom.to_string(value)
+      value when is_integer(value) -> Integer.to_string(value)
+      _ -> nil
+    end
+  end
+
+  defp map_value(map, keys) do
+    case value(map, keys) do
+      value when is_map(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp list_value(map, keys) do
+    case value(map, keys) do
+      value when is_list(value) -> value
+      _ -> []
+    end
+  end
+
+  defp boolean_value(map, keys, default) do
+    case value(map, keys) do
+      nil -> default
+      value when is_boolean(value) -> value
+      "true" -> true
+      "false" -> false
+      _ -> default
+    end
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, ""), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(nil), do: true
+  defp blank?(_value), do: false
+
+  defp infer_axis_camera_descriptors(details) do
+    if axis_details?(details) do
+      case build_axis_descriptor(details) do
+        nil -> []
+        descriptor -> [descriptor]
+      end
+    else
+      []
+    end
+  end
+
+  defp axis_details?(details) do
+    metadata = map_value(details, ["metadata"]) || %{}
+    enrichment = map_value(details, ["device_enrichment", "enrichment"]) || %{}
+    camera = map_value(enrichment, ["camera"]) || %{}
+
+    plugin_id = string_value(metadata, ["plugin"])
+    vendor = string_value(camera, ["vendor"])
+
+    plugin_id == "axis-camera" or String.upcase(vendor || "") == "AXIS"
+  end
+
+  defp build_axis_descriptor(details) do
+    host = string_value(details, ["camera_host"])
+    device_info = map_value(details, ["device_info"]) || %{}
+    streams = list_value(details, ["streams"])
+
+    device_uid =
+      first_present([
+        string_value(device_info, ["S.Nbr", "SerialNumber", "Serial"]),
+        string_value(device_info, ["MACAddress", "Network.HWaddress", "root.Network.HWaddress"]),
+        host
+      ])
+
+    vendor_camera_id =
+      first_present([
+        string_value(device_info, ["S.Nbr", "SerialNumber", "Serial"]),
+        host
+      ])
+
+    if blank?(device_uid) or blank?(vendor_camera_id) do
+      nil
+    else
+      %{
+        "device_uid" => device_uid,
+        "vendor" => "axis",
+        "camera_id" => vendor_camera_id,
+        "display_name" =>
+          first_present([
+            string_value(device_info, ["ProductFullName", "ProdNbr", "Brand"]),
+            host
+          ]),
+        "source_url" => first_stream_url(streams),
+        "stream_profiles" => Enum.map(streams, &axis_profile_descriptor/1)
+      }
+    end
+  end
+
+  defp axis_profile_descriptor(stream) when is_map(stream) do
+    url = string_value(stream, ["url"])
+
+    %{
+      "profile_name" => first_present([string_value(stream, ["id"]), "default"]),
+      "vendor_profile_id" => string_value(stream, ["id"]),
+      "source_url_override" => url,
+      "rtsp_transport" => "tcp",
+      "codec_hint" => codec_from_rtsp_url(url)
+    }
+  end
+
+  defp axis_profile_descriptor(_stream), do: %{}
+
+  defp extract_enrichment_camera_descriptors(details) when is_map(details) do
+    enrichment = map_value(details, ["device_enrichment", "enrichment"]) || %{}
+
+    case build_enrichment_descriptor(details, enrichment) do
+      nil -> []
+      descriptor -> [descriptor]
+    end
+  end
+
+  defp build_enrichment_descriptor(details, enrichment)
+       when is_map(details) and is_map(enrichment) do
+    identity = map_value(enrichment, ["identity"]) || %{}
+    camera = map_value(enrichment, ["camera"]) || %{}
+    source = map_value(enrichment, ["source"]) || %{}
+    streams = list_value(enrichment, ["streams"])
+
+    vendor =
+      camera
+      |> string_value(["vendor"])
+      |> case do
+        nil -> nil
+        value -> String.downcase(value)
+      end
+
+    vendor_camera_id =
+      first_present([
+        string_value(camera, ["camera_id", "cameraId", "id"]),
+        string_value(source, ["camera_id", "cameraId"]),
+        string_value(identity, ["serial"]),
+        string_value(identity, ["mac"]),
+        string_value(source, ["camera_host", "cameraHost"]),
+        string_value(details, ["camera_host", "cameraHost"])
+      ])
+
+    explicit_device_uid =
+      first_present([
+        string_value(enrichment, [
+          "device_uid",
+          "deviceUid",
+          "canonical_device_id",
+          "canonicalDeviceId"
+        ]),
+        string_value(source, [
+          "device_uid",
+          "deviceUid",
+          "canonical_device_id",
+          "canonicalDeviceId"
+        ]),
+        string_value(identity, [
+          "device_uid",
+          "deviceUid",
+          "canonical_device_id",
+          "canonicalDeviceId"
+        ])
+      ])
+
+    if blank?(vendor) or blank?(vendor_camera_id) do
+      nil
+    else
+      %{
+        "device_uid" => explicit_device_uid,
+        "vendor" => vendor,
+        "camera_id" => vendor_camera_id,
+        "display_name" =>
+          first_present([
+            string_value(camera, ["display_name", "displayName", "name", "model"]),
+            string_value(source, ["camera_host", "cameraHost"]),
+            string_value(details, ["camera_host", "cameraHost"])
+          ]),
+        "source_url" => first_stream_url(streams),
+        "stream_profiles" => Enum.map(streams, &generic_profile_descriptor/1),
+        "identity" => identity,
+        "camera" => camera,
+        "source" => source,
+        "metadata" =>
+          %{
+            "camera_host" =>
+              first_present([
+                string_value(source, ["camera_host", "cameraHost"]),
+                string_value(details, ["camera_host", "cameraHost"])
+              ]),
+            "plugin_id" => string_value(source, ["plugin_id", "pluginId"]),
+            "device_enrichment" => enrichment
+          }
+          |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+          |> Map.new()
+      }
+    end
+  end
+
+  defp build_enrichment_descriptor(_details, _enrichment), do: nil
+
+  defp generic_profile_descriptor(stream) when is_map(stream) do
+    url = string_value(stream, ["url", "source_url", "sourceUrl", "rtsp_url", "rtspUrl"])
+
+    metadata =
+      %{
+        "auth_mode" => string_value(stream, ["auth_mode", "authMode"]),
+        "credential_reference_id" =>
+          string_value(stream, ["credential_reference_id", "credentialReferenceId"]),
+        "source" => string_value(stream, ["source"]),
+        "protocol" => string_value(stream, ["protocol"])
+      }
+      |> Enum.reject(fn {_key, value} -> blank?(value) end)
+      |> Map.new()
+
+    %{
+      "profile_name" =>
+        first_present([
+          string_value(stream, ["profile_name", "profileName", "name", "id"]),
+          "default"
+        ]),
+      "vendor_profile_id" =>
+        string_value(stream, [
+          "vendor_profile_id",
+          "vendorProfileId",
+          "profile_id",
+          "profileId",
+          "id"
+        ]),
+      "source_url_override" => url,
+      "rtsp_transport" =>
+        first_present([
+          string_value(stream, ["rtsp_transport", "rtspTransport", "transport"]),
+          if(is_binary(url) and String.starts_with?(String.downcase(url), "rtsp"), do: "tcp")
+        ]),
+      "codec_hint" =>
+        first_present([
+          string_value(stream, ["codec_hint", "codecHint", "codec"]),
+          codec_from_rtsp_url(url)
+        ]),
+      "metadata" => normalize_profile_metadata(metadata)
+    }
+  end
+
+  defp generic_profile_descriptor(_stream), do: %{}
+
+  defp resolve_descriptor_device_uid(descriptor, status, actor, resolve_device_uid)
+       when is_map(descriptor) and is_function(resolve_device_uid, 3) do
+    if blank?(descriptor_device_uid(descriptor)) do
+      case resolve_device_uid.(descriptor, status, actor) do
+        value when is_binary(value) and value != "" ->
+          Map.put(descriptor, "device_uid", value)
+
+        _ ->
+          descriptor
+      end
+    else
+      descriptor
+    end
+  end
+
+  defp descriptor_device_uid(descriptor) when is_map(descriptor) do
+    string_value(descriptor, [
+      "device_uid",
+      "deviceUid",
+      "device_id",
+      "deviceId",
+      "canonical_device_id",
+      "canonicalDeviceId",
+      "uid"
+    ])
+  end
+
+  defp default_resolve_device_uid(descriptor, status, actor) do
+    case resolve_identity_from_hints(descriptor, status, actor) do
+      {:ok, uid} when is_binary(uid) and uid != "" -> uid
+      _ -> nil
+    end
+  end
+
+  defp resolve_identity_from_hints(descriptor, status, actor) when is_map(descriptor) do
+    with {:ok, update} <- identity_update_from_descriptor(descriptor, status),
+         {:ok, uid} <- IdentityReconciler.resolve_device_id(update, actor: actor) do
+      {:ok, uid}
+    else
+      _ ->
+        lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
+    end
+  end
+
+  defp resolve_identity_from_hints(_descriptor, _status, _actor), do: {:error, :unresolved}
+
+  defp identity_update_from_descriptor(descriptor, status) do
+    mac = descriptor_mac(descriptor)
+    ip = descriptor_ip(descriptor)
+    integration_id = descriptor_integration_id(descriptor)
+
+    if blank?(mac) and blank?(ip) and blank?(integration_id) do
+      {:error, :no_identity_hints}
+    else
+      {:ok,
+       %{
+         device_id: nil,
+         ip: ip,
+         mac: mac,
+         partition: "default",
+         metadata:
+           %{}
+           |> maybe_put("agent_id", status[:agent_id])
+           |> maybe_put("integration_id", integration_id)
+           |> maybe_put(
+             "integration_type",
+             if(blank?(integration_id), do: nil, else: "camera_plugin")
+           )
+       }}
+    end
+  end
+
+  defp descriptor_hostname(descriptor) when is_map(descriptor) do
+    metadata = map_value(descriptor, ["metadata"]) || %{}
+    source = map_value(descriptor, ["source"]) || %{}
+
+    first_present([
+      string_value(source, ["camera_host", "cameraHost", "hostname", "host"]),
+      string_value(metadata, ["camera_host", "cameraHost", "hostname", "host"])
+    ])
+  end
+
+  defp descriptor_mac(descriptor) when is_map(descriptor) do
+    descriptor
+    |> map_value(["identity"])
+    |> case do
+      nil -> nil
+      identity -> string_value(identity, ["mac"])
+    end
+  end
+
+  defp descriptor_ip(descriptor) when is_map(descriptor) do
+    candidate =
+      first_present([
+        string_value(descriptor, ["ip", "ip_address", "ipAddress"]),
+        descriptor_hostname(descriptor)
+      ])
+
+    if ip_address?(candidate), do: candidate
+  end
+
+  defp descriptor_integration_id(descriptor) when is_map(descriptor) do
+    identity = map_value(descriptor, ["identity"]) || %{}
+    vendor = string_value(descriptor, ["vendor"])
+    serial = string_value(identity, ["serial"])
+
+    cond do
+      not blank?(string_value(identity, ["integration_id", "integrationId"])) ->
+        string_value(identity, ["integration_id", "integrationId"])
+
+      not blank?(serial) and not blank?(vendor) ->
+        "#{vendor}:serial:#{serial}"
+
+      true ->
+        nil
+    end
+  end
+
+  defp normalize_profile_metadata(metadata) when is_map(metadata) do
+    auth_mode =
+      metadata
+      |> string_value(["auth_mode", "authMode"])
+      |> normalize_auth_mode()
+
+    credential_reference_id =
+      metadata
+      |> string_value(["credential_reference_id", "credentialReferenceId"])
+      |> case do
+        value when auth_mode in ["basic", "digest", "unknown"] -> value
+        _ -> nil
+      end
+
+    metadata
+    |> maybe_put("auth_mode", auth_mode)
+    |> maybe_put("credential_reference_id", credential_reference_id)
+  end
+
+  defp normalize_profile_metadata(_metadata), do: %{}
+
+  defp normalize_auth_mode(value) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      "none" -> "none"
+      "basic" -> "basic"
+      "digest" -> "digest"
+      "unknown" -> "unknown"
+      _ -> "unknown"
+    end
+  end
+
+  defp normalize_auth_mode(_value), do: nil
+
+  defp lookup_device_by_hostname(nil, _actor), do: {:error, :not_found}
+  defp lookup_device_by_hostname("", _actor), do: {:error, :not_found}
+
+  defp lookup_device_by_hostname(hostname, actor) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(hostname == ^hostname)
+      |> Ash.Query.limit(1)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, [%{uid: uid} | _]} when is_binary(uid) and uid != "" -> {:ok, uid}
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp ip_address?(value) when is_binary(value) do
+    case :inet.parse_address(String.to_charlist(String.trim(value))) do
+      {:ok, _address} -> true
+      _ -> false
+    end
+  end
+
+  defp ip_address?(_value), do: false
+
+  defp first_stream_url(streams) do
+    Enum.find_value(streams, fn stream ->
+      string_value(stream, ["url", "source_url", "sourceUrl", "rtsp_url", "rtspUrl"])
+    end)
+  end
+
+  defp codec_from_rtsp_url(nil), do: nil
+
+  defp codec_from_rtsp_url(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{query: nil} ->
+        nil
+
+      %URI{query: query} ->
+        query
+        |> URI.decode_query()
+        |> Map.get("videocodec")
+    end
+  end
+
+  defp first_present(values) do
+    Enum.find_value(values, fn value ->
+      if blank?(value), do: nil, else: value
+    end)
+  end
+end

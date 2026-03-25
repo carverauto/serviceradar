@@ -50,11 +50,74 @@ defmodule ServiceRadarCoreElx.Application do
     #
     # AshOban scheduler is started when :start_ash_oban_scheduler = true
 
-    children = []
+    children = [
+      ServiceRadarCoreElx.CameraRelay.ViewerRegistry,
+      ServiceRadarCoreElx.CameraRelay.PipelineManager,
+      ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager,
+      ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager,
+      {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.BoomboxSidecarSupervisor},
+      ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager,
+      {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchSupervisor},
+      {Task.Supervisor, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchTaskSupervisor},
+      ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManager,
+      ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager,
+      ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager,
+      ServiceRadarCoreElx.CameraMediaSessionTracker,
+      {Registry, keys: :unique, name: ServiceRadarCoreElx.CameraMediaIngressRegistry},
+      ServiceRadarCoreElx.CameraMediaIngressSupervisor,
+      {GRPC.Server.Supervisor,
+       endpoint: ServiceRadarCoreElx.Endpoint,
+       port: media_grpc_port(),
+       start_server: true,
+       adapter_opts: media_adapter_opts()}
+    ]
 
     Logger.info("Core-ELX initialized - serviceradar_core handles cluster infrastructure")
 
     opts = [strategy: :one_for_one, name: ServiceRadarCoreElx.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  defp media_grpc_port do
+    value = System.get_env("CORE_ELX_MEDIA_GRPC_PORT", "50062")
+
+    case Integer.parse(value) do
+      {port, ""} when port > 0 and port < 65_536 -> port
+      _ -> 50_062
+    end
+  end
+
+  defp media_adapter_opts do
+    case media_grpc_credential() do
+      nil -> []
+      credential -> [cred: credential]
+    end
+  end
+
+  defp media_grpc_credential do
+    cert_dir = System.get_env("CORE_ELX_MEDIA_CERT_DIR", "/etc/serviceradar/certs")
+    cert_file = Path.join(cert_dir, "core-elx.pem")
+    key_file = Path.join(cert_dir, "core-elx-key.pem")
+    ca_file = Path.join(cert_dir, "root.pem")
+
+    if File.exists?(cert_file) and File.exists?(key_file) and File.exists?(ca_file) do
+      ssl_opts = [
+        certfile: cert_file,
+        keyfile: key_file,
+        cacertfile: ca_file,
+        verify: :verify_peer,
+        fail_if_no_peer_cert: false
+      ]
+
+      GRPC.Credential.new(ssl: ssl_opts)
+    else
+      allow_insecure? = System.get_env("CORE_ELX_MEDIA_ALLOW_INSECURE_GRPC", "true") == "true"
+
+      if allow_insecure? do
+        nil
+      else
+        raise "No TLS certs available for core-elx camera media gRPC server"
+      end
+    end
   end
 end

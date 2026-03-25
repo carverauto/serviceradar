@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins
   alias ServiceRadarWebNG.RBAC
@@ -89,7 +90,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentController do
       enabled: assignment.enabled,
       interval_seconds: assignment.interval_seconds,
       timeout_seconds: assignment.timeout_seconds,
-      params: assignment.params,
+      params: SecretRefs.public_params(assignment.params || %{}),
       permissions_override: assignment.permissions_override,
       resources_override: assignment.resources_override,
       inserted_at: format_datetime(assignment.inserted_at),

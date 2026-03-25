@@ -30,7 +30,7 @@ config :esbuild,
   version: "0.25.4",
   serviceradar_web_ng: [
     args:
-      ~w(js/app.js js/theme_init.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file),
+      ~w(js/app.js js/theme_init.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --alias:stream=stream-browserify --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file),
     cd: Path.expand("../assets", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
@@ -56,7 +56,9 @@ config :logger, :default_formatter,
     :absolute_timeout_seconds,
     :remote_ip,
     :ip,
-    :user_agent
+    :user_agent,
+    :relay_session_id,
+    :viewer_id
   ]
 
 # Use Jason for JSON parsing in Phoenix
@@ -107,6 +109,7 @@ config :serviceradar_core, ServiceRadar.Repo, migration_source: "ash_schema_migr
 config :serviceradar_core,
   ash_domains: [
     ServiceRadar.AgentConfig,
+    ServiceRadar.Camera,
     ServiceRadar.Identity,
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,
@@ -203,6 +206,7 @@ config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 config :serviceradar_web_ng,
   ash_domains: [
     ServiceRadar.AgentConfig,
+    ServiceRadar.Camera,
     ServiceRadar.Identity,
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,

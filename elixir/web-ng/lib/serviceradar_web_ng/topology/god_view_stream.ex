@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Repo
@@ -41,6 +42,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @endpoint_cluster_summary_gap_y 54.0
   @endpoint_cluster_expanded_gap_x 196.0
   @endpoint_cluster_expanded_gap_y 72.0
+  @max_cluster_camera_tile_candidates 12
   @endpoint_cluster_expanded_base_radius 86.0
   @endpoint_cluster_expanded_member_clearance 44.0
   @endpoint_cluster_expanded_hub_clearance 72.0
@@ -318,13 +320,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     raw_edge_node_ids = raw_edges |> Enum.flat_map(&[&1.source, &1.target]) |> Enum.uniq()
 
-    with {:ok, devices} <- fetch_devices(actor, raw_edge_node_ids) do
+    with {:ok, devices} <- fetch_devices(actor, raw_edge_node_ids),
+         {:ok, camera_sources_by_device_uid} <- fetch_camera_sources(actor, Enum.map(devices, & &1.uid)) do
       device_by_id = Map.new(devices, &{&1.uid, &1})
       edges = collapse_endpoint_attachments(raw_edges, device_by_id)
       edge_node_ids = edges |> Enum.flat_map(&[&1.source, &1.target]) |> Enum.uniq()
       node_pps_by_id = node_pps_by_id(edges)
       node_ids = node_ids(edge_node_ids, devices)
-      nodes = build_nodes(node_ids, device_by_id, node_pps_by_id)
+      nodes = build_nodes(node_ids, device_by_id, node_pps_by_id, camera_sources_by_device_uid)
 
       edge_contract_stats = edge_contract_stats(edges)
 
@@ -861,6 +864,47 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
+  defp fetch_camera_sources(_actor, []), do: {:ok, %{}}
+
+  defp fetch_camera_sources(actor, device_uids) when is_list(device_uids) do
+    device_uids
+    |> Enum.map(&normalize_id/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.chunk_every(2_000)
+    |> Enum.reduce_while({:ok, []}, fn device_uid_chunk, {:ok, acc} ->
+      query =
+        CameraSource
+        |> Ash.Query.for_read(:read, %{}, actor: actor)
+        |> Ash.Query.filter(device_uid in ^device_uid_chunk)
+        |> Ash.Query.load([:stream_profiles])
+
+      case Ash.read(query, actor: actor) do
+        {:ok, sources} when is_list(sources) ->
+          {:cont, {:ok, sources ++ acc}}
+
+        {:ok, page} ->
+          {:cont, {:ok, page_results(page) ++ acc}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, sources} ->
+        grouped =
+          sources
+          |> Enum.map(&normalize_camera_source_for_topology/1)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.group_by(& &1.device_uid)
+
+        {:ok, grouped}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp valid_ifindex?(value) when is_integer(value), do: value > 0
   defp valid_ifindex?(_value), do: false
 
@@ -880,7 +924,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   def edge_connected_node_ids(_), do: []
 
-  defp build_nodes(node_ids, device_by_id, node_pps_by_id) do
+  defp build_nodes(node_ids, device_by_id, node_pps_by_id, camera_sources_by_device_uid) do
     total = max(length(node_ids), 1)
 
     node_ids
@@ -899,7 +943,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         state: 3,
         pps: pps,
         oper_up: nil,
-        details_json: node_details_json(device, id),
+        details_json: node_details_json(device, id, Map.get(camera_sources_by_device_uid, id, [])),
         geo_lat: node_geo_lat(device),
         geo_lon: node_geo_lon(device),
         health_signal: health_signal(device)
@@ -1049,29 +1093,35 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp node_kind(nil), do: "endpoint"
   defp node_kind(device), do: node_type(device) || "device"
 
-  defp node_details_json(device, id) do
+  defp node_details_json(device, id, camera_sources) do
+    device = device || %{}
+    device_uid = normalize_id(Map.get(device, :uid)) || id
+    camera_state = summarize_camera_state(camera_sources)
+
     details = %{
       id: id,
-      name: Map.get(device || %{}, :name),
-      hostname: Map.get(device || %{}, :hostname),
+      device_uid: device_uid,
+      name: Map.get(device, :name),
+      hostname: Map.get(device, :hostname),
       ip: node_ip(device, id),
       type: node_type(device),
-      type_id: Map.get(device || %{}, :type_id),
-      vendor: Map.get(device || %{}, :vendor_name),
-      model: Map.get(device || %{}, :model),
-      last_seen:
-        case Map.get(device || %{}, :last_seen_time) do
-          %DateTime{} = dt -> DateTime.to_iso8601(dt)
-          %NaiveDateTime{} = ndt -> NaiveDateTime.to_iso8601(ndt)
-          value when is_binary(value) -> value
-          _ -> nil
-        end,
+      type_id: Map.get(device, :type_id),
+      vendor: Map.get(device, :vendor_name),
+      model: Map.get(device, :model),
+      last_seen: node_last_seen(device),
       asn: node_meta_value(device, ["asn", "geo_asn", "armis_asn"]),
       geo_country: node_meta_value(device, ["country", "geo_country", "geoip_country"]),
       geo_city: node_meta_value(device, ["city", "geo_city", "geoip_city"]),
       geo_lat: node_geo_lat(device),
       geo_lon: node_geo_lon(device),
-      identity_source: node_meta_value(device, ["identity_source"])
+      identity_source: node_meta_value(device, ["identity_source"]),
+      camera_capable: camera_sources != [],
+      camera_streams: camera_sources,
+      camera_availability_status: camera_state.availability_status,
+      camera_availability_reason: camera_state.availability_reason,
+      camera_last_activity_at: camera_state.last_activity_at,
+      camera_last_event_type: camera_state.last_event_type,
+      camera_last_event_message: camera_state.last_event_message
     }
 
     case Jason.encode(details) do
@@ -1079,6 +1129,121 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       _ -> "{}"
     end
   end
+
+  defp normalize_camera_source_for_topology(%{} = source) do
+    stream_profiles =
+      source
+      |> Map.get(:stream_profiles, [])
+      |> Enum.filter(&(Map.get(&1, :relay_eligible, true) == true))
+      |> Enum.map(fn profile ->
+        %{
+          stream_profile_id: Map.get(profile, :id),
+          profile_name: Map.get(profile, :profile_name),
+          codec_hint: Map.get(profile, :codec_hint),
+          container_hint: Map.get(profile, :container_hint),
+          rtsp_transport: Map.get(profile, :rtsp_transport)
+        }
+      end)
+      |> Enum.reject(
+        &(missing_topology_camera_value?(Map.get(&1, :stream_profile_id)) or
+            missing_topology_camera_value?(Map.get(&1, :profile_name)))
+      )
+
+    if missing_topology_camera_value?(Map.get(source, :id)) or
+         missing_topology_camera_value?(Map.get(source, :device_uid)) or
+         stream_profiles == [] do
+      nil
+    else
+      %{
+        camera_source_id: Map.get(source, :id),
+        device_uid: Map.get(source, :device_uid),
+        display_name:
+          Map.get(source, :display_name) ||
+            Map.get(source, :vendor_camera_id) ||
+            Map.get(source, :device_uid),
+        vendor: Map.get(source, :vendor),
+        vendor_camera_id: Map.get(source, :vendor_camera_id),
+        assigned_agent_id: Map.get(source, :assigned_agent_id),
+        assigned_gateway_id: Map.get(source, :assigned_gateway_id),
+        availability_status: Map.get(source, :availability_status),
+        availability_reason: Map.get(source, :availability_reason),
+        last_activity_at: iso8601_value(Map.get(source, :last_activity_at)),
+        last_event_at: iso8601_value(Map.get(source, :last_event_at)),
+        last_event_type: Map.get(source, :last_event_type),
+        last_event_message: Map.get(source, :last_event_message),
+        stream_profiles: stream_profiles
+      }
+    end
+  end
+
+  defp normalize_camera_source_for_topology(_source), do: nil
+
+  defp summarize_camera_state(camera_sources) when is_list(camera_sources) do
+    latest_source =
+      Enum.max_by(camera_sources, &camera_source_sort_key/1, fn -> nil end)
+
+    %{
+      availability_status: camera_availability_status(camera_sources),
+      availability_reason: latest_source && Map.get(latest_source, :availability_reason),
+      last_activity_at: latest_source && Map.get(latest_source, :last_activity_at),
+      last_event_type: latest_source && Map.get(latest_source, :last_event_type),
+      last_event_message: latest_source && Map.get(latest_source, :last_event_message)
+    }
+  end
+
+  defp summarize_camera_state(_camera_sources) do
+    %{
+      availability_status: nil,
+      availability_reason: nil,
+      last_activity_at: nil,
+      last_event_type: nil,
+      last_event_message: nil
+    }
+  end
+
+  defp camera_availability_status(camera_sources) do
+    statuses =
+      camera_sources
+      |> Enum.map(&Map.get(&1, :availability_status))
+      |> Enum.reject(&is_nil/1)
+
+    cond do
+      statuses == [] -> nil
+      Enum.any?(statuses, &(&1 == "unavailable")) -> "unavailable"
+      Enum.any?(statuses, &(&1 == "degraded")) -> "degraded"
+      Enum.any?(statuses, &(&1 == "available")) -> "available"
+      true -> List.first(statuses)
+    end
+  end
+
+  defp camera_source_sort_key(source) when is_map(source) do
+    source
+    |> Map.get(:last_activity_at)
+    |> case do
+      %DateTime{} = dt ->
+        DateTime.to_unix(dt, :microsecond)
+
+      value when is_binary(value) ->
+        case DateTime.from_iso8601(value) do
+          {:ok, dt, _offset} -> DateTime.to_unix(dt, :microsecond)
+          _ -> 0
+        end
+
+      _ ->
+        0
+    end
+  end
+
+  defp camera_source_sort_key(_source), do: 0
+
+  defp iso8601_value(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp iso8601_value(%NaiveDateTime{} = ndt), do: NaiveDateTime.to_iso8601(ndt)
+  defp iso8601_value(value) when is_binary(value), do: value
+  defp iso8601_value(_value), do: nil
+
+  defp missing_topology_camera_value?(value) when is_binary(value), do: normalize_id(value) == nil
+  defp missing_topology_camera_value?(nil), do: true
+  defp missing_topology_camera_value?(_value), do: false
 
   defp node_ip(nil, id), do: ip_like_id(id)
 
@@ -1265,6 +1430,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp node_geo_lon(device) do
     node_meta_float(device, ["longitude", "geo_lon", "geoip_lon", "lon"])
+  end
+
+  defp node_last_seen(device) when is_map(device) do
+    case Map.get(device, :last_seen_time) do
+      %DateTime{} = dt -> DateTime.to_iso8601(dt)
+      %NaiveDateTime{} = ndt -> NaiveDateTime.to_iso8601(ndt)
+      value when is_binary(value) -> value
+      _ -> nil
+    end
   end
 
   defp node_meta_value(nil, _keys), do: nil
@@ -2140,6 +2314,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     Enum.reduce(groups, nodes_by_id, fn group, acc ->
       case Map.get(acc, group.anchor_id) do
         %{id: anchor_id} = anchor when is_binary(anchor_id) ->
+          cluster_camera_tiles = build_cluster_camera_tiles(group, nodes_by_id)
+
           details_json =
             merge_cluster_membership_details(Map.get(anchor, :details_json), %{
               cluster_id: group.cluster_id,
@@ -2148,7 +2324,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
               cluster_expandable: true,
               cluster_expanded: MapSet.member?(expanded_clusters, group.cluster_id),
               cluster_anchor_id: group.anchor_id,
-              cluster_anchor_label: Map.get(anchor, :label) || group.anchor_id
+              cluster_anchor_label: Map.get(anchor, :label) || group.anchor_id,
+              cluster_camera_tile_count: length(cluster_camera_tiles),
+              cluster_camera_tiles: cluster_camera_tiles
             })
 
           Map.put(acc, anchor_id, %{anchor | details_json: details_json})
@@ -2934,6 +3112,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     count = length(group.endpoint_ids)
     sample = List.first(endpoints) || %{}
     anchor_label = Map.get(anchor || %{}, :label) || Map.get(group, :anchor_id)
+    cluster_camera_tiles = build_cluster_camera_tiles(group, nodes_by_id)
 
     %{
       id: group.cluster_id,
@@ -2957,6 +3136,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           cluster_expanded: false,
           cluster_anchor_id: group.anchor_id,
           cluster_anchor_label: anchor_label,
+          cluster_camera_tile_count: length(cluster_camera_tiles),
+          cluster_camera_tiles: cluster_camera_tiles,
           cluster_sample_ip: endpoint_cluster_sample_ip(sample),
           cluster_sample_label: Map.get(sample, :label),
           identity_source: "backend_endpoint_cluster"
@@ -4024,6 +4205,85 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp endpoint_cluster_sample_ip(_node), do: nil
+
+  defp build_cluster_camera_tiles(group, nodes_by_id) when is_map(group) and is_map(nodes_by_id) do
+    group
+    |> Map.get(:endpoint_ids, [])
+    |> Enum.flat_map(fn endpoint_id ->
+      nodes_by_id
+      |> Map.get(endpoint_id)
+      |> cluster_camera_tiles_for_node()
+    end)
+    |> Enum.uniq_by(&Map.get(&1, :camera_source_id))
+    |> Enum.sort_by(&{Map.get(&1, :camera_label) || "", Map.get(&1, :device_uid) || ""})
+    |> Enum.take(@max_cluster_camera_tile_candidates)
+  end
+
+  defp build_cluster_camera_tiles(_group, _nodes_by_id), do: []
+
+  defp cluster_camera_tiles_for_node(node) when is_map(node) do
+    node
+    |> Map.get(:details_json)
+    |> decode_details_json()
+    |> Map.get("camera_streams", [])
+    |> Enum.flat_map(fn source ->
+      case cluster_camera_tile_from_source(source) do
+        nil -> []
+        tile -> [tile]
+      end
+    end)
+  end
+
+  defp cluster_camera_tiles_for_node(_node), do: []
+
+  defp cluster_camera_tile_from_source(source) when is_map(source) do
+    profile = cluster_camera_source_profile(source)
+
+    attrs = %{
+      camera_source_id: source_value(source, "camera_source_id", :camera_source_id),
+      device_uid: source_value(source, "device_uid", :device_uid),
+      stream_profile_id: source_value(profile, "stream_profile_id", :stream_profile_id),
+      profile_name: source_value(profile, "profile_name", :profile_name),
+      camera_label: cluster_camera_source_label(source)
+    }
+
+    if incomplete_cluster_camera_tile_attrs?(attrs) do
+      nil
+    else
+      %{
+        camera_source_id: attrs.camera_source_id,
+        stream_profile_id: attrs.stream_profile_id,
+        device_uid: attrs.device_uid,
+        camera_label: attrs.camera_label || attrs.device_uid,
+        profile_label: attrs.profile_name
+      }
+    end
+  end
+
+  defp cluster_camera_tile_from_source(_source), do: nil
+
+  defp cluster_camera_source_profile(source) when is_map(source) do
+    source
+    |> Map.get("stream_profiles", Map.get(source, :stream_profiles, []))
+    |> List.first()
+  end
+
+  defp incomplete_cluster_camera_tile_attrs?(attrs) when is_map(attrs) do
+    Enum.any?(~w(camera_source_id device_uid stream_profile_id profile_name)a, fn key ->
+      missing_topology_camera_value?(Map.get(attrs, key))
+    end)
+  end
+
+  defp cluster_camera_source_label(source) when is_map(source) do
+    source_value(source, "display_name", :display_name) ||
+      source_value(source, "vendor_camera_id", :vendor_camera_id)
+  end
+
+  defp source_value(source, string_key, atom_key) when is_map(source) and is_binary(string_key) and is_atom(atom_key) do
+    normalize_id(Map.get(source, string_key) || Map.get(source, atom_key))
+  end
+
+  defp source_value(_source, _string_key, _atom_key), do: nil
 
   defp merge_cluster_membership_details(details_json, cluster_details) when is_map(cluster_details) do
     details_json

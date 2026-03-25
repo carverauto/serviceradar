@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -60,6 +61,10 @@ const (
 )
 
 const (
+	pluginCapabilityCameraMediaStream = "camera_media_stream"
+)
+
+const (
 	pluginErrOK        int32 = 0
 	pluginErrInvalid   int32 = -1
 	pluginErrDenied    int32 = -2
@@ -71,12 +76,15 @@ const (
 )
 
 var (
-	errPluginWasmUnavailable = errors.New("plugin wasm unavailable")
-	errEntrypointNotFound    = errors.New("entrypoint not found")
-	errDownloadFailed        = errors.New("download failed")
-	errDownloadTooLarge      = errors.New("download too large")
-	errContentHashMismatch   = errors.New("content hash mismatch")
-	errInvalidPath           = errors.New("invalid path")
+	errPluginWasmUnavailable              = errors.New("plugin wasm unavailable")
+	errEntrypointNotFound                 = errors.New("entrypoint not found")
+	errDownloadFailed                     = errors.New("download failed")
+	errDownloadTooLarge                   = errors.New("download too large")
+	errContentHashMismatch                = errors.New("content hash mismatch")
+	errInvalidPath                        = errors.New("invalid path")
+	errStreamingPluginAssignmentNotFound  = errors.New("streaming plugin assignment not found")
+	errStreamingPluginAdmissionDenied     = errors.New("streaming plugin admission denied: max concurrent reached")
+	errStreamingPluginMediaSessionMissing = errors.New("streaming plugin did not open a camera media session")
 )
 
 // PluginManagerConfig configures the Wasm plugin manager.
@@ -99,6 +107,7 @@ type PluginManager struct {
 
 	mu      sync.RWMutex
 	runners map[string]*pluginRunner
+	streams map[string]*pluginAssignment
 	results chan PluginResult
 
 	stateMu  sync.Mutex
@@ -113,8 +122,9 @@ type PluginManager struct {
 	statsMu sync.Mutex
 	stats   pluginEngineStats
 
-	configMu      sync.Mutex
-	lastConfigSHA string
+	configMu       sync.Mutex
+	lastConfigSHA  string
+	streamExecutor func(context.Context, *pluginAssignment, []byte, []byte, *pluginCameraMediaBridge) error
 }
 
 type assignmentState struct {
@@ -161,6 +171,53 @@ type PluginEngineSnapshot struct {
 	LastExecAt           time.Time
 	LastFailureAt        time.Time
 	LastConfigAt         time.Time
+}
+
+type StreamingPluginAssignment struct {
+	AssignmentID string
+	PluginID     string
+	Name         string
+	Entrypoint   string
+	Runtime      string
+	Capabilities []string
+}
+
+type pluginExecutionMode string
+
+const (
+	pluginExecutionModeScheduled pluginExecutionMode = "scheduled"
+	pluginExecutionModeStreaming pluginExecutionMode = "streaming"
+)
+
+type pluginCameraMediaOpenRequest struct {
+	TrackID       string `json:"track_id,omitempty"`
+	Codec         string `json:"codec,omitempty"`
+	PayloadFormat string `json:"payload_format,omitempty"`
+}
+
+type pluginCameraMediaChunkMetadata struct {
+	TrackID       string `json:"track_id,omitempty"`
+	Sequence      uint64 `json:"sequence,omitempty"`
+	PTS           int64  `json:"pts,omitempty"`
+	DTS           int64  `json:"dts,omitempty"`
+	Keyframe      bool   `json:"keyframe,omitempty"`
+	IsFinal       bool   `json:"is_final,omitempty"`
+	Codec         string `json:"codec,omitempty"`
+	PayloadFormat string `json:"payload_format,omitempty"`
+}
+
+type pluginCameraMediaHeartbeat struct {
+	Sequence      uint64 `json:"sequence,omitempty"`
+	TimestampUnix int64  `json:"timestamp_unix,omitempty"`
+}
+
+type pluginCameraRelayStream struct {
+	cancel context.CancelFunc
+	chunks chan *cameraRelayChunk
+
+	closeOnce sync.Once
+	mu        sync.Mutex
+	err       error
 }
 
 // maxSummaryLen limits error summary length to avoid exceeding message size limits.
@@ -229,6 +286,7 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		ctx:           rootCtx,
 		cancel:        cancel,
 		runners:       make(map[string]*pluginRunner),
+		streams:       make(map[string]*pluginAssignment),
 		results:       make(chan PluginResult, 1024),
 		states:        make(map[string]*assignmentState),
 		stateNow:      time.Now,
@@ -271,6 +329,7 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 	m.mu.Lock()
 	prev := m.runners
 	m.runners = make(map[string]*pluginRunner)
+	m.streams = make(map[string]*pluginAssignment)
 	m.mu.Unlock()
 
 	for _, runner := range prev {
@@ -282,6 +341,14 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 	}
 
 	for _, assignment := range admitted {
+		if assignment.isStreaming() {
+			m.mu.Lock()
+			m.streams[assignment.AssignmentID] = assignment
+			m.mu.Unlock()
+			m.prefetchAssignment(assignment)
+			continue
+		}
+
 		runner := newPluginRunner(m, assignment)
 		m.mu.Lock()
 		m.runners[assignment.AssignmentID] = runner
@@ -498,11 +565,134 @@ func (m *PluginManager) Stop() {
 	m.mu.Lock()
 	prev := m.runners
 	m.runners = make(map[string]*pluginRunner)
+	m.streams = make(map[string]*pluginAssignment)
 	m.mu.Unlock()
 
 	for _, runner := range prev {
 		runner.stop()
 	}
+}
+
+// StreamingAssignments returns the currently admitted camera streaming plugin assignments.
+func (m *PluginManager) StreamingAssignments() []StreamingPluginAssignment {
+	if m == nil {
+		return nil
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	assignments := make([]StreamingPluginAssignment, 0, len(m.streams))
+	for _, assignment := range m.streams {
+		assignments = append(assignments, assignment.streamingSnapshot())
+	}
+
+	sort.Slice(assignments, func(i, j int) bool {
+		return assignments[i].AssignmentID < assignments[j].AssignmentID
+	})
+
+	return assignments
+}
+
+// StreamingAssignment returns a single admitted camera streaming plugin assignment by id.
+func (m *PluginManager) StreamingAssignment(assignmentID string) (StreamingPluginAssignment, bool) {
+	if m == nil {
+		return StreamingPluginAssignment{}, false
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	assignment, ok := m.streams[strings.TrimSpace(assignmentID)]
+	if !ok || assignment == nil {
+		return StreamingPluginAssignment{}, false
+	}
+
+	return assignment.streamingSnapshot(), true
+}
+
+// OpenCameraRelayStream starts a streaming plugin execution and returns a chunk
+// stream that the camera relay manager can upload using the normal relay path.
+func (m *PluginManager) OpenCameraRelayStream(
+	ctx context.Context,
+	assignmentID string,
+	spec cameraRelaySessionSpec,
+) (cameraRelayChunkStream, error) {
+	if m == nil {
+		return nil, errCameraRelayPluginUnavailable
+	}
+
+	assignment, ok := m.lookupStreamingAssignment(assignmentID)
+	if !ok {
+		return nil, fmt.Errorf("%w %q", errStreamingPluginAssignmentNotFound, strings.TrimSpace(assignmentID))
+	}
+
+	if !m.acquireSlot() {
+		return nil, errStreamingPluginAdmissionDenied
+	}
+
+	wasm, err := m.loadWasm(ctx, assignment)
+	if err != nil {
+		m.releaseSlot()
+		return nil, err
+	}
+
+	configJSON, err := buildStreamingPluginConfig(assignment.ParamsJSON, spec)
+	if err != nil {
+		m.releaseSlot()
+		return nil, err
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	stream := newPluginCameraRelayStream(cancel)
+	bridge := newPluginCameraMediaBridge(stream)
+
+	go func() {
+		defer m.releaseSlot()
+
+		execErr := m.executeStreamingPlugin(runCtx, assignment, wasm, configJSON, bridge)
+		switch {
+		case execErr != nil:
+			m.recordExecution(false)
+			m.logger.Warn().
+				Err(execErr).
+				Str("assignment_id", assignment.AssignmentID).
+				Str("relay_session_id", spec.RelaySessionID).
+				Msg("Streaming plugin execution failed")
+			stream.finish(execErr)
+
+		case !bridge.hasOpened():
+			m.recordExecution(false)
+			stream.finish(errStreamingPluginMediaSessionMissing)
+
+		default:
+			m.recordExecution(true)
+			bridge.finish(io.EOF)
+		}
+	}()
+
+	return stream, nil
+}
+
+func (m *PluginManager) executeStreamingPlugin(
+	ctx context.Context,
+	assignment *pluginAssignment,
+	wasm []byte,
+	configJSON []byte,
+	bridge *pluginCameraMediaBridge,
+) error {
+	if m.streamExecutor != nil {
+		return m.streamExecutor(ctx, assignment, wasm, configJSON, bridge)
+	}
+	return m.executeStreamingWithWasm(ctx, assignment, wasm, configJSON, bridge)
+}
+
+func (m *PluginManager) lookupStreamingAssignment(assignmentID string) (*pluginAssignment, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	assignment, ok := m.streams[strings.TrimSpace(assignmentID)]
+	return assignment, ok
 }
 
 // DrainResults returns up to max pending results.
@@ -651,6 +841,44 @@ type pluginAssignment struct {
 	DownloadURL  string
 }
 
+type pluginCameraMediaBridge struct {
+	mu            sync.Mutex
+	stream        *pluginCameraRelayStream
+	handle        uint32
+	opened        bool
+	closed        bool
+	lastHeartbeat pluginCameraMediaHeartbeat
+	openRequest   pluginCameraMediaOpenRequest
+}
+
+func (a *pluginAssignment) isStreaming() bool {
+	if a == nil || a.Capabilities == nil {
+		return false
+	}
+	return a.Capabilities[pluginCapabilityCameraMediaStream]
+}
+
+func (a *pluginAssignment) streamingSnapshot() StreamingPluginAssignment {
+	if a == nil {
+		return StreamingPluginAssignment{}
+	}
+
+	capabilities := make([]string, 0, len(a.Capabilities))
+	for capability := range a.Capabilities {
+		capabilities = append(capabilities, capability)
+	}
+	sort.Strings(capabilities)
+
+	return StreamingPluginAssignment{
+		AssignmentID: a.AssignmentID,
+		PluginID:     a.PluginID,
+		Name:         a.Name,
+		Entrypoint:   a.Entrypoint,
+		Runtime:      a.Runtime,
+		Capabilities: capabilities,
+	}
+}
+
 type pluginPermissions struct {
 	AllowedDomains  []string `json:"allowed_domains"`
 	AllowedNetworks []string `json:"allowed_networks"`
@@ -787,6 +1015,37 @@ func buildAssignmentFingerprint(assignment *pluginAssignment) pluginAssignmentFi
 		WasmObject:  assignment.WasmObject,
 		ContentHash: assignment.ContentHash,
 	}
+}
+
+func buildStreamingPluginConfig(baseParams []byte, spec cameraRelaySessionSpec) ([]byte, error) {
+	relay := map[string]interface{}{
+		"relay_session_id":     spec.RelaySessionID,
+		"agent_id":             spec.AgentID,
+		"gateway_id":           spec.GatewayID,
+		"camera_source_id":     spec.CameraSourceID,
+		"stream_profile_id":    spec.StreamProfileID,
+		"lease_token":          spec.LeaseToken,
+		"source_url":           spec.SourceURL,
+		"rtsp_transport":       spec.RTSPTransport,
+		"codec_hint":           spec.CodecHint,
+		"container_hint":       spec.ContainerHint,
+		"plugin_assignment_id": spec.PluginAssignmentID,
+	}
+
+	if len(bytes.TrimSpace(baseParams)) == 0 {
+		return json.Marshal(map[string]interface{}{"relay": relay})
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(baseParams, &parsed); err == nil {
+		parsed["relay"] = relay
+		return json.Marshal(parsed)
+	}
+
+	return json.Marshal(map[string]interface{}{
+		"relay":                    relay,
+		"plugin_config_raw_base64": base64.StdEncoding.EncodeToString(baseParams),
+	})
 }
 
 func newPluginAssignment(cfg *proto.PluginAssignmentConfig, log logger.Logger) *pluginAssignment {
@@ -1011,6 +1270,77 @@ func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginA
 
 	exec.closeAll()
 
+	return nil
+}
+
+func (m *PluginManager) executeStreamingWithWasm(
+	ctx context.Context,
+	assignment *pluginAssignment,
+	wasm []byte,
+	configJSON []byte,
+	bridge *pluginCameraMediaBridge,
+) error {
+	memPages := memoryPages(assignment.Resources.RequestedMemoryMB)
+	runtimeCfg := wazero.NewRuntimeConfig()
+	if memPages > 0 {
+		runtimeCfg = runtimeCfg.WithMemoryLimitPages(memPages)
+	}
+
+	runtime := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
+	defer func() {
+		_ = runtime.Close(ctx)
+	}()
+
+	exec := newPluginExecution(m, assignment)
+	exec.mode = pluginExecutionModeStreaming
+	exec.configJSON = configJSON
+	exec.mediaBridge = bridge
+
+	if err := exec.instantiateHostModule(ctx, runtime); err != nil {
+		return err
+	}
+
+	wasi, err := wasi_snapshot_preview1.Instantiate(ctx, runtime)
+	if err != nil {
+		return fmt.Errorf("instantiate wasi: %w", err)
+	}
+	defer func() {
+		_ = wasi.Close(ctx)
+	}()
+
+	modConfig := wazero.NewModuleConfig().
+		WithName(assignment.AssignmentID).
+		WithSysWalltime().
+		WithSysNanotime().
+		WithSysNanosleep().
+		WithStartFunctions()
+
+	module, err := runtime.InstantiateWithConfig(ctx, wasm, modConfig)
+	if err != nil {
+		return fmt.Errorf("instantiate module: %w", err)
+	}
+	defer func() {
+		_ = module.Close(ctx)
+	}()
+
+	entrypoint := module.ExportedFunction(assignment.Entrypoint)
+	if entrypoint == nil {
+		return fmt.Errorf("%w: %s", errEntrypointNotFound, assignment.Entrypoint)
+	}
+
+	if _, err := entrypoint.Call(ctx); err != nil {
+		switch {
+		case isExitCodeZero(err):
+		case bridge != nil && bridge.hasOpened():
+			m.logger.Info().
+				Str("assignment_id", assignment.AssignmentID).
+				Msg("Streaming plugin exited after opening media bridge")
+		default:
+			return fmt.Errorf("streaming entrypoint failed: %w", err)
+		}
+	}
+
+	exec.closeAll()
 	return nil
 }
 
@@ -1241,19 +1571,24 @@ func safeJoin(base, target string) (string, error) {
 }
 
 type pluginExecution struct {
-	manager    *PluginManager
-	assignment *pluginAssignment
-	mu         sync.Mutex
-	conns      map[uint32]net.Conn
-	wsConns    map[uint32]*websocket.Conn
-	nextHandle uint32
-	submitted  bool
+	manager     *PluginManager
+	assignment  *pluginAssignment
+	mode        pluginExecutionMode
+	configJSON  []byte
+	mediaBridge *pluginCameraMediaBridge
+	mu          sync.Mutex
+	conns       map[uint32]net.Conn
+	wsConns     map[uint32]*websocket.Conn
+	nextHandle  uint32
+	submitted   bool
 }
 
 func newPluginExecution(manager *PluginManager, assignment *pluginAssignment) *pluginExecution {
 	return &pluginExecution{
 		manager:    manager,
 		assignment: assignment,
+		mode:       pluginExecutionModeScheduled,
+		configJSON: assignment.ParamsJSON,
 		conns:      make(map[uint32]net.Conn),
 		wsConns:    make(map[uint32]*websocket.Conn),
 		nextHandle: 1,
@@ -1272,6 +1607,18 @@ func (e *pluginExecution) instantiateHostModule(ctx context.Context, runtime waz
 	builder.NewFunctionBuilder().
 		WithFunc(e.hostSubmitResult).
 		Export("submit_result")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostCameraMediaOpen).
+		Export("camera_media_open")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostCameraMediaWrite).
+		Export("camera_media_write")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostCameraMediaHeartbeat).
+		Export("camera_media_heartbeat")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostCameraMediaClose).
+		Export("camera_media_close")
 	builder.NewFunctionBuilder().
 		WithFunc(e.hostHTTPRequest).
 		Export("http_request")
@@ -1312,7 +1659,7 @@ func (e *pluginExecution) hostGetConfig(_ context.Context, mod api.Module, ptr, 
 		return pluginErrDenied
 	}
 
-	payload := e.assignment.ParamsJSON
+	payload := e.configJSON
 	if len(payload) == 0 {
 		return pluginErrOK
 	}
@@ -1386,13 +1733,107 @@ func (e *pluginExecution) hostSubmitResult(_ context.Context, mod api.Module, pt
 	return pluginErrOK
 }
 
+func (e *pluginExecution) hostCameraMediaOpen(ctx context.Context, mod api.Module, reqPtr, reqLen uint32) int32 {
+	if !e.hasCapability(pluginCapabilityCameraMediaStream) || e.mediaBridge == nil {
+		return pluginErrDenied
+	}
+
+	request, code := decodeCameraMediaOpenRequest(mod, reqPtr, reqLen)
+	if code != pluginErrOK {
+		return code
+	}
+
+	handle, err := e.mediaBridge.Open(ctx, request)
+	if err != nil {
+		return pluginCameraMediaErrorCode(err)
+	}
+	return int32(handle)
+}
+
+func (e *pluginExecution) hostCameraMediaWrite(
+	ctx context.Context,
+	mod api.Module,
+	handle, metaPtr, metaLen, payloadPtr, payloadLen uint32,
+) int32 {
+	if !e.hasCapability(pluginCapabilityCameraMediaStream) || e.mediaBridge == nil {
+		return pluginErrDenied
+	}
+
+	payload, ok := readMemory(mod, payloadPtr, payloadLen)
+	if !ok {
+		return pluginErrInvalid
+	}
+	if len(payload) == 0 {
+		return pluginErrInvalid
+	}
+	if len(payload) > pluginMaxPayloadBytes {
+		return pluginErrTooLarge
+	}
+
+	metadata, code := decodeCameraMediaChunkMetadata(mod, metaPtr, metaLen)
+	if code != pluginErrOK {
+		return code
+	}
+
+	written, err := e.mediaBridge.Write(ctx, handle, payload, metadata)
+	if err != nil {
+		return pluginCameraMediaErrorCode(err)
+	}
+	return int32(written)
+}
+
+func (e *pluginExecution) hostCameraMediaHeartbeat(
+	_ context.Context,
+	mod api.Module,
+	handle, metaPtr, metaLen uint32,
+) int32 {
+	if !e.hasCapability(pluginCapabilityCameraMediaStream) || e.mediaBridge == nil {
+		return pluginErrDenied
+	}
+
+	heartbeat, code := decodeCameraMediaHeartbeat(mod, metaPtr, metaLen)
+	if code != pluginErrOK {
+		return code
+	}
+
+	if err := e.mediaBridge.Heartbeat(handle, heartbeat); err != nil {
+		return pluginCameraMediaErrorCode(err)
+	}
+	return pluginErrOK
+}
+
+func (e *pluginExecution) hostCameraMediaClose(
+	_ context.Context,
+	mod api.Module,
+	handle, reasonPtr, reasonLen uint32,
+) int32 {
+	if !e.hasCapability(pluginCapabilityCameraMediaStream) || e.mediaBridge == nil {
+		return pluginErrDenied
+	}
+
+	reason := ""
+	if reasonLen > 0 {
+		raw, ok := readMemory(mod, reasonPtr, reasonLen)
+		if !ok {
+			return pluginErrInvalid
+		}
+		reason = strings.TrimSpace(string(raw))
+	}
+
+	if err := e.mediaBridge.Close(handle, reason); err != nil {
+		return pluginCameraMediaErrorCode(err)
+	}
+	return pluginErrOK
+}
+
 type httpRequestPayload struct {
-	Method     string            `json:"method"`
-	URL        string            `json:"url"`
-	Headers    map[string]string `json:"headers"`
-	Body       string            `json:"body"`
-	BodyBase64 string            `json:"body_base64"`
-	TimeoutMS  int               `json:"timeout_ms"`
+	Method             string            `json:"method"`
+	URL                string            `json:"url"`
+	Headers            map[string]string `json:"headers"`
+	Body               string            `json:"body"`
+	BodyBase64         string            `json:"body_base64"`
+	TimeoutMS          int               `json:"timeout_ms"`
+	InsecureSkipVerify bool              `json:"insecure_skip_verify"`
 }
 
 type httpResponsePayload struct {
@@ -1460,7 +1901,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		httpReq.Header.Set(key, value)
 	}
 
-	resp, err := e.manager.httpClient.Do(httpReq)
+	resp, err := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify).Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return pluginErrTimeout
@@ -1510,6 +1951,44 @@ func decodeBody(payload httpRequestPayload) ([]byte, error) {
 		return []byte(payload.Body), nil
 	}
 	return nil, nil
+}
+
+func pluginHTTPClient(base *http.Client, insecureSkipVerify bool) *http.Client {
+	if !insecureSkipVerify {
+		if base != nil {
+			return base
+		}
+		return http.DefaultClient
+	}
+
+	client := http.DefaultClient
+	if base != nil {
+		client = base
+	}
+
+	cloned := *client
+	transport := cloned.Transport
+	if baseTransport, ok := transport.(*http.Transport); ok {
+		transport = baseTransport.Clone()
+	} else if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = defaultTransport.Clone()
+	} else {
+		transport = &http.Transport{}
+	}
+
+	httpTransport, ok := transport.(*http.Transport)
+	if !ok {
+		httpTransport = &http.Transport{}
+	}
+	if httpTransport.TLSClientConfig != nil {
+		httpTransport.TLSClientConfig = httpTransport.TLSClientConfig.Clone()
+	} else {
+		httpTransport.TLSClientConfig = &tls.Config{}
+	}
+	httpTransport.TLSClientConfig.InsecureSkipVerify = true //nolint:gosec
+	cloned.Transport = httpTransport
+
+	return &cloned
 }
 
 func flattenHeaders(headers http.Header) map[string]string {
@@ -1777,6 +2256,9 @@ func (e *pluginExecution) closeAll() {
 		delete(e.wsConns, handle)
 		e.manager.releaseConnection()
 	}
+	if e.mediaBridge != nil {
+		e.mediaBridge.finish(io.EOF)
+	}
 }
 
 func (e *pluginExecution) storeWSConn(conn *websocket.Conn) uint32 {
@@ -1825,7 +2307,7 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	if !ok {
 		return pluginErrInvalid
 	}
-	wsURL, headers, parseErr := parseWebSocketConnectPayload(urlBytes)
+	wsURL, headers, insecureSkipVerify, parseErr := parseWebSocketConnectPayload(urlBytes)
 	if parseErr != nil {
 		return pluginErrInvalid
 	}
@@ -1864,6 +2346,9 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	dialer := websocket.Dialer{
 		HandshakeTimeout: timeout,
 	}
+	if insecureSkipVerify {
+		dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+	}
 
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -1889,33 +2374,34 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 }
 
 type websocketConnectPayload struct {
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers,omitempty"`
+	URL                string            `json:"url"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	InsecureSkipVerify bool              `json:"insecure_skip_verify,omitempty"`
 }
 
-func parseWebSocketConnectPayload(raw []byte) (string, http.Header, error) {
+func parseWebSocketConnectPayload(raw []byte) (string, http.Header, bool, error) {
 	payload := strings.TrimSpace(string(raw))
 	if payload == "" {
-		return "", nil, errInvalidPath
+		return "", nil, false, errInvalidPath
 	}
 
 	// Backward-compatible mode: payload is just a URL string.
 	if !strings.HasPrefix(payload, "{") {
-		return payload, nil, nil
+		return payload, nil, false, nil
 	}
 
 	var parsed websocketConnectPayload
 	if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
-		return "", nil, err
+		return "", nil, false, err
 	}
 
 	wsURL := strings.TrimSpace(parsed.URL)
 	if wsURL == "" {
-		return "", nil, errInvalidPath
+		return "", nil, false, errInvalidPath
 	}
 
 	if len(parsed.Headers) == 0 {
-		return wsURL, nil, nil
+		return wsURL, nil, parsed.InsecureSkipVerify, nil
 	}
 
 	headers := make(http.Header, len(parsed.Headers))
@@ -1928,9 +2414,9 @@ func parseWebSocketConnectPayload(raw []byte) (string, http.Header, error) {
 	}
 
 	if len(headers) == 0 {
-		return wsURL, nil, nil
+		return wsURL, nil, parsed.InsecureSkipVerify, nil
 	}
-	return wsURL, headers, nil
+	return wsURL, headers, parsed.InsecureSkipVerify, nil
 }
 
 func (e *pluginExecution) hostWebSocketSend(_ context.Context, mod api.Module, handle, dataPtr, dataLen, timeoutMS uint32) int32 {
@@ -2016,6 +2502,219 @@ func (e *pluginExecution) markSubmitted() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.submitted = true
+}
+
+func newPluginCameraRelayStream(cancel context.CancelFunc) *pluginCameraRelayStream {
+	return &pluginCameraRelayStream{
+		cancel: cancel,
+		chunks: make(chan *cameraRelayChunk, defaultCameraRelayUploadBatch*2),
+	}
+}
+
+func (s *pluginCameraRelayStream) Recv(ctx context.Context) (*cameraRelayChunk, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case chunk, ok := <-s.chunks:
+		if !ok {
+			return nil, s.terminalErr()
+		}
+		return chunk, nil
+	}
+}
+
+func (s *pluginCameraRelayStream) Close() error {
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.finish(io.EOF)
+	return nil
+}
+
+func (s *pluginCameraRelayStream) finish(err error) {
+	s.closeOnce.Do(func() {
+		s.mu.Lock()
+		s.err = err
+		s.mu.Unlock()
+		close(s.chunks)
+	})
+}
+
+func (s *pluginCameraRelayStream) terminalErr() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err == nil {
+		return io.EOF
+	}
+	return s.err
+}
+
+func newPluginCameraMediaBridge(stream *pluginCameraRelayStream) *pluginCameraMediaBridge {
+	return &pluginCameraMediaBridge{
+		stream: stream,
+		handle: 1,
+	}
+}
+
+func (b *pluginCameraMediaBridge) Open(_ context.Context, req pluginCameraMediaOpenRequest) (uint32, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.closed {
+		return 0, errCameraRelayPluginUnavailable
+	}
+	b.opened = true
+	b.openRequest = req
+	return b.handle, nil
+}
+
+func (b *pluginCameraMediaBridge) Write(
+	ctx context.Context,
+	handle uint32,
+	payload []byte,
+	meta pluginCameraMediaChunkMetadata,
+) (int, error) {
+	b.mu.Lock()
+	if !b.isValidHandleLocked(handle) {
+		b.mu.Unlock()
+		return 0, errCameraRelaySessionNotFound
+	}
+	stream := b.stream
+	b.mu.Unlock()
+
+	chunk := &cameraRelayChunk{
+		TrackID:       chooseNonEmpty(meta.TrackID, b.openRequest.TrackID),
+		Payload:       append([]byte(nil), payload...),
+		Sequence:      meta.Sequence,
+		PTS:           meta.PTS,
+		DTS:           meta.DTS,
+		Keyframe:      meta.Keyframe,
+		IsFinal:       meta.IsFinal,
+		Codec:         chooseNonEmpty(meta.Codec, b.openRequest.Codec),
+		PayloadFormat: chooseNonEmpty(meta.PayloadFormat, b.openRequest.PayloadFormat),
+	}
+
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case stream.chunks <- chunk:
+		if meta.IsFinal {
+			b.finish(io.EOF)
+		}
+		return len(payload), nil
+	}
+}
+
+func (b *pluginCameraMediaBridge) Heartbeat(handle uint32, heartbeat pluginCameraMediaHeartbeat) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.isValidHandleLocked(handle) {
+		return errCameraRelaySessionNotFound
+	}
+	b.lastHeartbeat = heartbeat
+	return nil
+}
+
+func (b *pluginCameraMediaBridge) Close(handle uint32, _reason string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.isValidHandleLocked(handle) {
+		return errCameraRelaySessionNotFound
+	}
+	b.finishLocked(io.EOF)
+	return nil
+}
+
+func (b *pluginCameraMediaBridge) hasOpened() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.opened
+}
+
+func (b *pluginCameraMediaBridge) finish(err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.finishLocked(err)
+}
+
+func (b *pluginCameraMediaBridge) finishLocked(err error) {
+	if b.closed {
+		return
+	}
+	b.closed = true
+	if b.stream != nil {
+		b.stream.finish(err)
+	}
+}
+
+func (b *pluginCameraMediaBridge) isValidHandleLocked(handle uint32) bool {
+	return b.opened && !b.closed && handle == b.handle
+}
+
+func decodeCameraMediaOpenRequest(mod api.Module, ptr, size uint32) (pluginCameraMediaOpenRequest, int32) {
+	if size == 0 {
+		return pluginCameraMediaOpenRequest{}, pluginErrOK
+	}
+	raw, ok := readMemory(mod, ptr, size)
+	if !ok {
+		return pluginCameraMediaOpenRequest{}, pluginErrInvalid
+	}
+	var request pluginCameraMediaOpenRequest
+	if err := json.Unmarshal(raw, &request); err != nil {
+		return pluginCameraMediaOpenRequest{}, pluginErrInvalid
+	}
+	return request, pluginErrOK
+}
+
+func decodeCameraMediaChunkMetadata(mod api.Module, ptr, size uint32) (pluginCameraMediaChunkMetadata, int32) {
+	if size == 0 {
+		return pluginCameraMediaChunkMetadata{}, pluginErrOK
+	}
+	raw, ok := readMemory(mod, ptr, size)
+	if !ok {
+		return pluginCameraMediaChunkMetadata{}, pluginErrInvalid
+	}
+	var meta pluginCameraMediaChunkMetadata
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return pluginCameraMediaChunkMetadata{}, pluginErrInvalid
+	}
+	return meta, pluginErrOK
+}
+
+func decodeCameraMediaHeartbeat(mod api.Module, ptr, size uint32) (pluginCameraMediaHeartbeat, int32) {
+	if size == 0 {
+		return pluginCameraMediaHeartbeat{}, pluginErrOK
+	}
+	raw, ok := readMemory(mod, ptr, size)
+	if !ok {
+		return pluginCameraMediaHeartbeat{}, pluginErrInvalid
+	}
+	var heartbeat pluginCameraMediaHeartbeat
+	if err := json.Unmarshal(raw, &heartbeat); err != nil {
+		return pluginCameraMediaHeartbeat{}, pluginErrInvalid
+	}
+	return heartbeat, pluginErrOK
+}
+
+func pluginCameraMediaErrorCode(err error) int32 {
+	switch {
+	case err == nil:
+		return pluginErrOK
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return pluginErrTimeout
+	case errors.Is(err, errCameraRelaySessionNotFound):
+		return pluginErrBadHandle
+	default:
+		return pluginErrInternal
+	}
+}
+
+func chooseNonEmpty(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		return value
+	}
+	return strings.TrimSpace(fallback)
 }
 
 func (e *pluginExecution) hasSubmitted() bool {

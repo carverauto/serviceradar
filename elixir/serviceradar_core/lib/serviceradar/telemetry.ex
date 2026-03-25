@@ -82,6 +82,36 @@ defmodule ServiceRadar.Telemetry do
     :lookup_miss
   ]
 
+  @camera_relay_session_events [
+    :opened,
+    :closing,
+    :closed,
+    :failed,
+    :viewer_count_changed
+  ]
+
+  @camera_relay_analysis_events [
+    :branch_opened,
+    :branch_closed,
+    :branch_count_changed,
+    :sample_emitted,
+    :sample_dropped,
+    :limit_rejected,
+    :worker_selected,
+    :worker_selection_failed,
+    :worker_probe_succeeded,
+    :worker_probe_failed,
+    :worker_health_changed,
+    :worker_flapping_changed,
+    :worker_alert_changed,
+    :worker_failover_succeeded,
+    :worker_failover_failed,
+    :dispatch_succeeded,
+    :dispatch_failed,
+    :dispatch_timed_out,
+    :dispatch_dropped
+  ]
+
   # ============================================================================
   # Event Emission
   # ============================================================================
@@ -123,6 +153,24 @@ defmodule ServiceRadar.Telemetry do
   def emit_registry_event(event, metadata \\ %{}, measurements \\ %{})
       when event in @registry_events do
     emit(@prefix ++ [:registry, event], measurements, enrich_metadata(metadata))
+  end
+
+  @doc """
+  Emits a camera relay session lifecycle event.
+  """
+  @spec emit_camera_relay_session_event(atom(), map(), map()) :: :ok
+  def emit_camera_relay_session_event(event, metadata \\ %{}, measurements \\ %{})
+      when event in @camera_relay_session_events do
+    emit(@prefix ++ [:camera_relay, :session, event], measurements, enrich_metadata(metadata))
+  end
+
+  @doc """
+  Emits a camera relay analysis branch or sample event.
+  """
+  @spec emit_camera_relay_analysis_event(atom(), map(), map()) :: :ok
+  def emit_camera_relay_analysis_event(event, metadata \\ %{}, measurements \\ %{})
+      when event in @camera_relay_analysis_events do
+    emit(@prefix ++ [:camera_relay, :analysis, event], measurements, enrich_metadata(metadata))
   end
 
   @doc """
@@ -260,6 +308,120 @@ defmodule ServiceRadar.Telemetry do
         tags: [:status],
         description: "Days remaining before SPIFFE certificate expiration"
       )
+    ] ++ camera_relay_metrics()
+  end
+
+  @doc """
+  Returns the camera relay metric definitions.
+
+  This subset is exposed separately so other apps, such as `web-ng`, can export
+  relay metrics without duplicating the rest of the shared cluster metric set.
+  """
+  @spec camera_relay_metrics() :: list()
+  def camera_relay_metrics do
+    import Telemetry.Metrics
+
+    [
+      counter("serviceradar.camera_relay.session.opened.count",
+        tags: [:relay_boundary, :gateway_id],
+        description: "Number of camera relay sessions opened"
+      ),
+      counter("serviceradar.camera_relay.session.closing.count",
+        tags: [:relay_boundary, :termination_kind],
+        description: "Number of camera relay sessions entering closing state"
+      ),
+      counter("serviceradar.camera_relay.session.closed.count",
+        tags: [:relay_boundary, :termination_kind],
+        description: "Number of camera relay sessions closed"
+      ),
+      counter("serviceradar.camera_relay.session.failed.count",
+        tags: [:relay_boundary, :stage],
+        description: "Number of camera relay session failures"
+      ),
+      last_value("serviceradar.camera_relay.session.viewer_count",
+        event_name: [:serviceradar, :camera_relay, :session, :viewer_count_changed],
+        measurement: :viewer_count,
+        tags: [:relay_boundary, :relay_session_id],
+        description: "Latest viewer count for a camera relay session"
+      ),
+      counter("serviceradar.camera_relay.analysis.branch_opened.count",
+        tags: [:relay_boundary],
+        description: "Number of relay-scoped analysis branches opened"
+      ),
+      counter("serviceradar.camera_relay.analysis.branch_closed.count",
+        tags: [:relay_boundary, :reason],
+        description: "Number of relay-scoped analysis branches closed"
+      ),
+      counter("serviceradar.camera_relay.analysis.sample_emitted.count",
+        tags: [:relay_boundary],
+        description: "Number of analysis samples emitted to workers"
+      ),
+      counter("serviceradar.camera_relay.analysis.sample_dropped.count",
+        tags: [:relay_boundary, :reason],
+        description: "Number of analysis samples dropped by guardrails"
+      ),
+      counter("serviceradar.camera_relay.analysis.limit_rejected.count",
+        tags: [:relay_boundary, :limit],
+        description: "Number of analysis branch requests rejected by limits"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_selected.count",
+        tags: [:relay_boundary, :selection_mode, :worker_id],
+        description: "Number of successful analysis worker selections"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_selection_failed.count",
+        tags: [:relay_boundary, :reason],
+        description: "Number of failed analysis worker selections"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_probe_succeeded.count",
+        tags: [:relay_boundary, :worker_id, :adapter],
+        description: "Number of successful camera analysis worker health probes"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_probe_failed.count",
+        tags: [:relay_boundary, :worker_id, :adapter, :reason],
+        description: "Number of failed camera analysis worker health probes"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_health_changed.count",
+        tags: [:relay_boundary, :worker_id, :health_status],
+        description: "Number of camera analysis worker health state changes"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_flapping_changed.count",
+        tags: [:relay_boundary, :worker_id, :flapping_state],
+        description: "Number of camera analysis worker flapping state changes"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_alert_changed.count",
+        tags: [:relay_boundary, :worker_id, :alert_state],
+        description: "Number of camera analysis worker alert state changes"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_failover_succeeded.count",
+        tags: [:relay_boundary, :worker_id, :replacement_worker_id],
+        description: "Number of successful camera analysis worker failovers"
+      ),
+      counter("serviceradar.camera_relay.analysis.worker_failover_failed.count",
+        tags: [:relay_boundary, :worker_id, :reason],
+        description: "Number of failed camera analysis worker failovers"
+      ),
+      counter("serviceradar.camera_relay.analysis.dispatch_succeeded.count",
+        tags: [:relay_boundary, :worker_id],
+        description: "Number of successful analysis worker dispatches"
+      ),
+      counter("serviceradar.camera_relay.analysis.dispatch_failed.count",
+        tags: [:relay_boundary, :worker_id, :reason],
+        description: "Number of failed analysis worker dispatches"
+      ),
+      counter("serviceradar.camera_relay.analysis.dispatch_timed_out.count",
+        tags: [:relay_boundary, :worker_id],
+        description: "Number of timed out analysis worker dispatches"
+      ),
+      counter("serviceradar.camera_relay.analysis.dispatch_dropped.count",
+        tags: [:relay_boundary, :worker_id, :reason],
+        description: "Number of dropped analysis worker dispatches"
+      ),
+      last_value("serviceradar.camera_relay.analysis.branch_count",
+        event_name: [:serviceradar, :camera_relay, :analysis, :branch_count_changed],
+        measurement: :branch_count,
+        tags: [:relay_boundary, :relay_session_id],
+        description: "Latest active analysis branch count for a relay session"
+      )
     ]
   end
 
@@ -358,7 +520,9 @@ defmodule ServiceRadar.Telemetry do
       @prefix ++ [:gateway, :unregistered],
       @prefix ++ [:gateway, :heartbeat_missed],
       @prefix ++ [:agent, :connected],
-      @prefix ++ [:agent, :disconnected]
+      @prefix ++ [:agent, :disconnected],
+      @prefix ++ [:camera_relay, :session, :failed],
+      @prefix ++ [:camera_relay, :session, :closed]
     ]
 
     :telemetry.attach_many(

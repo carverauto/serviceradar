@@ -20,7 +20,6 @@ import (
 	"context"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/snmp"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -517,8 +516,9 @@ func TestSNMPConfigRefreshPreservesLocalOverride(t *testing.T) {
 	initialHash := svc.GetConfigHash()
 	assert.Contains(t, initialSource, "local:")
 
-	// Wait a short time to allow any background refresh to occur
-	time.Sleep(100 * time.Millisecond)
+	// Trigger a refresh check directly to verify the local override stays intact
+	// without depending on wall-clock timing in a race-instrumented test run.
+	svc.checkConfigUpdate(ctx)
 
 	// Config should remain the same since local file hasn't changed
 	afterSource := svc.GetConfigSource()
