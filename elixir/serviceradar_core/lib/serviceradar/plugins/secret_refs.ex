@@ -20,7 +20,8 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     existing_material = secret_material(existing_params)
 
     {result, kept_material} =
-      Enum.reduce(secret_ref_fields(schema), {public_params(params), %{}}, fn field, {acc, material} ->
+      Enum.reduce(secret_ref_fields(schema), {public_params(params), %{}}, fn field,
+                                                                              {acc, material} ->
         preserve_secret_field(acc, material, field, params, existing_params, existing_material)
       end)
 
@@ -50,30 +51,21 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     params = stringify_keys(params)
     material = secret_material(params)
 
-    Enum.reduce(secret_ref_fields(schema), {:ok, public_params(params)}, fn field, {:ok, acc} ->
-      case secret_ref_value(acc, field) do
-        nil ->
-          {:ok, acc}
+    Enum.reduce_while(secret_ref_fields(schema), {:ok, public_params(params)}, fn field,
+                                                                                  {:ok, acc} ->
+      case resolve_secret_field(acc, field, material) do
+        {:ok, resolved} ->
+          {:cont, {:ok, resolved}}
 
-        ref ->
-          case Map.get(material, ref) do
-            nil ->
-              {:error, ["#{field} is missing secret material"]}
-
-            encrypted ->
-              case Crypto.decrypt_safe(encrypted) do
-                {:ok, secret} ->
-                  {:ok, Map.put(acc, runtime_field_name(field), secret)}
-
-                {:error, :decrypt_failed} ->
-                  {:error, ["#{field} could not be decrypted"]}
-              end
-          end
+        {:error, reason} ->
+          {:halt, {:error, [reason]}}
       end
     end)
   end
 
-  def resolve_runtime_params(_schema, params) when is_map(params), do: {:ok, public_params(params)}
+  def resolve_runtime_params(_schema, params) when is_map(params),
+    do: {:ok, public_params(params)}
+
   def resolve_runtime_params(_schema, _params), do: {:ok, %{}}
 
   @spec validate_secret_linkage(map(), map()) :: :ok | {:error, [String.t()]}
@@ -89,7 +81,7 @@ defmodule ServiceRadar.Plugins.SecretRefs do
           is_nil(ref) ->
             []
 
-          not is_secret_ref(ref) ->
+          not secret_ref?(ref) ->
             ["#{field} must be a secret reference"]
 
           is_nil(Map.get(material, ref)) ->
@@ -134,37 +126,81 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     String.replace_suffix(field, "_secret_ref", "")
   end
 
-  @spec is_secret_ref(String.t()) :: boolean()
-  def is_secret_ref(value) when is_binary(value), do: String.starts_with?(value, @secret_prefix)
-  def is_secret_ref(_value), do: false
+  @spec secret_ref?(String.t()) :: boolean()
+  def secret_ref?(value) when is_binary(value), do: String.starts_with?(value, @secret_prefix)
+  def secret_ref?(_value), do: false
 
   defp preserve_secret_field(acc, material, field, params, existing_params, existing_material) do
     incoming = normalize_string(Map.get(params, field))
     existing_ref = secret_ref_value(existing_params, field)
 
-    cond do
-      incoming == nil and existing_ref != nil ->
+    case classify_secret_update(incoming, existing_ref, existing_material) do
+      :keep_existing ->
         keep_existing_secret(acc, material, field, existing_ref, existing_material)
 
-      incoming == nil ->
+      :delete ->
         {Map.delete(acc, field), material}
 
-      is_secret_ref(incoming) && Map.has_key?(existing_material, incoming) ->
-        {Map.put(acc, field, incoming), Map.put(material, incoming, Map.fetch!(existing_material, incoming))}
+      :existing_material_ref ->
+        {Map.put(acc, field, incoming),
+         Map.put(material, incoming, Map.fetch!(existing_material, incoming))}
 
-      is_secret_ref(incoming) ->
+      :passthrough_ref ->
         {Map.put(acc, field, incoming), material}
 
-      existing_ref != nil && incoming == existing_ref ->
-        keep_existing_secret(acc, material, field, existing_ref, existing_material)
-
-      true ->
+      :new_secret ->
         ref = generate_secret_ref(field)
 
         {
           Map.put(acc, field, ref),
           Map.put(material, ref, Crypto.encrypt(incoming))
         }
+    end
+  end
+
+  defp resolve_secret_field(acc, field, material) do
+    with ref when not is_nil(ref) <- secret_ref_value(acc, field),
+         {:ok, encrypted} <- fetch_secret_material(material, ref, field),
+         {:ok, secret} <- decrypt_secret_material(encrypted, field) do
+      {:ok, Map.put(acc, runtime_field_name(field), secret)}
+    else
+      nil -> {:ok, acc}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp fetch_secret_material(material, ref, field) do
+    case Map.get(material, ref) do
+      nil -> {:error, "#{field} is missing secret material"}
+      encrypted -> {:ok, encrypted}
+    end
+  end
+
+  defp decrypt_secret_material(encrypted, field) do
+    case Crypto.decrypt_safe(encrypted) do
+      {:ok, secret} -> {:ok, secret}
+      {:error, :decrypt_failed} -> {:error, "#{field} could not be decrypted"}
+    end
+  end
+
+  defp classify_secret_update(nil, existing_ref, _existing_material)
+       when not is_nil(existing_ref), do: :keep_existing
+
+  defp classify_secret_update(nil, _existing_ref, _existing_material), do: :delete
+
+  defp classify_secret_update(incoming, existing_ref, _existing_material)
+       when not is_nil(existing_ref) and incoming == existing_ref, do: :keep_existing
+
+  defp classify_secret_update(incoming, _existing_ref, existing_material) do
+    cond do
+      secret_ref?(incoming) and Map.has_key?(existing_material, incoming) ->
+        :existing_material_ref
+
+      secret_ref?(incoming) ->
+        :passthrough_ref
+
+      true ->
+        :new_secret
     end
   end
 

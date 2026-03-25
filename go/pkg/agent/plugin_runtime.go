@@ -76,12 +76,15 @@ const (
 )
 
 var (
-	errPluginWasmUnavailable = errors.New("plugin wasm unavailable")
-	errEntrypointNotFound    = errors.New("entrypoint not found")
-	errDownloadFailed        = errors.New("download failed")
-	errDownloadTooLarge      = errors.New("download too large")
-	errContentHashMismatch   = errors.New("content hash mismatch")
-	errInvalidPath           = errors.New("invalid path")
+	errPluginWasmUnavailable              = errors.New("plugin wasm unavailable")
+	errEntrypointNotFound                 = errors.New("entrypoint not found")
+	errDownloadFailed                     = errors.New("download failed")
+	errDownloadTooLarge                   = errors.New("download too large")
+	errContentHashMismatch                = errors.New("content hash mismatch")
+	errInvalidPath                        = errors.New("invalid path")
+	errStreamingPluginAssignmentNotFound  = errors.New("streaming plugin assignment not found")
+	errStreamingPluginAdmissionDenied     = errors.New("streaming plugin admission denied: max concurrent reached")
+	errStreamingPluginMediaSessionMissing = errors.New("streaming plugin did not open a camera media session")
 )
 
 // PluginManagerConfig configures the Wasm plugin manager.
@@ -621,11 +624,11 @@ func (m *PluginManager) OpenCameraRelayStream(
 
 	assignment, ok := m.lookupStreamingAssignment(assignmentID)
 	if !ok {
-		return nil, fmt.Errorf("streaming plugin assignment %q not found", strings.TrimSpace(assignmentID))
+		return nil, fmt.Errorf("%w %q", errStreamingPluginAssignmentNotFound, strings.TrimSpace(assignmentID))
 	}
 
 	if !m.acquireSlot() {
-		return nil, errors.New("streaming plugin admission denied: max concurrent reached")
+		return nil, errStreamingPluginAdmissionDenied
 	}
 
 	wasm, err := m.loadWasm(ctx, assignment)
@@ -660,7 +663,7 @@ func (m *PluginManager) OpenCameraRelayStream(
 
 		case !bridge.hasOpened():
 			m.recordExecution(false)
-			stream.finish(errors.New("streaming plugin did not open a camera media session"))
+			stream.finish(errStreamingPluginMediaSessionMissing)
 
 		default:
 			m.recordExecution(true)

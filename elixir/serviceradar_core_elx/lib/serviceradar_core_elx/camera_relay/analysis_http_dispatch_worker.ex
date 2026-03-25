@@ -75,8 +75,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
       inflight: %{},
       failover_attempts: 0,
       max_failovers: positive_integer(Map.get(opts, :max_failovers), @default_max_failovers),
-      probe_history_limit:
-        positive_integer(Map.get(opts, :probe_history_limit), @default_probe_history_limit),
+      probe_history_limit: positive_integer(Map.get(opts, :probe_history_limit), @default_probe_history_limit),
       excluded_worker_ids: [worker.worker_id]
     }
 
@@ -136,9 +135,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
           :ok ->
             state = maybe_mark_worker_healthy(state)
 
-            emit_dispatch_event(state, :dispatch_succeeded, input,
-              inflight_count: map_size(inflight)
-            )
+            emit_dispatch_event(state, :dispatch_succeeded, input, inflight_count: map_size(inflight))
 
             {:noreply, %{state | inflight: inflight}}
 
@@ -283,8 +280,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPDispatchWorker do
                 requested_capability: replacement_worker.requested_capability,
                 registry_managed?: replacement_worker.registry_managed?,
                 flapping: Map.get(replacement_worker, :flapping, false),
-                flapping_transition_count:
-                  Map.get(replacement_worker, :flapping_transition_count, 0),
+                flapping_transition_count: Map.get(replacement_worker, :flapping_transition_count, 0),
                 flapping_window_size: Map.get(replacement_worker, :flapping_window_size, 0)
               })
             )

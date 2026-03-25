@@ -101,7 +101,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     }
   rescue
     error in ArgumentError ->
-      raise GRPC.RPCError, status: :invalid_argument, message: Exception.message(error)
+      reraise GRPC.RPCError.exception(status: :invalid_argument, message: Exception.message(error)),
+              __STACKTRACE__
   end
 
   @spec upload_media(Enumerable.t(), GRPC.Server.Stream.t()) :: Camera.UploadMediaResponse.t()

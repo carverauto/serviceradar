@@ -39,30 +39,47 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
     if previous_alert_state == alert_state do
       :ok
     else
-      transitions =
-        previous_worker
-        |> build_transition_steps(updated_worker, opts)
-        |> Enum.reject(&is_nil/1)
-
-      Enum.reduce_while(transitions, :ok, fn transition, :ok ->
-        case route_step(
-               transition,
-               actor,
-               record_event,
-               broadcast_event,
-               create_alert,
-               list_active_alerts,
-               resolve_alert
-             ) do
-          :ok -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      previous_worker
+      |> build_transition_steps(updated_worker, opts)
+      |> Enum.reject(&is_nil/1)
+      |> route_steps(
+        actor,
+        record_event,
+        broadcast_event,
+        create_alert,
+        list_active_alerts,
+        resolve_alert
+      )
     end
   end
 
   def route_transition(_previous_worker, _updated_worker, _opts),
     do: {:error, :invalid_transition}
+
+  defp route_steps(
+         transitions,
+         actor,
+         record_event,
+         broadcast_event,
+         create_alert,
+         list_active_alerts,
+         resolve_alert
+       ) do
+    Enum.reduce_while(transitions, :ok, fn transition, :ok ->
+      case route_step(
+             transition,
+             actor,
+             record_event,
+             broadcast_event,
+             create_alert,
+             list_active_alerts,
+             resolve_alert
+           ) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
   @spec routed_alert_key(map() | String.t(), String.t() | nil) :: String.t() | nil
   def routed_alert_key(worker, alert_state \\ nil)

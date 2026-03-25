@@ -150,12 +150,10 @@ defmodule ServiceRadar.Camera.AnalysisResultIngestor do
   defp severity_name(3), do: "Medium"
   defp severity_name(2), do: "Low"
   defp severity_name(1), do: "Informational"
-  defp severity_name(_), do: "Informational"
 
   defp severity_log_level(3), do: "warning"
   defp severity_log_level(2), do: "info"
   defp severity_log_level(1), do: "info"
-  defp severity_log_level(_), do: "info"
 
   defp record_event(attrs, actor) do
     Ash.create(OcsfEvent, attrs, actor: actor, domain: ServiceRadar.Monitoring)

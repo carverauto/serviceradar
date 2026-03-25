@@ -200,7 +200,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   @doc """
   Converts a generated config map into an AgentConfigResponse proto struct.
   """
-  @spec to_proto_response(agent_config()) :: Monitoring.AgentConfigResponse.t()
+  @spec to_proto_response(map()) :: Monitoring.AgentConfigResponse.t()
   def to_proto_response(config) do
     proto_checks = to_proto_checks(config.checks)
 
@@ -222,6 +222,16 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       snmp_config: Map.get(config, :snmp_config),
       plugin_config: proto_plugins
     }
+  end
+
+  @doc """
+  Generates and converts the current agent config directly into a proto response.
+  """
+  @spec generate_proto_response(String.t()) :: Monitoring.AgentConfigResponse.t()
+  def generate_proto_response(agent_id) when is_binary(agent_id) do
+    agent_id
+    |> generate_config!()
+    |> to_proto_response()
   end
 
   defp generate_config!(agent_id) do

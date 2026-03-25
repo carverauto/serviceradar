@@ -61,6 +61,7 @@ defmodule ServiceRadar.Plugins.SecretRefsTest do
       )
 
     assert updated["password_secret_ref"] == existing["password_secret_ref"]
+
     assert updated["_secret_material"][existing["password_secret_ref"]] ==
              existing["_secret_material"][existing["password_secret_ref"]]
   end

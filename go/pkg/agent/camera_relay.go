@@ -35,6 +35,11 @@ var (
 	errCameraRelaySessionNotFound    = errors.New("camera relay session not found")
 	errCameraRelayDrainRequested     = errors.New("camera relay drain requested")
 	errCameraRelayPluginUnavailable  = errors.New("camera relay streaming plugin unavailable")
+	errCameraRelaySessionIDRequired  = errors.New("relay_session_id is required")
+	errCameraRelayAgentIDRequired    = errors.New("agent_id is required")
+	errCameraRelaySourceIDRequired   = errors.New("camera_source_id is required")
+	errCameraRelayProfileIDRequired  = errors.New("stream_profile_id is required")
+	errCameraRelayLeaseTokenRequired = errors.New("lease_token is required")
 )
 
 const (
@@ -214,7 +219,7 @@ func (m *cameraRelayManager) Stop(ctx context.Context, payload cameraRelayStopPa
 
 	relaySessionID := strings.TrimSpace(payload.RelaySessionID)
 	if relaySessionID == "" {
-		return errors.New("relay_session_id is required")
+		return errCameraRelaySessionIDRequired
 	}
 
 	reason := strings.TrimSpace(payload.Reason)
@@ -464,15 +469,15 @@ func normalizeCameraRelaySpec(spec cameraRelaySessionSpec) (cameraRelaySessionSp
 
 	switch {
 	case spec.RelaySessionID == "":
-		return spec, errors.New("relay_session_id is required")
+		return spec, errCameraRelaySessionIDRequired
 	case spec.AgentID == "":
-		return spec, errors.New("agent_id is required")
+		return spec, errCameraRelayAgentIDRequired
 	case spec.CameraSourceID == "":
-		return spec, errors.New("camera_source_id is required")
+		return spec, errCameraRelaySourceIDRequired
 	case spec.StreamProfileID == "":
-		return spec, errors.New("stream_profile_id is required")
+		return spec, errCameraRelayProfileIDRequired
 	case spec.LeaseToken == "":
-		return spec, errors.New("lease_token is required")
+		return spec, errCameraRelayLeaseTokenRequired
 	default:
 		return spec, nil
 	}

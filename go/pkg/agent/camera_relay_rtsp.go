@@ -34,6 +34,13 @@ import (
 
 const defaultCameraRelayChunkBuffer = 64
 
+var (
+	errCameraRelaySourceURLRequired    = errors.New("source_url is required")
+	errUnsupportedCameraRelaySource    = errors.New("unsupported camera relay source")
+	errCameraRelayNoH264MediaFormat    = errors.New("rtsp stream does not expose an H264 media format")
+	errUnsupportedCameraRelayTransport = errors.New("unsupported rtsp_transport")
+)
+
 type rtspCameraRelayStream struct {
 	client     *gortsplib.Client
 	chunks     chan *cameraRelayChunk
@@ -47,7 +54,7 @@ type rtspCameraRelayStream struct {
 func defaultCameraRelaySource(spec cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
 	sourceURL := strings.TrimSpace(spec.SourceURL)
 	if sourceURL == "" {
-		return nil, errors.New("source_url is required")
+		return nil, errCameraRelaySourceURLRequired
 	}
 
 	switch {
@@ -56,7 +63,7 @@ func defaultCameraRelaySource(spec cameraRelaySessionSpec) (cameraRelayChunkStre
 		return newRTSPCameraRelayStream(spec)
 
 	default:
-		return nil, fmt.Errorf("unsupported camera relay source %q", sourceURL)
+		return nil, fmt.Errorf("%w %q", errUnsupportedCameraRelaySource, sourceURL)
 	}
 }
 
@@ -92,7 +99,7 @@ func newRTSPCameraRelayStream(spec cameraRelaySessionSpec) (cameraRelayChunkStre
 	media := desc.FindFormat(&h264Format)
 	if media == nil {
 		client.Close()
-		return nil, errors.New("rtsp stream does not expose an H264 media format")
+		return nil, errCameraRelayNoH264MediaFormat
 	}
 
 	decoder, err := h264Format.CreateDecoder()
@@ -157,7 +164,7 @@ func newRTSPCameraRelayStream(spec cameraRelaySessionSpec) (cameraRelayChunkStre
 	})
 
 	if _, err := client.Play(nil); err != nil {
-		stream.Close()
+		_ = stream.Close()
 		return nil, fmt.Errorf("play rtsp stream: %w", err)
 	}
 
@@ -249,6 +256,6 @@ func parseCameraRelayRTSPTransport(value string) (gortsplib.Protocol, error) {
 	case "udp":
 		return gortsplib.ProtocolUDP, nil
 	default:
-		return 0, fmt.Errorf("unsupported rtsp_transport %q", value)
+		return 0, fmt.Errorf("%w %q", errUnsupportedCameraRelayTransport, value)
 	}
 }

@@ -63,9 +63,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
       end
     end
 
-    defp mode,
-      do:
-        Application.get_env(:serviceradar_core_elx, :analysis_dispatch_result_ingestor_mode, :ok)
+    defp mode, do: Application.get_env(:serviceradar_core_elx, :analysis_dispatch_result_ingestor_mode, :ok)
 
     defp test_pid, do: Application.fetch_env!(:serviceradar_core_elx, :analysis_dispatch_test_pid)
   end
@@ -333,8 +331,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
                     }},
                    1_000
 
-    assert_receive {:telemetry_event,
-                    [:serviceradar, :camera_relay, :analysis, :dispatch_succeeded],
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :dispatch_succeeded],
                     %{inflight_count: 0, sequence: 7},
                     %{
                       relay_session_id: ^relay_session_id,
@@ -370,8 +367,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
     assert branch.worker_id == "worker-registry-1"
     assert branch.selection_mode == "worker_id"
 
-    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :worker_selected],
-                    _measurements,
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :worker_selected], _measurements,
                     %{
                       relay_session_id: ^relay_session_id,
                       branch_id: ^branch_id,
@@ -421,9 +417,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
                policy: %{sample_interval_ms: 0}
              })
 
-    assert_receive {:telemetry_event,
-                    [:serviceradar, :camera_relay, :analysis, :worker_selection_failed],
-                    _measurements,
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :worker_selection_failed], _measurements,
                     %{
                       relay_session_id: ^relay_session_id,
                       branch_id: ^branch_id,
@@ -486,8 +480,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
     assert_receive {:deliver, %{sequence: 12}, %{worker_id: "worker-registry-capability-a"}},
                    1_000
 
-    assert_receive {:mark_worker_unhealthy, "worker-registry-capability-a", "http_status_503",
-                    unhealthy_opts},
+    assert_receive {:mark_worker_unhealthy, "worker-registry-capability-a", "http_status_503", unhealthy_opts},
                    1_000
 
     assert unhealthy_opts[:record_probe_history] == true
@@ -520,12 +513,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
              "worker-registry-capability-a"
            )
 
-    assert_receive {:ingest_result,
-                    %{"worker_id" => "worker-registry-capability-b", "sequence" => 12}},
+    assert_receive {:ingest_result, %{"worker_id" => "worker-registry-capability-b", "sequence" => 12}},
                    1_000
 
-    assert_receive {:telemetry_event,
-                    [:serviceradar, :camera_relay, :analysis, :worker_failover_succeeded],
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :worker_failover_succeeded],
                     %{failover_attempt: 1},
                     %{
                       relay_session_id: ^relay_session_id,
@@ -536,9 +527,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
                     }},
                    1_000
 
-    assert_receive {:telemetry_event,
-                    [:serviceradar, :camera_relay, :analysis, :dispatch_succeeded],
-                    %{sequence: 12}, %{worker_id: "worker-registry-capability-b"}},
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :dispatch_succeeded], %{sequence: 12},
+                    %{worker_id: "worker-registry-capability-b"}},
                    1_000
 
     assert :ok = AnalysisDispatchManager.close_http_branch(relay_session_id, branch_id)
@@ -606,8 +596,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
     assert route_opts[:relay_session_id] == relay_session_id
     assert route_opts[:branch_id] == branch_id
 
-    assert_receive {:telemetry_event,
-                    [:serviceradar, :camera_relay, :analysis, :worker_alert_changed],
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :worker_alert_changed],
                     %{consecutive_failures: 0},
                     %{
                       relay_session_id: ^relay_session_id,
@@ -619,8 +608,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
                     }},
                    1_000
 
-    assert_receive {:telemetry_event,
-                    [:serviceradar, :camera_relay, :analysis, :worker_failover_failed],
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :worker_failover_failed],
                     %{failover_attempt: 1},
                     %{
                       relay_session_id: ^relay_session_id,
@@ -630,8 +618,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
                     }},
                    1_000
 
-    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :dispatch_failed],
-                    %{sequence: 21},
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :dispatch_failed], %{sequence: 21},
                     %{worker_id: "worker-registry-single", reason: "http_status_503"}},
                    1_000
 
@@ -690,8 +677,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
                payload: <<0, 0, 0, 1, 101, 1, 2, 3>>
              })
 
-    assert_receive {:telemetry_event,
-                    [:serviceradar, :camera_relay, :analysis, :dispatch_dropped],
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :dispatch_dropped],
                     %{inflight_count: 1, sequence: 2},
                     %{
                       relay_session_id: ^relay_session_id,
@@ -744,9 +730,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
                payload: <<0, 0, 0, 1, 103, 100, 0, 31>>
              })
 
-    assert_receive {:telemetry_event,
-                    [:serviceradar, :camera_relay, :analysis, :dispatch_timed_out],
-                    %{sequence: 3},
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :dispatch_timed_out], %{sequence: 3},
                     %{
                       relay_session_id: ^relay_session_id,
                       branch_id: ^branch_id,
@@ -785,8 +769,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
                payload: <<0, 0, 0, 1, 101, 1, 2, 3>>
              })
 
-    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :dispatch_failed],
-                    %{sequence: 4},
+    assert_receive {:telemetry_event, [:serviceradar, :camera_relay, :analysis, :dispatch_failed], %{sequence: 4},
                     %{
                       relay_session_id: ^relay_session_id,
                       branch_id: ^branch_id,

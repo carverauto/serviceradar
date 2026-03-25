@@ -251,6 +251,4 @@ defmodule ServiceRadar.Camera.RelayHealthEventRouter do
   defp map_value(map, key, default) when is_map(map) do
     Map.get(map, key, Map.get(map, to_string(key), default))
   end
-
-  defp map_value(_map, _key, default), do: default
 end

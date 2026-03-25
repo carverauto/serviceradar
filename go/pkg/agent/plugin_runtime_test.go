@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/netip"
 	"os"
@@ -268,7 +269,7 @@ func TestPluginManagerOpenCameraRelayStreamUsesStreamingBridge(t *testing.T) {
 		t.Fatalf("expected final chunk")
 	}
 
-	if _, err := stream.Recv(t.Context()); err == nil || err != io.EOF {
+	if _, err := stream.Recv(t.Context()); err == nil || !errors.Is(err, io.EOF) {
 		t.Fatalf("expected io.EOF after final chunk, got %v", err)
 	}
 }
@@ -345,7 +346,7 @@ func TestPluginManagerOpenCameraRelayStreamWithWazeroPlugin(t *testing.T) {
 		t.Fatalf("expected keyframe")
 	}
 
-	if _, err := stream.Recv(t.Context()); err == nil || err != io.EOF {
+	if _, err := stream.Recv(t.Context()); err == nil || !errors.Is(err, io.EOF) {
 		t.Fatalf("expected io.EOF after close, got %v", err)
 	}
 

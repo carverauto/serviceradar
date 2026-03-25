@@ -9,6 +9,15 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/proto"
+	gproto "google.golang.org/protobuf/proto"
+)
+
+const relayDrainAcknowledgedReason = "camera relay drain acknowledged"
+
+var (
+	errCameraRelayStreamFailed      = errors.New("camera relay stream failed")
+	errRTSPDialFailed               = errors.New("rtsp dial failed")
+	errPluginTerminatedUnexpectedly = errors.New("plugin terminated unexpectedly")
 )
 
 type fakeCameraRelayGateway struct {
@@ -59,8 +68,11 @@ func (f *fakeCameraRelayGateway) UploadMedia(_ context.Context, chunks []*proto.
 		if chunk == nil {
 			continue
 		}
-		copyChunk := *chunk
-		copied = append(copied, &copyChunk)
+		copyChunk, ok := gproto.Clone(chunk).(*proto.MediaChunk)
+		if !ok {
+			panic("unexpected media chunk clone type")
+		}
+		copied = append(copied, copyChunk)
 		lastSequence = chunk.GetSequence()
 	}
 	f.uploadBatches = append(f.uploadBatches, copied)
@@ -132,7 +144,7 @@ type failingCameraRelayStream struct {
 
 func (s *failingCameraRelayStream) Recv(_ context.Context) (*cameraRelayChunk, error) {
 	if s.err == nil {
-		return nil, errors.New("camera relay stream failed")
+		return nil, errCameraRelayStreamFailed
 	}
 	return nil, s.err
 }
@@ -242,58 +254,26 @@ func TestCameraRelayManagerRejectsDuplicateRelaySession(t *testing.T) {
 
 func TestCameraRelayManagerStopsWhenGatewayUploadEntersDrain(t *testing.T) {
 	t.Parallel()
-
-	gateway := newFakeCameraRelayGateway()
-	gateway.uploadMessage = "media chunks accepted during relay drain"
-
-	manager := newCameraRelayManager(gateway, createTestLogger())
-	manager.uploadBatchSize = 1
-	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
-		return &sliceCameraRelayStream{
-			chunks: []*cameraRelayChunk{
-				{TrackID: "video", Payload: []byte("a"), Sequence: 1, Codec: "h264", PayloadFormat: "annexb"},
-			},
-		}, nil
-	}
-
-	if _, err := manager.Start(context.Background(), cameraRelaySessionSpec{
-		RelaySessionID:  "relay-drain-upload-1",
-		AgentID:         "agent-1",
-		CameraSourceID:  "camera-1",
-		StreamProfileID: "main",
-		LeaseToken:      "lease-1",
-	}); err != nil {
-		t.Fatalf("Start returned error: %v", err)
-	}
-
-	select {
-	case <-gateway.closeNotifyCh:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for relay session to close after upload drain")
-	}
-
-	gateway.mu.Lock()
-	defer gateway.mu.Unlock()
-
-	if len(gateway.uploadBatches) != 1 {
-		t.Fatalf("expected 1 upload batch, got %d", len(gateway.uploadBatches))
-	}
-	if len(gateway.heartbeatReqs) != 0 {
-		t.Fatalf("expected 0 heartbeats after upload drain, got %d", len(gateway.heartbeatReqs))
-	}
-	if len(gateway.closeRequests) != 1 {
-		t.Fatalf("expected 1 close request, got %d", len(gateway.closeRequests))
-	}
-	if got := gateway.closeRequests[0].GetReason(); got != "camera relay drain acknowledged" {
-		t.Fatalf("expected close reason %q, got %q", "camera relay drain acknowledged", got)
-	}
+	testCameraRelayManagerStopsWhenGatewayEntersDrain(t, "relay-drain-upload-1", "media chunks accepted during relay drain", "", 0)
 }
 
 func TestCameraRelayManagerStopsWhenGatewayHeartbeatEntersDrain(t *testing.T) {
 	t.Parallel()
+	testCameraRelayManagerStopsWhenGatewayEntersDrain(t, "relay-drain-heartbeat-1", "", "core heartbeat accepted during relay drain", 1)
+}
+
+func testCameraRelayManagerStopsWhenGatewayEntersDrain(
+	t *testing.T,
+	relaySessionID string,
+	uploadMessage string,
+	heartbeatMessage string,
+	expectedHeartbeats int,
+) {
+	t.Helper()
 
 	gateway := newFakeCameraRelayGateway()
-	gateway.heartbeatMessage = "core heartbeat accepted during relay drain"
+	gateway.uploadMessage = uploadMessage
+	gateway.heartbeatMessage = heartbeatMessage
 
 	manager := newCameraRelayManager(gateway, createTestLogger())
 	manager.uploadBatchSize = 1
@@ -306,7 +286,7 @@ func TestCameraRelayManagerStopsWhenGatewayHeartbeatEntersDrain(t *testing.T) {
 	}
 
 	if _, err := manager.Start(context.Background(), cameraRelaySessionSpec{
-		RelaySessionID:  "relay-drain-heartbeat-1",
+		RelaySessionID:  relaySessionID,
 		AgentID:         "agent-1",
 		CameraSourceID:  "camera-1",
 		StreamProfileID: "main",
@@ -318,7 +298,7 @@ func TestCameraRelayManagerStopsWhenGatewayHeartbeatEntersDrain(t *testing.T) {
 	select {
 	case <-gateway.closeNotifyCh:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for relay session to close after heartbeat drain")
+		t.Fatal("timed out waiting for relay session to close after drain")
 	}
 
 	gateway.mu.Lock()
@@ -327,14 +307,14 @@ func TestCameraRelayManagerStopsWhenGatewayHeartbeatEntersDrain(t *testing.T) {
 	if len(gateway.uploadBatches) != 1 {
 		t.Fatalf("expected 1 upload batch, got %d", len(gateway.uploadBatches))
 	}
-	if len(gateway.heartbeatReqs) != 1 {
-		t.Fatalf("expected 1 heartbeat before drain close, got %d", len(gateway.heartbeatReqs))
+	if len(gateway.heartbeatReqs) != expectedHeartbeats {
+		t.Fatalf("expected %d heartbeat(s) before drain close, got %d", expectedHeartbeats, len(gateway.heartbeatReqs))
 	}
 	if len(gateway.closeRequests) != 1 {
 		t.Fatalf("expected 1 close request, got %d", len(gateway.closeRequests))
 	}
-	if got := gateway.closeRequests[0].GetReason(); got != "camera relay drain acknowledged" {
-		t.Fatalf("expected close reason %q, got %q", "camera relay drain acknowledged", got)
+	if got := gateway.closeRequests[0].GetReason(); got != relayDrainAcknowledgedReason {
+		t.Fatalf("expected close reason %q, got %q", relayDrainAcknowledgedReason, got)
 	}
 }
 
@@ -344,7 +324,7 @@ func TestCameraRelayManagerClosesUpstreamWhenCameraSourceStartupFails(t *testing
 	gateway := newFakeCameraRelayGateway()
 	manager := newCameraRelayManager(gateway, createTestLogger())
 	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
-		return nil, errors.New("rtsp dial failed")
+		return nil, errRTSPDialFailed
 	}
 
 	_, err := manager.Start(context.Background(), cameraRelaySessionSpec{
@@ -400,7 +380,7 @@ func TestCameraRelayManagerClosesUpstreamWhenPluginStreamFails(t *testing.T) {
 		if spec.PluginAssignmentID != "streaming-plugin-1" {
 			t.Fatalf("unexpected plugin assignment id: %s", spec.PluginAssignmentID)
 		}
-		return &failingCameraRelayStream{err: errors.New("plugin terminated unexpectedly")}, nil
+		return &failingCameraRelayStream{err: errPluginTerminatedUnexpectedly}, nil
 	}
 
 	if _, err := manager.Start(context.Background(), cameraRelaySessionSpec{

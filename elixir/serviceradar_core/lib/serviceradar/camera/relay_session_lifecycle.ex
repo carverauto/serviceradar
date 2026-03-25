@@ -260,8 +260,6 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
     end
   end
 
-  defp existing_close_reason(_session), do: nil
-
   defp preserve_existing_close_reason?(session, incoming_reason, existing_reason) do
     closing_session?(session) and present_reason?(existing_reason) and
       drain_ack_reason?(incoming_reason)
@@ -271,11 +269,8 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
     Map.get(session, :status) in [:closing, "closing"]
   end
 
-  defp closing_session?(_session), do: false
-
   defp present_reason?(value) when is_binary(value), do: String.trim(value) != ""
   defp present_reason?(nil), do: false
-  defp present_reason?(_value), do: true
 
   defp drain_ack_reason?(value) when is_binary(value) do
     String.trim(value) == "camera relay drain acknowledged"

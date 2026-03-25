@@ -222,10 +222,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     dispatch(agent_id, "camera.close_relay", payload, opts)
   end
 
-  def push_config(agent_id) do
-    with {:ok, pid, _metadata} <- lookup_control_session(agent_id),
-         {:ok, config} <- AgentConfigGenerator.generate_config(agent_id) do
-      response = AgentConfigGenerator.to_proto_response(config)
+  def push_config(agent_id) when is_binary(agent_id) do
+    with {:ok, pid, _metadata} <- lookup_control_session(agent_id) do
+      response = AgentConfigGenerator.generate_proto_response(agent_id)
 
       case GenServer.call(pid, {:push_config, response}, @send_timeout) do
         :ok -> :ok
@@ -233,7 +232,12 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         other -> {:error, other}
       end
     end
+  rescue
+    error ->
+      {:error, {:database_error, error}}
   end
+
+  def push_config(_agent_id), do: {:error, :invalid_agent_id}
 
   def push_config_for_type(config_type) do
     capability = capability_for_config_type(config_type)
@@ -326,7 +330,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp ensure_session_alive(pid, metadata, agent_id) do
     if process_alive?(pid) do
-      {:ok, pid, metadata || %{}}
+      {:ok, pid, metadata}
     else
       {:error, {:agent_offline, agent_id}}
     end
@@ -336,22 +340,28 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     if registry_available?() do
       :agent_control
       |> ProcessRegistry.select_by_type()
-      |> Enum.map(fn {key, pid, metadata} ->
-        agent_id = elem(key, 1)
-        metadata = metadata || %{}
-
-        %{
-          agent_id: agent_id,
-          pid: pid,
-          metadata: metadata,
-          partition_id: partition_from_metadata(metadata),
-          capabilities: capabilities_from_metadata(metadata)
-        }
-      end)
-      |> Enum.filter(fn %{pid: pid} -> process_alive?(pid) end)
+      |> Enum.map(&build_online_session/1)
+      |> Enum.filter(&valid_online_session?/1)
     else
       []
     end
+  end
+
+  defp build_online_session({key, pid, metadata}) do
+    agent_id = elem(key, 1)
+    metadata = if(is_map(metadata), do: metadata, else: %{})
+
+    %{
+      agent_id: agent_id,
+      pid: pid,
+      metadata: metadata,
+      partition_id: partition_from_metadata(metadata),
+      capabilities: capabilities_from_metadata(metadata)
+    }
+  end
+
+  defp valid_online_session?(%{agent_id: agent_id, pid: pid}) do
+    is_binary(agent_id) and process_alive?(pid)
   end
 
   defp pick_online_agent(partition, capability) do

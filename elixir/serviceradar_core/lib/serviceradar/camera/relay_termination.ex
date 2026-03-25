@@ -22,28 +22,12 @@ defmodule ServiceRadar.Camera.RelayTermination do
     close_reason = normalize_reason(value(session, :close_reason))
     failure_reason = normalize_reason(value(session, :failure_reason))
 
-    cond do
-      status == :failed or not is_nil(failure_reason) ->
-        :failure
-
-      close_reason == "viewer idle timeout" ->
-        :viewer_idle
-
-      transport_drain_reason?(close_reason) ->
-        :transport_drain
-
-      source_complete_reason?(close_reason) ->
-        :source_complete
-
-      status in [:closing, :closed] and not is_nil(close_reason) ->
-        :manual_stop
-
-      status == :closed ->
-        :closed
-
-      true ->
-        nil
-    end
+    failure_kind(status, failure_reason) ||
+      viewer_idle_kind(close_reason) ||
+      transport_drain_kind(close_reason) ||
+      source_complete_kind(close_reason) ||
+      manual_stop_kind(status, close_reason) ||
+      closed_kind(status)
   end
 
   def kind(_session), do: nil
@@ -86,7 +70,33 @@ defmodule ServiceRadar.Camera.RelayTermination do
     String.contains?(String.downcase(reason), "drain")
   end
 
-  defp transport_drain_reason?(_reason), do: false
+  defp failure_kind(:failed, _failure_reason), do: :failure
+  defp failure_kind(_status, failure_reason) when not is_nil(failure_reason), do: :failure
+  defp failure_kind(_status, _failure_reason), do: nil
+
+  defp viewer_idle_kind("viewer idle timeout"), do: :viewer_idle
+  defp viewer_idle_kind(_close_reason), do: nil
+
+  defp transport_drain_kind(close_reason) when is_binary(close_reason) do
+    if transport_drain_reason?(close_reason), do: :transport_drain
+  end
+
+  defp transport_drain_kind(_close_reason), do: nil
+
+  defp source_complete_kind(close_reason) when is_binary(close_reason) do
+    if source_complete_reason?(close_reason), do: :source_complete
+  end
+
+  defp source_complete_kind(_close_reason), do: nil
+
+  defp manual_stop_kind(status, close_reason)
+       when status in [:closing, :closed] and not is_nil(close_reason),
+       do: :manual_stop
+
+  defp manual_stop_kind(_status, _close_reason), do: nil
+
+  defp closed_kind(:closed), do: :closed
+  defp closed_kind(_status), do: nil
 
   defp source_complete_reason?(reason) when is_binary(reason) do
     String.downcase(reason) in [
@@ -95,8 +105,6 @@ defmodule ServiceRadar.Camera.RelayTermination do
       "camera relay completed"
     ]
   end
-
-  defp source_complete_reason?(_reason), do: false
 
   defp normalize_status(value) when is_atom(value), do: value
 

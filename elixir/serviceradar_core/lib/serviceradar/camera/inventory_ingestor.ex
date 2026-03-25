@@ -26,25 +26,11 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   def ingest(payload, status, opts) when is_map(payload) do
-    actor = Keyword.get(opts, :actor, SystemActor.system(:camera_inventory_ingestor))
-    observed_at = Keyword.get(opts, :observed_at) || resolve_observed_at(payload, status)
-    source_upsert = Keyword.get(opts, :source_upsert, &upsert_source/2)
-    profile_upsert = Keyword.get(opts, :profile_upsert, &upsert_profile/2)
-    resolve_device_uid = Keyword.get(opts, :resolve_device_uid, &default_resolve_device_uid/3)
-    descriptors = extract_camera_descriptors(payload)
+    context = build_ingest_context(payload, status, opts)
+    descriptors = context.descriptors
 
     Enum.reduce_while(descriptors, :ok, fn descriptor, :ok ->
-      case ingest_descriptor(
-             descriptor,
-             descriptors,
-             payload,
-             status,
-             observed_at,
-             actor,
-             source_upsert,
-             profile_upsert,
-             resolve_device_uid
-           ) do
+      case ingest_descriptor(descriptor, context) do
         :ok -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -53,28 +39,30 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   def ingest(_payload, _status, _opts), do: :ok
 
-  defp ingest_descriptor(
-         descriptor,
-         descriptors,
-         payload,
-         status,
-         observed_at,
-         actor,
-         source_upsert,
-         profile_upsert,
-         resolve_device_uid
-       ) do
-    descriptor = resolve_descriptor_device_uid(descriptor, status, actor, resolve_device_uid)
+  defp ingest_descriptor(descriptor, context) do
+    descriptor =
+      resolve_descriptor_device_uid(
+        descriptor,
+        context.status,
+        context.actor,
+        context.resolve_device_uid
+      )
 
     with {:ok, source_attrs} <-
-           normalize_source(descriptor, descriptors, payload, status, observed_at),
-         {:ok, source_record} <- source_upsert.(source_attrs, actor) do
+           normalize_source(
+             descriptor,
+             context.descriptors,
+             context.payload,
+             context.status,
+             context.observed_at
+           ),
+         {:ok, source_record} <- context.source_upsert.(source_attrs, context.actor) do
       descriptor
-      |> normalize_profiles(observed_at)
+      |> normalize_profiles(context.observed_at)
       |> Enum.reduce_while(:ok, fn profile_attrs, :ok ->
         attrs = Map.put(profile_attrs, :camera_source_id, source_record.id)
 
-        case profile_upsert.(attrs, actor) do
+        case context.profile_upsert.(attrs, context.actor) do
           {:ok, _profile} -> {:cont, :ok}
           {:error, reason} -> {:halt, {:error, reason}}
         end
@@ -87,6 +75,19 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp build_ingest_context(payload, status, opts) do
+    %{
+      payload: payload,
+      status: status,
+      actor: Keyword.get(opts, :actor, SystemActor.system(:camera_inventory_ingestor)),
+      observed_at: Keyword.get(opts, :observed_at) || resolve_observed_at(payload, status),
+      source_upsert: Keyword.get(opts, :source_upsert, &upsert_source/2),
+      profile_upsert: Keyword.get(opts, :profile_upsert, &upsert_profile/2),
+      resolve_device_uid: Keyword.get(opts, :resolve_device_uid, &default_resolve_device_uid/3),
+      descriptors: extract_camera_descriptors(payload)
+    }
   end
 
   @doc """
@@ -340,8 +341,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     |> Enum.filter(&is_map/1)
   end
 
-  defp extract_events(_payload), do: []
-
   defp latest_camera_event(events) when is_list(events) do
     Enum.max_by(events, &event_sort_key/1, fn -> nil end)
   end
@@ -388,8 +387,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
     Enum.any?(identities, &(&1 in [device_uid, vendor_camera_id]))
   end
-
-  defp camera_event_matches_descriptor?(_event, _descriptor), do: false
 
   defp event_sort_key(event) do
     event
@@ -449,8 +446,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         end
     end
   end
-
-  defp event_topic(_event), do: nil
 
   defp event_availability_status(nil), do: nil
 
@@ -565,13 +560,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp details_payload(_payload), do: nil
-
   defp details_payload_or_self(payload) when is_map(payload) do
     details_payload(payload) || payload
   end
-
-  defp details_payload_or_self(_payload), do: nil
 
   defp string_value(map, keys) do
     case value(map, keys) do
@@ -696,8 +687,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp extract_enrichment_camera_descriptors(_details), do: []
-
   defp build_enrichment_descriptor(details, enrichment)
        when is_map(details) and is_map(enrichment) do
     identity = map_value(enrichment, ["identity"]) || %{}
@@ -725,9 +714,24 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
     explicit_device_uid =
       first_present([
-        string_value(enrichment, ["device_uid", "deviceUid", "canonical_device_id", "canonicalDeviceId"]),
-        string_value(source, ["device_uid", "deviceUid", "canonical_device_id", "canonicalDeviceId"]),
-        string_value(identity, ["device_uid", "deviceUid", "canonical_device_id", "canonicalDeviceId"])
+        string_value(enrichment, [
+          "device_uid",
+          "deviceUid",
+          "canonical_device_id",
+          "canonicalDeviceId"
+        ]),
+        string_value(source, [
+          "device_uid",
+          "deviceUid",
+          "canonical_device_id",
+          "canonicalDeviceId"
+        ]),
+        string_value(identity, [
+          "device_uid",
+          "deviceUid",
+          "canonical_device_id",
+          "canonicalDeviceId"
+        ])
       ])
 
     if blank?(vendor) or blank?(vendor_camera_id) do
@@ -786,14 +790,25 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
           string_value(stream, ["profile_name", "profileName", "name", "id"]),
           "default"
         ]),
-      "vendor_profile_id" => string_value(stream, ["vendor_profile_id", "vendorProfileId", "profile_id", "profileId", "id"]),
+      "vendor_profile_id" =>
+        string_value(stream, [
+          "vendor_profile_id",
+          "vendorProfileId",
+          "profile_id",
+          "profileId",
+          "id"
+        ]),
       "source_url_override" => url,
       "rtsp_transport" =>
         first_present([
           string_value(stream, ["rtsp_transport", "rtspTransport", "transport"]),
-          if(is_binary(url) and String.starts_with?(String.downcase(url), "rtsp"), do: "tcp", else: nil)
+          if(is_binary(url) and String.starts_with?(String.downcase(url), "rtsp"), do: "tcp")
         ]),
-      "codec_hint" => first_present([string_value(stream, ["codec_hint", "codecHint", "codec"]), codec_from_rtsp_url(url)]),
+      "codec_hint" =>
+        first_present([
+          string_value(stream, ["codec_hint", "codecHint", "codec"]),
+          codec_from_rtsp_url(url)
+        ]),
       "metadata" => normalize_profile_metadata(metadata)
     }
   end
@@ -815,8 +830,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp resolve_descriptor_device_uid(descriptor, _status, _actor, _resolve_device_uid), do: descriptor
-
   defp descriptor_device_uid(descriptor) when is_map(descriptor) do
     string_value(descriptor, [
       "device_uid",
@@ -828,8 +841,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       "uid"
     ])
   end
-
-  defp descriptor_device_uid(_descriptor), do: nil
 
   defp default_resolve_device_uid(descriptor, status, actor) do
     case resolve_identity_from_hints(descriptor, status, actor) do
@@ -860,6 +871,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     else
       {:ok,
        %{
+         device_id: nil,
          ip: ip,
          mac: mac,
          partition: "default",
@@ -867,7 +879,10 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
            %{}
            |> maybe_put("agent_id", status[:agent_id])
            |> maybe_put("integration_id", integration_id)
-           |> maybe_put("integration_type", if(blank?(integration_id), do: nil, else: "camera_plugin"))
+           |> maybe_put(
+             "integration_type",
+             if(blank?(integration_id), do: nil, else: "camera_plugin")
+           )
        }}
     end
   end
@@ -882,8 +897,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     ])
   end
 
-  defp descriptor_hostname(_descriptor), do: nil
-
   defp descriptor_mac(descriptor) when is_map(descriptor) do
     descriptor
     |> map_value(["identity"])
@@ -893,8 +906,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp descriptor_mac(_descriptor), do: nil
-
   defp descriptor_ip(descriptor) when is_map(descriptor) do
     candidate =
       first_present([
@@ -902,10 +913,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         descriptor_hostname(descriptor)
       ])
 
-    if ip_address?(candidate), do: candidate, else: nil
+    if ip_address?(candidate), do: candidate
   end
-
-  defp descriptor_ip(_descriptor), do: nil
 
   defp descriptor_integration_id(descriptor) when is_map(descriptor) do
     identity = map_value(descriptor, ["identity"]) || %{}
@@ -923,8 +932,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         nil
     end
   end
-
-  defp descriptor_integration_id(_descriptor), do: nil
 
   defp normalize_profile_metadata(metadata) when is_map(metadata) do
     auth_mode =
