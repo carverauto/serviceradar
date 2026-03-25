@@ -197,6 +197,114 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     assert profile_attrs.codec_hint == "h264"
   end
 
+  test "derives camera descriptors from generic device enrichment and resolves canonical device uid" do
+    parent = self()
+
+    source_upsert = fn attrs, _actor ->
+      send(parent, {:source_upsert, attrs})
+      {:ok, %{id: Ecto.UUID.generate()}}
+    end
+
+    profile_upsert = fn attrs, _actor ->
+      send(parent, {:profile_upsert, attrs})
+      {:ok, attrs}
+    end
+
+    resolve_device_uid = fn descriptor, status, _actor ->
+      send(parent, {:resolve_device_uid, descriptor, status})
+      "device-canonical-42"
+    end
+
+    payload = %{
+      "status" => "OK",
+      "details" =>
+        Jason.encode!(%{
+          "camera_host" => "10.0.0.50",
+          "device_enrichment" => %{
+            "identity" => %{
+              "serial" => "axis-serial-42",
+              "mac" => "AA:BB:CC:DD:EE:FF"
+            },
+            "camera" => %{
+              "vendor" => "AXIS",
+              "model" => "P1465-LE"
+            },
+            "streams" => [
+              %{
+                "id" => "main",
+                "protocol" => "rtsp",
+                "url" => "rtsp://10.0.0.50/axis-media/media.amp?videocodec=h264",
+                "auth_mode" => "digest",
+                "credential_reference_id" => "secretref:password:axis-42"
+              }
+            ],
+            "source" => %{
+              "plugin_id" => "axis-camera",
+              "camera_host" => "10.0.0.50"
+            }
+          }
+        })
+    }
+
+    assert :ok =
+             InventoryIngestor.ingest(payload, %{agent_id: "agent-42", gateway_id: "gateway-42"},
+               source_upsert: source_upsert,
+               profile_upsert: profile_upsert,
+               resolve_device_uid: resolve_device_uid
+             )
+
+    assert_receive {:resolve_device_uid, descriptor, status}
+    assert descriptor["vendor"] == "axis"
+    assert descriptor["camera_id"] == "axis-serial-42"
+    assert status.agent_id == "agent-42"
+
+    assert_receive {:source_upsert, source_attrs}
+    assert source_attrs.device_uid == "device-canonical-42"
+    assert source_attrs.vendor == "axis"
+    assert source_attrs.vendor_camera_id == "axis-serial-42"
+    assert source_attrs.source_url == "rtsp://10.0.0.50/axis-media/media.amp?videocodec=h264"
+    assert source_attrs.assigned_agent_id == "agent-42"
+    assert source_attrs.assigned_gateway_id == "gateway-42"
+
+    assert_receive {:profile_upsert, profile_attrs}
+    assert profile_attrs.profile_name == "main"
+    assert profile_attrs.rtsp_transport == "tcp"
+    assert profile_attrs.codec_hint == "h264"
+    assert profile_attrs.metadata["auth_mode"] == "digest"
+    assert profile_attrs.metadata["credential_reference_id"] == "secretref:password:axis-42"
+    assert profile_attrs.metadata["protocol"] == "rtsp"
+  end
+
+  test "extracts generic device enrichment descriptors from top-level payloads" do
+    payload = %{
+      "device_enrichment" => %{
+        "identity" => %{"serial" => "protect-serial-1"},
+        "camera" => %{"vendor" => "Ubiquiti", "display_name" => "South Lot"},
+        "streams" => [
+          %{
+            "id" => "high",
+            "url" => "rtsp://protect.local/live/high?videocodec=h265",
+            "auth_mode" => "api_key"
+          }
+        ],
+        "source" => %{
+          "plugin_id" => "unifi-protect",
+          "camera_host" => "protect.local"
+        }
+      }
+    }
+
+    assert [
+             %{
+               "vendor" => "ubiquiti",
+               "camera_id" => "protect-serial-1",
+               "display_name" => "South Lot",
+               "source_url" => "rtsp://protect.local/live/high?videocodec=h265",
+               "stream_profiles" => [%{"profile_name" => "high"}]
+             }
+           ] = InventoryIngestor.extract_camera_descriptors(payload)
+  end
+
   test "derives camera availability and activity state from plugin events" do
     parent = self()
     observed_at = ~U[2026-03-23 15:45:10Z]

@@ -9,6 +9,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
 
   use GenServer
 
+  alias ServiceRadar.Camera.RelayHealthEventRouter
   alias ServiceRadar.Telemetry
 
   require Logger
@@ -88,6 +89,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
           limit: limit
         })
 
+        maybe_record_gateway_saturation_denial(session, %{limit_kind: "agent", limit: limit})
+
         {:reply, {:error, {:limit_exceeded, :agent, limit}}, state}
 
       gateway_limit_exceeded?(state) ->
@@ -97,6 +100,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
           limit_kind: "gateway",
           limit: limit
         })
+
+        maybe_record_gateway_saturation_denial(session, %{limit_kind: "gateway", limit: limit})
 
         {:reply, {:error, {:limit_exceeded, :gateway, limit}}, state}
 
@@ -312,6 +317,33 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
         measurements
       )
     )
+  end
+
+  defp maybe_record_gateway_saturation_denial(session, extra_metadata) do
+    session
+    |> gateway_session_metadata()
+    |> Map.merge(extra_metadata)
+    |> Map.put_new(:reason, "relay_saturation_denied")
+    |> RelayHealthEventRouter.record_gateway_saturation_denial()
+    |> case do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("Failed to record relay gateway saturation event: #{inspect(reason)}")
+    end
+  end
+
+  defp gateway_session_metadata(session) do
+    %{
+      relay_boundary: "agent_gateway",
+      relay_session_id: session.relay_session_id,
+      media_ingest_id: session.media_ingest_id,
+      agent_id: session.agent_id,
+      gateway_id: session.gateway_id,
+      partition_id: session.partition_id,
+      camera_source_id: session.camera_source_id,
+      stream_profile_id: session.stream_profile_id,
+      relay_status: session.status,
+      close_reason: Map.get(session, :close_reason)
+    }
   end
 
   defp log_session(level, message, session, extra \\ %{}) do

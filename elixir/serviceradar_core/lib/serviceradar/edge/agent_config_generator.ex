@@ -39,6 +39,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Plugins.StorageToken
 
   require Ash.Query
@@ -337,6 +338,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp build_plugin_assignment_config(%PluginAssignment{} = assignment) do
     package = assignment.plugin_package
     manifest = normalize_map(package.manifest)
+    config_schema = normalize_map(package.config_schema)
 
     %{
       assignment_id: to_string(assignment.id),
@@ -348,7 +350,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       runtime: package.runtime,
       outputs: package.outputs,
       capabilities: effective_capabilities(package, manifest),
-      params: normalize_map(assignment.params),
+      params: resolve_plugin_params(config_schema, assignment.params, assignment.id),
       permissions: effective_permissions(assignment, package, manifest),
       resources: effective_resources(assignment, package, manifest),
       enabled: assignment.enabled,
@@ -359,6 +361,22 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       source_type: normalize_source_type(package.source_type),
       download_url: StorageToken.download_url(package.id, package.wasm_object_key)
     }
+  end
+
+  defp resolve_plugin_params(config_schema, params, assignment_id) do
+    params = normalize_map(params)
+
+    case SecretRefs.resolve_runtime_params(config_schema, params) do
+      {:ok, resolved} ->
+        resolved
+
+      {:error, errors} ->
+        Logger.warning(
+          "Failed to resolve plugin secret refs for assignment #{assignment_id}: #{Enum.join(errors, "; ")}"
+        )
+
+        SecretRefs.public_params(params)
+    end
   end
 
   defp effective_capabilities(%PluginPackage{} = package, manifest) do
@@ -595,6 +613,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp normalize_limit(_), do: 0
 
   defp to_proto_plugin_assignment(assignment) do
+    params =
+      case SecretRefs.resolve_runtime_params(
+             proto_assignment_config_schema(assignment),
+             normalize_map(assignment.params)
+           ) do
+        {:ok, resolved} -> resolved
+        {:error, _} -> normalize_map(assignment.params)
+      end
+
     %Monitoring.PluginAssignmentConfig{
       assignment_id: assignment.assignment_id,
       plugin_id: assignment.plugin_id,
@@ -605,7 +632,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       runtime: assignment.runtime || "",
       outputs: assignment.outputs,
       capabilities: assignment.capabilities || [],
-      params_json: encode_json(assignment.params),
+      params_json: encode_json(params),
       permissions_json: encode_json(assignment.permissions),
       resources_json: encode_json(assignment.resources),
       enabled: assignment.enabled,
@@ -618,6 +645,21 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       source_commit: Map.get(assignment, :source_commit, ""),
       download_url: assignment.download_url || ""
     }
+  end
+
+  defp proto_assignment_config_schema(assignment) do
+    plugin_package =
+      Map.get(assignment, :plugin_package) ||
+        Map.get(assignment, "plugin_package") ||
+        %{}
+
+    normalize_map(
+      Map.get(assignment, :config_schema) ||
+        Map.get(assignment, "config_schema") ||
+        Map.get(plugin_package, :config_schema) ||
+        Map.get(plugin_package, "config_schema") ||
+        %{}
+    )
   end
 
   defp load_sync_payload(agent_id) do

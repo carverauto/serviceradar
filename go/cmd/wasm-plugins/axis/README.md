@@ -9,6 +9,7 @@ ServiceRadar TinyGo/WASM plugin for AXIS cameras via VAPIX.
 - Stream endpoint discovery from real `streamprofile.cgi?list` profile parsing
 - Optional AXIS websocket event collection (`/vapix/ws-data-stream`) mapped to OCSF events
   - Uses URL userinfo credentials through the host websocket bridge when credentials are configured
+  - Supports comma/newline topic filters through `event_topic_filters`
 - Emits `serviceradar.plugin_result.v1` with metrics, summary, and JSON details
 - Includes a reference `stream_camera` entrypoint and `manifest.stream.json` for the new Wasm media host bridge
   - `stream_camera` now uses a narrow RTSP-over-TCP + interleaved RTP/H264 path suitable for AXIS main-stream relay
@@ -40,6 +41,7 @@ Use `manifest.json` for the discovery plugin package and `manifest.stream.json` 
   "timeout": "10s",
   "discover_streams": true,
   "collect_events": false,
+  "event_topic_filters": "tns1:VideoSource/Motion\ntns1:Device/IO/VirtualInput",
   "event_sources": "events"
 }
 ```
@@ -67,3 +69,6 @@ For the streaming package in `manifest.stream.json`, the required capabilities a
 ## Notes
 - This plugin intentionally does not depend on full `goxis` runtime packages because they include ACAP/native/cgo paths that do not fit TinyGo/WASM constraints.
 - The helper in `internal/axisref` is adapted from `goxis` (MIT) parsing logic only.
+- A separate ServiceRadar `goxis` fork is not currently needed; the in-tree extracted helper is sufficient for the WASM-safe parsing surface we actually use.
+- Compatibility notes are in `GOXIS_COMPATIBILITY.md`.
+- Exact copied/adapted source provenance is listed in `EXTRACTION_MANIFEST.md`.

@@ -5,6 +5,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
 
   use GenServer
 
+  alias ServiceRadar.Camera.RelayHealthEventRouter
   alias ServiceRadar.Camera.RelayPlayback
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySessionLifecycle
@@ -114,6 +115,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
             _ = pipeline_manager(state).close_session(session.relay_session_id)
             log_session(:warning, "Core camera relay open failed", session, %{reason: inspect(reason)})
             emit_session_event(:failed, session, %{reason: inspect(reason), stage: "open"})
+            maybe_record_session_failure(session, %{reason: inspect(reason), stage: "open"})
             {:reply, {:error, reason}, state}
         end
 
@@ -154,6 +156,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
             {:error, reason} ->
               log_session(:warning, "Core camera relay heartbeat failed", updated, %{reason: inspect(reason)})
               emit_session_event(:failed, updated, %{reason: inspect(reason), stage: "heartbeat"})
+              maybe_record_session_failure(updated, %{reason: inspect(reason), stage: "heartbeat"})
               {:reply, {:error, reason}, state}
           end
         end
@@ -196,6 +199,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
             {:error, reason} ->
               log_session(:warning, "Core camera relay chunk forward failed", updated, %{reason: inspect(reason)})
               emit_session_event(:failed, updated, %{reason: inspect(reason), stage: "record_chunk"})
+              maybe_record_session_failure(updated, %{reason: inspect(reason), stage: "record_chunk"})
               {:reply, {:error, reason}, state}
           end
         end
@@ -241,6 +245,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
 
             log_session(:info, "Core camera relay closed", closed_session)
             emit_session_event(:closed, closed_session)
+            maybe_record_viewer_idle_termination(closed_session)
 
             :ok =
               RelayPubSub.broadcast_state(relay_session_id, relay_state_payload(closed_session))
@@ -250,6 +255,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
           {:error, reason} ->
             log_session(:warning, "Core camera relay close failed", session, %{reason: inspect(reason)})
             emit_session_event(:failed, session, %{reason: inspect(reason), stage: "close"})
+            maybe_record_session_failure(session, %{reason: inspect(reason), stage: "close"})
             {:reply, {:error, reason}, state}
         end
 
@@ -435,6 +441,31 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
         measurements
       )
     )
+  end
+
+  defp maybe_record_session_failure(session, extra_metadata) do
+    session
+    |> session_metadata()
+    |> Map.merge(extra_metadata)
+    |> RelayHealthEventRouter.record_session_failure()
+    |> case do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("Failed to record relay health session failure event: #{inspect(reason)}")
+    end
+  end
+
+  defp maybe_record_viewer_idle_termination(session) do
+    if RelayTermination.kind_string(session) == "viewer_idle" do
+      session
+      |> session_metadata()
+      |> RelayHealthEventRouter.record_viewer_idle_termination()
+      |> case do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("Failed to record relay viewer idle health event: #{inspect(reason)}")
+      end
+    else
+      :ok
+    end
   end
 
   defp session_metadata(session) do

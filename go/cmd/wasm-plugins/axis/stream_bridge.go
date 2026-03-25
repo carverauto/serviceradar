@@ -38,12 +38,21 @@ func closeAxisMedia(stream *sdk.CameraMediaStream, reason string) error {
 }
 
 func loadStreamConfig() (StreamConfig, error) {
-	cfg, err := sdk.LoadCameraStreamingConfig()
-	if err != nil {
-		return StreamConfig{Config: cfg.CameraPluginConfig, Relay: cfg.Relay}, err
+	type rawConfig struct {
+		sdk.CameraStreamingConfig
+		EventTopicFilters string `json:"event_topic_filters"`
 	}
 
-	return StreamConfig{Config: cfg.CameraPluginConfig, Relay: cfg.Relay}, nil
+	cfg := rawConfig{CameraStreamingConfig: sdk.DefaultCameraStreamingConfig()}
+	err := sdk.LoadConfig(&cfg)
+
+	return StreamConfig{
+		Config: Config{
+			CameraPluginConfig: cfg.CameraPluginConfig,
+			EventTopicFilters:  cfg.EventTopicFilters,
+		},
+		Relay: cfg.Relay,
+	}, err
 }
 
 func buildAxisStreamSourceURL(cfg StreamConfig) string {

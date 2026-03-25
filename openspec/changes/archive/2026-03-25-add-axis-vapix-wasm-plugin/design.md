@@ -70,22 +70,14 @@ Primary endpoint families to use from the plugin:
   - WebSocket metadata client in `pkg/vapix/WebsocketMetadata.go` (currently uses direct gorilla dial + D-Bus credential lookup).
   - Any auth/header handling that depends on direct socket/WebSocket dial behavior.
 
-### Narrow Fork Plan
-- Proposed fork module: `github.com/carverauto/goxis-wasm` (or equivalent ServiceRadar-owned path).
-- Keep initially:
-  - `pkg/vapix/VapixParsers.go` (with TinyGo-safe JSON/key-value parsing),
-  - selected request/response structs from `pkg/vapix/Vapix.go`,
-  - AXIS topic vocabulary references derived from `pkg/axevent/event_declarations.go` as pure constants/mappers.
-- Drop entirely:
-  - all cgo-based packages,
-  - all D-Bus integrations,
-  - all direct network transport implementations (`net/http`, gorilla dialers) that bypass ServiceRadar host ABI.
-- Add guardrails:
-  - CI check rejects `import "C"` and `github.com/godbus/dbus/v5`,
-  - CI check ensures package compiles with TinyGo target used by ServiceRadar plugins.
-- Plugin boundary:
-  - fork package provides only parsing/models/mapping helpers,
-  - ServiceRadar AXIS plugin owns all I/O and auth using `serviceradar-sdk-go`.
+### Narrow Fork Decision
+- Current decision: do not create a dedicated ServiceRadar `goxis` fork for this change.
+- Reason:
+  - the current in-tree extraction in `go/cmd/wasm-plugins/axis/internal/axisref` covers the only helper logic we actually need,
+  - the extracted scope is small enough that a separate maintained fork would add packaging and maintenance overhead without reducing runtime risk,
+  - all transport, auth, and relay behavior already lives in ServiceRadar-owned SDK/runtime code.
+- Revisit threshold:
+  - create a dedicated fork only if future AXIS work needs a materially larger pure-Go parsing/model subset that is reused across multiple packages and still remains TinyGo/WASM-safe.
 
 ## Device Enrichment Data Contract
 Introduce an optional `device_enrichment` block inside plugin results:

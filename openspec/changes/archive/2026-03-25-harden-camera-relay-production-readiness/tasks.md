@@ -9,9 +9,9 @@
 - [x] 2.3 Update device and God-View viewers to negotiate transport selection and show an explicit unsupported-browser state when no transport is usable.
 
 ## 3. Relay observability hardening
-- [ ] 3.1 Emit structured relay health events for repeated session failures, gateway saturation denials, and abnormal viewer-idle churn.
-- [ ] 3.2 Add default alert rules or templates for relay failure bursts and sustained saturation.
-- [ ] 3.3 Surface alert-linked relay health context in the relay ops experience.
+- [x] 3.1 Emit structured relay health events for repeated session failures, gateway saturation denials, and abnormal viewer-idle churn.
+- [x] 3.2 Add default alert rules or templates for relay failure bursts and sustained saturation.
+- [x] 3.3 Surface alert-linked relay health context in the relay ops experience.
 
 ## 4. Verification
 - [x] 4.1 Add focused tests for browser compatibility negotiation and fallback state rendering.

@@ -4,6 +4,7 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.RelayHealthEventRouter
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
@@ -112,6 +113,7 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
 
         {:error, reason} = error ->
           _ = mark_failed.(session, reason, write_actor)
+          maybe_record_session_failure(session, source, reason, "request_open")
           error
       end
     end
@@ -168,6 +170,7 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
 
         {:error, reason} = error ->
           _ = mark_failed.(updated_session, reason, write_actor)
+          maybe_record_session_failure(updated_session, nil, reason, "request_close")
           error
       end
     end
@@ -222,6 +225,26 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
 
   defp dispatch_close_command(agent_id, payload, opts, _actor) do
     AgentCommandBus.stop_camera_relay(agent_id, payload, opts)
+  end
+
+  defp maybe_record_session_failure(session, source, reason, stage) do
+    %{
+      relay_boundary: "core",
+      relay_session_id: Map.get(session, :id),
+      agent_id: Map.get(session, :agent_id) || Map.get(source || %{}, :assigned_agent_id),
+      gateway_id: Map.get(session, :gateway_id) || Map.get(source || %{}, :assigned_gateway_id),
+      camera_source_id: Map.get(session, :camera_source_id),
+      stream_profile_id: Map.get(session, :stream_profile_id),
+      relay_status: Map.get(session, :status),
+      failure_reason: format_reason(reason),
+      reason: format_reason(reason),
+      stage: stage
+    }
+    |> RelayHealthEventRouter.record_session_failure()
+    |> case do
+      :ok -> :ok
+      {:error, _router_error} -> :ok
+    end
   end
 
   defp resolve_session(%RelaySession{} = session, _fetcher), do: {:ok, session}

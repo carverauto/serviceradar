@@ -11,6 +11,20 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
+    previous_health_source = Application.get_env(:serviceradar_web_ng, :camera_relay_health_source)
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :camera_relay_health_source,
+      ServiceRadarWebNG.CameraRelayHealthStub
+    )
+
+    on_exit(fn ->
+      case previous_health_source do
+        nil -> Application.delete_env(:serviceradar_web_ng, :camera_relay_health_source)
+        module -> Application.put_env(:serviceradar_web_ng, :camera_relay_health_source, module)
+      end
+    end)
 
     %{conn: log_in_user(conn, user)}
   end
@@ -24,6 +38,10 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
     assert html =~ "Terminal Outcome Breakdown"
     assert html =~ "Viewer Idle"
     assert html =~ "Failures"
+    assert html =~ "Active Relay Health Alerts"
+    assert html =~ "Recent Relay Health Signals"
+    assert html =~ "Camera Relay Failure Burst"
+    assert html =~ "Camera relay session failed during request_open: agent_offline"
   end
 
   test "renders observability drill-down links for relay rows", %{conn: conn} do

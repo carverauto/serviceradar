@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,7 +14,12 @@ import (
 	"github.com/carverauto/serviceradar/contrib/plugins/go/axis/internal/axisref"
 )
 
-type Config = sdk.CameraPluginConfig
+type Config struct {
+	sdk.CameraPluginConfig
+	EventTopicFilters string `json:"event_topic_filters"`
+	PasswordSecretRef string `json:"password_secret_ref"`
+	StreamAuthMode    string `json:"stream_auth_mode"`
+}
 
 type EndpointResult struct {
 	Path       string        `json:"path"`
@@ -29,11 +35,12 @@ type EndpointResult struct {
 }
 
 type StreamInfo struct {
-	ID       string `json:"id"`
-	Protocol string `json:"protocol"`
-	URL      string `json:"url"`
-	AuthMode string `json:"auth_mode"`
-	Source   string `json:"source"`
+	ID                    string `json:"id"`
+	Protocol              string `json:"protocol"`
+	URL                   string `json:"url"`
+	AuthMode              string `json:"auth_mode"`
+	CredentialReferenceID string `json:"credential_reference_id,omitempty"`
+	Source                string `json:"source"`
 }
 
 type CameraDescriptor struct {
@@ -61,13 +68,35 @@ type ResultDetails struct {
 	DiscoveredAPIs    map[string]any         `json:"discovered_apis,omitempty"`
 	Streams           []StreamInfo           `json:"streams,omitempty"`
 	CameraDescriptors []CameraDescriptor     `json:"camera_descriptors,omitempty"`
+	StreamAuthMode    string                 `json:"stream_auth_mode,omitempty"`
+	CredentialRefID   string                 `json:"credential_reference_id,omitempty"`
+	Health            map[string]float64     `json:"health,omitempty"`
 	Endpoints         []EndpointResult       `json:"endpoints"`
 	CollectionError   string                 `json:"collection_error,omitempty"`
 	Enrichment        map[string]any         `json:"device_enrichment,omitempty"`
 	Metadata          map[string]interface{} `json:"metadata,omitempty"`
 }
 
-func getEndpoint(ctx context.Context, client *sdk.CameraHTTPClient, path string) EndpointResult {
+type metricPoint struct {
+	Value float64
+	Unit  string
+}
+
+type cameraHTTPGetter interface {
+	GetContext(context.Context, string) (*sdk.HTTPResponse, error)
+}
+
+type axisEventWebSocket interface {
+	Send([]byte, time.Duration) error
+	Recv([]byte, time.Duration) (int, error)
+	Close() error
+}
+
+var axisEventWebSocketConnect = func(rawURL string, timeout time.Duration) (axisEventWebSocket, error) {
+	return webSocketConnect(rawURL, timeout)
+}
+
+func getEndpoint(ctx context.Context, client cameraHTTPGetter, path string) EndpointResult {
 	resp, err := client.GetContext(ctx, path)
 	if err != nil {
 		return EndpointResult{Path: path, Error: err.Error()}
@@ -83,6 +112,12 @@ func getEndpoint(ctx context.Context, client *sdk.CameraHTTPClient, path string)
 	}
 }
 
+func loadAxisConfig() (Config, error) {
+	cfg := Config{CameraPluginConfig: sdk.DefaultCameraPluginConfig()}
+	err := sdk.LoadConfig(&cfg)
+	return cfg, err
+}
+
 //export run_check
 func run_check() {
 	_ = sdk.Execute(func() (*sdk.Result, error) {
@@ -90,7 +125,7 @@ func run_check() {
 		var initCfg Config
 		_ = json.Unmarshal([]byte(`{"host":"x"}`), &initCfg)
 
-		cfg, err := sdk.LoadCameraPluginConfig()
+		cfg, err := loadAxisConfig()
 		if err != nil {
 			sdk.Log.Warn("failed to load config: " + err.Error())
 		}
@@ -100,7 +135,7 @@ func run_check() {
 			return sdk.Unknown("configuration error: host is required"), nil
 		}
 
-		client, err := sdk.NewCameraHTTPClient(cfg, 10*1e9)
+		client, err := sdk.NewCameraHTTPClient(cfg.CameraPluginConfig, 10*1e9)
 		if err != nil {
 			return sdk.Unknown("configuration error: " + err.Error()), nil
 		}
@@ -110,6 +145,11 @@ func run_check() {
 		details := ResultDetails{
 			CameraHost: cfg.Host,
 			Endpoints:  make([]EndpointResult, 0, 6),
+			StreamAuthMode: normalizeStreamAuthMode(
+				cfg.StreamAuthMode,
+				cfg.PasswordSecretRef,
+			),
+			CredentialRefID: strings.TrimSpace(cfg.PasswordSecretRef),
 			Metadata: map[string]interface{}{
 				"plugin":             "axis-camera",
 				"base_url":           client.BaseURL,
@@ -134,20 +174,38 @@ func run_check() {
 		}
 
 		if cfg.DiscoverStreams {
-			streams, streamRes := collectStreamInfo(ctx, client, cfg.Host, client.AuthHeader != "")
+			streams, streamRes :=
+				collectStreamInfo(
+					ctx,
+					client,
+					cfg.Host,
+					details.StreamAuthMode,
+					details.CredentialRefID,
+				)
 			details.Endpoints = append(details.Endpoints, streamRes...)
 			details.Streams = streams
 		}
 		if cfg.CollectEvents {
-			events, eventRes := collectAxisEvents(scheme, cfg.Host, cfg.Username, cfg.Password, cfg.EventSources, client.Timeout)
+			events, eventRes :=
+				collectAxisEvents(
+					scheme,
+					cfg.Host,
+					cfg.Username,
+					cfg.Password,
+					cfg.EventSources,
+					cfg.EventTopicFilters,
+					client.Timeout,
+				)
 			details.Endpoints = append(details.Endpoints, eventRes)
 			resultEvents = append(resultEvents, events...)
 		}
 
 		details.Enrichment = buildEnrichment(details)
 		details.CameraDescriptors = buildCameraDescriptors(details)
+		healthMetrics := buildHealthMetrics(details, len(resultEvents))
+		details.Health = healthMetricSnapshot(healthMetrics)
 		summary := buildSummary(details)
-		status := deriveStatus(details)
+		status := deriveStatus(details, healthMetrics)
 
 		detailsJSON, err := json.Marshal(details)
 		if err != nil {
@@ -158,11 +216,9 @@ func run_check() {
 			WithStatus(status).
 			WithSummary(summary).
 			WithDetails(string(detailsJSON)).
-			WithMetric("axis_endpoint_success_total", float64(countSuccessfulEndpoints(details.Endpoints)), "count", nil).
-			WithMetric("axis_endpoint_total", float64(len(details.Endpoints)), "count", nil).
-			WithMetric("axis_stream_total", float64(len(details.Streams)), "count", nil).
 			WithLabel("camera_host", cfg.Host).
 			WithLabel("camera_scheme", scheme)
+		addHealthMetrics(result, healthMetrics)
 
 		if model := firstNonEmpty(details.DeviceInfo, "ProdNbr", "ProductFullName", "Brand"); model != "" {
 			result.WithLabel("camera_model", model)
@@ -188,7 +244,7 @@ func stream_camera() {
 		return
 	}
 
-	client, clientErr := sdk.NewCameraHTTPClient(cfg.Config, 10*1e9)
+	client, clientErr := sdk.NewCameraHTTPClient(cfg.Config.CameraPluginConfig, 10*1e9)
 	if clientErr != nil {
 		sdk.Log.Error("stream_camera configuration error: " + clientErr.Error())
 		return
@@ -208,7 +264,7 @@ func stream_camera() {
 	}
 }
 
-func collectBasicDeviceInfo(ctx context.Context, client *sdk.CameraHTTPClient) (map[string]string, []EndpointResult) {
+func collectBasicDeviceInfo(ctx context.Context, client cameraHTTPGetter) (map[string]string, []EndpointResult) {
 	paths := []string{
 		"/axis-cgi/basicdeviceinfo.cgi",
 		"/axis-cgi/basicdeviceinfo.cgi?method=getAllProperties",
@@ -231,7 +287,7 @@ func collectBasicDeviceInfo(ctx context.Context, client *sdk.CameraHTTPClient) (
 	return nil, results
 }
 
-func collectAPIDiscovery(ctx context.Context, client *sdk.CameraHTTPClient) (map[string]any, []EndpointResult) {
+func collectAPIDiscovery(ctx context.Context, client cameraHTTPGetter) (map[string]any, []EndpointResult) {
 	res := getEndpoint(ctx, client, "/axis-cgi/apidiscovery.cgi")
 	if res.Status != 200 {
 		return nil, []EndpointResult{trimBody(res)}
@@ -247,7 +303,11 @@ func collectAPIDiscovery(ctx context.Context, client *sdk.CameraHTTPClient) (map
 	return payload, []EndpointResult{trimBody(res)}
 }
 
-func collectStreamInfo(ctx context.Context, client *sdk.CameraHTTPClient, host string, authConfigured bool) ([]StreamInfo, []EndpointResult) {
+func collectStreamInfo(
+	ctx context.Context,
+	client cameraHTTPGetter,
+	host, authMode, credentialReferenceID string,
+) ([]StreamInfo, []EndpointResult) {
 	profileRes := trimBody(getEndpoint(ctx, client, "/axis-cgi/streamprofile.cgi?list"))
 	statusRes := trimBody(getEndpoint(ctx, client, "/axis-cgi/streamstatus.cgi"))
 	results := []EndpointResult{profileRes, statusRes}
@@ -270,11 +330,6 @@ func collectStreamInfo(ctx context.Context, client *sdk.CameraHTTPClient, host s
 		return nil, results
 	}
 
-	authMode := "unknown"
-	if authConfigured {
-		authMode = "basic_or_digest"
-	}
-
 	streams := make([]StreamInfo, 0, len(profiles))
 	for _, profile := range profiles {
 		streamID := profile.ID
@@ -282,18 +337,27 @@ func collectStreamInfo(ctx context.Context, client *sdk.CameraHTTPClient, host s
 			streamID = profile.Name
 		}
 		streams = append(streams, StreamInfo{
-			ID:       streamID,
-			Protocol: "rtsp",
-			URL:      buildRTSPURL(host, profile.Parameters),
-			AuthMode: authMode,
-			Source:   "streamprofile.cgi",
+			ID:                    streamID,
+			Protocol:              "rtsp",
+			URL:                   buildRTSPURL(host, profile.Parameters),
+			AuthMode:              authMode,
+			CredentialReferenceID: strings.TrimSpace(credentialReferenceID),
+			Source:                "streamprofile.cgi",
 		})
 	}
 
 	return streams, results
 }
 
-func collectAxisEvents(scheme, host, username, password, sources string, timeout time.Duration) ([]sdk.OCSFEvent, EndpointResult) {
+func collectAxisEvents(
+	scheme,
+	host,
+	username,
+	password,
+	sources,
+	topicFiltersRaw string,
+	timeout time.Duration,
+) ([]sdk.OCSFEvent, EndpointResult) {
 	sources = strings.TrimSpace(sources)
 	if sources == "" {
 		sources = "events"
@@ -308,18 +372,20 @@ func collectAxisEvents(scheme, host, username, password, sources string, timeout
 	wsURL = sdk.WithURLUserInfo(wsURL, username, password)
 
 	result := EndpointResult{Path: "/vapix/ws-data-stream"}
-	conn, err := webSocketConnect(wsURL, timeout)
+	conn, err := axisEventWebSocketConnect(wsURL, timeout)
 	if err != nil {
 		result.Error = "websocket connect failed: " + err.Error()
 		return nil, result
 	}
 	defer func() { _ = conn.Close() }()
 
+	eventFilters := buildAxisEventFilterList(topicFiltersRaw)
+
 	configReq := map[string]interface{}{
 		"apiVersion": "1.0",
 		"method":     "events:configure",
 		"params": map[string]interface{}{
-			"eventFilterList": []map[string]string{{"topicFilter": ""}},
+			"eventFilterList": eventFilters,
 		},
 	}
 
@@ -344,6 +410,44 @@ func collectAxisEvents(scheme, host, username, password, sources string, timeout
 	result.Status = 200
 	result.EventCount = len(events)
 	return events, result
+}
+
+func buildAxisEventFilterList(raw string) []map[string]string {
+	filters := parseAxisTopicFilters(raw)
+	if len(filters) == 0 {
+		return []map[string]string{{"topicFilter": ""}}
+	}
+
+	out := make([]map[string]string, 0, len(filters))
+	for _, filter := range filters {
+		out = append(out, map[string]string{"topicFilter": filter})
+	}
+	return out
+}
+
+func parseAxisTopicFilters(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	filters := make([]string, 0, 4)
+
+	for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\r'
+	}) {
+		filter := strings.TrimSpace(part)
+		if filter == "" {
+			continue
+		}
+		if _, ok := seen[filter]; ok {
+			continue
+		}
+		seen[filter] = struct{}{}
+		filters = append(filters, filter)
+	}
+
+	return filters
 }
 
 func mapAxisWSEvent(data []byte) *sdk.OCSFEvent {
@@ -445,8 +549,9 @@ func buildCameraDescriptors(details ResultDetails) []CameraDescriptor {
 			RTSPTransport:     "tcp",
 			CodecHint:         codecFromRTSPURL(stream.URL),
 			Metadata: map[string]interface{}{
-				"auth_mode": stream.AuthMode,
-				"source":    stream.Source,
+				"auth_mode":               stream.AuthMode,
+				"credential_reference_id": stream.CredentialReferenceID,
+				"source":                  stream.Source,
 			},
 		}
 		if profile.ProfileName == "" {
@@ -468,19 +573,123 @@ func buildSummary(details ResultDetails) string {
 	return fmt.Sprintf("AXIS %s: %d/%d endpoint checks ok, %d streams", model, success, len(details.Endpoints), len(details.Streams))
 }
 
-func deriveStatus(details ResultDetails) sdk.Status {
+func deriveStatus(details ResultDetails, metrics map[string]metricPoint) sdk.Status {
 	total := len(details.Endpoints)
 	if total == 0 {
 		return sdk.StatusUnknown
 	}
 	success := countSuccessfulEndpoints(details.Endpoints)
-	if success == 0 {
+	if metric, ok := metrics["endpoint_success_total"]; ok {
+		success = int(metric.Value)
+	}
+	if success == 0 || len(details.DeviceInfo) == 0 {
 		return sdk.StatusCritical
+	}
+	if requestedStreamDiscovery(details) && len(details.Streams) == 0 {
+		return sdk.StatusWarning
+	}
+	if metric, ok := metrics["stream_status_total"]; ok && metric.Value == 0 && len(details.Streams) > 0 {
+		return sdk.StatusWarning
 	}
 	if success < total {
 		return sdk.StatusWarning
 	}
 	return sdk.StatusOK
+}
+
+func normalizeStreamAuthMode(raw, credentialReferenceID string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "none":
+		return "none"
+	case "basic":
+		return "basic"
+	case "digest":
+		return "digest"
+	case "unknown", "":
+		if strings.TrimSpace(credentialReferenceID) != "" {
+			return "unknown"
+		}
+		return "none"
+	case "basic_or_digest":
+		return "unknown"
+	default:
+		if strings.TrimSpace(credentialReferenceID) != "" {
+			return "unknown"
+		}
+		return "unknown"
+	}
+}
+
+func buildHealthMetrics(details ResultDetails, eventCount int) map[string]metricPoint {
+	success := countSuccessfulEndpoints(details.Endpoints)
+	total := len(details.Endpoints)
+	failure := total - success
+
+	metrics := map[string]metricPoint{
+		"endpoint_success_total": {Value: float64(success), Unit: "count"},
+		"endpoint_failure_total": {Value: float64(failure), Unit: "count"},
+		"endpoint_total":         {Value: float64(total), Unit: "count"},
+		"stream_total":           {Value: float64(len(details.Streams)), Unit: "count"},
+		"event_total":            {Value: float64(eventCount), Unit: "count"},
+	}
+
+	if total > 0 {
+		metrics["endpoint_success_ratio"] = metricPoint{
+			Value: float64(success) / float64(total),
+			Unit:  "ratio",
+		}
+	}
+
+	if streamStatus := extractStreamStatusTotal(details.Endpoints); streamStatus >= 0 {
+		metrics["stream_status_total"] = metricPoint{
+			Value: float64(streamStatus),
+			Unit:  "count",
+		}
+	}
+
+	if uptimeSeconds, ok := extractMetricSeconds(details.DeviceInfo,
+		"Uptime",
+		"SystemUptime",
+		"root.Properties.System.Uptime",
+	); ok {
+		metrics["uptime_seconds"] = metricPoint{Value: uptimeSeconds, Unit: "seconds"}
+	}
+
+	if storageFreeBytes, ok := extractMetricBytes(details.DeviceInfo,
+		"FreeStorage",
+		"DiskFree",
+		"Storage.Free",
+		"root.Storage.Free",
+	); ok {
+		metrics["storage_free_bytes"] = metricPoint{Value: storageFreeBytes, Unit: "bytes"}
+	}
+
+	return metrics
+}
+
+func addHealthMetrics(result *sdk.Result, metrics map[string]metricPoint) {
+	keys := make([]string, 0, len(metrics))
+	for key := range metrics {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		point := metrics[key]
+		result.WithMetric("axis_"+key, point.Value, point.Unit, nil)
+	}
+}
+
+func healthMetricSnapshot(metrics map[string]metricPoint) map[string]float64 {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	snapshot := make(map[string]float64, len(metrics))
+	for key, point := range metrics {
+		snapshot[key] = point.Value
+	}
+	return snapshot
 }
 
 func countSuccessfulEndpoints(results []EndpointResult) int {
@@ -491,6 +700,101 @@ func countSuccessfulEndpoints(results []EndpointResult) int {
 		}
 	}
 	return total
+}
+
+func requestedStreamDiscovery(details ResultDetails) bool {
+	for _, endpoint := range details.Endpoints {
+		if endpoint.Path == "/axis-cgi/streamprofile.cgi?list" ||
+			endpoint.Path == "/axis-cgi/streamstatus.cgi" {
+			return true
+		}
+	}
+	return false
+}
+
+func extractStreamStatusTotal(results []EndpointResult) int {
+	for _, result := range results {
+		if result.Path != "/axis-cgi/streamstatus.cgi" || strings.TrimSpace(result.Body) == "" {
+			continue
+		}
+
+		kv, err := axisref.ParseKeyValueBody(result.Body)
+		if err != nil {
+			continue
+		}
+
+		for _, key := range []string{"Streams", "StreamCount", "ActiveStreams"} {
+			if value, ok := kv[key]; ok {
+				if parsed, ok := parseFloatMetric(value); ok {
+					return int(parsed)
+				}
+			}
+		}
+	}
+
+	return -1
+}
+
+func extractMetricSeconds(deviceInfo map[string]string, keys ...string) (float64, bool) {
+	for _, key := range keys {
+		if value := strings.TrimSpace(deviceInfo[key]); value != "" {
+			return parseFloatMetric(value)
+		}
+	}
+	return 0, false
+}
+
+func extractMetricBytes(deviceInfo map[string]string, keys ...string) (float64, bool) {
+	for _, key := range keys {
+		if value := strings.TrimSpace(deviceInfo[key]); value != "" {
+			return parseSizeMetricBytes(value)
+		}
+	}
+	return 0, false
+}
+
+func parseFloatMetric(raw string) (float64, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+func parseSizeMetricBytes(raw string) (float64, bool) {
+	raw = strings.TrimSpace(strings.ToUpper(raw))
+	if raw == "" {
+		return 0, false
+	}
+
+	multiplier := 1.0
+	switch {
+	case strings.HasSuffix(raw, "TB"):
+		multiplier = 1024 * 1024 * 1024 * 1024
+		raw = strings.TrimSpace(strings.TrimSuffix(raw, "TB"))
+	case strings.HasSuffix(raw, "GB"):
+		multiplier = 1024 * 1024 * 1024
+		raw = strings.TrimSpace(strings.TrimSuffix(raw, "GB"))
+	case strings.HasSuffix(raw, "MB"):
+		multiplier = 1024 * 1024
+		raw = strings.TrimSpace(strings.TrimSuffix(raw, "MB"))
+	case strings.HasSuffix(raw, "KB"):
+		multiplier = 1024
+		raw = strings.TrimSpace(strings.TrimSuffix(raw, "KB"))
+	case strings.HasSuffix(raw, "B"):
+		raw = strings.TrimSpace(strings.TrimSuffix(raw, "B"))
+	}
+
+	value, ok := parseFloatMetric(raw)
+	if !ok {
+		return 0, false
+	}
+	return value * multiplier, true
 }
 
 func firstNonEmpty(m map[string]string, keys ...string) string {

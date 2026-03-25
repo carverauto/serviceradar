@@ -18,7 +18,7 @@ Without that contract, an AXIS plugin can only emit service-style checks. Operat
 - Document dependency strategy for `goxis`:
   - use `pkg/vapix` and `pkg/axevent` as API/field mapping references,
   - avoid direct runtime dependency in TinyGo/WASM unless a minimal TinyGo-compatible subset is carved out,
-  - allow a ServiceRadar-maintained fork that strips ACAP/native-only code and exposes a WASM-safe Axis VAPIX/event mapping package.
+  - allow a ServiceRadar-maintained fork that strips ACAP/native-only code and exposes a WASM-safe Axis VAPIX/event mapping package if the in-tree extracted helpers stop being sufficient.
 
 ## Impact
 - Affected specs:
