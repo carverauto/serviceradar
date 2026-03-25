@@ -10,17 +10,14 @@ topologySpread:
   whenUnsatisfiable: ScheduleAnyway
 
 global:
-  imageTag: "sha-f08e1b63477d59dbe7187a2669e8324d9afd4bbd"
+  # Demo intentionally tracks mutable tags so we can deploy fresh builds
+  # without editing this file on every commit.
+  imageTag: "latest"
   imagePullPolicy: Always
+  forceRolloutOnUpgrade: true
 
 image:
   registryPullSecret: ghcr-io-cred
-  digests:
-    flowCollector: "sha256:97f4201ea817680531149ba76b3c08c64b501da6019e9ed5a69e01ecc2214d0c"
-    logCollector: "sha256:269c830ce0aecf8a71f85f4d8819256e67159c20b66ffacd8932a61824062a27"
-    rperfClient: "sha256:016253f9fe9932e9c6ebe2d606195d502d8df84b62e42b48bfb14d2ae86e9e42"
-    trapd: "sha256:b15f49b96dec8136933d134a4f59d16c6ca241567a4a3c7d3a9d586879e594b1"
-    zen: "sha256:a1a2ed631a167642f54260da3d1276ed39d309c7960889b6f7fa75d0b596cd3b"
 
 tools:
   enabled: true

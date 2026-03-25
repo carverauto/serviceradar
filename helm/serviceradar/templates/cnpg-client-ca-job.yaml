@@ -81,7 +81,7 @@ spec:
       containers:
       - name: cnpg-client-ca
         image: ghcr.io/carverauto/serviceradar-tools:{{ $toolsTag }}
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         command: ["/bin/sh", "-c"]
         env:
         - name: CERT_DIR
