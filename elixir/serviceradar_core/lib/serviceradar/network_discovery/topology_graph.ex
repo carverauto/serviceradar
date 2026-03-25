@@ -13,6 +13,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   @default_stale_minutes 180
   @telemetry_window_minutes 10
   @canonical_rebuild_lock_key 1_104_202_506
+  @default_canonical_rebuild_timeout_ms 60_000
+  @default_canonical_edge_telemetry_batch_size 100
   @packet_metric_names ["ifInUcastPkts", "ifOutUcastPkts", "ifHCInUcastPkts", "ifHCOutUcastPkts"]
   @octet_metric_names ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
   @direct_protocols MapSet.new(["lldp", "cdp", "unifi-api", "wireguard-derived"])
@@ -20,6 +22,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   @direct_evidence_classes MapSet.new(["direct"])
   @attachment_evidence_classes MapSet.new(["endpoint-attachment"])
   @inferred_evidence_classes MapSet.new(["inferred"])
+
+  @type projection_payload :: %{
+          local_device_id: String.t(),
+          local_device_ip: term(),
+          neighbor_device_id: String.t(),
+          local_interface_id: String.t(),
+          neighbor_interface_id: String.t(),
+          protocol: String.t(),
+          local_if_name: term(),
+          local_if_index: term(),
+          neighbor_port_name: term(),
+          neighbor_name: term(),
+          neighbor_ip: term(),
+          evidence_class: String.t(),
+          confidence_tier: String.t(),
+          confidence_score: number(),
+          confidence_reason: String.t(),
+          observed_at: String.t()
+        }
 
   @spec upsert_links([map()]) :: :ok
   def upsert_links([]), do: :ok
@@ -71,18 +92,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         }
   def projection_diagnostics(links) when is_list(links) do
     Enum.reduce(links, empty_projection_diagnostics(), fn link, diagnostics ->
-      case classify_projection(link) do
-        {:ok, %{mode: :backbone, reason: reason}} ->
-          increment_diagnostic(diagnostics, :accepted, reason)
-
-        {:ok, %{mode: :auxiliary, reason: reason}} ->
-          increment_diagnostic(diagnostics, :accepted, reason)
-
-        {:ok, %{mode: :skip, reason: reason}} ->
-          increment_diagnostic(diagnostics, :rejected, reason)
-
-        {:error, :missing_ids} ->
+      case projection_payload(link) do
+        nil ->
           increment_diagnostic(diagnostics, :rejected, :missing_ids)
+
+        payload ->
+          increment_projection_diagnostic(diagnostics, payload)
       end
     end)
   end
@@ -98,58 +113,65 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   """
   @spec classify_projection(map()) ::
           {:ok,
-           %{mode: :backbone | :auxiliary | :skip, relation: String.t() | nil, payload: map()}}
+           %{
+             mode: :backbone | :auxiliary | :skip,
+             relation: String.t() | nil,
+             payload: projection_payload()
+           }}
           | {:error, :missing_ids}
   def classify_projection(link) when is_map(link) do
-    case build_link_payload(link) do
-      {:ok, payload} ->
-        case projection_mode(payload) do
-          {:backbone, reason} ->
-            {:ok, %{mode: :backbone, relation: "CONNECTS_TO", payload: payload, reason: reason}}
+    with {:ok, payload} <- build_link_payload(link) do
+      case projection_mode(payload) do
+        {:backbone, reason} ->
+          {:ok, %{mode: :backbone, relation: "CONNECTS_TO", payload: payload, reason: reason}}
 
-          {:auxiliary, reason} ->
-            {:ok,
-             %{
-               mode: :auxiliary,
-               relation: evidence_relation_type(payload),
-               payload: payload,
-               reason: reason
-             }}
+        {:auxiliary, reason} ->
+          {:ok,
+           %{
+             mode: :auxiliary,
+             relation: evidence_relation_type(payload),
+             payload: payload,
+             reason: reason
+           }}
 
-          {:skip, reason} ->
-            {:ok, %{mode: :skip, relation: nil, payload: payload, reason: reason}}
-        end
-
-      {:error, :missing_ids} = error ->
-        error
+        {:skip, reason} ->
+          {:ok, %{mode: :skip, relation: nil, payload: payload, reason: reason}}
+      end
     end
   end
 
   defp reduce_topology_link(link, {local_ids, neighbor_index, diagnostics}) do
-    case classify_projection(link) do
-      {:ok, %{mode: :backbone, payload: payload, reason: reason}} ->
-        local_ids = MapSet.put(local_ids, payload.local_device_id)
-        upsert_backbone_link_payload(payload)
-        diagnostics = increment_diagnostic(diagnostics, :accepted, reason)
-
-        neighbor_index =
-          add_neighbor_edge(neighbor_index, payload.local_device_id, payload.neighbor_device_id)
-
-        {local_ids, neighbor_index, diagnostics}
-
-      {:ok, %{mode: :auxiliary, payload: payload, reason: reason}} ->
-        upsert_auxiliary_link_payload(payload)
-        diagnostics = increment_diagnostic(diagnostics, :accepted, reason)
-        {local_ids, neighbor_index, diagnostics}
-
-      {:ok, %{mode: :skip, reason: reason}} ->
-        diagnostics = increment_diagnostic(diagnostics, :rejected, reason)
-        {local_ids, neighbor_index, diagnostics}
-
-      {:error, :missing_ids} ->
+    case projection_payload(link) do
+      nil ->
         Logger.debug("Skipping topology link missing device identifiers")
         diagnostics = increment_diagnostic(diagnostics, :rejected, :missing_ids)
         {local_ids, neighbor_index, diagnostics}
+
+      payload ->
+        case projection_mode(payload) do
+          {:backbone, reason} ->
+            local_ids = MapSet.put(local_ids, payload.local_device_id)
+            upsert_backbone_link_payload(payload)
+            diagnostics = increment_diagnostic(diagnostics, :accepted, reason)
+
+            neighbor_index =
+              add_neighbor_edge(
+                neighbor_index,
+                payload.local_device_id,
+                payload.neighbor_device_id
+              )
+
+            {local_ids, neighbor_index, diagnostics}
+
+          {:auxiliary, reason} ->
+            upsert_auxiliary_link_payload(payload)
+            diagnostics = increment_diagnostic(diagnostics, :accepted, reason)
+            {local_ids, neighbor_index, diagnostics}
+
+          {:skip, reason} ->
+            diagnostics = increment_diagnostic(diagnostics, :rejected, reason)
+            {local_ids, neighbor_index, diagnostics}
+        end
     end
   end
 
@@ -230,45 +252,49 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end
   end
 
-  defp build_link_payload(link) do
-    local_device_id = non_blank(link_value(link, :local_device_id))
-    neighbor_device_id = non_blank(neighbor_device_id(link))
-    local_interface_id = local_interface_id(link, local_device_id)
-    neighbor_port = neighbor_port(link)
-    neighbor_interface_id = neighbor_interface_id(neighbor_device_id, neighbor_port)
-    metadata = link_value(link, :metadata) || %{}
-    protocol = link_value(link, :protocol) || "unknown"
+  @spec build_link_payload(map()) :: {:ok, projection_payload()} | {:error, :missing_ids}
+  defp build_link_payload(link) when is_map(link) do
+    case projection_payload(link) do
+      nil -> {:error, :missing_ids}
+      payload -> {:ok, payload}
+    end
+  end
 
-    evidence_class =
-      map_value(metadata, :evidence_class) ||
-        default_evidence_class_for_protocol(protocol)
+  defp projection_payload(link) when is_map(link) do
+    with local_device_id when is_binary(local_device_id) <-
+           non_blank(link_value(link, :local_device_id)),
+         neighbor_device_id when is_binary(neighbor_device_id) <-
+           non_blank(neighbor_device_id(link)) do
+      local_interface_id = local_interface_id(link, local_device_id)
+      neighbor_port = neighbor_port(link)
+      neighbor_interface_id = neighbor_interface_id(neighbor_device_id, neighbor_port)
+      metadata = link_value(link, :metadata) || %{}
+      protocol = link_value(link, :protocol) || "unknown"
 
-    confidence_tier = confidence_tier(link, metadata)
-    confidence_score = confidence_score(link, metadata)
-    confidence_reason = confidence_reason(link, metadata)
-    observed_at = observed_at(link)
+      evidence_class =
+        map_value(metadata, :evidence_class) ||
+          default_evidence_class_for_protocol(protocol)
 
-    if is_nil(local_device_id) or is_nil(neighbor_device_id) do
-      {:error, :missing_ids}
+      %{
+        local_device_id: local_device_id,
+        local_device_ip: link_value(link, :local_device_ip),
+        neighbor_device_id: neighbor_device_id,
+        local_interface_id: local_interface_id,
+        neighbor_interface_id: neighbor_interface_id,
+        protocol: protocol,
+        local_if_name: link_value(link, :local_if_name),
+        local_if_index: link_value(link, :local_if_index),
+        neighbor_port_name: neighbor_port,
+        neighbor_name: link_value(link, :neighbor_system_name),
+        neighbor_ip: link_value(link, :neighbor_mgmt_addr),
+        evidence_class: evidence_class,
+        confidence_tier: confidence_tier(link, metadata),
+        confidence_score: confidence_score(link, metadata),
+        confidence_reason: confidence_reason(link, metadata),
+        observed_at: observed_at(link)
+      }
     else
-      {:ok,
-       %{
-         local_device_id: local_device_id,
-         neighbor_device_id: neighbor_device_id,
-         local_interface_id: local_interface_id,
-         neighbor_interface_id: neighbor_interface_id,
-         protocol: protocol,
-         local_if_name: link_value(link, :local_if_name),
-         local_if_index: link_value(link, :local_if_index),
-         neighbor_port_name: neighbor_port,
-         neighbor_name: link_value(link, :neighbor_system_name),
-         neighbor_ip: link_value(link, :neighbor_mgmt_addr),
-         evidence_class: evidence_class,
-         confidence_tier: confidence_tier,
-         confidence_score: confidence_score,
-         confidence_reason: confidence_reason,
-         observed_at: observed_at
-       }}
+      _ -> nil
     end
   end
 
@@ -320,8 +346,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp upsert_backbone_link_payload(payload) do
-    cypher = """
+    cypher = backbone_link_upsert_query(payload)
+
+    case Graph.execute(cypher) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("Topology graph upsert failed: #{inspect(reason)}")
+    end
+  end
+
+  @doc false
+  @spec backbone_link_upsert_query(map()) :: String.t()
+  def backbone_link_upsert_query(payload) when is_map(payload) do
+    """
     MERGE (a:Device {id: '#{Graph.escape(payload.local_device_id)}'})
+    #{set_prop("a", "ip", payload.local_device_ip)}
     MERGE (b:Device {id: '#{Graph.escape(payload.neighbor_device_id)}'})
     #{set_prop("b", "name", payload.neighbor_name)}
     #{set_prop("b", "ip", payload.neighbor_ip)}
@@ -359,11 +397,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET rr.observed_at = '#{Graph.escape(payload.observed_at)}'
     SET rr.last_observed_at = '#{Graph.escape(payload.observed_at)}'
     """
-
-    case Graph.execute(cypher) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("Topology graph upsert failed: #{inspect(reason)}")
-    end
   end
 
   defp neighbor_device_id(link) do
@@ -382,8 +415,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       interface_contract_valid?(protocol, payload)
   end
 
-  defp backbone_projectable_link?(_payload), do: false
-
   defp auxiliary_evidence_link?(payload) when is_map(payload) do
     evidence_class = normalize_evidence_class(payload.evidence_class)
     inferred_allowed = inferred_evidence_projectable?(payload)
@@ -391,8 +422,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
     inferred_allowed or attachment_allowed
   end
-
-  defp auxiliary_evidence_link?(_payload), do: false
 
   defp projection_mode(payload) when is_map(payload) do
     cond do
@@ -432,12 +461,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end
   end
 
+  defp increment_projection_diagnostic(diagnostics, payload) do
+    case projection_mode(payload) do
+      {:backbone, reason} ->
+        increment_diagnostic(diagnostics, :accepted, reason)
+
+      {:auxiliary, reason} ->
+        increment_diagnostic(diagnostics, :accepted, reason)
+
+      {:skip, reason} ->
+        increment_diagnostic(diagnostics, :rejected, reason)
+    end
+  end
+
   defp empty_projection_diagnostics do
     %{accepted: %{}, rejected: %{}, total: 0}
   end
 
   defp increment_diagnostic(diag, bucket, reason) when is_map(diag) do
-    reason_key = to_string(reason || :unknown)
+    reason_key = to_string(reason)
 
     diag
     |> update_in([bucket, reason_key], fn
@@ -458,16 +500,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       (confidence_tier in ["high", "medium"] or payload.confidence_score >= 60)
   end
 
-  defp inferred_evidence_projectable?(_payload), do: false
-
   defp allow_single_identifier_inference_projection?(payload) when is_map(payload) do
     protocol = normalize_protocol(payload.protocol)
     confidence_tier = normalize_confidence_tier(payload.confidence_tier)
 
     protocol == "snmp-l2" and confidence_tier in ["high", "medium"]
   end
-
-  defp allow_single_identifier_inference_projection?(_payload), do: false
 
   defp evidence_relation_type(payload) do
     evidence_class = normalize_evidence_class(payload.evidence_class)
@@ -481,9 +519,24 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp upsert_auxiliary_link_payload(payload) do
     relation = evidence_relation_type(payload)
+    cypher = auxiliary_link_upsert_query(payload, relation)
 
-    cypher = """
+    case Graph.execute(cypher) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Auxiliary topology graph upsert failed: #{inspect(reason)}")
+    end
+  end
+
+  @doc false
+  @spec auxiliary_link_upsert_query(map(), String.t()) :: String.t()
+  def auxiliary_link_upsert_query(payload, relation)
+      when is_map(payload) and is_binary(relation) do
+    """
     MERGE (a:Device {id: '#{Graph.escape(payload.local_device_id)}'})
+    #{set_prop("a", "ip", payload.local_device_ip)}
     MERGE (b:Device {id: '#{Graph.escape(payload.neighbor_device_id)}'})
     #{set_prop("b", "name", payload.neighbor_name)}
     #{set_prop("b", "ip", payload.neighbor_ip)}
@@ -510,14 +563,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET r.observed_at = '#{Graph.escape(payload.observed_at)}'
     SET r.last_observed_at = '#{Graph.escape(payload.observed_at)}'
     """
-
-    case Graph.execute(cypher) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Auxiliary topology graph upsert failed: #{inspect(reason)}")
-    end
   end
 
   defp interface_contract_valid?(protocol, payload) do
@@ -531,8 +576,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp strict_protocol_interface_identity?(payload) when is_map(payload) do
     valid_ifindex?(payload.local_if_index) or is_binary(non_blank(payload.local_if_name))
   end
-
-  defp strict_protocol_interface_identity?(_payload), do: false
 
   defp valid_ifindex?(value) when is_integer(value), do: value > 0
   defp valid_ifindex?(_value), do: false
@@ -707,21 +750,86 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp with_canonical_rebuild_lock(fun) when is_function(fun, 0) do
-    Repo.transaction(fn ->
-      case Repo.query("SELECT pg_try_advisory_xact_lock($1)", [@canonical_rebuild_lock_key]) do
-        {:ok, %{rows: [[true]]}} ->
-          fun.()
+    Repo.transaction(
+      fn ->
+        case Repo.query("SELECT pg_try_advisory_xact_lock($1)", [@canonical_rebuild_lock_key]) do
+          {:ok, %{rows: [[true]]}} ->
+            fun.()
 
-        {:ok, %{rows: [[false]]}} ->
-          {:busy, lock_skipped_rebuild_stats()}
+          {:ok, %{rows: [[false]]}} ->
+            {:busy, lock_skipped_rebuild_stats()}
 
-        {:ok, _unexpected} ->
-          Repo.rollback(:unexpected_lock_response)
+          {:ok, _unexpected} ->
+            Repo.rollback(:unexpected_lock_response)
 
-        {:error, reason} ->
-          Repo.rollback(reason)
-      end
-    end)
+          {:error, reason} ->
+            Repo.rollback(reason)
+        end
+      end,
+      timeout: canonical_rebuild_timeout_ms()
+    )
+  end
+
+  @doc false
+  @spec canonical_rebuild_timeout_ms() :: pos_integer()
+  def canonical_rebuild_timeout_ms do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:canonical_rebuild_timeout_ms, @default_canonical_rebuild_timeout_ms)
+    |> normalize_positive_int(@default_canonical_rebuild_timeout_ms)
+  end
+
+  @doc false
+  @spec canonical_edge_telemetry_batch_size() :: pos_integer()
+  def canonical_edge_telemetry_batch_size do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(
+      :canonical_edge_telemetry_batch_size,
+      @default_canonical_edge_telemetry_batch_size
+    )
+    |> normalize_positive_int(@default_canonical_edge_telemetry_batch_size)
+  end
+
+  @doc false
+  @spec canonical_edge_telemetry_batch_query([map()]) :: String.t()
+  def canonical_edge_telemetry_batch_query(updates) when is_list(updates) do
+    rows_literal = Enum.map_join(updates, ",\n", &canonical_edge_telemetry_update_literal/1)
+
+    """
+    UNWIND [#{rows_literal}] AS row
+    MATCH (a:Device {id: row.src_id})-[r:CANONICAL_TOPOLOGY]->(b:Device {id: row.dst_id})
+    WHERE r.ingestor = 'mapper_topology_v1'
+    SET r.flow_pps = row.flow_pps
+    SET r.flow_bps = row.flow_bps
+    SET r.capacity_bps = row.capacity_bps
+    SET r.flow_pps_ab = row.flow_pps_ab
+    SET r.flow_pps_ba = row.flow_pps_ba
+    SET r.flow_bps_ab = row.flow_bps_ab
+    SET r.flow_bps_ba = row.flow_bps_ba
+    SET r.telemetry_eligible = row.telemetry_eligible
+    SET r.telemetry_source = row.telemetry_source
+    SET r.telemetry_observed_at = row.telemetry_observed_at
+    """
+  end
+
+  defp canonical_edge_telemetry_update_literal(update) when is_map(update) do
+    [
+      "src_id: #{cypher_value(Map.get(update, :src_id))}",
+      "dst_id: #{cypher_value(Map.get(update, :dst_id))}",
+      "flow_pps: #{cypher_value(Map.get(update, :flow_pps, 0))}",
+      "flow_bps: #{cypher_value(Map.get(update, :flow_bps, 0))}",
+      "capacity_bps: #{cypher_value(Map.get(update, :capacity_bps, 0))}",
+      "flow_pps_ab: #{cypher_value(Map.get(update, :flow_pps_ab, 0))}",
+      "flow_pps_ba: #{cypher_value(Map.get(update, :flow_pps_ba, 0))}",
+      "flow_bps_ab: #{cypher_value(Map.get(update, :flow_bps_ab, 0))}",
+      "flow_bps_ba: #{cypher_value(Map.get(update, :flow_bps_ba, 0))}",
+      "telemetry_eligible: #{cypher_value(Map.get(update, :telemetry_eligible, false))}",
+      "telemetry_source: #{cypher_value(Map.get(update, :telemetry_source, "none"))}",
+      "telemetry_observed_at: #{cypher_value(Map.get(update, :telemetry_observed_at, ""))}"
+    ]
+    |> Enum.join(", ")
+    |> then(&"{#{&1}}")
   end
 
   defp do_rebuild_canonical_device_links do
@@ -1098,30 +1206,36 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         capacity_by_if = load_interface_capacity(metric_keys)
         observed_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
-        stats =
+        {stats, updates} =
           Enum.reduce(
             edges,
-            %{
-              total_edges: length(edges),
-              interface_source: 0,
-              none_source: 0,
-              render_ready: 0,
-              render_partial: 0,
-              render_unattributed: 0
-            },
-            fn edge, acc ->
+            {%{
+               total_edges: length(edges),
+               interface_source: 0,
+               none_source: 0,
+               render_ready: 0,
+               render_partial: 0,
+               render_unattributed: 0
+             }, []},
+            fn edge, {acc, updates} ->
               telemetry =
                 compute_edge_telemetry(edge, pps_by_if, bps_by_if, capacity_by_if, observed_at)
 
-              persist_canonical_edge_telemetry(edge, telemetry)
-
               acc = update_render_readiness_stats(acc, edge_render_readiness_class(edge))
-              update_telemetry_source_stats(acc, telemetry.telemetry_source)
+              acc = update_telemetry_source_stats(acc, telemetry.telemetry_source)
+              {acc, [canonical_edge_telemetry_update(edge, telemetry) | updates]}
             end
           )
 
-        Logger.info("canonical_edge_telemetry_stats #{inspect(stats)}")
-        {:ok, stats}
+        case persist_canonical_edge_telemetry_updates(Enum.reverse(updates)) do
+          :ok ->
+            Logger.info("canonical_edge_telemetry_stats #{inspect(stats)}")
+            {:ok, stats}
+
+          {:error, reason} ->
+            Logger.warning("Canonical edge telemetry refresh failed: #{inspect(reason)}")
+            {:error, reason}
+        end
 
       {:error, reason} ->
         Logger.warning("Canonical edge telemetry refresh failed: #{inspect(reason)}")
@@ -1156,7 +1270,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     case Graph.query(cypher) do
       {:ok, rows} when is_list(rows) -> {:ok, Enum.flat_map(rows, &parse_canonical_edge_row/1)}
       {:error, reason} -> {:error, reason}
-      _ -> {:ok, []}
     end
   end
 
@@ -1206,8 +1319,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     |> Enum.uniq()
   end
 
-  defp telemetry_metric_keys(_), do: []
-
   defp metric_key(device_id, if_index)
        when is_binary(device_id) and is_integer(if_index) and if_index > 0,
        do: {device_id, if_index}
@@ -1224,8 +1335,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     )
   end
 
-  defp load_packet_pps(_), do: %{}
-
   defp load_octet_bps(keys) when is_list(keys) do
     load_directional_metric(
       keys,
@@ -1235,8 +1344,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       fn value -> value * 8 end
     )
   end
-
-  defp load_octet_bps(_), do: %{}
 
   defp load_interface_capacity(keys) when is_list(keys) do
     device_ids = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
@@ -1264,8 +1371,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end
   end
 
-  defp load_interface_capacity(_), do: %{}
-
   defp build_device_identity(device_uids) when is_list(device_uids) do
     uid_set =
       device_uids
@@ -1291,18 +1396,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     %{uid_set: uid_set, ip_to_uid: ip_to_uid}
   end
 
-  defp build_device_identity(_), do: %{uid_set: MapSet.new(), ip_to_uid: %{}}
-
   defp telemetry_metric_device_ids(%{uid_set: uid_set, ip_to_uid: ip_to_uid}) do
     Enum.uniq(MapSet.to_list(uid_set) ++ Map.keys(ip_to_uid))
   end
 
-  defp telemetry_metric_device_ids(_), do: []
-
   defp telemetry_metric_ips(%{ip_to_uid: ip_to_uid}) when is_map(ip_to_uid),
     do: Map.keys(ip_to_uid)
-
-  defp telemetry_metric_ips(_), do: []
 
   defp canonical_metric_device_id(device_id, target_ip, identity) do
     cond do
@@ -1502,32 +1601,45 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     }
   end
 
-  defp persist_canonical_edge_telemetry(edge, telemetry)
-       when is_map(edge) and is_map(telemetry) do
-    src_id = Graph.escape(Map.get(edge, :src_id))
-    dst_id = Graph.escape(Map.get(edge, :dst_id))
+  defp canonical_edge_telemetry_update(edge, telemetry) when is_map(edge) and is_map(telemetry) do
+    %{
+      src_id: Map.get(edge, :src_id),
+      dst_id: Map.get(edge, :dst_id),
+      flow_pps: Map.get(telemetry, :flow_pps, 0),
+      flow_bps: Map.get(telemetry, :flow_bps, 0),
+      capacity_bps: Map.get(telemetry, :capacity_bps, 0),
+      flow_pps_ab: Map.get(telemetry, :flow_pps_ab, 0),
+      flow_pps_ba: Map.get(telemetry, :flow_pps_ba, 0),
+      flow_bps_ab: Map.get(telemetry, :flow_bps_ab, 0),
+      flow_bps_ba: Map.get(telemetry, :flow_bps_ba, 0),
+      telemetry_eligible: Map.get(telemetry, :telemetry_eligible, false),
+      telemetry_source: Map.get(telemetry, :telemetry_source, "none"),
+      telemetry_observed_at: Map.get(telemetry, :telemetry_observed_at, "")
+    }
+  end
 
-    cypher = """
-    MATCH (a:Device {id: '#{src_id}'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id: '#{dst_id}'})
-    SET r.flow_pps = #{Map.get(telemetry, :flow_pps, 0)}
-    SET r.flow_bps = #{Map.get(telemetry, :flow_bps, 0)}
-    SET r.capacity_bps = #{Map.get(telemetry, :capacity_bps, 0)}
-    SET r.flow_pps_ab = #{Map.get(telemetry, :flow_pps_ab, 0)}
-    SET r.flow_pps_ba = #{Map.get(telemetry, :flow_pps_ba, 0)}
-    SET r.flow_bps_ab = #{Map.get(telemetry, :flow_bps_ab, 0)}
-    SET r.flow_bps_ba = #{Map.get(telemetry, :flow_bps_ba, 0)}
-    SET r.telemetry_eligible = #{if(Map.get(telemetry, :telemetry_eligible, false), do: "true", else: "false")}
-    SET r.telemetry_source = '#{Graph.escape(Map.get(telemetry, :telemetry_source, "none"))}'
-    SET r.telemetry_observed_at = '#{Graph.escape(Map.get(telemetry, :telemetry_observed_at, ""))}'
-    """
+  defp canonical_edge_telemetry_update(_edge, _telemetry), do: %{}
 
-    case Graph.execute(cypher) do
-      :ok ->
-        :ok
+  defp persist_canonical_edge_telemetry_updates([]), do: :ok
 
-      {:error, reason} ->
-        Logger.warning("Canonical edge telemetry upsert failed: #{inspect(reason)}")
-    end
+  defp persist_canonical_edge_telemetry_updates(updates) when is_list(updates) do
+    updates
+    |> Enum.chunk_every(canonical_edge_telemetry_batch_size())
+    |> Enum.reduce_while(:ok, fn batch, :ok ->
+      case Graph.execute(canonical_edge_telemetry_batch_query(batch)) do
+        :ok ->
+          {:cont, :ok}
+
+        {:error, reason} ->
+          Logger.warning(
+            "Canonical edge telemetry upsert failed",
+            reason: inspect(reason),
+            batch_size: length(batch)
+          )
+
+          {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp parse_ifindex(value) when is_integer(value) and value > 0, do: value
@@ -1836,16 +1948,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     |> String.downcase()
   end
 
-  defp normalize_confidence_tier(nil), do: "low"
-
   defp normalize_confidence_tier(value) do
     value
     |> to_string()
     |> String.trim()
     |> String.downcase()
   end
-
-  defp normalize_confidence_reason(nil), do: ""
 
   defp normalize_confidence_reason(value) do
     value
@@ -1887,7 +1995,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end
   end
 
-  defp default_interface_id(nil, _label), do: nil
   defp default_interface_id(device_id, label), do: "#{device_id}/#{label}"
 
   defp non_blank(nil), do: nil
@@ -1920,9 +2027,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     "SET #{node}.#{field} = #{cypher_value(value)}"
   end
 
+  defp cypher_value(nil), do: "null"
+  defp cypher_value(value) when is_boolean(value), do: if(value, do: "true", else: "false")
   defp cypher_value(value) when is_integer(value), do: Integer.to_string(value)
-  defp cypher_value(value) when is_float(value), do: Float.to_string(value)
+
+  defp cypher_value(value) when is_float(value),
+    do: :erlang.float_to_binary(value, [:compact, decimals: 8])
+
   defp cypher_value(value) when is_binary(value), do: "'#{Graph.escape(value)}'"
   defp cypher_value(value) when is_atom(value), do: "'#{Graph.escape(value)}'"
-  defp cypher_value(_value), do: "null"
+  defp cypher_value(value), do: "'#{Graph.escape(to_string(value))}'"
 end

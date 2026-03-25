@@ -10,13 +10,14 @@ defmodule ServiceRadar.BGP.ASLookup do
   """
 
   use GenServer
-  require Logger
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpIpinfoCache
 
-  @cache_ttl :timer.hours(24)
+  require Logger
+
+  @cache_ttl to_timeout(day: 1)
 
   ## Client API
 

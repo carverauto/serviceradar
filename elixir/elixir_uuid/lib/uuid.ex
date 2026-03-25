@@ -532,6 +532,7 @@ defmodule UUID do
     raise ArgumentError, message: "Invalid format #{format}; Expected: :default|:hex|:urn|:slug"
   end
 
+  # credo:disable-for-lines:5 Credo.Check.Readability.MaxLineLength
   defp uuid_to_string_default(
          <<a1::4, a2::4, a3::4, a4::4, a5::4, a6::4, a7::4, a8::4, b1::4, b2::4, b3::4, b4::4, c1::4, c2::4, c3::4, c4::4,
            d1::4, d2::4, d3::4, d4::4, e1::4, e2::4, e3::4, e4::4, e5::4, e6::4, e7::4, e8::4, e9::4, e10::4, e11::4,
@@ -679,6 +680,7 @@ defmodule UUID do
     raise ArgumentError, message: "Invalid argument; Not valid variant bits"
   end
 
+  # credo:disable-for-lines:4 Credo.Check.Readability.MaxLineLength
   defp hex_str_to_binary(
          <<a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, c1, c2, c3, c4, d1, d2, d3, d4, e1, e2, e3, e4, e5, e6, e7, e8,
            e9, e10, e11, e12>>

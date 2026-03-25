@@ -554,8 +554,6 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
       String.contains?(normalized, "!discovery_sources:armis")
   end
 
-  defp srql_excludes_armis?(_), do: false
-
   defp armis_source?(device) do
     device
     |> Map.get(:discovery_sources, [])

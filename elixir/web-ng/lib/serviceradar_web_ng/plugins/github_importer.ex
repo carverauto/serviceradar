@@ -155,8 +155,6 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
     end
   end
 
-  defp verification_from_body(_), do: %{}
-
   defp verification_metadata(%{verification: verification, sha: sha}, ref) do
     verified = Map.get(verification, "verified") == true
     reason = Map.get(verification, "reason")
@@ -188,8 +186,6 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
     end
   end
 
-  defp fetch_signer(_), do: nil
-
   defp enforce_verification_policy(%{verification: verification}) do
     require_gpg =
       :serviceradar_web_ng
@@ -202,8 +198,6 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
       :ok
     end
   end
-
-  defp enforce_verification_policy(_), do: :ok
 
   defp fetch_raw(%{owner: owner, repo: repo}, ref, path) do
     url = "https://raw.githubusercontent.com/#{owner}/#{repo}/#{ref}/#{path}"
@@ -284,7 +278,6 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
     case Manifest.from_map(manifest_map) do
       {:ok, manifest_struct} -> {:ok, manifest_struct}
       {:error, errors} when is_list(errors) -> {:error, {:invalid_manifest, errors}}
-      {:error, error} -> {:error, error}
     end
   end
 
@@ -295,8 +288,6 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
       :ok
     end
   end
-
-  defp ensure_size(_), do: {:error, :payload_too_large}
 
   defp fetch_value(map, keys) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, fn key -> Map.get(map, key) end)

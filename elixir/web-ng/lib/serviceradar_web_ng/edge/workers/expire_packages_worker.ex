@@ -60,9 +60,9 @@ defmodule ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker do
   end
 
   defp expire_package(package, actor) do
-    case OnboardingPackage
+    case package
          |> Ash.Changeset.for_update(:expire, %{}, actor: actor)
-         |> Ash.update(package) do
+         |> Ash.update(actor: actor) do
       {:ok, updated} ->
         # Record expiration event asynchronously
         RecordEventWorker.enqueue(package.id, :expired,

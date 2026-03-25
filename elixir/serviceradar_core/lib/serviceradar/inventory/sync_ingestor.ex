@@ -174,8 +174,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       {:ok, :ok, :ok} -> :ok
       {{:error, _} = error, _, _} -> error
       {_, {:error, _} = error, _} -> error
-      {_, _, {:error, _} = error} -> error
-      _ -> :ok
     end
   end
 
@@ -304,8 +302,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         |> Map.new()
     end
   end
-
-  defp lookup_alias_device_ids_by_ip([]), do: %{}
 
   defp lookup_alias_device_ids_by_ip(ips) do
     query =
@@ -914,8 +910,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     |> maybe_put("snmp_fingerprint", snmp_fingerprint)
   end
 
-  defp merge_snmp_fingerprint_metadata(metadata, _), do: metadata
-
   defp map_get_any(map, keys) when is_map(map) do
     Enum.find_value(keys, fn key ->
       case map do
@@ -1104,8 +1098,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       if String.starts_with?(normalized, prefix), do: vendor
     end)
   end
-
-  defp vendor_from_sys_object_id(_), do: nil
 
   defp parse_model_from_sys_descr(sys_descr) when is_binary(sys_descr) do
     cleaned = String.trim(sys_descr)
@@ -1379,17 +1371,13 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         Map.put(update, :device_id, device_id)
       end)
 
-    case AliasEvents.process_and_persist(updates,
-           actor: actor,
-           confirm_threshold: confirm_threshold
-         ) do
-      {:ok, _events} ->
-        :ok
+    {:ok, _events} =
+      AliasEvents.process_and_persist(updates,
+        actor: actor,
+        confirm_threshold: confirm_threshold
+      )
 
-      other ->
-        Logger.warning("Alias state processing failed: #{inspect(other)}")
-        {:error, other}
-    end
+    :ok
   end
 
   defp process_alias_conflicts(resolved_updates, actor) do

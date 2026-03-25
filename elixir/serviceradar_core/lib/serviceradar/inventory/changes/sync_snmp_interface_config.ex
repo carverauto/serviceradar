@@ -231,8 +231,6 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
     end
   end
 
-  defp credential_attrs(nil), do: %{}
-
   defp credential_attrs(credential) do
     %{}
     |> maybe_put(:community, Map.get(credential, :community))

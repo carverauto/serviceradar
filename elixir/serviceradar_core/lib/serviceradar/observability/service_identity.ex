@@ -35,10 +35,17 @@ defmodule ServiceRadar.Observability.ServiceIdentity do
   end
 
   defp fetch(attrs, key) when is_list(attrs) do
-    Keyword.get(attrs, key) || Keyword.get(attrs, Atom.to_string(key))
+    Keyword.get(attrs, key) || keyword_string_value(attrs, Atom.to_string(key))
   end
 
   defp fetch(_attrs, _key), do: nil
+
+  defp keyword_string_value(attrs, key) when is_list(attrs) and is_binary(key) do
+    case List.keyfind(attrs, key, 0) do
+      {^key, value} -> value
+      nil -> nil
+    end
+  end
 
   defp normalize(value, fallback) when is_binary(value) do
     trimmed = String.trim(value)

@@ -23,6 +23,11 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
 
   defstruct user: nil, permissions: nil
 
+  @type t :: %__MODULE__{
+          user: User.t() | map() | nil,
+          permissions: term()
+        }
+
   @doc """
   Creates a scope for the given user.
 

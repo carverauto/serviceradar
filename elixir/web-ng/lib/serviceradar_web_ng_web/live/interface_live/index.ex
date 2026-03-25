@@ -188,7 +188,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
                       {format_ip_list(row) || "—"}
                     </td>
                     <td class="text-xs" title={Map.get(row, "if_type_name")}>
-                      {InterfaceTypes.humanize(Map.get(row, "if_type_name")) || "—"}
+                      {InterfaceTypes.humanize(Map.get(row, "if_type_name"))}
                     </td>
                     <td class="text-xs">
                       {format_speed(row) || "—"}

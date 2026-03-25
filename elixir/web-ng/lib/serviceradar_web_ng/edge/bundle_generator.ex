@@ -931,8 +931,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     end
   end
 
-  defp derive_gateway_host(_), do: nil
-
   defp normalize_string(value) when is_binary(value) do
     value = String.trim(value)
     if value == "", do: nil, else: value

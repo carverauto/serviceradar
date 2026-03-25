@@ -40,6 +40,9 @@ image:
     faker: *appTag
     rperfChecker: *appTag
     tools: *appTag
+
+tools:
+  enabled: true
 kv:
   enabled: true
   configSource: file
@@ -450,6 +453,7 @@ webNg:
     storageClassName: ""
     downloadTtlSeconds: 86400
 agent:
+  enabled: true
   agentId: "k8s-agent"
   hostNetwork: true
   gatewayAddress: ""

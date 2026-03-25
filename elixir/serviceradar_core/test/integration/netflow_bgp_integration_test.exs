@@ -23,10 +23,11 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
   """
 
   use ExUnit.Case, async: false
+
   import Ecto.Query
 
-  alias ServiceRadar.Repo
   alias Flowpb.FlowMessage
+  alias ServiceRadar.Repo
 
   @moduletag :integration
   @moduletag timeout: 60_000
@@ -48,13 +49,13 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
         sampler_address: <<10, 1, 0, 1>>,
         src_addr: <<192, 168, 1, 100>>,
         dst_addr: <<8, 8, 8, 8>>,
-        src_port: 49152,
+        src_port: 49_152,
         dst_port: 443,
         proto: 6,
         bytes: 1_500_000,
         packets: 1000,
         # BGP fields
-        as_path: [64512, 64513, 64514],
+        as_path: [64_512, 64_513, 64_514],
         bgp_communities: [4_259_840_100, 4_259_840_200]
       }
 
@@ -69,30 +70,31 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
       Process.sleep(1000)
 
       # Query database to verify row was inserted
-      query = from(n in "netflow_metrics",
-        where: fragment("src_ip = ?::inet", "192.168.1.100"),
-        select: %{
-          src_ip: n.src_ip,
-          dst_ip: n.dst_ip,
-          src_port: n.src_port,
-          dst_port: n.dst_port,
-          protocol: n.protocol,
-          bytes_total: n.bytes_total,
-          packets_total: n.packets_total,
-          as_path: n.as_path,
-          bgp_communities: n.bgp_communities
-        }
-      )
+      query =
+        from(n in "netflow_metrics",
+          where: fragment("src_ip = ?::inet", "192.168.1.100"),
+          select: %{
+            src_ip: n.src_ip,
+            dst_ip: n.dst_ip,
+            src_port: n.src_port,
+            dst_port: n.dst_port,
+            protocol: n.protocol,
+            bytes_total: n.bytes_total,
+            packets_total: n.packets_total,
+            as_path: n.as_path,
+            bgp_communities: n.bgp_communities
+          }
+        )
 
       result = Repo.one(query)
 
-      assert result != nil
-      assert result.src_port == 49152
+      assert result
+      assert result.src_port == 49_152
       assert result.dst_port == 443
       assert result.protocol == 6
       assert result.bytes_total == 1_500_000
       assert result.packets_total == 1000
-      assert result.as_path == [64512, 64513, 64514]
+      assert result.as_path == [64_512, 64_513, 64_514]
       assert result.bgp_communities == [4_259_840_100, 4_259_840_200]
 
       Gnat.stop(conn)
@@ -111,7 +113,7 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
           dst_port: 2000,
           bytes: 100,
           packets: 1,
-          as_path: [64512, 64513, 64514, 64515]
+          as_path: [64_512, 64_513, 64_514, 64_515]
         },
         # Flow 2: Direct path
         %FlowMessage{
@@ -123,7 +125,7 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
           dst_port: 4000,
           bytes: 200,
           packets: 2,
-          as_path: [64512, 64514]
+          as_path: [64_512, 64_514]
         },
         # Flow 3: With BGP communities
         %FlowMessage{
@@ -135,8 +137,9 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
           dst_port: 6000,
           bytes: 300,
           packets: 3,
-          as_path: [64512, 64516],
-          bgp_communities: [0xFFFFFF01, 0xFFFFFF02, 0xFFFFFF03]  # Well-known communities
+          as_path: [64_512, 64_516],
+          # Well-known communities
+          bgp_communities: [0xFFFFFF01, 0xFFFFFF02, 0xFFFFFF03]
         }
       ]
 
@@ -172,7 +175,7 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
           protocol: 6,
           bytes_total: 1000,
           packets_total: 10,
-          as_path: [64512, 64513, 64514],
+          as_path: [64_512, 64_513, 64_514],
           partition: "default"
         },
         %{
@@ -184,7 +187,7 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
           protocol: 17,
           bytes_total: 2000,
           packets_total: 20,
-          as_path: [64512, 64515],
+          as_path: [64_512, 64_515],
           partition: "default"
         },
         %{
@@ -196,7 +199,7 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
           protocol: 6,
           bytes_total: 3000,
           packets_total: 30,
-          as_path: [64516, 64517],
+          as_path: [64_516, 64_517],
           partition: "default"
         }
       ]
@@ -234,7 +237,7 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
       assert length(result.rows) == 1
       [[src_port, as_path]] = result.rows
       assert src_port == 1000
-      assert as_path == [64512, 64513, 64514]
+      assert as_path == [64_512, 64_513, 64_514]
     end
 
     test "GIN query performance with EXPLAIN ANALYZE" do
@@ -248,7 +251,7 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
       result = Repo.query!(query)
 
       # Verify GIN index is being used (look for "Bitmap Index Scan")
-      plan = Enum.map(result.rows, fn [line] -> line end) |> Enum.join("\n")
+      plan = Enum.map_join(result.rows, "\n", fn [line] -> line end)
       assert plan =~ ~r/Index.*idx_netflow_metrics_as_path/i
     end
   end
@@ -265,7 +268,8 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
           protocol: 6,
           bytes_total: 1000,
           packets_total: 10,
-          bgp_communities: [4_259_840_100, 4_259_840_200],  # 65000:100, 65000:200
+          # 65000:100, 65000:200
+          bgp_communities: [4_259_840_100, 4_259_840_200],
           partition: "default"
         },
         %{
@@ -275,7 +279,8 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
           protocol: 17,
           bytes_total: 2000,
           packets_total: 20,
-          bgp_communities: [0xFFFFFF01],  # NO_EXPORT
+          # NO_EXPORT
+          bgp_communities: [0xFFFFFF01],
           partition: "default"
         }
       ]
@@ -335,12 +340,12 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
             time_received_ns: System.system_time(:nanosecond),
             src_addr: <<192, 168, rem(flow_num, 256), div(flow_num, 256)>>,
             dst_addr: <<8, 8, 8, 8>>,
-            src_port: rem(flow_num, 65535),
+            src_port: rem(flow_num, 65_535),
             dst_port: 443,
             proto: 6,
             bytes: 1500,
             packets: 1,
-            as_path: [64512, 64513],
+            as_path: [64_512, 64_513],
             bgp_communities: [4_259_840_100]
           }
 
@@ -365,8 +370,10 @@ defmodule ServiceRadar.Integration.NetflowBGPIntegrationTest do
       total_time = System.monotonic_time(:millisecond) - start_time
 
       # Performance assertions
-      assert inserted_count >= flow_count * 0.99  # Allow 1% loss
-      assert total_time < 60_000  # Should complete within 60 seconds
+      # Allow 1% loss
+      assert inserted_count >= flow_count * 0.99
+      # Should complete within 60 seconds
+      assert total_time < 60_000
 
       IO.puts("""
 

@@ -115,7 +115,7 @@ defmodule ServiceRadarWebNG.Edge.Crypto do
     # Derive a 32-byte key from secret_key_base using HKDF
     secret = EndpointConfig.secret_key_base()
 
-    if is_nil(secret) or byte_size(secret) < 32 do
+    if byte_size(secret) < 32 do
       raise "secret_key_base must be configured and at least 32 bytes"
     end
 

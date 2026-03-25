@@ -384,8 +384,6 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp port_results(host) when is_map(host), do: host["port_results"] || []
 
-  defp port_results(_host), do: []
-
   defp icmp_status(host) do
     status = host["icmp_status"]
 

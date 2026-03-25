@@ -61,16 +61,22 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
         _ ->
           PluginInputs.chunk_single_input_payloads(
             base_payload,
-            %{
-              "name" => descriptor.name,
-              "entity" => descriptor.entity,
-              "query" => descriptor.query
-            },
+            chunk_input_descriptor(descriptor),
             items,
             opts
           )
       end
     end
+  end
+
+  @spec chunk_input_descriptor(%{name: String.t(), entity: String.t(), query: String.t()}) ::
+          PluginInputs.input_descriptor()
+  defp chunk_input_descriptor(descriptor) do
+    %{
+      name: descriptor.name,
+      entity: descriptor.entity,
+      query: descriptor.query
+    }
   end
 
   defp extract_input_descriptor(input) when is_map(input) do

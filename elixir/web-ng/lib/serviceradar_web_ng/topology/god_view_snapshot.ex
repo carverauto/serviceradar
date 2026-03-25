@@ -152,7 +152,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
 
   defp validate_pipeline_stats(%{pipeline_stats: stats}) when is_map(stats), do: :ok
   defp validate_pipeline_stats(%{}), do: :ok
-  defp validate_pipeline_stats(_), do: {:error, :invalid_pipeline_stats}
 
   defp valid_bitmap_entry?({key, value}) when key in [:root_cause, :affected, :healthy, :unknown] and is_binary(value),
     do: true

@@ -96,9 +96,7 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
   end
 
   defp dispatch_reason_key(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp dispatch_reason_key({kind, _, _}) when is_atom(kind), do: Atom.to_string(kind)
   defp dispatch_reason_key({kind, _}) when is_atom(kind), do: Atom.to_string(kind)
-  defp dispatch_reason_key(reason), do: inspect(reason)
 
   defp log_dispatch_summary(prefix, policy_name, target_count, stats) do
     Logger.info(

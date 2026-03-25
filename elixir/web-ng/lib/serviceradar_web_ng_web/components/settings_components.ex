@@ -290,7 +290,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   end
 
   defp discovery_tabs(current_path, current_scope) do
-    path = current_path || ""
+    path = current_path
 
     tabs =
       if discovery_active?(path) do

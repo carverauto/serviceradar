@@ -55,6 +55,8 @@ skopeo inspect docker://ghcr.io/carverauto/arc-runner:sha-${GIT_SHA}-runner-2.33
 Install or upgrade the controller chart with `k8s/arc/values.yaml`:
 
 ```bash
+kubectl apply -f ./k8s/arc/namespace.yaml
+
 helm upgrade --install arc-controller \
   --namespace arc-systems \
   --create-namespace \

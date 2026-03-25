@@ -692,8 +692,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp extract_netflow_viz_state(_params), do: NFState.default()
-
   defp load_netflow_context(flow, scope) when is_map(flow) do
     user = scope && scope.user
 
@@ -862,7 +860,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp read_port_scan(_user, _ip), do: nil
 
   defp read_port_anomaly(nil, _port), do: nil
-  defp read_port_anomaly(_user, nil), do: nil
 
   defp read_port_anomaly(user, port) when is_integer(port) do
     query = Ash.Query.for_read(NetflowPortAnomalyFlag, :by_port, %{dst_port: port})
@@ -872,8 +869,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       _ -> nil
     end
   end
-
-  defp read_port_anomaly(_user, _port), do: nil
 
   @impl true
   def handle_info({:load_tab_data, tab, params, uri}, socket) do
@@ -2885,8 +2880,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     "window: #{start_label} → #{end_label}\nbytes: #{format_netflow_bytes(bytes)}\navg rate: #{format_netflow_bps(avg_bps)}"
   end
 
-  defp netflow_bucket_hover_title(_point, _bucket_seconds), do: "No data"
-
   defp netflow_timeseries_tooltip_points_json(points, bucket_seconds)
        when is_list(points) and is_integer(bucket_seconds) do
     points
@@ -4423,8 +4416,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     }
   end
 
-  defp normalize_arin_asn(_), do: %{}
-
   defp arin_leaf_value(%{"$" => value}) when is_binary(value), do: String.trim(value)
   defp arin_leaf_value(value) when is_binary(value), do: String.trim(value)
   defp arin_leaf_value(_), do: nil
@@ -5020,11 +5011,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp netflow_addr(flow, :dst), do: netflow_value(flow, ["dst_endpoint_ip", "dst_addr"]) || "—"
 
-  defp netflow_addr(_flow, _), do: "—"
-
   defp netflow_port(flow, :src), do: netflow_value(flow, ["src_endpoint_port", "src_port"])
   defp netflow_port(flow, :dst), do: netflow_value(flow, ["dst_endpoint_port", "dst_port"])
-  defp netflow_port(_flow, _), do: nil
 
   defp netflow_protocol_num(flow), do: netflow_value(flow, ["protocol_num", "protocol"])
   defp netflow_protocol_name(flow), do: netflow_value(flow, ["protocol_name"])
@@ -5151,8 +5139,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp maybe_add_geo_marker(markers, _side, _ip, _geo), do: markers
-
   defp netflow_asn(flow, :src) when is_map(flow) do
     case to_int(netflow_value(flow, ["src_as_number", "src_asn"])) do
       n when is_integer(n) and n > 0 -> n
@@ -5181,8 +5167,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp netflow_country_iso2(_flow, _side), do: nil
 
-  defp normalize_iso2(nil), do: nil
-
   # BGP data extraction
   defp netflow_bgp_as_path(flow) when is_map(flow) do
     case netflow_value(flow, ["as_path"]) do
@@ -5199,7 +5183,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   # Format AS path as "AS1 → AS2 → AS3"
-  defp format_bgp_as_path(nil), do: nil
   defp format_bgp_as_path([]), do: nil
 
   defp format_bgp_as_path(path) when is_list(path) do
@@ -5247,6 +5230,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  defp normalize_iso2(nil), do: nil
   defp normalize_iso2(_), do: nil
 
   # Render country as a flag icon without adding an asset pipeline dependency.
@@ -5557,17 +5541,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp format_netflow_pps(_), do: "—"
 
-  defp format_netflow_number(nil), do: "0"
-
-  defp format_netflow_number(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, _} -> Integer.to_string(int)
-      _ -> "—"
-    end
-  end
-
   defp format_netflow_number(num) when is_integer(num), do: Integer.to_string(num)
-  defp format_netflow_number(_), do: "—"
 
   attr(:metric, :map, required: true)
   attr(:sparklines, :map, default: %{})
@@ -5998,7 +5972,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp format_number(n) when n >= 1_000_000, do: "#{Float.round(n / 1_000_000 * 1.0, 1)}M"
   defp format_number(n) when n >= 1_000, do: "#{Float.round(n / 1_000 * 1.0, 1)}k"
-  defp format_number(n) when is_float(n), do: "#{trunc(n)}"
   defp format_number(n), do: "#{n}"
 
   defp get_metric_name(metric) do
@@ -6307,7 +6280,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp extract_stats_count(_), do: 0
 
-  defp extract_time_from_query(nil), do: nil
   defp extract_time_from_query(""), do: nil
 
   defp extract_time_from_query(query) when is_binary(query) do
@@ -7176,7 +7148,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp netflow_talker_rdns_ips(_top_talkers, nil), do: []
-  defp netflow_talker_rdns_ips(top_talkers, _user) when not is_list(top_talkers), do: []
   defp netflow_talker_rdns_ips([], _user), do: []
 
   defp netflow_talker_rdns_ips(top_talkers, _user) do
@@ -7211,7 +7182,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp sanitize_srql_for_stats(query), do: NFQuery.flows_sanitize_for_stats(to_string(query || ""))
+  defp sanitize_srql_for_stats(query), do: NFQuery.flows_sanitize_for_stats(to_string(query))
 
   defp load_netflow_timeseries(srql_module, current_query, scope) do
     base_query =
@@ -7517,8 +7488,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp put_netflow_series_value(acc, _series, _dt, _bytes), do: acc
-
-  defp maybe_limit_series(query, _series_field, keys) when not is_list(keys), do: query
 
   defp maybe_limit_series(query, series_field, keys) when is_binary(query) and is_binary(series_field) do
     values =

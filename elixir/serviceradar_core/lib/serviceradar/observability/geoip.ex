@@ -97,9 +97,6 @@ defmodule ServiceRadar.Observability.GeoIP do
     else
       {:error, _} = err ->
         err
-
-      other ->
-        {:error, other}
     end
   end
 
@@ -107,7 +104,6 @@ defmodule ServiceRadar.Observability.GeoIP do
     case :application.ensure_all_started(app) do
       {:ok, _apps} -> {:ok, app}
       {:error, {failed, reason}} -> {:error, {failed, reason}}
-      other -> {:error, other}
     end
   end
 

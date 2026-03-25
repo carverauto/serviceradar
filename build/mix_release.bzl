@@ -431,6 +431,24 @@ mkdir -p "$MIX_GLOBAL_CACHE/_cargo_target"
 mkdir -p "$MIX_GLOBAL_CACHE/node_modules"
 mkdir -p "$MIX_GLOBAL_CACHE/component_node_modules"
 
+ORIGINAL_HOME="${{HOME:-}}"
+if [ -z "$ORIGINAL_HOME" ] || [ ! -d "$ORIGINAL_HOME" ]; then
+  ORIGINAL_HOME=$(getent passwd "$(id -u)" | cut -d: -f6 || true)
+fi
+SYSTEM_BUN=$(command -v bun || true)
+if [ -z "$SYSTEM_BUN" ]; then
+  for candidate in \
+    "$ORIGINAL_HOME/.bun/bin/bun" \
+    "/usr/local/bin/bun" \
+    "/usr/bin/bun" \
+    "/opt/homebrew/bin/bun"
+  do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+      SYSTEM_BUN="$candidate"
+      break
+    fi
+  done
+fi
 WORKDIR=$(mktemp -d)
 export HOME="$MIX_GLOBAL_CACHE/.mix_home"
 export MIX_HOME="$HOME/.mix"
@@ -446,7 +464,15 @@ export PATH="$(dirname "$CARGO"):$(dirname "$RUSTC"):/opt/homebrew/bin:$ELIXIR_H
 BUN_BIN="{bun_path}"
 if [ -n "$BUN_BIN" ] && [ -f "$EXECROOT/$BUN_BIN" ]; then
   chmod +x "$EXECROOT/$BUN_BIN" || true
-  export PATH="$(dirname "$EXECROOT/$BUN_BIN"):$PATH"
+
+  if "$EXECROOT/$BUN_BIN" --version >/dev/null 2>&1; then
+    export PATH="$(dirname "$EXECROOT/$BUN_BIN"):$PATH"
+  elif [ -n "$SYSTEM_BUN" ] && [ -x "$SYSTEM_BUN" ]; then
+    echo "warning: bazel-pinned bun at $EXECROOT/$BUN_BIN is not executable on this host; falling back to $SYSTEM_BUN" >&2
+    export PATH="$(dirname "$SYSTEM_BUN"):$PATH"
+  else
+    echo "warning: bazel-pinned bun at $EXECROOT/$BUN_BIN is not executable on this host and no system bun fallback was found" >&2
+  fi
 fi
 RUST_LIB_ROOT="$(cd "$(dirname "$RUSTC")/.." && pwd)"
 export LD_LIBRARY_PATH="$RUST_LIB_ROOT/lib:$RUST_LIB_ROOT/lib/rustlib/x86_64-unknown-linux-gnu/lib:${{LD_LIBRARY_PATH:-}}"

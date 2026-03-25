@@ -210,10 +210,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     raw =
       fetch(status, :agent_timestamp) || fetch(status, :timestamp) || fetch(status, :observed_at)
 
-    case FieldParser.parse_timestamp(raw) do
-      %DateTime{} = dt -> DateTime.truncate(dt, :microsecond)
-      _ -> DateTime.truncate(DateTime.utc_now(), :microsecond)
-    end
+    (%DateTime{} = dt) = FieldParser.parse_timestamp(raw)
+    DateTime.truncate(dt, :microsecond)
   rescue
     _ -> DateTime.truncate(DateTime.utc_now(), :microsecond)
   end

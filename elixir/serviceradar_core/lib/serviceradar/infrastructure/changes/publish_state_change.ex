@@ -40,7 +40,7 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
       raise ArgumentError, "entity_type must be one of :gateway, :agent, :checker, :collector"
     end
 
-    {:ok, %{entity_type: entity_type, new_state: new_state}}
+    {:ok, entity_type: entity_type, new_state: new_state}
   end
 
   @impl true

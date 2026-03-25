@@ -386,8 +386,6 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     end
   end
 
-  defp filter_device_id_column(columns), do: columns
-
   defp format_cell(col, value) do
     col = col |> to_string() |> String.trim()
 

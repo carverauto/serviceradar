@@ -114,7 +114,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
   end
 
   defp bitmap_meta(snapshot, key) do
-    (snapshot.bitmap_metadata || %{})
+    snapshot.bitmap_metadata
     |> Map.get(key, %{bytes: 0, count: 0})
     |> Map.take([:bytes, :count])
     |> Map.merge(%{bytes: 0, count: 0})

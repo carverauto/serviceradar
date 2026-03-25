@@ -132,8 +132,6 @@ defmodule ServiceRadar.Identity.Validations.RoleMappings do
     end
   end
 
-  defp validate_keys(_), do: {:error, "role_mappings must be a list of objects"}
-
   defp validate_value_format("email_domain", value) when is_binary(value) do
     if String.contains?(value, "@") do
       {:error, "value must be a domain (no @) for source 'email_domain'"}

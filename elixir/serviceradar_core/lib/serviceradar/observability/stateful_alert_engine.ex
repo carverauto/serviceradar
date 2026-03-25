@@ -20,6 +20,19 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   require Logger
 
   @rules_cache_ms to_timeout(minute: 1)
+  @severity_name_to_id %{
+    "emergency" => OCSF.severity_fatal(),
+    "fatal" => OCSF.severity_fatal(),
+    "critical" => OCSF.severity_critical(),
+    "error" => OCSF.severity_high(),
+    "high" => OCSF.severity_high(),
+    "warning" => OCSF.severity_medium(),
+    "medium" => OCSF.severity_medium(),
+    "notice" => OCSF.severity_low(),
+    "low" => OCSF.severity_low(),
+    "info" => OCSF.severity_informational(),
+    "informational" => OCSF.severity_informational()
+  }
 
   @spec evaluate_logs([map()]) :: :ok | {:error, term()}
   def evaluate_logs(rows) when is_list(rows) do
@@ -566,17 +579,27 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
     severity =
       overrides["severity"] ||
+        overrides["severity_id"] ||
         overrides[:severity] ||
+        overrides[:severity_id] ||
         :warning
 
-    case severity do
-      :emergency -> OCSF.severity_fatal()
-      :critical -> OCSF.severity_critical()
-      :warning -> OCSF.severity_medium()
-      :info -> OCSF.severity_informational()
-      _ -> OCSF.severity_medium()
-    end
+    resolve_severity_id(severity)
   end
+
+  defp resolve_severity_id(severity) when is_integer(severity) and severity in 1..6, do: severity
+
+  defp resolve_severity_id(severity) when is_atom(severity) do
+    severity
+    |> Atom.to_string()
+    |> resolve_severity_id()
+  end
+
+  defp resolve_severity_id(severity) when is_binary(severity) do
+    Map.get(@severity_name_to_id, String.downcase(severity), OCSF.severity_medium())
+  end
+
+  defp resolve_severity_id(_), do: OCSF.severity_medium()
 
   defp log_level_for_severity(severity_id) do
     case severity_id do
@@ -864,7 +887,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end
   end
 
-  defp fetch_attr(map, key) when is_map(map) and is_binary(key), do: Map.get(map, key)
   defp fetch_attr(_map, _key), do: nil
 
   defp record_bucket_start(record, bucket_seconds) do

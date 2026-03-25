@@ -238,6 +238,32 @@ securityContext:
 {{- end -}}
 
 {{/*
+Restricted-compliant container securityContext with NET_BIND_SERVICE (for low ports).
+Usage: {{- include "serviceradar.bindServiceContainerSecurityContext" . | nindent 10 }}
+*/}}
+{{- define "serviceradar.bindServiceContainerSecurityContext" -}}
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+    add: ["NET_BIND_SERVICE"]
+{{- end -}}
+
+{{/*
+Restricted-compliant container securityContext for root-based utility images by
+forcing an explicit non-root UID/GID aligned with the ServiceRadar runtime user.
+Usage: {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 10 }}
+*/}}
+{{- define "serviceradar.nonRootContainerSecurityContext" -}}
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsUser: 1001
+  runAsGroup: 1001
+  capabilities:
+    drop: ["ALL"]
+{{- end -}}
+
+{{/*
 Generate checksum for db credentials to trigger pod restart when secret changes.
 Uses lookup to get current secret value, falls back to random if not found.
 */}}

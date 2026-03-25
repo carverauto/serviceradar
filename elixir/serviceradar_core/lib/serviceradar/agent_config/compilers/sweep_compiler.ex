@@ -291,8 +291,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     Enum.reduce(rows, acc, &put_ip_from_row/2)
   end
 
-  defp add_ips(acc, _), do: acc
-
   defp put_ip_from_row(row, set) when is_map(row) do
     case Map.get(row, "ip") do
       value when is_binary(value) -> MapSet.put(set, value)

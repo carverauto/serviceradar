@@ -207,8 +207,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       String.contains?(value, ",")
   end
 
-  defp bracketed_time_range?(_), do: false
-
   defp normalize_bucket(%{downsample: true} = config, value) do
     candidate =
       value
@@ -643,8 +641,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       {field, false}
     end
   end
-
-  defp parse_filter_field(_), do: {"", false}
 
   defp parse_filter_value(negated, value) do
     value = String.trim(value)

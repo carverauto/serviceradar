@@ -308,8 +308,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     end
   end
 
-  defp entity_route_from_query(_query, fallback_path), do: fallback_path
-
   # Navigates to target path - uses push_patch if same path, push_navigate if different
   defp navigate_to_path(socket, target_path, current_path, params) do
     url = target_path <> "?" <> URI.encode_query(params)
@@ -516,8 +514,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       _ -> fallback
     end
   end
-
-  defp extract_limit_from_srql(_query, fallback, _default, _max), do: fallback
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)

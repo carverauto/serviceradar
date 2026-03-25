@@ -633,9 +633,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   end
 
   defp severity_from_text(text) when is_binary(text) do
-    text
-    |> String.downcase()
-    |> Map.get(@severity_map, OCSF.severity_unknown())
+    Map.get(@severity_map, String.downcase(text), OCSF.severity_unknown())
   end
 
   defp event_uids(event_config) do
@@ -749,7 +747,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
          not is_nil(setting.threshold_value) do
       metric_name = legacy_metric_name_for(setting.threshold_metric)
 
-      if metric_name && metric_selected?(metric_name, selected_metrics) do
+      if metric_selected?(metric_name, selected_metrics) do
         config = %{
           "enabled" => true,
           "comparison" => setting.threshold_comparison,

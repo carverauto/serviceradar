@@ -324,8 +324,6 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     |> Enum.map_join(" ", &String.capitalize/1)
   end
 
-  defp humanize_field(field), do: to_string(field)
-
   defp escape_value(value) when is_binary(value) do
     value
     |> String.replace("\\", "\\\\")

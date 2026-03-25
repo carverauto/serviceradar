@@ -20,12 +20,14 @@ spec:
         app: serviceradar-zen-rules-bootstrap
     spec:
       restartPolicy: OnFailure
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.zenServiceAccount | default "serviceradar-zen" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       initContainers:
         - name: wait-for-nats
           image: ghcr.io/carverauto/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 10 }}
           command: ["/usr/local/bin/wait-for-port"]
           args:
             - "--host"
@@ -47,6 +49,7 @@ spec:
         - name: zen-rules-bootstrap
           image: ghcr.io/carverauto/serviceradar-tools{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "tools") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 10 }}
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -57,6 +60,10 @@ spec:
               FORCE_REINSTALL="{{ .Values.zenRulesBootstrap.forceReinstall }}"
               DEFAULT_KV_BUCKET="{{ .Values.kv.bucket | default "serviceradar-datasvc" }}"
               DEFAULT_NATS_URL="tls://serviceradar-nats:4222"
+              export HOME="/tmp"
+              export XDG_CONFIG_HOME="/tmp/.config"
+              mkdir -p "${XDG_CONFIG_HOME}/nats/context"
+              unset NATS_CONTEXT
 
               echo "Starting Zen rules bootstrap..."
               echo "Force reinstall: ${FORCE_REINSTALL}"

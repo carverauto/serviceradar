@@ -757,9 +757,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
       %Ash.BulkResult{status: :error, errors: errors} ->
         Logger.warning("SweepResultsIngestor: Restore failed", errors: inspect(errors))
-
-      other ->
-        Logger.warning("SweepResultsIngestor: Restore unexpected result", result: inspect(other))
     end
   end
 

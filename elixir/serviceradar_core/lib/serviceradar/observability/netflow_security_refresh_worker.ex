@@ -241,11 +241,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   end
 
   defp windows_in_baseline(baseline_seconds, window_seconds) do
-    if baseline_seconds > 0 and window_seconds > 0 do
-      max(div(baseline_seconds, window_seconds), 1)
-    else
-      max(div(604_800, max(window_seconds, 300)), 1)
-    end
+    max(div(baseline_seconds, window_seconds), 1)
   end
 
   defp maybe_upsert_port_anomaly(

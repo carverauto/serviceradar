@@ -100,6 +100,9 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
     end
   end
 
+  # Permit endpoints may return 204 with no body on success.
+  defp normalize_response({:ok, %Req.Response{status: 204}}), do: {:ok, %{status: "ok"}}
+
   defp normalize_response({:ok, %Req.Response{status: status, body: body}}) when status >= 200 and status < 300 do
     {:ok, normalize_body(body)}
   end
@@ -107,9 +110,6 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
   defp normalize_response({:ok, %Req.Response{status: status, body: body}}) do
     {:error, {:http_error, status, body}}
   end
-
-  # Permit endpoints may return an empty JSON list `[]` on success.
-  defp normalize_response({:ok, %Req.Response{status: 204}}), do: {:ok, %{status: "ok"}}
 
   defp normalize_response({:error, error}), do: {:error, error}
 

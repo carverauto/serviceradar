@@ -84,11 +84,6 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
     {severity_text, severity_number, message}
   end
 
-  defp classify_stage(_stage, _result, source, device_count, _error_message) do
-    message = "Sync ingestion update for #{source.name} (#{device_count} updates)"
-    {"INFO", 9, message}
-  end
-
   defp build_attributes(source, stage, result, device_count, error_message) do
     %{
       "serviceradar" => %{

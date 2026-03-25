@@ -705,8 +705,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     }
   end
 
-  defp target_credential(_), do: %{}
-
   defp merge_targets(primary, secondary) do
     (primary ++ secondary)
     |> Enum.reduce(%{}, fn target, acc ->
@@ -761,8 +759,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   # Check if credentials are valid for SNMP connection
-  defp valid_credentials?(nil), do: false
-
   defp valid_credentials?(credential) when is_map(credential) do
     case Map.get(credential, :version, :v2c) do
       :v3 ->

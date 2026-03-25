@@ -539,8 +539,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     end
   end
 
-  defp cutoff_for_time_window(_), do: :error
-
   defp event_summary_bucket(%{} = event) do
     [
       normalize_severity(Map.get(event, "severity")),

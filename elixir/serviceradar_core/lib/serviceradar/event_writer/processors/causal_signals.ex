@@ -269,8 +269,6 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       required_boolean_keys_present?
   end
 
-  defp valid_arancini_payload?(_), do: false
-
   defp infer_event_type(subject, payload) when is_binary(subject) and is_map(payload) do
     candidate =
       payload["event_type"] ||
@@ -306,8 +304,6 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
         nil
     end
   end
-
-  defp arancini_event_type(_), do: nil
 
   defp normalize_event_type(value) when is_binary(value) do
     value
@@ -488,8 +484,6 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     |> Enum.uniq_by(&{&1["type"], &1["id"]})
   end
 
-  defp grouped_contexts(_), do: []
-
   defp list_or_scalar(payload, [list_key, scalar_key]) do
     cond do
       is_list(payload[list_key]) ->
@@ -552,8 +546,6 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     |> Enum.max_by(fn {domain, rank} -> {rank, domain} end, fn -> {"unknown", 0} end)
   end
 
-  defp primary_domain(_), do: {"unknown", 0}
-
   defp domain_rank("security"), do: 3
   defp domain_rank("routing"), do: 2
   defp domain_rank("health"), do: 1
@@ -574,8 +566,6 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
   end
-
-  defp source_signal_refs(_), do: []
 
   defp normalize_time(%DateTime{} = dt), do: dt
 
@@ -717,8 +707,6 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       _ -> nil
     end
   end
-
-  defp arancini_prefix(_), do: nil
 
   defp normalize_raw_data(data) when is_binary(data) do
     if String.valid?(data) do

@@ -63,7 +63,6 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
 
   @default_health_interval to_timeout(second: 5)
   @default_results_interval to_timeout(minute: 1)
-  @check_timeout to_timeout(second: 10)
 
   defstruct services: %{},
             timers: %{}
@@ -499,9 +498,6 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
 
       :default_results_interval ->
         Keyword.get(app_config, :default_results_interval, @default_results_interval)
-
-      :check_timeout ->
-        Keyword.get(app_config, :check_timeout, @check_timeout)
     end
   end
 end

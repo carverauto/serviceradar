@@ -522,8 +522,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
     end
   end
 
-  defp normalize_severity(_), do: :warning
-
   defp default_event_title(event) do
     log_name = Map.get(event, :log_name)
 

@@ -3,5 +3,5 @@ defmodule Monitoring do
 
   use Boundary,
     top_level?: true,
-    check: [in: false, out: false]
+    exports: :all
 end

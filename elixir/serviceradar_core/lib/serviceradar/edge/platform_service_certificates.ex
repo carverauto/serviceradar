@@ -85,21 +85,12 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
       metadata_json: metadata
     }
 
-    case OnboardingPackages.create_with_platform_cert(attrs,
-           partition_id: partition_id,
-           cert_validity_days: 365,
-           actor: actor
-         ) do
-      {:ok, %{package: package}} ->
-        Logger.info(
-          "[PlatformServiceCertificates] Issued platform certificate for #{component_type}:#{component_id}"
-        )
-
-        {:ok, package}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    OnboardingPackages.create_with_platform_cert(
+      attrs,
+      partition_id: partition_id,
+      cert_validity_days: 365,
+      actor: actor
+    )
   end
 
   defp find_existing_package(component_type, component_id) do

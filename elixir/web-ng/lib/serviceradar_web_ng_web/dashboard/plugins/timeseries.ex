@@ -178,7 +178,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp safe_to_string(value), do: inspect(value)
 
   defp normalize_series_label(""), do: "overall"
-  defp normalize_series_label(nil), do: "overall"
   defp normalize_series_label(value), do: value
 
   # Chart paths with optional max_y for fixed Y-axis scaling (e.g., interface speed)
@@ -240,8 +239,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
     chart_max_from_value(max_v, unit, scale_max_for_unit(unit))
   end
-
-  defp combined_chart_max(_series_data, unit), do: chart_max_from_value(nil, unit, scale_max_for_unit(unit))
 
   defp x_ticks(points, compact) when is_list(points) do
     len = length(points)
@@ -611,8 +608,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     end
   end
 
-  defp points_cap(_), do: @max_points
-
   defp median_delta_seconds(points) when is_list(points) do
     deltas =
       points
@@ -630,8 +625,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         {:ok, Enum.at(sorted, mid)}
     end
   end
-
-  defp median_delta_seconds(_), do: {:error, :no_deltas}
 
   defp limit_points(points, max_points) when is_list(points) and length(points) > max_points do
     total = length(points)
@@ -726,8 +719,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       _ -> :number
     end
   end
-
-  defp combined_unit(_), do: :number
 
   defp unit_to_string(unit) do
     case unit do
@@ -891,7 +882,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     socket =
       socket
       |> assign(Map.delete(assigns, :panel_assigns))
-      |> assign(panel_assigns || %{})
+      |> assign(panel_assigns)
       |> assign(:compact, compact)
       |> assign(:series_points, series_points)
       |> assign(:spec, spec)
@@ -1528,8 +1519,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     end)
   end
 
-  defp first_dt(_), do: nil
-
   defp last_dt(series_points) when is_list(series_points) do
     Enum.find_value(series_points, fn {_series, points} ->
       case List.last(points) do
@@ -1538,8 +1527,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       end
     end)
   end
-
-  defp last_dt(_), do: nil
 
   # Get first datetime label from a list of points
   defp series_first_dt([{%DateTime{} = dt, _} | _]), do: dt_label(dt)

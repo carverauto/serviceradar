@@ -1058,7 +1058,6 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
-  defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp format_error(reason), do: inspect(reason)
 end

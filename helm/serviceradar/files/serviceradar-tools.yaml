@@ -16,6 +16,9 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
         seccompProfile:
           type: RuntimeDefault
       initContainers:
@@ -31,43 +34,46 @@ spec:
         - |
           set -e
           echo "🔧 Initializing ServiceRadar debugging tools..."
-          
-          # Create NATS context directory
-          mkdir -p /root/.config/nats/context
-          
-          # Setup NATS context with proper TLS configuration
-          if [ -f /etc/serviceradar/nats/serviceradar.json ]; then
-            cp /etc/serviceradar/nats/serviceradar.json /root/.config/nats/context/
-            echo "✓ NATS context configuration copied"
-          else
-            echo "⚠ NATS context configuration not found"
-          fi
-          
+
+          mkdir -p /shared/home/.config /shared/bin
+
+          cat > /shared/bin/nats << 'EOF'
+          #!/bin/sh
+          export HOME="/shared/home"
+          export XDG_CONFIG_HOME="/shared/home/.config"
+          unset NATS_CONTEXT
+          exec /usr/local/bin/nats \
+            --server "${NATS_URL}" \
+            --tlsca "${NATS_CA}" \
+            --tlscert "${NATS_CERT}" \
+            --tlskey "${NATS_KEY}" \
+            "$@"
+          EOF
+          chmod 0755 /shared/bin/nats
+          ln -sf /shared/bin/nats /shared/bin/natsc
+
           # Set up bash profile to show MOTD and setup PATH
-          cat > /shared/.bashrc << 'EOF'
+          cat > /shared/home/.bashrc << 'EOF'
           # ServiceRadar Debug Tools - Auto-generated
-          export PATH="/usr/local/go/bin:/go/bin:$PATH"
+          export HOME="/shared/home"
+          export XDG_CONFIG_HOME="/shared/home/.config"
+          unset NATS_CONTEXT
+          export PATH="/shared/bin:/usr/local/go/bin:/go/bin:$PATH"
           
           # Show MOTD on login
           if [ -f /etc/motd ] && [ "$SHOW_MOTD" != "0" ]; then
             cat /etc/motd
             echo ""
           fi
-          
-          # Setup NATS context automatically
-          if [ -f /root/.config/nats/context/serviceradar.json ] && command -v nats >/dev/null 2>&1; then
-            export NATS_CONTEXT="serviceradar"
-            nats context select serviceradar 2>/dev/null || true
-          fi
-          
+
           # ServiceRadar debugging aliases
           alias test-connectivity='echo "Testing ServiceRadar connectivity..."; nc -zv serviceradar-nats 4222 2>&1 || echo "NATS: Not available"; nc -zv serviceradar-core 8090 2>&1 || echo "Core: Not available"'
-          alias nats-info='nats --context serviceradar server info'
-          alias nats-streams='echo "=== NATS Streams ==="; nats --context serviceradar stream ls 2>/dev/null || echo "Streams not available - check NATS connection and JetStream"'
-          alias nats-events='echo "=== Events Stream Info ==="; nats --context serviceradar stream info events 2>/dev/null || echo "Events stream not found"'
-          alias nats-kv='echo "=== KV Stores ==="; nats --context serviceradar kv ls 2>/dev/null || echo "KV stores not available - check NATS connection and JetStream"'
-          alias nats-datasvc='echo "=== Data Service ==="; nats --context serviceradar obj ls 2>/dev/null || echo "object stores not available - check NATS connection and JetStream"'
-          alias nats-js-status='echo "=== NATS JetStream Status ==="; nats --context serviceradar server info 2>/dev/null | grep -E "(Cluster|JetStream|Storage|Memory)" || echo "JetStream info not available - check connection"'
+          alias nats-info='natsc server info'
+          alias nats-streams='echo "=== NATS Streams ==="; natsc stream ls 2>/dev/null || echo "Streams not available - check NATS connection and JetStream"'
+          alias nats-events='echo "=== Events Stream Info ==="; natsc stream info events 2>/dev/null || echo "Events stream not found"'
+          alias nats-kv='echo "=== KV Stores ==="; natsc kv ls 2>/dev/null || echo "KV stores not available - check NATS connection and JetStream"'
+          alias nats-datasvc='echo "=== Data Service ==="; natsc obj ls 2>/dev/null || echo "object stores not available - check NATS connection and JetStream"'
+          alias nats-js-status='echo "=== NATS JetStream Status ==="; natsc server info 2>/dev/null | grep -E "(Cluster|JetStream|Storage|Memory)" || echo "JetStream info not available - check connection"'
           alias zen-rules='echo "=== Zen Rule Helper ==="; zen-put-rule --help'
           alias grpc-core='echo "Usage: grpc-core [METHOD] - Examples:"; echo "  grpc-core grpc.health.v1.Health/Check"; echo "  grpc-core list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-core:50052'
           alias grpc-agent='echo "Usage: grpc-agent [METHOD] - Examples:"; echo "  grpc-agent grpc.health.v1.Health/Check"; echo "  grpc-agent list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-agent:50051'
@@ -81,18 +87,16 @@ spec:
           
           echo "✓ ServiceRadar debugging environment configured"
           EOF
-          
-          # Copy the bashrc to persistent volume
-          cp /root/.config /shared/ -r
-          
+
           echo "🎉 ServiceRadar debugging tools initialization complete!"
+        env:
+        - name: HOME
+          value: /shared/home
+        - name: XDG_CONFIG_HOME
+          value: /shared/home/.config
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
-          readOnly: true
-        - name: nats-context-config
-          mountPath: /etc/serviceradar/nats/serviceradar.json
-          subPath: serviceradar.json
           readOnly: true
         - name: shared-config
           mountPath: /shared
@@ -103,37 +107,34 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
         - |
-          # Copy initialized config from init container
-          if [ -d /shared/.config ]; then
-            cp -r /shared/.config /root/
-          fi
-          
-          if [ -f /shared/.bashrc ]; then
-            cp /shared/.bashrc /root/.bashrc
-          fi
-          
+          export HOME="/shared/home"
+          export XDG_CONFIG_HOME="/shared/home/.config"
+          unset NATS_CONTEXT
+          export PATH="/shared/bin:/usr/local/go/bin:/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          mkdir -p "$HOME"
+
           # Start the container with bash as the default shell
-          exec /bin/bash -l -c "tail -f /dev/null"
+          exec /bin/bash --rcfile "$HOME/.bashrc" -lc "tail -f /dev/null"
         env:
+        - name: HOME
+          value: /shared/home
+        - name: XDG_CONFIG_HOME
+          value: /shared/home/.config
         - name: NATS_URL
           value: "tls://serviceradar-nats:4222"
-        - name: NATS_CREDS_FILE
-          value: "/etc/serviceradar/nats/client.creds"
-        - name: API_URL
-          value: "https://serviceradar-core:8090"
+        - name: NATS_CA
+          value: "/etc/serviceradar/certs/root.pem"
+        - name: NATS_CERT
+          value: "/etc/serviceradar/certs/tools.pem"
+        - name: NATS_KEY
+          value: "/etc/serviceradar/certs/tools-key.pem"
+        - name: PATH
+          value: /shared/bin:/usr/local/go/bin:/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         - name: SHOW_MOTD
           value: "1"
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
-          readOnly: true
-        - name: nats-context-config
-          mountPath: /etc/serviceradar/nats/serviceradar.json
-          subPath: serviceradar.json
-          readOnly: true
-        - name: tools-config
-          mountPath: /etc/serviceradar/nats/setup-nats-context.sh
-          subPath: setup-nats-context.sh
           readOnly: true
         - name: tools-config
           mountPath: /etc/motd
@@ -152,14 +153,10 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-            add: ["NET_ADMIN", "NET_RAW"]
       volumes:
       - name: cert-data
         secret:
           secretName: serviceradar-runtime-certs
-      - name: nats-context-config
-        configMap:
-          name: serviceradar-nats-context
       - name: tools-config
         configMap:
           name: serviceradar-tools-config
@@ -179,33 +176,6 @@ spec:
     port: 22
     targetPort: 22
   type: ClusterIP
----
-# ConfigMap for NATS context configuration
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: serviceradar-nats-context
-data:
-  # NATS context configuration for debugging
-  serviceradar.json: |
-    {
-      "description": "ServiceRadar NATS Context for Debugging",
-      "url": "tls://serviceradar-nats:4222",
-      "user": "",
-      "password": "",
-      "token": "",
-      "nsc": "",
-      "creds": "",
-      "nkey": "",
-      "cert": "/etc/serviceradar/certs/tools.pem",
-      "key": "/etc/serviceradar/certs/tools-key.pem",
-      "ca": "/etc/serviceradar/certs/root.pem",
-      "nats_ca": "",
-      "inbox_prefix": "_INBOX",
-      "user_jwt": "",
-      "color_scheme": "",
-      "tls_first": false
-    }
 ---
 # Additional configuration for serviceradar-tools
 apiVersion: v1
@@ -256,45 +226,3 @@ data:
     [!] READY TO USE: All aliases loaded, MOTD shows on connect
     
     ===============================================================================
-
-  # Initialization script to setup NATS context automatically
-  setup-nats-context.sh: |
-    #!/bin/bash
-    set -e
-    
-    echo "Setting up NATS context for debugging..."
-    
-    # Create context directory if it doesn't exist
-    mkdir -p /root/.config/nats/context
-    
-    # Copy context configuration
-    if [ -f /etc/serviceradar/nats/serviceradar.json ]; then
-        cp /etc/serviceradar/nats/serviceradar.json /root/.config/nats/context/
-        echo "NATS context configuration copied."
-        
-        # Set as default context
-        if command -v nats >/dev/null 2>&1; then
-            nats context select serviceradar 2>/dev/null || echo "Context selection failed, but config is available"
-            echo "NATS context ready for debugging!"
-        else
-            echo "NATS CLI not found, but context config is available."
-        fi
-    else
-        echo "Warning: NATS context configuration not found at /etc/serviceradar/nats/serviceradar.json"
-    fi
-    
-    # Test basic connectivity
-    echo ""
-    echo "Testing basic connectivity..."
-    if nc -zv serviceradar-nats 4222 2>/dev/null; then
-        echo "✓ NATS connection successful"
-    else
-        echo "✗ NATS connection failed"
-    fi
-    
-    echo ""
-    echo "🔧 ServiceRadar debugging tools are ready!"
-    echo "   Run 'test-connectivity' to test all services"
-    echo "   Run 'nats-js-status' to check JetStream"
-    echo "   Run 'test-grpc' to test all gRPC services"
-    echo ""

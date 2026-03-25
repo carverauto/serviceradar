@@ -392,12 +392,9 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
     )
   end
 
-  defp maybe_filter_search(query, _), do: query
-
   defp maybe_filter_status(query, nil), do: query
   defp maybe_filter_status(query, :online), do: Ash.Query.filter(query, is_available == true)
   defp maybe_filter_status(query, :offline), do: Ash.Query.filter(query, is_available == false)
-  defp maybe_filter_status(query, _), do: query
 
   defp maybe_filter_gateway_id(query, nil), do: query
 

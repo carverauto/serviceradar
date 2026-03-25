@@ -98,6 +98,38 @@ describe("lifecycle_bootstrap_event_methods", () => {
     expect(deps.autoFitViewState).toHaveBeenCalledWith(graph)
   })
 
+  it("registerResetViewEvent collapses expanded clusters before autoFit", () => {
+    let handler = null
+    const graph = {
+      nodes: [
+        {details: {cluster_expanded: false}},
+        {details: {cluster_expanded: true}},
+      ],
+    }
+    const state = {
+      deck: {setProps: vi.fn()},
+      userCameraLocked: true,
+      hasAutoFit: true,
+      lastGraph: graph,
+      handleEvent: vi.fn((name, fn) => {
+        if (name === "god_view:reset_view") handler = fn
+      }),
+    }
+    const deps = {autoFitViewState: vi.fn()}
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapEventResetViewMethods), {
+      collapseAllClusters: vi.fn(),
+    })
+
+    ctx.registerResetViewEvent()
+    handler()
+
+    expect(state.userCameraLocked).toBe(false)
+    expect(state.hasAutoFit).toBe(false)
+    expect(ctx.collapseAllClusters).toHaveBeenCalledTimes(1)
+    expect(deps.autoFitViewState).not.toHaveBeenCalled()
+  })
+
   it("registerLayerEvents updates topology + visual layers and rerenders", () => {
     const handlers = {}
     const state = {

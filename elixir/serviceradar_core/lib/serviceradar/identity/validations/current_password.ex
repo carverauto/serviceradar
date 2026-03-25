@@ -8,10 +8,10 @@ defmodule ServiceRadar.Identity.Validations.CurrentPassword do
   @impl true
   def init(opts) do
     {:ok,
-     %{
+     [
        required_message: Keyword.get(opts, :required_message, "is required"),
        no_password_message: Keyword.get(opts, :no_password_message)
-     }}
+     ]}
   end
 
   @impl true

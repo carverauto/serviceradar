@@ -253,19 +253,12 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
       %Ash.BulkResult{status: :success} ->
         :ok
 
-      %Ash.BulkResult{status: :error, errors: errors} ->
+      %Ash.BulkResult{errors: errors} ->
         Logger.warning(
           "SysmonMetricsIngestor: failed to insert #{inspect(resource)} chunk: #{inspect(errors)}"
         )
 
         maybe_reindex_and_retry(records, resource, actor, errors, allow_reindex?)
-
-      {:error, reason} ->
-        Logger.warning(
-          "SysmonMetricsIngestor: failed to insert #{inspect(resource)} chunk: #{inspect(reason)}"
-        )
-
-        maybe_reindex_and_retry(records, resource, actor, reason, allow_reindex?)
     end
   end
 

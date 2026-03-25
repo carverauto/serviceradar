@@ -606,8 +606,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
     normalize_history_message(message) || "—"
   end
 
-  defp history_message(_), do: "—"
-
   defp normalize_history_message(nil), do: nil
 
   defp normalize_history_message(message) when is_binary(message) do

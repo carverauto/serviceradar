@@ -4,6 +4,7 @@ defmodule ServiceRadarCoreElx do
   """
 
   use Boundary,
+    check: [apps: [:serviceradar_core]],
     deps: [ServiceRadar],
     exports: :all
 end

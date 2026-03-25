@@ -8,7 +8,7 @@ defmodule ServiceRadar.Identity.Changes.HashPassword do
   use Ash.Resource.Change
 
   @impl true
-  def init(opts), do: {:ok, %{force?: Keyword.get(opts, :force?, false)}}
+  def init(opts), do: {:ok, force?: Keyword.get(opts, :force?, false)}
 
   @impl true
   def change(changeset, opts, _context) do

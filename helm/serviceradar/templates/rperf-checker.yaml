@@ -14,11 +14,13 @@ spec:
         app.kubernetes.io/part-of: serviceradar
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       initContainers:
         - name: init-rperf-config
           image: busybox:1.36
+          {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 10 }}
           command: ['sh', '-c', 'mkdir -p /etc/serviceradar/checkers && cp /config/rperf.json /etc/serviceradar/checkers/rperf.json']
           volumeMounts:
             - name: serviceradar-config
@@ -29,6 +31,7 @@ spec:
       - name: rperf-checker
         image: ghcr.io/carverauto/serviceradar-rperf-client{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "rperfClient") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:
         - containerPort: 50081
           name: grpc

@@ -15,6 +15,8 @@ defmodule Mix.Tasks.Graph.Ready do
 
   alias ServiceRadarWebNG.Graph
 
+  @dialyzer {:nowarn_function, run: 1}
+
   def run(_args) do
     Mix.Task.run("app.start")
 

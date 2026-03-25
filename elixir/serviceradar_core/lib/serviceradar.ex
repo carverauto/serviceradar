@@ -8,6 +8,7 @@ defmodule ServiceRadar do
   """
 
   use Boundary,
-    deps: [ServiceRadarSRQL, UUID],
+    check: [apps: [:serviceradar_srql]],
+    deps: [Flowpb, Monitoring, ServiceRadarSRQL, UUID],
     exports: :all
 end

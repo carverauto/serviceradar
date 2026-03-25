@@ -417,8 +417,6 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     end
   end
 
-  defp private_ip?(_), do: false
-
   defp normalize_ip_string(ip) when is_binary(ip) do
     ip
     |> String.trim()
