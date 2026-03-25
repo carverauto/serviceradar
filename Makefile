@@ -21,6 +21,7 @@ export GOMODCACHE
 GOBIN ?= $$($(GO) env GOPATH)/bin
 GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION ?= v2.11.3
+GOLANGCI_LINT_TIMEOUT ?= 10m
 SWIFTLINT ?= swiftlint
 
 # Rust configuration
@@ -242,7 +243,7 @@ lint-elixir: ## Run the repository-standard Elixir analyzer contract across elix
 .PHONY: lint-go
 lint-go: get-golangcilint ## Run Go linting checks
 	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
-	@$(GOLANGCI_LINT) run ./...
+	@$(GOLANGCI_LINT) run --timeout $(GOLANGCI_LINT_TIMEOUT) ./...
 
 .PHONY: test
 test: $(TEST_PREREQS) get-bun ## Run all tests with coverage
