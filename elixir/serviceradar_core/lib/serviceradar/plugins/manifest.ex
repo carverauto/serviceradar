@@ -44,12 +44,17 @@ defmodule ServiceRadar.Plugins.Manifest do
         }
 
   @allowed_runtimes ["none", "wasi-preview1"]
-  @allowed_outputs ["serviceradar.plugin_result.v1"]
+  @allowed_outputs ["serviceradar.plugin_result.v1", "serviceradar.camera_stream.v1"]
   @allowed_capabilities [
     "get_config",
     "log",
     "submit_result",
     "http_request",
+    "websocket_connect",
+    "websocket_send",
+    "websocket_recv",
+    "websocket_close",
+    "camera_media_stream",
     "tcp_connect",
     "tcp_read",
     "tcp_write",

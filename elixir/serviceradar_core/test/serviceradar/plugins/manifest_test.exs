@@ -90,6 +90,38 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert {:ok, _manifest} = Manifest.from_yaml(yaml)
   end
 
+  test "camera stream manifest parses" do
+    yaml = """
+    id: axis-camera-stream
+    name: AXIS Camera Stream
+    version: 0.1.0
+    entrypoint: stream_camera
+    runtime: wasi-preview1
+    capabilities:
+      - get_config
+      - log
+      - camera_media_stream
+      - http_request
+      - tcp_connect
+      - tcp_read
+      - tcp_write
+      - tcp_close
+    permissions:
+      allowed_domains:
+        - "*"
+      allowed_ports:
+        - 554
+    resources:
+      requested_memory_mb: 64
+      requested_cpu_ms: 2000
+      max_open_connections: 1
+    outputs: serviceradar.camera_stream.v1
+    """
+
+    assert {:ok, manifest} = Manifest.from_yaml(yaml)
+    assert manifest.outputs == "serviceradar.camera_stream.v1"
+  end
+
   test "config schema validation accepts JSON object" do
     schema = ~S({"type":"object","properties":{"interval":{"type":"string"}}})
     assert :ok == Manifest.validate_config_schema(schema)

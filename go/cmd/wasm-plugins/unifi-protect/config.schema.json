@@ -1,0 +1,71 @@
+{
+  "type": "object",
+  "properties": {
+    "host": {
+      "type": "string",
+      "description": "UniFi Protect controller host or IP"
+    },
+    "scheme": {
+      "type": "string",
+      "description": "http or https",
+      "default": "https"
+    },
+    "username": {
+      "type": "string",
+      "description": "Protect local account username"
+    },
+    "password": {
+      "type": "string",
+      "description": "Protect local account password"
+    },
+    "api_key": {
+      "type": "string",
+      "description": "Optional Protect API key"
+    },
+    "cookie": {
+      "type": "string",
+      "description": "Optional pre-provisioned controller Cookie header value"
+    },
+    "timeout": {
+      "type": "string",
+      "description": "Request timeout duration",
+      "default": "10s"
+    },
+    "insecure_skip_verify": {
+      "type": "boolean",
+      "description": "Allow self-signed or otherwise untrusted TLS certificates for controller APIs and websocket connections",
+      "default": false
+    },
+    "discover_streams": {
+      "type": "boolean",
+      "description": "Discover RTSP stream profiles from bootstrap",
+      "default": true
+    },
+    "collect_events": {
+      "type": "boolean",
+      "description": "Collect a bounded Protect websocket event sample",
+      "default": false
+    },
+    "event_sources": {
+      "type": "string",
+      "description": "Protect event source selector; current plugin uses the updates feed",
+      "default": "updates"
+    },
+    "bootstrap_path": {
+      "type": "string",
+      "description": "Protect bootstrap path",
+      "default": "/proxy/protect/api/bootstrap"
+    },
+    "login_path": {
+      "type": "string",
+      "description": "UniFi OS login path",
+      "default": "/api/auth/login"
+    },
+    "rtsp_port": {
+      "type": "integer",
+      "description": "Protect RTSP relay port",
+      "default": 7447
+    }
+  },
+  "required": ["host"]
+}
