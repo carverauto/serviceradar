@@ -337,34 +337,10 @@ func TestFetchUniFiDevicesForSite(t *testing.T) {
 	}
 }
 
-func TestQuerySingleUniFiAPIFallsBackToInventoryUplinkWhenDetailPayloadDrifts(t *testing.T) {
-	job := &DiscoveryJob{
-		ID: "test-job",
-		Results: &DiscoveryResults{
-			Contract: DiscoveryContract{
-				ParseDiagnostics: DiscoveryParseDiagnostics{
-					ParseFailures:     make(map[string]int),
-					UnknownTopLevel:   make(map[string]int),
-					ParserMismatches:  make(map[string]int),
-					LastFailureByType: make(map[string]string),
-				},
-			},
-		},
-	}
+func newUniFiInventoryUplinkServer(t *testing.T, deviceDetailPayload []byte) *httptest.Server {
+	t.Helper()
 
-	deviceDetailPayload := []byte(`{
-		"id": "device1",
-		"ipAddress": "192.168.1.1",
-		"name": "Device 1",
-		"macAddress": "00:11:22:33:44:55",
-		"model": "UDM Pro Max",
-		"supported": true,
-		"interfaces": {
-			"ports": []
-		}
-	}`)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/sites/site1/devices":
 			assert.Equal(t, "500", r.URL.Query().Get("limit"))
@@ -405,6 +381,36 @@ func TestQuerySingleUniFiAPIFallsBackToInventoryUplinkWhenDetailPayloadDrifts(t 
 			http.NotFound(w, r)
 		}
 	}))
+}
+
+func TestQuerySingleUniFiAPIFallsBackToInventoryUplinkWhenDetailPayloadDrifts(t *testing.T) {
+	job := &DiscoveryJob{
+		ID: "test-job",
+		Results: &DiscoveryResults{
+			Contract: DiscoveryContract{
+				ParseDiagnostics: DiscoveryParseDiagnostics{
+					ParseFailures:     make(map[string]int),
+					UnknownTopLevel:   make(map[string]int),
+					ParserMismatches:  make(map[string]int),
+					LastFailureByType: make(map[string]string),
+				},
+			},
+		},
+	}
+
+	deviceDetailPayload := []byte(`{
+		"id": "device1",
+		"ipAddress": "192.168.1.1",
+		"name": "Device 1",
+		"macAddress": "00:11:22:33:44:55",
+		"model": "UDM Pro Max",
+		"supported": true,
+		"interfaces": {
+			"ports": []
+		}
+	}`)
+
+	server := newUniFiInventoryUplinkServer(t, deviceDetailPayload)
 	defer server.Close()
 
 	engine := &DiscoveryEngine{
@@ -472,47 +478,7 @@ func TestQuerySingleUniFiAPIAcceptsKnownInterfacePortDetailsWithoutQuarantine(t 
 		}
 	}`)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/sites/site1/devices":
-			assert.Equal(t, "500", r.URL.Query().Get("limit"))
-			w.WriteHeader(http.StatusOK)
-			err := json.NewEncoder(w).Encode(struct {
-				Data []UniFiDevice `json:"data"`
-			}{
-				Data: []UniFiDevice{
-					{
-						ID:        "uplink-device",
-						IPAddress: "192.168.1.254",
-						Name:      "Uplink Device",
-						MAC:       "ff:ee:dd:cc:bb:aa",
-					},
-					{
-						ID:        "device1",
-						IPAddress: "192.168.1.1",
-						Name:      "Device 1",
-						MAC:       "00:11:22:33:44:55",
-						Uplink: UniFiUplink{
-							DeviceID:      "uplink-device",
-							LocalPortIdx:  26,
-							LocalPortName: "Port 26",
-						},
-					},
-				},
-			})
-			if err != nil {
-				t.Fatalf("encode integration devices response: %v", err)
-			}
-		case "/sites/site1/devices/device1", "/sites/site1/devices/uplink-device":
-			w.WriteHeader(http.StatusOK)
-			_, err := w.Write(deviceDetailPayload)
-			if err != nil {
-				t.Fatalf("write integration device details response: %v", err)
-			}
-		default:
-			http.NotFound(w, r)
-		}
-	}))
+	server := newUniFiInventoryUplinkServer(t, deviceDetailPayload)
 	defer server.Close()
 
 	engine := &DiscoveryEngine{
