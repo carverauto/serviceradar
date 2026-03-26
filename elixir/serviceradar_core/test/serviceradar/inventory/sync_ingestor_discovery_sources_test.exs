@@ -172,6 +172,39 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       assert device.discovery_sources == ["armis"]
     end
 
+    test "device update action accepts discovery_sources for camera inventory merges", %{
+      actor: actor
+    } do
+      uid = "camera-device-#{System.unique_integer([:positive])}"
+
+      {:ok, device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: uid,
+            type: "camera",
+            type_id: 7,
+            name: "Front Door",
+            mac: unique_mac(),
+            discovery_sources: ["agent"]
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, updated_device} =
+        device
+        |> Ash.Changeset.for_update(
+          :update,
+          %{discovery_sources: ["agent", "camera_plugin"]},
+          actor: actor
+        )
+        |> Ash.update()
+
+      assert Enum.sort(updated_device.discovery_sources) == ["agent", "camera_plugin"]
+    end
+
     test "mapper scanner agent_id is not used as device identifier", %{actor: actor} do
       scanner_agent_id = "mapper-agent-#{System.unique_integer([:positive])}"
       ip_a = "10.0.7.#{unique_octet()}"

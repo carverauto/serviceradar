@@ -343,8 +343,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
          mac: descriptor_mac(descriptor),
          vendor_name: string_value(descriptor, ["vendor"]),
          model: descriptor_model(descriptor),
-         gateway_id: status[:gateway_id],
-         agent_id: status[:agent_id],
          discovery_sources: ["camera_plugin"],
          is_managed: true,
          is_available: descriptor_available?(descriptor, status),
@@ -1012,8 +1010,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp resolve_identity_from_hints(descriptor, status, actor) when is_map(descriptor) do
-    with {:ok, update} <- identity_update_from_descriptor(descriptor, status),
+  defp resolve_identity_from_hints(descriptor, _status, actor) when is_map(descriptor) do
+    with {:ok, update} <- identity_update_from_descriptor(descriptor),
          {:ok, uid} <- IdentityReconciler.resolve_device_id(update, actor: actor) do
       {:ok, uid}
     else
@@ -1024,7 +1022,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp resolve_identity_from_hints(_descriptor, _status, _actor), do: {:error, :unresolved}
 
-  defp identity_update_from_descriptor(descriptor, status) do
+  defp identity_update_from_descriptor(descriptor) do
     mac = descriptor_mac(descriptor)
     ip = descriptor_ip(descriptor)
     integration_id = descriptor_integration_id(descriptor)
@@ -1040,7 +1038,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
          partition: "default",
          metadata:
            %{}
-           |> maybe_put("agent_id", status[:agent_id])
            |> maybe_put("integration_id", integration_id)
            |> maybe_put(
              "integration_type",

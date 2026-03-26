@@ -109,6 +109,7 @@ defmodule ServiceRadar.Inventory.Device do
     :org,
     :groups,
     :agent_list,
+    :discovery_sources,
     :is_available,
     :tags,
     :metadata,

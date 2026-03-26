@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadarWebNG.CameraRelayHealth
 
   require Ash.Query
@@ -716,8 +718,108 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
 
     with {:ok, active_sessions} <- Ash.read(active_query, scope: scope),
          {:ok, terminal_sessions} <- Ash.read(terminal_query, scope: scope) do
+      {active_sessions, terminal_sessions} =
+        resolve_session_device_links(active_sessions, terminal_sessions, scope)
+
       {:ok, active_sessions, terminal_sessions}
     end
+  end
+
+  defp resolve_session_device_links(active_sessions, terminal_sessions, scope) do
+    sessions = active_sessions ++ terminal_sessions
+    {candidate_uids, candidate_macs} = collect_device_link_candidates(sessions)
+
+    case read_linkable_devices(candidate_uids, candidate_macs, scope) do
+      {:ok, devices} ->
+        uid_index = Map.new(devices, &{&1.uid, &1.uid})
+
+        mac_index =
+          Map.new(devices, fn device ->
+            {normalize_mac(device.mac), device.uid}
+          end)
+
+        {
+          Enum.map(active_sessions, &put_resolved_device_uid(&1, uid_index, mac_index)),
+          Enum.map(terminal_sessions, &put_resolved_device_uid(&1, uid_index, mac_index))
+        }
+
+      {:error, reason} ->
+        Logger.warning("Failed to resolve camera relay device links: #{inspect(reason)}")
+
+        {
+          Enum.map(active_sessions, &Map.put(&1, :resolved_device_uid, nil)),
+          Enum.map(terminal_sessions, &Map.put(&1, :resolved_device_uid, nil))
+        }
+    end
+  end
+
+  defp collect_device_link_candidates(sessions) do
+    sessions
+    |> Enum.reduce({MapSet.new(), MapSet.new()}, fn session, {uids, macs} ->
+      {candidate_uids, candidate_macs} = session_device_link_candidates(session)
+
+      {
+        Enum.reduce(candidate_uids, uids, &MapSet.put(&2, &1)),
+        Enum.reduce(candidate_macs, macs, &MapSet.put(&2, &1))
+      }
+    end)
+    |> then(fn {uids, macs} -> {MapSet.to_list(uids), MapSet.to_list(macs)} end)
+  end
+
+  defp session_device_link_candidates(session) do
+    source = Map.get(session, :camera_source)
+    raw_device_uid = source_device_uid(source)
+
+    {
+      Enum.filter([raw_device_uid], &present?/1),
+      [
+        normalize_mac(raw_device_uid),
+        normalize_mac(source_identity_mac(source))
+      ]
+      |> Enum.filter(&present?/1)
+      |> Enum.uniq()
+    }
+  end
+
+  defp read_linkable_devices([], [], _scope), do: {:ok, []}
+
+  defp read_linkable_devices(candidate_uids, candidate_macs, scope) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{}, scope: scope)
+      |> filter_linkable_devices(candidate_uids, candidate_macs)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, %Ash.Page.Keyset{results: results}} -> {:ok, results}
+      {:ok, results} when is_list(results) -> {:ok, results}
+      other -> other
+    end
+  end
+
+  defp filter_linkable_devices(query, candidate_uids, candidate_macs)
+       when candidate_uids != [] and candidate_macs != [] do
+    Ash.Query.filter(query, uid in ^candidate_uids or mac in ^candidate_macs)
+  end
+
+  defp filter_linkable_devices(query, candidate_uids, _candidate_macs) when candidate_uids != [] do
+    Ash.Query.filter(query, uid in ^candidate_uids)
+  end
+
+  defp filter_linkable_devices(query, _candidate_uids, candidate_macs) when candidate_macs != [] do
+    Ash.Query.filter(query, mac in ^candidate_macs)
+  end
+
+  defp put_resolved_device_uid(session, uid_index, mac_index) do
+    Map.put(session, :resolved_device_uid, resolve_session_device_uid(session, uid_index, mac_index))
+  end
+
+  defp resolve_session_device_uid(session, uid_index, mac_index) do
+    source = Map.get(session, :camera_source)
+    raw_device_uid = source_device_uid(source)
+
+    Map.get(uid_index, raw_device_uid) ||
+      Map.get(mac_index, normalize_mac(raw_device_uid)) ||
+      Map.get(mac_index, normalize_mac(source_identity_mac(source)))
   end
 
   defp build_summary(active_sessions, terminal_sessions) do
@@ -810,13 +912,25 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   end
 
   defp device_uid(session) do
-    session
-    |> Map.get(:camera_source)
+    Map.get(session, :resolved_device_uid)
+  end
+
+  defp source_device_uid(%{device_uid: device_uid}) when is_binary(device_uid), do: String.trim(device_uid)
+  defp source_device_uid(_source), do: nil
+
+  defp source_identity_mac(%{metadata: metadata}) when is_map(metadata) do
+    metadata
+    |> Map.get("identity", Map.get(metadata, :identity))
     |> case do
-      %{device_uid: device_uid} when is_binary(device_uid) and device_uid != "" -> device_uid
+      identity when is_map(identity) -> Map.get(identity, "mac", Map.get(identity, :mac))
       _ -> nil
     end
   end
+
+  defp source_identity_mac(_source), do: nil
+
+  defp normalize_mac(value) when is_binary(value), do: IdentityReconciler.normalize_mac(value)
+  defp normalize_mac(_value), do: nil
 
   defp status_badge_class(status) do
     normalized = normalize_status(status)

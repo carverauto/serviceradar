@@ -84,11 +84,56 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
     assert html =~ encoded_filter("gateway_id", source.assigned_gateway_id)
   end
 
+  test "links relay rows to canonical camera devices when sources still use raw MAC ids", %{
+    conn: conn
+  } do
+    canonical_uid = "sr:camera-relay-#{System.unique_integer([:positive])}"
+    raw_camera_id = "7845582F3F73"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: canonical_uid,
+        mac: raw_camera_id,
+        type_id: 7,
+        hostname: "front-door-camera",
+        vendor_name: "Ubiquiti",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    %{source: source, profile: profile} =
+      insert_camera_source!(raw_camera_id,
+        metadata: %{"identity" => %{"mac" => "78:45:58:2F:3F:73"}}
+      )
+
+    {:ok, _session} =
+      RelaySession.create_session(
+        %{
+          camera_source_id: source.id,
+          stream_profile_id: profile.id,
+          agent_id: source.assigned_agent_id,
+          gateway_id: source.assigned_gateway_id,
+          lease_expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+          requested_by: "camera-relay-live-test"
+        },
+        actor: AshTestHelpers.system_actor()
+      )
+
+    {:ok, view, html} = live(conn, ~p"/observability/camera-relays")
+
+    assert has_element?(view, "a[href='/devices/#{URI.encode_www_form(canonical_uid)}']", "View device")
+    refute html =~ "/devices/#{raw_camera_id}"
+  end
+
   defp encoded_filter(field, value) do
     URI.encode_www_form(~s/#{field}:"#{value}"/)
   end
 
-  defp insert_camera_source!(device_uid) do
+  defp insert_camera_source!(device_uid, opts \\ []) do
+    metadata = Keyword.get(opts, :metadata, %{})
+
     {:ok, source} =
       CameraSource.create_source(
         %{
@@ -98,7 +143,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
           display_name: "Ops Camera",
           source_url: "rtsp://camera.local/stream",
           assigned_agent_id: "agent-camera-ops-1",
-          assigned_gateway_id: "gateway-camera-ops-1"
+          assigned_gateway_id: "gateway-camera-ops-1",
+          metadata: metadata
         },
         actor: AshTestHelpers.system_actor()
       )

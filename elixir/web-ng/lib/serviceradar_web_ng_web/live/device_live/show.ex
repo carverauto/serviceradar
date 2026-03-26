@@ -6399,15 +6399,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp sysmon_identity(device_row, device_uid) do
+    device_row = if is_map(device_row), do: device_row, else: %{}
+
     device_uid =
-      case Map.get(device_row || %{}, "uid") || device_uid do
+      case Map.get(device_row, "uid") || Map.get(device_row, :uid) || device_uid do
         value when is_binary(value) -> String.trim(value)
         _ -> ""
       end
 
     agent_id =
       device_row
-      |> Map.get("agent_id")
+      |> then(&(Map.get(&1, "agent_id") || Map.get(&1, :agent_id)))
       |> case do
         value when is_binary(value) -> String.trim(value)
         _ -> ""

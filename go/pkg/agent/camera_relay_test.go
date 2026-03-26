@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bluenviron/gortsplib/v5"
+	"github.com/bluenviron/gortsplib/v5/pkg/base"
 	"github.com/carverauto/serviceradar/proto"
 	gproto "google.golang.org/protobuf/proto"
 )
@@ -435,6 +437,41 @@ func TestDefaultCameraRelaySourceRequiresSourceURL(t *testing.T) {
 	}
 	if got := err.Error(); got != "source_url is required" {
 		t.Fatalf("expected source_url validation error, got %q", got)
+	}
+}
+
+func TestNewRTSPCameraRelayClientEnablesTLSSkipVerifyForRTSPS(t *testing.T) {
+	t.Parallel()
+
+	u, err := base.ParseURL("rtsps://192.168.1.1:7441/example")
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+
+	transport := gortsplib.ProtocolTCP
+	client := newCameraRelayRTSPClient(u, transport)
+
+	if client.TLSConfig == nil {
+		t.Fatal("expected TLS config for rtsps client")
+	}
+	if !client.TLSConfig.InsecureSkipVerify {
+		t.Fatal("expected rtsps client to skip TLS verification")
+	}
+}
+
+func TestNewRTSPCameraRelayClientLeavesRTSPTLSUnset(t *testing.T) {
+	t.Parallel()
+
+	u, err := base.ParseURL("rtsp://192.168.1.1:7447/example")
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+
+	transport := gortsplib.ProtocolTCP
+	client := newCameraRelayRTSPClient(u, transport)
+
+	if client.TLSConfig != nil {
+		t.Fatal("expected plain rtsp client to leave TLS config unset")
 	}
 }
 

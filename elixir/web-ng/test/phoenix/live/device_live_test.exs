@@ -171,6 +171,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Restore"
   end
 
+  test "renders missing-row state instead of crashing for unknown device uid", %{conn: conn} do
+    uid = "missing-device-#{System.unique_integer([:positive])}"
+
+    {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
+
+    assert html =~ "No device row returned for this query."
+    assert html =~ uid
+  end
+
   test "auto-refreshes device details when the viewed device is updated", %{
     conn: conn,
     scope: scope
