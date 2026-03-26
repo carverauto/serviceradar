@@ -639,7 +639,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       Task.async(fn -> {:profile, load_sysmon_profile_info(scope, uid)} end),
       Task.async(fn -> {:mapper, load_mapper_jobs_for_device(scope, device_row)} end),
       Task.async(fn -> {:snmp, load_device_snmp_credential(scope, uid)} end),
-      Task.async(fn -> {:camera_sources, load_camera_sources(scope, uid)} end),
+      Task.async(fn -> {:camera_sources, load_camera_sources(scope, uid, device_row)} end),
       Task.async(fn -> {:aliases, load_ip_aliases(scope, uid, show_stale)} end)
     ]
 
@@ -7652,11 +7652,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp load_sweep_results(_scope, _), do: nil
 
-  defp load_camera_sources(scope, device_uid) do
+  defp load_camera_sources(scope, device_uid, device_row) do
     case CameraSource.list_for_device(device_uid, load: [:stream_profiles], scope: scope) do
-      {:ok, sources} -> {sources, nil}
-      {:error, error} -> {[], "Failed to load camera inventory: #{format_ash_error(error)}"}
+      {:ok, []} ->
+        load_camera_sources_by_fallback(scope, device_row)
+
+      {:ok, sources} ->
+        {sources, nil}
+
+      {:error, error} ->
+        {[], "Failed to load camera inventory: #{format_ash_error(error)}"}
     end
+  end
+
+  defp load_camera_sources_by_fallback(scope, device_row) do
+    fallback_ids = camera_source_fallback_ids(device_row)
+
+    if fallback_ids == [] do
+      {[], nil}
+    else
+      query =
+        CameraSource
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(device_uid in ^fallback_ids)
+        |> Ash.Query.load(:stream_profiles)
+        |> Ash.Query.sort(inserted_at: :asc)
+
+      case read_camera_sources(query, scope) do
+        {:ok, sources} -> {sources, nil}
+        {:error, error} -> {[], "Failed to load camera inventory: #{format_ash_error(error)}"}
+      end
+    end
+  end
+
+  defp read_camera_sources(query, nil), do: Ash.read(query)
+  defp read_camera_sources(query, scope), do: Ash.read(query, scope: scope)
+
+  defp camera_source_fallback_ids(device_row) do
+    mac =
+      case device_row do
+        %{} = row -> Map.get(row, :mac) || Map.get(row, "mac")
+        _ -> nil
+      end
+
+    mac
+    |> List.wrap()
+    |> Enum.flat_map(fn value ->
+      trimmed = value |> to_string() |> String.trim()
+      normalized = trimmed |> String.replace(":", "") |> String.upcase()
+
+      [trimmed, String.upcase(trimmed), String.downcase(trimmed), normalized, String.downcase(normalized)]
+    end)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
   end
 
   defp build_sweep_actor(scope) do

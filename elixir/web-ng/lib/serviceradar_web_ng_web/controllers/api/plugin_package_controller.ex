@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins
+  alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.RBAC
 
@@ -158,14 +159,14 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
   end
 
   def upload_blob(conn, %{"id" => id, "token" => token}) do
+    actor = SystemActor.system(:plugin_blob)
+
     with {:ok, %{id: token_id, key: object_key}} <- Storage.verify_token(:upload, token),
          true <- token_id == id,
          {:ok, package} <- fetch_package_for_blob(id),
          true <- object_key == package.wasm_object_key,
          {:ok, payload, conn} <- read_full_body(conn, Storage.max_upload_bytes()),
-         :ok <- Storage.put_blob(object_key, payload) do
-      content_hash = Storage.sha256(payload)
-      _ = update_package_hash(package, content_hash)
+         {:ok, _package} <- Packages.upload_blob(package, payload, actor: actor) do
       send_resp(conn, :created, "")
     else
       {:error, :invalid_token} ->
@@ -407,14 +408,6 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
       {:ok, package} -> {:ok, package}
       {:error, error} -> {:error, error}
     end
-  end
-
-  defp update_package_hash(package, content_hash) do
-    actor = SystemActor.system(:plugin_blob)
-
-    package
-    |> Ash.Changeset.for_update(:update, %{content_hash: content_hash})
-    |> Ash.update(actor: actor)
   end
 
   defp read_full_body(conn, max_bytes) do

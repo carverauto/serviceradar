@@ -86,6 +86,8 @@ defmodule ServiceRadar.Inventory.Device do
     :metadata
   ]
   @device_update_fields [
+    :type_id,
+    :type,
     :name,
     :hostname,
     :ip,

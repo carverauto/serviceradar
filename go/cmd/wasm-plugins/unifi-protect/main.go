@@ -46,9 +46,11 @@ type CameraDescriptor struct {
 	DeviceUID      string                 `json:"device_uid"`
 	Vendor         string                 `json:"vendor"`
 	CameraID       string                 `json:"camera_id"`
+	IP             string                 `json:"ip,omitempty"`
 	DisplayName    string                 `json:"display_name,omitempty"`
 	SourceURL      string                 `json:"source_url,omitempty"`
 	StreamProfiles []CameraStreamProfile  `json:"stream_profiles,omitempty"`
+	Identity       map[string]interface{} `json:"identity,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -547,6 +549,7 @@ func buildProtectCameraDescriptors(cfg Config, cameras []ProtectCamera) []Camera
 	for _, camera := range cameras {
 		deviceUID := firstNonEmpty(camera.MAC, camera.ID)
 		cameraID := firstNonEmpty(camera.ID, camera.MAC)
+		cameraHost := protectCameraInventoryHost(cfg, camera)
 		if deviceUID == "" || cameraID == "" {
 			continue
 		}
@@ -555,7 +558,11 @@ func buildProtectCameraDescriptors(cfg Config, cameras []ProtectCamera) []Camera
 			DeviceUID:   deviceUID,
 			Vendor:      "ubiquiti",
 			CameraID:    cameraID,
+			IP:          cameraHost,
 			DisplayName: firstNonEmpty(camera.DisplayName, camera.Name, camera.MarketName, camera.ModelKey, cameraID),
+			Identity: map[string]interface{}{
+				"mac": strings.TrimSpace(camera.MAC),
+			},
 			Metadata: map[string]interface{}{
 				"controller_host":  cfg.Host,
 				"plugin_id":        "unifi-protect-camera",
@@ -563,6 +570,9 @@ func buildProtectCameraDescriptors(cfg Config, cameras []ProtectCamera) []Camera
 				"firmware_version": camera.FirmwareVersion,
 				"is_connected":     camera.IsConnected,
 			},
+		}
+		if cameraHost != "" {
+			descriptor.Metadata["camera_host"] = cameraHost
 		}
 
 		for _, channel := range camera.Channels {
@@ -595,6 +605,17 @@ func buildProtectCameraDescriptors(cfg Config, cameras []ProtectCamera) []Camera
 		descriptors = append(descriptors, descriptor)
 	}
 	return descriptors
+}
+
+func protectCameraInventoryHost(cfg Config, camera ProtectCamera) string {
+	host := strings.TrimSpace(camera.Host)
+	controllerHost := strings.TrimSpace(cfg.Host)
+
+	if host == "" || strings.EqualFold(host, controllerHost) {
+		return ""
+	}
+
+	return host
 }
 
 func resolveProtectStreamSourceURL(ctx context.Context, cfg StreamConfig, client protectHTTPClient, headers map[string]string) (string, error) {

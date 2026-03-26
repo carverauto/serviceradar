@@ -178,10 +178,9 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   def upload_blob(package, payload, opts \\ [])
 
   def upload_blob(%PluginPackage{} = package, payload, opts) when is_binary(payload) do
-    scope = Keyword.get(opts, :scope)
     content_hash = Storage.sha256(payload)
 
-    store_wasm_blob(package, payload, content_hash, scope)
+    store_wasm_blob(package, payload, content_hash, opts)
   end
 
   def upload_blob(_package, _payload, _opts), do: {:error, :invalid_attributes}
@@ -289,7 +288,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     |> create_resource(scope)
   end
 
-  defp store_wasm_blob(package, payload, content_hash, scope) do
+  defp store_wasm_blob(package, payload, content_hash, opts) do
     object_key = package.wasm_object_key || Storage.object_key_for(package)
 
     with :ok <- Storage.put_blob(object_key, payload) do
@@ -298,7 +297,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         wasm_object_key: object_key,
         content_hash: content_hash
       })
-      |> update_resource(scope)
+      |> update_resource_with_opts(opts)
     end
   end
 
@@ -338,6 +337,17 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   defp update_resource(changeset, nil), do: Ash.update(changeset)
   defp update_resource(changeset, scope), do: Ash.update(changeset, scope: scope)
+
+  defp update_resource_with_opts(changeset, opts) do
+    scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+
+    cond do
+      not is_nil(scope) -> Ash.update(changeset, scope: scope)
+      not is_nil(actor) -> Ash.update(changeset, actor: actor)
+      true -> Ash.update(changeset)
+    end
+  end
 
   defp destroy_resource(changeset, nil), do: Ash.destroy(changeset)
   defp destroy_resource(changeset, scope), do: Ash.destroy(changeset, scope: scope)

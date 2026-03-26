@@ -800,6 +800,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "Open Relay"
     end
 
+    test "renders camera streams when inventory is still keyed by raw camera MAC", %{
+      conn: conn
+    } do
+      device_uid = "sr:camera-fallback-#{System.unique_integer([:positive])}"
+      mac = "7845582F3F73"
+
+      Repo.insert_all("ocsf_devices", [
+        %{
+          uid: device_uid,
+          type_id: 7,
+          hostname: "front-door-camera",
+          mac: mac,
+          vendor_name: "Ubiquiti",
+          is_available: true,
+          first_seen_time: ~U[2100-01-01 00:00:00Z],
+          last_seen_time: ~U[2100-01-01 00:00:00Z]
+        }
+      ])
+
+      %{source: source, profile: profile} = insert_camera_source!(mac)
+
+      {:ok, _view, html} = live(conn, ~p"/devices/#{device_uid}")
+
+      assert html =~ "Camera Streams"
+      assert html =~ source.display_name
+      assert html =~ profile.profile_name
+      assert html =~ "Open Relay"
+    end
+
     test "opens and closes a camera relay session from device details", %{
       conn: conn,
       device_uid: device_uid,

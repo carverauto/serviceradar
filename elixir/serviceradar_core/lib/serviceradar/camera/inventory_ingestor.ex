@@ -48,7 +48,14 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         context.resolve_device_uid
       )
 
-    with {:ok, source_attrs} <-
+    with :ok <-
+           context.device_sync.(
+             descriptor,
+             context.status,
+             context.observed_at,
+             context.actor
+           ),
+         {:ok, source_attrs} <-
            normalize_source(
              descriptor,
              context.descriptors,
@@ -85,6 +92,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       observed_at: Keyword.get(opts, :observed_at) || resolve_observed_at(payload, status),
       source_upsert: Keyword.get(opts, :source_upsert, &upsert_source/2),
       profile_upsert: Keyword.get(opts, :profile_upsert, &upsert_profile/2),
+      device_sync: Keyword.get(opts, :device_sync, &sync_device_inventory/4),
       resolve_device_uid: Keyword.get(opts, :resolve_device_uid, &default_resolve_device_uid/3),
       descriptors: extract_camera_descriptors(payload)
     }
@@ -300,6 +308,151 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp upsert_profile(attrs, actor) do
     StreamProfile.upsert_profile(attrs, actor: actor)
   end
+
+  defp sync_device_inventory(descriptor, status, observed_at, actor) when is_map(descriptor) do
+    case build_device_inventory_attrs(descriptor, status, observed_at) do
+      {:ok, device_uid, attrs} ->
+        upsert_device_inventory(device_uid, attrs, actor)
+
+      :skip ->
+        :ok
+    end
+  end
+
+  defp sync_device_inventory(_descriptor, _status, _observed_at, _actor), do: :ok
+
+  defp build_device_inventory_attrs(descriptor, status, observed_at) do
+    device_uid = descriptor_device_uid(descriptor)
+
+    if blank?(device_uid) do
+      :skip
+    else
+      {:ok, device_uid,
+       %{
+         uid: device_uid,
+         type: "camera",
+         type_id: 7,
+         name:
+           first_present([
+             string_value(descriptor, ["display_name", "displayName", "name"]),
+             descriptor_vendor_camera_id(descriptor),
+             device_uid
+           ]),
+         hostname: descriptor_hostname(descriptor),
+         ip: descriptor_ip(descriptor),
+         mac: descriptor_mac(descriptor),
+         vendor_name: string_value(descriptor, ["vendor"]),
+         model: descriptor_model(descriptor),
+         gateway_id: status[:gateway_id],
+         agent_id: status[:agent_id],
+         discovery_sources: ["camera_plugin"],
+         is_managed: true,
+         is_available: descriptor_available?(descriptor, status),
+         last_seen_time: observed_at,
+         metadata:
+           %{}
+           |> maybe_put("camera_vendor_camera_id", descriptor_vendor_camera_id(descriptor))
+           |> maybe_put(
+             "camera_source_url",
+             string_value(descriptor, ["source_url", "sourceUrl"])
+           )
+           |> maybe_put("camera_host", descriptor_hostname(descriptor))
+           |> maybe_put("camera_metadata", map_value(descriptor, ["metadata"]))
+       }}
+    end
+  end
+
+  defp upsert_device_inventory(device_uid, attrs, actor) do
+    case Device.get_by_uid(device_uid, true, actor: actor) do
+      {:ok, nil} ->
+        Device
+        |> Ash.Changeset.for_create(:create, attrs, actor: actor)
+        |> Ash.create()
+        |> case do
+          {:ok, _device} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:ok, %Device{} = device} ->
+        device
+        |> Ash.Changeset.for_update(
+          :update,
+          %{
+            type: "camera",
+            type_id: 7,
+            name: attrs.name,
+            hostname: attrs.hostname,
+            ip: attrs.ip,
+            mac: attrs.mac,
+            vendor_name: attrs.vendor_name,
+            model: attrs.model,
+            is_managed: attrs.is_managed,
+            is_available: attrs.is_available,
+            discovery_sources:
+              merge_discovery_sources(device.discovery_sources, attrs.discovery_sources),
+            metadata: merge_device_metadata(device.metadata, attrs.metadata),
+            last_seen_time: attrs.last_seen_time
+          },
+          actor: actor
+        )
+        |> Ash.update()
+        |> case do
+          {:ok, _device} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp merge_discovery_sources(existing_sources, incoming_sources) do
+    existing_sources = if is_list(existing_sources), do: existing_sources, else: []
+    incoming_sources = if is_list(incoming_sources), do: incoming_sources, else: []
+
+    existing_sources
+    |> Kernel.++(incoming_sources)
+    |> Enum.reject(&blank?/1)
+    |> Enum.uniq()
+  end
+
+  defp merge_device_metadata(existing, incoming) do
+    existing = if is_map(existing), do: existing, else: %{}
+    incoming = if is_map(incoming), do: incoming, else: %{}
+    Map.merge(existing, incoming)
+  end
+
+  defp descriptor_available?(descriptor, status) do
+    case string_value(descriptor, ["availability_status", "availabilityStatus"]) do
+      "unavailable" -> false
+      "degraded" -> true
+      "available" -> true
+      _ -> Map.get(status, :available, true)
+    end
+  end
+
+  defp descriptor_vendor_camera_id(descriptor) when is_map(descriptor) do
+    string_value(descriptor, [
+      "vendor_camera_id",
+      "vendorCameraId",
+      "camera_id",
+      "cameraId",
+      "id"
+    ])
+  end
+
+  defp descriptor_vendor_camera_id(_descriptor), do: nil
+
+  defp descriptor_model(descriptor) when is_map(descriptor) do
+    camera = map_value(descriptor, ["camera"]) || %{}
+
+    first_present([
+      string_value(camera, ["model", "model_key", "modelKey", "name"]),
+      string_value(descriptor, ["model"])
+    ])
+  end
+
+  defp descriptor_model(_descriptor), do: nil
 
   defp derive_source_state(descriptor, descriptors, payload, status, observed_at) do
     matched_events = matching_camera_events(descriptor, descriptors, payload)
@@ -817,16 +970,26 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp resolve_descriptor_device_uid(descriptor, status, actor, resolve_device_uid)
        when is_map(descriptor) and is_function(resolve_device_uid, 3) do
-    if blank?(descriptor_device_uid(descriptor)) do
-      case resolve_device_uid.(descriptor, status, actor) do
-        value when is_binary(value) and value != "" ->
-          Map.put(descriptor, "device_uid", value)
+    explicit_uid = descriptor_device_uid(descriptor)
 
-        _ ->
-          descriptor
-      end
-    else
-      descriptor
+    case resolve_device_uid.(descriptor, status, actor) do
+      value when is_binary(value) and value != "" ->
+        cond do
+          blank?(explicit_uid) ->
+            Map.put(descriptor, "device_uid", value)
+
+          value == explicit_uid ->
+            descriptor
+
+          IdentityReconciler.serviceradar_uuid?(value) ->
+            Map.put(descriptor, "device_uid", value)
+
+          true ->
+            descriptor
+        end
+
+      _ ->
+        descriptor
     end
   end
 
@@ -901,8 +1064,24 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     descriptor
     |> map_value(["identity"])
     |> case do
-      nil -> nil
-      identity -> string_value(identity, ["mac"])
+      nil ->
+        descriptor_mac_fallback(descriptor)
+
+      identity ->
+        first_present([
+          string_value(identity, ["mac"]),
+          descriptor_mac_fallback(descriptor)
+        ])
+    end
+  end
+
+  defp descriptor_mac_fallback(descriptor) when is_map(descriptor) do
+    case descriptor_device_uid(descriptor) do
+      value when is_binary(value) and value != "" ->
+        if mac_like?(value), do: value
+
+      _ ->
+        nil
     end
   end
 
@@ -990,6 +1169,18 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp ip_address?(_value), do: false
+
+  defp mac_like?(value) when is_binary(value) do
+    normalized =
+      value
+      |> String.trim()
+      |> String.replace(":", "")
+      |> String.replace("-", "")
+
+    byte_size(normalized) == 12 and String.match?(normalized, ~r/\A[0-9A-Fa-f]{12}\z/)
+  end
+
+  defp mac_like?(_value), do: false
 
   defp first_stream_url(streams) do
     Enum.find_value(streams, fn stream ->

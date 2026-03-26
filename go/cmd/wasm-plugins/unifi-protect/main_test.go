@@ -38,6 +38,7 @@ func TestBuildProtectCameraDescriptors(t *testing.T) {
 		{
 			ID:          "camera-1",
 			MAC:         "aa:bb:cc:dd:ee:ff",
+			Host:        "192.168.1.90",
 			Name:        "Front Door",
 			MarketName:  "G4 Bullet",
 			ModelKey:    "uvc-g4-bullet",
@@ -61,8 +62,17 @@ func TestBuildProtectCameraDescriptors(t *testing.T) {
 	if descriptor.Vendor != "ubiquiti" {
 		t.Fatalf("unexpected vendor: %s", descriptor.Vendor)
 	}
-	if descriptor.SourceURL != "rtsp://udm.local:7447/stream-alias" {
+	if descriptor.IP != "192.168.1.90" {
+		t.Fatalf("unexpected descriptor IP: %s", descriptor.IP)
+	}
+	if descriptor.SourceURL != "rtsp://192.168.1.90:7447/stream-alias" {
 		t.Fatalf("unexpected source URL: %s", descriptor.SourceURL)
+	}
+	if descriptor.Identity["mac"] != "aa:bb:cc:dd:ee:ff" {
+		t.Fatalf("unexpected descriptor identity: %#v", descriptor.Identity)
+	}
+	if descriptor.Metadata["camera_host"] != "192.168.1.90" {
+		t.Fatalf("unexpected descriptor metadata: %#v", descriptor.Metadata)
 	}
 	if len(descriptor.StreamProfiles) != 1 {
 		t.Fatalf("expected 1 stream profile, got %d", len(descriptor.StreamProfiles))
