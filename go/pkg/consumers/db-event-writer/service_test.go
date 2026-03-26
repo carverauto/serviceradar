@@ -86,9 +86,36 @@ func TestServiceSubjectsExpandsDerivedMetricFilter(t *testing.T) {
 	}
 
 	require.Equal(t,
-		[]string{"logs.otel.processed", "otel.metrics", "otel.metrics.>", "otel.traces.raw"},
+		[]string{"logs.otel.processed", "otel.metrics", "otel.metrics.>", "otel.traces", "otel.traces.raw"},
 		svc.subjects(),
 	)
+}
+
+func TestServiceSubjectsExpandsLegacyTraceSubject(t *testing.T) {
+	t.Parallel()
+
+	svc := &Service{
+		cfg: &DBEventWriterConfig{
+			Subject: "otel.traces",
+		},
+	}
+
+	require.Equal(t, []string{"otel.traces", "otel.traces.raw"}, svc.subjects())
+}
+
+func TestServiceSubjectsDeduplicatesTraceSubjects(t *testing.T) {
+	t.Parallel()
+
+	svc := &Service{
+		cfg: &DBEventWriterConfig{
+			Streams: []StreamConfig{
+				{Subject: "otel.traces", Table: "otel_traces"},
+				{Subject: "otel.traces.raw", Table: "otel_traces"},
+			},
+		},
+	}
+
+	require.Equal(t, []string{"otel.traces", "otel.traces.raw"}, svc.subjects())
 }
 
 func TestServiceSubjectsExpandsLegacyMetricSubject(t *testing.T) {

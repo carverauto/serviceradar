@@ -411,6 +411,11 @@ func consumerFilterSubjects(subject string) []string {
 	subject = strings.TrimSpace(subject)
 
 	switch subject {
+	case "otel.traces", "otel.traces.raw":
+		// The collector publishes traces under `otel.traces.raw`.
+		// Preserve legacy config compatibility while widening the JetStream
+		// consumer filter so trace messages are actually delivered.
+		return []string{"otel.traces", "otel.traces.raw"}
 	case "otel.metrics", "otel.metrics.raw":
 		// The collector publishes derived metrics under `otel.metrics.*`.
 		// Keep the processor's base-subject routing semantics, but widen the

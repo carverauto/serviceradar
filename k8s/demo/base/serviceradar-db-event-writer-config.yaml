@@ -35,7 +35,7 @@ data:
           "table": "logs"
         },
         {
-          "subject": "otel.traces",
+          "subject": "otel.traces.raw",
           "table": "otel_traces"
         },
         {
