@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
   alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
+  require Logger
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
@@ -179,6 +180,8 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
         unauthorized(conn)
 
       {:error, reason} ->
+        Logger.error("plugin blob API upload failed package_id=#{id} error=#{inspect(reason)}")
+
         {:error, reason}
     end
   end
