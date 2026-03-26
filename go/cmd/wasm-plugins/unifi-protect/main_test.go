@@ -75,7 +75,7 @@ func TestBuildProtectCameraDescriptors(t *testing.T) {
 		},
 	}
 
-	descriptors := buildProtectCameraDescriptors(cfg, cameras)
+	descriptors := buildProtectCameraDescriptors(cfg, cameras, nil)
 	if len(descriptors) != 1 {
 		t.Fatalf("expected 1 descriptor, got %d", len(descriptors))
 	}
@@ -126,7 +126,7 @@ func TestBuildProtectCameraDescriptorsMarksDisconnectedCameraUnavailable(t *test
 		},
 	}
 
-	descriptors := buildProtectCameraDescriptors(cfg, cameras)
+	descriptors := buildProtectCameraDescriptors(cfg, cameras, nil)
 	if len(descriptors) != 1 {
 		t.Fatalf("expected 1 descriptor, got %d", len(descriptors))
 	}
@@ -137,6 +137,46 @@ func TestBuildProtectCameraDescriptorsMarksDisconnectedCameraUnavailable(t *test
 	}
 	if descriptor.AvailabilityReason != "UniFi Protect state DISCONNECTED" {
 		t.Fatalf("unexpected availability reason: %s", descriptor.AvailabilityReason)
+	}
+}
+
+func TestBuildProtectCameraDescriptorsUsesNetworkClientIPWhenProtectOmitsIt(t *testing.T) {
+	cfg := Config{RTSPPort: 7447, CameraPluginConfig: sdk.CameraPluginConfig{Host: "192.168.1.1"}}
+	cameras := []ProtectCamera{
+		{
+			ID:          "camera-3",
+			MAC:         "78:45:58:2F:3F:73",
+			Host:        "192.168.1.1",
+			Name:        "Front Door",
+			State:       "CONNECTED",
+			IsConnected: true,
+			Channels: []ProtectChannel{
+				{ID: "0", Name: "High", RTSPSAlias: "rtsps://192.168.1.1:7441/front-door?enableSrtp"},
+			},
+		},
+	}
+
+	descriptors := buildProtectCameraDescriptors(cfg, cameras, map[string]UniFiNetworkClient{
+		normalizeMACKey("78:45:58:2F:3F:73"): {
+			ID:         "client-1",
+			MACAddress: "78:45:58:2F:3F:73",
+			IPAddress:  "192.168.1.90",
+			Name:       "Front Door",
+		},
+	})
+	if len(descriptors) != 1 {
+		t.Fatalf("expected 1 descriptor, got %d", len(descriptors))
+	}
+
+	descriptor := descriptors[0]
+	if descriptor.IP != "192.168.1.90" {
+		t.Fatalf("unexpected descriptor IP: %s", descriptor.IP)
+	}
+	if descriptor.Metadata["camera_host"] != "192.168.1.90" {
+		t.Fatalf("unexpected camera_host metadata: %#v", descriptor.Metadata)
+	}
+	if descriptor.Metadata["network_client_id"] != "client-1" {
+		t.Fatalf("unexpected network_client_id metadata: %#v", descriptor.Metadata)
 	}
 }
 
@@ -554,6 +594,92 @@ func TestProtectControllerFixtureAPIKeyAndStreamSelection(t *testing.T) {
 	}
 	if !sawBootstrap {
 		t.Fatalf("expected bootstrap request")
+	}
+}
+
+func TestFetchUniFiNetworkClientsMatchesCameraMACs(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/proxy/network/integration/v1/sites":
+			if got := r.Header.Get("X-API-Key"); got != "protect-api-key" {
+				http.Error(w, "missing api key", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"id":"site-1","name":"default"}]}`))
+		case "/proxy/network/integration/v1/sites/site-1/clients":
+			if got := r.Header.Get("X-API-Key"); got != "protect-api-key" {
+				http.Error(w, "missing api key", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"offset":0,
+				"limit":200,
+				"count":2,
+				"totalCount":2,
+				"data":[
+					{"id":"client-1","macAddress":"78:45:58:2F:3F:73","name":"Front Door"},
+					{"id":"client-2","macAddress":"AA:BB:CC:DD:EE:FF","ipAddress":"192.168.1.50","name":"Other"}
+				]
+			}`))
+		case "/proxy/network/integration/v1/sites/site-1/clients/client-1":
+			if got := r.Header.Get("X-API-Key"); got != "protect-api-key" {
+				http.Error(w, "missing api key", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"client-1","macAddress":"78:45:58:2F:3F:73","ipAddress":"192.168.1.90","hostname":"front-door.local"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+
+	cfg := Config{
+		CameraPluginConfig: sdk.CameraPluginConfig{
+			Host:    serverURL.Host,
+			Scheme:  "http",
+			Timeout: "2s",
+		},
+		APIKey: "protect-api-key",
+	}
+
+	client := &testProtectHTTPClient{
+		BaseURL: server.URL,
+		Timeout: 2 * time.Second,
+		HTTPClient: &http.Client{
+			Timeout: 2 * time.Second,
+		},
+	}
+
+	matches, endpoints := fetchUniFiNetworkClients(
+		context.Background(),
+		client,
+		map[string]string{"X-API-Key": "protect-api-key"},
+		cfg,
+		[]ProtectCamera{
+			{ID: "camera-1", MAC: "78:45:58:2F:3F:73", Host: serverURL.Host},
+			{ID: "camera-2", MAC: "AA:BB:CC:DD:EE:FF", Host: "192.168.1.99"},
+		},
+	)
+
+	match, ok := matches[normalizeMACKey("78:45:58:2F:3F:73")]
+	if !ok {
+		t.Fatalf("expected matched network client, got %#v", matches)
+	}
+	if match.IPAddress != "192.168.1.90" {
+		t.Fatalf("unexpected matched IP %q", match.IPAddress)
+	}
+	if len(endpoints) != 3 {
+		t.Fatalf("unexpected endpoint count %d", len(endpoints))
 	}
 }
 

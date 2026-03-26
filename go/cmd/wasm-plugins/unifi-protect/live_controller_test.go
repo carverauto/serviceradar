@@ -80,7 +80,7 @@ func TestProtectLiveControllerSmoke(t *testing.T) {
 	}
 	t.Logf("Protect bootstrap returned %d cameras, lastUpdateId=%s", len(bootstrap.Cameras), bootstrap.LastUpdateID)
 
-	descriptors := buildProtectCameraDescriptors(cfg, bootstrap.Cameras)
+	descriptors := buildProtectCameraDescriptors(cfg, bootstrap.Cameras, nil)
 	if len(descriptors) == 0 {
 		t.Fatal("expected at least one camera descriptor")
 	}
