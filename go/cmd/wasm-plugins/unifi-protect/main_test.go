@@ -25,6 +25,18 @@ func TestBuildProtectStreamURL(t *testing.T) {
 	}
 }
 
+func TestBuildProtectStreamURLStripsEnableSrtpFromDirectAlias(t *testing.T) {
+	cfg := Config{RTSPPort: 7447, CameraPluginConfig: sdk.CameraPluginConfig{Host: "udm.local"}}
+	camera := ProtectCamera{Host: "camera-relay.local"}
+	channel := ProtectChannel{RTSPSAlias: "rtsps://192.168.1.1:7441/example?enableSrtp"}
+
+	got := buildProtectStreamURL(cfg, camera, channel)
+	want := "rtsps://192.168.1.1:7441/example"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
 func TestExtractSessionCookie(t *testing.T) {
 	got := extractSessionCookie("TOKEN=abc123; Path=/; HttpOnly")
 	if got != "TOKEN=abc123" {
@@ -458,6 +470,66 @@ func TestProtectControllerFixtureAPIKeyAndStreamSelection(t *testing.T) {
 	}
 	if sourceURL != "rtsps://camera-a.local:7441/high-stream" {
 		t.Fatalf("unexpected selected source URL %q", sourceURL)
+	}
+	if !sawBootstrap {
+		t.Fatalf("expected bootstrap request")
+	}
+}
+
+func TestResolveProtectStreamSourceURLStripsEnableSrtpQuery(t *testing.T) {
+	t.Parallel()
+
+	var sawBootstrap bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/proxy/protect/integration/v1/cameras":
+			sawBootstrap = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[
+					{
+						"id":"camera-1",
+						"mac":"aa:bb:cc:dd:ee:ff",
+						"host":"camera-a.local",
+						"name":"Front Door"
+					}
+				]`))
+		case "/proxy/protect/integration/v1/cameras/camera-1/rtsps-stream":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"high":"rtsps://camera-a.local:7441/high-stream?enableSrtp"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+
+	cfg := Config{
+		CameraPluginConfig: sdk.CameraPluginConfig{
+			Host:   serverURL.Host,
+			Scheme: "http",
+		},
+		APIKey:        "protect-api-key",
+		BootstrapPath: "/proxy/protect/api/bootstrap",
+		RTSPPort:      7447,
+	}
+	client := &testProtectHTTPClient{BaseURL: server.URL, Timeout: 2 * time.Second}
+
+	sourceURL, err := resolveProtectStreamSourceURL(context.Background(), StreamConfig{
+		Config: cfg,
+		Relay: RelayConfig{
+			CameraSourceID:  "camera-1",
+			StreamProfileID: "high",
+		},
+	}, client, map[string]string{"X-API-Key": "protect-api-key"})
+	if err != nil {
+		t.Fatalf("resolveProtectStreamSourceURL error: %v", err)
+	}
+	if sourceURL != "rtsps://camera-a.local:7441/high-stream" {
+		t.Fatalf("unexpected sanitized source URL %q", sourceURL)
 	}
 	if !sawBootstrap {
 		t.Fatalf("expected bootstrap request")

@@ -76,7 +76,10 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
   def handle_in({data, [opcode: :text]}, state) do
     case String.trim(data) do
       "ping" ->
-        {:push, {:text, Jason.encode!(%{type: "camera_relay_pong", relay_session_id: state.relay_session_id})}, state}
+        {:push,
+         {:text,
+          Jason.encode!(%{type: "camera_relay_pong", relay_session_id: state.relay_session_id})},
+         state}
 
       _other ->
         {:ok, state}
@@ -95,7 +98,8 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
             {:ok, state}
 
           terminal_snapshot?(snapshot) ->
-            {:stop, :normal, 1000, [{:text, Jason.encode!(snapshot)}], %{state | last_snapshot: snapshot}}
+            {:stop, :normal, 1000, [{:text, Jason.encode!(snapshot)}],
+             %{state | last_snapshot: snapshot}}
 
           true ->
             {:push, {:text, Jason.encode!(snapshot)}, %{state | last_snapshot: snapshot}}
@@ -128,7 +132,8 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
         {:ok, state}
 
       terminal_snapshot?(snapshot) ->
-        {:stop, :normal, 1000, [{:text, Jason.encode!(snapshot)}], %{state | last_snapshot: snapshot}}
+        {:stop, :normal, 1000, [{:text, Jason.encode!(snapshot)}],
+         %{state | last_snapshot: snapshot}}
 
       true ->
         {:push, {:text, Jason.encode!(snapshot)}, %{state | last_snapshot: snapshot}}
@@ -162,6 +167,18 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
       true ->
         {:push, {:binary, encode_media_frame(payload)}, state}
     end
+  end
+
+  def handle_info({:EXIT, _pid, :normal}, state), do: {:ok, state}
+  def handle_info({:EXIT, _pid, :shutdown}, state), do: {:ok, state}
+
+  def handle_info(message, state) do
+    Logger.debug("Ignoring unexpected camera relay websocket message",
+      relay_session_id: state.relay_session_id,
+      message: inspect(message)
+    )
+
+    {:ok, state}
   end
 
   @impl true
@@ -229,7 +246,8 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
     "ready"
   end
 
-  defp playback_state(%{status: status}) when status in [:requested, :opening, "requested", "opening"], do: "pending"
+  defp playback_state(%{status: status})
+       when status in [:requested, :opening, "requested", "opening"], do: "pending"
 
   defp playback_state(%{status: status}) when status in [:closing, "closing"], do: "closing"
   defp playback_state(%{status: status}) when status in [:closed, "closed"], do: "closed"
@@ -241,7 +259,10 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
   defp prefer_snapshot(nil, snapshot), do: snapshot
   defp prefer_snapshot(snapshot, nil), do: snapshot
 
-  defp prefer_snapshot(%{relay_session_id: relay_session_id} = current, %{relay_session_id: relay_session_id} = candidate) do
+  defp prefer_snapshot(
+         %{relay_session_id: relay_session_id} = current,
+         %{relay_session_id: relay_session_id} = candidate
+       ) do
     if snapshot_regresses?(current, candidate) do
       current
     else
@@ -342,7 +363,9 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
     Map.get(session, :termination_kind) || Map.get(session, "termination_kind")
   end
 
-  defp iso8601_from_unix(value) when is_integer(value), do: value |> DateTime.from_unix!(:second) |> DateTime.to_iso8601()
+  defp iso8601_from_unix(value) when is_integer(value),
+    do: value |> DateTime.from_unix!(:second) |> DateTime.to_iso8601()
+
   defp iso8601_from_unix(_value), do: nil
 
   defp encode_media_frame(payload) do

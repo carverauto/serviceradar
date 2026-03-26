@@ -52,11 +52,14 @@ function buildHookElement() {
 function createMockWebSocketClass() {
   return class MockWebSocket {
     static instances = []
+    static OPEN = 1
 
     constructor(url) {
       this.url = url
       this.handlers = {}
       this.closed = false
+      this.readyState = MockWebSocket.OPEN
+      this.sent = []
       MockWebSocket.instances.push(this)
     }
 
@@ -68,7 +71,14 @@ function createMockWebSocketClass() {
       this.handlers[event]?.(payload)
     }
 
-    close() {}
+    send(data) {
+      this.sent.push(data)
+    }
+
+    close() {
+      this.closed = true
+      this.readyState = 3
+    }
   }
 }
 
@@ -611,5 +621,53 @@ describe("CameraRelayStatusStream", () => {
     expect(element.roles.get("relay-detail").textContent).toContain("Ingress media-123 is attached")
     expect(element.roles.get("transport-status").textContent).toBe("WebRTC answer applied")
     expect(hook.socket).toBeNull()
+  })
+
+  it("sends websocket keepalive pings while the browser viewer is open", async () => {
+    const element = buildHookElement()
+    const MockWebSocket = createMockWebSocketClass()
+
+    globalThis.window = {
+      location: new URL("https://example.com/devices/test"),
+      WebSocket: MockWebSocket,
+      VideoDecoder: function VideoDecoder() {},
+      MediaSource: class MediaSource {
+        static isTypeSupported() {
+          return true
+        }
+      },
+    }
+    globalThis.WebSocket = MockWebSocket
+
+    vi.useFakeTimers()
+
+    try {
+      const hook = {
+        ...CameraRelayStatusStream,
+        el: element,
+        socket: null,
+        player: {close() {}},
+      }
+
+      CameraRelayStatusStream.mounted.call(hook)
+
+      expect(MockWebSocket.instances).toHaveLength(1)
+
+      const socket = MockWebSocket.instances[0]
+      socket.emit("open")
+
+      await vi.advanceTimersByTimeAsync(20_000)
+      await vi.advanceTimersByTimeAsync(20_000)
+
+      expect(socket.sent).toEqual(["ping", "ping"])
+
+      CameraRelayStatusStream.destroyed.call(hook)
+
+      await vi.advanceTimersByTimeAsync(20_000)
+
+      expect(socket.sent).toEqual(["ping", "ping"])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

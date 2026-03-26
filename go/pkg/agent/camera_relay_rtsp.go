@@ -24,6 +24,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bluenviron/gortsplib/v5"
 	"github.com/bluenviron/gortsplib/v5/pkg/base"
@@ -50,6 +51,14 @@ type rtspCameraRelayStream struct {
 	closeOnce  sync.Once
 	terminalMu sync.Mutex
 	closed     bool
+}
+
+type cameraRelayTimestampDecoder struct {
+	mu        sync.Mutex
+	clockRate int64
+	init      bool
+	prev      uint32
+	pts       int64
 }
 
 func defaultCameraRelaySource(spec cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
@@ -117,11 +126,12 @@ func newRTSPCameraRelayStream(spec cameraRelaySessionSpec) (cameraRelayChunkStre
 	}
 
 	var sequence uint64
+	timestampDecoder := newCameraRelayTimestampDecoder(int64(h264Format.ClockRate()))
 
 	client.OnPacketRTP(media, h264Format, func(pkt *rtp.Packet) {
 		pts, ok := client.PacketPTS(media, pkt)
 		if !ok {
-			return
+			pts = timestampDecoder.Decode(pkt.Timestamp)
 		}
 
 		accessUnit, decodeErr := decoder.Decode(pkt)
@@ -268,4 +278,33 @@ func parseCameraRelayRTSPTransport(value string) (gortsplib.Protocol, error) {
 	default:
 		return 0, fmt.Errorf("%w %q", errUnsupportedCameraRelayTransport, value)
 	}
+}
+
+func newCameraRelayTimestampDecoder(clockRate int64) *cameraRelayTimestampDecoder {
+	return &cameraRelayTimestampDecoder{clockRate: clockRate}
+}
+
+func (d *cameraRelayTimestampDecoder) Decode(timestamp uint32) int64 {
+	if d == nil || d.clockRate <= 0 {
+		return 0
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if !d.init {
+		d.init = true
+		d.prev = timestamp
+		d.pts = 0
+		return 0
+	}
+
+	delta := int64(int32(timestamp - d.prev))
+	d.prev = timestamp
+	d.pts += delta * int64(time.Second) / d.clockRate
+	if d.pts < 0 {
+		d.pts = 0
+	}
+
+	return d.pts
 }

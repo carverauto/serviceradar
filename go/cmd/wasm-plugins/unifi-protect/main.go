@@ -659,7 +659,7 @@ func buildProtectStreamURL(cfg Config, camera ProtectCamera, channel ProtectChan
 	alias := strings.TrimSpace(channel.RTSPAlias)
 	if alias == "" {
 		if direct := strings.TrimSpace(channel.RTSPSAlias); direct != "" {
-			return direct
+			return sanitizeProtectStreamURL(direct)
 		}
 		return ""
 	}
@@ -670,7 +670,27 @@ func buildProtectStreamURL(cfg Config, camera ProtectCamera, channel ProtectChan
 	if host == "" {
 		return ""
 	}
-	return fmt.Sprintf("rtsp://%s:%d/%s", host, cfg.normalizedRTSPPort(), strings.TrimPrefix(alias, "/"))
+	return sanitizeProtectStreamURL(
+		fmt.Sprintf("rtsp://%s:%d/%s", host, cfg.normalizedRTSPPort(), strings.TrimPrefix(alias, "/")),
+	)
+}
+
+func sanitizeProtectStreamURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+
+	query := parsed.Query()
+	query.Del("enableSrtp")
+	parsed.RawQuery = query.Encode()
+
+	return parsed.String()
 }
 
 func protectChannelMatchesRelay(relay RelayConfig, channel ProtectChannel) bool {
