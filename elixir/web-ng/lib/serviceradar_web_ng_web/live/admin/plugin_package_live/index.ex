@@ -543,6 +543,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         _ = maybe_delete_blob(package)
 
         case Packages.delete(id, scope: scope) do
+          :ok -> :ok
           {:ok, _package} -> :ok
           {:error, error} -> {:error, error}
         end
