@@ -32,7 +32,7 @@ data:
         { "subject": "logs.snmp.processed", "table": "logs" },
         { "subject": "logs.otel.processed", "table": "logs" },
         { "subject": "logs.internal.processed", "table": "logs" },
-        { "subject": "otel.traces", "table": "otel_traces" },
+        { "subject": "otel.traces.raw", "table": "otel_traces" },
         { "subject": "otel.metrics", "table": "otel_metrics" },
         { "subject": "otel.metrics.raw", "table": "otel_metrics" }
       ],
