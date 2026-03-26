@@ -70,9 +70,10 @@ func TestProtectLiveControllerSmoke(t *testing.T) {
 	}
 	t.Logf("Protect auth mode: %s", authMode)
 
-	bootstrap, result := fetchProtectSnapshot(context.Background(), client, cfg, headers, authMode)
-	if result.Error != "" {
-		t.Fatalf("bootstrap failed: %s", result.Error)
+	needLastUpdateID := cfg.CollectEvents && authMode != "api_key"
+	bootstrap, _, snapshotErr := fetchProtectSnapshot(context.Background(), client, cfg, headers, authMode, needLastUpdateID)
+	if snapshotErr != "" {
+		t.Fatalf("bootstrap failed: %s", snapshotErr)
 	}
 	if len(bootstrap.Cameras) == 0 {
 		t.Fatal("expected at least one camera from Protect bootstrap")

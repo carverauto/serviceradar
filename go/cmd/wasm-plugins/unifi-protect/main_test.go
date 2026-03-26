@@ -233,6 +233,7 @@ func (c *gorillaProtectEventConn) Close() error {
 func TestProtectControllerFixtureLoginBootstrapAndEvents(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	var sawLogin bool
+	var sawIntegration bool
 	var sawBootstrap bool
 	var sawUpdates bool
 
@@ -246,6 +247,28 @@ func TestProtectControllerFixtureLoginBootstrapAndEvents(t *testing.T) {
 			sawLogin = true
 			http.SetCookie(w, &http.Cookie{Name: "TOKEN", Value: "fixture-token", Path: "/"})
 			w.WriteHeader(http.StatusOK)
+		case "/proxy/protect/integration/v1/cameras":
+			if got := r.Header.Get("Cookie"); got != "TOKEN=fixture-token" {
+				http.Error(w, "missing cookie", http.StatusUnauthorized)
+				return
+			}
+			sawIntegration = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[
+				{
+					"id":"camera-1",
+					"mac":"aa:bb:cc:dd:ee:ff",
+					"host":"camera-relay.local",
+					"name":"Front Door"
+				}
+			]`))
+		case "/proxy/protect/integration/v1/cameras/camera-1/rtsps-stream":
+			if got := r.Header.Get("Cookie"); got != "TOKEN=fixture-token" {
+				http.Error(w, "missing cookie", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"high":"rtsps://camera-relay.local:7441/high-stream?enableSrtp"}`))
 		case "/proxy/protect/api/bootstrap":
 			if got := r.Header.Get("Cookie"); got != "TOKEN=fixture-token" {
 				http.Error(w, "missing cookie", http.StatusUnauthorized)
@@ -360,9 +383,9 @@ func TestProtectControllerFixtureLoginBootstrapAndEvents(t *testing.T) {
 		t.Fatalf("unexpected auth mode %q", authMode)
 	}
 
-	bootstrap, bootstrapRes := fetchProtectSnapshot(context.Background(), client, cfg, headers, authMode)
-	if bootstrapRes.Error != "" {
-		t.Fatalf("bootstrap failed: %s", bootstrapRes.Error)
+	bootstrap, endpointResults, snapshotErr := fetchProtectSnapshot(context.Background(), client, cfg, headers, authMode, true)
+	if snapshotErr != "" {
+		t.Fatalf("bootstrap failed: %s", snapshotErr)
 	}
 	if bootstrap.LastUpdateID != "update-42" {
 		t.Fatalf("unexpected lastUpdateId %q", bootstrap.LastUpdateID)
@@ -370,9 +393,18 @@ func TestProtectControllerFixtureLoginBootstrapAndEvents(t *testing.T) {
 	if len(bootstrap.Cameras) != 1 {
 		t.Fatalf("unexpected camera count %d", len(bootstrap.Cameras))
 	}
+	if len(endpointResults) != 2 {
+		t.Fatalf("unexpected endpoint count %d", len(endpointResults))
+	}
+	if endpointResults[0].Path != "/proxy/protect/integration/v1/cameras" {
+		t.Fatalf("unexpected primary endpoint %q", endpointResults[0].Path)
+	}
+	if endpointResults[1].Path != "/proxy/protect/api/bootstrap" {
+		t.Fatalf("unexpected fallback endpoint %q", endpointResults[1].Path)
+	}
 
 	streams := buildProtectStreams(cfg, bootstrap.Cameras)
-	if len(streams) != 1 || streams[0].URL != "rtsp://camera-relay.local:7447/high-stream" {
+	if len(streams) != 1 || streams[0].URL != "rtsps://camera-relay.local:7441/high-stream" {
 		t.Fatalf("unexpected streams %#v", streams)
 	}
 
@@ -387,8 +419,8 @@ func TestProtectControllerFixtureLoginBootstrapAndEvents(t *testing.T) {
 		t.Fatalf("unexpected event message %q", events[0].Message)
 	}
 
-	if !sawLogin || !sawBootstrap || !sawUpdates {
-		t.Fatalf("expected full controller fixture flow, got login=%t bootstrap=%t updates=%t", sawLogin, sawBootstrap, sawUpdates)
+	if !sawLogin || !sawIntegration || !sawBootstrap || !sawUpdates {
+		t.Fatalf("expected full controller fixture flow, got login=%t integration=%t bootstrap=%t updates=%t", sawLogin, sawIntegration, sawBootstrap, sawUpdates)
 	}
 }
 
@@ -549,23 +581,38 @@ func TestResolveProtectStreamSourceURLStripsEnableSrtpQuery(t *testing.T) {
 	}
 }
 
-func TestProtectControllerFixtureCookieBootstrap(t *testing.T) {
+func TestFetchProtectSnapshotPrefersIntegrationForCookieAuth(t *testing.T) {
 	t.Parallel()
 
+	var sawIntegration bool
 	var sawBootstrap bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/proxy/protect/api/bootstrap":
+		case "/proxy/protect/integration/v1/cameras":
 			if got := r.Header.Get("Cookie"); got != "TOKEN=cookie-fixture" {
 				http.Error(w, "missing cookie", http.StatusUnauthorized)
 				return
 			}
-			sawBootstrap = true
+			sawIntegration = true
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{
-				"lastUpdateId":"cookie-update",
-				"cameras":[{"id":"camera-1","channels":[{"id":"high","name":"High","rtspAlias":"high-stream"}]}]
-			}`))
+			_, _ = w.Write([]byte(`[
+				{
+					"id":"camera-1",
+					"mac":"aa:bb:cc:dd:ee:ff",
+					"host":"camera-a.local",
+					"name":"Front Door"
+				}
+			]`))
+		case "/proxy/protect/integration/v1/cameras/camera-1/rtsps-stream":
+			if got := r.Header.Get("Cookie"); got != "TOKEN=cookie-fixture" {
+				http.Error(w, "missing cookie", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"high":"rtsps://camera-a.local:7441/high-stream"}`))
+		case "/proxy/protect/api/bootstrap":
+			sawBootstrap = true
+			http.NotFound(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -595,15 +642,24 @@ func TestProtectControllerFixtureCookieBootstrap(t *testing.T) {
 		t.Fatalf("unexpected auth mode %q", authMode)
 	}
 
-	bootstrap, bootstrapRes := fetchProtectSnapshot(context.Background(), client, cfg, headers, authMode)
-	if bootstrapRes.Error != "" {
-		t.Fatalf("bootstrap failed: %s", bootstrapRes.Error)
+	bootstrap, endpointResults, snapshotErr := fetchProtectSnapshot(context.Background(), client, cfg, headers, authMode, false)
+	if snapshotErr != "" {
+		t.Fatalf("bootstrap failed: %s", snapshotErr)
 	}
-	if bootstrap.LastUpdateID != "cookie-update" {
+	if bootstrap.LastUpdateID != "" {
 		t.Fatalf("unexpected lastUpdateId %q", bootstrap.LastUpdateID)
 	}
-	if !sawBootstrap {
-		t.Fatalf("expected bootstrap request")
+	if len(bootstrap.Cameras) != 1 || bootstrap.Cameras[0].Host != "camera-a.local" {
+		t.Fatalf("unexpected camera payload %#v", bootstrap.Cameras)
+	}
+	if len(endpointResults) != 1 || endpointResults[0].Path != "/proxy/protect/integration/v1/cameras" {
+		t.Fatalf("unexpected endpoint results %#v", endpointResults)
+	}
+	if !sawIntegration {
+		t.Fatalf("expected integration request")
+	}
+	if sawBootstrap {
+		t.Fatalf("did not expect bootstrap fallback when integration succeeded")
 	}
 }
 

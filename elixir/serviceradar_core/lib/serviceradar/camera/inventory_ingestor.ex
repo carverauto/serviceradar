@@ -367,35 +367,43 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         |> Ash.Changeset.for_create(:create, attrs, actor: actor)
         |> Ash.create()
         |> case do
-          {:ok, _device} -> :ok
+          {:ok, _device} ->
+            register_camera_identifiers(device_uid, attrs, actor)
+            :ok
+
           {:error, reason} -> {:error, reason}
         end
 
       {:ok, %Device{} = device} ->
+        merged_attrs = merge_camera_device_attrs(device, attrs)
+
         device
         |> Ash.Changeset.for_update(
           :update,
           %{
             type: "camera",
             type_id: 7,
-            name: attrs.name,
-            hostname: attrs.hostname,
-            ip: attrs.ip,
-            mac: attrs.mac,
-            vendor_name: attrs.vendor_name,
-            model: attrs.model,
-            is_managed: attrs.is_managed,
-            is_available: attrs.is_available,
+            name: merged_attrs.name,
+            hostname: merged_attrs.hostname,
+            ip: merged_attrs.ip,
+            mac: merged_attrs.mac,
+            vendor_name: merged_attrs.vendor_name,
+            model: merged_attrs.model,
+            is_managed: merged_attrs.is_managed,
+            is_available: merged_attrs.is_available,
             discovery_sources:
-              merge_discovery_sources(device.discovery_sources, attrs.discovery_sources),
-            metadata: merge_device_metadata(device.metadata, attrs.metadata),
-            last_seen_time: attrs.last_seen_time
+              merge_discovery_sources(device.discovery_sources, merged_attrs.discovery_sources),
+            metadata: merge_device_metadata(device.metadata, merged_attrs.metadata),
+            last_seen_time: merged_attrs.last_seen_time
           },
           actor: actor
         )
         |> Ash.update()
         |> case do
-          {:ok, _device} -> :ok
+          {:ok, _device} ->
+            register_camera_identifiers(device_uid, merged_attrs, actor)
+            :ok
+
           {:error, reason} -> {:error, reason}
         end
 
@@ -403,6 +411,78 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         {:error, reason}
     end
   end
+
+  defp merge_camera_device_attrs(%Device{} = existing, attrs) when is_map(attrs) do
+    %{
+      attrs
+      | ip: prefer_non_empty(attrs.ip, existing.ip),
+        mac: prefer_non_empty(attrs.mac, existing.mac),
+        hostname: prefer_non_empty(attrs.hostname, existing.hostname),
+        name: prefer_non_empty(attrs.name, existing.name),
+        vendor_name: prefer_non_empty(attrs.vendor_name, existing.vendor_name),
+        model: prefer_non_empty(attrs.model, existing.model)
+    }
+  end
+
+  defp register_camera_identifiers(device_uid, attrs, actor)
+       when is_binary(device_uid) and is_map(attrs) do
+    ids =
+      %{}
+      |> maybe_put("mac", attrs.mac)
+      |> maybe_put("integration_id", camera_integration_id(attrs))
+      |> maybe_put("ip", attrs.ip)
+
+    case ids do
+      map when map_size(map) == 0 ->
+        :ok
+
+      map ->
+        case IdentityReconciler.register_identifiers(device_uid, map, actor: actor) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to register camera identifiers for #{device_uid}: #{inspect(reason)}"
+            )
+
+            :ok
+        end
+    end
+  end
+
+  defp register_camera_identifiers(_device_uid, _attrs, _actor), do: :ok
+
+  defp camera_integration_id(attrs) when is_map(attrs) do
+    vendor = normalize_identifier_component(attrs.vendor_name)
+    vendor_camera_id =
+      attrs
+      |> Map.get(:metadata, %{})
+      |> map_value(["camera_vendor_camera_id"])
+      |> normalize_identifier_component()
+
+    if blank?(vendor) or blank?(vendor_camera_id) do
+      nil
+    else
+      "#{vendor}:camera:#{vendor_camera_id}"
+    end
+  end
+
+  defp camera_integration_id(_attrs), do: nil
+
+  defp normalize_identifier_component(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_identifier_component(value) when is_atom(value),
+    do: value |> Atom.to_string() |> normalize_identifier_component()
+
+  defp normalize_identifier_component(_value), do: nil
 
   defp merge_discovery_sources(existing_sources, incoming_sources) do
     existing_sources = if is_list(existing_sources), do: existing_sources, else: []
@@ -419,6 +499,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     incoming = if is_map(incoming), do: incoming, else: %{}
     Map.merge(existing, incoming)
   end
+
+  defp prefer_non_empty(new_value, old_value) when new_value in [nil, ""], do: old_value
+  defp prefer_non_empty(new_value, _old_value), do: new_value
 
   defp descriptor_available?(descriptor, status) do
     case string_value(descriptor, ["availability_status", "availabilityStatus"]) do

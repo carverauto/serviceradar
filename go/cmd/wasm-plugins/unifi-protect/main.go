@@ -160,10 +160,11 @@ func run_check() {
 			return sdk.Unknown("protect auth error: " + err.Error()), nil
 		}
 
-		bootstrap, bootstrapRes := fetchProtectSnapshot(context.Background(), client, cfg, headers, authMode)
+		needLastUpdateID := cfg.CollectEvents && authMode != "api_key"
+		bootstrap, endpointResults, snapshotErr := fetchProtectSnapshot(context.Background(), client, cfg, headers, authMode, needLastUpdateID)
 		details := ResultDetails{
 			ControllerHost: cfg.Host,
-			Endpoints:      []EndpointResult{bootstrapRes},
+			Endpoints:      endpointResults,
 			Metadata: map[string]interface{}{
 				"plugin":             "unifi-protect-camera",
 				"base_url":           client.BaseURL,
@@ -176,8 +177,8 @@ func run_check() {
 		}
 		resultEvents := make([]sdk.OCSFEvent, 0, 4)
 
-		if bootstrapRes.Error != "" {
-			details.CollectionError = bootstrapRes.Error
+		if snapshotErr != "" {
+			details.CollectionError = snapshotErr
 		}
 
 		details.Cameras = bootstrap.Cameras
@@ -196,10 +197,10 @@ func run_check() {
 
 		summary := fmt.Sprintf("UniFi Protect: %d cameras, %d streams", len(details.Cameras), len(details.Streams))
 		status := sdk.StatusWarning
-		if bootstrapRes.Error == "" && len(details.Cameras) > 0 {
+		if snapshotErr == "" && len(details.Cameras) > 0 {
 			status = sdk.StatusOK
 		}
-		if bootstrapRes.Error != "" {
+		if snapshotErr != "" {
 			status = sdk.StatusCritical
 		}
 		if status == sdk.StatusOK && cfg.CollectEvents {
@@ -410,12 +411,43 @@ func fetchProtectSnapshot(
 	cfg Config,
 	headers map[string]string,
 	authMode string,
-) (ProtectBootstrapSnapshot, EndpointResult) {
-	if authMode == "api_key" {
-		return fetchProtectIntegrationSnapshot(ctx, client, cfg, headers)
+	needLastUpdateID bool,
+) (ProtectBootstrapSnapshot, []EndpointResult, string) {
+	endpoints := make([]EndpointResult, 0, 2)
+
+	integrationSnapshot, integrationResult := fetchProtectIntegrationSnapshot(ctx, client, cfg, headers)
+	endpoints = append(endpoints, integrationResult)
+
+	useIntegration := integrationResult.Error == "" && len(integrationSnapshot.Cameras) > 0
+	if useIntegration && (authMode == "api_key" || !needLastUpdateID) {
+		return integrationSnapshot, endpoints, ""
 	}
 
-	return fetchProtectBootstrap(ctx, client, cfg, headers)
+	bootstrapSnapshot, bootstrapResult := fetchProtectBootstrap(ctx, client, cfg, headers)
+	endpoints = append(endpoints, bootstrapResult)
+
+	if bootstrapResult.Error == "" {
+		if useIntegration {
+			integrationSnapshot.LastUpdateID = bootstrapSnapshot.LastUpdateID
+			return integrationSnapshot, endpoints, ""
+		}
+
+		return bootstrapSnapshot, endpoints, ""
+	}
+
+	if useIntegration {
+		return integrationSnapshot, endpoints, ""
+	}
+
+	if integrationResult.Error != "" {
+		return ProtectBootstrapSnapshot{}, endpoints, integrationResult.Error
+	}
+
+	if bootstrapResult.Error != "" {
+		return ProtectBootstrapSnapshot{}, endpoints, bootstrapResult.Error
+	}
+
+	return bootstrapSnapshot, endpoints, ""
 }
 
 func fetchProtectIntegrationSnapshot(
@@ -637,9 +669,9 @@ func resolveProtectStreamSourceURL(ctx context.Context, cfg StreamConfig, client
 	if strings.TrimSpace(cfg.Config.APIKey) != "" {
 		authMode = "api_key"
 	}
-	bootstrap, result := fetchProtectSnapshot(ctx, client, cfg.Config, headers, authMode)
-	if result.Error != "" {
-		return "", fmt.Errorf("%s", result.Error)
+	bootstrap, _, snapshotErr := fetchProtectSnapshot(ctx, client, cfg.Config, headers, authMode, false)
+	if snapshotErr != "" {
+		return "", fmt.Errorf("%s", snapshotErr)
 	}
 
 	for _, camera := range bootstrap.Cameras {
