@@ -14,13 +14,19 @@ ServiceRadar TinyGo/WASM plugin for UniFi Protect cameras.
 ./build.sh
 ```
 
-Output: `dist/plugin.wasm`
+Output:
+- `dist/plugin.wasm`
+- `dist/plugin.yaml`
+- `dist/plugin.stream.yaml`
+- `dist/config.schema.json`
+- `dist/config.stream.schema.json`
 
 The same Wasm artifact exports both:
 - `run_check` for discovery/status/inventory polling
 - `stream_camera` for live-media relay bootstrap
 
-Use `manifest.json` for the discovery plugin package and `manifest.stream.json` for the streaming package.
+Use `plugin.yaml` for the discovery package and `plugin.stream.yaml` for the streaming package.
+Use `config.schema.json` and `config.stream.schema.json` as the optional JSON config schemas for those packages.
 
 ## Config
 

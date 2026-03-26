@@ -1,0 +1,27 @@
+id: unifi-protect-camera
+name: UniFi Protect Camera
+version: 0.1.0
+description: Collects UniFi Protect camera inventory and stream metadata
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - http_request
+  - websocket_connect
+  - websocket_recv
+  - websocket_close
+permissions:
+  allowed_domains:
+    - "*"
+  allowed_ports:
+    - 80
+    - 443
+    - 7447
+    - 7441
+resources:
+  requested_memory_mb: 64
+  requested_cpu_ms: 2000
+  max_open_connections: 2
