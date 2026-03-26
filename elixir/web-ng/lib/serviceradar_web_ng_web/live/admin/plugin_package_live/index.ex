@@ -865,6 +865,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       <.details_modal
         :if={@show_details_modal}
         package={@selected_package}
+        can_approve_plugins={@can_approve_plugins}
         review_form={@review_form}
         assignments={@assignments}
         agents={@agents}
