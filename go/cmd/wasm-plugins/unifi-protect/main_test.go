@@ -25,6 +25,18 @@ func TestBuildProtectStreamURL(t *testing.T) {
 	}
 }
 
+func TestBuildProtectStreamURLPrefersConnectionHost(t *testing.T) {
+	cfg := Config{RTSPPort: 7447, CameraPluginConfig: sdk.CameraPluginConfig{Host: "192.168.1.1"}}
+	camera := ProtectCamera{Host: "192.168.1.1", ConnectionHost: "192.168.1.90"}
+	channel := ProtectChannel{RTSPAlias: "abcdef"}
+
+	got := buildProtectStreamURL(cfg, camera, channel)
+	want := "rtsp://192.168.1.90:7447/abcdef"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
 func TestBuildProtectStreamURLStripsEnableSrtpFromDirectAlias(t *testing.T) {
 	cfg := Config{RTSPPort: 7447, CameraPluginConfig: sdk.CameraPluginConfig{Host: "udm.local"}}
 	camera := ProtectCamera{Host: "camera-relay.local"}
@@ -48,14 +60,15 @@ func TestBuildProtectCameraDescriptors(t *testing.T) {
 	cfg := Config{RTSPPort: 7447, CameraPluginConfig: sdk.CameraPluginConfig{Host: "udm.local"}}
 	cameras := []ProtectCamera{
 		{
-			ID:          "camera-1",
-			MAC:         "aa:bb:cc:dd:ee:ff",
-			Host:        "192.168.1.90",
-			Name:        "Front Door",
-			MarketName:  "G4 Bullet",
-			ModelKey:    "uvc-g4-bullet",
-			State:       "CONNECTED",
-			IsConnected: true,
+			ID:             "camera-1",
+			MAC:            "aa:bb:cc:dd:ee:ff",
+			Host:           "192.168.1.1",
+			ConnectionHost: "192.168.1.90",
+			Name:           "Front Door",
+			MarketName:     "G4 Bullet",
+			ModelKey:       "uvc-g4-bullet",
+			State:          "CONNECTED",
+			IsConnected:    true,
 			Channels: []ProtectChannel{
 				{ID: "0", Name: "High", RTSPAlias: "stream-alias", Width: 1920, Height: 1080, FPS: 24},
 			},

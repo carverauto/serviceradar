@@ -111,6 +111,7 @@ type ProtectCamera struct {
 	ID              string           `json:"id"`
 	MAC             string           `json:"mac"`
 	Host            string           `json:"host"`
+	ConnectionHost  string           `json:"connectionHost"`
 	Name            string           `json:"name"`
 	DisplayName     string           `json:"displayName"`
 	ModelKey        string           `json:"modelKey"`
@@ -608,7 +609,10 @@ func buildProtectCameraDescriptors(cfg Config, cameras []ProtectCamera) []Camera
 }
 
 func protectCameraInventoryHost(cfg Config, camera ProtectCamera) string {
-	host := strings.TrimSpace(camera.Host)
+	host := firstNonEmpty(
+		strings.TrimSpace(camera.ConnectionHost),
+		strings.TrimSpace(camera.Host),
+	)
 	controllerHost := strings.TrimSpace(cfg.Host)
 
 	if host == "" || strings.EqualFold(host, controllerHost) {
@@ -663,7 +667,10 @@ func buildProtectStreamURL(cfg Config, camera ProtectCamera, channel ProtectChan
 		}
 		return ""
 	}
-	host := strings.TrimSpace(camera.Host)
+	host := firstNonEmpty(
+		strings.TrimSpace(camera.ConnectionHost),
+		strings.TrimSpace(camera.Host),
+	)
 	if host == "" {
 		host = strings.TrimSpace(cfg.Host)
 	}
