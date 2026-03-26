@@ -43,15 +43,17 @@ type StreamInfo struct {
 }
 
 type CameraDescriptor struct {
-	DeviceUID      string                 `json:"device_uid"`
-	Vendor         string                 `json:"vendor"`
-	CameraID       string                 `json:"camera_id"`
-	IP             string                 `json:"ip,omitempty"`
-	DisplayName    string                 `json:"display_name,omitempty"`
-	SourceURL      string                 `json:"source_url,omitempty"`
-	StreamProfiles []CameraStreamProfile  `json:"stream_profiles,omitempty"`
-	Identity       map[string]interface{} `json:"identity,omitempty"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	DeviceUID          string                 `json:"device_uid"`
+	Vendor             string                 `json:"vendor"`
+	CameraID           string                 `json:"camera_id"`
+	IP                 string                 `json:"ip,omitempty"`
+	DisplayName        string                 `json:"display_name,omitempty"`
+	AvailabilityStatus string                 `json:"availability_status,omitempty"`
+	AvailabilityReason string                 `json:"availability_reason,omitempty"`
+	SourceURL          string                 `json:"source_url,omitempty"`
+	StreamProfiles     []CameraStreamProfile  `json:"stream_profiles,omitempty"`
+	Identity           map[string]interface{} `json:"identity,omitempty"`
+	Metadata           map[string]interface{} `json:"metadata,omitempty"`
 }
 
 type CameraStreamProfile struct {
@@ -583,16 +585,19 @@ func buildProtectCameraDescriptors(cfg Config, cameras []ProtectCamera) []Camera
 		deviceUID := firstNonEmpty(camera.MAC, camera.ID)
 		cameraID := firstNonEmpty(camera.ID, camera.MAC)
 		cameraHost := protectCameraInventoryHost(cfg, camera)
+		availabilityStatus, availabilityReason := protectCameraAvailability(camera)
 		if deviceUID == "" || cameraID == "" {
 			continue
 		}
 
 		descriptor := CameraDescriptor{
-			DeviceUID:   deviceUID,
-			Vendor:      "ubiquiti",
-			CameraID:    cameraID,
-			IP:          cameraHost,
-			DisplayName: firstNonEmpty(camera.DisplayName, camera.Name, camera.MarketName, camera.ModelKey, cameraID),
+			DeviceUID:          deviceUID,
+			Vendor:             "ubiquiti",
+			CameraID:           cameraID,
+			IP:                 cameraHost,
+			DisplayName:        firstNonEmpty(camera.DisplayName, camera.Name, camera.MarketName, camera.ModelKey, cameraID),
+			AvailabilityStatus: availabilityStatus,
+			AvailabilityReason: availabilityReason,
 			Identity: map[string]interface{}{
 				"mac": strings.TrimSpace(camera.MAC),
 			},
@@ -638,6 +643,21 @@ func buildProtectCameraDescriptors(cfg Config, cameras []ProtectCamera) []Camera
 		descriptors = append(descriptors, descriptor)
 	}
 	return descriptors
+}
+
+func protectCameraAvailability(camera ProtectCamera) (string, string) {
+	state := strings.ToUpper(strings.TrimSpace(camera.State))
+
+	switch {
+	case state == "CONNECTED" || (state == "" && camera.IsConnected):
+		return "available", "UniFi Protect state CONNECTED"
+	case state == "DISCONNECTED" || (!camera.IsConnected && state == ""):
+		return "unavailable", "UniFi Protect state DISCONNECTED"
+	case state == "":
+		return "degraded", "UniFi Protect camera state is unknown"
+	default:
+		return "degraded", fmt.Sprintf("UniFi Protect state %s", state)
+	}
 }
 
 func protectCameraInventoryHost(cfg Config, camera ProtectCamera) string {

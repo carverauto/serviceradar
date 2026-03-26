@@ -809,6 +809,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "Open Relay"
     end
 
+    test "renders unavailable camera sources without an open relay action", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      %{source: source, profile: profile} =
+        insert_camera_source!(device_uid, %{
+          display_name: "Garage Door",
+          availability_status: "unavailable",
+          availability_reason: "UniFi Protect state DISCONNECTED"
+        })
+
+      {:ok, _view, html} = live(conn, ~p"/devices/#{device_uid}")
+
+      assert html =~ source.display_name
+      assert html =~ "Unavailable"
+      assert html =~ "UniFi Protect state DISCONNECTED"
+      assert html =~ "Relay unavailable"
+      assert html =~ profile.profile_name
+
+      refute html =~
+               "button phx-click=\"open_camera_relay\" phx-value-camera_source_id=\"#{source.id}\" phx-value-stream_profile_id=\"#{profile.id}\""
+    end
+
     test "renders camera streams when inventory is still keyed by raw camera MAC", %{
       conn: conn
     } do
@@ -1051,18 +1074,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     |> Ash.update!()
   end
 
-  defp insert_camera_source!(device_uid) do
+  defp insert_camera_source!(device_uid, attrs \\ %{}) do
     {:ok, source} =
       CameraSource.create_source(
-        %{
-          device_uid: device_uid,
-          vendor: "axis",
-          vendor_camera_id: "axis-#{System.unique_integer([:positive])}",
-          display_name: "Lobby Camera",
-          source_url: "rtsp://camera.local/stream",
-          assigned_agent_id: "agent-camera-1",
-          assigned_gateway_id: "gateway-camera-1"
-        },
+        Map.merge(
+          %{
+            device_uid: device_uid,
+            vendor: "axis",
+            vendor_camera_id: "axis-#{System.unique_integer([:positive])}",
+            display_name: "Lobby Camera",
+            source_url: "rtsp://camera.local/stream",
+            assigned_agent_id: "agent-camera-1",
+            assigned_gateway_id: "gateway-camera-1"
+          },
+          attrs
+        ),
         actor: AshTestHelpers.system_actor()
       )
 

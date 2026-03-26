@@ -3995,12 +3995,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   gateway {source.assigned_gateway_id}
                 </span>
               </div>
+              <div
+                :if={present?(source.availability_reason)}
+                class="mt-1 text-xs text-base-content/60"
+              >
+                {source.availability_reason}
+              </div>
             </div>
-            <span class="badge badge-outline badge-sm">
-              {length(source.stream_profiles)} profile{if length(source.stream_profiles) == 1,
-                do: "",
-                else: "s"}
-            </span>
+            <div class="flex items-center gap-2">
+              <span class={["badge badge-sm", camera_source_status_badge_class(source)]}>
+                {camera_source_status_label(source)}
+              </span>
+              <span class="badge badge-outline badge-sm">
+                {length(source.stream_profiles)} profile{if length(source.stream_profiles) == 1,
+                  do: "",
+                  else: "s"}
+              </span>
+            </div>
           </div>
 
           <div class="divide-y divide-base-200/70">
@@ -4055,15 +4066,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                     >
                       {Map.get(@last_session, :close_reason)}
                     </span>
-                    <.ui_button
-                      phx-click="open_camera_relay"
-                      phx-value-camera_source_id={source.id}
-                      phx-value-stream_profile_id={profile.id}
-                      variant="outline"
-                      size="xs"
-                    >
-                      Open Relay
-                    </.ui_button>
+                    <%= if camera_source_openable?(source) do %>
+                      <.ui_button
+                        phx-click="open_camera_relay"
+                        phx-value-camera_source_id={source.id}
+                        phx-value-stream_profile_id={profile.id}
+                        variant="outline"
+                        size="xs"
+                      >
+                        Open Relay
+                      </.ui_button>
+                    <% else %>
+                      <span class="text-xs text-error">Relay unavailable</span>
+                    <% end %>
                   <% true -> %>
                     <.ui_button
                       phx-click="open_camera_relay"
@@ -4071,7 +4086,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       phx-value-stream_profile_id={profile.id}
                       variant="outline"
                       size="xs"
-                      disabled={not is_nil(@active_session)}
+                      disabled={not is_nil(@active_session) or not camera_source_openable?(source)}
                     >
                       Open Relay
                     </.ui_button>
@@ -7954,6 +7969,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         display_name: camera_source_display_name(source),
         assigned_agent_id: source.assigned_agent_id,
         assigned_gateway_id: source.assigned_gateway_id,
+        availability_status: camera_source_availability_status(source),
+        availability_reason: camera_source_availability_reason(source),
         stream_profiles:
           source
           |> Map.get(:stream_profiles, [])
@@ -7977,6 +7994,58 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp camera_source_display_name(source) do
     source.display_name || source.vendor_camera_id || source.device_uid || "Camera"
+  end
+
+  defp camera_source_availability_status(source) when is_map(source) do
+    source
+    |> Map.get(:availability_status)
+    |> case do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+        if trimmed == "", do: nil, else: String.downcase(trimmed)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp camera_source_availability_status(_source), do: nil
+
+  defp camera_source_availability_reason(source) when is_map(source) do
+    source
+    |> Map.get(:availability_reason)
+    |> case do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+        if trimmed == "", do: nil, else: trimmed
+
+      _ ->
+        nil
+    end
+  end
+
+  defp camera_source_availability_reason(_source), do: nil
+
+  defp camera_source_openable?(source) do
+    camera_source_availability_status(source) != "unavailable"
+  end
+
+  defp camera_source_status_label(source) do
+    case camera_source_availability_status(source) do
+      "available" -> "Available"
+      "degraded" -> "Degraded"
+      "unavailable" -> "Unavailable"
+      _ -> "Unknown"
+    end
+  end
+
+  defp camera_source_status_badge_class(source) do
+    case camera_source_availability_status(source) do
+      "available" -> "badge-success"
+      "degraded" -> "badge-warning"
+      "unavailable" -> "badge-error"
+      _ -> "badge-ghost"
+    end
   end
 
   defp camera_streams_visible?(camera_sources, inventory_error, active_session, last_session) do

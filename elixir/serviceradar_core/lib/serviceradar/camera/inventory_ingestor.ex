@@ -4,6 +4,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.EventWriter.FieldParser
@@ -361,6 +362,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp upsert_device_inventory(device_uid, attrs, actor) do
+    attrs = enrich_camera_device_attrs(device_uid, attrs, actor)
+
     case Device.get_by_uid(device_uid, true, actor: actor) do
       {:ok, nil} ->
         Device
@@ -375,7 +378,10 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         end
 
       {:ok, %Device{} = device} ->
-        merged_attrs = merge_camera_device_attrs(device, attrs)
+        merged_attrs =
+          device
+          |> merge_camera_device_attrs(attrs)
+          |> enrich_camera_device_attrs(device_uid, actor)
 
         device
         |> Ash.Changeset.for_update(
@@ -423,6 +429,79 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         model: prefer_non_empty(attrs.model, existing.model)
     }
   end
+
+  defp enrich_camera_device_attrs(device_uid, attrs, actor)
+       when is_binary(device_uid) and is_map(attrs) do
+    with mac when is_binary(mac) and mac != "" <- normalize_mac(attrs.mac),
+         {:ok, peer} <- find_inventory_peer_by_mac(mac, device_uid, actor) do
+      %{
+        attrs
+        | ip: prefer_non_empty(attrs.ip, peer.ip),
+          hostname: prefer_non_empty(attrs.hostname, peer.hostname),
+          vendor_name: prefer_non_empty(attrs.vendor_name, peer.vendor_name),
+          model: prefer_non_empty(attrs.model, peer.model)
+      }
+    else
+      _ -> attrs
+    end
+  end
+
+  defp enrich_camera_device_attrs(_device_uid, attrs, _actor), do: attrs
+
+  defp find_inventory_peer_by_mac(mac, device_uid, actor)
+       when is_binary(mac) and mac != "" and is_binary(device_uid) do
+    Device
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      mac == ^mac and uid != ^device_uid and (not is_nil(ip) or not is_nil(hostname))
+    )
+    |> Ash.read(actor: actor)
+    |> Page.unwrap()
+    |> case do
+      {:ok, devices} when is_list(devices) ->
+        devices
+        |> Enum.max_by(&camera_inventory_peer_score/1, fn -> nil end)
+        |> case do
+          nil -> {:error, :not_found}
+          %Device{} = device -> {:ok, device}
+        end
+
+      _ ->
+        {:error, :not_found}
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "Failed to enrich camera inventory from peer MAC #{mac}: #{Exception.message(error)}"
+      )
+
+      {:error, :lookup_failed}
+  end
+
+  defp find_inventory_peer_by_mac(_mac, _device_uid, _actor), do: {:error, :invalid_mac}
+
+  defp camera_inventory_peer_score(%Device{} = device) do
+    {
+      if(device.type == "camera", do: 0, else: 1),
+      count_present([device.ip, device.hostname, device.vendor_name, device.model]),
+      device.last_seen_time || ~U[1970-01-01 00:00:00Z]
+    }
+  end
+
+  defp count_present(values) when is_list(values) do
+    Enum.count(values, &(not blank?(&1)))
+  end
+
+  defp normalize_mac(nil), do: nil
+
+  defp normalize_mac(mac) when is_binary(mac) do
+    case IdentityReconciler.normalize_mac(mac) do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_mac(_value), do: nil
 
   defp register_camera_identifiers(device_uid, attrs, actor)
        when is_binary(device_uid) and is_map(attrs) do

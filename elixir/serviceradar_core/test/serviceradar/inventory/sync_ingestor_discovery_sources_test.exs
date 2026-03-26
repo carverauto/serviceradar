@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Camera.InventoryIngestor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.SyncIngestor
@@ -283,6 +284,81 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         |> Page.unwrap()
 
       assert length(devices) == 1
+    end
+
+    test "camera inventory ingest enriches missing ip and hostname from peer device with same mac",
+         %{actor: actor} do
+      mac = unique_mac()
+      camera_uid = "camera-peer-#{System.unique_integer([:positive])}"
+      peer_uid = "peer-device-#{System.unique_integer([:positive])}"
+      ip = "10.0.10.#{unique_octet()}"
+
+      {:ok, _peer_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: peer_uid,
+            name: "Front Door Peer",
+            hostname: "front-door.local",
+            ip: ip,
+            mac: mac,
+            vendor_name: "Ubiquiti",
+            model: "G5 Bullet",
+            discovery_sources: ["mapper"]
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _camera_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: camera_uid,
+            type: "camera",
+            type_id: 7,
+            name: "Front Door",
+            mac: mac,
+            discovery_sources: ["camera_plugin"]
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      payload = %{
+        "camera_descriptors" => [
+          %{
+            "device_uid" => camera_uid,
+            "vendor" => "ubiquiti",
+            "camera_id" => "protect-front-door",
+            "display_name" => "Front Door",
+            "identity" => %{"mac" => mac},
+            "source_url" => "rtsps://192.168.1.1:7441/front-door",
+            "stream_profiles" => [%{"profile_name" => "High", "codec_hint" => "h264"}]
+          }
+        ]
+      }
+
+      assert :ok =
+               InventoryIngestor.ingest(payload, %{},
+                 actor: actor,
+                 resolve_device_uid: fn _descriptor, _status, _actor -> camera_uid end,
+                 source_upsert: fn _attrs, _actor -> {:ok, %{id: Ecto.UUID.generate()}} end,
+                 profile_upsert: fn attrs, _actor -> {:ok, attrs} end
+               )
+
+      {:ok, [updated_camera]} =
+        Device
+        |> Ash.Query.filter(uid == ^camera_uid and is_nil(deleted_at))
+        |> Ash.read(actor: actor)
+        |> Page.unwrap()
+
+      assert updated_camera.ip == ip
+      assert updated_camera.hostname == "front-door.local"
+      assert updated_camera.model == "G5 Bullet"
+      assert updated_camera.type == "camera"
     end
   end
 

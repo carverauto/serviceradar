@@ -90,6 +90,12 @@ func TestBuildProtectCameraDescriptors(t *testing.T) {
 	if descriptor.IP != "192.168.1.90" {
 		t.Fatalf("unexpected descriptor IP: %s", descriptor.IP)
 	}
+	if descriptor.AvailabilityStatus != "available" {
+		t.Fatalf("unexpected availability status: %s", descriptor.AvailabilityStatus)
+	}
+	if descriptor.AvailabilityReason != "UniFi Protect state CONNECTED" {
+		t.Fatalf("unexpected availability reason: %s", descriptor.AvailabilityReason)
+	}
 	if descriptor.SourceURL != "rtsp://192.168.1.90:7447/stream-alias" {
 		t.Fatalf("unexpected source URL: %s", descriptor.SourceURL)
 	}
@@ -101,6 +107,36 @@ func TestBuildProtectCameraDescriptors(t *testing.T) {
 	}
 	if len(descriptor.StreamProfiles) != 1 {
 		t.Fatalf("expected 1 stream profile, got %d", len(descriptor.StreamProfiles))
+	}
+}
+
+func TestBuildProtectCameraDescriptorsMarksDisconnectedCameraUnavailable(t *testing.T) {
+	cfg := Config{RTSPPort: 7447, CameraPluginConfig: sdk.CameraPluginConfig{Host: "udm.local"}}
+	cameras := []ProtectCamera{
+		{
+			ID:          "camera-2",
+			MAC:         "11:22:33:44:55:66",
+			Host:        "192.168.1.1",
+			Name:        "Garage Door",
+			State:       "DISCONNECTED",
+			IsConnected: false,
+			Channels: []ProtectChannel{
+				{ID: "0", Name: "High", RTSPAlias: "garage-stream"},
+			},
+		},
+	}
+
+	descriptors := buildProtectCameraDescriptors(cfg, cameras)
+	if len(descriptors) != 1 {
+		t.Fatalf("expected 1 descriptor, got %d", len(descriptors))
+	}
+
+	descriptor := descriptors[0]
+	if descriptor.AvailabilityStatus != "unavailable" {
+		t.Fatalf("unexpected availability status: %s", descriptor.AvailabilityStatus)
+	}
+	if descriptor.AvailabilityReason != "UniFi Protect state DISCONNECTED" {
+		t.Fatalf("unexpected availability reason: %s", descriptor.AvailabilityReason)
 	}
 }
 
