@@ -76,7 +76,7 @@ func TestGatewayClientCameraMediaLiveNegotiation(t *testing.T) {
 	if openResp.MediaIngestId == "" {
 		t.Fatalf("expected non-empty media_ingest_id")
 	}
-	if openResp.MaxChunkBytes != 262144 {
+	if openResp.MaxChunkBytes != 1048576 {
 		t.Fatalf("unexpected max_chunk_bytes: got %d", openResp.MaxChunkBytes)
 	}
 	if openResp.LeaseExpiresAtUnix != openLease {

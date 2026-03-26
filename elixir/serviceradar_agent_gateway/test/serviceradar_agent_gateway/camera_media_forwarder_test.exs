@@ -30,7 +30,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarderTest do
          accepted: true,
          message: "core relay session accepted",
          media_ingest_id: "media-1",
-         max_chunk_bytes: 262_144,
+         max_chunk_bytes: 1_048_576,
          lease_expires_at_unix: 1_800_000_060
        }, %{core_node: :serviceradar_core@test}}
     ])
@@ -125,7 +125,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarderTest do
          accepted: true,
          message: "core relay session accepted",
          media_ingest_id: "media-1",
-         max_chunk_bytes: 262_144,
+         max_chunk_bytes: 1_048_576,
          lease_expires_at_unix: 1_800_000_060
        }, %{core_node: :serviceradar_core@test}}
     ])

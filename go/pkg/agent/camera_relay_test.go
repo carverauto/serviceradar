@@ -56,7 +56,7 @@ func (f *fakeCameraRelayGateway) OpenRelaySession(_ context.Context, req *proto.
 		Accepted:           true,
 		Message:            "accepted",
 		MediaIngestId:      "media-123",
-		MaxChunkBytes:      262_144,
+		MaxChunkBytes:      1_048_576,
 		LeaseExpiresAtUnix: time.Now().Add(30 * time.Second).Unix(),
 	}, nil
 }
