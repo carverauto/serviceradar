@@ -110,6 +110,37 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert command.message == "done"
       assert command.result_payload == %{"ok" => true}
     end
+
+    test "blocks mtr dispatches beyond the agent concurrency limit", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["mtr"]
+        })
+
+      assert {:ok, first_command_id} =
+               AgentCommandBus.dispatch(agent_id, "mtr.run", %{target: "1.1.1.1"})
+
+      assert {:ok, second_command_id} =
+               AgentCommandBus.dispatch(agent_id, "mtr.run", %{target: "8.8.8.8"})
+
+      assert {:error, {:agent_busy, :too_many_concurrent_mtr_traces}} =
+               AgentCommandBus.dispatch(agent_id, "mtr.run", %{target: "9.9.9.9"})
+
+      _ = wait_for_status(first_command_id, :sent, actor)
+      _ = wait_for_status(second_command_id, :sent, actor)
+
+      commands =
+        AgentCommand
+        |> Ash.Query.filter(agent_id == ^agent_id and command_type == "mtr.run")
+        |> Ash.read!(actor: actor)
+
+      assert length(commands) == 2
+      assert Enum.all?(commands, &(&1.status == :sent))
+    end
   end
 
   describe "push-config delivery" do
