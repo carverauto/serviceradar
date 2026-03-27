@@ -232,6 +232,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
 
           {:noreply,
            socket
+           |> clear_flash(:error)
            |> assign(:selected_camera_context, context)
            |> assign(:active_camera_relay_session, session)
            |> assign(:last_camera_relay_session, nil)

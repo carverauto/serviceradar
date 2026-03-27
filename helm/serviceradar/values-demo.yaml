@@ -324,7 +324,7 @@ certs:
 bmpCollector:
   enabled: true
   image:
-    tag: "v0.7.2@sha256:dc95fc7007cf427090beef7d91e252f5ac78475be25b9bf4d11a97a9627e057c"
+    tag: "latest"
   args:
     - "--bmp-address=0.0.0.0:11019"
     - "--kafka-disable"

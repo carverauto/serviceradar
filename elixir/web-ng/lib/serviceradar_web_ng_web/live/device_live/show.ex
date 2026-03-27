@@ -941,6 +941,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                ) do
           {:noreply,
            socket
+           |> clear_flash(:error)
            |> assign(:active_camera_relay_session, session)
            |> assign(:last_camera_relay_session, nil)
            |> tap(fn _socket -> schedule_camera_relay_refresh(session.id) end)

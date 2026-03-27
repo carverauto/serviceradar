@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
   alias ServiceRadar.Camera.InventoryIngestor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
 
   require Ash.Query
@@ -359,6 +360,91 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       assert updated_camera.hostname == "front-door.local"
       assert updated_camera.model == "G5 Bullet"
       assert updated_camera.type == "camera"
+    end
+
+    test "camera inventory strong identity claims ip from stale ip-only placeholder", %{
+      actor: actor
+    } do
+      mac = unique_mac()
+      ip = "10.0.11.#{unique_octet()}"
+      camera_uid = "sr:camera-#{System.unique_integer([:positive])}"
+      placeholder_uid = "placeholder-#{System.unique_integer([:positive])}"
+
+      {:ok, _placeholder} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: placeholder_uid,
+            ip: ip,
+            discovery_sources: ["mapper"]
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _camera_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: camera_uid,
+            type: "camera",
+            type_id: 7,
+            name: "Front Door",
+            discovery_sources: ["camera_plugin"]
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      assert :ok =
+               IdentityReconciler.register_identifiers(
+                 camera_uid,
+                 %{mac: mac},
+                 actor: actor
+               )
+
+      payload = %{
+        "camera_descriptors" => [
+          %{
+            "device_uid" => mac,
+            "vendor" => "ubiquiti",
+            "camera_id" => "protect-front-door",
+            "display_name" => "Front Door",
+            "ip" => ip,
+            "identity" => %{"mac" => mac},
+            "source_url" => "rtsps://192.168.1.1:7441/front-door",
+            "stream_profiles" => [%{"profile_name" => "High", "codec_hint" => "h264"}]
+          }
+        ]
+      }
+
+      assert :ok =
+               InventoryIngestor.ingest(payload, %{},
+                 actor: actor,
+                 source_upsert: fn _attrs, _actor -> {:ok, %{id: Ecto.UUID.generate()}} end,
+                 profile_upsert: fn attrs, _actor -> {:ok, attrs} end
+               )
+
+      {:ok, [camera_device]} =
+        Device
+        |> Ash.Query.filter(uid == ^camera_uid and is_nil(deleted_at))
+        |> Ash.read(actor: actor)
+        |> Page.unwrap()
+
+      assert camera_device.ip == ip
+      assert camera_device.type == "camera"
+
+      assert {:ok, nil} = Device.get_by_uid(placeholder_uid, false, actor: actor)
+
+      {:ok, active_ip_devices} =
+        Device
+        |> Ash.Query.filter(ip == ^ip and is_nil(deleted_at))
+        |> Ash.read(actor: actor)
+        |> Page.unwrap()
+
+      assert Enum.map(active_ip_devices, & &1.uid) == [camera_uid]
     end
   end
 

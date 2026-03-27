@@ -1,5 +1,6 @@
 {{- if .Values.bmpCollector.enabled }}
 {{- $data := default (dict) .Values.bmpCollector.data -}}
+{{- $cfg := default (dict) .Values.bmpCollector.config -}}
 {{- if and ($data.enabled | default true) (not $data.existingClaim) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -18,6 +19,33 @@ spec:
   {{- end }}
 ---
 {{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-bmp-collector-config
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+data:
+  config.json: |
+    {{- dict
+      "listen_addr" (default "0.0.0.0:11019" $cfg.listenAddr)
+      "read_buffer_bytes" (default 65536 $cfg.readBufferBytes)
+      "max_frame_size_bytes" (default 16777216 $cfg.maxFrameSizeBytes)
+      "nats_url" (default "nats://serviceradar-nats:4222" $cfg.natsUrl)
+      "nats_domain" (($cfg.natsDomain | default "") | empty | ternary nil $cfg.natsDomain)
+      "nats_creds_file" (($cfg.natsCredsFile | default "") | empty | ternary nil $cfg.natsCredsFile)
+      "nats_tls_required" (default true $cfg.natsTlsRequired)
+      "nats_tls_first" (default false $cfg.natsTlsFirst)
+      "nats_tls_ca_cert_path" (default "/etc/serviceradar/certs/root.pem" $cfg.natsTlsCaCertPath)
+      "nats_tls_client_cert_path" (default "/etc/serviceradar/certs/bmp-collector.pem" $cfg.natsTlsClientCertPath)
+      "nats_tls_client_key_path" (default "/etc/serviceradar/certs/bmp-collector-key.pem" $cfg.natsTlsClientKeyPath)
+      "stream_name" (default "ARANCINI_CAUSAL" $cfg.streamName)
+      "subject_prefix" (default "arancini.updates" $cfg.subjectPrefix)
+      "stream_subjects" (default (list) $cfg.streamSubjects)
+      "stream_max_bytes" (default 10737418240 $cfg.streamMaxBytes)
+      "publish_timeout_ms" (default 5000 $cfg.publishTimeoutMs)
+      | toPrettyJson | nindent 4 }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -53,10 +81,9 @@ spec:
           containerPort: {{ .Values.bmpCollector.service.ports.bmp.targetPort | default 11019 }}
           protocol: {{ .Values.bmpCollector.service.ports.bmp.protocol | default "TCP" }}
         {{- end }}
-        {{- with .Values.bmpCollector.args }}
         args:
-          {{- toYaml . | nindent 10 }}
-        {{- end }}
+        - "--config"
+        - "/etc/serviceradar/bmp-collector/config.json"
         env:
         - name: RUST_LOG
           value: "info"
@@ -86,6 +113,9 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        - name: bmp-collector-config
+          mountPath: /etc/serviceradar/bmp-collector
+          readOnly: true
         - name: nats-creds
           mountPath: /etc/serviceradar/creds
           readOnly: true
@@ -97,6 +127,9 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+      - name: bmp-collector-config
+        configMap:
+          name: serviceradar-bmp-collector-config
       - name: nats-creds
         secret:
           secretName: serviceradar-nats-creds
