@@ -15,7 +15,10 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
 
   require Logger
 
-  @max_chunk_bytes 262_144
+  # UniFi Protect high-profile keyframes can exceed 256 KiB when relayed as a
+  # single Annex B access unit. Keep the per-frame limit comfortably below the
+  # default gRPC message ceiling while allowing intact frames through.
+  @max_chunk_bytes 1_048_576
   @agent_gateway_component_types [:agent]
 
   @typep open_relay_session_request :: %Camera.OpenRelaySessionRequest{}

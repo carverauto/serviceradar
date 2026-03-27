@@ -21,7 +21,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
            relay_session_manager().request_open(
              request.camera_source_id,
              request.stream_profile_id,
-             scope: get_scope(conn)
+             scope: get_scope(conn),
+             insecure_skip_verify: request.insecure_skip_verify
            ) do
       conn
       |> put_status(:created)
@@ -112,7 +113,12 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
            normalize_uuid_param(Map.get(params, "camera_source_id"), "camera_source_id"),
          {:ok, stream_profile_id} <-
            normalize_uuid_param(Map.get(params, "stream_profile_id"), "stream_profile_id") do
-      {:ok, %{camera_source_id: camera_source_id, stream_profile_id: stream_profile_id}}
+      {:ok,
+       %{
+         camera_source_id: camera_source_id,
+         stream_profile_id: stream_profile_id,
+         insecure_skip_verify: parse_boolean_param(Map.get(params, "insecure_skip_verify")) == true
+       }}
     end
   end
 
@@ -135,6 +141,14 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
   end
 
   defp normalize_optional_string(_value), do: nil
+
+  defp parse_boolean_param(value) when value in [true, false], do: value
+  defp parse_boolean_param("true"), do: true
+  defp parse_boolean_param("false"), do: false
+  defp parse_boolean_param("on"), do: true
+  defp parse_boolean_param("1"), do: true
+  defp parse_boolean_param("0"), do: false
+  defp parse_boolean_param(_value), do: nil
 
   defp relay_session_json(session, conn) do
     playback_metadata = playback_metadata(session)

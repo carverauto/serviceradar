@@ -57,6 +57,7 @@ type cameraRelayStartPayload struct {
 	RTSPTransport      string `json:"rtsp_transport,omitempty"`
 	CodecHint          string `json:"codec_hint,omitempty"`
 	ContainerHint      string `json:"container_hint,omitempty"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
 }
 
 type cameraRelayStopPayload struct {
@@ -77,6 +78,7 @@ type cameraRelaySessionSpec struct {
 	RTSPTransport      string
 	CodecHint          string
 	ContainerHint      string
+	InsecureSkipVerify bool
 }
 
 type cameraRelaySessionState struct {

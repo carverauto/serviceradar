@@ -3,7 +3,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.CameraMediaCoreTestServer do
 
   use GRPC.Server, service: Camera.CameraMediaService.Service
 
-  @max_chunk_bytes 262_144
+  @max_chunk_bytes 1_048_576
 
   def open_relay_session(%Camera.OpenRelaySessionRequest{} = request, _stream) do
     notify({:core_open_relay_session, request})

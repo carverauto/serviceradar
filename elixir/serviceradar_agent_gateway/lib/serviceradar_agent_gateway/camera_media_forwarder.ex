@@ -11,9 +11,23 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
   require Logger
 
   @default_timeout 15_000
+  @default_open_retry_attempts 1
 
   def open_relay_session(%Camera.OpenRelaySessionRequest{} = request, opts \\ []) do
-    case :rpc.call(core_node(opts), ingress_module(opts), :open_relay_session, [request], timeout(opts)) do
+    with {:ok, core_node} <- resolve_core_node(opts),
+         :ok <- ensure_core_connected(core_node, opts) do
+      do_open_relay_session(request, Keyword.put(opts, :core_node, core_node), open_retry_attempts(opts))
+    end
+  end
+
+  defp do_open_relay_session(%Camera.OpenRelaySessionRequest{} = request, opts, remaining_attempts) do
+    case rpc_module(opts).call(core_node(opts), ingress_module(opts), :open_relay_session, [request], timeout(opts)) do
+      {:badrpc, :nodedown} when remaining_attempts > 0 ->
+        Logger.warning("Camera relay open hit :nodedown talking to core-elx; retrying (remaining=#{remaining_attempts})")
+
+        _ = ensure_core_connected(core_node(opts), opts)
+        do_open_relay_session(request, opts, remaining_attempts - 1)
+
       {:badrpc, reason} ->
         Logger.error("Failed to open camera relay session on core-elx ingress: #{inspect(reason)}")
         {:error, :core_unavailable}
@@ -67,9 +81,18 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
 
   defp timeout(opts), do: opts[:timeout] || @default_timeout
 
+  defp open_retry_attempts(opts) do
+    opts[:open_retry_attempts] ||
+      Application.get_env(
+        :serviceradar_agent_gateway,
+        :camera_media_forwarder_open_retry_attempts,
+        @default_open_retry_attempts
+      )
+  end
+
   defp core_node(opts) do
     case opts[:core_node] || Application.get_env(:serviceradar_agent_gateway, :camera_media_forwarder_core_node) do
-      node when is_atom(node) ->
+      node when is_atom(node) and not is_nil(node) ->
         node
 
       nil ->
@@ -78,6 +101,40 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
       other ->
         raise ArgumentError, "invalid core node for camera media forwarder: #{inspect(other)}"
     end
+  end
+
+  defp resolve_core_node(opts) do
+    case core_node_resolver(opts).() do
+      node when is_atom(node) and not is_nil(node) ->
+        {:ok, node}
+
+      other ->
+        Logger.error(
+          "Failed to resolve core node for camera media forwarder: #{inspect(other)} (connected=#{inspect(Node.list())})"
+        )
+
+        {:error, :core_unavailable}
+    end
+  end
+
+  defp ensure_core_connected(node, opts) when is_atom(node) do
+    case connectivity_module(opts).ping(node) do
+      :pong ->
+        :ok
+
+      :pang ->
+        Logger.error("Failed to establish distributed Erlang connection to core node #{inspect(node)}")
+        {:error, :core_unavailable}
+
+      other ->
+        Logger.error("Unexpected core connectivity probe result for #{inspect(node)}: #{inspect(other)}")
+        {:error, :core_unavailable}
+    end
+  end
+
+  defp ensure_core_connected(node, _opts) do
+    Logger.error("Failed to establish distributed Erlang connection to core node #{inspect(node)}")
+    {:error, :core_unavailable}
   end
 
   defp select_core_node do
@@ -100,6 +157,24 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
         :serviceradar_agent_gateway,
         :camera_media_forwarder_ingress_module,
         CameraMediaIngress
+      )
+  end
+
+  defp rpc_module(opts) do
+    opts[:rpc_module] ||
+      Application.get_env(:serviceradar_agent_gateway, :camera_media_forwarder_rpc_module, :rpc)
+  end
+
+  defp core_node_resolver(opts) do
+    opts[:core_node_resolver] || fn -> core_node(opts) end
+  end
+
+  defp connectivity_module(opts) do
+    opts[:connectivity_module] ||
+      Application.get_env(
+        :serviceradar_agent_gateway,
+        :camera_media_forwarder_connectivity_module,
+        :net_adm
       )
   end
 end

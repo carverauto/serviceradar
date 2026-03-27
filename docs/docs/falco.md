@@ -38,6 +38,12 @@ Use this to configure NATS + OTLP metrics and mount ServiceRadar certs.
 helm upgrade -n demo falcosidekick-nats-auth falcosecurity/falcosidekick \
   --version 0.13.0 \
   --reuse-values \
+  --set podSecurityContext.runAsUser=1234 \
+  --set podSecurityContext.fsGroup=1234 \
+  --set securityContext.allowPrivilegeEscalation=false \
+  --set securityContext.runAsNonRoot=true \
+  --set securityContext.capabilities.drop[0]=ALL \
+  --set securityContext.seccompProfile.type=RuntimeDefault \
   --set-string config.nats.hostport=nats://serviceradar-nats:4222 \
   --set config.nats.mutualtls=true \
   --set config.nats.checkcert=true \

@@ -10,6 +10,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.PluginPackage
 
   @moduletag :integration
 
@@ -250,6 +252,77 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       # Version should be different now
       assert config1.config_version != config2.config_version
+    end
+
+    test "plugin download URL rotation does not change version hash", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      Application.put_env(
+        :serviceradar_core,
+        :plugin_storage,
+        public_url: "https://demo.serviceradar.cloud",
+        signing_secret: String.duplicate("s", 32),
+        download_ttl_seconds: 60
+      )
+
+      on_exit(fn ->
+        Application.delete_env(:serviceradar_core, :plugin_storage)
+      end)
+
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      {:ok, package} =
+        PluginPackage
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            plugin_id: "plugin-#{unique_id}",
+            name: "Plugin #{unique_id}",
+            version: "1.0.0",
+            entrypoint: "run_check",
+            outputs: "serviceradar.plugin_result.v1",
+            manifest: %{},
+            config_schema: %{},
+            display_contract: %{},
+            wasm_object_key: "plugins/#{unique_id}/plugin.wasm",
+            content_hash: "sha256:#{unique_id}",
+            signature: %{},
+            source_type: :upload
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, package} =
+        package
+        |> Ash.Changeset.for_update(:approve, %{approved_by: "test"}, actor: actor)
+        |> Ash.update()
+
+      {:ok, _assignment} =
+        PluginAssignment
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            agent_uid: agent_uid,
+            plugin_package_id: package.id,
+            enabled: true,
+            interval_seconds: 60,
+            timeout_seconds: 10,
+            params: %{}
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
+      Process.sleep(1_100)
+      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert config1.config_version == config2.config_version
+      refute config1.plugins == []
+      assert hd(config1.plugins).download_url != hd(config2.plugins).download_url
     end
   end
 

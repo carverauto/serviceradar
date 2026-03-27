@@ -442,11 +442,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         "results" -> @max_results_message_bytes
         "sysmon-metrics" -> @max_sysmon_message_bytes
         "snmp-metrics" -> @max_results_message_bytes
+        "plugin-result" -> @max_results_message_bytes
         _ -> @max_status_message_bytes
       end
 
     if byte_size(msg) > max_bytes do
-      if source in ["results", "sysmon-metrics", "snmp-metrics"] do
+      if source in ["results", "sysmon-metrics", "snmp-metrics", "plugin-result"] do
         raise GRPC.RPCError,
           status: :resource_exhausted,
           message: "payload exceeds max size"

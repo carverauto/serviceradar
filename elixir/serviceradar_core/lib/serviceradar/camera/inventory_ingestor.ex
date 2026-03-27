@@ -4,10 +4,12 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
 
   require Ash.Query
@@ -48,7 +50,14 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         context.resolve_device_uid
       )
 
-    with {:ok, source_attrs} <-
+    with :ok <-
+           context.device_sync.(
+             descriptor,
+             context.status,
+             context.observed_at,
+             context.actor
+           ),
+         {:ok, source_attrs} <-
            normalize_source(
              descriptor,
              context.descriptors,
@@ -85,6 +94,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       observed_at: Keyword.get(opts, :observed_at) || resolve_observed_at(payload, status),
       source_upsert: Keyword.get(opts, :source_upsert, &upsert_source/2),
       profile_upsert: Keyword.get(opts, :profile_upsert, &upsert_profile/2),
+      device_sync: Keyword.get(opts, :device_sync, &sync_device_inventory/4),
       resolve_device_uid: Keyword.get(opts, :resolve_device_uid, &default_resolve_device_uid/3),
       descriptors: extract_camera_descriptors(payload)
     }
@@ -300,6 +310,512 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp upsert_profile(attrs, actor) do
     StreamProfile.upsert_profile(attrs, actor: actor)
   end
+
+  defp sync_device_inventory(descriptor, status, observed_at, actor) when is_map(descriptor) do
+    case build_device_inventory_attrs(descriptor, status, observed_at) do
+      {:ok, device_uid, attrs} ->
+        upsert_device_inventory(device_uid, attrs, actor)
+
+      :skip ->
+        :ok
+    end
+  end
+
+  defp sync_device_inventory(_descriptor, _status, _observed_at, _actor), do: :ok
+
+  defp build_device_inventory_attrs(descriptor, status, observed_at) do
+    device_uid = descriptor_device_uid(descriptor)
+
+    if blank?(device_uid) do
+      :skip
+    else
+      {:ok, device_uid,
+       %{
+         uid: device_uid,
+         type: "camera",
+         type_id: 7,
+         name:
+           first_present([
+             string_value(descriptor, ["display_name", "displayName", "name"]),
+             descriptor_vendor_camera_id(descriptor),
+             device_uid
+           ]),
+         hostname: descriptor_hostname(descriptor),
+         ip: descriptor_ip(descriptor),
+         mac: descriptor_mac(descriptor),
+         vendor_name: string_value(descriptor, ["vendor"]),
+         model: descriptor_model(descriptor),
+         discovery_sources: ["camera_plugin"],
+         is_managed: true,
+         is_available: descriptor_available?(descriptor, status),
+         last_seen_time: observed_at,
+         metadata:
+           %{}
+           |> maybe_put("camera_vendor_camera_id", descriptor_vendor_camera_id(descriptor))
+           |> maybe_put(
+             "camera_source_url",
+             string_value(descriptor, ["source_url", "sourceUrl"])
+           )
+           |> maybe_put("camera_host", descriptor_hostname(descriptor))
+           |> maybe_put("camera_metadata", map_value(descriptor, ["metadata"]))
+       }}
+    end
+  end
+
+  defp upsert_device_inventory(device_uid, attrs, actor) do
+    attrs = enrich_camera_device_attrs(device_uid, attrs, actor)
+
+    case Device.get_by_uid(device_uid, true, actor: actor) do
+      {:ok, nil} ->
+        {create_attrs, conflicting_ip_device} = prepare_camera_ip_claim(device_uid, attrs, actor)
+
+        Device
+        |> Ash.Changeset.for_create(:create, create_attrs, actor: actor)
+        |> Ash.create()
+        |> case do
+          {:ok, _device} ->
+            register_camera_identifiers(device_uid, attrs, actor)
+            finalize_camera_ip_claim(device_uid, attrs, conflicting_ip_device, actor)
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:ok, %Device{} = device} ->
+        merged_attrs =
+          device
+          |> merge_camera_device_attrs(attrs)
+          |> enrich_camera_device_attrs(device_uid, actor)
+
+        with :ok <- claim_camera_ip_conflict(device_uid, merged_attrs, actor) do
+          update_camera_device(device, merged_attrs, actor)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp update_camera_device(device, attrs, actor) do
+    case {device, attrs} do
+      {%Device{} = device, attrs} when is_map(attrs) ->
+        device
+        |> Ash.Changeset.for_update(
+          :update,
+          %{
+            type: "camera",
+            type_id: 7,
+            name: attrs.name,
+            hostname: attrs.hostname,
+            ip: attrs.ip,
+            mac: attrs.mac,
+            gateway_id: nil,
+            agent_id: nil,
+            management_device_id: nil,
+            vendor_name: attrs.vendor_name,
+            model: attrs.model,
+            is_managed: attrs.is_managed,
+            is_available: attrs.is_available,
+            discovery_sources:
+              merge_discovery_sources(device.discovery_sources, attrs.discovery_sources),
+            metadata: merge_device_metadata(device.metadata, attrs.metadata),
+            last_seen_time: attrs.last_seen_time
+          },
+          actor: actor
+        )
+        |> Ash.update()
+        |> case do
+          {:ok, _device} ->
+            register_camera_identifiers(device.uid, attrs, actor)
+            :ok
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {%Device{} = device, target_uid} when is_binary(target_uid) ->
+        # Tolerate older ingest paths that passed the target uid instead of attrs after
+        # an IP-claim merge. Re-read the canonical camera row and continue with its
+        # merged state rather than failing the whole ingest.
+        with {:ok, %Device{} = target_device} <-
+               Device.get_by_uid(target_uid, false, actor: actor) do
+          target_device
+          |> camera_device_update_attrs()
+          |> then(&merge_camera_device_attrs(device, &1))
+          |> then(&update_camera_device(target_device, &1, actor))
+        end
+
+      _ ->
+        {:error, {:invalid_camera_update_target, device, attrs}}
+    end
+  end
+
+  defp prepare_camera_ip_claim(device_uid, attrs, actor)
+       when is_binary(device_uid) and is_map(attrs) do
+    case camera_ip_conflict(device_uid, attrs, actor) do
+      {:ok, nil} ->
+        {attrs, nil}
+
+      {:ok, %Device{} = device} ->
+        {%{attrs | ip: nil}, device}
+
+      {:error, _reason} ->
+        {attrs, nil}
+    end
+  end
+
+  defp prepare_camera_ip_claim(_device_uid, attrs, _actor), do: {attrs, nil}
+
+  defp finalize_camera_ip_claim(_device_uid, _attrs, nil, _actor), do: :ok
+
+  defp finalize_camera_ip_claim(device_uid, attrs, %Device{} = conflict, actor)
+       when is_binary(device_uid) and is_map(attrs) do
+    with :ok <- claim_conflicting_device_ip(conflict, device_uid, attrs, actor),
+         {:ok, %Device{} = device} <- Device.get_by_uid(device_uid, false, actor: actor) do
+      update_camera_device(device, attrs, actor)
+    end
+  end
+
+  defp claim_camera_ip_conflict(device_uid, attrs, actor)
+       when is_binary(device_uid) and is_map(attrs) do
+    case camera_ip_conflict(device_uid, attrs, actor) do
+      {:ok, nil} ->
+        :ok
+
+      {:ok, %Device{} = device} ->
+        claim_conflicting_device_ip(device, device_uid, attrs, actor)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp claim_camera_ip_conflict(_device_uid, _attrs, _actor), do: :ok
+
+  defp claim_conflicting_device_ip(%Device{} = conflict, device_uid, attrs, actor)
+       when is_binary(device_uid) and is_map(attrs) do
+    case IdentityReconciler.merge_devices(conflict.uid, device_uid,
+           actor: actor,
+           reason: "camera_ip_claim",
+           details: %{
+             source: "camera_inventory",
+             camera_ip: attrs.ip,
+             camera_mac: attrs.mac,
+             camera_vendor: attrs.vendor_name,
+             from_device_ip: conflict.ip,
+             from_device_hostname: conflict.hostname
+           }
+         ) do
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp camera_ip_conflict(device_uid, attrs, actor)
+       when is_binary(device_uid) and is_map(attrs) do
+    case Map.get(attrs, :ip) do
+      ip when is_binary(ip) and ip != "" ->
+        case list_devices_by_ip(ip, actor) do
+          {:ok, devices} ->
+            devices
+            |> Enum.reject(&(&1.uid == device_uid))
+            |> resolve_camera_ip_conflict(ip, actor)
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      _ ->
+        {:ok, nil}
+    end
+  end
+
+  defp camera_ip_conflict(_device_uid, _attrs, _actor), do: {:ok, nil}
+
+  defp list_devices_by_ip(ip, actor) when is_binary(ip) and ip != "" do
+    Device
+    |> Ash.Query.for_read(:by_ip, %{ip: ip, include_deleted: true})
+    |> Ash.read(actor: actor)
+    |> Page.unwrap()
+  end
+
+  defp list_devices_by_ip(_ip, _actor), do: {:ok, []}
+
+  defp resolve_camera_ip_conflict([], _ip, _actor), do: {:ok, nil}
+
+  defp resolve_camera_ip_conflict(devices, ip, actor) when is_list(devices) do
+    case Enum.filter(devices, &claimable_camera_ip_conflict?(&1, actor)) do
+      [] ->
+        device =
+          Enum.max_by(devices, &camera_ip_conflict_score/1, fn -> nil end)
+
+        case device do
+          nil -> {:ok, nil}
+          %Device{} = conflict -> {:error, {:ip_conflict, conflict.uid, ip}}
+        end
+
+      claimable ->
+        {:ok, Enum.max_by(claimable, &camera_ip_conflict_score/1)}
+    end
+  end
+
+  defp claimable_camera_ip_conflict?(%Device{} = device, actor) do
+    not IdentityReconciler.service_device_id?(device.uid) and
+      device.type != "camera" and
+      not device_has_strong_identifiers?(device.uid, actor)
+  end
+
+  defp camera_ip_conflict_score(%Device{} = device) do
+    {
+      claimable_ip_placeholder_priority(device),
+      if(String.starts_with?(device.uid || "", "sweep-"), do: 0, else: 1),
+      count_present([device.mac, device.hostname]),
+      device.modified_time || device.last_seen_time || ~U[1970-01-01 00:00:00Z]
+    }
+  end
+
+  defp claimable_ip_placeholder_priority(%Device{} = device) do
+    case Map.get(device.metadata || %{}, "identity_state") do
+      "provisional" -> 2
+      _ -> 1
+    end
+  end
+
+  defp device_has_strong_identifiers?(device_uid, actor) when is_binary(device_uid) do
+    DeviceIdentifier
+    |> Ash.Query.for_read(:by_device, %{device_id: device_uid})
+    |> Ash.Query.filter(
+      identifier_type in [:agent_id, :armis_device_id, :integration_id, :netbox_device_id, :mac]
+    )
+    |> Ash.read(actor: actor)
+    |> Page.unwrap()
+    |> case do
+      {:ok, identifiers} -> identifiers != []
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp device_has_strong_identifiers?(_device_uid, _actor), do: false
+
+  defp merge_camera_device_attrs(%Device{} = existing, attrs) when is_map(attrs) do
+    %{
+      attrs
+      | ip: prefer_non_empty(attrs.ip, existing.ip),
+        mac: prefer_non_empty(attrs.mac, existing.mac),
+        hostname: prefer_non_empty(attrs.hostname, existing.hostname),
+        name: prefer_non_empty(attrs.name, existing.name),
+        vendor_name: prefer_non_empty(attrs.vendor_name, existing.vendor_name),
+        model: prefer_non_empty(attrs.model, existing.model)
+    }
+  end
+
+  defp camera_device_update_attrs(%Device{} = device) do
+    %{
+      name: device.name,
+      hostname: device.hostname,
+      ip: device.ip,
+      mac: device.mac,
+      vendor_name: device.vendor_name,
+      model: device.model,
+      discovery_sources: device.discovery_sources || [],
+      is_managed: device.is_managed,
+      is_available: device.is_available,
+      metadata: device.metadata || %{},
+      last_seen_time: device.last_seen_time
+    }
+  end
+
+  defp enrich_camera_device_attrs(device_uid, attrs, actor)
+       when is_binary(device_uid) and is_map(attrs) do
+    with mac when is_binary(mac) and mac != "" <- normalize_mac(attrs.mac),
+         {:ok, peer} <- find_inventory_peer_by_mac(mac, device_uid, actor) do
+      %{
+        attrs
+        | ip: prefer_non_empty(attrs.ip, peer.ip),
+          hostname: prefer_non_empty(attrs.hostname, peer.hostname),
+          vendor_name: prefer_non_empty(attrs.vendor_name, peer.vendor_name),
+          model: prefer_non_empty(attrs.model, peer.model)
+      }
+    else
+      _ -> attrs
+    end
+  end
+
+  defp enrich_camera_device_attrs(_device_uid, attrs, _actor), do: attrs
+
+  defp find_inventory_peer_by_mac(mac, device_uid, actor)
+       when is_binary(mac) and mac != "" and is_binary(device_uid) do
+    with {:ok, devices} <- read_inventory_peers_by_mac(mac, device_uid, actor) do
+      select_inventory_peer(devices)
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "Failed to enrich camera inventory from peer MAC #{mac}: #{Exception.message(error)}"
+      )
+
+      {:error, :lookup_failed}
+  end
+
+  defp find_inventory_peer_by_mac(_mac, _device_uid, _actor), do: {:error, :invalid_mac}
+
+  defp read_inventory_peers_by_mac(mac, device_uid, actor) do
+    Device
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      mac == ^mac and uid != ^device_uid and (not is_nil(ip) or not is_nil(hostname))
+    )
+    |> Ash.read(actor: actor)
+    |> Page.unwrap()
+    |> case do
+      {:ok, devices} when is_list(devices) -> {:ok, devices}
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp select_inventory_peer(devices) when is_list(devices) do
+    case Enum.max_by(devices, &camera_inventory_peer_score/1, fn -> nil end) do
+      %Device{} = device -> {:ok, device}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  defp camera_inventory_peer_score(%Device{} = device) do
+    {
+      if(device.type == "camera", do: 0, else: 1),
+      count_present([device.ip, device.hostname, device.vendor_name, device.model]),
+      device.last_seen_time || ~U[1970-01-01 00:00:00Z]
+    }
+  end
+
+  defp count_present(values) when is_list(values) do
+    Enum.count(values, &(not blank?(&1)))
+  end
+
+  defp normalize_mac(nil), do: nil
+
+  defp normalize_mac(mac) when is_binary(mac) do
+    case IdentityReconciler.normalize_mac(mac) do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_mac(_value), do: nil
+
+  defp register_camera_identifiers(device_uid, attrs, actor)
+       when is_binary(device_uid) and is_map(attrs) do
+    ids =
+      %{}
+      |> maybe_put("mac", attrs.mac)
+      |> maybe_put("integration_id", camera_integration_id(attrs))
+      |> maybe_put("ip", attrs.ip)
+
+    case ids do
+      map when map_size(map) == 0 ->
+        :ok
+
+      map ->
+        case IdentityReconciler.register_identifiers(device_uid, map, actor: actor) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to register camera identifiers for #{device_uid}: #{inspect(reason)}"
+            )
+
+            :ok
+        end
+    end
+  end
+
+  defp register_camera_identifiers(_device_uid, _attrs, _actor), do: :ok
+
+  defp camera_integration_id(attrs) when is_map(attrs) do
+    vendor = normalize_identifier_component(attrs.vendor_name)
+
+    vendor_camera_id =
+      attrs
+      |> Map.get(:metadata, %{})
+      |> map_value(["camera_vendor_camera_id"])
+      |> normalize_identifier_component()
+
+    if blank?(vendor) or blank?(vendor_camera_id) do
+      nil
+    else
+      "#{vendor}:camera:#{vendor_camera_id}"
+    end
+  end
+
+  defp camera_integration_id(_attrs), do: nil
+
+  defp normalize_identifier_component(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_identifier_component(value) when is_atom(value),
+    do: value |> Atom.to_string() |> normalize_identifier_component()
+
+  defp normalize_identifier_component(_value), do: nil
+
+  defp merge_discovery_sources(existing_sources, incoming_sources) do
+    existing_sources = if is_list(existing_sources), do: existing_sources, else: []
+    incoming_sources = if is_list(incoming_sources), do: incoming_sources, else: []
+
+    existing_sources
+    |> Kernel.++(incoming_sources)
+    |> Enum.reject(&blank?/1)
+    |> Enum.uniq()
+  end
+
+  defp merge_device_metadata(existing, incoming) do
+    existing = if is_map(existing), do: existing, else: %{}
+    incoming = if is_map(incoming), do: incoming, else: %{}
+    Map.merge(existing, incoming)
+  end
+
+  defp prefer_non_empty(new_value, old_value) when new_value in [nil, ""], do: old_value
+  defp prefer_non_empty(new_value, _old_value), do: new_value
+
+  defp descriptor_available?(descriptor, status) do
+    case string_value(descriptor, ["availability_status", "availabilityStatus"]) do
+      "unavailable" -> false
+      "degraded" -> true
+      "available" -> true
+      _ -> Map.get(status, :available, true)
+    end
+  end
+
+  defp descriptor_vendor_camera_id(descriptor) when is_map(descriptor) do
+    string_value(descriptor, [
+      "vendor_camera_id",
+      "vendorCameraId",
+      "camera_id",
+      "cameraId",
+      "id"
+    ])
+  end
+
+  defp descriptor_vendor_camera_id(_descriptor), do: nil
+
+  defp descriptor_model(descriptor) when is_map(descriptor) do
+    camera = map_value(descriptor, ["camera"]) || %{}
+
+    first_present([
+      string_value(camera, ["model", "model_key", "modelKey", "name"]),
+      string_value(descriptor, ["model"])
+    ])
+  end
+
+  defp descriptor_model(_descriptor), do: nil
 
   defp derive_source_state(descriptor, descriptors, payload, status, observed_at) do
     matched_events = matching_camera_events(descriptor, descriptors, payload)
@@ -817,16 +1333,26 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp resolve_descriptor_device_uid(descriptor, status, actor, resolve_device_uid)
        when is_map(descriptor) and is_function(resolve_device_uid, 3) do
-    if blank?(descriptor_device_uid(descriptor)) do
-      case resolve_device_uid.(descriptor, status, actor) do
-        value when is_binary(value) and value != "" ->
-          Map.put(descriptor, "device_uid", value)
+    explicit_uid = descriptor_device_uid(descriptor)
 
-        _ ->
-          descriptor
-      end
-    else
-      descriptor
+    case resolve_device_uid.(descriptor, status, actor) do
+      value when is_binary(value) and value != "" ->
+        cond do
+          blank?(explicit_uid) ->
+            Map.put(descriptor, "device_uid", value)
+
+          value == explicit_uid ->
+            descriptor
+
+          IdentityReconciler.serviceradar_uuid?(value) ->
+            Map.put(descriptor, "device_uid", value)
+
+          true ->
+            descriptor
+        end
+
+      _ ->
+        descriptor
     end
   end
 
@@ -849,19 +1375,74 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp resolve_identity_from_hints(descriptor, status, actor) when is_map(descriptor) do
-    with {:ok, update} <- identity_update_from_descriptor(descriptor, status),
-         {:ok, uid} <- IdentityReconciler.resolve_device_id(update, actor: actor) do
-      {:ok, uid}
+  defp resolve_identity_from_hints(descriptor, _status, actor) when is_map(descriptor) do
+    with {:error, _reason} <- lookup_device_uid_from_existing_source(descriptor, actor),
+         {:ok, update} <- identity_update_from_descriptor(descriptor) do
+      update
+      |> IdentityReconciler.extract_strong_identifiers()
+      |> resolve_camera_identity(update, descriptor, actor)
     else
-      _ ->
-        lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
+      {:ok, uid} -> {:ok, uid}
+      _ -> lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
     end
   end
 
   defp resolve_identity_from_hints(_descriptor, _status, _actor), do: {:error, :unresolved}
 
-  defp identity_update_from_descriptor(descriptor, status) do
+  defp resolve_camera_identity(ids, update, descriptor, actor) when is_map(update) do
+    if IdentityReconciler.has_strong_identifier?(ids) do
+      resolve_strong_camera_identity(ids)
+    else
+      resolve_weak_camera_identity(update, descriptor, actor)
+    end
+  end
+
+  defp lookup_device_uid_from_existing_source(descriptor, actor) when is_map(descriptor) do
+    vendor = string_value(descriptor, ["vendor"])
+    vendor_camera_id = descriptor_vendor_camera_id(descriptor)
+
+    if blank?(vendor) or blank?(vendor_camera_id) do
+      {:error, :not_found}
+    else
+      Source
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(vendor == ^vendor and vendor_camera_id == ^vendor_camera_id)
+      |> Ash.Query.limit(1)
+      |> Ash.read(actor: actor)
+      |> Page.unwrap()
+      |> case do
+        {:ok, [%Source{device_uid: device_uid} | _]}
+        when is_binary(device_uid) and device_uid != "" ->
+          {:ok, device_uid}
+
+        _ ->
+          {:error, :not_found}
+      end
+    end
+  end
+
+  defp lookup_device_uid_from_existing_source(_descriptor, _actor), do: {:error, :not_found}
+
+  defp resolve_strong_camera_identity(ids) when is_map(ids) do
+    case IdentityReconciler.lookup_by_strong_identifiers(ids, nil) do
+      {:ok, uid} when is_binary(uid) and uid != "" ->
+        {:ok, uid}
+
+      _ ->
+        {:ok, IdentityReconciler.generate_deterministic_device_id(ids)}
+    end
+  end
+
+  defp resolve_weak_camera_identity(update, descriptor, actor) when is_map(update) do
+    with {:ok, uid} <- IdentityReconciler.resolve_device_id(update, actor: actor),
+         true <- is_binary(uid) and uid != "" do
+      {:ok, uid}
+    else
+      _ -> lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
+    end
+  end
+
+  defp identity_update_from_descriptor(descriptor) do
     mac = descriptor_mac(descriptor)
     ip = descriptor_ip(descriptor)
     integration_id = descriptor_integration_id(descriptor)
@@ -877,7 +1458,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
          partition: "default",
          metadata:
            %{}
-           |> maybe_put("agent_id", status[:agent_id])
            |> maybe_put("integration_id", integration_id)
            |> maybe_put(
              "integration_type",
@@ -901,8 +1481,24 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     descriptor
     |> map_value(["identity"])
     |> case do
-      nil -> nil
-      identity -> string_value(identity, ["mac"])
+      nil ->
+        descriptor_mac_fallback(descriptor)
+
+      identity ->
+        first_present([
+          string_value(identity, ["mac"]),
+          descriptor_mac_fallback(descriptor)
+        ])
+    end
+  end
+
+  defp descriptor_mac_fallback(descriptor) when is_map(descriptor) do
+    case descriptor_device_uid(descriptor) do
+      value when is_binary(value) and value != "" ->
+        if mac_like?(value), do: value
+
+      _ ->
+        nil
     end
   end
 
@@ -990,6 +1586,18 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp ip_address?(_value), do: false
+
+  defp mac_like?(value) when is_binary(value) do
+    normalized =
+      value
+      |> String.trim()
+      |> String.replace(":", "")
+      |> String.replace("-", "")
+
+    byte_size(normalized) == 12 and String.match?(normalized, ~r/\A[0-9A-Fa-f]{12}\z/)
+  end
+
+  defp mac_like?(_value), do: false
 
   defp first_stream_url(streams) do
     Enum.find_value(streams, fn stream ->

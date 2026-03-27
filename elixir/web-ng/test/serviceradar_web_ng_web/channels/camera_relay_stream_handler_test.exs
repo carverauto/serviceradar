@@ -6,10 +6,15 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
 
   setup do
     previous_enabled = Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_enabled)
-    previous_ice_servers = Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_ice_servers)
+
+    previous_ice_servers =
+      Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_ice_servers)
 
     Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_enabled, true)
-    Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_ice_servers, [%{urls: ["stun:stun.example.com:3478"]}])
+
+    Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_ice_servers, [
+      %{urls: ["stun:stun.example.com:3478"]}
+    ])
 
     on_exit(fn ->
       if is_nil(previous_enabled) do
@@ -21,7 +26,11 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
       if is_nil(previous_ice_servers) do
         Application.delete_env(:serviceradar_web_ng, :camera_relay_webrtc_ice_servers)
       else
-        Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_ice_servers, previous_ice_servers)
+        Application.put_env(
+          :serviceradar_web_ng,
+          :camera_relay_webrtc_ice_servers,
+          previous_ice_servers
+        )
       end
     end)
 
@@ -102,7 +111,12 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
            } = Jason.decode!(payload)
 
     Agent.update(session_agent, fn session ->
-      %{session | status: :closed, termination_kind: "viewer_idle", close_reason: "viewer idle timeout"}
+      %{
+        session
+        | status: :closed,
+          termination_kind: "viewer_idle",
+          close_reason: "viewer idle timeout"
+      }
     end)
 
     assert {:stop, :normal, 1000, [{:text, payload}], _state} =
@@ -308,5 +322,37 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
                 }},
                state
              )
+  end
+
+  test "ignores normal linked process exits while the websocket stays open" do
+    relay_session_id = Ecto.UUID.generate()
+    scope = Scope.for_user(%{id: "viewer-1", email: "viewer@example.com", role: :viewer})
+
+    fetcher = fn ^relay_session_id, _opts ->
+      {:ok,
+       %{
+         id: relay_session_id,
+         camera_source_id: Ecto.UUID.generate(),
+         stream_profile_id: Ecto.UUID.generate(),
+         status: :active,
+         viewer_count: 1,
+         media_ingest_id: "core-media-1",
+         close_reason: nil,
+         failure_reason: nil,
+         lease_expires_at: DateTime.from_unix!(1_800_000_000),
+         updated_at: DateTime.from_unix!(1_800_000_000)
+       }}
+    end
+
+    assert {:push, {:text, _payload}, state} =
+             CameraRelayStreamHandler.init(
+               relay_session_id: relay_session_id,
+               scope: scope,
+               fetcher: fetcher,
+               poll_interval_ms: 10_000
+             )
+
+    assert {:ok, ^state} =
+             CameraRelayStreamHandler.handle_info({:EXIT, self(), :normal}, state)
   end
 end

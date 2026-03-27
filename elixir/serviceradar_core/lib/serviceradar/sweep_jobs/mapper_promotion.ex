@@ -154,6 +154,17 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
           cooldown_until: nil
         }
 
+      device.agent_id == sweep_agent_id ->
+        %{
+          device_uid: candidate.device_uid,
+          ip: candidate.ip,
+          job: nil,
+          reason: "sweep_agent_device",
+          status: :skipped,
+          command_id: nil,
+          cooldown_until: nil
+        }
+
       cooldown_until != nil ->
         %{
           device_uid: candidate.device_uid,

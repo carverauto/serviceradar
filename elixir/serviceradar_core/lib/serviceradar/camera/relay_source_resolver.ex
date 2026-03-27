@@ -16,7 +16,7 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
           {:ok, relay_payload()} | {:error, String.t()}
   def resolve_start_payload(payload, opts \\ []) when is_map(payload) do
     if present?(Map.get(payload, :source_url)) do
-      {:ok, payload}
+      {:ok, Map.update!(payload, :source_url, &sanitize_source_url/1)}
     else
       resolve_from_inventory(payload, opts)
     end
@@ -29,7 +29,7 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
          {:ok, source_url} <- require_source_url(profile) do
       {:ok,
        payload
-       |> put_if_missing(:source_url, source_url)
+       |> put_if_missing(:source_url, sanitize_source_url(source_url))
        |> put_if_missing(:rtsp_transport, field(profile, :rtsp_transport))
        |> put_if_missing(:codec_hint, field(profile, :codec_hint))
        |> put_if_missing(:container_hint, field(profile, :container_hint))}
@@ -101,4 +101,35 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
   defp format_error(%Ash.Error.Invalid{} = error), do: Ash.Error.to_error_class(error).message
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
+
+  defp sanitize_source_url(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    case URI.parse(trimmed) do
+      %URI{} = uri ->
+        sanitized =
+          uri
+          |> strip_enable_srtp()
+          |> URI.to_string()
+          |> String.trim_trailing("?")
+
+        sanitized
+
+      _other ->
+        trimmed
+    end
+  end
+
+  defp sanitize_source_url(value), do: value
+
+  defp strip_enable_srtp(%URI{query: nil} = uri), do: uri
+
+  defp strip_enable_srtp(%URI{query: query} = uri) do
+    params =
+      query
+      |> URI.decode_query()
+      |> Map.delete("enableSrtp")
+
+    %{uri | query: if(map_size(params) == 0, do: nil, else: URI.encode_query(params))}
+  end
 end

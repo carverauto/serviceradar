@@ -1914,7 +1914,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     """
   end
 
-  defp device_type_label(type, _type_id) when is_binary(type) and type != "", do: type
+  defp device_type_label(type, _type_id) when is_binary(type) and type != "" do
+    case type |> String.trim() |> String.downcase() do
+      "camera" -> "Camera"
+      _ -> type
+    end
+  end
+
   defp device_type_label(_type, 0), do: "Unknown"
   defp device_type_label(_type, 1), do: "Server"
   defp device_type_label(_type, 2), do: "Desktop"
@@ -1938,6 +1944,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     normalized = type |> String.downcase() |> String.trim()
 
     cond do
+      normalized in ["camera", "ip camera", "security camera"] ->
+        "hero-video-camera"
+
       normalized in ["access point", "access_point", "wireless ap", "wireless access point", "ap"] ->
         "hero-wifi"
 

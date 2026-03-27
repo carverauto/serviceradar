@@ -15,6 +15,9 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
   require Logger
 
+  @streaming_plugin_capability "camera_media_stream"
+  @streaming_plugin_output "serviceradar.camera_stream.v1"
+
   @spec upsert_from_status(map()) :: :ok
   def upsert_from_status(status) when is_map(status) do
     actor = SystemActor.system(:service_state_registry)
@@ -44,6 +47,32 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   end
 
   def upsert_from_status(_), do: :ok
+
+  @spec upsert_for_assignment(PluginAssignment.t()) :: :ok
+  def upsert_for_assignment(%PluginAssignment{} = assignment) do
+    actor = SystemActor.system(:service_state_registry)
+
+    with {:ok, package} <- load_package(assignment, actor),
+         true <- should_track_assignment_service?(assignment, package),
+         {:ok, agent} <- Agent.get_by_uid(assignment.agent_uid, actor: actor) do
+      assignment
+      |> build_attrs_from_assignment(agent, package)
+      |> upsert_service_state(actor)
+    else
+      false ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to resolve assignment service identity: #{inspect(reason)}")
+        :ok
+    end
+  rescue
+    error ->
+      Logger.warning("Assignment service state upsert failed: #{Exception.message(error)}")
+      :ok
+  end
+
+  def upsert_for_assignment(_), do: :ok
 
   @spec deactivate_for_assignment(PluginAssignment.t()) :: :ok
   def deactivate_for_assignment(%PluginAssignment{} = assignment) do
@@ -218,6 +247,70 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
   defp fetch(status, key) when is_map(status) do
     Map.get(status, key) || Map.get(status, Atom.to_string(key))
+  end
+
+  defp should_track_assignment_service?(
+         %PluginAssignment{} = assignment,
+         %PluginPackage{} = package
+       ) do
+    assignment.enabled == true and streaming_plugin_package?(package)
+  end
+
+  defp streaming_plugin_package?(%PluginPackage{} = package) do
+    package.outputs == @streaming_plugin_output or
+      Enum.member?(effective_capabilities(package), @streaming_plugin_capability)
+  end
+
+  defp effective_capabilities(%PluginPackage{} = package) do
+    approved = package.approved_capabilities || []
+
+    if approved == [] do
+      manifest = package.manifest || %{}
+      Map.get(manifest, "capabilities") || Map.get(manifest, :capabilities) || []
+    else
+      approved
+    end
+  end
+
+  defp build_attrs_from_assignment(
+         %PluginAssignment{} = assignment,
+         agent,
+         %PluginPackage{} = package
+       ) do
+    agent
+    |> identity_from_agent(package.name, "plugin", assignment.agent_uid)
+    |> Map.merge(%{
+      available: true,
+      message: "streaming plugin ready",
+      details:
+        FieldParser.encode_json(%{
+          "assignment_id" => to_string(assignment.id),
+          "plugin_id" => package.plugin_id,
+          "package_id" => package.id,
+          "plugin_type" => "streaming"
+        }),
+      last_observed_at: DateTime.truncate(DateTime.utc_now(), :microsecond),
+      state: "active"
+    })
+  end
+
+  defp upsert_service_state(attrs, actor) when is_map(attrs) do
+    ServiceState
+    |> Ash.Changeset.for_create(:upsert, attrs, actor: actor)
+    |> Ash.create(domain: ServiceRadar.Observability)
+    |> case do
+      {:ok, state} ->
+        ServiceStatePubSub.broadcast_update(state)
+        :ok
+
+      {:error, error} ->
+        Logger.warning("Failed to upsert service state: #{inspect(error)}")
+        :ok
+
+      other ->
+        Logger.warning("Unexpected service state upsert result: #{inspect(other)}")
+        :ok
+    end
   end
 
   defp load_package(%PluginAssignment{} = assignment, actor) do

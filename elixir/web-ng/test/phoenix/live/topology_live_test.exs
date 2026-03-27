@@ -167,6 +167,59 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     assert html =~ "Camera relay closing"
   end
 
+  test "passes insecure skip verify when opening a topology camera relay", %{conn: conn} do
+    previous_manager = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager)
+    previous_open_result = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_open_result)
+    previous_test_pid = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_test_pid)
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :camera_relay_session_manager,
+      CameraRelaySessionManagerStub
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :camera_relay_session_manager_test_pid,
+      self()
+    )
+
+    on_exit(fn ->
+      restore_env(:camera_relay_session_manager, previous_manager)
+      restore_env(:camera_relay_session_manager_open_result, previous_open_result)
+      restore_env(:camera_relay_session_manager_test_pid, previous_test_pid)
+    end)
+
+    relay_session_id = Ecto.UUID.generate()
+    camera_source_id = Ecto.UUID.generate()
+    stream_profile_id = Ecto.UUID.generate()
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :camera_relay_session_manager_open_result,
+      {:ok,
+       %{
+         id: relay_session_id,
+         camera_source_id: camera_source_id,
+         stream_profile_id: stream_profile_id,
+         agent_id: "agent-topology-camera-1",
+         gateway_id: "gateway-topology-camera-1",
+         status: :opening
+       }}
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/topology")
+
+    render_hook(view, "god_view_open_camera_relay", %{
+      "camera_source_id" => camera_source_id,
+      "stream_profile_id" => stream_profile_id,
+      "insecure_skip_verify" => true
+    })
+
+    assert_receive {:open_session, ^camera_source_id, ^stream_profile_id, opts}
+    assert opts[:insecure_skip_verify] == true
+  end
+
   test "shows auth-required viewer state when topology relay open is rejected", %{conn: conn} do
     previous_manager = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager)
     previous_open_result = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_open_result)

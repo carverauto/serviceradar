@@ -450,7 +450,7 @@ webNg:
     serverName: "datasvc.serviceradar"
   pluginStorage:
     enabled: true
-    basePath: "/var/lib/serviceradar/plugin-packages"
+    basePath: "/var/lib/serviceradar/plugin-packages/data"
     existingClaim: ""
     size: 10Gi
     storageClassName: ""
@@ -614,19 +614,25 @@ bmpCollector:
   enabled: false
   image:
     repository: ghcr.io/carverauto/arancini
-    tag: "v0.7.2"
+    tag: "latest"
     pullPolicy: IfNotPresent
-  args:
-    - "--bmp-address=0.0.0.0:11019"
-    - "--kafka-disable"
-    - "--nats-enable"
-    - "--nats-server=nats://serviceradar-nats:4222"
-    - "--nats-subject=arancini.updates"
-    - "--nats-tls-required"
-    - "--nats-tls-ca-cert-path=/etc/serviceradar/certs/root.pem"
-    - "--nats-tls-client-cert-path=/etc/serviceradar/certs/bmp-collector.pem"
-    - "--nats-tls-client-key-path=/etc/serviceradar/certs/bmp-collector-key.pem"
-    - "--curation-state-path=/var/lib/serviceradar/state.bin"
+  config:
+    listenAddr: "0.0.0.0:11019"
+    readBufferBytes: 65536
+    maxFrameSizeBytes: 16777216
+    natsUrl: "nats://serviceradar-nats:4222"
+    natsDomain: ""
+    natsCredsFile: ""
+    natsTlsRequired: true
+    natsTlsFirst: false
+    natsTlsCaCertPath: "/etc/serviceradar/certs/root.pem"
+    natsTlsClientCertPath: "/etc/serviceradar/certs/bmp-collector.pem"
+    natsTlsClientKeyPath: "/etc/serviceradar/certs/bmp-collector-key.pem"
+    streamName: "ARANCINI_CAUSAL"
+    subjectPrefix: "arancini.updates"
+    streamSubjects: []
+    streamMaxBytes: 10737418240
+    publishTimeoutMs: 5000
   data:
     enabled: true
     existingClaim: ""

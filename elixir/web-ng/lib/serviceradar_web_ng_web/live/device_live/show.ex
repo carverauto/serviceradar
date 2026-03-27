@@ -639,7 +639,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       Task.async(fn -> {:profile, load_sysmon_profile_info(scope, uid)} end),
       Task.async(fn -> {:mapper, load_mapper_jobs_for_device(scope, device_row)} end),
       Task.async(fn -> {:snmp, load_device_snmp_credential(scope, uid)} end),
-      Task.async(fn -> {:camera_sources, load_camera_sources(scope, uid)} end),
+      Task.async(fn -> {:camera_sources, load_camera_sources(scope, uid, device_row)} end),
       Task.async(fn -> {:aliases, load_ip_aliases(scope, uid, show_stale)} end)
     ]
 
@@ -918,10 +918,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event(
         "open_camera_relay",
-        %{"camera_source_id" => camera_source_id, "stream_profile_id" => stream_profile_id},
+        %{"camera_source_id" => camera_source_id, "stream_profile_id" => stream_profile_id} = params,
         socket
       ) do
     scope = socket.assigns.current_scope
+    insecure_skip_verify = parse_bool_param(params["insecure_skip_verify"]) == true
 
     cond do
       not can_view_device?(scope) ->
@@ -937,10 +938,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                relay_session_manager().request_open(
                  camera_source_id,
                  stream_profile_id,
-                 scope: scope
+                 scope: scope,
+                 insecure_skip_verify: insecure_skip_verify
                ) do
           {:noreply,
            socket
+           |> clear_flash(:error)
            |> assign(:active_camera_relay_session, session)
            |> assign(:last_camera_relay_session, nil)
            |> tap(fn _socket -> schedule_camera_relay_refresh(session.id) end)
@@ -3995,12 +3998,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   gateway {source.assigned_gateway_id}
                 </span>
               </div>
+              <div
+                :if={present?(source.availability_reason)}
+                class="mt-1 text-xs text-base-content/60"
+              >
+                {source.availability_reason}
+              </div>
             </div>
-            <span class="badge badge-outline badge-sm">
-              {length(source.stream_profiles)} profile{if length(source.stream_profiles) == 1,
-                do: "",
-                else: "s"}
-            </span>
+            <div class="flex items-center gap-2">
+              <span class={["badge badge-sm", camera_source_status_badge_class(source)]}>
+                {camera_source_status_label(source)}
+              </span>
+              <span class="badge badge-outline badge-sm">
+                {length(source.stream_profiles)} profile{if length(source.stream_profiles) == 1,
+                  do: "",
+                  else: "s"}
+              </span>
+            </div>
           </div>
 
           <div class="divide-y divide-base-200/70">
@@ -4055,26 +4069,57 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                     >
                       {Map.get(@last_session, :close_reason)}
                     </span>
-                    <.ui_button
-                      phx-click="open_camera_relay"
-                      phx-value-camera_source_id={source.id}
-                      phx-value-stream_profile_id={profile.id}
-                      variant="outline"
-                      size="xs"
-                    >
-                      Open Relay
-                    </.ui_button>
+                    <%= if camera_source_openable?(source) do %>
+                      <div class="flex flex-wrap items-center gap-2">
+                        <.ui_button
+                          phx-click="open_camera_relay"
+                          phx-value-camera_source_id={source.id}
+                          phx-value-stream_profile_id={profile.id}
+                          variant="outline"
+                          size="xs"
+                        >
+                          Open Relay
+                        </.ui_button>
+                        <.ui_button
+                          :if={camera_profile_supports_insecure_tls_override?(source, profile)}
+                          phx-click="open_camera_relay"
+                          phx-value-camera_source_id={source.id}
+                          phx-value-stream_profile_id={profile.id}
+                          phx-value-insecure_skip_verify="true"
+                          variant="ghost"
+                          size="xs"
+                        >
+                          Skip TLS Verify
+                        </.ui_button>
+                      </div>
+                    <% else %>
+                      <span class="text-xs text-error">Relay unavailable</span>
+                    <% end %>
                   <% true -> %>
-                    <.ui_button
-                      phx-click="open_camera_relay"
-                      phx-value-camera_source_id={source.id}
-                      phx-value-stream_profile_id={profile.id}
-                      variant="outline"
-                      size="xs"
-                      disabled={not is_nil(@active_session)}
-                    >
-                      Open Relay
-                    </.ui_button>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <.ui_button
+                        phx-click="open_camera_relay"
+                        phx-value-camera_source_id={source.id}
+                        phx-value-stream_profile_id={profile.id}
+                        variant="outline"
+                        size="xs"
+                        disabled={not is_nil(@active_session) or not camera_source_openable?(source)}
+                      >
+                        Open Relay
+                      </.ui_button>
+                      <.ui_button
+                        :if={camera_profile_supports_insecure_tls_override?(source, profile)}
+                        phx-click="open_camera_relay"
+                        phx-value-camera_source_id={source.id}
+                        phx-value-stream_profile_id={profile.id}
+                        phx-value-insecure_skip_verify="true"
+                        variant="ghost"
+                        size="xs"
+                        disabled={not is_nil(@active_session) or not camera_source_openable?(source)}
+                      >
+                        Skip TLS Verify
+                      </.ui_button>
+                    </div>
                 <% end %>
               </div>
 
@@ -6399,15 +6444,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp sysmon_identity(device_row, device_uid) do
+    device_row = if is_map(device_row), do: device_row, else: %{}
+
     device_uid =
-      case Map.get(device_row || %{}, "uid") || device_uid do
+      case Map.get(device_row, "uid") || Map.get(device_row, :uid) || device_uid do
         value when is_binary(value) -> String.trim(value)
         _ -> ""
       end
 
     agent_id =
       device_row
-      |> Map.get("agent_id")
+      |> then(&(Map.get(&1, "agent_id") || Map.get(&1, :agent_id)))
       |> case do
         value when is_binary(value) -> String.trim(value)
         _ -> ""
@@ -7652,11 +7699,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp load_sweep_results(_scope, _), do: nil
 
-  defp load_camera_sources(scope, device_uid) do
+  defp load_camera_sources(scope, device_uid, device_row) do
     case CameraSource.list_for_device(device_uid, load: [:stream_profiles], scope: scope) do
-      {:ok, sources} -> {sources, nil}
-      {:error, error} -> {[], "Failed to load camera inventory: #{format_ash_error(error)}"}
+      {:ok, []} ->
+        load_camera_sources_by_fallback(scope, device_row)
+
+      {:ok, sources} ->
+        {sources, nil}
+
+      {:error, error} ->
+        {[], "Failed to load camera inventory: #{format_ash_error(error)}"}
     end
+  end
+
+  defp load_camera_sources_by_fallback(scope, device_row) do
+    fallback_ids = camera_source_fallback_ids(device_row)
+
+    if fallback_ids == [] do
+      {[], nil}
+    else
+      query =
+        CameraSource
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(device_uid in ^fallback_ids)
+        |> Ash.Query.load(:stream_profiles)
+        |> Ash.Query.sort(inserted_at: :asc)
+
+      case read_camera_sources(query, scope) do
+        {:ok, sources} -> {sources, nil}
+        {:error, error} -> {[], "Failed to load camera inventory: #{format_ash_error(error)}"}
+      end
+    end
+  end
+
+  defp read_camera_sources(query, nil), do: Ash.read(query)
+  defp read_camera_sources(query, scope), do: Ash.read(query, scope: scope)
+
+  defp camera_source_fallback_ids(device_row) do
+    mac =
+      case device_row do
+        %{} = row -> Map.get(row, :mac) || Map.get(row, "mac")
+        _ -> nil
+      end
+
+    mac
+    |> List.wrap()
+    |> Enum.flat_map(fn value ->
+      trimmed = value |> to_string() |> String.trim()
+      normalized = trimmed |> String.replace(":", "") |> String.upcase()
+
+      [trimmed, String.upcase(trimmed), String.downcase(trimmed), normalized, String.downcase(normalized)]
+    end)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
   end
 
   defp build_sweep_actor(scope) do
@@ -7904,6 +7999,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         display_name: camera_source_display_name(source),
         assigned_agent_id: source.assigned_agent_id,
         assigned_gateway_id: source.assigned_gateway_id,
+        availability_status: camera_source_availability_status(source),
+        availability_reason: camera_source_availability_reason(source),
         stream_profiles:
           source
           |> Map.get(:stream_profiles, [])
@@ -7927,6 +8024,76 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp camera_source_display_name(source) do
     source.display_name || source.vendor_camera_id || source.device_uid || "Camera"
+  end
+
+  defp camera_source_availability_status(source) when is_map(source) do
+    source
+    |> Map.get(:availability_status)
+    |> case do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+        if trimmed == "", do: nil, else: String.downcase(trimmed)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp camera_source_availability_status(_source), do: nil
+
+  defp camera_source_availability_reason(source) when is_map(source) do
+    source
+    |> Map.get(:availability_reason)
+    |> case do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+        if trimmed == "", do: nil, else: trimmed
+
+      _ ->
+        nil
+    end
+  end
+
+  defp camera_source_availability_reason(_source), do: nil
+
+  defp camera_source_openable?(source) do
+    camera_source_availability_status(source) != "unavailable"
+  end
+
+  defp camera_profile_supports_insecure_tls_override?(source, profile) do
+    source
+    |> camera_profile_source_url(profile)
+    |> case do
+      value when is_binary(value) -> String.starts_with?(String.downcase(String.trim(value)), "rtsps://")
+      _other -> false
+    end
+  end
+
+  defp camera_profile_source_url(source, profile) when is_map(profile) do
+    case Map.get(profile, :source_url_override) do
+      value when is_binary(value) and value != "" -> value
+      _other -> if(is_map(source), do: Map.get(source, :source_url))
+    end
+  end
+
+  defp camera_profile_source_url(_source, _profile), do: nil
+
+  defp camera_source_status_label(source) do
+    case camera_source_availability_status(source) do
+      "available" -> "Available"
+      "degraded" -> "Degraded"
+      "unavailable" -> "Unavailable"
+      _ -> "Unknown"
+    end
+  end
+
+  defp camera_source_status_badge_class(source) do
+    case camera_source_availability_status(source) do
+      "available" -> "badge-success"
+      "degraded" -> "badge-warning"
+      "unavailable" -> "badge-error"
+      _ -> "badge-ghost"
+    end
   end
 
   defp camera_streams_visible?(camera_sources, inventory_error, active_session, last_session) do

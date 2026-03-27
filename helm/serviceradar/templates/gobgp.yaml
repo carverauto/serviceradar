@@ -55,10 +55,20 @@ spec:
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: gobgpd
         image: {{ .Values.gobgp.image.repository }}:{{ .Values.gobgp.image.tag }}
         imagePullPolicy: {{ .Values.gobgp.image.pullPolicy | default (include "serviceradar.imagePullPolicy" .) }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 1001
+          runAsGroup: 1001
+          capabilities:
+            drop: ["ALL"]
         command:
         - /bin/sh
         - -ec

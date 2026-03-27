@@ -105,12 +105,25 @@ export const godViewRenderingSelectionMethods = {
                     typeof profile?.profile_name === "string" && profile.profile_name.trim() !== ""
                       ? profile.profile_name.trim()
                       : "Live"
+                  const sourceUrl =
+                    typeof profile?.source_url_override === "string" && profile.source_url_override.trim() !== ""
+                      ? profile.source_url_override.trim()
+                      : typeof source?.source_url === "string"
+                        ? source.source_url.trim()
+                        : ""
+                  const supportsInsecureTls =
+                    typeof sourceUrl === "string" && sourceUrl.toLowerCase().startsWith("rtsps://")
 
                   if (typeof profile?.stream_profile_id !== "string" || profile.stream_profile_id.trim() === "") {
                     return ""
                   }
 
-                  return `<button type="button" class="btn btn-xs btn-secondary mr-1 mt-1" data-camera-source-id="${this.escapeHtml(source.camera_source_id)}" data-stream-profile-id="${this.escapeHtml(profile.stream_profile_id)}" data-camera-device-uid="${this.escapeHtml(d.device_uid || d.id || "")}" data-camera-label="${this.escapeHtml(sourceName)}" data-camera-profile-label="${this.escapeHtml(profileName)}">Open ${this.escapeHtml(profileName)}</button>`
+                  const openButton = `<button type="button" class="btn btn-xs btn-secondary mr-1 mt-1" data-camera-source-id="${this.escapeHtml(source.camera_source_id)}" data-stream-profile-id="${this.escapeHtml(profile.stream_profile_id)}" data-camera-device-uid="${this.escapeHtml(d.device_uid || d.id || "")}" data-camera-label="${this.escapeHtml(sourceName)}" data-camera-profile-label="${this.escapeHtml(profileName)}">Open ${this.escapeHtml(profileName)}</button>`
+                  const insecureButton = supportsInsecureTls
+                    ? `<button type="button" class="btn btn-xs btn-warning mr-1 mt-1" data-camera-source-id="${this.escapeHtml(source.camera_source_id)}" data-stream-profile-id="${this.escapeHtml(profile.stream_profile_id)}" data-insecure-skip-verify="true" data-camera-device-uid="${this.escapeHtml(d.device_uid || d.id || "")}" data-camera-label="${this.escapeHtml(sourceName)}" data-camera-profile-label="${this.escapeHtml(profileName)}">Skip TLS Verify</button>`
+                    : ""
+
+                  return `${openButton}${insecureButton}`
                 })
                 .filter(Boolean)
                 .join("")

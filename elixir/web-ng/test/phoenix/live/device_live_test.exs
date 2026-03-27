@@ -171,6 +171,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Restore"
   end
 
+  test "renders missing-row state instead of crashing for unknown device uid", %{conn: conn} do
+    uid = "missing-device-#{System.unique_integer([:positive])}"
+
+    {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
+
+    assert html =~ "No device row returned for this query."
+    assert html =~ uid
+  end
+
   test "auto-refreshes device details when the viewed device is updated", %{
     conn: conn,
     scope: scope
@@ -800,6 +809,58 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "Open Relay"
     end
 
+    test "renders unavailable camera sources without an open relay action", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      %{source: source, profile: profile} =
+        insert_camera_source!(device_uid, %{
+          display_name: "Garage Door",
+          availability_status: "unavailable",
+          availability_reason: "UniFi Protect state DISCONNECTED"
+        })
+
+      {:ok, _view, html} = live(conn, ~p"/devices/#{device_uid}")
+
+      assert html =~ source.display_name
+      assert html =~ "Unavailable"
+      assert html =~ "UniFi Protect state DISCONNECTED"
+      assert html =~ "Relay unavailable"
+      assert html =~ profile.profile_name
+
+      refute html =~
+               "button phx-click=\"open_camera_relay\" phx-value-camera_source_id=\"#{source.id}\" phx-value-stream_profile_id=\"#{profile.id}\""
+    end
+
+    test "renders camera streams when inventory is still keyed by raw camera MAC", %{
+      conn: conn
+    } do
+      device_uid = "sr:camera-fallback-#{System.unique_integer([:positive])}"
+      mac = "7845582F3F73"
+
+      Repo.insert_all("ocsf_devices", [
+        %{
+          uid: device_uid,
+          type_id: 7,
+          hostname: "front-door-camera",
+          mac: mac,
+          vendor_name: "Ubiquiti",
+          is_available: true,
+          first_seen_time: ~U[2100-01-01 00:00:00Z],
+          last_seen_time: ~U[2100-01-01 00:00:00Z]
+        }
+      ])
+
+      %{source: source, profile: profile} = insert_camera_source!(mac)
+
+      {:ok, _view, html} = live(conn, ~p"/devices/#{device_uid}")
+
+      assert html =~ "Camera Streams"
+      assert html =~ source.display_name
+      assert html =~ profile.profile_name
+      assert html =~ "Open Relay"
+    end
+
     test "opens and closes a camera relay session from device details", %{
       conn: conn,
       device_uid: device_uid,
@@ -859,6 +920,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert_receive {:close_session, ^relay_session_id, opts}
       assert opts[:scope].user.role == :viewer
       assert render(view) =~ "Closing"
+    end
+
+    test "passes insecure skip verify when opening a relay from device details", %{
+      conn: conn,
+      device_uid: device_uid,
+      source: source,
+      profile: profile
+    } do
+      relay_session_id = Ecto.UUID.generate()
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_open_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: source.id,
+           stream_profile_id: profile.id,
+           agent_id: source.assigned_agent_id,
+           gateway_id: source.assigned_gateway_id,
+           status: :opening
+         }}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      view
+      |> element(
+        "button[phx-click='open_camera_relay'][phx-value-camera_source_id='#{source.id}'][phx-value-stream_profile_id='#{profile.id}'][phx-value-insecure_skip_verify='true']"
+      )
+      |> render_click()
+
+      assert_receive {:open_session, ^source.id, ^profile.id, opts}
+      assert opts[:insecure_skip_verify] == true
     end
 
     test "refreshes relay session state from persisted relay session records", %{
@@ -1013,18 +1108,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     |> Ash.update!()
   end
 
-  defp insert_camera_source!(device_uid) do
+  defp insert_camera_source!(device_uid, attrs \\ %{}) do
     {:ok, source} =
       CameraSource.create_source(
-        %{
-          device_uid: device_uid,
-          vendor: "axis",
-          vendor_camera_id: "axis-#{System.unique_integer([:positive])}",
-          display_name: "Lobby Camera",
-          source_url: "rtsp://camera.local/stream",
-          assigned_agent_id: "agent-camera-1",
-          assigned_gateway_id: "gateway-camera-1"
-        },
+        Map.merge(
+          %{
+            device_uid: device_uid,
+            vendor: "axis",
+            vendor_camera_id: "axis-#{System.unique_integer([:positive])}",
+            display_name: "Lobby Camera",
+            source_url: "rtsp://camera.local/stream",
+            assigned_agent_id: "agent-camera-1",
+            assigned_gateway_id: "gateway-camera-1"
+          },
+          attrs
+        ),
         actor: AshTestHelpers.system_actor()
       )
 

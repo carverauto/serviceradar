@@ -121,8 +121,10 @@ describe("rendering_selection_methods", () => {
               {
                 stream_profile_id: "22222222-2222-2222-2222-222222222222",
                 profile_name: "Main Stream",
+                source_url_override: "rtsps://controller.local:7441/front-door",
               },
             ],
+            source_url: "rtsps://controller.local:7441/front-door",
           },
         ],
       },
@@ -133,6 +135,8 @@ describe("rendering_selection_methods", () => {
     expect(ctx.state.details.innerHTML).toContain("Camera Activity: Camera reachable from assigned edge agent")
     expect(ctx.state.details.innerHTML).toContain("Lobby Camera")
     expect(ctx.state.details.innerHTML).toContain("Open Main Stream")
+    expect(ctx.state.details.innerHTML).toContain("Skip TLS Verify")
+    expect(ctx.state.details.innerHTML).toContain("data-insecure-skip-verify=\"true\"")
     expect(ctx.state.details.innerHTML).toContain("data-camera-source-id=\"11111111-1111-1111-1111-111111111111\"")
     expect(ctx.state.details.innerHTML).toContain("data-stream-profile-id=\"22222222-2222-2222-2222-222222222222\"")
   })

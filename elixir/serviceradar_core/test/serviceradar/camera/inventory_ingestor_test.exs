@@ -41,7 +41,8 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     assert :ok =
              InventoryIngestor.ingest(payload, status,
                source_upsert: source_upsert,
-               profile_upsert: profile_upsert
+               profile_upsert: profile_upsert,
+               device_sync: fn _, _, _, _ -> :ok end
              )
 
     assert_receive {:source_upsert, source_attrs}
@@ -86,7 +87,8 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     assert :ok =
              InventoryIngestor.ingest(payload, %{},
                source_upsert: source_upsert,
-               profile_upsert: profile_upsert
+               profile_upsert: profile_upsert,
+               device_sync: fn _, _, _, _ -> :ok end
              )
 
     assert_receive {:source_upsert, _}
@@ -133,7 +135,8 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     assert :ok =
              InventoryIngestor.ingest(payload, %{},
                source_upsert: source_upsert,
-               profile_upsert: profile_upsert
+               profile_upsert: profile_upsert,
+               device_sync: fn _, _, _, _ -> :ok end
              )
 
     assert_receive {:source_upsert, source_attrs}
@@ -182,7 +185,8 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     assert :ok =
              InventoryIngestor.ingest(payload, %{},
                source_upsert: source_upsert,
-               profile_upsert: profile_upsert
+               profile_upsert: profile_upsert,
+               device_sync: fn _, _, _, _ -> :ok end
              )
 
     assert_receive {:source_upsert, source_attrs}
@@ -250,7 +254,8 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
              InventoryIngestor.ingest(payload, %{agent_id: "agent-42", gateway_id: "gateway-42"},
                source_upsert: source_upsert,
                profile_upsert: profile_upsert,
-               resolve_device_uid: resolve_device_uid
+               resolve_device_uid: resolve_device_uid,
+               device_sync: fn _, _, _, _ -> :ok end
              )
 
     assert_receive {:resolve_device_uid, descriptor, status}
@@ -273,6 +278,69 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     assert profile_attrs.metadata["auth_mode"] == "digest"
     assert profile_attrs.metadata["credential_reference_id"] == "secretref:password:axis-42"
     assert profile_attrs.metadata["protocol"] == "rtsp"
+  end
+
+  test "replaces explicit vendor device uid when identity resolution returns a canonical uid" do
+    parent = self()
+
+    source_upsert = fn attrs, _actor ->
+      send(parent, {:source_upsert, attrs})
+      {:ok, %{id: Ecto.UUID.generate()}}
+    end
+
+    profile_upsert = fn attrs, _actor ->
+      send(parent, {:profile_upsert, attrs})
+      {:ok, attrs}
+    end
+
+    resolve_device_uid = fn descriptor, status, _actor ->
+      send(parent, {:resolve_device_uid, descriptor, status})
+      "sr:camera-canonical-1"
+    end
+
+    device_sync = fn descriptor, status, observed_at, _actor ->
+      send(parent, {:device_sync, descriptor, status, observed_at})
+      :ok
+    end
+
+    observed_at = ~U[2026-03-25 20:00:00Z]
+
+    payload = %{
+      "camera_descriptors" => [
+        %{
+          "device_uid" => "aa:bb:cc:dd:ee:ff",
+          "vendor" => "ubiquiti",
+          "camera_id" => "protect-camera-1",
+          "display_name" => "Front Door",
+          "ip" => "192.168.1.90",
+          "identity" => %{"mac" => "aa:bb:cc:dd:ee:ff"},
+          "metadata" => %{"camera_host" => "192.168.1.90"},
+          "stream_profiles" => [%{"profile_name" => "High", "codec_hint" => "h264"}]
+        }
+      ]
+    }
+
+    assert :ok =
+             InventoryIngestor.ingest(payload, %{gateway_id: "gateway-1"},
+               observed_at: observed_at,
+               source_upsert: source_upsert,
+               profile_upsert: profile_upsert,
+               resolve_device_uid: resolve_device_uid,
+               device_sync: device_sync
+             )
+
+    assert_receive {:resolve_device_uid, descriptor, status}
+    assert descriptor["device_uid"] == "aa:bb:cc:dd:ee:ff"
+    assert status.gateway_id == "gateway-1"
+
+    assert_receive {:device_sync, synced_descriptor, _status, ^observed_at}
+    assert synced_descriptor["device_uid"] == "sr:camera-canonical-1"
+
+    assert_receive {:source_upsert, source_attrs}
+    assert source_attrs.device_uid == "sr:camera-canonical-1"
+
+    assert_receive {:profile_upsert, profile_attrs}
+    assert profile_attrs.profile_name == "High"
   end
 
   test "extracts generic device enrichment descriptors from top-level payloads" do
@@ -363,7 +431,8 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
              InventoryIngestor.ingest(payload, %{gateway_id: "gateway-state-1"},
                observed_at: observed_at,
                source_upsert: source_upsert,
-               profile_upsert: profile_upsert
+               profile_upsert: profile_upsert,
+               device_sync: fn _, _, _, _ -> :ok end
              )
 
     assert_receive {:source_upsert, source_attrs}
@@ -401,7 +470,8 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     assert :ok =
              InventoryIngestor.ingest(payload, %{},
                source_upsert: source_upsert,
-               profile_upsert: profile_upsert
+               profile_upsert: profile_upsert,
+               device_sync: fn _, _, _, _ -> :ok end
              )
 
     assert_receive {:source_upsert, source_attrs}

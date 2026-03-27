@@ -69,6 +69,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     |> Ash.Changeset.for_create(:create, attrs)
     |> Ash.Changeset.set_context(%{config_schema: schema})
     |> create_resource(scope)
+    |> maybe_sync_assignment_service_state()
     |> maybe_redact_assignment()
   end
 
@@ -89,6 +90,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
       |> Ash.Changeset.for_update(:update, attrs)
       |> Ash.Changeset.set_context(%{config_schema: schema})
       |> update_resource(scope)
+      |> maybe_sync_assignment_service_state()
       |> maybe_redact_assignment()
     end
   end
@@ -218,6 +220,18 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
 
   defp maybe_redact_assignment({:ok, nil}), do: {:ok, nil}
   defp maybe_redact_assignment(other), do: other
+
+  defp maybe_sync_assignment_service_state({:ok, %PluginAssignment{} = assignment} = ok) do
+    if assignment.enabled do
+      ServiceStateRegistry.upsert_for_assignment(assignment)
+    else
+      ServiceStateRegistry.deactivate_for_assignment(assignment)
+    end
+
+    ok
+  end
+
+  defp maybe_sync_assignment_service_state(other), do: other
 
   defp redact_assignment(%PluginAssignment{} = assignment) do
     %{assignment | params: SecretRefs.public_params(assignment.params || %{})}

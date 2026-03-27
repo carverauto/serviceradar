@@ -13,6 +13,7 @@ defmodule ServiceRadar.Camera.Source do
   @devices_view_check {ActorHasPermission, permission: "devices.view"}
 
   @mutable_fields [
+    :device_uid,
     :display_name,
     :source_url,
     :assigned_agent_id,

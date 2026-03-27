@@ -166,7 +166,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
     assert open_response.accepted == true
     assert open_response.message == "core relay session accepted"
     assert open_response.media_ingest_id == media_ingest_id
-    assert open_response.max_chunk_bytes == 262_144
+    assert open_response.max_chunk_bytes == 1_048_576
     assert open_response.lease_expires_at_unix == lease_expires_at_unix
 
     assert_receive {:core_open_relay_session,

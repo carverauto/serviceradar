@@ -8,7 +8,7 @@ permissions:
 jobs:
   swiftlint:
     name: swiftlint
-    runs-on: ubuntu-24.04
+    runs-on: arc-runner-set
     env:
       SWIFTLINT_VERSION: "0.63.2"
     steps:
