@@ -58,7 +58,7 @@ spec:
             - name: PLUGIN_STORAGE_BACKEND
               value: "filesystem"
             - name: PLUGIN_STORAGE_PATH
-              value: "/var/lib/serviceradar/plugin-packages"
+              value: "/var/lib/serviceradar/plugin-packages/data"
             - name: PLUGIN_STORAGE_SIGNING_SECRET
               valueFrom:
                 secretKeyRef:

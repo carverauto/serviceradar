@@ -430,6 +430,17 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
             {:error, reason}
         end
 
+      {%Device{} = device, target_uid} when is_binary(target_uid) ->
+        # Tolerate older ingest paths that passed the target uid instead of attrs after
+        # an IP-claim merge. Re-read the canonical camera row and continue with its
+        # merged state rather than failing the whole ingest.
+        with {:ok, %Device{} = target_device} <- Device.get_by_uid(target_uid, false, actor: actor) do
+          target_device
+          |> camera_device_update_attrs()
+          |> then(&merge_camera_device_attrs(device, &1))
+          |> then(&update_camera_device(target_device, &1, actor))
+        end
+
       _ ->
         {:error, {:invalid_camera_update_target, device, attrs}}
     end
@@ -558,6 +569,22 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         name: prefer_non_empty(attrs.name, existing.name),
         vendor_name: prefer_non_empty(attrs.vendor_name, existing.vendor_name),
         model: prefer_non_empty(attrs.model, existing.model)
+    }
+  end
+
+  defp camera_device_update_attrs(%Device{} = device) do
+    %{
+      name: device.name,
+      hostname: device.hostname,
+      ip: device.ip,
+      mac: device.mac,
+      vendor_name: device.vendor_name,
+      model: device.model,
+      discovery_sources: device.discovery_sources || [],
+      is_managed: device.is_managed,
+      is_available: device.is_available,
+      metadata: device.metadata || %{},
+      last_seen_time: device.last_seen_time
     }
   end
 

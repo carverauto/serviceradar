@@ -447,7 +447,7 @@ webNg:
     serverName: "datasvc.serviceradar"
   pluginStorage:
     enabled: true
-    basePath: "/var/lib/serviceradar/plugin-packages"
+    basePath: "/var/lib/serviceradar/plugin-packages/data"
     existingClaim: ""
     size: 10Gi
     storageClassName: ""

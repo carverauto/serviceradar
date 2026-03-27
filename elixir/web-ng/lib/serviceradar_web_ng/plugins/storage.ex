@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
-  @default_base_path "/var/lib/serviceradar/plugin-packages"
+  @default_base_path "/var/lib/serviceradar/plugin-packages/data"
   @default_upload_ttl_seconds 900
   @default_download_ttl_seconds 900
   @default_max_upload_bytes 52_428_800
