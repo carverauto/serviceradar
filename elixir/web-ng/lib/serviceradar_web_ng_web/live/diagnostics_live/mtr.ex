@@ -159,6 +159,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
           {:error, {:agent_offline, _}} ->
             {:noreply, assign(socket, :mtr_error, "Agent is offline")}
 
+          {:error, {:agent_busy, :too_many_concurrent_mtr_traces}} ->
+            {:noreply,
+             assign(
+               socket,
+               :mtr_error,
+               "Agent is already running the maximum number of concurrent MTR traces"
+             )}
+
           {:error, reason} ->
             {:noreply, assign(socket, :mtr_error, "Failed to dispatch: #{inspect(reason)}")}
         end
@@ -180,6 +188,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
       {:error, {:agent_offline, _}} ->
         {:noreply, put_flash(socket, :error, "Agent is offline")}
 
+      {:error, {:agent_busy, :too_many_concurrent_mtr_traces}} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Agent is already running the maximum number of concurrent MTR traces"
+         )}
+
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to dispatch: #{inspect(reason)}")}
     end
@@ -189,14 +205,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   def handle_info({:command_result, %{command_type: "mtr.run"} = msg}, socket) do
     command_id = Map.get(msg, :command_id) || Map.get(msg, "command_id")
 
-    if active_mtr_command?(socket, command_id) do
-      {:noreply,
-       socket
-       |> assign(:mtr_running, false)
-       |> schedule_refresh()}
-    else
-      {:noreply, socket}
-    end
+    socket =
+      if active_mtr_command?(socket, command_id) do
+        socket
+        |> assign(:mtr_running, false)
+        |> assign(:mtr_command_id, nil)
+      else
+        socket
+      end
+
+    {:noreply, schedule_refresh(socket)}
   end
 
   def handle_info({:mtr_trace_ingested, _event}, socket) do
