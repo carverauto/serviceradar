@@ -106,6 +106,45 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRulesTest do
     assert classification.rule_id == "mikrotik-router"
   end
 
+  test "classifies vJunos identity as Juniper router" do
+    update = %{
+      hostname: "vjunos-lab-01",
+      source: "mapper",
+      metadata: %{
+        "sys_object_id" => ".1.3.6.1.4.1.2636.1.1.1.2.160",
+        "sys_descr" => "Juniper Networks, Inc. vJunos-router",
+        "sys_name" => "vjunos-lab-01",
+        "ip_forwarding" => "1"
+      }
+    }
+
+    classification = DeviceEnrichmentRules.classify(update)
+
+    assert classification.vendor_name == "Juniper"
+    assert classification.type == "Router"
+    assert classification.type_id == 12
+    assert classification.rule_id == "juniper-router-vjunos"
+  end
+
+  test "does not fall through to MikroTik for Juniper enterprise OID" do
+    update = %{
+      hostname: "vjunos-lab-02",
+      source: "mapper",
+      metadata: %{
+        "sys_object_id" => ".1.3.6.1.4.1.2636.1.1.1.2.160",
+        "sys_descr" => "JUNOS 24.2R1.17 Kernel 64-bit  JNPR-14.1-20240215.8d8224c_buil",
+        "sys_name" => "vjunos-lab-02",
+        "ip_forwarding" => "1"
+      }
+    }
+
+    classification = DeviceEnrichmentRules.classify(update)
+
+    assert classification.vendor_name == "Juniper"
+    refute classification.vendor_name == "MikroTik"
+    assert classification.rule_id == "juniper-router-vjunos"
+  end
+
   test "filesystem override with same rule id takes precedence over built-in rule" do
     tmp_dir =
       Path.join(

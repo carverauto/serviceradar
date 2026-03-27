@@ -314,6 +314,76 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert device.vendor_name == "Cisco"
   end
 
+  test "classifies vJunos router as Juniper without falling through to MikroTik", %{
+    actor: actor
+  } do
+    ip = unique_ip()
+
+    update = %{
+      "ip" => ip,
+      "hostname" => "vjunos-lab-01",
+      "source" => "mapper",
+      "metadata" => %{
+        "sys_object_id" => ".1.3.6.1.4.1.2636.1.1.1.2.160",
+        "sys_descr" => "Juniper Networks, Inc. vJunos-router",
+        "sys_name" => "vjunos-lab-01",
+        "ip_forwarding" => "1"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.vendor_name == "Juniper"
+    assert device.type == "Router"
+    assert device.type_id == 12
+    refute device.vendor_name == "MikroTik"
+    assert device.metadata["classification_rule_id"] == "juniper-router-vjunos"
+  end
+
+  test "replaces stale classification metadata when the same device is reclassified", %{
+    actor: actor
+  } do
+    ip = unique_ip()
+
+    mikrotik_update = %{
+      "ip" => ip,
+      "hostname" => "mikrotik-lab-01",
+      "source" => "mapper",
+      "metadata" => %{
+        "sys_object_id" => ".1.3.6.1.4.1.14988.1",
+        "sys_descr" => "MikroTik RouterOS RB5009UG+S+",
+        "sys_name" => "mikrotik-lab-01",
+        "ip_forwarding" => "1"
+      }
+    }
+
+    juniper_update = %{
+      "ip" => ip,
+      "hostname" => "vjunos-lab-01",
+      "source" => "mapper",
+      "metadata" => %{
+        "sys_object_id" => ".1.3.6.1.4.1.2636.1.1.1.2.160",
+        "sys_descr" => "Juniper Networks, Inc. vJunos-router",
+        "sys_name" => "vjunos-lab-01",
+        "ip_forwarding" => "1"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([mikrotik_update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.vendor_name == "MikroTik"
+    assert device.metadata["classification_rule_id"] == "mikrotik-router"
+
+    assert :ok = SyncIngestor.ingest_updates([juniper_update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.vendor_name == "Juniper"
+    assert device.metadata["classification_rule_id"] == "juniper-router-vjunos"
+    refute device.metadata["classification_rule_id"] == "mikrotik-router"
+  end
+
   test "maps RouterOS metadata into canonical os and hardware info", %{actor: actor} do
     ip = unique_ip()
 
