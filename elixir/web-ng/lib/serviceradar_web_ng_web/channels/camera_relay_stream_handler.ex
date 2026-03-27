@@ -164,6 +164,18 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
     end
   end
 
+  def handle_info({:EXIT, _pid, :normal}, state), do: {:ok, state}
+  def handle_info({:EXIT, _pid, :shutdown}, state), do: {:ok, state}
+
+  def handle_info(message, state) do
+    Logger.debug("Ignoring unexpected camera relay websocket message",
+      relay_session_id: state.relay_session_id,
+      message: inspect(message)
+    )
+
+    {:ok, state}
+  end
+
   @impl true
   def terminate(reason, state) do
     :ok = RelayPubSub.viewer_leave(state.relay_session_id, state.viewer_id)
@@ -343,6 +355,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
   end
 
   defp iso8601_from_unix(value) when is_integer(value), do: value |> DateTime.from_unix!(:second) |> DateTime.to_iso8601()
+
   defp iso8601_from_unix(_value), do: nil
 
   defp encode_media_frame(payload) do

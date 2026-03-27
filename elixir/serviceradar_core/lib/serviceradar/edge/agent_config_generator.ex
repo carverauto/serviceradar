@@ -564,7 +564,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
        ) do
     # Sort checks by ID for deterministic ordering
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
-    sorted_plugins = Enum.sort_by(plugin_assignments, & &1.assignment_id)
+
+    sorted_plugins =
+      plugin_assignments
+      |> Enum.sort_by(& &1.assignment_id)
+      |> Enum.map(&stable_plugin_assignment/1)
 
     # Serialize deterministically for hashing (works for any Erlang term).
     bin =
@@ -583,6 +587,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     # Return as hex string with "v" prefix
     "v" <> Base.encode16(hash, case: :lower)
   end
+
+  defp stable_plugin_assignment(assignment) when is_map(assignment) do
+    assignment
+    |> Map.delete(:download_url)
+    |> Map.delete("download_url")
+  end
+
+  defp stable_plugin_assignment(assignment), do: assignment
 
   @doc """
   Converts plugin assignments to proto-compatible structs.

@@ -111,6 +111,12 @@ kubectl get secret serviceradar-runtime-certs \
 # Deploy Falcosidekick
 helm upgrade --install falcosidekick-nats-auth falcosecurity/falcosidekick \
   --namespace demo \
+  --set podSecurityContext.runAsUser=1234 \
+  --set podSecurityContext.fsGroup=1234 \
+  --set securityContext.allowPrivilegeEscalation=false \
+  --set securityContext.runAsNonRoot=true \
+  --set securityContext.capabilities.drop[0]=ALL \
+  --set securityContext.seccompProfile.type=RuntimeDefault \
   -f falcosidekick.yaml
 ```
 

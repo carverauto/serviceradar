@@ -211,7 +211,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServerTest do
          accepted: true,
          message: "opened upstream",
          media_ingest_id: "core-media-capacity-1",
-         max_chunk_bytes: 262_144,
+         max_chunk_bytes: 1_048_576,
          lease_expires_at_unix: 1_800_000_060
        }}
     )

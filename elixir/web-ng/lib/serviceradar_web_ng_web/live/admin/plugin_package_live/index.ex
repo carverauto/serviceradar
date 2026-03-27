@@ -543,6 +543,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         _ = maybe_delete_blob(package)
 
         case Packages.delete(id, scope: scope) do
+          :ok -> :ok
           {:ok, _package} -> :ok
           {:error, error} -> {:error, error}
         end
@@ -605,8 +606,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     results =
       consume_uploaded_entries(socket, :wasm_blob, fn %{path: path}, _entry ->
         case File.read(path) do
-          {:ok, payload} -> {:ok, payload}
-          {:error, _reason} -> {:error, :read_failed}
+          {:ok, payload} ->
+            {:ok, payload}
+
+          {:error, reason} ->
+            Logger.error("plugin wasm upload read failed package_id=#{package.id} path=#{path} reason=#{inspect(reason)}")
+
+            {:error, :read_failed}
         end
       end)
 
@@ -633,10 +639,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> put_flash(:info, "Wasm blob uploaded")}
 
       {:error, error} ->
+        error_message = format_error(error)
+
+        Logger.error(
+          "plugin wasm upload failed package_id=#{package.id} plugin_id=#{package.plugin_id} object_key=#{package.wasm_object_key || Storage.object_key_for(package)} error=#{inspect(error)}"
+        )
+
         {:noreply,
          socket
-         |> assign(:upload_errors, [format_error(error)])
-         |> put_flash(:error, "Failed to upload Wasm blob")}
+         |> assign(:upload_errors, [error_message])
+         |> put_flash(:error, "Failed to upload Wasm blob: #{error_message}")}
     end
   end
 
@@ -865,6 +877,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       <.details_modal
         :if={@show_details_modal}
         package={@selected_package}
+        can_approve_plugins={@can_approve_plugins}
         review_form={@review_form}
         assignments={@assignments}
         agents={@agents}
@@ -2164,6 +2177,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp format_error(error) when is_binary(error), do: error
+  defp format_error(error) when is_atom(error), do: Atom.to_string(error)
   defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
   defp format_error(error), do: inspect(error)
 end

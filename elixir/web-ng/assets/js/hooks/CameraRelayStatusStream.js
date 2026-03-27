@@ -11,6 +11,7 @@ import {
 
 const WEBRTC_CREATE_RETRY_DELAY_MS = 500
 const WEBRTC_CREATE_MAX_ATTEMPTS = 10
+const WEBSOCKET_KEEPALIVE_INTERVAL_MS = 20_000
 
 function setText(root, role, value) {
   const element = root.querySelector(`[data-role="${role}"]`)
@@ -143,6 +144,8 @@ export default {
     this.webrtcIceServers = parseJsonDataset(this.el.dataset.webrtcIceServers, [])
     this.socket = null
     this.statusSocket = null
+    this.socketKeepaliveTimer = null
+    this.statusSocketKeepaliveTimer = null
     this.peerConnection = null
     this.webrtcViewerSessionId = null
     this.chunkCount = 0
@@ -187,6 +190,9 @@ export default {
   },
 
   destroyed() {
+    this.stopSocketKeepalive("socket")
+    this.stopSocketKeepalive("statusSocket")
+
     if (this.socket) {
       this.socket.close()
       this.socket = null
@@ -216,6 +222,7 @@ export default {
     this.socket.binaryType = "arraybuffer"
 
     this.socket.addEventListener("open", () => {
+      this.startSocketKeepalive("socket")
       setText(
         this.el,
         "transport-status",
@@ -224,6 +231,8 @@ export default {
     })
 
     this.socket.addEventListener("close", () => {
+      this.stopSocketKeepalive("socket")
+
       if (!this.receivedRelaySnapshot && !this.receivedMediaChunk) {
         setText(this.el, "transport-status", "Browser stream unavailable or unauthorized")
         setText(
@@ -237,6 +246,7 @@ export default {
     })
 
     this.socket.addEventListener("error", () => {
+      this.stopSocketKeepalive("socket")
       setText(this.el, "transport-status", "Browser stream error")
 
       if (!this.receivedRelaySnapshot && !this.receivedMediaChunk) {
@@ -283,6 +293,10 @@ export default {
 
     this.statusSocket = new WebSocket(websocketUrl(this.streamPath))
 
+    this.statusSocket.addEventListener("open", () => {
+      this.startSocketKeepalive("statusSocket")
+    })
+
     this.statusSocket.addEventListener("message", (event) => {
       if (typeof event.data !== "string") {
         return
@@ -292,9 +306,14 @@ export default {
     })
 
     this.statusSocket.addEventListener("error", () => {
+      this.stopSocketKeepalive("statusSocket")
       if (!this.receivedRelaySnapshot) {
         setText(this.el, "relay-detail", "Waiting for relay state updates from core.")
       }
+    })
+
+    this.statusSocket.addEventListener("close", () => {
+      this.stopSocketKeepalive("statusSocket")
     })
   },
 
@@ -450,6 +469,7 @@ export default {
 
   useWebsocketFallback(reason) {
     if (this.statusSocket) {
+      this.stopSocketKeepalive("statusSocket")
       this.statusSocket.close()
       this.statusSocket = null
     }
@@ -537,6 +557,38 @@ export default {
 
       default:
         return null
+    }
+  },
+
+  startSocketKeepalive(socketKey) {
+    const timerKey = socketKey === "statusSocket" ? "statusSocketKeepaliveTimer" : "socketKeepaliveTimer"
+    const socket = this[socketKey]
+
+    this.stopSocketKeepalive(socketKey)
+
+    if (!socket || typeof socket.send !== "function") {
+      return
+    }
+
+    this[timerKey] = globalThis.setInterval(() => {
+      const readyState = socket.readyState
+      const openState = socket.constructor?.OPEN ?? globalThis.WebSocket?.OPEN ?? 1
+
+      if (readyState !== openState) {
+        return
+      }
+
+      socket.send("ping")
+    }, WEBSOCKET_KEEPALIVE_INTERVAL_MS)
+  },
+
+  stopSocketKeepalive(socketKey) {
+    const timerKey = socketKey === "statusSocket" ? "statusSocketKeepaliveTimer" : "socketKeepaliveTimer"
+    const timer = this[timerKey]
+
+    if (timer) {
+      globalThis.clearInterval(timer)
+      this[timerKey] = null
     }
   },
 

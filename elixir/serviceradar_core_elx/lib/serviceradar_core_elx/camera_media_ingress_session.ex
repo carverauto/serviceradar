@@ -10,7 +10,7 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
 
   alias ServiceRadarCoreElx.CameraMediaSessionTracker
 
-  @max_chunk_bytes 262_144
+  @max_chunk_bytes 1_048_576
 
   def start_link(session, opts \\ []) when is_map(session) do
     GenServer.start_link(__MODULE__, {session, opts}, name: via(session.relay_session_id))

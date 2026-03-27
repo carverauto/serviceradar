@@ -77,9 +77,36 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ $webNgSA }}
-      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
-      {{- if $migrationsEnabled }}
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if or $pluginStorage.enabled $migrationsEnabled }}
       initContainers:
+      {{- if $pluginStorage.enabled }}
+      - name: init-plugin-storage
+        image: busybox:1.36
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 10001
+          runAsGroup: 10001
+          capabilities:
+            drop: ["ALL"]
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -eu
+          STORAGE_PATH={{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}
+          mkdir -p "${STORAGE_PATH}/plugins"
+          chmod -R g+rwX "${STORAGE_PATH}"
+        volumeMounts:
+        - name: plugin-packages
+          mountPath: {{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}
+      {{- end }}
+      {{- if $migrationsEnabled }}
       - name: wait-migrations
         image: ghcr.io/carverauto/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
@@ -142,6 +169,7 @@ spec:
         - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
+      {{- end }}
       {{- end }}
       containers:
       - name: web-ng

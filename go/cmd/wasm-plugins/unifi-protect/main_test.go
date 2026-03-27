@@ -25,6 +25,30 @@ func TestBuildProtectStreamURL(t *testing.T) {
 	}
 }
 
+func TestBuildProtectStreamURLPrefersConnectionHost(t *testing.T) {
+	cfg := Config{RTSPPort: 7447, CameraPluginConfig: sdk.CameraPluginConfig{Host: "192.168.1.1"}}
+	camera := ProtectCamera{Host: "192.168.1.1", ConnectionHost: "192.168.1.90"}
+	channel := ProtectChannel{RTSPAlias: "abcdef"}
+
+	got := buildProtectStreamURL(cfg, camera, channel)
+	want := "rtsp://192.168.1.90:7447/abcdef"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestBuildProtectStreamURLStripsEnableSrtpFromDirectAlias(t *testing.T) {
+	cfg := Config{RTSPPort: 7447, CameraPluginConfig: sdk.CameraPluginConfig{Host: "udm.local"}}
+	camera := ProtectCamera{Host: "camera-relay.local"}
+	channel := ProtectChannel{RTSPSAlias: "rtsps://192.168.1.1:7441/example?enableSrtp"}
+
+	got := buildProtectStreamURL(cfg, camera, channel)
+	want := "rtsps://192.168.1.1:7441/example"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
 func TestExtractSessionCookie(t *testing.T) {
 	got := extractSessionCookie("TOKEN=abc123; Path=/; HttpOnly")
 	if got != "TOKEN=abc123" {
@@ -36,20 +60,22 @@ func TestBuildProtectCameraDescriptors(t *testing.T) {
 	cfg := Config{RTSPPort: 7447, CameraPluginConfig: sdk.CameraPluginConfig{Host: "udm.local"}}
 	cameras := []ProtectCamera{
 		{
-			ID:          "camera-1",
-			MAC:         "aa:bb:cc:dd:ee:ff",
-			Name:        "Front Door",
-			MarketName:  "G4 Bullet",
-			ModelKey:    "uvc-g4-bullet",
-			State:       "CONNECTED",
-			IsConnected: true,
+			ID:             "camera-1",
+			MAC:            "aa:bb:cc:dd:ee:ff",
+			Host:           "192.168.1.1",
+			ConnectionHost: "192.168.1.90",
+			Name:           "Front Door",
+			MarketName:     "G4 Bullet",
+			ModelKey:       "uvc-g4-bullet",
+			State:          "CONNECTED",
+			IsConnected:    true,
 			Channels: []ProtectChannel{
 				{ID: "0", Name: "High", RTSPAlias: "stream-alias", Width: 1920, Height: 1080, FPS: 24},
 			},
 		},
 	}
 
-	descriptors := buildProtectCameraDescriptors(cfg, cameras)
+	descriptors := buildProtectCameraDescriptors(cfg, cameras, nil)
 	if len(descriptors) != 1 {
 		t.Fatalf("expected 1 descriptor, got %d", len(descriptors))
 	}
@@ -61,11 +87,96 @@ func TestBuildProtectCameraDescriptors(t *testing.T) {
 	if descriptor.Vendor != "ubiquiti" {
 		t.Fatalf("unexpected vendor: %s", descriptor.Vendor)
 	}
-	if descriptor.SourceURL != "rtsp://udm.local:7447/stream-alias" {
+	if descriptor.IP != "192.168.1.90" {
+		t.Fatalf("unexpected descriptor IP: %s", descriptor.IP)
+	}
+	if descriptor.AvailabilityStatus != "available" {
+		t.Fatalf("unexpected availability status: %s", descriptor.AvailabilityStatus)
+	}
+	if descriptor.AvailabilityReason != "UniFi Protect state CONNECTED" {
+		t.Fatalf("unexpected availability reason: %s", descriptor.AvailabilityReason)
+	}
+	if descriptor.SourceURL != "rtsp://192.168.1.90:7447/stream-alias" {
 		t.Fatalf("unexpected source URL: %s", descriptor.SourceURL)
+	}
+	if descriptor.Identity["mac"] != "aa:bb:cc:dd:ee:ff" {
+		t.Fatalf("unexpected descriptor identity: %#v", descriptor.Identity)
+	}
+	if descriptor.Metadata["camera_host"] != "192.168.1.90" {
+		t.Fatalf("unexpected descriptor metadata: %#v", descriptor.Metadata)
 	}
 	if len(descriptor.StreamProfiles) != 1 {
 		t.Fatalf("expected 1 stream profile, got %d", len(descriptor.StreamProfiles))
+	}
+}
+
+func TestBuildProtectCameraDescriptorsMarksDisconnectedCameraUnavailable(t *testing.T) {
+	cfg := Config{RTSPPort: 7447, CameraPluginConfig: sdk.CameraPluginConfig{Host: "udm.local"}}
+	cameras := []ProtectCamera{
+		{
+			ID:          "camera-2",
+			MAC:         "11:22:33:44:55:66",
+			Host:        "192.168.1.1",
+			Name:        "Garage Door",
+			State:       "DISCONNECTED",
+			IsConnected: false,
+			Channels: []ProtectChannel{
+				{ID: "0", Name: "High", RTSPAlias: "garage-stream"},
+			},
+		},
+	}
+
+	descriptors := buildProtectCameraDescriptors(cfg, cameras, nil)
+	if len(descriptors) != 1 {
+		t.Fatalf("expected 1 descriptor, got %d", len(descriptors))
+	}
+
+	descriptor := descriptors[0]
+	if descriptor.AvailabilityStatus != "unavailable" {
+		t.Fatalf("unexpected availability status: %s", descriptor.AvailabilityStatus)
+	}
+	if descriptor.AvailabilityReason != "UniFi Protect state DISCONNECTED" {
+		t.Fatalf("unexpected availability reason: %s", descriptor.AvailabilityReason)
+	}
+}
+
+func TestBuildProtectCameraDescriptorsUsesNetworkClientIPWhenProtectOmitsIt(t *testing.T) {
+	cfg := Config{RTSPPort: 7447, CameraPluginConfig: sdk.CameraPluginConfig{Host: "192.168.1.1"}}
+	cameras := []ProtectCamera{
+		{
+			ID:          "camera-3",
+			MAC:         "78:45:58:2F:3F:73",
+			Host:        "192.168.1.1",
+			Name:        "Front Door",
+			State:       "CONNECTED",
+			IsConnected: true,
+			Channels: []ProtectChannel{
+				{ID: "0", Name: "High", RTSPSAlias: "rtsps://192.168.1.1:7441/front-door?enableSrtp"},
+			},
+		},
+	}
+
+	descriptors := buildProtectCameraDescriptors(cfg, cameras, map[string]UniFiNetworkClient{
+		normalizeMACKey("78:45:58:2F:3F:73"): {
+			ID:         "client-1",
+			MACAddress: "78:45:58:2F:3F:73",
+			IPAddress:  "192.168.1.90",
+			Name:       "Front Door",
+		},
+	})
+	if len(descriptors) != 1 {
+		t.Fatalf("expected 1 descriptor, got %d", len(descriptors))
+	}
+
+	descriptor := descriptors[0]
+	if descriptor.IP != "192.168.1.90" {
+		t.Fatalf("unexpected descriptor IP: %s", descriptor.IP)
+	}
+	if descriptor.Metadata["camera_host"] != "192.168.1.90" {
+		t.Fatalf("unexpected camera_host metadata: %#v", descriptor.Metadata)
+	}
+	if descriptor.Metadata["network_client_id"] != "client-1" {
+		t.Fatalf("unexpected network_client_id metadata: %#v", descriptor.Metadata)
 	}
 }
 
@@ -198,6 +309,7 @@ func (c *gorillaProtectEventConn) Close() error {
 func TestProtectControllerFixtureLoginBootstrapAndEvents(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	var sawLogin bool
+	var sawIntegration bool
 	var sawBootstrap bool
 	var sawUpdates bool
 
@@ -211,6 +323,28 @@ func TestProtectControllerFixtureLoginBootstrapAndEvents(t *testing.T) {
 			sawLogin = true
 			http.SetCookie(w, &http.Cookie{Name: "TOKEN", Value: "fixture-token", Path: "/"})
 			w.WriteHeader(http.StatusOK)
+		case "/proxy/protect/integration/v1/cameras":
+			if got := r.Header.Get("Cookie"); got != "TOKEN=fixture-token" {
+				http.Error(w, "missing cookie", http.StatusUnauthorized)
+				return
+			}
+			sawIntegration = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[
+				{
+					"id":"camera-1",
+					"mac":"aa:bb:cc:dd:ee:ff",
+					"host":"camera-relay.local",
+					"name":"Front Door"
+				}
+			]`))
+		case "/proxy/protect/integration/v1/cameras/camera-1/rtsps-stream":
+			if got := r.Header.Get("Cookie"); got != "TOKEN=fixture-token" {
+				http.Error(w, "missing cookie", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"high":"rtsps://camera-relay.local:7441/high-stream?enableSrtp"}`))
 		case "/proxy/protect/api/bootstrap":
 			if got := r.Header.Get("Cookie"); got != "TOKEN=fixture-token" {
 				http.Error(w, "missing cookie", http.StatusUnauthorized)
@@ -325,9 +459,9 @@ func TestProtectControllerFixtureLoginBootstrapAndEvents(t *testing.T) {
 		t.Fatalf("unexpected auth mode %q", authMode)
 	}
 
-	bootstrap, bootstrapRes := fetchProtectSnapshot(context.Background(), client, cfg, headers, authMode)
-	if bootstrapRes.Error != "" {
-		t.Fatalf("bootstrap failed: %s", bootstrapRes.Error)
+	bootstrap, endpointResults, snapshotErr := fetchProtectSnapshot(context.Background(), client, cfg, headers, authMode, true)
+	if snapshotErr != "" {
+		t.Fatalf("bootstrap failed: %s", snapshotErr)
 	}
 	if bootstrap.LastUpdateID != "update-42" {
 		t.Fatalf("unexpected lastUpdateId %q", bootstrap.LastUpdateID)
@@ -335,9 +469,18 @@ func TestProtectControllerFixtureLoginBootstrapAndEvents(t *testing.T) {
 	if len(bootstrap.Cameras) != 1 {
 		t.Fatalf("unexpected camera count %d", len(bootstrap.Cameras))
 	}
+	if len(endpointResults) != 2 {
+		t.Fatalf("unexpected endpoint count %d", len(endpointResults))
+	}
+	if endpointResults[0].Path != "/proxy/protect/integration/v1/cameras" {
+		t.Fatalf("unexpected primary endpoint %q", endpointResults[0].Path)
+	}
+	if endpointResults[1].Path != "/proxy/protect/api/bootstrap" {
+		t.Fatalf("unexpected fallback endpoint %q", endpointResults[1].Path)
+	}
 
 	streams := buildProtectStreams(cfg, bootstrap.Cameras)
-	if len(streams) != 1 || streams[0].URL != "rtsp://camera-relay.local:7447/high-stream" {
+	if len(streams) != 1 || streams[0].URL != "rtsps://camera-relay.local:7441/high-stream" {
 		t.Fatalf("unexpected streams %#v", streams)
 	}
 
@@ -352,8 +495,8 @@ func TestProtectControllerFixtureLoginBootstrapAndEvents(t *testing.T) {
 		t.Fatalf("unexpected event message %q", events[0].Message)
 	}
 
-	if !sawLogin || !sawBootstrap || !sawUpdates {
-		t.Fatalf("expected full controller fixture flow, got login=%t bootstrap=%t updates=%t", sawLogin, sawBootstrap, sawUpdates)
+	if !sawLogin || !sawIntegration || !sawBootstrap || !sawUpdates {
+		t.Fatalf("expected full controller fixture flow, got login=%t integration=%t bootstrap=%t updates=%t", sawLogin, sawIntegration, sawBootstrap, sawUpdates)
 	}
 }
 
@@ -454,23 +597,184 @@ func TestProtectControllerFixtureAPIKeyAndStreamSelection(t *testing.T) {
 	}
 }
 
-func TestProtectControllerFixtureCookieBootstrap(t *testing.T) {
+func TestFetchUniFiNetworkClientsMatchesCameraMACs(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/proxy/network/integration/v1/sites":
+			if got := r.Header.Get("X-API-Key"); got != "protect-api-key" {
+				http.Error(w, "missing api key", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"id":"site-1","name":"default"}]}`))
+		case "/proxy/network/integration/v1/sites/site-1/clients":
+			if got := r.Header.Get("X-API-Key"); got != "protect-api-key" {
+				http.Error(w, "missing api key", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"offset":0,
+				"limit":200,
+				"count":2,
+				"totalCount":2,
+				"data":[
+					{"id":"client-1","macAddress":"78:45:58:2F:3F:73","name":"Front Door"},
+					{"id":"client-2","macAddress":"AA:BB:CC:DD:EE:FF","ipAddress":"192.168.1.50","name":"Other"}
+				]
+			}`))
+		case "/proxy/network/integration/v1/sites/site-1/clients/client-1":
+			if got := r.Header.Get("X-API-Key"); got != "protect-api-key" {
+				http.Error(w, "missing api key", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"client-1","macAddress":"78:45:58:2F:3F:73","ipAddress":"192.168.1.90","hostname":"front-door.local"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+
+	cfg := Config{
+		CameraPluginConfig: sdk.CameraPluginConfig{
+			Host:    serverURL.Host,
+			Scheme:  "http",
+			Timeout: "2s",
+		},
+		APIKey: "protect-api-key",
+	}
+
+	client := &testProtectHTTPClient{
+		BaseURL: server.URL,
+		Timeout: 2 * time.Second,
+		HTTPClient: &http.Client{
+			Timeout: 2 * time.Second,
+		},
+	}
+
+	matches, endpoints := fetchUniFiNetworkClients(
+		context.Background(),
+		client,
+		map[string]string{"X-API-Key": "protect-api-key"},
+		cfg,
+		[]ProtectCamera{
+			{ID: "camera-1", MAC: "78:45:58:2F:3F:73", Host: serverURL.Host},
+			{ID: "camera-2", MAC: "AA:BB:CC:DD:EE:FF", Host: "192.168.1.99"},
+		},
+	)
+
+	match, ok := matches[normalizeMACKey("78:45:58:2F:3F:73")]
+	if !ok {
+		t.Fatalf("expected matched network client, got %#v", matches)
+	}
+	if match.IPAddress != "192.168.1.90" {
+		t.Fatalf("unexpected matched IP %q", match.IPAddress)
+	}
+	if len(endpoints) != 3 {
+		t.Fatalf("unexpected endpoint count %d", len(endpoints))
+	}
+}
+
+func TestResolveProtectStreamSourceURLStripsEnableSrtpQuery(t *testing.T) {
 	t.Parallel()
 
 	var sawBootstrap bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/proxy/protect/api/bootstrap":
+		case "/proxy/protect/integration/v1/cameras":
+			sawBootstrap = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[
+					{
+						"id":"camera-1",
+						"mac":"aa:bb:cc:dd:ee:ff",
+						"host":"camera-a.local",
+						"name":"Front Door"
+					}
+				]`))
+		case "/proxy/protect/integration/v1/cameras/camera-1/rtsps-stream":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"high":"rtsps://camera-a.local:7441/high-stream?enableSrtp"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+
+	cfg := Config{
+		CameraPluginConfig: sdk.CameraPluginConfig{
+			Host:   serverURL.Host,
+			Scheme: "http",
+		},
+		APIKey:        "protect-api-key",
+		BootstrapPath: "/proxy/protect/api/bootstrap",
+		RTSPPort:      7447,
+	}
+	client := &testProtectHTTPClient{BaseURL: server.URL, Timeout: 2 * time.Second}
+
+	sourceURL, err := resolveProtectStreamSourceURL(context.Background(), StreamConfig{
+		Config: cfg,
+		Relay: RelayConfig{
+			CameraSourceID:  "camera-1",
+			StreamProfileID: "high",
+		},
+	}, client, map[string]string{"X-API-Key": "protect-api-key"})
+	if err != nil {
+		t.Fatalf("resolveProtectStreamSourceURL error: %v", err)
+	}
+	if sourceURL != "rtsps://camera-a.local:7441/high-stream" {
+		t.Fatalf("unexpected sanitized source URL %q", sourceURL)
+	}
+	if !sawBootstrap {
+		t.Fatalf("expected bootstrap request")
+	}
+}
+
+func TestFetchProtectSnapshotPrefersIntegrationForCookieAuth(t *testing.T) {
+	t.Parallel()
+
+	var sawIntegration bool
+	var sawBootstrap bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/proxy/protect/integration/v1/cameras":
 			if got := r.Header.Get("Cookie"); got != "TOKEN=cookie-fixture" {
 				http.Error(w, "missing cookie", http.StatusUnauthorized)
 				return
 			}
-			sawBootstrap = true
+			sawIntegration = true
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{
-				"lastUpdateId":"cookie-update",
-				"cameras":[{"id":"camera-1","channels":[{"id":"high","name":"High","rtspAlias":"high-stream"}]}]
-			}`))
+			_, _ = w.Write([]byte(`[
+				{
+					"id":"camera-1",
+					"mac":"aa:bb:cc:dd:ee:ff",
+					"host":"camera-a.local",
+					"name":"Front Door"
+				}
+			]`))
+		case "/proxy/protect/integration/v1/cameras/camera-1/rtsps-stream":
+			if got := r.Header.Get("Cookie"); got != "TOKEN=cookie-fixture" {
+				http.Error(w, "missing cookie", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"high":"rtsps://camera-a.local:7441/high-stream"}`))
+		case "/proxy/protect/api/bootstrap":
+			sawBootstrap = true
+			http.NotFound(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -500,15 +804,24 @@ func TestProtectControllerFixtureCookieBootstrap(t *testing.T) {
 		t.Fatalf("unexpected auth mode %q", authMode)
 	}
 
-	bootstrap, bootstrapRes := fetchProtectSnapshot(context.Background(), client, cfg, headers, authMode)
-	if bootstrapRes.Error != "" {
-		t.Fatalf("bootstrap failed: %s", bootstrapRes.Error)
+	bootstrap, endpointResults, snapshotErr := fetchProtectSnapshot(context.Background(), client, cfg, headers, authMode, false)
+	if snapshotErr != "" {
+		t.Fatalf("bootstrap failed: %s", snapshotErr)
 	}
-	if bootstrap.LastUpdateID != "cookie-update" {
+	if bootstrap.LastUpdateID != "" {
 		t.Fatalf("unexpected lastUpdateId %q", bootstrap.LastUpdateID)
 	}
-	if !sawBootstrap {
-		t.Fatalf("expected bootstrap request")
+	if len(bootstrap.Cameras) != 1 || bootstrap.Cameras[0].Host != "camera-a.local" {
+		t.Fatalf("unexpected camera payload %#v", bootstrap.Cameras)
+	}
+	if len(endpointResults) != 1 || endpointResults[0].Path != "/proxy/protect/integration/v1/cameras" {
+		t.Fatalf("unexpected endpoint results %#v", endpointResults)
+	}
+	if !sawIntegration {
+		t.Fatalf("expected integration request")
+	}
+	if sawBootstrap {
+		t.Fatalf("did not expect bootstrap fallback when integration succeeded")
 	}
 }
 

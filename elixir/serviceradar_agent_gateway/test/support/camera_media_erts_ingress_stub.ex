@@ -3,7 +3,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.CameraMediaErtsIngressStub do
 
   use GenServer
 
-  @max_chunk_bytes 262_144
+  @max_chunk_bytes 1_048_576
 
   def open_relay_session(%Camera.OpenRelaySessionRequest{} = request) do
     notify({:core_open_relay_session, request})

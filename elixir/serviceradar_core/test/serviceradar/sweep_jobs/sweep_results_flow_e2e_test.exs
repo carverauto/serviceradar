@@ -393,6 +393,94 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     refute_receive {:cooldown_dispatch, _}
   end
 
+  test "ingest results skips mapper promotion for the sweep agent's own managed device", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = System.unique_integer([:positive])
+    ip = "10.4.2.#{rem(unique_id, 200) + 10}"
+    partition = "partition-self-#{unique_id}"
+    device_uid = "device-self-#{unique_id}"
+
+    {:ok, _agent} =
+      Agent
+      |> Ash.Changeset.for_create(:register, %{uid: agent_id}, actor: actor)
+      |> Ash.create(actor: actor)
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: device_uid,
+          ip: ip,
+          hostname: "self-device-#{unique_id}",
+          agent_id: agent_id,
+          is_available: true,
+          is_managed: true,
+          is_trusted: true,
+          discovery_sources: ["agent"]
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "Sweep Self #{unique_id}", partition: partition, agent_id: agent_id},
+        actor: actor,
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _mapper_job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "mapper-self-#{unique_id}",
+          partition: partition,
+          discovery_mode: :snmp,
+          discovery_type: :full
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    assert {:ok, stats} =
+             SweepResultsIngestor.ingest_results(
+               [%{"host_ip" => ip, "available" => true}],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               config_version: "hash-self-#{unique_id}",
+               mapper_promotion_opts: [
+                 dispatcher: fn _job, _opts ->
+                   send(self(), :unexpected_self_dispatch)
+                   {:ok, "unexpected"}
+                 end,
+                 cooldown_seconds: 900
+               ]
+             )
+
+    assert stats.mapper_dispatched == 0
+    assert stats.mapper_skipped == 1
+    refute_receive :unexpected_self_dispatch
+
+    assert {:ok, device_page} =
+             Device
+             |> Ash.Query.filter(ip == ^ip)
+             |> Ash.read(actor: actor)
+
+    [device] = device_page.results
+
+    assert device.metadata["sweep_mapper_promotion"]["last_status"] == "skipped"
+    assert device.metadata["sweep_mapper_promotion"]["last_reason"] == "sweep_agent_device"
+  end
+
   test "ingest results records skipped promotion when no eligible mapper job exists", %{
     actor: actor,
     agent_id: agent_id

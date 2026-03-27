@@ -47,7 +47,7 @@ Use `config.schema.json` and `config.stream.schema.json` as the optional JSON co
 ## Notes
 - This first slice targets the common Protect bootstrap path and RTSP relay alias discovery.
 - The current live-media path is intentionally narrow: RTSP alias resolution and interleaved RTP-over-RTSP transport over the existing shared SDK + media bridge.
-- API-key discovery uses the Protect integration API on newer controllers instead of the legacy bootstrap route.
+- Discovery prefers the Protect integration camera API on newer controllers for every auth mode, and falls back to the legacy bootstrap route when the integration endpoint is unavailable.
 - API-key discovery on newer controllers may return `rtsps://` stream URLs; the current shared SDK transport now supports those sources.
 - Set `insecure_skip_verify: true` when the controller or RTSPS relay uses a self-signed certificate.
 - When `relay.source_url` is absent, the streaming path requires both `relay.camera_source_id` and `relay.stream_profile_id`; it does not guess across the bootstrap payload.

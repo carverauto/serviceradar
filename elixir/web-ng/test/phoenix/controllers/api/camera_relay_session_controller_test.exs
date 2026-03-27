@@ -160,6 +160,38 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       body = json_response(conn, 409)
       assert body["error"] == "agent_offline"
     end
+
+    test "passes insecure skip verify when requested", %{conn: conn} do
+      camera_source_id = Ecto.UUID.generate()
+      stream_profile_id = Ecto.UUID.generate()
+      relay_session_id = Ecto.UUID.generate()
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_open_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: camera_source_id,
+           stream_profile_id: stream_profile_id,
+           agent_id: "agent-1",
+           gateway_id: "gateway-1",
+           status: :opening
+         }}
+      )
+
+      conn =
+        post(conn, ~p"/api/camera-relay-sessions", %{
+          "camera_source_id" => camera_source_id,
+          "stream_profile_id" => stream_profile_id,
+          "insecure_skip_verify" => true
+        })
+
+      _body = json_response(conn, 201)
+
+      assert_receive {:open_session, ^camera_source_id, ^stream_profile_id, opts}
+      assert opts[:insecure_skip_verify] == true
+    end
   end
 
   describe "POST /api/camera-relay-sessions/:id/close" do

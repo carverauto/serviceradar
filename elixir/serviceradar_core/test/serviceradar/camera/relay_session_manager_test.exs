@@ -206,6 +206,66 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert mark_opening_actor.role == :system
   end
 
+  test "passes insecure skip verify through the open command payload when requested" do
+    parent = self()
+    camera_source_id = Ecto.UUID.generate()
+    stream_profile_id = Ecto.UUID.generate()
+
+    source_fetcher = fn ^camera_source_id ->
+      {:ok,
+       %{id: camera_source_id, assigned_agent_id: "agent-1", assigned_gateway_id: "gateway-1"}}
+    end
+
+    profile_fetcher = fn ^camera_source_id, ^stream_profile_id ->
+      {:ok, %{id: stream_profile_id, camera_source_id: camera_source_id}}
+    end
+
+    session_creator = fn attrs, _actor ->
+      {:ok, Map.put(attrs, :id, Ecto.UUID.generate())}
+    end
+
+    dispatch_open = fn agent_id, payload, _opts, _actor ->
+      send(parent, {:dispatch_open, agent_id, payload})
+      {:ok, Ecto.UUID.generate()}
+    end
+
+    mark_opening = fn session, command_id, lease_token, lease_expires_at, _actor ->
+      {:ok,
+       Map.merge(session, %{
+         command_id: command_id,
+         lease_token: lease_token,
+         lease_expires_at: lease_expires_at,
+         status: :opening
+       })}
+    end
+
+    session_loader = fn session_id ->
+      {:ok,
+       %{
+         id: session_id,
+         camera_source_id: camera_source_id,
+         stream_profile_id: stream_profile_id,
+         agent_id: "agent-1",
+         gateway_id: "gateway-1",
+         status: :opening
+       }}
+    end
+
+    assert {:ok, _session} =
+             RelaySessionManager.request_open(camera_source_id, stream_profile_id,
+               source_fetcher: source_fetcher,
+               profile_fetcher: profile_fetcher,
+               session_creator: session_creator,
+               dispatch_open: dispatch_open,
+               mark_opening: mark_opening,
+               session_loader: session_loader,
+               insecure_skip_verify: true
+             )
+
+    assert_receive {:dispatch_open, "agent-1", payload}
+    assert payload.insecure_skip_verify == true
+  end
+
   test "requests close and dispatches a stop command" do
     parent = self()
     relay_session_id = Ecto.UUID.generate()

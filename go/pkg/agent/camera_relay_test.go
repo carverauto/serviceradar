@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bluenviron/gortsplib/v5"
+	"github.com/bluenviron/gortsplib/v5/pkg/base"
 	"github.com/carverauto/serviceradar/proto"
 	gproto "google.golang.org/protobuf/proto"
 )
@@ -54,7 +56,7 @@ func (f *fakeCameraRelayGateway) OpenRelaySession(_ context.Context, req *proto.
 		Accepted:           true,
 		Message:            "accepted",
 		MediaIngestId:      "media-123",
-		MaxChunkBytes:      262_144,
+		MaxChunkBytes:      1_048_576,
 		LeaseExpiresAtUnix: time.Now().Add(30 * time.Second).Unix(),
 	}, nil
 }
@@ -438,6 +440,57 @@ func TestDefaultCameraRelaySourceRequiresSourceURL(t *testing.T) {
 	}
 }
 
+func TestNewRTSPCameraRelayClientLeavesRTSPSVerificationEnabledByDefault(t *testing.T) {
+	t.Parallel()
+
+	u, err := base.ParseURL("rtsps://192.168.1.1:7441/example")
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+
+	transport := gortsplib.ProtocolTCP
+	client := newCameraRelayRTSPClient(u, transport, false)
+
+	if client.TLSConfig != nil {
+		t.Fatal("expected rtsps client to use default TLS verification when skip verify is disabled")
+	}
+}
+
+func TestNewRTSPCameraRelayClientEnablesTLSSkipVerifyWhenRequestedForRTSPS(t *testing.T) {
+	t.Parallel()
+
+	u, err := base.ParseURL("rtsps://192.168.1.1:7441/example")
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+
+	transport := gortsplib.ProtocolTCP
+	client := newCameraRelayRTSPClient(u, transport, true)
+
+	if client.TLSConfig == nil {
+		t.Fatal("expected TLS config for insecure rtsps client")
+	}
+	if !client.TLSConfig.InsecureSkipVerify {
+		t.Fatal("expected insecure rtsps client to skip TLS verification")
+	}
+}
+
+func TestNewRTSPCameraRelayClientLeavesRTSPTLSUnset(t *testing.T) {
+	t.Parallel()
+
+	u, err := base.ParseURL("rtsp://192.168.1.1:7447/example")
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+
+	transport := gortsplib.ProtocolTCP
+	client := newCameraRelayRTSPClient(u, transport, true)
+
+	if client.TLSConfig != nil {
+		t.Fatal("expected plain rtsp client to leave TLS config unset")
+	}
+}
+
 func TestParseCameraRelayRTSPTransport(t *testing.T) {
 	t.Parallel()
 
@@ -449,5 +502,40 @@ func TestParseCameraRelayRTSPTransport(t *testing.T) {
 	}
 	if _, err := parseCameraRelayRTSPTransport("bogus"); err == nil {
 		t.Fatal("expected invalid transport to fail")
+	}
+}
+
+func TestCameraRelayTimestampDecoderStartsAtZeroAndAdvancesMonotonically(t *testing.T) {
+	t.Parallel()
+
+	decoder := newCameraRelayTimestampDecoder(90_000)
+
+	if got := decoder.Decode(1_000); got != 0 {
+		t.Fatalf("expected first decode to start at 0, got %d", got)
+	}
+
+	got := decoder.Decode(4_000)
+	want := int64(3_000) * int64(time.Second) / 90_000
+	if got != want {
+		t.Fatalf("expected pts %d, got %d", want, got)
+	}
+
+	got = decoder.Decode(7_000)
+	want = int64(6_000) * int64(time.Second) / 90_000
+	if got != want {
+		t.Fatalf("expected cumulative pts %d, got %d", want, got)
+	}
+}
+
+func TestCameraRelayTimestampDecoderHandlesRTPWraparound(t *testing.T) {
+	t.Parallel()
+
+	decoder := newCameraRelayTimestampDecoder(90_000)
+	decoder.Decode(^uint32(0) - 100)
+
+	got := decoder.Decode(200)
+	want := int64(301) * int64(time.Second) / 90_000
+	if got != want {
+		t.Fatalf("expected wraparound pts %d, got %d", want, got)
 	}
 }

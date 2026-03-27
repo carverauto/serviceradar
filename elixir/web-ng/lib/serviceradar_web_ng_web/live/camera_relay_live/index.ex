@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadarWebNG.CameraRelayHealth
 
   require Ash.Query
@@ -10,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
 
   @refresh_interval_ms to_timeout(second: 5)
   @recent_terminal_limit 50
+  @session_expiry_grace_seconds 15
+  @session_fallback_freshness_seconds 120
 
   @impl true
   def mount(_params, _session, socket) do
@@ -558,11 +562,11 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
     """
   end
 
-  attr :title, :string, required: true
-  attr :value, :integer, required: true
-  attr :tone, :string, default: "neutral"
-  attr :icon, :string, default: "hero-chart-bar"
-  attr :params, :map, default: nil
+  attr(:title, :string, required: true)
+  attr(:value, :integer, required: true)
+  attr(:tone, :string, default: "neutral")
+  attr(:icon, :string, default: "hero-chart-bar")
+  attr(:params, :map, default: nil)
 
   defp summary_card(assigns) do
     ~H"""
@@ -604,10 +608,10 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
     """
   end
 
-  attr :label, :string, required: true
-  attr :value, :string, required: true
-  attr :current, :string, required: true
-  attr :params, :map, required: true
+  attr(:label, :string, required: true)
+  attr(:value, :string, required: true)
+  attr(:current, :string, required: true)
+  attr(:params, :map, required: true)
 
   defp filter_chip(assigns) do
     active? = assigns.current == assigns.value
@@ -627,7 +631,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
     """
   end
 
-  attr :session, :map, required: true
+  attr(:session, :map, required: true)
 
   defp session_log_links(assigns) do
     ~H"""
@@ -658,9 +662,14 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
 
     case fetch_sessions(scope) do
       {:ok, active_sessions, terminal_sessions} ->
+        active_sessions = filter_current_sessions(active_sessions)
         relay_health = fetch_relay_health(scope)
-        filtered_active_sessions = filter_active_sessions(active_sessions, socket.assigns.filters.active)
-        filtered_terminal_sessions = filter_terminal_sessions(terminal_sessions, socket.assigns.filters.terminal)
+
+        filtered_active_sessions =
+          filter_active_sessions(active_sessions, socket.assigns.filters.active)
+
+        filtered_terminal_sessions =
+          filter_terminal_sessions(terminal_sessions, socket.assigns.filters.terminal)
 
         socket
         |> assign(:active_sessions, filtered_active_sessions)
@@ -716,8 +725,112 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
 
     with {:ok, active_sessions} <- Ash.read(active_query, scope: scope),
          {:ok, terminal_sessions} <- Ash.read(terminal_query, scope: scope) do
+      {active_sessions, terminal_sessions} =
+        resolve_session_device_links(active_sessions, terminal_sessions, scope)
+
       {:ok, active_sessions, terminal_sessions}
     end
+  end
+
+  defp resolve_session_device_links(active_sessions, terminal_sessions, scope) do
+    sessions = active_sessions ++ terminal_sessions
+    {candidate_uids, candidate_macs} = collect_device_link_candidates(sessions)
+
+    case read_linkable_devices(candidate_uids, candidate_macs, scope) do
+      {:ok, devices} ->
+        uid_index = Map.new(devices, &{&1.uid, &1.uid})
+
+        mac_index =
+          Map.new(devices, fn device ->
+            {normalize_mac(device.mac), device.uid}
+          end)
+
+        {
+          Enum.map(active_sessions, &put_resolved_device_uid(&1, uid_index, mac_index)),
+          Enum.map(terminal_sessions, &put_resolved_device_uid(&1, uid_index, mac_index))
+        }
+
+      {:error, reason} ->
+        Logger.warning("Failed to resolve camera relay device links: #{inspect(reason)}")
+
+        {
+          Enum.map(active_sessions, &Map.put(&1, :resolved_device_uid, nil)),
+          Enum.map(terminal_sessions, &Map.put(&1, :resolved_device_uid, nil))
+        }
+    end
+  end
+
+  defp collect_device_link_candidates(sessions) do
+    sessions
+    |> Enum.reduce({MapSet.new(), MapSet.new()}, fn session, {uids, macs} ->
+      {candidate_uids, candidate_macs} = session_device_link_candidates(session)
+
+      {
+        Enum.reduce(candidate_uids, uids, &MapSet.put(&2, &1)),
+        Enum.reduce(candidate_macs, macs, &MapSet.put(&2, &1))
+      }
+    end)
+    |> then(fn {uids, macs} -> {MapSet.to_list(uids), MapSet.to_list(macs)} end)
+  end
+
+  defp session_device_link_candidates(session) do
+    source = Map.get(session, :camera_source)
+    raw_device_uid = source_device_uid(source)
+
+    {
+      Enum.filter([raw_device_uid], &present?/1),
+      [
+        normalize_mac(raw_device_uid),
+        normalize_mac(source_identity_mac(source))
+      ]
+      |> Enum.filter(&present?/1)
+      |> Enum.uniq()
+    }
+  end
+
+  defp read_linkable_devices([], [], _scope), do: {:ok, []}
+
+  defp read_linkable_devices(candidate_uids, candidate_macs, scope) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{}, scope: scope)
+      |> filter_linkable_devices(candidate_uids, candidate_macs)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, %Ash.Page.Keyset{results: results}} -> {:ok, results}
+      {:ok, results} when is_list(results) -> {:ok, results}
+      other -> other
+    end
+  end
+
+  defp filter_linkable_devices(query, candidate_uids, candidate_macs)
+       when candidate_uids != [] and candidate_macs != [] do
+    Ash.Query.filter(query, uid in ^candidate_uids or mac in ^candidate_macs)
+  end
+
+  defp filter_linkable_devices(query, candidate_uids, _candidate_macs) when candidate_uids != [] do
+    Ash.Query.filter(query, uid in ^candidate_uids)
+  end
+
+  defp filter_linkable_devices(query, _candidate_uids, candidate_macs) when candidate_macs != [] do
+    Ash.Query.filter(query, mac in ^candidate_macs)
+  end
+
+  defp put_resolved_device_uid(session, uid_index, mac_index) do
+    Map.put(
+      session,
+      :resolved_device_uid,
+      resolve_session_device_uid(session, uid_index, mac_index)
+    )
+  end
+
+  defp resolve_session_device_uid(session, uid_index, mac_index) do
+    source = Map.get(session, :camera_source)
+    raw_device_uid = source_device_uid(source)
+
+    Map.get(uid_index, raw_device_uid) ||
+      Map.get(mac_index, normalize_mac(raw_device_uid)) ||
+      Map.get(mac_index, normalize_mac(source_identity_mac(source)))
   end
 
   defp build_summary(active_sessions, terminal_sessions) do
@@ -731,7 +844,44 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   end
 
   defp empty_summary do
-    %{live_sessions: 0, opening_sessions: 0, closing_sessions: 0, active_viewers: 0, recent_failures: 0}
+    %{
+      live_sessions: 0,
+      opening_sessions: 0,
+      closing_sessions: 0,
+      active_viewers: 0,
+      recent_failures: 0
+    }
+  end
+
+  defp filter_current_sessions(sessions, now \\ DateTime.utc_now()) do
+    Enum.filter(sessions, &current_session?(&1, now))
+  end
+
+  defp current_session?(session, now) do
+    case Map.get(session, :lease_expires_at) do
+      %DateTime{} = lease_expires_at ->
+        DateTime.after?(
+          lease_expires_at,
+          DateTime.add(now, -@session_expiry_grace_seconds, :second)
+        )
+
+      _other ->
+        recent_session_update?(session, now)
+    end
+  end
+
+  defp recent_session_update?(session, now) do
+    freshness_cutoff = DateTime.add(now, -@session_fallback_freshness_seconds, :second)
+
+    session
+    |> session_activity_timestamps()
+    |> Enum.any?(&DateTime.after?(&1, freshness_cutoff))
+  end
+
+  defp session_activity_timestamps(session) do
+    [:updated_at, :activated_at, :opened_at, :inserted_at]
+    |> Enum.map(&Map.get(session, &1))
+    |> Enum.filter(&match?(%DateTime{}, &1))
   end
 
   defp build_terminal_breakdown(sessions) do
@@ -769,6 +919,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   end
 
   defp filter_terminal_sessions(sessions, "all"), do: sessions
+
   defp filter_terminal_sessions(sessions, "failed"), do: Enum.filter(sessions, &(normalize_status(&1.status) == "failed"))
 
   defp filter_terminal_sessions(sessions, "closed") do
@@ -782,6 +933,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   end
 
   defp normalize_active_filter(value) when value in ["requested", "opening", "active", "closing"], do: value
+
   defp normalize_active_filter(_value), do: "all"
 
   defp normalize_terminal_filter(value)
@@ -810,13 +962,26 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   end
 
   defp device_uid(session) do
-    session
-    |> Map.get(:camera_source)
+    Map.get(session, :resolved_device_uid)
+  end
+
+  defp source_device_uid(%{device_uid: device_uid}) when is_binary(device_uid), do: String.trim(device_uid)
+
+  defp source_device_uid(_source), do: nil
+
+  defp source_identity_mac(%{metadata: metadata}) when is_map(metadata) do
+    metadata
+    |> Map.get("identity", Map.get(metadata, :identity))
     |> case do
-      %{device_uid: device_uid} when is_binary(device_uid) and device_uid != "" -> device_uid
+      identity when is_map(identity) -> Map.get(identity, "mac", Map.get(identity, :mac))
       _ -> nil
     end
   end
+
+  defp source_identity_mac(_source), do: nil
+
+  defp normalize_mac(value) when is_binary(value), do: IdentityReconciler.normalize_mac(value)
+  defp normalize_mac(_value), do: nil
 
   defp status_badge_class(status) do
     normalized = normalize_status(status)
@@ -846,6 +1011,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp normalize_status(_status), do: "unknown"
 
   defp format_datetime(%DateTime{} = datetime), do: Calendar.strftime(datetime, "%Y-%m-%d %H:%M:%S UTC")
+
   defp format_datetime(_datetime), do: "n/a"
 
   defp display_value(value) when is_binary(value) do
@@ -918,7 +1084,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp entry_label("session_failure"), do: "Session Failure"
   defp entry_label("gateway_saturation_denial"), do: "Gateway Saturation"
   defp entry_label("closed"), do: "Closed"
+
   defp entry_label(value) when is_binary(value), do: value |> String.replace("_", " ") |> String.capitalize()
+
   defp entry_label(_value), do: "Unknown"
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
@@ -949,8 +1117,11 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp tone_value(_tone), do: "text-base-content"
 
   defp alert_badge_class("critical"), do: "badge badge-sm border border-error/30 bg-error/10 text-error"
+
   defp alert_badge_class("warning"), do: "badge badge-sm border border-warning/30 bg-warning/10 text-warning"
+
   defp alert_badge_class("info"), do: "badge badge-sm border border-info/30 bg-info/10 text-info"
+
   defp alert_badge_class(_severity), do: "badge badge-sm border border-base-300 bg-base-200 text-base-content/70"
 
   defp event_badge_class("session_failure"), do: "badge badge-sm border border-error/30 bg-error/10 text-error"

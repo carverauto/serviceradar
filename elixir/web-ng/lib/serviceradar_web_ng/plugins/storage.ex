@@ -9,9 +9,11 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Web.EndpointConfig
 
+  require Logger
+
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
-  @default_base_path "/var/lib/serviceradar/plugin-packages"
+  @default_base_path "/var/lib/serviceradar/plugin-packages/data"
   @default_upload_ttl_seconds 900
   @default_download_ttl_seconds 900
   @default_max_upload_bytes 52_428_800
@@ -221,13 +223,36 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   defp put_blob_filesystem(object_key, payload) do
     case safe_path(object_key) do
       {:ok, path} ->
-        case File.mkdir_p(Path.dirname(path)) do
-          :ok -> File.write(path, payload)
-          {:error, reason} -> {:error, reason}
+        dir = Path.dirname(path)
+
+        case File.mkdir_p(dir) do
+          :ok ->
+            case File.write(path, payload) do
+              :ok ->
+                :ok
+
+              {:error, reason} = error ->
+                Logger.error(
+                  "plugin blob write failed backend=filesystem object_key=#{inspect(object_key)} path=#{path} dir=#{dir} base_path=#{base_path()} reason=#{inspect(reason)}"
+                )
+
+                error
+            end
+
+          {:error, reason} = error ->
+            Logger.error(
+              "plugin blob directory create failed backend=filesystem object_key=#{inspect(object_key)} dir=#{dir} base_path=#{base_path()} reason=#{inspect(reason)}"
+            )
+
+            error
         end
 
-      {:error, reason} ->
-        {:error, reason}
+      {:error, reason} = error ->
+        Logger.error(
+          "plugin blob path resolution failed backend=filesystem object_key=#{inspect(object_key)} base_path=#{base_path()} reason=#{inspect(reason)}"
+        )
+
+        error
     end
   end
 

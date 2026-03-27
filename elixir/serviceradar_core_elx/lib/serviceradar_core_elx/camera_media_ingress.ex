@@ -10,7 +10,7 @@ defmodule ServiceRadarCoreElx.CameraMediaIngress do
   alias ServiceRadarCoreElx.CameraMediaIngressSupervisor
   alias ServiceRadarCoreElx.CameraMediaSessionTracker
 
-  @max_chunk_bytes 262_144
+  @max_chunk_bytes 1_048_576
 
   def open_relay_session(%Camera.OpenRelaySessionRequest{} = request, opts \\ []) do
     tracker = tracker(opts)

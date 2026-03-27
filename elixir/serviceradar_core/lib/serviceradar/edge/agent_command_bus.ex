@@ -278,6 +278,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     codec_hint = Map.get(payload, :codec_hint) || Map.get(payload, "codec_hint")
     container_hint = Map.get(payload, :container_hint) || Map.get(payload, "container_hint")
 
+    insecure_skip_verify =
+      Map.get(payload, :insecure_skip_verify) || Map.get(payload, "insecure_skip_verify")
+
     %{
       relay_session_id: relay_session_id,
       camera_source_id: camera_source_id,
@@ -288,6 +291,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     |> maybe_put(:rtsp_transport, rtsp_transport)
     |> maybe_put(:codec_hint, codec_hint)
     |> maybe_put(:container_hint, container_hint)
+    |> maybe_put(:insecure_skip_verify, insecure_skip_verify)
   end
 
   defp normalize_camera_relay_start_payload(_payload), do: %{}

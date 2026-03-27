@@ -86,10 +86,15 @@ defmodule ServiceRadar.Inventory.Device do
     :metadata
   ]
   @device_update_fields [
+    :type_id,
+    :type,
     :name,
     :hostname,
     :ip,
     :mac,
+    :gateway_id,
+    :agent_id,
+    :management_device_id,
     :vendor_name,
     :model,
     :domain,
@@ -107,6 +112,7 @@ defmodule ServiceRadar.Inventory.Device do
     :org,
     :groups,
     :agent_list,
+    :discovery_sources,
     :is_available,
     :tags,
     :metadata,

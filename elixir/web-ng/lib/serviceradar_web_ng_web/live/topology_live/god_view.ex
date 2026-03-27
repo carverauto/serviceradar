@@ -205,6 +205,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
         socket
       ) do
     scope = socket.assigns.current_scope
+    insecure_skip_verify = parse_bool_param(params["insecure_skip_verify"]) == true
 
     cond do
       not can_view_device?(scope) ->
@@ -226,12 +227,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
                relay_session_manager().request_open(
                  camera_source_id,
                  stream_profile_id,
-                 scope: scope
+                 scope: scope,
+                 insecure_skip_verify: insecure_skip_verify
                ) do
           context = selected_camera_context(params)
 
           {:noreply,
            socket
+           |> clear_flash(:error)
            |> assign(:selected_camera_context, context)
            |> assign(:active_camera_relay_session, session)
            |> assign(:last_camera_relay_session, nil)
@@ -1629,6 +1632,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
 
   defp normalize_uuid_param(_value), do: {:error, :invalid_uuid}
 
+  defp parse_bool_param(value) when value in [true, false], do: value
+  defp parse_bool_param("true"), do: true
+  defp parse_bool_param("false"), do: false
+  defp parse_bool_param("on"), do: true
+  defp parse_bool_param("1"), do: true
+  defp parse_bool_param("0"), do: false
+  defp parse_bool_param(_value), do: nil
+
   defp format_camera_relay_error({:agent_offline, _agent_id}), do: "Assigned agent is offline for this camera source"
   defp format_camera_relay_error(:forbidden), do: "You are not authorized for camera relay access"
   defp format_camera_relay_error(:invalid_uuid), do: "Invalid camera relay request"
@@ -1786,7 +1797,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
         stream_profile_id: stream_profile_id,
         device_uid: normalize_presence(Map.get(tile, "device_uid") || Map.get(tile, :device_uid)),
         camera_label: normalize_presence(Map.get(tile, "camera_label") || Map.get(tile, :camera_label)),
-        profile_label: normalize_presence(Map.get(tile, "profile_label") || Map.get(tile, :profile_label))
+        profile_label: normalize_presence(Map.get(tile, "profile_label") || Map.get(tile, :profile_label)),
+        insecure_skip_verify:
+          parse_bool_param(Map.get(tile, "insecure_skip_verify") || Map.get(tile, :insecure_skip_verify)) == true
       }
     else
       {:error, _reason} -> nil
@@ -1953,7 +1966,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
     case relay_session_manager().request_open(
            tile.camera_source_id,
            tile.stream_profile_id,
-           scope: scope
+           scope: scope,
+           insecure_skip_verify: tile.insecure_skip_verify
          ) do
       {:ok, session} ->
         schedule_camera_relay_refresh(session.id)
