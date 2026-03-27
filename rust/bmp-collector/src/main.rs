@@ -1,3 +1,4 @@
+mod bmp;
 mod config;
 mod model;
 mod publisher;
@@ -5,7 +6,6 @@ mod publisher;
 use crate::config::Config;
 use crate::publisher::Publisher;
 use anyhow::{Context, Result};
-use arancini_lib::process_bmp_message;
 use arancini_lib::state_store::memory::MemoryStore;
 use bytes::BytesMut;
 use clap::Parser;
@@ -57,7 +57,7 @@ async fn run_listener(cfg: Arc<Config>, publisher: Publisher) -> Result<()> {
 
         tokio::spawn(async move {
             if let Err(err) = handle_connection(stream, socket, conn_cfg, conn_publisher).await {
-                error!("BMP session {} failed: {}", socket, err);
+                error!("BMP session {} failed: {err:#}", socket);
             }
         });
     }
@@ -89,7 +89,7 @@ async fn handle_connection(
             next_packet_length(&frame_buffer, socket, cfg.max_frame_size_bytes)?
         {
             let mut bytes = frame_buffer.split_to(packet_length).freeze();
-            process_bmp_message::<MemoryStore, Publisher>(
+            bmp::process_bmp_message::<MemoryStore, Publisher>(
                 None,
                 publisher.clone(),
                 socket,

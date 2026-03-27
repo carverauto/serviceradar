@@ -4,6 +4,7 @@ genrule(
     name = "bmp-collector",
     srcs = [
         "Cargo.toml",
+        "src/bmp.rs",
         "src/main.rs",
         "src/config.rs",
         "src/model.rs",
@@ -65,10 +66,11 @@ mkdir -p "$$WORKDIR"
 cp "$$SRC_ROOT/Cargo.toml" "$$WORKDIR/Cargo.toml"
 # Keep this copied crate isolated from the repository root workspace.
 printf '\n[workspace]\n' >> "$$WORKDIR/Cargo.toml"
-mkdir -p "$$WORKDIR/src"
-cp "$$SRC_ROOT/src/main.rs" "$$WORKDIR/src/main.rs"
-cp "$$SRC_ROOT/src/config.rs" "$$WORKDIR/src/config.rs"
-cp "$$SRC_ROOT/src/model.rs" "$$WORKDIR/src/model.rs"
+    mkdir -p "$$WORKDIR/src"
+    cp "$$SRC_ROOT/src/bmp.rs" "$$WORKDIR/src/bmp.rs"
+    cp "$$SRC_ROOT/src/main.rs" "$$WORKDIR/src/main.rs"
+    cp "$$SRC_ROOT/src/config.rs" "$$WORKDIR/src/config.rs"
+    cp "$$SRC_ROOT/src/model.rs" "$$WORKDIR/src/model.rs"
 cp "$$SRC_ROOT/src/publisher.rs" "$$WORKDIR/src/publisher.rs"
 
 # Avoid stale toolchain/cargo state between Bazel invocations.
