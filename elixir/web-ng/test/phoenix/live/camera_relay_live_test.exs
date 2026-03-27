@@ -11,7 +11,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
-    previous_health_source = Application.get_env(:serviceradar_web_ng, :camera_relay_health_source)
+
+    previous_health_source =
+      Application.get_env(:serviceradar_web_ng, :camera_relay_health_source)
 
     Application.put_env(
       :serviceradar_web_ng,
@@ -123,12 +125,89 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/observability/camera-relays")
 
-    assert has_element?(view, "a[href='/devices/#{URI.encode_www_form(canonical_uid)}']", "View device")
+    assert has_element?(
+             view,
+             "a[href='/devices/#{URI.encode_www_form(canonical_uid)}']",
+             "View device"
+           )
+
     refute html =~ "/devices/#{raw_camera_id}"
+  end
+
+  test "filters expired relay sessions out of the active view and summary", %{conn: conn} do
+    %{source: current_source, profile: current_profile} =
+      insert_camera_source!("camera-relay-current-#{System.unique_integer([:positive])}")
+
+    %{source: expired_source, profile: expired_profile} =
+      insert_camera_source!("camera-relay-expired-#{System.unique_integer([:positive])}")
+
+    {:ok, current_session} =
+      RelaySession.create_session(
+        %{
+          camera_source_id: current_source.id,
+          stream_profile_id: current_profile.id,
+          agent_id: current_source.assigned_agent_id,
+          gateway_id: current_source.assigned_gateway_id,
+          lease_expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+          requested_by: "camera-relay-live-test"
+        },
+        actor: AshTestHelpers.system_actor()
+      )
+
+    {:ok, current_session} =
+      RelaySession.activate(
+        current_session,
+        %{
+          media_ingest_id: "core-media-current",
+          lease_expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+          viewer_count: 1
+        },
+        actor: AshTestHelpers.system_actor()
+      )
+
+    {:ok, expired_session} =
+      RelaySession.create_session(
+        %{
+          camera_source_id: expired_source.id,
+          stream_profile_id: expired_profile.id,
+          agent_id: expired_source.assigned_agent_id,
+          gateway_id: expired_source.assigned_gateway_id,
+          lease_expires_at: DateTime.add(DateTime.utc_now(), -300, :second),
+          requested_by: "camera-relay-live-test"
+        },
+        actor: AshTestHelpers.system_actor()
+      )
+
+    {:ok, expired_session} =
+      RelaySession.activate(
+        expired_session,
+        %{
+          media_ingest_id: "core-media-expired",
+          lease_expires_at: DateTime.add(DateTime.utc_now(), -300, :second),
+          viewer_count: 1
+        },
+        actor: AshTestHelpers.system_actor()
+      )
+
+    {:ok, _view, html} = live(conn, ~p"/observability/camera-relays")
+
+    assert summary_value(html, "Live Sessions") == "1"
+    assert html =~ encoded_filter("relay_session_id", current_session.id)
+    refute html =~ encoded_filter("relay_session_id", expired_session.id)
   end
 
   defp encoded_filter(field, value) do
     URI.encode_www_form(~s/#{field}:"#{value}"/)
+  end
+
+  defp summary_value(html, title) do
+    regex =
+      ~r/#{Regex.escape(title)}<\/div>\s*<div class="mt-2 text-3xl font-semibold tracking-tight text-[^"]+">\s*([^<]+)\s*</s
+
+    case Regex.run(regex, html, capture: :all_but_first) do
+      [value] -> String.trim(value)
+      _other -> flunk("summary card #{inspect(title)} not found in HTML")
+    end
   end
 
   defp insert_camera_source!(device_uid, opts \\ []) do

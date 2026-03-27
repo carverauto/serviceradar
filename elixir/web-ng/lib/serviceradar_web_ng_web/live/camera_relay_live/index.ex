@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
 
   @refresh_interval_ms to_timeout(second: 5)
   @recent_terminal_limit 50
+  @session_expiry_grace_seconds 15
+  @session_fallback_freshness_seconds 120
 
   @impl true
   def mount(_params, _session, socket) do
@@ -560,11 +562,11 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
     """
   end
 
-  attr :title, :string, required: true
-  attr :value, :integer, required: true
-  attr :tone, :string, default: "neutral"
-  attr :icon, :string, default: "hero-chart-bar"
-  attr :params, :map, default: nil
+  attr(:title, :string, required: true)
+  attr(:value, :integer, required: true)
+  attr(:tone, :string, default: "neutral")
+  attr(:icon, :string, default: "hero-chart-bar")
+  attr(:params, :map, default: nil)
 
   defp summary_card(assigns) do
     ~H"""
@@ -606,10 +608,10 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
     """
   end
 
-  attr :label, :string, required: true
-  attr :value, :string, required: true
-  attr :current, :string, required: true
-  attr :params, :map, required: true
+  attr(:label, :string, required: true)
+  attr(:value, :string, required: true)
+  attr(:current, :string, required: true)
+  attr(:params, :map, required: true)
 
   defp filter_chip(assigns) do
     active? = assigns.current == assigns.value
@@ -629,7 +631,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
     """
   end
 
-  attr :session, :map, required: true
+  attr(:session, :map, required: true)
 
   defp session_log_links(assigns) do
     ~H"""
@@ -660,9 +662,14 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
 
     case fetch_sessions(scope) do
       {:ok, active_sessions, terminal_sessions} ->
+        active_sessions = filter_current_sessions(active_sessions)
         relay_health = fetch_relay_health(scope)
-        filtered_active_sessions = filter_active_sessions(active_sessions, socket.assigns.filters.active)
-        filtered_terminal_sessions = filter_terminal_sessions(terminal_sessions, socket.assigns.filters.terminal)
+
+        filtered_active_sessions =
+          filter_active_sessions(active_sessions, socket.assigns.filters.active)
+
+        filtered_terminal_sessions =
+          filter_terminal_sessions(terminal_sessions, socket.assigns.filters.terminal)
 
         socket
         |> assign(:active_sessions, filtered_active_sessions)
@@ -801,16 +808,22 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
     Ash.Query.filter(query, uid in ^candidate_uids or mac in ^candidate_macs)
   end
 
-  defp filter_linkable_devices(query, candidate_uids, _candidate_macs) when candidate_uids != [] do
+  defp filter_linkable_devices(query, candidate_uids, _candidate_macs)
+       when candidate_uids != [] do
     Ash.Query.filter(query, uid in ^candidate_uids)
   end
 
-  defp filter_linkable_devices(query, _candidate_uids, candidate_macs) when candidate_macs != [] do
+  defp filter_linkable_devices(query, _candidate_uids, candidate_macs)
+       when candidate_macs != [] do
     Ash.Query.filter(query, mac in ^candidate_macs)
   end
 
   defp put_resolved_device_uid(session, uid_index, mac_index) do
-    Map.put(session, :resolved_device_uid, resolve_session_device_uid(session, uid_index, mac_index))
+    Map.put(
+      session,
+      :resolved_device_uid,
+      resolve_session_device_uid(session, uid_index, mac_index)
+    )
   end
 
   defp resolve_session_device_uid(session, uid_index, mac_index) do
@@ -825,7 +838,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp build_summary(active_sessions, terminal_sessions) do
     %{
       live_sessions: Enum.count(active_sessions, &(normalize_status(&1.status) == "active")),
-      opening_sessions: Enum.count(active_sessions, &(normalize_status(&1.status) in ["requested", "opening"])),
+      opening_sessions:
+        Enum.count(active_sessions, &(normalize_status(&1.status) in ["requested", "opening"])),
       closing_sessions: Enum.count(active_sessions, &(normalize_status(&1.status) == "closing")),
       active_viewers: Enum.reduce(active_sessions, 0, &(&2 + Map.get(&1, :viewer_count, 0))),
       recent_failures: Enum.count(terminal_sessions, &(normalize_status(&1.status) == "failed"))
@@ -833,7 +847,45 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   end
 
   defp empty_summary do
-    %{live_sessions: 0, opening_sessions: 0, closing_sessions: 0, active_viewers: 0, recent_failures: 0}
+    %{
+      live_sessions: 0,
+      opening_sessions: 0,
+      closing_sessions: 0,
+      active_viewers: 0,
+      recent_failures: 0
+    }
+  end
+
+  defp filter_current_sessions(sessions, now \\ DateTime.utc_now()) do
+    Enum.filter(sessions, &current_session?(&1, now))
+  end
+
+  defp current_session?(session, now) do
+    case Map.get(session, :lease_expires_at) do
+      %DateTime{} = lease_expires_at ->
+        DateTime.compare(
+          lease_expires_at,
+          DateTime.add(now, -@session_expiry_grace_seconds, :second)
+        ) ==
+          :gt
+
+      _other ->
+        recent_session_update?(session, now)
+    end
+  end
+
+  defp recent_session_update?(session, now) do
+    freshness_cutoff = DateTime.add(now, -@session_fallback_freshness_seconds, :second)
+
+    session
+    |> session_activity_timestamps()
+    |> Enum.any?(&(DateTime.compare(&1, freshness_cutoff) == :gt))
+  end
+
+  defp session_activity_timestamps(session) do
+    [:updated_at, :activated_at, :opened_at, :inserted_at]
+    |> Enum.map(&Map.get(session, &1))
+    |> Enum.filter(&match?(%DateTime{}, &1))
   end
 
   defp build_terminal_breakdown(sessions) do
@@ -871,7 +923,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   end
 
   defp filter_terminal_sessions(sessions, "all"), do: sessions
-  defp filter_terminal_sessions(sessions, "failed"), do: Enum.filter(sessions, &(normalize_status(&1.status) == "failed"))
+
+  defp filter_terminal_sessions(sessions, "failed"),
+    do: Enum.filter(sessions, &(normalize_status(&1.status) == "failed"))
 
   defp filter_terminal_sessions(sessions, "closed") do
     Enum.filter(sessions, &(normalize_status(&1.status) == "closed"))
@@ -883,11 +937,20 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
     end)
   end
 
-  defp normalize_active_filter(value) when value in ["requested", "opening", "active", "closing"], do: value
+  defp normalize_active_filter(value) when value in ["requested", "opening", "active", "closing"],
+    do: value
+
   defp normalize_active_filter(_value), do: "all"
 
   defp normalize_terminal_filter(value)
-       when value in ["failed", "viewer_idle", "manual_stop", "transport_drain", "source_complete", "closed"], do: value
+       when value in [
+              "failed",
+              "viewer_idle",
+              "manual_stop",
+              "transport_drain",
+              "source_complete",
+              "closed"
+            ], do: value
 
   defp normalize_terminal_filter(_value), do: "all"
 
@@ -915,7 +978,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
     Map.get(session, :resolved_device_uid)
   end
 
-  defp source_device_uid(%{device_uid: device_uid}) when is_binary(device_uid), do: String.trim(device_uid)
+  defp source_device_uid(%{device_uid: device_uid}) when is_binary(device_uid),
+    do: String.trim(device_uid)
+
   defp source_device_uid(_source), do: nil
 
   defp source_identity_mac(%{metadata: metadata}) when is_map(metadata) do
@@ -959,7 +1024,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp normalize_status(status) when is_binary(status), do: status
   defp normalize_status(_status), do: "unknown"
 
-  defp format_datetime(%DateTime{} = datetime), do: Calendar.strftime(datetime, "%Y-%m-%d %H:%M:%S UTC")
+  defp format_datetime(%DateTime{} = datetime),
+    do: Calendar.strftime(datetime, "%Y-%m-%d %H:%M:%S UTC")
+
   defp format_datetime(_datetime), do: "n/a"
 
   defp display_value(value) when is_binary(value) do
@@ -1032,7 +1099,10 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp entry_label("session_failure"), do: "Session Failure"
   defp entry_label("gateway_saturation_denial"), do: "Gateway Saturation"
   defp entry_label("closed"), do: "Closed"
-  defp entry_label(value) when is_binary(value), do: value |> String.replace("_", " ") |> String.capitalize()
+
+  defp entry_label(value) when is_binary(value),
+    do: value |> String.replace("_", " ") |> String.capitalize()
+
   defp entry_label(_value), do: "Unknown"
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
@@ -1062,12 +1132,19 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp tone_value("primary"), do: "text-primary"
   defp tone_value(_tone), do: "text-base-content"
 
-  defp alert_badge_class("critical"), do: "badge badge-sm border border-error/30 bg-error/10 text-error"
-  defp alert_badge_class("warning"), do: "badge badge-sm border border-warning/30 bg-warning/10 text-warning"
-  defp alert_badge_class("info"), do: "badge badge-sm border border-info/30 bg-info/10 text-info"
-  defp alert_badge_class(_severity), do: "badge badge-sm border border-base-300 bg-base-200 text-base-content/70"
+  defp alert_badge_class("critical"),
+    do: "badge badge-sm border border-error/30 bg-error/10 text-error"
 
-  defp event_badge_class("session_failure"), do: "badge badge-sm border border-error/30 bg-error/10 text-error"
+  defp alert_badge_class("warning"),
+    do: "badge badge-sm border border-warning/30 bg-warning/10 text-warning"
+
+  defp alert_badge_class("info"), do: "badge badge-sm border border-info/30 bg-info/10 text-info"
+
+  defp alert_badge_class(_severity),
+    do: "badge badge-sm border border-base-300 bg-base-200 text-base-content/70"
+
+  defp event_badge_class("session_failure"),
+    do: "badge badge-sm border border-error/30 bg-error/10 text-error"
 
   defp event_badge_class("gateway_saturation_denial"),
     do: "badge badge-sm border border-warning/30 bg-warning/10 text-warning"
@@ -1075,7 +1152,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp event_badge_class("viewer_idle_termination"),
     do: "badge badge-sm border border-base-300 bg-base-200 text-base-content/70"
 
-  defp event_badge_class(_kind), do: "badge badge-sm border border-base-300 bg-base-200 text-base-content/70"
+  defp event_badge_class(_kind),
+    do: "badge badge-sm border border-base-300 bg-base-200 text-base-content/70"
 
   defp relay_health_source do
     Application.get_env(

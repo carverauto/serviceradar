@@ -409,6 +409,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
             hostname: attrs.hostname,
             ip: attrs.ip,
             mac: attrs.mac,
+            gateway_id: nil,
+            agent_id: nil,
+            management_device_id: nil,
             vendor_name: attrs.vendor_name,
             model: attrs.model,
             is_managed: attrs.is_managed,
@@ -511,19 +514,11 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
        when is_binary(device_uid) and is_map(attrs) do
     case Map.get(attrs, :ip) do
       ip when is_binary(ip) and ip != "" ->
-        case Device.get_by_ip(ip, true, actor: actor) do
-          {:ok, nil} ->
-            {:ok, nil}
-
-          {:ok, %Device{uid: ^device_uid}} ->
-            {:ok, nil}
-
-          {:ok, %Device{} = device} ->
-            if claimable_camera_ip_conflict?(device, actor) do
-              {:ok, device}
-            else
-              {:error, {:ip_conflict, device.uid, ip}}
-            end
+        case list_devices_by_ip(ip, actor) do
+          {:ok, devices} ->
+            devices
+            |> Enum.reject(&(&1.uid == device_uid))
+            |> resolve_camera_ip_conflict(ip, actor)
 
           {:error, reason} ->
             {:error, reason}
@@ -536,10 +531,53 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp camera_ip_conflict(_device_uid, _attrs, _actor), do: {:ok, nil}
 
+  defp list_devices_by_ip(ip, actor) when is_binary(ip) and ip != "" do
+    Device
+    |> Ash.Query.for_read(:by_ip, %{ip: ip, include_deleted: true})
+    |> Ash.read(actor: actor)
+    |> Page.unwrap()
+  end
+
+  defp list_devices_by_ip(_ip, _actor), do: {:ok, []}
+
+  defp resolve_camera_ip_conflict([], _ip, _actor), do: {:ok, nil}
+
+  defp resolve_camera_ip_conflict(devices, ip, actor) when is_list(devices) do
+    case Enum.filter(devices, &claimable_camera_ip_conflict?(&1, actor)) do
+      [] ->
+        device =
+          Enum.max_by(devices, &camera_ip_conflict_score/1, fn -> nil end)
+
+        case device do
+          nil -> {:ok, nil}
+          %Device{} = conflict -> {:error, {:ip_conflict, conflict.uid, ip}}
+        end
+
+      claimable ->
+        {:ok, Enum.max_by(claimable, &camera_ip_conflict_score/1)}
+    end
+  end
+
   defp claimable_camera_ip_conflict?(%Device{} = device, actor) do
     not IdentityReconciler.service_device_id?(device.uid) and
       device.type != "camera" and
       not device_has_strong_identifiers?(device.uid, actor)
+  end
+
+  defp camera_ip_conflict_score(%Device{} = device) do
+    {
+      claimable_ip_placeholder_priority(device),
+      if(String.starts_with?(device.uid || "", "sweep-"), do: 0, else: 1),
+      count_present([device.mac, device.hostname]),
+      device.modified_time || device.last_seen_time || ~U[1970-01-01 00:00:00Z]
+    }
+  end
+
+  defp claimable_ip_placeholder_priority(%Device{} = device) do
+    case Map.get(device.metadata || %{}, "identity_state") do
+      "provisional" -> 2
+      _ -> 1
+    end
   end
 
   defp device_has_strong_identifiers?(device_uid, actor) when is_binary(device_uid) do
