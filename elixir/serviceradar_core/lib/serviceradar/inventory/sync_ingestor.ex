@@ -25,6 +25,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   # Process in chunks to balance memory vs DB efficiency
   @batch_size 500
   @inventory_rollup_refresh_lock_key 20_240_306
+  @classification_metadata_keys ~w(
+    classification_source
+    classification_rule_id
+    classification_confidence
+    classification_reason
+  )
   @vendor_tokens [
     {"cisco", "Cisco"},
     {"juniper", "Juniper"},
@@ -558,7 +564,11 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp merge_device_records(existing, incoming) do
-    merged_metadata = Map.merge(existing.metadata || %{}, incoming.metadata || %{})
+    merged_metadata =
+      existing.metadata
+      |> strip_classification_metadata()
+      |> Map.merge(incoming.metadata || %{})
+
     merged_tags = Map.merge(existing.tags || %{}, incoming.tags || %{})
     merged_os = Map.merge(existing.os || %{}, incoming.os || %{})
     merged_hw_info = Map.merge(existing.hw_info || %{}, incoming.hw_info || %{})
@@ -651,7 +661,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
           owner: fragment("COALESCE(EXCLUDED.owner, ?)", d.owner),
           metadata:
             fragment(
-              "COALESCE(?, '{}'::jsonb) || COALESCE(EXCLUDED.metadata, '{}'::jsonb)",
+              "(COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason') || COALESCE(EXCLUDED.metadata, '{}'::jsonb)",
               d.metadata
             ),
           deleted_at: nil,
@@ -1285,6 +1295,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp merge_classification_metadata(metadata, classification) do
+    metadata = strip_classification_metadata(metadata)
+
     case Map.get(classification, :rule_id) do
       nil ->
         metadata
@@ -1297,6 +1309,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         |> Map.put("classification_reason", Map.get(classification, :reason))
     end
   end
+
+  defp strip_classification_metadata(metadata) when is_map(metadata) do
+    Enum.reduce(@classification_metadata_keys, metadata, &Map.delete(&2, &1))
+  end
+
+  defp strip_classification_metadata(_metadata), do: %{}
 
   defp maybe_put_map_value(map, _key, value) when value in [nil, ""], do: map
   defp maybe_put_map_value(map, key, value), do: Map.put(map, key, value)

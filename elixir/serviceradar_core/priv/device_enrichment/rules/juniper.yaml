@@ -1,0 +1,31 @@
+rules:
+  - id: juniper-router-vjunos
+    enabled: true
+    priority: 895
+    confidence: 92
+    reason: "Juniper vJunos signature in SNMP identity"
+    match:
+      any:
+        sys_object_id_prefixes:
+          - "1.3.6.1.4.1.2636"
+        sys_descr: ["juniper", "junos", "vjunos", "vjunos-router"]
+        sys_name: ["juniper", "junos", "vjunos"]
+        hostname: ["juniper", "vjunos"]
+      all:
+        ip_forwarding: [1]
+    set:
+      vendor_name: "Juniper"
+      type: "Router"
+      type_id: 12
+
+  - id: juniper-vendor-by-enterprise
+    enabled: true
+    priority: 705
+    confidence: 80
+    reason: "Juniper enterprise OID"
+    match:
+      any:
+        sys_object_id_prefixes:
+          - "1.3.6.1.4.1.2636"
+    set:
+      vendor_name: "Juniper"
