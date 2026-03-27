@@ -69,7 +69,20 @@ impl Publisher {
     async fn publish_update(&self, update: Update) -> Result<()> {
         let subject = subject_for_update(&self.config.subject_prefix, &update);
         let payload = serde_json::to_vec(&model::to_payload(&update))?;
-        let ack = self.js.publish(subject.clone(), payload.into()).await?;
+        let ack = self
+            .js
+            .publish(subject.clone(), payload.into())
+            .await
+            .with_context(|| {
+                format!(
+                    "failed publishing update router={} peer={} prefix={}/{} to {}",
+                    update.router_addr,
+                    update.peer_addr,
+                    update.prefix_addr,
+                    update.prefix_len,
+                    subject
+                )
+            })?;
 
         timeout(Duration::from_millis(self.config.publish_timeout_ms), ack)
             .await
