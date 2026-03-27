@@ -3,6 +3,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   Dispatches on-demand agent commands over the control stream.
   """
 
+  import Ash.Expr
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.RelaySourceResolver
   alias ServiceRadar.Edge.AgentCommand
@@ -10,9 +12,12 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.ProcessRegistry
 
+  require Ash.Query
   require Logger
 
   @default_ttl_seconds 60
+  @active_mtr_statuses [:queued, :sent, :acknowledged, :running]
+  @max_concurrent_on_demand_mtr 2
   @send_timeout 5_000
 
   def dispatch(agent_id, command_type, payload, opts \\ []) do
@@ -37,24 +42,21 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     ash_opts = [actor: SystemActor.system(:agent_command_bus)]
 
-    case AgentCommand.create_command(command_attrs, ash_opts) do
-      {:ok, command} ->
-        _ = AgentCommandCleanupWorker.ensure_scheduled()
+    with :ok <- ensure_dispatch_capacity(agent_id, command_type, ash_opts),
+         {:ok, command} <- AgentCommand.create_command(command_attrs, ash_opts) do
+      _ = AgentCommandCleanupWorker.ensure_scheduled()
 
-        dispatch_created_command(command, %{
-          agent_id: agent_id,
-          command_type: command_type,
-          payload_json: payload_json,
-          ttl_seconds: ttl_seconds,
-          created_at: created_at,
-          required_partition: required_partition,
-          required_capability: required_capability,
-          context: context,
-          ash_opts: ash_opts
-        })
-
-      {:error, reason} ->
-        {:error, reason}
+      dispatch_created_command(command, %{
+        agent_id: agent_id,
+        command_type: command_type,
+        payload_json: payload_json,
+        ttl_seconds: ttl_seconds,
+        created_at: created_at,
+        required_partition: required_partition,
+        required_capability: required_capability,
+        context: context,
+        ash_opts: ash_opts
+      })
     end
   end
 
@@ -238,6 +240,37 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   def push_config(_agent_id), do: {:error, :invalid_agent_id}
+
+  defp ensure_dispatch_capacity(agent_id, "mtr.run", ash_opts) do
+    query =
+      AgentCommand
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(
+        expr(
+          agent_id == ^agent_id and command_type == "mtr.run" and status in ^@active_mtr_statuses
+        )
+      )
+      |> Ash.Query.limit(@max_concurrent_on_demand_mtr)
+      |> Ash.Query.select([:id])
+
+    case Ash.read(query, ash_opts) do
+      {:ok, commands} when length(commands) >= @max_concurrent_on_demand_mtr ->
+        {:error, {:agent_busy, :too_many_concurrent_mtr_traces}}
+
+      {:ok, _commands} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to evaluate MTR dispatch capacity",
+          agent_id: agent_id,
+          reason: inspect(reason)
+        )
+
+        {:error, reason}
+    end
+  end
+
+  defp ensure_dispatch_capacity(_agent_id, _command_type, _ash_opts), do: :ok
 
   def push_config_for_type(config_type) do
     capability = capability_for_config_type(config_type)

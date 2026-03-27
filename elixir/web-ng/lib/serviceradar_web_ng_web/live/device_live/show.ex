@@ -1554,6 +1554,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:ok, _command_id} ->
         {:ok, agent_id}
 
+      {:error, {:agent_busy, :too_many_concurrent_mtr_traces}} ->
+        {:error, "Agent is already running the maximum number of concurrent MTR traces"}
+
       {:error, reason} ->
         {:error, "Failed to run MTR: #{inspect(reason)}"}
     end
