@@ -440,7 +440,7 @@ func TestDefaultCameraRelaySourceRequiresSourceURL(t *testing.T) {
 	}
 }
 
-func TestNewRTSPCameraRelayClientEnablesTLSSkipVerifyForRTSPS(t *testing.T) {
+func TestNewRTSPCameraRelayClientLeavesRTSPSVerificationEnabledByDefault(t *testing.T) {
 	t.Parallel()
 
 	u, err := base.ParseURL("rtsps://192.168.1.1:7441/example")
@@ -449,13 +449,29 @@ func TestNewRTSPCameraRelayClientEnablesTLSSkipVerifyForRTSPS(t *testing.T) {
 	}
 
 	transport := gortsplib.ProtocolTCP
-	client := newCameraRelayRTSPClient(u, transport)
+	client := newCameraRelayRTSPClient(u, transport, false)
+
+	if client.TLSConfig != nil {
+		t.Fatal("expected rtsps client to use default TLS verification when skip verify is disabled")
+	}
+}
+
+func TestNewRTSPCameraRelayClientEnablesTLSSkipVerifyWhenRequestedForRTSPS(t *testing.T) {
+	t.Parallel()
+
+	u, err := base.ParseURL("rtsps://192.168.1.1:7441/example")
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+
+	transport := gortsplib.ProtocolTCP
+	client := newCameraRelayRTSPClient(u, transport, true)
 
 	if client.TLSConfig == nil {
-		t.Fatal("expected TLS config for rtsps client")
+		t.Fatal("expected TLS config for insecure rtsps client")
 	}
 	if !client.TLSConfig.InsecureSkipVerify {
-		t.Fatal("expected rtsps client to skip TLS verification")
+		t.Fatal("expected insecure rtsps client to skip TLS verification")
 	}
 }
 
@@ -468,7 +484,7 @@ func TestNewRTSPCameraRelayClientLeavesRTSPTLSUnset(t *testing.T) {
 	}
 
 	transport := gortsplib.ProtocolTCP
-	client := newCameraRelayRTSPClient(u, transport)
+	client := newCameraRelayRTSPClient(u, transport, true)
 
 	if client.TLSConfig != nil {
 		t.Fatal("expected plain rtsp client to leave TLS config unset")

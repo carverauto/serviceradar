@@ -922,6 +922,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert render(view) =~ "Closing"
     end
 
+    test "passes insecure skip verify when opening a relay from device details", %{
+      conn: conn,
+      device_uid: device_uid,
+      source: source,
+      profile: profile
+    } do
+      relay_session_id = Ecto.UUID.generate()
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_open_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: source.id,
+           stream_profile_id: profile.id,
+           agent_id: source.assigned_agent_id,
+           gateway_id: source.assigned_gateway_id,
+           status: :opening
+         }}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      view
+      |> element(
+        "button[phx-click='open_camera_relay'][phx-value-camera_source_id='#{source.id}'][phx-value-stream_profile_id='#{profile.id}'][phx-value-insecure_skip_verify='true']"
+      )
+      |> render_click()
+
+      assert_receive {:open_session, ^source.id, ^profile.id, opts}
+      assert opts[:insecure_skip_verify] == true
+    end
+
     test "refreshes relay session state from persisted relay session records", %{
       conn: conn,
       device_uid: device_uid,

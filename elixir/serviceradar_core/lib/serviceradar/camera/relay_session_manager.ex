@@ -90,12 +90,13 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
 
       case dispatch_open.(
              source.assigned_agent_id,
-             %{
-               relay_session_id: session.id,
-               camera_source_id: camera_source_id,
-               stream_profile_id: stream_profile_id,
-               lease_token: lease_token
-             },
+             open_command_payload(
+               session.id,
+               camera_source_id,
+               stream_profile_id,
+               lease_token,
+               opts
+             ),
              dispatch_opts(opts, requester),
              requester
            ) do
@@ -225,6 +226,27 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
 
   defp dispatch_close_command(agent_id, payload, opts, _actor) do
     AgentCommandBus.stop_camera_relay(agent_id, payload, opts)
+  end
+
+  defp open_command_payload(
+         relay_session_id,
+         camera_source_id,
+         stream_profile_id,
+         lease_token,
+         opts
+       ) do
+    payload = %{
+      relay_session_id: relay_session_id,
+      camera_source_id: camera_source_id,
+      stream_profile_id: stream_profile_id,
+      lease_token: lease_token
+    }
+
+    if Keyword.get(opts, :insecure_skip_verify) == true do
+      Map.put(payload, :insecure_skip_verify, true)
+    else
+      payload
+    end
   end
 
   defp maybe_record_session_failure(session, source, reason, stage) do

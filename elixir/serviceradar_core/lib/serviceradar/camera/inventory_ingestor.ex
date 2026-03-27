@@ -647,24 +647,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp find_inventory_peer_by_mac(mac, device_uid, actor)
        when is_binary(mac) and mac != "" and is_binary(device_uid) do
-    Device
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(
-      mac == ^mac and uid != ^device_uid and (not is_nil(ip) or not is_nil(hostname))
-    )
-    |> Ash.read(actor: actor)
-    |> Page.unwrap()
-    |> case do
-      {:ok, devices} when is_list(devices) ->
-        devices
-        |> Enum.max_by(&camera_inventory_peer_score/1, fn -> nil end)
-        |> case do
-          nil -> {:error, :not_found}
-          %Device{} = device -> {:ok, device}
-        end
-
-      _ ->
-        {:error, :not_found}
+    with {:ok, devices} <- read_inventory_peers_by_mac(mac, device_uid, actor) do
+      select_inventory_peer(devices)
     end
   rescue
     error ->
@@ -676,6 +660,27 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp find_inventory_peer_by_mac(_mac, _device_uid, _actor), do: {:error, :invalid_mac}
+
+  defp read_inventory_peers_by_mac(mac, device_uid, actor) do
+    Device
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      mac == ^mac and uid != ^device_uid and (not is_nil(ip) or not is_nil(hostname))
+    )
+    |> Ash.read(actor: actor)
+    |> Page.unwrap()
+    |> case do
+      {:ok, devices} when is_list(devices) -> {:ok, devices}
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp select_inventory_peer(devices) when is_list(devices) do
+    case Enum.max_by(devices, &camera_inventory_peer_score/1, fn -> nil end) do
+      %Device{} = device -> {:ok, device}
+      nil -> {:error, :not_found}
+    end
+  end
 
   defp camera_inventory_peer_score(%Device{} = device) do
     {
@@ -1371,28 +1376,26 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp resolve_identity_from_hints(descriptor, _status, actor) when is_map(descriptor) do
-    case lookup_device_uid_from_existing_source(descriptor, actor) do
-      {:ok, uid} ->
-        {:ok, uid}
-
-      _ ->
-        case identity_update_from_descriptor(descriptor) do
-          {:ok, update} ->
-            ids = IdentityReconciler.extract_strong_identifiers(update)
-
-            if IdentityReconciler.has_strong_identifier?(ids) do
-              resolve_strong_camera_identity(ids)
-            else
-              resolve_weak_camera_identity(update, descriptor, actor)
-            end
-
-          _ ->
-            lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
-        end
+    with {:error, _reason} <- lookup_device_uid_from_existing_source(descriptor, actor),
+         {:ok, update} <- identity_update_from_descriptor(descriptor) do
+      update
+      |> IdentityReconciler.extract_strong_identifiers()
+      |> resolve_camera_identity(update, descriptor, actor)
+    else
+      {:ok, uid} -> {:ok, uid}
+      _ -> lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
     end
   end
 
   defp resolve_identity_from_hints(_descriptor, _status, _actor), do: {:error, :unresolved}
+
+  defp resolve_camera_identity(ids, update, descriptor, actor) when is_map(update) do
+    if IdentityReconciler.has_strong_identifier?(ids) do
+      resolve_strong_camera_identity(ids)
+    else
+      resolve_weak_camera_identity(update, descriptor, actor)
+    end
+  end
 
   defp lookup_device_uid_from_existing_source(descriptor, actor) when is_map(descriptor) do
     vendor = string_value(descriptor, ["vendor"])

@@ -466,6 +466,7 @@ func (p *PushLoop) handleCameraRelayOpen(ctx context.Context, cmd *proto.Command
 		RTSPTransport:      payload.RTSPTransport,
 		CodecHint:          payload.CodecHint,
 		ContainerHint:      payload.ContainerHint,
+		InsecureSkipVerify: payload.InsecureSkipVerify,
 	})
 	if err != nil {
 		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))

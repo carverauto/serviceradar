@@ -918,10 +918,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event(
         "open_camera_relay",
-        %{"camera_source_id" => camera_source_id, "stream_profile_id" => stream_profile_id},
+        %{"camera_source_id" => camera_source_id, "stream_profile_id" => stream_profile_id} = params,
         socket
       ) do
     scope = socket.assigns.current_scope
+    insecure_skip_verify = parse_bool_param(params["insecure_skip_verify"]) == true
 
     cond do
       not can_view_device?(scope) ->
@@ -937,7 +938,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                relay_session_manager().request_open(
                  camera_source_id,
                  stream_profile_id,
-                 scope: scope
+                 scope: scope,
+                 insecure_skip_verify: insecure_skip_verify
                ) do
           {:noreply,
            socket
@@ -4068,29 +4070,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       {Map.get(@last_session, :close_reason)}
                     </span>
                     <%= if camera_source_openable?(source) do %>
+                      <div class="flex flex-wrap items-center gap-2">
+                        <.ui_button
+                          phx-click="open_camera_relay"
+                          phx-value-camera_source_id={source.id}
+                          phx-value-stream_profile_id={profile.id}
+                          variant="outline"
+                          size="xs"
+                        >
+                          Open Relay
+                        </.ui_button>
+                        <.ui_button
+                          :if={camera_profile_supports_insecure_tls_override?(source, profile)}
+                          phx-click="open_camera_relay"
+                          phx-value-camera_source_id={source.id}
+                          phx-value-stream_profile_id={profile.id}
+                          phx-value-insecure_skip_verify="true"
+                          variant="ghost"
+                          size="xs"
+                        >
+                          Skip TLS Verify
+                        </.ui_button>
+                      </div>
+                    <% else %>
+                      <span class="text-xs text-error">Relay unavailable</span>
+                    <% end %>
+                  <% true -> %>
+                    <div class="flex flex-wrap items-center gap-2">
                       <.ui_button
                         phx-click="open_camera_relay"
                         phx-value-camera_source_id={source.id}
                         phx-value-stream_profile_id={profile.id}
                         variant="outline"
                         size="xs"
+                        disabled={not is_nil(@active_session) or not camera_source_openable?(source)}
                       >
                         Open Relay
                       </.ui_button>
-                    <% else %>
-                      <span class="text-xs text-error">Relay unavailable</span>
-                    <% end %>
-                  <% true -> %>
-                    <.ui_button
-                      phx-click="open_camera_relay"
-                      phx-value-camera_source_id={source.id}
-                      phx-value-stream_profile_id={profile.id}
-                      variant="outline"
-                      size="xs"
-                      disabled={not is_nil(@active_session) or not camera_source_openable?(source)}
-                    >
-                      Open Relay
-                    </.ui_button>
+                      <.ui_button
+                        :if={camera_profile_supports_insecure_tls_override?(source, profile)}
+                        phx-click="open_camera_relay"
+                        phx-value-camera_source_id={source.id}
+                        phx-value-stream_profile_id={profile.id}
+                        phx-value-insecure_skip_verify="true"
+                        variant="ghost"
+                        size="xs"
+                        disabled={not is_nil(@active_session) or not camera_source_openable?(source)}
+                      >
+                        Skip TLS Verify
+                      </.ui_button>
+                    </div>
                 <% end %>
               </div>
 
@@ -8030,6 +8059,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp camera_source_openable?(source) do
     camera_source_availability_status(source) != "unavailable"
   end
+
+  defp camera_profile_supports_insecure_tls_override?(source, profile) do
+    source
+    |> camera_profile_source_url(profile)
+    |> case do
+      value when is_binary(value) -> String.starts_with?(String.downcase(String.trim(value)), "rtsps://")
+      _other -> false
+    end
+  end
+
+  defp camera_profile_source_url(source, profile) when is_map(profile) do
+    case Map.get(profile, :source_url_override) do
+      value when is_binary(value) and value != "" -> value
+      _other -> if(is_map(source), do: Map.get(source, :source_url))
+    end
+  end
+
+  defp camera_profile_source_url(_source, _profile), do: nil
 
   defp camera_source_status_label(source) do
     case camera_source_availability_status(source) do

@@ -69,6 +69,7 @@ export const godViewLifecycleDomSetupMethods = {
         this.state.pushEvent("god_view_open_camera_relay", {
           camera_source_id: cameraSourceId,
           stream_profile_id: streamProfileId,
+          insecure_skip_verify: cameraAction.getAttribute("data-insecure-skip-verify") === "true",
           device_uid: cameraAction.getAttribute("data-camera-device-uid") || "",
           camera_label: cameraAction.getAttribute("data-camera-label") || "",
           profile_label: cameraAction.getAttribute("data-camera-profile-label") || "",

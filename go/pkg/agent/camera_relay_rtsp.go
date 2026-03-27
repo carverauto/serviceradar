@@ -89,7 +89,7 @@ func newRTSPCameraRelayStream(spec cameraRelaySessionSpec) (cameraRelayChunkStre
 		return nil, err
 	}
 
-	client := newCameraRelayRTSPClient(u, transport)
+	client := newCameraRelayRTSPClient(u, transport, spec.InsecureSkipVerify)
 	if err := client.Start(); err != nil {
 		return nil, fmt.Errorf("start rtsp client: %w", err)
 	}
@@ -185,15 +185,13 @@ func newRTSPCameraRelayStream(spec cameraRelaySessionSpec) (cameraRelayChunkStre
 	return stream, nil
 }
 
-func newCameraRelayRTSPClient(u *base.URL, transport gortsplib.Protocol) *gortsplib.Client {
+func newCameraRelayRTSPClient(u *base.URL, transport gortsplib.Protocol, insecureSkipVerify bool) *gortsplib.Client {
 	client := &gortsplib.Client{
 		Scheme:   u.Scheme,
 		Host:     u.Host,
 		Protocol: &transport,
 	}
-	if strings.EqualFold(u.Scheme, "rtsps") {
-		// UniFi Protect commonly returns controller-issued RTSPS endpoints whose
-		// certificates do not include the controller IP in SANs.
+	if strings.EqualFold(u.Scheme, "rtsps") && insecureSkipVerify {
 		client.TLSConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
 	}
 	return client
