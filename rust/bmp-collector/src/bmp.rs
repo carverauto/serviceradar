@@ -24,11 +24,15 @@ pub async fn process_bmp_message<T: StateStore, S: UpdateSender>(
     bytes: &mut Bytes,
 ) -> Result<()> {
     let raw_frame = bytes.clone();
+    debug!(
+        "{socket}: received BMP frame: len={} hex={}",
+        raw_frame.len(),
+        frame_hex_for_log(&raw_frame)
+    );
     let message = decode_bmp_message(bytes).with_context(|| {
         format!(
-            "{socket}: failed to decode BMP message: frame_len={} frame_hex={}",
-            raw_frame.len(),
-            frame_hex_for_log(&raw_frame)
+            "{socket}: failed to decode BMP message: frame_len={}",
+            raw_frame.len()
         )
     })?;
 
@@ -292,11 +296,7 @@ fn parse_bgp_open_with_fallback(
         Ok(message) => Ok(message),
         Err(err) => {
             *data = original.clone();
-            let consume_len = if consume_all_on_failure {
-                original.len()
-            } else {
-                declared_bgp_message_length(&original)?
-            };
+            let consume_len = fallback_bgp_open_consume_len(&original, consume_all_on_failure)?;
             let message = parse_bgp_open_placeholder(data, consume_len).with_context(|| {
                 format!("failed recovering malformed peer-up OPEN after strict parse error: {err}")
             })?;
@@ -305,6 +305,26 @@ fn parse_bgp_open_with_fallback(
             );
             Ok(message)
         }
+    }
+}
+
+fn fallback_bgp_open_consume_len(data: &Bytes, consume_all_on_failure: bool) -> Result<usize> {
+    const BGP_MESSAGE_MIN_LEN: usize = 19;
+    const BGP_OPEN_MIN_LEN: usize = 29;
+    const BGP_MESSAGE_MAX_LEN: usize = 4096;
+
+    if consume_all_on_failure {
+        return Ok(data.len());
+    }
+
+    let declared_len = declared_bgp_message_length(data)?;
+    let clamped_len = declared_len.clamp(BGP_MESSAGE_MIN_LEN, BGP_MESSAGE_MAX_LEN);
+    let available_len = clamped_len.min(data.len());
+
+    if data.len() >= BGP_OPEN_MIN_LEN {
+        Ok(available_len.max(BGP_OPEN_MIN_LEN))
+    } else {
+        Ok(available_len)
     }
 }
 
@@ -383,14 +403,19 @@ fn parse_peer_up_tlvs(data: &mut Bytes) -> Vec<PeerUpNotificationTlv> {
     while data.len() >= 4 {
         let info_type_raw = u16::from_be_bytes([data[0], data[1]]);
         let info_len = u16::from_be_bytes([data[2], data[3]]) as usize;
-        let Ok(info_type) = PeerUpTlvType::try_from(info_type_raw) else {
-            break;
-        };
         if data.len() < 4 + info_len {
             break;
         }
-        let value_bytes = data[4..4 + info_len].to_vec();
-        let info_value = String::from_utf8_lossy(&value_bytes).to_string();
+
+        let info_type = match PeerUpTlvType::try_from(info_type_raw) {
+            Ok(info_type) => info_type,
+            Err(_) => {
+                let _ = data.split_to(4 + info_len);
+                continue;
+            }
+        };
+
+        let info_value = String::from_utf8_lossy(&data[4..4 + info_len]).to_string();
         let _ = data.split_to(4 + info_len);
         tlvs.push(PeerUpNotificationTlv {
             info_type,
@@ -440,5 +465,21 @@ mod tests {
             }
             other => panic!("expected peer up notification, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn clamps_invalid_declared_open_length_for_placeholder_recovery() {
+        assert_eq!(
+            fallback_bgp_open_consume_len(&Bytes::from_static(&[0; 40]), false).unwrap(),
+            29
+        );
+
+        let mut oversized = [0u8; 64];
+        oversized[16] = 0x20;
+        oversized[17] = 0x00;
+        assert_eq!(
+            fallback_bgp_open_consume_len(&Bytes::copy_from_slice(&oversized), false).unwrap(),
+            64
+        );
     }
 }
