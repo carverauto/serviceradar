@@ -437,7 +437,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         # Tolerate older ingest paths that passed the target uid instead of attrs after
         # an IP-claim merge. Re-read the canonical camera row and continue with its
         # merged state rather than failing the whole ingest.
-        with {:ok, %Device{} = target_device} <- Device.get_by_uid(target_uid, false, actor: actor) do
+        with {:ok, %Device{} = target_device} <-
+               Device.get_by_uid(target_uid, false, actor: actor) do
           target_device
           |> camera_device_update_attrs()
           |> then(&merge_camera_device_attrs(device, &1))
