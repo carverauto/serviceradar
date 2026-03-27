@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.5
+
+Juniper SNMP classification fixes and stale enrichment metadata cleanup for mapper-ingested devices.
+
+## Whats New
+
+**1.2.5**
+- Added built-in Juniper/vJunos enrichment rules so Juniper routers classify correctly from SNMP identity data instead of falling into unrelated router signatures.
+- Fixed sync ingestor metadata merging so stale `classification_*` provenance is cleared and replaced when a device is reclassified on later updates.
+- Added regression coverage for Juniper rule matching and MikroTik-to-Juniper reclassification on the same device/IP.
+
 # ServiceRadar v1.2.4
 
 Docker Compose startup hardening, SaaS integration groundwork, and expanded NetFlow/BGP observability updates.
