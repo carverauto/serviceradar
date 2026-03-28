@@ -142,7 +142,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   end
 
   def handle_event("toggle_selected_agent", %{"id" => agent_id}, socket) do
-    {:noreply, assign(socket, :selected_agent_ids, toggle_selected_agent_id(socket.assigns.selected_agent_ids, agent_id))}
+    {:noreply,
+     assign(
+       socket,
+       :selected_agent_ids,
+       toggle_selected_agent_id(socket.assigns.selected_agent_ids, agent_id)
+     )}
   end
 
   def handle_event("select_visible_agents", _params, socket) do
@@ -527,7 +532,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
         </thead>
         <tbody>
           <tr :if={@agents == []}>
-            <td colspan={if(@allow_selection, do: 11, else: 10)} class="text-sm text-base-content/60 py-8 text-center">
+            <td
+              colspan={if(@allow_selection, do: 11, else: 10)}
+              class="text-sm text-base-content/60 py-8 text-center"
+            >
               No agents found.
             </td>
           </tr>
@@ -543,16 +551,16 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
                   type="button"
                   phx-click="toggle_selected_agent"
                   phx-value-id={agent_uid(agent)}
-                  class={
-                    [
-                      "btn btn-xs w-8 px-0",
-                      agent_uid(agent) in @selected_agent_ids && "btn-primary",
-                      agent_uid(agent) not in @selected_agent_ids && "btn-ghost"
-                    ]
-                  }
+                  class={[
+                    "btn btn-xs w-8 px-0",
+                    agent_uid(agent) in @selected_agent_ids && "btn-primary",
+                    agent_uid(agent) not in @selected_agent_ids && "btn-ghost"
+                  ]}
                 >
                   <.icon
-                    name={if(agent_uid(agent) in @selected_agent_ids, do: "hero-check", else: "hero-plus")}
+                    name={
+                      if(agent_uid(agent) in @selected_agent_ids, do: "hero-check", else: "hero-plus")
+                    }
                     class="size-3.5"
                   />
                 </button>
@@ -818,7 +826,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   end
 
   defp base_agents_query(limit) do
-    SRQLBuilder.default_state("agents", limit)
+    "agents"
+    |> SRQLBuilder.default_state(limit)
     |> SRQLBuilder.build()
   end
 
@@ -949,26 +958,30 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
       |> Enum.reject(&(&1 in [nil, "", "unknown"]))
 
     params =
-      [
-        {"cohort", "custom"},
-        {"agent_ids", Enum.join(agent_ids, "\n")},
-        {"notes", "Imported from /agents inventory view"},
-        {"source", "agents"}
-      ]
-      |> maybe_put_handoff_version(Map.get(release_filters, "desired_version"))
+      maybe_put_handoff_version(
+        [
+          {"cohort", "custom"},
+          {"agent_ids", Enum.join(agent_ids, "\n")},
+          {"notes", "Imported from /agents inventory view"},
+          {"source", "agents"}
+        ],
+        Map.get(release_filters, "desired_version")
+      )
 
     "/settings/agents/releases?" <> URI.encode_query(params)
   end
 
   defp selected_rollout_handoff_path(agent_ids, release_filters) do
     params =
-      [
-        {"cohort", "custom"},
-        {"agent_ids", Enum.join(agent_ids, "\n")},
-        {"notes", "Imported from selected /agents rows"},
-        {"source", "agents_selection"}
-      ]
-      |> maybe_put_handoff_version(Map.get(release_filters, "desired_version"))
+      maybe_put_handoff_version(
+        [
+          {"cohort", "custom"},
+          {"agent_ids", Enum.join(agent_ids, "\n")},
+          {"notes", "Imported from selected /agents rows"},
+          {"source", "agents_selection"}
+        ],
+        Map.get(release_filters, "desired_version")
+      )
 
     "/settings/agents/releases?" <> URI.encode_query(params)
   end

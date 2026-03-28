@@ -195,7 +195,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
           type: "Performance",
           capabilities: ["agent"],
           metadata: %{"os" => "linux", "arch" => "amd64"}
-        }, actor: system_actor())
+        },
+        actor: system_actor()
+      )
       |> Ash.create!()
 
     {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
@@ -331,7 +333,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
           type: "Performance",
           capabilities: ["agent"],
           metadata: %{"os" => "linux", "arch" => "amd64"}
-        }, actor: system_actor())
+        },
+        actor: system_actor()
+      )
       |> Ash.create!()
 
     {:ok, rollout} =
@@ -395,7 +399,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
           type: "Performance",
           capabilities: ["agent"],
           metadata: %{"os" => "linux", "arch" => "amd64"}
-        }, actor: system_actor())
+        },
+        actor: system_actor()
+      )
       |> Ash.create!()
 
     {:ok, rollout} =
@@ -466,7 +472,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
           type: "Performance",
           capabilities: ["agent"],
           metadata: %{"os" => "linux", "arch" => "arm64"}
-        }, actor: system_actor())
+        },
+        actor: system_actor()
+      )
       |> Ash.create!()
 
     {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
@@ -490,6 +498,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert html =~ "1 unsupported"
     assert html =~ "Rollout creation is blocked until the cohort matches the published release platforms."
     assert has_element?(lv, "#create-rollout-form button[disabled]")
+
     assert html =~
              "Rollout failed: unsupported agent platforms for release cohort: #{agent_id} (linux/arm64)"
   end
@@ -554,7 +563,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
           type: "Performance",
           capabilities: ["agent"],
           metadata: %{"os" => "linux", "arch" => "amd64"}
-        }, actor: system_actor())
+        },
+        actor: system_actor()
+      )
       |> Ash.create!()
 
     {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")

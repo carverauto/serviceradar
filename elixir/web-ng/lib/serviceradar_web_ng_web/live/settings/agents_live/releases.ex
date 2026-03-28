@@ -214,6 +214,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     {rollout_summaries, rollout_targets} = list_rollout_data(rollouts, scope)
     prefill = rollout_prefill_params(params)
     prefill_count = prefill_agent_count(prefill)
+
     rollout_form =
       if(prefill == %{},
         do: normalize_rollout_form(socket.assigns.rollout_form, releases),
@@ -579,7 +580,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                     </div>
 
                     <div
-                      :if={rollout_preview_block_message(@rollout_preview) not in [nil, ""]}
+                      :if={not is_nil(rollout_preview_block_message(@rollout_preview))}
                       class="mt-3 text-[11px] font-medium text-warning"
                     >
                       {rollout_preview_block_message(@rollout_preview)}
@@ -1060,8 +1061,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       compatible_count: max(length(selected_agents) - length(unsupported_agents), 0),
       unsupported_count: length(unsupported_agents),
       unknown_count: length(unknown_agent_ids),
-      supported_platforms:
-        if(selected_release, do: artifact_platforms(selected_release.manifest), else: []),
+      supported_platforms: if(selected_release, do: artifact_platforms(selected_release.manifest), else: []),
       unsupported_agents: Enum.take(unsupported_agents, 8),
       unknown_agent_ids: Enum.take(unknown_agent_ids, 8),
       release_missing?: is_nil(selected_release)

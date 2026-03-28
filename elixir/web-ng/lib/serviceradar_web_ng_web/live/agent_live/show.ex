@@ -217,13 +217,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     uid = Map.get(agent, "uid") || Map.get(agent, "agent_id")
 
     params =
-      [
-        {"cohort", "custom"},
-        {"agent_ids", uid},
-        {"notes", "Imported from /agents/#{uid}"},
-        {"source", "agent_detail"}
-      ]
-      |> maybe_put_version(Map.get(agent, "desired_version"))
+      maybe_put_version(
+        [{"cohort", "custom"}, {"agent_ids", uid}, {"notes", "Imported from /agents/#{uid}"}, {"source", "agent_detail"}],
+        Map.get(agent, "desired_version")
+      )
 
     "/settings/agents/releases?" <> URI.encode_query(params)
   end
@@ -425,7 +422,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
             <span class="badge badge-ghost badge-sm">{length(@release_targets)}</span>
           </div>
 
-          <div :if={@release_targets == []} class="rounded-lg bg-base-200/40 px-4 py-6 text-sm text-base-content/60">
+          <div
+            :if={@release_targets == []}
+            class="rounded-lg bg-base-200/40 px-4 py-6 text-sm text-base-content/60"
+          >
             No rollout targets recorded for this agent yet.
           </div>
 
@@ -857,7 +857,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp format_progress(nil, nil), do: "—"
   defp format_progress(progress, nil) when is_integer(progress), do: "#{progress}%"
   defp format_progress(nil, message) when is_binary(message), do: message
-  defp format_progress(progress, message) when is_integer(progress) and is_binary(message), do: "#{progress}% · #{message}"
+
+  defp format_progress(progress, message) when is_integer(progress) and is_binary(message),
+    do: "#{progress}% · #{message}"
+
   defp format_progress(_progress, message), do: message || "—"
 
   defp has_value?(map, key) do
