@@ -24,3 +24,4 @@
 - [x] 5.1 Add tests for signature rejection, digest mismatch, cohort snapshotting, offline reconciliation, canary batching, and rollback.
 - [x] 5.2 Run `openspec validate add-agent-fleet-release-management --strict`.
 - [x] 5.3 Add tests for repository-release import and secure HTTPS redirect handling for release artifacts.
+- [x] 5.4 Update the release publishing pipeline so repository-hosted releases automatically publish the managed runtime archive plus the signed manifest/signature assets required for one-click import.

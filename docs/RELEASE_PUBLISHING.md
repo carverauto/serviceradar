@@ -1,14 +1,14 @@
 # Publishing ServiceRadar Releases with Bazel
 
-This guide explains how to publish a ServiceRadar release from Bazel, including pushing container images to GHCR and uploading Debian/RPM packages to a GitHub release. The workflow is fully hermetic: Bazel builds every artifact and the publish steps reuse the generated outputs directly from the runfiles tree.
+This guide explains how to publish a ServiceRadar release from Bazel, including pushing container images to GHCR, uploading Debian/RPM packages to a GitHub release, and attaching the agent self-update manifest assets consumed by the release-management UI. The workflow is fully hermetic: Bazel builds every packaged artifact and the publish step reuses the generated outputs directly from the runfiles tree.
 
 ## GitHub Actions workflow
 
 Tags that follow the `v*` convention automatically trigger `.github/workflows/release.yml`. The job:
 
 - Ensures the tag matches the `VERSION` file and extracts the matching entry from `CHANGELOG` via `scripts/extract-changelog.py` (falling back to a default note when absent).
-- Runs `bazel run --config=remote --stamp //build/release:publish_packages` so that Bazel builds and uploads every Debian/RPM asset to the GitHub release.
-- Verifies the resulting release with the GitHub API and fails if no `.deb` or `.rpm` assets are present.
+- Runs `bazel run --config=remote --stamp //build/release:publish_packages` so that Bazel builds and uploads every Debian/RPM asset, the managed agent runtime archive, and the signed manifest assets to the GitHub release.
+- Verifies the resulting release with the GitHub API and fails if the package assets or the agent manifest/signature assets are missing.
 - Normalises the uploaded asset names to include the release version (for example `serviceradar-core_1.0.53-pre14_amd64.deb`).
 
 Use `workflow_dispatch` to re-run or dry-run the pipeline with alternative options (draft releases, appending notes, skipping asset overwrites, etc.).
@@ -27,6 +27,7 @@ The script validates that `CHANGELOG` already contains a section for the version
 
 - `bazel`/Bazelisk configured for this repository.
 - A GitHub personal access token with the `repo` scope. Export it as either `GITHUB_TOKEN` or `GH_TOKEN` in the environment that will run the publish step.
+- A base64- or hex-encoded Ed25519 private key (32-byte seed or 64-byte private key) exported as `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY`, or stored on disk and referenced with `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY_FILE`, so the release publisher can sign `serviceradar-agent-release-manifest.json`.
 - Docker credentials for GHCR (see `docs/GHCR_PUBLISHING.md`) when pushing containers.
 
 > **Tip:** Use `--stamp` on publish commands so Bazel injects the `STABLE_COMMIT_SHA` from `scripts/workspace_status.sh`.
@@ -52,6 +53,8 @@ The `publish_packages` binary performs the following:
 1. Builds every `pkg_deb` and `pkg_rpm` target declared via `build/packaging/packages.bzl` (transitively pulled in through `//build/release:package_artifacts`).
 2. Creates or updates the GitHub release identified by `--tag` (optionally pointing to `--commit` or the stamped commit SHA).
 3. Uploads each generated `.deb` and `.rpm` file, replacing existing assets when `--overwrite_assets` (default `true`).
+4. Uploads a rollout-ready `serviceradar-agent_<version>_linux_amd64.tar.gz` runtime archive for self-update delivery.
+5. Generates and signs `serviceradar-agent-release-manifest.json` plus `serviceradar-agent-release-manifest.sig`, then uploads both assets to the same GitHub release.
 
 ### Useful flags
 
@@ -68,6 +71,7 @@ The `publish_packages` binary performs the following:
 ### Environment variables
 
 - `GITHUB_TOKEN` / `GH_TOKEN` – Required unless `--dry_run` is set.
+- `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` / `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY_FILE` – Required unless `--dry_run` is set so the publisher can sign the agent release manifest assets.
 - `COMMIT_SHA`, `STABLE_COMMIT_SHA`, or `GITHUB_SHA` – Optional; used automatically when `--commit` is omitted.
 
 ## Step 3 – Verify the release
@@ -76,7 +80,7 @@ After the commands complete:
 
 - Confirm container images in GHCR (`ghcr.io/carverauto/serviceradar-*`).
 - Run `make verify_publish VERIFY_TAG="v$(cat VERSION)"` to confirm published image shape and runtime metadata for `latest`, `sha-<commit>`, and the release tag.
-- Verify that the GitHub release contains the expected `.deb` and `.rpm` assets.
+- Verify that the GitHub release contains the expected `.deb`, `.rpm`, `serviceradar-agent_<version>_linux_amd64.tar.gz`, `serviceradar-agent-release-manifest.json`, and `serviceradar-agent-release-manifest.sig` assets.
 - Optionally attach checksums or additional assets by re-running `publish_packages` with extra files staged in `build/release/package_manifest.txt`.
 
 ## Troubleshooting
@@ -110,6 +114,7 @@ Ensure the following BuildBuddy secrets are defined before enabling the workflow
 - `GHCR_USERNAME`
 - `GHCR_TOKEN`
 - `GITHUB_TOKEN`
+- `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY`
 - `BUILDBUDDY_API_KEY` (or `BUILDBUDDY_ORG_API_KEY`) – required so Bazel’s `--config=remote` can authenticate to BuildBuddy inside the workflow.
 
 Once the secrets are present, enable the “Release” workflow in BuildBuddy. A push to a `v*` tag (or a manual workflow dispatch) will authenticate to GHCR, push all images, and publish the Debian/RPM assets to the matching GitHub release.

@@ -342,7 +342,7 @@ jobs:
 
           echo "Published Helm chart: oci://ghcr.io/carverauto/charts/serviceradar:${VERSION}"
 
-      - name: Publish Debian and RPM packages
+      - name: Publish release packages and agent manifest assets
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           NOTES_FILE: ${{ steps.notes.outputs.path }}
@@ -351,6 +351,7 @@ jobs:
           PRERELEASE: ${{ steps.release.outputs.prerelease }}
           DRAFT: ${{ steps.release.outputs.draft }}
           OVERWRITE_ASSETS: ${{ steps.release.outputs.overwrite_assets }}
+          SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
 
@@ -446,6 +447,7 @@ jobs:
       - name: Verify uploaded release assets via API
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REQUIRE_MAC_PKG: ${{ env.REQUIRE_MAC_PKG }}
         run: |
@@ -457,6 +459,9 @@ jobs:
           deb_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".deb"))] | length')
           rpm_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".rpm"))] | length')
           pkg_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".pkg"))] | length')
+          agent_runtime_count=$(echo "$response" | jq --arg asset "serviceradar-agent_${VERSION}_linux_amd64.tar.gz" '[.assets[]? | select(.name == $asset)] | length')
+          agent_manifest_count=$(echo "$response" | jq '[.assets[]? | select(.name == "serviceradar-agent-release-manifest.json")] | length')
+          agent_manifest_sig_count=$(echo "$response" | jq '[.assets[]? | select(.name == "serviceradar-agent-release-manifest.sig")] | length')
           if (( deb_count == 0 )); then
             echo "No .deb assets detected for ${RELEASE_TAG}" >&2
             exit 1
@@ -465,8 +470,20 @@ jobs:
             echo "No .rpm assets detected for ${RELEASE_TAG}" >&2
             exit 1
           fi
+          if (( agent_runtime_count == 0 )); then
+            echo "No managed agent runtime asset detected for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          if (( agent_manifest_count == 0 )); then
+            echo "No agent release manifest asset detected for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          if (( agent_manifest_sig_count == 0 )); then
+            echo "No agent release manifest signature asset detected for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
           if [[ "${REQUIRE_MAC_PKG:-false}" == "true" ]] && (( pkg_count == 0 )); then
             echo "No .pkg assets detected for ${RELEASE_TAG}" >&2
             exit 1
           fi
-          echo "Validated presence of ${deb_count} .deb, ${rpm_count} .rpm, and ${pkg_count} .pkg assets."
+          echo "Validated presence of ${deb_count} .deb, ${rpm_count} .rpm, ${pkg_count} .pkg, ${agent_runtime_count} runtime archive, ${agent_manifest_count} manifest, and ${agent_manifest_sig_count} signature assets."

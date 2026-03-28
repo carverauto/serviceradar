@@ -27,6 +27,12 @@ The system SHALL maintain a catalog of publishable agent releases. Each release 
 - **THEN** the latest repository releases are listed automatically with their tag, publish time, and whether the configured manifest and signature assets are present
 - **AND** releases missing those assets are not offered as one-click import candidates
 
+#### Scenario: Published repository releases are import-ready
+- **GIVEN** ServiceRadar publishes an agent-capable GitHub release for version `v1.2.3`
+- **WHEN** the release publisher uploads release assets
+- **THEN** the release includes the managed agent runtime archive plus `serviceradar-agent-release-manifest.json` and `serviceradar-agent-release-manifest.sig`
+- **AND** the release-management UI can import that release without any manual asset backfill
+
 ### Requirement: Desired-version rollouts are cohort-based and staged
 The system SHALL allow operators to assign a desired agent version to a cohort of agents. Rollouts SHALL support explicit cohort selection, batch limits, inter-batch delays, and pause/resume/cancel controls. Cohort membership SHALL be snapshotted when the rollout starts.
 

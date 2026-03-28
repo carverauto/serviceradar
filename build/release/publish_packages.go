@@ -4,6 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -21,7 +25,18 @@ import (
 	"github.com/bazelbuild/rules_go/go/tools/bazel"
 )
 
-const defaultManifestRunfile = "build/release/package_manifest.txt"
+const (
+	defaultManifestRunfile           = "build/release/package_manifest.txt"
+	defaultAgentRuntimeRunfile       = "build/packaging/agent/agent_release_runtime_archive.tar.gz"
+	defaultAgentManifestAssetName    = "serviceradar-agent-release-manifest.json"
+	defaultAgentManifestSigAssetName = "serviceradar-agent-release-manifest.sig"
+	defaultAgentRuntimeOS            = "linux"
+	defaultAgentRuntimeArch          = "amd64"
+	defaultAgentRuntimeFormat        = "tar.gz"
+	defaultAgentRuntimeEntrypoint    = "serviceradar-agent"
+	releasePrivateKeyEnv             = "SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY"
+	releasePrivateKeyFileEnv         = "SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY_FILE"
+)
 
 var (
 	errGithubAPI              = errors.New("github api error")
@@ -35,6 +50,8 @@ var (
 	errUnexpectedRPMName      = errors.New("unexpected rpm artifact name")
 	errUnexpectedPkgName      = errors.New("unexpected macOS package name")
 	errUnsupportedArtifactExt = errors.New("unsupported artifact extension")
+	errSigningKeyMissing      = errors.New("agent release signing private key is not configured")
+	errSigningKeyInvalid      = errors.New("agent release signing private key is invalid")
 )
 
 type runfileResolver struct {
@@ -74,6 +91,25 @@ type releaseRequest struct {
 	Body            string `json:"body,omitempty"`
 	Draft           *bool  `json:"draft,omitempty"`
 	Prerelease      *bool  `json:"prerelease,omitempty"`
+}
+
+type uploadAsset struct {
+	sourcePath string
+	uploadName string
+}
+
+type agentReleaseManifest struct {
+	Version   string                         `json:"version"`
+	Artifacts []agentReleaseManifestArtifact `json:"artifacts"`
+}
+
+type agentReleaseManifestArtifact struct {
+	URL        string `json:"url"`
+	SHA256     string `json:"sha256"`
+	OS         string `json:"os"`
+	Arch       string `json:"arch"`
+	Format     string `json:"format,omitempty"`
+	Entrypoint string `json:"entrypoint,omitempty"`
 }
 
 func main() {
@@ -125,6 +161,11 @@ func main() {
 	}
 
 	fmt.Printf("Found %d package artifacts\n", len(assets))
+
+	agentRuntimeArtifact, err := resolver.resolve(defaultAgentRuntimeRunfile)
+	if err != nil {
+		failf("failed to resolve managed agent runtime artifact: %v", err)
+	}
 
 	notes := strings.TrimSpace(*notesFlag)
 	if notes == "" && strings.TrimSpace(*notesFileFlag) != "" {
@@ -180,26 +221,255 @@ func main() {
 		if err != nil {
 			failf("failed to derive upload name for %q: %v", artifact, err)
 		}
-		if id, ok := existingAssets[uploadName]; ok {
-			if *overwriteAssetsFlag {
-				fmt.Printf("Replacing existing asset %s\n", uploadName)
-				if err := client.deleteAsset(id); err != nil {
-					failf("failed to delete existing asset %q: %v", uploadName, err)
-				}
-				delete(existingAssets, uploadName)
-			} else {
-				fmt.Printf("Skipping %s (asset already exists)\n", uploadName)
-				continue
-			}
-		}
-
-		if err := client.uploadAsset(rel.UploadURL, artifact, uploadName); err != nil {
+		if err := uploadReleaseAsset(client, rel.UploadURL, existingAssets, uploadAsset{
+			sourcePath: artifact,
+			uploadName: uploadName,
+		}, *overwriteAssetsFlag); err != nil {
 			failf("failed to upload asset %q: %v", uploadName, err)
 		}
-		fmt.Printf("Uploaded %s\n", uploadName)
+	}
+
+	runtimeUploadName := managedAgentRuntimeUploadName(releaseVersion)
+	if err := uploadReleaseAsset(client, rel.UploadURL, existingAssets, uploadAsset{
+		sourcePath: agentRuntimeArtifact,
+		uploadName: runtimeUploadName,
+	}, *overwriteAssetsFlag); err != nil {
+		failf("failed to upload managed agent runtime asset %q: %v", runtimeUploadName, err)
+	}
+
+	tempDir, manifestAssets, err := buildManagedAgentManifestAssets(
+		releaseVersion,
+		repo,
+		rel.TagName,
+		runtimeUploadName,
+		agentRuntimeArtifact,
+		*dryRunFlag,
+	)
+	if err != nil {
+		failf("failed to build managed agent release manifest assets: %v", err)
+	}
+	defer func() {
+		if tempDir != "" {
+			_ = os.RemoveAll(tempDir)
+		}
+	}()
+
+	for _, asset := range manifestAssets {
+		if err := uploadReleaseAsset(client, rel.UploadURL, existingAssets, asset, *overwriteAssetsFlag); err != nil {
+			failf("failed to upload asset %q: %v", asset.uploadName, err)
+		}
 	}
 
 	fmt.Println("All artifacts processed successfully")
+}
+
+func uploadReleaseAsset(client *githubClient, uploadURL string, existingAssets map[string]int64, asset uploadAsset, overwrite bool) error {
+	if id, ok := existingAssets[asset.uploadName]; ok {
+		if overwrite {
+			fmt.Printf("Replacing existing asset %s\n", asset.uploadName)
+			if err := client.deleteAsset(id); err != nil {
+				return err
+			}
+			delete(existingAssets, asset.uploadName)
+		} else {
+			fmt.Printf("Skipping %s (asset already exists)\n", asset.uploadName)
+			return nil
+		}
+	}
+
+	if err := client.uploadAsset(uploadURL, asset.sourcePath, asset.uploadName); err != nil {
+		return err
+	}
+	fmt.Printf("Uploaded %s\n", asset.uploadName)
+	return nil
+}
+
+func managedAgentRuntimeUploadName(version string) string {
+	return fmt.Sprintf(
+		"serviceradar-agent_%s_%s_%s.tar.gz",
+		version,
+		defaultAgentRuntimeOS,
+		defaultAgentRuntimeArch,
+	)
+}
+
+func buildManagedAgentManifestAssets(
+	version string,
+	repo string,
+	tag string,
+	runtimeUploadName string,
+	runtimeArtifactPath string,
+	dryRun bool,
+) (string, []uploadAsset, error) {
+	runtimeDigest, err := fileSHA256(runtimeArtifactPath)
+	if err != nil {
+		return "", nil, err
+	}
+
+	manifest := agentReleaseManifest{
+		Version: version,
+		Artifacts: []agentReleaseManifestArtifact{
+			{
+				URL:        browserDownloadURL(repo, tag, runtimeUploadName),
+				SHA256:     runtimeDigest,
+				OS:         defaultAgentRuntimeOS,
+				Arch:       defaultAgentRuntimeArch,
+				Format:     defaultAgentRuntimeFormat,
+				Entrypoint: defaultAgentRuntimeEntrypoint,
+			},
+		},
+	}
+
+	manifestPayload := map[string]interface{}{
+		"version": manifest.Version,
+		"artifacts": []interface{}{
+			map[string]interface{}{
+				"url":        manifest.Artifacts[0].URL,
+				"sha256":     manifest.Artifacts[0].SHA256,
+				"os":         manifest.Artifacts[0].OS,
+				"arch":       manifest.Artifacts[0].Arch,
+				"format":     manifest.Artifacts[0].Format,
+				"entrypoint": manifest.Artifacts[0].Entrypoint,
+			},
+		},
+	}
+
+	canonicalJSON, err := marshalCanonicalJSON(manifestPayload)
+	if err != nil {
+		return "", nil, err
+	}
+
+	signature, err := signManagedAgentManifest(canonicalJSON, dryRun)
+	if err != nil {
+		return "", nil, err
+	}
+
+	manifestJSON, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return "", nil, err
+	}
+	manifestJSON = append(manifestJSON, '\n')
+
+	tempDir, err := os.MkdirTemp("", "serviceradar-release-assets-*")
+	if err != nil {
+		return "", nil, err
+	}
+
+	manifestPath := filepath.Join(tempDir, defaultAgentManifestAssetName)
+	if err := os.WriteFile(manifestPath, manifestJSON, 0o644); err != nil {
+		_ = os.RemoveAll(tempDir)
+		return "", nil, err
+	}
+
+	signaturePath := filepath.Join(tempDir, defaultAgentManifestSigAssetName)
+	if err := os.WriteFile(signaturePath, []byte(signature+"\n"), 0o644); err != nil {
+		_ = os.RemoveAll(tempDir)
+		return "", nil, err
+	}
+
+	return tempDir, []uploadAsset{
+		{
+			sourcePath: manifestPath,
+			uploadName: defaultAgentManifestAssetName,
+		},
+		{
+			sourcePath: signaturePath,
+			uploadName: defaultAgentManifestSigAssetName,
+		},
+	}, nil
+}
+
+func browserDownloadURL(repo, tag, assetName string) string {
+	return fmt.Sprintf(
+		"https://github.com/%s/releases/download/%s/%s",
+		repo,
+		url.PathEscape(tag),
+		url.PathEscape(assetName),
+	)
+}
+
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	sum := sha256.New()
+	if _, err := io.Copy(sum, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(sum.Sum(nil)), nil
+}
+
+func signManagedAgentManifest(canonicalJSON []byte, dryRun bool) (string, error) {
+	if dryRun {
+		return "dry-run-signature", nil
+	}
+
+	privateKey, err := managedAgentReleasePrivateKey()
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, canonicalJSON)), nil
+}
+
+func managedAgentReleasePrivateKey() (ed25519.PrivateKey, error) {
+	keyValue := strings.TrimSpace(os.Getenv(releasePrivateKeyEnv))
+	if keyValue == "" {
+		keyFile := strings.TrimSpace(os.Getenv(releasePrivateKeyFileEnv))
+		if keyFile != "" {
+			content, err := os.ReadFile(keyFile)
+			if err != nil {
+				return nil, err
+			}
+			keyValue = strings.TrimSpace(string(content))
+		}
+	}
+	if keyValue == "" {
+		return nil, errSigningKeyMissing
+	}
+
+	keyBytes, err := decodeReleaseSigningValue(keyValue)
+	if err != nil {
+		return nil, err
+	}
+
+	switch len(keyBytes) {
+	case ed25519.SeedSize:
+		return ed25519.NewKeyFromSeed(keyBytes), nil
+	case ed25519.PrivateKeySize:
+		return ed25519.PrivateKey(keyBytes), nil
+	default:
+		return nil, fmt.Errorf("%w: expected %d or %d bytes, got %d", errSigningKeyInvalid, ed25519.SeedSize, ed25519.PrivateKeySize, len(keyBytes))
+	}
+}
+
+func decodeReleaseSigningValue(value string) ([]byte, error) {
+	clean := strings.TrimSpace(value)
+	if clean == "" {
+		return nil, errSigningKeyMissing
+	}
+
+	if decoded, err := hex.DecodeString(clean); err == nil {
+		return decoded, nil
+	}
+
+	base64Variants := []*base64.Encoding{
+		base64.StdEncoding,
+		base64.RawStdEncoding,
+		base64.URLEncoding,
+		base64.RawURLEncoding,
+	}
+	for _, enc := range base64Variants {
+		if decoded, err := enc.DecodeString(clean); err == nil {
+			return decoded, nil
+		}
+	}
+
+	return nil, errSigningKeyInvalid
 }
 
 type ensureReleaseArgs struct {
@@ -720,6 +990,89 @@ func collectAssets(resolver *runfileResolver, manifest string) ([]string, error)
 
 	sort.Strings(artifacts)
 	return artifacts, nil
+}
+
+func marshalCanonicalJSON(value interface{}) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := writeCanonicalJSON(&buf, value); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func writeCanonicalJSON(buf *bytes.Buffer, value interface{}) error {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+
+		buf.WriteByte('{')
+		for i, key := range keys {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+			keyBytes, err := json.Marshal(key)
+			if err != nil {
+				return err
+			}
+			buf.Write(keyBytes)
+			buf.WriteByte(':')
+			if err := writeCanonicalJSON(buf, typed[key]); err != nil {
+				return err
+			}
+		}
+		buf.WriteByte('}')
+		return nil
+	case []interface{}:
+		buf.WriteByte('[')
+		for i, entry := range typed {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+			if err := writeCanonicalJSON(buf, entry); err != nil {
+				return err
+			}
+		}
+		buf.WriteByte(']')
+		return nil
+	case json.Number:
+		buf.WriteString(typed.String())
+		return nil
+	case string:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return err
+		}
+		buf.Write(encoded)
+		return nil
+	case bool:
+		if typed {
+			buf.WriteString("true")
+		} else {
+			buf.WriteString("false")
+		}
+		return nil
+	case nil:
+		buf.WriteString("null")
+		return nil
+	case float64:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return err
+		}
+		buf.Write(encoded)
+		return nil
+	default:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return err
+		}
+		buf.Write(encoded)
+		return nil
+	}
 }
 
 func readMaybeRunfile(resolver *runfileResolver, path string) (string, error) {
