@@ -44,8 +44,11 @@ Recommended repository-release asset convention:
 
 - `serviceradar-agent-release-manifest.json`
 - `serviceradar-agent-release-manifest.sig`
+- `serviceradar-agent_<version>_linux_amd64.tar.gz`
 
 The manifest asset should contain the full multi-platform release manifest, including the final artifact URLs, SHA256 digests, platform metadata, and optional `format` / `entrypoint` fields.
+
+The GitHub release pipeline now publishes these assets automatically when `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` is configured for the release job. Manual repository releases must attach the same three assets for one-click import to work.
 
 ## Signing Key Handling
 

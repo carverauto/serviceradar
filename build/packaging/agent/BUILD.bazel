@@ -1,5 +1,7 @@
 load("//build/packaging:package_rules.bzl", "serviceradar_package_from_config")
 load("//build/packaging:packages.bzl", "PACKAGES")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -8,4 +10,19 @@ exports_files(["bin/serviceradar-agent"])
 serviceradar_package_from_config(
     name = "agent",
     config = PACKAGES["agent"],
+)
+
+pkg_files(
+    name = "agent_release_runtime_files",
+    srcs = ["//go/cmd/agent:agent"],
+    prefix = "/",
+    renames = {"//go/cmd/agent:agent": "serviceradar-agent"},
+    attributes = pkg_attributes(mode = "0755"),
+)
+
+pkg_tar(
+    name = "agent_release_runtime_archive",
+    srcs = [":agent_release_runtime_files"],
+    package_dir = "/",
+    extension = "tar.gz",
 )

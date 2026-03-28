@@ -1,19 +1,36 @@
 load("//build/packaging:release_targets.bzl", "declare_release_artifacts")
-load("@io_bazel_rules_go//go:def.bzl", "go_binary")
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 package(default_visibility = ["//visibility:public"])
 
 declare_release_artifacts()
 
-go_binary(
-    name = "publish_packages",
+go_library(
+    name = "publish_packages_lib",
     srcs = ["publish_packages.go"],
-    data = [
-        ":package_manifest",
-        ":package_artifacts",
-    ],
+    importpath = "github.com/carverauto/serviceradar/build/release",
+    visibility = ["//visibility:private"],
     deps = [
         "@io_bazel_rules_go//go/tools/bazel",
     ],
+)
+
+go_binary(
+    name = "publish_packages",
+    embed = [":publish_packages_lib"],
+    data = [
+        ":package_manifest",
+        ":package_artifacts",
+        "//build/packaging/agent:agent_release_runtime_archive",
+    ],
     visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "publish_packages_test",
+    srcs = ["publish_packages_test.go"],
+    data = [
+        "//build/packaging/agent:agent_release_runtime_archive",
+    ],
+    embed = [":publish_packages"],
 )
