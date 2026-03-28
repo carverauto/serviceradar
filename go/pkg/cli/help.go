@@ -27,10 +27,10 @@ Commands:
   edge package show    Display detailed information for a package
   edge package download Download onboarding artifacts (tar.gz or JSON)
   edge package revoke  Revoke an onboarding package (alias: edge-package-revoke)
-  edge package token   Emit an edgepkg-v1 token (alias: edge-package-token)
+  edge package token   Emit a signed edgepkg-v2 token (alias: edge-package-token)
   edge package mtls    Issue an mTLS sysmon-osx package (alias for create with mTLS defaults)
   edge-package-download Download the onboarding archive for a package (tar.gz)
-  edge-package-token    Emit an edgepkg-v1 onboarding token for ONBOARDING_TOKEN
+  edge-package-token    Emit a signed edgepkg-v2 onboarding token for ONBOARDING_TOKEN
   edge-package-revoke   Revoke an onboarding package and downstream entry
 
 Options for bcrypt generation:
@@ -111,8 +111,8 @@ Options for spire-join-token:
   -output string          Write the response JSON to the given file path
 
 Options for enroll:
-  -token string           Enrollment token (edgepkg-v1 or collector token)
-  -core-url string        Core API base URL (fallback if token omits base URL)
+  -token string           Enrollment token (edgepkg-v2, legacy edgepkg-v1, or collector token)
+  -core-url string        Core API base URL (required for legacy unsigned tokens and collector tokens)
   -host-ip string         Override detected host IP (agent enrollment only)
   -config string          Agent config path (default /etc/serviceradar/agent.json)
   -config-dir string      Collector config directory (default /etc/serviceradar)
@@ -120,7 +120,6 @@ Options for enroll:
   -cert-dir string        Certificate directory (default /etc/serviceradar/certs)
   -creds-dir string       Collector credentials directory (default /etc/serviceradar/creds)
   -force                  Overwrite existing config/certs during enrollment
-  -insecure               Skip TLS verification for bundle download (default true)
   -ca-file string         CA bundle path for verifying the core API TLS cert
 
 Options for edge-package-download:
@@ -189,7 +188,7 @@ Options for edge package show:
   --tls-skip-verify        Skip TLS certificate verification
   --id string              Edge package identifier (required)
   --output string          Output format: text or json (default text)
-  --reissue-token          Emit an edgepkg-v1 token using --download-token
+  --reissue-token          Emit a signed edgepkg-v2 token using --download-token
   --download-token string  Download token to encode when --reissue-token is set
 `)
 }

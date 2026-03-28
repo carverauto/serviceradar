@@ -17,8 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/carverauto/serviceradar/go/pkg/edgeonboarding/mtls"
 )
 
 var (
@@ -52,7 +50,7 @@ type EnrollOptions struct {
 
 // EnrollAgentFromToken downloads an edge onboarding bundle and writes agent config + certs.
 func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
-	payload, err := mtls.ParseToken(opts.Token, opts.CoreHost)
+	payload, err := parseOnboardingToken(opts.Token, "", opts.CoreHost)
 	if err != nil {
 		return fmt.Errorf("parse onboarding token: %w", err)
 	}
@@ -454,14 +452,7 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 }
 
 func normalizeCoreURL(raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", ErrCoreAPIHostRequired
-	}
-	if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
-		return trimmed, nil
-	}
-	return "http://" + trimmed, nil
+	return normalizeBaseURL(raw)
 }
 
 func fileExists(path string) bool {

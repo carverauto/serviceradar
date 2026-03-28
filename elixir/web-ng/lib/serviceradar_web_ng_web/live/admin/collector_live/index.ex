@@ -910,7 +910,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     secret = EnrollmentToken.generate_secret()
     temp_package_id = "placeholder"
 
-    {_temp_token, token_hash, ^secret} =
+    {:ok, {_temp_token, token_hash, ^secret}} =
       EnrollmentToken.generate(temp_package_id,
         secret: secret,
         base_url: base_url,
@@ -936,14 +936,17 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     case Ash.create(changeset, actor: actor) do
       {:ok, package} ->
         # Generate the final enrollment token with actual package ID and SAME secret
-        {final_token, ^token_hash, ^secret} =
-          EnrollmentToken.generate(package.id,
-            secret: secret,
-            base_url: base_url,
-            config_filename: collector_config_filename(collector_type)
-          )
+        case EnrollmentToken.generate(package.id,
+               secret: secret,
+               base_url: base_url,
+               config_filename: collector_config_filename(collector_type)
+             ) do
+          {:ok, {final_token, ^token_hash, ^secret}} ->
+            {:ok, package, final_token}
 
-        {:ok, package, final_token}
+          {:error, reason} ->
+            {:error, reason}
+        end
 
       {:error, error} ->
         {:error, error}

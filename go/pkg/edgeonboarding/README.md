@@ -1,6 +1,6 @@
 # Edge Onboarding Library
 
-This package provides a common onboarding library for ServiceRadar edge services (gateways, agents, checkers) to automatically bootstrap themselves using an onboarding token.
+This package provides a common onboarding library for ServiceRadar edge services (gateways, agents, checkers) to automatically bootstrap themselves using an onboarding token over verified HTTPS.
 
 ## Overview
 
@@ -12,7 +12,7 @@ The edge onboarding library eliminates the need for manual shell scripts and con
 - **Sticky bootstrap configs** - Only KV/Core addresses are in static config (chicken/egg problem)
 - **Deployment-aware** - Automatically detects Docker, Kubernetes, or bare-metal and uses appropriate addresses
 - **Component-specific** - Gateways get nested SPIRE server, agents/checkers use workload API
-- **Self-contained** - Services only need an onboarding token to start
+- **Self-contained** - Services only need a signed onboarding token plus a trusted Core API URL when using legacy compatibility modes
 
 ## Usage
 
@@ -74,8 +74,9 @@ docker run \
    - Determines appropriate addresses (LoadBalancer IPs for Docker, DNS for k8s)
 
 2. **Package Download**
-   - Downloads onboarding package from Core using token
+   - Downloads onboarding package from Core using verified HTTPS
    - Validates package contents and status
+   - Verifies signed `edgepkg-v2` tokens before trusting embedded metadata
    - Extracts decrypted SPIRE credentials
 
 3. **SPIRE Configuration**
@@ -179,6 +180,7 @@ KV_ENDPOINT=<host:port>        # Bootstrap config
 STORAGE_PATH=/var/lib/serviceradar
 DEPLOYMENT_TYPE=docker         # docker, kubernetes, bare-metal
 SERVICE_ID=my-gateway-1         # Override component ID
+SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY=<base64-ed25519-public-key>
 ```
 
 ## Generated Configurations

@@ -304,13 +304,14 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp generate_install_script(package, opts) do
     component_type = effective_component_type(package.component_type)
     enrollment_token = onboarding_token(package, opts)
+    base_url = Keyword.get(opts, :base_url, default_base_url())
 
     # Sanitize for shell interpolation
     s_component_type = sanitize_shell_arg(component_type)
     s_package_id = sanitize_shell_arg(package.id)
 
     if component_type == "agent" and is_binary(enrollment_token) do
-      return_agent_enroll_script(package, enrollment_token)
+      return_agent_enroll_script(package, enrollment_token, base_url)
     else
       String.trim("""
       #!/bin/bash
@@ -476,6 +477,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp generate_readme(package, opts) do
     component_type = effective_component_type(package.component_type)
     enrollment_token = onboarding_token(package, opts)
+    base_url = Keyword.get(opts, :base_url, default_base_url())
 
     """
     # ServiceRadar Edge Package
@@ -500,7 +502,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     - Sweep configurations
     - Deployment-specific settings
 
-    #{quick_start_section(component_type, enrollment_token)}
+    #{quick_start_section(component_type, enrollment_token, base_url)}
 
     ## Contents
 
@@ -801,18 +803,25 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp onboarding_token(package, opts) do
     download_token = Keyword.get(opts, :download_token)
     base_url = Keyword.get(opts, :base_url, default_base_url())
+    onboarding_token_private_key = Keyword.get(opts, :onboarding_token_private_key)
 
     if is_binary(download_token) and download_token != "" do
-      case OnboardingToken.encode(package.id, download_token, base_url) do
+      case OnboardingToken.encode(
+             package.id,
+             download_token,
+             base_url,
+             private_key: onboarding_token_private_key
+           ) do
         {:ok, token} -> token
         _ -> nil
       end
     end
   end
 
-  defp return_agent_enroll_script(package, token) do
+  defp return_agent_enroll_script(package, token, base_url) do
     s_package_id = sanitize_shell_arg(package.id)
     s_token = sanitize_shell_arg(token)
+    s_base_url = sanitize_shell_arg(base_url)
 
     String.trim("""
     #!/bin/bash
@@ -823,26 +832,36 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     set -e
 
     echo "Enrolling ServiceRadar agent..."
-    /usr/local/bin/serviceradar-cli enroll --token "#{s_token}"
+    /usr/local/bin/serviceradar-cli enroll --core-url "#{s_base_url}" --token "#{s_token}"
 
     echo ""
     echo "Enrollment complete."
     """)
   end
 
-  defp quick_start_section("agent", token) when is_binary(token) do
+  defp quick_start_section("agent", token, base_url) when is_binary(token) do
     """
     ## Quick Start
 
     Enroll the agent with the onboarding token (no config edits required):
 
     ```bash
-    /usr/local/bin/serviceradar-cli enroll --token #{token}
+    /usr/local/bin/serviceradar-cli enroll --core-url #{base_url} --token #{token}
     ```
     """
   end
 
-  defp quick_start_section(component_type, _token) do
+  defp quick_start_section("agent", _token, _base_url) do
+    """
+    ## Quick Start
+
+    This bundle did not include an onboarding token. Configure
+    `SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY` on `web-ng` to emit signed
+    `edgepkg-v2` enrollment tokens automatically.
+    """
+  end
+
+  defp quick_start_section(component_type, _token, _base_url) do
     """
     ## Quick Start
 

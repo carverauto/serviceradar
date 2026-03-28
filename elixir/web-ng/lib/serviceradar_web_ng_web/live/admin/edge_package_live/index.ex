@@ -816,7 +816,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         <div class="collapse collapse-arrow bg-base-200">
           <input type="checkbox" />
           <div class="collapse-title text-sm font-medium">
-            Show onboarding token (edgepkg-v1)
+            Show onboarding token (edgepkg-v2)
           </div>
           <div class="collapse-content">
             <div class="flex items-center gap-2">

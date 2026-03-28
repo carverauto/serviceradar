@@ -54,6 +54,25 @@ func TestExtractBundleReadsOptionalOverridesFile(t *testing.T) {
 	)
 }
 
+func TestNormalizeCoreURLRequiresHTTPS(t *testing.T) {
+	t.Parallel()
+
+	normalized, err := normalizeCoreURL("demo.serviceradar.cloud")
+	require.NoError(t, err)
+	assert.Equal(t, "https://demo.serviceradar.cloud", normalized)
+
+	_, err = normalizeCoreURL("http://demo.serviceradar.cloud")
+	require.ErrorIs(t, err, ErrCoreAPIURLMustUseHTTPS)
+}
+
+func TestParseCollectorTokenRequiresHTTPS(t *testing.T) {
+	t.Parallel()
+
+	token := "eyJ1IjoiaHR0cDovL2RlbW8uc2VydmljZXJhZGFyLmNsb3VkIiwicCI6InBrZy0xIiwidCI6InNlY3JldCJ9"
+	_, err := parseCollectorToken(token, "")
+	require.ErrorIs(t, err, ErrCoreAPIURLMustUseHTTPS)
+}
+
 func testAgentBundle(t *testing.T, overrides string) *bytes.Reader {
 	t.Helper()
 

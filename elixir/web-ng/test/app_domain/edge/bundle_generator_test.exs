@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.OnboardingPackages
 
+  @onboarding_token_private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+
   setup do
     # Create a test package
     {:ok, result} =
@@ -36,7 +38,11 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
         actor: system_actor()
       )
 
-    %{agent_package: result.package, agent_join_token: result.join_token}
+    %{
+      agent_package: result.package,
+      agent_join_token: result.join_token,
+      agent_download_token: result.download_token
+    }
   end
 
   describe "create_tarball/4" do
@@ -254,6 +260,34 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       refute Enum.any?(files, fn {name, _} ->
                name |> to_string() |> String.ends_with?("config/agent-env-overrides.env")
              end)
+    end
+  end
+
+  describe "agent enrollment instructions" do
+    test "agent install script passes an explicit core-url with the onboarding token", %{
+      agent_package: package,
+      agent_join_token: join_token,
+      agent_download_token: download_token
+    } do
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          base_url: "https://demo.serviceradar.cloud",
+          download_token: download_token,
+          onboarding_token_private_key: @onboarding_token_private_key
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, install_sh} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("install.sh")
+        end)
+
+      assert install_sh =~
+               ~s(/usr/local/bin/serviceradar-cli enroll --core-url "https://demo.serviceradar.cloud" --token ")
     end
   end
 

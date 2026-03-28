@@ -17,6 +17,7 @@
 package mtls
 
 import (
+	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"testing"
@@ -25,7 +26,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testOnboardingTokenPrivateSeed = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+	testOnboardingTokenPublicKey   = "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
+)
+
 func TestParseToken(t *testing.T) {
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
 	tests := []struct {
 		name         string
 		token        string
@@ -55,46 +63,55 @@ func TestParseToken(t *testing.T) {
 		},
 		{
 			name:         "valid token with all fields",
-			token:        makeTestToken("pkg-123", "dl-token-abc", "http://core:8090"),
+			token:        makeSignedTestToken(t, "pkg-123", "dl-token-abc", "https://core:8090"),
 			fallbackHost: "",
 			wantPayload: &TokenPayload{
 				PackageID:     "pkg-123",
 				DownloadToken: "dl-token-abc",
-				CoreURL:       "http://core:8090",
+				CoreURL:       "https://core:8090",
 			},
 		},
 		{
-			name:         "valid token uses fallback host",
+			name:         "legacy token uses fallback host",
 			token:        makeTestToken("pkg-456", "dl-token-xyz", ""),
-			fallbackHost: "http://fallback:8090",
+			fallbackHost: "https://fallback:8090",
 			wantPayload: &TokenPayload{
 				PackageID:     "pkg-456",
 				DownloadToken: "dl-token-xyz",
-				CoreURL:       "http://fallback:8090",
+				CoreURL:       "https://fallback:8090",
 			},
 		},
 		{
 			name:         "missing package id",
-			token:        makeTestToken("", "dl-token", "http://core:8090"),
+			token:        makeSignedTestToken(t, "", "dl-token", "https://core:8090"),
 			fallbackHost: "",
 			wantErr:      ErrMissingPackageID,
 		},
 		{
 			name:         "missing download token",
-			token:        makeTestToken("pkg-123", "", "http://core:8090"),
+			token:        makeSignedTestToken(t, "pkg-123", "", "https://core:8090"),
 			fallbackHost: "",
 			wantErr:      ErrMissingDownloadToken,
 		},
 		{
-			name:         "missing core url and no fallback",
+			name:         "legacy token missing fallback host",
 			token:        makeTestToken("pkg-123", "dl-token", ""),
 			fallbackHost: "",
 			wantErr:      ErrCoreAPIHostRequired,
+		},
+		{
+			name:         "signed token missing public key configuration",
+			token:        makeSignedTestToken(t, "pkg-123", "dl-token", "https://core:8090"),
+			fallbackHost: "",
+			wantErr:      ErrTokenPublicKeyRequired,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.wantErr == ErrTokenPublicKeyRequired {
+				t.Setenv(onboardingTokenPublicKeyEnv, "")
+			}
 			payload, err := ParseToken(tt.token, tt.fallbackHost)
 
 			if tt.wantErr != nil {
@@ -120,5 +137,27 @@ func makeTestToken(packageID, downloadToken, coreURL string) string {
 		CoreURL:       coreURL,
 	}
 	data, _ := json.Marshal(payload)
-	return tokenPrefix + base64.RawURLEncoding.EncodeToString(data)
+	return tokenV1Prefix + base64.RawURLEncoding.EncodeToString(data)
+}
+
+func makeSignedTestToken(t *testing.T, packageID, downloadToken, coreURL string) string {
+	t.Helper()
+
+	seed, err := base64.StdEncoding.DecodeString(testOnboardingTokenPrivateSeed)
+	require.NoError(t, err)
+
+	privateKey := ed25519.NewKeyFromSeed(seed)
+	payload := TokenPayload{
+		PackageID:     packageID,
+		DownloadToken: downloadToken,
+		CoreURL:       coreURL,
+	}
+	data, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	signature := ed25519.Sign(privateKey, data)
+	return tokenV2Prefix +
+		base64.RawURLEncoding.EncodeToString(data) +
+		onboardingTokenSignatureSep +
+		base64.RawURLEncoding.EncodeToString(signature)
 }

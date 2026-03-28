@@ -557,8 +557,8 @@ type EnrollHandler struct{}
 // Parse reads flags for the enroll subcommand.
 func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
 	fs := flag.NewFlagSet("enroll", flag.ExitOnError)
-	token := fs.String("token", "", "Enrollment token (edgepkg-v1 or collector token)")
-	coreURL := fs.String("core-url", "", "Core API base URL (fallback if token omits base URL)")
+	token := fs.String("token", "", "Enrollment token (edgepkg-v2, legacy edgepkg-v1, or collector token)")
+	coreURL := fs.String("core-url", "", "Core API base URL (required for legacy unsigned tokens and collector tokens)")
 	hostIP := fs.String("host-ip", "", "Override detected host IP (agent enrollment only)")
 	configPath := fs.String("config", "/etc/serviceradar/agent.json", "Agent config path")
 	configDir := fs.String("config-dir", "/etc/serviceradar", "Collector config directory")
@@ -566,7 +566,6 @@ func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
 	certDir := fs.String("cert-dir", "/etc/serviceradar/certs", "Certificate directory")
 	credsDir := fs.String("creds-dir", "/etc/serviceradar/creds", "Collector credentials directory")
 	force := fs.Bool("force", false, "Overwrite existing config/certs instead of backing them up")
-	insecure := fs.Bool("insecure", true, "Skip TLS verification for bundle download")
 	caFile := fs.String("ca-file", "", "CA bundle path for verifying the core API TLS cert")
 
 	if err := fs.Parse(args); err != nil {
@@ -582,7 +581,6 @@ func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.EnrollCertDir = *certDir
 	cfg.EnrollCredsDir = *credsDir
 	cfg.EnrollForce = *force
-	cfg.EnrollInsecure = *insecure
 	cfg.EnrollCAFile = *caFile
 
 	return nil
@@ -779,7 +777,7 @@ func parseEdgePackageShowFlags(args []string, cfg *CmdConfig) error {
 	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	id := fs.String("id", "", "Edge package identifier")
 	output := fs.String("output", "text", "Output format: text or json")
-	reissue := fs.Bool("reissue-token", false, "Emit edgepkg-v1 string using --download-token")
+	reissue := fs.Bool("reissue-token", false, "Emit a signed edgepkg-v2 token using --download-token")
 	downloadToken := fs.String("download-token", "", "Download token to encode when --reissue-token is set")
 
 	if err := fs.Parse(args); err != nil {

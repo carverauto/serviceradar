@@ -20,7 +20,7 @@ import (
 )
 
 func TestDownloadPackageSuccess(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/api/admin/edge-packages/pkg-123/download", r.URL.Path)
 		assert.Equal(t, "json", r.URL.Query().Get("format"))
 		var req map[string]string
@@ -57,8 +57,10 @@ func TestDownloadPackageSuccess(t *testing.T) {
 
 	b, err := NewBootstrapper(&Config{
 		Token:           token,
+		CoreAPIURL:      server.URL,
 		GatewayEndpoint: "gateway:50052",
 		ServiceType:     models.EdgeOnboardingComponentTypeGateway,
+		HTTPClient:      server.Client(),
 	})
 	require.NoError(t, err)
 
@@ -79,7 +81,7 @@ func TestDownloadPackageFromArchive(t *testing.T) {
 		Label:              "Offline Gateway",
 		ComponentID:        "gateway-offline",
 		ComponentType:      string(models.EdgeOnboardingComponentTypeGateway),
-		GatewayID:           "gateway-offline",
+		GatewayID:          "gateway-offline",
 		Status:             string(models.EdgeOnboardingStatusDelivered),
 		DownstreamSPIFFEID: "spiffe://example.org/ns/edge/offline",
 		Selectors:          []string{"unix:uid:0"},

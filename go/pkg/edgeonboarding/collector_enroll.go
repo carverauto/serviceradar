@@ -204,6 +204,12 @@ func parseCollectorToken(raw, fallbackBaseURL string) (*collectorTokenPayload, e
 		return nil, ErrCollectorTokenInvalid
 	}
 
+	normalizedBaseURL, err := normalizeBaseURL(payload.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	payload.BaseURL = normalizedBaseURL
+
 	if payload.ExpiresAt != nil {
 		if time.Now().Unix() > *payload.ExpiresAt {
 			return nil, ErrCollectorTokenExpired

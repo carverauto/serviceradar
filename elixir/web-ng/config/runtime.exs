@@ -780,6 +780,8 @@ if config_env() == :prod do
   gateway_addr = System.get_env("SERVICERADAR_GATEWAY_ADDR")
   gateway_server_name = System.get_env("SERVICERADAR_GATEWAY_SERVER_NAME")
   agent_release_public_key = System.get_env("SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY")
+  onboarding_token_private_key = System.get_env("SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY")
+  onboarding_token_public_key = System.get_env("SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY")
 
   # Configure ServiceRadar.Repo from serviceradar_core
   config :serviceradar_core, ServiceRadar.Repo,
@@ -810,6 +812,14 @@ if config_env() == :prod do
 
   if is_binary(agent_release_public_key) and String.trim(agent_release_public_key) != "" do
     config :serviceradar_web_ng, :agent_release_public_key, String.trim(agent_release_public_key)
+  end
+
+  if is_binary(onboarding_token_private_key) and String.trim(onboarding_token_private_key) != "" do
+    config :serviceradar_web_ng, :onboarding_token_private_key, String.trim(onboarding_token_private_key)
+  end
+
+  if is_binary(onboarding_token_public_key) and String.trim(onboarding_token_public_key) != "" do
+    config :serviceradar_web_ng, :onboarding_token_public_key, String.trim(onboarding_token_public_key)
   end
 
   nats_url = System.get_env("NATS_URL") || System.get_env("SERVICERADAR_NATS_URL")

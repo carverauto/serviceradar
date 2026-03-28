@@ -29,7 +29,7 @@ const (
 
 	edgeCommandPackage = "package"
 
-	componentTypeGateway  = "gateway"
+	componentTypeGateway = "gateway"
 	componentTypeAgent   = "agent"
 	componentTypeChecker = "checker"
 )
@@ -41,7 +41,7 @@ type edgePackageView struct {
 	ComponentType      string     `json:"component_type"`
 	ParentType         string     `json:"parent_type,omitempty"`
 	ParentID           string     `json:"parent_id,omitempty"`
-	GatewayID           string     `json:"gateway_id"`
+	GatewayID          string     `json:"gateway_id"`
 	Site               string     `json:"site,omitempty"`
 	Status             string     `json:"status"`
 	DownstreamSPIFFEID string     `json:"downstream_spiffe_id"`
@@ -84,7 +84,7 @@ type edgePackageDeliverAPIResponse struct {
 type edgePackageRevokeAPIResponse struct {
 	PackageID string    `json:"package_id"`
 	Status    string    `json:"status"`
-	GatewayID  string    `json:"gateway_id"`
+	GatewayID string    `json:"gateway_id"`
 	UpdatedAt time.Time `json:"updated_at"`
 	RevokedAt time.Time `json:"revoked_at"`
 }
@@ -654,7 +654,7 @@ func RunEdgePackageRevoke(cfg *CmdConfig) error {
 	return nil
 }
 
-// RunEdgePackageToken emits an edgepkg-v1 token for use as ONBOARDING_TOKEN.
+// RunEdgePackageToken emits a signed edgepkg-v2 token for use as ONBOARDING_TOKEN.
 func RunEdgePackageToken(cfg *CmdConfig) error {
 	if strings.TrimSpace(cfg.EdgePackageID) == "" {
 		return errEdgePackageID

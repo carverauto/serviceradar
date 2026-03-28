@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Capabilities
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
+  alias ServiceRadarWebNG.Edge.EnrollmentToken
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.ClientIP
 
@@ -370,11 +371,39 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
       DateTime.after?(DateTime.utc_now(), package.download_token_expires_at) ->
         {:error, :token_expired}
 
-      not verify_token_hash(token, package.download_token_hash) ->
+      true ->
+        verify_download_token(package, token)
+    end
+  end
+
+  defp verify_download_token(package, token) do
+    token = String.trim(to_string(token || ""))
+
+    cond do
+      token == "" ->
         {:error, :invalid_token}
 
       true ->
-        :ok
+        case verify_enrollment_token(package, token) do
+          :ok ->
+            :ok
+
+          {:error, :invalid_token} ->
+            if verify_token_hash(token, package.download_token_hash), do: :ok, else: {:error, :invalid_token}
+        end
+    end
+  end
+
+  defp verify_enrollment_token(package, token) do
+    with {:ok, decoded} <- EnrollmentToken.decode(token),
+         true <- decoded.package_id == package.id,
+         false <- EnrollmentToken.expired?(decoded.expires_at),
+         true <- EnrollmentToken.verify_secret(decoded.secret, package.download_token_hash) do
+      :ok
+    else
+      false -> {:error, :invalid_token}
+      {:error, :missing_signing_key} -> {:error, :invalid_token}
+      {:error, _reason} -> {:error, :invalid_token}
     end
   end
 

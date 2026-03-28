@@ -75,6 +75,8 @@ var (
 	ErrCoreDeliverEndpoint = errors.New("core deliver endpoint error")
 	// ErrCoreAPIURLMissingHost indicates the base URL lacks a host.
 	ErrCoreAPIURLMissingHost = errors.New("core api url missing host")
+	// ErrCoreAPIURLMustUseHTTPS indicates the base URL uses an insecure scheme.
+	ErrCoreAPIURLMustUseHTTPS = errors.New("core api url must use https")
 )
 
 type archiveMetadataFile struct {
@@ -84,7 +86,7 @@ type archiveMetadataFile struct {
 	ComponentType      string                 `json:"component_type"`
 	ParentType         string                 `json:"parent_type"`
 	ParentID           string                 `json:"parent_id"`
-	GatewayID           string                 `json:"gateway_id"`
+	GatewayID          string                 `json:"gateway_id"`
 	Site               string                 `json:"site"`
 	Status             string                 `json:"status"`
 	DownstreamSPIFFEID string                 `json:"downstream_spiffe_id"`
@@ -116,7 +118,7 @@ type edgePackagePayload struct {
 	ComponentType          string     `json:"component_type"`
 	ParentType             string     `json:"parent_type"`
 	ParentID               string     `json:"parent_id"`
-	GatewayID               string     `json:"gateway_id"`
+	GatewayID              string     `json:"gateway_id"`
 	Site                   string     `json:"site"`
 	Status                 string     `json:"status"`
 	DownstreamSPIFFEID     string     `json:"downstream_spiffe_id"`
@@ -346,7 +348,7 @@ func (m *archiveMetadataFile) toModel() (*models.EdgeOnboardingPackage, error) {
 		ComponentType:          componentType,
 		ParentType:             parentType,
 		ParentID:               strings.TrimSpace(m.ParentID),
-		GatewayID:               m.GatewayID,
+		GatewayID:              m.GatewayID,
 		Site:                   m.Site,
 		Status:                 status,
 		DownstreamSPIFFEID:     strings.TrimSpace(m.DownstreamSPIFFEID),
@@ -560,6 +562,9 @@ func normalizeBaseURL(raw string) (string, error) {
 	if u.Scheme == "" {
 		u.Scheme = "https"
 	}
+	if strings.ToLower(u.Scheme) != "https" {
+		return "", ErrCoreAPIURLMustUseHTTPS
+	}
 	if u.Host == "" {
 		return "", ErrCoreAPIURLMissingHost
 	}
@@ -595,7 +600,7 @@ func (p edgePackagePayload) toModel() (*models.EdgeOnboardingPackage, error) {
 		ComponentType:          componentType,
 		ParentType:             parentType,
 		ParentID:               p.ParentID,
-		GatewayID:               p.GatewayID,
+		GatewayID:              p.GatewayID,
 		Site:                   p.Site,
 		Status:                 status,
 		DownstreamSPIFFEID:     p.DownstreamSPIFFEID,

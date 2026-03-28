@@ -38,13 +38,21 @@ var (
 	// ErrTokenRequired is returned when no token is provided and no bundle path is set.
 	ErrTokenRequired = errors.New("token is required for mTLS bootstrap")
 	// ErrUnsupportedTokenFormat is returned when the token doesn't have the expected prefix.
-	ErrUnsupportedTokenFormat = errors.New("unsupported token format (expected edgepkg-v1)")
+	ErrUnsupportedTokenFormat = errors.New("unsupported token format (expected edgepkg-v1 or edgepkg-v2)")
 	// ErrMissingPackageID is returned when the token is missing the package ID.
 	ErrMissingPackageID = errors.New("token missing package id")
 	// ErrMissingDownloadToken is returned when the token is missing the download token.
 	ErrMissingDownloadToken = errors.New("token missing download token")
 	// ErrCoreAPIHostRequired is returned when the Core API host cannot be determined.
-	ErrCoreAPIHostRequired = errors.New("core API host is required (token missing api and --host not set)")
+	ErrCoreAPIHostRequired = errors.New("core API host is required (signed token missing api and --host not set, or legacy token missing --host)")
+	// ErrMalformedToken is returned when the token structure is invalid.
+	ErrMalformedToken = errors.New("token is malformed")
+	// ErrTokenPublicKeyRequired is returned when signed token verification cannot proceed.
+	ErrTokenPublicKeyRequired = errors.New("onboarding token public key is not configured")
+	// ErrInvalidTokenSignature is returned when signed token verification fails.
+	ErrInvalidTokenSignature = errors.New("onboarding token signature is invalid")
+	// ErrInsecureCoreAPIHost is returned when the core API URL does not use HTTPS.
+	ErrInsecureCoreAPIHost = errors.New("core API host must use https")
 	// ErrBundleMissing is returned when the mTLS bundle is missing from the deliver response.
 	ErrBundleMissing = errors.New("mTLS bundle missing in deliver response")
 	// ErrBundleFieldMissing is returned when a required field is missing from the bundle.
@@ -59,11 +67,11 @@ var (
 
 // BootstrapConfig contains configuration for mTLS bootstrap.
 type BootstrapConfig struct {
-	// Token is the edgepkg-v1 token containing package ID and download token.
+	// Token is the edge onboarding token containing package ID and download token.
 	Token string
 
-	// Host is the Core API host for mTLS bundle download (e.g., http://core:8090).
-	// Used as fallback if the token doesn't contain an API URL.
+	// Host is the Core API host for mTLS bundle download (e.g., https://core:8090).
+	// Required when using a legacy unsigned token that cannot supply a trusted API URL.
 	Host string
 
 	// BundlePath is an optional path to a pre-fetched mTLS bundle (tar.gz, JSON, or directory).
@@ -236,8 +244,11 @@ func ensureScheme(host string) (string, error) {
 	if host == "" {
 		return "", ErrCoreAPIHostRequired
 	}
-	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
+	if strings.HasPrefix(host, "http://") {
+		return "", ErrInsecureCoreAPIHost
+	}
+	if strings.HasPrefix(host, "https://") {
 		return host, nil
 	}
-	return "http://" + host, nil
+	return "https://" + host, nil
 }

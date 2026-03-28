@@ -89,7 +89,6 @@ type CmdConfig struct {
 	EnrollCertDir              string
 	EnrollCredsDir             string
 	EnrollForce                bool
-	EnrollInsecure             bool
 	EnrollCAFile               string
 	// NATS bootstrap configuration
 	NATSBootstrapToken   string
