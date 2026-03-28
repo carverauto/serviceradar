@@ -100,7 +100,7 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 	}
 
 	overridesPath := resolveAgentOverridesPath(opts.OverridesPath)
-	overrideUpdates := extractEnvOverrides(bundle.KVOverrides)
+	overrideUpdates := extractEnvOverrides(bundle.EnvOverrides)
 
 	if opts.SkipOverwrite {
 		if fileExists(opts.ConfigPath) {
@@ -167,7 +167,7 @@ type bundlePayload struct {
 	ComponentCert []byte
 	ComponentKey  []byte
 	CAChain       []byte
-	KVOverrides   []byte
+	EnvOverrides  []byte
 }
 
 func extractBundle(reader io.Reader) (*bundlePayload, error) {
@@ -203,7 +203,7 @@ func extractBundle(reader io.Reader) (*bundlePayload, error) {
 		case strings.HasSuffix(name, "/certs/ca-chain.pem"):
 			payload.CAChain, err = io.ReadAll(tr)
 		case strings.HasSuffix(name, "/config/kv-overrides.env"):
-			payload.KVOverrides, err = io.ReadAll(tr)
+			payload.EnvOverrides, err = io.ReadAll(tr)
 		default:
 			continue
 		}

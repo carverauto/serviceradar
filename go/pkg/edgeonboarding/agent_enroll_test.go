@@ -50,7 +50,7 @@ func TestExtractBundleReadsOptionalOverridesFile(t *testing.T) {
 	assert.Equal(
 		t,
 		"SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=test-key\n",
-		string(payload.KVOverrides),
+		string(payload.EnvOverrides),
 	)
 }
 
