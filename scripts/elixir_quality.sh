@@ -83,7 +83,12 @@ if [[ "${skip_credo}" != "true" ]]; then
   run mix credo --strict
 fi
 run mix hex.audit
-run mix deps.audit
+
+deps_audit_args=()
+if [[ -f ".deps_audit_ignore" ]]; then
+  deps_audit_args+=(--ignore-file .deps_audit_ignore)
+fi
+run mix deps.audit "${deps_audit_args[@]}"
 
 if [[ "${skip_dialyzer}" != "true" ]]; then
   run mix dialyzer --force-check

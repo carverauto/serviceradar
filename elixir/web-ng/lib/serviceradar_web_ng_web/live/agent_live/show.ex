@@ -9,7 +9,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadarWebNG.RBAC
 
   require Logger
 
@@ -32,6 +34,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:error, nil)
      |> assign(:srql, %{enabled: false, page_path: "/agents"})
      |> assign(:checks, [])
+     |> assign(:release_targets, [])
      |> assign(:live_agent, nil)
      |> assign(:node_info, nil)
      |> assign(:gateway_node_info, nil)
@@ -42,11 +45,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   @impl true
   def handle_params(%{"uid" => uid}, _uri, socket) do
-    actor = socket.assigns.current_scope.user
+    scope = socket.assigns.current_scope
 
     # Load database record
     db_agent =
-      case srql_module().query("in:agents uid:\"#{escape_value(uid)}\" limit:1") do
+      case srql_module().query("in:agents uid:\"#{escape_value(uid)}\" limit:1", %{scope: scope}) do
         {:ok, %{"results" => [agent | _]}} when is_map(agent) ->
           Map.put(agent, "_source", "database")
 
@@ -107,7 +110,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       end
 
     # Load service checks for this agent
-    checks = load_checks_for_agent(uid, actor)
+    checks = load_checks_for_agent(uid, scope)
+    release_targets = load_release_targets_for_agent(uid, scope)
 
     {:noreply,
      socket
@@ -115,6 +119,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:agent, agent)
      |> assign(:error, error)
      |> assign(:checks, checks)
+     |> assign(:release_targets, release_targets)
      |> assign(:live_agent, live_agent)
      |> assign(:gateway_node_info, gateway_node_info)
      |> assign(:srql, %{enabled: false, page_path: "/agents/#{uid}"})}
@@ -187,14 +192,41 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     :exit, _ -> nil
   end
 
-  defp load_checks_for_agent(agent_uid, actor) do
+  defp load_checks_for_agent(agent_uid, scope) do
     case ServiceCheck
          |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid})
-         |> Ash.read(actor: actor) do
+         |> Ash.read(scope: scope) do
       {:ok, checks} -> checks
       {:error, _} -> []
     end
   end
+
+  defp load_release_targets_for_agent(agent_uid, scope) do
+    AgentReleaseTarget
+    |> Ash.Query.for_read(:by_agent, %{agent_id: agent_uid})
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.limit(5)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, targets} -> targets
+      {:error, _} -> []
+    end
+  end
+
+  defp agent_release_handoff_path(agent) do
+    uid = Map.get(agent, "uid") || Map.get(agent, "agent_id")
+
+    params =
+      maybe_put_version(
+        [{"cohort", "custom"}, {"agent_ids", uid}, {"notes", "Imported from /agents/#{uid}"}, {"source", "agent_detail"}],
+        Map.get(agent, "desired_version")
+      )
+
+    "/settings/agents/releases?" <> URI.encode_query(params)
+  end
+
+  defp maybe_put_version(params, value) when value in [nil, ""], do: params
+  defp maybe_put_version(params, value), do: [{"version", value} | params]
 
   @impl true
   def render(assigns) do
@@ -237,6 +269,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           </div>
 
           <.agent_summary agent={@agent} live_agent={@live_agent} />
+          <.release_management_card
+            agent={@agent}
+            release_targets={@release_targets}
+            current_scope={@current_scope}
+          />
           <.capabilities_card capabilities={Map.get(@agent, "capabilities", [])} />
           <.gateway_node_info
             :if={@gateway_node_info}
@@ -289,6 +326,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <span class="text-sm font-mono">{Map.get(@agent, "version")}</span>
         </div>
 
+        <div :if={has_value?(@agent, "desired_version")} class="flex flex-col gap-1">
+          <span class="text-xs text-base-content/50 uppercase tracking-wider">Desired Version</span>
+          <span class="text-sm font-mono">{Map.get(@agent, "desired_version")}</span>
+        </div>
+
         <div :if={has_value?(@agent, "gateway_id")} class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Gateway</span>
           <.link
@@ -319,6 +361,121 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <span class="text-sm font-mono text-xs">{Map.get(@agent, "pid")}</span>
         </div>
       </div>
+    </div>
+    """
+  end
+
+  attr :agent, :map, required: true
+  attr :release_targets, :list, default: []
+  attr :current_scope, :any, required: true
+
+  defp release_management_card(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="text-sm font-semibold">Release Management</span>
+          <.release_status_badge
+            state={Map.get(@agent, "release_rollout_state")}
+            last_error={Map.get(@agent, "last_update_error")}
+          />
+        </div>
+        <div
+          :if={RBAC.can?(@current_scope, "settings.edge.manage")}
+          class="flex flex-wrap items-center gap-2"
+        >
+          <.link navigate={agent_release_handoff_path(@agent)} class="btn btn-xs btn-primary">
+            <.icon name="hero-play" class="size-3.5" /> Roll Out This Agent
+          </.link>
+          <.link navigate={~p"/settings/agents/releases"} class="btn btn-xs btn-ghost">
+            Manage Releases
+          </.link>
+        </div>
+      </div>
+      <div class="p-4 space-y-4">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <.release_stat
+            label="Current Version"
+            value={Map.get(@agent, "version") || "—"}
+            mono
+          />
+          <.release_stat
+            label="Desired Version"
+            value={Map.get(@agent, "desired_version") || "—"}
+            mono
+          />
+          <.release_stat
+            label="Last Update"
+            value={format_timestamp(Map.get(@agent, "last_update_at"))}
+          />
+          <.release_stat
+            label="Latest Error"
+            value={Map.get(@agent, "last_update_error") || "—"}
+          />
+        </div>
+
+        <div>
+          <div class="mb-2 flex items-center gap-2">
+            <span class="text-xs font-semibold uppercase tracking-wider text-base-content/50">
+              Recent Rollout Attempts
+            </span>
+            <span class="badge badge-ghost badge-sm">{length(@release_targets)}</span>
+          </div>
+
+          <div
+            :if={@release_targets == []}
+            class="rounded-lg bg-base-200/40 px-4 py-6 text-sm text-base-content/60"
+          >
+            No rollout targets recorded for this agent yet.
+          </div>
+
+          <div :if={@release_targets != []} class="overflow-x-auto">
+            <table class="table table-sm w-full">
+              <thead>
+                <tr>
+                  <th>Desired</th>
+                  <th>Status</th>
+                  <th>Progress</th>
+                  <th>Updated</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                <%= for target <- @release_targets do %>
+                  <tr>
+                    <td class="font-mono text-xs">{target.desired_version}</td>
+                    <td>
+                      <.release_status_badge state={target.status} last_error={target.last_error} />
+                    </td>
+                    <td class="text-xs">
+                      {format_progress(target.progress_percent, target.last_status_message)}
+                    </td>
+                    <td class="font-mono text-xs">
+                      {format_timestamp(target.updated_at || target.inserted_at)}
+                    </td>
+                    <td class="max-w-xs truncate text-xs" title={target.last_error || "—"}>
+                      {target.last_error || "—"}
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :string, required: true
+  attr :mono, :boolean, default: false
+
+  defp release_stat(assigns) do
+    ~H"""
+    <div class="rounded-lg bg-base-200/40 p-3">
+      <div class="text-xs uppercase tracking-wider text-base-content/50">{@label}</div>
+      <div class={["mt-1 text-sm", @mono && "font-mono"]}>{@value}</div>
     </div>
     """
   end
@@ -579,6 +736,33 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     """
   end
 
+  attr :state, :any, required: true
+  attr :last_error, :string, default: nil
+
+  defp release_status_badge(assigns) do
+    {label, variant} =
+      case normalize_release_state(assigns.state, assigns.last_error) do
+        :pending -> {"Pending", "ghost"}
+        :dispatched -> {"Dispatched", "info"}
+        :downloading -> {"Downloading", "info"}
+        :verifying -> {"Verifying", "info"}
+        :staged -> {"Staged", "warning"}
+        :restarting -> {"Restarting", "warning"}
+        :healthy -> {"Healthy", "success"}
+        :failed -> {"Failed", "error"}
+        :rolled_back -> {"Rolled Back", "error"}
+        :canceled -> {"Canceled", "ghost"}
+        :error -> {"Error", "error"}
+        _ -> {"Unknown", "ghost"}
+      end
+
+    assigns = assigns |> assign(:label, label) |> assign(:variant, variant)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="sm">{@label}</.ui_badge>
+    """
+  end
+
   attr :type_id, :integer, default: 0
 
   defp type_badge(assigns) do
@@ -670,6 +854,15 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp time_ago(_), do: ""
 
+  defp format_progress(nil, nil), do: "—"
+  defp format_progress(progress, nil) when is_integer(progress), do: "#{progress}%"
+  defp format_progress(nil, message) when is_binary(message), do: message
+
+  defp format_progress(progress, message) when is_integer(progress) and is_binary(message),
+    do: "#{progress}% · #{message}"
+
+  defp format_progress(_progress, message), do: message || "—"
+
   defp has_value?(map, key) do
     case Map.get(map, key) do
       nil -> false
@@ -686,6 +879,32 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   end
 
   defp escape_value(other), do: escape_value(to_string(other))
+
+  defp normalize_release_state(nil, last_error) when is_binary(last_error) and last_error != "", do: :error
+  defp normalize_release_state(nil, _last_error), do: :unknown
+  defp normalize_release_state("", last_error), do: normalize_release_state(nil, last_error)
+
+  defp normalize_release_state(state, _last_error) when is_binary(state) do
+    state
+    |> String.trim()
+    |> normalize_release_state_value()
+  end
+
+  defp normalize_release_state(state, _last_error) when is_atom(state), do: state
+  defp normalize_release_state(_state, _last_error), do: :unknown
+
+  defp normalize_release_state_value(""), do: :unknown
+  defp normalize_release_state_value("pending"), do: :pending
+  defp normalize_release_state_value("dispatched"), do: :dispatched
+  defp normalize_release_state_value("downloading"), do: :downloading
+  defp normalize_release_state_value("verifying"), do: :verifying
+  defp normalize_release_state_value("staged"), do: :staged
+  defp normalize_release_state_value("restarting"), do: :restarting
+  defp normalize_release_state_value("healthy"), do: :healthy
+  defp normalize_release_state_value("failed"), do: :failed
+  defp normalize_release_state_value("rolled_back"), do: :rolled_back
+  defp normalize_release_state_value("canceled"), do: :canceled
+  defp normalize_release_state_value(_), do: :unknown
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)

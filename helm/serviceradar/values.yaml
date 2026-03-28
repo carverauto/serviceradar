@@ -450,7 +450,7 @@ webNg:
     serverName: "datasvc.serviceradar"
   pluginStorage:
     enabled: true
-    basePath: "/var/lib/serviceradar/plugin-packages/data"
+    basePath: "/var/lib/serviceradar/plugin-packages"
     existingClaim: ""
     size: 10Gi
     storageClassName: ""
@@ -491,8 +491,10 @@ agentGateway:
   kubernetesNodeBasename: "serviceradar_agent_gateway"
   service:
     port: 50052
+    artifactPort: 50053
     type: LoadBalancer
     nodePort: null
+    artifactNodePort: null
     loadBalancerIP: ""
     externalTrafficPolicy: Cluster
     annotations: {}

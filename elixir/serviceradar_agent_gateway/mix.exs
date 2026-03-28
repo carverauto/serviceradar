@@ -46,6 +46,7 @@ defmodule ServiceRadarAgentGateway.MixProject do
     [
       # ServiceRadar Core - shared domains, cluster, registry
       {:serviceradar_core, path: "../serviceradar_core"},
+      {:bandit, "~> 1.0"},
 
       # HTTP client for health checks
       {:req, "~> 0.5"},

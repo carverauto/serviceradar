@@ -24,6 +24,10 @@ diesel::table! {
         modified_time -> Timestamptz,
         metadata -> Nullable<Jsonb>,
         config_source -> Nullable<Text>,
+        desired_version -> Nullable<Text>,
+        release_rollout_state -> Nullable<Text>,
+        last_update_at -> Nullable<Timestamptz>,
+        last_update_error -> Nullable<Text>,
     }
 }
 

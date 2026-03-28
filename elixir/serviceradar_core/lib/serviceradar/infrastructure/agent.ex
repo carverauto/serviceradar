@@ -171,11 +171,22 @@ defmodule ServiceRadar.Infrastructure.Agent do
     :version,
     :type_id,
     :device_uid,
-    :config_source
+    :config_source,
+    :desired_version,
+    :release_rollout_state,
+    :last_update_at,
+    :last_update_error
   ]
   @agent_heartbeat_fields [:is_healthy, :capabilities, :config_source]
   @agent_gateway_fields [:gateway_id]
   @agent_device_fields [:device_uid]
+  @agent_release_status_fields [
+    :desired_version,
+    :release_rollout_state,
+    :last_update_at,
+    :last_update_error,
+    :version
+  ]
 
   postgres do
     table "ocsf_agents"
@@ -431,6 +442,12 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
+    update :update_release_status do
+      description "Sync desired version and rollout state for the agent"
+      accept @agent_release_status_fields
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
     # Legacy compatibility actions (mapped to state machine)
     update :connect do
       description "Mark agent as connected to a gateway (legacy - use establish_connection)"
@@ -518,6 +535,11 @@ defmodule ServiceRadar.Infrastructure.Agent do
       description "Agent semantic version"
     end
 
+    attribute :desired_version, :string do
+      public? true
+      description "Desired version assigned by release management"
+    end
+
     # OCSF Policies (JSONB array)
     attribute :policies, {:array, :map} do
       default []
@@ -596,6 +618,35 @@ defmodule ServiceRadar.Infrastructure.Agent do
       default %{}
       public? true
       description "Additional metadata"
+    end
+
+    attribute :release_rollout_state, :atom do
+      public? true
+
+      constraints one_of: [
+                    :pending,
+                    :dispatched,
+                    :downloading,
+                    :verifying,
+                    :staged,
+                    :restarting,
+                    :healthy,
+                    :failed,
+                    :rolled_back,
+                    :canceled
+                  ]
+
+      description "Current release rollout state for this agent"
+    end
+
+    attribute :last_update_at, :utc_datetime do
+      public? true
+      description "Last time a managed release update state changed"
+    end
+
+    attribute :last_update_error, :string do
+      public? true
+      description "Last managed release update error"
     end
 
     attribute :config_source, :atom do

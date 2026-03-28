@@ -1135,6 +1135,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     case ControlStreamSession.register(session, agent_id, partition_id, capabilities) do
       :ok ->
         Logger.info("Control stream established: agent_id=#{agent_id}, partition=#{partition_id}")
+        _ = core_call(AgentGatewaySync, :reconcile_agent_release, [agent_id], 15_000)
 
         session
 

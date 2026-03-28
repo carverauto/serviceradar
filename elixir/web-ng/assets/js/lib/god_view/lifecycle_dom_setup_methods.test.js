@@ -176,6 +176,7 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(pushEvent).toHaveBeenCalledWith("god_view_open_camera_relay", {
       camera_source_id: "11111111-1111-1111-1111-111111111111",
       stream_profile_id: "22222222-2222-2222-2222-222222222222",
+      insecure_skip_verify: false,
       device_uid: "sr:camera-topology-01",
       camera_label: "Lobby Camera",
       profile_label: "Main Stream",

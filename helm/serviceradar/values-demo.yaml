@@ -82,6 +82,12 @@ networkPolicy:
     allowedCIDRs:
       - "10.0.0.0/8"
       - "192.168.0.0/16"
+      # Allow GitHub API/web endpoints used by the repo release importer in web-ng.
+      # Resolved on 2026-03-28:
+      # - api.github.com -> 140.82.112.5
+      # - github.com -> 140.82.113.3
+      # GitHub serves these from the 140.82.112.0/20 range.
+      - "140.82.112.0/20"
       # Allow GeoLite MMDB + rezmoss provider CIDR refresh from raw.githubusercontent.com
       # (resolved on 2026-02-28 to 185.199.108.133-111.133, summarized as 185.199.108.0/22).
       # Kubernetes NetworkPolicy can't allow by DNS name, so we allow the minimal known CIDR for this host.
@@ -140,7 +146,7 @@ webNg:
   publicUrl: "https://demo.serviceradar.cloud"
   pluginStorage:
     enabled: true
-    basePath: "/var/lib/serviceradar/plugin-packages/data"
+    basePath: "/var/lib/serviceradar/plugin-packages"
     existingClaim: ""
     size: 10Gi
     storageClassName: ""

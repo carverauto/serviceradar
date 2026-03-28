@@ -492,6 +492,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/snmp/:id/edit", Settings.SNMPProfilesLive.Index, :edit_profile)
 
       # Agent deployment
+      live("/settings/agents/releases", Settings.AgentsLive.Releases, :index)
       live("/settings/agents/deploy", Settings.AgentsLive.Deploy, :index)
       live("/settings/agents/plugins", Admin.PluginPackageLive.Index, :index)
       live("/settings/agents/plugins/new", Admin.PluginPackageLive.Index, :new)

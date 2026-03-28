@@ -1,0 +1,11 @@
+# GHSA-4g2h-vm7x-747c / esaml XXE
+#
+# web-ng does not rely on default external-entity expansion in the SAML flow.
+# Its local parsing paths explicitly disable external entities and DTD nodes:
+# - lib/serviceradar_web_ng_web/controllers/saml_controller.ex
+# - lib/serviceradar_web_ng_web/auth/saml_strategy.ex
+#
+# There is no newer Hex release than esaml 4.6.0 available to upgrade to at
+# this time, so we track the advisory here until upstream publishes a patched
+# package or the dependency is replaced.
+GHSA-4g2h-vm7x-747c

@@ -9,6 +9,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub
   alias ServiceRadar.Edge.AgentCommand
+  alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Observability.MtrMetricsIngestor
   alias ServiceRadar.Observability.MtrPubSub
 
@@ -27,17 +28,20 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   @impl true
   def handle_info({:command_ack, data}, state) do
     persist_ack(data, state.actor)
+    AgentReleaseManager.handle_command_ack(data, actor: state.actor)
     {:noreply, state}
   end
 
   def handle_info({:command_progress, data}, state) do
     persist_progress(data, state.actor)
+    AgentReleaseManager.handle_command_progress(data, actor: state.actor)
     {:noreply, state}
   end
 
   def handle_info({:command_result, data}, state) do
     maybe_ingest_mtr_result(data)
     persist_result(data, state.actor)
+    AgentReleaseManager.handle_command_result(data, actor: state.actor)
     {:noreply, state}
   end
 

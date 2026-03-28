@@ -27,10 +27,12 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	snmpchecker "github.com/carverauto/serviceradar/go/pkg/agent/snmp"
@@ -363,6 +365,7 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	// Start config polling in a separate goroutine
 	go p.configPollLoop(runCtx)
 	go p.controlStreamLoop(runCtx)
+	go p.monitorReleaseActivation(runCtx)
 
 	// Use a resettable timer so updated intervals take effect
 	timer := time.NewTimer(0) // fire immediately for first tick
@@ -2409,6 +2412,62 @@ func isRetryableEnrollError(err error) bool {
 		return false
 	}
 	return false
+}
+
+func (p *PushLoop) monitorReleaseActivation(ctx context.Context) {
+	state, err := LoadReleaseActivationState("")
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to load release activation state")
+		return
+	}
+	if state == nil || strings.TrimSpace(state.TargetVersion) != strings.TrimSpace(Version) {
+		return
+	}
+
+	deadline := time.Unix(state.RollbackAtUnix, 0)
+	if deadline.IsZero() {
+		deadline = time.Now().Add(3 * time.Minute)
+	}
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		if p.isEnrolled() {
+			completed, err := CompleteReleaseActivation("", Version)
+			if err != nil {
+				p.logger.Warn().Err(err).Msg("Failed to finalize release activation")
+			} else if completed {
+				p.logger.Info().
+					Str("version", Version).
+					Msg("Release activation marked healthy after gateway enrollment")
+			}
+			return
+		}
+
+		if time.Now().After(deadline) {
+			rolledBack, err := RollbackReleaseActivation("", "agent failed to become healthy before deadline")
+			if err != nil {
+				p.logger.Error().Err(err).Msg("Failed to roll back release activation")
+				return
+			}
+			if rolledBack {
+				p.logger.Warn().
+					Str("version", Version).
+					Msg("Rolled back release activation after reconnect deadline")
+				_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+			}
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // configPollLoop periodically polls for config updates.

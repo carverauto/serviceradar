@@ -15,6 +15,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   require Ash.Query
   require Logger
 
+  @status_availability_labels %{true => "available", false => "unavailable"}
+
   @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
   def ingest(payload, status, opts \\ [])
 
@@ -110,12 +112,14 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       |> list_value(["camera_descriptors", "cameraDescriptors", "cameras"])
       |> Enum.filter(&is_map/1)
 
-    if direct_descriptors == [] do
-      payload
-      |> details_payload_or_self()
-      |> extract_details_camera_descriptors()
-    else
-      direct_descriptors
+    case direct_descriptors do
+      [] ->
+        payload
+        |> details_payload_or_self()
+        |> extract_details_camera_descriptors()
+
+      _ ->
+        direct_descriptors
     end
   end
 
@@ -188,13 +192,15 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       |> Enum.map(&normalize_profile(&1, observed_at))
       |> Enum.reject(&is_nil/1)
 
-    if profiles == [] do
-      case normalize_default_profile(descriptor, observed_at) do
-        nil -> []
-        profile -> [profile]
-      end
-    else
-      profiles
+    case profiles do
+      [] ->
+        case normalize_default_profile(descriptor, observed_at) do
+          nil -> []
+          profile -> [profile]
+        end
+
+      _ ->
+        profiles
     end
   end
 
@@ -288,16 +294,17 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       |> list_value(["camera_descriptors", "cameraDescriptors", "cameras"])
       |> Enum.filter(&is_map/1)
 
-    if detail_descriptors == [] do
-      generic_descriptors = extract_enrichment_camera_descriptors(details)
+    case detail_descriptors do
+      [] ->
+        generic_descriptors = extract_enrichment_camera_descriptors(details)
 
-      if generic_descriptors == [] do
-        infer_axis_camera_descriptors(details)
-      else
-        generic_descriptors
-      end
-    else
-      detail_descriptors
+        case generic_descriptors do
+          [] -> infer_axis_camera_descriptors(details)
+          _ -> generic_descriptors
+        end
+
+      _ ->
+        detail_descriptors
     end
   end
 
@@ -568,7 +575,11 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp camera_ip_conflict_score(%Device{} = device) do
     {
       claimable_ip_placeholder_priority(device),
-      if(String.starts_with?(device.uid || "", "sweep-"), do: 0, else: 1),
+      if String.starts_with?(device.uid || "", "sweep-") do
+        0
+      else
+        1
+      end,
       count_present([device.mac, device.hostname]),
       device.modified_time || device.last_seen_time || ~U[1970-01-01 00:00:00Z]
     }
@@ -683,8 +694,14 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp camera_inventory_peer_score(%Device{} = device) do
+    camera_type_penalty =
+      case device.type do
+        "camera" -> 0
+        _ -> 1
+      end
+
     {
-      if(device.type == "camera", do: 0, else: 1),
+      camera_type_penalty,
       count_present([device.ip, device.hostname, device.vendor_name, device.model]),
       device.last_seen_time || ~U[1970-01-01 00:00:00Z]
     }
@@ -750,8 +767,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp camera_integration_id(_attrs), do: nil
-
   defp normalize_identifier_component(value) when is_binary(value) do
     value
     |> String.trim()
@@ -767,8 +782,17 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp normalize_identifier_component(_value), do: nil
 
   defp merge_discovery_sources(existing_sources, incoming_sources) do
-    existing_sources = if is_list(existing_sources), do: existing_sources, else: []
-    incoming_sources = if is_list(incoming_sources), do: incoming_sources, else: []
+    existing_sources =
+      case existing_sources do
+        sources when is_list(sources) -> sources
+        _ -> []
+      end
+
+    incoming_sources =
+      case incoming_sources do
+        sources when is_list(sources) -> sources
+        _ -> []
+      end
 
     existing_sources
     |> Kernel.++(incoming_sources)
@@ -777,8 +801,18 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp merge_device_metadata(existing, incoming) do
-    existing = if is_map(existing), do: existing, else: %{}
-    incoming = if is_map(incoming), do: incoming, else: %{}
+    existing =
+      case existing do
+        value when is_map(value) -> value
+        _ -> %{}
+      end
+
+    incoming =
+      case incoming do
+        value when is_map(value) -> value
+        _ -> %{}
+      end
+
     Map.merge(existing, incoming)
   end
 
@@ -804,8 +838,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     ])
   end
 
-  defp descriptor_vendor_camera_id(_descriptor), do: nil
-
   defp descriptor_model(descriptor) when is_map(descriptor) do
     camera = map_value(descriptor, ["camera"]) || %{}
 
@@ -814,8 +846,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       string_value(descriptor, ["model"])
     ])
   end
-
-  defp descriptor_model(_descriptor), do: nil
 
   defp derive_source_state(descriptor, descriptors, payload, status, observed_at) do
     matched_events = matching_camera_events(descriptor, descriptors, payload)
@@ -1004,25 +1034,21 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp status_availability(status, payload) do
-    case status[:available] do
-      true ->
-        "available"
-
-      false ->
-        "unavailable"
-
-      _ ->
-        payload
-        |> string_value(["status"])
-        |> case do
-          "OK" -> "available"
-          "WARNING" -> "degraded"
-          "CRITICAL" -> "unavailable"
-          "UNKNOWN" -> "unavailable"
-          _ -> nil
-        end
-    end
+    normalized_status_availability(status) ||
+      case string_value(payload, ["status"]) do
+        "OK" -> "available"
+        "WARNING" -> "degraded"
+        "CRITICAL" -> "unavailable"
+        "UNKNOWN" -> "unavailable"
+        _ -> nil
+      end
   end
+
+  defp normalized_status_availability(%{available: value}) when is_boolean(value),
+    do: Map.fetch!(@status_availability_labels, value)
+
+  defp normalized_status_availability(status) when is_map(status), do: nil
+  defp normalized_status_availability(_status), do: nil
 
   defp status_availability_reason(payload) do
     string_value(payload, ["summary", "message"]) ||
@@ -1141,7 +1167,11 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     plugin_id = string_value(metadata, ["plugin"])
     vendor = string_value(camera, ["vendor"])
 
-    plugin_id == "axis-camera" or String.upcase(vendor || "") == "AXIS"
+    cond do
+      plugin_id == "axis-camera" -> true
+      String.upcase(vendor || "") == "AXIS" -> true
+      true -> false
+    end
   end
 
   defp build_axis_descriptor(details) do
@@ -1318,7 +1348,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       "rtsp_transport" =>
         first_present([
           string_value(stream, ["rtsp_transport", "rtspTransport", "transport"]),
-          if(is_binary(url) and String.starts_with?(String.downcase(url), "rtsp"), do: "tcp")
+          if is_binary(url) and String.starts_with?(String.downcase(url), "rtsp") do
+            "tcp"
+          end
         ]),
       "codec_hint" =>
         first_present([
@@ -1421,8 +1453,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp lookup_device_uid_from_existing_source(_descriptor, _actor), do: {:error, :not_found}
-
   defp resolve_strong_camera_identity(ids) when is_map(ids) do
     case IdentityReconciler.lookup_by_strong_identifiers(ids, nil) do
       {:ok, uid} when is_binary(uid) and uid != "" ->
@@ -1434,10 +1464,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp resolve_weak_camera_identity(update, descriptor, actor) when is_map(update) do
-    with {:ok, uid} <- IdentityReconciler.resolve_device_id(update, actor: actor),
-         true <- is_binary(uid) and uid != "" do
-      {:ok, uid}
-    else
+    case IdentityReconciler.resolve_device_id(update, actor: actor) do
+      {:ok, uid} when is_binary(uid) and uid != "" -> {:ok, uid}
       _ -> lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
     end
   end
@@ -1461,7 +1489,11 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
            |> maybe_put("integration_id", integration_id)
            |> maybe_put(
              "integration_type",
-             if(blank?(integration_id), do: nil, else: "camera_plugin")
+             if blank?(integration_id) do
+               nil
+             else
+               "camera_plugin"
+             end
            )
        }}
     end
@@ -1495,7 +1527,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp descriptor_mac_fallback(descriptor) when is_map(descriptor) do
     case descriptor_device_uid(descriptor) do
       value when is_binary(value) and value != "" ->
-        if mac_like?(value), do: value
+        if mac_like?(value) do
+          value
+        end
 
       _ ->
         nil
@@ -1509,7 +1543,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         descriptor_hostname(descriptor)
       ])
 
-    if ip_address?(candidate), do: candidate
+    if ip_address?(candidate) do
+      candidate
+    end
   end
 
   defp descriptor_integration_id(descriptor) when is_map(descriptor) do
@@ -1597,8 +1633,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     byte_size(normalized) == 12 and String.match?(normalized, ~r/\A[0-9A-Fa-f]{12}\z/)
   end
 
-  defp mac_like?(_value), do: false
-
   defp first_stream_url(streams) do
     Enum.find_value(streams, fn stream ->
       string_value(stream, ["url", "source_url", "sourceUrl", "rtsp_url", "rtspUrl"])
@@ -1621,7 +1655,11 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp first_present(values) do
     Enum.find_value(values, fn value ->
-      if blank?(value), do: nil, else: value
+      if blank?(value) do
+        nil
+      else
+        value
+      end
     end)
   end
 end

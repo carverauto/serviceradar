@@ -16,20 +16,9 @@ spec:
         checksum/serviceradar-config: {{ include (print $.Template.BasePath "/serviceradar-config.yaml") . | sha256sum }}
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
-      securityContext:
-        fsGroup: 1001
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
       containers:
       - name: nats
         image: nats:{{ .Values.image.tags.nats | default "latest" }}
-        securityContext:
-          allowPrivilegeEscalation: false
-          runAsUser: 1001
-          runAsGroup: 1001
-          capabilities:
-            drop: ["ALL"]
         args: ["--config", "/etc/nats-config/nats-server.conf", "--jetstream"]
         ports:
         - containerPort: 4222

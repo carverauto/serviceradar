@@ -7,10 +7,13 @@ use crate::{
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::ocsf_agents::dsl::{
         capabilities as col_capabilities, config_source as col_config_source,
-        created_time as col_created_time, first_seen_time as col_first_seen_time,
-        gateway_id as col_gateway_id, ip as col_ip, last_seen_time as col_last_seen_time,
-        modified_time as col_modified_time, name as col_name, ocsf_agents, type_id as col_type_id,
-        uid as col_uid, vendor_name as col_vendor_name, version as col_version,
+        created_time as col_created_time, desired_version as col_desired_version,
+        first_seen_time as col_first_seen_time, gateway_id as col_gateway_id, ip as col_ip,
+        last_seen_time as col_last_seen_time, last_update_at as col_last_update_at,
+        last_update_error as col_last_update_error, modified_time as col_modified_time,
+        name as col_name, ocsf_agents, release_rollout_state as col_release_rollout_state,
+        type_id as col_type_id, uid as col_uid, vendor_name as col_vendor_name,
+        version as col_version,
     },
     time::TimeRange,
 };
@@ -159,6 +162,15 @@ fn apply_filter<'a>(mut query: AgentsQuery<'a>, filter: &Filter) -> Result<Agent
         "config_source" => {
             query = apply_text_filter!(query, filter, col_config_source)?;
         }
+        "desired_version" => {
+            query = apply_text_filter!(query, filter, col_desired_version)?;
+        }
+        "release_rollout_state" => {
+            query = apply_text_filter!(query, filter, col_release_rollout_state)?;
+        }
+        "last_update_error" => {
+            query = apply_text_filter!(query, filter, col_last_update_error)?;
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for agents: '{other}'"
@@ -192,9 +204,16 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "uid" | "name" | "gateway_id" | "version" | "vendor_name" | "ip" | "config_source" => {
-            collect_text_params(params, filter)
-        }
+        "uid"
+        | "name"
+        | "gateway_id"
+        | "version"
+        | "vendor_name"
+        | "ip"
+        | "config_source"
+        | "desired_version"
+        | "release_rollout_state"
+        | "last_update_error" => collect_text_params(params, filter),
         "type_id" => {
             let value =
                 filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
@@ -275,6 +294,18 @@ fn apply_single_order<'a>(
             OrderDirection::Asc => query.order(col_gateway_id.asc()),
             OrderDirection::Desc => query.order(col_gateway_id.desc()),
         },
+        "desired_version" => match direction {
+            OrderDirection::Asc => query.order(col_desired_version.asc()),
+            OrderDirection::Desc => query.order(col_desired_version.desc()),
+        },
+        "release_rollout_state" => match direction {
+            OrderDirection::Asc => query.order(col_release_rollout_state.asc()),
+            OrderDirection::Desc => query.order(col_release_rollout_state.desc()),
+        },
+        "last_update_at" => match direction {
+            OrderDirection::Asc => query.order(col_last_update_at.asc()),
+            OrderDirection::Desc => query.order(col_last_update_at.desc()),
+        },
         _ => query,
     }
 }
@@ -316,6 +347,18 @@ fn apply_secondary_order<'a>(
         "gateway_id" => match direction {
             OrderDirection::Asc => query.then_order_by(col_gateway_id.asc()),
             OrderDirection::Desc => query.then_order_by(col_gateway_id.desc()),
+        },
+        "desired_version" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_desired_version.asc()),
+            OrderDirection::Desc => query.then_order_by(col_desired_version.desc()),
+        },
+        "release_rollout_state" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_release_rollout_state.asc()),
+            OrderDirection::Desc => query.then_order_by(col_release_rollout_state.desc()),
+        },
+        "last_update_at" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_last_update_at.asc()),
+            OrderDirection::Desc => query.then_order_by(col_last_update_at.desc()),
         },
         _ => query,
     }
@@ -456,6 +499,32 @@ mod tests {
         assert!(
             result.is_ok(),
             "should build query with config_source IN filter"
+        );
+    }
+
+    #[test]
+    fn builds_query_with_release_rollout_state_filter() {
+        let plan = QueryPlan {
+            entity: Entity::Agents,
+            filters: vec![Filter {
+                field: "release_rollout_state".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("staged".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 50,
+            offset: 0,
+            time_range: None,
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let result = build_query(&plan);
+        assert!(
+            result.is_ok(),
+            "should build query with release_rollout_state filter"
         );
     }
 }

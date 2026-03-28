@@ -296,38 +296,24 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp normalize_camera_relay_start_payload(payload) when is_map(payload) do
-    relay_session_id =
-      Map.get(payload, :relay_session_id) || Map.get(payload, "relay_session_id")
-
-    camera_source_id =
-      Map.get(payload, :camera_source_id) || Map.get(payload, "camera_source_id")
-
-    stream_profile_id =
-      Map.get(payload, :stream_profile_id) || Map.get(payload, "stream_profile_id")
-
-    lease_token = Map.get(payload, :lease_token) || Map.get(payload, "lease_token")
-    source_url = Map.get(payload, :source_url) || Map.get(payload, "source_url")
-    rtsp_transport = Map.get(payload, :rtsp_transport) || Map.get(payload, "rtsp_transport")
-    codec_hint = Map.get(payload, :codec_hint) || Map.get(payload, "codec_hint")
-    container_hint = Map.get(payload, :container_hint) || Map.get(payload, "container_hint")
-
-    insecure_skip_verify =
-      Map.get(payload, :insecure_skip_verify) || Map.get(payload, "insecure_skip_verify")
-
     %{
-      relay_session_id: relay_session_id,
-      camera_source_id: camera_source_id,
-      stream_profile_id: stream_profile_id,
-      lease_token: lease_token
+      relay_session_id: payload_value(payload, :relay_session_id),
+      camera_source_id: payload_value(payload, :camera_source_id),
+      stream_profile_id: payload_value(payload, :stream_profile_id),
+      lease_token: payload_value(payload, :lease_token)
     }
-    |> maybe_put(:source_url, source_url)
-    |> maybe_put(:rtsp_transport, rtsp_transport)
-    |> maybe_put(:codec_hint, codec_hint)
-    |> maybe_put(:container_hint, container_hint)
-    |> maybe_put(:insecure_skip_verify, insecure_skip_verify)
+    |> maybe_put(:source_url, payload_value(payload, :source_url))
+    |> maybe_put(:rtsp_transport, payload_value(payload, :rtsp_transport))
+    |> maybe_put(:codec_hint, payload_value(payload, :codec_hint))
+    |> maybe_put(:container_hint, payload_value(payload, :container_hint))
+    |> maybe_put(:insecure_skip_verify, payload_value(payload, :insecure_skip_verify))
   end
 
   defp normalize_camera_relay_start_payload(_payload), do: %{}
+
+  defp payload_value(payload, key) do
+    Map.get(payload, key) || Map.get(payload, Atom.to_string(key))
+  end
 
   defp normalize_camera_relay_stop_payload(payload) when is_map(payload) do
     relay_session_id =

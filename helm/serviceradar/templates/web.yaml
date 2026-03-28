@@ -101,7 +101,6 @@ spec:
           set -eu
           STORAGE_PATH={{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}
           mkdir -p "${STORAGE_PATH}/plugins"
-          chmod -R g+rwX "${STORAGE_PATH}"
         volumeMounts:
         - name: plugin-packages
           mountPath: {{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}

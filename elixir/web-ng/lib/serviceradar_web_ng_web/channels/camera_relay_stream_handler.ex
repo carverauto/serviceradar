@@ -168,9 +168,8 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
   def handle_info({:EXIT, _pid, :shutdown}, state), do: {:ok, state}
 
   def handle_info(message, state) do
-    Logger.debug("Ignoring unexpected camera relay websocket message",
-      relay_session_id: state.relay_session_id,
-      message: inspect(message)
+    Logger.debug(
+      "Ignoring unexpected camera relay websocket message relay_session_id=#{state.relay_session_id} message=#{inspect(message)}"
     )
 
     {:ok, state}

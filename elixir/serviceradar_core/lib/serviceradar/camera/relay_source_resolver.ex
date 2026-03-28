@@ -105,19 +105,11 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
   defp sanitize_source_url(value) when is_binary(value) do
     trimmed = String.trim(value)
 
-    case URI.parse(trimmed) do
-      %URI{} = uri ->
-        sanitized =
-          uri
-          |> strip_enable_srtp()
-          |> URI.to_string()
-          |> String.trim_trailing("?")
-
-        sanitized
-
-      _other ->
-        trimmed
-    end
+    trimmed
+    |> URI.parse()
+    |> strip_enable_srtp()
+    |> URI.to_string()
+    |> String.trim_trailing("?")
   end
 
   defp sanitize_source_url(value), do: value

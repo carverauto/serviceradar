@@ -3,6 +3,8 @@ load("//build/packaging:packages.bzl", "PACKAGES")
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files(["bin/serviceradar-agent"])
+
 serviceradar_package_from_config(
     name = "agent",
     config = PACKAGES["agent"],

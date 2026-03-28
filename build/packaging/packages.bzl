@@ -45,9 +45,19 @@ PACKAGES = {
         "rpm_requires": ["systemd", "libcap"],
         "binary": {
             "target": "//go/cmd/agent:agent",
-            "dest": "/usr/local/bin/serviceradar-agent",
+            "dest": "/usr/local/lib/serviceradar/agent/serviceradar-agent-seed",
         },
         "files": [
+            {
+                "src": "//go/cmd/agent-updater:agent_updater",
+                "dest": "/usr/local/bin/serviceradar-agent-updater",
+                "mode": "0755",
+            },
+            {
+                "src": "bin/serviceradar-agent",
+                "dest": "/usr/local/bin/serviceradar-agent",
+                "mode": "0755",
+            },
             {
                 "src": "//go/cmd/cli:cli",
                 "dest": "/usr/local/bin/serviceradar-cli",

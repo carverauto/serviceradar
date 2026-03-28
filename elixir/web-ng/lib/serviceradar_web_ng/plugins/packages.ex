@@ -268,7 +268,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Map.put_new(:display_contract, import.display_contract || %{})
       |> Map.put(:source_type, :github)
       |> Map.put(:source_commit, import.source_commit)
-      |> Map.put(:signature, import.signature || %{})
+      |> Map.put(:signature, import.signature)
       |> Map.put(:gpg_verified_at, import.gpg_verified_at)
       |> Map.put(:gpg_key_id, import.gpg_key_id)
       |> Map.put(:content_hash, import.content_hash)

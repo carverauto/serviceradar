@@ -21,8 +21,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
@@ -38,6 +41,7 @@ const (
 	commandTypeMtrRun          = "mtr.run"
 	commandTypeCameraRelayOpen = "camera.open_relay"
 	commandTypeCameraRelayStop = "camera.close_relay"
+	commandTypeAgentUpdate     = "agent.update_release"
 )
 
 const defaultOnDemandMtrDeadline = 45 * time.Second
@@ -163,7 +167,15 @@ func (p *PushLoop) sendControlHello(sender *controlStreamSender) error {
 		},
 	}
 
-	return sender.Send(req)
+	if err := sender.Send(req); err != nil {
+		return err
+	}
+
+	if err := p.sendPendingReleaseActivationReport(sender); err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to send pending release activation report")
+	}
+
+	return nil
 }
 
 func (p *PushLoop) handleControlStream(
@@ -249,6 +261,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleCameraRelayOpen(ctx, cmd, sender)
 		case commandTypeCameraRelayStop:
 			p.handleCameraRelayStop(ctx, cmd, sender)
+		case commandTypeAgentUpdate:
+			p.handleAgentUpdateRelease(ctx, cmd, sender)
 		default:
 			_ = sender.Send(commandResult(cmd, false, "unsupported command", nil))
 		}
@@ -507,6 +521,101 @@ func (p *PushLoop) handleCameraRelayStop(ctx context.Context, cmd *proto.Command
 	}))
 }
 
+func (p *PushLoop) handleAgentUpdateRelease(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
+	payload := releaseUpdatePayload{}
+	if len(cmd.PayloadJson) > 0 {
+		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
+			_ = sender.Send(commandResult(cmd, false, "invalid release update payload", map[string]interface{}{
+				"status": "failed",
+				"reason": "invalid_payload",
+			}))
+			return
+		}
+	}
+
+	_ = sender.Send(commandProgress(cmd, 10, "downloading"))
+
+	p.server.mu.RLock()
+	stageCfg := releaseStageConfig{
+		RuntimeRoot:     "",
+		GatewayAddr:     p.server.config.GatewayAddr,
+		GatewaySecurity: p.server.config.GatewaySecurity,
+		CommandID:       cmd.CommandId,
+	}
+	p.server.mu.RUnlock()
+
+	result, err := stageAgentRelease(ctx, payload, stageCfg)
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, err.Error(), map[string]interface{}{
+			"status": "failed",
+			"reason": err.Error(),
+		}))
+		return
+	}
+
+	_ = sender.Send(commandProgress(cmd, 60, "verifying"))
+	_ = sender.Send(commandProgress(cmd, 80, "staged"))
+
+	updaterCmd := exec.CommandContext(
+		ctx,
+		AgentUpdaterPath(),
+		"--runtime-root", result.RuntimeRoot,
+		"--version", result.Version,
+		"--command-id", cmd.CommandId,
+		"--command-type", cmd.CommandType,
+		"--rollback-deadline", "3m0s",
+	)
+	updaterCmd.Stdout = os.Stdout
+	updaterCmd.Stderr = os.Stderr
+	if err := updaterCmd.Run(); err != nil {
+		_ = sender.Send(commandResult(cmd, false, "failed to prepare updater activation", map[string]interface{}{
+			"status": "failed",
+			"reason": err.Error(),
+		}))
+		return
+	}
+
+	p.logger.Info().
+		Str("command_id", cmd.CommandId).
+		Str("version", result.Version).
+		Msg("Prepared agent updater activation")
+
+	_ = sender.Send(commandProgress(cmd, 90, "switching"))
+	_ = sender.Send(commandProgress(cmd, 95, "restarting"))
+
+	go func() {
+		time.Sleep(250 * time.Millisecond)
+		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	}()
+}
+
+func (p *PushLoop) sendPendingReleaseActivationReport(sender *controlStreamSender) error {
+	report, err := LoadReleaseActivationReport("")
+	if err != nil || report == nil {
+		return err
+	}
+
+	req := &proto.ControlStreamRequest{
+		Payload: &proto.ControlStreamRequest_CommandResult{
+			CommandResult: &proto.CommandResult{
+				CommandId:   report.CommandID,
+				CommandType: report.CommandType,
+				Success:     report.Success,
+				Message:     report.Message,
+				Timestamp:   time.Now().Unix(),
+			},
+		},
+	}
+	if len(report.Payload) > 0 {
+		req.GetCommandResult().PayloadJson, _ = json.Marshal(report.Payload)
+	}
+
+	if err := sender.Send(req); err != nil {
+		return err
+	}
+	return ClearReleaseActivationReport("")
+}
+
 func (p *PushLoop) tryAcquireOnDemandMtrSlot() bool {
 	if p == nil || p.mtrOnDemandSem == nil {
 		return true
@@ -575,6 +684,20 @@ func commandExpired(cmd *proto.CommandRequest) bool {
 
 	expiry := time.Unix(cmd.CreatedAt, 0).Add(time.Duration(cmd.TtlSeconds) * time.Second)
 	return time.Now().After(expiry)
+}
+
+func commandProgress(cmd *proto.CommandRequest, progressPercent int32, message string) *proto.ControlStreamRequest {
+	return &proto.ControlStreamRequest{
+		Payload: &proto.ControlStreamRequest_CommandProgress{
+			CommandProgress: &proto.CommandProgress{
+				CommandId:       cmd.CommandId,
+				CommandType:     cmd.CommandType,
+				ProgressPercent: progressPercent,
+				Message:         message,
+				Timestamp:       time.Now().Unix(),
+			},
+		},
+	}
 }
 
 func commandResult(cmd *proto.CommandRequest, success bool, message string, payload map[string]interface{}) *proto.ControlStreamRequest {

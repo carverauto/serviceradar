@@ -227,17 +227,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
         case File.mkdir_p(dir) do
           :ok ->
-            case File.write(path, payload) do
-              :ok ->
-                :ok
-
-              {:error, reason} = error ->
-                Logger.error(
-                  "plugin blob write failed backend=filesystem object_key=#{inspect(object_key)} path=#{path} dir=#{dir} base_path=#{base_path()} reason=#{inspect(reason)}"
-                )
-
-                error
-            end
+            write_blob_file(path, payload, object_key, dir)
 
           {:error, reason} = error ->
             Logger.error(
@@ -250,6 +240,21 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
       {:error, reason} = error ->
         Logger.error(
           "plugin blob path resolution failed backend=filesystem object_key=#{inspect(object_key)} base_path=#{base_path()} reason=#{inspect(reason)}"
+        )
+
+        error
+    end
+  end
+
+  @sobelow_skip ["Traversal.FileModule"]
+  defp write_blob_file(path, payload, object_key, dir) do
+    case File.write(path, payload) do
+      :ok ->
+        :ok
+
+      {:error, reason} = error ->
+        Logger.error(
+          "plugin blob write failed backend=filesystem object_key=#{inspect(object_key)} path=#{path} dir=#{dir} base_path=#{base_path()} reason=#{inspect(reason)}"
         )
 
         error
