@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias Phoenix.HTML.Form
+  alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
   alias ServiceRadar.Edge.AgentRelease
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseRollout
@@ -16,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   require Ash.Query
 
+  @release_command_type "agent.update_release"
   @inflight_statuses [:dispatched, :downloading, :verifying, :staged, :restarting]
   @artifact_formats [
     {"Binary", "binary"},
@@ -30,6 +33,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
+    if connected?(socket) do
+      AgentCommandPubSub.subscribe()
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
+    end
+
     if RBAC.can?(scope, "settings.edge.manage") do
       {:ok,
        socket
@@ -43,7 +51,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
        |> assign(:rollouts, [])
        |> assign(:connected_agents, [])
        |> assign(:rollout_summaries, %{})
-       |> assign(:rollout_prefill_count, 0)}
+       |> assign(:rollout_targets, %{})
+       |> assign(:rollout_prefill_count, 0)
+       |> assign(:rollout_prefill_source, nil)
+       |> assign(:refresh_timer, nil)}
     else
       {:ok,
        socket
@@ -60,6 +71,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   @impl true
   def handle_event("refresh", _params, socket) do
     {:noreply, load_page_data(socket)}
+  end
+
+  def handle_event("use_release", %{"version" => version}, socket) do
+    params =
+      socket.assigns.rollout_form.params
+      |> Map.new()
+      |> Map.put("version", version)
+
+    {:noreply, assign(socket, :rollout_form, rollout_form(params, socket.assigns.releases))}
   end
 
   def handle_event("publish_release", %{"release" => params}, socket) do
@@ -140,6 +160,26 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     {:noreply, mutate_rollout(socket, rollout_id, :cancel)}
   end
 
+  @impl true
+  def handle_info({:command_ack, data}, socket), do: {:noreply, maybe_refresh_for_release_command(socket, data)}
+
+  def handle_info({:command_progress, data}, socket), do: {:noreply, maybe_refresh_for_release_command(socket, data)}
+
+  def handle_info({:command_result, data}, socket), do: {:noreply, maybe_refresh_for_release_command(socket, data)}
+
+  def handle_info({:agent_registered, _metadata}, socket), do: {:noreply, schedule_refresh(socket)}
+  def handle_info({:agent_disconnected, _agent_id}, socket), do: {:noreply, schedule_refresh(socket)}
+  def handle_info({:agent_status_changed, _agent_id, _status}, socket), do: {:noreply, schedule_refresh(socket)}
+
+  def handle_info(:refresh_releases_page, socket) do
+    {:noreply,
+     socket
+     |> assign(:refresh_timer, nil)
+     |> load_page_data()}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
   defp mutate_rollout(socket, rollout_id, action) do
     scope = socket.assigns.current_scope
 
@@ -166,7 +206,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     releases = list_releases(scope)
     rollouts = list_rollouts(scope)
     connected_agents = list_connected_agents(scope)
-    rollout_summaries = list_rollout_summaries(rollouts, scope)
+    {rollout_summaries, rollout_targets} = list_rollout_data(rollouts, scope)
     prefill = rollout_prefill_params(params)
     prefill_count = prefill_agent_count(prefill)
 
@@ -175,11 +215,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     |> assign(:rollouts, rollouts)
     |> assign(:connected_agents, connected_agents)
     |> assign(:rollout_summaries, rollout_summaries)
+    |> assign(:rollout_targets, rollout_targets)
     |> assign(:rollout_prefill_count, prefill_count)
+    |> assign(:rollout_prefill_source, Map.get(params, "source"))
     |> assign(:release_form, normalize_release_form(socket.assigns.release_form))
     |> assign(
       :rollout_form,
-      if(prefill == %{}, do: normalize_rollout_form(socket.assigns.rollout_form, releases), else: rollout_form(prefill, releases))
+      if(prefill == %{},
+        do: normalize_rollout_form(socket.assigns.rollout_form, releases),
+        else: rollout_form(prefill, releases)
+      )
     )
   end
 
@@ -219,9 +264,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     end
   end
 
-  defp list_rollout_summaries([], _scope), do: %{}
+  defp list_rollout_data([], _scope), do: {%{}, %{}}
 
-  defp list_rollout_summaries(rollouts, scope) do
+  defp list_rollout_data(rollouts, scope) do
     rollout_ids = Enum.map(rollouts, & &1.id)
 
     targets =
@@ -234,31 +279,83 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
         {:error, _} -> []
       end
 
-    targets
-    |> Enum.group_by(& &1.rollout_id)
-    |> Map.new(fn {rollout_id, grouped_targets} ->
-      {rollout_id, summarize_targets(grouped_targets)}
-    end)
+    agents_by_uid = targets |> list_rollout_agents(scope) |> Map.new(&{&1.uid, &1})
+    grouped_targets = Enum.group_by(targets, & &1.rollout_id)
+
+    summaries =
+      Map.new(grouped_targets, fn {rollout_id, rollout_targets} ->
+        {rollout_id, summarize_targets(rollout_targets)}
+      end)
+
+    target_details =
+      Map.new(grouped_targets, fn {rollout_id, rollout_targets} ->
+        {rollout_id,
+         rollout_targets
+         |> Enum.sort_by(&{&1.inserted_at, &1.agent_id}, {:desc, :asc})
+         |> Enum.take(8)
+         |> Enum.map(&rollout_target_detail(&1, agents_by_uid))}
+      end)
+
+    {summaries, target_details}
+  end
+
+  defp list_rollout_agents([], _scope), do: []
+
+  defp list_rollout_agents(targets, scope) do
+    agent_ids =
+      targets
+      |> Enum.map(& &1.agent_id)
+      |> Enum.reject(&blank?/1)
+      |> Enum.uniq()
+
+    Agent
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.Query.filter(uid in ^agent_ids)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, agents} -> agents
+      {:error, _} -> []
+    end
+  end
+
+  defp rollout_target_detail(target, agents_by_uid) do
+    %{
+      target: target,
+      platform_label: agents_by_uid |> Map.get(target.agent_id) |> agent_platform_label() |> presence()
+    }
   end
 
   defp summarize_targets(targets) do
-    Enum.reduce(targets, %{total: 0, healthy: 0, failed: 0, rolled_back: 0, inflight: 0}, fn target, acc ->
+    Enum.reduce(targets, empty_rollout_summary(), fn target, acc ->
       acc
       |> Map.update!(:total, &(&1 + 1))
       |> increment_summary(target.status)
     end)
   end
 
-  defp increment_summary(summary, status) when status in @inflight_statuses,
+  defp increment_summary(summary, status) do
+    summary
+    |> increment_state_count(status)
+    |> increment_summary_bucket(status)
+  end
+
+  defp increment_summary_bucket(summary, status) when status in @inflight_statuses,
     do: Map.update!(summary, :inflight, &(&1 + 1))
 
-  defp increment_summary(summary, :healthy), do: Map.update!(summary, :healthy, &(&1 + 1))
-  defp increment_summary(summary, :failed), do: Map.update!(summary, :failed, &(&1 + 1))
+  defp increment_summary_bucket(summary, :healthy), do: Map.update!(summary, :healthy, &(&1 + 1))
+  defp increment_summary_bucket(summary, :failed), do: Map.update!(summary, :failed, &(&1 + 1))
 
-  defp increment_summary(summary, :rolled_back),
-    do: Map.update!(summary, :rolled_back, &(&1 + 1))
+  defp increment_summary_bucket(summary, :rolled_back), do: Map.update!(summary, :rolled_back, &(&1 + 1))
 
-  defp increment_summary(summary, _status), do: summary
+  defp increment_summary_bucket(summary, _status), do: summary
+
+  defp increment_state_count(summary, status) when is_atom(status) do
+    Map.update!(summary, :state_counts, fn state_counts ->
+      Map.update(state_counts, status, 1, &(&1 + 1))
+    end)
+  end
+
+  defp increment_state_count(summary, _status), do: summary
 
   @impl true
   def render(assigns) do
@@ -295,7 +392,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                   class="space-y-4"
                 >
                   <div class="grid gap-4 md:grid-cols-2">
-                    <.input field={@release_form[:version]} label="Version" placeholder="1.2.3" required />
+                    <.input
+                      field={@release_form[:version]}
+                      label="Version"
+                      placeholder="1.2.3"
+                      required
+                    />
                     <.input
                       field={@release_form[:signature]}
                       label="Manifest Signature"
@@ -361,7 +463,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                   :if={@rollout_prefill_count > 0}
                   class="rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-base-content/80"
                 >
-                  Prefilled {@rollout_prefill_count} visible agents from the inventory view.
+                  {rollout_prefill_message(@rollout_prefill_count, @rollout_prefill_source)}
                 </div>
 
                 <.form
@@ -385,7 +487,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                       label="Target Cohort"
                       options={@cohort_options}
                     />
-                    <.input field={@rollout_form[:batch_size]} type="number" label="Batch Size" min="1" />
+                    <.input
+                      field={@rollout_form[:batch_size]}
+                      type="number"
+                      label="Batch Size"
+                      min="1"
+                    />
                     <.input
                       field={@rollout_form[:batch_delay_seconds]}
                       type="number"
@@ -431,21 +538,50 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                       <th>Published</th>
                       <th>Artifacts</th>
                       <th>Notes</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr :if={@releases == []}>
-                      <td colspan="4" class="py-8 text-center text-sm text-base-content/60">
+                      <td colspan="5" class="py-8 text-center text-sm text-base-content/60">
                         No releases have been published yet.
                       </td>
                     </tr>
-                    <%= for release <- @releases do %>
+                    <%= for {release, index} <- Enum.with_index(@releases) do %>
+                      <% platforms = artifact_platforms(release.manifest) %>
                       <tr>
-                        <td class="font-mono text-xs">{release.version}</td>
-                        <td class="font-mono text-xs">{format_datetime(release.published_at || release.inserted_at)}</td>
-                        <td class="text-xs">{artifact_count(release.manifest)}</td>
+                        <td class="font-mono text-xs">
+                          <div class="flex items-center gap-2">
+                            <span>{release.version}</span>
+                            <span :if={index == 0} class="badge badge-success badge-xs">Latest</span>
+                          </div>
+                        </td>
+                        <td class="font-mono text-xs">
+                          {format_datetime(release.published_at || release.inserted_at)}
+                        </td>
+                        <td class="text-xs">
+                          <div class="flex flex-col gap-2">
+                            <span>{artifact_count(release.manifest)} artifacts</span>
+                            <div :if={platforms != []} class="flex flex-wrap gap-1">
+                              <%= for platform <- platforms do %>
+                                <.ui_badge variant="ghost" size="xs">{platform}</.ui_badge>
+                              <% end %>
+                            </div>
+                          </div>
+                        </td>
                         <td class="max-w-sm truncate text-xs" title={release.release_notes || "—"}>
                           {release.release_notes || "—"}
+                        </td>
+                        <td>
+                          <button
+                            id={"use-release-#{release.version}"}
+                            type="button"
+                            phx-click="use_release"
+                            phx-value-version={release.version}
+                            class="btn btn-xs btn-ghost"
+                          >
+                            Use for Rollout
+                          </button>
                         </td>
                       </tr>
                     <% end %>
@@ -478,17 +614,36 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                     </tr>
                     <%= for rollout <- @rollouts do %>
                       <% summary = Map.get(@rollout_summaries, rollout.id, empty_rollout_summary()) %>
+                      <% rollout_target_details = Map.get(@rollout_targets, rollout.id, []) %>
                       <tr>
                         <td>
                           <div class="flex flex-col gap-1">
                             <span class="font-mono text-xs">{rollout_version(rollout)}</span>
-                            <span class="text-[11px] text-base-content/50">{rollout.created_by || "system"}</span>
+                            <span class="text-[11px] text-base-content/50">
+                              {rollout.created_by || "system"}
+                            </span>
                           </div>
                         </td>
                         <td><.rollout_status_badge status={rollout.status} /></td>
                         <td class="text-xs">{length(rollout.cohort_agent_ids || [])} agents</td>
-                        <td class="text-xs">{rollout_progress_text(summary)}</td>
-                        <td class="font-mono text-xs">{format_datetime(rollout.last_dispatch_at || rollout.updated_at || rollout.inserted_at)}</td>
+                        <td class="text-xs">
+                          <div class="flex flex-col gap-2">
+                            <span>{rollout_progress_text(summary)}</span>
+                            <div
+                              :if={rollout_progress_badges(summary) != []}
+                              class="flex flex-wrap gap-1"
+                            >
+                              <%= for %{label: label, variant: variant} <- rollout_progress_badges(summary) do %>
+                                <.ui_badge variant={variant} size="xs">{label}</.ui_badge>
+                              <% end %>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="font-mono text-xs">
+                          {format_datetime(
+                            rollout.last_dispatch_at || rollout.updated_at || rollout.inserted_at
+                          )}
+                        </td>
                         <td>
                           <div class="flex flex-wrap gap-2">
                             <button
@@ -522,6 +677,52 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                           </div>
                         </td>
                       </tr>
+                      <tr :if={rollout_target_details != []}>
+                        <td colspan="6" class="bg-base-200/20">
+                          <div class="flex flex-col gap-3 px-2 py-3">
+                            <div class="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">
+                              Recent Target States
+                            </div>
+                            <div class="grid gap-2 lg:grid-cols-2">
+                              <%= for detail <- rollout_target_details do %>
+                                <% target = detail.target %>
+                                <div class="rounded-lg border border-base-200 bg-base-100 px-3 py-2">
+                                  <div class="flex items-center justify-between gap-3">
+                                    <div class="flex flex-col gap-1">
+                                      <span class="font-mono text-xs">{target.agent_id}</span>
+                                      <span
+                                        :if={display_target_platform(detail) not in [nil, ""]}
+                                        class="text-[11px] text-base-content/50"
+                                      >
+                                        {display_target_platform(detail)}
+                                      </span>
+                                    </div>
+                                    <.target_status_badge status={target.status} />
+                                  </div>
+                                  <div class="mt-1 text-[11px] text-base-content/60">
+                                    {target_progress_summary(target)}
+                                  </div>
+                                  <div
+                                    :if={platform_mismatch_error?(target.last_error)}
+                                    class="mt-2 flex flex-wrap gap-1"
+                                  >
+                                    <.ui_badge variant="error" size="xs">
+                                      Unsupported Platform
+                                    </.ui_badge>
+                                  </div>
+                                  <div
+                                    :if={target.last_error not in [nil, ""]}
+                                    class="mt-1 text-[11px] text-error"
+                                    title={target.last_error}
+                                  >
+                                    {target.last_error}
+                                  </div>
+                                </div>
+                              <% end %>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
                     <% end %>
                   </tbody>
                 </table>
@@ -550,6 +751,31 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
     ~H"""
     <.ui_badge variant={@variant} size="sm">{@label}</.ui_badge>
+    """
+  end
+
+  attr :status, :atom, required: true
+
+  defp target_status_badge(assigns) do
+    {label, variant} =
+      case assigns.status do
+        :pending -> {"Pending", "ghost"}
+        :dispatched -> {"Dispatched", "info"}
+        :downloading -> {"Downloading", "info"}
+        :verifying -> {"Verifying", "info"}
+        :staged -> {"Staged", "warning"}
+        :restarting -> {"Restarting", "warning"}
+        :healthy -> {"Healthy", "success"}
+        :failed -> {"Failed", "error"}
+        :rolled_back -> {"Rolled Back", "error"}
+        :canceled -> {"Canceled", "ghost"}
+        _ -> {"Unknown", "ghost"}
+      end
+
+    assigns = assign(assigns, label: label, variant: variant)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
     """
   end
 
@@ -593,10 +819,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     )
   end
 
-  defp normalize_release_form(%Phoenix.HTML.Form{} = form), do: form
+  defp normalize_release_form(%Form{} = form), do: form
   defp normalize_release_form(_other), do: release_form()
 
-  defp normalize_rollout_form(%Phoenix.HTML.Form{} = form, releases) do
+  defp normalize_rollout_form(%Form{} = form, releases) do
     params = form.params || %{}
     rollout_form(params, releases)
   end
@@ -604,15 +830,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp normalize_rollout_form(_other, releases), do: rollout_form(%{}, releases)
 
   defp rollout_prefill_params(params) when is_map(params) do
-    %{
+    compact_map(%{
       "version" => presence(Map.get(params, "version")),
       "cohort" => presence(Map.get(params, "cohort")),
       "agent_ids" => normalize_prefill_agent_ids(Map.get(params, "agent_ids")),
       "batch_size" => presence(Map.get(params, "batch_size")),
       "batch_delay_seconds" => presence(Map.get(params, "batch_delay_seconds")),
       "notes" => presence(Map.get(params, "notes"))
-    }
-    |> compact_map()
+    })
   end
 
   defp rollout_prefill_params(_params), do: %{}
@@ -637,15 +862,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     version = String.trim(params["version"] || "")
 
     artifact =
-      %{
+      compact_map(%{
         "url" => presence(params["artifact_url"]),
         "sha256" => presence(params["artifact_sha256"]),
         "os" => presence(params["os"]),
         "arch" => presence(params["arch"]),
         "format" => presence(params["artifact_format"]),
         "entrypoint" => presence(params["entrypoint"])
-      }
-      |> compact_map()
+      })
 
     %{
       version: version,
@@ -679,6 +903,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     Enum.map(releases, fn release -> {release.version, release.version} end)
   end
 
+  defp artifact_platforms(%{"artifacts" => artifacts}) when is_list(artifacts) do
+    artifacts
+    |> Enum.map(&artifact_platform_label/1)
+    |> Enum.reject(&blank?/1)
+    |> Enum.uniq()
+  end
+
+  defp artifact_platforms(%{artifacts: artifacts}) when is_list(artifacts),
+    do: artifact_platforms(%{"artifacts" => artifacts})
+
+  defp artifact_platforms(_manifest), do: []
+
+  defp artifact_platform_label(artifact) when is_map(artifact) do
+    platform_label(artifact_field(artifact, "os"), artifact_field(artifact, "arch"))
+  end
+
   defp artifact_count(%{"artifacts" => artifacts}) when is_list(artifacts), do: length(artifacts)
   defp artifact_count(%{artifacts: artifacts}) when is_list(artifacts), do: length(artifacts)
   defp artifact_count(_manifest), do: 0
@@ -695,11 +935,49 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   end
 
   defp empty_rollout_summary do
-    %{total: 0, healthy: 0, failed: 0, rolled_back: 0, inflight: 0}
+    %{total: 0, healthy: 0, failed: 0, rolled_back: 0, inflight: 0, state_counts: %{}}
   end
 
-  defp rollout_version(%{desired_version: version}) when is_binary(version) and version != "",
-    do: version
+  defp rollout_progress_badges(summary) do
+    for status <- [
+          :pending,
+          :dispatched,
+          :downloading,
+          :verifying,
+          :staged,
+          :restarting,
+          :failed,
+          :rolled_back,
+          :canceled
+        ],
+        count = Map.get(summary.state_counts, status, 0),
+        count > 0 do
+      {label, variant} = rollout_progress_badge_meta(status, count)
+      %{label: label, variant: variant}
+    end
+  end
+
+  defp rollout_progress_badge_meta(:pending, count), do: {"#{count} pending", "ghost"}
+  defp rollout_progress_badge_meta(:dispatched, count), do: {"#{count} dispatched", "info"}
+  defp rollout_progress_badge_meta(:downloading, count), do: {"#{count} downloading", "info"}
+  defp rollout_progress_badge_meta(:verifying, count), do: {"#{count} verifying", "info"}
+  defp rollout_progress_badge_meta(:staged, count), do: {"#{count} staged", "warning"}
+  defp rollout_progress_badge_meta(:restarting, count), do: {"#{count} restarting", "warning"}
+  defp rollout_progress_badge_meta(:failed, count), do: {"#{count} failed", "error"}
+  defp rollout_progress_badge_meta(:rolled_back, count), do: {"#{count} rolled back", "error"}
+  defp rollout_progress_badge_meta(:canceled, count), do: {"#{count} canceled", "ghost"}
+
+  defp target_progress_summary(target) do
+    [
+      target.progress_percent && "#{target.progress_percent}%",
+      present_text(target.last_status_message),
+      format_datetime(target.updated_at || target.inserted_at)
+    ]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" · ")
+  end
+
+  defp rollout_version(%{desired_version: version}) when is_binary(version) and version != "", do: version
 
   defp rollout_version(%{release: %{version: version}}) when is_binary(version), do: version
   defp rollout_version(_rollout), do: "—"
@@ -713,6 +991,82 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 
+  defp display_target_platform(%{platform_label: platform_label, target: target}) do
+    platform_label || platform_label_from_error(target.last_error)
+  end
+
+  defp display_target_platform(_detail), do: nil
+
+  defp platform_mismatch_error?(error) when is_binary(error) do
+    String.contains?(error, "no matching release artifact for agent platform ")
+  end
+
+  defp platform_mismatch_error?(_error), do: false
+
+  defp platform_label_from_error(error) when is_binary(error) do
+    case Regex.run(~r/agent platform ([[:alnum:]_.-]+\/[[:alnum:]_.-]+)/, error, capture: :all_but_first) do
+      [platform] -> platform
+      _ -> nil
+    end
+  end
+
+  defp platform_label_from_error(_error), do: nil
+
+  defp agent_platform_label(%Agent{metadata: metadata}) when is_map(metadata) do
+    platform_label(Map.get(metadata, "os"), Map.get(metadata, "arch"))
+  end
+
+  defp agent_platform_label(_agent), do: nil
+
+  defp platform_label(os, arch) do
+    case {presence(os), presence(arch)} do
+      {nil, nil} -> nil
+      {os, nil} -> os
+      {nil, arch} -> arch
+      {os, arch} -> "#{os}/#{arch}"
+    end
+  end
+
+  defp artifact_field(artifact, "os") when is_map(artifact), do: Map.get(artifact, "os") || Map.get(artifact, :os)
+  defp artifact_field(artifact, "arch") when is_map(artifact), do: Map.get(artifact, "arch") || Map.get(artifact, :arch)
+  defp artifact_field(_artifact, _key), do: nil
+
+  defp present_text(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp present_text(_value), do: nil
+
+  defp maybe_refresh_for_release_command(socket, data) do
+    if release_command_event?(data), do: schedule_refresh(socket), else: socket
+  end
+
+  defp release_command_event?(data) when is_map(data) do
+    Map.get(data, :command_type) == @release_command_type ||
+      Map.get(data, "command_type") == @release_command_type
+  end
+
+  defp release_command_event?(_data), do: false
+
+  defp schedule_refresh(socket) do
+    case socket.assigns[:refresh_timer] do
+      nil ->
+        ref = Process.send_after(self(), :refresh_releases_page, 250)
+        assign(socket, :refresh_timer, ref)
+
+      _ref ->
+        socket
+    end
+  end
+
+  defp rollout_prefill_message(count, "agent_detail"), do: "Prefilled #{count} agent from the detail view."
+
+  defp rollout_prefill_message(count, "agents_selection"),
+    do: "Prefilled #{count} selected agents from the inventory view."
+
+  defp rollout_prefill_message(count, _source), do: "Prefilled #{count} visible agents from the inventory view."
+
   defp compact_map(map) do
     map
     |> Enum.reject(fn {_key, value} -> blank?(value) end)
@@ -721,7 +1075,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp presence(value) do
     case value do
-      nil -> nil
+      nil ->
+        nil
+
       value when is_binary(value) ->
         value = String.trim(value)
         if value == "", do: nil, else: value

@@ -52,6 +52,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
      |> assign(:page_title, "Agents")
      |> assign(:agents, [])
      |> assign(:live_agents, load_live_agents())
+     |> assign(:selected_agent_ids, [])
      |> assign(:release_state_options, @release_state_options)
      |> assign(:release_filters, default_release_filters())
      |> assign(:release_filter_form, release_filter_form())
@@ -67,9 +68,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     query = get_in(socket.assigns, [:srql, :query]) || base_agents_query(socket.assigns.limit)
     summary_agents = load_summary_agents(socket.assigns.current_scope, query, socket.assigns.agents)
     release_filters = release_filters_from_query(query)
+    selected_agent_ids = selected_agent_ids_for_visible(socket.assigns.selected_agent_ids, socket.assigns.agents)
 
     {:noreply,
      socket
+     |> assign(:selected_agent_ids, selected_agent_ids)
      |> assign(:release_filters, release_filters)
      |> assign(:release_filter_form, release_filter_form(release_filters))
      |> assign(:version_distribution, summarize_versions(summary_agents))
@@ -136,6 +139,18 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
       |> upsert_release_filter("desired_version", desired_version)
 
     {:noreply, push_agents_patch(socket, query)}
+  end
+
+  def handle_event("toggle_selected_agent", %{"id" => agent_id}, socket) do
+    {:noreply, assign(socket, :selected_agent_ids, toggle_selected_agent_id(socket.assigns.selected_agent_ids, agent_id))}
+  end
+
+  def handle_event("select_visible_agents", _params, socket) do
+    {:noreply, assign(socket, :selected_agent_ids, Enum.map(socket.assigns.agents, &agent_uid/1))}
+  end
+
+  def handle_event("clear_selected_agents", _params, socket) do
+    {:noreply, assign(socket, :selected_agent_ids, [])}
   end
 
   # Handle PubSub events for live agent updates
@@ -206,12 +221,35 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               class="flex flex-wrap items-center gap-2"
             >
               <.link
+                :if={@selected_agent_ids != []}
+                navigate={selected_rollout_handoff_path(@selected_agent_ids, @release_filters)}
+                class="btn btn-sm btn-secondary"
+              >
+                <.icon name="hero-bolt" class="size-4" /> Roll Out Selected
+              </.link>
+              <.link
                 :if={@agents != []}
                 navigate={visible_rollout_handoff_path(@agents, @release_filters)}
                 class="btn btn-sm btn-primary"
               >
                 <.icon name="hero-play" class="size-4" /> Roll Out Visible Cohort
               </.link>
+              <button
+                :if={@agents != []}
+                type="button"
+                phx-click="select_visible_agents"
+                class="btn btn-sm btn-ghost"
+              >
+                Select Visible
+              </button>
+              <button
+                :if={@selected_agent_ids != []}
+                type="button"
+                phx-click="clear_selected_agents"
+                class="btn btn-sm btn-ghost"
+              >
+                Clear Selected
+              </button>
               <.link navigate={~p"/settings/agents/releases"} class="btn btn-sm btn-outline">
                 <.icon name="hero-rocket-launch" class="size-4" /> Manage Releases
               </.link>
@@ -294,7 +332,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
             </.form>
           </div>
 
-          <.agents_table id="agents" agents={@agents} />
+          <.agents_table
+            id="agents"
+            agents={@agents}
+            selected_agent_ids={@selected_agent_ids}
+            allow_selection={RBAC.can?(@current_scope, "settings.edge.manage")}
+          />
 
           <div class="mt-4 pt-4 border-t border-base-200">
             <.ui_pagination
@@ -435,6 +478,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
   attr :id, :string, required: true
   attr :agents, :list, default: []
+  attr :selected_agent_ids, :list, default: []
+  attr :allow_selection, :boolean, default: false
 
   defp agents_table(assigns) do
     ~H"""
@@ -442,6 +487,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
       <table id={@id} class="table table-sm table-zebra w-full">
         <thead>
           <tr>
+            <th
+              :if={@allow_selection}
+              class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-16"
+            >
+              Select
+            </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-48">
               Agent ID
             </th>
@@ -476,7 +527,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
         </thead>
         <tbody>
           <tr :if={@agents == []}>
-            <td colspan="10" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan={if(@allow_selection, do: 11, else: 10)} class="text-sm text-base-content/60 py-8 text-center">
               No agents found.
             </td>
           </tr>
@@ -484,20 +535,43 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
           <%= for {agent, idx} <- Enum.with_index(@agents) do %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 cursor-pointer transition-colors"
-              phx-click={JS.navigate(~p"/agents/#{agent_uid(agent)}")}
+              class="hover:bg-base-200/40 transition-colors"
             >
+              <td :if={@allow_selection} class="whitespace-nowrap">
+                <button
+                  id={"select-agent-#{agent_uid(agent)}"}
+                  type="button"
+                  phx-click="toggle_selected_agent"
+                  phx-value-id={agent_uid(agent)}
+                  class={
+                    [
+                      "btn btn-xs w-8 px-0",
+                      agent_uid(agent) in @selected_agent_ids && "btn-primary",
+                      agent_uid(agent) not in @selected_agent_ids && "btn-ghost"
+                    ]
+                  }
+                >
+                  <.icon
+                    name={if(agent_uid(agent) in @selected_agent_ids, do: "hero-check", else: "hero-plus")}
+                    class="size-3.5"
+                  />
+                </button>
+              </td>
               <td
                 class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]"
                 title={agent_uid(agent)}
               >
-                {agent_uid(agent)}
+                <.link navigate={~p"/agents/#{agent_uid(agent)}"} class="link link-primary">
+                  {agent_uid(agent)}
+                </.link>
               </td>
               <td
                 class="whitespace-nowrap text-xs truncate max-w-[8rem]"
                 title={agent_name(agent)}
               >
-                {agent_name(agent)}
+                <.link navigate={~p"/agents/#{agent_uid(agent)}"} class="hover:underline">
+                  {agent_name(agent)}
+                </.link>
               </td>
               <td class="whitespace-nowrap text-xs">
                 <.type_badge type_id={Map.get(agent, "type_id")} />
@@ -886,8 +960,34 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     "/settings/agents/releases?" <> URI.encode_query(params)
   end
 
+  defp selected_rollout_handoff_path(agent_ids, release_filters) do
+    params =
+      [
+        {"cohort", "custom"},
+        {"agent_ids", Enum.join(agent_ids, "\n")},
+        {"notes", "Imported from selected /agents rows"},
+        {"source", "agents_selection"}
+      ]
+      |> maybe_put_handoff_version(Map.get(release_filters, "desired_version"))
+
+    "/settings/agents/releases?" <> URI.encode_query(params)
+  end
+
   defp maybe_put_handoff_version(params, value) when value in [nil, ""], do: params
   defp maybe_put_handoff_version(params, value), do: [{"version", value} | params]
+
+  defp selected_agent_ids_for_visible(selected_agent_ids, agents) do
+    visible_ids = MapSet.new(Enum.map(agents, &agent_uid/1))
+    Enum.filter(selected_agent_ids, &MapSet.member?(visible_ids, &1))
+  end
+
+  defp toggle_selected_agent_id(selected_agent_ids, agent_id) do
+    if agent_id in selected_agent_ids do
+      Enum.reject(selected_agent_ids, &(&1 == agent_id))
+    else
+      selected_agent_ids ++ [agent_id]
+    end
+  end
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)

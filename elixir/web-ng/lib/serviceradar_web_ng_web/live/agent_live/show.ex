@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadarWebNG.RBAC
 
   require Logger
 
@@ -212,6 +213,24 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     end
   end
 
+  defp agent_release_handoff_path(agent) do
+    uid = Map.get(agent, "uid") || Map.get(agent, "agent_id")
+
+    params =
+      [
+        {"cohort", "custom"},
+        {"agent_ids", uid},
+        {"notes", "Imported from /agents/#{uid}"},
+        {"source", "agent_detail"}
+      ]
+      |> maybe_put_version(Map.get(agent, "desired_version"))
+
+    "/settings/agents/releases?" <> URI.encode_query(params)
+  end
+
+  defp maybe_put_version(params, value) when value in [nil, ""], do: params
+  defp maybe_put_version(params, value), do: [{"version", value} | params]
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -253,7 +272,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           </div>
 
           <.agent_summary agent={@agent} live_agent={@live_agent} />
-          <.release_management_card agent={@agent} release_targets={@release_targets} />
+          <.release_management_card
+            agent={@agent}
+            release_targets={@release_targets}
+            current_scope={@current_scope}
+          />
           <.capabilities_card capabilities={Map.get(@agent, "capabilities", [])} />
           <.gateway_node_info
             :if={@gateway_node_info}
@@ -347,16 +370,30 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   attr :agent, :map, required: true
   attr :release_targets, :list, default: []
+  attr :current_scope, :any, required: true
 
   defp release_management_card(assigns) do
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
-        <span class="text-sm font-semibold">Release Management</span>
-        <.release_status_badge
-          state={Map.get(@agent, "release_rollout_state")}
-          last_error={Map.get(@agent, "last_update_error")}
-        />
+        <div class="flex items-center gap-3">
+          <span class="text-sm font-semibold">Release Management</span>
+          <.release_status_badge
+            state={Map.get(@agent, "release_rollout_state")}
+            last_error={Map.get(@agent, "last_update_error")}
+          />
+        </div>
+        <div
+          :if={RBAC.can?(@current_scope, "settings.edge.manage")}
+          class="flex flex-wrap items-center gap-2"
+        >
+          <.link navigate={agent_release_handoff_path(@agent)} class="btn btn-xs btn-primary">
+            <.icon name="hero-play" class="size-3.5" /> Roll Out This Agent
+          </.link>
+          <.link navigate={~p"/settings/agents/releases"} class="btn btn-xs btn-ghost">
+            Manage Releases
+          </.link>
+        </div>
       </div>
       <div class="p-4 space-y-4">
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">

@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
   alias ServiceRadarWebNG.AccountsFixtures
 
   require Ash.Query
+
   @release_public_key "ot8W1BsqSvXV7KEjLL+RkQz106lzcIJNCY91OXSqBpk="
   @release_private_key "kRqU4UnTUPjychwJGH4ZdsuijaxuGUNFPezyY+iSnBY="
 
@@ -60,6 +61,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert html =~ "Imported from /agents inventory view"
   end
 
+  test "prefills the rollout form from selected inventory agents", %{conn: conn} do
+    params = %{
+      "version" => "4.2.1",
+      "cohort" => "custom",
+      "agent_ids" => "agent-a\nagent-b\nagent-c",
+      "notes" => "Imported from selected /agents rows",
+      "source" => "agents_selection"
+    }
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/agents/releases?#{params}")
+
+    assert html =~ "Prefilled 3 selected agents from the inventory view."
+    assert html =~ "Imported from selected /agents rows"
+  end
+
   test "publishes a release from the UI", %{conn: conn, scope: scope} do
     version = "2.0.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
@@ -69,12 +85,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     lv
     |> form("#publish-release-form", %{
-        "release" => %{
-          "version" => version,
-          "signature" => signature,
-          "artifact_url" => "https://example.test/releases/#{version}/serviceradar-agent.tar.gz",
-          "artifact_sha256" => String.duplicate("a", 64),
-          "artifact_format" => "tar.gz",
+      "release" => %{
+        "version" => version,
+        "signature" => signature,
+        "artifact_url" => "https://example.test/releases/#{version}/serviceradar-agent.tar.gz",
+        "artifact_sha256" => String.duplicate("a", 64),
+        "artifact_format" => "tar.gz",
         "entrypoint" => "serviceradar-agent",
         "os" => "linux",
         "arch" => "amd64",
@@ -85,6 +101,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     assert render(lv) =~ "Published agent release #{version}"
     assert has_element?(lv, "td", version)
+    assert render(lv) =~ "linux/amd64"
 
     release =
       AgentRelease
@@ -114,16 +131,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     _agent =
       Agent
-      |> Ash.Changeset.for_create(:register_connected, %{
-        uid: agent_id,
-        name: "Release Test Agent",
-        gateway_id: gateway.id,
-        version: "1.0.0",
-        type_id: 4,
-        type: "Performance",
-        capabilities: ["agent"],
-        metadata: %{"os" => "linux", "arch" => "amd64"}
-      }, actor: system_actor())
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: agent_id,
+          name: "Release Test Agent",
+          gateway_id: gateway.id,
+          version: "1.0.0",
+          type_id: 4,
+          type: "Performance",
+          capabilities: ["agent"],
+          metadata: %{"os" => "linux", "arch" => "amd64"}
+        }, actor: system_actor())
       |> Ash.create!()
 
     {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
@@ -166,6 +185,278 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert target.desired_version == version
   end
 
+  test "shows detailed rollout progress badges for per-agent states", %{conn: conn, scope: scope} do
+    version = "3.1.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+    agent_id = "agent-release-progress-#{System.unique_integer([:positive])}"
+
+    _agent =
+      Agent
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: agent_id,
+          name: "Progress Test Agent",
+          gateway_id: gateway.id,
+          version: "1.0.0",
+          type_id: 4,
+          type: "Performance",
+          capabilities: ["agent"],
+          metadata: %{"os" => "linux", "arch" => "amd64"}
+        }, actor: system_actor())
+      |> Ash.create!()
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(
+        %{
+          version: version,
+          agent_ids: [agent_id],
+          batch_size: 1,
+          batch_delay_seconds: 0,
+          notes: "progress badges"
+        },
+        scope: scope
+      )
+
+    target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(expr(rollout_id == ^rollout.id and agent_id == ^agent_id))
+      |> Ash.read_one!(scope: scope)
+
+    {:ok, _target} =
+      AgentReleaseTarget.set_status(
+        target,
+        %{status: :downloading, progress_percent: 42, last_status_message: "downloading artifact"},
+        scope: scope
+      )
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/agents/releases")
+
+    assert html =~ "1 downloading"
+    assert html =~ "0/1 healthy"
+  end
+
+  test "shows recent target diagnostics under each rollout", %{conn: conn, scope: scope} do
+    version = "3.2.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+    agent_id = "agent-release-failure-#{System.unique_integer([:positive])}"
+
+    _agent =
+      Agent
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: agent_id,
+          name: "Failure Test Agent",
+          gateway_id: gateway.id,
+          version: "1.0.0",
+          type_id: 4,
+          type: "Performance",
+          capabilities: ["agent"],
+          metadata: %{"os" => "linux", "arch" => "amd64"}
+        }, actor: system_actor())
+      |> Ash.create!()
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(
+        %{
+          version: version,
+          agent_ids: [agent_id],
+          batch_size: 1,
+          batch_delay_seconds: 0,
+          notes: "target diagnostics"
+        },
+        scope: scope
+      )
+
+    target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(expr(rollout_id == ^rollout.id and agent_id == ^agent_id))
+      |> Ash.read_one!(scope: scope)
+
+    {:ok, _target} =
+      AgentReleaseTarget.set_status(
+        target,
+        %{
+          status: :failed,
+          progress_percent: 100,
+          last_status_message: "verification failed",
+          last_error: "digest mismatch"
+        },
+        scope: scope
+      )
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/agents/releases")
+
+    assert html =~ "Recent Target States"
+    assert html =~ agent_id
+    assert html =~ "digest mismatch"
+    assert html =~ "verification failed"
+  end
+
+  test "shows supported and target platform context for unsupported rollout targets", %{conn: conn, scope: scope} do
+    version = "3.3.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+    agent_id = "agent-release-platform-#{System.unique_integer([:positive])}"
+
+    _agent =
+      Agent
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: agent_id,
+          name: "Platform Test Agent",
+          gateway_id: gateway.id,
+          version: "1.0.0",
+          type_id: 4,
+          type: "Performance",
+          capabilities: ["agent"],
+          metadata: %{"os" => "linux", "arch" => "arm64"}
+        }, actor: system_actor())
+      |> Ash.create!()
+
+    {:ok, _rollout} =
+      AgentReleaseManager.create_rollout(
+        %{
+          version: version,
+          agent_ids: [agent_id],
+          batch_size: 1,
+          batch_delay_seconds: 0,
+          notes: "platform diagnostics"
+        },
+        scope: scope
+      )
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/agents/releases")
+
+    assert html =~ "linux/amd64"
+    assert html =~ "linux/arm64"
+    assert html =~ "Unsupported Platform"
+    assert html =~ "no matching release artifact for agent platform linux/arm64"
+  end
+
+  test "selecting a published release updates the rollout form version", %{conn: conn, scope: scope} do
+    older = "5.0.#{System.unique_integer([:positive])}"
+    newer = "5.1.#{System.unique_integer([:positive])}"
+
+    for version <- [newer, older] do
+      {:ok, _release} =
+        AgentReleaseManager.publish_release(
+          %{
+            version: version,
+            signature: sign_manifest(release_manifest(version)),
+            manifest: release_manifest(version)
+          },
+          scope: scope
+        )
+    end
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
+
+    assert has_element?(lv, "#use-release-#{older}")
+
+    lv
+    |> element("#use-release-#{older}")
+    |> render_click()
+
+    assert has_element?(
+             lv,
+             "select[name='rollout[version]'] option[selected][value='#{older}']"
+           )
+  end
+
+  test "release command updates trigger a debounced page refresh", %{conn: conn, scope: scope} do
+    version = "6.0.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+    agent_id = "agent-release-refresh-#{System.unique_integer([:positive])}"
+
+    _agent =
+      Agent
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: agent_id,
+          name: "Refresh Test Agent",
+          gateway_id: gateway.id,
+          version: "1.0.0",
+          type_id: 4,
+          type: "Performance",
+          capabilities: ["agent"],
+          metadata: %{"os" => "linux", "arch" => "amd64"}
+        }, actor: system_actor())
+      |> Ash.create!()
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
+    refute html =~ version
+
+    {:ok, _rollout} =
+      AgentReleaseManager.create_rollout(
+        %{
+          version: version,
+          agent_ids: [agent_id],
+          batch_size: 1,
+          batch_delay_seconds: 0,
+          notes: "refresh test"
+        },
+        scope: scope
+      )
+
+    send(lv.pid, {:command_progress, %{"command_type" => "agent.update_release", "agent_id" => agent_id}})
+    send(lv.pid, :refresh_releases_page)
+
+    assert render(lv) =~ version
+  end
+
   test "viewer is blocked from releases settings", %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :viewer})
     conn = log_in_user(conn, user)
@@ -201,7 +492,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     {:ok, payload} = ServiceRadar.Edge.ReleaseManifestValidator.canonical_json(manifest)
     private_key = Base.decode64!(@release_private_key)
 
-    :crypto.sign(:eddsa, :none, payload, [private_key, :ed25519])
+    :eddsa
+    |> :crypto.sign(:none, payload, [private_key, :ed25519])
     |> Base.encode64()
   end
 end

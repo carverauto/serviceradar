@@ -36,9 +36,24 @@ defmodule ServiceRadarWebNGWeb.AgentLive.IndexTest do
     assert html =~ "1.2.3"
     assert html =~ "Healthy"
     assert html =~ "Failed"
+    assert html =~ "Select Visible"
     assert html =~ "Roll Out Visible Cohort"
     assert html =~ "cohort=custom"
     assert html =~ "agent_ids=agent-1%0Aagent-2"
+  end
+
+  test "builds a selected-agent rollout handoff from explicit inventory selection", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/agents")
+
+    lv
+    |> element("#select-agent-agent-2")
+    |> render_click()
+
+    html = render(lv)
+
+    assert html =~ "Roll Out Selected"
+    assert html =~ "agent_ids=agent-2"
+    assert html =~ "source=agents_selection"
   end
 
   test "applies rollout filters through the agents index controls", %{conn: conn} do

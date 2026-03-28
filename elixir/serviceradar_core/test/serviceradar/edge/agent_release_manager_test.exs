@@ -213,6 +213,47 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     assert target.status == :dispatched
   end
 
+  test "rollout target fails with explicit platform diagnostics when no artifact matches", %{
+    actor: actor,
+    release: release
+  } do
+    agent_id = "agent-release-arm64-#{System.unique_integer([:positive])}"
+
+    {:ok, _agent} =
+      Agent
+      |> Ash.Changeset.for_create(:register_connected, %{
+        uid: agent_id,
+        name: "ARM64 Test Agent",
+        gateway_id: "gw-arm64",
+        version: "1.0.0",
+        type_id: 4,
+        type: "Performance",
+        capabilities: ["agent"],
+        metadata: %{"os" => "linux", "arch" => "arm64"}
+      }, actor: actor)
+      |> Ash.create()
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1
+      })
+
+    target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(agent_id == ^agent_id and rollout_id == ^rollout.id))
+      |> Ash.read_one!(actor: actor)
+
+    assert target.status == :failed
+    assert target.last_error == "no matching release artifact for agent platform linux/arm64"
+
+    updated_agent = Agent.get_by_uid!(agent_id, actor: actor)
+    assert updated_agent.release_rollout_state == :failed
+    assert updated_agent.last_update_error == "no matching release artifact for agent platform linux/arm64"
+  end
+
   test "pause and resume gates future batch dispatches", %{
     actor: actor,
     agent_id: agent_id,

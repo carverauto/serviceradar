@@ -433,7 +433,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
       end)
 
     case selected do
-      nil -> {:error, :no_matching_release_artifact}
+      nil -> {:error, {:no_matching_release_artifact, os, arch}}
       artifact -> {:ok, normalize_keys(artifact)}
     end
   end
@@ -667,8 +667,24 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     end
   end
 
+  defp normalize_reason({:no_matching_release_artifact, os, arch}) do
+    "no matching release artifact for agent platform #{platform_label(os, arch)}"
+  end
+
   defp normalize_reason(reason) when is_binary(reason), do: reason
   defp normalize_reason(reason), do: inspect(reason)
+
+  defp platform_label(os, arch) do
+    "#{present_platform_value(os, "unknown-os")}/#{present_platform_value(arch, "unknown-arch")}"
+  end
+
+  defp present_platform_value(value, fallback) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: fallback, else: value
+  end
+
+  defp present_platform_value(nil, fallback), do: fallback
+  defp present_platform_value(value, _fallback), do: to_string(value)
 
   defp maybe_put(map, _key, _value, false), do: map
   defp maybe_put(map, key, value, true), do: Map.put(map, key, value)

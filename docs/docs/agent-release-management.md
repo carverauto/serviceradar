@@ -97,7 +97,7 @@ The control plane records terminal per-agent states such as:
 
 Use these surfaces first during rollout triage:
 
-- `/settings/agents/releases`: published releases, recent rollouts, pause/resume/cancel actions.
+- `/settings/agents/releases`: published releases, supported platform badges, recent rollouts, pause/resume/cancel actions, and per-target diagnostics.
 - `/agents`: version distribution, rollout-state counts, target-version filtering, per-agent last update error.
 - `/agents/:uid`: current version, desired version, rollout state, last update error, and recent rollout targets.
 
@@ -105,7 +105,7 @@ Common failure patterns:
 
 - Invalid signature: the agent rejected the manifest before staging.
 - Digest mismatch: the downloaded artifact did not match the published SHA256.
-- No matching artifact: the control plane could not select an artifact for the agent's `os` and `arch`.
+- No matching artifact: the control plane could not select an artifact for the agent's `os` and `arch`. The releases page surfaces this as `no matching release artifact for agent platform <os>/<arch>` and highlights the affected target as an unsupported platform.
 - Rolled back: the updater switched versions, but the new runtime did not become healthy before the deadline.
 
 ## Recovery Playbook
