@@ -213,7 +213,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
   end
 
   describe "agent release verification override" do
-    test "agent bundle includes kv-overrides.env when release key is configured", %{
+    test "agent bundle includes agent-env-overrides.env when release key is configured", %{
       agent_package: package,
       agent_join_token: join_token
     } do
@@ -238,7 +238,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
       {_, overrides} =
         Enum.find(files, fn {name, _} ->
-          name |> to_string() |> String.ends_with?("config/kv-overrides.env")
+          name |> to_string() |> String.ends_with?("config/agent-env-overrides.env")
         end)
 
       assert overrides =~ "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=dLbXN6ouezVOgWJhOPoGTm1moz8MuxDcPmX5RdjM0Ns="
@@ -253,7 +253,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       refute Map.has_key?(config, "agent_release_public_key")
     end
 
-    test "agent bundle omits kv-overrides.env when release key is not configured", %{
+    test "agent bundle omits agent-env-overrides.env when release key is not configured", %{
       agent_package: package,
       agent_join_token: join_token
     } do
@@ -272,7 +272,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
 
       refute Enum.any?(files, fn {name, _} ->
-               name |> to_string() |> String.ends_with?("config/kv-overrides.env")
+               name |> to_string() |> String.ends_with?("config/agent-env-overrides.env")
              end)
     end
   end

@@ -80,7 +80,7 @@ func testAgentBundle(t *testing.T, overrides string) *bytes.Reader {
 	writeBundleFile("edge-package-test/certs/ca-chain.pem", []byte("ca"))
 
 	if overrides != "" {
-		writeBundleFile("edge-package-test/config/kv-overrides.env", []byte(overrides))
+		writeBundleFile("edge-package-test/config/agent-env-overrides.env", []byte(overrides))
 	}
 
 	require.NoError(t, tw.Close())

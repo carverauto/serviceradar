@@ -106,7 +106,7 @@ docker run \
 - Shares network namespace with gateway (in Docker)
 - Connects to KV to fetch checker configs
 - Configuration includes: KV address, parent gateway ID, workload API socket
-- Enrollment also merges any bundle-provided `/etc/serviceradar/kv-overrides.env` entries without removing unrelated existing overrides
+- Enrollment also merges any bundle-provided `agent-env-overrides.env` entries into `/etc/serviceradar/kv-overrides.env` without removing unrelated existing overrides
 
 #### Checker
 - Uses **workload API** from parent agent

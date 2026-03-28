@@ -250,7 +250,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
         public_key ->
           [
-            {"#{package_dir}/config/kv-overrides.env", "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=#{public_key}\n"}
+            {"#{package_dir}/config/agent-env-overrides.env", "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=#{public_key}\n"}
           ]
       end
     else

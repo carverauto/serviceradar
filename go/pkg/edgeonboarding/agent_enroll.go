@@ -32,6 +32,7 @@ var (
 
 const (
 	defaultAgentOverridesPath = "/etc/serviceradar/kv-overrides.env"
+	bundleAgentOverridesName  = "/config/agent-env-overrides.env"
 	releasePublicKeyEnv       = "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
 )
 
@@ -202,7 +203,7 @@ func extractBundle(reader io.Reader) (*bundlePayload, error) {
 			payload.ComponentKey, err = io.ReadAll(tr)
 		case strings.HasSuffix(name, "/certs/ca-chain.pem"):
 			payload.CAChain, err = io.ReadAll(tr)
-		case strings.HasSuffix(name, "/config/kv-overrides.env"):
+		case strings.HasSuffix(name, bundleAgentOverridesName):
 			payload.EnvOverrides, err = io.ReadAll(tr)
 		default:
 			continue
