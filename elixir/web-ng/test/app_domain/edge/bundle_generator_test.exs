@@ -25,6 +25,20 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
     }
   end
 
+  setup %{package: _package} do
+    {:ok, result} =
+      OnboardingPackages.create(
+        %{
+          label: "test-agent-bundle-pkg",
+          component_type: :agent,
+          component_id: "agent-test-bundle"
+        },
+        actor: system_actor()
+      )
+
+    %{agent_package: result.package, agent_join_token: result.join_token}
+  end
+
   describe "create_tarball/4" do
     test "creates a valid gzipped tarball", %{package: package, join_token: join_token} do
       bundle_pem = sample_bundle_pem()
@@ -195,6 +209,71 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
       assert get_in(config, ["gateway_security", "server_name"]) ==
                "test-tenant.grpc.serviceradar.cloud"
+    end
+  end
+
+  describe "agent release verification override" do
+    test "agent bundle includes kv-overrides.env when release key is configured", %{
+      agent_package: package,
+      agent_join_token: join_token
+    } do
+      existing = Application.get_env(:serviceradar_web_ng, :agent_release_public_key)
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :agent_release_public_key,
+        "dLbXN6ouezVOgWJhOPoGTm1moz8MuxDcPmX5RdjM0Ns="
+      )
+
+      on_exit(fn ->
+        if is_nil(existing) do
+          Application.delete_env(:serviceradar_web_ng, :agent_release_public_key)
+        else
+          Application.put_env(:serviceradar_web_ng, :agent_release_public_key, existing)
+        end
+      end)
+
+      {:ok, tarball} = BundleGenerator.create_tarball(package, "", join_token)
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, overrides} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config/kv-overrides.env")
+        end)
+
+      assert overrides =~ "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=dLbXN6ouezVOgWJhOPoGTm1moz8MuxDcPmX5RdjM0Ns="
+
+      {_, config_json} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config/config.json")
+        end)
+
+      config = Jason.decode!(config_json)
+      refute Map.has_key?(config, "release_public_key")
+      refute Map.has_key?(config, "agent_release_public_key")
+    end
+
+    test "agent bundle omits kv-overrides.env when release key is not configured", %{
+      agent_package: package,
+      agent_join_token: join_token
+    } do
+      existing = Application.get_env(:serviceradar_web_ng, :agent_release_public_key)
+      Application.delete_env(:serviceradar_web_ng, :agent_release_public_key)
+
+      on_exit(fn ->
+        if is_nil(existing) do
+          Application.delete_env(:serviceradar_web_ng, :agent_release_public_key)
+        else
+          Application.put_env(:serviceradar_web_ng, :agent_release_public_key, existing)
+        end
+      end)
+
+      {:ok, tarball} = BundleGenerator.create_tarball(package, "", join_token)
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      refute Enum.any?(files, fn {name, _} ->
+               name |> to_string() |> String.ends_with?("config/kv-overrides.env")
+             end)
     end
   end
 

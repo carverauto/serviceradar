@@ -87,6 +87,7 @@ docker run \
    - Generates component-specific config based on deployment type
    - Merges metadata from package (contains KV-sourced config)
    - Creates all required configuration files
+   - For agent-capable bundles, installs package-managed environment overrides such as `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY`
 
 5. **Registration**
    - Service automatically registers when it first connects
@@ -105,6 +106,7 @@ docker run \
 - Shares network namespace with gateway (in Docker)
 - Connects to KV to fetch checker configs
 - Configuration includes: KV address, parent gateway ID, workload API socket
+- Enrollment also merges any bundle-provided `/etc/serviceradar/kv-overrides.env` entries without removing unrelated existing overrides
 
 #### Checker
 - Uses **workload API** from parent agent
