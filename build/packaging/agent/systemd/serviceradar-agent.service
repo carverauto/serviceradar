@@ -5,6 +5,7 @@ After=network.target
 [Service]
 Type=simple
 User=serviceradar
+WorkingDirectory=/var/lib/serviceradar
 ExecStart=/usr/local/bin/serviceradar-agent
 Environment="CONFIG_SOURCE=file"
 Environment="KV_ADDRESS=127.0.0.1:50057"
@@ -13,7 +14,12 @@ Environment="KV_CERT_DIR=/etc/serviceradar/certs"
 Environment="KV_CERT_FILE=/etc/serviceradar/certs/component.pem"
 Environment="KV_KEY_FILE=/etc/serviceradar/certs/component-key.pem"
 Environment="KV_CA_FILE=/etc/serviceradar/certs/ca-chain.pem"
+Environment="SERVICERADAR_AGENT_RUNTIME_ROOT=/var/lib/serviceradar/agent"
+Environment="SERVICERADAR_AGENT_SEED_BINARY=/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"
+Environment="SERVICERADAR_AGENT_UPDATER=/usr/local/bin/serviceradar-agent-updater"
 EnvironmentFile=-/etc/serviceradar/kv-overrides.env
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
 Restart=always
 RestartSec=10
 LimitNPROC=512

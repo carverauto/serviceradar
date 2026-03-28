@@ -12,7 +12,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias Ash.Error.Invalid
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadar.Edge.ReleaseArtifactDelivery
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -89,6 +91,17 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
           {:error, reason}
         end
     end
+  end
+
+  @spec reconcile_agent_release(String.t()) :: :ok
+  def reconcile_agent_release(agent_id) do
+    AgentReleaseManager.reconcile_agent(agent_id)
+  end
+
+  @spec resolve_release_artifact_download(String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def resolve_release_artifact_download(target_id, command_id) do
+    ReleaseArtifactDelivery.resolve_download(target_id, command_id)
   end
 
   @doc """

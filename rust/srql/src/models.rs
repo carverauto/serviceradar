@@ -31,6 +31,10 @@ pub struct AgentRow {
     pub modified_time: DateTime<Utc>,
     pub metadata: Option<DbJson>,
     pub config_source: Option<String>,
+    pub desired_version: Option<String>,
+    pub release_rollout_state: Option<String>,
+    pub last_update_at: Option<DateTime<Utc>>,
+    pub last_update_error: Option<String>,
 }
 
 impl AgentRow {
@@ -57,6 +61,10 @@ impl AgentRow {
                 .metadata
                 .map_or(serde_json::json!({}), serde_json::Value::from),
             "config_source": self.config_source,
+            "desired_version": self.desired_version,
+            "release_rollout_state": self.release_rollout_state,
+            "last_update_at": self.last_update_at,
+            "last_update_error": self.last_update_error,
         })
     }
 }

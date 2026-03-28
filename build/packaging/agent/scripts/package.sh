@@ -34,6 +34,7 @@ cd serviceradar-agent-build
 # Create package directory structure (Debian paths)
 mkdir -p DEBIAN
 mkdir -p usr/local/bin
+mkdir -p usr/local/lib/serviceradar/agent
 mkdir -p etc/serviceradar/checkers
 mkdir -p lib/systemd/system
 
@@ -41,7 +42,9 @@ echo "Building Go binary..."
 
 # Build Go binaries
 cd "${BASE_DIR}/go/cmd/agent"
-GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-agent-build/usr/local/bin/serviceradar-agent"
+GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-agent-build/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"
+cd "${BASE_DIR}/go/cmd/agent-updater"
+GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-agent-build/usr/local/bin/serviceradar-agent-updater"
 cd "${BASE_DIR}/go/cmd/cli"
 GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-agent-build/usr/local/bin/serviceradar-cli"
 cd "${BASE_DIR}"
@@ -75,6 +78,15 @@ if [ -f "$SERVICE_SRC" ]; then
     echo "Copied serviceradar-agent.service from $SERVICE_SRC"
 else
     echo "Error: serviceradar-agent.service not found at $SERVICE_SRC"
+    exit 1
+fi
+
+LAUNCHER_SRC="${PACKAGING_DIR}/agent/bin/serviceradar-agent"
+if [ -f "$LAUNCHER_SRC" ]; then
+    cp "$LAUNCHER_SRC" usr/local/bin/serviceradar-agent
+    chmod 755 usr/local/bin/serviceradar-agent
+else
+    echo "Error: launcher script not found at $LAUNCHER_SRC"
     exit 1
 fi
 

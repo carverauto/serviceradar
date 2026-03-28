@@ -50,6 +50,9 @@ spec:
         - name: grpc
           containerPort: {{ default 50052 $gateway.service.port }}
           protocol: TCP
+        - name: artifacts
+          containerPort: {{ default 50053 $gateway.service.artifactPort }}
+          protocol: TCP
         env:
         - name: ELIXIR_ERL_OPTIONS
           value: "+fnu"
@@ -61,6 +64,8 @@ spec:
           value: {{ default "default" $gateway.domain | quote }}
         - name: GATEWAY_GRPC_PORT
           value: {{ default 50052 $gateway.service.port | quote }}
+        - name: GATEWAY_ARTIFACT_PORT
+          value: {{ default 50053 $gateway.service.artifactPort | quote }}
         - name: GATEWAY_CAPABILITIES
           value: {{ default "icmp,tcp,http,grpc" $gateway.capabilities | quote }}
         - name: CLUSTER_ENABLED
@@ -170,6 +175,12 @@ spec:
     {{- with $gateway.service.nodePort }}
     nodePort: {{ . }}
     {{- end }}
+  - name: artifacts
+    port: {{ default 50053 $gateway.service.artifactPort }}
+    targetPort: artifacts
+    {{- with $gateway.service.artifactNodePort }}
+    nodePort: {{ . }}
+    {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -186,4 +197,7 @@ spec:
   - name: grpc
     port: {{ default 50052 $gateway.service.port }}
     targetPort: grpc
+  - name: artifacts
+    port: {{ default 50053 $gateway.service.artifactPort }}
+    targetPort: artifacts
 {{- end }}

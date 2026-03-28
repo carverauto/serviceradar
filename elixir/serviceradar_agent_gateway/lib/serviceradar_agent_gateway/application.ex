@@ -83,6 +83,7 @@ defmodule ServiceRadarAgentGateway.Application do
     # Gateway gRPC server configuration
     grpc_port = get_grpc_port()
     grpc_ssl_opts = get_grpc_ssl_opts()
+    artifact_server_opts = get_artifact_server_opts()
 
     capabilities = parse_capabilities(System.get_env("GATEWAY_CAPABILITIES", ""))
 
@@ -98,6 +99,7 @@ defmodule ServiceRadarAgentGateway.Application do
 
     Logger.info("Starting ServiceRadar Agent Gateway: #{gateway_id}, domain: #{domain}")
     Logger.info("Agent Gateway gRPC server listening on port #{grpc_port}")
+    Logger.info("Agent Gateway artifact server listening on port #{artifact_server_opts[:port]}")
 
     # NOTE: Gateway does NOT start Repo - it has no database access.
     # All database-dependent operations are forwarded to core-elx via RPC.
@@ -140,7 +142,8 @@ defmodule ServiceRadarAgentGateway.Application do
          endpoint: ServiceRadarAgentGateway.Endpoint,
          port: grpc_port,
          start_server: true,
-         adapter_opts: build_adapter_opts(grpc_ssl_opts)}
+         adapter_opts: build_adapter_opts(grpc_ssl_opts)},
+        ServiceRadarAgentGateway.ReleaseArtifactServer.child_spec(artifact_server_opts)
 
         # NOTE: Legacy polling modules (AgentClient, TaskExecutor) have been deleted.
         # In the new push-only architecture, agents push status to the gateway.
@@ -168,10 +171,42 @@ defmodule ServiceRadarAgentGateway.Application do
 
   defp get_grpc_ssl_opts do
     # Agent gateway serves edge gRPC using deployment-issued mTLS certificates.
-    get_mounted_ssl_opts()
+    ssl_opts = get_mounted_ssl_server_opts()
+    if ssl_opts, do: GRPC.Credential.new(ssl: ssl_opts)
   end
 
-  defp get_mounted_ssl_opts do
+  defp get_artifact_server_opts do
+    ssl_opts = get_mounted_ssl_server_opts()
+
+    base = [port: get_artifact_port()]
+
+    if ssl_opts do
+      base ++
+        [
+          scheme: :https,
+          certfile: Keyword.fetch!(ssl_opts, :certfile),
+          keyfile: Keyword.fetch!(ssl_opts, :keyfile),
+          cacertfile: Keyword.fetch!(ssl_opts, :cacertfile)
+        ]
+    else
+      base ++ [scheme: :http]
+    end
+  end
+
+  defp get_artifact_port do
+    port_str = System.get_env("GATEWAY_ARTIFACT_PORT", "50053")
+
+    case Integer.parse(port_str) do
+      {port, ""} when port > 0 and port < 65_536 ->
+        port
+
+      _ ->
+        Logger.warning("Invalid GATEWAY_ARTIFACT_PORT=#{inspect(port_str)}; defaulting to 50053")
+        50_053
+    end
+  end
+
+  defp get_mounted_ssl_server_opts do
     cert_dir = System.get_env("GATEWAY_CERT_DIR", "/etc/serviceradar/certs")
     cert_file = Path.join(cert_dir, "gateway.pem")
     key_file = Path.join(cert_dir, "gateway-key.pem")
@@ -186,8 +221,8 @@ defmodule ServiceRadarAgentGateway.Application do
         fail_if_no_peer_cert: true
       ]
 
-      Logger.info("Using mounted mTLS certs for agent gateway gRPC server: #{cert_file}")
-      GRPC.Credential.new(ssl: ssl_opts)
+      Logger.info("Using mounted mTLS certs for agent gateway servers: #{cert_file}")
+      ssl_opts
     else
       # Fail closed by default - require explicit opt-in for insecure connections
       allow_insecure? =
@@ -195,11 +230,13 @@ defmodule ServiceRadarAgentGateway.Application do
           System.get_env("GATEWAY_ALLOW_INSECURE_GRPC", "false") == "true"
 
       if allow_insecure? do
-        Logger.warning("No mTLS certs available; GATEWAY_ALLOW_INSECURE_GRPC=true so starting insecure gRPC (DEV ONLY)")
+        Logger.warning(
+          "No mTLS certs available; GATEWAY_ALLOW_INSECURE_GRPC=true so starting insecure gRPC/artifact servers (DEV ONLY)"
+        )
 
         nil
       else
-        raise "No mTLS certs available for agent gateway gRPC server (set GATEWAY_ALLOW_INSECURE_GRPC=true to override for local dev)"
+        raise "No mTLS certs available for agent gateway servers (set GATEWAY_ALLOW_INSECURE_GRPC=true to override for local dev)"
       end
     end
   end

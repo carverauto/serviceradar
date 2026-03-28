@@ -20,6 +20,9 @@ defmodule ServiceRadar.Edge do
   - `ServiceRadar.Edge.EdgeSite` - Edge deployment locations
   - `ServiceRadar.Edge.NatsLeafServer` - NATS leaf server configurations
   - `ServiceRadar.Edge.AgentCommand` - On-demand agent command lifecycle records
+  - `ServiceRadar.Edge.AgentRelease` - Published agent release catalog
+  - `ServiceRadar.Edge.AgentReleaseRollout` - Desired-version rollout plans
+  - `ServiceRadar.Edge.AgentReleaseTarget` - Per-agent rollout state
 
   ## Package State Machine
 
@@ -49,6 +52,9 @@ defmodule ServiceRadar.Edge do
     resource ServiceRadar.Edge.EdgeSite
     resource ServiceRadar.Edge.NatsLeafServer
     resource ServiceRadar.Edge.AgentCommand
+    resource ServiceRadar.Edge.AgentRelease
+    resource ServiceRadar.Edge.AgentReleaseRollout
+    resource ServiceRadar.Edge.AgentReleaseTarget
   end
 
   authorization do
