@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.6
+
+Agent fleet self-update management, gateway-served rollout delivery, and import-ready release assets for operator-driven upgrades.
+
+## Whats New
+
+**1.2.6**
+- Added agent fleet release management with signed self-update, staged rollout controls, automatic rollback, and gateway-served artifact delivery through `agent-gateway`.
+- Added the releases operator workflow with recent GitHub/Forgejo release browsing, one-click repository import, manual developer publish flow, compatibility preview, and rollout diagnostics.
+- Updated the GitHub release pipeline to publish the managed agent runtime archive plus `serviceradar-agent-release-manifest.json` and `serviceradar-agent-release-manifest.sig` so repository imports are ready without manual asset backfill.
+
 # ServiceRadar v1.2.5
 
 Juniper SNMP classification fixes and stale enrichment metadata cleanup for mapper-ingested devices.
