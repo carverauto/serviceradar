@@ -272,6 +272,9 @@ func resolveAgentOverridesPath(path string) string {
 
 func extractEnvOverrides(content []byte) map[string]string {
 	updates := make(map[string]string)
+	allowedKeys := map[string]struct{}{
+		releasePublicKeyEnv: {},
+	}
 
 	for _, line := range strings.Split(string(content), "\n") {
 		line = strings.TrimSpace(line)
@@ -287,6 +290,10 @@ func extractEnvOverrides(content []byte) map[string]string {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 		if key == "" {
+			continue
+		}
+
+		if _, allowed := allowedKeys[key]; !allowed {
 			continue
 		}
 

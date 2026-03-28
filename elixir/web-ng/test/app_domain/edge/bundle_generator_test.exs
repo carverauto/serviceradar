@@ -217,23 +217,14 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       agent_package: package,
       agent_join_token: join_token
     } do
-      existing = Application.get_env(:serviceradar_web_ng, :agent_release_public_key)
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          agent_release_public_key: "dLbXN6ouezVOgWJhOPoGTm1moz8MuxDcPmX5RdjM0Ns="
+        )
 
-      Application.put_env(
-        :serviceradar_web_ng,
-        :agent_release_public_key,
-        "dLbXN6ouezVOgWJhOPoGTm1moz8MuxDcPmX5RdjM0Ns="
-      )
-
-      on_exit(fn ->
-        if is_nil(existing) do
-          Application.delete_env(:serviceradar_web_ng, :agent_release_public_key)
-        else
-          Application.put_env(:serviceradar_web_ng, :agent_release_public_key, existing)
-        end
-      end)
-
-      {:ok, tarball} = BundleGenerator.create_tarball(package, "", join_token)
       {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
 
       {_, overrides} =
@@ -257,17 +248,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       agent_package: package,
       agent_join_token: join_token
     } do
-      existing = Application.get_env(:serviceradar_web_ng, :agent_release_public_key)
-      Application.delete_env(:serviceradar_web_ng, :agent_release_public_key)
-
-      on_exit(fn ->
-        if is_nil(existing) do
-          Application.delete_env(:serviceradar_web_ng, :agent_release_public_key)
-        else
-          Application.put_env(:serviceradar_web_ng, :agent_release_public_key, existing)
-        end
-      end)
-
       {:ok, tarball} = BundleGenerator.create_tarball(package, "", join_token)
       {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
 
