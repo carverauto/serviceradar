@@ -1,5 +1,5 @@
 defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
-  use ServiceRadarWebNGWeb.ConnCase, async: true
+  use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
   import Ash.Expr
@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseRollout
   alias ServiceRadar.Edge.AgentReleaseTarget
+  alias ServiceRadar.Edge.ReleaseManifestValidator
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
@@ -17,6 +18,77 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
   @release_public_key "ot8W1BsqSvXV7KEjLL+RkQz106lzcIJNCY91OXSqBpk="
   @release_private_key "kRqU4UnTUPjychwJGH4ZdsuijaxuGUNFPezyY+iSnBY="
+
+  defmodule ReleaseImportClient do
+    @moduledoc false
+    @release_private_key "kRqU4UnTUPjychwJGH4ZdsuijaxuGUNFPezyY+iSnBY="
+
+    def get(url, _opts) do
+      cond do
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v7.0.0") ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: %{
+               "tag_name" => "v7.0.0",
+               "name" => "ServiceRadar 7.0.0",
+               "body" => "Imported release notes",
+               "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v7.0.0",
+               "assets" => [
+                 %{
+                   "name" => "serviceradar-agent-release-manifest.json",
+                   "browser_download_url" => "https://downloads.example/releases/v7.0.0/manifest.json"
+                 },
+                 %{
+                   "name" => "serviceradar-agent-release-manifest.sig",
+                   "browser_download_url" => "https://downloads.example/releases/v7.0.0/manifest.sig"
+                 }
+               ]
+             }
+           }}
+
+        String.ends_with?(url, "/manifest.json") ->
+          manifest = release_manifest("7.0.0")
+          {:ok, %Req.Response{status: 200, body: Jason.encode!(manifest)}}
+
+        String.ends_with?(url, "/manifest.sig") ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: "7.0.0" |> release_manifest() |> sign_manifest() |> Kernel.<>("\n")
+           }}
+
+        true ->
+          {:ok, %Req.Response{status: 404, body: ""}}
+      end
+    end
+
+    defp release_manifest(version) do
+      %{
+        "version" => version,
+        "artifacts" => [
+          %{
+            "os" => "linux",
+            "arch" => "amd64",
+            "format" => "tar.gz",
+            "entrypoint" => "serviceradar-agent",
+            "url" =>
+              "https://github.com/carverauto/serviceradar/releases/download/v#{version}/serviceradar-agent-linux-amd64.tar.gz",
+            "sha256" => String.duplicate("a", 64)
+          }
+        ]
+      }
+    end
+
+    defp sign_manifest(manifest) do
+      {:ok, payload} = ReleaseManifestValidator.canonical_json(manifest)
+      private_key = Base.decode64!(@release_private_key)
+
+      :eddsa
+      |> :crypto.sign(:none, payload, [private_key, :ed25519])
+      |> Base.encode64()
+    end
+  end
 
   setup :register_and_log_in_admin_user
 
@@ -29,6 +101,20 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
         Application.delete_env(:serviceradar_core, :agent_release_public_key)
       else
         Application.put_env(:serviceradar_core, :agent_release_public_key, previous)
+      end
+    end)
+
+    :ok
+  end
+
+  setup do
+    original_client = Application.get_env(:serviceradar_web_ng, :agent_release_import_http_client)
+
+    on_exit(fn ->
+      if is_nil(original_client) do
+        Application.delete_env(:serviceradar_web_ng, :agent_release_import_http_client)
+      else
+        Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, original_client)
       end
     end)
 
@@ -110,6 +196,37 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     assert release.version == version
     assert release.signature == signature
+  end
+
+  test "imports and publishes a release from a repository release", %{conn: conn, scope: scope} do
+    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, ReleaseImportClient)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
+
+    lv
+    |> form("#import-release-form", %{
+      "release_import" => %{
+        "provider" => "github",
+        "repo_url" => "https://github.com/carverauto/serviceradar",
+        "release_tag" => "v7.0.0",
+        "manifest_asset_name" => "serviceradar-agent-release-manifest.json",
+        "signature_asset_name" => "serviceradar-agent-release-manifest.sig"
+      }
+    })
+    |> render_submit()
+
+    assert render(lv) =~ "Imported and published agent release 7.0.0 from GitHub Releases"
+    assert render(lv) =~ "GitHub Releases"
+    assert render(lv) =~ "carverauto/serviceradar"
+
+    release =
+      AgentRelease
+      |> Ash.Query.for_read(:by_version, %{version: "7.0.0"})
+      |> Ash.read_one!(scope: scope)
+
+    assert release.release_notes == "Imported release notes"
+    assert get_in(release.metadata, ["source", "provider"]) == "github"
+    assert get_in(release.metadata, ["source", "release_tag"]) == "v7.0.0"
   end
 
   test "shows rollout compatibility preview for the connected cohort", %{conn: conn, scope: scope} do
@@ -621,7 +738,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
   end
 
   defp sign_manifest(manifest) do
-    {:ok, payload} = ServiceRadar.Edge.ReleaseManifestValidator.canonical_json(manifest)
+    {:ok, payload} = ReleaseManifestValidator.canonical_json(manifest)
     private_key = Base.decode64!(@release_private_key)
 
     :eddsa

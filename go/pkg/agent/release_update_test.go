@@ -163,7 +163,7 @@ func TestStageAgentReleaseRejectsArtifactPlatformMismatch(t *testing.T) {
 	}
 }
 
-func TestStageAgentReleaseRejectsRedirects(t *testing.T) {
+func TestStageAgentReleaseAllowsHTTPSRedirects(t *testing.T) {
 	binaryData := []byte("binary")
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -188,8 +188,36 @@ func TestStageAgentReleaseRejectsRedirects(t *testing.T) {
 		RuntimeRoot: t.TempDir(),
 		HTTPClient:  server.Client(),
 	})
-	if !errors.Is(err, errReleaseRedirectBlocked) {
-		t.Fatalf("expected errReleaseRedirectBlocked, got %v", err)
+	if err != nil {
+		t.Fatalf("expected redirecting download to succeed, got %v", err)
+	}
+}
+
+func TestStageAgentReleaseRejectsRedirectToHTTP(t *testing.T) {
+	binaryData := []byte("binary")
+	insecureServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(binaryData))
+	}))
+	defer insecureServer.Close()
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, insecureServer.URL+"/artifact", http.StatusFound)
+	}))
+	defer server.Close()
+
+	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+		URL:    server.URL,
+		SHA256: digestHex(binaryData),
+		OS:     runtime.GOOS,
+		Arch:   runtime.GOARCH,
+	})
+
+	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+	})
+	if !errors.Is(err, errReleaseRedirectInsecure) {
+		t.Fatalf("expected errReleaseRedirectInsecure, got %v", err)
 	}
 }
 

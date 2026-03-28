@@ -19,13 +19,15 @@ Before using release management in production:
 - Ensure every managed agent has the trusted Ed25519 public key configured through `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` or a build-time `ReleaseSigningPublicKey` injection.
 - Publish artifacts over HTTPS.
 - Include per-platform artifact metadata in the release manifest, including `os`, `arch`, `url`, `sha256`, and optional `format` and `entrypoint`.
+- If repository-hosted release assets redirect to object storage or a CDN, keep the redirect chain on HTTPS. Agents allow secure HTTPS redirects for release downloads, but still reject insecure redirects and digest/signature mismatches.
 
 ## Publish A Release
 
 Use the authenticated release-management page:
 
 - Open `/settings/agents/releases`.
-- Enter the semantic version, release notes, manifest signature, artifact URL, SHA256 digest, OS, architecture, and artifact format.
+- For production releases, prefer `Import Repository Release` and point it at the repo-hosted release tag plus the signed manifest asset and signature asset names.
+- For developer and local validation workflows, keep using `Publish Release Manually` and enter the semantic version, release notes, manifest signature, artifact URL, SHA256 digest, OS, architecture, and artifact format directly.
 - Publish the release.
 
 The control plane stores:
@@ -35,6 +37,13 @@ The control plane stores:
 - rollout eligibility metadata for supported agent platforms.
 
 The current implementation expects the manifest signature field to contain the Ed25519 signature for the canonical manifest JSON. The agent verifies that signature before staging any artifact.
+
+Recommended repository-release asset convention:
+
+- `serviceradar-agent-release-manifest.json`
+- `serviceradar-agent-release-manifest.sig`
+
+The manifest asset should contain the full multi-platform release manifest, including the final artifact URLs, SHA256 digests, platform metadata, and optional `format` / `entrypoint` fields.
 
 ## Signing Key Handling
 

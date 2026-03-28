@@ -71,7 +71,8 @@ var (
 	errReleaseArtifactNotSigned       = errors.New("release artifact is not present in the signed manifest")
 	errReleaseArtifactURLInvalid      = errors.New("release artifact url must use https")
 	errReleaseArtifactPlatformInvalid = errors.New("release artifact platform does not match this agent")
-	errReleaseRedirectBlocked         = errors.New("release artifact redirects are not allowed")
+	errReleaseRedirectInsecure        = errors.New("release artifact redirects must use https")
+	errReleaseRedirectLimitExceeded   = errors.New("release artifact redirect limit exceeded")
 )
 
 // ReleaseSigningPublicKey is set at build time for managed release verification.
@@ -599,9 +600,7 @@ func downloadReleaseArtifact(ctx context.Context, client *http.Client, rawURL st
 		httpClient = &http.Client{Timeout: 5 * time.Minute}
 	}
 	clientCopy := *httpClient
-	clientCopy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
-		return errReleaseRedirectBlocked
-	}
+	clientCopy.CheckRedirect = validateReleaseRedirect
 	httpClient = &clientCopy
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
@@ -630,4 +629,14 @@ func downloadReleaseArtifact(ctx context.Context, client *http.Client, rawURL st
 		return nil, fmt.Errorf("%w: %d bytes", errDownloadTooLarge, releaseArtifactMaxBytes)
 	}
 	return data, nil
+}
+
+func validateReleaseRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return errReleaseRedirectLimitExceeded
+	}
+	if req == nil || req.URL == nil || !strings.EqualFold(req.URL.Scheme, "https") {
+		return errReleaseRedirectInsecure
+	}
+	return nil
 }

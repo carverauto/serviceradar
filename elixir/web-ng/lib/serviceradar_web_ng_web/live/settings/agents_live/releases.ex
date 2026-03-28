@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   alias ServiceRadar.Edge.AgentReleaseRollout
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadarWebNG.Edge.ReleaseSourceImporter
   alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
@@ -45,6 +46,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
        |> assign(:current_path, "/settings/agents/releases")
        |> assign(:artifact_formats, @artifact_formats)
        |> assign(:cohort_options, @cohort_options)
+       |> assign(:release_import_provider_options, ReleaseSourceImporter.provider_options())
+       |> assign(:release_import_form, release_import_form())
        |> assign(:release_form, release_form())
        |> assign(:rollout_form, rollout_form())
        |> assign(:releases, [])
@@ -104,6 +107,29 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
          socket
          |> put_flash(:error, "Publish failed: #{format_error(reason)}")
          |> assign(:release_form, release_form(params))}
+    end
+  end
+
+  def handle_event("import_repo_release", %{"release_import" => params}, socket) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, provider} <- selected_import_provider(params),
+         {:ok, attrs} <- ReleaseSourceImporter.import(params),
+         {:ok, _release} <- AgentReleaseManager.publish_release(attrs, scope: scope) do
+      {:noreply,
+       socket
+       |> put_flash(
+         :info,
+         "Imported and published agent release #{attrs.version} from #{release_provider_label(provider)}"
+       )
+       |> load_page_data()
+       |> assign(:release_import_form, release_import_form())}
+    else
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Import failed: #{format_error(reason)}")
+         |> assign(:release_import_form, release_import_form(params))}
     end
   end
 
@@ -404,74 +430,144 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
           </div>
 
           <div class="grid gap-6 xl:grid-cols-2">
-            <.ui_panel>
-              <:header>
-                <div class="text-sm font-semibold">Publish Release</div>
-              </:header>
-              <div class="p-6">
-                <.form
-                  for={@release_form}
-                  id="publish-release-form"
-                  phx-submit="publish_release"
-                  class="space-y-4"
-                >
-                  <div class="grid gap-4 md:grid-cols-2">
-                    <.input
-                      field={@release_form[:version]}
-                      label="Version"
-                      placeholder="1.2.3"
-                      required
-                    />
-                    <.input
-                      field={@release_form[:signature]}
-                      label="Manifest Signature"
-                      placeholder="base64 or hex Ed25519 signature"
-                      required
-                    />
-                    <.input
-                      field={@release_form[:artifact_url]}
-                      label="Artifact URL"
-                      placeholder="https://releases.example/serviceradar-agent.tar.gz"
-                      class="md:col-span-2"
-                      required
-                    />
-                    <.input
-                      field={@release_form[:artifact_sha256]}
-                      label="Artifact SHA256"
-                      placeholder="64-char sha256 digest"
-                      class="md:col-span-2"
-                      required
-                    />
-                    <.input
-                      field={@release_form[:artifact_format]}
-                      type="select"
-                      label="Artifact Format"
-                      options={@artifact_formats}
-                    />
-                    <.input
-                      field={@release_form[:entrypoint]}
-                      label="Entrypoint"
-                      placeholder="serviceradar-agent"
-                    />
-                    <.input field={@release_form[:os]} label="OS" placeholder="linux" />
-                    <.input field={@release_form[:arch]} label="Arch" placeholder="amd64" />
-                  </div>
+            <div class="space-y-6">
+              <.ui_panel>
+                <:header>
+                  <div class="text-sm font-semibold">Import Repository Release</div>
+                </:header>
+                <div class="p-6 space-y-4">
+                  <p class="text-sm text-base-content/70">
+                    Use the repo release as the source of truth for production rollouts. The
+                    release must include a signed manifest asset and signature asset so ServiceRadar
+                    can publish the catalog entry directly.
+                  </p>
 
-                  <.input
-                    field={@release_form[:release_notes]}
-                    type="textarea"
-                    label="Release Notes"
-                    placeholder="What changed in this build?"
-                  />
+                  <.form
+                    for={@release_import_form}
+                    id="import-release-form"
+                    phx-submit="import_repo_release"
+                    class="space-y-4"
+                  >
+                    <div class="grid gap-4 md:grid-cols-2">
+                      <.input
+                        field={@release_import_form[:provider]}
+                        type="select"
+                        label="Release Provider"
+                        options={@release_import_provider_options}
+                      />
+                      <.input
+                        field={@release_import_form[:release_tag]}
+                        label="Release Tag"
+                        placeholder="v1.2.3"
+                        required
+                      />
+                      <.input
+                        field={@release_import_form[:repo_url]}
+                        label="Repository URL"
+                        placeholder="https://github.com/carverauto/serviceradar"
+                        class="md:col-span-2"
+                        required
+                      />
+                      <.input
+                        field={@release_import_form[:manifest_asset_name]}
+                        label="Manifest Asset"
+                        placeholder="serviceradar-agent-release-manifest.json"
+                      />
+                      <.input
+                        field={@release_import_form[:signature_asset_name]}
+                        label="Signature Asset"
+                        placeholder="serviceradar-agent-release-manifest.sig"
+                      />
+                    </div>
 
-                  <div class="flex justify-end">
-                    <.ui_button type="submit" variant="primary" size="sm">
-                      <.icon name="hero-arrow-up-tray" class="size-4" /> Publish Release
-                    </.ui_button>
-                  </div>
-                </.form>
-              </div>
-            </.ui_panel>
+                    <div class="rounded-lg bg-base-200/40 px-4 py-3 text-xs text-base-content/70">
+                      Keep the manual publish path below for local development and one-off testing
+                      when you do not want to push a signed release through the repo host.
+                    </div>
+
+                    <div class="flex justify-end">
+                      <.ui_button type="submit" variant="primary" size="sm">
+                        <.icon name="hero-arrow-down-tray" class="size-4" /> Import And Publish
+                      </.ui_button>
+                    </div>
+                  </.form>
+                </div>
+              </.ui_panel>
+
+              <.ui_panel>
+                <:header>
+                  <div class="text-sm font-semibold">Publish Release Manually</div>
+                </:header>
+                <div class="p-6 space-y-4">
+                  <p class="text-sm text-base-content/70">
+                    Manual publish stays available for developer testing, local builds, and
+                    release-pipeline debugging.
+                  </p>
+
+                  <.form
+                    for={@release_form}
+                    id="publish-release-form"
+                    phx-submit="publish_release"
+                    class="space-y-4"
+                  >
+                    <div class="grid gap-4 md:grid-cols-2">
+                      <.input
+                        field={@release_form[:version]}
+                        label="Version"
+                        placeholder="1.2.3"
+                        required
+                      />
+                      <.input
+                        field={@release_form[:signature]}
+                        label="Manifest Signature"
+                        placeholder="base64 or hex Ed25519 signature"
+                        required
+                      />
+                      <.input
+                        field={@release_form[:artifact_url]}
+                        label="Artifact URL"
+                        placeholder="https://releases.example/serviceradar-agent.tar.gz"
+                        class="md:col-span-2"
+                        required
+                      />
+                      <.input
+                        field={@release_form[:artifact_sha256]}
+                        label="Artifact SHA256"
+                        placeholder="64-char sha256 digest"
+                        class="md:col-span-2"
+                        required
+                      />
+                      <.input
+                        field={@release_form[:artifact_format]}
+                        type="select"
+                        label="Artifact Format"
+                        options={@artifact_formats}
+                      />
+                      <.input
+                        field={@release_form[:entrypoint]}
+                        label="Entrypoint"
+                        placeholder="serviceradar-agent"
+                      />
+                      <.input field={@release_form[:os]} label="OS" placeholder="linux" />
+                      <.input field={@release_form[:arch]} label="Arch" placeholder="amd64" />
+                    </div>
+
+                    <.input
+                      field={@release_form[:release_notes]}
+                      type="textarea"
+                      label="Release Notes"
+                      placeholder="What changed in this build?"
+                    />
+
+                    <div class="flex justify-end">
+                      <.ui_button type="submit" variant="primary" size="sm">
+                        <.icon name="hero-arrow-up-tray" class="size-4" /> Publish Release
+                      </.ui_button>
+                    </div>
+                  </.form>
+                </div>
+              </.ui_panel>
+            </div>
 
             <.ui_panel>
               <:header>
@@ -667,9 +763,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                       <% platforms = artifact_platforms(release.manifest) %>
                       <tr>
                         <td class="font-mono text-xs">
-                          <div class="flex items-center gap-2">
-                            <span>{release.version}</span>
-                            <span :if={index == 0} class="badge badge-success badge-xs">Latest</span>
+                          <div class="flex flex-col gap-1">
+                            <div class="flex items-center gap-2">
+                              <span>{release.version}</span>
+                              <span :if={index == 0} class="badge badge-success badge-xs">
+                                Latest
+                              </span>
+                            </div>
+                            <span
+                              :if={release_source_summary(release) not in [nil, ""]}
+                              class="text-[11px] text-base-content/50"
+                            >
+                              {release_source_summary(release)}
+                            </span>
                           </div>
                         </td>
                         <td class="font-mono text-xs">
@@ -912,6 +1018,29 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     )
   end
 
+  defp release_import_form(params \\ %{}) do
+    to_form(
+      %{
+        "provider" => Map.get(params, "provider", "github"),
+        "repo_url" => Map.get(params, "repo_url", "https://github.com/carverauto/serviceradar"),
+        "release_tag" => Map.get(params, "release_tag", ""),
+        "manifest_asset_name" =>
+          Map.get(
+            params,
+            "manifest_asset_name",
+            ReleaseSourceImporter.default_manifest_asset_name()
+          ),
+        "signature_asset_name" =>
+          Map.get(
+            params,
+            "signature_asset_name",
+            ReleaseSourceImporter.default_signature_asset_name()
+          )
+      },
+      as: :release_import
+    )
+  end
+
   defp rollout_form(params \\ %{}, releases \\ []) do
     default_version =
       Map.get(params, "version") ||
@@ -944,6 +1073,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   end
 
   defp normalize_rollout_form(_other, releases), do: rollout_form(%{}, releases)
+
+  defp selected_import_provider(params) when is_map(params) do
+    case Map.get(params, "provider") || Map.get(params, :provider) do
+      provider when provider in ["github", "forgejo"] -> {:ok, provider}
+      _ -> {:error, "Select a supported release provider"}
+    end
+  end
+
+  defp selected_import_provider(_params), do: {:error, "Select a supported release provider"}
 
   defp rollout_prefill_params(params) when is_map(params) do
     compact_map(%{
@@ -1169,6 +1307,28 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp rollout_preview_scope_text(%{cohort: "custom"}), do: "Current custom cohort"
   defp rollout_preview_scope_text(_preview), do: "Current connected cohort"
 
+  defp release_provider_label("github"), do: "GitHub Releases"
+  defp release_provider_label("forgejo"), do: "Forgejo Releases"
+  defp release_provider_label(_provider), do: "repository releases"
+
+  defp release_source_summary(%{metadata: %{"source" => %{} = source}}) do
+    provider =
+      source
+      |> Map.get("provider")
+      |> release_provider_label()
+
+    repo_url = present_text(Map.get(source, "repo_url"))
+    release_tag = present_text(Map.get(source, "release_tag"))
+    repo_label = repo_url && repo_name_from_url(repo_url)
+
+    [provider, repo_label, release_tag]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" · ")
+    |> presence()
+  end
+
+  defp release_source_summary(_release), do: nil
+
   defp release_options(releases) do
     Enum.map(releases, fn release -> {release.version, release.version} end)
   end
@@ -1311,6 +1471,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   end
 
   defp present_text(_value), do: nil
+
+  defp repo_name_from_url(url) when is_binary(url) do
+    case url |> URI.parse() |> Map.get(:path) do
+      path when is_binary(path) ->
+        path
+        |> String.split("/", trim: true)
+        |> Enum.take(2)
+        |> case do
+          [owner, repo] -> "#{owner}/#{String.trim_trailing(repo, ".git")}"
+          _ -> url
+        end
+
+      _ ->
+        url
+    end
+  end
 
   defp maybe_refresh_for_release_command(socket, data) do
     if release_command_event?(data), do: schedule_refresh(socket), else: socket

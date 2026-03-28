@@ -15,6 +15,7 @@ At a fleet size of thousands of edge nodes, manual RPM/DEB upgrades do not scale
 - Extend agent connectivity so reconnecting agents reconcile against stored desired version and receive pending update instructions over the existing control stream when eligible.
 - Extend agent inventory surfaces to expose current version, desired version, rollout state, last update result, and rollout filters for operators.
 - Extend operator workflows so inventory and agent-detail views can hand off explicit rollout cohorts into release management, while the releases page exposes supported platform coverage, preflight compatibility preview, disabled invalid submissions, creation-time cohort validation, and per-target diagnostics for rollout failures.
+- Extend operator workflows so the releases page can import signed release metadata directly from repository-hosted release assets, while keeping the manual publish path available for developer and local test workflows.
 - Define a release verification contract using HTTPS artifact download, SHA256 digest validation, and Ed25519-signed manifests verified by the agent.
 - Define a separate updater handoff that preserves RPM/DEB ownership of installed package assets while ServiceRadar manages versioned runtime payloads outside the package manager database.
 

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Signed agent release catalog
-The system SHALL maintain a catalog of publishable agent releases. Each release entry SHALL include signed manifest metadata for every supported platform/package artifact, including version, artifact URL, SHA256 digest, supported platform metadata, and publication timestamp. The control plane SHALL reject incomplete or unsigned release metadata for rollout use.
+The system SHALL maintain a catalog of publishable agent releases. Each release entry SHALL include signed manifest metadata for every supported platform/package artifact, including version, artifact URL, SHA256 digest, supported platform metadata, and publication timestamp. Operators SHALL be able to publish release metadata either manually or by importing signed manifest assets from a repository-hosted release. The control plane SHALL reject incomplete or unsigned release metadata for rollout use.
 
 #### Scenario: Publish a signed release
 - **GIVEN** an operator publishes agent version `v1.2.3` with a complete manifest and valid Ed25519 signature
@@ -14,6 +14,12 @@ The system SHALL maintain a catalog of publishable agent releases. Each release 
 - **WHEN** the control plane validates the release metadata
 - **THEN** the release is rejected
 - **AND** it cannot be selected as a desired version
+
+#### Scenario: Import a signed repository release
+- **GIVEN** a repository-hosted release exposes a signed manifest asset and matching signature asset for version `v1.2.3`
+- **WHEN** an operator imports that release from the release-management UI
+- **THEN** the control plane fetches the manifest assets, validates the signature, and stores the release as eligible for rollout targeting
+- **AND** the imported release retains source metadata identifying the repository release it came from
 
 ### Requirement: Desired-version rollouts are cohort-based and staged
 The system SHALL allow operators to assign a desired agent version to a cohort of agents. Rollouts SHALL support explicit cohort selection, batch limits, inter-batch delays, and pause/resume/cancel controls. Cohort membership SHALL be snapshotted when the rollout starts.
@@ -47,7 +53,7 @@ The system SHALL reconcile desired version against each agent's reported current
 - **AND** the gateway delivers the pending update instruction if the target is still eligible
 
 ### Requirement: Agents verify release provenance before activation
-Agents SHALL download release artifacts over HTTPS and SHALL verify both the Ed25519-signed manifest and the artifact SHA256 digest before staging or activating a new version. Agents SHALL reject releases that fail either check.
+Agents SHALL download release artifacts over HTTPS and SHALL verify both the Ed25519-signed manifest and the artifact SHA256 digest before staging or activating a new version. Agents SHALL allow HTTPS redirect chains when downloading release artifacts from repository-hosted release infrastructure, but SHALL reject redirects that downgrade transport security. Agents SHALL reject releases that fail either check.
 
 #### Scenario: Agent accepts a valid signed release
 - **GIVEN** the agent receives an update instruction for a release with a valid manifest signature
@@ -61,6 +67,12 @@ Agents SHALL download release artifacts over HTTPS and SHALL verify both the Ed2
 - **WHEN** the agent performs verification
 - **THEN** the agent rejects the update
 - **AND** the rollout target transitions to a failed state with a verification error
+
+#### Scenario: Agent follows a secure repository redirect
+- **GIVEN** the agent receives a release artifact URL that redirects over HTTPS to repository-backed object storage
+- **WHEN** the agent downloads the artifact
+- **THEN** the agent follows the HTTPS redirect chain
+- **AND** still verifies the Ed25519-signed manifest and artifact SHA256 digest before staging the release
 
 ### Requirement: Activation is atomic and rollback is automatic
 The system SHALL activate a staged agent release through a separate updater process that can atomically switch the active runtime payload and restart the service. If the updated agent fails to become healthy within the reconnect deadline, the updater SHALL restore the previous payload and restart the agent again.
