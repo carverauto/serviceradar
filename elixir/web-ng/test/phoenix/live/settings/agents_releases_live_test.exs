@@ -112,6 +112,59 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert release.signature == signature
   end
 
+  test "shows rollout compatibility preview for the connected cohort", %{conn: conn, scope: scope} do
+    version = "2.1.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+
+    for {agent_id, arch} <- [
+          {"agent-preview-compatible-#{System.unique_integer([:positive])}", "amd64"},
+          {"agent-preview-unsupported-#{System.unique_integer([:positive])}", "arm64"}
+        ] do
+      Agent
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: agent_id,
+          name: "Preview Agent #{arch}",
+          gateway_id: gateway.id,
+          version: "1.0.0",
+          type_id: 4,
+          type: "Performance",
+          capabilities: ["agent"],
+          metadata: %{"os" => "linux", "arch" => arch}
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+    end
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
+
+    assert html =~ "Compatibility Preview"
+    assert html =~ "Current connected cohort"
+    assert html =~ "2 selected"
+    assert html =~ "1 compatible"
+    assert html =~ "1 unsupported"
+    assert html =~ "Release Supports"
+    assert html =~ "linux/amd64"
+    assert html =~ "linux/arm64"
+    assert html =~ "Unsupported Targets"
+    assert html =~ "Rollout creation is blocked until the cohort matches the published release platforms."
+    assert has_element?(lv, "#create-rollout-form button[disabled]")
+  end
+
   test "creates a rollout for connected agents from the UI", %{conn: conn, scope: scope} do
     version = "3.0.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
@@ -146,6 +199,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       |> Ash.create!()
 
     {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
+
+    refute has_element?(lv, "#create-rollout-form button[disabled]")
 
     lv
     |> form("#create-rollout-form", %{
@@ -183,6 +238,67 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     assert target.status == :pending
     assert target.desired_version == version
+  end
+
+  test "updates rollout compatibility preview for custom cohorts with unresolved ids", %{conn: conn, scope: scope} do
+    version = "3.0.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+    agent_id = "agent-preview-custom-#{System.unique_integer([:positive])}"
+
+    Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{
+        uid: agent_id,
+        name: "Custom Preview Agent",
+        gateway_id: gateway.id,
+        version: "1.0.0",
+        type_id: 4,
+        type: "Performance",
+        capabilities: ["agent"],
+        metadata: %{"os" => "linux", "arch" => "amd64"}
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
+
+    html =
+      lv
+      |> form("#create-rollout-form", %{
+        "rollout" => %{
+          "version" => version,
+          "cohort" => "custom",
+          "batch_size" => "1",
+          "batch_delay_seconds" => "0",
+          "agent_ids" => "#{agent_id}\nmissing-agent-1",
+          "notes" => "preview"
+        }
+      })
+      |> render_change()
+
+    assert html =~ "Compatibility Preview"
+    assert html =~ "Current custom cohort"
+    assert html =~ "2 selected"
+    assert html =~ "1 compatible"
+    assert html =~ "1 unresolved"
+    assert html =~ "Unresolved Agent IDs"
+    assert html =~ "missing-agent-1"
+    assert html =~ "Rollout creation is blocked until unresolved agent IDs are corrected or removed."
+    assert has_element?(lv, "#create-rollout-form button[disabled]")
   end
 
   test "shows detailed rollout progress badges for per-agent states", %{conn: conn, scope: scope} do
@@ -320,7 +436,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert html =~ "verification failed"
   end
 
-  test "shows supported and target platform context for unsupported rollout targets", %{conn: conn, scope: scope} do
+  test "blocks rollout creation when the cohort includes unsupported platforms", %{conn: conn, scope: scope} do
     version = "3.3.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
 
@@ -353,24 +469,29 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
         }, actor: system_actor())
       |> Ash.create!()
 
-    {:ok, _rollout} =
-      AgentReleaseManager.create_rollout(
-        %{
-          version: version,
-          agent_ids: [agent_id],
-          batch_size: 1,
-          batch_delay_seconds: 0,
-          notes: "platform diagnostics"
-        },
-        scope: scope
-      )
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
 
-    {:ok, _lv, html} = live(conn, ~p"/settings/agents/releases")
+    html =
+      lv
+      |> form("#create-rollout-form", %{
+        "rollout" => %{
+          "version" => version,
+          "cohort" => "custom",
+          "batch_size" => "1",
+          "batch_delay_seconds" => "0",
+          "agent_ids" => agent_id,
+          "notes" => "platform diagnostics"
+        }
+      })
+      |> render_submit()
 
     assert html =~ "linux/amd64"
     assert html =~ "linux/arm64"
-    assert html =~ "Unsupported Platform"
-    assert html =~ "no matching release artifact for agent platform linux/arm64"
+    assert html =~ "1 unsupported"
+    assert html =~ "Rollout creation is blocked until the cohort matches the published release platforms."
+    assert has_element?(lv, "#create-rollout-form button[disabled]")
+    assert html =~
+             "Rollout failed: unsupported agent platforms for release cohort: #{agent_id} (linux/arm64)"
   end
 
   test "selecting a published release updates the rollout form version", %{conn: conn, scope: scope} do

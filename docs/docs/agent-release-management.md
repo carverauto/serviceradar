@@ -64,9 +64,10 @@ Recommended operator workflow:
 2. Create a canary rollout from `/settings/agents/releases` with a small explicit cohort.
 3. Use `batch_size: 1` or another small batch for the first rollout.
 4. Leave a non-zero `batch_delay_seconds` when validating a new train in production.
-5. Watch `/agents` for version distribution, rollout-state counts, and per-agent target version drift.
-6. Pause the rollout immediately if agents begin failing verification, restart, or health checks.
-7. Resume only after the failure mode is understood.
+5. Use the rollout compatibility preview on `/settings/agents/releases` to confirm the selected cohort resolves to known agents and matches the published platform set before starting the rollout. The page disables rollout submission for unresolved agent IDs, empty cohorts, or unsupported platforms, and the control plane also rejects those invalid cohorts at submit time.
+6. Watch `/agents` for version distribution, rollout-state counts, and per-agent target version drift.
+7. Pause the rollout immediately if agents begin failing verification, restart, or health checks.
+8. Resume only after the failure mode is understood.
 
 Operational guidance:
 
@@ -97,7 +98,7 @@ The control plane records terminal per-agent states such as:
 
 Use these surfaces first during rollout triage:
 
-- `/settings/agents/releases`: published releases, supported platform badges, recent rollouts, pause/resume/cancel actions, and per-target diagnostics.
+- `/settings/agents/releases`: published releases, supported platform badges, rollout compatibility preview, disabled invalid rollout submission, rollout-creation validation, recent rollouts, pause/resume/cancel actions, and per-target diagnostics.
 - `/agents`: version distribution, rollout-state counts, target-version filtering, per-agent last update error.
 - `/agents/:uid`: current version, desired version, rollout state, last update error, and recent rollout targets.
 
@@ -106,6 +107,7 @@ Common failure patterns:
 - Invalid signature: the agent rejected the manifest before staging.
 - Digest mismatch: the downloaded artifact did not match the published SHA256.
 - No matching artifact: the control plane could not select an artifact for the agent's `os` and `arch`. The releases page surfaces this as `no matching release artifact for agent platform <os>/<arch>` and highlights the affected target as an unsupported platform.
+- Unresolved custom IDs: the rollout cohort includes agent IDs that do not currently resolve to inventory records, so rollout creation is rejected until those entries are corrected.
 - Rolled back: the updater switched versions, but the new runtime did not become healthy before the deadline.
 
 ## Recovery Playbook

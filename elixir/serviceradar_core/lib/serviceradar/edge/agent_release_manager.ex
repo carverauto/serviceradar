@@ -68,6 +68,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     with {:ok, release} <- load_release(attrs, actor),
          agent_ids <-
            normalize_agent_ids(Map.get(attrs, :agent_ids) || Map.get(attrs, "agent_ids")),
+         :ok <- validate_rollout_agent_ids(release, agent_ids, actor),
          {:ok, rollout} <- create_rollout_record(release, attrs, agent_ids, actor),
          {:ok, _targets} <- create_targets(rollout, release, agent_ids, actor) do
       maybe_dispatch_rollout(rollout.id, actor: actor)
@@ -584,6 +585,76 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
       {:ok, %Agent{version: version}} -> version
       _ -> nil
     end
+  end
+
+  defp validate_rollout_agent_ids(_release, [], _actor), do: {:error, %{message: "no agents selected for rollout"}}
+
+  defp validate_rollout_agent_ids(release, agent_ids, actor) do
+    agents_by_uid =
+      agent_ids
+      |> list_agents_by_uid(actor)
+      |> Map.new(&{&1.uid, &1})
+
+    unknown_agent_ids =
+      Enum.reject(agent_ids, fn agent_id ->
+        Map.has_key?(agents_by_uid, agent_id)
+      end)
+
+    unsupported_agents =
+      agents_by_uid
+      |> Map.values()
+      |> Enum.reduce([], fn agent, acc ->
+        case select_artifact(release, agent) do
+          {:ok, _artifact} ->
+            acc
+
+          {:error, {:no_matching_release_artifact, os, arch}} ->
+            [%{agent_id: agent.uid, platform: platform_label(os, arch)} | acc]
+        end
+      end)
+      |> Enum.reverse()
+
+    case rollout_validation_errors(unknown_agent_ids, unsupported_agents) do
+      [] -> :ok
+      errors -> {:error, %{errors: errors}}
+    end
+  end
+
+  defp list_agents_by_uid([], _actor), do: []
+
+  defp list_agents_by_uid(agent_ids, actor) do
+    Agent
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(uid in ^agent_ids)
+    |> Ash.read!(actor: actor)
+  end
+
+  defp rollout_validation_errors(unknown_agent_ids, unsupported_agents) do
+    []
+    |> maybe_append_rollout_validation_error(
+      unknown_agent_ids != [],
+      unresolved_agent_ids_message(unknown_agent_ids)
+    )
+    |> maybe_append_rollout_validation_error(
+      unsupported_agents != [],
+      unsupported_agent_platforms_message(unsupported_agents)
+    )
+  end
+
+  defp maybe_append_rollout_validation_error(errors, false, _message), do: errors
+  defp maybe_append_rollout_validation_error(errors, true, message), do: errors ++ [%{message: message}]
+
+  defp unresolved_agent_ids_message(agent_ids) do
+    "unresolved agent ids: #{Enum.join(agent_ids, ", ")}"
+  end
+
+  defp unsupported_agent_platforms_message(agents) do
+    labels =
+      Enum.map_join(agents, ", ", fn %{agent_id: agent_id, platform: platform} ->
+        "#{agent_id} (#{platform})"
+      end)
+
+    "unsupported agent platforms for release cohort: #{labels}"
   end
 
   defp version_matches?(current_version, desired_version)

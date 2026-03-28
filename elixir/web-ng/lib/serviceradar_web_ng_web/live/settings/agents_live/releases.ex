@@ -54,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
        |> assign(:rollout_targets, %{})
        |> assign(:rollout_prefill_count, 0)
        |> assign(:rollout_prefill_source, nil)
+       |> assign(:rollout_preview, empty_rollout_preview())
        |> assign(:refresh_timer, nil)}
     else
       {:ok,
@@ -79,7 +80,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       |> Map.new()
       |> Map.put("version", version)
 
-    {:noreply, assign(socket, :rollout_form, rollout_form(params, socket.assigns.releases))}
+    {:noreply, assign_rollout_form_and_preview(socket, params)}
+  end
+
+  def handle_event("preview_rollout", %{"rollout" => params}, socket) do
+    {:noreply, assign_rollout_form_and_preview(socket, params)}
   end
 
   def handle_event("publish_release", %{"release" => params}, socket) do
@@ -111,13 +116,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
         {:noreply,
          socket
          |> put_flash(:error, "Select a release version for the rollout")
-         |> assign(:rollout_form, rollout_form(params, socket.assigns.releases))}
+         |> assign_rollout_form_and_preview(params)}
 
       agent_ids == [] ->
         {:noreply,
          socket
          |> put_flash(:error, "Select at least one agent for the rollout")
-         |> assign(:rollout_form, rollout_form(params, socket.assigns.releases))}
+         |> assign_rollout_form_and_preview(params)}
 
       true ->
         attrs = %{
@@ -143,7 +148,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
             {:noreply,
              socket
              |> put_flash(:error, "Rollout failed: #{format_error(reason)}")
-             |> assign(:rollout_form, rollout_form(params, socket.assigns.releases))}
+             |> assign_rollout_form_and_preview(params)}
         end
     end
   end
@@ -209,6 +214,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     {rollout_summaries, rollout_targets} = list_rollout_data(rollouts, scope)
     prefill = rollout_prefill_params(params)
     prefill_count = prefill_agent_count(prefill)
+    rollout_form =
+      if(prefill == %{},
+        do: normalize_rollout_form(socket.assigns.rollout_form, releases),
+        else: rollout_form(prefill, releases)
+      )
+
+    rollout_preview = build_rollout_preview(rollout_form.params || %{}, releases, connected_agents, scope)
 
     socket
     |> assign(:releases, releases)
@@ -219,13 +231,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     |> assign(:rollout_prefill_count, prefill_count)
     |> assign(:rollout_prefill_source, Map.get(params, "source"))
     |> assign(:release_form, normalize_release_form(socket.assigns.release_form))
-    |> assign(
-      :rollout_form,
-      if(prefill == %{},
-        do: normalize_rollout_form(socket.assigns.rollout_form, releases),
-        else: rollout_form(prefill, releases)
+    |> assign(:rollout_form, rollout_form)
+    |> assign(:rollout_preview, rollout_preview)
+  end
+
+  defp assign_rollout_form_and_preview(socket, params) do
+    rollout_form = rollout_form(params, socket.assigns.releases)
+
+    rollout_preview =
+      build_rollout_preview(
+        rollout_form.params || %{},
+        socket.assigns.releases,
+        socket.assigns.connected_agents,
+        socket.assigns.current_scope
       )
-    )
+
+    socket
+    |> assign(:rollout_form, rollout_form)
+    |> assign(:rollout_preview, rollout_preview)
   end
 
   defp list_releases(scope) do
@@ -469,6 +492,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                 <.form
                   for={@rollout_form}
                   id="create-rollout-form"
+                  phx-change="preview_rollout"
                   phx-submit="create_rollout"
                   class="space-y-4"
                 >
@@ -515,8 +539,99 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                     placeholder="Change window, cohort rationale, rollback notes"
                   />
 
+                  <div
+                    :if={show_rollout_preview?(@rollout_preview)}
+                    id="rollout-compatibility-preview"
+                    class="rounded-lg border border-base-300 bg-base-200/30 px-4 py-3 text-sm"
+                  >
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                      <div class="font-semibold text-base-content">Compatibility Preview</div>
+                      <div class="text-xs text-base-content/60">
+                        {rollout_preview_scope_text(@rollout_preview)}
+                      </div>
+                    </div>
+
+                    <div class="mt-3 flex flex-wrap gap-2">
+                      <.ui_badge variant="ghost" size="xs">
+                        {@rollout_preview.selected_count} selected
+                      </.ui_badge>
+                      <.ui_badge variant="success" size="xs">
+                        {@rollout_preview.compatible_count} compatible
+                      </.ui_badge>
+                      <.ui_badge
+                        :if={@rollout_preview.unsupported_count > 0}
+                        variant="error"
+                        size="xs"
+                      >
+                        {@rollout_preview.unsupported_count} unsupported
+                      </.ui_badge>
+                      <.ui_badge
+                        :if={@rollout_preview.unknown_count > 0}
+                        variant="warning"
+                        size="xs"
+                      >
+                        {@rollout_preview.unknown_count} unresolved
+                      </.ui_badge>
+                    </div>
+
+                    <div :if={@rollout_preview.release_missing?} class="mt-3 text-[11px] text-warning">
+                      Select a published release to preview platform compatibility.
+                    </div>
+
+                    <div
+                      :if={rollout_preview_block_message(@rollout_preview) not in [nil, ""]}
+                      class="mt-3 text-[11px] font-medium text-warning"
+                    >
+                      {rollout_preview_block_message(@rollout_preview)}
+                    </div>
+
+                    <div :if={@rollout_preview.supported_platforms != []} class="mt-3 space-y-2">
+                      <div class="text-[11px] uppercase tracking-wider text-base-content/50">
+                        Release Supports
+                      </div>
+                      <div class="flex flex-wrap gap-1">
+                        <%= for platform <- @rollout_preview.supported_platforms do %>
+                          <.ui_badge variant="ghost" size="xs">{platform}</.ui_badge>
+                        <% end %>
+                      </div>
+                    </div>
+
+                    <div
+                      :if={@rollout_preview.unsupported_agents != []}
+                      class="mt-3 space-y-2 text-[11px]"
+                    >
+                      <div class="uppercase tracking-wider text-error">Unsupported Targets</div>
+                      <div class="flex flex-wrap gap-1">
+                        <%= for agent <- @rollout_preview.unsupported_agents do %>
+                          <span class="rounded-full bg-error/10 px-2 py-1 font-mono text-error">
+                            {agent.agent_id} ({agent.platform_label})
+                          </span>
+                        <% end %>
+                      </div>
+                    </div>
+
+                    <div
+                      :if={@rollout_preview.unknown_agent_ids != []}
+                      class="mt-3 space-y-2 text-[11px]"
+                    >
+                      <div class="uppercase tracking-wider text-warning">Unresolved Agent IDs</div>
+                      <div class="flex flex-wrap gap-1">
+                        <%= for agent_id <- @rollout_preview.unknown_agent_ids do %>
+                          <span class="rounded-full bg-warning/10 px-2 py-1 font-mono text-warning">
+                            {agent_id}
+                          </span>
+                        <% end %>
+                      </div>
+                    </div>
+                  </div>
+
                   <div class="flex justify-end">
-                    <.ui_button type="submit" variant="primary" size="sm" disabled={@releases == []}>
+                    <.ui_button
+                      type="submit"
+                      variant="primary"
+                      size="sm"
+                      disabled={rollout_submit_disabled?(@releases, @rollout_preview)}
+                    >
                       <.icon name="hero-play" class="size-4" /> Start Rollout
                     </.ui_button>
                   </div>
@@ -899,9 +1014,168 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp rollout_action_message(:resume, version), do: "Resumed rollout for #{version}"
   defp rollout_action_message(:cancel, version), do: "Canceled rollout for #{version}"
 
+  defp empty_rollout_preview do
+    %{
+      cohort: "connected",
+      selected_count: 0,
+      compatible_count: 0,
+      unsupported_count: 0,
+      unknown_count: 0,
+      supported_platforms: [],
+      unsupported_agents: [],
+      unknown_agent_ids: [],
+      release_missing?: true
+    }
+  end
+
+  defp build_rollout_preview(params, releases, connected_agents, scope) do
+    selected_release =
+      params
+      |> Map.get("version")
+      |> presence()
+      |> find_release_by_version(releases)
+
+    {selected_agents, unknown_agent_ids, selected_count, cohort} =
+      rollout_preview_targets(params, connected_agents, scope)
+
+    unsupported_agents =
+      case selected_release do
+        nil ->
+          []
+
+        release ->
+          selected_agents
+          |> Enum.filter(&(not release_supports_agent?(release, &1)))
+          |> Enum.map(fn agent ->
+            %{
+              agent_id: agent.uid,
+              platform_label: agent_platform_label(agent) || "unknown platform"
+            }
+          end)
+      end
+
+    %{
+      cohort: cohort,
+      selected_count: selected_count,
+      compatible_count: max(length(selected_agents) - length(unsupported_agents), 0),
+      unsupported_count: length(unsupported_agents),
+      unknown_count: length(unknown_agent_ids),
+      supported_platforms:
+        if(selected_release, do: artifact_platforms(selected_release.manifest), else: []),
+      unsupported_agents: Enum.take(unsupported_agents, 8),
+      unknown_agent_ids: Enum.take(unknown_agent_ids, 8),
+      release_missing?: is_nil(selected_release)
+    }
+  end
+
+  defp rollout_preview_targets(params, connected_agents, scope) do
+    case Map.get(params, "cohort") do
+      "custom" ->
+        agent_ids = rollout_agent_ids(params, connected_agents)
+        agents = list_agents_by_uid(agent_ids, scope)
+        agents_by_uid = Map.new(agents, &{&1.uid, &1})
+
+        selected_agents =
+          agent_ids
+          |> Enum.map(&Map.get(agents_by_uid, &1))
+          |> Enum.reject(&is_nil/1)
+
+        unknown_agent_ids =
+          Enum.reject(agent_ids, fn agent_id ->
+            Map.has_key?(agents_by_uid, agent_id)
+          end)
+
+        {selected_agents, unknown_agent_ids, length(agent_ids), "custom"}
+
+      _ ->
+        {connected_agents, [], length(connected_agents), "connected"}
+    end
+  end
+
+  defp list_agents_by_uid([], _scope), do: []
+
+  defp list_agents_by_uid(agent_ids, scope) do
+    Agent
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.Query.filter(uid in ^agent_ids)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, agents} -> agents
+      {:error, _} -> []
+    end
+  end
+
+  defp find_release_by_version(nil, _releases), do: nil
+
+  defp find_release_by_version(version, releases) do
+    Enum.find(releases, &(&1.version == version))
+  end
+
+  defp release_supports_agent?(release, %Agent{metadata: metadata}) when is_map(metadata) do
+    release
+    |> artifact_list()
+    |> Enum.any?(fn artifact ->
+      artifact_matches_platform?(
+        artifact_field(artifact, "os"),
+        artifact_field(artifact, "arch"),
+        Map.get(metadata, "os"),
+        Map.get(metadata, "arch")
+      )
+    end)
+  end
+
+  defp release_supports_agent?(_release, _agent), do: false
+
+  defp artifact_matches_platform?(artifact_os, artifact_arch, agent_os, agent_arch) do
+    (is_nil(artifact_os) or artifact_os == agent_os) and
+      (is_nil(artifact_arch) or artifact_arch == agent_arch)
+  end
+
+  defp show_rollout_preview?(preview) do
+    preview.selected_count > 0 or
+      preview.supported_platforms != [] or
+      preview.unknown_agent_ids != []
+  end
+
+  defp rollout_submit_disabled?([], _preview), do: true
+  defp rollout_submit_disabled?(_releases, preview), do: not rollout_preview_actionable?(preview)
+
+  defp rollout_preview_actionable?(preview) do
+    not preview.release_missing? and
+      preview.selected_count > 0 and
+      preview.unsupported_count == 0 and
+      preview.unknown_count == 0
+  end
+
+  defp rollout_preview_block_message(preview) do
+    cond do
+      preview.release_missing? ->
+        "Rollout creation is blocked until you select a published release."
+
+      preview.selected_count == 0 ->
+        "Rollout creation is blocked until the current cohort resolves to at least one agent."
+
+      preview.unknown_count > 0 ->
+        "Rollout creation is blocked until unresolved agent IDs are corrected or removed."
+
+      preview.unsupported_count > 0 ->
+        "Rollout creation is blocked until the cohort matches the published release platforms."
+
+      true ->
+        nil
+    end
+  end
+
+  defp rollout_preview_scope_text(%{cohort: "custom"}), do: "Current custom cohort"
+  defp rollout_preview_scope_text(_preview), do: "Current connected cohort"
+
   defp release_options(releases) do
     Enum.map(releases, fn release -> {release.version, release.version} end)
   end
+
+  defp artifact_list(%{"artifacts" => artifacts}) when is_list(artifacts), do: artifacts
+  defp artifact_list(%{artifacts: artifacts}) when is_list(artifacts), do: artifacts
+  defp artifact_list(_manifest), do: []
 
   defp artifact_platforms(%{"artifacts" => artifacts}) when is_list(artifacts) do
     artifacts

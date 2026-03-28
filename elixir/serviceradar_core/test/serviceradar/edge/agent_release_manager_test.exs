@@ -213,7 +213,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     assert target.status == :dispatched
   end
 
-  test "rollout target fails with explicit platform diagnostics when no artifact matches", %{
+  test "create_rollout rejects unsupported platform cohorts before any targets are created", %{
     actor: actor,
     release: release
   } do
@@ -233,25 +233,47 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
       }, actor: actor)
       |> Ash.create()
 
-    {:ok, rollout} =
-      AgentReleaseManager.create_rollout(%{
+    assert {:error, %{errors: [%{message: unsupported_message}]}} =
+             AgentReleaseManager.create_rollout(%{
         release_id: release.id,
         agent_ids: [agent_id],
         batch_size: 1
       })
 
-    target =
-      AgentReleaseTarget
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> Ash.Query.filter(expr(agent_id == ^agent_id and rollout_id == ^rollout.id))
-      |> Ash.read_one!(actor: actor)
+    assert unsupported_message ==
+             "unsupported agent platforms for release cohort: #{agent_id} (linux/arm64)"
 
-    assert target.status == :failed
-    assert target.last_error == "no matching release artifact for agent platform linux/arm64"
+    assert [] ==
+             AgentReleaseTarget
+             |> Ash.Query.for_read(:read, %{}, actor: actor)
+             |> Ash.Query.filter(expr(agent_id == ^agent_id))
+             |> Ash.read!(actor: actor)
 
     updated_agent = Agent.get_by_uid!(agent_id, actor: actor)
-    assert updated_agent.release_rollout_state == :failed
-    assert updated_agent.last_update_error == "no matching release artifact for agent platform linux/arm64"
+    assert is_nil(updated_agent.release_rollout_state)
+    assert is_nil(updated_agent.last_update_error)
+  end
+
+  test "create_rollout rejects unresolved custom agent ids before any targets are created", %{
+    actor: actor,
+    release: release
+  } do
+    missing_agent_id = "agent-release-missing-#{System.unique_integer([:positive])}"
+
+    assert {:error, %{errors: [%{message: message}]}} =
+             AgentReleaseManager.create_rollout(%{
+               release_id: release.id,
+               agent_ids: [missing_agent_id],
+               batch_size: 1
+             })
+
+    assert message == "unresolved agent ids: #{missing_agent_id}"
+
+    assert [] ==
+             AgentReleaseTarget
+             |> Ash.Query.for_read(:read, %{}, actor: actor)
+             |> Ash.Query.filter(expr(agent_id == ^missing_agent_id))
+             |> Ash.read!(actor: actor)
   end
 
   test "pause and resume gates future batch dispatches", %{
