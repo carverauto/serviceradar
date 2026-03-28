@@ -39,6 +39,7 @@ const (
 )
 
 var errReleaseCurrentLinkMissing = errors.New("release current symlink is missing")
+var errReleaseActivationPreviousTargetMissing = errors.New("release activation state missing previous target")
 
 type ReleaseActivationConfig struct {
 	RuntimeRoot      string
@@ -148,7 +149,7 @@ func RollbackReleaseActivation(runtimeRoot, reason string) (bool, error) {
 		return false, err
 	}
 	if strings.TrimSpace(state.PreviousTarget) == "" {
-		return false, errors.New("release activation state missing previous target")
+		return false, errReleaseActivationPreviousTargetMissing
 	}
 
 	root := resolveReleaseRuntimeRoot(runtimeRoot)

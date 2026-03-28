@@ -8,7 +8,8 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
 
   @type field_error :: %{field: atom(), message: String.t()}
 
-  @spec validate(String.t() | nil, map() | nil, String.t() | nil) :: :ok | {:error, [field_error()]}
+  @spec validate(String.t() | nil, map() | nil, String.t() | nil) ::
+          :ok | {:error, [field_error()]}
   def validate(version, manifest, signature) do
     normalized_version = normalize_string(version)
     normalized_manifest = normalize_keys(manifest || %{})
@@ -45,17 +46,15 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
 
   @spec canonical_json(map()) :: {:ok, binary()} | {:error, term()}
   def canonical_json(value) when is_map(value) do
-    try do
-      {:ok, value |> normalize_keys() |> write_canonical_json()}
-    rescue
-      error -> {:error, error}
-    end
+    {:ok, value |> normalize_keys() |> write_canonical_json()}
+  rescue
+    error -> {:error, error}
   end
 
   def canonical_json(_value), do: {:error, :manifest_must_be_a_map}
 
   defp validate_manifest_version(errors, manifest, version) do
-    manifest_version = manifest["version"] |> normalize_string()
+    manifest_version = normalize_string(manifest["version"])
 
     cond do
       manifest_version == "" ->
@@ -65,7 +64,8 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
         [
           %{
             field: :manifest,
-            message: "release manifest version #{inspect(manifest_version)} does not match release version #{inspect(version)}"
+            message:
+              "release manifest version #{inspect(manifest_version)} does not match release version #{inspect(version)}"
           }
           | errors
         ]
@@ -78,16 +78,17 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
   defp validate_manifest_artifacts(errors, manifest) do
     artifacts = List.wrap(manifest["artifacts"])
 
-    cond do
-      artifacts == [] ->
-        [%{field: :manifest, message: "release manifest must include at least one artifact"} | errors]
-
-      true ->
-        artifacts
-        |> Enum.with_index(1)
-        |> Enum.reduce(errors, fn {artifact, index}, acc ->
-          validate_artifact(acc, artifact, index)
-        end)
+    if artifacts == [] do
+      [
+        %{field: :manifest, message: "release manifest must include at least one artifact"}
+        | errors
+      ]
+    else
+      artifacts
+      |> Enum.with_index(1)
+      |> Enum.reduce(errors, fn {artifact, index}, acc ->
+        validate_artifact(acc, artifact, index)
+      end)
     end
   end
 
@@ -96,7 +97,7 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
 
     errors =
       Enum.reduce(@required_artifact_fields, errors, fn field, acc ->
-        value = artifact[field] |> normalize_string()
+        value = normalize_string(artifact[field])
 
         if value == "" do
           [%{field: :manifest, message: "release artifact #{index} must include #{field}"} | acc]
@@ -131,11 +132,13 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
     with {:ok, public_key} <- release_public_key(),
          {:ok, manifest_json} <- canonical_json(manifest),
          {:ok, signature_bytes} <- decode_signature(signature),
-         true <- :crypto.verify(:eddsa, :none, manifest_json, signature_bytes, [public_key, :ed25519]) do
+         true <-
+           :crypto.verify(:eddsa, :none, manifest_json, signature_bytes, [public_key, :ed25519]) do
       :ok
     else
       false ->
-        {:error, [%{field: :signature, message: "release manifest signature verification failed"}]}
+        {:error,
+         [%{field: :signature, message: "release manifest signature verification failed"}]}
 
       {:error, :signature_missing} ->
         {:error, [%{field: :signature, message: "release signature is required"}]}
@@ -194,12 +197,10 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
   defp decode_signature(value) do
     clean = normalize_string(value)
 
-    cond do
-      clean == "" ->
-        {:error, :signature_missing}
-
-      true ->
-        decode_signature_variants(clean)
+    if clean == "" do
+      {:error, :signature_missing}
+    else
+      decode_signature_variants(clean)
     end
   end
 
@@ -254,7 +255,10 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
   defp normalize_keys(other), do: other
 
   defp normalize_nested_value(value) when is_map(value), do: normalize_keys(value)
-  defp normalize_nested_value(value) when is_list(value), do: Enum.map(value, &normalize_nested_value/1)
+
+  defp normalize_nested_value(value) when is_list(value),
+    do: Enum.map(value, &normalize_nested_value/1)
+
   defp normalize_nested_value(value), do: value
 
   defp normalize_key(key) when is_atom(key), do: Atom.to_string(key)

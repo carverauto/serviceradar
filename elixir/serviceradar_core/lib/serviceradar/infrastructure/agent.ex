@@ -189,113 +189,111 @@ defmodule ServiceRadar.Infrastructure.Agent do
   ]
 
   postgres do
-    table("ocsf_agents")
-    repo(ServiceRadar.Repo)
-    schema("platform")
+    table "ocsf_agents"
+    repo ServiceRadar.Repo
+    schema "platform"
   end
 
   json_api do
-    type("agent")
+    type "agent"
 
     routes do
-      base("/agents")
+      base "/agents"
 
       # Read operations
-      get(:by_uid)
-      index(:read)
-      index(:by_gateway, route: "/by-gateway/:gateway_id")
+      get :by_uid
+      index :read
+      index :by_gateway, route: "/by-gateway/:gateway_id"
 
       # Admin/onboarding creates agent records (host:port known from onboarding package)
-      post(:register)
+      post :register
 
       # Gateway updates agent status after connecting via gRPC
-      patch(:establish_connection, route: "/:id/connect")
-      patch(:update)
-      patch(:heartbeat, route: "/:id/heartbeat")
-      patch(:lose_connection, route: "/:id/disconnect")
-      patch(:degrade, route: "/:id/degrade")
+      patch :establish_connection, route: "/:id/connect"
+      patch :update
+      patch :heartbeat, route: "/:id/heartbeat"
+      patch :lose_connection, route: "/:id/disconnect"
+      patch :degrade, route: "/:id/degrade"
     end
   end
 
   state_machine do
-    initial_states([:connecting, :connected])
-    default_initial_state(:connecting)
-    state_attribute(:status)
-    deprecated_states([])
+    initial_states [:connecting, :connected]
+    default_initial_state :connecting
+    state_attribute :status
+    deprecated_states []
 
     transitions do
       # Agent lifecycle transitions
-      transition(:establish_connection, from: :connecting, to: :connected)
-      transition(:connection_failed, from: :connecting, to: :disconnected)
-      transition(:degrade, from: :connected, to: :degraded)
-      transition(:restore_health, from: :degraded, to: :connected)
-      transition(:lose_connection, from: [:connected, :degraded], to: :disconnected)
-      transition(:reconnect, from: :disconnected, to: :connecting)
+      transition :establish_connection, from: :connecting, to: :connected
+      transition :connection_failed, from: :connecting, to: :disconnected
+      transition :degrade, from: :connected, to: :degraded
+      transition :restore_health, from: :degraded, to: :connected
+      transition :lose_connection, from: [:connected, :degraded], to: :disconnected
+      transition :reconnect, from: :disconnected, to: :connecting
 
-      transition(:mark_unavailable,
+      transition :mark_unavailable,
         from: [:connecting, :connected, :degraded, :disconnected],
         to: :unavailable
-      )
 
-      transition(:recover, from: :unavailable, to: :connecting)
+      transition :recover, from: :unavailable, to: :connecting
     end
   end
 
   code_interface do
-    define(:get_by_uid, action: :by_uid, args: [:uid])
-    define(:list_by_gateway, action: :by_gateway, args: [:gateway_id])
-    define(:list_connected, action: :connected)
+    define :get_by_uid, action: :by_uid, args: [:uid]
+    define :list_by_gateway, action: :by_gateway, args: [:gateway_id]
+    define :list_connected, action: :connected
   end
 
   actions do
-    defaults([:read])
+    defaults [:read]
 
     read :by_uid do
-      argument(:uid, :string, allow_nil?: false)
-      get?(true)
-      filter(expr(uid == ^arg(:uid)))
+      argument :uid, :string, allow_nil?: false
+      get? true
+      filter expr(uid == ^arg(:uid))
     end
 
     read :by_gateway do
-      argument(:gateway_id, :string, allow_nil?: false)
-      filter(expr(gateway_id == ^arg(:gateway_id)))
+      argument :gateway_id, :string, allow_nil?: false
+      filter expr(gateway_id == ^arg(:gateway_id))
     end
 
     read :by_device do
-      argument(:device_uid, :string, allow_nil?: false)
-      filter(expr(device_uid == ^arg(:device_uid)))
+      argument :device_uid, :string, allow_nil?: false
+      filter expr(device_uid == ^arg(:device_uid))
     end
 
     read :connected do
-      description("All connected agents")
-      filter(expr(status == :connected and is_healthy == true))
+      description "All connected agents"
+      filter expr(status == :connected and is_healthy == true)
     end
 
     read :by_status do
-      argument(:status, :atom,
+      argument :status, :atom,
         allow_nil?: false,
         constraints: [one_of: [:connecting, :connected, :degraded, :disconnected, :unavailable]]
-      )
 
-      filter(expr(status == ^arg(:status)))
+      filter expr(status == ^arg(:status))
     end
 
     read :by_capability do
-      argument(:capability, :string, allow_nil?: false)
-      filter(expr(^arg(:capability) in capabilities))
+      argument :capability, :string, allow_nil?: false
+      filter expr(^arg(:capability) in capabilities)
     end
 
     read :recently_seen do
-      description("Agents seen in the last 5 minutes")
-      filter(expr(last_seen_time > ago(5, :minute)))
+      description "Agents seen in the last 5 minutes"
+      filter expr(last_seen_time > ago(5, :minute))
     end
 
     create :register do
-      description("Register a new agent (starts in connecting state)")
+      description "Register a new agent (starts in connecting state)"
 
-      accept(@agent_registration_fields)
+      accept @agent_registration_fields
 
-      change(fn changeset, _context ->
+      change fn changeset, _context ->
         now = DateTime.utc_now()
 
         changeset
@@ -303,22 +301,22 @@ defmodule ServiceRadar.Infrastructure.Agent do
         |> Ash.Changeset.change_attribute(:last_seen_time, now)
         |> Ash.Changeset.change_attribute(:created_time, now)
         |> Ash.Changeset.change_attribute(:is_healthy, true)
-      end)
+      end
 
-      change(EnsureStateMonitor)
+      change EnsureStateMonitor
     end
 
     create :register_connected do
-      description("Register a new agent as already connected (skips connecting state)")
+      description "Register a new agent as already connected (skips connecting state)"
 
-      accept(@agent_registration_fields)
+      accept @agent_registration_fields
 
-      upsert?(true)
-      upsert_identity(:unique_uid)
+      upsert? true
+      upsert_identity :unique_uid
 
-      upsert_fields(@agent_connected_upsert_fields)
+      upsert_fields @agent_connected_upsert_fields
 
-      change(fn changeset, _context ->
+      change fn changeset, _context ->
         now = DateTime.utc_now()
 
         changeset
@@ -328,159 +326,159 @@ defmodule ServiceRadar.Infrastructure.Agent do
         |> Ash.Changeset.change_attribute(:modified_time, now)
         |> Ash.Changeset.change_attribute(:status, :connected)
         |> Ash.Changeset.change_attribute(:is_healthy, true)
-      end)
+      end
 
-      change(EnsureStateMonitor)
+      change EnsureStateMonitor
     end
 
     update :update do
-      accept(@agent_update_fields)
+      accept @agent_update_fields
 
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
     update :gateway_sync do
-      description("Sync agent metadata from the agent-gateway")
+      description "Sync agent metadata from the agent-gateway"
 
-      accept(@agent_gateway_sync_fields)
+      accept @agent_gateway_sync_fields
 
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
     update :heartbeat do
-      description("Update last_seen_time and health status (for connected agents)")
-      accept(@agent_heartbeat_fields)
+      description "Update last_seen_time and health status (for connected agents)"
+      accept @agent_heartbeat_fields
 
-      change(set_attribute(:last_seen_time, &DateTime.utc_now/0))
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change set_attribute(:last_seen_time, &DateTime.utc_now/0)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
     # State machine transition actions
     # Each action includes PublishStateChange to record health events
 
     update :establish_connection do
-      description("Mark agent as connected (from connecting state)")
-      accept(@agent_gateway_fields)
+      description "Mark agent as connected (from connecting state)"
+      accept @agent_gateway_fields
 
-      change(transition_state(:connected))
-      change(set_attribute(:is_healthy, true))
-      change(set_attribute(:last_seen_time, &DateTime.utc_now/0))
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change transition_state(:connected)
+      change set_attribute(:is_healthy, true)
+      change set_attribute(:last_seen_time, &DateTime.utc_now/0)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change({PublishStateChange, entity_type: :agent, new_state: :connected})
+      change {PublishStateChange, entity_type: :agent, new_state: :connected}
     end
 
     update :connection_failed do
-      description("Mark connection attempt as failed")
+      description "Mark connection attempt as failed"
 
-      change(transition_state(:disconnected))
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change transition_state(:disconnected)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change({PublishStateChange, entity_type: :agent, new_state: :disconnected})
+      change {PublishStateChange, entity_type: :agent, new_state: :disconnected}
     end
 
     update :degrade do
-      description("Mark agent as degraded (connected but unhealthy)")
+      description "Mark agent as degraded (connected but unhealthy)"
 
-      change(transition_state(:degraded))
-      change(set_attribute(:is_healthy, false))
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change transition_state(:degraded)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change({PublishStateChange, entity_type: :agent, new_state: :degraded})
+      change {PublishStateChange, entity_type: :agent, new_state: :degraded}
     end
 
     update :restore_health do
-      description("Restore agent health (from degraded to connected)")
+      description "Restore agent health (from degraded to connected)"
 
-      change(transition_state(:connected))
-      change(set_attribute(:is_healthy, true))
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change transition_state(:connected)
+      change set_attribute(:is_healthy, true)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change({PublishStateChange, entity_type: :agent, new_state: :connected})
+      change {PublishStateChange, entity_type: :agent, new_state: :connected}
     end
 
     update :lose_connection do
-      description("Mark agent as disconnected (connection lost)")
+      description "Mark agent as disconnected (connection lost)"
 
-      change(transition_state(:disconnected))
-      change(set_attribute(:gateway_id, nil))
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change transition_state(:disconnected)
+      change set_attribute(:gateway_id, nil)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change({PublishStateChange, entity_type: :agent, new_state: :disconnected})
+      change {PublishStateChange, entity_type: :agent, new_state: :disconnected}
     end
 
     update :reconnect do
-      description("Start reconnection process (from disconnected to connecting)")
+      description "Start reconnection process (from disconnected to connecting)"
 
-      change(transition_state(:connecting))
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change transition_state(:connecting)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change({PublishStateChange, entity_type: :agent, new_state: :connecting})
+      change {PublishStateChange, entity_type: :agent, new_state: :connecting}
     end
 
     update :mark_unavailable do
-      description("Mark agent as unavailable (admin action)")
-      argument(:reason, :string)
+      description "Mark agent as unavailable (admin action)"
+      argument :reason, :string
 
-      change(transition_state(:unavailable))
-      change(set_attribute(:is_healthy, false))
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change transition_state(:unavailable)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change({PublishStateChange, entity_type: :agent, new_state: :unavailable})
+      change {PublishStateChange, entity_type: :agent, new_state: :unavailable}
     end
 
     update :recover do
-      description("Start recovery process (from unavailable to connecting)")
+      description "Start recovery process (from unavailable to connecting)"
 
-      change(transition_state(:connecting))
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change transition_state(:connecting)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change({PublishStateChange, entity_type: :agent, new_state: :connecting})
+      change {PublishStateChange, entity_type: :agent, new_state: :connecting}
     end
 
     update :reassign_device do
-      description("Reassign agent to a new device (used during merges)")
-      accept(@agent_device_fields)
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      description "Reassign agent to a new device (used during merges)"
+      accept @agent_device_fields
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
     update :update_release_status do
-      description("Sync desired version and rollout state for the agent")
-      accept(@agent_release_status_fields)
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      description "Sync desired version and rollout state for the agent"
+      accept @agent_release_status_fields
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
     # Legacy compatibility actions (mapped to state machine)
     update :connect do
-      description("Mark agent as connected to a gateway (legacy - use establish_connection)")
-      accept(@agent_gateway_fields)
+      description "Mark agent as connected to a gateway (legacy - use establish_connection)"
+      accept @agent_gateway_fields
 
-      change(transition_state(:connected))
-      change(set_attribute(:is_healthy, true))
-      change(set_attribute(:last_seen_time, &DateTime.utc_now/0))
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change transition_state(:connected)
+      change set_attribute(:is_healthy, true)
+      change set_attribute(:last_seen_time, &DateTime.utc_now/0)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change({PublishStateChange, entity_type: :agent, new_state: :connected})
+      change {PublishStateChange, entity_type: :agent, new_state: :connected}
     end
 
     update :disconnect do
-      description("Mark agent as disconnected (legacy - use lose_connection)")
+      description "Mark agent as disconnected (legacy - use lose_connection)"
 
-      change(transition_state(:disconnected))
-      change(set_attribute(:gateway_id, nil))
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change transition_state(:disconnected)
+      change set_attribute(:gateway_id, nil)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change({PublishStateChange, entity_type: :agent, new_state: :disconnected})
+      change {PublishStateChange, entity_type: :agent, new_state: :disconnected}
     end
 
     update :mark_unhealthy do
-      description("Mark agent as unhealthy (legacy - use degrade)")
+      description "Mark agent as unhealthy (legacy - use degrade)"
 
-      change(transition_state(:degraded))
-      change(set_attribute(:is_healthy, false))
-      change(set_attribute(:modified_time, &DateTime.utc_now/0))
+      change transition_state(:degraded)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
 
-      change({PublishStateChange, entity_type: :agent, new_state: :degraded})
+      change {PublishStateChange, entity_type: :agent, new_state: :degraded}
     end
   end
 
@@ -498,305 +496,289 @@ defmodule ServiceRadar.Infrastructure.Agent do
   attributes do
     # OCSF Core Identity - uid is the primary key
     attribute :uid, :string do
-      allow_nil?(false)
-      primary_key?(true)
-      public?(true)
-      description("Unique agent identifier (sensor ID)")
+      allow_nil? false
+      primary_key? true
+      public? true
+      description "Unique agent identifier (sensor ID)"
     end
 
     attribute :name, :string do
-      public?(true)
-      description("Agent display name")
+      public? true
+      description "Agent display name"
     end
 
     attribute :type_id, :integer do
-      default(0)
-      public?(true)
-      description("OCSF agent type ID")
+      default 0
+      public? true
+      description "OCSF agent type ID"
     end
 
     attribute :type, :string do
-      public?(true)
-      description("OCSF agent type name")
+      public? true
+      description "OCSF agent type name"
     end
 
     # OCSF Extended Identity
     attribute :uid_alt, :string do
-      public?(true)
-      description("Alternative unique identifier")
+      public? true
+      description "Alternative unique identifier"
     end
 
     attribute :vendor_name, :string do
-      default("ServiceRadar")
-      public?(true)
-      description("Agent vendor/author")
+      default "ServiceRadar"
+      public? true
+      description "Agent vendor/author"
     end
 
     attribute :version, :string do
-      public?(true)
-      description("Agent semantic version")
+      public? true
+      description "Agent semantic version"
     end
 
     attribute :desired_version, :string do
-      public?(true)
-      description("Desired version assigned by release management")
+      public? true
+      description "Desired version assigned by release management"
     end
 
     # OCSF Policies (JSONB array)
     attribute :policies, {:array, :map} do
-      default([])
-      public?(true)
-      description("Policies applied to this agent (OCSF Policy objects)")
+      default []
+      public? true
+      description "Policies applied to this agent (OCSF Policy objects)"
     end
 
     # ServiceRadar-specific fields
     attribute :gateway_id, :string do
-      public?(true)
-      description("Gateway this agent is connected to")
+      public? true
+      description "Gateway this agent is connected to"
     end
 
     attribute :device_uid, :string do
-      public?(true)
-      description("Device this agent runs on")
+      public? true
+      description "Device this agent runs on"
     end
 
     attribute :capabilities, {:array, :string} do
-      default([])
-      public?(true)
-      description("Agent capabilities (e.g., 'ping', 'snmp', 'http')")
+      default []
+      public? true
+      description "Agent capabilities (e.g., 'ping', 'snmp', 'http')"
     end
 
     attribute :host, :string do
-      public?(true)
-      description("Host IP or hostname the agent listens on")
+      public? true
+      description "Host IP or hostname the agent listens on"
     end
 
     attribute :port, :integer do
-      public?(true)
-      description("Port the agent listens on for gRPC")
+      public? true
+      description "Port the agent listens on for gRPC"
     end
 
     attribute :spiffe_identity, :string do
-      public?(true)
-      description("SPIFFE ID for mTLS authentication")
+      public? true
+      description "SPIFFE ID for mTLS authentication"
     end
 
     attribute :status, :atom do
-      allow_nil?(false)
-      default(:connecting)
-      public?(true)
-      constraints(one_of: [:connecting, :connected, :degraded, :disconnected, :unavailable])
-      description("Current lifecycle state (state machine managed)")
+      allow_nil? false
+      default :connecting
+      public? true
+      constraints one_of: [:connecting, :connected, :degraded, :disconnected, :unavailable]
+      description "Current lifecycle state (state machine managed)"
     end
 
     attribute :is_healthy, :boolean do
-      default(true)
-      public?(true)
-      description("Current health status")
+      default true
+      public? true
+      description "Current health status"
     end
 
     # Temporal fields
     attribute :first_seen_time, :utc_datetime do
-      public?(true)
-      description("When agent was first seen")
+      public? true
+      description "When agent was first seen"
     end
 
     attribute :last_seen_time, :utc_datetime do
-      public?(true)
-      description("When agent was last seen")
+      public? true
+      description "When agent was last seen"
     end
 
     attribute :created_time, :utc_datetime do
-      public?(true)
-      description("Record creation time")
+      public? true
+      description "Record creation time"
     end
 
     attribute :modified_time, :utc_datetime do
-      public?(true)
-      description("Record modification time")
+      public? true
+      description "Record modification time"
     end
 
     attribute :metadata, :map do
-      default(%{})
-      public?(true)
-      description("Additional metadata")
+      default %{}
+      public? true
+      description "Additional metadata"
     end
 
     attribute :release_rollout_state, :atom do
-      public?(true)
+      public? true
 
-      constraints(
-        one_of: [
-          :pending,
-          :dispatched,
-          :downloading,
-          :verifying,
-          :staged,
-          :restarting,
-          :healthy,
-          :failed,
-          :rolled_back,
-          :canceled
-        ]
-      )
+      constraints one_of: [
+                    :pending,
+                    :dispatched,
+                    :downloading,
+                    :verifying,
+                    :staged,
+                    :restarting,
+                    :healthy,
+                    :failed,
+                    :rolled_back,
+                    :canceled
+                  ]
 
-      description("Current release rollout state for this agent")
+      description "Current release rollout state for this agent"
     end
 
     attribute :last_update_at, :utc_datetime do
-      public?(true)
-      description("Last time a managed release update state changed")
+      public? true
+      description "Last time a managed release update state changed"
     end
 
     attribute :last_update_error, :string do
-      public?(true)
-      description("Last managed release update error")
+      public? true
+      description "Last managed release update error"
     end
 
     attribute :config_source, :atom do
-      public?(true)
-      constraints(one_of: [:remote, :local, :cached, :unassigned])
+      public? true
+      constraints one_of: [:remote, :local, :cached, :unassigned]
 
-      description(
-        "Source of sysmon config: remote (from backend), local (file override), cached, or unassigned"
-      )
+      description "Source of sysmon config: remote (from backend), local (file override), cached, or unassigned"
     end
 
     attribute :plugin_engine_max_memory_mb, :integer do
-      allow_nil?(true)
-      public?(true)
-      description("Max total memory (MB) for Wasm plugins on this agent")
+      allow_nil? true
+      public? true
+      description "Max total memory (MB) for Wasm plugins on this agent"
     end
 
     attribute :plugin_engine_max_cpu_ms, :integer do
-      allow_nil?(true)
-      public?(true)
-      description("Max total CPU time window (ms) for Wasm plugins on this agent")
+      allow_nil? true
+      public? true
+      description "Max total CPU time window (ms) for Wasm plugins on this agent"
     end
 
     attribute :plugin_engine_max_concurrent, :integer do
-      allow_nil?(true)
-      public?(true)
-      description("Max number of concurrent Wasm plugin executions on this agent")
+      allow_nil? true
+      public? true
+      description "Max number of concurrent Wasm plugin executions on this agent"
     end
 
     attribute :plugin_engine_max_open_connections, :integer do
-      allow_nil?(true)
-      public?(true)
-      description("Max total open connections for Wasm plugins on this agent")
+      allow_nil? true
+      public? true
+      description "Max total open connections for Wasm plugins on this agent"
     end
   end
 
   relationships do
     belongs_to :gateway, ServiceRadar.Infrastructure.Gateway do
-      source_attribute(:gateway_id)
-      destination_attribute(:id)
-      allow_nil?(true)
-      public?(true)
+      source_attribute :gateway_id
+      destination_attribute :id
+      allow_nil? true
+      public? true
     end
 
     belongs_to :device, ServiceRadar.Inventory.Device do
-      source_attribute(:device_uid)
-      destination_attribute(:uid)
-      allow_nil?(true)
-      public?(true)
+      source_attribute :device_uid
+      destination_attribute :uid
+      allow_nil? true
+      public? true
     end
 
     has_many :checkers, ServiceRadar.Infrastructure.Checker do
-      source_attribute(:uid)
-      destination_attribute(:agent_uid)
-      public?(true)
+      source_attribute :uid
+      destination_attribute :agent_uid
+      public? true
     end
   end
 
   calculations do
-    calculate(
-      :type_name,
-      :string,
-      expr(
-        cond do
-          not is_nil(type) -> type
-          type_id == 0 -> "Unknown"
-          type_id == 1 -> "EDR"
-          type_id == 2 -> "DLP"
-          type_id == 3 -> "Backup/Recovery"
-          type_id == 4 -> "Performance"
-          type_id == 5 -> "Vulnerability"
-          type_id == 6 -> "Log Management"
-          type_id == 7 -> "MDM"
-          type_id == 8 -> "Config Management"
-          type_id == 9 -> "Remote Access"
-          type_id == 99 -> "Other"
-          true -> "Unknown"
-        end
-      )
-    )
+    calculate :type_name,
+              :string,
+              expr(
+                cond do
+                  not is_nil(type) -> type
+                  type_id == 0 -> "Unknown"
+                  type_id == 1 -> "EDR"
+                  type_id == 2 -> "DLP"
+                  type_id == 3 -> "Backup/Recovery"
+                  type_id == 4 -> "Performance"
+                  type_id == 5 -> "Vulnerability"
+                  type_id == 6 -> "Log Management"
+                  type_id == 7 -> "MDM"
+                  type_id == 8 -> "Config Management"
+                  type_id == 9 -> "Remote Access"
+                  type_id == 99 -> "Other"
+                  true -> "Unknown"
+                end
+              )
 
-    calculate(
-      :display_name,
-      :string,
-      expr(
-        cond do
-          not is_nil(name) -> name
-          not is_nil(host) -> host
-          true -> uid
-        end
-      )
-    )
+    calculate :display_name,
+              :string,
+              expr(
+                cond do
+                  not is_nil(name) -> name
+                  not is_nil(host) -> host
+                  true -> uid
+                end
+              )
 
-    calculate(
-      :is_online,
-      :boolean,
-      expr(
-        status == :connected and
-          is_healthy == true and
-          last_seen_time > ago(5, :minute)
-      )
-    )
+    calculate :is_online,
+              :boolean,
+              expr(
+                status == :connected and
+                  is_healthy == true and
+                  last_seen_time > ago(5, :minute)
+              )
 
-    calculate(
-      :status_color,
-      :string,
-      expr(
-        cond do
-          status == :connected and is_healthy == true -> "green"
-          status == :connected and is_healthy == false -> "yellow"
-          status == :degraded -> "yellow"
-          status == :connecting -> "blue"
-          status == :disconnected -> "red"
-          status == :unavailable -> "gray"
-          true -> "gray"
-        end
-      )
-    )
+    calculate :status_color,
+              :string,
+              expr(
+                cond do
+                  status == :connected and is_healthy == true -> "green"
+                  status == :connected and is_healthy == false -> "yellow"
+                  status == :degraded -> "yellow"
+                  status == :connecting -> "blue"
+                  status == :disconnected -> "red"
+                  status == :unavailable -> "gray"
+                  true -> "gray"
+                end
+              )
 
-    calculate(
-      :status_label,
-      :string,
-      expr(
-        cond do
-          status == :connected -> "Connected"
-          status == :connecting -> "Connecting"
-          status == :degraded -> "Degraded"
-          status == :disconnected -> "Disconnected"
-          status == :unavailable -> "Unavailable"
-          true -> "Unknown"
-        end
-      )
-    )
+    calculate :status_label,
+              :string,
+              expr(
+                cond do
+                  status == :connected -> "Connected"
+                  status == :connecting -> "Connecting"
+                  status == :degraded -> "Degraded"
+                  status == :disconnected -> "Disconnected"
+                  status == :unavailable -> "Unavailable"
+                  true -> "Unknown"
+                end
+              )
 
-    calculate(
-      :endpoint,
-      :string,
-      expr(
-        if not is_nil(host) and not is_nil(port) do
-          fragment("? || ':' || ?::text", host, port)
-        end
-      )
-    )
+    calculate :endpoint,
+              :string,
+              expr(
+                if not is_nil(host) and not is_nil(port) do
+                  fragment("? || ':' || ?::text", host, port)
+                end
+              )
   end
 
   identities do
-    identity(:unique_uid, [:uid])
+    identity :unique_uid, [:uid]
   end
 end

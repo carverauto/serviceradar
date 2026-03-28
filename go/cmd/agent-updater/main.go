@@ -17,13 +17,15 @@
 package main
 
 import (
+	"errors"
 	"flag"
-	"fmt"
 	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent"
 )
+
+var errVersionRequired = errors.New("version is required")
 
 func main() {
 	if err := run(); err != nil {
@@ -42,7 +44,7 @@ func run() error {
 	flag.Parse()
 
 	if *version == "" {
-		return fmt.Errorf("version is required")
+		return errVersionRequired
 	}
 
 	return agent.ActivateStagedRelease(agent.ReleaseActivationConfig{

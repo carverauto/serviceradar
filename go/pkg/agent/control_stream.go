@@ -547,7 +547,8 @@ func (p *PushLoop) handleAgentUpdateRelease(ctx context.Context, cmd *proto.Comm
 	_ = sender.Send(commandProgress(cmd, 60, "verifying"))
 	_ = sender.Send(commandProgress(cmd, 80, "staged"))
 
-	updaterCmd := exec.Command(
+	updaterCmd := exec.CommandContext(
+		ctx,
 		AgentUpdaterPath(),
 		"--runtime-root", result.RuntimeRoot,
 		"--version", result.Version,

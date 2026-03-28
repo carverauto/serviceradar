@@ -34,9 +34,8 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     actor = actor_opts(opts, :agent_release_manager_pause)
 
     with {:ok, %AgentReleaseRollout{} = rollout} <-
-           AgentReleaseRollout.get_by_id(rollout_id, actor: actor),
-         {:ok, updated_rollout} <- AgentReleaseRollout.pause(rollout, actor: actor) do
-      {:ok, updated_rollout}
+           AgentReleaseRollout.get_by_id(rollout_id, actor: actor) do
+      AgentReleaseRollout.pause(rollout, actor: actor)
     end
   end
 
@@ -66,7 +65,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     actor = actor_opts(opts, :agent_release_manager_rollout)
 
     with {:ok, release} <- load_release(attrs, actor),
-         agent_ids <-
+         agent_ids =
            normalize_agent_ids(Map.get(attrs, :agent_ids) || Map.get(attrs, "agent_ids")),
          :ok <- validate_rollout_agent_ids(release, agent_ids, actor),
          {:ok, rollout} <- create_rollout_record(release, attrs, agent_ids, actor),
@@ -81,24 +80,23 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
     case Agent.get_by_uid(agent_id, actor: actor) do
       {:ok, %Agent{} = agent} ->
-        active_targets_for_agent(agent_id, actor)
+        agent_id
+        |> active_targets_for_agent(actor)
         |> Enum.each(fn target ->
-          cond do
-            version_matches?(agent.version, target.desired_version) ->
-              _ =
-                mark_target_status(
-                  target,
-                  :healthy,
-                  %{
-                    current_version: agent.version,
-                    last_status_message: "agent already at desired version",
-                    progress_percent: 100
-                  },
-                  actor
-                )
-
-            true ->
-              maybe_dispatch_rollout(target.rollout_id, actor: actor)
+          if version_matches?(agent.version, target.desired_version) do
+            _ =
+              mark_target_status(
+                target,
+                :healthy,
+                %{
+                  current_version: agent.version,
+                  last_status_message: "agent already at desired version",
+                  progress_percent: 100
+                },
+                actor
+              )
+          else
+            maybe_dispatch_rollout(target.rollout_id, actor: actor)
           end
         end)
 
@@ -252,7 +250,8 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
          {:ok, %AgentRelease{} = release} <-
            AgentRelease.get_by_id(rollout.release_id, actor: actor) do
       inflight_count =
-        rollout_targets(rollout.id, actor)
+        rollout.id
+        |> rollout_targets(actor)
         |> Enum.count(&(&1.status in @inflight_statuses))
 
       capacity = max((rollout.batch_size || 1) - inflight_count, 0)
@@ -468,14 +467,13 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     case Agent.get_by_uid(agent_id, actor: actor) do
       {:ok, %Agent{} = agent} ->
         update_attrs =
-          %{
+          compact_map(%{
             desired_version: desired_version,
             release_rollout_state: status,
             last_update_at: DateTime.utc_now(),
             last_update_error: last_error,
             version: Keyword.get(opts, :current_version)
-          }
-          |> compact_map()
+          })
 
         _ =
           agent
@@ -530,8 +528,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   end
 
   defp dispatch_window_open?(%AgentReleaseRollout{batch_delay_seconds: delay_seconds})
-       when not is_integer(delay_seconds) or delay_seconds <= 0,
-       do: true
+       when not is_integer(delay_seconds) or delay_seconds <= 0, do: true
 
   defp dispatch_window_open?(%AgentReleaseRollout{last_dispatch_at: nil}), do: true
 
@@ -587,7 +584,8 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     end
   end
 
-  defp validate_rollout_agent_ids(_release, [], _actor), do: {:error, %{message: "no agents selected for rollout"}}
+  defp validate_rollout_agent_ids(_release, [], _actor),
+    do: {:error, %{message: "no agents selected for rollout"}}
 
   defp validate_rollout_agent_ids(release, agent_ids, actor) do
     agents_by_uid =
@@ -642,7 +640,9 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   end
 
   defp maybe_append_rollout_validation_error(errors, false, _message), do: errors
-  defp maybe_append_rollout_validation_error(errors, true, message), do: errors ++ [%{message: message}]
+
+  defp maybe_append_rollout_validation_error(errors, true, message),
+    do: errors ++ [%{message: message}]
 
   defp unresolved_agent_ids_message(agent_ids) do
     "unresolved agent ids: #{Enum.join(agent_ids, ", ")}"
@@ -811,7 +811,8 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
       nil ->
         SystemActor.system(label)
 
-      actor -> actor
+      actor ->
+        actor
     end
   end
 

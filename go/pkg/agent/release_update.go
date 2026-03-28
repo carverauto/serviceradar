@@ -39,28 +39,33 @@ import (
 )
 
 const (
-	defaultReleaseRuntimeRoot       = "/var/lib/serviceradar/agent/releases"
-	releaseVersionsDirName          = "versions"
-	releaseTmpDirName               = "tmp"
-	releaseMetadataFileName         = ".serviceradar-release.json"
-	releaseDefaultEntrypoint        = "serviceradar-agent"
-	releaseArtifactMaxBytes   int64 = 256 * 1024 * 1024
+	defaultReleaseRuntimeRoot        = "/var/lib/serviceradar/agent/releases"
+	releaseVersionsDirName           = "versions"
+	releaseTmpDirName                = "tmp"
+	releaseMetadataFileName          = ".serviceradar-release.json"
+	releaseDefaultEntrypoint         = "serviceradar-agent"
+	releaseArtifactFormatTarGz       = "tar.gz"
+	releaseArtifactMaxBytes    int64 = 256 * 1024 * 1024
 
 	releasePublicKeyEnv = "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
 	releaseRuntimeEnv   = "SERVICERADAR_AGENT_RUNTIME_ROOT"
 )
 
 var (
-	errReleaseVersionRequired      = errors.New("release version is required")
-	errReleaseManifestMissing      = errors.New("release manifest is required")
-	errReleaseSignatureMissing     = errors.New("release signature is required")
-	errReleaseArtifactURLMissing   = errors.New("release artifact url is required")
-	errReleaseArtifactHashMissing  = errors.New("release artifact sha256 is required")
-	errReleaseVerificationKeyUnset = errors.New("release verification key is not configured")
-	errReleaseSignatureInvalid     = errors.New("release manifest signature verification failed")
-	errReleaseArchiveUnsupported   = errors.New("release archive contains unsupported entry")
-	errReleaseEntrypointMissing    = errors.New("release entrypoint not found after extraction")
-	errReleaseVersionPathInvalid   = errors.New("release version cannot be used as a directory name")
+	errReleaseVersionRequired         = errors.New("release version is required")
+	errReleaseManifestMissing         = errors.New("release manifest is required")
+	errReleaseSignatureMissing        = errors.New("release signature is required")
+	errReleaseArtifactURLMissing      = errors.New("release artifact url is required")
+	errReleaseArtifactHashMissing     = errors.New("release artifact sha256 is required")
+	errReleaseVerificationKeyUnset    = errors.New("release verification key is not configured")
+	errReleaseSignatureInvalid        = errors.New("release manifest signature verification failed")
+	errReleaseArchiveUnsupported      = errors.New("release archive contains unsupported entry")
+	errReleaseEntrypointMissing       = errors.New("release entrypoint not found after extraction")
+	errReleaseVersionPathInvalid      = errors.New("release version cannot be used as a directory name")
+	errReleaseManifestVersionMismatch = errors.New("release manifest version does not match command version")
+	errReleasePublicKeyLengthInvalid  = errors.New("release public key length is invalid")
+	errReleaseSignatureEncoding       = errors.New("unsupported signature encoding")
+	errReleaseMetadataConflict        = errors.New("staged release already exists with different metadata")
 )
 
 // ReleaseSigningPublicKey is set at build time for managed release verification.
@@ -220,7 +225,7 @@ func validateReleasePayload(payload releaseUpdatePayload) error {
 	default:
 		manifestVersion, _ := payload.Manifest["version"].(string)
 		if manifestVersion != "" && strings.TrimSpace(manifestVersion) != payload.Version {
-			return fmt.Errorf("release manifest version %q does not match command version %q", manifestVersion, payload.Version)
+			return fmt.Errorf("%w: manifest=%q command=%q", errReleaseManifestVersionMismatch, manifestVersion, payload.Version)
 		}
 		return nil
 	}
@@ -254,7 +259,7 @@ func releaseVerificationKey() (ed25519.PublicKey, error) {
 		return nil, fmt.Errorf("decode release public key: %w", err)
 	}
 	if len(decoded) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("decode release public key: expected %d bytes, got %d", ed25519.PublicKeySize, len(decoded))
+		return nil, fmt.Errorf("%w: expected %d bytes, got %d", errReleasePublicKeyLengthInvalid, ed25519.PublicKeySize, len(decoded))
 	}
 	return ed25519.PublicKey(decoded), nil
 }
@@ -281,7 +286,7 @@ func decodeReleaseSignature(value string) ([]byte, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("unsupported signature encoding")
+	return nil, errReleaseSignatureEncoding
 }
 
 func resolveReleaseRuntimeRoot(configured string) string {
@@ -316,7 +321,7 @@ func loadExistingRelease(versionDir string, payload releaseUpdatePayload) (relea
 		return releaseStageResult{}, false, fmt.Errorf("decode staged release metadata: %w", err)
 	}
 	if meta.Version != payload.Version || !strings.EqualFold(strings.TrimSpace(meta.SHA256), strings.TrimSpace(payload.Artifact.SHA256)) {
-		return releaseStageResult{}, false, fmt.Errorf("staged release %s already exists with different metadata", payload.Version)
+		return releaseStageResult{}, false, fmt.Errorf("%w: version=%s", errReleaseMetadataConflict, payload.Version)
 	}
 
 	entrypointPath := filepath.Join(versionDir, meta.Entrypoint)
@@ -335,7 +340,7 @@ func loadExistingRelease(versionDir string, payload releaseUpdatePayload) (relea
 
 func stageReleasePayload(tempDir string, artifact releaseArtifactPayload, data []byte) (string, error) {
 	switch inferReleaseArtifactFormat(artifact) {
-	case "tar.gz":
+	case releaseArtifactFormatTarGz:
 		return extractReleaseArchive(tempDir, data, artifact.Entrypoint)
 	default:
 		entrypoint := artifact.Entrypoint
@@ -359,8 +364,8 @@ func stageReleasePayload(tempDir string, artifact releaseArtifactPayload, data [
 func inferReleaseArtifactFormat(artifact releaseArtifactPayload) string {
 	format := strings.ToLower(strings.TrimSpace(artifact.Format))
 	switch format {
-	case "tgz", "tar.gz", "tarball":
-		return "tar.gz"
+	case "tgz", releaseArtifactFormatTarGz, "tarball":
+		return releaseArtifactFormatTarGz
 	case "bin", "binary", "":
 	default:
 		return format
@@ -368,7 +373,7 @@ func inferReleaseArtifactFormat(artifact releaseArtifactPayload) string {
 
 	url := strings.ToLower(strings.TrimSpace(artifact.URL))
 	if strings.HasSuffix(url, ".tar.gz") || strings.HasSuffix(url, ".tgz") {
-		return "tar.gz"
+		return releaseArtifactFormatTarGz
 	}
 	return "binary"
 }
@@ -402,7 +407,7 @@ func extractReleaseArchive(dest string, data []byte, configuredEntrypoint string
 			if err := os.MkdirAll(targetPath, 0o755); err != nil {
 				return "", fmt.Errorf("create release dir: %w", err)
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 				return "", fmt.Errorf("create release file dir: %w", err)
 			}

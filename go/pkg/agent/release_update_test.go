@@ -77,7 +77,7 @@ func TestStageAgentReleaseExtractsTarballEntrypoint(t *testing.T) {
 	defer server.Close()
 
 	payload.Artifact.URL = server.URL + "/serviceradar-agent.tar.gz"
-	payload.Artifact.Format = "tar.gz"
+	payload.Artifact.Format = releaseArtifactFormatTarGz
 	payload.Artifact.SHA256 = digestHex(archiveData)
 
 	result, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{RuntimeRoot: t.TempDir()})
