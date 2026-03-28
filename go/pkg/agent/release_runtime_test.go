@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -108,5 +109,56 @@ func TestRollbackReleaseActivationRestoresPreviousTarget(t *testing.T) {
 	}
 	if report.Payload["status"] != "rolled_back" {
 		t.Fatalf("expected rolled_back status, got %#v", report.Payload)
+	}
+}
+
+func TestActivateStagedReleaseRejectsUnsafeCurrentTarget(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	nextDir := filepath.Join(runtimeRoot, releaseVersionsDirName, "1.2.3")
+
+	if err := os.MkdirAll(nextDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", nextDir, err)
+	}
+	if err := os.Symlink("/tmp/serviceradar-outside", filepath.Join(runtimeRoot, releaseCurrentLinkName)); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	err := ActivateStagedRelease(ReleaseActivationConfig{
+		RuntimeRoot:      runtimeRoot,
+		Version:          "1.2.3",
+		CommandID:        "cmd-unsafe",
+		CommandType:      commandTypeAgentUpdate,
+		RollbackDeadline: time.Minute,
+	})
+	if !errors.Is(err, errReleaseSymlinkTargetInvalid) {
+		t.Fatalf("expected errReleaseSymlinkTargetInvalid, got %v", err)
+	}
+}
+
+func TestRollbackReleaseActivationRejectsUnsafePreviousTarget(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	reportPath := filepath.Join(runtimeRoot, releaseActivationState)
+	nextDir := filepath.Join(runtimeRoot, releaseVersionsDirName, "1.2.3")
+
+	if err := os.MkdirAll(nextDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", nextDir, err)
+	}
+
+	state := releaseActivationStateFile{
+		CommandID:      "cmd-unsafe",
+		CommandType:    commandTypeAgentUpdate,
+		TargetVersion:  "1.2.3",
+		PreviousTarget: "../outside",
+	}
+	if err := writeJSONAtomically(reportPath, state); err != nil {
+		t.Fatalf("writeJSONAtomically() error = %v", err)
+	}
+
+	rolledBack, err := RollbackReleaseActivation(runtimeRoot, "unsafe target")
+	if rolledBack {
+		t.Fatal("expected rollback to be rejected")
+	}
+	if !errors.Is(err, errReleaseSymlinkTargetInvalid) {
+		t.Fatalf("expected errReleaseSymlinkTargetInvalid, got %v", err)
 	}
 }

@@ -40,6 +40,7 @@ const (
 
 var errReleaseCurrentLinkMissing = errors.New("release current symlink is missing")
 var errReleaseActivationPreviousTargetMissing = errors.New("release activation state missing previous target")
+var errReleaseSymlinkTargetInvalid = errors.New("release symlink target is invalid")
 
 type ReleaseActivationConfig struct {
 	RuntimeRoot      string
@@ -84,6 +85,10 @@ func ActivateStagedRelease(cfg ReleaseActivationConfig) error {
 		}
 		return fmt.Errorf("read current release symlink: %w", err)
 	}
+	previousTarget, err = normalizeReleaseSymlinkTarget(previousTarget)
+	if err != nil {
+		return err
+	}
 
 	deadline := cfg.RollbackDeadline
 	if deadline <= 0 {
@@ -99,7 +104,7 @@ func ActivateStagedRelease(cfg ReleaseActivationConfig) error {
 		RollbackAtUnix:  time.Now().UTC().Add(deadline).Unix(),
 	}
 
-	if err := writeJSONAtomically(filepath.Join(runtimeRoot, releaseActivationState), state, 0o644); err != nil {
+	if err := writeJSONAtomically(filepath.Join(runtimeRoot, releaseActivationState), state); err != nil {
 		return fmt.Errorf("write release activation state: %w", err)
 	}
 	if err := os.Remove(filepath.Join(runtimeRoot, releaseActivationReport)); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -133,7 +138,7 @@ func CompleteReleaseActivation(runtimeRoot, currentVersion string) (bool, error)
 	}
 
 	root := resolveReleaseRuntimeRoot(runtimeRoot)
-	if err := writeJSONAtomically(filepath.Join(root, releaseActivationReport), report, 0o644); err != nil {
+	if err := writeJSONAtomically(filepath.Join(root, releaseActivationReport), report); err != nil {
 		return false, fmt.Errorf("write activation report: %w", err)
 	}
 	if err := os.Remove(filepath.Join(root, releaseActivationState)); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -151,13 +156,17 @@ func RollbackReleaseActivation(runtimeRoot, reason string) (bool, error) {
 	if strings.TrimSpace(state.PreviousTarget) == "" {
 		return false, errReleaseActivationPreviousTargetMissing
 	}
+	previousTarget, err := normalizeReleaseSymlinkTarget(state.PreviousTarget)
+	if err != nil {
+		return false, err
+	}
 
 	root := resolveReleaseRuntimeRoot(runtimeRoot)
-	previousPath := filepath.Join(root, state.PreviousTarget)
+	previousPath := filepath.Join(root, previousTarget)
 	if _, err := os.Stat(previousPath); err != nil {
 		return false, fmt.Errorf("stat previous release target: %w", err)
 	}
-	if err := switchReleaseCurrentSymlink(root, state.PreviousTarget); err != nil {
+	if err := switchReleaseCurrentSymlink(root, previousTarget); err != nil {
 		return false, err
 	}
 
@@ -171,7 +180,7 @@ func RollbackReleaseActivation(runtimeRoot, reason string) (bool, error) {
 			"reason": strings.TrimSpace(reason),
 		},
 	}
-	if err := writeJSONAtomically(filepath.Join(root, releaseActivationReport), report, 0o644); err != nil {
+	if err := writeJSONAtomically(filepath.Join(root, releaseActivationReport), report); err != nil {
 		return false, fmt.Errorf("write rollback report: %w", err)
 	}
 	if err := os.Remove(filepath.Join(root, releaseActivationState)); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -243,11 +252,15 @@ func loadReleaseActivationState(runtimeRoot string) (*releaseActivationStateFile
 
 func switchReleaseCurrentSymlink(runtimeRoot, target string) error {
 	root := resolveReleaseRuntimeRoot(runtimeRoot)
+	normalizedTarget, err := normalizeReleaseSymlinkTarget(target)
+	if err != nil {
+		return err
+	}
 	currentPath := filepath.Join(root, releaseCurrentLinkName)
 	tempPath := currentPath + ".new"
 
 	_ = os.Remove(tempPath)
-	if err := os.Symlink(target, tempPath); err != nil {
+	if err := os.Symlink(normalizedTarget, tempPath); err != nil {
 		return fmt.Errorf("create current release symlink: %w", err)
 	}
 	if err := os.Rename(tempPath, currentPath); err != nil {
@@ -257,7 +270,20 @@ func switchReleaseCurrentSymlink(runtimeRoot, target string) error {
 	return nil
 }
 
-func writeJSONAtomically(path string, value interface{}, mode os.FileMode) error {
+func normalizeReleaseSymlinkTarget(target string) (string, error) {
+	clean, err := safeJoin(".", target)
+	if err != nil {
+		return "", errReleaseSymlinkTargetInvalid
+	}
+	clean = filepath.Clean(clean)
+	prefix := releaseVersionsDirName + string(filepath.Separator)
+	if !strings.HasPrefix(clean, prefix) {
+		return "", errReleaseSymlinkTargetInvalid
+	}
+	return clean, nil
+}
+
+func writeJSONAtomically(path string, value interface{}) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -268,7 +294,7 @@ func writeJSONAtomically(path string, value interface{}, mode os.FileMode) error
 	}
 
 	tempPath := path + ".tmp"
-	if err := os.WriteFile(tempPath, data, mode); err != nil {
+	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
 		return err
 	}
 	if err := os.Rename(tempPath, path); err != nil {

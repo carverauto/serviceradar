@@ -29,8 +29,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -66,6 +68,10 @@ var (
 	errReleasePublicKeyLengthInvalid  = errors.New("release public key length is invalid")
 	errReleaseSignatureEncoding       = errors.New("unsupported signature encoding")
 	errReleaseMetadataConflict        = errors.New("staged release already exists with different metadata")
+	errReleaseArtifactNotSigned       = errors.New("release artifact is not present in the signed manifest")
+	errReleaseArtifactURLInvalid      = errors.New("release artifact url must use https")
+	errReleaseArtifactPlatformInvalid = errors.New("release artifact platform does not match this agent")
+	errReleaseRedirectBlocked         = errors.New("release artifact redirects are not allowed")
 )
 
 // ReleaseSigningPublicKey is set at build time for managed release verification.
@@ -227,8 +233,100 @@ func validateReleasePayload(payload releaseUpdatePayload) error {
 		if manifestVersion != "" && strings.TrimSpace(manifestVersion) != payload.Version {
 			return fmt.Errorf("%w: manifest=%q command=%q", errReleaseManifestVersionMismatch, manifestVersion, payload.Version)
 		}
+		if err := validateSignedArtifact(payload.Manifest, payload.Artifact); err != nil {
+			return err
+		}
 		return nil
 	}
+}
+
+func validateSignedArtifact(manifest map[string]interface{}, artifact releaseArtifactPayload) error {
+	if err := validateReleaseArtifactURL(artifact.URL); err != nil {
+		return err
+	}
+	if err := validateReleaseArtifactPlatform(artifact); err != nil {
+		return err
+	}
+	if !manifestContainsArtifact(manifest, artifact) {
+		return errReleaseArtifactNotSigned
+	}
+	return nil
+}
+
+func validateReleaseArtifactURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errReleaseArtifactURLInvalid, err)
+	}
+	if parsed == nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Host == "" {
+		return errReleaseArtifactURLInvalid
+	}
+	return nil
+}
+
+func validateReleaseArtifactPlatform(artifact releaseArtifactPayload) error {
+	artifactOS := strings.ToLower(strings.TrimSpace(artifact.OS))
+	artifactArch := strings.ToLower(strings.TrimSpace(artifact.Arch))
+
+	if artifactOS == "" || artifactArch == "" {
+		return errReleaseArtifactNotSigned
+	}
+	if artifactOS != runtime.GOOS || artifactArch != runtime.GOARCH {
+		return fmt.Errorf(
+			"%w: artifact=%s/%s agent=%s/%s",
+			errReleaseArtifactPlatformInvalid,
+			artifactOS,
+			artifactArch,
+			runtime.GOOS,
+			runtime.GOARCH,
+		)
+	}
+	return nil
+}
+
+func manifestContainsArtifact(manifest map[string]interface{}, artifact releaseArtifactPayload) bool {
+	artifacts, ok := normalizeManifestArtifacts(manifest).([]interface{})
+	if !ok {
+		return false
+	}
+
+	for _, candidate := range artifacts {
+		candidateMap, ok := candidate.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if manifestArtifactMatches(candidateMap, artifact) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func normalizeManifestArtifacts(manifest map[string]interface{}) interface{} {
+	if manifest == nil {
+		return nil
+	}
+	if artifacts, ok := manifest["artifacts"]; ok {
+		return artifacts
+	}
+	return nil
+}
+
+func manifestArtifactMatches(candidate map[string]interface{}, artifact releaseArtifactPayload) bool {
+	return normalizedArtifactField(candidate["url"]) == normalizedArtifactField(artifact.URL) &&
+		normalizedArtifactField(candidate["sha256"]) == normalizedArtifactField(artifact.SHA256) &&
+		normalizedArtifactField(candidate["os"]) == normalizedArtifactField(artifact.OS) &&
+		normalizedArtifactField(candidate["arch"]) == normalizedArtifactField(artifact.Arch) &&
+		normalizedArtifactField(candidate["format"]) == normalizedArtifactField(artifact.Format) &&
+		normalizedArtifactField(candidate["entrypoint"]) == normalizedArtifactField(artifact.Entrypoint)
+}
+
+func normalizedArtifactField(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(strings.ToLower(fmt.Sprint(value)))
 }
 
 func verifyReleaseManifestSignature(manifestJSON []byte, signature string) error {
@@ -500,6 +598,11 @@ func downloadReleaseArtifact(ctx context.Context, client *http.Client, rawURL st
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 5 * time.Minute}
 	}
+	clientCopy := *httpClient
+	clientCopy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return errReleaseRedirectBlocked
+	}
+	httpClient = &clientCopy
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {

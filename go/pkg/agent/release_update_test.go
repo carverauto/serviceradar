@@ -15,18 +15,27 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
 
 func TestStageAgentReleaseStagesBinaryArtifact(t *testing.T) {
-	payload, binaryData := signedReleasePayload(t, []byte("#!/bin/sh\necho release\n"))
+	binaryData := []byte("#!/bin/sh\necho release\n")
 	server := newArtifactServer(t, binaryData)
 	defer server.Close()
 
-	payload.Artifact.URL = server.URL + "/serviceradar-agent"
+	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+		URL:    server.URL + "/serviceradar-agent",
+		SHA256: digestHex(binaryData),
+		OS:     runtime.GOOS,
+		Arch:   runtime.GOARCH,
+	})
 
-	result, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{RuntimeRoot: t.TempDir()})
+	result, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+	})
 	if err != nil {
 		t.Fatalf("stageAgentRelease() error = %v", err)
 	}
@@ -43,28 +52,42 @@ func TestStageAgentReleaseStagesBinaryArtifact(t *testing.T) {
 }
 
 func TestStageAgentReleaseRejectsInvalidSignature(t *testing.T) {
-	payload, binaryData := signedReleasePayload(t, []byte("binary"))
+	binaryData := []byte("binary")
 	server := newArtifactServer(t, binaryData)
 	defer server.Close()
 
-	payload.Artifact.URL = server.URL + "/serviceradar-agent"
+	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+		URL:    server.URL + "/serviceradar-agent",
+		SHA256: digestHex(binaryData),
+		OS:     runtime.GOOS,
+		Arch:   runtime.GOARCH,
+	})
 	payload.Signature = base64.StdEncoding.EncodeToString([]byte("invalid-signature"))
 
-	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{RuntimeRoot: t.TempDir()})
+	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+	})
 	if !errors.Is(err, errReleaseSignatureInvalid) {
 		t.Fatalf("expected errReleaseSignatureInvalid, got %v", err)
 	}
 }
 
 func TestStageAgentReleaseRejectsDigestMismatch(t *testing.T) {
-	payload, binaryData := signedReleasePayload(t, []byte("binary"))
-	server := newArtifactServer(t, binaryData)
+	binaryData := []byte("binary")
+	server := newArtifactServer(t, []byte("unexpected"))
 	defer server.Close()
 
-	payload.Artifact.URL = server.URL + "/serviceradar-agent"
-	payload.Artifact.SHA256 = hex.EncodeToString(make([]byte, sha256.Size))
-
-	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{RuntimeRoot: t.TempDir()})
+	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+		URL:    server.URL + "/serviceradar-agent",
+		SHA256: digestHex(binaryData),
+		OS:     runtime.GOOS,
+		Arch:   runtime.GOARCH,
+	})
+	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+	})
 	if !errors.Is(err, errContentHashMismatch) {
 		t.Fatalf("expected errContentHashMismatch, got %v", err)
 	}
@@ -72,15 +95,22 @@ func TestStageAgentReleaseRejectsDigestMismatch(t *testing.T) {
 
 func TestStageAgentReleaseExtractsTarballEntrypoint(t *testing.T) {
 	archiveData := buildReleaseArchive(t, "bin/serviceradar-agent", []byte("#!/bin/sh\necho archive\n"))
-	payload, _ := signedReleasePayload(t, archiveData)
 	server := newArtifactServer(t, archiveData)
 	defer server.Close()
 
-	payload.Artifact.URL = server.URL + "/serviceradar-agent.tar.gz"
-	payload.Artifact.Format = releaseArtifactFormatTarGz
-	payload.Artifact.SHA256 = digestHex(archiveData)
+	payload := signedReleasePayload(t, archiveData, releaseArtifactPayload{
+		URL:        server.URL + "/serviceradar-agent.tar.gz",
+		SHA256:     digestHex(archiveData),
+		OS:         runtime.GOOS,
+		Arch:       runtime.GOARCH,
+		Format:     releaseArtifactFormatTarGz,
+		Entrypoint: "bin/serviceradar-agent",
+	})
 
-	result, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{RuntimeRoot: t.TempDir()})
+	result, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+	})
 	if err != nil {
 		t.Fatalf("stageAgentRelease() error = %v", err)
 	}
@@ -90,7 +120,80 @@ func TestStageAgentReleaseExtractsTarballEntrypoint(t *testing.T) {
 	}
 }
 
-func signedReleasePayload(t *testing.T, artifactData []byte) (releaseUpdatePayload, []byte) {
+func TestStageAgentReleaseRejectsUnsignedArtifactMutation(t *testing.T) {
+	binaryData := []byte("binary")
+	server := newArtifactServer(t, binaryData)
+	defer server.Close()
+
+	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+		URL:    server.URL + "/serviceradar-agent",
+		SHA256: digestHex(binaryData),
+		OS:     runtime.GOOS,
+		Arch:   runtime.GOARCH,
+	})
+	payload.Artifact.Entrypoint = "evil-agent"
+
+	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+	})
+	if !errors.Is(err, errReleaseArtifactNotSigned) {
+		t.Fatalf("expected errReleaseArtifactNotSigned, got %v", err)
+	}
+}
+
+func TestStageAgentReleaseRejectsArtifactPlatformMismatch(t *testing.T) {
+	binaryData := []byte("binary")
+	server := newArtifactServer(t, binaryData)
+	defer server.Close()
+
+	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+		URL:    server.URL + "/serviceradar-agent",
+		SHA256: digestHex(binaryData),
+		OS:     "other-os",
+		Arch:   runtime.GOARCH,
+	})
+
+	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+	})
+	if !errors.Is(err, errReleaseArtifactPlatformInvalid) {
+		t.Fatalf("expected errReleaseArtifactPlatformInvalid, got %v", err)
+	}
+}
+
+func TestStageAgentReleaseRejectsRedirects(t *testing.T) {
+	binaryData := []byte("binary")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/redirect":
+			http.Redirect(w, r, "/artifact", http.StatusFound)
+		case "/artifact":
+			http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(binaryData))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+		URL:    server.URL + "/redirect",
+		SHA256: digestHex(binaryData),
+		OS:     runtime.GOOS,
+		Arch:   runtime.GOARCH,
+	})
+
+	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+	})
+	if !errors.Is(err, errReleaseRedirectBlocked) {
+		t.Fatalf("expected errReleaseRedirectBlocked, got %v", err)
+	}
+}
+
+func signedReleasePayload(t *testing.T, artifactData []byte, artifact releaseArtifactPayload) releaseUpdatePayload {
 	t.Helper()
 
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -103,9 +206,12 @@ func signedReleasePayload(t *testing.T, artifactData []byte) (releaseUpdatePaylo
 		"version": "1.1.0",
 		"artifacts": []interface{}{
 			map[string]interface{}{
-				"os":     "linux",
-				"arch":   "amd64",
-				"sha256": digestHex(artifactData),
+				"url":        artifact.URL,
+				"sha256":     digestHex(artifactData),
+				"os":         artifact.OS,
+				"arch":       artifact.Arch,
+				"format":     artifact.Format,
+				"entrypoint": artifact.Entrypoint,
 			},
 		},
 	}
@@ -124,16 +230,14 @@ func signedReleasePayload(t *testing.T, artifactData []byte) (releaseUpdatePaylo
 		Version:   "1.1.0",
 		Manifest:  manifest,
 		Signature: base64.StdEncoding.EncodeToString(signature),
-		Artifact: releaseArtifactPayload{
-			SHA256: digestHex(artifactData),
-		},
-	}, artifactData
+		Artifact:  artifact,
+	}
 }
 
 func newArtifactServer(t *testing.T, data []byte) *httptest.Server {
 	t.Helper()
 
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(data))
 	}))
 }
