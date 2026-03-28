@@ -17,7 +17,7 @@
 ## 4. Operator Experience
 - [x] 4.1 Add fleet version distribution, rollout filters, and selected/visible cohort rollout actions to the agent inventory UI.
 - [x] 4.2 Add agent detail release history, rollout timeline, failure diagnostics, and direct single-agent rollout handoff.
-- [x] 4.3 Add a release-management page with repository-release import, manual publish/rollout controls, supported-platform visibility, rollout compatibility preview, disabled invalid submissions, creation-time cohort validation, and detailed per-target diagnostics.
+- [x] 4.3 Add a release-management page with auto-discovered repository-release browsing, one-click repository import, manual publish/rollout controls, supported-platform visibility, rollout compatibility preview, disabled invalid submissions, creation-time cohort validation, and detailed per-target diagnostics.
 - [x] 4.4 Document release publishing, signing-key handling, rollback procedures, rollout guardrails, and rollout diagnostics.
 
 ## 5. Validation

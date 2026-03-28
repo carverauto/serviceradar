@@ -269,7 +269,6 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
         %{
           uid: agent_id,
           name: "ARM64 Test Agent",
-          gateway_id: "gw-arm64",
           version: "1.0.0",
           type_id: 4,
           type: "Performance",

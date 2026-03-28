@@ -21,6 +21,12 @@ The system SHALL maintain a catalog of publishable agent releases. Each release 
 - **THEN** the control plane fetches the manifest assets, validates the signature, and stores the release as eligible for rollout targeting
 - **AND** the imported release retains source metadata identifying the repository release it came from
 
+#### Scenario: Browse recent repository releases before import
+- **GIVEN** an operator opens the release-management UI for a configured repository host and repo URL
+- **WHEN** the page loads repository release metadata
+- **THEN** the latest repository releases are listed automatically with their tag, publish time, and whether the configured manifest and signature assets are present
+- **AND** releases missing those assets are not offered as one-click import candidates
+
 ### Requirement: Desired-version rollouts are cohort-based and staged
 The system SHALL allow operators to assign a desired agent version to a cohort of agents. Rollouts SHALL support explicit cohort selection, batch limits, inter-batch delays, and pause/resume/cancel controls. Cohort membership SHALL be snapshotted when the rollout starts.
 

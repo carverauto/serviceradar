@@ -30,6 +30,35 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
 
     def get(url, _opts) do
       cond do
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: [
+               %{
+                 "tag_name" => "v1.2.4",
+                 "name" => "ServiceRadar 1.2.4",
+                 "body" => "Newest release",
+                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.4",
+                 "published_at" => "2026-03-28T20:00:00Z",
+                 "assets" => [
+                   %{"name" => "serviceradar-agent-release-manifest.json"},
+                   %{"name" => "serviceradar-agent-release-manifest.sig"}
+                 ]
+               },
+               %{
+                 "tag_name" => "v1.2.3",
+                 "name" => "ServiceRadar 1.2.3",
+                 "body" => "Missing manifest asset",
+                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.3",
+                 "published_at" => "2026-03-27T20:00:00Z",
+                 "assets" => [
+                   %{"name" => "serviceradar-agent-release-manifest.sig"}
+                 ]
+               }
+             ]
+           }}
+
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
           {:ok,
            %Req.Response{
@@ -166,5 +195,25 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
                "release_tag" => "v1.2.3",
                "signature_asset_name" => "missing.sig"
              })
+  end
+
+  test "lists recent releases with import readiness" do
+    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, GitHubClient)
+
+    assert {:ok, [latest, previous]} =
+             ReleaseSourceImporter.list_recent_releases(%{
+               "provider" => "github",
+               "repo_url" => "https://github.com/carverauto/serviceradar"
+             })
+
+    assert latest.tag == "v1.2.4"
+    assert latest.import_ready?
+    assert latest.manifest_present?
+    assert latest.signature_present?
+
+    assert previous.tag == "v1.2.3"
+    refute previous.import_ready?
+    refute previous.manifest_present?
+    assert previous.signature_present?
   end
 end

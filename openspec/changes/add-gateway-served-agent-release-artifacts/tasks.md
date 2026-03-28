@@ -19,5 +19,5 @@
 - [x] 4.3 Document the repo-release import flow, manual developer flow, and gateway-served artifact delivery model.
 
 ## 5. Validation
-- [ ] 5.1 Add integration coverage for publish/import mirroring, gateway-served delivery, and rollout dispatch using internal artifact references.
+- [x] 5.1 Add integration coverage for publish/import mirroring, gateway-served delivery, and rollout dispatch using internal artifact references.
 - [x] 5.2 Run `openspec validate add-gateway-served-agent-release-artifacts --strict`.

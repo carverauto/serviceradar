@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
 
   @default_manifest_asset_name "serviceradar-agent-release-manifest.json"
   @default_signature_asset_name "serviceradar-agent-release-manifest.sig"
+  @default_recent_release_limit 10
   @provider_options [
     {"GitHub Releases", "github"},
     {"Forgejo Releases", "forgejo"}
@@ -24,10 +25,31 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   @spec default_signature_asset_name() :: String.t()
   def default_signature_asset_name, do: @default_signature_asset_name
 
+  @spec list_recent_releases(import_attrs(), pos_integer()) :: {:ok, [map()]} | {:error, String.t()}
+  def list_recent_releases(attrs, limit \\ @default_recent_release_limit)
+
+  def list_recent_releases(attrs, limit) when is_map(attrs) do
+    manifest_asset_name =
+      normalize_string(Map.get(attrs, "manifest_asset_name") || Map.get(attrs, :manifest_asset_name)) ||
+        @default_manifest_asset_name
+
+    signature_asset_name =
+      normalize_string(Map.get(attrs, "signature_asset_name") || Map.get(attrs, :signature_asset_name)) ||
+        @default_signature_asset_name
+
+    with {:ok, repo} <- import_repo(attrs),
+         {:ok, releases} <- fetch_recent_releases(repo, limit) do
+      {:ok,
+       releases
+       |> Enum.map(&summarize_release(&1, manifest_asset_name, signature_asset_name))
+       |> Enum.reject(&is_nil(&1))}
+    end
+  end
+
+  def list_recent_releases(_attrs, _limit), do: {:error, "Release import settings are invalid"}
+
   @spec import(import_attrs()) :: {:ok, map()} | {:error, String.t()}
   def import(attrs) when is_map(attrs) do
-    provider = normalize_provider(Map.get(attrs, "provider") || Map.get(attrs, :provider))
-    repo_url = Map.get(attrs, "repo_url") || Map.get(attrs, :repo_url)
     release_tag = Map.get(attrs, "release_tag") || Map.get(attrs, :release_tag)
 
     manifest_asset_name =
@@ -38,8 +60,8 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
       normalize_string(Map.get(attrs, "signature_asset_name") || Map.get(attrs, :signature_asset_name)) ||
         @default_signature_asset_name
 
-    with {:ok, provider} <- validate_provider(provider),
-         {:ok, repo} <- parse_repo_url(provider, repo_url),
+    with {:ok, provider} <- selected_provider(attrs),
+         {:ok, repo} <- import_repo(attrs),
          {:ok, tag} <- require_value(release_tag, "Release tag is required"),
          {:ok, release} <- fetch_release(repo, tag),
          {:ok, manifest_asset} <- fetch_release_asset(release, manifest_asset_name),
@@ -72,6 +94,25 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   end
 
   def import(_attrs), do: {:error, "Release import settings are invalid"}
+
+  defp selected_provider(attrs) when is_map(attrs) do
+    attrs
+    |> Map.get("provider", Map.get(attrs, :provider))
+    |> normalize_provider()
+    |> validate_provider()
+  end
+
+  defp selected_provider(_attrs), do: {:error, "Select a supported release provider"}
+
+  defp import_repo(attrs) when is_map(attrs) do
+    repo_url = Map.get(attrs, "repo_url") || Map.get(attrs, :repo_url)
+
+    with {:ok, provider} <- selected_provider(attrs) do
+      parse_repo_url(provider, repo_url)
+    end
+  end
+
+  defp import_repo(_attrs), do: {:error, "Release import settings are invalid"}
 
   defp validate_provider(provider) when provider in ["github", "forgejo"], do: {:ok, provider}
   defp validate_provider(_provider), do: {:error, "Select a supported release provider"}
@@ -165,6 +206,27 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     end
   end
 
+  defp fetch_recent_releases(repo, limit) do
+    url = "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases?per_page=#{normalize_limit(limit)}"
+
+    case http_client().get(url, headers: api_headers(repo.provider)) do
+      {:ok, %Req.Response{status: 200, body: body}} when is_list(body) ->
+        {:ok, body}
+
+      {:ok, %Req.Response{status: 200, body: _body}} ->
+        {:error, "Release browser returned an unexpected payload"}
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, "Recent releases could not be loaded (HTTP #{status})"}
+
+      {:error, reason} ->
+        {:error, "Recent releases could not be loaded: #{inspect(reason)}"}
+    end
+  end
+
+  defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, 20)
+  defp normalize_limit(_limit), do: @default_recent_release_limit
+
   defp fetch_release_asset(release, asset_name) do
     assets = List.wrap(Map.get(release, "assets"))
 
@@ -198,6 +260,43 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     with {:ok, signature_blob} <- fetch_binary_asset(repo, asset) do
       require_value(signature_blob, "Release signature asset is empty")
     end
+  end
+
+  defp summarize_release(release, manifest_asset_name, signature_asset_name) when is_map(release) do
+    tag = normalize_string(Map.get(release, "tag_name"))
+    assets = List.wrap(Map.get(release, "assets"))
+
+    if is_nil(tag) do
+      nil
+    else
+      manifest_present? = release_asset_present?(assets, manifest_asset_name)
+      signature_present? = release_asset_present?(assets, signature_asset_name)
+
+      %{
+        tag: tag,
+        name: normalize_string(Map.get(release, "name")) || tag,
+        body: normalize_string(Map.get(release, "body")),
+        html_url: normalize_string(Map.get(release, "html_url")),
+        published_at:
+          normalize_string(Map.get(release, "published_at")) ||
+            normalize_string(Map.get(release, "created_at")),
+        draft?: Map.get(release, "draft") == true,
+        prerelease?: Map.get(release, "prerelease") == true,
+        manifest_present?: manifest_present?,
+        signature_present?: signature_present?,
+        import_ready?: manifest_present? and signature_present?,
+        asset_names:
+          assets
+          |> Enum.map(&normalize_string(Map.get(&1, "name")))
+          |> Enum.reject(&is_nil/1)
+      }
+    end
+  end
+
+  defp summarize_release(_release, _manifest_asset_name, _signature_asset_name), do: nil
+
+  defp release_asset_present?(assets, asset_name) when is_list(assets) do
+    Enum.any?(assets, &(normalize_string(Map.get(&1, "name")) == asset_name))
   end
 
   defp decode_manifest(body) when is_binary(body) do

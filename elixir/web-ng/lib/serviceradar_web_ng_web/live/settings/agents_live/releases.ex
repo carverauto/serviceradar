@@ -48,6 +48,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
        |> assign(:cohort_options, @cohort_options)
        |> assign(:release_import_provider_options, ReleaseSourceImporter.provider_options())
        |> assign(:release_import_form, release_import_form())
+       |> assign(:recent_repo_releases, [])
+       |> assign(:recent_repo_release_error, nil)
        |> assign(:release_form, release_form())
        |> assign(:rollout_form, rollout_form())
        |> assign(:releases, [])
@@ -75,6 +77,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   @impl true
   def handle_event("refresh", _params, socket) do
     {:noreply, load_page_data(socket)}
+  end
+
+  def handle_event("change_release_import", %{"release_import" => params}, socket) do
+    previous_params = socket.assigns.release_import_form.params || %{}
+    form = release_import_form(params)
+
+    socket =
+      socket
+      |> assign(:release_import_form, form)
+      |> maybe_reload_recent_repo_releases(previous_params, params)
+
+    {:noreply, socket}
   end
 
   def handle_event("use_release", %{"version" => version}, socket) do
@@ -131,6 +145,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
          |> put_flash(:error, "Import failed: #{format_error(reason)}")
          |> assign(:release_import_form, release_import_form(params))}
     end
+  end
+
+  def handle_event("import_recent_repo_release", %{"release_tag" => release_tag}, socket) do
+    params =
+      socket.assigns.release_import_form.params
+      |> Map.new()
+      |> Map.put("release_tag", release_tag)
+
+    handle_event("import_repo_release", %{"release_import" => params}, socket)
   end
 
   def handle_event("create_rollout", %{"rollout" => params}, socket) do
@@ -240,6 +263,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     {rollout_summaries, rollout_targets} = list_rollout_data(rollouts, scope)
     prefill = rollout_prefill_params(params)
     prefill_count = prefill_agent_count(prefill)
+    release_import_form = normalize_release_import_form(socket.assigns.release_import_form)
 
     rollout_form =
       if(prefill == %{},
@@ -249,6 +273,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
     rollout_preview = build_rollout_preview(rollout_form.params || %{}, releases, connected_agents, scope)
 
+    {recent_repo_releases, recent_repo_release_error} =
+      load_recent_repo_releases(release_import_form.params || %{})
+
     socket
     |> assign(:releases, releases)
     |> assign(:rollouts, rollouts)
@@ -257,6 +284,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     |> assign(:rollout_targets, rollout_targets)
     |> assign(:rollout_prefill_count, prefill_count)
     |> assign(:rollout_prefill_source, Map.get(params, "source"))
+    |> assign(:release_import_form, release_import_form)
+    |> assign(:recent_repo_releases, recent_repo_releases)
+    |> assign(:recent_repo_release_error, recent_repo_release_error)
     |> assign(:release_form, normalize_release_form(socket.assigns.release_form))
     |> assign(:rollout_form, rollout_form)
     |> assign(:rollout_preview, rollout_preview)
@@ -445,6 +475,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                   <.form
                     for={@release_import_form}
                     id="import-release-form"
+                    phx-change="change_release_import"
                     phx-submit="import_repo_release"
                     class="space-y-4"
                   >
@@ -454,12 +485,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         type="select"
                         label="Release Provider"
                         options={@release_import_provider_options}
-                      />
-                      <.input
-                        field={@release_import_form[:release_tag]}
-                        label="Release Tag"
-                        placeholder="v1.2.3"
-                        required
                       />
                       <.input
                         field={@release_import_form[:repo_url]}
@@ -480,14 +505,134 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                       />
                     </div>
 
-                    <div class="rounded-lg bg-base-200/40 px-4 py-3 text-xs text-base-content/70">
-                      Keep the manual publish path below for local development and one-off testing
-                      when you do not want to push a signed release through the repo host.
+                    <div class="rounded-lg border border-base-300 bg-base-200/20">
+                      <div class="flex items-center justify-between gap-3 border-b border-base-300 px-4 py-3">
+                        <div>
+                          <div class="text-sm font-semibold text-base-content">
+                            Recent Repository Releases
+                          </div>
+                          <div class="text-xs text-base-content/60">
+                            The latest 10 releases are discovered automatically for the selected repository.
+                          </div>
+                        </div>
+                        <span class="text-xs text-base-content/50">
+                          {repo_name_from_url(@release_import_form[:repo_url].value || "")}
+                        </span>
+                      </div>
+
+                      <div
+                        :if={@recent_repo_release_error not in [nil, ""]}
+                        class="px-4 py-3 text-sm text-warning"
+                      >
+                        {@recent_repo_release_error}
+                      </div>
+
+                      <div
+                        :if={@recent_repo_releases == [] and is_nil(@recent_repo_release_error)}
+                        class="px-4 py-6 text-sm text-base-content/60"
+                      >
+                        No recent releases were returned for this repository.
+                      </div>
+
+                      <div :if={@recent_repo_releases != []} class="overflow-x-auto">
+                        <table class="table table-sm w-full">
+                          <thead>
+                            <tr>
+                              <th>Release</th>
+                              <th>Published</th>
+                              <th>Assets</th>
+                              <th>Import</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <%= for release <- @recent_repo_releases do %>
+                              <tr id={"repo-release-#{release.tag}"}>
+                                <td>
+                                  <div class="flex flex-col gap-1">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                      <span class="font-mono text-xs">{release.tag}</span>
+                                      <.ui_badge :if={release.draft?} variant="warning" size="xs">
+                                        Draft
+                                      </.ui_badge>
+                                      <.ui_badge :if={release.prerelease?} variant="info" size="xs">
+                                        Pre-release
+                                      </.ui_badge>
+                                    </div>
+                                    <span class="text-xs text-base-content/70">{release.name}</span>
+                                    <a
+                                      :if={release.html_url not in [nil, ""]}
+                                      href={release.html_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      class="link link-hover text-[11px] text-base-content/50"
+                                    >
+                                      View release page
+                                    </a>
+                                  </div>
+                                </td>
+                                <td class="font-mono text-xs">
+                                  {format_datetime(release.published_at)}
+                                </td>
+                                <td class="text-xs">
+                                  <div class="flex flex-wrap gap-1">
+                                    <.ui_badge
+                                      variant={
+                                        if release.manifest_present?, do: "success", else: "error"
+                                      }
+                                      size="xs"
+                                    >
+                                      Manifest
+                                    </.ui_badge>
+                                    <.ui_badge
+                                      variant={
+                                        if release.signature_present?, do: "success", else: "error"
+                                      }
+                                      size="xs"
+                                    >
+                                      Signature
+                                    </.ui_badge>
+                                  </div>
+                                </td>
+                                <td>
+                                  <button
+                                    id={"quick-import-#{release.tag}"}
+                                    type="button"
+                                    phx-click="import_recent_repo_release"
+                                    phx-value-release_tag={release.tag}
+                                    class="btn btn-xs btn-ghost"
+                                    disabled={not release.import_ready?}
+                                    title={
+                                      if release.import_ready?,
+                                        do: "Import and publish #{release.tag}",
+                                        else:
+                                          "Release is missing the configured manifest or signature asset"
+                                    }
+                                  >
+                                    Import
+                                  </button>
+                                </td>
+                              </tr>
+                            <% end %>
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
 
-                    <div class="flex justify-end">
+                    <div class="rounded-lg bg-base-200/40 px-4 py-3 text-xs text-base-content/70">
+                      Keep the manual publish path below for local development and one-off testing
+                      when you do not want to push a signed release through the repo host. Use the
+                      field below when you want to import a specific tag that is not in the recent list.
+                    </div>
+
+                    <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                      <.input
+                        field={@release_import_form[:release_tag]}
+                        label="Specific Release Tag"
+                        placeholder="v1.2.3"
+                      />
+
                       <.ui_button type="submit" variant="primary" size="sm">
-                        <.icon name="hero-arrow-down-tray" class="size-4" /> Import And Publish
+                        <.icon name="hero-arrow-down-tray" class="size-4" /> Import Specific Tag
                       </.ui_button>
                     </div>
                   </.form>
@@ -1053,6 +1198,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     )
   end
 
+  defp normalize_release_import_form(%Form{} = form) do
+    release_import_form(form.params || %{})
+  end
+
+  defp normalize_release_import_form(_other), do: release_import_form()
+
   defp rollout_form(params \\ %{}, releases \\ []) do
     default_version =
       Map.get(params, "version") ||
@@ -1094,6 +1245,38 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   end
 
   defp selected_import_provider(_params), do: {:error, "Select a supported release provider"}
+
+  defp maybe_reload_recent_repo_releases(socket, previous_params, params) do
+    if repo_source_params_changed?(previous_params, params) do
+      {recent_repo_releases, recent_repo_release_error} = load_recent_repo_releases(params)
+
+      socket
+      |> assign(:recent_repo_releases, recent_repo_releases)
+      |> assign(:recent_repo_release_error, recent_repo_release_error)
+    else
+      socket
+    end
+  end
+
+  defp repo_source_params_changed?(previous_params, params) do
+    tracked_keys = ["provider", "repo_url", "manifest_asset_name", "signature_asset_name"]
+
+    Enum.any?(tracked_keys, fn key ->
+      normalize_repo_source_value(Map.get(previous_params, key)) != normalize_repo_source_value(Map.get(params, key))
+    end)
+  end
+
+  defp normalize_repo_source_value(value) when is_binary(value), do: String.trim(value)
+  defp normalize_repo_source_value(value), do: value
+
+  defp load_recent_repo_releases(params) when is_map(params) do
+    case ReleaseSourceImporter.list_recent_releases(params) do
+      {:ok, releases} -> {releases, nil}
+      {:error, reason} -> {[], format_error(reason)}
+    end
+  end
+
+  defp load_recent_repo_releases(_params), do: {[], nil}
 
   defp rollout_prefill_params(params) when is_map(params) do
     compact_map(%{

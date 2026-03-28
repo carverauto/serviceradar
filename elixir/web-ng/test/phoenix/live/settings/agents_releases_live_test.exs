@@ -25,6 +25,44 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     def get(url, _opts) do
       cond do
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: [
+               %{
+                 "tag_name" => "v7.0.0",
+                 "name" => "ServiceRadar 7.0.0",
+                 "body" => "Imported release notes",
+                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v7.0.0",
+                 "published_at" => "2026-03-28T20:00:00Z",
+                 "assets" => [
+                   %{
+                     "name" => "serviceradar-agent-release-manifest.json",
+                     "browser_download_url" => "https://downloads.example/releases/v7.0.0/manifest.json"
+                   },
+                   %{
+                     "name" => "serviceradar-agent-release-manifest.sig",
+                     "browser_download_url" => "https://downloads.example/releases/v7.0.0/manifest.sig"
+                   }
+                 ]
+               },
+               %{
+                 "tag_name" => "v6.9.9",
+                 "name" => "ServiceRadar 6.9.9",
+                 "body" => "Missing manifest",
+                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v6.9.9",
+                 "published_at" => "2026-03-27T20:00:00Z",
+                 "assets" => [
+                   %{
+                     "name" => "serviceradar-agent-release-manifest.sig",
+                     "browser_download_url" => "https://downloads.example/releases/v6.9.9/manifest.sig"
+                   }
+                 ]
+               }
+             ]
+           }}
+
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v7.0.0") ->
           {:ok,
            %Req.Response{
@@ -227,6 +265,37 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert release.release_notes == "Imported release notes"
     assert get_in(release.metadata, ["source", "provider"]) == "github"
     assert get_in(release.metadata, ["source", "release_tag"]) == "v7.0.0"
+  end
+
+  test "loads recent repository releases automatically and disables missing-asset imports", %{conn: conn} do
+    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, ReleaseImportClient)
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
+
+    assert html =~ "Recent Repository Releases"
+    assert html =~ "v7.0.0"
+    assert html =~ "v6.9.9"
+    assert has_element?(lv, "button[phx-value-release_tag='v7.0.0']:not([disabled])")
+    assert has_element?(lv, "button[phx-value-release_tag='v6.9.9'][disabled]")
+  end
+
+  test "imports a recent repository release with one click", %{conn: conn, scope: scope} do
+    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, ReleaseImportClient)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
+
+    lv
+    |> element("button[phx-value-release_tag='v7.0.0']")
+    |> render_click()
+
+    assert render(lv) =~ "Imported and published agent release 7.0.0 from GitHub Releases"
+
+    release =
+      AgentRelease
+      |> Ash.Query.for_read(:by_version, %{version: "7.0.0"})
+      |> Ash.read_one!(scope: scope)
+
+    assert release.version == "7.0.0"
   end
 
   test "shows rollout compatibility preview for the connected cohort", %{conn: conn, scope: scope} do

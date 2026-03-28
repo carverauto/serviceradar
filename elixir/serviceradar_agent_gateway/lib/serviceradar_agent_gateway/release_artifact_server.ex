@@ -54,18 +54,33 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
   end
 
   def child_spec(opts) do
+    scheme = Keyword.get(opts, :scheme, :https)
+
+    thousand_island_options =
+      case scheme do
+        :https ->
+          [
+            transport_options: [
+              certfile: opts[:certfile],
+              keyfile: opts[:keyfile],
+              cacertfile: opts[:cacertfile],
+              verify: :verify_peer,
+              fail_if_no_peer_cert: true
+            ]
+          ]
+
+        _ ->
+          []
+      end
+
     bandit_opts =
       [
         plug: {__MODULE__, opts},
-        scheme: Keyword.get(opts, :scheme, :https),
+        scheme: scheme,
         ip: Keyword.get(opts, :ip, {0, 0, 0, 0}),
-        port: Keyword.fetch!(opts, :port)
+        port: Keyword.fetch!(opts, :port),
+        thousand_island_options: thousand_island_options
       ]
-      |> maybe_put(:certfile, opts[:certfile], opts[:scheme] == :https)
-      |> maybe_put(:keyfile, opts[:keyfile], opts[:scheme] == :https)
-      |> maybe_put(:cacertfile, opts[:cacertfile], opts[:scheme] == :https)
-      |> maybe_put(:verify, :verify_peer, opts[:scheme] == :https)
-      |> maybe_put(:fail_if_no_peer_cert, true, opts[:scheme] == :https)
 
     Supervisor.child_spec(Bandit.child_spec(bandit_opts), id: {__MODULE__, bandit_opts[:port]})
   end
@@ -143,9 +158,6 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
         end
     end
   end
-
-  defp maybe_put(opts, _key, _value, false), do: opts
-  defp maybe_put(opts, key, value, true), do: Keyword.put(opts, key, value)
 
   defp core_nodes do
     Enum.filter(Node.list(), fn node ->
