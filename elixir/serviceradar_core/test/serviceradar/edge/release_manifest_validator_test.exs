@@ -53,7 +53,8 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidatorTest do
       ]
     }
 
-    assert {:error, errors} = ReleaseManifestValidator.validate("1.2.3", manifest, sign_manifest(manifest))
+    assert {:error, errors} =
+             ReleaseManifestValidator.validate("1.2.3", manifest, sign_manifest(manifest))
 
     messages = Enum.map(errors, & &1.message)
     assert "release artifact 1 must include sha256" in messages
@@ -80,7 +81,8 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidatorTest do
     {:ok, payload} = ReleaseManifestValidator.canonical_json(manifest)
     private_key = Base.decode64!(@release_private_key)
 
-    :crypto.sign(:eddsa, :none, payload, [private_key, :ed25519])
+    :eddsa
+    |> :crypto.sign(:none, payload, [private_key, :ed25519])
     |> Base.encode64()
   end
 end

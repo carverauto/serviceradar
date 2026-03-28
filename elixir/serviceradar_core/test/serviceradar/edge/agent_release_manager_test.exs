@@ -18,6 +18,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
   @release_private_key "kRqU4UnTUPjychwJGH4ZdsuijaxuGUNFPezyY+iSnBY="
 
   defmodule TestControlSession do
+    @moduledoc false
     use GenServer
 
     def start_link(opts) do
@@ -221,24 +222,28 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
 
     {:ok, _agent} =
       Agent
-      |> Ash.Changeset.for_create(:register_connected, %{
-        uid: agent_id,
-        name: "ARM64 Test Agent",
-        gateway_id: "gw-arm64",
-        version: "1.0.0",
-        type_id: 4,
-        type: "Performance",
-        capabilities: ["agent"],
-        metadata: %{"os" => "linux", "arch" => "arm64"}
-      }, actor: actor)
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: agent_id,
+          name: "ARM64 Test Agent",
+          gateway_id: "gw-arm64",
+          version: "1.0.0",
+          type_id: 4,
+          type: "Performance",
+          capabilities: ["agent"],
+          metadata: %{"os" => "linux", "arch" => "arm64"}
+        },
+        actor: actor
+      )
       |> Ash.create()
 
     assert {:error, %{errors: [%{message: unsupported_message}]}} =
              AgentReleaseManager.create_rollout(%{
-        release_id: release.id,
-        agent_ids: [agent_id],
-        batch_size: 1
-      })
+               release_id: release.id,
+               agent_ids: [agent_id],
+               batch_size: 1
+             })
 
     assert unsupported_message ==
              "unsupported agent platforms for release cohort: #{agent_id} (linux/arm64)"
@@ -508,7 +513,8 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     {:ok, payload} = ServiceRadar.Edge.ReleaseManifestValidator.canonical_json(manifest)
     private_key = Base.decode64!(@release_private_key)
 
-    :crypto.sign(:eddsa, :none, payload, [private_key, :ed25519])
+    :eddsa
+    |> :crypto.sign(:none, payload, [private_key, :ed25519])
     |> Base.encode64()
   end
 end

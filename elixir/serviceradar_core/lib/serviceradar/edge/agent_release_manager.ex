@@ -80,26 +80,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
     case Agent.get_by_uid(agent_id, actor: actor) do
       {:ok, %Agent{} = agent} ->
-        agent_id
-        |> active_targets_for_agent(actor)
-        |> Enum.each(fn target ->
-          if version_matches?(agent.version, target.desired_version) do
-            _ =
-              mark_target_status(
-                target,
-                :healthy,
-                %{
-                  current_version: agent.version,
-                  last_status_message: "agent already at desired version",
-                  progress_percent: 100
-                },
-                actor
-              )
-          else
-            maybe_dispatch_rollout(target.rollout_id, actor: actor)
-          end
-        end)
-
+        reconcile_agent_targets(agent_id, agent, actor)
         :ok
 
       _ ->
@@ -174,62 +155,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
     case AgentReleaseTarget.get_by_command_id(command_id, actor: actor) do
       {:ok, %AgentReleaseTarget{} = target} ->
-        payload = Map.get(data, :payload) || %{}
-
-        case release_result_status(payload, Map.get(data, :success)) do
-          {:staged, staged_version} ->
-            _ =
-              mark_target_status(
-                target,
-                :staged,
-                %{
-                  current_version: staged_version || target.current_version,
-                  progress_percent: 100,
-                  last_status_message: Map.get(data, :message),
-                  last_error: nil
-                },
-                actor
-              )
-
-          {:healthy, current_version} ->
-            _ =
-              mark_target_status(
-                target,
-                :healthy,
-                %{
-                  current_version: current_version || target.current_version,
-                  progress_percent: 100,
-                  last_status_message: Map.get(data, :message),
-                  last_error: nil
-                },
-                actor
-              )
-
-          {:rolled_back, reason} ->
-            _ =
-              mark_target_status(
-                target,
-                :rolled_back,
-                %{
-                  last_status_message: Map.get(data, :message),
-                  last_error: reason || "rolled_back"
-                },
-                actor
-              )
-
-          {:failed, reason} ->
-            _ =
-              mark_target_status(
-                target,
-                :failed,
-                %{
-                  last_status_message: Map.get(data, :message),
-                  last_error: reason || "command_failed"
-                },
-                actor
-              )
-        end
-
+        mark_release_result_status(target, data, actor)
         maybe_dispatch_rollout(target.rollout_id, actor: actor)
         :ok
 
@@ -255,20 +181,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
         |> Enum.count(&(&1.status in @inflight_statuses))
 
       capacity = max((rollout.batch_size || 1) - inflight_count, 0)
-
-      if capacity > 0 do
-        rollout.id
-        |> pending_targets(actor)
-        |> Enum.reduce_while(capacity, fn target, remaining ->
-          case dispatch_target(target, rollout, release, actor) do
-            {:ok, _command_id} when remaining > 1 -> {:cont, remaining - 1}
-            {:ok, _command_id} -> {:halt, 0}
-            :pending -> {:cont, remaining}
-            {:error, _reason} -> {:cont, remaining}
-          end
-        end)
-      end
-
+      dispatch_pending_targets(rollout, release, actor, capacity)
       maybe_complete_rollout(rollout.id, actor)
       :ok
     else
@@ -303,6 +216,32 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     }
 
     AgentReleaseRollout.create_rollout(rollout_attrs, actor: actor)
+  end
+
+  defp reconcile_agent_targets(agent_id, agent, actor) do
+    agent_id
+    |> active_targets_for_agent(actor)
+    |> Enum.each(&reconcile_target(&1, agent, actor))
+  end
+
+  defp reconcile_target(target, agent, actor) do
+    if version_matches?(agent.version, target.desired_version) do
+      _ =
+        mark_target_status(
+          target,
+          :healthy,
+          %{
+            current_version: agent.version,
+            last_status_message: "agent already at desired version",
+            progress_percent: 100
+          },
+          actor
+        )
+
+      :ok
+    else
+      maybe_dispatch_rollout(target.rollout_id, actor: actor)
+    end
   end
 
   defp create_targets(rollout, release, agent_ids, actor) do
@@ -411,6 +350,54 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp mark_release_result_status(target, data, actor) do
+    payload = Map.get(data, :payload) || %{}
+    message = Map.get(data, :message)
+
+    {status, attrs} =
+      payload
+      |> release_result_status(Map.get(data, :success))
+      |> release_result_update_attrs(target, message)
+
+    _ = mark_target_status(target, status, attrs, actor)
+  end
+
+  defp release_result_update_attrs({:staged, staged_version}, target, message) do
+    {:staged,
+     %{
+       current_version: staged_version || target.current_version,
+       progress_percent: 100,
+       last_status_message: message,
+       last_error: nil
+     }}
+  end
+
+  defp release_result_update_attrs({:healthy, current_version}, target, message) do
+    {:healthy,
+     %{
+       current_version: current_version || target.current_version,
+       progress_percent: 100,
+       last_status_message: message,
+       last_error: nil
+     }}
+  end
+
+  defp release_result_update_attrs({:rolled_back, reason}, _target, message) do
+    {:rolled_back,
+     %{
+       last_status_message: message,
+       last_error: reason || "rolled_back"
+     }}
+  end
+
+  defp release_result_update_attrs({:failed, reason}, _target, message) do
+    {:failed,
+     %{
+       last_status_message: message,
+       last_error: reason || "command_failed"
+     }}
   end
 
   defp select_artifact(release, agent) do
@@ -527,6 +514,28 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     end)
   end
 
+  defp dispatch_pending_targets(_rollout, _release, _actor, capacity) when capacity <= 0, do: :ok
+
+  defp dispatch_pending_targets(rollout, release, actor, capacity) do
+    _remaining_capacity =
+      rollout.id
+      |> pending_targets(actor)
+      |> Enum.reduce_while(capacity, fn target, remaining ->
+        dispatch_pending_target(target, rollout, release, actor, remaining)
+      end)
+
+    :ok
+  end
+
+  defp dispatch_pending_target(target, rollout, release, actor, remaining) do
+    case dispatch_target(target, rollout, release, actor) do
+      {:ok, _command_id} when remaining > 1 -> {:cont, remaining - 1}
+      {:ok, _command_id} -> {:halt, 0}
+      :pending -> {:cont, remaining}
+      {:error, _reason} -> {:cont, remaining}
+    end
+  end
+
   defp dispatch_window_open?(%AgentReleaseRollout{batch_delay_seconds: delay_seconds})
        when not is_integer(delay_seconds) or delay_seconds <= 0, do: true
 
@@ -617,8 +626,6 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
       errors -> {:error, %{errors: errors}}
     end
   end
-
-  defp list_agents_by_uid([], _actor), do: []
 
   defp list_agents_by_uid(agent_ids, actor) do
     Agent
@@ -784,18 +791,18 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
   defp normalize_keys(map) when is_map(map) do
     Enum.reduce(map, %{}, fn {key, value}, acc ->
-      normalized_value =
-        cond do
-          is_map(value) -> normalize_keys(value)
-          is_list(value) -> Enum.map(value, &if(is_map(&1), do: normalize_keys(&1), else: &1))
-          true -> value
-        end
-
-      Map.put(acc, key, normalized_value)
+      Map.put(acc, key, normalize_nested_value(value))
     end)
   end
 
   defp normalize_keys(other), do: other
+
+  defp normalize_nested_value(value) when is_map(value), do: normalize_keys(value)
+
+  defp normalize_nested_value(value) when is_list(value),
+    do: Enum.map(value, &normalize_nested_value/1)
+
+  defp normalize_nested_value(value), do: value
 
   defp actor_opts(opts, label) when is_list(opts) do
     case scope_actor(Keyword.get(opts, :scope)) do
