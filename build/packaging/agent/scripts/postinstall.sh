@@ -15,6 +15,8 @@ fi
 mkdir -p /etc/serviceradar
 mkdir -p /var/lib/serviceradar
 mkdir -p /var/lib/serviceradar/cache
+mkdir -p /var/lib/serviceradar/agent/versions
+mkdir -p /var/lib/serviceradar/agent/tmp
 
 
 # Create checkers/sweep directory if it doesnt already exist
@@ -29,14 +31,22 @@ chown -R serviceradar:serviceradar /var/lib/serviceradar
 chmod 755 /etc/serviceradar/
 chmod 755 /var/lib/serviceradar
 chmod 755 /var/lib/serviceradar/cache
+chmod 755 /var/lib/serviceradar/agent
+chmod 755 /var/lib/serviceradar/agent/versions
+chmod 755 /var/lib/serviceradar/agent/tmp
 
-# Set required capability for ICMP scanning
-if [ -x /usr/local/bin/serviceradar-agent ]; then
-    setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent || {
-        echo "Warning: Failed to set cap_net_raw capability on /usr/local/bin/serviceradar-agent"
-        echo "ICMP scanning will not work without this capability. Ensure libcap2-bin is installed and run:"
-        echo "  sudo setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent"
-    }
+# Seed the ServiceRadar-managed runtime tree on first install.
+if [ -x /usr/local/lib/serviceradar/agent/serviceradar-agent-seed ]; then
+    mkdir -p /var/lib/serviceradar/agent/versions/seed-installed
+    if [ ! -x /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent ]; then
+        cp /usr/local/lib/serviceradar/agent/serviceradar-agent-seed /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent
+        chmod 0755 /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent
+        chown serviceradar:serviceradar /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent
+    fi
+fi
+
+if [ ! -e /var/lib/serviceradar/agent/current ]; then
+    ln -sfn versions/seed-installed /var/lib/serviceradar/agent/current
 fi
 
 # Reload systemd and manage service
@@ -53,6 +63,3 @@ if [ -f /etc/serviceradar/agent.json ] && \
 else
     echo "Skipping serviceradar-agent start: enrollment assets not found. Run serviceradar-cli enroll, then: systemctl restart serviceradar-agent"
 fi
-
-# Set required capability for ICMP scanning
-setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent

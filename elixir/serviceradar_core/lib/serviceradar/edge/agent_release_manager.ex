@@ -30,6 +30,38 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     AgentRelease.publish(attrs, actor: actor)
   end
 
+  def pause_rollout(rollout_id, opts \\ []) do
+    actor = actor_opts(opts, :agent_release_manager_pause)
+
+    with {:ok, %AgentReleaseRollout{} = rollout} <-
+           AgentReleaseRollout.get_by_id(rollout_id, actor: actor),
+         {:ok, updated_rollout} <- AgentReleaseRollout.pause(rollout, actor: actor) do
+      {:ok, updated_rollout}
+    end
+  end
+
+  def resume_rollout(rollout_id, opts \\ []) do
+    actor = actor_opts(opts, :agent_release_manager_resume)
+
+    with {:ok, %AgentReleaseRollout{} = rollout} <-
+           AgentReleaseRollout.get_by_id(rollout_id, actor: actor),
+         {:ok, updated_rollout} <- AgentReleaseRollout.resume(rollout, actor: actor) do
+      maybe_dispatch_rollout(updated_rollout.id, actor: actor)
+      {:ok, updated_rollout}
+    end
+  end
+
+  def cancel_rollout(rollout_id, opts \\ []) do
+    actor = actor_opts(opts, :agent_release_manager_cancel)
+
+    with {:ok, %AgentReleaseRollout{} = rollout} <-
+           AgentReleaseRollout.get_by_id(rollout_id, actor: actor),
+         {:ok, updated_rollout} <- AgentReleaseRollout.cancel(rollout, actor: actor) do
+      cancel_pending_targets(updated_rollout.id, actor)
+      {:ok, updated_rollout}
+    end
+  end
+
   def create_rollout(attrs, opts \\ []) do
     actor = actor_opts(opts, :agent_release_manager_rollout)
 
@@ -215,6 +247,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     with {:ok, %AgentReleaseRollout{} = rollout} <-
            AgentReleaseRollout.get_by_id(rollout_id, actor: actor),
          true <- rollout.status == :active,
+         true <- dispatch_window_open?(rollout),
          {:ok, %AgentRelease{} = release} <-
            AgentRelease.get_by_id(rollout.release_id, actor: actor) do
       inflight_count =
@@ -478,6 +511,36 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     end
   end
 
+  defp cancel_pending_targets(rollout_id, actor) do
+    rollout_id
+    |> pending_targets(actor)
+    |> Enum.each(fn target ->
+      _ =
+        mark_target_status(
+          target,
+          :canceled,
+          %{
+            last_status_message: "rollout canceled before dispatch",
+            last_error: "rollout_canceled"
+          },
+          actor
+        )
+    end)
+  end
+
+  defp dispatch_window_open?(%AgentReleaseRollout{batch_delay_seconds: delay_seconds})
+       when not is_integer(delay_seconds) or delay_seconds <= 0,
+       do: true
+
+  defp dispatch_window_open?(%AgentReleaseRollout{last_dispatch_at: nil}), do: true
+
+  defp dispatch_window_open?(%AgentReleaseRollout{
+         batch_delay_seconds: delay_seconds,
+         last_dispatch_at: %DateTime{} = last_dispatch_at
+       }) do
+    DateTime.diff(DateTime.utc_now(), last_dispatch_at, :second) >= delay_seconds
+  end
+
   defp active_targets_for_agent(agent_id, actor) do
     AgentReleaseTarget
     |> Ash.Query.for_read(:by_agent, %{agent_id: agent_id}, actor: actor)
@@ -647,17 +710,26 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
   defp normalize_keys(other), do: other
 
-  defp actor_opts(opts, label) when is_list(opts),
-    do: Keyword.get(opts, :actor, SystemActor.system(label))
+  defp actor_opts(opts, label) when is_list(opts) do
+    case scope_actor(Keyword.get(opts, :scope)) do
+      nil -> Keyword.get(opts, :actor, SystemActor.system(label))
+      actor -> actor
+    end
+  end
 
   defp actor_opts(_opts, label), do: SystemActor.system(label)
 
   defp actor_from_opts(opts, label) do
-    case Keyword.get(opts, :actor) do
-      nil -> SystemActor.system(label)
+    case scope_actor(Keyword.get(opts, :scope)) || Keyword.get(opts, :actor) do
+      nil ->
+        SystemActor.system(label)
+
       actor -> actor
     end
   end
+
+  defp scope_actor(%{user: user}) when not is_nil(user), do: user
+  defp scope_actor(_scope), do: nil
 
   defp actor_requester(%{id: id}) when is_binary(id), do: id
   defp actor_requester(%{email: email}) when is_binary(email), do: email

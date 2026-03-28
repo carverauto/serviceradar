@@ -8,6 +8,8 @@ defmodule ServiceRadar.Edge.AgentRelease do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Edge.ReleaseManifestValidator
+
   @release_fields [:version, :manifest, :signature, :release_notes, :published_at, :metadata]
 
   postgres do
@@ -46,7 +48,9 @@ defmodule ServiceRadar.Edge.AgentRelease do
         published_at =
           Ash.Changeset.get_attribute(changeset, :published_at) || DateTime.utc_now()
 
-        Ash.Changeset.change_attribute(changeset, :published_at, published_at)
+        changeset
+        |> ReleaseManifestValidator.add_publish_errors()
+        |> Ash.Changeset.change_attribute(:published_at, published_at)
       end)
     end
   end

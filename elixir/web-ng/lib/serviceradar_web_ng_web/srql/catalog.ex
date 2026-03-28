@@ -3,6 +3,31 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
 
   @entities [
     %{
+      id: "agents",
+      label: "Agents",
+      route: "/agents",
+      default_time: "",
+      default_sort_field: "last_seen",
+      default_sort_dir: "desc",
+      default_filter_field: "uid",
+      filter_fields: [
+        "uid",
+        "name",
+        "gateway_id",
+        "version",
+        "desired_version",
+        "release_rollout_state",
+        "last_update_error",
+        "vendor_name",
+        "ip",
+        "type_id",
+        "capabilities",
+        "config_source"
+      ],
+      array_fields: ["capabilities"],
+      downsample: false
+    },
+    %{
       id: "devices",
       label: "Devices",
       route: "/devices",

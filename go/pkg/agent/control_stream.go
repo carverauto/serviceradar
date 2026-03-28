@@ -21,8 +21,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
@@ -164,7 +167,15 @@ func (p *PushLoop) sendControlHello(sender *controlStreamSender) error {
 		},
 	}
 
-	return sender.Send(req)
+	if err := sender.Send(req); err != nil {
+		return err
+	}
+
+	if err := p.sendPendingReleaseActivationReport(sender); err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to send pending release activation report")
+	}
+
+	return nil
 }
 
 func (p *PushLoop) handleControlStream(
@@ -534,15 +545,65 @@ func (p *PushLoop) handleAgentUpdateRelease(ctx context.Context, cmd *proto.Comm
 	}
 
 	_ = sender.Send(commandProgress(cmd, 60, "verifying"))
-	_ = sender.Send(commandProgress(cmd, 100, "staged"))
-	_ = sender.Send(commandResult(cmd, true, "release staged", map[string]interface{}{
-		"status":          "staged",
-		"version":         result.Version,
-		"runtime_root":    result.RuntimeRoot,
-		"staged_path":     result.VersionDir,
-		"entrypoint":      result.EntrypointPath,
-		"artifact_sha256": result.ArtifactSHA256,
-	}))
+	_ = sender.Send(commandProgress(cmd, 80, "staged"))
+
+	updaterCmd := exec.Command(
+		AgentUpdaterPath(),
+		"--runtime-root", result.RuntimeRoot,
+		"--version", result.Version,
+		"--command-id", cmd.CommandId,
+		"--command-type", cmd.CommandType,
+		"--rollback-deadline", "3m0s",
+	)
+	updaterCmd.Stdout = os.Stdout
+	updaterCmd.Stderr = os.Stderr
+	if err := updaterCmd.Run(); err != nil {
+		_ = sender.Send(commandResult(cmd, false, "failed to prepare updater activation", map[string]interface{}{
+			"status": "failed",
+			"reason": err.Error(),
+		}))
+		return
+	}
+
+	p.logger.Info().
+		Str("command_id", cmd.CommandId).
+		Str("version", result.Version).
+		Msg("Prepared agent updater activation")
+
+	_ = sender.Send(commandProgress(cmd, 90, "switching"))
+	_ = sender.Send(commandProgress(cmd, 95, "restarting"))
+
+	go func() {
+		time.Sleep(250 * time.Millisecond)
+		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	}()
+}
+
+func (p *PushLoop) sendPendingReleaseActivationReport(sender *controlStreamSender) error {
+	report, err := LoadReleaseActivationReport("")
+	if err != nil || report == nil {
+		return err
+	}
+
+	req := &proto.ControlStreamRequest{
+		Payload: &proto.ControlStreamRequest_CommandResult{
+			CommandResult: &proto.CommandResult{
+				CommandId:   report.CommandID,
+				CommandType: report.CommandType,
+				Success:     report.Success,
+				Message:     report.Message,
+				Timestamp:   time.Now().Unix(),
+			},
+		},
+	}
+	if len(report.Payload) > 0 {
+		req.GetCommandResult().PayloadJson, _ = json.Marshal(report.Payload)
+	}
+
+	if err := sender.Send(req); err != nil {
+		return err
+	}
+	return ClearReleaseActivationReport("")
 }
 
 func (p *PushLoop) tryAcquireOnDemandMtrSlot() bool {

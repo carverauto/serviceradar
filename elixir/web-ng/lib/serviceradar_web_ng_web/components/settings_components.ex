@@ -138,7 +138,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   defp edge_ops_tab_navigate(current_scope) do
     cond do
-      RBAC.can?(current_scope, "settings.edge.manage") -> ~p"/settings/agents/deploy"
+      RBAC.can?(current_scope, "settings.edge.manage") -> ~p"/settings/agents/releases"
       RBAC.can?(current_scope, "settings.sysmon_profiles.manage") -> ~p"/settings/sysmon"
       RBAC.can?(current_scope, "plugins.view") -> ~p"/settings/agents/plugins"
       true -> ~p"/admin/edge-sites"
@@ -404,10 +404,17 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             show: can_sysmon
           },
           %{
+            label: "Releases",
+            navigate: ~p"/settings/agents/releases",
+            active: String.starts_with?(path, "/settings/agents/releases"),
+            show: can_edge
+          },
+          %{
             label: "Deploy",
             navigate: ~p"/settings/agents/deploy",
             active:
-              String.starts_with?(path, "/settings/agents/deploy") or String.starts_with?(path, "/admin/edge-packages"),
+              String.starts_with?(path, "/settings/agents/deploy") or
+                String.starts_with?(path, "/admin/edge-packages"),
             show: can_edge
           },
           %{
@@ -466,9 +473,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         },
         %{
           label: "Agents",
-          navigate: ~p"/settings/agents/deploy",
+          navigate: ~p"/settings/agents/releases",
           active:
-            String.starts_with?(path, "/settings/agents/deploy") or String.starts_with?(path, "/admin/edge-packages"),
+            String.starts_with?(path, "/settings/agents/releases") or
+              String.starts_with?(path, "/settings/agents/deploy") or
+              String.starts_with?(path, "/admin/edge-packages"),
           show: can_edge
         },
         %{

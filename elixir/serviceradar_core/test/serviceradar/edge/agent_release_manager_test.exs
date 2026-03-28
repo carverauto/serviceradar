@@ -14,6 +14,8 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
   require Ash.Query
 
   @moduletag :integration
+  @release_public_key "ot8W1BsqSvXV7KEjLL+RkQz106lzcIJNCY91OXSqBpk="
+  @release_private_key "kRqU4UnTUPjychwJGH4ZdsuijaxuGUNFPezyY+iSnBY="
 
   defmodule TestControlSession do
     use GenServer
@@ -36,6 +38,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
 
   setup_all do
     TestSupport.start_core!()
+    Application.put_env(:serviceradar_core, :agent_release_public_key, @release_public_key)
     :ok
   end
 
@@ -43,35 +46,11 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     actor = SystemActor.system(:agent_release_manager_test)
     agent_id = "agent-release-#{System.unique_integer([:positive])}"
 
-    {:ok, _agent} =
-      Agent
-      |> Ash.Changeset.for_create(:register_connected, %{
-        uid: agent_id,
-        name: agent_id,
-        version: "1.0.0",
-        type_id: 4,
-        type: "Performance",
-        capabilities: ["agent"],
-        metadata: %{"os" => "linux", "arch" => "amd64"}
-      })
-      |> Ash.create(actor: actor)
+    {:ok, _agent} = register_agent(actor, agent_id)
 
-    {:ok, release} =
-      AgentReleaseManager.publish_release(%{
-        version: "1.1.0",
-        signature: "sig-1",
-        manifest: %{
-          "version" => "1.1.0",
-          "artifacts" => [
-            %{
-              "os" => "linux",
-              "arch" => "amd64",
-              "url" => "https://example.test/releases/agent-1.1.0-linux-amd64.tar.gz",
-              "sha256" => "abc123"
-            }
-          ]
-        }
-      })
+    release_attrs = signed_release_attrs("1.1.0")
+
+    {:ok, release} = AgentReleaseManager.publish_release(release_attrs)
 
     {:ok, actor: actor, agent_id: agent_id, release: release}
   end
@@ -234,6 +213,197 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     assert target.status == :dispatched
   end
 
+  test "pause and resume gates future batch dispatches", %{
+    actor: actor,
+    agent_id: agent_id,
+    release: release
+  } do
+    second_agent_id = "agent-release-#{System.unique_integer([:positive])}"
+    {:ok, _agent} = register_agent(actor, second_agent_id)
+
+    {_pid, _metadata} = start_control_session(agent_id, self())
+    {_pid, _metadata} = start_control_session(second_agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id, second_agent_id],
+        batch_size: 1
+      })
+
+    assert_receive {:send_command, first_command, _context}, 1_000
+
+    assert {:ok, _rollout} = AgentReleaseManager.pause_rollout(rollout.id)
+
+    :ok =
+      AgentReleaseManager.handle_command_result(%{
+        command_type: "agent.update_release",
+        command_id: first_command.command_id,
+        success: true,
+        message: "release activated",
+        payload: %{"current_version" => "1.1.0"}
+      })
+
+    refute_receive {:send_command, _command, _context}, 250
+
+    second_target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(agent_id == ^second_agent_id and rollout_id == ^rollout.id))
+      |> Ash.read_one!(actor: actor)
+
+    assert second_target.status == :pending
+
+    assert {:ok, _rollout} = AgentReleaseManager.resume_rollout(rollout.id)
+
+    assert_receive {:send_command, second_command, _context}, 1_000
+    assert second_command.command_type == "agent.update_release"
+  end
+
+  test "canary batching dispatches the next target only after the prior target completes", %{
+    actor: actor,
+    agent_id: agent_id,
+    release: release
+  } do
+    second_agent_id = "agent-release-#{System.unique_integer([:positive])}"
+    {:ok, _agent} = register_agent(actor, second_agent_id)
+
+    {_pid, _metadata} = start_control_session(agent_id, self())
+    {_pid, _metadata} = start_control_session(second_agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id, second_agent_id],
+        batch_size: 1
+      })
+
+    assert_receive {:send_command, first_command, _context}, 1_000
+    refute_receive {:send_command, _command, _context}, 250
+
+    second_target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(agent_id == ^second_agent_id and rollout_id == ^rollout.id))
+      |> Ash.read_one!(actor: actor)
+
+    assert second_target.status == :pending
+
+    :ok =
+      AgentReleaseManager.handle_command_result(%{
+        command_type: "agent.update_release",
+        command_id: first_command.command_id,
+        success: true,
+        message: "release activated",
+        payload: %{"current_version" => "1.1.0"}
+      })
+
+    assert_receive {:send_command, second_command, _context}, 1_000
+    assert second_command.command_type == "agent.update_release"
+
+    second_target = AgentReleaseTarget.get_by_id!(second_target.id, actor: actor)
+    assert second_target.status == :dispatched
+  end
+
+  test "batch delay blocks the next cohort until the delay window opens", %{
+    actor: actor,
+    agent_id: agent_id,
+    release: release
+  } do
+    second_agent_id = "agent-release-#{System.unique_integer([:positive])}"
+    {:ok, _agent} = register_agent(actor, second_agent_id)
+
+    {_pid, _metadata} = start_control_session(agent_id, self())
+    {_pid, _metadata} = start_control_session(second_agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id, second_agent_id],
+        batch_size: 1,
+        batch_delay_seconds: 3_600
+      })
+
+    assert_receive {:send_command, first_command, _context}, 1_000
+
+    :ok =
+      AgentReleaseManager.handle_command_result(%{
+        command_type: "agent.update_release",
+        command_id: first_command.command_id,
+        success: true,
+        message: "release activated",
+        payload: %{"current_version" => "1.1.0"}
+      })
+
+    refute_receive {:send_command, _command, _context}, 250
+
+    second_target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(agent_id == ^second_agent_id and rollout_id == ^rollout.id))
+      |> Ash.read_one!(actor: actor)
+
+    assert second_target.status == :pending
+
+    rollout = AgentReleaseRollout.get_by_id!(rollout.id, actor: actor)
+    assert rollout.status == :active
+  end
+
+  test "rolled back result marks the target and rollout terminal", %{
+    actor: actor,
+    agent_id: agent_id,
+    release: release
+  } do
+    {_pid, _metadata} = start_control_session(agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1
+      })
+
+    target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(agent_id == ^agent_id and rollout_id == ^rollout.id))
+      |> Ash.read_one!(actor: actor)
+
+    :ok =
+      AgentReleaseManager.handle_command_result(%{
+        command_type: "agent.update_release",
+        command_id: target.command_id,
+        success: false,
+        message: "release rolled back",
+        payload: %{"status" => "rolled_back", "reason" => "health deadline exceeded"}
+      })
+
+    target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+    assert target.status == :rolled_back
+    assert target.last_error == "health deadline exceeded"
+
+    updated_agent = Agent.get_by_uid!(agent_id, actor: actor)
+    assert updated_agent.release_rollout_state == :rolled_back
+    assert updated_agent.last_update_error == "health deadline exceeded"
+
+    rollout = AgentReleaseRollout.get_by_id!(rollout.id, actor: actor)
+    assert rollout.status == :completed
+  end
+
+  defp register_agent(actor, agent_id) do
+    Agent
+    |> Ash.Changeset.for_create(:register_connected, %{
+      uid: agent_id,
+      name: agent_id,
+      version: "1.0.0",
+      type_id: 4,
+      type: "Performance",
+      capabilities: ["agent"],
+      metadata: %{"os" => "linux", "arch" => "amd64"}
+    })
+    |> Ash.create(actor: actor)
+  end
+
   defp start_control_session(agent_id, test_pid) do
     metadata = %{
       partition_id: "default",
@@ -249,5 +419,33 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     end)
 
     {pid, metadata}
+  end
+
+  defp signed_release_attrs(version) do
+    manifest = %{
+      "version" => version,
+      "artifacts" => [
+        %{
+          "os" => "linux",
+          "arch" => "amd64",
+          "url" => "https://example.test/releases/agent-#{version}-linux-amd64.tar.gz",
+          "sha256" => String.duplicate("a", 64)
+        }
+      ]
+    }
+
+    %{
+      version: version,
+      manifest: manifest,
+      signature: sign_manifest(manifest)
+    }
+  end
+
+  defp sign_manifest(manifest) do
+    {:ok, payload} = ServiceRadar.Edge.ReleaseManifestValidator.canonical_json(manifest)
+    private_key = Base.decode64!(@release_private_key)
+
+    :crypto.sign(:eddsa, :none, payload, [private_key, :ed25519])
+    |> Base.encode64()
   end
 end

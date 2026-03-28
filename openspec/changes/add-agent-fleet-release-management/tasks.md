@@ -1,24 +1,24 @@
 ## 1. Control Plane Model
-- [ ] 1.1 Add Ash resources and platform-schema migrations for release catalog records, rollout plans, and per-agent rollout targets/attempts.
-- [ ] 1.2 Expose APIs/actions to publish signed releases, assign desired versions, and pause/resume/cancel active rollouts.
-- [ ] 1.3 Extend inventory/SRQL surfaces to expose current version, desired version, rollout state, last update time, and last update error.
+- [x] 1.1 Add Ash resources and platform-schema migrations for release catalog records, rollout plans, and per-agent rollout targets/attempts.
+- [x] 1.2 Expose APIs/actions to publish signed releases, assign desired versions, and pause/resume/cancel active rollouts.
+- [x] 1.3 Extend inventory/SRQL surfaces to expose current version, desired version, rollout state, last update time, and last update error.
 
 ## 2. Protocol and Orchestration
-- [ ] 2.1 Extend the agent control protocol with update instruction, progress, completion, failure, and rollback status messages.
-- [ ] 2.2 Reconcile desired version on hello/control-stream connect and deliver pending updates immediately to eligible connected agents.
-- [ ] 2.3 Implement cohort snapshotting, batch throttling, pause/resume/cancel semantics, and online/offline rollout transitions.
+- [x] 2.1 Extend the agent control protocol with update instruction, progress, completion, failure, and rollback status messages.
+- [x] 2.2 Reconcile desired version on hello/control-stream connect and deliver pending updates immediately to eligible connected agents.
+- [x] 2.3 Implement cohort snapshotting, batch throttling, pause/resume/cancel semantics, and online/offline rollout transitions.
 
 ## 3. Agent and Updater
-- [ ] 3.1 Implement agent-side release manifest download plus Ed25519 signature and SHA256 digest verification.
-- [ ] 3.2 Add a separate updater process that stages versioned payloads, flips the active runtime pointer atomically, and restarts the service safely.
-- [ ] 3.3 Implement reconnect health deadlines and automatic rollback to the previous payload when the updated agent fails to become healthy.
-- [ ] 3.4 Preserve package-manager-owned assets while storing mutable release payloads in ServiceRadar-managed runtime paths.
+- [x] 3.1 Implement agent-side release manifest download plus Ed25519 signature and SHA256 digest verification.
+- [x] 3.2 Add a separate updater process that stages versioned payloads, flips the active runtime pointer atomically, and restarts the service safely.
+- [x] 3.3 Implement reconnect health deadlines and automatic rollback to the previous payload when the updated agent fails to become healthy.
+- [x] 3.4 Preserve package-manager-owned assets while storing mutable release payloads in ServiceRadar-managed runtime paths.
 
 ## 4. Operator Experience
-- [ ] 4.1 Add fleet version distribution, rollout filters, and rollout actions to the agent inventory UI.
-- [ ] 4.2 Add agent detail release history, rollout timeline, and failure diagnostics.
-- [ ] 4.3 Document release publishing, signing-key handling, rollback procedures, and rollout guardrails.
+- [x] 4.1 Add fleet version distribution, rollout filters, and rollout actions to the agent inventory UI.
+- [x] 4.2 Add agent detail release history, rollout timeline, and failure diagnostics.
+- [x] 4.3 Document release publishing, signing-key handling, rollback procedures, and rollout guardrails.
 
 ## 5. Validation
-- [ ] 5.1 Add tests for signature rejection, digest mismatch, cohort snapshotting, offline reconciliation, canary batching, and rollback.
-- [ ] 5.2 Run `openspec validate add-agent-fleet-release-management --strict`.
+- [x] 5.1 Add tests for signature rejection, digest mismatch, cohort snapshotting, offline reconciliation, canary batching, and rollback.
+- [x] 5.2 Run `openspec validate add-agent-fleet-release-management --strict`.
