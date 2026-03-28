@@ -13,9 +13,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -218,6 +220,52 @@ func TestStageAgentReleaseRejectsRedirectToHTTP(t *testing.T) {
 	})
 	if !errors.Is(err, errReleaseRedirectInsecure) {
 		t.Fatalf("expected errReleaseRedirectInsecure, got %v", err)
+	}
+}
+
+func TestStageAgentReleaseUsesGatewayArtifactTransport(t *testing.T) {
+	binaryData := []byte("gateway-binary")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-ServiceRadar-Release-Target-ID"); got != "target-123" {
+			t.Fatalf("target header = %q, want %q", got, "target-123")
+		}
+		if got := r.Header.Get("X-ServiceRadar-Release-Command-ID"); got != "command-123" {
+			t.Fatalf("command header = %q, want %q", got, "command-123")
+		}
+		http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(binaryData))
+	}))
+	defer server.Close()
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	port, err := strconv.Atoi(serverURL.Port())
+	if err != nil {
+		t.Fatalf("Atoi() error = %v", err)
+	}
+
+	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+		URL:    "https://releases.example.com/serviceradar-agent",
+		SHA256: digestHex(binaryData),
+		OS:     runtime.GOOS,
+		Arch:   runtime.GOARCH,
+	})
+	payload.ArtifactTransport = releaseArtifactTransport{
+		Kind:     "gateway_https",
+		Path:     "/artifacts/releases/download",
+		Port:     port,
+		TargetID: "target-123",
+	}
+
+	_, err = stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+		GatewayAddr: serverURL.Host,
+		CommandID:   "command-123",
+	})
+	if err != nil {
+		t.Fatalf("expected gateway transport download to succeed, got %v", err)
 	}
 }
 

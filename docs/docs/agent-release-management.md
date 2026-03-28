@@ -19,7 +19,7 @@ Before using release management in production:
 - Ensure every managed agent has the trusted Ed25519 public key configured through `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` or a build-time `ReleaseSigningPublicKey` injection.
 - Publish artifacts over HTTPS.
 - Include per-platform artifact metadata in the release manifest, including `os`, `arch`, `url`, `sha256`, and optional `format` and `entrypoint`.
-- If repository-hosted release assets redirect to object storage or a CDN, keep the redirect chain on HTTPS. Agents allow secure HTTPS redirects for release downloads, but still reject insecure redirects and digest/signature mismatches.
+- If repository-hosted release assets redirect to object storage or a CDN, keep the redirect chain on HTTPS. The control plane mirrors those artifacts into internal storage at publish time, and agents still reject insecure redirects, digest mismatches, and manifest-signature failures.
 
 ## Publish A Release
 
@@ -34,9 +34,10 @@ The control plane stores:
 
 - the desired version,
 - the signed manifest,
-- rollout eligibility metadata for supported agent platforms.
+- rollout eligibility metadata for supported agent platforms,
+- internal object-store references for each mirrored rollout artifact.
 
-The current implementation expects the manifest signature field to contain the Ed25519 signature for the canonical manifest JSON. The agent verifies that signature before staging any artifact.
+The current implementation expects the manifest signature field to contain the Ed25519 signature for the canonical manifest JSON. The control plane mirrors the referenced artifacts into internal datasvc-backed object storage, and the agent verifies that same signature before staging any artifact fetched through `agent-gateway`.
 
 Recommended repository-release asset convention:
 
@@ -92,6 +93,8 @@ Agent activation uses a separate updater and a stable package-managed launcher.
 Runtime behavior:
 
 - The agent stages the verified payload under the mutable runtime root.
+- The rollout command points the agent at an authenticated HTTPS download path on `agent-gateway`, not at the original GitHub/Forgejo/Harbor host.
+- `agent-gateway` resolves the authorized rollout target, fetches the mirrored object from internal storage, and streams it back to the agent.
 - The updater switches the `current` symlink atomically to the new versioned payload.
 - The service restarts against the new runtime.
 - If the updated agent does not report healthy before the reconnect deadline, the updater restores the previous target and restarts again.

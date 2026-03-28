@@ -17,6 +17,37 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
   @release_public_key "ot8W1BsqSvXV7KEjLL+RkQz106lzcIJNCY91OXSqBpk="
   @release_private_key "kRqU4UnTUPjychwJGH4ZdsuijaxuGUNFPezyY+iSnBY="
 
+  defmodule TestReleaseArtifactMirror do
+    @moduledoc false
+
+    def prepare_publish_attrs(attrs, _opts \\ []) do
+      manifest = Map.get(attrs, :manifest) || Map.get(attrs, "manifest") || %{}
+
+      artifact =
+        manifest
+        |> Map.get("artifacts", [])
+        |> List.first()
+        |> Map.new(fn {key, value} -> {to_string(key), value} end)
+
+      metadata =
+        (Map.get(attrs, :metadata) || Map.get(attrs, "metadata") || %{})
+        |> Map.new(fn {key, value} -> {to_string(key), value} end)
+        |> Map.put("storage", %{
+          "status" => "mirrored",
+          "backend" => "test",
+          "artifact_count" => 1,
+          "artifacts" => [
+            Map.merge(artifact, %{
+              "object_key" => "agent-releases/test/#{artifact["sha256"]}",
+              "file_name" => "serviceradar-agent"
+            })
+          ]
+        })
+
+      {:ok, Map.put(attrs, :metadata, metadata)}
+    end
+  end
+
   defmodule TestControlSession do
     @moduledoc false
     use GenServer
@@ -40,6 +71,13 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
   setup_all do
     TestSupport.start_core!()
     Application.put_env(:serviceradar_core, :agent_release_public_key, @release_public_key)
+
+    Application.put_env(
+      :serviceradar_core,
+      :agent_release_artifact_mirror_module,
+      TestReleaseArtifactMirror
+    )
+
     :ok
   end
 
@@ -76,6 +114,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
 
     assert payload["version"] == "1.1.0"
     assert payload["artifact"]["url"] =~ "agent-1.1.0-linux-amd64"
+    assert payload["artifact_transport"]["kind"] == "gateway_https"
     assert context.desired_version == "1.1.0"
 
     target =
@@ -86,6 +125,9 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
 
     assert target.status == :dispatched
     assert target.command_id
+    assert payload["artifact_transport"]["target_id"] == target.id
+    assert payload["artifact_transport"]["path"] == "/artifacts/releases/download"
+    assert is_integer(payload["artifact_transport"]["port"])
 
     updated_agent = Agent.get_by_uid!(agent_id, actor: actor)
     assert updated_agent.desired_version == "1.1.0"

@@ -11,6 +11,8 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   alias ServiceRadar.Edge.AgentRelease
   alias ServiceRadar.Edge.AgentReleaseRollout
   alias ServiceRadar.Edge.AgentReleaseTarget
+  alias ServiceRadar.Edge.ReleaseArtifactDelivery
+  alias ServiceRadar.Edge.ReleaseArtifactMirror
   alias ServiceRadar.Infrastructure.Agent
 
   require Ash.Query
@@ -27,8 +29,13 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
   def publish_release(attrs, opts \\ []) do
     actor = actor_opts(opts, :agent_release_manager_publish)
-    AgentRelease.publish(attrs, actor: actor)
+
+    with {:ok, mirrored_attrs} <- artifact_mirror().prepare_publish_attrs(attrs) do
+      AgentRelease.publish(mirrored_attrs, actor: actor)
+    end
   end
+
+  def select_artifact_for_agent(release, agent), do: select_artifact(release, agent)
 
   def pause_rollout(rollout_id, opts \\ []) do
     actor = actor_opts(opts, :agent_release_manager_pause)
@@ -276,7 +283,8 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     with {:ok, %Agent{} = agent} <- Agent.get_by_uid(target.agent_id, actor: actor),
          false <- version_matches?(agent.version, target.desired_version),
          {:ok, artifact} <- select_artifact(release, agent),
-         {:ok, command_id} <- dispatch_release_command(target, rollout, release, artifact, actor) do
+         {:ok, command_id} <-
+           dispatch_release_command(target, rollout, release, artifact, agent, actor) do
       mark_target_status(
         target,
         :dispatched,
@@ -317,38 +325,41 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     end
   end
 
-  defp dispatch_release_command(target, rollout, release, artifact, actor) do
-    payload = %{
-      "release_id" => release.id,
-      "rollout_id" => rollout.id,
-      "target_id" => target.id,
-      "version" => release.version,
-      "manifest" => release.manifest,
-      "signature" => release.signature,
-      "artifact" => artifact
-    }
+  defp dispatch_release_command(target, rollout, release, artifact, agent, actor) do
+    with {:ok, transport} <- ReleaseArtifactDelivery.gateway_transport(target, release, agent) do
+      payload = %{
+        "release_id" => release.id,
+        "rollout_id" => rollout.id,
+        "target_id" => target.id,
+        "version" => release.version,
+        "manifest" => release.manifest,
+        "signature" => release.signature,
+        "artifact" => artifact,
+        "artifact_transport" => transport
+      }
 
-    context = %{
-      rollout_id: rollout.id,
-      target_id: target.id,
-      release_id: release.id,
-      desired_version: release.version
-    }
+      context = %{
+        rollout_id: rollout.id,
+        target_id: target.id,
+        release_id: release.id,
+        desired_version: release.version
+      }
 
-    case AgentCommandBus.dispatch(
-           target.agent_id,
-           @release_command_type,
-           payload,
-           ttl_seconds: 900,
-           context: context,
-           actor: actor
-         ) do
-      {:ok, command_id} ->
-        _ = AgentReleaseRollout.touch_dispatch(rollout, actor: actor)
-        {:ok, command_id}
+      case AgentCommandBus.dispatch(
+             target.agent_id,
+             @release_command_type,
+             payload,
+             ttl_seconds: 900,
+             context: context,
+             actor: actor
+           ) do
+        {:ok, command_id} ->
+          _ = AgentReleaseRollout.touch_dispatch(rollout, actor: actor)
+          {:ok, command_id}
 
-      {:error, reason} ->
-        {:error, reason}
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -749,6 +760,9 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     "no matching release artifact for agent platform #{platform_label(os, arch)}"
   end
 
+  defp normalize_reason(:artifact_not_mirrored),
+    do: "release artifact is not mirrored into internal storage"
+
   defp normalize_reason(reason) when is_binary(reason), do: reason
   defp normalize_reason(reason), do: inspect(reason)
 
@@ -829,4 +843,12 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   defp actor_requester(%{id: id}) when is_binary(id), do: id
   defp actor_requester(%{email: email}) when is_binary(email), do: email
   defp actor_requester(_actor), do: nil
+
+  defp artifact_mirror do
+    Application.get_env(
+      :serviceradar_core,
+      :agent_release_artifact_mirror_module,
+      ReleaseArtifactMirror
+    )
+  end
 end

@@ -22,12 +22,15 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/ed25519"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -38,6 +41,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/models"
 )
 
 const (
@@ -81,13 +85,14 @@ var (
 var ReleaseSigningPublicKey = ""
 
 type releaseUpdatePayload struct {
-	ReleaseID string                 `json:"release_id,omitempty"`
-	RolloutID string                 `json:"rollout_id,omitempty"`
-	TargetID  string                 `json:"target_id,omitempty"`
-	Version   string                 `json:"version,omitempty"`
-	Manifest  map[string]interface{} `json:"manifest,omitempty"`
-	Signature string                 `json:"signature,omitempty"`
-	Artifact  releaseArtifactPayload `json:"artifact"`
+	ReleaseID         string                   `json:"release_id,omitempty"`
+	RolloutID         string                   `json:"rollout_id,omitempty"`
+	TargetID          string                   `json:"target_id,omitempty"`
+	Version           string                   `json:"version,omitempty"`
+	Manifest          map[string]interface{}   `json:"manifest,omitempty"`
+	Signature         string                   `json:"signature,omitempty"`
+	Artifact          releaseArtifactPayload   `json:"artifact"`
+	ArtifactTransport releaseArtifactTransport `json:"artifact_transport,omitempty"`
 }
 
 type releaseArtifactPayload struct {
@@ -97,6 +102,13 @@ type releaseArtifactPayload struct {
 	Arch       string `json:"arch,omitempty"`
 	Format     string `json:"format,omitempty"`
 	Entrypoint string `json:"entrypoint,omitempty"`
+}
+
+type releaseArtifactTransport struct {
+	Kind     string `json:"kind,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Port     int    `json:"port,omitempty"`
+	TargetID string `json:"target_id,omitempty"`
 }
 
 type releaseStageResult struct {
@@ -119,9 +131,12 @@ type releaseMetadata struct {
 }
 
 type releaseStageConfig struct {
-	HTTPClient  *http.Client
-	Logger      logger.Logger
-	RuntimeRoot string
+	HTTPClient      *http.Client
+	Logger          logger.Logger
+	RuntimeRoot     string
+	GatewayAddr     string
+	GatewaySecurity *models.SecurityConfig
+	CommandID       string
 }
 
 func stageAgentRelease(ctx context.Context, payload releaseUpdatePayload, cfg releaseStageConfig) (releaseStageResult, error) {
@@ -138,7 +153,7 @@ func stageAgentRelease(ctx context.Context, payload releaseUpdatePayload, cfg re
 		return releaseStageResult{}, err
 	}
 
-	data, err := downloadReleaseArtifact(ctx, cfg.HTTPClient, payload.Artifact.URL)
+	data, err := downloadReleaseArtifact(ctx, payload, cfg)
 	if err != nil {
 		return releaseStageResult{}, err
 	}
@@ -214,6 +229,9 @@ func normalizeReleasePayload(payload releaseUpdatePayload) releaseUpdatePayload 
 	payload.Artifact.Arch = strings.TrimSpace(payload.Artifact.Arch)
 	payload.Artifact.Format = strings.TrimSpace(payload.Artifact.Format)
 	payload.Artifact.Entrypoint = strings.TrimSpace(payload.Artifact.Entrypoint)
+	payload.ArtifactTransport.Kind = strings.TrimSpace(payload.ArtifactTransport.Kind)
+	payload.ArtifactTransport.Path = strings.TrimSpace(payload.ArtifactTransport.Path)
+	payload.ArtifactTransport.TargetID = strings.TrimSpace(payload.ArtifactTransport.TargetID)
 	return payload
 }
 
@@ -594,16 +612,13 @@ func writeReleaseMetadata(tempDir string, payload releaseUpdatePayload, entrypoi
 	return nil
 }
 
-func downloadReleaseArtifact(ctx context.Context, client *http.Client, rawURL string) ([]byte, error) {
-	httpClient := client
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 5 * time.Minute}
+func downloadReleaseArtifact(ctx context.Context, payload releaseUpdatePayload, cfg releaseStageConfig) ([]byte, error) {
+	req, err := buildReleaseArtifactRequest(ctx, payload, cfg)
+	if err != nil {
+		return nil, err
 	}
-	clientCopy := *httpClient
-	clientCopy.CheckRedirect = validateReleaseRedirect
-	httpClient = &clientCopy
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	httpClient, err := releaseHTTPClient(payload, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -629,6 +644,113 @@ func downloadReleaseArtifact(ctx context.Context, client *http.Client, rawURL st
 		return nil, fmt.Errorf("%w: %d bytes", errDownloadTooLarge, releaseArtifactMaxBytes)
 	}
 	return data, nil
+}
+
+func buildReleaseArtifactRequest(ctx context.Context, payload releaseUpdatePayload, cfg releaseStageConfig) (*http.Request, error) {
+	if usesGatewayArtifactTransport(payload.ArtifactTransport) {
+		rawURL, err := gatewayArtifactURL(cfg.GatewayAddr, payload.ArtifactTransport)
+		if err != nil {
+			return nil, err
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("X-ServiceRadar-Release-Target-ID", payload.ArtifactTransport.TargetID)
+		req.Header.Set("X-ServiceRadar-Release-Command-ID", cfg.CommandID)
+		return req, nil
+	}
+
+	return http.NewRequestWithContext(ctx, http.MethodGet, payload.Artifact.URL, nil)
+}
+
+func usesGatewayArtifactTransport(transport releaseArtifactTransport) bool {
+	return strings.EqualFold(strings.TrimSpace(transport.Kind), "gateway_https") &&
+		strings.TrimSpace(transport.Path) != "" &&
+		transport.Port > 0 &&
+		strings.TrimSpace(transport.TargetID) != ""
+}
+
+func gatewayArtifactURL(gatewayAddr string, transport releaseArtifactTransport) (string, error) {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(gatewayAddr))
+	if err != nil {
+		return "", fmt.Errorf("invalid gateway address for release artifact download: %w", err)
+	}
+	if host == "" {
+		return "", errReleaseArtifactURLInvalid
+	}
+	return fmt.Sprintf("https://%s:%d%s", host, transport.Port, transport.Path), nil
+}
+
+func releaseHTTPClient(payload releaseUpdatePayload, cfg releaseStageConfig) (*http.Client, error) {
+	if cfg.HTTPClient != nil {
+		clientCopy := *cfg.HTTPClient
+		clientCopy.CheckRedirect = validateReleaseRedirect
+		return &clientCopy, nil
+	}
+
+	if usesGatewayArtifactTransport(payload.ArtifactTransport) {
+		return gatewayArtifactHTTPClient(cfg.GatewaySecurity)
+	}
+
+	client := &http.Client{Timeout: 5 * time.Minute}
+	client.CheckRedirect = validateReleaseRedirect
+	return client, nil
+}
+
+func gatewayArtifactHTTPClient(security *models.SecurityConfig) (*http.Client, error) {
+	if security == nil {
+		return nil, fmt.Errorf("gateway security configuration is required for release download")
+	}
+
+	tlsConfig, err := gatewayArtifactTLSConfig(security)
+	if err != nil {
+		return nil, err
+	}
+
+	return &http.Client{
+		Timeout: 5 * time.Minute,
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+		CheckRedirect: validateReleaseRedirect,
+	}, nil
+}
+
+func gatewayArtifactTLSConfig(security *models.SecurityConfig) (*tls.Config, error) {
+	certPath := resolveSecurityPath(security.CertDir, security.TLS.CertFile)
+	keyPath := resolveSecurityPath(security.CertDir, security.TLS.KeyFile)
+	caPath := resolveSecurityPath(security.CertDir, security.TLS.CAFile)
+
+	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		return nil, err
+	}
+
+	caCert, err := os.ReadFile(caPath)
+	if err != nil {
+		return nil, err
+	}
+
+	rootCAs := x509.NewCertPool()
+	if !rootCAs.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("failed to append gateway CA certificate")
+	}
+
+	return &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{cert},
+		RootCAs:      rootCAs,
+		ServerName:   security.ServerName,
+	}, nil
+}
+
+func resolveSecurityPath(certDir, file string) string {
+	if filepath.IsAbs(file) || certDir == "" {
+		return file
+	}
+	return filepath.Join(certDir, file)
 }
 
 func validateReleaseRedirect(req *http.Request, via []*http.Request) error {

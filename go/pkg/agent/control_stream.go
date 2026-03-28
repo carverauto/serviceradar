@@ -535,7 +535,16 @@ func (p *PushLoop) handleAgentUpdateRelease(ctx context.Context, cmd *proto.Comm
 
 	_ = sender.Send(commandProgress(cmd, 10, "downloading"))
 
-	result, err := stageAgentRelease(ctx, payload, releaseStageConfig{})
+	p.server.mu.RLock()
+	stageCfg := releaseStageConfig{
+		RuntimeRoot:     "",
+		GatewayAddr:     p.server.config.GatewayAddr,
+		GatewaySecurity: p.server.config.GatewaySecurity,
+		CommandID:       cmd.CommandId,
+	}
+	p.server.mu.RUnlock()
+
+	result, err := stageAgentRelease(ctx, payload, stageCfg)
 	if err != nil {
 		_ = sender.Send(commandResult(cmd, false, err.Error(), map[string]interface{}{
 			"status": "failed",

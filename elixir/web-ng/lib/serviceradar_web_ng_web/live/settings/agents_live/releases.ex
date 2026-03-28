@@ -769,12 +769,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                               <span :if={index == 0} class="badge badge-success badge-xs">
                                 Latest
                               </span>
+                              <span
+                                :if={release_mirror_status(release) == :mirrored}
+                                class="badge badge-info badge-xs"
+                              >
+                                Mirrored
+                              </span>
                             </div>
                             <span
                               :if={release_source_summary(release) not in [nil, ""]}
                               class="text-[11px] text-base-content/50"
                             >
                               {release_source_summary(release)}
+                            </span>
+                            <span
+                              :if={release_storage_summary(release) not in [nil, ""]}
+                              class="text-[11px] text-base-content/50"
+                            >
+                              {release_storage_summary(release)}
                             </span>
                           </div>
                         </td>
@@ -1328,6 +1340,31 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   end
 
   defp release_source_summary(_release), do: nil
+
+  defp release_mirror_status(%{metadata: %{"storage" => %{"status" => status}}}) when status == "mirrored", do: :mirrored
+
+  defp release_mirror_status(%{metadata: %{storage: %{status: "mirrored"}}}), do: :mirrored
+  defp release_mirror_status(_release), do: :pending
+
+  defp release_storage_summary(%{metadata: %{"storage" => %{} = storage}}) do
+    backend = present_text(Map.get(storage, "backend"))
+    count = Map.get(storage, "artifact_count")
+
+    [count && "#{count} internal object#{if count == 1, do: "", else: "s"}", backend]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" · ")
+    |> presence()
+  end
+
+  defp release_storage_summary(%{metadata: %{storage: storage}}) when is_map(storage) do
+    release_storage_summary(%{metadata: %{"storage" => normalize_storage_keys(storage)}})
+  end
+
+  defp release_storage_summary(_release), do: nil
+
+  defp normalize_storage_keys(map) do
+    Map.new(map, fn {key, value} -> {to_string(key), value} end)
+  end
 
   defp release_options(releases) do
     Enum.map(releases, fn release -> {release.version, release.version} end)
