@@ -358,7 +358,7 @@ func TestNewClientRequiresSecurityProvider(t *testing.T) {
 		Logger:  createTestLogger(t),
 	})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, errSecurityProviderRequired)
+	require.ErrorIs(t, err, errSecurityProviderRequired)
 	assert.Nil(t, client)
 }
 
@@ -367,7 +367,7 @@ func TestSpiffeProviderFailsClosedWithoutIdentityConstraints(t *testing.T) {
 		provider := &SpiffeProvider{}
 		opt, err := provider.GetClientCredentials(context.Background())
 		require.Error(t, err)
-		assert.ErrorIs(t, err, errServerSPIFFEIDRequired)
+		require.ErrorIs(t, err, errServerSPIFFEIDRequired)
 		assert.Nil(t, opt)
 	})
 
@@ -375,7 +375,7 @@ func TestSpiffeProviderFailsClosedWithoutIdentityConstraints(t *testing.T) {
 		provider := &SpiffeProvider{}
 		opt, err := provider.GetServerCredentials(context.Background())
 		require.Error(t, err)
-		assert.ErrorIs(t, err, errTrustDomainRequired)
+		require.ErrorIs(t, err, errTrustDomainRequired)
 		assert.Nil(t, opt)
 	})
 }

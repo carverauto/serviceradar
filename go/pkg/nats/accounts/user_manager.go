@@ -94,7 +94,7 @@ func GenerateUserCredentials(
 	claims.IssuerAccount = accountPublicKey
 
 	// Apply permissions based on credential type
-	if err := validateUserPermissions(namespace, permissions); err != nil {
+	if err := validateUserPermissions(permissions); err != nil {
 		return nil, err
 	}
 	applyUserPermissions(claims, namespace, credType, permissions)
@@ -123,7 +123,7 @@ func GenerateUserCredentials(
 	}, nil
 }
 
-func validateUserPermissions(namespace string, custom *UserPermissions) error {
+func validateUserPermissions(custom *UserPermissions) error {
 	if custom == nil {
 		return nil
 	}

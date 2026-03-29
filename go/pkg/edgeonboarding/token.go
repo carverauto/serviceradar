@@ -23,6 +23,8 @@ var (
 	ErrOnboardingTokenPublicKeyRequired  = errors.New("onboarding token public key is not configured")
 	ErrOnboardingTokenInvalidSignature   = errors.New("onboarding token signature is invalid")
 	ErrOnboardingTokenMalformed          = errors.New("onboarding token is malformed")
+	errOnboardingTokenPrivateKeyLength   = errors.New("invalid onboarding token private key length")
+	errOnboardingTokenPublicKeyLength    = errors.New("invalid onboarding token public key length")
 )
 
 type tokenPayload struct {
@@ -139,7 +141,7 @@ func onboardingTokenPrivateKey() (ed25519.PrivateKey, error) {
 	case ed25519.PrivateKeySize:
 		return ed25519.PrivateKey(keyBytes), nil
 	default:
-		return nil, fmt.Errorf("invalid onboarding token private key length: %d", len(keyBytes))
+		return nil, fmt.Errorf("%w: got %d bytes", errOnboardingTokenPrivateKeyLength, len(keyBytes))
 	}
 }
 
@@ -154,7 +156,7 @@ func onboardingTokenPublicKey() (ed25519.PublicKey, error) {
 		return nil, fmt.Errorf("decode onboarding token public key: %w", err)
 	}
 	if len(keyBytes) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("invalid onboarding token public key length: %d", len(keyBytes))
+		return nil, fmt.Errorf("%w: got %d bytes", errOnboardingTokenPublicKeyLength, len(keyBytes))
 	}
 
 	return ed25519.PublicKey(keyBytes), nil

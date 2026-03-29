@@ -78,6 +78,8 @@ var (
 	errReleaseRedirectInsecure        = errors.New("release artifact redirects must use https")
 	errReleaseRedirectOriginChanged   = errors.New("release artifact redirects must preserve origin")
 	errReleaseRedirectLimitExceeded   = errors.New("release artifact redirect limit exceeded")
+	errReleaseGatewaySecurityRequired = errors.New("gateway security configuration is required for release download")
+	errReleaseGatewayCAAppendFailed   = errors.New("failed to append gateway CA certificate")
 )
 
 // ReleaseSigningPublicKey is set at build time for managed release verification.
@@ -702,7 +704,7 @@ func releaseHTTPClient(payload releaseUpdatePayload, cfg releaseStageConfig) (*h
 
 func gatewayArtifactHTTPClient(security *models.SecurityConfig) (*http.Client, error) {
 	if security == nil {
-		return nil, fmt.Errorf("gateway security configuration is required for release download")
+		return nil, errReleaseGatewaySecurityRequired
 	}
 
 	tlsConfig, err := gatewayArtifactTLSConfig(security)
@@ -736,7 +738,7 @@ func gatewayArtifactTLSConfig(security *models.SecurityConfig) (*tls.Config, err
 
 	rootCAs := x509.NewCertPool()
 	if !rootCAs.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to append gateway CA certificate")
+		return nil, errReleaseGatewayCAAppendFailed
 	}
 
 	return &tls.Config{

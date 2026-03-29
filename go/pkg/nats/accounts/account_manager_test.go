@@ -179,19 +179,19 @@ func TestAccountSigner_CreateAccount_DefaultJetStreamLimitsAreFinite(t *testing.
 		t.Fatalf("jwt.DecodeAccountClaims() error = %v", err)
 	}
 
-	if claims.Limits.JetStreamLimits.MemoryStorage <= 0 {
-		t.Errorf("MemoryStorage = %d, want finite positive limit", claims.Limits.JetStreamLimits.MemoryStorage)
+	if claims.Limits.MemoryStorage <= 0 {
+		t.Errorf("MemoryStorage = %d, want finite positive limit", claims.Limits.MemoryStorage)
 	}
-	if claims.Limits.JetStreamLimits.DiskStorage <= 0 {
-		t.Errorf("DiskStorage = %d, want finite positive limit", claims.Limits.JetStreamLimits.DiskStorage)
+	if claims.Limits.DiskStorage <= 0 {
+		t.Errorf("DiskStorage = %d, want finite positive limit", claims.Limits.DiskStorage)
 	}
-	if claims.Limits.JetStreamLimits.Streams <= 0 {
-		t.Errorf("Streams = %d, want finite positive limit", claims.Limits.JetStreamLimits.Streams)
+	if claims.Limits.Streams <= 0 {
+		t.Errorf("Streams = %d, want finite positive limit", claims.Limits.Streams)
 	}
-	if claims.Limits.JetStreamLimits.Consumer <= 0 {
-		t.Errorf("Consumer = %d, want finite positive limit", claims.Limits.JetStreamLimits.Consumer)
+	if claims.Limits.Consumer <= 0 {
+		t.Errorf("Consumer = %d, want finite positive limit", claims.Limits.Consumer)
 	}
-	if !claims.Limits.JetStreamLimits.MaxBytesRequired {
+	if !claims.Limits.MaxBytesRequired {
 		t.Error("MaxBytesRequired = false, want true")
 	}
 }

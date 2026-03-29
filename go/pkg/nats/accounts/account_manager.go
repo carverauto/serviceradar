@@ -370,35 +370,6 @@ func ensureJetStreamEnabled(claims *jwt.AccountClaims) {
 	}
 }
 
-func subjectWithinApprovedAccountScope(accountName, subject string) bool {
-	if subject == "" {
-		return false
-	}
-
-	if strings.HasPrefix(subject, accountName+".") || strings.HasPrefix(subject, "_INBOX.") {
-		return true
-	}
-
-	for _, prefix := range []string{
-		"events.",
-		"logs.",
-		"logs.syslog.",
-		"logs.snmp.",
-		"netflow.",
-		"arancini.updates.",
-		"otel.",
-		"otel.traces.",
-		"otel.metrics.",
-		"telemetry.",
-	} {
-		if strings.HasPrefix(subject, prefix) {
-			return true
-		}
-	}
-
-	return false
-}
-
 func userSubjectWithinApprovedScope(subject string) bool {
 	if subject == "" {
 		return false

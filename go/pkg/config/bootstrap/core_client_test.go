@@ -33,7 +33,6 @@ func TestCoreSecurityProviderFromEnvRejectsInsecureModes(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("CORE_SEC_MODE", tc.mode)
 
@@ -82,7 +81,6 @@ func TestBuildCoreDialOptionsFromEnvRejectsInsecureModes(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("CORE_SEC_MODE", tc.mode)
 

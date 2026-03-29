@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -31,6 +32,8 @@ const (
 	onboardingTokenPublicKeyEnv = "SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY"
 	onboardingTokenSignatureSep = "."
 )
+
+var errTokenPublicKeyLengthInvalid = errors.New("invalid onboarding token public key length")
 
 // TokenPayload contains the decoded information from an edge onboarding token.
 type TokenPayload struct {
@@ -111,7 +114,7 @@ func onboardingTokenPublicKey() (ed25519.PublicKey, error) {
 		return nil, fmt.Errorf("decode onboarding token public key: %w", err)
 	}
 	if len(keyBytes) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("invalid onboarding token public key length: %d", len(keyBytes))
+		return nil, fmt.Errorf("%w: got %d bytes", errTokenPublicKeyLengthInvalid, len(keyBytes))
 	}
 
 	return ed25519.PublicKey(keyBytes), nil

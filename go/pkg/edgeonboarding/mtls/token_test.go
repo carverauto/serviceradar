@@ -20,6 +20,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -88,16 +89,16 @@ func TestParseToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.wantErr == ErrTokenPublicKeyRequired {
+			if errors.Is(tt.wantErr, ErrTokenPublicKeyRequired) {
 				t.Setenv(onboardingTokenPublicKeyEnv, "")
 			}
 			payload, err := ParseToken(tt.token, tt.fallbackHost)
 
-				if tt.wantErr != nil {
-					require.Error(t, err)
-					assert.ErrorIs(t, err, tt.wantErr)
-					return
-				}
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
 
 			if tt.wantPayload != nil {
 				require.NoError(t, err)
