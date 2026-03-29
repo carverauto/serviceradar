@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-rust-srql-pass-1`
+- Review artifact version: `2026-03-29-docker-compose-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -53,7 +53,7 @@
 | `rust/consumers/zen` | Secondary | reviewed | Reviewed NATS, decision-engine, and optional gRPC status server paths. A fail-open gRPC transport and default exposure finding is recorded below. |
 | `rust/flowgger` | Secondary | reviewed | Reviewed gRPC sidecar, input listeners, and NATS output transport wiring. A fail-open gRPC transport finding is recorded below. |
 | `rust/srql` | Secondary | reviewed | Reviewed parser, query engine, and HTTP API auth path. A fail-open API authentication finding is recorded below. |
-| `docker/compose` | Secondary | not-started | Pending after primary scope closure. |
+| `docker/compose` | Secondary | reviewed | Reviewed compose runtime defaults, shipped secret material, NATS exposure, and SPIRE bootstrap scripts. Static secret defaults, public monitoring exposure, and unverified runtime binary downloads are recorded below. |
 | `k8s/demo` | Secondary | not-started | Pending after primary scope closure. |
 | `k8s/sr-testing` | Secondary | not-started | Pending after primary scope closure. |
 | `k8s/external-dns` | Secondary | not-started | Pending after primary scope closure. |
@@ -110,6 +110,9 @@ Disposition values used in this artifact:
 | `SR-028` | High | `rust/consumers/zen` | Zen starts a gRPC status server on `0.0.0.0:50055` by default and serves plaintext whenever `grpc_security` is absent or `none`, exposing an internal service boundary without authenticated transport. | `covered-by-change: harden-rust-zen-grpc-transport-defaults` |
 | `SR-029` | High | `rust/flowgger` | Flowgger’s optional gRPC health sidecar accepts `grpc.mode = "none"` and silently downgrades incomplete `mtls` config to plaintext serving, weakening an internal service boundary. | `covered-by-change: harden-rust-flowgger-grpc-transport-defaults` |
 | `SR-030` | High | `rust/srql` | SRQL disables API key enforcement entirely when no env or KV-backed key is configured, leaving `/api/query` and `/translate` unauthenticated on the normal listener. | `covered-by-change: harden-rust-srql-api-auth-defaults` |
+| `SR-031` | High | `docker-compose.yml`, `docker/compose` | The main Docker Compose stack still ships static default secret material for Erlang distribution, Phoenix session signing, and plugin download signing, allowing cross-install trust reuse when operators do not override those env vars. | `covered-by-change: harden-docker-compose-secret-defaults-and-bootstrap-integrity` |
+| `SR-032` | Medium | `docker-compose.yml`, `docker/compose/nats.docker.conf` | The main Docker Compose stack publishes the unauthenticated NATS monitoring endpoint on host port `8222` by default, exposing broker metadata and runtime state outside the internal compose network. | `covered-by-change: harden-docker-compose-secret-defaults-and-bootstrap-integrity` |
+| `SR-033` | High | `docker/compose/spire` | SPIRE bootstrap and agent startup scripts download and execute SPIRE binaries at runtime without checksum or signature verification, creating a supply-chain trust gap in the compose bootstrap path. | `covered-by-change: harden-docker-compose-secret-defaults-and-bootstrap-integrity` |
 
 ### Finding Details
 
@@ -361,6 +364,51 @@ Disposition values used in this artifact:
   - keep embedded/test-only construction explicit rather than allowing the standalone server to disable auth silently
   - add focused tests proving missing-key startup fails instead of serving unauthenticated query endpoints
 - Disposition: `covered-by-change: harden-rust-srql-api-auth-defaults`
+
+#### `SR-031` Docker Compose ships shared default secret material
+- Severity: High
+- Exploitability / Preconditions: operator deploys the main Docker Compose stack without overriding the relevant secret environment variables.
+- Affected Paths:
+  - `docker-compose.yml`
+- Impact:
+  - the compose stack templates the same default Erlang cluster cookie (`serviceradar_dev_cookie`) into core, gateway, and web-ng, so multiple installs can share distribution credentials by default
+  - web-ng also receives a static `SECRET_KEY_BASE` default, enabling predictable session or token signing material reuse across installs when operators do not override it
+  - core and web-ng both use the same hard-coded `PLUGIN_STORAGE_SIGNING_SECRET` default, allowing signed plugin download URLs to be forged across installations that retain the shipped value
+- Remediation Guidance:
+  - remove static defaults for cluster cookies, Phoenix secret material, and plugin signing secrets from the compose stack
+  - generate per-install secret values during bootstrap and mount them from dedicated volumes or files
+  - document explicit override behavior for operators who need deterministic values
+- Disposition: `covered-by-change: harden-docker-compose-secret-defaults-and-bootstrap-integrity`
+
+#### `SR-032` Docker Compose publishes unauthenticated NATS monitoring to the host
+- Severity: Medium
+- Exploitability / Preconditions: host running the main Docker Compose stack is reachable by other users or systems on the network.
+- Affected Paths:
+  - `docker-compose.yml`
+  - `docker/compose/nats.docker.conf`
+- Impact:
+  - the NATS service publishes host port `8222`, and the bundled NATS config binds the HTTP monitoring endpoint to `0.0.0.0:8222`
+  - that monitoring surface is not protected by the NATS mTLS client listener settings, so external callers can query broker metadata, account state, and operational telemetry that should remain internal to the compose network
+- Remediation Guidance:
+  - stop publishing the NATS monitoring endpoint to the host by default, or bind it to loopback only
+  - keep the monitoring listener internal unless an operator explicitly opts in to external exposure for debugging
+  - document any opt-in monitoring exposure as insecure by default
+- Disposition: `covered-by-change: harden-docker-compose-secret-defaults-and-bootstrap-integrity`
+
+#### `SR-033` Docker Compose SPIRE bootstrap downloads unsigned executables at runtime
+- Severity: High
+- Exploitability / Preconditions: compose stack uses the bundled SPIRE bootstrap path and trusts the runtime network path to GitHub or a caller-supplied download URL.
+- Affected Paths:
+  - `docker/compose/spire`
+- Impact:
+  - `bootstrap-compose-spire.sh` downloads the SPIRE server CLI tarball at runtime, extracts `spire-server`, and executes it without verifying a checksum or signature
+  - `run-agent.sh` does the same for `spire-agent`
+  - a compromised mirror, DNS path, or overridden download URL can therefore replace the executed bootstrap binaries before the local trust boundary is established
+- Remediation Guidance:
+  - stop downloading SPIRE executables during runtime bootstrap; ship pinned binaries in the image or mount vetted artifacts instead
+  - if network retrieval remains unavoidable, require a pinned checksum or signature verification step before extraction and execution
+  - treat download URL overrides as privileged/debug-only and document them accordingly
+- Disposition: `covered-by-change: harden-docker-compose-secret-defaults-and-bootstrap-integrity`
 
 #### `SR-015` Core-ELX media ingress trust-boundary and analysis-worker SSRF gap
 - Severity: High

@@ -164,9 +164,28 @@ plugin_storage_defaults = Application.get_env(:serviceradar_web_ng, :plugin_stor
 plugin_storage_backend = System.get_env("PLUGIN_STORAGE_BACKEND")
 plugin_storage_path = System.get_env("PLUGIN_STORAGE_PATH")
 plugin_storage_bucket = System.get_env("PLUGIN_STORAGE_BUCKET")
-plugin_storage_signing_secret = System.get_env("PLUGIN_STORAGE_SIGNING_SECRET")
 plugin_verification_defaults = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
 client_ip_defaults = Application.get_env(:serviceradar_web_ng, :client_ip, [])
+
+read_secret_env = fn env_name, file_env_name ->
+  case System.get_env(env_name) do
+    nil ->
+      case System.get_env(file_env_name) do
+        nil -> nil
+        "" -> nil
+        path -> path |> File.read!() |> String.trim()
+      end
+
+    "" ->
+      nil
+
+    value ->
+      value
+  end
+end
+
+plugin_storage_signing_secret =
+  read_secret_env.("PLUGIN_STORAGE_SIGNING_SECRET", "PLUGIN_STORAGE_SIGNING_SECRET_FILE")
 
 to_int = fn value ->
   cond do
@@ -799,7 +818,7 @@ if config_env() == :prod do
   # to check this value into version control, so we use an environment
   # variable instead.
   secret_key_base =
-    System.get_env("SECRET_KEY_BASE") ||
+    read_secret_env.("SECRET_KEY_BASE", "SECRET_KEY_BASE_FILE") ||
       raise """
       environment variable SECRET_KEY_BASE is missing.
       You can generate one by calling: mix phx.gen.secret
