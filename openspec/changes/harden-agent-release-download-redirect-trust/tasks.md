@@ -5,5 +5,5 @@
 
 ## 2. Validation
 - [x] 2.1 Run `go test ./go/pkg/agent`.
-- [ ] 2.2 Run `openspec validate harden-agent-release-download-redirect-trust --strict`.
-- [ ] 2.3 Run `openspec validate add-repo-security-review-baseline --strict`.
+- [x] 2.2 Run `openspec validate harden-agent-release-download-redirect-trust --strict`.
+- [x] 2.3 Run `openspec validate add-repo-security-review-baseline --strict`.

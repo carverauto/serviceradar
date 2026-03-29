@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-agent-pass-1`
+- Review artifact version: `2026-03-29-datasvc-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -29,7 +29,7 @@
 | `elixir/web-ng/lib` | Primary | reviewed | Extensive auth, onboarding, plugin/package, admin API, bundle-delivery findings already mapped to hardening changes. |
 | `elixir/serviceradar_core/lib` | Primary | reviewed | Release artifact delivery, onboarding, identity/accounting, edge bundle/script generation reviewed and mapped. |
 | `elixir/serviceradar_agent_gateway/lib` | Primary | reviewed | Release artifact authorization, gateway startup TLS, cert issuance, and camera relay ownership paths reviewed and mapped to a dedicated hardening change. |
-| `elixir/serviceradar_core_elx/lib` | Primary | partial | Camera ingress transport/auth and analysis-worker outbound HTTP dispatch paths reviewed. New core-elx-specific findings recorded; deeper pass still pending. |
+| `elixir/serviceradar_core_elx/lib` | Primary | reviewed | Camera ingress transport/auth, analysis-worker outbound HTTP dispatch, and boombox relay temp-file handling reviewed. Remaining issues are recorded below. |
 | `go/pkg/agent` | Primary | reviewed | Release-update trust boundaries, plugin/runtime network surfaces, control stream, and sync-runtime outbound paths reviewed. Cross-origin release redirect trust gap recorded below. |
 | `go/pkg/edgeonboarding` | Primary | reviewed | Signed tokens, HTTPS enforcement, env override handling, collector onboarding reviewed and mapped. |
 | `go/pkg/grpc` | Primary | reviewed | Security provider defaults, SPIFFE identity binding, and insecure transport fallback reviewed. New gRPC package findings recorded. |
@@ -42,7 +42,7 @@
 
 | Directory | Tier | Status | Notes |
 | --- | --- | --- | --- |
-| `go/pkg/datasvc` | Secondary | not-started | Pending after primary scope closure. |
+| `go/pkg/datasvc` | Secondary | reviewed | Datasvc gRPC upload/object-store bounds reviewed. Object upload/storage exhaustion finding recorded below. |
 | `go/pkg/nats` | Secondary | not-started | Pending after primary scope closure. |
 | `go/pkg/spireadmin` | Secondary | not-started | Pending after primary scope closure. |
 | `go/pkg/trivysidecar` | Secondary | not-started | Pending after primary scope closure. |
@@ -101,6 +101,8 @@ Disposition values used in this artifact:
 | `SR-019` | High | `helm/serviceradar` | Helm defaults still ship a fixed onboarding signing key and a fixed Erlang cluster cookie, creating shared-secret reuse across installs unless operators override them manually. | `covered-by-change: harden-helm-generated-secret-defaults` |
 | `SR-020` | High | `helm/serviceradar` | The Helm chart exposes the SPIRE server via a `LoadBalancer` by default and disables kubelet verification in the SPIRE agent workload attestor, weakening the identity plane when SPIRE mode is enabled. | `covered-by-change: harden-helm-spire-exposure-and-attestation-defaults` |
 | `SR-021` | High | `go/pkg/agent` | Agent self-update follows cross-origin HTTPS redirects, allowing authenticated or signed artifact downloads to leave the original trust boundary. | `covered-by-change: harden-agent-release-download-redirect-trust` |
+| `SR-022` | Medium | `elixir/serviceradar_core_elx/lib` | Core-ELX boombox capture helpers still write relay-derived media samples to predictable temp paths under the global temp directory. | `covered-by-change: harden-core-elx-boombox-tempfile-handling` |
+| `SR-023` | Medium | `go/pkg/datasvc` | Datasvc object uploads are not bounded end-to-end and the JetStream object bucket is created without a storage cap, allowing authenticated writers to exhaust backing storage. | `new-change-required: harden-datasvc-object-upload-bounds` |
 
 ### Finding Details
 
@@ -238,6 +240,20 @@ Disposition values used in this artifact:
   - replace predictable temp paths in certificate issuance with secure exclusive temp directories/files
 - Disposition: `covered-by-change: harden-agent-gateway-edge-identity-boundaries`
 
+#### `SR-023` Datasvc object upload and object-store capacity are unbounded
+- Severity: Medium
+- Exploitability / Preconditions: attacker or malfunctioning workload has authenticated `writer` access to datasvc and can stream arbitrary object uploads.
+- Affected Paths:
+  - `go/pkg/datasvc`
+- Impact:
+  - `UploadObject` accepts arbitrarily long client streams and forwards them directly into JetStream object storage without a cumulative service-side byte ceiling
+  - datasvc applies `BucketMaxBytes` only to the KV bucket; the object store is created without `MaxBytes`, so a single writer can grow object storage until JetStream storage pressure affects other workloads
+- Remediation Guidance:
+  - enforce a cumulative per-object upload limit in the gRPC streaming path and fail the stream closed once the configured ceiling is exceeded
+  - apply an explicit `MaxBytes` cap to the JetStream object store, either by reusing or splitting the existing bucket-cap configuration
+  - add focused tests for oversize stream rejection and bounded object-store initialization
+- Disposition: `new-change-required: harden-datasvc-object-upload-bounds`
+
 #### `SR-015` Core-ELX media ingress trust-boundary and analysis-worker SSRF gap
 - Severity: High
 - Exploitability / Preconditions: attacker can reach a core-elx media gRPC listener deployed without valid certs, or a privileged operator / compromised control-plane path can register or select an analysis worker endpoint that targets an internal service.
@@ -338,6 +354,21 @@ Disposition values used in this artifact:
   - update future agent release-management contracts to stop depending on cross-origin repository redirects
 - Disposition: `covered-by-change: harden-agent-release-download-redirect-trust`
 
+#### `SR-022` Core-ELX boombox relay capture paths use predictable global temp files
+- Severity: Medium
+- Exploitability / Preconditions: local attacker has filesystem access on the core-elx host or container runtime namespace where the global temp directory is shared.
+- Affected Paths:
+  - `elixir/serviceradar_core_elx/lib`
+- Impact:
+  - the external boombox worker in [external_boombox_analysis_worker.ex](/home/mfreeman/serviceradar/elixir/serviceradar_core_elx/lib/serviceradar_core_elx/camera_relay/external_boombox_analysis_worker.ex) writes relay-derived H264 payloads to `System.tmp_dir!()` using `System.unique_integer/1`
+  - the boombox sidecar in [boombox_sidecar_worker.ex](/home/mfreeman/serviceradar/elixir/serviceradar_core_elx/lib/serviceradar_core_elx/camera_relay/boombox_sidecar_worker.ex) also defaults output files to predictable names under the global temp directory
+  - on shared hosts this creates the usual local symlink / precreation / disclosure risk around transient relay media samples before cleanup runs
+- Remediation Guidance:
+  - move boombox capture staging to secure random temp directories or exclusive file allocation under a private ServiceRadar temp root
+  - centralize the helper so both external-worker and sidecar capture paths use the same secure allocation and cleanup pattern
+  - add focused tests for secure temp-path generation and cleanup semantics
+- Disposition: `covered-by-change: harden-core-elx-boombox-tempfile-handling`
+
 ## Accepted Risk Register
 
 No accepted-risk entries have been recorded yet in this baseline artifact.
@@ -345,10 +376,8 @@ No accepted-risk entries have been recorded yet in this baseline artifact.
 ## Remaining Primary-Scope Gaps
 
 The following primary-scope passes still need dedicated review evidence before the primary audit can be considered complete:
-- `elixir/serviceradar_core_elx/lib` deeper pass beyond camera ingress / analysis-worker HTTP dispatch
 
 ## Next Pass Queue
 
 Recommended next review order:
-1. `elixir/serviceradar_core_elx/lib` deeper pass
-2. `go/pkg/datasvc`
+1. `go/pkg/datasvc`

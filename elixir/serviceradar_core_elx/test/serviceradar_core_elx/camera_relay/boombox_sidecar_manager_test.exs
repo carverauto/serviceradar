@@ -4,6 +4,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManagerTest do
   alias ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager
   alias ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
+  alias ServiceRadarCoreElx.CameraRelay.SecureTempCapture
 
   defmodule ResultIngestorStub do
     @moduledoc false
@@ -169,6 +170,52 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManagerTest do
     assert :ok = PipelineManager.close_session(relay_session_id)
   end
 
+  test "allocates a secure managed output path when no output_path is provided" do
+    relay_session_id = "relay-boombox-sidecar-3"
+    branch_id = "boombox-sidecar-3"
+
+    assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
+
+    assert {:ok, branch} =
+             BoomboxSidecarManager.open_sidecar(%{
+               relay_session_id: relay_session_id,
+               branch_id: branch_id,
+               worker_id: "boombox-sidecar-worker-3",
+               capture_ms: 10_000
+             })
+
+    assert is_binary(branch.output_path)
+    assert String.starts_with?(Path.expand(branch.output_path), Path.expand(SecureTempCapture.base_dir()) <> "/")
+
+    assert :ok =
+             PipelineManager.record_chunk(relay_session_id, %{
+               media_ingest_id: "core-media-boombox-sidecar",
+               sequence: 3,
+               pts: 0,
+               dts: 0,
+               codec: "h264",
+               payload_format: "annexb",
+               track_id: "video",
+               keyframe: true,
+               payload: keyframe_payload()
+             })
+
+    assert eventually(
+             fn ->
+               case File.stat(branch.output_path) do
+                 {:ok, %File.Stat{size: size}} when size > 0 -> true
+                 _ -> false
+               end
+             end,
+             40
+           )
+
+    assert :ok = BoomboxSidecarManager.close_sidecar(relay_session_id, branch_id)
+    refute File.exists?(branch.output_path)
+    refute File.exists?(Path.dirname(branch.output_path))
+    assert :ok = PipelineManager.close_session(relay_session_id)
+  end
+
   defp close_all_sidecars do
     state = :sys.get_state(BoomboxSidecarManager)
 
@@ -195,9 +242,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManagerTest do
 
   defp eventually(_fun, 0), do: false
 
-  defp tmp_capture_path(label) do
-    Path.join(System.tmp_dir!(), "serviceradar-boombox-sidecar-#{label}-#{System.unique_integer([:positive])}.h264")
-  end
+  defp tmp_capture_path(label), do: SecureTempCapture.allocate_path!("serviceradar-boombox-sidecar-#{label}", ".h264")
 
   defp keyframe_payload do
     """

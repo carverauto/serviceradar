@@ -5,7 +5,7 @@
 
 ## 2. Primary Audit Pass
 - [x] 2.1 Review `elixir/web-ng/lib` for authentication, authorization, token, upload/download, outbound fetch, and admin/API issues.
-- [ ] 2.2 Review `elixir/serviceradar_core/lib`, `elixir/serviceradar_agent_gateway/lib`, and `elixir/serviceradar_core_elx/lib` for policy bypasses, onboarding/certificate issues, trust-boundary validation gaps, and internal service exposure risks.
+- [x] 2.2 Review `elixir/serviceradar_core/lib`, `elixir/serviceradar_agent_gateway/lib`, and `elixir/serviceradar_core_elx/lib` for policy bypasses, onboarding/certificate issues, trust-boundary validation gaps, and internal service exposure risks.
 - [x] 2.3 Review `go/pkg/agent`, `go/pkg/edgeonboarding`, `go/pkg/grpc`, and `go/pkg/config/bootstrap` for update/runtime/plugin/bootstrap/TLS weaknesses.
 - [x] 2.4 Review `rust/edge-onboarding`, `rust/config-bootstrap`, and `helm/serviceradar` for onboarding-token, bootstrap, secret, certificate, and deployment exposure risks.
 

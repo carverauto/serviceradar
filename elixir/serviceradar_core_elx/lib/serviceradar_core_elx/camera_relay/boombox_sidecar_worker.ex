@@ -11,6 +11,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
   alias ServiceRadar.Telemetry
   alias ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager
   alias ServiceRadarCoreElx.CameraRelay.BoomboxHelpers
+  alias ServiceRadarCoreElx.CameraRelay.SecureTempCapture
 
   @default_capture_ms 250
   @default_max_read_bytes 65_536
@@ -193,8 +194,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
   end
 
   defp cleanup_output(path) do
-    if is_binary(path), do: File.rm(path)
-    :ok
+    SecureTempCapture.cleanup_path(path)
   end
 
   defp cancel_timer(nil), do: :ok
@@ -213,8 +213,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
   defp do_count_start_codes(<<>>, count), do: count
 
   defp default_output_path(relay_session_id, branch_id) do
-    filename = "serviceradar-boombox-sidecar-#{relay_session_id}-#{branch_id}-#{System.unique_integer([:positive])}.h264"
-    Path.join(System.tmp_dir!(), filename)
+    prefix = "serviceradar-boombox-sidecar-#{relay_session_id}-#{branch_id}"
+    SecureTempCapture.allocate_path!(prefix, ".h264")
   end
 
   defp required_string!(opts, key) do
