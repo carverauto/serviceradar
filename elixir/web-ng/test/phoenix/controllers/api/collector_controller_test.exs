@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
   alias ServiceRadar.Edge.NatsCredential
 
   defmodule BrokenCollectorBundleGenerator do
+    @moduledoc false
     def create_tarball(_package, _creds, _tls_key, _opts), do: {:error, %{secret: "collector-bundle-secret"}}
   end
 
@@ -156,8 +157,8 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
 
       assert install_script =~ "SITE='$(touch /tmp/site-pwned)'"
       assert install_script =~ "HOSTNAME='$(touch /tmp/host-pwned)'"
-      refute install_script =~ ~s(SITE="$(touch /tmp/site-pwned)")
-      refute install_script =~ ~s(HOSTNAME="$(touch /tmp/host-pwned)")
+      refute install_script =~ ~s|SITE="$(touch /tmp/site-pwned)"|
+      refute install_script =~ ~s|HOSTNAME="$(touch /tmp/host-pwned)"|
     end
   end
 

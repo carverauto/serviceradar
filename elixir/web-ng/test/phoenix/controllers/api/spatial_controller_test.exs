@@ -2,9 +2,10 @@ defmodule ServiceRadarWebNGWeb.Api.SpatialControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNGWeb.Api.SpatialController
 
   test "index fails closed without an authenticated scope", %{conn: conn} do
-    conn = ServiceRadarWebNGWeb.Api.SpatialController.index(conn, %{})
+    conn = SpatialController.index(conn, %{})
 
     assert conn.halted
     assert conn.status == 401
@@ -15,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.Api.SpatialControllerTest do
     conn =
       conn
       |> assign(:current_scope, %Scope{user: %{id: "viewer", email: "viewer@example.com"}, permissions: MapSet.new()})
-      |> ServiceRadarWebNGWeb.Api.SpatialController.index(%{})
+      |> SpatialController.index(%{})
 
     assert conn.halted
     assert conn.status == 403

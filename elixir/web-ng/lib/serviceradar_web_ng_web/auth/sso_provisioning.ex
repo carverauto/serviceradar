@@ -14,12 +14,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
 
   @spec find_or_create_user(map(), map(), provider(), term()) ::
           {:ok, User.t()} | {:error, term()}
-  def find_or_create_user(
-        %{email: email, name: name, external_id: external_id},
-        claims,
-        provider,
-        actor
-      )
+  def find_or_create_user(%{email: email, name: name, external_id: external_id}, claims, provider, actor)
       when provider in [:oidc, :saml] and is_map(claims) do
     resolved_role = RoleMapping.resolve_role(claims, actor: actor)
 

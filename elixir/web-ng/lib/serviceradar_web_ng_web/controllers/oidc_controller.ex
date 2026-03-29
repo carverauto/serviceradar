@@ -227,6 +227,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
   defp find_or_create_user(%{email: email, name: name, external_id: external_id}, claims) do
     actor = SystemActor.system(:oidc_auth)
+
     SSOProvisioning.find_or_create_user(
       %{email: email, name: name, external_id: external_id},
       claims,

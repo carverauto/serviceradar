@@ -337,7 +337,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
     opts = [actor: nil, source_ip: source_ip, authorize?: false]
 
     with {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} <-
-         OnboardingPackages.deliver(id, download_token, opts),
+           OnboardingPackages.deliver(id, download_token, opts),
          {:ok, tarball} <-
            wrap_bundle_error(
              bundle_generator().create_tarball(package, bundle_pem || "", join_token,

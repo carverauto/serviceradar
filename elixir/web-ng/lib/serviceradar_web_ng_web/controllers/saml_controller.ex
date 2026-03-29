@@ -32,8 +32,8 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
   alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.Auth.SAMLAssertionValidator
-  alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
   alias ServiceRadarWebNGWeb.Auth.SAMLStrategy
+  alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
   alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.UserAuth
 
@@ -766,6 +766,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
   defp find_or_create_user(%{email: email, name: name, external_id: external_id, attributes: attributes}, actor) do
     claims = Map.merge(attributes, %{"email" => email, "name" => name, "sub" => external_id})
+
     SSOProvisioning.find_or_create_user(
       %{email: email, name: name, external_id: external_id},
       claims,

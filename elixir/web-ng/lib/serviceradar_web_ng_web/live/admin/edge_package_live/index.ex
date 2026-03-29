@@ -10,13 +10,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   alias Ash.Error.Invalid
   alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadarWebNG.Shell
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.ComponentID
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.PubSub, as: EdgePubSub
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.Shell
   alias ServiceRadarWebNGWeb.GatewayHelpers
 
   require Logger

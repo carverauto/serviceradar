@@ -24,7 +24,8 @@ defmodule ServiceRadarWebNG.ClientIPTest do
     )
 
     conn =
-      Plug.Test.conn(:get, "/")
+      :get
+      |> Plug.Test.conn("/")
       |> Map.put(:remote_ip, {10, 0, 0, 5})
       |> Plug.Conn.put_req_header("x-forwarded-for", "203.0.113.20")
 
@@ -38,7 +39,8 @@ defmodule ServiceRadarWebNG.ClientIPTest do
     )
 
     conn =
-      Plug.Test.conn(:get, "/")
+      :get
+      |> Plug.Test.conn("/")
       |> Map.put(:remote_ip, {10, 0, 0, 5})
       |> Plug.Conn.put_req_header("x-forwarded-for", "127.0.0.1, 203.0.113.20")
 
@@ -52,7 +54,8 @@ defmodule ServiceRadarWebNG.ClientIPTest do
     )
 
     conn =
-      Plug.Test.conn(:get, "/")
+      :get
+      |> Plug.Test.conn("/")
       |> Map.put(:remote_ip, {203, 0, 113, 55})
       |> Plug.Conn.put_req_header("x-forwarded-for", "127.0.0.1")
 

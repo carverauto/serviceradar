@@ -160,10 +160,7 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
 
       _ ->
         with {:ok, channel} <- GenServer.call(ServiceRadar.DataService.Client, :get_channel, @download_timeout) do
-          case ServiceRadar.Sync.Client.download_object(channel, object_key, timeout: @download_timeout) do
-            {:ok, {_info, data}} -> {:ok, data}
-            {:error, reason} -> {:error, reason}
-          end
+          download_object_from_channel(channel, object_key)
         end
     end
   end
@@ -188,21 +185,28 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
         conn
         |> Plug.Conn.get_peer_data()
         |> Map.get(:ssl_cert)
-        |> case do
-          cert_der when is_binary(cert_der) ->
-            case ComponentIdentityResolver.resolve_from_cert(cert_der) do
-              {:ok, identity} -> {:ok, identity}
-              {:error, _reason} -> {:error, :unauthenticated}
-            end
-
-          _ ->
-            {:error, :unauthenticated}
-        end
+        |> resolve_identity_from_cert()
     end
   rescue
     _error ->
       {:error, :unauthenticated}
   end
+
+  defp download_object_from_channel(channel, object_key) do
+    case ServiceRadar.Sync.Client.download_object(channel, object_key, timeout: @download_timeout) do
+      {:ok, {_info, data}} -> {:ok, data}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp resolve_identity_from_cert(cert_der) when is_binary(cert_der) do
+    case ComponentIdentityResolver.resolve_from_cert(cert_der) do
+      {:ok, identity} -> {:ok, identity}
+      {:error, _reason} -> {:error, :unauthenticated}
+    end
+  end
+
+  defp resolve_identity_from_cert(_), do: {:error, :unauthenticated}
 
   defp authorize_caller_identity(%{component_id: component_id, component_type: component_type})
        when is_binary(component_id) and component_type in @allowed_component_types, do: :ok

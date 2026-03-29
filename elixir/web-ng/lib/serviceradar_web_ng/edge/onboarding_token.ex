@@ -42,12 +42,10 @@ defmodule ServiceRadarWebNG.Edge.OnboardingToken do
   def decode(raw, opts) when is_binary(raw) do
     raw = String.trim(raw)
 
-    cond do
-      String.starts_with?(raw, @token_v2_prefix) ->
-        decode_v2(raw, opts)
-
-      true ->
-        {:error, :unsupported_token_format}
+    if String.starts_with?(raw, @token_v2_prefix) do
+      decode_v2(raw, opts)
+    else
+      {:error, :unsupported_token_format}
     end
   end
 

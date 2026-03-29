@@ -9,8 +9,8 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
   alias ServiceRadarWebNG.Edge.OnboardingPackages
 
   defmodule BrokenEdgeBundleGenerator do
-    def create_tarball(_package, _bundle_pem, _join_token, _opts),
-      do: {:error, %{secret: "edge-bundle-secret"}}
+    @moduledoc false
+    def create_tarball(_package, _bundle_pem, _join_token, _opts), do: {:error, %{secret: "edge-bundle-secret"}}
   end
 
   setup %{conn: conn} do

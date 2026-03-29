@@ -48,7 +48,7 @@ defmodule ServiceRadarWebNGWeb.SAMLControllerTest do
 
   test "rejects SAML ACS XML with external entities", %{conn: conn} do
     malicious_response =
-      """
+      Base.encode64("""
       <!DOCTYPE samlp:Response [
         <!ENTITY xxe SYSTEM "file:///etc/passwd">
       ]>
@@ -57,8 +57,7 @@ defmodule ServiceRadarWebNGWeb.SAMLControllerTest do
           <saml:Issuer>&xxe;</saml:Issuer>
         </saml:Assertion>
       </samlp:Response>
-      """
-      |> Base.encode64()
+      """)
 
     conn =
       conn

@@ -14,8 +14,7 @@ defmodule ServiceRadarWebNG.Edge.TokenHardeningTest do
 
   test "onboarding decode rejects legacy unsigned tokens" do
     payload =
-      ~s({"pkg":"pkg-123","dl":"dl-123","api":"https://demo.serviceradar.cloud"})
-      |> Base.url_encode64(padding: false)
+      Base.url_encode64(~s({"pkg":"pkg-123","dl":"dl-123","api":"https://demo.serviceradar.cloud"}), padding: false)
 
     assert {:error, :unsupported_token_format} = OnboardingToken.decode("edgepkg-v1:" <> payload)
   end
@@ -48,8 +47,9 @@ defmodule ServiceRadarWebNG.Edge.TokenHardeningTest do
 
   test "collector decode rejects unsigned tokens" do
     payload =
-      ~s({"u":"https://demo.serviceradar.cloud","p":"collector-pkg-123","t":"secret","e":1735689600})
-      |> Base.url_encode64(padding: false)
+      Base.url_encode64(~s({"u":"https://demo.serviceradar.cloud","p":"collector-pkg-123","t":"secret","e":1735689600}),
+        padding: false
+      )
 
     assert {:error, :unsupported_token_format} = EnrollmentToken.decode(payload)
   end
