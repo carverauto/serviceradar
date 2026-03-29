@@ -9,6 +9,7 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
   @default_timeout 30_000
   @max_artifact_bytes 256 * 1024 * 1024
   @storage_backend "datasvc_object_store"
+  @max_redirects 10
 
   @type prepare_opts :: [
           timeout: non_neg_integer(),
@@ -101,7 +102,7 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
          {:ok, sha256} <-
            require_present(sha256, "release artifact #{index + 1} is missing sha256"),
          :ok <- validate_url.(source_url),
-         {:ok, data} <- download_source_artifact(source_url, timeout, http_get),
+         {:ok, data} <- download_source_artifact(source_url, timeout, validate_url, http_get),
          :ok <- verify_sha256(data, sha256),
          {:ok, object_key, file_name} <- object_key(version, artifact),
          metadata =
@@ -148,28 +149,93 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
 
   defp manifest_artifacts(_manifest), do: {:error, "release manifest must be a map"}
 
-  defp download_source_artifact(source_url, timeout, http_get) do
-    case http_get.(source_url, decode_body: false, receive_timeout: timeout) do
-      {:ok, %Req.Response{status: 200, body: body}} ->
-        data = IO.iodata_to_binary(body)
+  defp download_source_artifact(source_url, timeout, validate_url, http_get) do
+    with_temp_file("release-artifact-mirror", fn tmp_path ->
+      stream_download(source_url, timeout, validate_url, http_get, tmp_path, 0)
+    end)
+  end
 
-        cond do
-          byte_size(data) == 0 ->
-            {:error, "artifact download returned an empty payload"}
+  defp stream_download(url, timeout, validate_url, http_get, tmp_path, redirect_count) do
+    case streamed_http_get(url, timeout, http_get, tmp_path) do
+      {:ok, %Req.Response{status: 200} = response} ->
+        read_streamed_payload(response, tmp_path)
 
-          byte_size(data) > @max_artifact_bytes ->
-            {:error, "artifact exceeds #{@max_artifact_bytes} byte mirror limit"}
-
-          true ->
-            {:ok, data}
+      {:ok, %Req.Response{status: status} = response}
+      when status in [301, 302, 303, 307, 308] ->
+        with {:ok, next_url} <- redirect_location(url, response),
+             :ok <- validate_url.(next_url),
+             :ok <- ensure_redirect_count(redirect_count + 1) do
+          File.rm(tmp_path)
+          stream_download(next_url, timeout, validate_url, http_get, tmp_path, redirect_count + 1)
         end
 
       {:ok, %Req.Response{status: status}} ->
         {:error, "artifact download failed with HTTP #{status}"}
 
+      {:error, :artifact_too_large} ->
+        {:error, "artifact exceeds #{@max_artifact_bytes} byte mirror limit"}
+
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp streamed_http_get(url, timeout, http_get, tmp_path) do
+    File.rm(tmp_path)
+
+    {:ok, io_device} = File.open(tmp_path, [:write, :binary, :exclusive])
+
+    try do
+      callback = streaming_callback(io_device)
+      http_get.(url, decode_body: false, receive_timeout: timeout, into: callback)
+    after
+      File.close(io_device)
+    end
+  rescue
+    e in RuntimeError ->
+      if Exception.message(e) == "artifact_too_large" do
+        {:error, :artifact_too_large}
+      else
+        reraise e, __STACKTRACE__
+      end
+  end
+
+  defp streaming_callback(io_device) do
+    fn {:data, data}, {req, response} ->
+      current_size =
+        case Process.get(:release_artifact_mirror_size) do
+          size when is_integer(size) -> size
+          _ -> 0
+        end
+
+      next_size = current_size + IO.iodata_length(data)
+
+      if next_size > @max_artifact_bytes do
+        raise "artifact_too_large"
+      end
+
+      :ok = IO.binwrite(io_device, data)
+      Process.put(:release_artifact_mirror_size, next_size)
+      {:cont, {req, response}}
+    end
+  end
+
+  defp read_streamed_payload(response, tmp_path) do
+    with {:ok, %{size: size}} <- File.stat(tmp_path),
+         {:ok, data} <- payload_from_response_or_file(response, tmp_path, size),
+         true <- byte_size(data) > 0 || {:error, "artifact download returned an empty payload"},
+         :ok <- ensure_size_limit(byte_size(data)) do
+      {:ok, data}
+    end
+  end
+
+  defp payload_from_response_or_file(%Req.Response{body: body}, _tmp_path, 0)
+       when is_binary(body) or is_list(body) do
+    {:ok, IO.iodata_to_binary(body)}
+  end
+
+  defp payload_from_response_or_file(_response, tmp_path, _size) do
+    File.read(tmp_path)
   end
 
   defp verify_sha256(data, expected) do
@@ -236,7 +302,8 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
           url: url,
           headers: [{"user-agent", "serviceradar"}],
           finch: ServiceRadar.Finch,
-          max_redirects: 10,
+          redirect: false,
+          max_redirects: 0,
           receive_timeout: @default_timeout
         ],
         opts
@@ -277,11 +344,54 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
   defp artifact_identity_match?(_, _), do: false
 
   defp safe_basename(url) do
-    url
-    |> URI.parse()
-    |> Map.get(:path)
-    |> Path.basename()
-    |> safe_segment("artifact")
+    path =
+      url
+      |> URI.parse()
+      |> Map.get(:path, "")
+      |> Kernel.||("")
+
+    case Path.basename(path) do
+      "." -> "artifact"
+      basename -> safe_segment(basename, "artifact")
+    end
+  end
+
+  defp redirect_location(current_url, response) do
+    case Req.Response.get_header(response, "location") do
+      [location | _] ->
+        {:ok, current_url |> URI.merge(location) |> to_string()}
+
+      _ ->
+        {:error, "artifact redirect is missing location"}
+    end
+  end
+
+  defp ensure_redirect_count(count) when count <= @max_redirects, do: :ok
+  defp ensure_redirect_count(_count), do: {:error, "artifact redirect limit exceeded"}
+
+  defp ensure_size_limit(size) when size > @max_artifact_bytes,
+    do: {:error, "artifact exceeds #{@max_artifact_bytes} byte mirror limit"}
+
+  defp ensure_size_limit(_size), do: :ok
+
+  defp with_temp_file(prefix, fun) when is_function(fun, 1) do
+    base_dir = Path.join(System.tmp_dir!(), "serviceradar")
+    :ok = File.mkdir_p(base_dir)
+
+    random_name =
+      12
+      |> :crypto.strong_rand_bytes()
+      |> Base.url_encode64(padding: false)
+
+    tmp_path = Path.join(base_dir, "#{prefix}-#{random_name}.tmp")
+
+    try do
+      Process.delete(:release_artifact_mirror_size)
+      fun.(tmp_path)
+    after
+      Process.delete(:release_artifact_mirror_size)
+      File.rm(tmp_path)
+    end
   end
 
   defp safe_segment(value, fallback) do
@@ -358,5 +468,4 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     end)
     |> Map.new()
   end
-
 end
