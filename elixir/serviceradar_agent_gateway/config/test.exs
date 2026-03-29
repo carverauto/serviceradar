@@ -9,8 +9,10 @@ config :libcluster, topologies: []
 # Test-specific configuration
 config :logger, level: :warning
 
-# Allow insecure gRPC in tests (no mTLS certs)
-config :serviceradar_agent_gateway, :allow_insecure_grpc, true
+config :serviceradar_agent_gateway,
+  gateway_cert_dir: Path.expand("../test/support/certs", __DIR__),
+  gateway_grpc_port: 58_052,
+  gateway_artifact_port: 58_053
 
 config :serviceradar_core, Oban, false
 

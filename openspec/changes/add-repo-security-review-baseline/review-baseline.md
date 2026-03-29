@@ -1,0 +1,259 @@
+# Repository Security Review Baseline
+
+## Status
+- Review artifact version: `2026-03-29-gateway-pass-1`
+- Proposal: `add-repo-security-review-baseline`
+- Review mode: primary-scope first, trust-boundary driven
+- Canonical disposition rule:
+  - `covered-by-change` means an existing OpenSpec hardening change already owns remediation.
+  - `accepted-risk` means the issue is intentionally not being remediated and must include rationale.
+  - `new-change-required` means a dedicated follow-up change still needs to be opened.
+
+## Trust Boundary Inventory
+
+| Trust Boundary | Primary Directories | Secondary Directories | Review Focus |
+| --- | --- | --- | --- |
+| Authentication and session binding | `elixir/web-ng/lib`, `elixir/serviceradar_core/lib`, `elixir/serviceradar_core_elx/lib` | `go/pkg/spireadmin`, `tls`, `docker/compose` | login flows, token type restrictions, callback/session state, password reset, gateway/proxy auth |
+| Authorization and admin/API control | `elixir/web-ng/lib`, `elixir/serviceradar_core/lib` | `k8s/argocd`, `k8s/demo` | RBAC checks, route protection, admin action scoping, cross-resource atomicity |
+| Onboarding and bootstrap | `go/pkg/edgeonboarding`, `rust/edge-onboarding`, `go/pkg/config/bootstrap`, `rust/config-bootstrap`, `elixir/web-ng/lib`, `elixir/serviceradar_core/lib` | `tls`, `docker/compose` | token integrity, certificate distribution, bootstrap URL trust, script/config generation |
+| Artifact and external fetch handling | `elixir/web-ng/lib`, `elixir/serviceradar_core/lib`, `go/pkg/agent` | `go/pkg/datasvc`, `go/pkg/nats`, `helm/serviceradar` | SSRF, redirect handling, streaming bounds, credential leakage, trusted source enforcement |
+| Agent runtime, plugin execution, self-update | `go/pkg/agent`, `elixir/web-ng/lib`, `elixir/serviceradar_core/lib`, `elixir/serviceradar_agent_gateway/lib` | `go/cmd/wasm-plugins`, `rust/log-collector`, `rust/flowgger`, `rust/trapd` | plugin delivery, release rollout, runtime config injection, authenticated download paths |
+| Deployment and network exposure | `helm/serviceradar`, `elixir/serviceradar_agent_gateway/lib`, `elixir/serviceradar_core/lib` | `k8s/demo`, `k8s/sr-testing`, `k8s/external-dns`, `tls` | service exposure, network policy, internal port publication, certificate/bootstrap secrets |
+
+## Scope Coverage Matrix
+
+### Primary Scope
+
+| Directory | Tier | Status | Evidence / Notes |
+| --- | --- | --- | --- |
+| `elixir/web-ng/lib` | Primary | reviewed | Extensive auth, onboarding, plugin/package, admin API, bundle-delivery findings already mapped to hardening changes. |
+| `elixir/serviceradar_core/lib` | Primary | reviewed | Release artifact delivery, onboarding, identity/accounting, edge bundle/script generation reviewed and mapped. |
+| `elixir/serviceradar_agent_gateway/lib` | Primary | partial | Release artifact authorization, gateway startup TLS, cert issuance, and camera relay ownership paths reviewed. New gateway-specific findings recorded; deeper core-elx adjacency review still pending. |
+| `elixir/serviceradar_core_elx/lib` | Primary | not-started | No dedicated review pass recorded yet. |
+| `go/pkg/agent` | Primary | partial | Plugin/runtime download flow reviewed; full package audit still pending. |
+| `go/pkg/edgeonboarding` | Primary | reviewed | Signed tokens, HTTPS enforcement, env override handling, collector onboarding reviewed and mapped. |
+| `go/pkg/grpc` | Primary | not-started | No dedicated review pass recorded yet. |
+| `go/pkg/config/bootstrap` | Primary | not-started | No dedicated review pass recorded yet. |
+| `rust/edge-onboarding` | Primary | not-started | No dedicated review pass recorded yet. |
+| `rust/config-bootstrap` | Primary | not-started | No dedicated review pass recorded yet. |
+| `helm/serviceradar` | Primary | partial | Network policy and gateway exposure reviewed; full deployment-exposure pass still pending. |
+
+### Secondary Scope
+
+| Directory | Tier | Status | Notes |
+| --- | --- | --- | --- |
+| `go/pkg/datasvc` | Secondary | not-started | Pending after primary scope closure. |
+| `go/pkg/nats` | Secondary | not-started | Pending after primary scope closure. |
+| `go/pkg/spireadmin` | Secondary | not-started | Pending after primary scope closure. |
+| `go/pkg/trivysidecar` | Secondary | not-started | Pending after primary scope closure. |
+| `go/pkg/scan` | Secondary | not-started | Pending after primary scope closure. |
+| `go/cmd/wasm-plugins` | Secondary | not-started | Pending after primary scope closure. |
+| `rust/trapd` | Secondary | not-started | Pending after primary scope closure. |
+| `rust/log-collector` | Secondary | not-started | Pending after primary scope closure. |
+| `rust/consumers/zen` | Secondary | not-started | Pending after primary scope closure. |
+| `rust/flowgger` | Secondary | not-started | Pending after primary scope closure. |
+| `rust/srql` | Secondary | not-started | Pending targeted SRQL / query-safety pass. |
+| `docker/compose` | Secondary | not-started | Pending after primary scope closure. |
+| `k8s/demo` | Secondary | not-started | Pending after primary scope closure. |
+| `k8s/sr-testing` | Secondary | not-started | Pending after primary scope closure. |
+| `k8s/external-dns` | Secondary | not-started | Pending after primary scope closure. |
+| `k8s/argocd` | Secondary | not-started | Pending after primary scope closure. |
+| `tls` | Secondary | not-started | Pending after primary scope closure. |
+
+## Findings Output Format
+
+Each finding entry in this artifact SHALL include:
+- `Finding ID`
+- `Severity`
+- `Exploitability / Preconditions`
+- `Affected Paths`
+- `Impact`
+- `Remediation Guidance`
+- `Disposition`
+
+Disposition values used in this artifact:
+- `covered-by-change`
+- `accepted-risk`
+- `new-change-required`
+
+## Findings Ledger
+
+| ID | Severity | Affected Paths | Summary | Disposition |
+| --- | --- | --- | --- | --- |
+| `SR-001` | High | `elixir/web-ng/lib`, `go/pkg/edgeonboarding`, `go/pkg/cli` | Edge onboarding accepted unsigned / tamperable tokens and allowed insecure bootstrap URL trust. | `covered-by-change: harden-edge-onboarding-enrollment` |
+| `SR-002` | High | `elixir/web-ng/lib`, `go/pkg/edgeonboarding`, `elixir/serviceradar_core/lib`, `elixir/serviceradar_agent_gateway/lib` | Collector onboarding and gateway-served artifact delivery were not bound tightly enough to authenticated identity. | `covered-by-change: harden-collector-onboarding-and-release-artifact-authorization` |
+| `SR-003` | High | `elixir/web-ng/lib`, `elixir/serviceradar_core/lib` | Release import and bundle delivery trusted generic external hosts, query-string bearer tokens, and unsafe outbound fetch paths. | `covered-by-change: harden-release-import-and-bundle-delivery` |
+| `SR-004` | High | `elixir/web-ng/lib`, `go/pkg/agent`, `elixir/serviceradar_core/lib` | Legacy collector URL tokens and plugin bearer URLs leaked secrets through URLs and generated config. | `covered-by-change: remove-legacy-collector-url-tokens-and-harden-plugin-blob-delivery` |
+| `SR-005` | High | `elixir/web-ng/lib` | POST endpoints still accepted query-param token fallbacks and bootstrap commands used request-derived base URLs. | `covered-by-change: remove-post-query-token-fallbacks-and-pin-bundle-base-url` |
+| `SR-006` | High | `elixir/web-ng/lib` | Admin bootstrap flows minted security-sensitive commands/tokens from request host data. | `covered-by-change: pin-admin-bootstrap-urls-to-configured-endpoints` |
+| `SR-007` | High | `elixir/web-ng/lib`, `elixir/serviceradar_core/lib` | OIDC/SAML metadata and observability fetches had outbound validation gaps; auth callbacks and TLS verification had fail-open behavior. | `covered-by-change: harden-auth-and-observability-outbound-fetches`, `harden-auth-redirect-targets-and-observability-secret-handling`, `harden-auth-session-binding-and-cli-tls-verification`, `harden-auth-metadata-fetch-and-refresh-rotation`, `harden-token-pipelines-and-federated-assertion-validation` |
+| `SR-008` | High | `elixir/web-ng/lib` | Bootstrap scripts, SSO provisioning, topology snapshots, and bundle error responses exposed command injection, privilege, or information-disclosure risk. | `covered-by-change: harden-bootstrap-scripts-and-sensitive-endpoints` |
+| `SR-009` | Medium | `elixir/web-ng/lib`, `elixir/serviceradar_core/lib` | Bundle tempfiles, client IP trust, token revocation durability, and GitHub signer trust had hardening gaps. | `covered-by-change: harden-bundle-tempfiles-and-auth-trust-boundaries` |
+| `SR-010` | High | `elixir/web-ng/lib` | Admin API path handling and sequential user updates allowed path confusion, inconsistent user state, and silent permission retention. | `covered-by-change: harden-admin-api-transport-and-user-update-atomicity` |
+| `SR-011` | High | `elixir/web-ng/lib`, `elixir/serviceradar_core/lib` | Plugin upload/import authenticity checks were incomplete and remote fetches could be abused for memory exhaustion or private repo confusion. | `covered-by-change: harden-plugin-import-authenticity-and-fetch-bounds` |
+| `SR-012` | Medium | `elixir/serviceradar_core/lib` | Identity cache eviction, credential use counters, and first-user bootstrap had denial-of-service or race-condition weaknesses. | `covered-by-change: harden-identity-cache-and-credential-accounting` |
+| `SR-013` | High | `elixir/serviceradar_core/lib` | Release artifact mirroring followed redirects implicitly, buffered downloads unsafely, and edge-site setup scripts interpolated shell-sensitive names. | `covered-by-change: harden-edge-artifact-fetch-and-leaf-bundles` |
+| `SR-014` | High | `elixir/serviceradar_agent_gateway/lib` | Agent gateway still has a fail-open plaintext listener mode, camera relay session operations are not bound to the owning agent, and cert issuance uses predictable temp paths. | `covered-by-change: harden-agent-gateway-edge-identity-boundaries` |
+
+### Finding Details
+
+#### `SR-001` Unsigned or tamperable onboarding/bootstrap trust
+- Severity: High
+- Exploitability / Preconditions: attacker can alter onboarding token or influence bootstrap transport path.
+- Affected Paths:
+  - `elixir/web-ng/lib`
+  - `go/pkg/edgeonboarding`
+  - `go/pkg/cli`
+- Impact: unauthorized bootstrap source trust, token tampering, downgrade to insecure onboarding.
+- Remediation Guidance: signed-only onboarding tokens, strict HTTPS verification, explicit trusted endpoint binding.
+- Disposition: `covered-by-change: harden-edge-onboarding-enrollment`
+
+#### `SR-002` Collector onboarding and release artifact identity binding gaps
+- Severity: High
+- Exploitability / Preconditions: attacker holds a valid enrolled workload identity or can tamper collector bootstrap tokens.
+- Affected Paths:
+  - `elixir/web-ng/lib`
+  - `go/pkg/edgeonboarding`
+  - `elixir/serviceradar_core/lib`
+  - `elixir/serviceradar_agent_gateway/lib`
+- Impact: artifact or collector bootstrap material may be fetched outside intended agent/collector identity.
+- Remediation Guidance: signed collector tokens, identity-bound artifact authorization, signed-only parsing paths.
+- Disposition: `covered-by-change: harden-collector-onboarding-and-release-artifact-authorization`
+
+#### `SR-003` Release import and bundle-delivery outbound fetch / bearer-token leakage
+- Severity: High
+- Exploitability / Preconditions: attacker can control import source metadata, asset URLs, or observe operator-generated URLs.
+- Affected Paths:
+  - `elixir/web-ng/lib`
+  - `elixir/serviceradar_core/lib`
+- Impact: SSRF, credential leakage to untrusted hosts, leakage of onboarding or plugin bearer tokens through URLs/logs/history.
+- Remediation Guidance: constrain import hosts, forbid query-string bearer delivery, fail closed on unsafe fetch destinations.
+- Disposition: `covered-by-change: harden-release-import-and-bundle-delivery`
+
+#### `SR-004` Legacy collector and plugin URL token leakage
+- Severity: High
+- Exploitability / Preconditions: attacker can observe logs, browser history, proxy logs, or copied URLs.
+- Affected Paths:
+  - `elixir/web-ng/lib`
+  - `go/pkg/agent`
+  - `elixir/serviceradar_core/lib`
+- Impact: replay of bearer-style download tokens for collector or plugin artifacts.
+- Remediation Guidance: remove URL token transport, require header/body token delivery, stop embedding bearer URLs in config/UI.
+- Disposition: `covered-by-change: remove-legacy-collector-url-tokens-and-harden-plugin-blob-delivery`
+
+#### `SR-005` POST query-token fallback and host-header poisoning
+- Severity: High
+- Exploitability / Preconditions: attacker can place bearer tokens into URLs or influence request host headers seen by admin/bootstrap flows.
+- Affected Paths:
+  - `elixir/web-ng/lib`
+- Impact: bundle token leakage, poisoned bootstrap URLs, misdirected onboarding commands.
+- Remediation Guidance: reject query-param token fallback on POST endpoints and pin bootstrap URLs to configured endpoints.
+- Disposition: `covered-by-change: remove-post-query-token-fallbacks-and-pin-bundle-base-url`, `pin-admin-bootstrap-urls-to-configured-endpoints`
+
+#### `SR-006` Metadata/auth callback/session verification weaknesses
+- Severity: High
+- Exploitability / Preconditions: attacker can tamper auth callbacks, discovery metadata, or exploit absent session state.
+- Affected Paths:
+  - `elixir/web-ng/lib`
+  - `elixir/serviceradar_core/lib`
+- Impact: login CSRF/session swap, redirect/phishing abuse, SSRF, insecure callback acceptance.
+- Remediation Guidance: fail closed on missing session state/nonce/CSRF, validate every auth metadata endpoint and redirect target, remove TLS-skip verification paths.
+- Disposition: `covered-by-change: harden-auth-and-observability-outbound-fetches`, `harden-auth-redirect-targets-and-observability-secret-handling`, `harden-auth-session-binding-and-cli-tls-verification`, `harden-auth-metadata-fetch-and-refresh-rotation`, `harden-token-pipelines-and-federated-assertion-validation`
+
+#### `SR-007` Bootstrap script, SSO linking, and sensitive endpoint hardening gaps
+- Severity: High
+- Exploitability / Preconditions: attacker can influence generated shell content, exploit permissive endpoint access, or rely on implicit email-based account linking.
+- Affected Paths:
+  - `elixir/web-ng/lib`
+- Impact: operator-side command execution, unauthorized access to sensitive topology data, account takeover through implicit SSO linking.
+- Remediation Guidance: shell-safe quoting, explicit controller authorization, and removal of implicit SSO account linking.
+- Disposition: `covered-by-change: harden-bootstrap-scripts-and-sensitive-endpoints`
+
+#### `SR-008` Bundle tempfile, proxy IP trust, revocation durability, and GitHub signer trust
+- Severity: Medium
+- Exploitability / Preconditions: attacker can observe or precreate temporary paths, spoof forwarded headers through untrusted proxies, or rely on restart/reset conditions.
+- Affected Paths:
+  - `elixir/web-ng/lib`
+  - `elixir/serviceradar_core/lib`
+- Impact: secret leakage, IP-based policy bypass, revoked token resurrection after restart, plugin source trust confusion.
+- Remediation Guidance: secure temp archive handling, trusted-proxy-aware client IP parsing, persistent revocation storage, trusted signer allowlists.
+- Disposition: `covered-by-change: harden-bundle-tempfiles-and-auth-trust-boundaries`
+
+#### `SR-009` Admin API transport and user-update atomicity
+- Severity: High
+- Exploitability / Preconditions: attacker or admin can supply path-segment input or partial user updates.
+- Affected Paths:
+  - `elixir/web-ng/lib`
+- Impact: internal path confusion, partially committed role changes, failure to clear role-profile assignments.
+- Remediation Guidance: encode path segments, transact multi-step admin updates, distinguish omitted from explicit null.
+- Disposition: `covered-by-change: harden-admin-api-transport-and-user-update-atomicity`
+
+#### `SR-010` Plugin import authenticity and bounded fetch hardening
+- Severity: High
+- Exploitability / Preconditions: attacker can submit forged upload signatures, large remote artifacts, or repositories outside trusted ownership boundaries.
+- Affected Paths:
+  - `elixir/web-ng/lib`
+  - `elixir/serviceradar_core/lib`
+- Impact: unauthenticated plugin upload acceptance, memory exhaustion, import of untrusted private content.
+- Remediation Guidance: real signature verification, bounded streaming downloads, trusted owner/repository enforcement, hostile YAML/path hardening.
+- Disposition: `covered-by-change: harden-plugin-import-authenticity-and-fetch-bounds`
+
+#### `SR-011` Identity cache and credential accounting weaknesses
+- Severity: Medium
+- Exploitability / Preconditions: high request volume or concurrent use of shared credentials / initial registration path.
+- Affected Paths:
+  - `elixir/serviceradar_core/lib`
+- Impact: self-inflicted cache eviction DoS, lost usage counter increments, multiple bootstrap admins during race window.
+- Remediation Guidance: bounded ETS eviction scans, atomic counter updates, serialized first-user role assignment.
+- Disposition: `covered-by-change: harden-identity-cache-and-credential-accounting`
+
+#### `SR-012` Artifact redirect SSRF and leaf setup script injection
+- Severity: High
+- Exploitability / Preconditions: attacker can control mirrored artifact URL/redirect chain or edge-site name consumed by operator-run scripts.
+- Affected Paths:
+  - `elixir/serviceradar_core/lib`
+- Impact: SSRF through redirect chains, memory exhaustion during artifact mirror, operator-side shell execution in NATS setup bundles.
+- Remediation Guidance: manual redirect validation, streamed size-bounded fetches, safe basename fallback, shell-safe quoting of site metadata.
+- Disposition: `covered-by-change: harden-edge-artifact-fetch-and-leaf-bundles`
+
+#### `SR-014` Gateway plaintext fallback, camera relay ownership gap, and cert temp-path weakness
+- Severity: High
+- Exploitability / Preconditions: attacker can reach a gateway deployed with insecure fallback enabled, or an enrolled agent can obtain another relay session's identifiers, or a local attacker has filesystem access on the gateway host.
+- Affected Paths:
+  - `elixir/serviceradar_agent_gateway/lib`
+- Impact:
+  - plaintext gRPC/artifact listeners remove the mTLS trust boundary if `GATEWAY_ALLOW_INSECURE_GRPC=true`
+  - camera relay heartbeat, upload, and close operations can act on any session keyed only by `relay_session_id` plus `media_ingest_id`, not the owning `agent_id`
+  - predictable temp certificate work directories create local symlink/secret-handling risk around issued private keys
+- Remediation Guidance:
+  - remove or strongly fence insecure listener fallback from production code paths
+  - bind camera relay session fetch/update/close operations to `agent_id` in addition to existing identifiers
+  - replace predictable temp paths in certificate issuance with secure exclusive temp directories/files
+- Disposition: `covered-by-change: harden-agent-gateway-edge-identity-boundaries`
+
+## Accepted Risk Register
+
+No accepted-risk entries have been recorded yet in this baseline artifact.
+
+## Remaining Primary-Scope Gaps
+
+The following primary-scope passes still need dedicated review evidence before the primary audit can be considered complete:
+- `elixir/serviceradar_agent_gateway/lib` follow-up remediation pass for newly recorded gateway findings and any deeper core-elx adjacency checks
+- `elixir/serviceradar_core_elx/lib`
+- `go/pkg/grpc`
+- `go/pkg/config/bootstrap`
+- `rust/edge-onboarding`
+- `rust/config-bootstrap`
+- `helm/serviceradar` full deployment-exposure pass
+- `go/pkg/agent` full runtime/package audit beyond plugin and download-path hardening
+
+## Next Pass Queue
+
+Recommended next review order:
+1. `elixir/serviceradar_agent_gateway/lib`
+2. `elixir/serviceradar_core_elx/lib`
+3. `go/pkg/grpc`
+4. `go/pkg/config/bootstrap`
+5. `rust/edge-onboarding`
+6. `rust/config-bootstrap`
+7. `helm/serviceradar`

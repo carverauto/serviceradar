@@ -105,7 +105,12 @@ defmodule ServiceRadarAgentGateway.CameraMediaServerTest do
     Application.put_env(
       :serviceradar_agent_gateway,
       :camera_media_session_tracker_fetch_result,
-      %{relay_session_id: "relay-gw-drain-1", media_ingest_id: "core-media-1", ingress_pid: self()}
+      %{
+        relay_session_id: "relay-gw-drain-1",
+        media_ingest_id: "core-media-1",
+        ingress_pid: self(),
+        agent_id: "agent-1"
+      }
     )
 
     Application.put_env(
@@ -200,6 +205,80 @@ defmodule ServiceRadarAgentGateway.CameraMediaServerTest do
 
     assert_receive {:mark_closing, "relay-gw-upload-drain-1", "core-media-upload-1",
                     %{close_reason: "upstream relay drain"}}
+  end
+
+  test "rejects relay heartbeat from a different authenticated agent" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :camera_media_session_tracker_fetch_result,
+      %{
+        relay_session_id: "relay-owned-1",
+        media_ingest_id: "core-media-owned-1",
+        ingress_pid: self(),
+        agent_id: "agent-owner"
+      }
+    )
+
+    assert_raise GRPC.RPCError, ~r/relay session owner mismatch/, fn ->
+      CameraMediaServer.heartbeat(
+        %Camera.RelayHeartbeat{
+          relay_session_id: "relay-owned-1",
+          media_ingest_id: "core-media-owned-1",
+          agent_id: "agent-1",
+          last_sequence: 3,
+          sent_bytes: 99
+        },
+        %{adapter: CameraMediaAdapterStub, payload: :test}
+      )
+    end
+  end
+
+  test "rejects media upload from a different authenticated agent" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :camera_media_session_tracker_record_result,
+      {:error, :agent_id_mismatch}
+    )
+
+    assert_raise GRPC.RPCError, ~r/relay session owner mismatch/, fn ->
+      CameraMediaServer.upload_media(
+        [
+          %Camera.MediaChunk{
+            relay_session_id: "relay-owned-upload-1",
+            media_ingest_id: "core-media-owned-upload-1",
+            agent_id: "agent-1",
+            sequence: 27,
+            payload: <<0, 1, 2, 3>>
+          }
+        ],
+        %{adapter: CameraMediaAdapterStub, payload: :test}
+      )
+    end
+  end
+
+  test "rejects relay close from a different authenticated agent" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :camera_media_session_tracker_fetch_result,
+      %{
+        relay_session_id: "relay-owned-close-1",
+        media_ingest_id: "core-media-owned-close-1",
+        ingress_pid: self(),
+        agent_id: "agent-owner"
+      }
+    )
+
+    assert_raise GRPC.RPCError, ~r/relay session owner mismatch/, fn ->
+      CameraMediaServer.close_relay_session(
+        %Camera.CloseRelaySessionRequest{
+          relay_session_id: "relay-owned-close-1",
+          media_ingest_id: "core-media-owned-close-1",
+          agent_id: "agent-1",
+          reason: "done"
+        },
+        %{adapter: CameraMediaAdapterStub, payload: :test}
+      )
+    end
   end
 
   test "returns resource exhausted when the gateway rejects a relay for capacity" do

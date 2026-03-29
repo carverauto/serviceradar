@@ -52,20 +52,44 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     GenServer.call(__MODULE__, {:heartbeat, relay_session_id, media_ingest_id, attrs})
   end
 
+  def heartbeat(relay_session_id, media_ingest_id, agent_id, attrs)
+      when is_binary(agent_id) and is_map(attrs) do
+    GenServer.call(__MODULE__, {:heartbeat_owned, relay_session_id, media_ingest_id, agent_id, attrs})
+  end
+
   def record_chunk(relay_session_id, media_ingest_id, attrs) when is_map(attrs) do
     GenServer.call(__MODULE__, {:record_chunk, relay_session_id, media_ingest_id, attrs})
+  end
+
+  def record_chunk(relay_session_id, media_ingest_id, agent_id, attrs)
+      when is_binary(agent_id) and is_map(attrs) do
+    GenServer.call(__MODULE__, {:record_chunk_owned, relay_session_id, media_ingest_id, agent_id, attrs})
   end
 
   def mark_closing(relay_session_id, media_ingest_id, attrs \\ %{}) do
     GenServer.call(__MODULE__, {:mark_closing, relay_session_id, media_ingest_id, attrs})
   end
 
+  def mark_closing(relay_session_id, media_ingest_id, agent_id, attrs)
+      when is_binary(agent_id) and is_map(attrs) do
+    GenServer.call(__MODULE__, {:mark_closing_owned, relay_session_id, media_ingest_id, agent_id, attrs})
+  end
+
   def close_session(relay_session_id, media_ingest_id, attrs \\ %{}) do
     GenServer.call(__MODULE__, {:close_session, relay_session_id, media_ingest_id, attrs})
   end
 
+  def close_session(relay_session_id, media_ingest_id, agent_id, attrs)
+      when is_binary(agent_id) and is_map(attrs) do
+    GenServer.call(__MODULE__, {:close_session_owned, relay_session_id, media_ingest_id, agent_id, attrs})
+  end
+
   def fetch_session(relay_session_id) do
     GenServer.call(__MODULE__, {:fetch_session, relay_session_id})
+  end
+
+  def fetch_session(relay_session_id, agent_id) when is_binary(agent_id) do
+    GenServer.call(__MODULE__, {:fetch_session_owned, relay_session_id, agent_id})
   end
 
   @impl true
@@ -130,8 +154,45 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     end
   end
 
+  def handle_call({:heartbeat_owned, relay_session_id, media_ingest_id, agent_id, attrs}, _from, state) do
+    case fetch_and_verify_session(state, relay_session_id, media_ingest_id, agent_id) do
+      {:ok, session} ->
+        updated =
+          Map.merge(session, %{
+            last_sequence: normalize_uint(Map.get(attrs, :last_sequence, session.last_sequence)),
+            sent_bytes: normalize_uint(Map.get(attrs, :sent_bytes, session.sent_bytes)),
+            updated_at_unix: now_unix(),
+            lease_expires_at_unix: normalize_uint(Map.get(attrs, :lease_expires_at_unix, lease_expiry_unix()))
+          })
+
+        {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
+
+      error ->
+        {:reply, error, state}
+    end
+  end
+
   def handle_call({:record_chunk, relay_session_id, media_ingest_id, attrs}, _from, state) do
     case fetch_and_verify_session(state, relay_session_id, media_ingest_id) do
+      {:ok, session} ->
+        payload = Map.get(attrs, :payload, <<>>)
+
+        updated =
+          Map.merge(session, %{
+            last_sequence: normalize_uint(Map.get(attrs, :sequence, session.last_sequence)),
+            sent_bytes: session.sent_bytes + byte_size(payload),
+            updated_at_unix: now_unix()
+          })
+
+        {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
+
+      error ->
+        {:reply, error, state}
+    end
+  end
+
+  def handle_call({:record_chunk_owned, relay_session_id, media_ingest_id, agent_id, attrs}, _from, state) do
+    case fetch_and_verify_session(state, relay_session_id, media_ingest_id, agent_id) do
       {:ok, session} ->
         payload = Map.get(attrs, :payload, <<>>)
 
@@ -167,6 +228,24 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     end
   end
 
+  def handle_call({:mark_closing_owned, relay_session_id, media_ingest_id, agent_id, attrs}, _from, state) do
+    case fetch_and_verify_session(state, relay_session_id, media_ingest_id, agent_id) do
+      {:ok, session} ->
+        updated =
+          session
+          |> Map.put(:status, "closing")
+          |> Map.put(:updated_at_unix, now_unix())
+          |> put_optional_reason(:close_reason, Map.get(attrs, :reason) || Map.get(attrs, :close_reason))
+
+        log_session(:info, "Gateway camera relay closing", updated)
+        emit_session_event(:closing, updated)
+        {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
+
+      error ->
+        {:reply, error, state}
+    end
+  end
+
   def handle_call({:close_session, relay_session_id, media_ingest_id, _attrs}, _from, state) do
     case fetch_and_verify_session(state, relay_session_id, media_ingest_id) do
       {:ok, session} ->
@@ -179,8 +258,24 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     end
   end
 
+  def handle_call({:close_session_owned, relay_session_id, media_ingest_id, agent_id, _attrs}, _from, state) do
+    case fetch_and_verify_session(state, relay_session_id, media_ingest_id, agent_id) do
+      {:ok, session} ->
+        log_session(:info, "Gateway camera relay closed", session)
+        emit_session_event(:closed, session)
+        {:reply, :ok, update_in(state, [:sessions], &Map.delete(&1, relay_session_id))}
+
+      error ->
+        {:reply, error, state}
+    end
+  end
+
   def handle_call({:fetch_session, relay_session_id}, _from, state) do
     {:reply, Map.get(state.sessions, relay_session_id), state}
+  end
+
+  def handle_call({:fetch_session_owned, relay_session_id, agent_id}, _from, state) do
+    {:reply, fetch_session_for_owner(state, relay_session_id, agent_id), state}
   end
 
   defp build_session(attrs) do
@@ -221,6 +316,32 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
 
       _session ->
         {:error, :media_ingest_mismatch}
+    end
+  end
+
+  defp fetch_and_verify_session(state, relay_session_id, media_ingest_id, agent_id) do
+    case fetch_and_verify_session(state, relay_session_id, media_ingest_id) do
+      {:ok, %{agent_id: ^agent_id} = session} ->
+        {:ok, session}
+
+      {:ok, _session} ->
+        {:error, :agent_id_mismatch}
+
+      error ->
+        error
+    end
+  end
+
+  defp fetch_session_for_owner(state, relay_session_id, agent_id) do
+    case Map.get(state.sessions, relay_session_id) do
+      %{agent_id: ^agent_id} = session ->
+        {:ok, session}
+
+      nil ->
+        {:error, :not_found}
+
+      _session ->
+        {:error, :agent_id_mismatch}
     end
   end
 

@@ -67,11 +67,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, opts) do
     cn = "#{component_id}.#{partition_id}.serviceradar"
     validity_days = Keyword.get(opts, :validity_days, @default_validity_days)
-
-    temp_dir =
-      Path.join(System.tmp_dir!(), "serviceradar-cert-#{System.unique_integer([:positive])}")
-
-    File.mkdir_p!(temp_dir)
+    temp_parent_dir = Keyword.get(opts, :temp_parent_dir, System.tmp_dir!())
+    temp_dir = create_secure_temp_dir!(temp_parent_dir)
 
     key_path = Path.join(temp_dir, "component-key.pem")
     csr_path = Path.join(temp_dir, "component.csr")
@@ -137,6 +134,36 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
         {:error, {:certificate_issue_failed, error}}
     after
       File.rm_rf(temp_dir)
+    end
+  end
+
+  @doc false
+  def create_secure_temp_dir!(parent_dir \\ System.tmp_dir!()) do
+    File.mkdir_p!(parent_dir)
+
+    Enum.reduce_while(1..16, nil, fn _, _acc ->
+      dir =
+        Path.join(
+          parent_dir,
+          "serviceradar-cert-" <>
+            (:crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false))
+        )
+
+      case File.mkdir(dir) do
+        :ok ->
+          :ok = File.chmod(dir, 0o700)
+          {:halt, dir}
+
+        {:error, :eexist} ->
+          {:cont, nil}
+
+        {:error, reason} ->
+          raise "failed to create secure cert temp dir #{inspect(dir)}: #{inspect(reason)}"
+      end
+    end)
+    |> case do
+      nil -> raise "failed to allocate secure cert temp dir after repeated attempts"
+      dir -> dir
     end
   end
 

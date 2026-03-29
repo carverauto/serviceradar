@@ -1,7 +1,7 @@
 ## 1. Review Baseline
-- [ ] 1.1 Create the baseline security review inventory for the repository trust boundaries and review tiers.
-- [ ] 1.2 Record the primary audit scope directories and the secondary follow-on audit scope directories in the review artifact.
-- [ ] 1.3 Define the review output format for findings, including severity, exploitability, affected paths, remediation guidance, and disposition.
+- [x] 1.1 Create the baseline security review inventory for the repository trust boundaries and review tiers.
+- [x] 1.2 Record the primary audit scope directories and the secondary follow-on audit scope directories in the review artifact.
+- [x] 1.3 Define the review output format for findings, including severity, exploitability, affected paths, remediation guidance, and disposition.
 
 ## 2. Primary Audit Pass
 - [ ] 2.1 Review `elixir/web-ng/lib` for authentication, authorization, token, upload/download, outbound fetch, and admin/API issues.
@@ -14,10 +14,10 @@
 - [ ] 3.2 Cross-check secondary findings against primary trust boundaries to avoid duplicate remediation changes.
 
 ## 4. Findings And Follow-Up
-- [ ] 4.1 Produce the canonical security review artifact with complete coverage and findings status.
-- [ ] 4.2 Map each confirmed finding to either a dedicated remediation change, an existing in-flight hardening change, or an explicitly accepted risk entry.
-- [ ] 4.3 Open follow-up OpenSpec changes for confirmed high-severity issues that are not already covered.
+- [x] 4.1 Produce the canonical security review artifact with complete coverage and findings status.
+- [x] 4.2 Map each confirmed finding to either a dedicated remediation change, an existing in-flight hardening change, or an explicitly accepted risk entry.
+- [x] 4.3 Open follow-up OpenSpec changes for confirmed high-severity issues that are not already covered.
 
 ## 5. Verification
-- [ ] 5.1 Run `openspec validate add-repo-security-review-baseline --strict`.
-- [ ] 5.2 Confirm the review artifact covers every primary scope directory before starting remediation work.
+- [x] 5.1 Run `openspec validate add-repo-security-review-baseline --strict`.
+- [x] 5.2 Confirm the review artifact covers every primary scope directory before starting remediation work.

@@ -140,6 +140,47 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
     assert updated.sent_bytes == 21
   end
 
+  test "rejects relay mutations from a different agent" do
+    assert {:ok, _session} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-owner-check-1",
+               media_ingest_id: "core-media-owner-check-1",
+               agent_id: "agent-owner",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-1",
+               stream_profile_id: "main",
+               lease_token: "lease-owner-check-1"
+             })
+
+    assert {:error, :agent_id_mismatch} =
+             CameraMediaSessionTracker.record_chunk(
+               "relay-owner-check-1",
+               "core-media-owner-check-1",
+               "agent-other",
+               %{sequence: 1, payload: <<1>>}
+             )
+
+    assert {:error, :agent_id_mismatch} =
+             CameraMediaSessionTracker.heartbeat(
+               "relay-owner-check-1",
+               "core-media-owner-check-1",
+               "agent-other",
+               %{last_sequence: 2, sent_bytes: 4}
+             )
+
+    assert {:error, :agent_id_mismatch} =
+             CameraMediaSessionTracker.close_session(
+               "relay-owner-check-1",
+               "core-media-owner-check-1",
+               "agent-other",
+               %{}
+             )
+
+    assert {:ok, _session} =
+             CameraMediaSessionTracker.fetch_session("relay-owner-check-1", "agent-owner")
+  end
+
   test "enforces the per-agent relay session limit" do
     Application.put_env(:serviceradar_agent_gateway, :camera_relay_max_sessions_per_agent, 1)
     Application.put_env(:serviceradar_agent_gateway, :camera_relay_max_sessions_per_gateway, 5)

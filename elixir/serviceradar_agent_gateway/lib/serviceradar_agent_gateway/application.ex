@@ -82,8 +82,9 @@ defmodule ServiceRadarAgentGateway.Application do
 
     # Gateway gRPC server configuration
     grpc_port = get_grpc_port()
-    grpc_ssl_opts = get_grpc_ssl_opts()
-    artifact_server_opts = get_artifact_server_opts()
+    ssl_server_opts = edge_server_ssl_opts!()
+    grpc_ssl_opts = GRPC.Credential.new(ssl: ssl_server_opts)
+    artifact_server_opts = get_artifact_server_opts(ssl_server_opts)
 
     capabilities = parse_capabilities(System.get_env("GATEWAY_CAPABILITIES", ""))
 
@@ -157,57 +158,54 @@ defmodule ServiceRadarAgentGateway.Application do
   end
 
   defp get_grpc_port do
-    port_str = System.get_env("GATEWAY_GRPC_PORT", "50052")
+    port_value =
+      Application.get_env(:serviceradar_agent_gateway, :gateway_grpc_port) ||
+        System.get_env("GATEWAY_GRPC_PORT", "50052")
 
-    case Integer.parse(port_str) do
+    case parse_port(port_value) do
       {port, ""} when port > 0 and port < 65_536 ->
         port
 
       _ ->
-        Logger.warning("Invalid GATEWAY_GRPC_PORT=#{inspect(port_str)}; defaulting to 50052")
+        Logger.warning("Invalid GATEWAY_GRPC_PORT=#{inspect(port_value)}; defaulting to 50052")
         50_052
     end
   end
 
-  defp get_grpc_ssl_opts do
-    # Agent gateway serves edge gRPC using deployment-issued mTLS certificates.
-    ssl_opts = get_mounted_ssl_server_opts()
-    if ssl_opts, do: GRPC.Credential.new(ssl: ssl_opts)
-  end
-
-  defp get_artifact_server_opts do
-    ssl_opts = get_mounted_ssl_server_opts()
-
-    base = [port: get_artifact_port()]
-
-    if ssl_opts do
-      base ++
-        [
-          scheme: :https,
-          certfile: Keyword.fetch!(ssl_opts, :certfile),
-          keyfile: Keyword.fetch!(ssl_opts, :keyfile),
-          cacertfile: Keyword.fetch!(ssl_opts, :cacertfile)
-        ]
-    else
-      base ++ [scheme: :http]
-    end
+  defp get_artifact_server_opts(ssl_opts) do
+    [
+      port: get_artifact_port(),
+      scheme: :https,
+      certfile: Keyword.fetch!(ssl_opts, :certfile),
+      keyfile: Keyword.fetch!(ssl_opts, :keyfile),
+      cacertfile: Keyword.fetch!(ssl_opts, :cacertfile)
+    ]
   end
 
   defp get_artifact_port do
-    port_str = System.get_env("GATEWAY_ARTIFACT_PORT", "50053")
+    port_value =
+      Application.get_env(:serviceradar_agent_gateway, :gateway_artifact_port) ||
+        System.get_env("GATEWAY_ARTIFACT_PORT", "50053")
 
-    case Integer.parse(port_str) do
+    case parse_port(port_value) do
       {port, ""} when port > 0 and port < 65_536 ->
         port
 
       _ ->
-        Logger.warning("Invalid GATEWAY_ARTIFACT_PORT=#{inspect(port_str)}; defaulting to 50053")
+        Logger.warning("Invalid GATEWAY_ARTIFACT_PORT=#{inspect(port_value)}; defaulting to 50053")
         50_053
     end
   end
 
-  defp get_mounted_ssl_server_opts do
-    cert_dir = System.get_env("GATEWAY_CERT_DIR", "/etc/serviceradar/certs")
+  defp parse_port(value) when is_integer(value), do: {value, ""}
+  defp parse_port(value) when is_binary(value), do: Integer.parse(value)
+  defp parse_port(_value), do: :error
+
+  @doc false
+  def edge_server_ssl_opts! do
+    cert_dir =
+      Application.get_env(:serviceradar_agent_gateway, :gateway_cert_dir) ||
+        System.get_env("GATEWAY_CERT_DIR", "/etc/serviceradar/certs")
     cert_file = Path.join(cert_dir, "gateway.pem")
     key_file = Path.join(cert_dir, "gateway-key.pem")
     ca_file = Path.join(cert_dir, "root.pem")
@@ -224,20 +222,7 @@ defmodule ServiceRadarAgentGateway.Application do
       Logger.info("Using mounted mTLS certs for agent gateway servers: #{cert_file}")
       ssl_opts
     else
-      # Fail closed by default - require explicit opt-in for insecure connections
-      allow_insecure? =
-        Application.get_env(:serviceradar_agent_gateway, :allow_insecure_grpc, false) ||
-          System.get_env("GATEWAY_ALLOW_INSECURE_GRPC", "false") == "true"
-
-      if allow_insecure? do
-        Logger.warning(
-          "No mTLS certs available; GATEWAY_ALLOW_INSECURE_GRPC=true so starting insecure gRPC/artifact servers (DEV ONLY)"
-        )
-
-        nil
-      else
-        raise "No mTLS certs available for agent gateway servers (set GATEWAY_ALLOW_INSECURE_GRPC=true to override for local dev)"
-      end
+      raise "No mTLS certs available for agent gateway edge listeners"
     end
   end
 
@@ -332,6 +317,5 @@ defmodule ServiceRadarAgentGateway.Application do
     end)
   end
 
-  defp build_adapter_opts(nil), do: []
   defp build_adapter_opts(cred), do: [cred: cred]
 end
