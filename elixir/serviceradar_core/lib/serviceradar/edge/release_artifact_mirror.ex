@@ -106,17 +106,14 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
          :ok <- verify_sha256(data, sha256),
          {:ok, object_key, file_name} <- object_key(version, artifact),
          metadata =
-           build_object_metadata(
-             object_key,
-             file_name,
-             source_url,
-             sha256,
-             os,
-             arch,
-             format,
-             entrypoint,
-             data
-           ),
+           build_object_metadata(object_key, file_name, data, %{
+             source_url: source_url,
+             sha256: sha256,
+             os: os,
+             arch: arch,
+             format: format,
+             entrypoint: entrypoint
+           }),
          {:ok, _response} <- upload_object.(metadata, data, timeout: timeout) do
       {:ok,
        compact_map(%{
@@ -266,30 +263,20 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     {:ok, "agent-releases/#{version_segment}/#{sha256}-#{file_name}", file_name}
   end
 
-  defp build_object_metadata(
-         object_key,
-         file_name,
-         source_url,
-         sha256,
-         os,
-         arch,
-         format,
-         entrypoint,
-         data
-       ) do
+  defp build_object_metadata(object_key, file_name, data, attrs) do
     %Proto.ObjectMetadata{
       key: object_key,
       content_type: MIME.from_path(file_name || "artifact.bin"),
-      sha256: sha256,
+      sha256: Map.fetch!(attrs, :sha256),
       total_size: byte_size(data),
       attributes:
         compact_map(%{
-          "source_url" => source_url,
+          "source_url" => Map.get(attrs, :source_url),
           "file_name" => file_name,
-          "os" => os,
-          "arch" => arch,
-          "format" => format,
-          "entrypoint" => entrypoint,
+          "os" => Map.get(attrs, :os),
+          "arch" => Map.get(attrs, :arch),
+          "format" => Map.get(attrs, :format),
+          "entrypoint" => Map.get(attrs, :entrypoint),
           "release_distribution_backend" => @storage_backend
         })
     }

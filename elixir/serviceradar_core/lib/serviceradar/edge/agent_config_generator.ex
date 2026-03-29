@@ -627,14 +627,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp normalize_limit(_), do: 0
 
   defp to_proto_plugin_assignment(assignment) do
-    params =
-      case SecretRefs.resolve_runtime_params(
-             proto_assignment_config_schema(assignment),
-             normalize_map(assignment.params)
-           ) do
-        {:ok, resolved} -> resolved
-        {:error, _} -> normalize_map(assignment.params)
-      end
+    params = resolved_assignment_params(assignment)
+    source_fields = proto_assignment_source_fields(assignment)
 
     %Monitoring.PluginAssignmentConfig{
       assignment_id: assignment.assignment_id,
@@ -645,22 +639,44 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       entrypoint: assignment.entrypoint,
       runtime: assignment.runtime || "",
       outputs: assignment.outputs,
-      capabilities: assignment.capabilities || [],
+      capabilities: assignment_capabilities(assignment),
       params_json: encode_json(params),
       permissions_json: encode_json(assignment.permissions),
       resources_json: encode_json(assignment.resources),
       enabled: assignment.enabled,
       interval_sec: assignment.interval_sec,
       timeout_sec: assignment.timeout_sec,
-      wasm_object_key: assignment.wasm_object_key || "",
-      content_hash: assignment.content_hash || "",
-      source_type: assignment.source_type || "",
-      source_repo_url: Map.get(assignment, :source_repo_url, ""),
-      source_commit: Map.get(assignment, :source_commit, ""),
-      download_url: assignment.download_url || "",
-      download_token: Map.get(assignment, :download_token, "") || ""
+      wasm_object_key: assignment_string(assignment.wasm_object_key),
+      content_hash: assignment_string(assignment.content_hash),
+      source_type: assignment_string(assignment.source_type),
+      source_repo_url: source_fields.source_repo_url,
+      source_commit: source_fields.source_commit,
+      download_url: assignment_string(assignment.download_url),
+      download_token: source_fields.download_token
     }
   end
+
+  defp resolved_assignment_params(assignment) do
+    params = normalize_map(assignment.params)
+
+    case SecretRefs.resolve_runtime_params(proto_assignment_config_schema(assignment), params) do
+      {:ok, resolved} -> resolved
+      {:error, _} -> params
+    end
+  end
+
+  defp proto_assignment_source_fields(assignment) do
+    %{
+      source_repo_url: Map.get(assignment, :source_repo_url, ""),
+      source_commit: Map.get(assignment, :source_commit, ""),
+      download_token: assignment_string(Map.get(assignment, :download_token, ""))
+    }
+  end
+
+  defp assignment_capabilities(assignment), do: assignment.capabilities || []
+
+  defp assignment_string(nil), do: ""
+  defp assignment_string(value), do: value
 
   defp proto_assignment_config_schema(assignment) do
     plugin_package =
