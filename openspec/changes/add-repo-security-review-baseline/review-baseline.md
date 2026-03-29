@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-k8s-demo-pass-1`
+- Review artifact version: `2026-03-29-tls-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -56,9 +56,9 @@
 | `docker/compose` | Secondary | reviewed | Reviewed compose runtime defaults, shipped secret material, NATS exposure, and SPIRE bootstrap scripts. Static secret defaults, public monitoring exposure, and unverified runtime binary downloads are recorded below. |
 | `k8s/demo` | Secondary | reviewed | Reviewed default base and prod/staging overlays. Default base still mounts host SPIRE sockets into workloads even though SPIRE is optional, and overlays publish datasvc externally by default. |
 | `k8s/sr-testing` | Secondary | not-started | Pending after primary scope closure. |
-| `k8s/external-dns` | Secondary | not-started | Pending after primary scope closure. |
-| `k8s/argocd` | Secondary | not-started | Pending after primary scope closure. |
-| `tls` | Secondary | not-started | Pending after primary scope closure. |
+| `k8s/external-dns` | Secondary | reviewed | Reviewed controller scope, RBAC, and Cloudflare provider wiring. A new authority-boundary finding is recorded below for cluster-wide ingress/service watch across multiple managed zones without namespace or annotation scoping. |
+| `k8s/argocd` | Secondary | reviewed | Reviewed ArgoCD application/bootstrap manifests and repo-credential templates. No committed secrets, public service exposure, or confirmed exploitable default were identified in the current tree. |
+| `tls` | Secondary | reviewed | No standalone `tls/` implementation tree exists in the current checkout. Repo-local certificate behavior is already covered under `docker/compose`, `k8s/demo/base/spire`, and the deployment docs; no additional confirmed finding was identified beyond those existing slices. |
 
 ## Findings Output Format
 
@@ -115,6 +115,7 @@ Disposition values used in this artifact:
 | `SR-033` | High | `docker/compose/spire` | SPIRE bootstrap and agent startup scripts download and execute SPIRE binaries at runtime without checksum or signature verification, creating a supply-chain trust gap in the compose bootstrap path. | `covered-by-change: harden-docker-compose-secret-defaults-and-bootstrap-integrity` |
 | `SR-034` | High | `k8s/demo/base` | The default demo base mounts `/run/spire/sockets` from the host into multiple workloads using `hostPath` even though SPIRE is documented as optional and outside the default install path. | `covered-by-change: harden-demo-k8s-control-plane-exposure-and-spire-mounts` |
 | `SR-035` | High | `k8s/demo/prod`, `k8s/demo/staging` | The prod and staging demo overlays publish datasvc gRPC through `LoadBalancer` services by default, exposing an internal control-plane/KV service outside the cluster. | `covered-by-change: harden-demo-k8s-control-plane-exposure-and-spire-mounts` |
+| `SR-036` | High | `k8s/external-dns` | The shipped external-dns deployment watches all Services and Ingresses cluster-wide across several managed domains without namespace or annotation scoping, allowing unrelated resource creators to claim DNS records through the shared Cloudflare controller. | `covered-by-change: harden-external-dns-authority-scope` |
 
 ### Finding Details
 

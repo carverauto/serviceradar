@@ -21,6 +21,9 @@ spec:
           args:
             - --source=service
             - --source=ingress
+            - --namespace=demo
+            - --namespace=demo-staging
+            - --annotation-filter=external-dns.alpha.kubernetes.io/hostname
             - --domain-filter=carverauto.dev
             - --domain-filter=serviceradar.cloud
             - --domain-filter=guided.dev
