@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-datasvc-pass-1`
+- Review artifact version: `2026-03-29-go-cmd-wasm-plugins-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -43,11 +43,11 @@
 | Directory | Tier | Status | Notes |
 | --- | --- | --- | --- |
 | `go/pkg/datasvc` | Secondary | reviewed | Datasvc gRPC upload/object-store bounds reviewed. Object upload/storage exhaustion finding recorded below. |
-| `go/pkg/nats` | Secondary | not-started | Pending after primary scope closure. |
-| `go/pkg/spireadmin` | Secondary | not-started | Pending after primary scope closure. |
-| `go/pkg/trivysidecar` | Secondary | not-started | Pending after primary scope closure. |
-| `go/pkg/scan` | Secondary | not-started | Pending after primary scope closure. |
-| `go/cmd/wasm-plugins` | Secondary | not-started | Pending after primary scope closure. |
+| `go/pkg/nats` | Secondary | reviewed | NATS account/JWT signing helpers reviewed. Isolation-bypass and unbounded JetStream-quota findings recorded below. |
+| `go/pkg/spireadmin` | Secondary | reviewed | Reviewed package surface and repo callers. No live constructor/call path found in the current tree, so no confirmed exploitable finding was recorded. |
+| `go/pkg/trivysidecar` | Secondary | reviewed | Reviewed runtime, publisher, and deployment wiring. Shipped manifests use TLS + NATS creds; no new confirmed exploitable finding recorded in the current tree. |
+| `go/pkg/scan` | Secondary | reviewed | Reviewed ICMP/TCP/SYN scanner paths and caller wiring. No new confirmed exploitable finding recorded in the current tree. |
+| `go/cmd/wasm-plugins` | Secondary | reviewed | Reviewed shipped AXIS, UniFi Protect, and dusk WASM plugin packages. AXIS websocket credential handling finding recorded below. |
 | `rust/trapd` | Secondary | not-started | Pending after primary scope closure. |
 | `rust/log-collector` | Secondary | not-started | Pending after primary scope closure. |
 | `rust/consumers/zen` | Secondary | not-started | Pending after primary scope closure. |
@@ -103,6 +103,9 @@ Disposition values used in this artifact:
 | `SR-021` | High | `go/pkg/agent` | Agent self-update follows cross-origin HTTPS redirects, allowing authenticated or signed artifact downloads to leave the original trust boundary. | `covered-by-change: harden-agent-release-download-redirect-trust` |
 | `SR-022` | Medium | `elixir/serviceradar_core_elx/lib` | Core-ELX boombox capture helpers still write relay-derived media samples to predictable temp paths under the global temp directory. | `covered-by-change: harden-core-elx-boombox-tempfile-handling` |
 | `SR-023` | Medium | `go/pkg/datasvc` | Datasvc object uploads are not bounded end-to-end and the JetStream object bucket is created without a storage cap, allowing authenticated writers to exhaust backing storage. | `covered-by-change: harden-datasvc-object-upload-bounds` |
+| `SR-024` | High | `go/pkg/nats`, `go/pkg/datasvc` | The NATS account-signing layer accepted foreign imports, namespace-escaping exports/mappings, and reserved control-subject permission overrides without guardrails, allowing authorized callers to widen authority beyond the intended account scope. | `covered-by-change: harden-nats-account-scope-guardrails` |
+| `SR-025` | Medium | `go/pkg/nats`, `go/pkg/datasvc` | New NATS accounts received unlimited JetStream quotas by default when explicit limits were omitted, enabling storage and consumer exhaustion by provisioned accounts. | `covered-by-change: harden-nats-account-scope-guardrails` |
+| `SR-026` | Medium | `go/cmd/wasm-plugins/axis`, `go/pkg/agent` | The shipped AXIS camera plugin embeds camera credentials in the VAPIX event websocket URL userinfo even though the agent runtime supports structured websocket headers, creating avoidable credential leakage risk through URL-bearing surfaces. | `covered-by-change: harden-axis-plugin-websocket-credential-handling` |
 
 ### Finding Details
 
@@ -253,6 +256,51 @@ Disposition values used in this artifact:
   - apply an explicit `MaxBytes` cap to the JetStream object store, either by reusing or splitting the existing bucket-cap configuration
   - add focused tests for oversize stream rejection and bounded object-store initialization
 - Disposition: `covered-by-change: harden-datasvc-object-upload-bounds`
+
+#### `SR-024` NATS account signing allows cross-namespace authority widening
+- Severity: High
+- Exploitability / Preconditions: an authorized caller can invoke datasvc NATS account/user signing APIs with custom imports, exports, mappings, or permissions.
+- Affected Paths:
+  - `go/pkg/nats`
+  - `go/pkg/datasvc`
+- Impact:
+  - `SignAccountJWT` accepted arbitrary `StreamImport` entries and namespace-escaping export or mapping destinations without validating that the resulting JWT stayed within approved account boundaries
+  - `GenerateUserCredentials` accepted reserved control-subject permission overrides, allowing callers to mint broader control-plane NATS authority than intended
+  - datasvc forwarded these caller-supplied fields directly into the signing layer, so a compromised or over-privileged control-plane caller could widen NATS authority before the fix
+- Remediation Guidance:
+  - enforce namespace/account-bound validation on custom imports, exports, and subject-mapping destinations before signing
+  - reject reserved control-subject permission overrides and preserve least-privilege defaults for user credentials
+  - add focused tests proving foreign imports, escaping exports/mappings, and reserved control-subject overrides are rejected
+- Disposition: `covered-by-change: harden-nats-account-scope-guardrails`
+
+#### `SR-025` New NATS accounts default to unlimited JetStream quotas
+- Severity: Medium
+- Exploitability / Preconditions: a provisioned account is created without explicit JetStream limits and then publishes or provisions streams/consumers heavily.
+- Affected Paths:
+  - `go/pkg/nats`
+  - `go/pkg/datasvc`
+- Impact:
+  - `ensureJetStreamEnabled` assigns `jwt.NoLimit` for memory, disk, streams, and consumers when no explicit limits are provided
+  - new accounts therefore get effectively unbounded JetStream capacity by default, making storage exhaustion and noisy-neighbor conditions easier for any provisioned account
+- Remediation Guidance:
+  - require explicit bounded JetStream quotas or install safe finite defaults when signing new accounts
+  - add tests that verify accounts no longer receive unlimited JetStream quotas by default
+- Disposition: `covered-by-change: harden-nats-account-scope-guardrails`
+
+#### `SR-026` AXIS plugin uses credential-bearing websocket URLs for camera event collection
+- Severity: Medium
+- Exploitability / Preconditions: an operator configures AXIS camera credentials for the shipped WASM plugin and enables event collection over the VAPIX websocket path.
+- Affected Paths:
+  - `go/cmd/wasm-plugins/axis`
+  - `go/pkg/agent`
+- Impact:
+  - the AXIS plugin still builds `wss://user:pass@host/...` websocket URLs for camera event collection instead of using the structured header-bearing websocket connect path the agent runtime already supports
+  - credential-bearing URLs are easier to leak through logs, traces, crash output, proxy telemetry, copied debug output, or other URL-oriented surfaces than header-based authentication
+- Remediation Guidance:
+  - move AXIS websocket authentication to the structured websocket connect payload with explicit headers instead of URL userinfo
+  - ensure plugin result details and error surfaces do not carry credential-bearing websocket URLs
+  - add focused tests proving the websocket dial payload uses headers and a credential-free URL
+- Disposition: `covered-by-change: harden-axis-plugin-websocket-credential-handling`
 
 #### `SR-015` Core-ELX media ingress trust-boundary and analysis-worker SSRF gap
 - Severity: High

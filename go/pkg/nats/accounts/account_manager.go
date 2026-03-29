@@ -25,6 +25,15 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
+const (
+	defaultJetStreamMemoryBytes    int64 = 512 * 1024 * 1024
+	defaultJetStreamDiskBytes      int64 = 10 * 1024 * 1024 * 1024
+	defaultJetStreamStreamLimit    int64 = 256
+	defaultJetStreamConsumerLimit  int64 = 1024
+	defaultJetStreamMaxAckPending  int64 = 1_000_000
+	defaultJetStreamStreamMaxBytes int64 = 512 * 1024 * 1024
+)
+
 // AccountLimits defines resource constraints for a NATS account.
 type AccountLimits struct {
 	MaxConnections       int64 `json:"max_connections"`
@@ -184,6 +193,16 @@ func (s *AccountSigner) signAccountJWT(
 		applyLimitsToClaims(claims, limits)
 	}
 
+	if err := validateCustomMappings(accountName, customMappings); err != nil {
+		return "", err
+	}
+	if err := validateCustomExports(accountName, customExports); err != nil {
+		return "", err
+	}
+	if err := validateCustomImports(customImports); err != nil {
+		return "", err
+	}
+
 	// Apply subject mappings
 	mappings := s.defaultSubjectMappings
 	if len(customMappings) > 0 {
@@ -257,6 +276,20 @@ func applySubjectMappings(claims *jwt.AccountClaims, accountName string, mapping
 	}
 }
 
+func validateCustomMappings(accountName string, mappings []SubjectMapping) error {
+	for _, mapping := range mappings {
+		resolved := strings.ReplaceAll(mapping.To, "{{namespace}}", accountName)
+		if strings.TrimSpace(mapping.From) == "" {
+			return fmt.Errorf("%w: mapping source %q", ErrSubjectOutOfScope, mapping.From)
+		}
+		if !strings.HasPrefix(resolved, accountName+".") {
+			return fmt.Errorf("%w: mapping destination %q", ErrSubjectOutOfScope, resolved)
+		}
+	}
+
+	return nil
+}
+
 func applyStreamExports(claims *jwt.AccountClaims, accountName string, exports []StreamExport) {
 	if claims.Exports == nil {
 		claims.Exports = jwt.Exports{}
@@ -275,6 +308,17 @@ func applyStreamExports(claims *jwt.AccountClaims, accountName string, exports [
 			Type:    jwt.Stream,
 		})
 	}
+}
+
+func validateCustomExports(accountName string, exports []StreamExport) error {
+	for _, export := range exports {
+		resolved := strings.ReplaceAll(export.Subject, "{{namespace}}", accountName)
+		if !strings.HasPrefix(resolved, accountName+".") {
+			return fmt.Errorf("%w: export subject %q", ErrSubjectOutOfScope, resolved)
+		}
+	}
+
+	return nil
 }
 
 func applyStreamImports(claims *jwt.AccountClaims, imports []StreamImport) {
@@ -298,6 +342,14 @@ func applyStreamImports(claims *jwt.AccountClaims, imports []StreamImport) {
 	}
 }
 
+func validateCustomImports(imports []StreamImport) error {
+	if len(imports) == 0 {
+		return nil
+	}
+
+	return ErrImportNotAllowed
+}
+
 func ensureJetStreamEnabled(claims *jwt.AccountClaims) {
 	if claims == nil {
 		return
@@ -307,9 +359,52 @@ func ensureJetStreamEnabled(claims *jwt.AccountClaims) {
 	}
 
 	claims.Limits.JetStreamLimits = jwt.JetStreamLimits{
-		MemoryStorage: jwt.NoLimit,
-		DiskStorage:   jwt.NoLimit,
-		Streams:       jwt.NoLimit,
-		Consumer:      jwt.NoLimit,
+		MemoryStorage:        defaultJetStreamMemoryBytes,
+		DiskStorage:          defaultJetStreamDiskBytes,
+		Streams:              defaultJetStreamStreamLimit,
+		Consumer:             defaultJetStreamConsumerLimit,
+		MaxAckPending:        defaultJetStreamMaxAckPending,
+		MemoryMaxStreamBytes: defaultJetStreamStreamMaxBytes,
+		DiskMaxStreamBytes:   defaultJetStreamStreamMaxBytes,
+		MaxBytesRequired:     true,
 	}
+}
+
+func subjectWithinApprovedAccountScope(accountName, subject string) bool {
+	if subject == "" {
+		return false
+	}
+
+	if strings.HasPrefix(subject, accountName+".") || strings.HasPrefix(subject, "_INBOX.") {
+		return true
+	}
+
+	for _, prefix := range []string{
+		"events.",
+		"logs.",
+		"logs.syslog.",
+		"logs.snmp.",
+		"netflow.",
+		"arancini.updates.",
+		"otel.",
+		"otel.traces.",
+		"otel.metrics.",
+		"telemetry.",
+	} {
+		if strings.HasPrefix(subject, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func userSubjectWithinApprovedScope(subject string) bool {
+	if subject == "" {
+		return false
+	}
+	if strings.HasPrefix(subject, "$") {
+		return false
+	}
+	return true
 }

@@ -305,6 +305,29 @@ func TestGenerateUserCredentials_CustomPermissions(t *testing.T) {
 	}
 }
 
+func TestGenerateUserCredentials_RejectsOutOfScopePermissions(t *testing.T) {
+	accountSeed := createTestAccount(t)
+
+	customPerms := &UserPermissions{
+		PublishAllow: []string{"$SYS.REQ.CLAIMS.UPDATE"},
+	}
+
+	_, err := GenerateUserCredentials(
+		"tenant-a",
+		accountSeed,
+		"scoped-user",
+		CredentialTypeCollector,
+		customPerms,
+		0,
+	)
+	if err == nil {
+		t.Fatal("GenerateUserCredentials() expected error for out-of-scope permissions, got nil")
+	}
+	if !strings.Contains(err.Error(), ErrSubjectOutOfScope.Error()) {
+		t.Fatalf("expected ErrSubjectOutOfScope, got %v", err)
+	}
+}
+
 func TestGenerateUserCredentials_InvalidAccountSeed(t *testing.T) {
 	_, err := GenerateUserCredentials(
 		"test-ns",

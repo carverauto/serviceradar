@@ -171,9 +171,12 @@ func TestAxisEventCollectionUsesConfiguredTopicFilters(t *testing.T) {
 		},
 	}
 
-	axisEventWebSocketConnect = func(rawURL string, timeout time.Duration) (axisEventWebSocket, error) {
+	axisEventWebSocketConnect = func(rawURL string, headers map[string]string, timeout time.Duration) (axisEventWebSocket, error) {
 		if !strings.Contains(rawURL, "/vapix/ws-data-stream") {
 			t.Fatalf("unexpected websocket url: %s", rawURL)
+		}
+		if got := headers["Authorization"]; got != "Basic cm9vdDpzZWNyZXQ=" {
+			t.Fatalf("unexpected websocket auth headers: %#v", headers)
 		}
 		if timeout != 5*time.Second {
 			t.Fatalf("unexpected timeout: %s", timeout)
@@ -184,8 +187,7 @@ func TestAxisEventCollectionUsesConfiguredTopicFilters(t *testing.T) {
 	events, endpoint := collectAxisEvents(
 		"https",
 		"camera.local",
-		"root",
-		"secret",
+		"Basic cm9vdDpzZWNyZXQ=",
 		"events",
 		"tns1:VideoSource/Motion, tns1:Device/IO/VirtualInput",
 		5*time.Second,
