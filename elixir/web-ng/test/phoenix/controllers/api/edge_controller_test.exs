@@ -276,6 +276,20 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
       assert json_response(conn, 400)["error"] == "download_token is required"
     end
 
+    test "rejects query-string token fallback", %{conn: _conn, actor: actor} do
+      {:ok, created} =
+        OnboardingPackages.create(%{label: "test-query-token-reject"}, actor: actor)
+
+      conn =
+        post(
+          build_conn(),
+          ~p"/api/admin/edge-packages/#{created.package.id}/download?download_token=#{created.download_token}",
+          %{}
+        )
+
+      assert json_response(conn, 400)["error"] == "download_token is required"
+    end
+
     test "returns 409 for already delivered package", %{conn: conn, actor: actor} do
       {:ok, created} =
         OnboardingPackages.create(%{label: "test-double-deliver"}, actor: actor)
@@ -328,6 +342,20 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
         OnboardingPackages.create(%{label: "test-no-token"}, actor: actor)
 
       conn = post(build_conn(), ~p"/api/edge-packages/#{created.package.id}/bundle", %{})
+
+      assert json_response(conn, 400)["error"] == "download token is required"
+    end
+
+    test "rejects query-string token fallback", %{conn: _conn, actor: actor} do
+      {:ok, created} =
+        OnboardingPackages.create(%{label: "test-bundle-query-token"}, actor: actor)
+
+      conn =
+        post(
+          build_conn(),
+          ~p"/api/edge-packages/#{created.package.id}/bundle?download_token=#{created.download_token}",
+          %{}
+        )
 
       assert json_response(conn, 400)["error"] == "download token is required"
     end
@@ -401,6 +429,37 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
       assert Enum.any?(file_names, &String.ends_with?(&1, "config.yaml"))
       assert Enum.any?(file_names, &String.ends_with?(&1, "install.sh"))
       assert Enum.any?(file_names, &String.ends_with?(&1, "README.md"))
+    end
+
+    test "bundle generation ignores a spoofed host header", %{conn: _conn, actor: actor} do
+      {:ok, created} =
+        OnboardingPackages.create(
+          %{
+            label: "test-agent-host-header",
+            component_type: :agent,
+            component_id: "agent-host-header"
+          },
+          actor: actor
+        )
+
+      conn =
+        build_conn()
+        |> put_req_header("host", "evil.example.test")
+        |> put_req_header("x-serviceradar-download-token", created.download_token)
+        |> post(~p"/api/edge-packages/#{created.package.id}/bundle", %{})
+
+      body = response(conn, 200)
+      {:ok, files} = :erl_tar.extract({:binary, body}, [:compressed, :memory])
+
+      {_, install_sh} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("install.sh")
+        end)
+
+      install_sh = IO.iodata_to_binary(install_sh)
+
+      assert install_sh =~ ~s(--core-url "http://localhost:4002")
+      refute install_sh =~ "evil.example.test"
     end
   end
 

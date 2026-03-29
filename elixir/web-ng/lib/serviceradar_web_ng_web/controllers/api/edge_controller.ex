@@ -189,10 +189,10 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   POST /api/admin/edge-packages/:id/download
 
   Delivers a package to the client, returning tokens and certificates.
-  Requires a valid download_token in the request body.
+  Requires a valid download token in the request body.
   """
-  def download(conn, %{"id" => id} = params) do
-    download_token = params["download_token"]
+  def download(conn, %{"id" => id}) do
+    download_token = conn |> body_param("download_token") |> normalize_download_token()
 
     if download_token in [nil, ""] do
       conn
@@ -284,10 +284,10 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
 
   Returns: application/gzip tarball
   """
-  def bundle(conn, %{"id" => id} = params) do
-    download_token = extract_download_token(conn, params)
+  def bundle(conn, %{"id" => id}) do
+    download_token = extract_download_token(conn)
     source_ip = ClientIP.get(conn)
-    base_url = request_base_url(conn)
+    base_url = ServiceRadarWebNGWeb.Endpoint.url()
 
     if download_token in [nil, ""] do
       conn
@@ -307,16 +307,14 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
     end
   end
 
-  defp extract_download_token(conn, params) do
+  defp extract_download_token(conn) do
     conn
     |> Plug.Conn.get_req_header("x-serviceradar-download-token")
     |> List.first()
     |> normalize_download_token()
     |> case do
       nil ->
-        params
-        |> Map.get("download_token")
-        |> normalize_download_token()
+        conn |> body_param("download_token") |> normalize_download_token()
 
       token ->
         token
@@ -347,29 +345,16 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
     end
   end
 
-  defp request_base_url(conn) do
-    scheme = to_string(conn.scheme)
-    host = conn.host
-
-    port =
-      case {conn.scheme, conn.port} do
-        {:http, 80} -> nil
-        {:https, 443} -> nil
-        _ -> conn.port
-      end
-
-    authority =
-      if is_integer(port) do
-        "#{host}:#{port}"
-      else
-        host
-      end
-
-    "#{scheme}://#{authority}"
-  end
-
   defp wrap_bundle_error({:ok, tarball}), do: {:ok, tarball}
   defp wrap_bundle_error({:error, reason}), do: {:error, {:bundle_error, reason}}
+
+  defp body_param(conn, key) when is_binary(key) do
+    case conn.body_params do
+      %Plug.Conn.Unfetched{} -> nil
+      body when is_map(body) -> Map.get(body, key)
+      _ -> nil
+    end
+  end
 
   @doc """
   POST /api/admin/edge-packages/:id/revoke

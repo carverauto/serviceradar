@@ -23,6 +23,8 @@ Each plugin package is made up of:
 
 The control plane stores the manifest and config schema in the database and stores the Wasm binary in the configured package storage backend.
 
+Plugin blob upload and download tokens are transported only in explicit headers or POST bodies. Query-string bearer tokens are not supported.
+
 ### Manifest fields
 
 Required fields:

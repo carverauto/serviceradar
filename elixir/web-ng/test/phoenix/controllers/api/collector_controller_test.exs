@@ -6,6 +6,24 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
 
+  describe "POST /api/admin/collectors/:id/download" do
+    test "accepts a download token from the POST body", %{conn: _conn} do
+      {package, token} = create_ready_collector_package(:flowgger)
+
+      conn = post(build_conn(), ~p"/api/admin/collectors/#{package.id}/download", %{"download_token" => token})
+
+      assert %{"package" => %{"status" => "delivered"}} = json_response(conn, 200)
+    end
+
+    test "rejects query-string token fallback", %{conn: _conn} do
+      {package, token} = create_ready_collector_package(:flowgger)
+
+      conn = post(build_conn(), ~p"/api/admin/collectors/#{package.id}/download?download_token=#{token}", %{})
+
+      assert json_response(conn, 400)["error"] == "download_token is required"
+    end
+  end
+
   describe "POST /api/collectors/:id/bundle" do
     test "downloads a standard collector bundle from the public route", %{conn: _conn} do
       {package, token} = create_ready_collector_package(:flowgger)
@@ -89,6 +107,14 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
       assert json_response(conn, 403) == %{
                "error" => "collector onboarding is disabled for this deployment"
              }
+    end
+
+    test "rejects query-string token fallback on the public bundle route", %{conn: _conn} do
+      {package, token} = create_ready_collector_package(:flowgger)
+
+      conn = post(build_conn(), ~p"/api/collectors/#{package.id}/bundle?download_token=#{token}", %{})
+
+      assert json_response(conn, 400)["error"] == "download token is required"
     end
   end
 

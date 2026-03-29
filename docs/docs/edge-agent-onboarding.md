@@ -60,6 +60,7 @@ sudo /usr/local/bin/serviceradar-cli enroll --core-url https://demo.serviceradar
 Notes:
 
 - Treat the token as a secret (it grants enrollment).
+- Bundle/package download tokens are accepted only in explicit request headers or POST bodies, never in URL query strings.
 - Enrollment requires verified HTTPS. `serviceradar-cli enroll` no longer supports an insecure TLS bypass.
 - Only signed `edgepkg-v2` tokens are accepted for agent enrollment.
 - If you need to re-enroll, generate a new agent package to get a fresh token.

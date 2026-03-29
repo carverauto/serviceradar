@@ -194,8 +194,8 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
   end
 
   @sobelow_skip ["Traversal.SendFile"]
-  def download_blob(conn, %{"id" => id} = params) do
-    with {:ok, token} <- extract_blob_token(conn, :download, params),
+  def download_blob(conn, %{"id" => id}) do
+    with {:ok, token} <- extract_blob_token(conn, :download),
          {:ok, %{id: token_id, key: object_key}} <- Storage.verify_token(:download, token),
          true <- token_id == id,
          {:ok, package} <- fetch_package_for_blob(id),
@@ -412,22 +412,16 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
     end
   end
 
-  defp extract_blob_token(conn, _action, params \\ %{}) do
+  defp extract_blob_token(conn, action) do
     conn
     |> Plug.Conn.get_req_header("x-serviceradar-plugin-token")
     |> List.first()
     |> normalize_blob_token()
     |> case do
-      nil ->
-        params
-        |> Map.get("token")
-        |> normalize_blob_token()
-        |> case do
+      nil when action == :download ->
+        case conn |> body_param("token") |> normalize_blob_token() do
           nil ->
-            params
-            |> Map.get("download_token")
-            |> normalize_blob_token()
-            |> case do
+            case conn |> body_param("download_token") |> normalize_blob_token() do
               nil -> {:error, :missing_token}
               token -> {:ok, token}
             end
@@ -435,6 +429,9 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
           token ->
             {:ok, token}
         end
+
+      nil ->
+        {:error, :missing_token}
 
       token ->
         {:ok, token}
@@ -447,6 +444,14 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
   end
 
   defp normalize_blob_token(_value), do: nil
+
+  defp body_param(conn, key) when is_binary(key) do
+    case conn.body_params do
+      %Plug.Conn.Unfetched{} -> nil
+      body when is_map(body) -> Map.get(body, key)
+      _ -> nil
+    end
+  end
 
   defp read_full_body(conn, max_bytes) do
     conn

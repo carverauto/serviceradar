@@ -142,13 +142,13 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
   end
 
   @doc """
-  GET /api/admin/collectors/:id/download
+  POST /api/admin/collectors/:id/download
 
   Downloads the collector package with NATS credentials.
   Requires a valid download token.
   """
-  def download(conn, %{"id" => id} = params) do
-    download_token = params["download_token"]
+  def download(conn, %{"id" => id}) do
+    download_token = conn |> body_param("download_token") |> normalize_download_token()
     source_ip = ClientIP.get(conn)
 
     if download_token in [nil, ""] do
@@ -178,8 +178,8 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
   - install.sh - Installation script
   - README.md - Instructions
   """
-  def bundle(conn, %{"id" => id} = params) do
-    download_token = extract_download_token(conn, params)
+  def bundle(conn, %{"id" => id}) do
+    download_token = extract_download_token(conn)
     source_ip = ClientIP.get(conn)
 
     if download_token in [nil, ""] do
@@ -200,16 +200,14 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
     end
   end
 
-  defp extract_download_token(conn, params) do
+  defp extract_download_token(conn) do
     conn
     |> Plug.Conn.get_req_header("x-serviceradar-download-token")
     |> List.first()
     |> normalize_download_token()
     |> case do
       nil ->
-        params
-        |> Map.get("download_token")
-        |> normalize_download_token()
+        conn |> body_param("download_token") |> normalize_download_token()
 
       token ->
         token
@@ -222,6 +220,14 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
   end
 
   defp normalize_download_token(_value), do: nil
+
+  defp body_param(conn, key) when is_binary(key) do
+    case conn.body_params do
+      %Plug.Conn.Unfetched{} -> nil
+      body when is_map(body) -> Map.get(body, key)
+      _ -> nil
+    end
+  end
 
   @doc """
   POST /api/admin/collectors/:id/revoke
