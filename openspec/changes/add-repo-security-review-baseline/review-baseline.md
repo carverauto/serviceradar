@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-go-cmd-wasm-plugins-pass-1`
+- Review artifact version: `2026-03-29-rust-trapd-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -48,8 +48,8 @@
 | `go/pkg/trivysidecar` | Secondary | reviewed | Reviewed runtime, publisher, and deployment wiring. Shipped manifests use TLS + NATS creds; no new confirmed exploitable finding recorded in the current tree. |
 | `go/pkg/scan` | Secondary | reviewed | Reviewed ICMP/TCP/SYN scanner paths and caller wiring. No new confirmed exploitable finding recorded in the current tree. |
 | `go/cmd/wasm-plugins` | Secondary | reviewed | Reviewed shipped AXIS, UniFi Protect, and dusk WASM plugin packages. AXIS websocket credential handling finding recorded below. |
-| `rust/trapd` | Secondary | not-started | Pending after primary scope closure. |
-| `rust/log-collector` | Secondary | not-started | Pending after primary scope closure. |
+| `rust/trapd` | Secondary | reviewed | Reviewed SNMP ingest, NATS publish, and optional gRPC status server paths. A fail-open gRPC transport finding is recorded below. |
+| `rust/log-collector` | Secondary | reviewed | Reviewed startup, config-bootstrap, OTEL delegation, and shipped config samples. No new confirmed exploitable finding recorded in the current tree. |
 | `rust/consumers/zen` | Secondary | not-started | Pending after primary scope closure. |
 | `rust/flowgger` | Secondary | not-started | Pending after primary scope closure. |
 | `rust/srql` | Secondary | not-started | Pending targeted SRQL / query-safety pass. |
@@ -106,6 +106,7 @@ Disposition values used in this artifact:
 | `SR-024` | High | `go/pkg/nats`, `go/pkg/datasvc` | The NATS account-signing layer accepted foreign imports, namespace-escaping exports/mappings, and reserved control-subject permission overrides without guardrails, allowing authorized callers to widen authority beyond the intended account scope. | `covered-by-change: harden-nats-account-scope-guardrails` |
 | `SR-025` | Medium | `go/pkg/nats`, `go/pkg/datasvc` | New NATS accounts received unlimited JetStream quotas by default when explicit limits were omitted, enabling storage and consumer exhaustion by provisioned accounts. | `covered-by-change: harden-nats-account-scope-guardrails` |
 | `SR-026` | Medium | `go/cmd/wasm-plugins/axis`, `go/pkg/agent` | The shipped AXIS camera plugin embeds camera credentials in the VAPIX event websocket URL userinfo even though the agent runtime supports structured websocket headers, creating avoidable credential leakage risk through URL-bearing surfaces. | `covered-by-change: harden-axis-plugin-websocket-credential-handling` |
+| `SR-027` | High | `rust/trapd` | The optional trapd gRPC status server explicitly permits plaintext mode and starts without TLS when `grpc_security.mode` is `none`, weakening an internal service trust boundary. | `covered-by-change: harden-rust-trapd-grpc-transport-defaults` |
 
 ### Finding Details
 
@@ -301,6 +302,20 @@ Disposition values used in this artifact:
   - ensure plugin result details and error surfaces do not carry credential-bearing websocket URLs
   - add focused tests proving the websocket dial payload uses headers and a credential-free URL
 - Disposition: `covered-by-change: harden-axis-plugin-websocket-credential-handling`
+
+#### `SR-027` Rust trapd gRPC status server allows plaintext transport
+- Severity: High
+- Exploitability / Preconditions: deployment enables `grpc_listen_addr` for trapd and leaves `grpc_security.mode` as `none`.
+- Affected Paths:
+  - `rust/trapd`
+- Impact:
+  - `trapd` requires `grpc_security` whenever the gRPC status server is enabled, but still explicitly accepts `mode = "none"` and starts the server without TLS
+  - this creates a fail-open transport downgrade for an internal monitoring/control surface, which is inconsistent with the fail-closed transport contract already enforced in other gRPC packages
+- Remediation Guidance:
+  - reject `grpc_security.mode = "none"` for trapd whenever `grpc_listen_addr` is configured
+  - require either mTLS or SPIFFE-backed authenticated transport for the trapd gRPC status server
+  - add focused config and runtime tests proving trapd fails closed instead of serving plaintext
+- Disposition: `covered-by-change: harden-rust-trapd-grpc-transport-defaults`
 
 #### `SR-015` Core-ELX media ingress trust-boundary and analysis-worker SSRF gap
 - Severity: High
