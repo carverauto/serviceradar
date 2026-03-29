@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,6 +18,40 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero/sys"
 )
+
+func TestPluginDownloadUsesHeaderToken(t *testing.T) {
+	t.Parallel()
+
+	const expectedToken = "plugin-token-123"
+	expectedBody := []byte("wasm-binary")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if got := r.Header.Get("X-ServiceRadar-Plugin-Token"); got != expectedToken {
+			t.Fatalf("expected plugin token header %q, got %q", expectedToken, got)
+		}
+		_, _ = w.Write(expectedBody)
+	}))
+	defer server.Close()
+
+	manager := NewPluginManager(context.Background(), PluginManagerConfig{
+		Logger: logger.NewTestLogger(),
+	})
+	defer manager.Stop()
+
+	data, err := manager.downloadWasm(context.Background(), &pluginAssignment{
+		DownloadURL:   server.URL,
+		DownloadToken: expectedToken,
+	})
+	if err != nil {
+		t.Fatalf("downloadWasm returned error: %v", err)
+	}
+	if string(data) != string(expectedBody) {
+		t.Fatalf("unexpected body: %q", string(data))
+	}
+}
 
 func TestExecuteWithWasmHarness(t *testing.T) {
 	if testing.Short() {

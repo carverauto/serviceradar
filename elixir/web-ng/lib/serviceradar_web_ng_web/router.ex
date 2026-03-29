@@ -263,13 +263,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/edge-packages/:id/bundle", EdgeController, :bundle)
     post("/collectors/:id/bundle", CollectorController, :bundle)
     put("/plugin-packages/:id/blob", PluginPackageController, :upload_blob)
-    get("/plugin-packages/:id/blob", PluginPackageController, :download_blob)
-
-    # Legacy collector enrollment endpoint (bundle download is preferred)
-    # Token decodes to: GET /api/enroll/collector/:package_id?token=<secret>
-    get("/enroll/collector/:package_id", CollectorEnrollController, :enroll)
-    # Legacy collector enrollment path
-    get("/enroll/:package_id", CollectorEnrollController, :enroll)
+    post("/plugin-packages/:id/blob/download", PluginPackageController, :download_blob)
   end
 
   # Ash JSON:API v2 endpoints

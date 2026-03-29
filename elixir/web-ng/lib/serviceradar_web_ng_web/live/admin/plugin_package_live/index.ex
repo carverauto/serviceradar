@@ -49,8 +49,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign_capacity(scope)
         |> assign(:verification_policy, plugin_verification_policy())
         |> assign(:upload_url, nil)
+        |> assign(:upload_token, nil)
         |> assign(:upload_expires_at, nil)
         |> assign(:download_url, nil)
+        |> assign(:download_token, nil)
         |> assign(:download_expires_at, nil)
         |> assign(:blob_present, nil)
         |> assign(:upload_errors, [])
@@ -151,7 +153,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      |> assign(:versions, [])
      |> assign(:upload_errors, [])
      |> assign(:upload_url, nil)
+     |> assign(:upload_token, nil)
      |> assign(:download_url, nil)
+     |> assign(:download_token, nil)
      |> assign(:blob_present, nil)}
   end
 
@@ -515,7 +519,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> assign(:assignment_form, default_assignment_form())
          |> assign(:versions, [])
          |> assign(:upload_url, nil)
+         |> assign(:upload_token, nil)
          |> assign(:download_url, nil)
+         |> assign(:download_token, nil)
          |> assign(:blob_present, nil)
          |> put_flash(:info, "Package deleted")}
 
@@ -888,8 +894,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         upload_errors={@upload_errors}
         verification_policy={@verification_policy}
         upload_url={@upload_url}
+        upload_token={@upload_token}
         upload_expires_at={@upload_expires_at}
         download_url={@download_url}
+        download_token={@download_token}
         download_expires_at={@download_expires_at}
         plugins_base_path={@plugins_base_path}
       />
@@ -1162,18 +1170,36 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             </div>
 
             <div class="rounded-xl border border-base-200 p-4 space-y-2">
-              <div class="text-sm font-semibold">Wasm Package URLs</div>
+              <div class="text-sm font-semibold">Wasm Package Requests</div>
               <div class="text-xs text-base-content/60">
-                Upload URL expires {format_datetime(@upload_expires_at)}
+                Upload endpoint expires {format_datetime(@upload_expires_at)}
               </div>
               <pre class="bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
     <%= @upload_url %>
     </pre>
               <div class="text-xs text-base-content/60">
-                Download URL expires {format_datetime(@download_expires_at)}
+                Upload token
+              </div>
+              <pre class="bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
+    <%= @upload_token %>
+    </pre>
+              <div class="text-xs text-base-content/60">
+                Download endpoint expires {format_datetime(@download_expires_at)}
               </div>
               <pre class="bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
     <%= @download_url %>
+    </pre>
+              <div class="text-xs text-base-content/60">
+                Download token
+              </div>
+              <pre class="bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
+    <%= @download_token %>
+    </pre>
+              <div class="text-xs text-base-content/60">
+                Example download
+              </div>
+              <pre class="bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
+    <%= if @download_url && @download_token do %>curl -fsSL -X POST -H "x-serviceradar-plugin-token: <%= @download_token %>" "<%= @download_url %>" -o plugin.wasm<% end %>
     </pre>
             </div>
 
@@ -1699,16 +1725,20 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
         socket
         |> assign(:selected_package, package)
-        |> assign(:upload_url, Storage.upload_url(package.id, upload_token))
+        |> assign(:upload_url, Storage.upload_url(package.id))
+        |> assign(:upload_token, upload_token)
         |> assign(:upload_expires_at, upload_expires_at)
-        |> assign(:download_url, Storage.download_url(package.id, download_token))
+        |> assign(:download_url, Storage.download_url(package.id))
+        |> assign(:download_token, download_token)
         |> assign(:download_expires_at, download_expires_at)
         |> assign(:blob_present, Storage.blob_exists?(package.wasm_object_key))
 
       {:error, _error} ->
         socket
         |> assign(:upload_url, nil)
+        |> assign(:upload_token, nil)
         |> assign(:download_url, nil)
+        |> assign(:download_token, nil)
         |> assign(:blob_present, nil)
     end
   end

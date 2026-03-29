@@ -370,13 +370,15 @@ Commit verification is captured from GitHub. If `PLUGIN_REQUIRE_GPG_FOR_GITHUB=t
 
 Wasm packages are served by the web-ng API and stored using a configurable backend. For production, store plugin blobs on persistent storage and back them up with normal platform operations.
 
+Plugin blob authorization is token-gated, but bearer tokens are carried in request headers or POST bodies rather than embedded in request URLs.
+
 ### Filesystem backend (default)
 
 - Storage path: `/var/lib/serviceradar/plugin-packages`
 - Configure with:
   - `PLUGIN_STORAGE_BACKEND=filesystem`
   - `PLUGIN_STORAGE_PATH=/var/lib/serviceradar/plugin-packages`
-  - `PLUGIN_STORAGE_SIGNING_SECRET` (shared with core for signed download URLs)
+  - `PLUGIN_STORAGE_SIGNING_SECRET` (shared with core for signed plugin blob tokens)
 
 Docker:
 
@@ -386,11 +388,12 @@ Kubernetes:
 
 - Mount a PVC at `/var/lib/serviceradar/plugin-packages` for the `web-ng` deployment.
 
-Core download URLs:
+Core plugin blob delivery:
 
 - `PLUGIN_STORAGE_PUBLIC_URL` (base URL for web-ng, e.g. `https://staging.serviceradar.cloud`)
 - `PLUGIN_STORAGE_SIGNING_SECRET` (must match web-ng)
 - `PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS` (default 86400)
+- Agents receive a plain plugin blob endpoint plus a separate short-lived token, so plugin config does not contain a tokenized URL.
 
 ### JetStream object store
 

@@ -124,7 +124,8 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
            {token, expires_at} <-
              Storage.sign_token(:upload, package.id, package.wasm_object_key, ttl) do
         json(conn, %{
-          upload_url: Storage.upload_url(package.id, token),
+          upload_url: Storage.upload_url(package.id),
+          upload_token: token,
           expires_at: format_datetime(expires_at),
           object_key: package.wasm_object_key
         })
@@ -145,7 +146,8 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
           Storage.sign_token(:download, package.id, package.wasm_object_key, ttl)
 
         json(conn, %{
-          download_url: Storage.download_url(package.id, token),
+          download_url: Storage.download_url(package.id),
+          download_token: token,
           expires_at: format_datetime(expires_at),
           object_key: package.wasm_object_key
         })
@@ -158,10 +160,11 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
     end
   end
 
-  def upload_blob(conn, %{"id" => id, "token" => token}) do
+  def upload_blob(conn, %{"id" => id}) do
     actor = SystemActor.system(:plugin_blob)
 
-    with {:ok, %{id: token_id, key: object_key}} <- Storage.verify_token(:upload, token),
+    with {:ok, token} <- extract_blob_token(conn, :upload),
+         {:ok, %{id: token_id, key: object_key}} <- Storage.verify_token(:upload, token),
          true <- token_id == id,
          {:ok, package} <- fetch_package_for_blob(id),
          true <- object_key == package.wasm_object_key,
@@ -169,6 +172,9 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
          {:ok, _package} <- Packages.upload_blob(package, payload, actor: actor) do
       send_resp(conn, :created, "")
     else
+      {:error, :missing_token} ->
+        unauthorized(conn)
+
       {:error, :invalid_token} ->
         unauthorized(conn)
 
@@ -187,13 +193,10 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
     end
   end
 
-  def upload_blob(conn, _params) do
-    unauthorized(conn)
-  end
-
   @sobelow_skip ["Traversal.SendFile"]
-  def download_blob(conn, %{"id" => id, "token" => token}) do
-    with {:ok, %{id: token_id, key: object_key}} <- Storage.verify_token(:download, token),
+  def download_blob(conn, %{"id" => id} = params) do
+    with {:ok, token} <- extract_blob_token(conn, :download, params),
+         {:ok, %{id: token_id, key: object_key}} <- Storage.verify_token(:download, token),
          true <- token_id == id,
          {:ok, package} <- fetch_package_for_blob(id),
          true <- object_key == package.wasm_object_key,
@@ -210,6 +213,9 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
           |> send_resp(200, data)
       end
     else
+      {:error, :missing_token} ->
+        unauthorized(conn)
+
       {:error, :invalid_token} ->
         unauthorized(conn)
 
@@ -224,10 +230,6 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
       {:error, reason} ->
         {:error, reason}
     end
-  end
-
-  def download_blob(conn, _params) do
-    unauthorized(conn)
   end
 
   def approve(conn, %{"id" => id} = params) do
@@ -409,6 +411,42 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
       {:error, error} -> {:error, error}
     end
   end
+
+  defp extract_blob_token(conn, _action, params \\ %{}) do
+    conn
+    |> Plug.Conn.get_req_header("x-serviceradar-plugin-token")
+    |> List.first()
+    |> normalize_blob_token()
+    |> case do
+      nil ->
+        params
+        |> Map.get("token")
+        |> normalize_blob_token()
+        |> case do
+          nil ->
+            params
+            |> Map.get("download_token")
+            |> normalize_blob_token()
+            |> case do
+              nil -> {:error, :missing_token}
+              token -> {:ok, token}
+            end
+
+          token ->
+            {:ok, token}
+        end
+
+      token ->
+        {:ok, token}
+    end
+  end
+
+  defp normalize_blob_token(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalize_blob_token(_value), do: nil
 
   defp read_full_body(conn, max_bytes) do
     conn

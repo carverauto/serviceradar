@@ -254,7 +254,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert config1.config_version != config2.config_version
     end
 
-    test "plugin download URL rotation does not change version hash", %{
+    test "plugin download credential rotation does not change version hash", %{
       actor: actor,
       agent_uid: agent_uid,
       unique_id: unique_id
@@ -322,7 +322,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       assert config1.config_version == config2.config_version
       refute config1.plugins == []
-      assert hd(config1.plugins).download_url != hd(config2.plugins).download_url
+      assert hd(config1.plugins).download_token != hd(config2.plugins).download_token
+      assert hd(config1.plugins).download_url == hd(config2.plugins).download_url
     end
   end
 

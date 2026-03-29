@@ -2,7 +2,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   @moduledoc """
   Storage backend for plugin package blobs.
 
-  Currently supports filesystem storage with signed upload/download URLs.
+  Currently supports filesystem storage with signed upload/download tokens.
   """
 
   alias Jetstream.API.Object
@@ -96,14 +96,14 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   def verify_token(_action, _token), do: {:error, :invalid_token}
 
-  @spec upload_url(String.t(), String.t()) :: String.t()
-  def upload_url(package_id, token) do
-    EndpointConfig.base_url() <> "/api/plugin-packages/#{package_id}/blob?token=#{token}"
+  @spec upload_url(String.t()) :: String.t()
+  def upload_url(package_id) do
+    EndpointConfig.base_url() <> "/api/plugin-packages/#{package_id}/blob"
   end
 
-  @spec download_url(String.t(), String.t()) :: String.t()
-  def download_url(package_id, token) do
-    EndpointConfig.base_url() <> "/api/plugin-packages/#{package_id}/blob?token=#{token}"
+  @spec download_url(String.t()) :: String.t()
+  def download_url(package_id) do
+    EndpointConfig.base_url() <> "/api/plugin-packages/#{package_id}/blob/download"
   end
 
   @spec put_blob(String.t(), binary()) :: :ok | {:error, term()}

@@ -387,6 +387,7 @@ message PluginAssignmentConfig {
   string source_repo_url = 19;
   string source_commit = 20;
   string download_url = 21;
+  string download_token = 22;
 }
 
 // SysmonConfig defines system monitoring configuration for the embedded sysmon collector.
