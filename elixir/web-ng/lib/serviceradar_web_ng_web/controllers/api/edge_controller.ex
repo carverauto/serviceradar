@@ -273,37 +273,62 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   end
 
   @doc """
-  GET /api/edge-packages/:id/bundle
+  POST /api/edge-packages/:id/bundle
 
   Downloads the package as a tarball containing certificates, config, and install script.
-  Requires a valid download token as a query parameter.
+  Requires a valid download token in the `x-serviceradar-download-token` header or request body.
 
-  Query params:
-    - token: the download token (required)
+  Request fields:
+    - x-serviceradar-download-token header, or
+    - download_token: the download token (required)
 
   Returns: application/gzip tarball
   """
-  def bundle(conn, %{"id" => id, "token" => download_token}) when byte_size(download_token) > 0 do
+  def bundle(conn, %{"id" => id} = params) do
+    download_token = extract_download_token(conn, params)
     source_ip = ClientIP.get(conn)
     base_url = request_base_url(conn)
 
-    case bundle_with_token(id, download_token, source_ip, base_url) do
-      {:ok, tarball, filename} ->
-        conn
-        |> put_resp_content_type("application/gzip")
-        |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
-        |> send_resp(200, tarball)
+    if download_token in [nil, ""] do
+      conn
+      |> put_status(:bad_request)
+      |> json(%{error: "download token is required"})
+    else
+      case bundle_with_token(id, download_token, source_ip, base_url) do
+        {:ok, tarball, filename} ->
+          conn
+          |> put_resp_content_type("application/gzip")
+          |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
+          |> send_resp(200, tarball)
 
-      {:error, reason} ->
-        handle_bundle_error(conn, reason)
+        {:error, reason} ->
+          handle_bundle_error(conn, reason)
+      end
     end
   end
 
-  def bundle(conn, %{"id" => _id}) do
+  defp extract_download_token(conn, params) do
     conn
-    |> put_status(:bad_request)
-    |> json(%{error: "token query parameter is required"})
+    |> Plug.Conn.get_req_header("x-serviceradar-download-token")
+    |> List.first()
+    |> normalize_download_token()
+    |> case do
+      nil ->
+        params
+        |> Map.get("download_token")
+        |> normalize_download_token()
+
+      token ->
+        token
+    end
   end
+
+  defp normalize_download_token(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalize_download_token(_value), do: nil
 
   defp bundle_with_token(id, download_token, source_ip, base_url) do
     opts = [actor: nil, source_ip: source_ip, authorize?: false]

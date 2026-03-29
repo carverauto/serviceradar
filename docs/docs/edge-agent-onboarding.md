@@ -61,7 +61,7 @@ Notes:
 
 - Treat the token as a secret (it grants enrollment).
 - Enrollment requires verified HTTPS. `serviceradar-cli enroll` no longer supports an insecure TLS bypass.
-- Signed `edgepkg-v2` tokens are the normal enrollment format. Legacy unsigned tokens require an explicit trusted `--core-url`.
+- Only signed `edgepkg-v2` tokens are accepted for agent enrollment.
 - If you need to re-enroll, generate a new agent package to get a fresh token.
 
 ## 4. Verify

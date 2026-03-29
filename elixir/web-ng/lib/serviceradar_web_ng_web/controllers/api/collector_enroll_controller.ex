@@ -53,7 +53,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorEnrollController do
     if token_secret in [nil, ""] do
       conn
       |> put_status(:bad_request)
-      |> json(%{error: "token query parameter is required"})
+      |> json(%{error: "download token is required"})
     else
       with :ok <- require_collectors_enabled(conn) do
         case enroll_with_token(package_id, token_secret, source_ip) do

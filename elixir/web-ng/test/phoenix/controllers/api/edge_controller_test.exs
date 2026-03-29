@@ -304,13 +304,16 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
     end
   end
 
-  describe "GET /api/edge-packages/:id/bundle" do
+  describe "POST /api/edge-packages/:id/bundle" do
     test "downloads bundle with valid token", %{conn: conn, actor: actor} do
       {:ok, created} =
         OnboardingPackages.create(%{label: "test-bundle-download"}, actor: actor)
 
       # Use unauthenticated connection (public endpoint)
-      conn = get(build_conn(), ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}")
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", created.download_token)
+        |> post(~p"/api/edge-packages/#{created.package.id}/bundle", %{})
 
       assert response_content_type(conn, :gzip) =~ "application/gzip"
       assert response(conn, 200) != ""
@@ -324,16 +327,19 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
       {:ok, created} =
         OnboardingPackages.create(%{label: "test-no-token"}, actor: actor)
 
-      conn = get(build_conn(), ~p"/api/edge-packages/#{created.package.id}/bundle")
+      conn = post(build_conn(), ~p"/api/edge-packages/#{created.package.id}/bundle", %{})
 
-      assert json_response(conn, 400)["error"] == "token query parameter is required"
+      assert json_response(conn, 400)["error"] == "download token is required"
     end
 
     test "returns 401 for invalid token", %{conn: conn, actor: actor} do
       {:ok, created} =
         OnboardingPackages.create(%{label: "test-bad-token"}, actor: actor)
 
-      conn = get(build_conn(), ~p"/api/edge-packages/#{created.package.id}/bundle?token=wrong-token")
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", "wrong-token")
+        |> post(~p"/api/edge-packages/#{created.package.id}/bundle", %{})
 
       assert json_response(conn, 401)["error"] == "download token invalid"
     end
@@ -341,7 +347,10 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
     test "returns 404 for non-existent package", %{conn: conn} do
       fake_id = Ecto.UUID.generate()
 
-      conn = get(build_conn(), ~p"/api/edge-packages/#{fake_id}/bundle?token=some-token")
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", "some-token")
+        |> post(~p"/api/edge-packages/#{fake_id}/bundle", %{})
 
       assert json_response(conn, 404)["error"] == "package not found"
     end
@@ -351,10 +360,15 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
         OnboardingPackages.create(%{label: "test-double-bundle"}, actor: actor)
 
       # First download
-      get(build_conn(), ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}")
+      build_conn()
+      |> put_req_header("x-serviceradar-download-token", created.download_token)
+      |> post(~p"/api/edge-packages/#{created.package.id}/bundle", %{})
 
       # Second attempt
-      conn = get(build_conn(), ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}")
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", created.download_token)
+        |> post(~p"/api/edge-packages/#{created.package.id}/bundle", %{})
 
       assert json_response(conn, 409)["error"] == "package already_delivered"
     end
@@ -370,7 +384,10 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
           actor: actor
         )
 
-      conn = get(build_conn(), ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}")
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", created.download_token)
+        |> post(~p"/api/edge-packages/#{created.package.id}/bundle", %{})
 
       body = response(conn, 200)
       {:ok, files} = :erl_tar.extract({:binary, body}, [:compressed, :memory])
@@ -406,7 +423,10 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
       assert download_token
 
       # Step 2: Download bundle (unauthenticated, using token)
-      bundle_conn = get(build_conn(), ~p"/api/edge-packages/#{package_id}/bundle?token=#{download_token}")
+      bundle_conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", download_token)
+        |> post(~p"/api/edge-packages/#{package_id}/bundle", %{})
 
       assert response(bundle_conn, 200) != ""
 

@@ -12,7 +12,7 @@ The edge onboarding library eliminates the need for manual shell scripts and con
 - **Sticky bootstrap configs** - Only KV/Core addresses are in static config (chicken/egg problem)
 - **Deployment-aware** - Automatically detects Docker, Kubernetes, or bare-metal and uses appropriate addresses
 - **Component-specific** - Gateways get nested SPIRE server, agents/checkers use workload API
-- **Self-contained** - Services only need a signed onboarding token plus a trusted Core API URL when using legacy compatibility modes
+- **Signed by default** - Services use signed onboarding tokens and verified HTTPS for bootstrap
 
 ## Usage
 
@@ -58,9 +58,9 @@ func main() {
 ### Docker Deployment Example
 
 ```bash
-# Just set the onboarding token - everything else is automatic
+# Just set a signed onboarding token - everything else is automatic
 docker run \
-  -e ONBOARDING_TOKEN=abc123xyz456 \
+  -e ONBOARDING_TOKEN=edgepkg-v2:<signed-token> \
   -e KV_ENDPOINT=23.138.124.23:50057 \
   ghcr.io/carverauto/serviceradar-agent-gateway:latest
 ```

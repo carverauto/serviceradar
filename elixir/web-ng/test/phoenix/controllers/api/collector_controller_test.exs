@@ -6,11 +6,14 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
 
-  describe "GET /api/collectors/:id/bundle" do
+  describe "POST /api/collectors/:id/bundle" do
     test "downloads a standard collector bundle from the public route", %{conn: _conn} do
       {package, token} = create_ready_collector_package(:flowgger)
 
-      conn = get(build_conn(), ~p"/api/collectors/#{package.id}/bundle?token=#{token}")
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", token)
+        |> post(~p"/api/collectors/#{package.id}/bundle", %{})
 
       assert response_content_type(conn, :gzip) =~ "application/gzip"
 
@@ -32,7 +35,10 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
           }
         })
 
-      conn = get(build_conn(), ~p"/api/collectors/#{package.id}/bundle?token=#{token}")
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", token)
+        |> post(~p"/api/collectors/#{package.id}/bundle", %{})
 
       assert response_content_type(conn, :gzip) =~ "application/gzip"
 
@@ -75,7 +81,10 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
 
       {package, token} = create_ready_collector_package(:flowgger)
 
-      conn = get(build_conn(), ~p"/api/collectors/#{package.id}/bundle?token=#{token}")
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", token)
+        |> post(~p"/api/collectors/#{package.id}/bundle", %{})
 
       assert json_response(conn, 403) == %{
                "error" => "collector onboarding is disabled for this deployment"

@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -65,15 +64,14 @@ func EnrollCollectorFromToken(ctx context.Context, opts CollectorEnrollOptions) 
 
 	baseURL := strings.TrimRight(payload.BaseURL, "/")
 	bundleURL := fmt.Sprintf(
-		"%s/api/collectors/%s/bundle?token=%s",
+		"%s/api/collectors/%s/bundle",
 		baseURL,
-		url.PathEscape(payload.PackageID),
-		url.QueryEscape(payload.Secret),
+		payload.PackageID,
 	)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, bundleURL, nil)
+	req, err := newBundleDownloadRequest(ctx, bundleURL, payload.Secret)
 	if err != nil {
-		return fmt.Errorf("build bundle request: %w", err)
+		return err
 	}
 
 	client := opts.HTTPClient

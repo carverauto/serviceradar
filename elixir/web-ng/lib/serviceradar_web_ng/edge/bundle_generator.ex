@@ -103,13 +103,15 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   Generates a one-liner install command for Docker.
   """
   @spec docker_install_command(OnboardingPackage.t(), String.t(), keyword()) :: String.t()
-  def docker_install_command(package, download_token, opts \\ []) do
+  def docker_install_command(package, _download_token, opts \\ []) do
     base_url = Keyword.get(opts, :base_url, default_base_url())
     image_tag = Keyword.get(opts, :image_tag, "latest")
     component_type = effective_component_type(package.component_type)
+    bundle_url = "#{base_url}/api/edge-packages/#{package.id}/bundle"
 
     String.trim("""
-    curl -fsSL "#{base_url}/api/edge-packages/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" "#{bundle_url}" | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
     docker run -d --name serviceradar-#{component_type} \\
       -v $(pwd)/certs:/etc/serviceradar/certs:ro \\
@@ -122,11 +124,13 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   Generates a one-liner install command for systemd-based systems.
   """
   @spec systemd_install_command(OnboardingPackage.t(), String.t(), keyword()) :: String.t()
-  def systemd_install_command(package, download_token, opts \\ []) do
+  def systemd_install_command(package, _download_token, opts \\ []) do
     base_url = Keyword.get(opts, :base_url, default_base_url())
+    bundle_url = "#{base_url}/api/edge-packages/#{package.id}/bundle"
 
     String.trim("""
-    curl -fsSL "#{base_url}/api/edge-packages/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" "#{bundle_url}" | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
     sudo ./install.sh
     """)
@@ -136,12 +140,14 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   Generates a one-liner install command for Kubernetes.
   """
   @spec kubernetes_install_command(OnboardingPackage.t(), String.t(), keyword()) :: String.t()
-  def kubernetes_install_command(package, download_token, opts \\ []) do
+  def kubernetes_install_command(package, _download_token, opts \\ []) do
     base_url = Keyword.get(opts, :base_url, default_base_url())
     namespace = Keyword.get(opts, :namespace, "serviceradar")
+    bundle_url = "#{base_url}/api/edge-packages/#{package.id}/bundle"
 
     String.trim("""
-    curl -fsSL "#{base_url}/api/edge-packages/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" "#{bundle_url}" | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
     kubectl apply -f kubernetes/ -n #{namespace}
     """)

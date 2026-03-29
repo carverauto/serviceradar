@@ -38,6 +38,7 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirrorTest do
     assert {:ok, mirrored_attrs} =
              ReleaseArtifactMirror.prepare_publish_attrs(
                attrs,
+               validate_url: fn _url -> :ok end,
                http_get: http_get,
                upload_object: upload_object
              )
@@ -73,10 +74,37 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirrorTest do
     assert {:error, reason} =
              ReleaseArtifactMirror.prepare_publish_attrs(
                attrs,
+               validate_url: fn _url -> :ok end,
                http_get: http_get,
                upload_object: fn _metadata, _data, _opts -> flunk("upload should not run") end
              )
 
     assert reason =~ "artifact sha256 mismatch"
+  end
+
+  test "prepare_publish_attrs rejects private artifact URLs" do
+    attrs = %{
+      version: "1.2.3",
+      manifest: %{
+        "version" => "1.2.3",
+        "artifacts" => [
+          %{
+            "url" => "https://127.0.0.1/serviceradar-agent-linux-amd64.tar.gz",
+            "sha256" => @artifact_sha256,
+            "os" => "linux",
+            "arch" => "amd64"
+          }
+        ]
+      }
+    }
+
+    assert {:error, reason} =
+             ReleaseArtifactMirror.prepare_publish_attrs(
+               attrs,
+               http_get: fn _url, _opts -> flunk("http_get should not run") end,
+               upload_object: fn _metadata, _data, _opts -> flunk("upload should not run") end
+             )
+
+    assert reason =~ "artifact URL host is not allowed"
   end
 end

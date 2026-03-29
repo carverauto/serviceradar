@@ -3,6 +3,7 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
   Mirrors signed release artifacts into internal datasvc-backed object storage.
   """
 
+  alias ServiceRadar.Edge.ReleaseFetchPolicy
   alias ServiceRadar.Sync.Client, as: SyncClient
 
   @default_timeout 30_000
@@ -11,6 +12,7 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
 
   @type prepare_opts :: [
           timeout: non_neg_integer(),
+          validate_url: (String.t() -> :ok | {:error, term()}),
           http_get: (String.t(), keyword() -> {:ok, Req.Response.t()} | {:error, term()}),
           upload_object: (Proto.ObjectMetadata.t(), binary(), keyword() ->
                             {:ok, Proto.UploadObjectResponse.t()} | {:error, term()})
@@ -63,20 +65,29 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
 
   defp mirror_artifacts(version, artifacts, opts) do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
+    validate_url = Keyword.get(opts, :validate_url, &ReleaseFetchPolicy.validate/1)
     http_get = Keyword.get(opts, :http_get, &default_http_get/2)
     upload_object = Keyword.get(opts, :upload_object, &default_upload_object/3)
 
     artifacts
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {artifact, index}, {:ok, acc} ->
-      case mirror_artifact(version, artifact, index, timeout, http_get, upload_object) do
+      case mirror_artifact(
+             version,
+             artifact,
+             index,
+             timeout,
+             validate_url,
+             http_get,
+             upload_object
+           ) do
         {:ok, mirrored} -> {:cont, {:ok, acc ++ [mirrored]}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp mirror_artifact(version, artifact, index, timeout, http_get, upload_object) do
+  defp mirror_artifact(version, artifact, index, timeout, validate_url, http_get, upload_object) do
     artifact = normalize_map(artifact)
     source_url = map_get_any(artifact, ["url", :url])
     sha256 = map_get_any(artifact, ["sha256", :sha256])
@@ -89,6 +100,7 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
            require_present(source_url, "release artifact #{index + 1} is missing url"),
          {:ok, sha256} <-
            require_present(sha256, "release artifact #{index + 1} is missing sha256"),
+         :ok <- validate_url.(source_url),
          {:ok, data} <- download_source_artifact(source_url, timeout, http_get),
          :ok <- verify_sha256(data, sha256),
          {:ok, object_key, file_name} <- object_key(version, artifact),
@@ -224,7 +236,8 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
           url: url,
           headers: [{"user-agent", "serviceradar"}],
           finch: ServiceRadar.Finch,
-          max_redirects: 10
+          max_redirects: 10,
+          receive_timeout: @default_timeout
         ],
         opts
       )
@@ -242,6 +255,13 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
 
   defp normalize_manifest(manifest), do: normalize_map(manifest)
   defp normalize_metadata(metadata), do: normalize_map(metadata)
+
+  defp format_reason(:disallowed_host), do: "artifact URL host is not allowed"
+  defp format_reason(:disallowed_scheme), do: "artifact URL must use https"
+  defp format_reason(:dns_resolution_failed), do: "artifact URL host could not be resolved"
+  defp format_reason(:invalid_url), do: "artifact URL is invalid"
+  defp format_reason(reason) when is_binary(reason), do: reason
+  defp format_reason(reason), do: inspect(reason)
 
   defp artifact_identity_match?(stored, artifact) when is_map(stored) and is_map(artifact) do
     stored = normalize_map(stored)
@@ -339,6 +359,4 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     |> Map.new()
   end
 
-  defp format_reason(reason) when is_binary(reason), do: reason
-  defp format_reason(reason), do: inspect(reason)
 end

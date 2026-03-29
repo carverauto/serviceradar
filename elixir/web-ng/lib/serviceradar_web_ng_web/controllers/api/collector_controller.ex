@@ -167,10 +167,10 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
   end
 
   @doc """
-  GET /api/admin/collectors/:id/bundle
+  POST /api/collectors/:id/bundle
 
   Downloads the collector package as a tarball bundle.
-  Requires a valid download token passed as `token` query parameter.
+  Requires a valid download token in the `x-serviceradar-download-token` header or request body.
 
   Returns a .tar.gz file containing:
   - nats.creds - NATS credentials file
@@ -179,11 +179,11 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
   - README.md - Instructions
   """
   def bundle(conn, %{"id" => id} = params) do
-    download_token = params["token"]
+    download_token = extract_download_token(conn, params)
     source_ip = ClientIP.get(conn)
 
     if download_token in [nil, ""] do
-      return_error(conn, :bad_request, "token query parameter is required")
+      return_error(conn, :bad_request, "download token is required")
     else
       with :ok <- require_collectors_enabled(conn) do
         case bundle_with_token(id, download_token, source_ip) do
@@ -199,6 +199,29 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
       end
     end
   end
+
+  defp extract_download_token(conn, params) do
+    conn
+    |> Plug.Conn.get_req_header("x-serviceradar-download-token")
+    |> List.first()
+    |> normalize_download_token()
+    |> case do
+      nil ->
+        params
+        |> Map.get("download_token")
+        |> normalize_download_token()
+
+      token ->
+        token
+    end
+  end
+
+  defp normalize_download_token(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalize_download_token(_value), do: nil
 
   @doc """
   POST /api/admin/collectors/:id/revoke

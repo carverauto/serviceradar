@@ -72,8 +72,11 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
         )
 
       assert command =~
-               "https://demo.serviceradar.cloud/api/collectors/12345678-abcd-efgh-ijkl-1234567890ab/bundle?token=download-token"
+               "https://demo.serviceradar.cloud/api/collectors/12345678-abcd-efgh-ijkl-1234567890ab/bundle"
 
+      assert command =~ "-X POST"
+      assert command =~ "x-serviceradar-download-token: ${SR_TOKEN}"
+      refute command =~ "download-token"
       assert command =~ "sudo ./update.sh"
       refute command =~ "/api/edge/collectors/"
     end
@@ -87,8 +90,11 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
         )
 
       assert command =~
-               "https://demo.serviceradar.cloud/api/collectors/12345678-abcd-efgh-ijkl-1234567890ab/bundle?token=download-token"
+               "https://demo.serviceradar.cloud/api/collectors/12345678-abcd-efgh-ijkl-1234567890ab/bundle"
 
+      assert command =~ "-X POST"
+      assert command =~ "x-serviceradar-download-token: ${SR_TOKEN}"
+      refute command =~ "download-token"
       assert command =~ "./deploy.sh"
       refute command =~ "sudo ./update.sh"
     end

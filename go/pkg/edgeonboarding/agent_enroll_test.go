@@ -4,9 +4,11 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -83,6 +85,25 @@ func TestParseCollectorTokenRejectsUnsignedFormats(t *testing.T) {
 	legacyRaw := base64.RawURLEncoding.EncodeToString([]byte(`{"u":"https://demo","p":"pkg-1","t":"secret"}`))
 	_, err = parseCollectorToken(legacyRaw, "https://demo.serviceradar.cloud")
 	require.ErrorIs(t, err, ErrCollectorTokenInvalid)
+}
+
+func TestNewBundleDownloadRequestUsesPostAndHeader(t *testing.T) {
+	t.Parallel()
+
+	req, err := newBundleDownloadRequest(
+		context.Background(),
+		"https://demo.serviceradar.cloud/api/edge-packages/pkg-1/bundle",
+		"token-123",
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, http.MethodPost, req.Method)
+	assert.Equal(
+		t,
+		"https://demo.serviceradar.cloud/api/edge-packages/pkg-1/bundle",
+		req.URL.String(),
+	)
+	assert.Equal(t, "token-123", req.Header.Get(downloadTokenHeader))
 }
 
 func testAgentBundle(t *testing.T, overrides string) *bytes.Reader {

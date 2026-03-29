@@ -108,23 +108,27 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   Generates a one-liner install command for updating an existing collector.
   """
   @spec update_command(CollectorPackage.t(), String.t(), keyword()) :: String.t()
-  def update_command(package, download_token, opts \\ [])
+  def update_command(package, _download_token, opts \\ [])
 
-  def update_command(%{collector_type: :falcosidekick} = package, download_token, opts) do
+  def update_command(%{collector_type: :falcosidekick} = package, _download_token, opts) do
     base_url = Keyword.get_lazy(opts, :base_url, &default_base_url/0)
+    bundle_url = "#{base_url}/api/collectors/#{package.id}/bundle"
 
     String.trim("""
-    curl -fsSL "#{base_url}/api/collectors/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" "#{bundle_url}" | tar xzf - && \\
     cd collector-package-#{short_id(package.id)} && \\
     ./deploy.sh
     """)
   end
 
-  def update_command(package, download_token, opts) do
+  def update_command(package, _download_token, opts) do
     base_url = Keyword.get_lazy(opts, :base_url, &default_base_url/0)
+    bundle_url = "#{base_url}/api/collectors/#{package.id}/bundle"
 
     String.trim("""
-    curl -fsSL "#{base_url}/api/collectors/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" "#{bundle_url}" | tar xzf - && \\
     cd collector-package-#{short_id(package.id)} && \\
     sudo ./update.sh
     """)

@@ -10,7 +10,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,15 +60,14 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 	}
 
 	bundleURL := fmt.Sprintf(
-		"%s/api/edge-packages/%s/bundle?token=%s",
+		"%s/api/edge-packages/%s/bundle",
 		strings.TrimRight(baseURL, "/"),
-		url.PathEscape(payload.PackageID),
-		url.QueryEscape(payload.DownloadToken),
+		payload.PackageID,
 	)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, bundleURL, nil)
+	req, err := newBundleDownloadRequest(ctx, bundleURL, payload.DownloadToken)
 	if err != nil {
-		return fmt.Errorf("build bundle request: %w", err)
+		return err
 	}
 
 	client := opts.HTTPClient

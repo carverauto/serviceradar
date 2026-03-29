@@ -39,11 +39,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                  "assets" => [
                    %{
                      "name" => "serviceradar-agent-release-manifest.json",
-                     "browser_download_url" => "https://downloads.example/releases/v7.0.0/manifest.json"
+                     "browser_download_url" => "https://github.com/carverauto/serviceradar/releases/download/v7.0.0/manifest.json"
                    },
                    %{
                      "name" => "serviceradar-agent-release-manifest.sig",
-                     "browser_download_url" => "https://downloads.example/releases/v7.0.0/manifest.sig"
+                     "browser_download_url" => "https://github.com/carverauto/serviceradar/releases/download/v7.0.0/manifest.sig"
                    }
                  ]
                },
@@ -56,7 +56,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                  "assets" => [
                    %{
                      "name" => "serviceradar-agent-release-manifest.sig",
-                     "browser_download_url" => "https://downloads.example/releases/v6.9.9/manifest.sig"
+                     "browser_download_url" => "https://github.com/carverauto/serviceradar/releases/download/v6.9.9/manifest.sig"
                    }
                  ]
                }
@@ -75,11 +75,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                "assets" => [
                  %{
                    "name" => "serviceradar-agent-release-manifest.json",
-                   "browser_download_url" => "https://downloads.example/releases/v7.0.0/manifest.json"
+                   "browser_download_url" => "https://github.com/carverauto/serviceradar/releases/download/v7.0.0/manifest.json"
                  },
                  %{
                    "name" => "serviceradar-agent-release-manifest.sig",
-                   "browser_download_url" => "https://downloads.example/releases/v7.0.0/manifest.sig"
+                   "browser_download_url" => "https://github.com/carverauto/serviceradar/releases/download/v7.0.0/manifest.sig"
                  }
                ]
              }

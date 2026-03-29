@@ -299,8 +299,10 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       cmd = BundleGenerator.docker_install_command(package, download_token)
 
       assert cmd =~ "curl -fsSL"
+      assert cmd =~ "-X POST"
+      assert cmd =~ "x-serviceradar-download-token: ${SR_TOKEN}"
       assert cmd =~ package.id
-      assert cmd =~ download_token
+      refute cmd =~ download_token
       assert cmd =~ "docker run"
       assert cmd =~ "serviceradar-gateway"
     end
@@ -327,8 +329,10 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       cmd = BundleGenerator.systemd_install_command(package, download_token)
 
       assert cmd =~ "curl -fsSL"
+      assert cmd =~ "-X POST"
+      assert cmd =~ "x-serviceradar-download-token: ${SR_TOKEN}"
       assert cmd =~ package.id
-      assert cmd =~ download_token
+      refute cmd =~ download_token
       assert cmd =~ "sudo ./install.sh"
     end
 
@@ -348,8 +352,10 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       cmd = BundleGenerator.kubernetes_install_command(package, download_token)
 
       assert cmd =~ "curl -fsSL"
+      assert cmd =~ "-X POST"
+      assert cmd =~ "x-serviceradar-download-token: ${SR_TOKEN}"
       assert cmd =~ package.id
-      assert cmd =~ download_token
+      refute cmd =~ download_token
       assert cmd =~ "kubectl apply -f kubernetes/"
       assert cmd =~ "-n serviceradar"
     end
