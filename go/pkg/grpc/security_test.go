@@ -270,6 +270,18 @@ func TestNewSecurityProvider(t *testing.T) {
 		expectError bool
 	}{
 		{
+			name:        "NilConfig",
+			config:      nil,
+			expectError: true,
+		},
+		{
+			name: "EmptyMode",
+			config: &models.SecurityConfig{
+				Mode: "",
+			},
+			expectError: true,
+		},
+		{
 			name: "NoSecurity",
 			config: &models.SecurityConfig{
 				Mode: SecurityModeNone,
@@ -335,6 +347,37 @@ func TestNewSecurityProvider(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestNewClientRequiresSecurityProvider(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	client, err := NewClient(ctx, ClientConfig{
+		Address: "127.0.0.1:50051",
+		Logger:  createTestLogger(t),
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errSecurityProviderRequired)
+	assert.Nil(t, client)
+}
+
+func TestSpiffeProviderFailsClosedWithoutIdentityConstraints(t *testing.T) {
+	t.Run("client credentials require server spiffe id", func(t *testing.T) {
+		provider := &SpiffeProvider{}
+		opt, err := provider.GetClientCredentials(context.Background())
+		require.Error(t, err)
+		assert.ErrorIs(t, err, errServerSPIFFEIDRequired)
+		assert.Nil(t, opt)
+	})
+
+	t.Run("server credentials require trust domain", func(t *testing.T) {
+		provider := &SpiffeProvider{}
+		opt, err := provider.GetServerCredentials(context.Background())
+		require.Error(t, err)
+		assert.ErrorIs(t, err, errTrustDomainRequired)
+		assert.Nil(t, opt)
+	})
 }
 
 // generateTestCertificatesWithCFSSL uses cfssl to generate real test certificates.

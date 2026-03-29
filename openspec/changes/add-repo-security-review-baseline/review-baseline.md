@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-core-elx-pass-1`
+- Review artifact version: `2026-03-29-go-grpc-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -32,7 +32,7 @@
 | `elixir/serviceradar_core_elx/lib` | Primary | partial | Camera ingress transport/auth and analysis-worker outbound HTTP dispatch paths reviewed. New core-elx-specific findings recorded; deeper pass still pending. |
 | `go/pkg/agent` | Primary | partial | Plugin/runtime download flow reviewed; full package audit still pending. |
 | `go/pkg/edgeonboarding` | Primary | reviewed | Signed tokens, HTTPS enforcement, env override handling, collector onboarding reviewed and mapped. |
-| `go/pkg/grpc` | Primary | not-started | No dedicated review pass recorded yet. |
+| `go/pkg/grpc` | Primary | reviewed | Security provider defaults, SPIFFE identity binding, and insecure transport fallback reviewed. New gRPC package findings recorded. |
 | `go/pkg/config/bootstrap` | Primary | not-started | No dedicated review pass recorded yet. |
 | `rust/edge-onboarding` | Primary | not-started | No dedicated review pass recorded yet. |
 | `rust/config-bootstrap` | Primary | not-started | No dedicated review pass recorded yet. |
@@ -95,6 +95,7 @@ Disposition values used in this artifact:
 | `SR-013` | High | `elixir/serviceradar_core/lib` | Release artifact mirroring followed redirects implicitly, buffered downloads unsafely, and edge-site setup scripts interpolated shell-sensitive names. | `covered-by-change: harden-edge-artifact-fetch-and-leaf-bundles` |
 | `SR-014` | High | `elixir/serviceradar_agent_gateway/lib` | Agent gateway still has a fail-open plaintext listener mode, camera relay session operations are not bound to the owning agent, and cert issuance uses predictable temp paths. | `covered-by-change: harden-agent-gateway-edge-identity-boundaries` |
 | `SR-015` | High | `elixir/serviceradar_core_elx/lib`, `elixir/web-ng/lib`, `elixir/serviceradar_core/lib` | Core-ELX camera ingress still fails open on transport identity, and analysis-worker HTTP dispatch/probe paths trust operator-supplied URLs without outbound fetch policy enforcement. | `covered-by-change: harden-core-elx-camera-ingress-and-analysis-fetch` |
+| `SR-016` | High | `go/pkg/grpc` | The shared Go gRPC package still fails open to insecure transport when security config is absent and allows overly-broad SPIFFE identity authorization when server identity is omitted. | `covered-by-change: harden-go-grpc-security-defaults-and-spiffe-identity-binding` |
 
 ### Finding Details
 
@@ -248,6 +249,19 @@ Disposition values used in this artifact:
   - constrain worker endpoint configuration to validated safe URLs before persistence when possible
 - Disposition: `covered-by-change: harden-core-elx-camera-ingress-and-analysis-fetch`
 
+#### `SR-016` Go gRPC insecure-default and weak SPIFFE identity binding
+- Severity: High
+- Exploitability / Preconditions: caller omits a security provider or security config, or deploys SPIFFE mode without a pinned `server_spiffe_id` / trust-domain policy.
+- Affected Paths:
+  - `go/pkg/grpc`
+- Impact:
+  - `NewClient` silently falls back to plaintext transport when no `SecurityProvider` is supplied, and `NewSecurityProvider` returns `NoSecurityProvider` when config is nil or mode is empty, creating a fail-open transport downgrade path
+  - the SPIFFE client path defaults to `AuthorizeAny` with no `server_spiffe_id`, and the server path defaults to `AuthorizeAny` when no trust domain is configured, so workload identity binding can degrade from exact peer validation to any-SPIFFE acceptance
+- Remediation Guidance:
+  - remove implicit insecure defaults from the shared gRPC package and require explicit opt-in for `none` mode in narrowly-scoped dev/test call sites
+  - require pinned server identity or at least explicit trust-domain configuration for SPIFFE client/server credentials, and fail closed when identity constraints are absent
+- Disposition: `covered-by-change: harden-go-grpc-security-defaults-and-spiffe-identity-binding`
+
 ## Accepted Risk Register
 
 No accepted-risk entries have been recorded yet in this baseline artifact.
@@ -256,7 +270,6 @@ No accepted-risk entries have been recorded yet in this baseline artifact.
 
 The following primary-scope passes still need dedicated review evidence before the primary audit can be considered complete:
 - `elixir/serviceradar_core_elx/lib` deeper pass beyond camera ingress / analysis-worker HTTP dispatch
-- `go/pkg/grpc`
 - `go/pkg/config/bootstrap`
 - `rust/edge-onboarding`
 - `rust/config-bootstrap`
@@ -267,8 +280,7 @@ The following primary-scope passes still need dedicated review evidence before t
 
 Recommended next review order:
 1. `elixir/serviceradar_core_elx/lib` deeper pass
-2. `go/pkg/grpc`
-3. `go/pkg/config/bootstrap`
-4. `rust/edge-onboarding`
-5. `rust/config-bootstrap`
-6. `helm/serviceradar`
+2. `go/pkg/config/bootstrap`
+3. `rust/edge-onboarding`
+4. `rust/config-bootstrap`
+5. `helm/serviceradar`

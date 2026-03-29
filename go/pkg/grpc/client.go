@@ -58,7 +58,7 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 
 	// Default to no security if none provided
 	if cfg.SecurityProvider == nil {
-		cfg.SecurityProvider = &NoSecurityProvider{logger: cfg.Logger}
+		return nil, errSecurityProviderRequired
 	}
 
 	if cfg.MaxRetries == 0 {
