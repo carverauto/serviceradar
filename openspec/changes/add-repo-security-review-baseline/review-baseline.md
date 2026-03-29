@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-rust-zen-pass-1`
+- Review artifact version: `2026-03-29-rust-flowgger-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -51,7 +51,7 @@
 | `rust/trapd` | Secondary | reviewed | Reviewed SNMP ingest, NATS publish, and optional gRPC status server paths. A fail-open gRPC transport finding is recorded below. |
 | `rust/log-collector` | Secondary | reviewed | Reviewed startup, config-bootstrap, OTEL delegation, and shipped config samples. No new confirmed exploitable finding recorded in the current tree. |
 | `rust/consumers/zen` | Secondary | reviewed | Reviewed NATS, decision-engine, and optional gRPC status server paths. A fail-open gRPC transport and default exposure finding is recorded below. |
-| `rust/flowgger` | Secondary | not-started | Pending after primary scope closure. |
+| `rust/flowgger` | Secondary | reviewed | Reviewed gRPC sidecar, input listeners, and NATS output transport wiring. A fail-open gRPC transport finding is recorded below. |
 | `rust/srql` | Secondary | not-started | Pending targeted SRQL / query-safety pass. |
 | `docker/compose` | Secondary | not-started | Pending after primary scope closure. |
 | `k8s/demo` | Secondary | not-started | Pending after primary scope closure. |
@@ -108,6 +108,7 @@ Disposition values used in this artifact:
 | `SR-026` | Medium | `go/cmd/wasm-plugins/axis`, `go/pkg/agent` | The shipped AXIS camera plugin embeds camera credentials in the VAPIX event websocket URL userinfo even though the agent runtime supports structured websocket headers, creating avoidable credential leakage risk through URL-bearing surfaces. | `covered-by-change: harden-axis-plugin-websocket-credential-handling` |
 | `SR-027` | High | `rust/trapd` | The optional trapd gRPC status server explicitly permits plaintext mode and starts without TLS when `grpc_security.mode` is `none`, weakening an internal service trust boundary. | `covered-by-change: harden-rust-trapd-grpc-transport-defaults` |
 | `SR-028` | High | `rust/consumers/zen` | Zen starts a gRPC status server on `0.0.0.0:50055` by default and serves plaintext whenever `grpc_security` is absent or `none`, exposing an internal service boundary without authenticated transport. | `covered-by-change: harden-rust-zen-grpc-transport-defaults` |
+| `SR-029` | High | `rust/flowgger` | Flowgger’s optional gRPC health sidecar accepts `grpc.mode = "none"` and silently downgrades incomplete `mtls` config to plaintext serving, weakening an internal service boundary. | `covered-by-change: harden-rust-flowgger-grpc-transport-defaults` |
 
 ### Finding Details
 
@@ -331,6 +332,20 @@ Disposition values used in this artifact:
   - reject missing or insecure `grpc_security` for enabled gRPC serving
   - add focused tests proving the default runtime no longer exposes a plaintext gRPC port
 - Disposition: `covered-by-change: harden-rust-zen-grpc-transport-defaults`
+
+#### `SR-029` Flowgger gRPC sidecar silently downgrades to plaintext
+- Severity: High
+- Exploitability / Preconditions: a deployment enables the optional flowgger gRPC sidecar and either sets `grpc.mode = "none"` or configures `grpc.mode = "mtls"` without all required certificate paths.
+- Affected Paths:
+  - `rust/flowgger`
+- Impact:
+  - the flowgger gRPC helper accepts `grpc.mode = "none"` and starts a plaintext health server on the configured listener
+  - even when `grpc.mode = "mtls"` is selected, missing cert material silently downgrades the server to `SecuritySettings::None` instead of failing closed
+- Remediation Guidance:
+  - reject `grpc.mode = "none"` for the flowgger gRPC sidecar
+  - make incomplete mTLS configuration a validation error instead of a downgrade to plaintext
+  - add focused tests proving the gRPC sidecar only starts under mTLS or SPIFFE-backed transport
+- Disposition: `covered-by-change: harden-rust-flowgger-grpc-transport-defaults`
 
 #### `SR-015` Core-ELX media ingress trust-boundary and analysis-worker SSRF gap
 - Severity: High
