@@ -30,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Hooks
+  alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
   alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.Auth.SAMLAssertionValidator
   alias ServiceRadarWebNGWeb.Auth.SAMLStrategy
@@ -202,7 +203,8 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   defp get_saml_request_url(csrf_token) do
     with {:ok, config} <- SAMLStrategy.get_config(),
          {:xml, xml} <- config.idp_metadata,
-         {:ok, sso_url} <- extract_sso_url_from_metadata(xml) do
+         {:ok, sso_url} <- extract_sso_url_from_metadata(xml),
+         :ok <- validate_sso_redirect_url(sso_url) do
       # Build AuthnRequest URL
       sp_entity_id = config.sp_entity_id
       acs_url = config.acs_url
@@ -220,6 +222,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       {:ok, url}
     else
       {:url, _url} -> {:error, :invalid_metadata}
+      {:error, :invalid_sso_url} -> {:error, :invalid_metadata}
       error -> error
     end
   end
@@ -255,6 +258,15 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       Logger.error("Failed to parse IdP metadata: #{inspect(e)}")
       {:error, :metadata_parse_failed}
   end
+
+  defp validate_sso_redirect_url(url) when is_binary(url) do
+    case OutboundURLPolicy.validate(url) do
+      {:ok, _uri} -> :ok
+      {:error, _reason} -> {:error, :invalid_sso_url}
+    end
+  end
+
+  defp validate_sso_redirect_url(_url), do: {:error, :invalid_sso_url}
 
   defp build_authn_request(sp_entity_id, acs_url) do
     # Build a minimal SAML AuthnRequest

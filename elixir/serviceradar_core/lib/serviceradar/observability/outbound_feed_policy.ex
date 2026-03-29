@@ -26,4 +26,27 @@ defmodule ServiceRadar.Observability.OutboundFeedPolicy do
   def format_reason(:invalid_url), do: "feed URL is invalid"
   def format_reason(reason) when is_binary(reason), do: reason
   def format_reason(reason), do: inspect(reason)
+
+  @spec redact_url(String.t()) :: String.t()
+  def redact_url(url) when is_binary(url) do
+    uri = URI.parse(String.trim(url))
+
+    sanitized =
+      uri
+      |> Map.put(:userinfo, nil)
+      |> Map.put(:query, nil)
+      |> Map.put(:fragment, nil)
+
+    case sanitized do
+      %URI{scheme: scheme, host: host} when is_binary(scheme) and is_binary(host) ->
+        URI.to_string(sanitized)
+
+      _ ->
+        "[redacted]"
+    end
+  rescue
+    _ -> "[redacted]"
+  end
+
+  def redact_url(_url), do: "[redacted]"
 end

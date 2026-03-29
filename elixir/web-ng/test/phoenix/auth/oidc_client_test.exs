@@ -107,6 +107,31 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
       # Should be either not_configured or discovery_failed
       assert match?({:error, _}, result)
     end
+
+    test "rejects a discovery-provided authorization endpoint that violates outbound policy" do
+      put_oidc_settings(%{
+        is_enabled: true,
+        mode: :active_sso,
+        provider_type: :oidc,
+        oidc_client_id: "client-id",
+        oidc_client_secret_encrypted: "client-secret",
+        oidc_discovery_url: "https://idp.example.com",
+        oidc_scopes: "openid email profile"
+      })
+
+      ConfigCache.put_cached(
+        "oidc_metadata:https://idp.example.com",
+        %{
+          "issuer" => "https://idp.example.com",
+          "authorization_endpoint" => "https://127.0.0.1/authorize",
+          "token_endpoint" => "https://idp.example.com/token",
+          "jwks_uri" => "https://idp.example.com/jwks"
+        },
+        ttl: to_timeout(minute: 5)
+      )
+
+      assert {:error, :discovery_failed} = OIDCClient.authorize_url()
+    end
   end
 
   describe "exchange_code/2" do

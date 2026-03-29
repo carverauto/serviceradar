@@ -30,7 +30,9 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   """
   def authorize_url(opts \\ []) do
     with {:ok, config} <- get_config(),
-         {:ok, metadata} <- fetch_discovery_metadata(config.discovery_url) do
+         {:ok, metadata} <- fetch_discovery_metadata(config.discovery_url),
+         {:ok, authorization_endpoint} <-
+           validate_redirect_endpoint(metadata["authorization_endpoint"]) do
       state = generate_state()
       nonce = generate_nonce()
 
@@ -43,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
         nonce: nonce
       }
 
-      url = "#{metadata["authorization_endpoint"]}?#{URI.encode_query(params)}"
+      url = "#{authorization_endpoint}?#{URI.encode_query(params)}"
 
       {:ok, url, %{state: state, nonce: nonce}}
     end
@@ -273,6 +275,15 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
         {:error, :token_exchange_failed}
     end
   end
+
+  defp validate_redirect_endpoint(url) when is_binary(url) do
+    case OutboundURLPolicy.validate(url) do
+      {:ok, _uri} -> {:ok, url}
+      {:error, _reason} -> {:error, :discovery_failed}
+    end
+  end
+
+  defp validate_redirect_endpoint(_url), do: {:error, :discovery_failed}
 
   defp decode_and_verify_jwt(token, jwks) do
     # Parse JWT header to get key ID

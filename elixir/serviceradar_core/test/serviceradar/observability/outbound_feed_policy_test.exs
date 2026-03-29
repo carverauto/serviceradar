@@ -11,4 +11,9 @@ defmodule ServiceRadar.Observability.OutboundFeedPolicyTest do
   test "allows public https addresses" do
     assert :ok = OutboundFeedPolicy.validate("https://1.1.1.1/public-feed.txt")
   end
+
+  test "redacts query strings and userinfo from logged URLs" do
+    assert OutboundFeedPolicy.redact_url("https://user:pass@example.com/feed.txt?token=abc123") ==
+             "https://example.com/feed.txt"
+  end
 end

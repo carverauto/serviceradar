@@ -112,7 +112,7 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
   end
 
   defp do_refresh_feed(url, actor, now, expires_at, timeout_ms, max_indicators_per_feed) do
-    Logger.info("Threat intel feed refresh", url: url)
+    Logger.info("Threat intel feed refresh", url: OutboundFeedPolicy.redact_url(url))
 
     with {:ok, body} <- download_feed(url, timeout_ms) do
       source = normalize_source(url)
@@ -135,7 +135,11 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
         {:ok, body}
 
       {:ok, %Req.Response{status: status}} ->
-        Logger.warning("Threat intel feed download failed", url: url, status: status)
+        Logger.warning("Threat intel feed download failed",
+          url: OutboundFeedPolicy.redact_url(url),
+          status: status
+        )
+
         {:error, {:http_status, status}}
 
       {:error, reason} ->
