@@ -546,6 +546,42 @@ logCollector:
         port: 2055
         targetPort: 2055
         protocol: UDP
+  tcpCollector:
+    enabled: false
+    listen: "0.0.0.0:514"
+    format: "rfc3164"
+    framing: "line"
+    subject: "logs.syslog"
+    service:
+      type: ClusterIP
+      annotations: {}
+      loadBalancerIP: ""
+      externalTrafficPolicy: Cluster
+      ports:
+        syslog:
+          enabled: true
+          port: 514
+          targetPort: 514
+          protocol: TCP
+    externalService:
+      enabled: false
+      type: LoadBalancer
+      externalTrafficPolicy: Cluster
+      annotations: {}
+      loadBalancerIP: ""
+      ports:
+        syslog:
+          enabled: true
+          port: 514
+          targetPort: 514
+          protocol: TCP
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
 trapd:
   # External service configuration for SNMP trap ingestion from outside the cluster.
   # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
