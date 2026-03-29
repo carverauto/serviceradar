@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Shell
+  alias ServiceRadarWebNG.TempArchive
   alias ServiceRadarWebNG.Edge.OnboardingToken
   alias ServiceRadarWebNG.Web.EndpointConfig
 
@@ -534,38 +535,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   @sobelow_skip ["Traversal.FileModule"]
   defp create_tar_gz(files) do
-    # Create tarball entries
-    entries =
-      Enum.map(files, fn {name, content} ->
-        data =
-          case content do
-            nil -> ""
-            _ -> IO.iodata_to_binary(content)
-          end
-
-        {String.to_charlist(name), data}
-      end)
-
-    tmp_path =
-      Path.join(
-        System.tmp_dir!(),
-        "serviceradar-bundle-#{:erlang.unique_integer([:positive])}.tar.gz"
-      )
-
-    try do
-      case :erl_tar.create(String.to_charlist(tmp_path), entries, [:compressed]) do
-        :ok ->
-          case File.read(tmp_path) do
-            {:ok, tarball} -> {:ok, tarball}
-            {:error, reason} -> {:error, reason}
-          end
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    after
-      _ = File.rm(tmp_path)
-    end
+    TempArchive.create_tar_gz("serviceradar-bundle", files)
   end
 
   # Kubernetes manifest generation

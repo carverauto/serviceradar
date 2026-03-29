@@ -166,4 +166,45 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
                source_repo_url: @repo_url
              })
   end
+
+  test "rejects verified commits when trusted signer allowlist is missing" do
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: true,
+      allow_unsigned_uploads: true,
+      trusted_github_signers: []
+    )
+
+    assert {:error, :trusted_signers_not_configured} =
+             GitHubImporter.fetch(%{
+               source_repo_url: @repo_url
+             })
+  end
+
+  test "rejects verified commits from untrusted signers" do
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: true,
+      allow_unsigned_uploads: true,
+      trusted_github_signers: ["trusted-maintainer"]
+    )
+
+    assert {:error, :untrusted_signer} =
+             GitHubImporter.fetch(%{
+               source_repo_url: @repo_url
+             })
+  end
+
+  test "accepts verified commits from trusted signers" do
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: true,
+      allow_unsigned_uploads: true,
+      trusted_github_signers: ["octo"]
+    )
+
+    assert {:ok, result} =
+             GitHubImporter.fetch(%{
+               source_repo_url: @repo_url
+             })
+
+    assert result.gpg_key_id == "octo"
+  end
 end

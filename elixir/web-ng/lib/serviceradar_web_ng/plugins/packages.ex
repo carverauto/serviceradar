@@ -438,10 +438,30 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   end
 
   defp enforce_github_policy(package, policy) do
-    if policy.require_gpg_for_github and is_nil(package.gpg_verified_at) do
-      {:error, :verification_required}
-    else
-      :ok
+    signer =
+      package.signature
+      |> signer_from_signature()
+      |> case do
+        nil -> package.gpg_key_id
+        value -> value
+      end
+      |> normalize_signer()
+
+    cond do
+      not policy.require_gpg_for_github ->
+        :ok
+
+      is_nil(package.gpg_verified_at) ->
+        {:error, :verification_required}
+
+      policy.trusted_github_signers == [] ->
+        {:error, :trusted_signers_not_configured}
+
+      signer in policy.trusted_github_signers ->
+        :ok
+
+      true ->
+        {:error, :untrusted_signer}
     end
   end
 
@@ -465,9 +485,29 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
     %{
       require_gpg_for_github: Keyword.get(config, :require_gpg_for_github, false),
-      allow_unsigned_uploads: Keyword.get(config, :allow_unsigned_uploads, true)
+      allow_unsigned_uploads: Keyword.get(config, :allow_unsigned_uploads, true),
+      trusted_github_signers:
+        config
+        |> Keyword.get(:trusted_github_signers, [])
+        |> Enum.map(&normalize_signer/1)
+        |> Enum.reject(&is_nil/1)
     }
   end
+
+  defp signer_from_signature(%{"signer" => signer}) when is_binary(signer), do: signer
+  defp signer_from_signature(%{signer: signer}) when is_binary(signer), do: signer
+  defp signer_from_signature(_signature), do: nil
+
+  defp normalize_signer(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      signer -> String.downcase(signer)
+    end
+  end
+
+  defp normalize_signer(_value), do: nil
 
   defp maybe_put(attrs, _key, nil), do: attrs
   defp maybe_put(attrs, _key, value) when value == [], do: attrs

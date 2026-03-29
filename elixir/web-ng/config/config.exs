@@ -166,6 +166,13 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
 config :serviceradar_web_ng, :allow_insecure_metadata_urls, false
 config :serviceradar_web_ng, :god_view_enabled, false
 
+config :serviceradar_web_ng, :client_ip,
+  trust_x_forwarded_for: false,
+  trusted_proxy_cidrs: []
+
+config :serviceradar_web_ng, :token_revocation,
+  store_path: "/var/lib/serviceradar/auth/revoked_tokens.dets"
+
 config :serviceradar_web_ng, :plugin_storage,
   backend: :filesystem,
   base_path: "/var/lib/serviceradar/plugin-packages/data",
@@ -178,7 +185,8 @@ config :serviceradar_web_ng, :plugin_storage,
 
 config :serviceradar_web_ng, :plugin_verification,
   require_gpg_for_github: false,
-  allow_unsigned_uploads: true
+  allow_unsigned_uploads: true,
+  trusted_github_signers: []
 
 config :serviceradar_web_ng, :saml_assertion_max_validity_seconds, 300
 

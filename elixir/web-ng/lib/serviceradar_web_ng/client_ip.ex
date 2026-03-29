@@ -10,20 +10,20 @@ defmodule ServiceRadarWebNG.ClientIP do
 
   import Plug.Conn
 
+  alias ServiceRadar.Policies.NetworkAddressPolicy
+
   @xff_header "x-forwarded-for"
 
   @spec get(Plug.Conn.t()) :: String.t()
   def get(%Plug.Conn{} = conn) do
     remote = conn.remote_ip |> :inet.ntoa() |> to_string()
 
-    if trust_x_forwarded_for?() do
+    if trust_x_forwarded_for?() and trusted_proxy?(conn.remote_ip) do
       case get_req_header(conn, @xff_header) do
         [forwarded | _] ->
           forwarded
-          |> String.split(",", parts: 2)
-          |> List.first()
-          |> to_string()
-          |> String.trim()
+          |> forwarded_chain()
+          |> resolve_forwarded_ip()
           |> valid_ip_or(remote)
 
         _ ->
@@ -38,6 +38,52 @@ defmodule ServiceRadarWebNG.ClientIP do
     :serviceradar_web_ng
     |> Application.get_env(:client_ip, [])
     |> Keyword.get(:trust_x_forwarded_for, false)
+  end
+
+  defp trusted_proxy_cidrs do
+    :serviceradar_web_ng
+    |> Application.get_env(:client_ip, [])
+    |> Keyword.get(:trusted_proxy_cidrs, [])
+  end
+
+  defp trusted_proxy?(ip_tuple) when is_tuple(ip_tuple) do
+    NetworkAddressPolicy.ip_in_any_cidr?(ip_tuple, trusted_proxy_cidrs())
+  end
+
+  defp trusted_proxy?(_ip), do: false
+
+  defp forwarded_chain(forwarded) when is_binary(forwarded) do
+    forwarded
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp resolve_forwarded_ip(chain) when is_list(chain) do
+    trusted_proxy_cidrs = trusted_proxy_cidrs()
+
+    chain
+    |> Enum.reverse()
+    |> Enum.find_value(fn candidate ->
+      case parse_ip(candidate) do
+        {:ok, ip} ->
+          if NetworkAddressPolicy.ip_in_any_cidr?(ip, trusted_proxy_cidrs) do
+            nil
+          else
+            candidate
+          end
+
+        :error ->
+          nil
+      end
+    end)
+  end
+
+  defp parse_ip(ip) when is_binary(ip) do
+    case :inet.parse_address(String.to_charlist(ip)) do
+      {:ok, parsed} -> {:ok, parsed}
+      {:error, _} -> :error
+    end
   end
 
   defp valid_ip_or(ip, fallback) when is_binary(ip) do

@@ -48,6 +48,48 @@ defmodule ServiceRadarWebNG.Plugins.PackagePolicyTest do
              Plugins.approve_package(package.id, %{}, scope: nil, approved_by: "admin")
   end
 
+  test "blocks approval for github packages when trusted signers are not configured" do
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: true,
+      allow_unsigned_uploads: true,
+      trusted_github_signers: []
+    )
+
+    _plugin = create_plugin()
+
+    package =
+      create_package(%{
+        source_type: :github,
+        gpg_verified_at: DateTime.utc_now(),
+        gpg_key_id: "octo",
+        signature: %{"signer" => "octo"}
+      })
+
+    assert {:error, :trusted_signers_not_configured} =
+             Plugins.approve_package(package.id, %{}, scope: nil, approved_by: "admin")
+  end
+
+  test "blocks approval for github packages from untrusted signers" do
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: true,
+      allow_unsigned_uploads: true,
+      trusted_github_signers: ["trusted-maintainer"]
+    )
+
+    _plugin = create_plugin()
+
+    package =
+      create_package(%{
+        source_type: :github,
+        gpg_verified_at: DateTime.utc_now(),
+        gpg_key_id: "octo",
+        signature: %{"signer" => "octo"}
+      })
+
+    assert {:error, :untrusted_signer} =
+             Plugins.approve_package(package.id, %{}, scope: nil, approved_by: "admin")
+  end
+
   test "blocks assignments for non-approved packages" do
     _plugin = create_plugin()
     package = create_package(%{source_type: :upload})

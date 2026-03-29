@@ -171,6 +171,9 @@ config :serviceradar_web_ng,
        :token_signing_secret,
        "dev_token_signing_secret_at_least_32_chars_long!"
 
+config :serviceradar_web_ng, :token_revocation,
+  store_path: Path.join(System.tmp_dir!(), "serviceradar_web_ng_dev/revoked_tokens.dets")
+
 # Enable dev routes for dashboard and mailbox
 config :serviceradar_web_ng, dev_routes: true
 

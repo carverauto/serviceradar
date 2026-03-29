@@ -166,6 +166,7 @@ plugin_storage_path = System.get_env("PLUGIN_STORAGE_PATH")
 plugin_storage_bucket = System.get_env("PLUGIN_STORAGE_BUCKET")
 plugin_storage_signing_secret = System.get_env("PLUGIN_STORAGE_SIGNING_SECRET")
 plugin_verification_defaults = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
+client_ip_defaults = Application.get_env(:serviceradar_web_ng, :client_ip, [])
 
 to_int = fn value ->
   cond do
@@ -198,6 +199,22 @@ to_bool = fn value ->
         "no" -> false
         _ -> nil
       end
+
+    true ->
+      nil
+  end
+end
+
+to_csv_list = fn value ->
+  cond do
+    is_list(value) ->
+      value
+
+    is_binary(value) ->
+      value
+      |> String.split(",", trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
 
     true ->
       nil
@@ -343,11 +360,44 @@ plugin_verification_overrides =
     System.get_env("PLUGIN_ALLOW_UNSIGNED_UPLOADS"),
     to_bool
   )
+  |> maybe_put_env.(
+    :trusted_github_signers,
+    System.get_env("PLUGIN_TRUSTED_GITHUB_SIGNERS"),
+    to_csv_list
+  )
 
 if plugin_verification_overrides != [] do
   config :serviceradar_web_ng,
          :plugin_verification,
          Keyword.merge(plugin_verification_defaults, plugin_verification_overrides)
+end
+
+client_ip_overrides =
+  []
+  |> maybe_put_env.(
+    :trust_x_forwarded_for,
+    System.get_env("SERVICERADAR_TRUST_X_FORWARDED_FOR"),
+    to_bool
+  )
+  |> maybe_put_env.(
+    :trusted_proxy_cidrs,
+    System.get_env("SERVICERADAR_TRUSTED_PROXY_CIDRS"),
+    to_csv_list
+  )
+
+if client_ip_overrides != [] do
+  config :serviceradar_web_ng, :client_ip, Keyword.merge(client_ip_defaults, client_ip_overrides)
+end
+
+case System.get_env("SERVICERADAR_TOKEN_REVOCATION_STORE_PATH") do
+  nil ->
+    :ok
+
+  "" ->
+    :ok
+
+  store_path ->
+    config :serviceradar_web_ng, :token_revocation, store_path: store_path
 end
 
 # libcluster configuration for ERTS cluster formation

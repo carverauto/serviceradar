@@ -187,17 +187,50 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   end
 
   defp enforce_verification_policy(%{verification: verification}) do
-    require_gpg =
-      :serviceradar_web_ng
-      |> Application.get_env(:plugin_verification, [])
-      |> Keyword.get(:require_gpg_for_github, false)
+    policy = verification_policy()
+    signer = fetch_signer(verification)
 
-    if require_gpg and Map.get(verification, "verified") != true do
-      {:error, :verification_required}
-    else
-      :ok
+    cond do
+      not policy.require_gpg_for_github ->
+        :ok
+
+      Map.get(verification, "verified") != true ->
+        {:error, :verification_required}
+
+      policy.trusted_github_signers == [] ->
+        {:error, :trusted_signers_not_configured}
+
+      signer in policy.trusted_github_signers ->
+        :ok
+
+      true ->
+        {:error, :untrusted_signer}
     end
   end
+
+  defp verification_policy do
+    config = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
+
+    %{
+      require_gpg_for_github: Keyword.get(config, :require_gpg_for_github, false),
+      trusted_github_signers:
+        config
+        |> Keyword.get(:trusted_github_signers, [])
+        |> Enum.map(&normalize_signer/1)
+        |> Enum.reject(&is_nil/1)
+    }
+  end
+
+  defp normalize_signer(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      signer -> String.downcase(signer)
+    end
+  end
+
+  defp normalize_signer(_value), do: nil
 
   defp fetch_raw(%{owner: owner, repo: repo}, ref, path) do
     url = "https://raw.githubusercontent.com/#{owner}/#{repo}/#{ref}/#{path}"

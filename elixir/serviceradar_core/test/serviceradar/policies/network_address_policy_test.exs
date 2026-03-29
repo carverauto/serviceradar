@@ -31,4 +31,18 @@ defmodule ServiceRadar.Policies.NetworkAddressPolicyTest do
     assert NetworkAddressPolicy.private_or_loopback_ip?({0xFC00, 0, 0, 0, 0, 0, 0, 1})
     refute NetworkAddressPolicy.private_or_loopback_ip?({8, 8, 8, 8})
   end
+
+  test "matches IPs against configured CIDRs" do
+    assert NetworkAddressPolicy.cidr_contains?({10, 1, 2, 3}, "10.0.0.0/8")
+    assert NetworkAddressPolicy.cidr_contains?({192, 168, 1, 10}, "192.168.0.0/16")
+    assert NetworkAddressPolicy.cidr_contains?({0xFD00, 0, 0, 0, 0, 0, 0, 1}, "fd00::/8")
+
+    refute NetworkAddressPolicy.cidr_contains?({8, 8, 8, 8}, "10.0.0.0/8")
+    refute NetworkAddressPolicy.cidr_contains?({10, 1, 2, 3}, "invalid")
+  end
+
+  test "matches IPs against any CIDR in a list" do
+    assert NetworkAddressPolicy.ip_in_any_cidr?({10, 0, 0, 4}, ["192.168.0.0/16", "10.0.0.0/8"])
+    refute NetworkAddressPolicy.ip_in_any_cidr?({8, 8, 8, 8}, ["192.168.0.0/16", "10.0.0.0/8"])
+  end
 end

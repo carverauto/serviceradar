@@ -152,6 +152,8 @@ config :serviceradar_web_ng, :base_url, "http://localhost:4002"
 config :serviceradar_web_ng, :env, :test
 config :serviceradar_web_ng, :god_view_runtime_graph_auto_refresh, false
 config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
+config :serviceradar_web_ng, :token_revocation,
+  store_path: Path.join(System.tmp_dir!(), "serviceradar_web_ng_test/revoked_tokens.dets")
 
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
