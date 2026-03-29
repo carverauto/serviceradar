@@ -464,13 +464,9 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
   end
 
   defp read_full_body(conn, max_bytes) do
-    tmp_path =
-      Path.join(
-        System.tmp_dir!(),
-        "serviceradar-plugin-upload-#{System.unique_integer([:positive])}.wasm"
-      )
+    tmp_path = plugin_upload_temp_path()
 
-    case File.open(tmp_path, [:write, :binary]) do
+    case File.open(tmp_path, [:write, :binary, :exclusive]) do
       {:ok, io_device} ->
         try do
           case read_body_more(conn, max_bytes, io_device, 0) do
@@ -491,6 +487,15 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
   end
 
   defp read_body_to_tempfile(conn, max_bytes), do: read_full_body(conn, max_bytes)
+
+  defp plugin_upload_temp_path do
+    random_name =
+      16
+      |> :crypto.strong_rand_bytes()
+      |> Base.url_encode64(padding: false)
+
+    Path.join(System.tmp_dir!(), "serviceradar-plugin-upload-#{random_name}.wasm")
+  end
 
   defp read_body_more(conn, max_bytes, io_device, size) do
     if size >= max_bytes do
