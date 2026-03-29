@@ -125,7 +125,7 @@ defmodule ServiceRadar.Policies.NetworkAddressPolicy do
       [ip_text, bits_text] ->
         with {:ok, ip} <- :inet.parse_address(String.to_charlist(ip_text)),
              {bits, ""} <- Integer.parse(bits_text),
-             size_bits <- ip_size_bits(ip),
+             size_bits = ip_size_bits(ip),
              true <- bits >= 0 and bits <= size_bits do
           {:ok, {ip, bits, size_bits}}
         else
