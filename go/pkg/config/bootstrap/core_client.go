@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	coregrpc "github.com/carverauto/serviceradar/go/pkg/grpc"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -17,6 +16,8 @@ import (
 
 var (
 	errCoreMTLSConfig         = errors.New("CORE_SEC_MODE=mtls requires CORE_CERT_FILE, CORE_KEY_FILE, and CORE_CA_FILE")
+	errCoreSecurityRequired   = errors.New("CORE_SEC_MODE must be set to a secure mode")
+	errInsecureCoreSecMode    = errors.New("CORE_SEC_MODE=none is not allowed for bootstrap core registration")
 	errUnsupportedCoreSecMode = errors.New("unsupported CORE_SEC_MODE")
 )
 
@@ -45,15 +46,17 @@ func BuildCoreDialOptionsFromEnv(ctx context.Context, role models.ServiceRole, l
 		return []grpc.DialOption{creds}, closer, nil
 	}
 
-	return []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, noOpCloser, nil
+	return nil, noOpCloser, errCoreSecurityRequired
 }
 
 // CoreSecurityProviderFromEnv returns a security provider initialized from CORE_* env vars.
 func CoreSecurityProviderFromEnv(ctx context.Context, role models.ServiceRole, log logger.Logger) (coregrpc.SecurityProvider, error) {
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("CORE_SEC_MODE")))
 	switch mode {
-	case "", "none":
-		return nil, nil
+	case "":
+		return nil, errCoreSecurityRequired
+	case "none":
+		return nil, errInsecureCoreSecMode
 	case "spiffe":
 		workloadSocket := strings.TrimSpace(os.Getenv("CORE_WORKLOAD_SOCKET"))
 		if workloadSocket == "" {

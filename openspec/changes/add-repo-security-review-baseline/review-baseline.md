@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-go-grpc-pass-1`
+- Review artifact version: `2026-03-29-go-config-bootstrap-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -33,7 +33,7 @@
 | `go/pkg/agent` | Primary | partial | Plugin/runtime download flow reviewed; full package audit still pending. |
 | `go/pkg/edgeonboarding` | Primary | reviewed | Signed tokens, HTTPS enforcement, env override handling, collector onboarding reviewed and mapped. |
 | `go/pkg/grpc` | Primary | reviewed | Security provider defaults, SPIFFE identity binding, and insecure transport fallback reviewed. New gRPC package findings recorded. |
-| `go/pkg/config/bootstrap` | Primary | not-started | No dedicated review pass recorded yet. |
+| `go/pkg/config/bootstrap` | Primary | reviewed | Core bootstrap-to-core template registration path reviewed; insecure transport fallback finding recorded and mapped to a dedicated hardening change. |
 | `rust/edge-onboarding` | Primary | not-started | No dedicated review pass recorded yet. |
 | `rust/config-bootstrap` | Primary | not-started | No dedicated review pass recorded yet. |
 | `helm/serviceradar` | Primary | partial | Network policy and gateway exposure reviewed; full deployment-exposure pass still pending. |
@@ -96,6 +96,7 @@ Disposition values used in this artifact:
 | `SR-014` | High | `elixir/serviceradar_agent_gateway/lib` | Agent gateway still has a fail-open plaintext listener mode, camera relay session operations are not bound to the owning agent, and cert issuance uses predictable temp paths. | `covered-by-change: harden-agent-gateway-edge-identity-boundaries` |
 | `SR-015` | High | `elixir/serviceradar_core_elx/lib`, `elixir/web-ng/lib`, `elixir/serviceradar_core/lib` | Core-ELX camera ingress still fails open on transport identity, and analysis-worker HTTP dispatch/probe paths trust operator-supplied URLs without outbound fetch policy enforcement. | `covered-by-change: harden-core-elx-camera-ingress-and-analysis-fetch` |
 | `SR-016` | High | `go/pkg/grpc` | The shared Go gRPC package still fails open to insecure transport when security config is absent and allows overly-broad SPIFFE identity authorization when server identity is omitted. | `covered-by-change: harden-go-grpc-security-defaults-and-spiffe-identity-binding` |
+| `SR-017` | High | `go/pkg/config/bootstrap` | Bootstrap template registration still falls back to plaintext gRPC when `CORE_SEC_MODE` is empty or `none`, allowing fail-open core transport during bootstrap/config registration. | `covered-by-change: harden-bootstrap-core-transport-defaults` |
 
 ### Finding Details
 
@@ -262,6 +263,19 @@ Disposition values used in this artifact:
   - require pinned server identity or at least explicit trust-domain configuration for SPIFFE client/server credentials, and fail closed when identity constraints are absent
 - Disposition: `covered-by-change: harden-go-grpc-security-defaults-and-spiffe-identity-binding`
 
+#### `SR-017` Bootstrap core template registration insecure transport fallback
+- Severity: High
+- Exploitability / Preconditions: operator or deployment leaves `CORE_SEC_MODE` empty or sets it to `none` while bootstrap tooling is permitted to reach a core gRPC endpoint.
+- Affected Paths:
+  - `go/pkg/config/bootstrap`
+- Impact:
+  - bootstrap tooling that publishes configuration templates to core falls back to `insecure.NewCredentials()` when `CORE_SEC_MODE` is omitted or `none`, so template registration can cross the control-plane trust boundary over plaintext instead of authenticated transport
+  - this downgrades an internal bootstrap/configuration path silently on misconfiguration, which is the same fail-open pattern already removed from the shared gRPC package
+- Remediation Guidance:
+  - require explicit secure transport configuration for bootstrap-to-core gRPC registration and reject empty or insecure `CORE_SEC_MODE` values in this package
+  - keep transport setup aligned with the hardened `go/pkg/grpc` package so bootstrap callers cannot reintroduce plaintext defaults locally
+- Disposition: `covered-by-change: harden-bootstrap-core-transport-defaults`
+
 ## Accepted Risk Register
 
 No accepted-risk entries have been recorded yet in this baseline artifact.
@@ -270,7 +284,6 @@ No accepted-risk entries have been recorded yet in this baseline artifact.
 
 The following primary-scope passes still need dedicated review evidence before the primary audit can be considered complete:
 - `elixir/serviceradar_core_elx/lib` deeper pass beyond camera ingress / analysis-worker HTTP dispatch
-- `go/pkg/config/bootstrap`
 - `rust/edge-onboarding`
 - `rust/config-bootstrap`
 - `helm/serviceradar` full deployment-exposure pass
@@ -280,7 +293,7 @@ The following primary-scope passes still need dedicated review evidence before t
 
 Recommended next review order:
 1. `elixir/serviceradar_core_elx/lib` deeper pass
-2. `go/pkg/config/bootstrap`
-3. `rust/edge-onboarding`
-4. `rust/config-bootstrap`
-5. `helm/serviceradar`
+2. `rust/edge-onboarding`
+3. `rust/config-bootstrap`
+4. `helm/serviceradar`
+5. `go/pkg/agent`
