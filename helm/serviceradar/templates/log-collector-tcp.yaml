@@ -1,0 +1,259 @@
+{{- $tcpCollector := default (dict) .Values.logCollector.tcpCollector }}
+{{- $tcpCollectorService := default (dict) $tcpCollector.service }}
+{{- $tcpCollectorServicePorts := default (dict) $tcpCollectorService.ports }}
+{{- $tcpCollectorExternalService := default (dict) $tcpCollector.externalService }}
+{{- $tcpCollectorExternalServicePorts := default (dict) $tcpCollectorExternalService.ports }}
+{{- if $tcpCollector.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-log-collector-tcp-config
+data:
+  log-collector.toml: |
+    [flowgger]
+    enabled = true
+    config_file = "/etc/serviceradar/flowgger.toml"
+
+    [otel]
+    enabled = false
+
+    [health]
+    listen_addr = "0.0.0.0:50044"
+
+  flowgger.toml: |
+    [input]
+    type = "tcp"
+    listen = {{ default "0.0.0.0:514" $tcpCollector.listen | quote }}
+    format = {{ default "rfc3164" $tcpCollector.format | quote }}
+    framing = {{ default "line" $tcpCollector.framing | quote }}
+
+    [output]
+    type = "nats"
+    format = "gelf"
+    framing = "noop"
+    partition = "default"
+    nats_url = "tls://serviceradar-nats:4222"
+    nats_subject = {{ default "logs.syslog" $tcpCollector.subject | quote }}
+    nats_stream = "events"
+    nats_timeout = 30000
+    nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"
+    nats_tls_cert = "/etc/serviceradar/certs/log-collector.pem"
+    nats_tls_key = "/etc/serviceradar/certs/log-collector-key.pem"
+    nats_tls_skip_verify = false
+{{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
+    nats_creds_file = "/etc/serviceradar/creds/platform.creds"
+{{- end }}
+
+    [logging]
+    level = "info"
+    format = "json"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-log-collector-tcp
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-log-collector-tcp
+  template:
+    metadata:
+      labels:
+        app: serviceradar-log-collector-tcp
+        app.kubernetes.io/part-of: serviceradar
+      {{- if .Values.global.forceRolloutOnUpgrade }}
+      annotations:
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+      {{- end }}
+    spec:
+      {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      serviceAccountName: {{ .Values.spire.logCollectorServiceAccount | default "serviceradar-log-collector" }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+      - name: wait-for-cert-files
+        image: alpine:3.20
+        {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
+        command: ["/bin/sh", "-ec"]
+        args:
+        - |
+          for file in /etc/serviceradar/certs/log-collector.pem /etc/serviceradar/certs/log-collector-key.pem /etc/serviceradar/certs/root.pem; do
+            i=0
+            until [ -f "${file}" ]; do
+              i=$((i+1))
+              if [ "${i}" -ge 90 ]; then
+                echo "Timed out waiting for ${file}" >&2
+                exit 1
+              fi
+              sleep 2
+            done
+          done
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+      {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
+      - name: wait-for-nats-creds
+        image: alpine:3.20
+        {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
+        command: ["/bin/sh", "-ec"]
+        args:
+        - |
+          i=0
+          until [ -f /etc/serviceradar/creds/platform.creds ]; do
+            i=$((i+1))
+            if [ "${i}" -ge 90 ]; then
+              echo "Timed out waiting for /etc/serviceradar/creds/platform.creds" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+        volumeMounts:
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+      {{- end }}
+      containers:
+      - name: log-collector
+        image: ghcr.io/carverauto/serviceradar-log-collector{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "logCollector") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.bindServiceContainerSecurityContext" . | nindent 8 }}
+        ports:
+        - name: syslog-tcp
+          containerPort: 514
+          protocol: TCP
+        - name: grpc
+          containerPort: 50044
+          protocol: TCP
+        env:
+{{ include "serviceradar.kvEnv" . | indent 8 }}
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/log-collector.toml"
+        - name: RUST_LOG
+          value: "info"
+        {{- include "serviceradar.configSyncEnv" (dict "cfg" (default (dict) .Values.configSync.logCollector)) | nindent 8 }}
+        livenessProbe:
+          grpc:
+            port: 50044
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          grpc:
+            port: 50044
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          {{- toYaml (default .Values.logCollector.resources $tcpCollector.resources) | nindent 10 }}
+        volumeMounts:
+        - name: log-collector-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+        {{- end }}
+        - name: log-collector-data
+          mountPath: /var/lib/serviceradar
+        - name: logs
+          mountPath: /var/log/serviceradar
+        {{- if .Values.spire.enabled }}
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+        {{- end }}
+      volumes:
+      - name: log-collector-config
+        configMap:
+          name: serviceradar-log-collector-tcp-config
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+      {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
+      - name: nats-creds
+        secret:
+          secretName: serviceradar-nats-creds
+      {{- end }}
+      - name: log-collector-data
+        emptyDir: {}
+      - name: logs
+        emptyDir: {}
+      {{- if .Values.spire.enabled }}
+      - name: spire-agent-socket
+        hostPath:
+          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
+          type: DirectoryOrCreate
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-log-collector-tcp
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+  {{- with $tcpCollectorService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    app: serviceradar-log-collector-tcp
+  type: {{ default "ClusterIP" $tcpCollectorService.type }}
+  {{- if and $tcpCollectorService.externalTrafficPolicy (ne (default "ClusterIP" $tcpCollectorService.type) "ClusterIP") }}
+  externalTrafficPolicy: {{ $tcpCollectorService.externalTrafficPolicy }}
+  {{- end }}
+  {{- if and $tcpCollectorService.loadBalancerIP (eq (default "ClusterIP" $tcpCollectorService.type) "LoadBalancer") }}
+  loadBalancerIP: {{ $tcpCollectorService.loadBalancerIP }}
+  {{- end }}
+  ports:
+  {{- if (default true ((default (dict) $tcpCollectorServicePorts.syslog).enabled)) }}
+  - name: syslog-tcp
+    port: {{ default 514 ((default (dict) $tcpCollectorServicePorts.syslog).port) }}
+    targetPort: {{ default 514 ((default (dict) $tcpCollectorServicePorts.syslog).targetPort) }}
+    protocol: {{ default "TCP" ((default (dict) $tcpCollectorServicePorts.syslog).protocol) }}
+  {{- end }}
+  - name: grpc
+    port: 50044
+    targetPort: 50044
+    protocol: TCP
+{{- if $tcpCollectorExternalService.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-log-collector-tcp-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+  {{- with $tcpCollectorExternalService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ default "LoadBalancer" $tcpCollectorExternalService.type }}
+  {{- with $tcpCollectorExternalService.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- if $tcpCollectorExternalService.loadBalancerIP }}
+  loadBalancerIP: {{ $tcpCollectorExternalService.loadBalancerIP }}
+  {{- end }}
+  selector:
+    app: serviceradar-log-collector-tcp
+    app.kubernetes.io/part-of: serviceradar
+  ports:
+  {{- if (default true ((default (dict) $tcpCollectorExternalServicePorts.syslog).enabled)) }}
+  - name: syslog-tcp
+    port: {{ default 514 ((default (dict) $tcpCollectorExternalServicePorts.syslog).port) }}
+    targetPort: {{ default 514 ((default (dict) $tcpCollectorExternalServicePorts.syslog).targetPort) }}
+    protocol: {{ default "TCP" ((default (dict) $tcpCollectorExternalServicePorts.syslog).protocol) }}
+  {{- end }}
+{{- end }}
+{{- end }}
