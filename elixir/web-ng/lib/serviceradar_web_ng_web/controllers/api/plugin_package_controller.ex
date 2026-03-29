@@ -90,6 +90,26 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
               |> put_status(:bad_request)
               |> json(%{error: "invalid_repo_url"})
 
+            {:error, :untrusted_repo} ->
+              conn
+              |> put_status(:forbidden)
+              |> json(%{error: "untrusted_repo"})
+
+            {:error, :invalid_ref} ->
+              conn
+              |> put_status(:bad_request)
+              |> json(%{error: "invalid_ref"})
+
+            {:error, :invalid_manifest_path} ->
+              conn
+              |> put_status(:bad_request)
+              |> json(%{error: "invalid_manifest_path"})
+
+            {:error, :invalid_wasm_path} ->
+              conn
+              |> put_status(:bad_request)
+              |> json(%{error: "invalid_wasm_path"})
+
             {:error, :verification_required} ->
               conn
               |> put_status(:unprocessable_entity)
@@ -267,6 +287,21 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
           conn
           |> put_status(:unprocessable_entity)
           |> json(%{error: "signature_required"})
+
+        {:error, :trusted_upload_signers_not_configured} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "trusted_upload_signers_not_configured"})
+
+        {:error, :invalid_signature} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "invalid_signature"})
+
+        {:error, :unsupported_signature_algorithm} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "unsupported_signature_algorithm"})
 
         {:error, error} ->
           {:error, error}

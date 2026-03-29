@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
 
   @default_manifest_path "plugin.yaml"
   @default_wasm_path "plugin.wasm"
+  @max_ref_length 200
+  @max_path_length 240
 
   @spec fetch(map()) :: {:ok, map()} | {:error, term()}
   def fetch(attrs) when is_map(attrs) do
@@ -22,15 +24,14 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
     display_contract = fetch_value(attrs, [:display_contract, "display_contract"]) || %{}
 
     with {:ok, repo} <- parse_repo_url(repo_url),
-         {:ok, ref} <- resolve_ref(repo, commit),
-         {:ok, manifest_map} <- fetch_manifest(repo, ref, manifest_path),
+         :ok <- enforce_repo_boundary(repo),
+         {:ok, %{sha: sha, verification: verification}} <- resolve_ref(repo, commit),
+         {:ok, manifest_map} <- fetch_manifest(repo, sha, manifest_path),
          {:ok, manifest_struct} <- validate_manifest(manifest_map),
-         {:ok, wasm} <- fetch_wasm(repo, ref, wasm_path),
-         :ok <- ensure_size(wasm),
-         {:ok, commit_meta} <- fetch_commit_verification(repo, ref),
-         :ok <- enforce_verification_policy(commit_meta) do
+         {:ok, wasm} <- fetch_wasm(repo, sha, wasm_path),
+         :ok <- enforce_verification_policy(%{verification: verification}) do
       {signature, gpg_verified_at, gpg_key_id, source_commit} =
-        verification_metadata(commit_meta, ref)
+        verification_metadata(%{verification: verification, sha: sha}, sha)
 
       {:ok,
        %{
@@ -90,14 +91,14 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
     if trimmed == "" do
       resolve_ref(repo, nil)
     else
-      {:ok, trimmed}
+      fetch_commit_verification(repo, trimmed)
     end
   end
 
   defp resolve_ref(repo, _ref) do
     case fetch_default_branch(repo) do
-      {:ok, branch} -> {:ok, branch}
-      {:error, _} -> {:ok, "main"}
+      {:ok, branch} -> fetch_commit_verification(repo, branch)
+      {:error, _} -> fetch_commit_verification(repo, "main")
     end
   end
 
@@ -114,8 +115,12 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   end
 
   defp fetch_manifest(repo, ref, path) when is_binary(path) do
-    case fetch_raw(repo, ref, path) do
-      {:ok, body} -> decode_yaml(body)
+    with {:ok, normalized_path} <- normalize_repo_path(path, :invalid_manifest_path),
+         {:ok, body} <- fetch_raw(repo, ref, normalized_path),
+         {:ok, manifest_map} <- decode_yaml(body) do
+      {:ok, manifest_map}
+    else
+      {:error, errors} when is_list(errors) -> {:error, {:invalid_manifest, errors}}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -123,28 +128,39 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   defp fetch_manifest(_repo, _ref, _path), do: {:error, :invalid_manifest_path}
 
   defp fetch_wasm(repo, ref, path) when is_binary(path) do
-    case fetch_raw(repo, ref, path) do
-      {:ok, body} when is_binary(body) -> {:ok, body}
-      {:ok, body} -> {:ok, to_string(body)}
-      {:error, reason} -> {:error, reason}
+    with {:ok, normalized_path} <- normalize_repo_path(path, :invalid_wasm_path),
+         {:ok, body} <- fetch_raw(repo, ref, normalized_path),
+         :ok <- ensure_size(body) do
+      case body do
+        payload when is_binary(payload) -> {:ok, payload}
+        payload -> {:ok, to_string(payload)}
+      end
     end
   end
 
   defp fetch_wasm(_repo, _ref, _path), do: {:error, :invalid_wasm_path}
 
   defp fetch_commit_verification(%{owner: owner, repo: repo}, ref) do
-    url = "https://api.github.com/repos/#{owner}/#{repo}/commits/#{ref}"
+    with {:ok, normalized_ref} <- normalize_ref(ref) do
+      url = "https://api.github.com/repos/#{owner}/#{repo}/commits/#{URI.encode_www_form(normalized_ref)}"
 
-    case github_api_get(url) do
-      {:ok, body} ->
-        {:ok,
-         %{
-           sha: Map.get(body, "sha"),
-           verification: verification_from_body(body)
-         }}
+      case github_api_get(url) do
+        {:ok, body} ->
+          sha = Map.get(body, "sha")
 
-      {:error, reason} ->
-        {:ok, %{sha: nil, verification: %{"verified" => false, "reason" => reason}}}
+          if valid_commit_sha?(sha) do
+            {:ok,
+             %{
+               sha: sha,
+               verification: verification_from_body(body)
+             }}
+          else
+            {:error, :invalid_ref}
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -217,6 +233,16 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
         config
         |> Keyword.get(:trusted_github_signers, [])
         |> Enum.map(&normalize_signer/1)
+        |> Enum.reject(&is_nil/1),
+      trusted_github_owners:
+        config
+        |> Keyword.get(:trusted_github_owners, [])
+        |> Enum.map(&normalize_signer/1)
+        |> Enum.reject(&is_nil/1),
+      trusted_github_repositories:
+        config
+        |> Keyword.get(:trusted_github_repositories, [])
+        |> Enum.map(&normalize_repository/1)
         |> Enum.reject(&is_nil/1)
     }
   end
@@ -232,8 +258,36 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
 
   defp normalize_signer(_value), do: nil
 
+  defp normalize_repository(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "" -> nil
+      repo -> repo
+    end
+  end
+
+  defp normalize_repository(_value), do: nil
+
+  defp enforce_repo_boundary(%{owner: owner, repo: repo}) do
+    if github_token() in [nil, ""] do
+      :ok
+    else
+      policy = verification_policy()
+      normalized_repo = normalize_repository("#{owner}/#{repo}")
+
+      if normalized_repo in policy.trusted_github_repositories or
+           String.downcase(owner) in policy.trusted_github_owners do
+        :ok
+      else
+        {:error, :untrusted_repo}
+      end
+    end
+  end
+
   defp fetch_raw(%{owner: owner, repo: repo}, ref, path) do
-    url = "https://raw.githubusercontent.com/#{owner}/#{repo}/#{ref}/#{path}"
+    url = "https://raw.githubusercontent.com/#{owner}/#{repo}/#{ref}/#{encode_path(path)}"
 
     case github_raw_get(url) do
       {:ok, body} -> {:ok, body}
@@ -243,7 +297,6 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
 
   defp github_api_get(url) do
     headers = github_headers([{<<"accept">>, "application/vnd.github+json"}])
-
     client = github_http_client()
 
     case client.get(url, headers: headers) do
@@ -256,6 +309,9 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
           {:error, _} -> {:error, :invalid_json}
         end
 
+      {:ok, %Req.Response{status: 404}} ->
+        {:error, :not_found}
+
       {:ok, %Req.Response{status: status}} ->
         {:error, {:http_error, status}}
 
@@ -266,14 +322,43 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
 
   defp github_raw_get(url) do
     headers = github_headers([])
-
     client = github_http_client()
 
-    case client.get(url, headers: headers, decode_body: false) do
-      {:ok, %Req.Response{status: 200, body: body}} -> {:ok, body}
-      {:ok, %Req.Response{status: 404}} -> {:error, :not_found}
-      {:ok, %Req.Response{status: status}} -> {:error, {:http_error, status}}
-      {:error, error} -> {:error, error}
+    if client == Req do
+      with_secure_download_file("plugin-import", fn tmp_path ->
+        case client.get(url, headers: headers, decode_body: false, into: File.stream!(tmp_path)) do
+          {:ok, %Req.Response{status: 200}} ->
+            with {:ok, %{size: size}} <- File.stat(tmp_path),
+                 :ok <- ensure_size(size) do
+              File.read(tmp_path)
+            end
+
+          {:ok, %Req.Response{status: 404}} ->
+            {:error, :not_found}
+
+          {:ok, %Req.Response{status: status}} ->
+            {:error, {:http_error, status}}
+
+          {:error, error} ->
+            {:error, error}
+        end
+      end)
+    else
+      case client.get(url, headers: headers, decode_body: false) do
+        {:ok, %Req.Response{status: 200, body: body}} ->
+          with :ok <- ensure_size(body) do
+            {:ok, body}
+          end
+
+        {:ok, %Req.Response{status: 404}} ->
+          {:error, :not_found}
+
+        {:ok, %Req.Response{status: status}} ->
+          {:error, {:http_error, status}}
+
+        {:error, error} ->
+          {:error, error}
+      end
     end
   end
 
@@ -282,6 +367,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
 
     case github_token() do
       nil -> headers
+      "" -> headers
       token -> [{"authorization", "Bearer #{token}"} | headers]
     end
   end
@@ -296,16 +382,10 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   end
 
   defp decode_yaml(body) when is_binary(body) do
-    case YamlElixir.read_from_string(body) do
-      {:ok, value} when is_map(value) -> {:ok, value}
-      {:ok, value} -> {:ok, value}
-      {:error, reason} -> {:error, {:invalid_yaml, reason}}
-    end
-  rescue
-    error -> {:error, {:invalid_yaml, error}}
+    Manifest.parse_yaml_map(body)
   end
 
-  defp decode_yaml(_), do: {:error, :invalid_yaml}
+  defp decode_yaml(_), do: {:error, ["manifest yaml is invalid"]}
 
   defp validate_manifest(manifest_map) do
     case Manifest.from_map(manifest_map) do
@@ -315,10 +395,118 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   end
 
   defp ensure_size(payload) when is_binary(payload) do
-    if byte_size(payload) > Storage.max_upload_bytes() do
+    ensure_size(byte_size(payload))
+  end
+
+  defp ensure_size(size) when is_integer(size) do
+    if size > Storage.max_upload_bytes() do
       {:error, :payload_too_large}
     else
       :ok
+    end
+  end
+
+  defp ensure_size(_payload), do: :ok
+
+  defp normalize_ref(ref) when is_binary(ref) do
+    trimmed = String.trim(ref)
+
+    cond do
+      trimmed == "" ->
+        {:error, :invalid_ref}
+
+      String.length(trimmed) > @max_ref_length ->
+        {:error, :invalid_ref}
+
+      String.contains?(trimmed, ["..", "\\", <<0>>]) ->
+        {:error, :invalid_ref}
+
+      not Regex.match?(~r/\A[0-9A-Za-z._\-\/]+\z/, trimmed) ->
+        {:error, :invalid_ref}
+
+      true ->
+        {:ok, trimmed}
+    end
+  end
+
+  defp normalize_ref(_ref), do: {:error, :invalid_ref}
+
+  defp valid_commit_sha?(value) when is_binary(value) do
+    Regex.match?(~r/\A[0-9a-f]{40}\z/i, value)
+  end
+
+  defp valid_commit_sha?(_value), do: false
+
+  defp normalize_repo_path(path, error_atom) when is_binary(path) do
+    trimmed = String.trim(path)
+
+    cond do
+      trimmed == "" ->
+        {:error, error_atom}
+
+      String.length(trimmed) > @max_path_length ->
+        {:error, error_atom}
+
+      String.starts_with?(trimmed, "/") ->
+        {:error, error_atom}
+
+      String.contains?(trimmed, ["\\", <<0>>]) ->
+        {:error, error_atom}
+
+      true ->
+        segments = String.split(trimmed, "/", trim: true)
+
+        if segments == [] or
+             Enum.any?(segments, &(&1 in [".", ".."])) or
+             Enum.any?(segments, &(not Regex.match?(~r/\A[0-9A-Za-z._\-]+\z/, &1))) do
+          {:error, error_atom}
+        else
+          {:ok, Enum.join(segments, "/")}
+        end
+    end
+  end
+
+  defp normalize_repo_path(_path, error_atom), do: {:error, error_atom}
+
+  defp encode_path(path) do
+    path
+    |> String.split("/", trim: true)
+    |> Enum.map_join("/", &URI.encode_www_form/1)
+  end
+
+  defp with_secure_download_file(prefix, fun) when is_function(fun, 1) do
+    base_dir = Path.join(System.tmp_dir!(), "serviceradar")
+    File.mkdir_p!(base_dir)
+    do_with_secure_download_file(base_dir, prefix, fun, 5)
+  end
+
+  defp do_with_secure_download_file(_base_dir, _prefix, _fun, 0) do
+    {:error, :tempfile_allocation_failed}
+  end
+
+  defp do_with_secure_download_file(base_dir, prefix, fun, attempts_left) do
+    random =
+      16
+      |> :crypto.strong_rand_bytes()
+      |> Base.url_encode64(padding: false)
+
+    temp_dir = Path.join(base_dir, "#{prefix}-#{random}")
+
+    case File.mkdir(temp_dir) do
+      :ok ->
+        tmp_path = Path.join(temp_dir, "download.bin")
+
+        try do
+          fun.(tmp_path)
+        after
+          _ = File.rm_rf(temp_dir)
+        end
+
+      {:error, :eexist} ->
+        do_with_secure_download_file(base_dir, prefix, fun, attempts_left - 1)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

@@ -21,9 +21,9 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   """
 
   alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadarWebNG.Edge.OnboardingToken
   alias ServiceRadarWebNG.Shell
   alias ServiceRadarWebNG.TempArchive
-  alias ServiceRadarWebNG.Edge.OnboardingToken
   alias ServiceRadarWebNG.Web.EndpointConfig
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
@@ -292,11 +292,14 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp encode_yaml_value(value) when is_binary(value) do
-    # Wrap in double quotes and escape internal quotes
-    "\"#{String.replace(value, "\"", "\\\"")}\""
+    Jason.encode!(value)
   end
 
-  defp encode_yaml_value(value), do: inspect(value)
+  defp encode_yaml_value(value) when is_integer(value) or is_float(value) or is_boolean(value) or is_nil(value) do
+    Jason.encode!(value)
+  end
+
+  defp encode_yaml_value(value), do: Jason.encode!(to_string(value))
 
   defp sanitize_k8s_label(value) when is_binary(value) do
     # Kubernetes labels must be 63 chars or less and alphanumeric/dash/dot/underscore

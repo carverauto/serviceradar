@@ -164,14 +164,12 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   live_view: [signing_salt: "3bWAu579"]
 
 config :serviceradar_web_ng, :allow_insecure_metadata_urls, false
-config :serviceradar_web_ng, :god_view_enabled, false
 
 config :serviceradar_web_ng, :client_ip,
   trust_x_forwarded_for: false,
   trusted_proxy_cidrs: []
 
-config :serviceradar_web_ng, :token_revocation,
-  store_path: "/var/lib/serviceradar/auth/revoked_tokens.dets"
+config :serviceradar_web_ng, :god_view_enabled, false
 
 config :serviceradar_web_ng, :plugin_storage,
   backend: :filesystem,
@@ -186,7 +184,10 @@ config :serviceradar_web_ng, :plugin_storage,
 config :serviceradar_web_ng, :plugin_verification,
   require_gpg_for_github: false,
   allow_unsigned_uploads: true,
-  trusted_github_signers: []
+  trusted_github_signers: [],
+  trusted_github_owners: [],
+  trusted_github_repositories: [],
+  trusted_upload_signing_keys: %{}
 
 config :serviceradar_web_ng, :saml_assertion_max_validity_seconds, 300
 
@@ -209,6 +210,7 @@ config :serviceradar_web_ng, :session,
   absolute_timeout_seconds: 30 * 24 * 60 * 60
 
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
+config :serviceradar_web_ng, :token_revocation, store_path: "/var/lib/serviceradar/auth/revoked_tokens.dets"
 
 # Ash Framework Configuration
 config :serviceradar_web_ng,

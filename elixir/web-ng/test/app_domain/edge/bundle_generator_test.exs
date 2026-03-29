@@ -107,6 +107,36 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       assert config_yaml =~ "component.pem"
     end
 
+    test "encodes YAML string values as a single safe scalar", %{
+      package: package,
+      join_token: join_token
+    } do
+      malicious_gateway_addr = "demo-gw.serviceradar.cloud:50052\\\nmalicious: true"
+
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          gateway_addr: malicious_gateway_addr
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, config_yaml} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config.yaml")
+        end)
+
+      gateway_line =
+        config_yaml
+        |> String.split("\n")
+        |> Enum.find(&String.starts_with?(&1, "gateway_addr: "))
+
+      assert gateway_line =~ "gateway_addr: \"demo-gw.serviceradar.cloud:50052\\\\\\\\\\nmalicious: true\""
+      refute config_yaml =~ "\nmalicious: true\n"
+    end
+
     test "handles empty bundle_pem gracefully", %{package: package, join_token: join_token} do
       assert {:ok, tarball} = BundleGenerator.create_tarball(package, "", join_token)
       assert is_binary(tarball)
@@ -287,7 +317,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
         end)
 
       assert install_sh =~
-               ~s(/usr/local/bin/serviceradar-cli enroll --core-url 'https://demo.serviceradar.cloud' --token ')
+               "/usr/local/bin/serviceradar-cli enroll --core-url 'https://demo.serviceradar.cloud' --token '"
     end
 
     test "agent install script treats tokenized values as shell literals", %{
@@ -316,7 +346,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
                "/usr/local/bin/serviceradar-cli enroll --core-url 'https://demo.serviceradar.cloud/$(touch /tmp/pwned)'"
 
       refute install_sh =~
-               ~s(/usr/local/bin/serviceradar-cli enroll --core-url "https://demo.serviceradar.cloud/$(touch /tmp/pwned)")
+               "/usr/local/bin/serviceradar-cli enroll --core-url \"https://demo.serviceradar.cloud/$(touch /tmp/pwned)\""
     end
   end
 
@@ -329,7 +359,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
       assert cmd =~ "curl -fsSL"
       assert cmd =~ "-X POST"
-      assert cmd =~ "x-serviceradar-download-token: ${SR_TOKEN}"
+      assert cmd =~ ~S|x-serviceradar-download-token: ${SR_TOKEN}|
       assert cmd =~ package.id
       refute cmd =~ download_token
       assert cmd =~ "docker run"
@@ -359,7 +389,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
       assert cmd =~ "curl -fsSL"
       assert cmd =~ "-X POST"
-      assert cmd =~ "x-serviceradar-download-token: ${SR_TOKEN}"
+      assert cmd =~ ~S|x-serviceradar-download-token: ${SR_TOKEN}|
       assert cmd =~ package.id
       refute cmd =~ download_token
       assert cmd =~ "sudo ./install.sh"
@@ -382,7 +412,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
       assert cmd =~ "curl -fsSL"
       assert cmd =~ "-X POST"
-      assert cmd =~ "x-serviceradar-download-token: ${SR_TOKEN}"
+      assert cmd =~ ~S|x-serviceradar-download-token: ${SR_TOKEN}|
       assert cmd =~ package.id
       refute cmd =~ download_token
       assert cmd =~ "kubectl apply -f kubernetes/"

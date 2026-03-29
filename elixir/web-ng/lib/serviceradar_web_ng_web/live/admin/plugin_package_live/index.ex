@@ -234,6 +234,30 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
              |> assign(:create_errors, ["invalid GitHub repo url"])
              |> put_flash(:error, "GitHub repo URL is invalid")}
 
+          {:error, :untrusted_repo} ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, ["github import is outside the trusted repository boundary"])
+             |> put_flash(:error, "GitHub repo is not trusted for authenticated import")}
+
+          {:error, :invalid_ref} ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, ["source commit or ref is invalid"])
+             |> put_flash(:error, "GitHub ref is invalid")}
+
+          {:error, :invalid_manifest_path} ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, ["manifest path is invalid"])
+             |> put_flash(:error, "Manifest path is invalid")}
+
+          {:error, :invalid_wasm_path} ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, ["wasm path is invalid"])
+             |> put_flash(:error, "Wasm path is invalid")}
+
           {:error, :verification_required} ->
             {:noreply,
              socket
@@ -383,6 +407,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
       {:error, :signature_required} ->
         {:noreply, put_flash(socket, :error, "Unsigned uploads are blocked by verification policy")}
+
+      {:error, :trusted_upload_signers_not_configured} ->
+        {:noreply, put_flash(socket, :error, "Upload signing keys are not configured for strict verification")}
+
+      {:error, :invalid_signature} ->
+        {:noreply, put_flash(socket, :error, "Upload signature verification failed")}
+
+      {:error, :unsupported_signature_algorithm} ->
+        {:noreply, put_flash(socket, :error, "Upload signature algorithm is not supported")}
 
       {:error, error} ->
         {:noreply, put_flash(socket, :error, "Failed to approve: #{format_error(error)}")}

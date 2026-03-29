@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins.GitHubImporter
   alias ServiceRadarWebNG.Plugins.Storage
+  alias ServiceRadarWebNG.Plugins.UploadSignature
 
   require Ash.Query
 
@@ -466,19 +467,22 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   end
 
   defp enforce_upload_policy(package, policy) do
-    if policy.allow_unsigned_uploads do
-      :ok
-    else
-      if signature_present?(package.signature) do
+    cond do
+      policy.allow_unsigned_uploads ->
         :ok
-      else
-        {:error, :signature_required}
-      end
+
+      policy.trusted_upload_signing_keys == %{} ->
+        {:error, :trusted_upload_signers_not_configured}
+
+      true ->
+        UploadSignature.verify(
+          package.signature,
+          package.manifest || %{},
+          package.content_hash || "",
+          policy.trusted_upload_signing_keys
+        )
     end
   end
-
-  defp signature_present?(%{} = sig), do: map_size(sig) > 0
-  defp signature_present?(_), do: false
 
   defp plugin_verification_policy do
     config = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
@@ -486,6 +490,10 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     %{
       require_gpg_for_github: Keyword.get(config, :require_gpg_for_github, false),
       allow_unsigned_uploads: Keyword.get(config, :allow_unsigned_uploads, true),
+      trusted_upload_signing_keys:
+        config
+        |> Keyword.get(:trusted_upload_signing_keys, %{})
+        |> UploadSignature.normalize_trusted_keys(),
       trusted_github_signers:
         config
         |> Keyword.get(:trusted_github_signers, [])

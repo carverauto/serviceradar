@@ -217,7 +217,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     site = package.site || "default"
 
     # Apply any config overrides
-    grpc_port = get_in(package.config_overrides, ["server", "port"]) || 4317
+    grpc_port = normalize_port(get_in(package.config_overrides, ["server", "port"]), 4317)
 
     """
     # ServiceRadar OpenTelemetry Collector Configuration
@@ -227,7 +227,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     [server]
     bind_address = "0.0.0.0"
-    port = #{grpc_port}
+    port = #{encode_toml_value(grpc_port)}
 
     [nats]
     url = #{encode_toml_value(nats_url)}
@@ -572,6 +572,21 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     # Jason encoding works well for TOML strings/numbers/booleans
     Jason.encode!(value)
   end
+
+  defp normalize_port(nil, default), do: default
+
+  defp normalize_port(value, default) when is_integer(value) do
+    if value > 0 and value <= 65_535, do: value, else: default
+  end
+
+  defp normalize_port(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {port, ""} -> normalize_port(port, default)
+      _ -> default
+    end
+  end
+
+  defp normalize_port(_, default), do: default
 
   defp generate_readme(%{collector_type: :falcosidekick} = package) do
     namespace =

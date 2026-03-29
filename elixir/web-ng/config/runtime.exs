@@ -221,6 +221,36 @@ to_csv_list = fn value ->
   end
 end
 
+to_csv_map = fn value ->
+  cond do
+    is_map(value) ->
+      value
+
+    is_binary(value) ->
+      value
+      |> String.split(",", trim: true)
+      |> Enum.reduce(%{}, fn entry, acc ->
+        case String.split(entry, "=", parts: 2) do
+          [key, val] ->
+            key = String.trim(key)
+            val = String.trim(val)
+
+            if key == "" or val == "" do
+              acc
+            else
+              Map.put(acc, key, val)
+            end
+
+          _ ->
+            acc
+        end
+      end)
+
+    true ->
+      nil
+  end
+end
+
 maybe_put_mailer_credential = fn config, key, value ->
   case value do
     nil -> config
@@ -364,6 +394,21 @@ plugin_verification_overrides =
     :trusted_github_signers,
     System.get_env("PLUGIN_TRUSTED_GITHUB_SIGNERS"),
     to_csv_list
+  )
+  |> maybe_put_env.(
+    :trusted_github_owners,
+    System.get_env("PLUGIN_TRUSTED_GITHUB_OWNERS"),
+    to_csv_list
+  )
+  |> maybe_put_env.(
+    :trusted_github_repositories,
+    System.get_env("PLUGIN_TRUSTED_GITHUB_REPOSITORIES"),
+    to_csv_list
+  )
+  |> maybe_put_env.(
+    :trusted_upload_signing_keys,
+    System.get_env("PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS"),
+    to_csv_map
   )
 
 if plugin_verification_overrides != [] do

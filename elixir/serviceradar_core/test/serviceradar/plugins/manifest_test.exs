@@ -122,6 +122,17 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert manifest.outputs == "serviceradar.camera_stream.v1"
   end
 
+  test "rejects yaml aliases and anchors" do
+    yaml = """
+    defaults: &defaults
+      id: bad
+    <<: *defaults
+    """
+
+    assert {:error, errors} = Manifest.parse_yaml_map(yaml)
+    assert "yaml anchors and aliases are not allowed" in errors
+  end
+
   test "config schema validation accepts JSON object" do
     schema = ~S({"type":"object","properties":{"interval":{"type":"string"}}})
     assert :ok == Manifest.validate_config_schema(schema)
