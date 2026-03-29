@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
         "sub" => "oidc|12345"
       }
 
-      result = OIDCClient.extract_user_info(claims)
+      assert {:ok, result} = OIDCClient.extract_user_info(claims)
 
       assert to_string(result.email) == "user@example.com"
       assert result.name == "Test User"
@@ -46,20 +46,21 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
         # name is missing
       }
 
-      result = OIDCClient.extract_user_info(claims)
+      assert {:ok, result} = OIDCClient.extract_user_info(claims)
 
       assert to_string(result.email) == "user@example.com"
       assert result.name == nil
       assert result.external_id == "oidc|12345"
     end
 
-    test "handles empty claims" do
+    test "rejects missing external id" do
       claims = %{}
-      result = OIDCClient.extract_user_info(claims)
+      assert {:error, :missing_external_id} = OIDCClient.extract_user_info(claims)
+    end
 
-      assert result.email == nil
-      assert result.name == nil
-      assert result.external_id == nil
+    test "rejects missing email" do
+      claims = %{"sub" => "oidc|12345"}
+      assert {:error, :missing_email} = OIDCClient.extract_user_info(claims)
     end
 
     test "handles claims with different key types" do
@@ -70,7 +71,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
         "sub" => "sub123"
       }
 
-      result = OIDCClient.extract_user_info(claims)
+      assert {:ok, result} = OIDCClient.extract_user_info(claims)
       assert to_string(result.email) == "test@example.com"
     end
   end
@@ -176,9 +177,14 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
 
     test "verify_id_token returns error when not configured" do
       fake_token = "header.payload.signature"
-      result = OIDCClient.verify_id_token(fake_token)
+      result = OIDCClient.verify_id_token(fake_token, nonce: "nonce")
 
       assert match?({:error, _}, result)
+    end
+
+    test "verify_id_token fails closed when nonce is missing" do
+      fake_token = "header.payload.signature"
+      assert {:error, :missing_nonce} = OIDCClient.verify_id_token(fake_token)
     end
   end
 

@@ -169,7 +169,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   defp handle_code_exchange(conn, code, nonce) do
     with {:ok, tokens} <- OIDCClient.exchange_code(code),
          {:ok, claims} <- OIDCClient.verify_id_token(tokens["id_token"], nonce: nonce),
-         user_info = OIDCClient.extract_user_info(claims),
+         {:ok, user_info} <- OIDCClient.extract_user_info(claims),
          {:ok, user} <- find_or_create_user(user_info, claims) do
       # Record authentication timestamp
       actor = SystemActor.system(:oidc_auth)

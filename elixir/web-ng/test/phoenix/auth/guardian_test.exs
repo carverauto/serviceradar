@@ -125,6 +125,13 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
       assert {:error, :invalid_token_type} = Guardian.verify_token(token, token_type: "refresh")
     end
 
+    test "rejects refresh tokens when no explicit token type is requested" do
+      user = user_fixture()
+
+      {:ok, token, _claims} = Guardian.create_refresh_token(user)
+      assert {:error, :invalid_token_type} = Guardian.verify_token(token)
+    end
+
     test "rejects invalid token" do
       assert {:error, _reason} = Guardian.verify_token("invalid_token")
     end

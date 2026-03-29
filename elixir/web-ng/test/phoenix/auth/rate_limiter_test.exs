@@ -131,6 +131,19 @@ defmodule ServiceRadarWebNGWeb.Auth.RateLimiterTest do
       # Now should be limited
       assert {:error, _} = RateLimiter.check_rate_limit(action, ip)
     end
+
+    test "recording prunes stale attempts outside the active window", %{action: action, ip: ip} do
+      cache_key = {action, ip}
+      stale = System.system_time(:second) - 120
+
+      :ets.insert(:auth_rate_limiter, {cache_key, [stale, stale - 1]})
+
+      assert :ok = RateLimiter.record_attempt(action, ip)
+
+      [{^cache_key, attempts}] = :ets.lookup(:auth_rate_limiter, cache_key)
+      assert Enum.all?(attempts, &(&1 >= System.system_time(:second) - 60))
+      assert length(attempts) == 1
+    end
   end
 
   describe "check_rate_limit_and_record/3" do

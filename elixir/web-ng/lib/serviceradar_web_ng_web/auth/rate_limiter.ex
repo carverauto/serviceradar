@@ -110,15 +110,17 @@ defmodule ServiceRadarWebNGWeb.Auth.RateLimiter do
   end
 
   def handle_call({:record_attempt, action, key}, _from, state) do
-    do_record_attempt(action, key)
+    do_record_attempt(action, key, @default_window_seconds)
     {:reply, :ok, state}
   end
 
   def handle_call({:check_rate_limit_and_record, action, key, opts}, _from, state) do
+    window_seconds = Keyword.get(opts, :window_seconds, @default_window_seconds)
+
     result =
       case do_check_rate_limit(action, key, opts) do
         :ok ->
-          do_record_attempt(action, key)
+          do_record_attempt(action, key, window_seconds)
           :ok
 
         {:error, _retry_after} = error ->
@@ -146,10 +148,10 @@ defmodule ServiceRadarWebNGWeb.Auth.RateLimiter do
     end
   end
 
-  defp do_record_attempt(action, key) do
+  defp do_record_attempt(action, key, window_seconds) do
     cache_key = {action, key}
     now = System.system_time(:second)
-    attempts = get_attempts(cache_key, 0)
+    attempts = get_attempts(cache_key, now - window_seconds)
     :ets.insert(@table, {cache_key, [now | attempts]})
     :ok
   end

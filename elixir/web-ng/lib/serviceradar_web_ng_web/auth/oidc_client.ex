@@ -89,13 +89,11 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   Returns `{:ok, claims}` on success.
   """
   def verify_id_token(id_token, opts \\ []) do
-    with {:ok, config} <- get_config(),
+    with {:ok, expected_nonce} <- fetch_expected_nonce(opts),
+         {:ok, config} <- get_config(),
          {:ok, metadata} <- fetch_discovery_metadata(config.discovery_url),
          {:ok, jwks} <- fetch_jwks(metadata["jwks_uri"]),
          {:ok, claims} <- decode_and_verify_jwt(id_token, jwks) do
-      # Validate claims
-      expected_nonce = opts[:nonce]
-
       cond do
         claims["iss"] != metadata["issuer"] ->
           {:error, :invalid_issuer}
@@ -106,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
         claims["exp"] && claims["exp"] < System.system_time(:second) ->
           {:error, :token_expired}
 
-        expected_nonce && claims["nonce"] != expected_nonce ->
+        claims["nonce"] != expected_nonce ->
           {:error, :invalid_nonce}
 
         true ->
@@ -122,12 +120,25 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   """
   def extract_user_info(claims) do
     mappings = OIDCStrategy.claim_mappings()
+    email = get_claim(claims, mappings["email"] || "email")
+    name = get_claim(claims, mappings["name"] || "name")
+    external_id = get_claim(claims, mappings["sub"] || "sub")
 
-    %{
-      email: get_claim(claims, mappings["email"] || "email"),
-      name: get_claim(claims, mappings["name"] || "name"),
-      external_id: get_claim(claims, mappings["sub"] || "sub")
-    }
+    cond do
+      not is_binary(external_id) or String.trim(external_id) == "" ->
+        {:error, :missing_external_id}
+
+      not is_binary(email) or String.trim(email) == "" ->
+        {:error, :missing_email}
+
+      true ->
+        {:ok,
+         %{
+           email: String.trim(email),
+           name: normalize_optional_claim(name),
+           external_id: String.trim(external_id)
+         }}
+    end
   end
 
   @doc """
@@ -345,6 +356,22 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
       end
     end)
   end
+
+  defp fetch_expected_nonce(opts) do
+    case Keyword.get(opts, :nonce) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _ -> {:error, :missing_nonce}
+    end
+  end
+
+  defp normalize_optional_claim(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_optional_claim(_value), do: nil
 
   defp generate_state do
     32 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)

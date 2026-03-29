@@ -125,7 +125,15 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
     end
   end
 
-  defp verify_token_type(_claims, nil), do: :ok
+  @default_allowed_token_types ~w(access api)
+
+  defp verify_token_type(claims, nil) do
+    if Map.get(claims, "typ") in @default_allowed_token_types do
+      :ok
+    else
+      {:error, :invalid_token_type}
+    end
+  end
 
   defp verify_token_type(claims, expected_type) do
     if Map.get(claims, "typ") == expected_type do
