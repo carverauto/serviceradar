@@ -26,16 +26,6 @@ defmodule ServiceRadar.Identity.AccessCredentialChanges do
     |> Ash.Changeset.change_attribute(:use_count, 0)
   end
 
-  @spec record_use(Ash.Changeset.t()) :: Ash.Changeset.t()
-  def record_use(changeset) do
-    use_count =
-      Ash.Changeset.get_attribute(changeset, :use_count) || changeset.data.use_count || 0
-
-    changeset
-    |> Ash.Changeset.change_attribute(:last_used_at, DateTime.utc_now())
-    |> Ash.Changeset.change_attribute(:use_count, use_count + 1)
-  end
-
   @spec revoke(Ash.Changeset.t(), keyword()) :: Ash.Changeset.t()
   def revoke(changeset, opts \\ []) do
     changeset
