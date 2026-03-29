@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -258,7 +257,7 @@ func executeEdgePackageCreate(cfg *CmdConfig, coreURL string, body []byte) (*edg
 	req.Header.Set("Accept", "application/json")
 	applyAuthHeaders(req, cfg)
 
-	resp, err := newHTTPClient(cfg.TLSSkipVerify).Do(req)
+	resp, err := newHTTPClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request edge package create: %w", err)
 	}
@@ -351,7 +350,7 @@ func RunEdgePackageList(cfg *CmdConfig) error {
 	req.Header.Set("Accept", "application/json")
 	applyAuthHeaders(req, cfg)
 
-	resp, err := newHTTPClient(cfg.TLSSkipVerify).Do(req)
+	resp, err := newHTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("request edge package list: %w", err)
 	}
@@ -412,7 +411,7 @@ func RunEdgePackageShow(cfg *CmdConfig) error {
 	req.Header.Set("Accept", "application/json")
 	applyAuthHeaders(req, cfg)
 
-	resp, err := newHTTPClient(cfg.TLSSkipVerify).Do(req)
+	resp, err := newHTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("request edge package show: %w", err)
 	}
@@ -507,7 +506,7 @@ func RunEdgePackageDownload(cfg *CmdConfig) error {
 	}
 	applyAuthHeaders(req, cfg)
 
-	client := newHTTPClient(cfg.TLSSkipVerify)
+	client := newHTTPClient()
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -627,7 +626,7 @@ func RunEdgePackageRevoke(cfg *CmdConfig) error {
 	req.Header.Set("Content-Type", "application/json")
 	applyAuthHeaders(req, cfg)
 
-	client := newHTTPClient(cfg.TLSSkipVerify)
+	client := newHTTPClient()
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -695,19 +694,8 @@ func applyAuthHeaders(req *http.Request, cfg *CmdConfig) {
 	}
 }
 
-func newHTTPClient(skipVerify bool) *http.Client {
-	client := &http.Client{Timeout: 15 * time.Second}
-	if skipVerify {
-		if transport, ok := http.DefaultTransport.(*http.Transport); ok {
-			clone := transport.Clone()
-			if clone.TLSClientConfig == nil {
-				clone.TLSClientConfig = &tls.Config{}
-			}
-			clone.TLSClientConfig.InsecureSkipVerify = true //nolint:gosec // intentional for CLI flag
-			client.Transport = clone
-		}
-	}
-	return client
+func newHTTPClient() *http.Client {
+	return &http.Client{Timeout: 15 * time.Second}
 }
 
 func suggestEdgePackageFilename(disposition, fallback string) string {

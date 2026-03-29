@@ -96,7 +96,6 @@ Options for spire-join-token:
   -core-url string        Core API base URL (default http://localhost:8090)
   -api-key string         API key used to authenticate with core
   -bearer string          Bearer token used to authenticate with core
-  -tls-skip-verify        Skip TLS certificate verification
   -ttl int                Join token TTL in seconds
   -agent-spiffe-id string Optional alias SPIFFE ID to assign to the agent
   -no-downstream          Do not register a downstream entry
@@ -126,7 +125,6 @@ Options for edge-package-download:
   -core-url string        Core API base URL (default http://localhost:8090)
   -api-key string         API key used to authenticate with core
   -bearer string          Bearer token used to authenticate with core
-  -tls-skip-verify        Skip TLS certificate verification
   -id string              Edge package identifier
   -download-token string  Edge package download token
   -output string          Optional file path for writing the onboarding archive
@@ -141,7 +139,6 @@ Options for edge-package-revoke:
   -core-url string        Core API base URL (default http://localhost:8090)
   -api-key string         API key used to authenticate with core
   -bearer string          Bearer token used to authenticate with core
-  -tls-skip-verify        Skip TLS certificate verification
   -id string              Edge package identifier
   -reason string          Optional revocation reason
 
@@ -149,7 +146,6 @@ Options for edge package create:
   --core-url string            Core API base URL (default http://localhost:8090)
   --api-key string             API key used to authenticate with core
   --bearer string              Bearer token used to authenticate with core
-  --tls-skip-verify            Skip TLS certificate verification
   --label string               Display label for the package (required)
   --component-type string      Component type (gateway, agent, checker[:kind], default gateway)
   --component-id string        Optional component identifier override
@@ -172,7 +168,6 @@ Options for edge package list:
   --core-url string        Core API base URL (default http://localhost:8090)
   --api-key string         API key used to authenticate with core
   --bearer string          Bearer token used to authenticate with core
-  --tls-skip-verify        Skip TLS certificate verification
   --limit int              Maximum number of packages to return (default 50)
   --status value           Filter by status (repeatable)
   --component-type value   Filter by component type (repeatable)
@@ -185,7 +180,6 @@ Options for edge package show:
   --core-url string        Core API base URL (default http://localhost:8090)
   --api-key string         API key used to authenticate with core
   --bearer string          Bearer token used to authenticate with core
-  --tls-skip-verify        Skip TLS certificate verification
   --id string              Edge package identifier (required)
   --output string          Output format: text or json (default text)
   --reissue-token          Emit a signed edgepkg-v2 token using --download-token

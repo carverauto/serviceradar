@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -104,17 +103,7 @@ func RunSpireJoinToken(cfg *CmdConfig) error {
 		httpReq.Header.Set("X-API-Key", cfg.APIKey)
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	if strings.HasPrefix(baseURL, "https://") && cfg.TLSSkipVerify {
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		if transport.TLSClientConfig == nil {
-			transport.TLSClientConfig = &tls.Config{}
-		}
-		transport.TLSClientConfig.InsecureSkipVerify = true
-		client.Transport = transport
-	}
-
-	resp, err := client.Do(httpReq)
+	resp, err := newHTTPClient().Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("call core API: %w", err)
 	}

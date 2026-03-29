@@ -109,11 +109,10 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
       |> delete_session(:oidc_state)
       |> delete_session(:oidc_nonce)
 
-    # Validate state (CSRF protection)
-    if Plug.Crypto.secure_compare(state || "", stored_state || "") do
+    if valid_oidc_callback_session?(state, stored_state, stored_nonce) do
       handle_code_exchange(conn, code, stored_nonce)
     else
-      Logger.warning("OIDC callback state mismatch")
+      Logger.warning("OIDC callback state or nonce validation failed")
 
       Hooks.on_auth_failed(:invalid_state, %{
         method: :oidc,
@@ -161,6 +160,13 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   end
 
   # Private functions
+
+  defp valid_oidc_callback_session?(state, stored_state, stored_nonce)
+       when is_binary(state) and is_binary(stored_state) and is_binary(stored_nonce) do
+    Plug.Crypto.secure_compare(state, stored_state)
+  end
+
+  defp valid_oidc_callback_session?(_state, _stored_state, _stored_nonce), do: false
 
   defp handle_code_exchange(conn, code, nonce) do
     with {:ok, tokens} <- OIDCClient.exchange_code(code),

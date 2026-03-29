@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Auth.Hooks
+  alias ServiceRadarWebNGWeb.AuthURL
   alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.UserAuth
 
@@ -151,7 +152,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         case Guardian.create_access_token(user, token_type: "reset", ttl: {1, :hour}) do
           {:ok, token, _claims} ->
             # Send the reset email
-            reset_url = url(~p"/auth/password-reset/#{token}")
+            reset_url = AuthURL.password_reset_url(token)
 
             ServiceRadarWebNG.Accounts.UserNotifier.deliver_reset_password_instructions(
               user,

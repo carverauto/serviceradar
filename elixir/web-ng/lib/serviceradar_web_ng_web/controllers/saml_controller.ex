@@ -129,8 +129,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     {csrf_token, return_to} = parse_relay_state(relay_state)
 
     cond do
-      # Validate CSRF token
-      stored_csrf_token && !Plug.Crypto.secure_compare(csrf_token || "", stored_csrf_token) ->
+      !valid_saml_csrf_token?(csrf_token, stored_csrf_token) ->
         Logger.warning("SAML CSRF token mismatch")
 
         Hooks.on_auth_failed(:csrf_validation_failed, %{
@@ -184,6 +183,13 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       [token] -> {token, nil}
     end
   end
+
+  defp valid_saml_csrf_token?(csrf_token, stored_csrf_token)
+       when is_binary(csrf_token) and is_binary(stored_csrf_token) do
+    Plug.Crypto.secure_compare(csrf_token, stored_csrf_token)
+  end
+
+  defp valid_saml_csrf_token?(_csrf_token, _stored_csrf_token), do: false
 
   @doc """
   SP Metadata endpoint.

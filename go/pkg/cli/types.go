@@ -36,7 +36,6 @@ type CmdConfig struct {
 	CoreAPIURL                 string
 	APIKey                     string
 	BearerToken                string
-	TLSSkipVerify              bool
 	JoinTokenTTLSeconds        int
 	AgentSPIFFEID              string
 	DownstreamSPIFFEID         string

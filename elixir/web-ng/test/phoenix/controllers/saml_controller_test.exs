@@ -33,6 +33,19 @@ defmodule ServiceRadarWebNGWeb.SAMLControllerTest do
              "SAML authentication is not properly configured."
   end
 
+  test "rejects SAML ACS callback when session CSRF token is missing", %{conn: conn} do
+    conn =
+      post(conn, ~p"/auth/saml/consume", %{
+        "SAMLResponse" => "ignored-for-missing-session",
+        "RelayState" => "csrf-token"
+      })
+
+    assert redirected_to(conn) == ~p"/users/log-in"
+
+    assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+             "Authentication failed: invalid request. Please try again."
+  end
+
   defp maybe_start_config_cache do
     case Process.whereis(ConfigCache) do
       nil -> start_supervised!({ConfigCache, ttl_ms: 60_000})
