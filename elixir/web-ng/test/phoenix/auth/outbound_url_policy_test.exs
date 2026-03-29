@@ -1,7 +1,17 @@
 defmodule ServiceRadarWebNGWeb.Auth.OutboundURLPolicyTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
+
+  setup do
+    previous = Application.get_env(:serviceradar_web_ng, :allow_insecure_metadata_urls)
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_web_ng, :allow_insecure_metadata_urls, previous)
+    end)
+
+    :ok
+  end
 
   test "allows https URLs" do
     assert {:ok, %URI{scheme: "https", host: "example.com"}} =
@@ -9,6 +19,12 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundURLPolicyTest do
   end
 
   test "rejects http URLs by default" do
+    assert {:error, :disallowed_scheme} = OutboundURLPolicy.validate("http://example.com/jwks")
+  end
+
+  test "rejects http URLs even when insecure metadata config is enabled" do
+    Application.put_env(:serviceradar_web_ng, :allow_insecure_metadata_urls, true)
+
     assert {:error, :disallowed_scheme} = OutboundURLPolicy.validate("http://example.com/jwks")
   end
 
