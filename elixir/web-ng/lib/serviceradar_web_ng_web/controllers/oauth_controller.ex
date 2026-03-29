@@ -57,12 +57,17 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
   alias ServiceRadar.Identity.OAuthClient
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Auth.Guardian
+  alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.ClientIP
 
   require Logger
 
   # Default token TTL: 1 hour
   @default_ttl_seconds 3600
+  @password_grant_rate_limit 10
+  @password_grant_window 60
+  @client_credentials_rate_limit 20
+  @client_credentials_window 60
 
   @doc """
   OAuth2 token endpoint.
@@ -97,54 +102,79 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
     if is_nil(username) or is_nil(password) do
       error_response(conn, 400, "invalid_request", "Missing username or password")
     else
-      actor = SystemActor.system(:oauth_token)
-      scopes = parse_scopes(params["scope"] || "read write")
-      scopes_atoms = Enum.map(scopes, &scope_to_atom/1)
-      extra_claims = %{"scope" => Enum.join(scopes, " ")}
+      client_ip = get_client_ip(conn)
 
-      with {:ok, user} <-
-             User.authenticate(username, password, actor: actor),
-           {:ok, token, _full_claims} <-
-             Guardian.create_api_token(user,
-               scopes: scopes_atoms,
-               claims: extra_claims,
-               ttl: {@default_ttl_seconds, :second}
-             ) do
-        conn
-        |> put_resp_content_type("application/json")
-        |> put_resp_header("cache-control", "no-store")
-        |> put_resp_header("pragma", "no-cache")
-        |> send_resp(
-          200,
-          Jason.encode!(%{
-            access_token: token,
-            token_type: "Bearer",
-            expires_in: @default_ttl_seconds,
-            scope: Enum.join(scopes, " ")
-          })
-        )
-      else
-        {:error, reason} when reason in [:invalid_credentials, :authentication_failed] ->
-          error_response(conn, 401, "invalid_grant", "Invalid username or password")
+      case RateLimiter.check_rate_limit("oauth_password_grant", client_ip,
+             limit: @password_grant_rate_limit,
+             window_seconds: @password_grant_window
+           ) do
+        {:error, retry_after} ->
+          rate_limited_response(conn, retry_after)
 
-        {:error, %Ash.Error.Invalid{}} ->
-          error_response(conn, 401, "invalid_grant", "Invalid username or password")
+        :ok ->
+          RateLimiter.record_attempt("oauth_password_grant", client_ip)
+          actor = SystemActor.system(:oauth_token)
+          scopes = parse_scopes(params["scope"] || "read write")
+          scopes_atoms = Enum.map(scopes, &scope_to_atom/1)
+          extra_claims = %{"scope" => Enum.join(scopes, " ")}
 
-        {:error, reason} ->
-          Logger.error("Failed to create password grant token: #{inspect(reason)}")
-          error_response(conn, 500, "server_error", "Failed to generate access token")
+          with {:ok, user} <-
+                 User.authenticate(username, password, actor: actor),
+               {:ok, token, _full_claims} <-
+                 Guardian.create_api_token(user,
+                   scopes: scopes_atoms,
+                   claims: extra_claims,
+                   ttl: {@default_ttl_seconds, :second}
+                 ) do
+            conn
+            |> put_resp_content_type("application/json")
+            |> put_resp_header("cache-control", "no-store")
+            |> put_resp_header("pragma", "no-cache")
+            |> send_resp(
+              200,
+              Jason.encode!(%{
+                access_token: token,
+                token_type: "Bearer",
+                expires_in: @default_ttl_seconds,
+                scope: Enum.join(scopes, " ")
+              })
+            )
+          else
+            {:error, reason} when reason in [:invalid_credentials, :authentication_failed] ->
+              error_response(conn, 401, "invalid_grant", "Invalid username or password")
+
+            {:error, %Ash.Error.Invalid{}} ->
+              error_response(conn, 401, "invalid_grant", "Invalid username or password")
+
+            {:error, reason} ->
+              Logger.error("Failed to create password grant token: #{inspect(reason)}")
+              error_response(conn, 500, "server_error", "Failed to generate access token")
+          end
       end
     end
   end
 
   defp handle_client_credentials(conn, params) do
-    # Extract credentials from Basic Auth header or request body
-    case extract_credentials(conn, params) do
-      {:ok, client_id, client_secret} ->
-        authenticate_client(conn, client_id, client_secret, params)
+    client_ip = get_client_ip(conn)
 
-      {:error, reason} ->
-        error_response(conn, 401, "invalid_client", reason)
+    case RateLimiter.check_rate_limit("oauth_client_credentials", client_ip,
+           limit: @client_credentials_rate_limit,
+           window_seconds: @client_credentials_window
+         ) do
+      {:error, retry_after} ->
+        rate_limited_response(conn, retry_after)
+
+      :ok ->
+        RateLimiter.record_attempt("oauth_client_credentials", client_ip)
+
+        # Extract credentials from Basic Auth header or request body
+        case extract_credentials(conn, params) do
+          {:ok, client_id, client_secret} ->
+            authenticate_client(conn, client_id, client_secret, params)
+
+          {:error, reason} ->
+            error_response(conn, 401, "invalid_client", reason)
+        end
     end
   end
 
@@ -281,6 +311,16 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
         error: error,
         error_description: description
       })
+    )
+  end
+
+  defp rate_limited_response(conn, retry_after) do
+    conn
+    |> put_resp_header("retry-after", to_string(retry_after))
+    |> error_response(
+      429,
+      "slow_down",
+      "Too many authentication attempts. Please try again later."
     )
   end
 end

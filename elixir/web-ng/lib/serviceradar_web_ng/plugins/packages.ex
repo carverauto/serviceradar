@@ -53,7 +53,13 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def create(attrs, opts) when is_map(attrs) do
     scope = Keyword.get(opts, :scope)
-    attrs = drop_nil_values(attrs)
+
+    attrs =
+      attrs
+      |> Map.delete(:wasm_object_key)
+      |> Map.delete("wasm_object_key")
+      |> drop_nil_values()
+
     source_type = normalize_source_type(Map.get(attrs, :source_type))
 
     case source_type do
@@ -185,6 +191,18 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def upload_blob(_package, _payload, _opts), do: {:error, :invalid_attributes}
 
+  @spec upload_blob_file(PluginPackage.t(), String.t(), keyword()) ::
+          {:ok, PluginPackage.t()} | {:error, term()}
+  def upload_blob_file(package, path, opts \\ [])
+
+  def upload_blob_file(%PluginPackage{} = package, path, opts) when is_binary(path) do
+    with {:ok, content_hash} <- Storage.sha256_file(path) do
+      store_wasm_blob_file(package, path, content_hash, opts)
+    end
+  end
+
+  def upload_blob_file(_package, _path, _opts), do: {:error, :invalid_attributes}
+
   defp ensure_plugin(%Manifest{} = manifest, attrs, scope) do
     plugin_id = manifest.id
     source = Map.get(manifest, :source) || %{}
@@ -289,9 +307,22 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   end
 
   defp store_wasm_blob(package, payload, content_hash, opts) do
-    object_key = package.wasm_object_key || Storage.object_key_for(package)
+    object_key = Storage.object_key_for(package)
 
     with :ok <- Storage.put_blob(object_key, payload) do
+      package
+      |> Ash.Changeset.for_update(:update, %{
+        wasm_object_key: object_key,
+        content_hash: content_hash
+      })
+      |> update_resource_with_opts(opts)
+    end
+  end
+
+  defp store_wasm_blob_file(package, path, content_hash, opts) do
+    object_key = Storage.object_key_for(package)
+
+    with :ok <- Storage.put_blob_file(object_key, path) do
       package
       |> Ash.Changeset.for_update(:update, %{
         wasm_object_key: object_key,

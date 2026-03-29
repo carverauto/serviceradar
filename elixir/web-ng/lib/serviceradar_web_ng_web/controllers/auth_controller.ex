@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Auth.Hooks
+  alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.AuthURL
   alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.UserAuth
@@ -31,6 +32,9 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   require Logger
 
   plug :fetch_session
+
+  @password_auth_rate_limit 10
+  @password_auth_window 60
 
   @doc """
   Shows the password reset request form.
@@ -48,26 +52,45 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   Authenticates the user with email and password, then creates a Guardian JWT token.
   """
   def create(conn, %{"user" => %{"email" => email, "password" => password}}) do
-    actor = SystemActor.system(:auth_controller)
+    client_ip = ClientIP.get(conn)
 
-    case User.authenticate(email, password, actor: actor) do
-      {:ok, user} ->
-        # Record authentication timestamp for sudo mode
-        User.record_authentication(user, actor: actor)
-
-        # Trigger auth hooks
-        Hooks.on_user_authenticated(user, %{"method" => "password"})
-
-        _ = UserAuthEvents.record_login(conn, user, :password)
+    case RateLimiter.check_rate_limit("password_auth", client_ip,
+           limit: @password_auth_rate_limit,
+           window_seconds: @password_auth_window
+         ) do
+      {:error, retry_after} ->
+        Logger.warning("Password auth rate limited for IP: #{client_ip}")
 
         conn
-        |> put_flash(:info, "Signed in successfully.")
-        |> UserAuth.log_in_user(user)
-
-      {:error, _} ->
-        conn
-        |> put_flash(:error, "Invalid email or password.")
+        |> put_flash(
+          :error,
+          "Too many login attempts. Please try again in #{retry_after} seconds."
+        )
         |> redirect(to: ~p"/users/log-in")
+
+      :ok ->
+        RateLimiter.record_attempt("password_auth", client_ip)
+        actor = SystemActor.system(:auth_controller)
+
+        case User.authenticate(email, password, actor: actor) do
+          {:ok, user} ->
+            # Record authentication timestamp for sudo mode
+            User.record_authentication(user, actor: actor)
+
+            # Trigger auth hooks
+            Hooks.on_user_authenticated(user, %{"method" => "password"})
+
+            _ = UserAuthEvents.record_login(conn, user, :password)
+
+            conn
+            |> put_flash(:info, "Signed in successfully.")
+            |> UserAuth.log_in_user(user)
+
+          {:error, _} ->
+            conn
+            |> put_flash(:error, "Invalid email or password.")
+            |> redirect(to: ~p"/users/log-in")
+        end
     end
   end
 
@@ -89,8 +112,6 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   Rate limited to 5 attempts per minute per IP.
   """
   def local_sign_in(conn, %{"user" => %{"email" => email, "password" => password}}) do
-    alias ServiceRadarWebNGWeb.Auth.RateLimiter
-
     client_ip = ClientIP.get(conn)
 
     # Check rate limit

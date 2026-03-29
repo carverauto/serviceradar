@@ -58,7 +58,6 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
         manifest: params["manifest"],
         config_schema: params["config_schema"],
         display_contract: params["display_contract"],
-        wasm_object_key: params["wasm_object_key"],
         content_hash: params["content_hash"],
         signature: params["signature"],
         source_type: normalize_source_type(params["source_type"]),
@@ -167,10 +166,31 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
          {:ok, %{id: token_id, key: object_key}} <- Storage.verify_token(:upload, token),
          true <- token_id == id,
          {:ok, package} <- fetch_package_for_blob(id),
-         true <- object_key == package.wasm_object_key,
-         {:ok, payload, conn} <- read_full_body(conn, Storage.max_upload_bytes()),
-         {:ok, _package} <- Packages.upload_blob(package, payload, actor: actor) do
-      send_resp(conn, :created, "")
+         true <- same_object_key?(object_key, package.wasm_object_key) do
+      case read_body_to_tempfile(conn, Storage.max_upload_bytes()) do
+        {:ok, upload_path, conn} ->
+          try do
+            case Packages.upload_blob_file(package, upload_path, actor: actor) do
+              {:ok, _package} ->
+                send_resp(conn, :created, "")
+
+              {:error, reason} ->
+                Logger.error("plugin blob API upload failed package_id=#{id} error=#{inspect(reason)}")
+                {:error, reason}
+            end
+          after
+            File.rm(upload_path)
+          end
+
+        {:error, :payload_too_large} ->
+          conn
+          |> put_status(:request_entity_too_large)
+          |> json(%{error: "payload_too_large"})
+
+        {:error, reason} ->
+          Logger.error("plugin blob API upload failed package_id=#{id} error=#{inspect(reason)}")
+          {:error, reason}
+      end
     else
       {:error, :missing_token} ->
         unauthorized(conn)
@@ -178,18 +198,8 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
       {:error, :invalid_token} ->
         unauthorized(conn)
 
-      {:error, :payload_too_large} ->
-        conn
-        |> put_status(:request_entity_too_large)
-        |> json(%{error: "payload_too_large"})
-
       false ->
         unauthorized(conn)
-
-      {:error, reason} ->
-        Logger.error("plugin blob API upload failed package_id=#{id} error=#{inspect(reason)}")
-
-        {:error, reason}
     end
   end
 
@@ -199,7 +209,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
          {:ok, %{id: token_id, key: object_key}} <- Storage.verify_token(:download, token),
          true <- token_id == id,
          {:ok, package} <- fetch_package_for_blob(id),
-         true <- object_key == package.wasm_object_key,
+         true <- same_object_key?(object_key, package.wasm_object_key),
          {:ok, blob} <- Storage.fetch_blob(object_key) do
       case blob do
         {:file, path} ->
@@ -454,33 +464,73 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
   end
 
   defp read_full_body(conn, max_bytes) do
-    conn
-    |> read_body(length: max_bytes, read_length: 1_000_000)
-    |> case do
-      {:ok, body, conn} -> {:ok, body, conn}
-      {:more, body, conn} -> read_body_more(conn, max_bytes, body, byte_size(body))
-      {:error, reason} -> {:error, reason}
+    tmp_path =
+      Path.join(
+        System.tmp_dir!(),
+        "serviceradar-plugin-upload-#{System.unique_integer([:positive])}.wasm"
+      )
+
+    case File.open(tmp_path, [:write, :binary]) do
+      {:ok, io_device} ->
+        try do
+          case read_body_more(conn, max_bytes, io_device, 0) do
+            {:ok, conn, _size} ->
+              {:ok, tmp_path, conn}
+
+            {:error, _reason} = error ->
+              File.rm(tmp_path)
+              error
+          end
+        after
+          File.close(io_device)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp read_body_more(conn, max_bytes, acc, size) do
+  defp read_body_to_tempfile(conn, max_bytes), do: read_full_body(conn, max_bytes)
+
+  defp read_body_more(conn, max_bytes, io_device, size) do
     if size >= max_bytes do
       {:error, :payload_too_large}
     else
       conn
-      |> read_body(length: max_bytes - size, read_length: 1_000_000)
+      |> read_body(length: max_bytes - size, read_length: min(1_000_000, max_bytes - size))
       |> case do
         {:ok, body, conn} ->
-          {:ok, acc <> body, conn}
+          next_size = size + byte_size(body)
+
+          if next_size > max_bytes do
+            {:error, :payload_too_large}
+          else
+            :ok = IO.binwrite(io_device, body)
+            {:ok, conn, next_size}
+          end
 
         {:more, body, conn} ->
-          read_body_more(conn, max_bytes, acc <> body, size + byte_size(body))
+          next_size = size + byte_size(body)
+
+          if next_size > max_bytes do
+            {:error, :payload_too_large}
+          else
+            :ok = IO.binwrite(io_device, body)
+            read_body_more(conn, max_bytes, io_device, next_size)
+          end
 
         {:error, reason} ->
           {:error, reason}
       end
     end
   end
+
+  defp same_object_key?(expected, actual)
+       when is_binary(expected) and is_binary(actual) and byte_size(expected) == byte_size(actual) do
+    Plug.Crypto.secure_compare(expected, actual)
+  end
+
+  defp same_object_key?(_expected, _actual), do: false
 
   defp unauthorized(conn) do
     conn
