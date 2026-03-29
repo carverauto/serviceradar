@@ -4,6 +4,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
   """
 
   alias ServiceRadar.Camera.AnalysisWorker
+  alias ServiceRadar.Policies.OutboundURLPolicy
 
   @supported_http_adapters ["http"]
   @default_flapping_transition_threshold 3
@@ -20,6 +21,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
            requested_capability: nil,
            registry_managed?: false
          })}
+
+      {:error, reason} ->
+        {:error, reason}
 
       {:worker_id, worker_id, requested_capability} ->
         case resolve_registered_worker(resource, worker_id, requested_capability, opts) do
@@ -106,7 +110,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
         with :ok <- ensure_enabled(worker),
              :ok <- ensure_healthy(worker),
              :ok <- ensure_capability(worker, requested_capability),
-             :ok <- ensure_http_adapter(worker) do
+             :ok <- ensure_http_adapter(worker),
+             :ok <- ensure_safe_worker_urls(worker) do
           {:ok,
            worker
            |> normalize_worker()
@@ -138,15 +143,19 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
         {:capability, requested_capability, excluded_worker_ids}
 
       is_binary(direct_endpoint_url) ->
-        {:direct,
-         %{
-           worker_id: required_direct_worker_id!(attrs),
-           endpoint_url: direct_endpoint_url,
-           adapter: "http",
-           headers: map_value(attrs, :headers, %{}),
-           capabilities: [],
-           enabled: true
-         }}
+        with :ok <- validate_worker_endpoint(direct_endpoint_url),
+             :ok <- validate_optional_worker_url(present_string(attrs, :health_endpoint_url)) do
+          {:direct,
+           %{
+             worker_id: required_direct_worker_id!(attrs),
+             endpoint_url: direct_endpoint_url,
+             health_endpoint_url: present_string(attrs, :health_endpoint_url),
+             adapter: "http",
+             headers: map_value(attrs, :headers, %{}),
+             capabilities: [],
+             enabled: true
+           }}
+        end
 
       is_binary(fallback_worker_id) ->
         {:worker_id, fallback_worker_id, requested_capability}
@@ -185,11 +194,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
   end
 
   defp capability_resolution_result(worker, _matching_workers, requested_capability) do
-    {:ok,
-     worker
-     |> Map.put(:selection_mode, "capability")
-     |> Map.put(:requested_capability, requested_capability)
-     |> Map.put(:registry_managed?, true)}
+    with :ok <- ensure_safe_worker_urls(worker) do
+      {:ok,
+       worker
+       |> Map.put(:selection_mode, "capability")
+       |> Map.put(:requested_capability, requested_capability)
+       |> Map.put(:registry_managed?, true)}
+    end
   end
 
   defp normalize_worker(worker) when is_map(worker) do
@@ -257,6 +268,25 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
       {:error, {:unsupported_worker_adapter, adapter}}
     end
   end
+
+  defp ensure_safe_worker_urls(worker) when is_map(worker) do
+    with :ok <- validate_worker_endpoint(map_value(worker, :endpoint_url)),
+         :ok <- validate_optional_worker_url(map_value(worker, :health_endpoint_url)) do
+      :ok
+    end
+  end
+
+  defp validate_optional_worker_url(nil), do: :ok
+  defp validate_optional_worker_url(url), do: validate_worker_endpoint(url)
+
+  defp validate_worker_endpoint(url) when is_binary(url) do
+    case OutboundURLPolicy.validate_https_public_url(String.trim(url)) do
+      {:ok, _uri} -> :ok
+      {:error, reason} -> {:error, {:unsafe_worker_endpoint, reason}}
+    end
+  end
+
+  defp validate_worker_endpoint(_url), do: {:error, {:unsafe_worker_endpoint, :invalid_url}}
 
   defp healthy_worker?(worker) do
     map_value(worker, :health_status, "healthy") == "healthy"

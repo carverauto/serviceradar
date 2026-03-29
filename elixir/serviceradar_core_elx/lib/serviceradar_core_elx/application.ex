@@ -88,14 +88,18 @@ defmodule ServiceRadarCoreElx.Application do
   end
 
   defp media_adapter_opts do
-    case media_grpc_credential() do
-      nil -> []
-      credential -> [cred: credential]
-    end
+    [cred: media_grpc_credential!()]
   end
 
-  defp media_grpc_credential do
-    cert_dir = System.get_env("CORE_ELX_MEDIA_CERT_DIR", "/etc/serviceradar/certs")
+  @doc false
+  def media_grpc_credential! do
+    cert_dir =
+      Application.get_env(
+        :serviceradar_core_elx,
+        :core_elx_media_cert_dir,
+        System.get_env("CORE_ELX_MEDIA_CERT_DIR", "/etc/serviceradar/certs")
+      )
+
     cert_file = Path.join(cert_dir, "core-elx.pem")
     key_file = Path.join(cert_dir, "core-elx-key.pem")
     ca_file = Path.join(cert_dir, "root.pem")
@@ -106,18 +110,12 @@ defmodule ServiceRadarCoreElx.Application do
         keyfile: key_file,
         cacertfile: ca_file,
         verify: :verify_peer,
-        fail_if_no_peer_cert: false
+        fail_if_no_peer_cert: true
       ]
 
       GRPC.Credential.new(ssl: ssl_opts)
     else
-      allow_insecure? = System.get_env("CORE_ELX_MEDIA_ALLOW_INSECURE_GRPC", "true") == "true"
-
-      if allow_insecure? do
-        nil
-      else
-        raise "No TLS certs available for core-elx camera media gRPC server"
-      end
+      raise "No mTLS certs available for core-elx camera media gRPC server"
     end
   end
 end

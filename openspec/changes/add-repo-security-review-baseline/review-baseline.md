@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-gateway-pass-1`
+- Review artifact version: `2026-03-29-core-elx-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -28,8 +28,8 @@
 | --- | --- | --- | --- |
 | `elixir/web-ng/lib` | Primary | reviewed | Extensive auth, onboarding, plugin/package, admin API, bundle-delivery findings already mapped to hardening changes. |
 | `elixir/serviceradar_core/lib` | Primary | reviewed | Release artifact delivery, onboarding, identity/accounting, edge bundle/script generation reviewed and mapped. |
-| `elixir/serviceradar_agent_gateway/lib` | Primary | partial | Release artifact authorization, gateway startup TLS, cert issuance, and camera relay ownership paths reviewed. New gateway-specific findings recorded; deeper core-elx adjacency review still pending. |
-| `elixir/serviceradar_core_elx/lib` | Primary | not-started | No dedicated review pass recorded yet. |
+| `elixir/serviceradar_agent_gateway/lib` | Primary | reviewed | Release artifact authorization, gateway startup TLS, cert issuance, and camera relay ownership paths reviewed and mapped to a dedicated hardening change. |
+| `elixir/serviceradar_core_elx/lib` | Primary | partial | Camera ingress transport/auth and analysis-worker outbound HTTP dispatch paths reviewed. New core-elx-specific findings recorded; deeper pass still pending. |
 | `go/pkg/agent` | Primary | partial | Plugin/runtime download flow reviewed; full package audit still pending. |
 | `go/pkg/edgeonboarding` | Primary | reviewed | Signed tokens, HTTPS enforcement, env override handling, collector onboarding reviewed and mapped. |
 | `go/pkg/grpc` | Primary | not-started | No dedicated review pass recorded yet. |
@@ -94,6 +94,7 @@ Disposition values used in this artifact:
 | `SR-012` | Medium | `elixir/serviceradar_core/lib` | Identity cache eviction, credential use counters, and first-user bootstrap had denial-of-service or race-condition weaknesses. | `covered-by-change: harden-identity-cache-and-credential-accounting` |
 | `SR-013` | High | `elixir/serviceradar_core/lib` | Release artifact mirroring followed redirects implicitly, buffered downloads unsafely, and edge-site setup scripts interpolated shell-sensitive names. | `covered-by-change: harden-edge-artifact-fetch-and-leaf-bundles` |
 | `SR-014` | High | `elixir/serviceradar_agent_gateway/lib` | Agent gateway still has a fail-open plaintext listener mode, camera relay session operations are not bound to the owning agent, and cert issuance uses predictable temp paths. | `covered-by-change: harden-agent-gateway-edge-identity-boundaries` |
+| `SR-015` | High | `elixir/serviceradar_core_elx/lib`, `elixir/web-ng/lib`, `elixir/serviceradar_core/lib` | Core-ELX camera ingress still fails open on transport identity, and analysis-worker HTTP dispatch/probe paths trust operator-supplied URLs without outbound fetch policy enforcement. | `covered-by-change: harden-core-elx-camera-ingress-and-analysis-fetch` |
 
 ### Finding Details
 
@@ -231,6 +232,22 @@ Disposition values used in this artifact:
   - replace predictable temp paths in certificate issuance with secure exclusive temp directories/files
 - Disposition: `covered-by-change: harden-agent-gateway-edge-identity-boundaries`
 
+#### `SR-015` Core-ELX media ingress trust-boundary and analysis-worker SSRF gap
+- Severity: High
+- Exploitability / Preconditions: attacker can reach a core-elx media gRPC listener deployed without valid certs, or a privileged operator / compromised control-plane path can register or select an analysis worker endpoint that targets an internal service.
+- Affected Paths:
+  - `elixir/serviceradar_core_elx/lib`
+  - `elixir/web-ng/lib`
+  - `elixir/serviceradar_core/lib`
+- Impact:
+  - the core-elx camera ingress gRPC service can start without TLS when certs are absent and, when TLS is present, does not require client certificates, weakening the agent-gateway-to-core trust boundary
+  - camera analysis worker dispatch and health probing issue raw HTTP requests to `endpoint_url` / `health_endpoint_url` values with no public-host validation or DNS-rebinding-safe resolution, creating an SSRF path from worker configuration into internal services
+- Remediation Guidance:
+  - require mTLS for the core-elx edge-facing media ingress service and fail closed when server/client trust material is absent
+  - apply the existing outbound fetch policy pattern to analysis-worker HTTP delivery and health probing, including address validation and connection binding to the validated target
+  - constrain worker endpoint configuration to validated safe URLs before persistence when possible
+- Disposition: `covered-by-change: harden-core-elx-camera-ingress-and-analysis-fetch`
+
 ## Accepted Risk Register
 
 No accepted-risk entries have been recorded yet in this baseline artifact.
@@ -238,8 +255,7 @@ No accepted-risk entries have been recorded yet in this baseline artifact.
 ## Remaining Primary-Scope Gaps
 
 The following primary-scope passes still need dedicated review evidence before the primary audit can be considered complete:
-- `elixir/serviceradar_agent_gateway/lib` follow-up remediation pass for newly recorded gateway findings and any deeper core-elx adjacency checks
-- `elixir/serviceradar_core_elx/lib`
+- `elixir/serviceradar_core_elx/lib` deeper pass beyond camera ingress / analysis-worker HTTP dispatch
 - `go/pkg/grpc`
 - `go/pkg/config/bootstrap`
 - `rust/edge-onboarding`
@@ -250,10 +266,9 @@ The following primary-scope passes still need dedicated review evidence before t
 ## Next Pass Queue
 
 Recommended next review order:
-1. `elixir/serviceradar_agent_gateway/lib`
-2. `elixir/serviceradar_core_elx/lib`
-3. `go/pkg/grpc`
-4. `go/pkg/config/bootstrap`
-5. `rust/edge-onboarding`
-6. `rust/config-bootstrap`
-7. `helm/serviceradar`
+1. `elixir/serviceradar_core_elx/lib` deeper pass
+2. `go/pkg/grpc`
+3. `go/pkg/config/bootstrap`
+4. `rust/edge-onboarding`
+5. `rust/config-bootstrap`
+6. `helm/serviceradar`
