@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-rust-flowgger-pass-1`
+- Review artifact version: `2026-03-29-rust-srql-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -52,7 +52,7 @@
 | `rust/log-collector` | Secondary | reviewed | Reviewed startup, config-bootstrap, OTEL delegation, and shipped config samples. No new confirmed exploitable finding recorded in the current tree. |
 | `rust/consumers/zen` | Secondary | reviewed | Reviewed NATS, decision-engine, and optional gRPC status server paths. A fail-open gRPC transport and default exposure finding is recorded below. |
 | `rust/flowgger` | Secondary | reviewed | Reviewed gRPC sidecar, input listeners, and NATS output transport wiring. A fail-open gRPC transport finding is recorded below. |
-| `rust/srql` | Secondary | not-started | Pending targeted SRQL / query-safety pass. |
+| `rust/srql` | Secondary | reviewed | Reviewed parser, query engine, and HTTP API auth path. A fail-open API authentication finding is recorded below. |
 | `docker/compose` | Secondary | not-started | Pending after primary scope closure. |
 | `k8s/demo` | Secondary | not-started | Pending after primary scope closure. |
 | `k8s/sr-testing` | Secondary | not-started | Pending after primary scope closure. |
@@ -109,6 +109,7 @@ Disposition values used in this artifact:
 | `SR-027` | High | `rust/trapd` | The optional trapd gRPC status server explicitly permits plaintext mode and starts without TLS when `grpc_security.mode` is `none`, weakening an internal service trust boundary. | `covered-by-change: harden-rust-trapd-grpc-transport-defaults` |
 | `SR-028` | High | `rust/consumers/zen` | Zen starts a gRPC status server on `0.0.0.0:50055` by default and serves plaintext whenever `grpc_security` is absent or `none`, exposing an internal service boundary without authenticated transport. | `covered-by-change: harden-rust-zen-grpc-transport-defaults` |
 | `SR-029` | High | `rust/flowgger` | Flowgger’s optional gRPC health sidecar accepts `grpc.mode = "none"` and silently downgrades incomplete `mtls` config to plaintext serving, weakening an internal service boundary. | `covered-by-change: harden-rust-flowgger-grpc-transport-defaults` |
+| `SR-030` | High | `rust/srql` | SRQL disables API key enforcement entirely when no env or KV-backed key is configured, leaving `/api/query` and `/translate` unauthenticated on the normal listener. | `covered-by-change: harden-rust-srql-api-auth-defaults` |
 
 ### Finding Details
 
@@ -346,6 +347,20 @@ Disposition values used in this artifact:
   - make incomplete mTLS configuration a validation error instead of a downgrade to plaintext
   - add focused tests proving the gRPC sidecar only starts under mTLS or SPIFFE-backed transport
 - Disposition: `covered-by-change: harden-rust-flowgger-grpc-transport-defaults`
+
+#### `SR-030` SRQL API authentication fails open when no key is configured
+- Severity: High
+- Exploitability / Preconditions: deployment starts `rust/srql` without `SRQL_API_KEY` and without a valid KV-backed key configured.
+- Affected Paths:
+  - `rust/srql`
+- Impact:
+  - SRQL logs a warning and disables API key enforcement entirely when no static or KV-backed API key is configured
+  - the service still binds and serves `/api/query` and `/translate`, so query translation and query execution become unauthenticated by configuration omission
+- Remediation Guidance:
+  - require an API key source at startup and fail closed when none is configured
+  - keep embedded/test-only construction explicit rather than allowing the standalone server to disable auth silently
+  - add focused tests proving missing-key startup fails instead of serving unauthenticated query endpoints
+- Disposition: `covered-by-change: harden-rust-srql-api-auth-defaults`
 
 #### `SR-015` Core-ELX media ingress trust-boundary and analysis-worker SSRF gap
 - Severity: High
