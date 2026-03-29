@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use futures::Stream;
 use log::info;
 use std::fs;
+use std::path::PathBuf;
 use std::pin::Pin;
 use tonic::{
     transport::{Certificate, Identity, Server, ServerTlsConfig},
@@ -10,7 +11,7 @@ use tonic::{
 use tonic_health::server::health_reporter;
 use tonic_reflection::server::Builder as ReflectionBuilder;
 
-use crate::config::{Config, SecurityConfig, SecurityMode};
+use crate::config::{Config, SecurityMode};
 use crate::spiffe;
 
 pub mod monitoring {
@@ -91,37 +92,82 @@ impl AgentService for ZenAgentService {
 }
 
 pub async fn start_grpc_server(cfg: Config) -> Result<()> {
-    let addr: std::net::SocketAddr = cfg.listen_addr.parse()?;
+    let addr: std::net::SocketAddr = match cfg.listen_addr.as_ref() {
+        Some(addr) => addr.parse()?,
+        None => return Ok(()),
+    };
 
-    match cfg.grpc_security.as_ref().map(|sec| sec.mode()) {
-        Some(SecurityMode::Spiffe) => {
-            serve_with_spiffe(addr, cfg.grpc_security.as_ref().unwrap()).await
+    match resolve_grpc_server_transport(&cfg)? {
+        GrpcServerTransport::Spiffe {
+            workload_socket,
+            trust_domain,
+        } => serve_with_spiffe(addr, &workload_socket, &trust_domain).await,
+        GrpcServerTransport::Mtls {
+            cert_path,
+            key_path,
+            ca_path,
+        } => {
+            let tls = build_mtls_config(cert_path, key_path, ca_path)?;
+            serve_once(addr, tls).await
         }
-        Some(SecurityMode::Mtls) => {
-            let tls = build_mtls_config(cfg.grpc_security.as_ref().unwrap())?;
-            serve_once(addr, Some(tls)).await
-        }
-        Some(SecurityMode::None) | None => serve_once(addr, None).await,
     }
 }
 
-fn build_mtls_config(sec: &SecurityConfig) -> Result<ServerTlsConfig> {
-    let cert_path = sec
-        .cert_file_path()
-        .context("grpc_security.cert_file is required for mtls mode")?;
-    let key_path = sec
-        .key_file_path()
-        .context("grpc_security.key_file is required for mtls mode")?;
-    let ca_path = sec
-        .ca_file_path()
-        .context("grpc_security.ca_file is required for mtls mode")?;
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GrpcServerTransport {
+    Mtls {
+        cert_path: PathBuf,
+        key_path: PathBuf,
+        ca_path: PathBuf,
+    },
+    Spiffe {
+        workload_socket: String,
+        trust_domain: String,
+    },
+}
 
+fn resolve_grpc_server_transport(cfg: &Config) -> Result<GrpcServerTransport> {
+    let sec = cfg
+        .grpc_security
+        .as_ref()
+        .context("grpc_security is required when listen_addr is set")?;
+
+    match sec.mode() {
+        SecurityMode::Spiffe => Ok(GrpcServerTransport::Spiffe {
+            workload_socket: sec.workload_socket().to_string(),
+            trust_domain: sec
+                .trust_domain()
+                .context("grpc_security.trust_domain is required for spiffe mode")?
+                .to_string(),
+        }),
+        SecurityMode::Mtls => Ok(GrpcServerTransport::Mtls {
+            cert_path: sec
+                .cert_file_path()
+                .context("grpc_security.cert_file is required for mtls mode")?,
+            key_path: sec
+                .key_file_path()
+                .context("grpc_security.key_file is required for mtls mode")?,
+            ca_path: sec
+                .ca_file_path()
+                .context("grpc_security.ca_file is required for mtls mode")?,
+        }),
+        SecurityMode::None => {
+            anyhow::bail!("grpc_security.mode \"none\" is not allowed when listen_addr is set")
+        }
+    }
+}
+
+fn build_mtls_config(
+    cert_path: PathBuf,
+    key_path: PathBuf,
+    ca_path: PathBuf,
+) -> Result<ServerTlsConfig> {
     let cert = Identity::from_pem(fs::read(&cert_path)?, fs::read(&key_path)?);
     let ca = Certificate::from_pem(fs::read(&ca_path)?);
     Ok(ServerTlsConfig::new().identity(cert).client_ca_root(ca))
 }
 
-async fn serve_once(addr: std::net::SocketAddr, tls: Option<ServerTlsConfig>) -> Result<()> {
+async fn serve_once(addr: std::net::SocketAddr, tls: ServerTlsConfig) -> Result<()> {
     let service = ZenAgentService;
     let (mut health_reporter, health_service) = health_reporter();
     health_reporter
@@ -132,12 +178,8 @@ async fn serve_once(addr: std::net::SocketAddr, tls: Option<ServerTlsConfig>) ->
         .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
         .build_v1()?;
 
-    let mut server_builder = Server::builder();
-    if let Some(tls) = tls {
-        server_builder = server_builder.tls_config(tls)?;
-    }
-
-    server_builder
+    Server::builder()
+        .tls_config(tls)?
         .add_service(health_service)
         .add_service(AgentServiceServer::new(service))
         .add_service(reflection_service)
@@ -147,11 +189,12 @@ async fn serve_once(addr: std::net::SocketAddr, tls: Option<ServerTlsConfig>) ->
     Ok(())
 }
 
-async fn serve_with_spiffe(addr: std::net::SocketAddr, sec: &SecurityConfig) -> Result<()> {
-    let trust_domain = sec
-        .trust_domain()
-        .context("grpc_security.trust_domain is required for spiffe mode")?;
-    let credentials = spiffe::load_server_credentials(sec.workload_socket(), trust_domain).await?;
+async fn serve_with_spiffe(
+    addr: std::net::SocketAddr,
+    workload_socket: &str,
+    trust_domain: &str,
+) -> Result<()> {
+    let credentials = spiffe::load_server_credentials(workload_socket, trust_domain).await?;
     let mut updates = credentials.watch_updates();
     updates.borrow_and_update();
 
@@ -215,4 +258,113 @@ async fn serve_with_spiffe(addr: std::net::SocketAddr, sec: &SecurityConfig) -> 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn base_config() -> Config {
+        Config {
+            nats_url: "nats://localhost:4222".to_string(),
+            domain: None,
+            stream_name: "events".to_string(),
+            consumer_name: "zen-consumer".to_string(),
+            subjects: vec!["logs.syslog".to_string()],
+            subject_prefix: None,
+            result_subject: None,
+            result_subject_suffix: None,
+            decision_keys: vec!["passthrough".to_string()],
+            decision_groups: Vec::new(),
+            nats_creds_file: None,
+            kv_bucket: "serviceradar-datasvc".to_string(),
+            agent_id: "agent-01".to_string(),
+            listen_addr: Some("0.0.0.0:50055".to_string()),
+            security: None,
+            grpc_security: Some(
+                serde_json::from_value(json!({
+                    "mode": "spiffe",
+                    "trust_domain": "carverauto.dev"
+                }))
+                .expect("expected grpc security config"),
+            ),
+        }
+    }
+
+    #[test]
+    fn resolve_grpc_server_transport_rejects_missing_security() {
+        let mut cfg = base_config();
+        cfg.grpc_security = None;
+
+        let err = resolve_grpc_server_transport(&cfg).expect_err("expected validation error");
+        assert!(
+            err.to_string().contains("grpc_security is required"),
+            "expected missing grpc security error, got {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_grpc_server_transport_rejects_none_mode() {
+        let mut cfg = base_config();
+        cfg.grpc_security = Some(
+            serde_json::from_value(json!({
+                "mode": "none"
+            }))
+            .expect("expected grpc security config"),
+        );
+
+        let err = resolve_grpc_server_transport(&cfg).expect_err("expected validation error");
+        assert!(
+            err.to_string().contains("grpc_security.mode \"none\""),
+            "expected insecure grpc mode error, got {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_grpc_server_transport_defaults_spiffe_socket() {
+        let cfg = base_config();
+
+        let transport =
+            resolve_grpc_server_transport(&cfg).expect("expected spiffe transport resolution");
+
+        assert_eq!(
+            transport,
+            GrpcServerTransport::Spiffe {
+                workload_socket: crate::config::SecurityConfig::default()
+                    .workload_socket()
+                    .to_string(),
+                trust_domain: "carverauto.dev".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_grpc_server_transport_resolves_mtls_paths() {
+        let mut cfg = base_config();
+        cfg.grpc_security = Some(
+            serde_json::from_value(json!({
+                "mode": "mtls",
+                "cert_dir": "/etc/serviceradar/certs",
+                "tls": {
+                    "cert_file": "zen.pem",
+                    "key_file": "zen-key.pem",
+                    "ca_file": "root.pem"
+                }
+            }))
+            .expect("expected grpc security config"),
+        );
+
+        let transport =
+            resolve_grpc_server_transport(&cfg).expect("expected mtls transport resolution");
+
+        assert_eq!(
+            transport,
+            GrpcServerTransport::Mtls {
+                cert_path: PathBuf::from("/etc/serviceradar/certs/zen.pem"),
+                key_path: PathBuf::from("/etc/serviceradar/certs/zen-key.pem"),
+                ca_path: PathBuf::from("/etc/serviceradar/certs/root.pem"),
+            }
+        );
+    }
 }

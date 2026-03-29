@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-rust-trapd-pass-1`
+- Review artifact version: `2026-03-29-rust-zen-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -50,7 +50,7 @@
 | `go/cmd/wasm-plugins` | Secondary | reviewed | Reviewed shipped AXIS, UniFi Protect, and dusk WASM plugin packages. AXIS websocket credential handling finding recorded below. |
 | `rust/trapd` | Secondary | reviewed | Reviewed SNMP ingest, NATS publish, and optional gRPC status server paths. A fail-open gRPC transport finding is recorded below. |
 | `rust/log-collector` | Secondary | reviewed | Reviewed startup, config-bootstrap, OTEL delegation, and shipped config samples. No new confirmed exploitable finding recorded in the current tree. |
-| `rust/consumers/zen` | Secondary | not-started | Pending after primary scope closure. |
+| `rust/consumers/zen` | Secondary | reviewed | Reviewed NATS, decision-engine, and optional gRPC status server paths. A fail-open gRPC transport and default exposure finding is recorded below. |
 | `rust/flowgger` | Secondary | not-started | Pending after primary scope closure. |
 | `rust/srql` | Secondary | not-started | Pending targeted SRQL / query-safety pass. |
 | `docker/compose` | Secondary | not-started | Pending after primary scope closure. |
@@ -107,6 +107,7 @@ Disposition values used in this artifact:
 | `SR-025` | Medium | `go/pkg/nats`, `go/pkg/datasvc` | New NATS accounts received unlimited JetStream quotas by default when explicit limits were omitted, enabling storage and consumer exhaustion by provisioned accounts. | `covered-by-change: harden-nats-account-scope-guardrails` |
 | `SR-026` | Medium | `go/cmd/wasm-plugins/axis`, `go/pkg/agent` | The shipped AXIS camera plugin embeds camera credentials in the VAPIX event websocket URL userinfo even though the agent runtime supports structured websocket headers, creating avoidable credential leakage risk through URL-bearing surfaces. | `covered-by-change: harden-axis-plugin-websocket-credential-handling` |
 | `SR-027` | High | `rust/trapd` | The optional trapd gRPC status server explicitly permits plaintext mode and starts without TLS when `grpc_security.mode` is `none`, weakening an internal service trust boundary. | `covered-by-change: harden-rust-trapd-grpc-transport-defaults` |
+| `SR-028` | High | `rust/consumers/zen` | Zen starts a gRPC status server on `0.0.0.0:50055` by default and serves plaintext whenever `grpc_security` is absent or `none`, exposing an internal service boundary without authenticated transport. | `covered-by-change: harden-rust-zen-grpc-transport-defaults` |
 
 ### Finding Details
 
@@ -316,6 +317,20 @@ Disposition values used in this artifact:
   - require either mTLS or SPIFFE-backed authenticated transport for the trapd gRPC status server
   - add focused config and runtime tests proving trapd fails closed instead of serving plaintext
 - Disposition: `covered-by-change: harden-rust-trapd-grpc-transport-defaults`
+
+#### `SR-028` Zen gRPC status server starts plaintext by default
+- Severity: High
+- Exploitability / Preconditions: a deployment runs `rust/consumers/zen` with the default or sample configuration and does not provide secure `grpc_security` settings.
+- Affected Paths:
+  - `rust/consumers/zen`
+- Impact:
+  - the `zen` consumer defaults `listen_addr` to `0.0.0.0:50055` and `main.rs` always spawns the gRPC status server, so the service surface is enabled by default rather than explicit opt-in
+  - `grpc_server.rs` serves plaintext whenever `grpc_security` is missing or resolves to `none`, so the default status surface crosses an internal service boundary without mTLS or SPIFFE identity
+- Remediation Guidance:
+  - make the gRPC status server opt-in or require authenticated transport whenever it is enabled
+  - reject missing or insecure `grpc_security` for enabled gRPC serving
+  - add focused tests proving the default runtime no longer exposes a plaintext gRPC port
+- Disposition: `covered-by-change: harden-rust-zen-grpc-transport-defaults`
 
 #### `SR-015` Core-ELX media ingress trust-boundary and analysis-worker SSRF gap
 - Severity: High
