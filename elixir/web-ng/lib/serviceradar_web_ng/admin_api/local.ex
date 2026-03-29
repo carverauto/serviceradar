@@ -11,14 +11,17 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
+  alias ServiceRadarWebNG.AdminApi.LocalParams
 
   require Ash.Query
+
+  @not_provided :not_provided
 
   @impl true
   def list_users(scope, params) do
     role = params["role"]
     status = params["status"]
-    limit = parse_int(params["limit"]) || 100
+    limit = LocalParams.normalize_limit(params["limit"])
 
     query =
       User
@@ -52,18 +55,18 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
     role_profile_id = role_profile_id_from_attrs(attrs)
     display_name = Map.get(attrs, :display_name) || Map.get(attrs, "display_name")
 
-    result =
+    [User]
+    |> Ash.transaction(fn ->
       with {:ok, user} <- Ash.get(User, id, scope: scope),
            {:ok, user} <- maybe_update_role(user, role, scope),
            {:ok, user} <- maybe_update_role_profile(user, role_profile_id, scope),
            {:ok, user} <- maybe_update_display_name(user, display_name, scope) do
         user
+      else
+        {:error, reason} -> Ash.DataLayer.rollback([User], reason)
       end
-
-    case result do
-      %User{} = user -> {:ok, user}
-      other -> other
-    end
+    end)
+    |> normalize_transaction_result()
   end
 
   @impl true
@@ -155,15 +158,6 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
     {:ok, RBAC.catalog()}
   end
 
-  defp parse_int(nil), do: nil
-
-  defp parse_int(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, _} -> int
-      :error -> nil
-    end
-  end
-
   defp maybe_filter_role(query, nil), do: query
   defp maybe_filter_role(query, ""), do: query
 
@@ -195,7 +189,7 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
 
   defp role_profile_id_from_attrs(%{"role_profile_id" => role_profile_id}), do: normalize_profile_id(role_profile_id)
 
-  defp role_profile_id_from_attrs(_), do: nil
+  defp role_profile_id_from_attrs(_), do: @not_provided
 
   defp maybe_update_display_name(user, nil, _scope), do: {:ok, user}
   defp maybe_update_display_name(user, "", _scope), do: {:ok, user}
@@ -214,13 +208,18 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
     |> Ash.update(scope: scope)
   end
 
-  defp maybe_update_role_profile(user, nil, _scope), do: {:ok, user}
+  defp maybe_update_role_profile(user, @not_provided, _scope), do: {:ok, user}
 
   defp maybe_update_role_profile(user, role_profile_id, scope) do
     user
     |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: role_profile_id}, scope: scope)
     |> Ash.update(scope: scope)
   end
+
+  defp normalize_transaction_result({:ok, %User{} = user}), do: {:ok, user}
+  defp normalize_transaction_result({:error, reason}), do: {:error, reason}
+  defp normalize_transaction_result({:error, reason, _stacktrace}), do: {:error, reason}
+  defp normalize_transaction_result(other), do: other
 
   defp normalize_profile_id(nil), do: nil
   defp normalize_profile_id(""), do: nil
