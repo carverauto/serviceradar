@@ -1,7 +1,6 @@
 defmodule ServiceRadarWebNG.Edge.OnboardingToken do
   @moduledoc false
 
-  @token_v1_prefix "edgepkg-v1:"
   @token_v2_prefix "edgepkg-v2:"
   @signature_separator "."
 
@@ -47,30 +46,12 @@ defmodule ServiceRadarWebNG.Edge.OnboardingToken do
       String.starts_with?(raw, @token_v2_prefix) ->
         decode_v2(raw, opts)
 
-      String.starts_with?(raw, @token_v1_prefix) ->
-        decode_v1(raw)
-
       true ->
         {:error, :unsupported_token_format}
     end
   end
 
   def decode(_, _opts), do: {:error, :unsupported_token_format}
-
-  defp decode_v1(raw) do
-    encoded = String.replace_prefix(raw, @token_v1_prefix, "")
-
-    with {:ok, json} <- Base.url_decode64(encoded, padding: false),
-         {:ok, payload} <- Jason.decode(json),
-         payload = atomize_payload(payload),
-         :ok <- validate_payload(payload) do
-      {:ok, payload}
-    else
-      :error -> {:error, :invalid_base64}
-      {:error, %Jason.DecodeError{}} -> {:error, :invalid_json}
-      {:error, _} = error -> error
-    end
-  end
 
   defp decode_v2(raw, opts) do
     encoded = String.replace_prefix(raw, @token_v2_prefix, "")

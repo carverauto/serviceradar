@@ -159,28 +159,22 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorEnrollController do
   defp verify_enrollment_secret(package, token_secret) do
     token_secret = String.trim(to_string(token_secret || ""))
 
-    case EnrollmentToken.decode(token_secret) do
-      {:ok, decoded} ->
-        cond do
-          decoded.package_id != package.id ->
-            {:error, :invalid_token}
-
-          EnrollmentToken.expired?(decoded.expires_at) ->
-            {:error, :token_expired}
-
-          EnrollmentToken.verify_secret(decoded.secret, package.download_token_hash) ->
-            :ok
-
-          true ->
-            {:error, :invalid_token}
-        end
-
-      {:error, _reason} ->
-        if EnrollmentToken.verify_secret(token_secret, package.download_token_hash) do
-          :ok
-        else
+    with {:ok, decoded} <- EnrollmentToken.decode(token_secret) do
+      cond do
+        decoded.package_id != package.id ->
           {:error, :invalid_token}
-        end
+
+        EnrollmentToken.expired?(decoded.expires_at) ->
+          {:error, :token_expired}
+
+        EnrollmentToken.verify_secret(decoded.secret, package.download_token_hash) ->
+          :ok
+
+        true ->
+          {:error, :invalid_token}
+      end
+    else
+      {:error, _reason} -> {:error, :invalid_token}
     end
   end
 

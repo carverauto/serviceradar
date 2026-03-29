@@ -9,8 +9,8 @@ Two additional trust-boundary flaws remain after the initial onboarding hardenin
 Both paths move privileged configuration or executable payloads onto edge hosts. They must be bound to authenticated identities and tamper-evident tokens rather than bearer-style metadata alone.
 
 ## What Changes
-- Add integrity protection for collector enrollment tokens and stop trusting unsigned token-hosted Core API endpoints.
-- Require collector enrollment to use a separately trusted Core API URL when a legacy unsigned token is used.
+- Add integrity protection for collector enrollment tokens and remove support for unsigned collector token formats entirely.
+- Require all agent and collector enrollment token parsing to accept only signed token formats.
 - Bind gateway-served release artifact downloads to the authenticated agent identity presented over mTLS.
 - Reject artifact download requests when the caller's identity does not match the rollout target's intended agent.
 - Update operator and developer documentation to describe the stricter trust model and any migration implications.

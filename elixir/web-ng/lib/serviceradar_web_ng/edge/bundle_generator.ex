@@ -813,7 +813,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
              private_key: onboarding_token_private_key
            ) do
         {:ok, token} -> token
-        _ -> nil
+        {:error, reason} -> raise ArgumentError, "failed to generate signed onboarding token: #{inspect(reason)}"
       end
     end
   end

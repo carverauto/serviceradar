@@ -9,7 +9,7 @@ Both paths need to be hardened without breaking the existing deployment model wh
 ## Goals / Non-Goals
 - Goals:
   - Make collector token metadata tamper-evident before the client trusts it.
-  - Preserve an explicit compatibility path for legacy unsigned collector tokens without allowing them to redirect enrollment.
+  - Remove unsigned enrollment token compatibility paths so clients only accept signed tokens.
   - Require gateway-served release artifact downloads to match the authenticated agent identity.
 - Non-Goals:
   - Replacing collector package delivery semantics in Core.
@@ -19,8 +19,8 @@ Both paths need to be hardened without breaking the existing deployment model wh
 ## Decisions
 - Decision: treat collector enrollment tokens like agent onboarding tokens from a trust perspective.
   - Rationale: they also deliver privileged config and credentials onto a host.
-- Decision: keep legacy collector-token compatibility explicit by requiring a separately trusted Core API URL.
-  - Rationale: legacy tokens may still exist during rollout, but they cannot remain a trust anchor for endpoint selection.
+- Decision: remove support for legacy unsigned agent and collector token formats instead of preserving a compatibility mode.
+  - Rationale: unsigned compatibility paths keep the downgrade surface alive and are no longer needed operationally.
 - Decision: authorize release artifact downloads against the caller's mTLS identity and the intended rollout target.
   - Rationale: target and command identifiers alone are bearer tokens if they are not tied to the caller identity.
 
@@ -31,7 +31,7 @@ Both paths need to be hardened without breaking the existing deployment model wh
   - Mitigation: add focused tests and explicit logging for authorization failures.
 
 ## Migration Plan
-1. Add the new collector token trust model and retain a legacy compatibility parse path.
-2. Update generated collector install flows to pass a trusted Core API URL explicitly where needed.
+1. Add the new collector token trust model and remove unsigned parsing paths.
+2. Update generated collector install flows to emit signed tokens only.
 3. Bind gateway artifact authorization to authenticated agent identity.
 4. Validate the tightened behavior with targeted tests and compile checks.

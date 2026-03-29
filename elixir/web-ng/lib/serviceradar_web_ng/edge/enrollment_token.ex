@@ -10,14 +10,12 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   - `e` - Expiry timestamp (Unix seconds)
   - `f` - Optional config filename hint
 
-  Legacy unsigned collector tokens remain decodable for compatibility but new
-  tokens are always signed and fail closed when the signing key is unavailable.
+  Tokens are always signed and fail closed when the signing key is unavailable.
   """
 
   alias ServiceRadarWebNG.Web.EndpointConfig
 
   @default_expiry_hours 24
-  @token_v1_prefix "collectorpkg-v1:"
   @token_v2_prefix "collectorpkg-v2:"
   @signature_separator "."
 
@@ -80,19 +78,14 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   def decode(token_string, opts) when is_binary(token_string) do
     token_string = String.trim(token_string)
 
-    cond do
-      String.starts_with?(token_string, @token_v2_prefix) ->
-        decode_v2(token_string, opts)
-
-      String.starts_with?(token_string, @token_v1_prefix) ->
-        decode_v1(String.replace_prefix(token_string, @token_v1_prefix, ""))
-
-      true ->
-        decode_v1(token_string)
+    if String.starts_with?(token_string, @token_v2_prefix) do
+      decode_v2(token_string, opts)
+    else
+      {:error, :unsupported_token_format}
     end
   end
 
-  def decode(_token_string, _opts), do: {:error, :invalid_base64}
+  def decode(_token_string, _opts), do: {:error, :unsupported_token_format}
 
   @doc """
   Verifies a secret against a stored hash.
@@ -129,18 +122,6 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   def expiry_datetime(opts \\ []) do
     expiry_hours = Keyword.get(opts, :expiry_hours, @default_expiry_hours)
     DateTime.add(DateTime.utc_now(), expiry_hours * 3600, :second)
-  end
-
-  defp decode_v1(encoded) do
-    with {:ok, json} <- Base.url_decode64(encoded, padding: false),
-         {:ok, payload} <- Jason.decode(json),
-         {:ok, result} <- extract_payload(payload) do
-      {:ok, result}
-    else
-      :error -> {:error, :invalid_base64}
-      {:error, %Jason.DecodeError{}} -> {:error, :invalid_json}
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   defp decode_v2(token_string, opts) do

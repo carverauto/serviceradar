@@ -4,6 +4,9 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,11 +69,20 @@ func TestNormalizeCoreURLRequiresHTTPS(t *testing.T) {
 }
 
 func TestParseCollectorTokenRequiresHTTPS(t *testing.T) {
-	t.Parallel()
-
-	token := "eyJ1IjoiaHR0cDovL2RlbW8uc2VydmljZXJhZGFyLmNsb3VkIiwicCI6InBrZy0xIiwidCI6InNlY3JldCJ9"
+	token := signedCollectorToken(t, "http://demo.serviceradar.cloud", "pkg-1", "secret")
 	_, err := parseCollectorToken(token, "")
 	require.ErrorIs(t, err, ErrCoreAPIURLMustUseHTTPS)
+}
+
+func TestParseCollectorTokenRejectsUnsignedFormats(t *testing.T) {
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
+	_, err := parseCollectorToken("collectorpkg-v1:abc", "https://demo.serviceradar.cloud")
+	require.ErrorIs(t, err, ErrCollectorTokenInvalid)
+
+	legacyRaw := base64.RawURLEncoding.EncodeToString([]byte(`{"u":"https://demo","p":"pkg-1","t":"secret"}`))
+	_, err = parseCollectorToken(legacyRaw, "https://demo.serviceradar.cloud")
+	require.ErrorIs(t, err, ErrCollectorTokenInvalid)
 }
 
 func testAgentBundle(t *testing.T, overrides string) *bytes.Reader {
@@ -106,4 +118,28 @@ func testAgentBundle(t *testing.T, overrides string) *bytes.Reader {
 	require.NoError(t, gzw.Close())
 
 	return bytes.NewReader(archive.Bytes())
+}
+
+func signedCollectorToken(t *testing.T, baseURL, packageID, secret string) string {
+	t.Helper()
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
+	seed, err := base64.StdEncoding.DecodeString(testOnboardingTokenPrivateKey)
+	require.NoError(t, err)
+
+	privateKey := ed25519.NewKeyFromSeed(seed)
+	payload := map[string]any{
+		"u": baseURL,
+		"p": packageID,
+		"t": secret,
+	}
+
+	data, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	signature := ed25519.Sign(privateKey, data)
+	return collectorTokenV2Prefix +
+		base64.RawURLEncoding.EncodeToString(data) +
+		onboardingTokenSignatureSep +
+		base64.RawURLEncoding.EncodeToString(signature)
 }

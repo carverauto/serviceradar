@@ -20,6 +20,9 @@ import (
 )
 
 func TestDownloadPackageSuccess(t *testing.T) {
+	t.Setenv(onboardingTokenPrivateKeyEnv, testOnboardingTokenPrivateKey)
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/api/admin/edge-packages/pkg-123/download", r.URL.Path)
 		assert.Equal(t, "json", r.URL.Query().Get("format"))
@@ -48,11 +51,7 @@ func TestDownloadPackageSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	token, err := encodeTokenPayload(tokenPayload{
-		PackageID:     "pkg-123",
-		DownloadToken: "token-xyz",
-		CoreURL:       server.URL,
-	})
+	token, err := EncodeToken("pkg-123", "token-xyz", server.URL)
 	require.NoError(t, err)
 
 	b, err := NewBootstrapper(&Config{

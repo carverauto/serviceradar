@@ -379,18 +379,10 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
   defp verify_download_token(package, token) do
     token = String.trim(to_string(token || ""))
 
-    cond do
-      token == "" ->
-        {:error, :invalid_token}
-
-      true ->
-        case verify_enrollment_token(package, token) do
-          :ok ->
-            :ok
-
-          {:error, :invalid_token} ->
-            if verify_token_hash(token, package.download_token_hash), do: :ok, else: {:error, :invalid_token}
-        end
+    if token == "" do
+      {:error, :invalid_token}
+    else
+      verify_enrollment_token(package, token)
     end
   end
 
@@ -402,14 +394,8 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
       :ok
     else
       false -> {:error, :invalid_token}
-      {:error, :missing_signing_key} -> {:error, :invalid_token}
       {:error, _reason} -> {:error, :invalid_token}
     end
-  end
-
-  defp verify_token_hash(token, hash) do
-    computed_hash = :sha256 |> :crypto.hash(token) |> Base.encode16(case: :lower)
-    Plug.Crypto.secure_compare(computed_hash, hash)
   end
 
   defp get_nats_creds(package) do

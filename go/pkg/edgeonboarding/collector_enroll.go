@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,10 @@ import (
 	"sort"
 	"strings"
 	"time"
+)
+
+const (
+	collectorTokenV2Prefix = "collectorpkg-v2:"
 )
 
 var (
@@ -182,9 +187,37 @@ func parseCollectorToken(raw, fallbackBaseURL string) (*collectorTokenPayload, e
 		return nil, ErrCollectorTokenInvalid
 	}
 
-	data, err := base64.RawURLEncoding.DecodeString(trimmed)
+	if strings.HasPrefix(trimmed, collectorTokenV2Prefix) {
+		return parseSignedCollectorToken(trimmed, fallbackBaseURL)
+	}
+
+	return nil, ErrCollectorTokenInvalid
+}
+
+func parseSignedCollectorToken(raw, fallbackBaseURL string) (*collectorTokenPayload, error) {
+	encoded := strings.TrimPrefix(strings.TrimSpace(raw), collectorTokenV2Prefix)
+	encodedPayload, encodedSignature, ok := strings.Cut(encoded, onboardingTokenSignatureSep)
+	if !ok || encodedPayload == "" || encodedSignature == "" {
+		return nil, ErrCollectorTokenInvalid
+	}
+
+	data, err := base64.RawURLEncoding.DecodeString(encodedPayload)
 	if err != nil {
 		return nil, ErrCollectorTokenInvalid
+	}
+
+	signature, err := base64.RawURLEncoding.DecodeString(encodedSignature)
+	if err != nil {
+		return nil, ErrCollectorTokenInvalid
+	}
+
+	publicKey, err := onboardingTokenPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	if !ed25519.Verify(publicKey, data, signature) {
+		return nil, ErrOnboardingTokenInvalidSignature
 	}
 
 	var payload collectorTokenPayload
@@ -195,13 +228,14 @@ func parseCollectorToken(raw, fallbackBaseURL string) (*collectorTokenPayload, e
 	payload.BaseURL = strings.TrimSpace(payload.BaseURL)
 	payload.PackageID = strings.TrimSpace(payload.PackageID)
 	payload.Secret = strings.TrimSpace(payload.Secret)
+	payload.ConfigFile = strings.TrimSpace(payload.ConfigFile)
 
-	if payload.BaseURL == "" && strings.TrimSpace(fallbackBaseURL) != "" {
-		payload.BaseURL = strings.TrimSpace(fallbackBaseURL)
+	if payload.PackageID == "" || payload.Secret == "" {
+		return nil, ErrCollectorTokenInvalid
 	}
 
-	if payload.BaseURL == "" || payload.PackageID == "" || payload.Secret == "" {
-		return nil, ErrCollectorTokenInvalid
+	if payload.BaseURL == "" {
+		payload.BaseURL = strings.TrimSpace(fallbackBaseURL)
 	}
 
 	normalizedBaseURL, err := normalizeBaseURL(payload.BaseURL)
@@ -210,10 +244,8 @@ func parseCollectorToken(raw, fallbackBaseURL string) (*collectorTokenPayload, e
 	}
 	payload.BaseURL = normalizedBaseURL
 
-	if payload.ExpiresAt != nil {
-		if time.Now().Unix() > *payload.ExpiresAt {
-			return nil, ErrCollectorTokenExpired
-		}
+	if payload.ExpiresAt != nil && time.Now().Unix() > *payload.ExpiresAt {
+		return nil, ErrCollectorTokenExpired
 	}
 
 	return &payload, nil

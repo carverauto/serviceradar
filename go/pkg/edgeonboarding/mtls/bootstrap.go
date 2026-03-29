@@ -37,14 +37,14 @@ import (
 var (
 	// ErrTokenRequired is returned when no token is provided and no bundle path is set.
 	ErrTokenRequired = errors.New("token is required for mTLS bootstrap")
-	// ErrUnsupportedTokenFormat is returned when the token doesn't have the expected prefix.
-	ErrUnsupportedTokenFormat = errors.New("unsupported token format (expected edgepkg-v1 or edgepkg-v2)")
+		// ErrUnsupportedTokenFormat is returned when the token doesn't have the expected prefix.
+		ErrUnsupportedTokenFormat = errors.New("unsupported token format (expected edgepkg-v2)")
 	// ErrMissingPackageID is returned when the token is missing the package ID.
 	ErrMissingPackageID = errors.New("token missing package id")
 	// ErrMissingDownloadToken is returned when the token is missing the download token.
 	ErrMissingDownloadToken = errors.New("token missing download token")
-	// ErrCoreAPIHostRequired is returned when the Core API host cannot be determined.
-	ErrCoreAPIHostRequired = errors.New("core API host is required (signed token missing api and --host not set, or legacy token missing --host)")
+		// ErrCoreAPIHostRequired is returned when the Core API host cannot be determined.
+		ErrCoreAPIHostRequired = errors.New("core API host is required (signed token missing api and --host not set)")
 	// ErrMalformedToken is returned when the token structure is invalid.
 	ErrMalformedToken = errors.New("token is malformed")
 	// ErrTokenPublicKeyRequired is returned when signed token verification cannot proceed.
@@ -70,8 +70,8 @@ type BootstrapConfig struct {
 	// Token is the edge onboarding token containing package ID and download token.
 	Token string
 
-	// Host is the Core API host for mTLS bundle download (e.g., https://core:8090).
-	// Required when using a legacy unsigned token that cannot supply a trusted API URL.
+		// Host is the Core API host for mTLS bundle download (e.g., https://core:8090).
+		// Required when the signed token does not embed a trusted Core API URL.
 	Host string
 
 	// BundlePath is an optional path to a pre-fetched mTLS bundle (tar.gz, JSON, or directory).

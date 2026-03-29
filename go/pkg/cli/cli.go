@@ -557,8 +557,8 @@ type EnrollHandler struct{}
 // Parse reads flags for the enroll subcommand.
 func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
 	fs := flag.NewFlagSet("enroll", flag.ExitOnError)
-	token := fs.String("token", "", "Enrollment token (edgepkg-v2, legacy edgepkg-v1, or collector token)")
-	coreURL := fs.String("core-url", "", "Core API base URL (required for legacy unsigned tokens and collector tokens)")
+	token := fs.String("token", "", "Enrollment token (edgepkg-v2 or collectorpkg-v2)")
+	coreURL := fs.String("core-url", "", "Core API base URL (required only when the signed token does not embed one)")
 	hostIP := fs.String("host-ip", "", "Override detected host IP (agent enrollment only)")
 	configPath := fs.String("config", "/etc/serviceradar/agent.json", "Agent config path")
 	configDir := fs.String("config-dir", "/etc/serviceradar", "Collector config directory")

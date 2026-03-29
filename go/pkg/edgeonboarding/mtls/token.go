@@ -27,7 +27,6 @@ import (
 )
 
 const (
-	tokenV1Prefix               = "edgepkg-v1:"
 	tokenV2Prefix               = "edgepkg-v2:"
 	onboardingTokenPublicKeyEnv = "SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY"
 	onboardingTokenSignatureSep = "."
@@ -40,47 +39,18 @@ type TokenPayload struct {
 	CoreURL       string `json:"api,omitempty"`
 }
 
-// ParseToken parses an edge onboarding token and returns its payload. Signed
-// edgepkg-v2 tokens may trust an embedded Core API URL after signature
-// verification. Legacy unsigned edgepkg-v1 tokens require a separately trusted
-// fallback host and must not redirect enrollment on their own.
+// ParseToken parses a signed edge onboarding token and returns its payload.
 func ParseToken(raw, fallbackHost string) (*TokenPayload, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, ErrTokenRequired
 	}
 
-	if strings.HasPrefix(raw, tokenV2Prefix) {
-		return parseSignedToken(raw, fallbackHost)
-	}
-
-	if !strings.HasPrefix(raw, tokenV1Prefix) {
+	if !strings.HasPrefix(raw, tokenV2Prefix) {
 		return nil, ErrUnsupportedTokenFormat
 	}
 
-	encoded := strings.TrimPrefix(raw, tokenV1Prefix)
-	data, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil {
-		return nil, fmt.Errorf("decode token: %w", err)
-	}
-
-	var payload TokenPayload
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil, fmt.Errorf("unmarshal token: %w", err)
-	}
-
-	if payload.PackageID == "" {
-		return nil, ErrMissingPackageID
-	}
-	if strings.TrimSpace(payload.DownloadToken) == "" {
-		return nil, ErrMissingDownloadToken
-	}
-	payload.CoreURL = strings.TrimSpace(fallbackHost)
-	if payload.CoreURL == "" {
-		return nil, ErrCoreAPIHostRequired
-	}
-
-	return &payload, nil
+	return parseSignedToken(raw, fallbackHost)
 }
 
 func parseSignedToken(raw, fallbackHost string) (*TokenPayload, error) {

@@ -57,11 +57,6 @@ func TestParseToken(t *testing.T) {
 			wantErr: ErrUnsupportedTokenFormat,
 		},
 		{
-			name:    "edgepkg-v1 prefix but invalid base64",
-			token:   "edgepkg-v1:!!!invalid!!!",
-			wantErr: nil, // error will be non-nil but not the specific error
-		},
-		{
 			name:         "valid token with all fields",
 			token:        makeSignedTestToken(t, "pkg-123", "dl-token-abc", "https://core:8090"),
 			fallbackHost: "",
@@ -69,16 +64,6 @@ func TestParseToken(t *testing.T) {
 				PackageID:     "pkg-123",
 				DownloadToken: "dl-token-abc",
 				CoreURL:       "https://core:8090",
-			},
-		},
-		{
-			name:         "legacy token uses fallback host",
-			token:        makeTestToken("pkg-456", "dl-token-xyz", ""),
-			fallbackHost: "https://fallback:8090",
-			wantPayload: &TokenPayload{
-				PackageID:     "pkg-456",
-				DownloadToken: "dl-token-xyz",
-				CoreURL:       "https://fallback:8090",
 			},
 		},
 		{
@@ -92,12 +77,6 @@ func TestParseToken(t *testing.T) {
 			token:        makeSignedTestToken(t, "pkg-123", "", "https://core:8090"),
 			fallbackHost: "",
 			wantErr:      ErrMissingDownloadToken,
-		},
-		{
-			name:         "legacy token missing fallback host",
-			token:        makeTestToken("pkg-123", "dl-token", ""),
-			fallbackHost: "",
-			wantErr:      ErrCoreAPIHostRequired,
 		},
 		{
 			name:         "signed token missing public key configuration",
@@ -114,11 +93,11 @@ func TestParseToken(t *testing.T) {
 			}
 			payload, err := ParseToken(tt.token, tt.fallbackHost)
 
-			if tt.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
+				if tt.wantErr != nil {
+					require.Error(t, err)
+					assert.ErrorIs(t, err, tt.wantErr)
+					return
+				}
 
 			if tt.wantPayload != nil {
 				require.NoError(t, err)
@@ -128,16 +107,6 @@ func TestParseToken(t *testing.T) {
 			}
 		})
 	}
-}
-
-func makeTestToken(packageID, downloadToken, coreURL string) string {
-	payload := TokenPayload{
-		PackageID:     packageID,
-		DownloadToken: downloadToken,
-		CoreURL:       coreURL,
-	}
-	data, _ := json.Marshal(payload)
-	return tokenV1Prefix + base64.RawURLEncoding.EncodeToString(data)
 }
 
 func makeSignedTestToken(t *testing.T, packageID, downloadToken, coreURL string) string {
