@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   Imports signed agent release metadata from repository-hosted release assets.
   """
 
-  alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
+  alias ServiceRadarWebNG.Edge.ReleaseFetchPolicy
 
   @default_manifest_asset_name "serviceradar-agent-release-manifest.json"
   @default_signature_asset_name "serviceradar-agent-release-manifest.sig"
@@ -405,7 +405,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     request_opts =
       opts
       |> Keyword.put(:redirect, false)
-      |> Keyword.merge(OutboundURLPolicy.req_opts())
+      |> Keyword.merge(ReleaseFetchPolicy.req_opts())
 
     http_client().get(url, request_opts)
   end
@@ -431,7 +431,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   end
 
   defp validate_url(url) do
-    case OutboundURLPolicy.validate(url) do
+    case ReleaseFetchPolicy.validate(url) do
       {:ok, %URI{scheme: "https"} = uri} -> {:ok, uri}
       {:error, _reason} = error -> error
       _ -> {:error, :disallowed_url}

@@ -27,7 +27,7 @@ Before using release management in production:
 Use the authenticated release-management page:
 
 - Open `/settings/agents/releases`.
-- For production releases, prefer `Import Repository Release`. The page automatically loads the latest repository releases for the selected GitHub or Forgejo repo and lets operators import a ready release with one click when the configured manifest and signature assets are present.
+- For production releases, prefer `Import Repository Release`. The page automatically loads the latest repository releases for the selected GitHub repo or the pinned Forgejo host `https://code.carverauto.dev`, and lets operators import a ready release with one click when the configured manifest and signature assets are present.
 - If the desired release is older than the recent list or uses a custom tag workflow, use the specific-tag import field and point it at the repo-hosted release tag plus the signed manifest asset and signature asset names.
 - For developer and local validation workflows, keep using `Publish Release Manually` and enter the semantic version, release notes, manifest signature, artifact URL, SHA256 digest, OS, architecture, and artifact format directly.
 - Publish the release.
@@ -40,6 +40,12 @@ The control plane stores:
 - internal object-store references for each mirrored rollout artifact.
 
 The current implementation expects the manifest signature field to contain the Ed25519 signature for the canonical manifest JSON. The control plane mirrors the referenced artifacts into internal datasvc-backed object storage, and the agent verifies that same signature before staging any artifact fetched through `agent-gateway`.
+
+Security guardrails:
+
+- Repository import only trusts GitHub-owned release hosts and the pinned Forgejo host `code.carverauto.dev`.
+- Import and mirroring reject non-HTTPS, loopback, link-local, private-network, and unresolved destinations.
+- Provider auth tokens are not forwarded to untrusted asset hosts.
 
 Recommended repository-release asset convention:
 
