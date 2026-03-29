@@ -206,6 +206,7 @@ defmodule ServiceRadarAgentGateway.Application do
     cert_dir =
       Application.get_env(:serviceradar_agent_gateway, :gateway_cert_dir) ||
         System.get_env("GATEWAY_CERT_DIR", "/etc/serviceradar/certs")
+
     cert_file = Path.join(cert_dir, "gateway.pem")
     key_file = Path.join(cert_dir, "gateway-key.pem")
     ca_file = Path.join(cert_dir, "root.pem")

@@ -5,9 +5,9 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
 
   use Plug.Router
 
-  require Logger
-
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
+
+  require Logger
 
   @download_timeout 30_000
   @download_path "/artifacts/releases/download"
@@ -205,8 +205,7 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
   end
 
   defp authorize_caller_identity(%{component_id: component_id, component_type: component_type})
-       when is_binary(component_id) and component_type in @allowed_component_types,
-       do: :ok
+       when is_binary(component_id) and component_type in @allowed_component_types, do: :ok
 
   defp authorize_caller_identity(_identity), do: {:error, :unauthorized}
 end

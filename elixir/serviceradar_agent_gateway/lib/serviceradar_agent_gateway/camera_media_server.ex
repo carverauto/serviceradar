@@ -119,6 +119,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
   @spec upload_media(Enumerable.t(), GRPC.Server.Stream.t()) :: upload_media_response()
   def upload_media(request_stream, stream) do
     identity = extract_identity_from_stream(stream)
+
     {:ok, session_ref} =
       Agent.start_link(fn -> %{relay_session_id: nil, media_ingest_id: nil, agent_id: nil} end)
 

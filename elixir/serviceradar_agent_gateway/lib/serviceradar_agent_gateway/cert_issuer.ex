@@ -141,12 +141,13 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   def create_secure_temp_dir!(parent_dir \\ System.tmp_dir!()) do
     File.mkdir_p!(parent_dir)
 
-    Enum.reduce_while(1..16, nil, fn _, _acc ->
+    1..16
+    |> Enum.reduce_while(nil, fn _, _acc ->
       dir =
         Path.join(
           parent_dir,
           "serviceradar-cert-" <>
-            (:crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false))
+            (16 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false))
         )
 
       case File.mkdir(dir) do

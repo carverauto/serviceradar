@@ -52,8 +52,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     GenServer.call(__MODULE__, {:heartbeat, relay_session_id, media_ingest_id, attrs})
   end
 
-  def heartbeat(relay_session_id, media_ingest_id, agent_id, attrs)
-      when is_binary(agent_id) and is_map(attrs) do
+  def heartbeat(relay_session_id, media_ingest_id, agent_id, attrs) when is_binary(agent_id) and is_map(attrs) do
     GenServer.call(__MODULE__, {:heartbeat_owned, relay_session_id, media_ingest_id, agent_id, attrs})
   end
 
@@ -61,8 +60,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     GenServer.call(__MODULE__, {:record_chunk, relay_session_id, media_ingest_id, attrs})
   end
 
-  def record_chunk(relay_session_id, media_ingest_id, agent_id, attrs)
-      when is_binary(agent_id) and is_map(attrs) do
+  def record_chunk(relay_session_id, media_ingest_id, agent_id, attrs) when is_binary(agent_id) and is_map(attrs) do
     GenServer.call(__MODULE__, {:record_chunk_owned, relay_session_id, media_ingest_id, agent_id, attrs})
   end
 
@@ -70,8 +68,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     GenServer.call(__MODULE__, {:mark_closing, relay_session_id, media_ingest_id, attrs})
   end
 
-  def mark_closing(relay_session_id, media_ingest_id, agent_id, attrs)
-      when is_binary(agent_id) and is_map(attrs) do
+  def mark_closing(relay_session_id, media_ingest_id, agent_id, attrs) when is_binary(agent_id) and is_map(attrs) do
     GenServer.call(__MODULE__, {:mark_closing_owned, relay_session_id, media_ingest_id, agent_id, attrs})
   end
 
@@ -79,8 +76,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     GenServer.call(__MODULE__, {:close_session, relay_session_id, media_ingest_id, attrs})
   end
 
-  def close_session(relay_session_id, media_ingest_id, agent_id, attrs)
-      when is_binary(agent_id) and is_map(attrs) do
+  def close_session(relay_session_id, media_ingest_id, agent_id, attrs) when is_binary(agent_id) and is_map(attrs) do
     GenServer.call(__MODULE__, {:close_session_owned, relay_session_id, media_ingest_id, agent_id, attrs})
   end
 
