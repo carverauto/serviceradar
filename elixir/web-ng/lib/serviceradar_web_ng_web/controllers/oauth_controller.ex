@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
     else
       client_ip = get_client_ip(conn)
 
-      case RateLimiter.check_rate_limit("oauth_password_grant", client_ip,
+      case RateLimiter.check_rate_limit_and_record("oauth_password_grant", client_ip,
              limit: @password_grant_rate_limit,
              window_seconds: @password_grant_window
            ) do
@@ -112,7 +112,6 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
           rate_limited_response(conn, retry_after)
 
         :ok ->
-          RateLimiter.record_attempt("oauth_password_grant", client_ip)
           actor = SystemActor.system(:oauth_token)
           scopes = parse_scopes(params["scope"] || "read write")
           scopes_atoms = Enum.map(scopes, &scope_to_atom/1)
@@ -157,7 +156,7 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
   defp handle_client_credentials(conn, params) do
     client_ip = get_client_ip(conn)
 
-    case RateLimiter.check_rate_limit("oauth_client_credentials", client_ip,
+    case RateLimiter.check_rate_limit_and_record("oauth_client_credentials", client_ip,
            limit: @client_credentials_rate_limit,
            window_seconds: @client_credentials_window
          ) do
@@ -165,8 +164,6 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
         rate_limited_response(conn, retry_after)
 
       :ok ->
-        RateLimiter.record_attempt("oauth_client_credentials", client_ip)
-
         # Extract credentials from Basic Auth header or request body
         case extract_credentials(conn, params) do
           {:ok, client_id, client_secret} ->

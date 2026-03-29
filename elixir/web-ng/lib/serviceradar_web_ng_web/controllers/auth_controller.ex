@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   def create(conn, %{"user" => %{"email" => email, "password" => password}}) do
     client_ip = ClientIP.get(conn)
 
-    case RateLimiter.check_rate_limit("password_auth", client_ip,
+    case RateLimiter.check_rate_limit_and_record("password_auth", client_ip,
            limit: @password_auth_rate_limit,
            window_seconds: @password_auth_window
          ) do
@@ -69,7 +69,6 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         |> redirect(to: ~p"/users/log-in")
 
       :ok ->
-        RateLimiter.record_attempt("password_auth", client_ip)
         actor = SystemActor.system(:auth_controller)
 
         case User.authenticate(email, password, actor: actor) do
@@ -115,7 +114,10 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     client_ip = ClientIP.get(conn)
 
     # Check rate limit
-    case RateLimiter.check_rate_limit("local_auth", client_ip, limit: 5, window_seconds: 60) do
+    case RateLimiter.check_rate_limit_and_record("local_auth", client_ip,
+           limit: 5,
+           window_seconds: 60
+         ) do
       {:error, retry_after} ->
         Logger.warning("Local auth rate limited for IP: #{client_ip}")
 
@@ -127,9 +129,6 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         |> redirect(to: ~p"/auth/local")
 
       :ok ->
-        # Record the attempt
-        RateLimiter.record_attempt("local_auth", client_ip)
-
         actor = SystemActor.system(:auth_controller)
 
         case User.authenticate(email, password, actor: actor) do

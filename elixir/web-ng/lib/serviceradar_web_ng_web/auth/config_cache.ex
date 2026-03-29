@@ -31,6 +31,7 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
 
   @table __MODULE__
   @default_ttl_ms 60_000
+  @refresh_timeout 15_000
   @pubsub_topic "auth_settings:changed"
   @pubsub_server ServiceRadar.PubSub
 
@@ -51,21 +52,10 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
   the settings are updated via the admin UI.
   """
   def get_config do
-    ttl_ms = current_ttl_ms()
-
-    case :ets.lookup(@table, :auth_settings) do
-      [{:auth_settings, settings, expires_at}] ->
-        if System.monotonic_time(:millisecond) < expires_at do
-          {:ok, settings}
-        else
-          # TTL expired. Refresh in the caller process (avoids Ecto SQL sandbox ownership issues
-          # when ConfigCache is running in tests and the GenServer isn't allowed).
-          load_and_cache(ttl_ms)
-        end
-
-      [] ->
-        # Cache miss, fetch and cache (in caller).
-        load_and_cache(ttl_ms)
+    case cached_auth_settings() do
+      {:ok, settings} -> {:ok, settings}
+      :stale -> coordinated_refresh(:stale)
+      :miss -> coordinated_refresh(:miss)
     end
   end
 
@@ -87,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
   Useful after manual database changes outside of the normal update flow.
   """
   def refresh do
-    load_and_cache(current_ttl_ms())
+    coordinated_refresh(:force)
   end
 
   @doc """
@@ -198,13 +188,24 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
     # Store TTL in ETS so refreshes can happen in the caller process without a GenServer call.
     :ets.insert(@table, {:ttl_ms, ttl_ms})
 
-    {:ok, %{ttl_ms: ttl_ms}}
+    {:ok, %{ttl_ms: ttl_ms, refreshing: nil}}
   end
 
   @impl GenServer
-  def handle_call(:refresh, _from, state) do
-    result = load_and_cache(state.ttl_ms)
-    {:reply, result, state}
+  def handle_call({:begin_refresh, mode}, from, state) do
+    reply_or_wait_for_refresh(mode, from, state)
+  end
+
+  def handle_call({:complete_refresh, refresh_ref, result}, _from, state) do
+    case state.refreshing do
+      %{ref: ^refresh_ref, waiters: waiters, monitor_ref: monitor_ref} ->
+        Process.demonitor(monitor_ref, [:flush])
+        Enum.each(waiters, &GenServer.reply(&1, result))
+        {:reply, :ok, %{state | refreshing: nil}}
+
+      _ ->
+        {:reply, :ok, state}
+    end
   end
 
   @impl GenServer
@@ -214,27 +215,96 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
     {:noreply, state}
   end
 
+  def handle_info({:DOWN, monitor_ref, :process, _pid, reason}, state) do
+    case state.refreshing do
+      %{monitor_ref: ^monitor_ref, waiters: waiters} ->
+        Logger.warning("Auth config refresh owner exited before completion: #{inspect(reason)}")
+        Enum.each(waiters, &GenServer.reply(&1, {:error, :load_failed}))
+        {:noreply, %{state | refreshing: nil}}
+
+      _ ->
+        {:noreply, state}
+    end
+  end
+
   def handle_info(_msg, state) do
     {:noreply, state}
   end
 
   # Private Functions
 
+  defp coordinated_refresh(mode) do
+    case GenServer.call(__MODULE__, {:begin_refresh, mode}, @refresh_timeout) do
+      {:ok, _settings} = ok ->
+        ok
+
+      {:refresh, refresh_ref, ttl_ms} ->
+        result = load_and_cache(ttl_ms)
+        :ok = GenServer.call(__MODULE__, {:complete_refresh, refresh_ref, result}, @refresh_timeout)
+        result
+    end
+  end
+
+  defp reply_or_wait_for_refresh(mode, from, state) do
+    case {mode, cached_auth_settings(), state.refreshing} do
+      {:force, _cached, %{waiters: waiters} = refreshing} ->
+        {:noreply, %{state | refreshing: %{refreshing | waiters: [from | waiters]}}}
+
+      {:force, _cached, nil} ->
+        {new_state, refresh_ref} = begin_refresh(state, from)
+        {:reply, {:refresh, refresh_ref, state.ttl_ms}, new_state}
+
+      {_mode, {:ok, settings}, _refreshing} ->
+        {:reply, {:ok, settings}, state}
+
+      {_mode, _cached, %{waiters: waiters} = refreshing} ->
+        {:noreply, %{state | refreshing: %{refreshing | waiters: [from | waiters]}}}
+
+      {_mode, _cached, nil} ->
+        {new_state, refresh_ref} = begin_refresh(state, from)
+        {:reply, {:refresh, refresh_ref, state.ttl_ms}, new_state}
+    end
+  end
+
+  defp begin_refresh(state, {owner, _tag}) do
+    refresh_ref = make_ref()
+    monitor_ref = Process.monitor(owner)
+
+    new_state = %{state | refreshing: %{ref: refresh_ref, monitor_ref: monitor_ref, waiters: []}}
+    {new_state, refresh_ref}
+  end
+
   defp load_and_cache(ttl_ms) do
-    actor = SystemActor.system(:config_cache)
-
-    case Ash.read_one(AuthSettings, actor: actor) do
-      {:ok, nil} ->
-        Logger.warning("No auth_settings found in database")
-        {:error, :not_configured}
-
+    case load_settings() do
       {:ok, settings} ->
         cache_settings(settings, ttl_ms)
         {:ok, settings}
 
+      {:error, :not_configured} ->
+        Logger.warning("No auth_settings found in database")
+        {:error, :not_configured}
+
       {:error, error} ->
         Logger.error("Failed to load auth_settings: #{inspect(error)}")
         {:error, :load_failed}
+    end
+  end
+
+  defp load_settings do
+    auth_settings_loader().()
+  end
+
+  defp auth_settings_loader do
+    Application.get_env(:serviceradar_web_ng, :auth_settings_loader, &load_settings_from_db/0)
+  end
+
+  defp load_settings_from_db do
+    actor = SystemActor.system(:config_cache)
+
+    case Ash.read_one(AuthSettings, actor: actor) do
+      {:ok, nil} -> {:error, :not_configured}
+      {:ok, settings} -> {:ok, settings}
+      {:error, error} -> {:error, error}
     end
   end
 
@@ -243,10 +313,17 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
     :ets.insert(@table, {:auth_settings, settings, expires_at})
   end
 
-  defp current_ttl_ms do
-    case :ets.lookup(@table, :ttl_ms) do
-      [{:ttl_ms, ttl_ms}] when is_integer(ttl_ms) and ttl_ms > 0 -> ttl_ms
-      _ -> @default_ttl_ms
+  defp cached_auth_settings do
+    case :ets.lookup(@table, :auth_settings) do
+      [{:auth_settings, settings, expires_at}] ->
+        if System.monotonic_time(:millisecond) < expires_at do
+          {:ok, settings}
+        else
+          :stale
+        end
+
+      [] ->
+        :miss
     end
   end
 end

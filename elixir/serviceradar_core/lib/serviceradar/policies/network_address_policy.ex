@@ -16,6 +16,16 @@ defmodule ServiceRadar.Policies.NetworkAddressPolicy do
 
   @spec validate_public_host(String.t()) :: :ok | {:error, atom()}
   def validate_public_host(host) when is_binary(host) do
+    case resolve_public_host(host) do
+      {:ok, _addresses} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def validate_public_host(_host), do: {:error, :invalid_url}
+
+  @spec resolve_public_host(String.t()) :: {:ok, [tuple()]} | {:error, atom()}
+  def resolve_public_host(host) when is_binary(host) do
     host_down = String.downcase(String.trim(host))
 
     cond do
@@ -29,11 +39,11 @@ defmodule ServiceRadar.Policies.NetworkAddressPolicy do
         {:error, :disallowed_host}
 
       true ->
-        validate_host_address(host_down)
+        resolve_host_addresses(host_down)
     end
   end
 
-  def validate_public_host(_host), do: {:error, :invalid_url}
+  def resolve_public_host(_host), do: {:error, :invalid_url}
 
   @spec private_or_loopback_ip?(tuple()) :: boolean()
   def private_or_loopback_ip?({_, _, _, _} = ip) do
@@ -43,10 +53,10 @@ defmodule ServiceRadar.Policies.NetworkAddressPolicy do
   def private_or_loopback_ip?({_, _, _, _, _, _, _, _} = ip), do: private_or_loopback_ipv6?(ip)
   def private_or_loopback_ip?(_ip), do: true
 
-  defp validate_host_address(host) do
+  defp resolve_host_addresses(host) do
     case :inet.parse_address(String.to_charlist(host)) do
       {:ok, ip} ->
-        if private_or_loopback_ip?(ip), do: {:error, :disallowed_host}, else: :ok
+        if private_or_loopback_ip?(ip), do: {:error, :disallowed_host}, else: {:ok, [ip]}
 
       {:error, _} ->
         resolve_and_validate(host)
@@ -64,13 +74,17 @@ defmodule ServiceRadar.Policies.NetworkAddressPolicy do
 
         if Enum.any?(all_addrs, &private_or_loopback_ip?/1),
           do: {:error, :disallowed_host},
-          else: :ok
+          else: {:ok, all_addrs}
 
       {{:ok, v4}, _} ->
-        if Enum.any?(v4, &private_or_loopback_ip?/1), do: {:error, :disallowed_host}, else: :ok
+        if Enum.any?(v4, &private_or_loopback_ip?/1),
+          do: {:error, :disallowed_host},
+          else: {:ok, v4}
 
       {_, {:ok, v6}} ->
-        if Enum.any?(v6, &private_or_loopback_ip?/1), do: {:error, :disallowed_host}, else: :ok
+        if Enum.any?(v6, &private_or_loopback_ip?/1),
+          do: {:error, :disallowed_host},
+          else: {:ok, v6}
 
       _ ->
         {:error, :dns_resolution_failed}

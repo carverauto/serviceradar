@@ -133,6 +133,31 @@ defmodule ServiceRadarWebNGWeb.Auth.RateLimiterTest do
     end
   end
 
+  describe "check_rate_limit_and_record/3" do
+    test "records the attempt only when under the limit", %{action: action, ip: ip} do
+      assert :ok = RateLimiter.check_rate_limit_and_record(action, ip, limit: 2)
+      assert :ok = RateLimiter.check_rate_limit_and_record(action, ip, limit: 2)
+      assert {:error, _retry_after} = RateLimiter.check_rate_limit_and_record(action, ip, limit: 2)
+    end
+
+    test "counts concurrent bursts atomically", %{action: action, ip: ip} do
+      results =
+        1..10
+        |> Task.async_stream(
+          fn _ ->
+            RateLimiter.check_rate_limit_and_record(action, ip, limit: 5, window_seconds: 60)
+          end,
+          max_concurrency: 10,
+          timeout: :infinity
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      assert Enum.count(results, &(&1 == :ok)) == 5
+      assert Enum.count(results, &match?({:error, _}, &1)) == 5
+      assert {:error, _retry_after} = RateLimiter.check_rate_limit(action, ip, limit: 5)
+    end
+  end
+
   describe "clear_rate_limit/2" do
     test "clears rate limit for action/ip", %{action: action, ip: ip} do
       # Fill up the limit

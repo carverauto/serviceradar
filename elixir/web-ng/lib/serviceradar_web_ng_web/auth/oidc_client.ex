@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
 
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
+  alias ServiceRadarWebNGWeb.Auth.OutboundFetch
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
 
   require Logger
@@ -151,18 +152,18 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
             String.trim_trailing(discovery_url, "/") <> @discovery_suffix
           end
 
-        with {:ok, _uri} <- OutboundURLPolicy.validate(url),
-             {:ok, response} <- Req.get(url, OutboundURLPolicy.req_opts()) do
-          case response do
-            %{status: 200, body: metadata} ->
-              ConfigCache.put_cached(cache_key, metadata, ttl: to_timeout(hour: 1))
-              {:ok, metadata}
+        case OutboundFetch.get(url) do
+          {:ok, response} ->
+            case response do
+              %{status: 200, body: metadata} ->
+                ConfigCache.put_cached(cache_key, metadata, ttl: to_timeout(hour: 1))
+                {:ok, metadata}
 
-            %{status: status} ->
-              Logger.error("OIDC discovery failed: status=#{status}")
-              {:error, :discovery_failed}
-          end
-        else
+              %{status: status} ->
+                Logger.error("OIDC discovery failed: status=#{status}")
+                {:error, :discovery_failed}
+            end
+
           {:error, :disallowed_scheme} ->
             {:error, :discovery_failed}
 
@@ -170,6 +171,9 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
             {:error, :discovery_failed}
 
           {:error, :invalid_url} ->
+            {:error, :discovery_failed}
+
+          {:error, :dns_resolution_failed} ->
             {:error, :discovery_failed}
 
           {:error, reason} ->
@@ -215,18 +219,18 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
         {:ok, jwks}
 
       :miss ->
-        with {:ok, _uri} <- OutboundURLPolicy.validate(jwks_uri),
-             {:ok, response} <- Req.get(jwks_uri, OutboundURLPolicy.req_opts()) do
-          case response do
-            %{status: 200, body: %{"keys" => keys}} ->
-              ConfigCache.put_cached(cache_key, keys, ttl: to_timeout(hour: 1))
-              {:ok, keys}
+        case OutboundFetch.get(jwks_uri) do
+          {:ok, response} ->
+            case response do
+              %{status: 200, body: %{"keys" => keys}} ->
+                ConfigCache.put_cached(cache_key, keys, ttl: to_timeout(hour: 1))
+                {:ok, keys}
 
-            %{status: status} ->
-              Logger.error("JWKS fetch failed: status=#{status}")
-              {:error, :jwks_fetch_failed}
-          end
-        else
+              %{status: status} ->
+                Logger.error("JWKS fetch failed: status=#{status}")
+                {:error, :jwks_fetch_failed}
+            end
+
           {:error, :disallowed_scheme} ->
             {:error, :jwks_fetch_failed}
 
@@ -234,6 +238,9 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
             {:error, :jwks_fetch_failed}
 
           {:error, :invalid_url} ->
+            {:error, :jwks_fetch_failed}
+
+          {:error, :dns_resolution_failed} ->
             {:error, :jwks_fetch_failed}
 
           {:error, reason} ->
@@ -244,20 +251,18 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   end
 
   defp exchange_tokens(token_endpoint, body) do
-    req_opts = Keyword.put(OutboundURLPolicy.req_opts(), :form, body)
+    case OutboundFetch.post(token_endpoint, form: body) do
+      {:ok, response} ->
+        case response do
+          %{status: 200, body: tokens} ->
+            {:ok, tokens}
 
-    with {:ok, _uri} <- OutboundURLPolicy.validate(token_endpoint),
-         {:ok, response} <- Req.post(token_endpoint, req_opts) do
-      case response do
-        %{status: 200, body: tokens} ->
-          {:ok, tokens}
+          %{status: status, body: response_body} ->
+            Logger.error("OIDC token exchange failed: status=#{status}, body=#{inspect(response_body)}")
 
-        %{status: status, body: response_body} ->
-          Logger.error("OIDC token exchange failed: status=#{status}, body=#{inspect(response_body)}")
+            {:error, :token_exchange_failed}
+        end
 
-          {:error, :token_exchange_failed}
-      end
-    else
       {:error, :disallowed_scheme} ->
         {:error, :token_exchange_failed}
 

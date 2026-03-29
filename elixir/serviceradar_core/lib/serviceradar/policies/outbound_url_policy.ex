@@ -16,6 +16,18 @@ defmodule ServiceRadar.Policies.OutboundURLPolicy do
 
   def validate_https_public_url(_url), do: {:error, :invalid_url}
 
+  @spec resolve_https_public_url(String.t()) ::
+          {:ok, %{uri: URI.t(), address: tuple(), host: String.t()}} | {:error, atom()}
+  def resolve_https_public_url(url) when is_binary(url) do
+    with {:ok, uri} <- parse_url(url),
+         :ok <- validate_scheme(uri),
+         {:ok, address} <- resolve_host(uri) do
+      {:ok, %{uri: uri, address: address, host: uri.host}}
+    end
+  end
+
+  def resolve_https_public_url(_url), do: {:error, :invalid_url}
+
   defp parse_url(url) do
     trimmed = String.trim(url)
     uri = URI.parse(trimmed)
@@ -39,4 +51,14 @@ defmodule ServiceRadar.Policies.OutboundURLPolicy do
   end
 
   defp validate_host(_uri), do: {:error, :invalid_url}
+
+  defp resolve_host(%URI{host: host}) when is_binary(host) do
+    case NetworkAddressPolicy.resolve_public_host(host) do
+      {:ok, [address | _]} -> {:ok, address}
+      {:ok, []} -> {:error, :dns_resolution_failed}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp resolve_host(_uri), do: {:error, :invalid_url}
 end

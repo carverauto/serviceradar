@@ -38,13 +38,11 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   defp check_rate_limit(conn, _opts) do
     client_ip = get_client_ip(conn)
 
-    case RateLimiter.check_rate_limit("oidc_callback", client_ip,
+    case RateLimiter.check_rate_limit_and_record("oidc_callback", client_ip,
            limit: @callback_rate_limit,
            window_seconds: @callback_rate_window
          ) do
       :ok ->
-        # Record the attempt
-        RateLimiter.record_attempt("oidc_callback", client_ip)
         conn
 
       {:error, retry_after} ->

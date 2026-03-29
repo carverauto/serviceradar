@@ -23,7 +23,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
   """
 
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
-  alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
+  alias ServiceRadarWebNGWeb.Auth.OutboundFetch
 
   require Logger
 
@@ -92,28 +92,30 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
 
     case idp_metadata do
       {:ok, metadata} ->
-        config = %{
-          idp_metadata: metadata,
-          idp_entity_id: extract_idp_entity_id(metadata),
-          sp_entity_id: settings.saml_sp_entity_id || get_sp_entity_id(),
-          acs_url: get_acs_url(),
-          assertion_max_validity_seconds:
-            Application.get_env(
-              :serviceradar_web_ng,
-              :saml_assertion_max_validity_seconds,
-              300
-            ),
-          claim_mappings:
-            settings.claim_mappings ||
-              %{
-                "email" => "email",
-                "name" => "name",
-                "sub" => "sub"
-              },
-          pinned_cert_fingerprints: settings.saml_pinned_cert_fingerprints || []
-        }
+        with {:ok, entity_id} <- extract_idp_entity_id(metadata) do
+          config = %{
+            idp_metadata: metadata,
+            idp_entity_id: entity_id,
+            sp_entity_id: settings.saml_sp_entity_id || get_sp_entity_id(),
+            acs_url: get_acs_url(),
+            assertion_max_validity_seconds:
+              Application.get_env(
+                :serviceradar_web_ng,
+                :saml_assertion_max_validity_seconds,
+                300
+              ),
+            claim_mappings:
+              settings.claim_mappings ||
+                %{
+                  "email" => "email",
+                  "name" => "name",
+                  "sub" => "sub"
+                },
+            pinned_cert_fingerprints: settings.saml_pinned_cert_fingerprints || []
+          }
 
-        {:ok, config}
+          {:ok, config}
+        end
 
       {:error, _} = error ->
         error
@@ -147,17 +149,17 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
   defp get_idp_metadata(_), do: {:error, :no_idp_metadata}
 
   defp fetch_metadata(url) do
-    with {:ok, _uri} <- OutboundURLPolicy.validate(url),
-         {:ok, response} <- Req.get(url, OutboundURLPolicy.req_opts()) do
-      case response do
-        %{status: 200, body: body} when is_binary(body) ->
-          {:ok, body}
+    case OutboundFetch.get(url) do
+      {:ok, response} ->
+        case response do
+          %{status: 200, body: body} when is_binary(body) ->
+            {:ok, body}
 
-        %{status: status} ->
-          Logger.error("Failed to fetch SAML IdP metadata: status=#{status}")
-          {:error, :metadata_fetch_failed}
-      end
-    else
+          %{status: status} ->
+            Logger.error("Failed to fetch SAML IdP metadata: status=#{status}")
+            {:error, :metadata_fetch_failed}
+        end
+
       {:error, :disallowed_scheme} ->
         {:error, :metadata_fetch_failed}
 
@@ -165,6 +167,9 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
         {:error, :metadata_fetch_failed}
 
       {:error, :invalid_url} ->
+        {:error, :metadata_fetch_failed}
+
+      {:error, :dns_resolution_failed} ->
         {:error, :metadata_fetch_failed}
 
       {:error, reason} ->
@@ -176,35 +181,39 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
   defp extract_idp_entity_id({:xml, xml}) when is_binary(xml) do
     import SweetXml
 
-    # Use safe parser
-    doc = safe_sweetxml_parse(xml)
+    with {:ok, doc} <- safe_sweetxml_parse(xml) do
+      entity_id =
+        xpath(
+          doc,
+          ~x"//md:EntityDescriptor/@entityID"s,
+          namespace_conformant: true,
+          namespaces: [md: "urn:oasis:names:tc:SAML:2.0:metadata"]
+        )
 
-    entity_id =
-      xpath(
-        doc,
-        ~x"//md:EntityDescriptor/@entityID"s,
-        namespace_conformant: true,
-        namespaces: [md: "urn:oasis:names:tc:SAML:2.0:metadata"]
-      )
-
-    if is_binary(entity_id) and String.trim(entity_id) != "" do
-      String.trim(entity_id)
+      if is_binary(entity_id) and String.trim(entity_id) != "" do
+        {:ok, String.trim(entity_id)}
+      else
+        {:ok, nil}
+      end
     end
-  rescue
-    _ -> nil
   end
 
-  defp extract_idp_entity_id(_), do: nil
+  defp extract_idp_entity_id(_), do: {:error, :invalid_metadata}
 
   defp safe_sweetxml_parse(xml_string) do
     options = [
       quiet: true,
       xmerl_options: [
-        external_entities: :none,
-        dtd_nodes: :none
+        fetch_fun: &reject_external_resource/2
       ]
     ]
 
-    SweetXml.parse(xml_string, options)
+    {:ok, SweetXml.parse(xml_string, options)}
+  rescue
+    _ -> {:error, :invalid_metadata}
+  catch
+    :exit, _ -> {:error, :invalid_metadata}
   end
+
+  defp reject_external_resource(_ext_spec, _scanner_state), do: {:error, :disabled_for_security}
 end
