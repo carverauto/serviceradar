@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-go-config-bootstrap-pass-1`
+- Review artifact version: `2026-03-29-rust-edge-onboarding-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -34,7 +34,7 @@
 | `go/pkg/edgeonboarding` | Primary | reviewed | Signed tokens, HTTPS enforcement, env override handling, collector onboarding reviewed and mapped. |
 | `go/pkg/grpc` | Primary | reviewed | Security provider defaults, SPIFFE identity binding, and insecure transport fallback reviewed. New gRPC package findings recorded. |
 | `go/pkg/config/bootstrap` | Primary | reviewed | Core bootstrap-to-core template registration path reviewed; insecure transport fallback finding recorded and mapped to a dedicated hardening change. |
-| `rust/edge-onboarding` | Primary | not-started | No dedicated review pass recorded yet. |
+| `rust/edge-onboarding` | Primary | reviewed | Rust onboarding token parsing and package download transport reviewed; fail-open token/transport findings recorded and mapped to a dedicated hardening change. |
 | `rust/config-bootstrap` | Primary | not-started | No dedicated review pass recorded yet. |
 | `helm/serviceradar` | Primary | partial | Network policy and gateway exposure reviewed; full deployment-exposure pass still pending. |
 
@@ -97,6 +97,7 @@ Disposition values used in this artifact:
 | `SR-015` | High | `elixir/serviceradar_core_elx/lib`, `elixir/web-ng/lib`, `elixir/serviceradar_core/lib` | Core-ELX camera ingress still fails open on transport identity, and analysis-worker HTTP dispatch/probe paths trust operator-supplied URLs without outbound fetch policy enforcement. | `covered-by-change: harden-core-elx-camera-ingress-and-analysis-fetch` |
 | `SR-016` | High | `go/pkg/grpc` | The shared Go gRPC package still fails open to insecure transport when security config is absent and allows overly-broad SPIFFE identity authorization when server identity is omitted. | `covered-by-change: harden-go-grpc-security-defaults-and-spiffe-identity-binding` |
 | `SR-017` | High | `go/pkg/config/bootstrap` | Bootstrap template registration still falls back to plaintext gRPC when `CORE_SEC_MODE` is empty or `none`, allowing fail-open core transport during bootstrap/config registration. | `covered-by-change: harden-bootstrap-core-transport-defaults` |
+| `SR-018` | High | `rust/edge-onboarding` | Rust edge onboarding still accepts legacy/unsigned token forms, permits host override to replace the token API URL, and defaults bare hosts to plaintext HTTP for package download. | `covered-by-change: harden-rust-edge-onboarding-token-and-transport-trust` |
 
 ### Finding Details
 
@@ -276,6 +277,21 @@ Disposition values used in this artifact:
   - keep transport setup aligned with the hardened `go/pkg/grpc` package so bootstrap callers cannot reintroduce plaintext defaults locally
 - Disposition: `covered-by-change: harden-bootstrap-core-transport-defaults`
 
+#### `SR-018` Rust edge onboarding token and transport trust gaps
+- Severity: High
+- Exploitability / Preconditions: attacker can influence onboarding token contents, an operator passes `--host` / `CORE_API_URL`, or deployment leaves a bare host without scheme in Rust onboarding configuration.
+- Affected Paths:
+  - `rust/edge-onboarding`
+- Impact:
+  - the Rust onboarding crate still accepts legacy/raw token formats and `edgepkg-v1` structured tokens, so it does not match the signed-only onboarding contract already enforced in the Go and Elixir onboarding paths
+  - `parse_token` allows `fallback_core_url` / `--host` to override the token’s embedded API URL, recreating the same host-trust gap that was already removed from other onboarding implementations
+  - package download silently defaults a bare host to `http://`, allowing plaintext bootstrap transport instead of authenticated HTTPS-only delivery
+- Remediation Guidance:
+  - remove legacy/raw token parsing and require the current signed token format only
+  - stop letting operator-supplied host overrides replace the token’s authenticated API URL
+  - require explicit `https://` core URLs for package download and reject plaintext or scheme-less bootstrap endpoints
+- Disposition: `covered-by-change: harden-rust-edge-onboarding-token-and-transport-trust`
+
 ## Accepted Risk Register
 
 No accepted-risk entries have been recorded yet in this baseline artifact.
@@ -293,7 +309,6 @@ The following primary-scope passes still need dedicated review evidence before t
 
 Recommended next review order:
 1. `elixir/serviceradar_core_elx/lib` deeper pass
-2. `rust/edge-onboarding`
-3. `rust/config-bootstrap`
-4. `helm/serviceradar`
-5. `go/pkg/agent`
+2. `rust/config-bootstrap`
+3. `helm/serviceradar`
+4. `go/pkg/agent`

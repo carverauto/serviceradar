@@ -29,8 +29,24 @@ pub enum Error {
     TokenRequired,
 
     /// Token format is not recognized.
-    #[error("unsupported token format (expected edgepkg-v1)")]
+    #[error("unsupported token format (expected edgepkg-v2)")]
     UnsupportedTokenFormat,
+
+    /// Token signature is malformed or missing required segments.
+    #[error("onboarding token is malformed")]
+    TokenMalformed,
+
+    /// Signed token verification cannot proceed without a public key.
+    #[error("onboarding token public key is not configured")]
+    TokenPublicKeyRequired,
+
+    /// Signed token verification failed.
+    #[error("onboarding token signature is invalid")]
+    InvalidTokenSignature,
+
+    /// Signed token encoding cannot proceed without a private key.
+    #[error("onboarding token private key is not configured")]
+    TokenPrivateKeyRequired,
 
     /// Token is missing the package ID.
     #[error("token missing package id")]
@@ -43,6 +59,10 @@ pub enum Error {
     /// Core API host is required but not provided.
     #[error("core API host is required (token missing api and --host not set)")]
     CoreApiHostRequired,
+
+    /// Core API URL must use HTTPS.
+    #[error("core API URL must use https://")]
+    CoreApiUrlMustUseHttps,
 
     /// mTLS bundle is missing from the package response.
     #[error("mTLS bundle missing in package response")]
