@@ -35,9 +35,6 @@ spec:
           readOnly: true
         - name: datasvc-data
           mountPath: /var/lib/serviceradar
-        - name: spire-agent-socket
-          mountPath: /run/spire/sockets
-          readOnly: true
         env:
         - name: CONFIG_PATH
           value: "/etc/serviceradar/datasvc.json"
@@ -45,12 +42,6 @@ spec:
           value: "serviceradar-core:50052"
         - name: CORE_SEC_MODE
           value: "mtls"
-        - name: CORE_TRUST_DOMAIN
-          value: "carverauto.dev"
-        - name: CORE_SERVER_SPIFFE_ID
-          value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-core"
-        - name: CORE_WORKLOAD_SOCKET
-          value: "unix:/run/spire/sockets/agent.sock"
         - name: CORE_CERT_DIR
           value: "/etc/serviceradar/certs"
         - name: WAIT_FOR_NATS
@@ -59,8 +50,6 @@ spec:
           value: "serviceradar-nats"
         - name: LOG_LEVEL
           value: "info"
-        - name: SPIFFE_ENDPOINT_SOCKET
-          value: "unix:/run/spire/sockets/agent.sock"
         resources:
           limits:
             cpu: "2"
@@ -95,10 +84,6 @@ spec:
       - name: datasvc-data
         persistentVolumeClaim:
           claimName: serviceradar-datasvc-data
-      - name: spire-agent-socket
-        hostPath:
-          path: /run/spire/sockets
-          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

@@ -9,7 +9,6 @@ resources:
   - namespace.yaml
   - service-aliases.demo-staging.yaml
   - ingress.yaml
-  - serviceradar-datasvc-grpc-external.yaml
   # serviceradar-flowgger-external.yaml removed - now managed by Helm chart
   # via flowgger.externalService configuration in values-demo.yaml
 

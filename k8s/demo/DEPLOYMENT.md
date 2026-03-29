@@ -108,6 +108,10 @@ The deployment automatically generates:
 - SPIFFE/SPIRE is optional and is not part of the default `k8s/demo` deployment path
 - Web traffic uses TLS certificates from cert-manager
 
+The default `base/`, `prod/`, and `staging/` Kustomize paths do not mount `/run/spire/sockets` into workloads. If you need SPIFFE/SPIRE for a demo environment, apply `k8s/demo/base/spire` and `k8s/demo/spire-workloads` explicitly after the base deployment so the SPIRE resources and workload socket wiring are added intentionally.
+
+Datasvc also remains internal-only by default in the shipped overlays. If you intentionally need external datasvc gRPC access for a short-lived operator workflow, apply the optional `serviceradar-datasvc-grpc-external.yaml` manifest from the target overlay by hand rather than relying on the default overlay render.
+
 ### Password Retrieval
 After deployment, retrieve the admin password:
 ```bash

@@ -1,0 +1,220 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-agent
+spec:
+  template:
+    spec:
+      containers:
+        - name: agent
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
+          env:
+            - name: CORE_TRUST_DOMAIN
+              value: "carverauto.dev"
+            - name: CORE_SERVER_SPIFFE_ID
+              value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-core"
+            - name: CORE_WORKLOAD_SOCKET
+              value: "unix:/run/spire/sockets/agent.sock"
+            - name: KV_TRUST_DOMAIN
+              value: "carverauto.dev"
+            - name: KV_SERVER_SPIFFE_ID
+              value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-datasvc"
+            - name: KV_WORKLOAD_SOCKET
+              value: "unix:/run/spire/sockets/agent.sock"
+      volumes:
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-datasvc
+spec:
+  template:
+    spec:
+      containers:
+        - name: datasvc
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
+          env:
+            - name: CORE_TRUST_DOMAIN
+              value: "carverauto.dev"
+            - name: CORE_SERVER_SPIFFE_ID
+              value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-core"
+            - name: CORE_WORKLOAD_SOCKET
+              value: "unix:/run/spire/sockets/agent.sock"
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:/run/spire/sockets/agent.sock"
+      volumes:
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-db-event-writer
+spec:
+  template:
+    spec:
+      containers:
+        - name: db-event-writer
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
+          env:
+            - name: KV_TRUST_DOMAIN
+              value: "carverauto.dev"
+            - name: KV_SERVER_SPIFFE_ID
+              value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-datasvc"
+            - name: KV_WORKLOAD_SOCKET
+              value: "unix:/run/spire/sockets/agent.sock"
+            - name: CORE_TRUST_DOMAIN
+              value: "carverauto.dev"
+            - name: CORE_SERVER_SPIFFE_ID
+              value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-core"
+            - name: CORE_WORKLOAD_SOCKET
+              value: "unix:/run/spire/sockets/agent.sock"
+      volumes:
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-faker
+spec:
+  template:
+    spec:
+      containers:
+        - name: faker
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
+          env:
+            - name: CORE_TRUST_DOMAIN
+              value: "carverauto.dev"
+            - name: CORE_SERVER_SPIFFE_ID
+              value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-core"
+            - name: CORE_WORKLOAD_SOCKET
+              value: "unix:/run/spire/sockets/agent.sock"
+            - name: KV_TRUST_DOMAIN
+              value: "carverauto.dev"
+            - name: KV_SERVER_SPIFFE_ID
+              value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-datasvc"
+            - name: KV_WORKLOAD_SOCKET
+              value: "unix:/run/spire/sockets/agent.sock"
+      volumes:
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-rperf-client
+spec:
+  template:
+    spec:
+      containers:
+        - name: rperf-checker
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
+          env:
+            - name: KV_TRUST_DOMAIN
+              value: "carverauto.dev"
+            - name: KV_SERVER_SPIFFE_ID
+              value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-datasvc"
+            - name: KV_WORKLOAD_SOCKET
+              value: "unix:/run/spire/sockets/agent.sock"
+      volumes:
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-trapd
+spec:
+  template:
+    spec:
+      containers:
+        - name: trapd
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
+          env:
+            - name: KV_TRUST_DOMAIN
+              value: "carverauto.dev"
+            - name: KV_SERVER_SPIFFE_ID
+              value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-datasvc"
+            - name: KV_WORKLOAD_SOCKET
+              value: "unix:/run/spire/sockets/agent.sock"
+      volumes:
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-zen
+spec:
+  template:
+    spec:
+      containers:
+        - name: zen
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
+          env:
+            - name: KV_TRUST_DOMAIN
+              value: "carverauto.dev"
+            - name: KV_SERVER_SPIFFE_ID
+              value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-datasvc"
+            - name: KV_WORKLOAD_SOCKET
+              value: "unix:/run/spire/sockets/agent.sock"
+      volumes:
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-zen-rules-bootstrap
+spec:
+  template:
+    spec:
+      containers:
+        - name: zen-rules-bootstrap
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
+      volumes:
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate

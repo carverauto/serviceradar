@@ -140,9 +140,6 @@ spec:
             - name: nats-creds
               mountPath: /etc/serviceradar/creds
               readOnly: true
-            - name: spire-agent-socket
-              mountPath: /run/spire/sockets
-              readOnly: true
       volumes:
         - name: zen-rules
           configMap:
@@ -156,7 +153,3 @@ spec:
         - name: nats-creds
           secret:
             secretName: serviceradar-nats-creds
-        - name: spire-agent-socket
-          hostPath:
-            path: /run/spire/sockets
-            type: DirectoryOrCreate

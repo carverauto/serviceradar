@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-docker-compose-pass-1`
+- Review artifact version: `2026-03-29-k8s-demo-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -54,7 +54,7 @@
 | `rust/flowgger` | Secondary | reviewed | Reviewed gRPC sidecar, input listeners, and NATS output transport wiring. A fail-open gRPC transport finding is recorded below. |
 | `rust/srql` | Secondary | reviewed | Reviewed parser, query engine, and HTTP API auth path. A fail-open API authentication finding is recorded below. |
 | `docker/compose` | Secondary | reviewed | Reviewed compose runtime defaults, shipped secret material, NATS exposure, and SPIRE bootstrap scripts. Static secret defaults, public monitoring exposure, and unverified runtime binary downloads are recorded below. |
-| `k8s/demo` | Secondary | not-started | Pending after primary scope closure. |
+| `k8s/demo` | Secondary | reviewed | Reviewed default base and prod/staging overlays. Default base still mounts host SPIRE sockets into workloads even though SPIRE is optional, and overlays publish datasvc externally by default. |
 | `k8s/sr-testing` | Secondary | not-started | Pending after primary scope closure. |
 | `k8s/external-dns` | Secondary | not-started | Pending after primary scope closure. |
 | `k8s/argocd` | Secondary | not-started | Pending after primary scope closure. |
@@ -113,6 +113,8 @@ Disposition values used in this artifact:
 | `SR-031` | High | `docker-compose.yml`, `docker/compose` | The main Docker Compose stack still ships static default secret material for Erlang distribution, Phoenix session signing, and plugin download signing, allowing cross-install trust reuse when operators do not override those env vars. | `covered-by-change: harden-docker-compose-secret-defaults-and-bootstrap-integrity` |
 | `SR-032` | Medium | `docker-compose.yml`, `docker/compose/nats.docker.conf` | The main Docker Compose stack publishes the unauthenticated NATS monitoring endpoint on host port `8222` by default, exposing broker metadata and runtime state outside the internal compose network. | `covered-by-change: harden-docker-compose-secret-defaults-and-bootstrap-integrity` |
 | `SR-033` | High | `docker/compose/spire` | SPIRE bootstrap and agent startup scripts download and execute SPIRE binaries at runtime without checksum or signature verification, creating a supply-chain trust gap in the compose bootstrap path. | `covered-by-change: harden-docker-compose-secret-defaults-and-bootstrap-integrity` |
+| `SR-034` | High | `k8s/demo/base` | The default demo base mounts `/run/spire/sockets` from the host into multiple workloads using `hostPath` even though SPIRE is documented as optional and outside the default install path. | `covered-by-change: harden-demo-k8s-control-plane-exposure-and-spire-mounts` |
+| `SR-035` | High | `k8s/demo/prod`, `k8s/demo/staging` | The prod and staging demo overlays publish datasvc gRPC through `LoadBalancer` services by default, exposing an internal control-plane/KV service outside the cluster. | `covered-by-change: harden-demo-k8s-control-plane-exposure-and-spire-mounts` |
 
 ### Finding Details
 
@@ -409,6 +411,37 @@ Disposition values used in this artifact:
   - if network retrieval remains unavoidable, require a pinned checksum or signature verification step before extraction and execution
   - treat download URL overrides as privileged/debug-only and document them accordingly
 - Disposition: `covered-by-change: harden-docker-compose-secret-defaults-and-bootstrap-integrity`
+
+#### `SR-034` Demo base mounts host SPIRE sockets by default even when SPIRE is optional
+- Severity: High
+- Exploitability / Preconditions: operator applies the default `k8s/demo/base` path on a cluster node where `/run/spire/sockets` exists or can be created on the host.
+- Affected Paths:
+  - `k8s/demo/base`
+- Impact:
+  - multiple default demo workloads mount `/run/spire/sockets` from the node filesystem using `hostPath` and point runtime config at that socket path even though the repo documents SPIFFE/SPIRE as optional and not part of the default demo install path
+  - this expands the default deployment trust boundary to the node host filesystem and creates an avoidable hostPath escape surface for workloads that should otherwise run without host filesystem access
+  - on clusters without the expected SPIRE socket, the manifests still create host directories and leave the workloads coupled to a host-mounted path that is not part of the advertised default install
+- Remediation Guidance:
+  - remove SPIRE socket `hostPath` mounts from the default demo base and gate them behind an explicit SPIRE-specific overlay
+  - keep default demo workloads on file-based mTLS/runtime certs unless SPIRE is intentionally enabled
+  - make any SPIRE-specific workload wiring opt-in and clearly segregated from the base install path
+- Disposition: `new-change-required: harden-demo-k8s-control-plane-exposure-and-spire-mounts`
+
+#### `SR-035` Demo overlays publish datasvc externally by default
+- Severity: High
+- Exploitability / Preconditions: operator applies the `prod/` or `staging/` demo overlay as shipped on a cluster with functioning `LoadBalancer` service exposure.
+- Affected Paths:
+  - `k8s/demo/prod`
+  - `k8s/demo/staging`
+- Impact:
+  - both overlays include `serviceradar-datasvc-grpc-external.yaml`, which exposes datasvc gRPC as a `LoadBalancer`
+  - datasvc is an internal control-plane/KV service used by platform workloads, so publishing it externally by default unnecessarily expands the attack surface of an internal administrative boundary
+  - even with mTLS enabled, making the service internet- or LAN-reachable by default increases the blast radius of misissued certs, leaked client credentials, and transport parsing bugs
+- Remediation Guidance:
+  - remove external datasvc exposure from the default prod and staging overlays
+  - require an explicit opt-in overlay or operator patch for any external datasvc access need
+  - document datasvc as internal-only by default in the demo deployment materials
+- Disposition: `new-change-required: harden-demo-k8s-control-plane-exposure-and-spire-mounts`
 
 #### `SR-015` Core-ELX media ingress trust-boundary and analysis-worker SSRF gap
 - Severity: High

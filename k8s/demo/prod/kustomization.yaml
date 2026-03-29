@@ -10,7 +10,6 @@ resources:
 - service-aliases.demo.yaml
 - calico-bgpconfiguration.yaml
 - ingress.yaml
-- serviceradar-datasvc-grpc-external.yaml
 
 images:
 - name: ghcr.io/carverauto/serviceradar-web-ng
