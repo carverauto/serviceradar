@@ -98,6 +98,24 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
       assert command =~ "./deploy.sh"
       refute command =~ "sudo ./update.sh"
     end
+
+    test "quotes bundle URLs as shell literals" do
+      command =
+        CollectorBundleGenerator.update_command(
+          %CollectorPackage{
+            id: "12345678-abcd-efgh-ijkl-1234567890ab",
+            collector_type: :flowgger
+          },
+          "download-token",
+          base_url: "https://demo.serviceradar.cloud/$(touch /tmp/pwned)"
+        )
+
+      assert command =~
+               "'https://demo.serviceradar.cloud/$(touch /tmp/pwned)/api/collectors/12345678-abcd-efgh-ijkl-1234567890ab/bundle'"
+
+      refute command =~
+               ~s("https://demo.serviceradar.cloud/$(touch /tmp/pwned)/api/collectors/12345678-abcd-efgh-ijkl-1234567890ab/bundle")
+    end
   end
 
   defp extract_files(tarball) do

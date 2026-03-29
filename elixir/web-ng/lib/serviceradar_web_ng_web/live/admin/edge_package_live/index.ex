@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   alias Ash.Error.Invalid
   alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadarWebNG.Shell
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.ComponentID
   alias ServiceRadarWebNG.Edge.OnboardingEvents
@@ -671,7 +672,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
     enroll_cmd =
       if component_type == "agent" and is_binary(onboarding_token) do
-        "sudo /usr/local/bin/serviceradar-cli enroll --core-url #{base_url} --token #{onboarding_token}"
+        "sudo /usr/local/bin/serviceradar-cli enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(onboarding_token)}"
       end
 
     docker_cmd =

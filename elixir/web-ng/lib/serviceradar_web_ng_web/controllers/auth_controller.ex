@@ -35,6 +35,8 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
   @password_auth_rate_limit 10
   @password_auth_window 60
+  @password_reset_rate_limit 5
+  @password_reset_window 300
 
   @doc """
   Shows the password reset request form.
@@ -163,39 +165,54 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   Sends a password reset email with a Guardian token.
   """
   def request_reset(conn, %{"user" => %{"email" => email}}) do
-    actor = SystemActor.system(:auth_controller)
+    client_ip = ClientIP.get(conn)
 
-    # Always show the same message to prevent email enumeration
-    case User.get_by_email(email, actor: actor) do
-      {:ok, user} ->
-        # Generate a password reset token
-        case Guardian.create_access_token(user, token_type: "reset", ttl: {1, :hour}) do
-          {:ok, token, _claims} ->
-            # Send the reset email
-            reset_url = AuthURL.password_reset_url(token)
+    case RateLimiter.check_rate_limit_and_record("password_reset", client_ip,
+           limit: @password_reset_rate_limit,
+           window_seconds: @password_reset_window
+         ) do
+      {:error, retry_after} ->
+        Logger.warning("Password reset rate limited for IP: #{client_ip}")
 
-            ServiceRadarWebNG.Accounts.UserNotifier.deliver_reset_password_instructions(
-              user,
-              reset_url
-            )
+        conn
+        |> put_flash(
+          :error,
+          "Too many password reset requests. Please try again in #{retry_after} seconds."
+        )
+        |> redirect(to: ~p"/users/log-in")
 
-            :ok
+      :ok ->
+        actor = SystemActor.system(:auth_controller)
+
+        # Always show the same message to prevent email enumeration
+        case User.get_by_email(email, actor: actor) do
+          {:ok, user} ->
+            case Guardian.create_access_token(user, token_type: "reset", ttl: {1, :hour}) do
+              {:ok, token, _claims} ->
+                reset_url = AuthURL.password_reset_url(token)
+
+                ServiceRadarWebNG.Accounts.UserNotifier.deliver_reset_password_instructions(
+                  user,
+                  reset_url
+                )
+
+                :ok
+
+              {:error, _} ->
+                :ok
+            end
 
           {:error, _} ->
             :ok
         end
 
-      {:error, _} ->
-        # Don't reveal whether the email exists
-        :ok
+        conn
+        |> put_flash(
+          :info,
+          "If your email is in our system, you will receive instructions to reset your password."
+        )
+        |> redirect(to: ~p"/users/log-in")
     end
-
-    conn
-    |> put_flash(
-      :info,
-      "If your email is in our system, you will receive instructions to reset your password."
-    )
-    |> redirect(to: ~p"/users/log-in")
   end
 
   @doc """

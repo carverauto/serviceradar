@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   alias ServiceRadarWebNGWeb.ClientIP
 
   require Ash.Query
+  require Logger
 
   action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
@@ -256,9 +257,11 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   end
 
   defp handle_bundle_error(conn, {:bundle_error, reason}) do
+    Logger.error("Edge bundle generation failed: #{inspect(reason)}")
+
     conn
     |> put_status(:internal_server_error)
-    |> json(%{error: "Failed to generate bundle: #{inspect(reason)}"})
+    |> json(%{error: "bundle_generation_failed"})
   end
 
   defp handle_bundle_error(conn, reason)
@@ -267,9 +270,11 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   end
 
   defp handle_bundle_error(conn, reason) do
+    Logger.error("Edge bundle request failed: #{inspect(reason)}")
+
     conn
     |> put_status(:internal_server_error)
-    |> json(%{error: "bundle request failed: #{inspect(reason)}"})
+    |> json(%{error: "bundle_request_failed"})
   end
 
   @doc """
@@ -332,10 +337,10 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
     opts = [actor: nil, source_ip: source_ip, authorize?: false]
 
     with {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} <-
-           OnboardingPackages.deliver(id, download_token, opts),
+         OnboardingPackages.deliver(id, download_token, opts),
          {:ok, tarball} <-
            wrap_bundle_error(
-             BundleGenerator.create_tarball(package, bundle_pem || "", join_token,
+             bundle_generator().create_tarball(package, bundle_pem || "", join_token,
                download_token: download_token,
                base_url: base_url
              )
@@ -347,6 +352,10 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
 
   defp wrap_bundle_error({:ok, tarball}), do: {:ok, tarball}
   defp wrap_bundle_error({:error, reason}), do: {:error, {:bundle_error, reason}}
+
+  defp bundle_generator do
+    Application.get_env(:serviceradar_web_ng, :edge_bundle_generator, BundleGenerator)
+  end
 
   defp body_param(conn, key) when is_binary(key) do
     case conn.body_params do

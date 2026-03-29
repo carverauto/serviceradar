@@ -5,9 +5,11 @@ defmodule ServiceRadarWebNGWeb.Api.SpatialController do
 
   alias ServiceRadar.Spatial.SurveySample
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.RBAC
 
   def index(conn, _params) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "analytics.view") do
       # Fetch all SurveySample records and map them to a JSON-friendly format.
       # A realistic implementation might paginate or filter by session_id,
       # but we dump the ingested data for the Deck.GL frontend to aggregate.
@@ -44,6 +46,19 @@ defmodule ServiceRadarWebNGWeb.Api.SpatialController do
         |> put_status(:unauthorized)
         |> json(%{error: "unauthorized"})
         |> halt()
+    end
+  end
+
+  defp require_permission(conn, permission) do
+    scope = conn.assigns[:current_scope]
+
+    if RBAC.can?(scope, permission) do
+      :ok
+    else
+      conn
+      |> put_status(:forbidden)
+      |> json(%{error: "forbidden"})
+      |> halt()
     end
   end
 end

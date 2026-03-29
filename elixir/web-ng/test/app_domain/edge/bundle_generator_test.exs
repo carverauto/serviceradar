@@ -287,7 +287,36 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
         end)
 
       assert install_sh =~
-               ~s(/usr/local/bin/serviceradar-cli enroll --core-url "https://demo.serviceradar.cloud" --token ")
+               ~s(/usr/local/bin/serviceradar-cli enroll --core-url 'https://demo.serviceradar.cloud' --token ')
+    end
+
+    test "agent install script treats tokenized values as shell literals", %{
+      agent_package: package,
+      agent_join_token: join_token,
+      agent_download_token: download_token
+    } do
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          base_url: "https://demo.serviceradar.cloud/$(touch /tmp/pwned)",
+          download_token: download_token,
+          onboarding_token_private_key: @onboarding_token_private_key
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, install_sh} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("install.sh")
+        end)
+
+      assert install_sh =~
+               "/usr/local/bin/serviceradar-cli enroll --core-url 'https://demo.serviceradar.cloud/$(touch /tmp/pwned)'"
+
+      refute install_sh =~
+               ~s(/usr/local/bin/serviceradar-cli enroll --core-url "https://demo.serviceradar.cloud/$(touch /tmp/pwned)")
     end
   end
 
@@ -311,7 +340,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       cmd =
         BundleGenerator.docker_install_command(package, download_token, base_url: "https://custom.example.com")
 
-      assert cmd =~ "https://custom.example.com"
+      assert cmd =~ "'https://custom.example.com/api/edge-packages/"
     end
 
     test "uses custom image_tag option", %{package: package, download_token: download_token} do
@@ -340,7 +369,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       cmd =
         BundleGenerator.systemd_install_command(package, download_token, base_url: "https://my-server.local")
 
-      assert cmd =~ "https://my-server.local"
+      assert cmd =~ "'https://my-server.local/api/edge-packages/"
     end
   end
 
@@ -357,14 +386,14 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       assert cmd =~ package.id
       refute cmd =~ download_token
       assert cmd =~ "kubectl apply -f kubernetes/"
-      assert cmd =~ "-n serviceradar"
+      assert cmd =~ "-n 'serviceradar'"
     end
 
     test "uses custom namespace option", %{package: package, download_token: download_token} do
       cmd =
         BundleGenerator.kubernetes_install_command(package, download_token, namespace: "my-namespace")
 
-      assert cmd =~ "-n my-namespace"
+      assert cmd =~ "-n 'my-namespace'"
     end
   end
 

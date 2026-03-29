@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   """
 
   alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadarWebNG.Shell
   alias ServiceRadarWebNG.Edge.OnboardingToken
   alias ServiceRadarWebNG.Web.EndpointConfig
 
@@ -111,7 +112,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
     String.trim("""
     SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
-    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" "#{bundle_url}" | tar xzf - && \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" #{Shell.literal(bundle_url)} | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
     docker run -d --name serviceradar-#{component_type} \\
       -v $(pwd)/certs:/etc/serviceradar/certs:ro \\
@@ -130,7 +131,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
     String.trim("""
     SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
-    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" "#{bundle_url}" | tar xzf - && \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" #{Shell.literal(bundle_url)} | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
     sudo ./install.sh
     """)
@@ -147,9 +148,9 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
     String.trim("""
     SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
-    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" "#{bundle_url}" | tar xzf - && \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" #{Shell.literal(bundle_url)} | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
-    kubectl apply -f kubernetes/ -n #{namespace}
+    kubectl apply -f kubernetes/ -n #{Shell.literal(namespace)}
     """)
   end
 
@@ -296,10 +297,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   defp encode_yaml_value(value), do: inspect(value)
 
-  defp sanitize_shell_arg(value) when is_binary(value) do
-    String.replace(value, "\"", "-")
-  end
-
   defp sanitize_k8s_label(value) when is_binary(value) do
     # Kubernetes labels must be 63 chars or less and alphanumeric/dash/dot/underscore
     value
@@ -312,24 +309,20 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     enrollment_token = onboarding_token(package, opts)
     base_url = Keyword.get(opts, :base_url, default_base_url())
 
-    # Sanitize for shell interpolation
-    s_component_type = sanitize_shell_arg(component_type)
-    s_package_id = sanitize_shell_arg(package.id)
-
     if component_type == "agent" and is_binary(enrollment_token) do
       return_agent_enroll_script(package, enrollment_token, base_url)
     else
       String.trim("""
       #!/bin/bash
       # ServiceRadar Edge Component Installer
-      # Component: #{s_component_type}
-      # Package ID: #{s_package_id}
+      # Component: #{component_type}
+      # Package ID: #{package.id}
       # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
 
       set -e
 
       SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-      COMPONENT_TYPE="#{s_component_type}"
+      COMPONENT_TYPE=#{Shell.literal(component_type)}
       INSTALL_DIR="/opt/serviceradar"
       CONFIG_DIR="/etc/serviceradar"
       CERT_DIR="$CONFIG_DIR/certs"
@@ -825,20 +818,16 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp return_agent_enroll_script(package, token, base_url) do
-    s_package_id = sanitize_shell_arg(package.id)
-    s_token = sanitize_shell_arg(token)
-    s_base_url = sanitize_shell_arg(base_url)
-
     String.trim("""
     #!/bin/bash
     # ServiceRadar Agent Enrollment
-    # Package ID: #{s_package_id}
+    # Package ID: #{package.id}
     # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
 
     set -e
 
     echo "Enrolling ServiceRadar agent..."
-    /usr/local/bin/serviceradar-cli enroll --core-url "#{s_base_url}" --token "#{s_token}"
+    /usr/local/bin/serviceradar-cli enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(token)}
 
     echo ""
     echo "Enrollment complete."
@@ -852,7 +841,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     Enroll the agent with the onboarding token (no config edits required):
 
     ```bash
-    /usr/local/bin/serviceradar-cli enroll --core-url #{base_url} --token #{token}
+    /usr/local/bin/serviceradar-cli enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(token)}
     ```
     """
   end

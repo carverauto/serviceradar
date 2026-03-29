@@ -43,6 +43,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadarWebNG.Shell
   alias ServiceRadarWebNG.Web.EndpointConfig
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
@@ -116,7 +117,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     String.trim("""
     SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
-    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" "#{bundle_url}" | tar xzf - && \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" #{Shell.literal(bundle_url)} | tar xzf - && \\
     cd collector-package-#{short_id(package.id)} && \\
     ./deploy.sh
     """)
@@ -128,7 +129,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     String.trim("""
     SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
-    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" "#{bundle_url}" | tar xzf - && \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" #{Shell.literal(bundle_url)} | tar xzf - && \\
     cd collector-package-#{short_id(package.id)} && \\
     sudo ./update.sh
     """)
@@ -412,21 +413,16 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   end
 
   defp generate_falcosidekick_deploy_script(package) do
-    s_package_id = sanitize_shell_arg(package.id)
-
     namespace =
       get_in(package.config_overrides || %{}, ["namespace"]) || "demo"
 
     release_name =
       get_in(package.config_overrides || %{}, ["release_name"]) || "falcosidekick-nats-auth"
 
-    s_namespace = sanitize_shell_arg(namespace)
-    s_release = sanitize_shell_arg(release_name)
-
     """
     #!/bin/bash
     # ServiceRadar Falcosidekick Deploy Script
-    # Package ID: #{s_package_id}
+    # Package ID: #{package.id}
     # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
     #
     # Verifies the shared runtime cert secret exists, then deploys/upgrades
@@ -435,8 +431,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     set -e
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    NAMESPACE="#{s_namespace}"
-    RELEASE="#{s_release}"
+    NAMESPACE=#{Shell.literal(namespace)}
+    RELEASE=#{Shell.literal(release_name)}
     SECRET_NAME="serviceradar-runtime-certs"
 
     echo "ServiceRadar Falcosidekick Deploy"
@@ -488,15 +484,11 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     collector_type = to_string(package.collector_type)
     config_file = config_filename(package)
 
-    s_collector_type = sanitize_shell_arg(collector_type)
-    s_package_id = sanitize_shell_arg(package.id)
-    s_service_name = "serviceradar-#{s_collector_type}"
-
     """
     #!/bin/bash
     # ServiceRadar Collector Update Script
-    # Collector: #{s_collector_type}
-    # Package ID: #{s_package_id}
+    # Collector: #{collector_type}
+    # Package ID: #{package.id}
     # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
     #
     # This script updates credentials, certificates, and configuration for an
@@ -505,8 +497,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     set -e
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    COLLECTOR_TYPE="#{s_collector_type}"
-    SERVICE_NAME="#{s_service_name}"
+    COLLECTOR_TYPE=#{Shell.literal(collector_type)}
+    SERVICE_NAME=#{Shell.literal("serviceradar-#{collector_type}")}
     CONFIG_DIR="/etc/serviceradar"
     CERTS_DIR="$CONFIG_DIR/certs"
     CREDS_DIR="$CONFIG_DIR/creds"
@@ -573,10 +565,6 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     echo "View logs:"
     echo "  journalctl -u $SERVICE_NAME -f"
     """
-  end
-
-  defp sanitize_shell_arg(value) when is_binary(value) do
-    String.replace(value, "\"", "-")
   end
 
   defp encode_toml_value(value) do

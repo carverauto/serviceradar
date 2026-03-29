@@ -16,13 +16,13 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.OIDCClient
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
   alias ServiceRadarWebNGWeb.Auth.RateLimiter
+  alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
   alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.UserAuth
 
@@ -184,6 +184,21 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
       |> put_flash(:info, "Signed in successfully via SSO.")
       |> UserAuth.log_in_user(user)
     else
+      {:error, :unsafe_account_linking} ->
+        Logger.warning("OIDC authentication rejected implicit email-based account linking")
+
+        Hooks.on_auth_failed(:unsafe_account_linking, %{
+          method: :oidc,
+          ip: get_client_ip(conn)
+        })
+
+        conn
+        |> put_flash(
+          :error,
+          "An existing account with that email cannot be linked automatically. Please contact your administrator."
+        )
+        |> redirect(to: ~p"/users/log-in")
+
       {:error, :user_creation_failed} ->
         Logger.error("Failed to create/update user from OIDC")
 
@@ -212,115 +227,11 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
   defp find_or_create_user(%{email: email, name: name, external_id: external_id}, claims) do
     actor = SystemActor.system(:oidc_auth)
-    resolved_role = RoleMapping.resolve_role(claims, actor: actor)
-
-    # First, try to find by external_id
-    case find_user_by_external_id(external_id, actor) do
-      {:ok, user} ->
-        # Update display name if changed
-        user
-        |> maybe_update_user(name, actor)
-        |> maybe_update_role(resolved_role, actor)
-
-      {:error, :not_found} ->
-        # Try to find by email
-        case User.get_by_email(email, actor: actor) do
-          {:ok, user} ->
-            # Link existing user to OIDC
-            user
-            |> update_user_external_id(external_id, name, actor)
-            |> maybe_update_role(resolved_role, actor)
-
-          {:error, _} ->
-            # Create new user (JIT provisioning)
-            create_sso_user(email, name, external_id, resolved_role, actor)
-        end
-    end
-  end
-
-  defp find_user_by_external_id(external_id, actor) do
-    require Ash.Query
-
-    query =
-      User
-      |> Ash.Query.filter(external_id == ^external_id)
-      |> Ash.Query.limit(1)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, [user]} -> {:ok, user}
-      {:ok, []} -> {:error, :not_found}
-      {:error, _} -> {:error, :not_found}
-    end
-  end
-
-  defp maybe_update_user(user, name, actor) do
-    if user.display_name != name and name do
-      case User.update(user, %{display_name: name}, actor: actor) do
-        {:ok, updated} -> {:ok, updated}
-        {:error, _} -> {:ok, user}
-      end
-    else
-      {:ok, user}
-    end
-  end
-
-  defp update_user_external_id(user, external_id, name, actor) do
-    # Update the user with external_id
-    changeset =
-      user
-      |> Ash.Changeset.for_update(:update, %{display_name: name || user.display_name})
-      |> Ash.Changeset.force_change_attribute(:external_id, external_id)
-
-    case Ash.update(changeset, actor: actor) do
-      {:ok, updated} ->
-        Logger.info("Linked existing user #{user.id} to OIDC external_id #{external_id}")
-        {:ok, updated}
-
-      {:error, error} ->
-        Logger.error("Failed to link user to OIDC: #{inspect(error)}")
-        # Return the existing user anyway
-        {:ok, user}
-    end
-  end
-
-  defp create_sso_user(email, name, external_id, role, actor) do
-    params = %{
-      email: email,
-      display_name: name,
-      external_id: external_id,
-      role: role,
-      provider: :oidc
-    }
-
-    case User.provision_sso_user(params, actor: actor) do
-      {:ok, user} ->
-        Logger.info("Created new user via OIDC JIT provisioning: #{user.id}")
-        Hooks.on_user_created(user, :oidc)
-        {:ok, user}
-
-      {:error, error} ->
-        Logger.error("Failed to create SSO user: #{inspect(error)}")
-        {:error, :user_creation_failed}
-    end
-  end
-
-  defp maybe_update_role({:ok, user}, role, actor) do
-    apply_role_mapping(user, role, actor)
-  end
-
-  defp apply_role_mapping(user, role, actor) do
-    cond do
-      is_nil(role) ->
-        {:ok, user}
-
-      user.role == :admin and role != :admin ->
-        {:ok, user}
-
-      user.role == role ->
-        {:ok, user}
-
-      true ->
-        User.update_role(user, role, actor: actor)
-    end
+    SSOProvisioning.find_or_create_user(
+      %{email: email, name: name, external_id: external_id},
+      claims,
+      :oidc,
+      actor
+    )
   end
 end

@@ -46,6 +46,32 @@ defmodule ServiceRadarWebNGWeb.SAMLControllerTest do
              "Authentication failed: invalid request. Please try again."
   end
 
+  test "rejects SAML ACS XML with external entities", %{conn: conn} do
+    malicious_response =
+      """
+      <!DOCTYPE samlp:Response [
+        <!ENTITY xxe SYSTEM "file:///etc/passwd">
+      ]>
+      <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol">
+        <saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+          <saml:Issuer>&xxe;</saml:Issuer>
+        </saml:Assertion>
+      </samlp:Response>
+      """
+      |> Base.encode64()
+
+    conn =
+      conn
+      |> init_test_session(%{saml_csrf_token: "csrf-token"})
+      |> post(~p"/auth/saml/consume", %{
+        "SAMLResponse" => malicious_response,
+        "RelayState" => "csrf-token"
+      })
+
+    assert redirected_to(conn) == ~p"/users/log-in"
+    assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Authentication failed. Please try again."
+  end
+
   defp maybe_start_config_cache do
     case Process.whereis(ConfigCache) do
       nil -> start_supervised!({ConfigCache, ttl_ms: 60_000})

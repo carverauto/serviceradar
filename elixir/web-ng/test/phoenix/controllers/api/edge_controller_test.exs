@@ -8,6 +8,11 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Edge.OnboardingPackages
 
+  defmodule BrokenEdgeBundleGenerator do
+    def create_tarball(_package, _bundle_pem, _join_token, _opts),
+      do: {:error, %{secret: "edge-bundle-secret"}}
+  end
+
   setup %{conn: conn} do
     user = admin_user_fixture()
     scope = Scope.for_user(user)
@@ -399,6 +404,26 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
         |> post(~p"/api/edge-packages/#{created.package.id}/bundle", %{})
 
       assert json_response(conn, 409)["error"] == "package already_delivered"
+    end
+
+    test "redacts internal bundle generation errors from the client", %{actor: actor} do
+      previous = Application.get_env(:serviceradar_web_ng, :edge_bundle_generator)
+      Application.put_env(:serviceradar_web_ng, :edge_bundle_generator, BrokenEdgeBundleGenerator)
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_web_ng, :edge_bundle_generator, previous)
+      end)
+
+      {:ok, created} =
+        OnboardingPackages.create(%{label: "test-bundle-redaction"}, actor: actor)
+
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", created.download_token)
+        |> post(~p"/api/edge-packages/#{created.package.id}/bundle", %{})
+
+      assert json_response(conn, 500)["error"] == "bundle_generation_failed"
+      refute conn.resp_body =~ "edge-bundle-secret"
     end
 
     test "bundle contains expected files", %{conn: conn, actor: actor} do
