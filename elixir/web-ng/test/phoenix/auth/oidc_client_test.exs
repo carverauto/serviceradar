@@ -8,9 +8,21 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
   Run with: mix test test/phoenix/auth/oidc_client_test.exs
   """
 
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
+  alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OIDCClient
+
+  setup do
+    maybe_start_config_cache()
+    clear_auth_cache()
+
+    on_exit(fn ->
+      clear_auth_cache()
+    end)
+
+    :ok
+  end
 
   describe "extract_user_info/1" do
     test "extracts standard OIDC claims" do
@@ -97,6 +109,33 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
     end
   end
 
+  describe "exchange_code/2" do
+    test "rejects a discovery-provided token endpoint that violates outbound policy" do
+      put_oidc_settings(%{
+        is_enabled: true,
+        mode: :active_sso,
+        provider_type: :oidc,
+        oidc_client_id: "client-id",
+        oidc_client_secret_encrypted: "client-secret",
+        oidc_discovery_url: "https://idp.example.com",
+        oidc_scopes: "openid email profile"
+      })
+
+      ConfigCache.put_cached(
+        "oidc_metadata:https://idp.example.com",
+        %{
+          "issuer" => "https://idp.example.com",
+          "authorization_endpoint" => "https://idp.example.com/authorize",
+          "token_endpoint" => "https://127.0.0.1/token",
+          "jwks_uri" => "https://idp.example.com/jwks"
+        },
+        ttl: to_timeout(minute: 5)
+      )
+
+      assert {:error, :token_exchange_failed} = OIDCClient.exchange_code("auth-code")
+    end
+  end
+
   describe "validate_config/0" do
     test "returns error when OIDC is not configured" do
       result = OIDCClient.validate_config()
@@ -116,5 +155,24 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
 
       assert match?({:error, _}, result)
     end
+  end
+
+  defp maybe_start_config_cache do
+    case Process.whereis(ConfigCache) do
+      nil -> start_supervised!({ConfigCache, ttl_ms: 60_000})
+      _pid -> :ok
+    end
+  end
+
+  defp clear_auth_cache do
+    if :ets.whereis(ConfigCache) != :undefined do
+      :ets.delete(ConfigCache, :auth_settings)
+      ConfigCache.clear_cache()
+    end
+  end
+
+  defp put_oidc_settings(settings) when is_map(settings) do
+    expires_at = System.monotonic_time(:millisecond) + to_timeout(minute: 5)
+    :ets.insert(ConfigCache, {:auth_settings, settings, expires_at})
   end
 end

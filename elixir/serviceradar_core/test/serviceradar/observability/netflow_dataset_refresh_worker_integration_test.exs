@@ -31,6 +31,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
 
     with_worker_env(NetflowProviderDatasetRefreshWorker,
       source_url: url,
+      validate_url: fn _ -> :ok end,
       timeout_ms: 200,
       reschedule_seconds: 60,
       failure_reschedule_seconds: 60
@@ -67,6 +68,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
 
     with_worker_env(NetflowOuiDatasetRefreshWorker,
       source_url: url,
+      validate_url: fn _ -> :ok end,
       timeout_ms: 200,
       reschedule_seconds: 60,
       failure_reschedule_seconds: 60

@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
 
   import Ecto.Query, only: [from: 2]
 
+  alias ServiceRadar.Observability.OutboundFeedPolicy
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -66,12 +67,14 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     source_url = Keyword.get(config, :source_url, @default_source_url)
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
+    validate_url = Keyword.get(config, :validate_url, &OutboundFeedPolicy.validate/1)
+    http_get = Keyword.get(config, :http_get, &default_http_get/2)
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
 
     failure_reschedule_seconds =
       Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
 
-    case fetch_oui_rows(source_url, timeout_ms) do
+    case fetch_oui_rows(source_url, timeout_ms, validate_url: validate_url, http_get: http_get) do
       {:ok, payload, rows, etag} when rows != [] ->
         case promote_snapshot(source_url, payload, rows, etag) do
           :ok ->
@@ -88,7 +91,10 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
         schedule_next(failure_reschedule_seconds)
 
       {:error, reason} ->
-        Logger.warning("IEEE OUI dataset fetch failed", reason: inspect(reason))
+        Logger.warning("IEEE OUI dataset fetch failed",
+          reason: OutboundFeedPolicy.format_reason(reason)
+        )
+
         schedule_next(failure_reschedule_seconds)
     end
   end
@@ -102,14 +108,17 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
     if cluster_enabled, do: cluster_coordinator == true, else: true
   end
 
-  defp fetch_oui_rows(source_url, timeout_ms) do
-    req_opts = [
-      receive_timeout: timeout_ms,
-      retry: false,
-      finch: ServiceRadar.Finch
-    ]
+  defp fetch_oui_rows(source_url, timeout_ms, opts) do
+    validate_url = Keyword.get(opts, :validate_url, &OutboundFeedPolicy.validate/1)
+    http_get = Keyword.get(opts, :http_get, &default_http_get/2)
 
-    case Req.get(source_url, req_opts) do
+    with :ok <- validate_url.(source_url),
+         {:ok, %Req.Response{status: 200, body: body, headers: headers}} <-
+           http_get.(source_url, OutboundFeedPolicy.req_opts(timeout_ms)),
+         true <- is_binary(body) do
+      rows = parse_oui_csv_rows(body)
+      {:ok, body, rows, header(headers, "etag")}
+    else
       {:ok, %Req.Response{status: 200, body: body, headers: headers}} when is_binary(body) ->
         rows = parse_oui_csv_rows(body)
         {:ok, body, rows, header(headers, "etag")}
@@ -124,6 +133,8 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
     e ->
       {:error, e}
   end
+
+  defp default_http_get(url, opts), do: Req.get(url, opts)
 
   defp parse_oui_csv_rows(body) when is_binary(body) do
     now = DateTime.truncate(DateTime.utc_now(), :second)

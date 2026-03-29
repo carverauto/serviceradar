@@ -69,18 +69,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
         redirect_uri: opts[:redirect_uri] || config.redirect_uri
       }
 
-      case Req.post(metadata["token_endpoint"], form: body) do
-        {:ok, %{status: 200, body: tokens}} ->
-          {:ok, tokens}
-
-        {:ok, %{status: status, body: body}} ->
-          Logger.error("OIDC token exchange failed: status=#{status}, body=#{inspect(body)}")
-          {:error, :token_exchange_failed}
-
-        {:error, reason} ->
-          Logger.error("OIDC token exchange error: #{inspect(reason)}")
-          {:error, :token_exchange_failed}
-      end
+      exchange_tokens(metadata["token_endpoint"], body)
     end
   end
 
@@ -249,6 +238,39 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
             Logger.error("JWKS fetch error: #{inspect(reason)}")
             {:error, :jwks_fetch_failed}
         end
+    end
+  end
+
+  defp exchange_tokens(token_endpoint, body) do
+    req_opts = Keyword.put(OutboundURLPolicy.req_opts(), :form, body)
+
+    with {:ok, _uri} <- OutboundURLPolicy.validate(token_endpoint),
+         {:ok, response} <- Req.post(token_endpoint, req_opts) do
+      case response do
+        %{status: 200, body: tokens} ->
+          {:ok, tokens}
+
+        %{status: status, body: response_body} ->
+          Logger.error("OIDC token exchange failed: status=#{status}, body=#{inspect(response_body)}")
+
+          {:error, :token_exchange_failed}
+      end
+    else
+      {:error, :disallowed_scheme} ->
+        {:error, :token_exchange_failed}
+
+      {:error, :disallowed_host} ->
+        {:error, :token_exchange_failed}
+
+      {:error, :invalid_url} ->
+        {:error, :token_exchange_failed}
+
+      {:error, :dns_resolution_failed} ->
+        {:error, :token_exchange_failed}
+
+      {:error, reason} ->
+        Logger.error("OIDC token exchange error: #{inspect(reason)}")
+        {:error, :token_exchange_failed}
     end
   end
 
