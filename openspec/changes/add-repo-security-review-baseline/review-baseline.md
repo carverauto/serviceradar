@@ -1,7 +1,7 @@
 # Repository Security Review Baseline
 
 ## Status
-- Review artifact version: `2026-03-29-rust-edge-onboarding-pass-1`
+- Review artifact version: `2026-03-29-agent-pass-1`
 - Proposal: `add-repo-security-review-baseline`
 - Review mode: primary-scope first, trust-boundary driven
 - Canonical disposition rule:
@@ -30,13 +30,13 @@
 | `elixir/serviceradar_core/lib` | Primary | reviewed | Release artifact delivery, onboarding, identity/accounting, edge bundle/script generation reviewed and mapped. |
 | `elixir/serviceradar_agent_gateway/lib` | Primary | reviewed | Release artifact authorization, gateway startup TLS, cert issuance, and camera relay ownership paths reviewed and mapped to a dedicated hardening change. |
 | `elixir/serviceradar_core_elx/lib` | Primary | partial | Camera ingress transport/auth and analysis-worker outbound HTTP dispatch paths reviewed. New core-elx-specific findings recorded; deeper pass still pending. |
-| `go/pkg/agent` | Primary | partial | Plugin/runtime download flow reviewed; full package audit still pending. |
+| `go/pkg/agent` | Primary | reviewed | Release-update trust boundaries, plugin/runtime network surfaces, control stream, and sync-runtime outbound paths reviewed. Cross-origin release redirect trust gap recorded below. |
 | `go/pkg/edgeonboarding` | Primary | reviewed | Signed tokens, HTTPS enforcement, env override handling, collector onboarding reviewed and mapped. |
 | `go/pkg/grpc` | Primary | reviewed | Security provider defaults, SPIFFE identity binding, and insecure transport fallback reviewed. New gRPC package findings recorded. |
 | `go/pkg/config/bootstrap` | Primary | reviewed | Core bootstrap-to-core template registration path reviewed; insecure transport fallback finding recorded and mapped to a dedicated hardening change. |
 | `rust/edge-onboarding` | Primary | reviewed | Rust onboarding token parsing and package download transport reviewed; fail-open token/transport findings recorded and mapped to a dedicated hardening change. |
-| `rust/config-bootstrap` | Primary | not-started | No dedicated review pass recorded yet. |
-| `helm/serviceradar` | Primary | partial | Network policy and gateway exposure reviewed; full deployment-exposure pass still pending. |
+| `rust/config-bootstrap` | Primary | reviewed | File-only config loader reviewed. No network, token, transport, or shell trust-boundary issues identified in the current implementation. |
+| `helm/serviceradar` | Primary | reviewed | Gateway exposure reviewed as intentional. Shared onboarding-key and cluster-cookie defaults are fixed. Remaining Helm/SPIRE deployment-surface findings are recorded below. |
 
 ### Secondary Scope
 
@@ -98,6 +98,9 @@ Disposition values used in this artifact:
 | `SR-016` | High | `go/pkg/grpc` | The shared Go gRPC package still fails open to insecure transport when security config is absent and allows overly-broad SPIFFE identity authorization when server identity is omitted. | `covered-by-change: harden-go-grpc-security-defaults-and-spiffe-identity-binding` |
 | `SR-017` | High | `go/pkg/config/bootstrap` | Bootstrap template registration still falls back to plaintext gRPC when `CORE_SEC_MODE` is empty or `none`, allowing fail-open core transport during bootstrap/config registration. | `covered-by-change: harden-bootstrap-core-transport-defaults` |
 | `SR-018` | High | `rust/edge-onboarding` | Rust edge onboarding still accepts legacy/unsigned token forms, permits host override to replace the token API URL, and defaults bare hosts to plaintext HTTP for package download. | `covered-by-change: harden-rust-edge-onboarding-token-and-transport-trust` |
+| `SR-019` | High | `helm/serviceradar` | Helm defaults still ship a fixed onboarding signing key and a fixed Erlang cluster cookie, creating shared-secret reuse across installs unless operators override them manually. | `covered-by-change: harden-helm-generated-secret-defaults` |
+| `SR-020` | High | `helm/serviceradar` | The Helm chart exposes the SPIRE server via a `LoadBalancer` by default and disables kubelet verification in the SPIRE agent workload attestor, weakening the identity plane when SPIRE mode is enabled. | `covered-by-change: harden-helm-spire-exposure-and-attestation-defaults` |
+| `SR-021` | High | `go/pkg/agent` | Agent self-update follows cross-origin HTTPS redirects, allowing authenticated or signed artifact downloads to leave the original trust boundary. | `covered-by-change: harden-agent-release-download-redirect-trust` |
 
 ### Finding Details
 
@@ -292,6 +295,49 @@ Disposition values used in this artifact:
   - require explicit `https://` core URLs for package download and reject plaintext or scheme-less bootstrap endpoints
 - Disposition: `covered-by-change: harden-rust-edge-onboarding-token-and-transport-trust`
 
+#### `SR-019` Helm shared-secret defaults for onboarding and cluster membership
+- Severity: High
+- Exploitability / Preconditions: deployment uses the chart defaults or does not explicitly override generated secret inputs before install/upgrade.
+- Affected Paths:
+  - `helm/serviceradar`
+- Impact:
+  - the chart seeds `secrets.edgeOnboardingKey` in [values.yaml](/home/mfreeman/serviceradar/helm/serviceradar/values.yaml) with a fixed base64 value, and the secret-generator job consumes that override in [secret-generator-job.yaml](/home/mfreeman/serviceradar/helm/serviceradar/templates/secret-generator-job.yaml), so distinct installs can share the same onboarding signing key by default
+  - the chart also defaults the internal ERTS cluster cookie to `serviceradar_dev_cookie` in [values.yaml](/home/mfreeman/serviceradar/helm/serviceradar/values.yaml), and injects it into core, web-ng, and agent-gateway in [core.yaml](/home/mfreeman/serviceradar/helm/serviceradar/templates/core.yaml), [web.yaml](/home/mfreeman/serviceradar/helm/serviceradar/templates/web.yaml), and [agent-gateway.yaml](/home/mfreeman/serviceradar/helm/serviceradar/templates/agent-gateway.yaml), creating predictable shared cluster credentials across installs
+- Remediation Guidance:
+  - stop shipping a fixed onboarding signing key in chart defaults and generate a unique value per install when no explicit override is provided
+  - generate a unique cluster cookie per install instead of templating a static development cookie into runtime pods
+  - document the rotation/override behavior so operators can supply their own values safely when needed
+- Disposition: `covered-by-change: harden-helm-generated-secret-defaults`
+
+#### `SR-020` Helm SPIRE exposure and attestation defaults
+- Severity: High
+- Exploitability / Preconditions: deployment enables `spire.enabled=true` and uses chart defaults or does not explicitly harden the SPIRE service/agent settings.
+- Affected Paths:
+  - `helm/serviceradar`
+- Impact:
+  - the chart publishes the SPIRE server as a `LoadBalancer` by default in [values.yaml](/home/mfreeman/serviceradar/helm/serviceradar/values.yaml), and [spire-server.yaml](/home/mfreeman/serviceradar/helm/serviceradar/templates/spire-server.yaml) exposes both the SPIRE gRPC server on `8081` and the health endpoint on `8080` through that service, expanding a sensitive identity-plane surface to external networks by default
+  - the SPIRE agent config in [spire-agent.yaml](/home/mfreeman/serviceradar/helm/serviceradar/templates/spire-agent.yaml) sets `skip_kubelet_verification = true` in the Kubernetes workload attestor, weakening workload attestation assurances if the local kubelet path is spoofed or intercepted
+- Remediation Guidance:
+  - make the SPIRE server service internal-only by default, and require explicit operator opt-in before publishing it externally
+  - avoid exposing the SPIRE health port outside the cluster unless the operator intentionally requests it
+  - remove the `skip_kubelet_verification = true` default or gate it behind an explicit escape hatch that is clearly documented as insecure
+- Disposition: `covered-by-change: harden-helm-spire-exposure-and-attestation-defaults`
+
+#### `SR-021` Agent release downloads leave the authenticated or signed origin via redirect
+- Severity: High
+- Exploitability / Preconditions: attacker can cause an initial signed or gateway-authenticated release artifact URL to return an HTTPS redirect, or rely on repository/object-storage redirect infrastructure to move the actual download to a different origin.
+- Affected Paths:
+  - `go/pkg/agent`
+- Impact:
+  - the self-update path in [release_update.go](/home/mfreeman/serviceradar/go/pkg/agent/release_update.go) only checks that redirect hops stay on HTTPS, so a signed direct artifact URL or a gateway-authenticated artifact transport request can be redirected to a different host
+  - for gateway-served artifact delivery, this breaks the intended identity-bound download contract by allowing the agent to leave the gateway origin after the first authenticated request
+  - for signed direct artifact URLs, this weakens provenance by treating the manifest-signed origin as advisory rather than authoritative
+- Remediation Guidance:
+  - bind release downloads to the initial origin and reject redirects that change scheme, host, or effective port
+  - keep redirect allowance limited to same-origin path changes only, so signed URLs and gateway-authenticated delivery remain origin-bound
+  - update future agent release-management contracts to stop depending on cross-origin repository redirects
+- Disposition: `covered-by-change: harden-agent-release-download-redirect-trust`
+
 ## Accepted Risk Register
 
 No accepted-risk entries have been recorded yet in this baseline artifact.
@@ -300,15 +346,9 @@ No accepted-risk entries have been recorded yet in this baseline artifact.
 
 The following primary-scope passes still need dedicated review evidence before the primary audit can be considered complete:
 - `elixir/serviceradar_core_elx/lib` deeper pass beyond camera ingress / analysis-worker HTTP dispatch
-- `rust/edge-onboarding`
-- `rust/config-bootstrap`
-- `helm/serviceradar` full deployment-exposure pass
-- `go/pkg/agent` full runtime/package audit beyond plugin and download-path hardening
 
 ## Next Pass Queue
 
 Recommended next review order:
 1. `elixir/serviceradar_core_elx/lib` deeper pass
-2. `rust/config-bootstrap`
-3. `helm/serviceradar`
-4. `go/pkg/agent`
+2. `go/pkg/datasvc`
