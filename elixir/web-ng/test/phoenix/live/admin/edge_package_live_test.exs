@@ -1,12 +1,20 @@
 defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
-  use ServiceRadarWebNGWeb.ConnCase, async: true
+  use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, actor_for_user: 1]
 
   alias ServiceRadarWebNG.Edge.OnboardingPackages
 
+  @private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+  @public_key "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
+
   setup %{conn: conn} do
+    previous_private_key = Application.get_env(:serviceradar_web_ng, :onboarding_token_private_key)
+    previous_public_key = Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key)
+    Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, @private_key)
+    Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, @public_key)
+
     user = admin_user_fixture()
     actor = actor_for_user(user)
     gateway_id = "test-gateway-#{System.unique_integer([:positive])}"
@@ -23,6 +31,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
 
     on_exit(fn ->
       ServiceRadar.GatewayRegistry.unregister_gateway(gateway_id)
+      Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, previous_private_key)
+      Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, previous_public_key)
     end)
 
     %{conn: log_in_user(conn, user), user: user, actor: actor, gateway_id: gateway_id}
@@ -134,6 +144,25 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
         )
 
       assert result.package.component_id == "gateway-production-gateway-01"
+    end
+
+    test "agent success modal uses explicit configured core-url in enroll command", %{
+      conn: conn
+    } do
+      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
+
+      lv
+      |> form("#create_package_form",
+        form: %{
+          label: "test-agent-enroll-command"
+        }
+      )
+      |> render_submit()
+
+      html = render(lv)
+
+      assert html =~ "serviceradar-cli enroll --core-url http://localhost:4002 --token edgepkg-v2:"
+      refute html =~ "/usr/local/bin/serviceradar-cli enroll --token edgepkg-v2:"
     end
   end
 

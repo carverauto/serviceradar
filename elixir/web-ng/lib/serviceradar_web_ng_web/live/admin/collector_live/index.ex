@@ -130,7 +130,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       edge_site_id = params["edge_site_id"]
       edge_site_id = if edge_site_id == "", do: nil, else: edge_site_id
 
-      base_url = request_base_url(socket)
+      base_url = ServiceRadarWebNGWeb.Endpoint.url()
 
       case create_package(actor, collector_type, site, hostname, edge_site_id, base_url) do
         {:ok, package, download_token} ->
@@ -963,26 +963,6 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       {:error, error} -> {:error, error}
     end
   end
-
-  defp request_base_url(socket) do
-    case Phoenix.LiveView.get_connect_info(socket, :uri) do
-      %URI{} = uri ->
-        uri
-        |> Map.put(:path, nil)
-        |> Map.put(:query, nil)
-        |> Map.put(:fragment, nil)
-        |> Map.put(:userinfo, nil)
-        |> normalize_port()
-        |> URI.to_string()
-
-      _ ->
-        ServiceRadarWebNGWeb.Endpoint.url()
-    end
-  end
-
-  defp normalize_port(%URI{scheme: "http", port: 80} = uri), do: %{uri | port: nil}
-  defp normalize_port(%URI{scheme: "https", port: 443} = uri), do: %{uri | port: nil}
-  defp normalize_port(uri), do: uri
 
   defp created_install_command(package, download_token, base_url) do
     CollectorBundleGenerator.update_command(package, download_token, base_url: base_url)

@@ -79,7 +79,7 @@ Onboarding propagation:
 
 - `web-ng` reads `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` from its runtime environment when generating agent onboarding bundles.
 - Agent-capable onboarding bundles include `config/agent-env-overrides.env` only when that key is configured.
-- `serviceradar-cli enroll --token ...` merges that bundle override into `/etc/serviceradar/kv-overrides.env` without removing unrelated override entries already present on the host.
+- `serviceradar-cli enroll --core-url ... --token ...` merges that bundle override into `/etc/serviceradar/kv-overrides.env` without removing unrelated override entries already present on the host.
 
 ## Rollout Guardrails
 

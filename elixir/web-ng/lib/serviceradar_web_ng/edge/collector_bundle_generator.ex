@@ -716,7 +716,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     Prefer the enrollment command from the UI (token required):
 
     ```bash
-    /usr/local/bin/serviceradar-cli enroll --token <token>
+    /usr/local/bin/serviceradar-cli enroll --core-url <your-serviceradar-url> --token <token>
     ```
 
     If you already downloaded this bundle, run the update script:

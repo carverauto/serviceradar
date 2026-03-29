@@ -48,7 +48,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
       assert html =~ "Step 1: Download and deploy the bundle"
       assert html =~ "Step 2: Run the bundle command"
       assert html =~ "serviceradar-runtime-certs"
-      assert html =~ "/api/collectors/"
+      assert html =~ "http://localhost:4002/api/collectors/"
       assert html =~ "./deploy.sh"
 
       refute html =~ "sudo apt install serviceradar-falcosidekick"

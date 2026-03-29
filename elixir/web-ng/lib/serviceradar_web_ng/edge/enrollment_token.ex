@@ -41,8 +41,10 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
       |> DateTime.to_unix()
 
     payload =
-      %{"u" => normalize_string(base_url), "p" => normalize_string(package_id), "t" => secret, "e" => expiry}
-      |> maybe_put_config_filename(config_filename)
+      maybe_put_config_filename(
+        %{"u" => normalize_string(base_url), "p" => normalize_string(package_id), "t" => secret, "e" => expiry},
+        config_filename
+      )
 
     with :ok <- validate_payload(payload),
          {:ok, json} <- Jason.encode(payload),
@@ -108,11 +110,11 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   Generates a CLI command for the given token.
   """
   @spec cli_command(String.t()) :: String.t()
-  def cli_command(token), do: cli_command(token, "collector")
+  def cli_command(token), do: cli_command(token, "<your-serviceradar-url>")
 
   @spec cli_command(String.t(), String.t()) :: String.t()
-  def cli_command(token, _service_name) do
-    "/usr/local/bin/serviceradar-cli enroll --token #{token}"
+  def cli_command(token, core_url) do
+    "/usr/local/bin/serviceradar-cli enroll --core-url #{core_url} --token #{token}"
   end
 
   @doc """
@@ -153,13 +155,15 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
          {:ok, expiry_unix} <- Map.fetch(payload, "e"),
          {:ok, expires_at} <- DateTime.from_unix(expiry_unix) do
       decoded =
-        %{
-          base_url: normalize_string(base_url),
-          package_id: normalize_string(package_id),
-          secret: normalize_string(secret),
-          expires_at: expires_at
-        }
-        |> maybe_put_decoded_config_filename(Map.get(payload, "f"))
+        maybe_put_decoded_config_filename(
+          %{
+            base_url: normalize_string(base_url),
+            package_id: normalize_string(package_id),
+            secret: normalize_string(secret),
+            expires_at: expires_at
+          },
+          Map.get(payload, "f")
+        )
 
       case validate_decoded_payload(decoded) do
         :ok -> {:ok, decoded}
