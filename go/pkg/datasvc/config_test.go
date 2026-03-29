@@ -175,3 +175,67 @@ func TestConfigValidateRequiresNATSTLSFiles(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, errKeyFileRequired)
 }
+
+func TestConfigValidateSetsDefaultObjectLimits(t *testing.T) {
+	cfg := &Config{
+		ListenAddr:    "127.0.0.1:0",
+		NATSURL:       "nats://127.0.0.1:4222",
+		NATSCredsFile: "/etc/serviceradar/creds/platform.creds",
+		Security: &models.SecurityConfig{
+			Mode: models.SecurityMode("mtls"),
+			TLS: models.TLSConfig{
+				CertFile: "cert.pem",
+				KeyFile:  "key.pem",
+				CAFile:   "ca.pem",
+			},
+		},
+		NATSSecurity: &models.SecurityConfig{
+			Mode: models.SecurityMode("mtls"),
+			TLS: models.TLSConfig{
+				CertFile: "cert.pem",
+				KeyFile:  "key.pem",
+				CAFile:   "ca.pem",
+			},
+		},
+	}
+
+	require.NoError(t, cfg.Validate())
+	require.EqualValues(t, defaultObjectMaxBytes, cfg.ObjectMaxBytes)
+	require.EqualValues(t, defaultObjectStoreBytes, cfg.ObjectStoreBytes)
+}
+
+func TestConfigValidateRejectsNegativeObjectLimits(t *testing.T) {
+	cfg := &Config{
+		ListenAddr:       "127.0.0.1:0",
+		NATSURL:          "nats://127.0.0.1:4222",
+		NATSCredsFile:    "/etc/serviceradar/creds/platform.creds",
+		ObjectMaxBytes:   -1,
+		ObjectStoreBytes: -1,
+		Security: &models.SecurityConfig{
+			Mode: models.SecurityMode("mtls"),
+			TLS: models.TLSConfig{
+				CertFile: "cert.pem",
+				KeyFile:  "key.pem",
+				CAFile:   "ca.pem",
+			},
+		},
+		NATSSecurity: &models.SecurityConfig{
+			Mode: models.SecurityMode("mtls"),
+			TLS: models.TLSConfig{
+				CertFile: "cert.pem",
+				KeyFile:  "key.pem",
+				CAFile:   "ca.pem",
+			},
+		},
+	}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.ErrorIs(t, err, errObjectMaxBytesNegative)
+
+	cfg.ObjectMaxBytes = 1
+
+	err = cfg.Validate()
+	require.Error(t, err)
+	require.ErrorIs(t, err, errObjectStoreBytesNegative)
+}

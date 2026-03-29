@@ -22,18 +22,22 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"io"
 	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // dummyAuthInfo is a test implementation of credentials.AuthInfo.
@@ -65,6 +69,38 @@ func setupServer(t *testing.T) (*Server, *MockKVStore) {
 
 	return &Server{config: &config, store: mockStore}, mockStore
 }
+
+type uploadObjectStream struct {
+	grpc.ServerStream
+	ctx    context.Context
+	chunks []*proto.ObjectUploadChunk
+	index  int
+	resp   *proto.UploadObjectResponse
+}
+
+func (s *uploadObjectStream) Context() context.Context { return s.ctx }
+
+func (s *uploadObjectStream) Recv() (*proto.ObjectUploadChunk, error) {
+	if s.index >= len(s.chunks) {
+		return nil, io.EOF
+	}
+
+	chunk := s.chunks[s.index]
+	s.index++
+
+	return chunk, nil
+}
+
+func (s *uploadObjectStream) SendAndClose(resp *proto.UploadObjectResponse) error {
+	s.resp = resp
+	return nil
+}
+
+func (s *uploadObjectStream) SetHeader(metadata.MD) error  { return nil }
+func (s *uploadObjectStream) SendHeader(metadata.MD) error { return nil }
+func (s *uploadObjectStream) SetTrailer(metadata.MD)       {}
+func (s *uploadObjectStream) SendMsg(any) error            { return nil }
+func (s *uploadObjectStream) RecvMsg(any) error            { return nil }
 
 func TestExtractIdentity(t *testing.T) {
 	t.Run("NoPeerInfo", func(t *testing.T) {
@@ -121,4 +157,36 @@ func TestExtractIdentity(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, uri.String(), identity)
 	})
+}
+
+func TestUploadObjectRejectsOversizeStream(t *testing.T) {
+	s, mockStore := setupServer(t)
+	s.config.ObjectMaxBytes = 4
+
+	mockStore.EXPECT().
+		PutObject(gomock.Any(), "objects/test.bin", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, reader io.Reader, _ ObjectMetadata) (*ObjectInfo, error) {
+			_, err := io.ReadAll(reader)
+			require.ErrorIs(t, err, errObjectTooLarge)
+			return nil, err
+		})
+
+	stream := &uploadObjectStream{
+		ctx: context.Background(),
+		chunks: []*proto.ObjectUploadChunk{
+			{
+				Metadata: &proto.ObjectMetadata{Key: "objects/test.bin"},
+				Data:     []byte("123"),
+			},
+			{
+				Data:    []byte("45"),
+				IsFinal: true,
+			},
+		},
+	}
+
+	err := s.UploadObject(stream)
+	require.Error(t, err)
+	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+	require.Nil(t, stream.resp)
 }

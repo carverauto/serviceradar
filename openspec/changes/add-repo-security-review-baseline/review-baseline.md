@@ -102,7 +102,7 @@ Disposition values used in this artifact:
 | `SR-020` | High | `helm/serviceradar` | The Helm chart exposes the SPIRE server via a `LoadBalancer` by default and disables kubelet verification in the SPIRE agent workload attestor, weakening the identity plane when SPIRE mode is enabled. | `covered-by-change: harden-helm-spire-exposure-and-attestation-defaults` |
 | `SR-021` | High | `go/pkg/agent` | Agent self-update follows cross-origin HTTPS redirects, allowing authenticated or signed artifact downloads to leave the original trust boundary. | `covered-by-change: harden-agent-release-download-redirect-trust` |
 | `SR-022` | Medium | `elixir/serviceradar_core_elx/lib` | Core-ELX boombox capture helpers still write relay-derived media samples to predictable temp paths under the global temp directory. | `covered-by-change: harden-core-elx-boombox-tempfile-handling` |
-| `SR-023` | Medium | `go/pkg/datasvc` | Datasvc object uploads are not bounded end-to-end and the JetStream object bucket is created without a storage cap, allowing authenticated writers to exhaust backing storage. | `new-change-required: harden-datasvc-object-upload-bounds` |
+| `SR-023` | Medium | `go/pkg/datasvc` | Datasvc object uploads are not bounded end-to-end and the JetStream object bucket is created without a storage cap, allowing authenticated writers to exhaust backing storage. | `covered-by-change: harden-datasvc-object-upload-bounds` |
 
 ### Finding Details
 
@@ -252,7 +252,7 @@ Disposition values used in this artifact:
   - enforce a cumulative per-object upload limit in the gRPC streaming path and fail the stream closed once the configured ceiling is exceeded
   - apply an explicit `MaxBytes` cap to the JetStream object store, either by reusing or splitting the existing bucket-cap configuration
   - add focused tests for oversize stream rejection and bounded object-store initialization
-- Disposition: `new-change-required: harden-datasvc-object-upload-bounds`
+- Disposition: `covered-by-change: harden-datasvc-object-upload-bounds`
 
 #### `SR-015` Core-ELX media ingress trust-boundary and analysis-worker SSRF gap
 - Severity: High
