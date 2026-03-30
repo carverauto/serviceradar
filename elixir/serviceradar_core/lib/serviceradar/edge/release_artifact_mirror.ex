@@ -134,17 +134,13 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     end
   end
 
-  defp manifest_artifacts(manifest) do
-    if is_map(manifest) do
-      artifacts = manifest |> map_get_any(["artifacts", :artifacts], []) |> List.wrap()
+  defp manifest_artifacts(manifest) when is_map(manifest) do
+    artifacts = manifest |> map_get_any(["artifacts", :artifacts], []) |> List.wrap()
 
-      if artifacts == [] do
-        {:error, "release manifest must include at least one artifact"}
-      else
-        {:ok, artifacts}
-      end
+    if artifacts == [] do
+      {:error, "release manifest must include at least one artifact"}
     else
-      {:error, "release manifest must be a map"}
+      {:ok, artifacts}
     end
   end
 
