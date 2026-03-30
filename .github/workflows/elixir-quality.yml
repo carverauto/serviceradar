@@ -47,48 +47,56 @@ jobs:
             phoenix: false
             credo: true
             dialyzer: true
+            dialyzer_force_check: false
             warnings_as_errors: true
           - name: datasvc
             project: elixir/datasvc
             phoenix: false
             credo: true
             dialyzer: true
+            dialyzer_force_check: false
             warnings_as_errors: true
           - name: elixir_uuid
             project: elixir/elixir_uuid
             phoenix: false
             credo: true
             dialyzer: true
+            dialyzer_force_check: false
             warnings_as_errors: true
           - name: serviceradar_agent_gateway
             project: elixir/serviceradar_agent_gateway
             phoenix: false
             credo: true
             dialyzer: true
+            dialyzer_force_check: true
             warnings_as_errors: true
           - name: serviceradar_core
             project: elixir/serviceradar_core
             phoenix: false
             credo: true
             dialyzer: true
+            dialyzer_force_check: true
             warnings_as_errors: true
           - name: serviceradar_core_elx
             project: elixir/serviceradar_core_elx
             phoenix: false
             credo: true
             dialyzer: true
+            dialyzer_force_check: true
             warnings_as_errors: true
           - name: serviceradar_srql
             project: elixir/serviceradar_srql
             phoenix: false
             credo: true
             dialyzer: true
+            dialyzer_force_check: false
             warnings_as_errors: true
           - name: web-ng
             project: elixir/web-ng
             phoenix: true
             credo: true
             dialyzer: true
+            dialyzer_force_check: true
             warnings_as_errors: true
 
     steps:
@@ -126,5 +134,8 @@ jobs:
           fi
           if [[ "${{ matrix.dialyzer }}" != "true" ]]; then
             args+=(--skip-dialyzer)
+          fi
+          if [[ "${{ matrix.dialyzer_force_check }}" == "true" ]]; then
+            args+=(--force-check-dialyzer)
           fi
           ./scripts/elixir_quality.sh "${args[@]}"

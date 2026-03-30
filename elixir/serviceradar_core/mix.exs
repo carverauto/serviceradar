@@ -15,7 +15,11 @@ defmodule ServiceRadarCore.MixProject do
       consolidate_protocols: Mix.env() != :dev,
       deps: deps(),
       aliases: aliases(),
-      dialyzer: [ignore_warnings: ".dialyzer_ignore.exs", plt_add_apps: [:mix]],
+      dialyzer: [
+        ignore_warnings: ".dialyzer_ignore.exs",
+        plt_add_apps: [:mix],
+        plt_add_deps: :apps_direct
+      ],
 
       # Docs
       name: "ServiceRadar Core",

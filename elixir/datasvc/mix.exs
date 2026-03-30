@@ -8,6 +8,7 @@ defmodule Datasvc.MixProject do
       elixir: "~> 1.15",
       compilers: boundary_compilers() ++ Mix.compilers(),
       start_permanent: Mix.env() == :prod,
+      dialyzer: [plt_add_deps: :apps_direct],
       deps: deps(),
       description: "Elixir client for ServiceRadar datasvc gRPC service",
       package: package()

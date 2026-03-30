@@ -11,6 +11,7 @@ defmodule Connection.Mixfile do
       compilers: boundary_compilers() ++ Mix.compilers(),
       build_embedded: Mix.env() == :prod,
       start_permanent: Mix.env() == :prod,
+      dialyzer: [plt_add_deps: :apps_direct],
       description: description(),
       package: package(),
       docs: docs(),

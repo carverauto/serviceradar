@@ -240,6 +240,15 @@ lint-elixir: ## Run the repository-standard Elixir analyzer contract across elix
 		./scripts/elixir_quality.sh --project "elixir/$${project}" $$args; \
 	done
 
+.PHONY: format-elixir
+format-elixir: ## Run mix format across the Elixir projects under elixir/*
+	@set -eu; \
+		projects="connection datasvc elixir_uuid serviceradar_agent_gateway serviceradar_core serviceradar_core_elx serviceradar_srql web-ng"; \
+	for project in $$projects; do \
+		echo "$(COLOR_BOLD)Formatting Elixir project ($${project})$(COLOR_RESET)"; \
+		(cd "elixir/$${project}" && mix format); \
+	done
+
 .PHONY: lint-go
 lint-go: get-golangcilint ## Run Go linting checks
 	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
