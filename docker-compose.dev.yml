@@ -32,7 +32,6 @@ services:
       # Feature flags
       - SERVICERADAR_CORE_REPO_ENABLED=true
       - SERVICERADAR_CORE_RUN_MIGRATIONS=true
-      - CORE_ELX_MEDIA_GRPC_ENABLED=false
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
     depends_on:

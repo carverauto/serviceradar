@@ -102,8 +102,6 @@ spec:
           value: "true"
         - name: SERVICERADAR_MIGRATION_ONLY
           value: "true"
-        - name: CORE_ELX_MEDIA_GRPC_ENABLED
-          value: "false"
         - name: SERVICERADAR_MIGRATIONS_MARKER_PATH
           value: {{ $migrationMarkerPath | quote }}
         - name: CNPG_HOST
@@ -221,8 +219,6 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cluster-cookie
-        - name: CORE_ELX_MEDIA_GRPC_ENABLED
-          value: "false"
         - name: EDGE_ONBOARDING_ENCRYPTION_KEY
           valueFrom:
             secretKeyRef:

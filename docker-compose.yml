@@ -178,7 +178,6 @@ services:
       - SERVICERADAR_CORE_OBAN_ENABLED=false
       - SERVICERADAR_CORE_RUN_MIGRATIONS=true
       - SERVICERADAR_MIGRATION_ONLY=true
-      - CORE_ELX_MEDIA_GRPC_ENABLED=false
       - SERVICERADAR_MIGRATIONS_MARKER_PATH=/var/lib/serviceradar/migrations/complete
       - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
       - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
@@ -228,7 +227,6 @@ services:
       - RELEASE_COOKIE_FILE=/etc/serviceradar/admin/release-cookie
       - RELEASE_NODE=serviceradar_core@core-elx
       - RELEASE_DISTRIBUTION=sname
-      - CORE_ELX_MEDIA_GRPC_ENABLED=false
       - SERVICERADAR_CORE_OBAN_ENABLED=${SERVICERADAR_CORE_OBAN_ENABLED:-true}
       - SERVICERADAR_CORE_REPO_ENABLED=${SERVICERADAR_CORE_REPO_ENABLED:-true}
       - SERVICERADAR_CORE_RUN_MIGRATIONS=${SERVICERADAR_CORE_RUN_MIGRATIONS:-false}
