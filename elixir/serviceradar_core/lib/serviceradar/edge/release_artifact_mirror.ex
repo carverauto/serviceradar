@@ -297,9 +297,12 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
   defp default_upload_object(metadata, data, opts) do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
 
-    with {:ok, channel} <- GenServer.call(ServiceRadar.DataService.Client, :get_channel, timeout) do
-      SyncClient.upload_object(channel, metadata, data, timeout: timeout)
-    end
+    ServiceRadar.DataService.Client.with_channel(
+      fn channel ->
+        SyncClient.upload_object(channel, metadata, data, timeout: timeout)
+      end,
+      timeout: timeout
+    )
   end
 
   defp normalize_manifest(manifest), do: normalize_map(manifest)
