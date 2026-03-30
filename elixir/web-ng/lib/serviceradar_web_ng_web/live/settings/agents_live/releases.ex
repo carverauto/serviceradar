@@ -1445,14 +1445,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   end
 
   defp release_supports_agent?(release, %Agent{metadata: metadata}) when is_map(metadata) do
+    agent_os = metadata_field(metadata, [:os, "os"])
+    agent_arch = metadata_field(metadata, [:arch, "arch"])
+
     release
     |> artifact_list()
     |> Enum.any?(fn artifact ->
       artifact_matches_platform?(
         artifact_field(artifact, "os"),
         artifact_field(artifact, "arch"),
-        Map.get(metadata, "os"),
-        Map.get(metadata, "arch")
+        agent_os,
+        agent_arch
       )
     end)
   end
@@ -1667,10 +1670,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp platform_label_from_error(_error), do: nil
 
   defp agent_platform_label(%Agent{metadata: metadata}) when is_map(metadata) do
-    platform_label(Map.get(metadata, "os"), Map.get(metadata, "arch"))
+    platform_label(metadata_field(metadata, [:os, "os"]), metadata_field(metadata, [:arch, "arch"]))
   end
 
   defp agent_platform_label(_agent), do: nil
+
+  defp metadata_field(metadata, keys) when is_map(metadata) do
+    Enum.find_value(List.wrap(keys), fn key ->
+      case Map.get(metadata, key) do
+        nil -> nil
+        value -> value
+      end
+    end)
+  end
+
+  defp metadata_field(_metadata, _keys), do: nil
 
   defp platform_label(os, arch) do
     case {presence(os), presence(arch)} do

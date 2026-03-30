@@ -356,6 +356,49 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert has_element?(lv, "#create-rollout-form button[disabled]")
   end
 
+  test "treats atom-key agent metadata as compatible in rollout preview", %{conn: conn, scope: scope} do
+    version = "2.2.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+
+    Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{
+        uid: "agent-preview-atom-#{System.unique_integer([:positive])}",
+        name: "Atom Metadata Agent",
+        gateway_id: gateway.id,
+        version: "1.0.0",
+        type_id: 4,
+        type: "Performance",
+        capabilities: ["agent"],
+        metadata: %{os: "linux", arch: "amd64"}
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
+
+    assert html =~ "Compatibility Preview"
+    assert html =~ "1 selected"
+    assert html =~ "1 compatible"
+    refute html =~ "1 unsupported"
+    refute html =~ "unknown platform"
+    refute has_element?(lv, "#create-rollout-form button[disabled]")
+  end
+
   test "creates a rollout for connected agents from the UI", %{conn: conn, scope: scope} do
     version = "3.0.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
