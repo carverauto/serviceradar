@@ -40,7 +40,7 @@ actions:
     bazel_commands = [
       "build --config=remote //...",
       "test  --config=remote //...",
-      "run  --config=remote --stamp //:push",
+      "run  --config=remote_push --stamp //:push",
     ]
     env = {
       GHCR_USERNAME = "@@GHCR_USERNAME@@",
@@ -64,7 +64,7 @@ steps:
       # Optional override if you are not pushing to ghcr.io
       # GHCR_REGISTRY: "@@GHCR_REGISTRY@@"
     script: |
-      bazel run --config=remote --stamp //:push -- --tag "v${BUILD_TAG}"
+      bazel run --config=remote_push --stamp //:push -- --tag "v${BUILD_TAG}"
 ```
 
 BuildBuddy replaces the `@@SECRET_NAME@@` placeholders with the stored secret values while keeping them out of the Bazel command line history.
@@ -93,7 +93,7 @@ make push_all PUSH_TAG="v$(git describe --tags --always)"
 - `bazel build --config=remote //:images` – builds the canonical publishable image set, including current multi-arch image indexes.
 - `bazel run --stamp //:push` – pushes all images with the default `latest` and `sha-<commit>` tags.
 - `bazel run --stamp //docker/images:core_elx_image_amd64_push -- --tag 1.2.3` – pushes only the core-elx image and adds an extra `1.2.3` tag.
-- `bazel run --config=remote --stamp //:push -- --tag $GIT_COMMIT` – builds using BuildBuddy remote execution, then pushes from the local workflow runner.
+- `bazel run --config=remote_push --stamp //:push -- --tag $GIT_COMMIT` – builds using BuildBuddy remote execution, downloads the OCI artifacts locally, then pushes from the workflow runner.
 
 When credentials are supplied via environment variables the push helper writes an ephemeral Docker config into `$DOCKER_CONFIG`, otherwise it reuses the config created by the bootstrap script (or an existing `docker login`) so no secrets are leaked.
 
