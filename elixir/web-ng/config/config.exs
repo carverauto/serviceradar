@@ -210,7 +210,6 @@ config :serviceradar_web_ng, :session,
   absolute_timeout_seconds: 30 * 24 * 60 * 60
 
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
-config :serviceradar_web_ng, :token_revocation, store_path: "/var/lib/serviceradar/auth/revoked_tokens.dets"
 
 # Ash Framework Configuration
 config :serviceradar_web_ng,

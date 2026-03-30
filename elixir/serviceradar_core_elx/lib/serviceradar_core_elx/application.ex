@@ -50,27 +50,26 @@ defmodule ServiceRadarCoreElx.Application do
     #
     # AshOban scheduler is started when :start_ash_oban_scheduler = true
 
-    children = [
-      ServiceRadarCoreElx.CameraRelay.ViewerRegistry,
-      ServiceRadarCoreElx.CameraRelay.PipelineManager,
-      ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager,
-      ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager,
-      {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.BoomboxSidecarSupervisor},
-      ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager,
-      {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchSupervisor},
-      {Task.Supervisor, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchTaskSupervisor},
-      ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManager,
-      ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager,
-      ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager,
-      ServiceRadarCoreElx.CameraMediaSessionTracker,
-      {Registry, keys: :unique, name: ServiceRadarCoreElx.CameraMediaIngressRegistry},
-      ServiceRadarCoreElx.CameraMediaIngressSupervisor,
-      {GRPC.Server.Supervisor,
-       endpoint: ServiceRadarCoreElx.Endpoint,
-       port: media_grpc_port(),
-       start_server: true,
-       adapter_opts: media_adapter_opts()}
-    ]
+    children =
+      Kernel.++(
+        [
+          ServiceRadarCoreElx.CameraRelay.ViewerRegistry,
+          ServiceRadarCoreElx.CameraRelay.PipelineManager,
+          ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager,
+          ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager,
+          {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.BoomboxSidecarSupervisor},
+          ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager,
+          {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchSupervisor},
+          {Task.Supervisor, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchTaskSupervisor},
+          ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManager,
+          ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager,
+          ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager,
+          ServiceRadarCoreElx.CameraMediaSessionTracker,
+          {Registry, keys: :unique, name: ServiceRadarCoreElx.CameraMediaIngressRegistry},
+          ServiceRadarCoreElx.CameraMediaIngressSupervisor
+        ],
+        media_grpc_children()
+      )
 
     Logger.info("Core-ELX initialized - serviceradar_core handles cluster infrastructure")
 
@@ -91,6 +90,32 @@ defmodule ServiceRadarCoreElx.Application do
     [cred: media_grpc_credential!()]
   end
 
+  defp media_grpc_children do
+    if media_grpc_enabled?() do
+      Logger.info("Core-ELX camera media gRPC server listening on port #{media_grpc_port()}")
+
+      [
+        {GRPC.Server.Supervisor,
+         endpoint: ServiceRadarCoreElx.Endpoint,
+         port: media_grpc_port(),
+         start_server: true,
+         adapter_opts: media_adapter_opts()}
+      ]
+    else
+      Logger.info("Core-ELX camera media gRPC server disabled; using ERTS ingress only")
+      []
+    end
+  end
+
+  @doc false
+  def media_grpc_enabled? do
+    Application.get_env(
+      :serviceradar_core_elx,
+      :core_elx_media_grpc_enabled,
+      System.get_env("CORE_ELX_MEDIA_GRPC_ENABLED", "false") in ~w(true 1 yes)
+    )
+  end
+
   @doc false
   def media_grpc_credential! do
     cert_dir =
@@ -100,8 +125,15 @@ defmodule ServiceRadarCoreElx.Application do
         System.get_env("CORE_ELX_MEDIA_CERT_DIR", "/etc/serviceradar/certs")
       )
 
-    cert_file = Path.join(cert_dir, "core-elx.pem")
-    key_file = Path.join(cert_dir, "core-elx-key.pem")
+    cert_basename =
+      Application.get_env(
+        :serviceradar_core_elx,
+        :core_elx_media_cert_basename,
+        System.get_env("CORE_ELX_MEDIA_CERT_BASENAME", "core")
+      )
+
+    cert_file = Path.join(cert_dir, "#{cert_basename}.pem")
+    key_file = Path.join(cert_dir, "#{cert_basename}-key.pem")
     ca_file = Path.join(cert_dir, "root.pem")
 
     if File.exists?(cert_file) and File.exists?(key_file) and File.exists?(ca_file) do
@@ -115,7 +147,7 @@ defmodule ServiceRadarCoreElx.Application do
 
       GRPC.Credential.new(ssl: ssl_opts)
     else
-      raise "No mTLS certs available for core-elx camera media gRPC server"
+      raise "No mTLS certs available for core-elx camera media gRPC server (expected #{cert_file}, #{key_file}, #{ca_file})"
     end
   end
 end
