@@ -64,19 +64,18 @@ defmodule ServiceRadarWebNG.ClientIP do
 
     chain
     |> Enum.reverse()
-    |> Enum.find_value(fn candidate ->
-      case parse_ip(candidate) do
-        {:ok, ip} ->
-          if NetworkAddressPolicy.ip_in_any_cidr?(ip, trusted_proxy_cidrs) do
-            nil
-          else
-            candidate
-          end
+    |> Enum.find_value(&untrusted_forwarded_ip(&1, trusted_proxy_cidrs))
+  end
 
-        :error ->
-          nil
-      end
-    end)
+  defp untrusted_forwarded_ip(candidate, trusted_proxy_cidrs) do
+    case parse_ip(candidate) do
+      {:ok, ip} -> forwarded_ip_if_untrusted(candidate, ip, trusted_proxy_cidrs)
+      :error -> nil
+    end
+  end
+
+  defp forwarded_ip_if_untrusted(candidate, ip, trusted_proxy_cidrs) do
+    if NetworkAddressPolicy.ip_in_any_cidr?(ip, trusted_proxy_cidrs), do: nil, else: candidate
   end
 
   defp parse_ip(ip) when is_binary(ip) do

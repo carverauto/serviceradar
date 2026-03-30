@@ -10,7 +10,6 @@ defmodule UUID.Mixfile do
       version: @version,
       elixir: "~> 1.7",
       compilers: boundary_compilers() ++ Mix.compilers(),
-      dialyzer: [plt_add_deps: :apps_direct],
       docs: [extras: ["README.md", "CHANGELOG.md"], main: "readme", source_ref: "v#{@version}"],
       source_url: "https://github.com/zyro/elixir-uuid",
       description: description(),

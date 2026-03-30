@@ -11,7 +11,6 @@ defmodule ServiceRadarAgentGateway.MixProject do
       compilers: boundary_compilers() ++ Mix.compilers(),
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
-      dialyzer: [plt_add_deps: :apps_direct],
       deps: deps(),
       aliases: aliases(),
       releases: releases()

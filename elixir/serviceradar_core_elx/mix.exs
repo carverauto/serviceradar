@@ -11,7 +11,7 @@ defmodule ServiceRadarCoreElx.MixProject do
       compilers: boundary_compilers() ++ Mix.compilers(),
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
-      dialyzer: [plt_add_apps: [:mix], plt_add_deps: :apps_direct],
+      dialyzer: [plt_add_apps: [:mix]],
       deps: deps(),
       aliases: aliases(),
       releases: releases()

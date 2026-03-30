@@ -185,26 +185,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         actor = SystemActor.system(:auth_controller)
 
         # Always show the same message to prevent email enumeration
-        case User.get_by_email(email, actor: actor) do
-          {:ok, user} ->
-            case Guardian.create_access_token(user, token_type: "reset", ttl: {1, :hour}) do
-              {:ok, token, _claims} ->
-                reset_url = AuthURL.password_reset_url(token)
-
-                ServiceRadarWebNG.Accounts.UserNotifier.deliver_reset_password_instructions(
-                  user,
-                  reset_url
-                )
-
-                :ok
-
-              {:error, _} ->
-                :ok
-            end
-
-          {:error, _} ->
-            :ok
-        end
+        :ok = maybe_send_password_reset(email, actor)
 
         conn
         |> put_flash(
@@ -213,6 +194,21 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         )
         |> redirect(to: ~p"/users/log-in")
     end
+  end
+
+  defp maybe_send_password_reset(email, actor) do
+    with {:ok, user} <- User.get_by_email(email, actor: actor),
+         {:ok, token, _claims} <-
+           Guardian.create_access_token(user, token_type: "reset", ttl: {1, :hour}) do
+      reset_url = AuthURL.password_reset_url(token)
+
+      ServiceRadarWebNG.Accounts.UserNotifier.deliver_reset_password_instructions(
+        user,
+        reset_url
+      )
+    end
+
+    :ok
   end
 
   @doc """

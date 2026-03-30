@@ -325,29 +325,19 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
     client = github_http_client()
 
     if client == Req do
-      with_secure_download_file("plugin-import", fn tmp_path ->
-        case client.get(url, headers: headers, decode_body: false, into: File.stream!(tmp_path)) do
-          {:ok, %Req.Response{status: 200}} ->
-            with {:ok, %{size: size}} <- File.stat(tmp_path),
-                 :ok <- ensure_size(size) do
-              File.read(tmp_path)
-            end
-
-          {:ok, %Req.Response{status: 404}} ->
-            {:error, :not_found}
-
-          {:ok, %Req.Response{status: status}} ->
-            {:error, {:http_error, status}}
-
-          {:error, error} ->
-            {:error, error}
-        end
-      end)
+      github_raw_get_streaming(url, headers)
     else
-      case client.get(url, headers: headers, decode_body: false) do
-        {:ok, %Req.Response{status: 200, body: body}} ->
-          with :ok <- ensure_size(body) do
-            {:ok, body}
+      github_raw_get_buffered(client, url, headers)
+    end
+  end
+
+  defp github_raw_get_streaming(url, headers) do
+    with_secure_download_file("plugin-import", fn tmp_path ->
+      case Req.get(url, headers: headers, decode_body: false, into: File.stream!(tmp_path)) do
+        {:ok, %Req.Response{status: 200}} ->
+          with {:ok, %{size: size}} <- File.stat(tmp_path),
+               :ok <- ensure_size(size) do
+            File.read(tmp_path)
           end
 
         {:ok, %Req.Response{status: 404}} ->
@@ -359,6 +349,24 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
         {:error, error} ->
           {:error, error}
       end
+    end)
+  end
+
+  defp github_raw_get_buffered(client, url, headers) do
+    case client.get(url, headers: headers, decode_body: false) do
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        with :ok <- ensure_size(body) do
+          {:ok, body}
+        end
+
+      {:ok, %Req.Response{status: 404}} ->
+        {:error, :not_found}
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, {:http_error, status}}
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 

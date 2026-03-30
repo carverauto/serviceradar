@@ -155,42 +155,9 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
         {:ok, metadata}
 
       :miss ->
-        # Ensure URL ends with discovery suffix
-        url =
-          if String.ends_with?(discovery_url, @discovery_suffix) do
-            discovery_url
-          else
-            String.trim_trailing(discovery_url, "/") <> @discovery_suffix
-          end
-
-        case OutboundFetch.get(url) do
-          {:ok, response} ->
-            case response do
-              %{status: 200, body: metadata} ->
-                ConfigCache.put_cached(cache_key, metadata, ttl: to_timeout(hour: 1))
-                {:ok, metadata}
-
-              %{status: status} ->
-                Logger.error("OIDC discovery failed: status=#{status}")
-                {:error, :discovery_failed}
-            end
-
-          {:error, :disallowed_scheme} ->
-            {:error, :discovery_failed}
-
-          {:error, :disallowed_host} ->
-            {:error, :discovery_failed}
-
-          {:error, :invalid_url} ->
-            {:error, :discovery_failed}
-
-          {:error, :dns_resolution_failed} ->
-            {:error, :discovery_failed}
-
-          {:error, reason} ->
-            Logger.error("OIDC discovery error: #{inspect(reason)}")
-            {:error, :discovery_failed}
-        end
+        discovery_url
+        |> ensure_discovery_suffix()
+        |> fetch_discovery_metadata_uncached(cache_key)
     end
   end
 
@@ -230,35 +197,66 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
         {:ok, jwks}
 
       :miss ->
-        case OutboundFetch.get(jwks_uri) do
-          {:ok, response} ->
-            case response do
-              %{status: 200, body: %{"keys" => keys}} ->
-                ConfigCache.put_cached(cache_key, keys, ttl: to_timeout(hour: 1))
-                {:ok, keys}
-
-              %{status: status} ->
-                Logger.error("JWKS fetch failed: status=#{status}")
-                {:error, :jwks_fetch_failed}
-            end
-
-          {:error, :disallowed_scheme} ->
-            {:error, :jwks_fetch_failed}
-
-          {:error, :disallowed_host} ->
-            {:error, :jwks_fetch_failed}
-
-          {:error, :invalid_url} ->
-            {:error, :jwks_fetch_failed}
-
-          {:error, :dns_resolution_failed} ->
-            {:error, :jwks_fetch_failed}
-
-          {:error, reason} ->
-            Logger.error("JWKS fetch error: #{inspect(reason)}")
-            {:error, :jwks_fetch_failed}
-        end
+        fetch_jwks_uncached(jwks_uri, cache_key)
     end
+  end
+
+  defp ensure_discovery_suffix(discovery_url) do
+    if String.ends_with?(discovery_url, @discovery_suffix) do
+      discovery_url
+    else
+      String.trim_trailing(discovery_url, "/") <> @discovery_suffix
+    end
+  end
+
+  defp fetch_discovery_metadata_uncached(url, cache_key) do
+    case OutboundFetch.get(url) do
+      {:ok, response} ->
+        handle_discovery_response(response, cache_key)
+
+      {:error, reason} ->
+        handle_oidc_fetch_error("OIDC discovery", reason, :discovery_failed)
+    end
+  end
+
+  defp handle_discovery_response(%{status: 200, body: metadata}, cache_key) do
+    ConfigCache.put_cached(cache_key, metadata, ttl: to_timeout(hour: 1))
+    {:ok, metadata}
+  end
+
+  defp handle_discovery_response(%{status: status}, _cache_key) do
+    Logger.error("OIDC discovery failed: status=#{status}")
+    {:error, :discovery_failed}
+  end
+
+  defp fetch_jwks_uncached(jwks_uri, cache_key) do
+    case OutboundFetch.get(jwks_uri) do
+      {:ok, response} ->
+        handle_jwks_response(response, cache_key)
+
+      {:error, reason} ->
+        handle_oidc_fetch_error("JWKS fetch", reason, :jwks_fetch_failed)
+    end
+  end
+
+  defp handle_jwks_response(%{status: 200, body: %{"keys" => keys}}, cache_key) do
+    ConfigCache.put_cached(cache_key, keys, ttl: to_timeout(hour: 1))
+    {:ok, keys}
+  end
+
+  defp handle_jwks_response(%{status: status}, _cache_key) do
+    Logger.error("JWKS fetch failed: status=#{status}")
+    {:error, :jwks_fetch_failed}
+  end
+
+  defp handle_oidc_fetch_error(_label, reason, failure)
+       when reason in [:disallowed_scheme, :disallowed_host, :invalid_url, :dns_resolution_failed] do
+    {:error, failure}
+  end
+
+  defp handle_oidc_fetch_error(label, reason, failure) do
+    Logger.error("#{label} error: #{inspect(reason)}")
+    {:error, failure}
   end
 
   defp exchange_tokens(token_endpoint, body) do

@@ -458,28 +458,9 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
   end
 
   defp extract_blob_token(conn, action) do
-    conn
-    |> Plug.Conn.get_req_header("x-serviceradar-plugin-token")
-    |> List.first()
-    |> normalize_blob_token()
-    |> case do
-      nil when action == :download ->
-        case conn |> body_param("token") |> normalize_blob_token() do
-          nil ->
-            case conn |> body_param("download_token") |> normalize_blob_token() do
-              nil -> {:error, :missing_token}
-              token -> {:ok, token}
-            end
-
-          token ->
-            {:ok, token}
-        end
-
-      nil ->
-        {:error, :missing_token}
-
-      token ->
-        {:ok, token}
+    case request_blob_token(conn) || fallback_blob_token(conn, action) do
+      nil -> {:error, :missing_token}
+      token -> {:ok, token}
     end
   end
 
@@ -489,6 +470,25 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
   end
 
   defp normalize_blob_token(_value), do: nil
+
+  defp request_blob_token(conn) do
+    conn
+    |> Plug.Conn.get_req_header("x-serviceradar-plugin-token")
+    |> List.first()
+    |> normalize_blob_token()
+  end
+
+  defp fallback_blob_token(conn, :download) do
+    body_blob_token(conn, "token") || body_blob_token(conn, "download_token")
+  end
+
+  defp fallback_blob_token(_conn, _action), do: nil
+
+  defp body_blob_token(conn, key) do
+    conn
+    |> body_param(key)
+    |> normalize_blob_token()
+  end
 
   defp body_param(conn, key) when is_binary(key) do
     case conn.body_params do
@@ -538,30 +538,34 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
     else
       conn
       |> read_body(length: max_bytes - size, read_length: min(1_000_000, max_bytes - size))
-      |> case do
-        {:ok, body, conn} ->
-          next_size = size + byte_size(body)
+      |> handle_read_body_result(max_bytes, io_device, size)
+    end
+  end
 
-          if next_size > max_bytes do
-            {:error, :payload_too_large}
-          else
-            :ok = IO.binwrite(io_device, body)
-            {:ok, conn, next_size}
-          end
+  defp handle_read_body_result({:ok, body, conn}, max_bytes, io_device, size) do
+    write_body_chunk(body, max_bytes, io_device, size, fn next_size ->
+      {:ok, conn, next_size}
+    end)
+  end
 
-        {:more, body, conn} ->
-          next_size = size + byte_size(body)
+  defp handle_read_body_result({:more, body, conn}, max_bytes, io_device, size) do
+    write_body_chunk(body, max_bytes, io_device, size, fn next_size ->
+      read_body_more(conn, max_bytes, io_device, next_size)
+    end)
+  end
 
-          if next_size > max_bytes do
-            {:error, :payload_too_large}
-          else
-            :ok = IO.binwrite(io_device, body)
-            read_body_more(conn, max_bytes, io_device, next_size)
-          end
+  defp handle_read_body_result({:error, reason}, _max_bytes, _io_device, _size) do
+    {:error, reason}
+  end
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+  defp write_body_chunk(body, max_bytes, io_device, size, continuation) do
+    next_size = size + byte_size(body)
+
+    if next_size > max_bytes do
+      {:error, :payload_too_large}
+    else
+      :ok = IO.binwrite(io_device, body)
+      continuation.(next_size)
     end
   end
 
