@@ -17,6 +17,8 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocationTest do
   # These tests verify the module's public API
 
   setup do
+    File.rm_rf!(Path.join(System.tmp_dir!(), "serviceradar_web_ng_test"))
+
     # Generate unique JTI for each test to avoid collisions
     jti = "test_jti_#{System.unique_integer([:positive])}"
     user_id = Ecto.UUID.generate()
@@ -79,7 +81,7 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocationTest do
       TokenRevocation.revoke_all_for_user(user_id)
 
       # Token issued before revocation should be rejected
-      assert {:error, :revoked} = TokenRevocation.check_user_tokens_revoked(user_id, issued_at)
+      assert {:error, :user_revoked} = TokenRevocation.check_user_tokens_revoked(user_id, issued_at)
     end
 
     test "returns :ok for tokens issued after revocation", %{user_id: user_id} do
@@ -102,7 +104,26 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocationTest do
       TokenRevocation.revoke_all_for_user(user_id)
 
       # Token issued before revocation should be rejected
-      assert {:error, :revoked} = TokenRevocation.check_user_tokens_revoked(user_id, issued_at)
+      assert {:error, :user_revoked} = TokenRevocation.check_user_tokens_revoked(user_id, issued_at)
+    end
+  end
+
+  describe "persistence across restart" do
+    test "reloads revoked entries from the durable store", %{jti: jti} do
+      assert :ok = TokenRevocation.revoke_token(jti, reason: :test)
+      assert {:error, :revoked} = TokenRevocation.check_revoked(jti)
+
+      pid = Process.whereis(TokenRevocation)
+      ref = Process.monitor(pid)
+      GenServer.stop(pid, :normal)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
+
+      Process.sleep(100)
+      restarted_pid = Process.whereis(TokenRevocation)
+
+      assert is_pid(restarted_pid)
+      refute restarted_pid == pid
+      assert {:error, :revoked} = TokenRevocation.check_revoked(jti)
     end
   end
 

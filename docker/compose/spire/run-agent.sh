@@ -21,25 +21,9 @@ ensure_spire_agent() {
     if [ -x "$BIN" ]; then
         return
     fi
-    echo "[spire-agent] downloading SPIRE agent from ${SPIRE_DOWNLOAD_URL}"
-    tmp_dir="$(mktemp -d)"
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$SPIRE_DOWNLOAD_URL" -o "${tmp_dir}/spire-agent.tgz"
-    elif command -v wget >/dev/null 2>&1; then
-        wget -qO "${tmp_dir}/spire-agent.tgz" "$SPIRE_DOWNLOAD_URL"
-    else
-        echo "[spire-agent] ERROR: curl or wget required to download SPIRE agent" >&2
-        exit 1
-    fi
-    tar -xzf "${tmp_dir}/spire-agent.tgz" -C "$tmp_dir"
-    found_bin="$(find "$tmp_dir" -name spire-agent -type f | head -n1 || true)"
-    if [ -z "$found_bin" ]; then
-        echo "[spire-agent] ERROR: failed to extract spire-agent binary" >&2
-        exit 1
-    fi
-    cp "$found_bin" "$BIN"
-    chmod +x "$BIN"
-    rm -rf "$tmp_dir"
+    echo "[spire-agent] ERROR: expected vetted spire-agent binary at ${BIN}" >&2
+    echo "[spire-agent] Refusing to download and execute SPIRE agent from ${SPIRE_DOWNLOAD_URL} without integrity verification" >&2
+    exit 1
 }
 
 ensure_spire_agent

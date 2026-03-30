@@ -34,6 +34,7 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
     check: [in: false, out: false]
 
   alias ServiceRadar.Edge.NatsLeafConfigGenerator
+  alias ServiceRadarWebNG.TempArchive
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
@@ -122,34 +123,6 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
 
   @sobelow_skip ["Traversal.FileModule"]
   defp create_tar_gz(files) do
-    # Convert files to format expected by :erl_tar
-    file_entries =
-      Enum.map(files, fn {path, content} ->
-        data =
-          case content do
-            nil -> ""
-            _ -> IO.iodata_to_binary(content)
-          end
-
-        {String.to_charlist(path), data}
-      end)
-
-    tmp_path =
-      Path.join(
-        System.tmp_dir!(),
-        "serviceradar-edge-site-bundle-#{:erlang.unique_integer([:positive])}.tar.gz"
-      )
-
-    tar_data =
-      try do
-        :ok = :erl_tar.create(String.to_charlist(tmp_path), file_entries, [:compressed])
-        File.read!(tmp_path)
-      after
-        _ = File.rm(tmp_path)
-      end
-
-    {:ok, tar_data}
-  rescue
-    e -> {:error, {:tar_creation_failed, e}}
+    TempArchive.create_tar_gz("serviceradar-edge-site-bundle", files)
   end
 end

@@ -26,13 +26,14 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Hooks
+  alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
   alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.Auth.SAMLAssertionValidator
   alias ServiceRadarWebNGWeb.Auth.SAMLStrategy
+  alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
   alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.UserAuth
 
@@ -48,13 +49,11 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   defp check_rate_limit(conn, _opts) do
     client_ip = get_client_ip(conn)
 
-    case RateLimiter.check_rate_limit("saml_consume", client_ip,
+    case RateLimiter.check_rate_limit_and_record("saml_consume", client_ip,
            limit: @callback_rate_limit,
            window_seconds: @callback_rate_window
          ) do
       :ok ->
-        # Record the attempt
-        RateLimiter.record_attempt("saml_consume", client_ip)
         conn
 
       {:error, retry_after} ->
@@ -128,8 +127,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     {csrf_token, return_to} = parse_relay_state(relay_state)
 
     cond do
-      # Validate CSRF token
-      stored_csrf_token && !Plug.Crypto.secure_compare(csrf_token || "", stored_csrf_token) ->
+      !valid_saml_csrf_token?(csrf_token, stored_csrf_token) ->
         Logger.warning("SAML CSRF token mismatch")
 
         Hooks.on_auth_failed(:csrf_validation_failed, %{
@@ -184,6 +182,13 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     end
   end
 
+  defp valid_saml_csrf_token?(csrf_token, stored_csrf_token)
+       when is_binary(csrf_token) and is_binary(stored_csrf_token) do
+    Plug.Crypto.secure_compare(csrf_token, stored_csrf_token)
+  end
+
+  defp valid_saml_csrf_token?(_csrf_token, _stored_csrf_token), do: false
+
   @doc """
   SP Metadata endpoint.
 
@@ -202,7 +207,8 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   defp get_saml_request_url(csrf_token) do
     with {:ok, config} <- SAMLStrategy.get_config(),
          {:xml, xml} <- config.idp_metadata,
-         {:ok, sso_url} <- extract_sso_url_from_metadata(xml) do
+         {:ok, sso_url} <- extract_sso_url_from_metadata(xml),
+         :ok <- validate_sso_redirect_url(sso_url) do
       # Build AuthnRequest URL
       sp_entity_id = config.sp_entity_id
       acs_url = config.acs_url
@@ -220,6 +226,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       {:ok, url}
     else
       {:url, _url} -> {:error, :invalid_metadata}
+      {:error, :invalid_sso_url} -> {:error, :invalid_metadata}
       error -> error
     end
   end
@@ -255,6 +262,15 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       Logger.error("Failed to parse IdP metadata: #{inspect(e)}")
       {:error, :metadata_parse_failed}
   end
+
+  defp validate_sso_redirect_url(url) when is_binary(url) do
+    case OutboundURLPolicy.validate(url) do
+      {:ok, _uri} -> :ok
+      {:error, _reason} -> {:error, :invalid_sso_url}
+    end
+  end
+
+  defp validate_sso_redirect_url(_url), do: {:error, :invalid_sso_url}
 
   defp build_authn_request(sp_entity_id, acs_url) do
     # Build a minimal SAML AuthnRequest
@@ -640,22 +656,21 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
     :xmerl_scan.string(xml_charlist, [
       {:quiet, true},
-      {:external_entities, :none},
-      {:validation, false}
+      {:validation, false},
+      {:fetch_fun, &reject_external_resource/2}
     ])
   end
 
   defp safe_sweetxml_parse(xml_string) do
-    options = [
+    SweetXml.parse(xml_string,
       quiet: true,
       xmerl_options: [
-        external_entities: :none,
-        dtd_nodes: :none
+        fetch_fun: &reject_external_resource/2
       ]
-    ]
-
-    SweetXml.parse(xml_string, options)
+    )
   end
+
+  defp reject_external_resource(_ext_spec, _scanner_state), do: {:error, :disabled_for_security}
 
   defp handle_successful_assertion(conn, assertion, relay_state) do
     actor = SystemActor.system(:saml_controller)
@@ -679,6 +694,21 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
         conn
         |> put_flash(:info, "Signed in successfully via SAML.")
         |> UserAuth.log_in_user(user, %{"return_to" => return_to})
+
+      {:error, :unsafe_account_linking} ->
+        Logger.warning("SAML authentication rejected implicit email-based account linking")
+
+        Hooks.on_auth_failed(:unsafe_account_linking, %{
+          method: :saml,
+          ip: get_client_ip(conn)
+        })
+
+        conn
+        |> put_flash(
+          :error,
+          "An existing account with that email cannot be linked automatically. Please contact your administrator."
+        )
+        |> redirect(to: ~p"/users/log-in")
 
       {:error, reason} ->
         Logger.error("Failed to provision SAML user: #{inspect(reason)}")
@@ -737,112 +767,12 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   defp find_or_create_user(%{email: email, name: name, external_id: external_id, attributes: attributes}, actor) do
     claims = Map.merge(attributes, %{"email" => email, "name" => name, "sub" => external_id})
 
-    resolved_role = RoleMapping.resolve_role(claims, actor: actor)
-
-    # First try to find by external_id
-    case find_user_by_external_id(external_id, actor) do
-      {:ok, user} ->
-        user
-        |> maybe_update_user(name, actor)
-        |> maybe_update_role(resolved_role, actor)
-
-      {:error, :not_found} ->
-        # Try to find by email
-        case User.get_by_email(email, actor: actor) do
-          {:ok, user} ->
-            # Link existing user to SAML
-            user
-            |> link_user_to_saml(external_id, actor)
-            |> maybe_update_role(resolved_role, actor)
-
-          {:error, _} ->
-            # Create new user (JIT provisioning)
-            create_saml_user(email, name, external_id, resolved_role, actor)
-        end
-    end
-  end
-
-  defp find_user_by_external_id(nil, _actor), do: {:error, :not_found}
-
-  defp find_user_by_external_id(external_id, actor) do
-    require Ash.Query
-
-    query =
-      User
-      |> Ash.Query.filter(external_id == ^external_id)
-      |> Ash.Query.limit(1)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, [user]} -> {:ok, user}
-      {:ok, []} -> {:error, :not_found}
-      {:error, _} -> {:error, :not_found}
-    end
-  end
-
-  defp link_user_to_saml(user, external_id, actor) do
-    changeset =
-      user
-      |> Ash.Changeset.for_update(:update, %{})
-      |> Ash.Changeset.force_change_attribute(:external_id, external_id)
-
-    case Ash.update(changeset, actor: actor) do
-      {:ok, updated} ->
-        Logger.info("Linked existing user #{user.id} to SAML external_id #{external_id}")
-        {:ok, updated}
-
-      {:error, _} ->
-        {:ok, user}
-    end
-  end
-
-  defp create_saml_user(email, name, external_id, role, actor) do
-    params = %{
-      email: email,
-      display_name: name,
-      external_id: external_id,
-      role: role,
-      provider: :saml
-    }
-
-    case User.provision_sso_user(params, actor: actor) do
-      {:ok, user} ->
-        Logger.info("Created new user via SAML JIT provisioning: #{user.id}")
-        Hooks.on_user_created(user, :saml)
-        {:ok, user}
-
-      {:error, error} ->
-        Logger.error("Failed to create SAML user: #{inspect(error)}")
-        {:error, :user_creation_failed}
-    end
-  end
-
-  defp maybe_update_user(user, name, actor) do
-    # Update display name if provided and different
-    if name && name != "" && user.display_name != name do
-      User.update(user, %{display_name: name}, actor: actor)
-    end
-  end
-
-  defp maybe_update_role({:ok, user}, role, actor) do
-    apply_role_mapping(user, role, actor)
-  end
-
-  defp maybe_update_role(result, _role, _actor), do: result
-
-  defp apply_role_mapping(user, role, actor) do
-    cond do
-      is_nil(role) ->
-        {:ok, user}
-
-      user.role == :admin and role != :admin ->
-        {:ok, user}
-
-      user.role == role ->
-        {:ok, user}
-
-      true ->
-        User.update_role(user, role, actor: actor)
-    end
+    SSOProvisioning.find_or_create_user(
+      %{email: email, name: name, external_id: external_id},
+      claims,
+      :saml,
+      actor
+    )
   end
 
   defp generate_sp_metadata do

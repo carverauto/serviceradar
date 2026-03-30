@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
 
   import Plug.Conn
 
+  alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Topology.GodViewStream
   alias ServiceRadarWebNGWeb.FeatureFlags
 
@@ -10,106 +12,126 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
 
   def show(conn, _params) do
     if FeatureFlags.god_view_enabled?() do
-      case GodViewStream.latest_snapshot() do
-        {:ok, %{snapshot: snapshot, payload: payload}} ->
-          root_meta = bitmap_meta(snapshot, :root_cause)
-          affected_meta = bitmap_meta(snapshot, :affected)
-          healthy_meta = bitmap_meta(snapshot, :healthy)
-          unknown_meta = bitmap_meta(snapshot, :unknown)
-          pipeline_stats = pipeline_stats(snapshot)
+      with :ok <- require_authenticated(conn),
+           :ok <- require_permission(conn, "analytics.view") do
+        case GodViewStream.latest_snapshot() do
+          {:ok, %{snapshot: snapshot, payload: payload}} ->
+            root_meta = bitmap_meta(snapshot, :root_cause)
+            affected_meta = bitmap_meta(snapshot, :affected)
+            healthy_meta = bitmap_meta(snapshot, :healthy)
+            unknown_meta = bitmap_meta(snapshot, :unknown)
+            pipeline_stats = pipeline_stats(snapshot)
 
-          conn
-          |> put_resp_content_type("application/octet-stream")
-          |> put_resp_header("cache-control", "no-store")
-          |> put_resp_header("x-sr-god-view-schema", Integer.to_string(snapshot.schema_version))
-          |> put_resp_header("x-sr-god-view-revision", Integer.to_string(snapshot.revision))
-          |> put_resp_header(
-            "x-sr-god-view-bitmap-root-bytes",
-            Integer.to_string(root_meta.bytes)
-          )
-          |> put_resp_header(
-            "x-sr-god-view-bitmap-affected-bytes",
-            Integer.to_string(affected_meta.bytes)
-          )
-          |> put_resp_header(
-            "x-sr-god-view-bitmap-healthy-bytes",
-            Integer.to_string(healthy_meta.bytes)
-          )
-          |> put_resp_header(
-            "x-sr-god-view-bitmap-unknown-bytes",
-            Integer.to_string(unknown_meta.bytes)
-          )
-          |> put_resp_header(
-            "x-sr-god-view-bitmap-root-count",
-            Integer.to_string(root_meta.count)
-          )
-          |> put_resp_header(
-            "x-sr-god-view-bitmap-affected-count",
-            Integer.to_string(affected_meta.count)
-          )
-          |> put_resp_header(
-            "x-sr-god-view-bitmap-healthy-count",
-            Integer.to_string(healthy_meta.count)
-          )
-          |> put_resp_header(
-            "x-sr-god-view-bitmap-unknown-count",
-            Integer.to_string(unknown_meta.count)
-          )
-          |> put_resp_header(
-            "x-sr-god-view-generated-at",
-            DateTime.to_iso8601(snapshot.generated_at)
-          )
-          |> put_resp_header(
-            "x-sr-god-view-pipeline-raw-links",
-            Integer.to_string(Map.get(pipeline_stats, :raw_links, 0))
-          )
-          |> put_resp_header(
-            "x-sr-god-view-pipeline-unique-pairs",
-            Integer.to_string(Map.get(pipeline_stats, :unique_pairs, 0))
-          )
-          |> put_resp_header(
-            "x-sr-god-view-pipeline-final-edges",
-            Integer.to_string(Map.get(pipeline_stats, :final_edges, 0))
-          )
-          |> put_resp_header(
-            "x-sr-god-view-pipeline-final-direct",
-            Integer.to_string(Map.get(pipeline_stats, :final_direct, 0))
-          )
-          |> put_resp_header(
-            "x-sr-god-view-pipeline-final-inferred",
-            Integer.to_string(Map.get(pipeline_stats, :final_inferred, 0))
-          )
-          |> put_resp_header(
-            "x-sr-god-view-pipeline-final-attachment",
-            Integer.to_string(Map.get(pipeline_stats, :final_attachment, 0))
-          )
-          |> put_resp_header(
-            "x-sr-god-view-pipeline-unresolved-endpoints",
-            Integer.to_string(Map.get(pipeline_stats, :unresolved_endpoints, 0))
-          )
-          |> put_resp_header(
-            "x-sr-god-view-pipeline-edge-telemetry-interface",
-            Integer.to_string(Map.get(pipeline_stats, :edge_telemetry_interface, 0))
-          )
-          |> put_resp_header(
-            "x-sr-god-view-pipeline-edge-telemetry-fallback",
-            Integer.to_string(Map.get(pipeline_stats, :edge_telemetry_fallback, 0))
-          )
-          |> put_resp_header(
-            "x-sr-god-view-pipeline-edge-unresolved-directional",
-            Integer.to_string(Map.get(pipeline_stats, :edge_unresolved_directional, 0))
-          )
-          |> send_resp(200, payload)
+            conn
+            |> put_resp_content_type("application/octet-stream")
+            |> put_resp_header("cache-control", "no-store")
+            |> put_resp_header("x-sr-god-view-schema", Integer.to_string(snapshot.schema_version))
+            |> put_resp_header("x-sr-god-view-revision", Integer.to_string(snapshot.revision))
+            |> put_resp_header(
+              "x-sr-god-view-bitmap-root-bytes",
+              Integer.to_string(root_meta.bytes)
+            )
+            |> put_resp_header(
+              "x-sr-god-view-bitmap-affected-bytes",
+              Integer.to_string(affected_meta.bytes)
+            )
+            |> put_resp_header(
+              "x-sr-god-view-bitmap-healthy-bytes",
+              Integer.to_string(healthy_meta.bytes)
+            )
+            |> put_resp_header(
+              "x-sr-god-view-bitmap-unknown-bytes",
+              Integer.to_string(unknown_meta.bytes)
+            )
+            |> put_resp_header(
+              "x-sr-god-view-bitmap-root-count",
+              Integer.to_string(root_meta.count)
+            )
+            |> put_resp_header(
+              "x-sr-god-view-bitmap-affected-count",
+              Integer.to_string(affected_meta.count)
+            )
+            |> put_resp_header(
+              "x-sr-god-view-bitmap-healthy-count",
+              Integer.to_string(healthy_meta.count)
+            )
+            |> put_resp_header(
+              "x-sr-god-view-bitmap-unknown-count",
+              Integer.to_string(unknown_meta.count)
+            )
+            |> put_resp_header(
+              "x-sr-god-view-generated-at",
+              DateTime.to_iso8601(snapshot.generated_at)
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-raw-links",
+              Integer.to_string(Map.get(pipeline_stats, :raw_links, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-unique-pairs",
+              Integer.to_string(Map.get(pipeline_stats, :unique_pairs, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-final-edges",
+              Integer.to_string(Map.get(pipeline_stats, :final_edges, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-final-direct",
+              Integer.to_string(Map.get(pipeline_stats, :final_direct, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-final-inferred",
+              Integer.to_string(Map.get(pipeline_stats, :final_inferred, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-final-attachment",
+              Integer.to_string(Map.get(pipeline_stats, :final_attachment, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-unresolved-endpoints",
+              Integer.to_string(Map.get(pipeline_stats, :unresolved_endpoints, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-edge-telemetry-interface",
+              Integer.to_string(Map.get(pipeline_stats, :edge_telemetry_interface, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-edge-telemetry-fallback",
+              Integer.to_string(Map.get(pipeline_stats, :edge_telemetry_fallback, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-edge-unresolved-directional",
+              Integer.to_string(Map.get(pipeline_stats, :edge_unresolved_directional, 0))
+            )
+            |> send_resp(200, payload)
 
-        {:error, reason} ->
-          Logger.error("God-View snapshot build failed: #{inspect(reason)}")
+          {:error, reason} ->
+            Logger.error("God-View snapshot build failed: #{inspect(reason)}")
 
-          conn
-          |> put_status(:internal_server_error)
-          |> json(%{error: "snapshot_build_failed"})
+            conn
+            |> put_status(:internal_server_error)
+            |> json(%{error: "snapshot_build_failed"})
+        end
       end
     else
       send_resp(conn, :not_found, "Not Found")
+    end
+  end
+
+  defp require_authenticated(conn) do
+    case conn.assigns[:current_scope] do
+      %Scope{user: user} when not is_nil(user) -> :ok
+      _ -> conn |> put_status(:unauthorized) |> json(%{error: "unauthorized"}) |> halt()
+    end
+  end
+
+  defp require_permission(conn, permission) do
+    scope = conn.assigns[:current_scope]
+
+    if RBAC.can?(scope, permission) do
+      :ok
+    else
+      conn |> put_status(:forbidden) |> json(%{error: "forbidden"}) |> halt()
     end
   end
 

@@ -126,10 +126,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
       settings.jwt_public_key_pem && settings.jwt_public_key_pem != "" ->
         verify_with_public_key(token, settings.jwt_public_key_pem)
 
-      # No verification configured - trust the gateway
+      # Passive proxy mode must not trust unsigned gateway identities.
       true ->
-        Logger.debug("Gateway JWT signature verification not configured, trusting gateway")
-        :ok
+        Logger.error("Gateway JWT signature verification is not configured")
+        {:error, :verification_not_configured}
     end
   end
 

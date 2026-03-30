@@ -22,6 +22,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.OnboardingToken
+  alias ServiceRadarWebNG.Shell
+  alias ServiceRadarWebNG.TempArchive
   alias ServiceRadarWebNG.Web.EndpointConfig
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
@@ -72,7 +74,12 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
       {"#{package_dir}/config/config.json", config_json},
       {"#{package_dir}/install.sh", generate_install_script(package, opts)},
       {"#{package_dir}/README.md", generate_readme(package, opts)}
-      | generate_kubernetes_files(
+    ]
+
+    files =
+      files ++
+        generate_agent_override_files(package_dir, package, opts) ++
+        generate_kubernetes_files(
           package_dir,
           package,
           cert_pem,
@@ -81,7 +88,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
           join_token,
           opts
         )
-    ]
 
     # Create the tarball
     create_tar_gz(files)
@@ -99,13 +105,15 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   Generates a one-liner install command for Docker.
   """
   @spec docker_install_command(OnboardingPackage.t(), String.t(), keyword()) :: String.t()
-  def docker_install_command(package, download_token, opts \\ []) do
+  def docker_install_command(package, _download_token, opts \\ []) do
     base_url = Keyword.get(opts, :base_url, default_base_url())
     image_tag = Keyword.get(opts, :image_tag, "latest")
     component_type = effective_component_type(package.component_type)
+    bundle_url = "#{base_url}/api/edge-packages/#{package.id}/bundle"
 
     String.trim("""
-    curl -fsSL "#{base_url}/api/edge-packages/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" #{Shell.literal(bundle_url)} | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
     docker run -d --name serviceradar-#{component_type} \\
       -v $(pwd)/certs:/etc/serviceradar/certs:ro \\
@@ -118,11 +126,13 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   Generates a one-liner install command for systemd-based systems.
   """
   @spec systemd_install_command(OnboardingPackage.t(), String.t(), keyword()) :: String.t()
-  def systemd_install_command(package, download_token, opts \\ []) do
+  def systemd_install_command(package, _download_token, opts \\ []) do
     base_url = Keyword.get(opts, :base_url, default_base_url())
+    bundle_url = "#{base_url}/api/edge-packages/#{package.id}/bundle"
 
     String.trim("""
-    curl -fsSL "#{base_url}/api/edge-packages/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" #{Shell.literal(bundle_url)} | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
     sudo ./install.sh
     """)
@@ -132,14 +142,16 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   Generates a one-liner install command for Kubernetes.
   """
   @spec kubernetes_install_command(OnboardingPackage.t(), String.t(), keyword()) :: String.t()
-  def kubernetes_install_command(package, download_token, opts \\ []) do
+  def kubernetes_install_command(package, _download_token, opts \\ []) do
     base_url = Keyword.get(opts, :base_url, default_base_url())
     namespace = Keyword.get(opts, :namespace, "serviceradar")
+    bundle_url = "#{base_url}/api/edge-packages/#{package.id}/bundle"
 
     String.trim("""
-    curl -fsSL "#{base_url}/api/edge-packages/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" #{Shell.literal(bundle_url)} | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
-    kubectl apply -f kubernetes/ -n #{namespace}
+    kubectl apply -f kubernetes/ -n #{Shell.literal(namespace)}
     """)
   end
 
@@ -238,6 +250,22 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     config
   end
 
+  defp generate_agent_override_files(package_dir, package, opts) do
+    if effective_component_type(package.component_type) == "agent" do
+      case agent_release_public_key(opts) do
+        nil ->
+          []
+
+        public_key ->
+          [
+            {"#{package_dir}/config/agent-env-overrides.env", "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=#{public_key}\n"}
+          ]
+      end
+    else
+      []
+    end
+  end
+
   defp encode_config_yaml(config) when is_map(config) do
     # Simple but safe YAML encoder for bootstrap config
     config
@@ -264,15 +292,14 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp encode_yaml_value(value) when is_binary(value) do
-    # Wrap in double quotes and escape internal quotes
-    "\"#{String.replace(value, "\"", "\\\"")}\""
+    Jason.encode!(value)
   end
 
-  defp encode_yaml_value(value), do: inspect(value)
-
-  defp sanitize_shell_arg(value) when is_binary(value) do
-    String.replace(value, "\"", "-")
+  defp encode_yaml_value(value) when is_integer(value) or is_float(value) or is_boolean(value) or is_nil(value) do
+    Jason.encode!(value)
   end
+
+  defp encode_yaml_value(value), do: Jason.encode!(to_string(value))
 
   defp sanitize_k8s_label(value) when is_binary(value) do
     # Kubernetes labels must be 63 chars or less and alphanumeric/dash/dot/underscore
@@ -284,25 +311,22 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp generate_install_script(package, opts) do
     component_type = effective_component_type(package.component_type)
     enrollment_token = onboarding_token(package, opts)
-
-    # Sanitize for shell interpolation
-    s_component_type = sanitize_shell_arg(component_type)
-    s_package_id = sanitize_shell_arg(package.id)
+    base_url = Keyword.get(opts, :base_url, default_base_url())
 
     if component_type == "agent" and is_binary(enrollment_token) do
-      return_agent_enroll_script(package, enrollment_token)
+      return_agent_enroll_script(package, enrollment_token, base_url)
     else
       String.trim("""
       #!/bin/bash
       # ServiceRadar Edge Component Installer
-      # Component: #{s_component_type}
-      # Package ID: #{s_package_id}
+      # Component: #{component_type}
+      # Package ID: #{package.id}
       # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
 
       set -e
 
       SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-      COMPONENT_TYPE="#{s_component_type}"
+      COMPONENT_TYPE=#{Shell.literal(component_type)}
       INSTALL_DIR="/opt/serviceradar"
       CONFIG_DIR="/etc/serviceradar"
       CERT_DIR="$CONFIG_DIR/certs"
@@ -456,6 +480,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp generate_readme(package, opts) do
     component_type = effective_component_type(package.component_type)
     enrollment_token = onboarding_token(package, opts)
+    base_url = Keyword.get(opts, :base_url, default_base_url())
 
     """
     # ServiceRadar Edge Package
@@ -480,7 +505,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     - Sweep configurations
     - Deployment-specific settings
 
-    #{quick_start_section(component_type, enrollment_token)}
+    #{quick_start_section(component_type, enrollment_token, base_url)}
 
     ## Contents
 
@@ -513,38 +538,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   @sobelow_skip ["Traversal.FileModule"]
   defp create_tar_gz(files) do
-    # Create tarball entries
-    entries =
-      Enum.map(files, fn {name, content} ->
-        data =
-          case content do
-            nil -> ""
-            _ -> IO.iodata_to_binary(content)
-          end
-
-        {String.to_charlist(name), data}
-      end)
-
-    tmp_path =
-      Path.join(
-        System.tmp_dir!(),
-        "serviceradar-bundle-#{:erlang.unique_integer([:positive])}.tar.gz"
-      )
-
-    try do
-      case :erl_tar.create(String.to_charlist(tmp_path), entries, [:compressed]) do
-        :ok ->
-          case File.read(tmp_path) do
-            {:ok, tarball} -> {:ok, tarball}
-            {:error, reason} -> {:error, reason}
-          end
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    after
-      _ = File.rm(tmp_path)
-    end
+    TempArchive.create_tar_gz("serviceradar-bundle", files)
   end
 
   # Kubernetes manifest generation
@@ -781,48 +775,61 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp onboarding_token(package, opts) do
     download_token = Keyword.get(opts, :download_token)
     base_url = Keyword.get(opts, :base_url, default_base_url())
+    onboarding_token_private_key = Keyword.get(opts, :onboarding_token_private_key)
 
     if is_binary(download_token) and download_token != "" do
-      case OnboardingToken.encode(package.id, download_token, base_url) do
+      case OnboardingToken.encode(
+             package.id,
+             download_token,
+             base_url,
+             private_key: onboarding_token_private_key
+           ) do
         {:ok, token} -> token
-        _ -> nil
+        {:error, reason} -> raise ArgumentError, "failed to generate signed onboarding token: #{inspect(reason)}"
       end
     end
   end
 
-  defp return_agent_enroll_script(package, token) do
-    s_package_id = sanitize_shell_arg(package.id)
-    s_token = sanitize_shell_arg(token)
-
+  defp return_agent_enroll_script(package, token, base_url) do
     String.trim("""
     #!/bin/bash
     # ServiceRadar Agent Enrollment
-    # Package ID: #{s_package_id}
+    # Package ID: #{package.id}
     # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
 
     set -e
 
     echo "Enrolling ServiceRadar agent..."
-    /usr/local/bin/serviceradar-cli enroll --token "#{s_token}"
+    /usr/local/bin/serviceradar-cli enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(token)}
 
     echo ""
     echo "Enrollment complete."
     """)
   end
 
-  defp quick_start_section("agent", token) when is_binary(token) do
+  defp quick_start_section("agent", token, base_url) when is_binary(token) do
     """
     ## Quick Start
 
     Enroll the agent with the onboarding token (no config edits required):
 
     ```bash
-    /usr/local/bin/serviceradar-cli enroll --token #{token}
+    /usr/local/bin/serviceradar-cli enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(token)}
     ```
     """
   end
 
-  defp quick_start_section(component_type, _token) do
+  defp quick_start_section("agent", _token, _base_url) do
+    """
+    ## Quick Start
+
+    This bundle did not include an onboarding token. Configure
+    `SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY` on `web-ng` to emit signed
+    `edgepkg-v2` enrollment tokens automatically.
+    """
+  end
+
+  defp quick_start_section(component_type, _token, _base_url) do
     """
     ## Quick Start
 
@@ -911,6 +918,16 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp derive_gateway_addr(_), do: nil
+
+  defp agent_release_public_key(opts) do
+    opts
+    |> Keyword.get(:agent_release_public_key)
+    |> normalize_string()
+    |> case do
+      nil -> normalize_string(Application.get_env(:serviceradar_web_ng, :agent_release_public_key))
+      public_key -> public_key
+    end
+  end
 
   defp derive_gateway_host(host) when is_binary(host) do
     host = String.trim(host)

@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.OnboardingPackages
 
+  @onboarding_token_private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+
   setup do
     # Create a test package
     {:ok, result} =
@@ -22,6 +24,24 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       package: result.package,
       join_token: result.join_token,
       download_token: result.download_token
+    }
+  end
+
+  setup %{package: _package} do
+    {:ok, result} =
+      OnboardingPackages.create(
+        %{
+          label: "test-agent-bundle-pkg",
+          component_type: :agent,
+          component_id: "agent-test-bundle"
+        },
+        actor: system_actor()
+      )
+
+    %{
+      agent_package: result.package,
+      agent_join_token: result.join_token,
+      agent_download_token: result.download_token
     }
   end
 
@@ -85,6 +105,36 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       assert config_yaml =~ "gateway_security:"
       assert config_yaml =~ "tls:"
       assert config_yaml =~ "component.pem"
+    end
+
+    test "encodes YAML string values as a single safe scalar", %{
+      package: package,
+      join_token: join_token
+    } do
+      malicious_gateway_addr = "demo-gw.serviceradar.cloud:50052\\\nmalicious: true"
+
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          gateway_addr: malicious_gateway_addr
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, config_yaml} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config.yaml")
+        end)
+
+      gateway_line =
+        config_yaml
+        |> String.split("\n")
+        |> Enum.find(&String.starts_with?(&1, "gateway_addr: "))
+
+      assert gateway_line =~ "gateway_addr: \"demo-gw.serviceradar.cloud:50052\\\\\\\\\\nmalicious: true\""
+      refute config_yaml =~ "\nmalicious: true\n"
     end
 
     test "handles empty bundle_pem gracefully", %{package: package, join_token: join_token} do
@@ -198,6 +248,108 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
     end
   end
 
+  describe "agent release verification override" do
+    test "agent bundle includes agent-env-overrides.env when release key is configured", %{
+      agent_package: package,
+      agent_join_token: join_token
+    } do
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          agent_release_public_key: "dLbXN6ouezVOgWJhOPoGTm1moz8MuxDcPmX5RdjM0Ns="
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, overrides} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config/agent-env-overrides.env")
+        end)
+
+      assert overrides =~ "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=dLbXN6ouezVOgWJhOPoGTm1moz8MuxDcPmX5RdjM0Ns="
+
+      {_, config_json} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config/config.json")
+        end)
+
+      config = Jason.decode!(config_json)
+      refute Map.has_key?(config, "release_public_key")
+      refute Map.has_key?(config, "agent_release_public_key")
+    end
+
+    test "agent bundle omits agent-env-overrides.env when release key is not configured", %{
+      agent_package: package,
+      agent_join_token: join_token
+    } do
+      {:ok, tarball} = BundleGenerator.create_tarball(package, "", join_token)
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      refute Enum.any?(files, fn {name, _} ->
+               name |> to_string() |> String.ends_with?("config/agent-env-overrides.env")
+             end)
+    end
+  end
+
+  describe "agent enrollment instructions" do
+    test "agent install script passes an explicit core-url with the onboarding token", %{
+      agent_package: package,
+      agent_join_token: join_token,
+      agent_download_token: download_token
+    } do
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          base_url: "https://demo.serviceradar.cloud",
+          download_token: download_token,
+          onboarding_token_private_key: @onboarding_token_private_key
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, install_sh} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("install.sh")
+        end)
+
+      assert install_sh =~
+               "/usr/local/bin/serviceradar-cli enroll --core-url 'https://demo.serviceradar.cloud' --token '"
+    end
+
+    test "agent install script treats tokenized values as shell literals", %{
+      agent_package: package,
+      agent_join_token: join_token,
+      agent_download_token: download_token
+    } do
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          base_url: "https://demo.serviceradar.cloud/$(touch /tmp/pwned)",
+          download_token: download_token,
+          onboarding_token_private_key: @onboarding_token_private_key
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, install_sh} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("install.sh")
+        end)
+
+      assert install_sh =~
+               "/usr/local/bin/serviceradar-cli enroll --core-url 'https://demo.serviceradar.cloud/$(touch /tmp/pwned)'"
+
+      refute install_sh =~
+               "/usr/local/bin/serviceradar-cli enroll --core-url \"https://demo.serviceradar.cloud/$(touch /tmp/pwned)\""
+    end
+  end
+
   describe "docker_install_command/3" do
     test "generates valid docker install command", %{
       package: package,
@@ -206,8 +358,10 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       cmd = BundleGenerator.docker_install_command(package, download_token)
 
       assert cmd =~ "curl -fsSL"
+      assert cmd =~ "-X POST"
+      assert cmd =~ ~S|x-serviceradar-download-token: ${SR_TOKEN}|
       assert cmd =~ package.id
-      assert cmd =~ download_token
+      refute cmd =~ download_token
       assert cmd =~ "docker run"
       assert cmd =~ "serviceradar-gateway"
     end
@@ -216,7 +370,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       cmd =
         BundleGenerator.docker_install_command(package, download_token, base_url: "https://custom.example.com")
 
-      assert cmd =~ "https://custom.example.com"
+      assert cmd =~ "'https://custom.example.com/api/edge-packages/"
     end
 
     test "uses custom image_tag option", %{package: package, download_token: download_token} do
@@ -234,8 +388,10 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       cmd = BundleGenerator.systemd_install_command(package, download_token)
 
       assert cmd =~ "curl -fsSL"
+      assert cmd =~ "-X POST"
+      assert cmd =~ ~S|x-serviceradar-download-token: ${SR_TOKEN}|
       assert cmd =~ package.id
-      assert cmd =~ download_token
+      refute cmd =~ download_token
       assert cmd =~ "sudo ./install.sh"
     end
 
@@ -243,7 +399,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       cmd =
         BundleGenerator.systemd_install_command(package, download_token, base_url: "https://my-server.local")
 
-      assert cmd =~ "https://my-server.local"
+      assert cmd =~ "'https://my-server.local/api/edge-packages/"
     end
   end
 
@@ -255,17 +411,19 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       cmd = BundleGenerator.kubernetes_install_command(package, download_token)
 
       assert cmd =~ "curl -fsSL"
+      assert cmd =~ "-X POST"
+      assert cmd =~ ~S|x-serviceradar-download-token: ${SR_TOKEN}|
       assert cmd =~ package.id
-      assert cmd =~ download_token
+      refute cmd =~ download_token
       assert cmd =~ "kubectl apply -f kubernetes/"
-      assert cmd =~ "-n serviceradar"
+      assert cmd =~ "-n 'serviceradar'"
     end
 
     test "uses custom namespace option", %{package: package, download_token: download_token} do
       cmd =
         BundleGenerator.kubernetes_install_command(package, download_token, namespace: "my-namespace")
 
-      assert cmd =~ "-n my-namespace"
+      assert cmd =~ "-n 'my-namespace'"
     end
   end
 

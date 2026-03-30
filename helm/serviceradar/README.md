@@ -93,9 +93,12 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 
 - Ingress is disabled by default; set `ingress.enabled=true` and provide `ingress.host` (plus TLS settings if needed).
 - A pre-install hook auto-generates `serviceradar-secrets` (JWT/API key, admin password + bcrypt hash) unless you disable it with `--set secrets.autoGenerate=false`. If you disable it, create the secret yourself at `secrets.existingSecretName` (default `serviceradar-secrets`).
+- That shared secret also owns the default edge onboarding signing key and Erlang cluster cookie. Leave `secrets.edgeOnboardingKey` and `webNg.clusterCookie` empty to auto-generate unique install-scoped values; set them explicitly only when you need deterministic secret material or are rotating to a planned replacement.
+- If `secrets.autoGenerate=false`, your pre-created secret must also include `edge-onboarding-key`, `cluster-cookie`, `web-ng-secret-key-base`, and the other runtime keys expected by the chart.
 - A pre-install hook also generates the runtime certificate bundle and publishes it to `certs.runtimeSecretName` (default `serviceradar-runtime-certs`).
 - The chart does not generate image pull secrets; create `ghcr-io-cred` (or override `image.registryPullSecret`).
 - SPIFFE/SPIRE is optional. Enable it with `--set spire.enabled=true` (and `--set spire.postgres.enabled=true` if you also want the in-chart SPIRE database resources).
+- When SPIRE mode is enabled, the SPIRE server now stays internal by default (`spire.server.serviceType=ClusterIP`), the SPIRE health port is not published unless you explicitly set `spire.server.exposeHealthPort=true`, and kubelet verification stays enabled unless you explicitly set `spire.agent.skipKubeletVerification=true`.
 - The SPIRE controller manager sidecar can be disabled with `--set spire.controllerManager.enabled=false` if you do not need webhook-managed entries.
 
 ### MTR Automation Rollout

@@ -17,37 +17,69 @@
 package mtls
 
 import (
+	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 )
 
-const tokenPrefix = "edgepkg-v1:"
+const (
+	tokenV2Prefix               = "edgepkg-v2:"
+	onboardingTokenPublicKeyEnv = "SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY"
+	onboardingTokenSignatureSep = "."
+)
 
-// TokenPayload contains the decoded information from an edgepkg-v1 token.
+var errTokenPublicKeyLengthInvalid = errors.New("invalid onboarding token public key length")
+
+// TokenPayload contains the decoded information from an edge onboarding token.
 type TokenPayload struct {
 	PackageID     string `json:"pkg"`
 	DownloadToken string `json:"dl"`
 	CoreURL       string `json:"api,omitempty"`
 }
 
-// ParseToken parses an edgepkg-v1 token and returns its payload.
-// The fallbackHost is used if the token doesn't contain a Core API URL.
+// ParseToken parses a signed edge onboarding token and returns its payload.
 func ParseToken(raw, fallbackHost string) (*TokenPayload, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, ErrTokenRequired
 	}
 
-	if !strings.HasPrefix(raw, tokenPrefix) {
+	if !strings.HasPrefix(raw, tokenV2Prefix) {
 		return nil, ErrUnsupportedTokenFormat
 	}
 
-	encoded := strings.TrimPrefix(raw, tokenPrefix)
-	data, err := base64.RawURLEncoding.DecodeString(encoded)
+	return parseSignedToken(raw, fallbackHost)
+}
+
+func parseSignedToken(raw, fallbackHost string) (*TokenPayload, error) {
+	encoded := strings.TrimPrefix(raw, tokenV2Prefix)
+	encodedPayload, encodedSignature, ok := strings.Cut(encoded, onboardingTokenSignatureSep)
+	if !ok || encodedPayload == "" || encodedSignature == "" {
+		return nil, ErrMalformedToken
+	}
+
+	data, err := base64.RawURLEncoding.DecodeString(encodedPayload)
 	if err != nil {
-		return nil, fmt.Errorf("decode token: %w", err)
+		return nil, fmt.Errorf("decode token payload: %w", err)
+	}
+
+	signature, err := base64.RawURLEncoding.DecodeString(encodedSignature)
+	if err != nil {
+		return nil, fmt.Errorf("decode token signature: %w", err)
+	}
+
+	publicKey, err := onboardingTokenPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	if !ed25519.Verify(publicKey, data, signature) {
+		return nil, ErrInvalidTokenSignature
 	}
 
 	var payload TokenPayload
@@ -61,7 +93,7 @@ func ParseToken(raw, fallbackHost string) (*TokenPayload, error) {
 	if strings.TrimSpace(payload.DownloadToken) == "" {
 		return nil, ErrMissingDownloadToken
 	}
-	if payload.CoreURL == "" {
+	if strings.TrimSpace(payload.CoreURL) == "" {
 		payload.CoreURL = strings.TrimSpace(fallbackHost)
 	}
 	if payload.CoreURL == "" {
@@ -69,4 +101,40 @@ func ParseToken(raw, fallbackHost string) (*TokenPayload, error) {
 	}
 
 	return &payload, nil
+}
+
+func onboardingTokenPublicKey() (ed25519.PublicKey, error) {
+	raw := strings.TrimSpace(os.Getenv(onboardingTokenPublicKeyEnv))
+	if raw == "" {
+		return nil, ErrTokenPublicKeyRequired
+	}
+
+	keyBytes, err := decodeOnboardingTokenKey(raw)
+	if err != nil {
+		return nil, fmt.Errorf("decode onboarding token public key: %w", err)
+	}
+	if len(keyBytes) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("%w: got %d bytes", errTokenPublicKeyLengthInvalid, len(keyBytes))
+	}
+
+	return ed25519.PublicKey(keyBytes), nil
+}
+
+func decodeOnboardingTokenKey(raw string) ([]byte, error) {
+	raw = strings.TrimSpace(raw)
+	decodeFns := []func(string) ([]byte, error){
+		base64.StdEncoding.DecodeString,
+		base64.RawStdEncoding.DecodeString,
+		base64.URLEncoding.DecodeString,
+		base64.RawURLEncoding.DecodeString,
+		hex.DecodeString,
+	}
+
+	for _, decodeFn := range decodeFns {
+		if decoded, err := decodeFn(raw); err == nil {
+			return decoded, nil
+		}
+	}
+
+	return nil, ErrMalformedToken
 }

@@ -132,7 +132,11 @@ impl Config {
                 anyhow::anyhow!("grpc_security is required when grpc_listen_addr is set")
             })?;
             match sec.mode {
-                SecurityMode::None => {}
+                SecurityMode::None => {
+                    anyhow::bail!(
+                        "grpc_security.mode \"none\" is not allowed when grpc_listen_addr is set"
+                    );
+                }
                 SecurityMode::Mtls => {
                     if sec.cert_file.is_none()
                         || sec.key_file.is_none()
@@ -212,6 +216,22 @@ mod tests {
         assert!(
             err.to_string().contains("trust_domain"),
             "error should mention missing trust_domain: {err}"
+        );
+    }
+
+    #[test]
+    fn grpc_security_none_is_rejected() {
+        let mut cfg = base_config();
+        if let Some(security) = cfg.grpc_security.as_mut() {
+            security.mode = SecurityMode::None;
+            security.trust_domain = None;
+            security.workload_socket = None;
+        }
+
+        let err = cfg.validate().expect_err("expected validation error");
+        assert!(
+            err.to_string().contains("grpc_security.mode \"none\""),
+            "error should mention rejected grpc none mode: {err}"
         );
     }
 

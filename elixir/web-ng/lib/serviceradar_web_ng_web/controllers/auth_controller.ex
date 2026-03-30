@@ -24,12 +24,19 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Auth.Hooks
+  alias ServiceRadarWebNGWeb.Auth.RateLimiter
+  alias ServiceRadarWebNGWeb.AuthURL
   alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.UserAuth
 
   require Logger
 
   plug :fetch_session
+
+  @password_auth_rate_limit 10
+  @password_auth_window 60
+  @password_reset_rate_limit 5
+  @password_reset_window 300
 
   @doc """
   Shows the password reset request form.
@@ -47,26 +54,44 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   Authenticates the user with email and password, then creates a Guardian JWT token.
   """
   def create(conn, %{"user" => %{"email" => email, "password" => password}}) do
-    actor = SystemActor.system(:auth_controller)
+    client_ip = ClientIP.get(conn)
 
-    case User.authenticate(email, password, actor: actor) do
-      {:ok, user} ->
-        # Record authentication timestamp for sudo mode
-        User.record_authentication(user, actor: actor)
-
-        # Trigger auth hooks
-        Hooks.on_user_authenticated(user, %{"method" => "password"})
-
-        _ = UserAuthEvents.record_login(conn, user, :password)
+    case RateLimiter.check_rate_limit_and_record("password_auth", client_ip,
+           limit: @password_auth_rate_limit,
+           window_seconds: @password_auth_window
+         ) do
+      {:error, retry_after} ->
+        Logger.warning("Password auth rate limited for IP: #{client_ip}")
 
         conn
-        |> put_flash(:info, "Signed in successfully.")
-        |> UserAuth.log_in_user(user)
-
-      {:error, _} ->
-        conn
-        |> put_flash(:error, "Invalid email or password.")
+        |> put_flash(
+          :error,
+          "Too many login attempts. Please try again in #{retry_after} seconds."
+        )
         |> redirect(to: ~p"/users/log-in")
+
+      :ok ->
+        actor = SystemActor.system(:auth_controller)
+
+        case User.authenticate(email, password, actor: actor) do
+          {:ok, user} ->
+            # Record authentication timestamp for sudo mode
+            User.record_authentication(user, actor: actor)
+
+            # Trigger auth hooks
+            Hooks.on_user_authenticated(user, %{"method" => "password"})
+
+            _ = UserAuthEvents.record_login(conn, user, :password)
+
+            conn
+            |> put_flash(:info, "Signed in successfully.")
+            |> UserAuth.log_in_user(user)
+
+          {:error, _} ->
+            conn
+            |> put_flash(:error, "Invalid email or password.")
+            |> redirect(to: ~p"/users/log-in")
+        end
     end
   end
 
@@ -88,12 +113,13 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   Rate limited to 5 attempts per minute per IP.
   """
   def local_sign_in(conn, %{"user" => %{"email" => email, "password" => password}}) do
-    alias ServiceRadarWebNGWeb.Auth.RateLimiter
-
     client_ip = ClientIP.get(conn)
 
     # Check rate limit
-    case RateLimiter.check_rate_limit("local_auth", client_ip, limit: 5, window_seconds: 60) do
+    case RateLimiter.check_rate_limit_and_record("local_auth", client_ip,
+           limit: 5,
+           window_seconds: 60
+         ) do
       {:error, retry_after} ->
         Logger.warning("Local auth rate limited for IP: #{client_ip}")
 
@@ -105,9 +131,6 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         |> redirect(to: ~p"/auth/local")
 
       :ok ->
-        # Record the attempt
-        RateLimiter.record_attempt("local_auth", client_ip)
-
         actor = SystemActor.system(:auth_controller)
 
         case User.authenticate(email, password, actor: actor) do
@@ -142,39 +165,50 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   Sends a password reset email with a Guardian token.
   """
   def request_reset(conn, %{"user" => %{"email" => email}}) do
-    actor = SystemActor.system(:auth_controller)
+    client_ip = ClientIP.get(conn)
 
-    # Always show the same message to prevent email enumeration
-    case User.get_by_email(email, actor: actor) do
-      {:ok, user} ->
-        # Generate a password reset token
-        case Guardian.create_access_token(user, token_type: "reset", ttl: {1, :hour}) do
-          {:ok, token, _claims} ->
-            # Send the reset email
-            reset_url = url(~p"/auth/password-reset/#{token}")
+    case RateLimiter.check_rate_limit_and_record("password_reset", client_ip,
+           limit: @password_reset_rate_limit,
+           window_seconds: @password_reset_window
+         ) do
+      {:error, retry_after} ->
+        Logger.warning("Password reset rate limited for IP: #{client_ip}")
 
-            ServiceRadarWebNG.Accounts.UserNotifier.deliver_reset_password_instructions(
-              user,
-              reset_url
-            )
+        conn
+        |> put_flash(
+          :error,
+          "Too many password reset requests. Please try again in #{retry_after} seconds."
+        )
+        |> redirect(to: ~p"/users/log-in")
 
-            :ok
+      :ok ->
+        actor = SystemActor.system(:auth_controller)
 
-          {:error, _} ->
-            :ok
-        end
+        # Always show the same message to prevent email enumeration
+        :ok = maybe_send_password_reset(email, actor)
 
-      {:error, _} ->
-        # Don't reveal whether the email exists
-        :ok
+        conn
+        |> put_flash(
+          :info,
+          "If your email is in our system, you will receive instructions to reset your password."
+        )
+        |> redirect(to: ~p"/users/log-in")
+    end
+  end
+
+  defp maybe_send_password_reset(email, actor) do
+    with {:ok, user} <- User.get_by_email(email, actor: actor),
+         {:ok, token, _claims} <-
+           Guardian.create_access_token(user, token_type: "reset", ttl: {1, :hour}) do
+      reset_url = AuthURL.password_reset_url(token)
+
+      ServiceRadarWebNG.Accounts.UserNotifier.deliver_reset_password_instructions(
+        user,
+        reset_url
+      )
     end
 
-    conn
-    |> put_flash(
-      :info,
-      "If your email is in our system, you will receive instructions to reset your password."
-    )
-    |> redirect(to: ~p"/users/log-in")
+    :ok
   end
 
   @doc """

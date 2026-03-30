@@ -1,0 +1,162 @@
+defmodule ServiceRadar.Policies.NetworkAddressPolicy do
+  @moduledoc """
+  Shared helpers for rejecting loopback, link-local, and private network addresses
+  in outbound fetch policies.
+  """
+
+  import Bitwise
+
+  @private_ipv4_cidrs [
+    {{10, 0, 0, 0}, 8},
+    {{172, 16, 0, 0}, 12},
+    {{192, 168, 0, 0}, 16},
+    {{127, 0, 0, 0}, 8},
+    {{169, 254, 0, 0}, 16}
+  ]
+
+  @spec validate_public_host(String.t()) :: :ok | {:error, atom()}
+  def validate_public_host(host) when is_binary(host) do
+    case resolve_public_host(host) do
+      {:ok, _addresses} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def validate_public_host(_host), do: {:error, :invalid_url}
+
+  @spec resolve_public_host(String.t()) :: {:ok, [tuple()]} | {:error, atom()}
+  def resolve_public_host(host) when is_binary(host) do
+    host_down = String.downcase(String.trim(host))
+
+    cond do
+      host_down == "" ->
+        {:error, :invalid_url}
+
+      host_down in ["localhost", "localhost.localdomain"] ->
+        {:error, :disallowed_host}
+
+      String.ends_with?(host_down, ".local") ->
+        {:error, :disallowed_host}
+
+      true ->
+        resolve_host_addresses(host_down)
+    end
+  end
+
+  def resolve_public_host(_host), do: {:error, :invalid_url}
+
+  @spec private_or_loopback_ip?(tuple()) :: boolean()
+  def private_or_loopback_ip?({_, _, _, _} = ip) do
+    Enum.any?(@private_ipv4_cidrs, fn {base, bits} -> in_cidr?(ip, base, bits) end)
+  end
+
+  def private_or_loopback_ip?({_, _, _, _, _, _, _, _} = ip), do: private_or_loopback_ipv6?(ip)
+  def private_or_loopback_ip?(_ip), do: true
+
+  @spec ip_in_any_cidr?(tuple(), [String.t()]) :: boolean()
+  def ip_in_any_cidr?(ip, cidrs) when is_list(cidrs) do
+    Enum.any?(cidrs, &cidr_contains?(ip, &1))
+  end
+
+  @spec cidr_contains?(tuple(), String.t()) :: boolean()
+  def cidr_contains?(ip, cidr) when is_binary(cidr) do
+    with {:ok, {base, bits, size_bits}} <- parse_cidr(cidr),
+         true <- tuple_size(ip) == tuple_size(base) do
+      mask = cidr_mask(size_bits, bits)
+      (ip_to_int(ip) &&& mask) == (ip_to_int(base) &&& mask)
+    else
+      _ -> false
+    end
+  end
+
+  def cidr_contains?(_ip, _cidr), do: false
+
+  defp resolve_host_addresses(host) do
+    case :inet.parse_address(String.to_charlist(host)) do
+      {:ok, ip} ->
+        if private_or_loopback_ip?(ip), do: {:error, :disallowed_host}, else: {:ok, [ip]}
+
+      {:error, _} ->
+        resolve_and_validate(host)
+    end
+  end
+
+  defp resolve_and_validate(host) do
+    charlist = String.to_charlist(host)
+    ipv4 = :inet.getaddrs(charlist, :inet)
+    ipv6 = :inet.getaddrs(charlist, :inet6)
+
+    case {ipv4, ipv6} do
+      {{:ok, v4}, {:ok, v6}} ->
+        all_addrs = v4 ++ v6
+
+        if Enum.any?(all_addrs, &private_or_loopback_ip?/1),
+          do: {:error, :disallowed_host},
+          else: {:ok, all_addrs}
+
+      {{:ok, v4}, _} ->
+        if Enum.any?(v4, &private_or_loopback_ip?/1),
+          do: {:error, :disallowed_host},
+          else: {:ok, v4}
+
+      {_, {:ok, v6}} ->
+        if Enum.any?(v6, &private_or_loopback_ip?/1),
+          do: {:error, :disallowed_host},
+          else: {:ok, v6}
+
+      _ ->
+        {:error, :dns_resolution_failed}
+    end
+  end
+
+  defp private_or_loopback_ipv6?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
+  defp private_or_loopback_ipv6?({0, 0, 0, 0, 0, 0, 0, 0}), do: true
+  defp private_or_loopback_ipv6?({0xFE80, _, _, _, _, _, _, _}), do: true
+  defp private_or_loopback_ipv6?({0xFC00, _, _, _, _, _, _, _}), do: true
+  defp private_or_loopback_ipv6?({0xFD00, _, _, _, _, _, _, _}), do: true
+
+  defp private_or_loopback_ipv6?({w1, _, _, _, _, _, _, _}) when band(w1, 0xFE00) == 0xFC00,
+    do: true
+
+  defp private_or_loopback_ipv6?(_ip), do: false
+
+  defp parse_cidr(cidr) do
+    case String.split(String.trim(cidr), "/", parts: 2) do
+      [ip_text, bits_text] ->
+        with {:ok, ip} <- :inet.parse_address(String.to_charlist(ip_text)),
+             {bits, ""} <- Integer.parse(bits_text),
+             size_bits = ip_size_bits(ip),
+             true <- bits >= 0 and bits <= size_bits do
+          {:ok, {ip, bits, size_bits}}
+        else
+          _ -> {:error, :invalid_cidr}
+        end
+
+      _ ->
+        {:error, :invalid_cidr}
+    end
+  end
+
+  defp ip_size_bits({_a, _b, _c, _d}), do: 32
+  defp ip_size_bits({_a, _b, _c, _d, _e, _f, _g, _h}), do: 128
+
+  defp cidr_mask(_size_bits, 0), do: 0
+  defp cidr_mask(size_bits, bits), do: bnot((1 <<< (size_bits - bits)) - 1)
+
+  defp in_cidr?(ip, base, bits) do
+    mask = bnot((1 <<< (32 - bits)) - 1) &&& 0xFFFFFFFF
+    ip_int = ipv4_to_int(ip)
+    base_int = ipv4_to_int(base)
+    (ip_int &&& mask) == (base_int &&& mask)
+  end
+
+  defp ipv4_to_int({a, b, c, d}), do: (a <<< 24) + (b <<< 16) + (c <<< 8) + d
+
+  defp ip_to_int({a, b, c, d}), do: (a <<< 24) + (b <<< 16) + (c <<< 8) + d
+
+  defp ip_to_int(ip) when is_tuple(ip) do
+    ip
+    |> Tuple.to_list()
+    |> Enum.reduce(0, fn part, acc -> (acc <<< 16) + part end)
+  end
+end

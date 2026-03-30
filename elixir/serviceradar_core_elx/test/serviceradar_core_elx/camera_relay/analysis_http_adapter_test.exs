@@ -61,7 +61,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapterTest do
     assert {:ok, [%{"detection" => %{"label" => "person"}}]} =
              AnalysisHTTPAdapter.deliver(
                %{schema: "camera_analysis_input.v1"},
-               %{endpoint_url: "http://worker.local/analyze"},
+               %{endpoint_url: "https://worker.example.com/analyze"},
                request_module: ReqSuccessStub
              )
   end
@@ -70,7 +70,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapterTest do
     assert {:ok, [%{"detection" => %{"label" => "person"}}, %{"detection" => %{"label" => "car"}}]} =
              AnalysisHTTPAdapter.deliver(
                %{schema: "camera_analysis_input.v1"},
-               %{endpoint_url: "http://worker.local/analyze"},
+               %{endpoint_url: "https://worker.example.com/analyze"},
                request_module: ReqListSuccessStub
              )
   end
@@ -79,7 +79,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapterTest do
     assert {:error, {:http_status, 503, %{"error" => "down"}}} =
              AnalysisHTTPAdapter.deliver(
                %{schema: "camera_analysis_input.v1"},
-               %{endpoint_url: "http://worker.local/analyze"},
+               %{endpoint_url: "https://worker.example.com/analyze"},
                request_module: ReqHTTPErrorStub
              )
   end
@@ -88,7 +88,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapterTest do
     assert {:error, :timeout} =
              AnalysisHTTPAdapter.deliver(
                %{schema: "camera_analysis_input.v1"},
-               %{endpoint_url: "http://worker.local/analyze"},
+               %{endpoint_url: "https://worker.example.com/analyze"},
                request_module: ReqTimeoutStub
              )
   end
@@ -97,7 +97,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapterTest do
     assert {:error, :invalid_response} =
              AnalysisHTTPAdapter.deliver(
                %{schema: "camera_analysis_input.v1"},
-               %{endpoint_url: "http://worker.local/analyze"},
+               %{endpoint_url: "https://worker.example.com/analyze"},
                request_module: ReqInvalidBodyStub
              )
   end
@@ -106,54 +106,67 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapterTest do
     assert :ok =
              AnalysisHTTPAdapter.probe_health(
                %{
-                 endpoint_url: "http://worker.local/analyze",
-                 metadata: %{"health_endpoint_url" => "http://worker.local/readyz"}
+                 endpoint_url: "https://worker.example.com/analyze",
+                 metadata: %{"health_endpoint_url" => "https://worker.example.com/readyz"}
                },
                request_module: ReqHealthSuccessStub
              )
 
-    assert_receive {:health_get, "http://worker.local/readyz"}
+    assert_receive {:health_get, "https://worker.example.com/readyz"}
   end
 
   test "prefers explicit probe fields over metadata fallback" do
     assert :ok =
              AnalysisHTTPAdapter.probe_health(
                %{
-                 endpoint_url: "http://worker.local/analyze",
-                 health_endpoint_url: "http://worker.local/probe",
+                 endpoint_url: "https://worker.example.com/analyze",
+                 health_endpoint_url: "https://worker.example.com/probe",
                  health_timeout_ms: 1800,
                  metadata: %{
-                   "health_endpoint_url" => "http://worker.local/readyz",
+                   "health_endpoint_url" => "https://worker.example.com/readyz",
                    "health_timeout_ms" => 900
                  }
                },
                request_module: ReqHealthSuccessStub
              )
 
-    assert_receive {:health_get, "http://worker.local/probe"}
+    assert_receive {:health_get, "https://worker.example.com/probe"}
   end
 
   test "derives a health path from the worker endpoint when no explicit endpoint is configured" do
     assert :ok =
              AnalysisHTTPAdapter.probe_health(
                %{
-                 endpoint_url: "http://worker.local/analyze",
+                 endpoint_url: "https://worker.example.com/analyze",
                  metadata: %{"health_path" => "/status"}
                },
                request_module: ReqHealthSuccessStub
              )
 
-    assert_receive {:health_get, "http://worker.local/status"}
+    assert_receive {:health_get, "https://worker.example.com/status"}
   end
 
   test "returns an http status error for failed health probes" do
     assert {:error, {:http_status, 503, %{"error" => "down"}}} =
              AnalysisHTTPAdapter.probe_health(
                %{
-                 endpoint_url: "http://worker.local/analyze",
+                 endpoint_url: "https://worker.example.com/analyze",
                  metadata: %{}
                },
                request_module: ReqHealthFailureStub
              )
+  end
+
+  test "rejects unsafe worker endpoints before issuing a request" do
+    assert {:error, :disallowed_scheme} =
+             AnalysisHTTPAdapter.deliver(
+               %{schema: "camera_analysis_input.v1"},
+               %{endpoint_url: "http://worker.example.com/analyze"}
+             )
+
+    assert {:error, :disallowed_host} =
+             AnalysisHTTPAdapter.probe_health(%{
+               endpoint_url: "https://127.0.0.1/analyze"
+             })
   end
 end

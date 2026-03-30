@@ -164,8 +164,28 @@ plugin_storage_defaults = Application.get_env(:serviceradar_web_ng, :plugin_stor
 plugin_storage_backend = System.get_env("PLUGIN_STORAGE_BACKEND")
 plugin_storage_path = System.get_env("PLUGIN_STORAGE_PATH")
 plugin_storage_bucket = System.get_env("PLUGIN_STORAGE_BUCKET")
-plugin_storage_signing_secret = System.get_env("PLUGIN_STORAGE_SIGNING_SECRET")
 plugin_verification_defaults = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
+client_ip_defaults = Application.get_env(:serviceradar_web_ng, :client_ip, [])
+
+read_secret_env = fn env_name, file_env_name ->
+  case System.get_env(env_name) do
+    nil ->
+      case System.get_env(file_env_name) do
+        nil -> nil
+        "" -> nil
+        path -> path |> File.read!() |> String.trim()
+      end
+
+    "" ->
+      nil
+
+    value ->
+      value
+  end
+end
+
+plugin_storage_signing_secret =
+  read_secret_env.("PLUGIN_STORAGE_SIGNING_SECRET", "PLUGIN_STORAGE_SIGNING_SECRET_FILE")
 
 to_int = fn value ->
   cond do
@@ -198,6 +218,52 @@ to_bool = fn value ->
         "no" -> false
         _ -> nil
       end
+
+    true ->
+      nil
+  end
+end
+
+to_csv_list = fn value ->
+  cond do
+    is_list(value) ->
+      value
+
+    is_binary(value) ->
+      value
+      |> String.split(",", trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    true ->
+      nil
+  end
+end
+
+to_csv_map = fn value ->
+  cond do
+    is_map(value) ->
+      value
+
+    is_binary(value) ->
+      value
+      |> String.split(",", trim: true)
+      |> Enum.reduce(%{}, fn entry, acc ->
+        case String.split(entry, "=", parts: 2) do
+          [key, val] ->
+            key = String.trim(key)
+            val = String.trim(val)
+
+            if key == "" or val == "" do
+              acc
+            else
+              Map.put(acc, key, val)
+            end
+
+          _ ->
+            acc
+        end
+      end)
 
     true ->
       nil
@@ -343,11 +409,59 @@ plugin_verification_overrides =
     System.get_env("PLUGIN_ALLOW_UNSIGNED_UPLOADS"),
     to_bool
   )
+  |> maybe_put_env.(
+    :trusted_github_signers,
+    System.get_env("PLUGIN_TRUSTED_GITHUB_SIGNERS"),
+    to_csv_list
+  )
+  |> maybe_put_env.(
+    :trusted_github_owners,
+    System.get_env("PLUGIN_TRUSTED_GITHUB_OWNERS"),
+    to_csv_list
+  )
+  |> maybe_put_env.(
+    :trusted_github_repositories,
+    System.get_env("PLUGIN_TRUSTED_GITHUB_REPOSITORIES"),
+    to_csv_list
+  )
+  |> maybe_put_env.(
+    :trusted_upload_signing_keys,
+    System.get_env("PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS"),
+    to_csv_map
+  )
 
 if plugin_verification_overrides != [] do
   config :serviceradar_web_ng,
          :plugin_verification,
          Keyword.merge(plugin_verification_defaults, plugin_verification_overrides)
+end
+
+client_ip_overrides =
+  []
+  |> maybe_put_env.(
+    :trust_x_forwarded_for,
+    System.get_env("SERVICERADAR_TRUST_X_FORWARDED_FOR"),
+    to_bool
+  )
+  |> maybe_put_env.(
+    :trusted_proxy_cidrs,
+    System.get_env("SERVICERADAR_TRUSTED_PROXY_CIDRS"),
+    to_csv_list
+  )
+
+if client_ip_overrides != [] do
+  config :serviceradar_web_ng, :client_ip, Keyword.merge(client_ip_defaults, client_ip_overrides)
+end
+
+case System.get_env("SERVICERADAR_TOKEN_REVOCATION_STORE_PATH") do
+  nil ->
+    :ok
+
+  "" ->
+    :ok
+
+  store_path ->
+    config :serviceradar_web_ng, :token_revocation, store_path: store_path
 end
 
 # libcluster configuration for ERTS cluster formation
@@ -704,7 +818,7 @@ if config_env() == :prod do
   # to check this value into version control, so we use an environment
   # variable instead.
   secret_key_base =
-    System.get_env("SECRET_KEY_BASE") ||
+    read_secret_env.("SECRET_KEY_BASE", "SECRET_KEY_BASE_FILE") ||
       raise """
       environment variable SECRET_KEY_BASE is missing.
       You can generate one by calling: mix phx.gen.secret
@@ -779,6 +893,9 @@ if config_env() == :prod do
 
   gateway_addr = System.get_env("SERVICERADAR_GATEWAY_ADDR")
   gateway_server_name = System.get_env("SERVICERADAR_GATEWAY_SERVER_NAME")
+  agent_release_public_key = System.get_env("SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY")
+  onboarding_token_private_key = System.get_env("SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY")
+  onboarding_token_public_key = System.get_env("SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY")
 
   # Configure ServiceRadar.Repo from serviceradar_core
   config :serviceradar_core, ServiceRadar.Repo,
@@ -805,6 +922,18 @@ if config_env() == :prod do
 
   if is_binary(gateway_server_name) and String.trim(gateway_server_name) != "" do
     config :serviceradar_web_ng, :gateway_server_name, String.trim(gateway_server_name)
+  end
+
+  if is_binary(agent_release_public_key) and String.trim(agent_release_public_key) != "" do
+    config :serviceradar_web_ng, :agent_release_public_key, String.trim(agent_release_public_key)
+  end
+
+  if is_binary(onboarding_token_private_key) and String.trim(onboarding_token_private_key) != "" do
+    config :serviceradar_web_ng, :onboarding_token_private_key, String.trim(onboarding_token_private_key)
+  end
+
+  if is_binary(onboarding_token_public_key) and String.trim(onboarding_token_public_key) != "" do
+    config :serviceradar_web_ng, :onboarding_token_public_key, String.trim(onboarding_token_public_key)
   end
 
   nats_url = System.get_env("NATS_URL") || System.get_env("SERVICERADAR_NATS_URL")

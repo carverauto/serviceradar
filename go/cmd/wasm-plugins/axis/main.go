@@ -92,8 +92,8 @@ type axisEventWebSocket interface {
 	Close() error
 }
 
-var axisEventWebSocketConnect = func(rawURL string, timeout time.Duration) (axisEventWebSocket, error) {
-	return webSocketConnect(rawURL, timeout)
+var axisEventWebSocketConnect = func(rawURL string, headers map[string]string, timeout time.Duration) (axisEventWebSocket, error) {
+	return webSocketConnect(rawURL, headers, timeout)
 }
 
 func getEndpoint(ctx context.Context, client cameraHTTPGetter, path string) EndpointResult {
@@ -190,8 +190,7 @@ func run_check() {
 				collectAxisEvents(
 					scheme,
 					cfg.Host,
-					cfg.Username,
-					cfg.Password,
+					cfg.BasicAuthHeader(),
 					cfg.EventSources,
 					cfg.EventTopicFilters,
 					client.Timeout,
@@ -352,8 +351,7 @@ func collectStreamInfo(
 func collectAxisEvents(
 	scheme,
 	host,
-	username,
-	password,
+	authHeader,
 	sources,
 	topicFiltersRaw string,
 	timeout time.Duration,
@@ -369,10 +367,10 @@ func collectAxisEvents(
 	}
 
 	wsURL := fmt.Sprintf("%s://%s/vapix/ws-data-stream?sources=%s", wsScheme, host, sources)
-	wsURL = sdk.WithURLUserInfo(wsURL, username, password)
+	headers := axisEventHeaders(authHeader)
 
 	result := EndpointResult{Path: "/vapix/ws-data-stream"}
-	conn, err := axisEventWebSocketConnect(wsURL, timeout)
+	conn, err := axisEventWebSocketConnect(wsURL, headers, timeout)
 	if err != nil {
 		result.Error = "websocket connect failed: " + err.Error()
 		return nil, result
@@ -410,6 +408,15 @@ func collectAxisEvents(
 	result.Status = 200
 	result.EventCount = len(events)
 	return events, result
+}
+
+func axisEventHeaders(authHeader string) map[string]string {
+	authHeader = strings.TrimSpace(authHeader)
+	if authHeader == "" {
+		return nil
+	}
+
+	return map[string]string{"Authorization": authHeader}
 }
 
 func buildAxisEventFilterList(raw string) []map[string]string {

@@ -3,9 +3,15 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   Imports signed agent release metadata from repository-hosted release assets.
   """
 
+  alias ServiceRadarWebNG.Edge.ReleaseFetchPolicy
+
   @default_manifest_asset_name "serviceradar-agent-release-manifest.json"
   @default_signature_asset_name "serviceradar-agent-release-manifest.sig"
   @default_recent_release_limit 10
+  @max_asset_redirects 5
+  @github_repo_host "github.com"
+  @github_api_host "api.github.com"
+  @forgejo_host "code.carverauto.dev"
   @provider_options [
     {"GitHub Releases", "github"},
     {"Forgejo Releases", "forgejo"}
@@ -118,14 +124,13 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   defp validate_provider(_provider), do: {:error, "Select a supported release provider"}
 
   defp parse_repo_url("github", url) do
-    with {:ok, %URI{scheme: scheme, host: "github.com"} = uri} <- parse_uri(url),
-         true <- scheme in ["http", "https"],
+    with {:ok, %URI{scheme: "https", host: @github_repo_host} = uri} <- parse_uri(url),
          {:ok, owner, repo} <- repo_owner_and_name(uri.path) do
       {:ok,
        %{
          provider: "github",
-         repo_url: "#{scheme}://github.com/#{owner}/#{repo}",
-         api_base_url: "https://api.github.com",
+         repo_url: "https://#{@github_repo_host}/#{owner}/#{repo}",
+         api_base_url: "https://#{@github_api_host}",
          owner: owner,
          repo: repo
        }}
@@ -135,20 +140,18 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   end
 
   defp parse_repo_url("forgejo", url) do
-    with {:ok, %URI{scheme: scheme, host: host} = uri} <- parse_uri(url),
-         true <- scheme in ["http", "https"],
-         true <- is_binary(host) and host != "",
+    with {:ok, %URI{scheme: "https", host: @forgejo_host} = uri} <- parse_uri(url),
          {:ok, owner, repo} <- repo_owner_and_name(uri.path) do
       {:ok,
        %{
          provider: "forgejo",
-         repo_url: "#{scheme}://#{host_port(uri)}/#{owner}/#{repo}",
-         api_base_url: "#{scheme}://#{host_port(uri)}/api/v1",
+         repo_url: "https://#{host_port(uri)}/#{owner}/#{repo}",
+         api_base_url: "https://#{host_port(uri)}/api/v1",
          owner: owner,
          repo: repo
        }}
     else
-      _ -> {:error, "Forgejo repository URL must look like https://forgejo.example.com/<owner>/<repo>"}
+      _ -> {:error, "Forgejo repository URL must look like https://code.carverauto.dev/<owner>/<repo>"}
     end
   end
 
@@ -191,36 +194,42 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   defp fetch_release(repo, tag) do
     url = "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases/tags/#{URI.encode(tag)}"
 
-    case http_client().get(url, headers: api_headers(repo.provider)) do
-      {:ok, %Req.Response{status: 200, body: body}} when is_map(body) ->
-        {:ok, body}
+    with {:ok, request_url} <- validate_provider_api_url(repo, url),
+         {:ok, response} <- request(request_url, headers: api_headers(repo.provider), decode_body: true) do
+      case response do
+        %Req.Response{status: 200, body: body} when is_map(body) ->
+          {:ok, body}
 
-      {:ok, %Req.Response{status: 404}} ->
-        {:error, "Release tag #{tag} was not found for #{repo.owner}/#{repo.repo}"}
+        %Req.Response{status: 404} ->
+          {:error, "Release tag #{tag} was not found for #{repo.owner}/#{repo.repo}"}
 
-      {:ok, %Req.Response{status: status}} ->
-        {:error, "Release import failed with HTTP #{status}"}
-
+        %Req.Response{status: status} ->
+          {:error, "Release import failed with HTTP #{status}"}
+      end
+    else
       {:error, reason} ->
-        {:error, "Release import failed: #{inspect(reason)}"}
+        {:error, "Release import failed: #{format_request_error(reason)}"}
     end
   end
 
   defp fetch_recent_releases(repo, limit) do
     url = "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases?per_page=#{normalize_limit(limit)}"
 
-    case http_client().get(url, headers: api_headers(repo.provider)) do
-      {:ok, %Req.Response{status: 200, body: body}} when is_list(body) ->
-        {:ok, body}
+    with {:ok, request_url} <- validate_provider_api_url(repo, url),
+         {:ok, response} <- request(request_url, headers: api_headers(repo.provider), decode_body: true) do
+      case response do
+        %Req.Response{status: 200, body: body} when is_list(body) ->
+          {:ok, body}
 
-      {:ok, %Req.Response{status: 200, body: _body}} ->
-        {:error, "Release browser returned an unexpected payload"}
+        %Req.Response{status: 200, body: _body} ->
+          {:error, "Release browser returned an unexpected payload"}
 
-      {:ok, %Req.Response{status: status}} ->
-        {:error, "Recent releases could not be loaded (HTTP #{status})"}
-
+        %Req.Response{status: status} ->
+          {:error, "Recent releases could not be loaded (HTTP #{status})"}
+      end
+    else
       {:error, reason} ->
-        {:error, "Recent releases could not be loaded: #{inspect(reason)}"}
+        {:error, "Recent releases could not be loaded: #{format_request_error(reason)}"}
     end
   end
 
@@ -239,20 +248,40 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   defp fetch_binary_asset(repo, asset) do
     url = normalize_string(Map.get(asset, "browser_download_url"))
 
-    with {:ok, asset_url} <- require_value(url, "Release asset URL is missing") do
-      case http_client().get(asset_url, headers: asset_headers(repo.provider), decode_body: false) do
-        {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
-          {:ok, body}
+    with {:ok, asset_url} <- require_value(url, "Release asset URL is missing"),
+         {:ok, request_url} <- validate_provider_asset_url(repo, asset_url) do
+      fetch_binary_asset(repo, request_url, @max_asset_redirects)
+    end
+  end
 
-        {:ok, %Req.Response{status: 200, body: body}} ->
-          {:ok, IO.iodata_to_binary(body)}
+  defp fetch_binary_asset(_repo, _asset_url, remaining_redirects) when remaining_redirects < 0 do
+    {:error, "Release asset download exceeded redirect limit"}
+  end
 
-        {:ok, %Req.Response{status: status}} ->
-          {:error, "Release asset download failed with HTTP #{status}"}
+  defp fetch_binary_asset(repo, asset_url, remaining_redirects) do
+    headers = asset_headers(repo.provider, asset_url)
 
-        {:error, reason} ->
-          {:error, "Release asset download failed: #{inspect(reason)}"}
-      end
+    case request(asset_url, headers: headers, decode_body: false) do
+      {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
+        {:ok, body}
+
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        {:ok, IO.iodata_to_binary(body)}
+
+      {:ok, %Req.Response{status: status} = response} when status in [301, 302, 303, 307, 308] ->
+        with {:ok, redirect_url} <- redirect_location(asset_url, response),
+             {:ok, request_url} <- validate_provider_asset_url(repo, redirect_url) do
+          fetch_binary_asset(repo, request_url, remaining_redirects - 1)
+        else
+          {:error, reason} ->
+            {:error, "Release asset download failed: #{format_request_error(reason)}"}
+        end
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, "Release asset download failed with HTTP #{status}"}
+
+      {:error, reason} ->
+        {:error, "Release asset download failed: #{format_request_error(reason)}"}
     end
   end
 
@@ -335,15 +364,22 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
 
   defp normalize_string(value), do: value |> to_string() |> normalize_string()
 
-  defp api_headers("github") do
-    [{"user-agent", "serviceradar"}, {"accept", "application/vnd.github+json"} | auth_headers("github")]
-  end
+  defp api_headers("github"),
+    do: [{"user-agent", "serviceradar"}, {"accept", "application/vnd.github+json"} | auth_headers("github")]
 
   defp api_headers("forgejo") do
     [{"user-agent", "serviceradar"}, {"accept", "application/json"} | auth_headers("forgejo")]
   end
 
-  defp asset_headers(provider), do: [{"user-agent", "serviceradar"} | auth_headers(provider)]
+  defp asset_headers(provider, url) do
+    headers = [{"user-agent", "serviceradar"}]
+
+    if auth_host?(provider, url) do
+      headers ++ auth_headers(provider)
+    else
+      headers
+    end
+  end
 
   defp auth_headers("github") do
     case Application.get_env(:serviceradar_web_ng, :agent_release_import_github_token) ||
@@ -364,4 +400,90 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   defp http_client do
     Application.get_env(:serviceradar_web_ng, :agent_release_import_http_client, Req)
   end
+
+  defp request(url, opts) do
+    request_opts =
+      opts
+      |> Keyword.put(:redirect, false)
+      |> Keyword.merge(ReleaseFetchPolicy.req_opts())
+
+    http_client().get(url, request_opts)
+  end
+
+  defp validate_provider_api_url(repo, url) do
+    with {:ok, uri} <- validate_url(url),
+         true <- trusted_api_host?(repo.provider, uri.host) do
+      {:ok, URI.to_string(uri)}
+    else
+      false -> {:error, "release provider URL is not trusted"}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp validate_provider_asset_url(repo, url) do
+    with {:ok, uri} <- validate_url(url),
+         true <- trusted_asset_host?(repo.provider, uri.host) do
+      {:ok, URI.to_string(uri)}
+    else
+      false -> {:error, "release asset URL is not trusted"}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp validate_url(url) do
+    case ReleaseFetchPolicy.validate(url) do
+      {:ok, %URI{scheme: "https"} = uri} -> {:ok, uri}
+      {:error, _reason} = error -> error
+      _ -> {:error, :disallowed_url}
+    end
+  end
+
+  defp trusted_api_host?("github", host), do: host == @github_api_host
+  defp trusted_api_host?("forgejo", host), do: host == @forgejo_host
+  defp trusted_api_host?(_, _host), do: false
+
+  defp trusted_asset_host?("github", host) when is_binary(host) do
+    host == @github_repo_host or host == @github_api_host or String.ends_with?(host, ".githubusercontent.com")
+  end
+
+  defp trusted_asset_host?("forgejo", host), do: host == @forgejo_host
+  defp trusted_asset_host?(_, _host), do: false
+
+  defp auth_host?(provider, url) do
+    case URI.parse(url) do
+      %URI{host: host} when is_binary(host) ->
+        case provider do
+          "github" -> host in [@github_repo_host, @github_api_host]
+          "forgejo" -> host == @forgejo_host
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp redirect_location(request_url, response) do
+    case Req.Response.get_header(response, "location") do
+      [location | _] ->
+        resolved =
+          request_url
+          |> URI.parse()
+          |> URI.merge(location)
+          |> URI.to_string()
+
+        {:ok, resolved}
+
+      _ ->
+        {:error, :missing_redirect_location}
+    end
+  end
+
+  defp format_request_error(:disallowed_host), do: "destination host is not allowed"
+  defp format_request_error(:disallowed_scheme), do: "destination scheme is not allowed"
+  defp format_request_error(:dns_resolution_failed), do: "destination host could not be resolved"
+  defp format_request_error(:invalid_url), do: "destination URL is invalid"
+  defp format_request_error(:missing_redirect_location), do: "redirect location is missing"
+  defp format_request_error(reason) when is_binary(reason), do: reason
+  defp format_request_error(reason), do: inspect(reason)
 end

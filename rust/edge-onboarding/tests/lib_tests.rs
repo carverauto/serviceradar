@@ -70,15 +70,15 @@ fn test_try_onboard_whitespace_token() {
 #[test]
 fn test_mtls_bootstrap_config_fields() {
     let cfg = MtlsBootstrapConfig {
-        token: "edgepkg-v1:abc".to_string(),
-        host: Some("http://localhost:8090".to_string()),
+        token: "edgepkg-v2:abc.def".to_string(),
+        host: Some("https://core.example.com:8090".to_string()),
         bundle_path: None,
         cert_dir: Some("/tmp/certs".to_string()),
         service_name: Some("sysmon".to_string()),
     };
 
-    assert_eq!(cfg.token, "edgepkg-v1:abc");
-    assert_eq!(cfg.host.as_deref(), Some("http://localhost:8090"));
+    assert_eq!(cfg.token, "edgepkg-v2:abc.def");
+    assert_eq!(cfg.host.as_deref(), Some("https://core.example.com:8090"));
     assert!(cfg.bundle_path.is_none());
     assert_eq!(cfg.cert_dir.as_deref(), Some("/tmp/certs"));
     assert_eq!(cfg.service_name.as_deref(), Some("sysmon"));

@@ -45,5 +45,29 @@ fn test_download_package_with_empty_host() {
     assert!(matches!(result, Err(Error::CoreApiHostRequired)));
 }
 
+#[test]
+fn test_download_package_rejects_plaintext_http() {
+    let payload = TokenPayload {
+        package_id: "pkg-123".to_string(),
+        download_token: "dl-456".to_string(),
+        core_url: Some("http://core.example.com".to_string()),
+    };
+
+    let result = download_package(&payload);
+    assert!(matches!(result, Err(Error::CoreApiUrlMustUseHttps)));
+}
+
+#[test]
+fn test_download_package_rejects_scheme_less_host() {
+    let payload = TokenPayload {
+        package_id: "pkg-123".to_string(),
+        download_token: "dl-456".to_string(),
+        core_url: Some("core.example.com:8090".to_string()),
+    };
+
+    let result = download_package(&payload);
+    assert!(matches!(result, Err(Error::CoreApiUrlMustUseHttps)));
+}
+
 // Note: Full download tests require a running Core API server
 // and are better suited for integration/E2E tests.

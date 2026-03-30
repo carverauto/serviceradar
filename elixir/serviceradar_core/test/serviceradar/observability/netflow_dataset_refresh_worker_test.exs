@@ -19,7 +19,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerTest do
       Application.put_env(
         :serviceradar_core,
         NetflowProviderDatasetRefreshWorker,
-        source_url: "http://127.0.0.1:9/provider.json",
+        source_url: "https://127.0.0.1/provider.json",
         timeout_ms: 50,
         failure_reschedule_seconds: 60,
         reschedule_seconds: 60
@@ -36,7 +36,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerTest do
       Application.put_env(
         :serviceradar_core,
         NetflowOuiDatasetRefreshWorker,
-        source_url: "http://127.0.0.1:9/oui.csv",
+        source_url: "https://127.0.0.1/oui.csv",
         timeout_ms: 50,
         failure_reschedule_seconds: 60,
         reschedule_seconds: 60

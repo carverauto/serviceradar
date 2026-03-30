@@ -1,6 +1,6 @@
 # Edge Onboarding Library
 
-This package provides a common onboarding library for ServiceRadar edge services (gateways, agents, checkers) to automatically bootstrap themselves using an onboarding token.
+This package provides a common onboarding library for ServiceRadar edge services (gateways, agents, checkers) to automatically bootstrap themselves using an onboarding token over verified HTTPS.
 
 ## Overview
 
@@ -12,7 +12,7 @@ The edge onboarding library eliminates the need for manual shell scripts and con
 - **Sticky bootstrap configs** - Only KV/Core addresses are in static config (chicken/egg problem)
 - **Deployment-aware** - Automatically detects Docker, Kubernetes, or bare-metal and uses appropriate addresses
 - **Component-specific** - Gateways get nested SPIRE server, agents/checkers use workload API
-- **Self-contained** - Services only need an onboarding token to start
+- **Signed by default** - Services use signed onboarding tokens and verified HTTPS for bootstrap
 
 ## Usage
 
@@ -58,9 +58,9 @@ func main() {
 ### Docker Deployment Example
 
 ```bash
-# Just set the onboarding token - everything else is automatic
+# Just set a signed onboarding token - everything else is automatic
 docker run \
-  -e ONBOARDING_TOKEN=abc123xyz456 \
+  -e ONBOARDING_TOKEN=edgepkg-v2:<signed-token> \
   -e KV_ENDPOINT=23.138.124.23:50057 \
   ghcr.io/carverauto/serviceradar-agent-gateway:latest
 ```
@@ -74,8 +74,9 @@ docker run \
    - Determines appropriate addresses (LoadBalancer IPs for Docker, DNS for k8s)
 
 2. **Package Download**
-   - Downloads onboarding package from Core using token
+   - Downloads onboarding package from Core using verified HTTPS
    - Validates package contents and status
+   - Verifies signed `edgepkg-v2` tokens before trusting embedded metadata
    - Extracts decrypted SPIRE credentials
 
 3. **SPIRE Configuration**
@@ -87,6 +88,7 @@ docker run \
    - Generates component-specific config based on deployment type
    - Merges metadata from package (contains KV-sourced config)
    - Creates all required configuration files
+   - For agent-capable bundles, installs package-managed environment overrides such as `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY`
 
 5. **Registration**
    - Service automatically registers when it first connects
@@ -105,6 +107,7 @@ docker run \
 - Shares network namespace with gateway (in Docker)
 - Connects to KV to fetch checker configs
 - Configuration includes: KV address, parent gateway ID, workload API socket
+- Enrollment also merges any bundle-provided `agent-env-overrides.env` entries into `/etc/serviceradar/kv-overrides.env` without removing unrelated existing overrides
 
 #### Checker
 - Uses **workload API** from parent agent
@@ -177,6 +180,7 @@ KV_ENDPOINT=<host:port>        # Bootstrap config
 STORAGE_PATH=/var/lib/serviceradar
 DEPLOYMENT_TYPE=docker         # docker, kubernetes, bare-metal
 SERVICE_ID=my-gateway-1         # Override component ID
+SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY=<base64-ed25519-public-key>
 ```
 
 ## Generated Configurations

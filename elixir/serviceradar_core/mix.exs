@@ -58,7 +58,7 @@ defmodule ServiceRadarCore.MixProject do
       {:serviceradar_srql, path: "../serviceradar_srql"},
 
       # Ash Framework
-      {:ash, "~> 3.4"},
+      {:ash, "~> 3.22"},
       {:ash_postgres, "~> 2.4"},
       {:ash_oban, "~> 0.4"},
       {:ash_state_machine, "~> 0.2"},

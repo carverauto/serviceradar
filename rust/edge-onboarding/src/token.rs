@@ -16,15 +16,20 @@
 
 //! Token parsing for edge onboarding.
 //!
-//! Supports the `edgepkg-v1:<base64url>` token format.
+//! Supports the signed `edgepkg-v2:<payload>.<signature>` token format.
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
+use std::env;
 
 use crate::error::{Error, Result};
 
-const TOKEN_PREFIX: &str = "edgepkg-v1:";
+const TOKEN_PREFIX: &str = "edgepkg-v2:";
+const SIGNATURE_SEPARATOR: &str = ".";
+const ONBOARDING_TOKEN_PRIVATE_KEY_ENV: &str = "SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY";
+const ONBOARDING_TOKEN_PUBLIC_KEY_ENV: &str = "SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY";
 
 /// Parsed token payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,14 +49,10 @@ pub struct TokenPayload {
 
 /// Parse an onboarding token.
 ///
-/// Supports two formats:
-/// 1. Structured: `edgepkg-v1:<base64url-encoded-json>`
-/// 2. Legacy: `<package_id>:<download_token>` or `<url>@<package_id>:<download_token>`
-///
 /// # Arguments
 /// * `raw` - The raw token string
 /// * `fallback_package_id` - Fallback package ID if not in token
-/// * `fallback_core_url` - Fallback Core API URL if not in token
+/// * `fallback_core_url` - Fallback Core API URL if not embedded in the token
 pub fn parse_token(
     raw: &str,
     fallback_package_id: Option<&str>,
@@ -65,7 +66,7 @@ pub fn parse_token(
     if raw.starts_with(TOKEN_PREFIX) {
         parse_structured_token(raw, fallback_package_id, fallback_core_url)
     } else {
-        parse_legacy_token(raw, fallback_package_id, fallback_core_url)
+        Err(Error::UnsupportedTokenFormat)
     }
 }
 
@@ -75,65 +76,39 @@ fn parse_structured_token(
     fallback_core_url: Option<&str>,
 ) -> Result<TokenPayload> {
     let encoded = raw.strip_prefix(TOKEN_PREFIX).unwrap_or(raw);
-    let data = URL_SAFE_NO_PAD.decode(encoded)?;
+    let (encoded_payload, encoded_signature) = encoded
+        .split_once(SIGNATURE_SEPARATOR)
+        .ok_or(Error::TokenMalformed)?;
+    if encoded_payload.is_empty() || encoded_signature.is_empty() {
+        return Err(Error::TokenMalformed);
+    }
+
+    let data = URL_SAFE_NO_PAD.decode(encoded_payload)?;
+    let signature_bytes = URL_SAFE_NO_PAD.decode(encoded_signature)?;
+    let signature = Signature::try_from(signature_bytes.as_slice()).map_err(|_| Error::TokenMalformed)?;
+    let public_key = onboarding_token_public_key()?;
+    public_key
+        .verify(&data, &signature)
+        .map_err(|_| Error::InvalidTokenSignature)?;
 
     let mut payload: TokenPayload = serde_json::from_slice(&data)?;
 
-    // Apply fallbacks and overrides
+    // Apply fallbacks only when the signed token omitted the value.
     if payload.package_id.is_empty() {
         if let Some(fallback) = fallback_package_id {
             payload.package_id = fallback.to_string();
         }
     }
-    // --host flag should OVERRIDE the token's API URL, not just be a fallback
-    // This allows users to specify the actual reachable host when the token
-    // contains localhost or an internal hostname
-    if let Some(override_host) = fallback_core_url {
-        payload.core_url = Some(apply_host_override(
-            payload.core_url.as_deref(),
-            override_host,
-        ));
+    if payload
+        .core_url
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .is_empty()
+    {
+        payload.core_url = fallback_core_url.map(|value| value.trim().to_string());
     }
 
-    validate_token_payload(&payload)?;
-    Ok(payload)
-}
-
-fn parse_legacy_token(
-    raw: &str,
-    fallback_package_id: Option<&str>,
-    fallback_core_url: Option<&str>,
-) -> Result<TokenPayload> {
-    let mut payload = TokenPayload {
-        package_id: fallback_package_id.unwrap_or_default().to_string(),
-        download_token: String::new(),
-        core_url: fallback_core_url.map(String::from),
-    };
-
-    let mut legacy = raw.to_string();
-
-    // Check for URL@remainder format
-    if let Some(at_idx) = legacy.find('@') {
-        let maybe_url = legacy[..at_idx].trim();
-        let remainder = legacy[at_idx + 1..].trim();
-        if looks_like_url(maybe_url) && !remainder.is_empty() {
-            payload.core_url = Some(maybe_url.to_string());
-            legacy = remainder.to_string();
-        }
-    }
-
-    // Try to split by common separators
-    for sep in [':', '/', '|', ','] {
-        if let Some(idx) = legacy.find(sep) {
-            payload.package_id = legacy[..idx].trim().to_string();
-            payload.download_token = legacy[idx + 1..].trim().to_string();
-            validate_token_payload(&payload)?;
-            return Ok(payload);
-        }
-    }
-
-    // No separator found - treat entire string as download token
-    payload.download_token = legacy.trim().to_string();
     validate_token_payload(&payload)?;
     Ok(payload)
 }
@@ -148,73 +123,68 @@ fn validate_token_payload(payload: &TokenPayload) -> Result<()> {
     Ok(())
 }
 
-fn looks_like_url(raw: &str) -> bool {
-    let lower = raw.trim().to_lowercase();
-    lower.starts_with("http://") || lower.starts_with("https://")
-}
-
-/// Apply a host override to an existing URL, preserving scheme and port.
-///
-/// If `override_host` is a full URL (has scheme), use it directly.
-/// Otherwise, replace just the hostname in the original URL, keeping
-/// the scheme and port from the original.
-///
-/// Examples:
-/// - original: "http://localhost:8090", override: "192.168.2.235" -> "http://192.168.2.235:8090"
-/// - original: "https://core:8090", override: "myhost.example.com" -> "https://myhost.example.com:8090"
-/// - original: None, override: "192.168.2.235" -> "http://192.168.2.235:8090" (default port)
-/// - original: "http://localhost:8090", override: "http://myhost:9000" -> "http://myhost:9000" (full URL override)
-fn apply_host_override(original_url: Option<&str>, override_host: &str) -> String {
-    let override_host = override_host.trim();
-
-    // If override is already a full URL, use it directly
-    if looks_like_url(override_host) {
-        return override_host.to_string();
+fn onboarding_token_public_key() -> Result<VerifyingKey> {
+    let raw = env::var(ONBOARDING_TOKEN_PUBLIC_KEY_ENV).unwrap_or_default();
+    if raw.trim().is_empty() {
+        return Err(Error::TokenPublicKeyRequired);
     }
 
-    // If no original URL, construct a new one with default port
-    let Some(original) = original_url else {
-        // Check if override already has a port
-        if override_host.contains(':') {
-            return format!("http://{}", override_host);
+    let key_bytes = decode_onboarding_token_key(&raw)?;
+    let key_bytes: [u8; 32] = key_bytes
+        .try_into()
+        .map_err(|_| Error::TokenMalformed)?;
+    VerifyingKey::from_bytes(&key_bytes).map_err(|_| Error::TokenMalformed)
+}
+
+fn onboarding_token_private_key() -> Result<SigningKey> {
+    let raw = env::var(ONBOARDING_TOKEN_PRIVATE_KEY_ENV).unwrap_or_default();
+    if raw.trim().is_empty() {
+        return Err(Error::TokenPrivateKeyRequired);
+    }
+
+    let key_bytes = decode_onboarding_token_key(&raw)?;
+    match key_bytes.len() {
+        32 => {
+            let seed: [u8; 32] = key_bytes.try_into().map_err(|_| Error::TokenMalformed)?;
+            Ok(SigningKey::from_bytes(&seed))
         }
-        return format!("http://{}:8090", override_host);
-    };
-
-    // Parse the original URL to extract scheme and port
-    let (scheme, rest) = if let Some(stripped) = original.strip_prefix("https://") {
-        ("https://", stripped)
-    } else if let Some(stripped) = original.strip_prefix("http://") {
-        ("http://", stripped)
-    } else {
-        ("http://", original)
-    };
-
-    // Extract port from original URL (if any)
-    // Format: host:port or host:port/path
-    let port = rest.split('/').next().and_then(|host_port| {
-        host_port
-            .rsplit(':')
-            .next()
-            .filter(|p| p.chars().all(|c| c.is_ascii_digit()))
-    });
-
-    // If override already has a port, use it as-is
-    if override_host.contains(':') {
-        return format!("{}{}", scheme, override_host);
-    }
-
-    // Construct new URL with override host and original port
-    match port {
-        Some(p) => format!("{}{}:{}", scheme, override_host, p),
-        None => format!("{}{}", scheme, override_host),
+        64 => {
+            let pair: [u8; 64] = key_bytes.try_into().map_err(|_| Error::TokenMalformed)?;
+            SigningKey::from_keypair_bytes(&pair).map_err(|_| Error::TokenMalformed)
+        }
+        _ => Err(Error::TokenMalformed),
     }
 }
 
-/// Encode a token payload into the edgepkg-v1 format.
+fn decode_onboarding_token_key(raw: &str) -> Result<Vec<u8>> {
+    for decode in [
+        base64::engine::general_purpose::STANDARD.decode(raw.trim()),
+        base64::engine::general_purpose::STANDARD_NO_PAD.decode(raw.trim()),
+        base64::engine::general_purpose::URL_SAFE.decode(raw.trim()),
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(raw.trim()),
+    ] {
+        if let Ok(bytes) = decode {
+            return Ok(bytes);
+        }
+    }
+
+    if let Ok(bytes) = hex::decode(raw.trim()) {
+        return Ok(bytes);
+    }
+
+    Err(Error::TokenMalformed)
+}
+
+/// Encode a token payload into the signed edgepkg-v2 format.
 pub fn encode_token(payload: &TokenPayload) -> Result<String> {
     validate_token_payload(payload)?;
     let json = serde_json::to_vec(payload)?;
-    let encoded = URL_SAFE_NO_PAD.encode(&json);
-    Ok(format!("{}{}", TOKEN_PREFIX, encoded))
+    let signing_key = onboarding_token_private_key()?;
+    let signature = signing_key.sign(&json);
+    let encoded_payload = URL_SAFE_NO_PAD.encode(&json);
+    let encoded_signature = URL_SAFE_NO_PAD.encode(signature.to_bytes());
+    Ok(format!(
+        "{}{}{}{}",
+        TOKEN_PREFIX, encoded_payload, SIGNATURE_SEPARATOR, encoded_signature
+    ))
 }

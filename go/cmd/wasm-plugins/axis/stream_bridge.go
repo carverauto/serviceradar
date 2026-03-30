@@ -17,8 +17,12 @@ type axisMediaOpenRequest = sdk.CameraMediaOpenRequest
 type axisMediaChunkMetadata = sdk.CameraMediaChunkMetadata
 type axisMediaHeartbeat = sdk.CameraMediaHeartbeat
 
-func webSocketConnect(rawURL string, timeout time.Duration) (*sdk.WebSocketConn, error) {
-	return sdk.WebSocketDial(rawURL, timeout)
+func webSocketConnect(rawURL string, headers map[string]string, timeout time.Duration) (*sdk.WebSocketConn, error) {
+	if len(headers) == 0 {
+		return sdk.WebSocketDial(rawURL, timeout)
+	}
+
+	return sdk.WebSocketDialWithHeaders(rawURL, headers, timeout)
 }
 
 func openAxisMediaSession(req axisMediaOpenRequest) (*sdk.CameraMediaStream, error) {

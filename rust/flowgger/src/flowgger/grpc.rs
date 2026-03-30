@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use log::{error, info, warn};
+use log::{error, info};
 use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 use tonic_health::{server::health_reporter, ServingStatus};
 
@@ -68,11 +68,7 @@ fn run_server(settings: GrpcSettings) -> Result<()> {
                 let tls = tls
                     .tls_config()
                     .context("failed to configure mTLS for flowgger gRPC server")?;
-                serve_with_tls(addr, Some(tls)).await
-            }
-            SecuritySettings::None => {
-                warn!("flowgger gRPC server starting without TLS; clients must allow plaintext");
-                serve_with_tls(addr, None).await
+                serve_with_tls(addr, tls).await
             }
         }
     })
@@ -99,7 +95,6 @@ struct SpiffeSettings {
 
 #[derive(Debug, PartialEq, Eq)]
 enum SecuritySettings {
-    None,
     Mtls(TlsSettings),
     Spiffe(SpiffeSettings),
 }
@@ -117,7 +112,11 @@ impl GrpcSettings {
             .unwrap_or_else(|| "mtls".to_string());
 
         let security = match mode.as_str() {
-            "none" => SecuritySettings::None,
+            "none" => {
+                return Err(anyhow!(
+                    "grpc.mode \"none\" is not allowed for the flowgger gRPC sidecar"
+                ));
+            }
             "spiffe" => {
                 let trust_domain = read_string(config, "grpc.trust_domain")
                     .ok_or_else(|| anyhow!("grpc.trust_domain is required for SPIFFE mode"))?;
@@ -133,10 +132,9 @@ impl GrpcSettings {
                     workload_socket,
                 })
             }
-            "mtls" => match TlsSettings::from_config(cert_dir.as_deref(), config)? {
-                Some(tls) => SecuritySettings::Mtls(tls),
-                None => SecuritySettings::None,
-            },
+            "mtls" => {
+                SecuritySettings::Mtls(TlsSettings::from_config(cert_dir.as_deref(), config)?)
+            }
             other => return Err(anyhow!("unsupported grpc.mode '{other}'")),
         };
 
@@ -148,14 +146,16 @@ impl GrpcSettings {
 }
 
 impl TlsSettings {
-    fn from_config(cert_dir: Option<&str>, config: &Config) -> Result<Option<Self>> {
+    fn from_config(cert_dir: Option<&str>, config: &Config) -> Result<Self> {
         let cert = read_string(config, "grpc.cert_file");
         let key = read_string(config, "grpc.key_file");
         let client_ca = read_string(config, "grpc.client_ca_file")
             .or_else(|| read_string(config, "grpc.ca_file"));
 
         if cert.is_none() && key.is_none() && client_ca.is_none() {
-            return Ok(None);
+            return Err(anyhow!(
+                "grpc.cert_file, grpc.key_file, and grpc.client_ca_file or grpc.ca_file are required in mTLS mode"
+            ));
         }
 
         let cert = cert.ok_or_else(|| anyhow!("grpc.cert_file is required in mTLS mode"))?;
@@ -164,11 +164,11 @@ impl TlsSettings {
             anyhow!("grpc.client_ca_file or grpc.ca_file is required in mTLS mode")
         })?;
 
-        Ok(Some(TlsSettings {
+        Ok(TlsSettings {
             cert_path: resolve_path(cert_dir, cert),
             key_path: resolve_path(cert_dir, key),
             client_ca_path: resolve_path(cert_dir, client_ca),
-        }))
+        })
     }
 
     fn tls_config(&self) -> Result<ServerTlsConfig> {
@@ -196,7 +196,7 @@ impl TlsSettings {
     }
 }
 
-async fn serve_with_tls(addr: SocketAddr, tls: Option<ServerTlsConfig>) -> Result<()> {
+async fn serve_with_tls(addr: SocketAddr, tls: ServerTlsConfig) -> Result<()> {
     let (mut reporter, health_service) = health_reporter();
 
     reporter
@@ -206,12 +206,8 @@ async fn serve_with_tls(addr: SocketAddr, tls: Option<ServerTlsConfig>) -> Resul
         .set_service_status("flowgger", ServingStatus::Serving)
         .await;
 
-    let mut server = Server::builder();
-    if let Some(tls) = tls {
-        server = server.tls_config(tls)?;
-    }
-
-    server
+    Server::builder()
+        .tls_config(tls)?
         .add_service(health_service)
         .serve(addr)
         .await
@@ -374,7 +370,24 @@ mod tests {
     }
 
     #[test]
-    fn mtls_without_paths_disables_tls() {
+    fn none_mode_is_rejected() {
+        let config = load_config(
+            r#"
+            [grpc]
+            listen_addr = "0.0.0.0:50044"
+            mode = "none"
+        "#,
+        );
+
+        let err = GrpcSettings::from_config(&config).expect_err("expected failure");
+        assert!(
+            err.to_string().contains("grpc.mode \"none\""),
+            "error should mention rejected none mode: {err}"
+        );
+    }
+
+    #[test]
+    fn mtls_without_paths_is_rejected() {
         let config = load_config(
             r#"
             [grpc]
@@ -383,12 +396,47 @@ mod tests {
         "#,
         );
 
+        let err = GrpcSettings::from_config(&config).expect_err("expected failure");
+        assert!(
+            err.to_string().contains("grpc.cert_file")
+                || err.to_string().contains("required in mTLS mode"),
+            "error should mention missing mTLS paths: {err}"
+        );
+    }
+
+    #[test]
+    fn mtls_with_paths_resolves_tls_settings() {
+        let config = load_config(
+            r#"
+            [grpc]
+            listen_addr = "0.0.0.0:50044"
+            mode = "mtls"
+            cert_dir = "/etc/serviceradar/certs"
+            cert_file = "flowgger.pem"
+            key_file = "flowgger-key.pem"
+            ca_file = "root.pem"
+        "#,
+        );
+
         let settings = GrpcSettings::from_config(&config)
             .expect("config parsing failed")
             .expect("expected settings");
         match settings.security {
-            SecuritySettings::None => {}
-            other => panic!("expected TLS to be disabled, got {other:?}"),
+            SecuritySettings::Mtls(tls) => {
+                assert_eq!(
+                    tls.cert_path,
+                    PathBuf::from("/etc/serviceradar/certs/flowgger.pem")
+                );
+                assert_eq!(
+                    tls.key_path,
+                    PathBuf::from("/etc/serviceradar/certs/flowgger-key.pem")
+                );
+                assert_eq!(
+                    tls.client_ca_path,
+                    PathBuf::from("/etc/serviceradar/certs/root.pem")
+                );
+            }
+            other => panic!("expected mTLS security, got {other:?}"),
         }
     }
 }

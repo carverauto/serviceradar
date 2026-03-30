@@ -26,7 +26,6 @@
 {{- $deviceEnrichmentFsSecret := default "" $deviceEnrichmentFsOverrides.existingSecret -}}
 {{- $deviceEnrichmentFsClaim := default "" $deviceEnrichmentFsOverrides.existingClaim -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
-{{- $clusterCookie := default "serviceradar_dev_cookie" $webNg.clusterCookie -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -216,7 +215,15 @@ spec:
         - name: RELEASE_DISTRIBUTION
           value: "name"
         - name: RELEASE_COOKIE
-          value: {{ $clusterCookie | quote }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: cluster-cookie
+        - name: EDGE_ONBOARDING_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: edge-onboarding-key
         - name: ELIXIR_ERL_OPTIONS
           value: "+fnu"
         {{- if .Values.spire.enabled }}

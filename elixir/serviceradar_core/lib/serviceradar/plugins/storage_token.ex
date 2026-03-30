@@ -1,14 +1,16 @@
 defmodule ServiceRadar.Plugins.StorageToken do
   @moduledoc """
-  Generates signed download URLs for plugin package blobs.
+  Generates signed download tokens and endpoint URLs for plugin package blobs.
   """
 
   require Logger
 
   @default_download_ttl_seconds 86_400
 
-  @spec download_url(String.t(), String.t() | nil) :: String.t() | nil
-  def download_url(package_id, object_key) when is_binary(package_id) and is_binary(object_key) do
+  @spec download_request(String.t(), String.t() | nil) ::
+          %{url: String.t(), token: String.t()} | nil
+  def download_request(package_id, object_key)
+      when is_binary(package_id) and is_binary(object_key) do
     base_url = public_url()
     secret = signing_secret()
 
@@ -45,12 +47,16 @@ defmodule ServiceRadar.Plugins.StorageToken do
             "." <>
             Base.url_encode64(signature, padding: false)
 
-        String.trim_trailing(base_url, "/") <>
-          "/api/plugin-packages/#{package_id}/blob?token=#{token}"
+        %{
+          url:
+            String.trim_trailing(base_url, "/") <>
+              "/api/plugin-packages/#{package_id}/blob/download",
+          token: token
+        }
     end
   end
 
-  def download_url(_package_id, _object_key), do: nil
+  def download_request(_package_id, _object_key), do: nil
 
   defp download_ttl_seconds do
     config()

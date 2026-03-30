@@ -5,19 +5,23 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+)
+
+const (
+	collectorTokenV2Prefix = "collectorpkg-v2:"
 )
 
 var (
@@ -60,15 +64,14 @@ func EnrollCollectorFromToken(ctx context.Context, opts CollectorEnrollOptions) 
 
 	baseURL := strings.TrimRight(payload.BaseURL, "/")
 	bundleURL := fmt.Sprintf(
-		"%s/api/collectors/%s/bundle?token=%s",
+		"%s/api/collectors/%s/bundle",
 		baseURL,
-		url.PathEscape(payload.PackageID),
-		url.QueryEscape(payload.Secret),
+		payload.PackageID,
 	)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, bundleURL, nil)
+	req, err := newBundleDownloadRequest(ctx, bundleURL, payload.Secret)
 	if err != nil {
-		return fmt.Errorf("build bundle request: %w", err)
+		return err
 	}
 
 	client := opts.HTTPClient
@@ -182,9 +185,37 @@ func parseCollectorToken(raw, fallbackBaseURL string) (*collectorTokenPayload, e
 		return nil, ErrCollectorTokenInvalid
 	}
 
-	data, err := base64.RawURLEncoding.DecodeString(trimmed)
+	if strings.HasPrefix(trimmed, collectorTokenV2Prefix) {
+		return parseSignedCollectorToken(trimmed, fallbackBaseURL)
+	}
+
+	return nil, ErrCollectorTokenInvalid
+}
+
+func parseSignedCollectorToken(raw, fallbackBaseURL string) (*collectorTokenPayload, error) {
+	encoded := strings.TrimPrefix(strings.TrimSpace(raw), collectorTokenV2Prefix)
+	encodedPayload, encodedSignature, ok := strings.Cut(encoded, onboardingTokenSignatureSep)
+	if !ok || encodedPayload == "" || encodedSignature == "" {
+		return nil, ErrCollectorTokenInvalid
+	}
+
+	data, err := base64.RawURLEncoding.DecodeString(encodedPayload)
 	if err != nil {
 		return nil, ErrCollectorTokenInvalid
+	}
+
+	signature, err := base64.RawURLEncoding.DecodeString(encodedSignature)
+	if err != nil {
+		return nil, ErrCollectorTokenInvalid
+	}
+
+	publicKey, err := onboardingTokenPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	if !ed25519.Verify(publicKey, data, signature) {
+		return nil, ErrOnboardingTokenInvalidSignature
 	}
 
 	var payload collectorTokenPayload
@@ -195,19 +226,24 @@ func parseCollectorToken(raw, fallbackBaseURL string) (*collectorTokenPayload, e
 	payload.BaseURL = strings.TrimSpace(payload.BaseURL)
 	payload.PackageID = strings.TrimSpace(payload.PackageID)
 	payload.Secret = strings.TrimSpace(payload.Secret)
+	payload.ConfigFile = strings.TrimSpace(payload.ConfigFile)
 
-	if payload.BaseURL == "" && strings.TrimSpace(fallbackBaseURL) != "" {
-		payload.BaseURL = strings.TrimSpace(fallbackBaseURL)
-	}
-
-	if payload.BaseURL == "" || payload.PackageID == "" || payload.Secret == "" {
+	if payload.PackageID == "" || payload.Secret == "" {
 		return nil, ErrCollectorTokenInvalid
 	}
 
-	if payload.ExpiresAt != nil {
-		if time.Now().Unix() > *payload.ExpiresAt {
-			return nil, ErrCollectorTokenExpired
-		}
+	if payload.BaseURL == "" {
+		payload.BaseURL = strings.TrimSpace(fallbackBaseURL)
+	}
+
+	normalizedBaseURL, err := normalizeBaseURL(payload.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	payload.BaseURL = normalizedBaseURL
+
+	if payload.ExpiresAt != nil && time.Now().Unix() > *payload.ExpiresAt {
+		return nil, ErrCollectorTokenExpired
 	}
 
 	return &payload, nil

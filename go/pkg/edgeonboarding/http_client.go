@@ -11,9 +11,10 @@ import (
 
 var errParseCAFile = errors.New("parse CA file")
 
-// BuildHTTPClient returns a client configured for optional TLS overrides.
-func BuildHTTPClient(caFile string, insecure bool) (*http.Client, error) {
-	if caFile == "" && !insecure {
+// BuildHTTPClient returns a client configured for verified TLS, optionally with
+// an explicit CA bundle.
+func BuildHTTPClient(caFile string) (*http.Client, error) {
+	if caFile == "" {
 		return nil, nil
 	}
 
@@ -32,11 +33,6 @@ func BuildHTTPClient(caFile string, insecure bool) (*http.Client, error) {
 		}
 		tlsConfig.RootCAs = pool
 	}
-	// Prefer explicit CA bundle over insecure mode.
-	if caFile == "" && insecure {
-		tlsConfig.InsecureSkipVerify = true
-	}
-
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = tlsConfig
 

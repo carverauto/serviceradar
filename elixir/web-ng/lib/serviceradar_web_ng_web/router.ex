@@ -255,21 +255,15 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/collectors/:id/download", CollectorController, :download)
   end
 
-  # Edge package bundle download - public endpoint with token in query param
-  # Allows one-liner curl commands for zero-touch provisioning
+  # Edge package bundle download - public endpoint with token in header/body
+  # Allows one-liner curl commands for zero-touch provisioning without URL token leakage
   scope "/api", ServiceRadarWebNGWeb.Api do
     pipe_through(:api)
 
-    get("/edge-packages/:id/bundle", EdgeController, :bundle)
-    get("/collectors/:id/bundle", CollectorController, :bundle)
+    post("/edge-packages/:id/bundle", EdgeController, :bundle)
+    post("/collectors/:id/bundle", CollectorController, :bundle)
     put("/plugin-packages/:id/blob", PluginPackageController, :upload_blob)
-    get("/plugin-packages/:id/blob", PluginPackageController, :download_blob)
-
-    # Legacy collector enrollment endpoint (bundle download is preferred)
-    # Token decodes to: GET /api/enroll/collector/:package_id?token=<secret>
-    get("/enroll/collector/:package_id", CollectorEnrollController, :enroll)
-    # Legacy collector enrollment path
-    get("/enroll/:package_id", CollectorEnrollController, :enroll)
+    post("/plugin-packages/:id/blob/download", PluginPackageController, :download_blob)
   end
 
   # Ash JSON:API v2 endpoints

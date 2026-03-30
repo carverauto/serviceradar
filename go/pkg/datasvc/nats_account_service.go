@@ -19,6 +19,7 @@ package datasvc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -632,7 +633,7 @@ func (s *NATSAccountServer) CreateAccount(
 
 	result, err := signer.CreateAccount(req.GetAccountName(), limits, mappings, exports)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create account: %v", err)
+		return nil, natsAccountSigningStatus("failed to create account", err)
 	}
 
 	return &proto.CreateAccountResponse{
@@ -680,7 +681,7 @@ func (s *NATSAccountServer) GenerateUserCredentials(
 		req.GetExpirationSeconds(),
 	)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to generate user credentials: %v", err)
+		return nil, natsAccountSigningStatus("failed to generate user credentials", err)
 	}
 
 	var expiresAtUnix int64
@@ -766,7 +767,7 @@ func (s *NATSAccountServer) SignAccountJWT(
 		req.GetRevokedUserKeys(),
 	)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to sign account JWT: %v", err)
+		return nil, natsAccountSigningStatus("failed to sign account JWT", err)
 	}
 
 	return &proto.SignAccountJWTResponse{
@@ -817,6 +818,17 @@ func protoToUserPermissions(p *proto.UserPermissions) *accounts.UserPermissions 
 		SubscribeDeny:  p.GetSubscribeDeny(),
 		AllowResponses: p.GetAllowResponses(),
 		MaxResponses:   p.GetMaxResponses(),
+	}
+}
+
+func natsAccountSigningStatus(prefix string, err error) error {
+	switch {
+	case errors.Is(err, accounts.ErrSubjectOutOfScope),
+		errors.Is(err, accounts.ErrImportNotAllowed),
+		errors.Is(err, accounts.ErrJetStreamLimitUnbounded):
+		return status.Errorf(codes.InvalidArgument, "%s: %v", prefix, err)
+	default:
+		return status.Errorf(codes.Internal, "%s: %v", prefix, err)
 	}
 }
 

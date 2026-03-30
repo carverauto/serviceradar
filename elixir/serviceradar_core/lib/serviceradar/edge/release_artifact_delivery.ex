@@ -32,13 +32,13 @@ defmodule ServiceRadar.Edge.ReleaseArtifactDelivery do
     end
   end
 
-  @spec resolve_download(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def resolve_download(target_id, command_id) do
+  @spec resolve_download(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def resolve_download(target_id, command_id, caller_agent_id) do
     actor = ServiceRadar.Actors.SystemActor.system(:agent_release_artifact_download)
 
     with {:ok, %AgentReleaseTarget{} = target} <-
            AgentReleaseTarget.get_by_id(target_id, actor: actor),
-         true <- authorized_target?(target, command_id),
+         true <- authorized_target?(target, command_id, caller_agent_id),
          {:ok, %AgentRelease{} = release} <-
            AgentRelease.get_by_id(target.release_id, actor: actor),
          {:ok, %Agent{} = agent} <- Agent.get_by_uid(target.agent_id, actor: actor),
@@ -80,9 +80,10 @@ defmodule ServiceRadar.Edge.ReleaseArtifactDelivery do
     end
   end
 
-  defp authorized_target?(%AgentReleaseTarget{} = target, command_id) do
+  defp authorized_target?(%AgentReleaseTarget{} = target, command_id, caller_agent_id) do
     target.status not in @blocked_statuses and
       to_string(target.command_id || "") != "" and
-      to_string(target.command_id) == to_string(command_id)
+      to_string(target.command_id) == to_string(command_id) and
+      to_string(target.agent_id) == to_string(caller_agent_id)
   end
 end

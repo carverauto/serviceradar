@@ -81,7 +81,10 @@ async fn main() -> Result<()> {
             let mut needs_update = false;
 
             for required in &required_subjects {
-                if !current_subjects.iter().any(|existing| subject_matches(existing, required)) {
+                if !current_subjects
+                    .iter()
+                    .any(|existing| subject_matches(existing, required))
+                {
                     info!(
                         "adding missing subject {} to stream {}",
                         required, cfg.stream_name
@@ -156,12 +159,14 @@ async fn main() -> Result<()> {
         }
     });
 
-    let grpc_cfg = cfg.clone();
-    tokio::spawn(async move {
-        if let Err(e) = start_grpc_server(grpc_cfg).await {
-            warn!("gRPC server failed: {e}");
-        }
-    });
+    if cfg.listen_addr.is_some() {
+        let grpc_cfg = cfg.clone();
+        tokio::spawn(async move {
+            if let Err(e) = start_grpc_server(grpc_cfg).await {
+                warn!("gRPC server failed: {e}");
+            }
+        });
+    }
 
     info!("waiting for messages on subjects: {:?}", cfg.subjects);
 

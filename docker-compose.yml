@@ -223,9 +223,9 @@ services:
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
       - SPIFFE_CERT_DIR=/etc/serviceradar/certs
+      - RELEASE_COOKIE_FILE=/etc/serviceradar/admin/release-cookie
       - RELEASE_NODE=serviceradar_core@core-elx
       - RELEASE_DISTRIBUTION=sname
-      - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
       - SERVICERADAR_CORE_OBAN_ENABLED=${SERVICERADAR_CORE_OBAN_ENABLED:-true}
       - SERVICERADAR_CORE_REPO_ENABLED=${SERVICERADAR_CORE_REPO_ENABLED:-true}
       - SERVICERADAR_CORE_RUN_MIGRATIONS=${SERVICERADAR_CORE_RUN_MIGRATIONS:-false}
@@ -244,7 +244,7 @@ services:
       - SYNC_INGESTOR_ASYNC=${SYNC_INGESTOR_ASYNC:-true}
       - DEVICE_ENRICHMENT_RULES_DIR=/var/lib/serviceradar/rules/device-enrichment
       - PLUGIN_STORAGE_PUBLIC_URL=${PLUGIN_STORAGE_PUBLIC_URL:-http://web-ng:4000}
-      - PLUGIN_STORAGE_SIGNING_SECRET=${PLUGIN_STORAGE_SIGNING_SECRET:-H8DPohD5rFUqGboVqCKLYXrlyofYUJk6k+XBzKEb5G8LN9brhYpNloE3UgxBQmPW}
+      - PLUGIN_STORAGE_SIGNING_SECRET_FILE=/etc/serviceradar/admin/plugin-storage-signing-secret
       - PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS=${PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS:-86400}
       - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
       - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
@@ -275,6 +275,7 @@ services:
       - OTEL_SERVICE_NAME=serviceradar-core-elx
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
+      - admin-creds:/etc/serviceradar/admin:ro
       - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro
       - cloak-key:/etc/serviceradar/cloak:ro
       - cnpg-credentials:/etc/serviceradar/cnpg:ro
@@ -282,6 +283,8 @@ services:
       - migrations-data:/var/lib/serviceradar/migrations
       - ${DEVICE_ENRICHMENT_RULES_DIR_HOST:-./docker/compose/rules/device-enrichment}:/var/lib/serviceradar/rules/device-enrichment:ro
     depends_on:
+      config-updater:
+        condition: service_completed_successfully
       cnpg:
         condition: service_healthy
       nats:
@@ -408,7 +411,7 @@ services:
     container_name: serviceradar-nats-mtls
     ports:
       - "4222:4222"
-      - "8222:8222"
+      - "${NATS_MONITORING_BIND:-127.0.0.1}:${NATS_MONITORING_PORT:-8222}:8222"
       - "6222:6222"
     volumes:
       - nats-data:/data
@@ -512,9 +515,9 @@ services:
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
       - SPIFFE_CERT_DIR=/etc/serviceradar/certs
+      - RELEASE_COOKIE_FILE=/etc/serviceradar/admin/release-cookie
       - RELEASE_NODE=serviceradar_agent_gateway@agent-gateway
       - RELEASE_DISTRIBUTION=sname
-      - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
       # OpenTelemetry
       - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
       - OTEL_CERT_DIR=/etc/serviceradar/certs
@@ -524,8 +527,11 @@ services:
       - "${GATEWAY_PUBLIC_BIND:-127.0.0.1}:${GATEWAY_PUBLIC_PORT:-50052}:50052"
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
+      - admin-creds:/etc/serviceradar/admin:ro
       - ./docker/compose/ssl_dist.gateway.conf:/etc/serviceradar/ssl_dist.conf:ro
     depends_on:
+      config-updater:
+        condition: service_completed_successfully
       core-elx:
         condition: service_healthy
       log-collector:
@@ -752,14 +758,14 @@ services:
       - CLUSTER_TLS_ENABLED=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
+      - RELEASE_COOKIE_FILE=/etc/serviceradar/admin/release-cookie
       - RELEASE_NODE=serviceradar_web_ng@web-ng
       - RELEASE_DISTRIBUTION=sname
-      - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
       - SERVICERADAR_SECURITY_MODE=${SERVICERADAR_SECURITY_MODE:-mtls}
-      - SECRET_KEY_BASE=${WEB_NG_SECRET_KEY_BASE:-H8DPohD5rFUqGboVqCKLYXrlyofYUJk6k+XBzKEb5G8LN9brhYpNloE3UgxBQmPW}
+      - SECRET_KEY_BASE_FILE=/etc/serviceradar/admin/secret-key-base
       - PLUGIN_STORAGE_BACKEND=filesystem
       - PLUGIN_STORAGE_PATH=/var/lib/serviceradar/plugin-packages
-      - PLUGIN_STORAGE_SIGNING_SECRET=${PLUGIN_STORAGE_SIGNING_SECRET:-H8DPohD5rFUqGboVqCKLYXrlyofYUJk6k+XBzKEb5G8LN9brhYpNloE3UgxBQmPW}
+      - PLUGIN_STORAGE_SIGNING_SECRET_FILE=/etc/serviceradar/admin/plugin-storage-signing-secret
       - DEVICE_ENRICHMENT_RULES_DIR=/var/lib/serviceradar/rules/device-enrichment
       - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
       - ADMIN_BASIC_AUTH_USERNAME=${ADMIN_BASIC_AUTH_USERNAME:-}
@@ -796,6 +802,8 @@ services:
       - plugin-packages:/var/lib/serviceradar/plugin-packages
       - ${DEVICE_ENRICHMENT_RULES_DIR_HOST:-./docker/compose/rules/device-enrichment}:/var/lib/serviceradar/rules/device-enrichment
     depends_on:
+      config-updater:
+        condition: service_completed_successfully
       cnpg:
         condition: service_healthy
       core-elx:

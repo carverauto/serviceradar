@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins.GitHubImporter
   alias ServiceRadarWebNG.Plugins.Storage
+  alias ServiceRadarWebNG.Plugins.UploadSignature
 
   require Ash.Query
 
@@ -53,7 +54,13 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def create(attrs, opts) when is_map(attrs) do
     scope = Keyword.get(opts, :scope)
-    attrs = drop_nil_values(attrs)
+
+    attrs =
+      attrs
+      |> Map.delete(:wasm_object_key)
+      |> Map.delete("wasm_object_key")
+      |> drop_nil_values()
+
     source_type = normalize_source_type(Map.get(attrs, :source_type))
 
     case source_type do
@@ -185,6 +192,18 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def upload_blob(_package, _payload, _opts), do: {:error, :invalid_attributes}
 
+  @spec upload_blob_file(PluginPackage.t(), String.t(), keyword()) ::
+          {:ok, PluginPackage.t()} | {:error, term()}
+  def upload_blob_file(package, path, opts \\ [])
+
+  def upload_blob_file(%PluginPackage{} = package, path, opts) when is_binary(path) do
+    with {:ok, content_hash} <- Storage.sha256_file(path) do
+      store_wasm_blob_file(package, path, content_hash, opts)
+    end
+  end
+
+  def upload_blob_file(_package, _path, _opts), do: {:error, :invalid_attributes}
+
   defp ensure_plugin(%Manifest{} = manifest, attrs, scope) do
     plugin_id = manifest.id
     source = Map.get(manifest, :source) || %{}
@@ -289,9 +308,22 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   end
 
   defp store_wasm_blob(package, payload, content_hash, opts) do
-    object_key = package.wasm_object_key || Storage.object_key_for(package)
+    object_key = Storage.object_key_for(package)
 
     with :ok <- Storage.put_blob(object_key, payload) do
+      package
+      |> Ash.Changeset.for_update(:update, %{
+        wasm_object_key: object_key,
+        content_hash: content_hash
+      })
+      |> update_resource_with_opts(opts)
+    end
+  end
+
+  defp store_wasm_blob_file(package, path, content_hash, opts) do
+    object_key = Storage.object_key_for(package)
+
+    with :ok <- Storage.put_blob_file(object_key, path) do
       package
       |> Ash.Changeset.for_update(:update, %{
         wasm_object_key: object_key,
@@ -407,36 +439,83 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   end
 
   defp enforce_github_policy(package, policy) do
-    if policy.require_gpg_for_github and is_nil(package.gpg_verified_at) do
-      {:error, :verification_required}
-    else
-      :ok
+    signer =
+      package.signature
+      |> signer_from_signature()
+      |> case do
+        nil -> package.gpg_key_id
+        value -> value
+      end
+      |> normalize_signer()
+
+    cond do
+      not policy.require_gpg_for_github ->
+        :ok
+
+      is_nil(package.gpg_verified_at) ->
+        {:error, :verification_required}
+
+      policy.trusted_github_signers == [] ->
+        {:error, :trusted_signers_not_configured}
+
+      signer in policy.trusted_github_signers ->
+        :ok
+
+      true ->
+        {:error, :untrusted_signer}
     end
   end
 
   defp enforce_upload_policy(package, policy) do
-    if policy.allow_unsigned_uploads do
-      :ok
-    else
-      if signature_present?(package.signature) do
+    cond do
+      policy.allow_unsigned_uploads ->
         :ok
-      else
-        {:error, :signature_required}
-      end
+
+      policy.trusted_upload_signing_keys == %{} ->
+        {:error, :trusted_upload_signers_not_configured}
+
+      true ->
+        UploadSignature.verify(
+          package.signature,
+          package.manifest || %{},
+          package.content_hash || "",
+          policy.trusted_upload_signing_keys
+        )
     end
   end
-
-  defp signature_present?(%{} = sig), do: map_size(sig) > 0
-  defp signature_present?(_), do: false
 
   defp plugin_verification_policy do
     config = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
 
     %{
       require_gpg_for_github: Keyword.get(config, :require_gpg_for_github, false),
-      allow_unsigned_uploads: Keyword.get(config, :allow_unsigned_uploads, true)
+      allow_unsigned_uploads: Keyword.get(config, :allow_unsigned_uploads, true),
+      trusted_upload_signing_keys:
+        config
+        |> Keyword.get(:trusted_upload_signing_keys, %{})
+        |> UploadSignature.normalize_trusted_keys(),
+      trusted_github_signers:
+        config
+        |> Keyword.get(:trusted_github_signers, [])
+        |> Enum.map(&normalize_signer/1)
+        |> Enum.reject(&is_nil/1)
     }
   end
+
+  defp signer_from_signature(%{"signer" => signer}) when is_binary(signer), do: signer
+  defp signer_from_signature(%{signer: signer}) when is_binary(signer), do: signer
+  defp signer_from_signature(_signature), do: nil
+
+  defp normalize_signer(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      signer -> String.downcase(signer)
+    end
+  end
+
+  defp normalize_signer(_value), do: nil
 
   defp maybe_put(attrs, _key, nil), do: attrs
   defp maybe_put(attrs, _key, value) when value == [], do: attrs

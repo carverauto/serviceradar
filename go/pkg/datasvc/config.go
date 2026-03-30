@@ -11,9 +11,11 @@ import (
 )
 
 const (
-	securityModeMTLS   = "mtls"
-	securityModeSPIFFE = "spiffe"
-	securityModeNone   = "none"
+	securityModeMTLS        = "mtls"
+	securityModeSPIFFE      = "spiffe"
+	securityModeNone        = "none"
+	defaultObjectMaxBytes   = 512 * 1024 * 1024
+	defaultObjectStoreBytes = 2 * 1024 * 1024 * 1024
 )
 
 // Validate ensures the configuration is valid.
@@ -24,6 +26,12 @@ func (c *Config) Validate() error {
 
 	if c.BucketMaxBytes < 0 {
 		return errBucketMaxBytesNegative
+	}
+	if c.ObjectMaxBytes < 0 {
+		return errObjectMaxBytesNegative
+	}
+	if c.ObjectStoreBytes < 0 {
+		return errObjectStoreBytesNegative
 	}
 
 	if err := c.validateSecurity(); err != nil {
@@ -39,6 +47,7 @@ func (c *Config) Validate() error {
 	c.setDefaultBucket()
 	c.setDefaultObjectBucket()
 	c.setDefaultBucketOptions()
+	c.setDefaultObjectLimits()
 
 	if c.BucketHistory > math.MaxUint8 {
 		return fmt.Errorf("%w: got %d", errBucketHistoryTooLarge, c.BucketHistory)
@@ -198,5 +207,14 @@ func (c *Config) setDefaultBucketOptions() {
 	}
 	if c.BucketMaxBytes < 0 {
 		c.BucketMaxBytes = 0
+	}
+}
+
+func (c *Config) setDefaultObjectLimits() {
+	if c.ObjectMaxBytes == 0 {
+		c.ObjectMaxBytes = defaultObjectMaxBytes
+	}
+	if c.ObjectStoreBytes == 0 {
+		c.ObjectStoreBytes = defaultObjectStoreBytes
 	}
 }

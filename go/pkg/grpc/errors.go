@@ -22,7 +22,8 @@ import (
 
 var (
 	errUnknownSecurityMode        = errors.New("unknown security mode")
-	errSecurityConfigRequired     = errors.New("security config required for mTLS")
+	errSecurityConfigRequired     = errors.New("security config required")
+	errSecurityProviderRequired   = errors.New("security provider required")
 	errInvalidServiceRole         = errors.New("invalid service role")
 	errFailedToLoadClientCreds    = errors.New("failed to load client credentials")
 	errFailedToLoadServerCreds    = errors.New("failed to load server credentials")
@@ -37,6 +38,8 @@ var (
 	errInvalidServerSPIFFEID      = errors.New("invalid server SPIFFE ID")
 	errMissingServerSPIFFEScheme  = errors.New("server SPIFFE ID is missing a scheme and no trust_domain is configured")
 	errInvalidTrustDomain         = errors.New("invalid trust domain")
+	errServerSPIFFEIDRequired     = errors.New("server SPIFFE ID is required for SPIFFE client credentials")
+	errTrustDomainRequired        = errors.New("trust domain is required for SPIFFE server credentials")
 	errFailedToCreateMTLSProvider = errors.New("failed to create mTLS provider")
 	errAddressRequired            = errors.New("address required")
 	errFailedToReadClientCACert   = errors.New("failed to read client CA certificate")

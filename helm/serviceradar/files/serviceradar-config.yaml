@@ -159,7 +159,7 @@ data:
       },
       "edge_onboarding": {
         "enabled": true,
-        "encryption_key": "{{ default "" .Values.secrets.edgeOnboardingKey }}",
+        "encryption_key": "",
         "default_selectors": [
           "unix:uid:0",
           "unix:gid:0",

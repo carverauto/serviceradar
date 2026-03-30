@@ -21,6 +21,11 @@ defmodule ServiceRadarAgentGateway.TestSupport.CameraMediaSessionTrackerStub do
     )
   end
 
+  def heartbeat(relay_session_id, media_ingest_id, agent_id, attrs) do
+    notify({:heartbeat_tracker_owned, relay_session_id, media_ingest_id, agent_id, attrs})
+    heartbeat(relay_session_id, media_ingest_id, attrs)
+  end
+
   def record_chunk(relay_session_id, media_ingest_id, attrs) do
     notify({:record_chunk, relay_session_id, media_ingest_id, attrs})
 
@@ -29,6 +34,11 @@ defmodule ServiceRadarAgentGateway.TestSupport.CameraMediaSessionTrackerStub do
       :camera_media_session_tracker_record_result,
       {:error, :not_configured}
     )
+  end
+
+  def record_chunk(relay_session_id, media_ingest_id, agent_id, attrs) do
+    notify({:record_chunk_owned, relay_session_id, media_ingest_id, agent_id, attrs})
+    record_chunk(relay_session_id, media_ingest_id, attrs)
   end
 
   def mark_closing(relay_session_id, media_ingest_id, attrs) do
@@ -41,6 +51,11 @@ defmodule ServiceRadarAgentGateway.TestSupport.CameraMediaSessionTrackerStub do
     )
   end
 
+  def mark_closing(relay_session_id, media_ingest_id, agent_id, attrs) do
+    notify({:mark_closing_owned, relay_session_id, media_ingest_id, agent_id, attrs})
+    mark_closing(relay_session_id, media_ingest_id, attrs)
+  end
+
   def close_session(relay_session_id, media_ingest_id, attrs) do
     notify({:close_session, relay_session_id, media_ingest_id, attrs})
 
@@ -51,9 +66,28 @@ defmodule ServiceRadarAgentGateway.TestSupport.CameraMediaSessionTrackerStub do
     )
   end
 
+  def close_session(relay_session_id, media_ingest_id, agent_id, attrs) do
+    notify({:close_session_owned, relay_session_id, media_ingest_id, agent_id, attrs})
+    close_session(relay_session_id, media_ingest_id, attrs)
+  end
+
   def fetch_session(relay_session_id) do
     notify({:fetch_session, relay_session_id})
     Application.get_env(:serviceradar_agent_gateway, :camera_media_session_tracker_fetch_result)
+  end
+
+  def fetch_session(relay_session_id, agent_id) do
+    notify({:fetch_session_owned, relay_session_id, agent_id})
+
+    case Application.get_env(:serviceradar_agent_gateway, :camera_media_session_tracker_fetch_result) do
+      {:ok, %{agent_id: ^agent_id} = session} -> {:ok, session}
+      {:ok, _session} -> {:error, :agent_id_mismatch}
+      %{agent_id: ^agent_id} = session -> {:ok, session}
+      %{} -> {:error, :agent_id_mismatch}
+      nil -> {:error, :not_found}
+      {:error, _reason} = error -> error
+      other -> other
+    end
   end
 
   defp notify(message) do

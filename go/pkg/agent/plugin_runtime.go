@@ -822,23 +822,24 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 }
 
 type pluginAssignment struct {
-	AssignmentID string
-	PluginID     string
-	PackageID    string
-	Version      string
-	Name         string
-	Entrypoint   string
-	Runtime      string
-	Outputs      string
-	Capabilities map[string]bool
-	ParamsJSON   []byte
-	Permissions  pluginPermissions
-	Resources    pluginResources
-	Interval     time.Duration
-	Timeout      time.Duration
-	WasmObject   string
-	ContentHash  string
-	DownloadURL  string
+	AssignmentID  string
+	PluginID      string
+	PackageID     string
+	Version       string
+	Name          string
+	Entrypoint    string
+	Runtime       string
+	Outputs       string
+	Capabilities  map[string]bool
+	ParamsJSON    []byte
+	Permissions   pluginPermissions
+	Resources     pluginResources
+	Interval      time.Duration
+	Timeout       time.Duration
+	WasmObject    string
+	ContentHash   string
+	DownloadURL   string
+	DownloadToken string
 }
 
 type pluginCameraMediaBridge struct {
@@ -1050,21 +1051,22 @@ func buildStreamingPluginConfig(baseParams []byte, spec cameraRelaySessionSpec) 
 
 func newPluginAssignment(cfg *proto.PluginAssignmentConfig, log logger.Logger) *pluginAssignment {
 	assignment := &pluginAssignment{
-		AssignmentID: cfg.AssignmentId,
-		PluginID:     cfg.PluginId,
-		PackageID:    cfg.PackageId,
-		Version:      cfg.Version,
-		Name:         cfg.Name,
-		Entrypoint:   cfg.Entrypoint,
-		Runtime:      cfg.Runtime,
-		Outputs:      cfg.Outputs,
-		Capabilities: make(map[string]bool),
-		ParamsJSON:   cfg.ParamsJson,
-		Interval:     time.Duration(cfg.IntervalSec) * time.Second,
-		Timeout:      time.Duration(cfg.TimeoutSec) * time.Second,
-		WasmObject:   strings.TrimSpace(cfg.WasmObjectKey),
-		ContentHash:  strings.TrimSpace(cfg.ContentHash),
-		DownloadURL:  strings.TrimSpace(cfg.DownloadUrl),
+		AssignmentID:  cfg.AssignmentId,
+		PluginID:      cfg.PluginId,
+		PackageID:     cfg.PackageId,
+		Version:       cfg.Version,
+		Name:          cfg.Name,
+		Entrypoint:    cfg.Entrypoint,
+		Runtime:       cfg.Runtime,
+		Outputs:       cfg.Outputs,
+		Capabilities:  make(map[string]bool),
+		ParamsJSON:    cfg.ParamsJson,
+		Interval:      time.Duration(cfg.IntervalSec) * time.Second,
+		Timeout:       time.Duration(cfg.TimeoutSec) * time.Second,
+		WasmObject:    strings.TrimSpace(cfg.WasmObjectKey),
+		ContentHash:   strings.TrimSpace(cfg.ContentHash),
+		DownloadURL:   strings.TrimSpace(cfg.DownloadUrl),
+		DownloadToken: strings.TrimSpace(cfg.DownloadToken),
 	}
 
 	for _, cap := range cfg.Capabilities {
@@ -1383,7 +1385,7 @@ func (m *PluginManager) loadWasm(ctx context.Context, assignment *pluginAssignme
 	}
 
 	if assignment.DownloadURL != "" {
-		data, err := m.downloadWasm(ctx, assignment.DownloadURL)
+		data, err := m.downloadWasm(ctx, assignment)
 		if err != nil {
 			return nil, err
 		}
@@ -1519,10 +1521,22 @@ func (m *PluginManager) persistCache(path string, data []byte) {
 	_ = os.WriteFile(path, data, 0o640)
 }
 
-func (m *PluginManager) downloadWasm(ctx context.Context, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func (m *PluginManager) downloadWasm(ctx context.Context, assignment *pluginAssignment) ([]byte, error) {
+	if assignment == nil || strings.TrimSpace(assignment.DownloadURL) == "" {
+		return nil, errDownloadFailed
+	}
+
+	method := http.MethodGet
+	if assignment != nil && assignment.DownloadToken != "" {
+		method = http.MethodPost
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, assignment.DownloadURL, nil)
 	if err != nil {
 		return nil, err
+	}
+	if assignment != nil && assignment.DownloadToken != "" {
+		req.Header.Set("X-ServiceRadar-Plugin-Token", assignment.DownloadToken)
 	}
 
 	resp, err := m.httpClient.Do(req)
