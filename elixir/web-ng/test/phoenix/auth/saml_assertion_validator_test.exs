@@ -63,10 +63,48 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLAssertionValidatorTest do
              SAMLAssertionValidator.validate(assertion, config, @valid_now)
   end
 
+  test "rejects missing audience when SP entity id is configured" do
+    assertion =
+      assertion_fixture(
+        audience: nil,
+        not_before: "2026-03-02T11:59:00Z",
+        not_on_or_after: "2026-03-02T12:02:00Z"
+      )
+
+    config = %{
+      idp_entity_id: nil,
+      sp_entity_id: "https://sp.example.com",
+      acs_url: "https://sp.example.com/auth/saml/consume",
+      assertion_max_validity_seconds: 300
+    }
+
+    assert {:error, :invalid_audience} =
+             SAMLAssertionValidator.validate(assertion, config, @valid_now)
+  end
+
   test "rejects mismatched recipient" do
     assertion =
       assertion_fixture(
         recipient: "https://other-sp.example.com/auth/saml/consume",
+        not_before: "2026-03-02T11:59:00Z",
+        not_on_or_after: "2026-03-02T12:02:00Z"
+      )
+
+    config = %{
+      idp_entity_id: nil,
+      sp_entity_id: "https://sp.example.com",
+      acs_url: "https://sp.example.com/auth/saml/consume",
+      assertion_max_validity_seconds: 300
+    }
+
+    assert {:error, :invalid_recipient} =
+             SAMLAssertionValidator.validate(assertion, config, @valid_now)
+  end
+
+  test "rejects missing recipient when ACS URL is configured" do
+    assertion =
+      assertion_fixture(
+        recipient: nil,
         not_before: "2026-03-02T11:59:00Z",
         not_on_or_after: "2026-03-02T12:02:00Z"
       )

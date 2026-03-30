@@ -4,6 +4,7 @@ go_library(
     name = "accounts",
     srcs = [
         "account_manager.go",
+        "errors.go",
         "operator.go",
         "user_manager.go",
     ],

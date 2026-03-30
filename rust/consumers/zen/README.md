@@ -32,7 +32,6 @@ Create a JSON file with the following fields:
   ],
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-datasvc",
-  "listen_addr": "0.0.0.0:50055",
   "result_subject_suffix": ".processed"
 }
 ```
@@ -69,8 +68,9 @@ JetStream stream so processed results are persisted. For example, if your
 incoming subject is `logs.syslog` and the suffix is `.processed`, make sure
 `logs.syslog.processed` is included in the stream before running the consumer.
 
-The `listen_addr` field configures a gRPC server exposing a health check via
-`monitoring.AgentService`.
+The `listen_addr` field is optional. When set, it enables a gRPC server
+exposing a health check via `monitoring.AgentService`, and `grpc_security`
+must be configured for mTLS or SPIFFE-backed transport.
 
 Optionally add TLS settings:
 

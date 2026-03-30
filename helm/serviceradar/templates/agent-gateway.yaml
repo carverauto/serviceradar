@@ -7,7 +7,6 @@
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $clusterCoreNodeBasename := default $coreClusterNodeBasename $gateway.clusterCoreNodeBasename -}}
-{{- $clusterCookie := default "serviceradar_dev_cookie" $webNg.clusterCookie -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -91,7 +90,10 @@ spec:
         - name: RELEASE_DISTRIBUTION
           value: "name"
         - name: RELEASE_COOKIE
-          value: {{ $clusterCookie | quote }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-secrets" .Values.secrets.existingSecretName | quote }}
+              key: cluster-cookie
         - name: KUBERNETES_SELECTOR
           value: {{ $clusterSelector | quote }}
         - name: KUBERNETES_NODE_BASENAME

@@ -432,30 +432,22 @@ func normalizeServerSPIFFEID(raw string, trustDomain spiffeid.TrustDomain, hasTr
 }
 
 func (p *SpiffeProvider) GetClientCredentials(_ context.Context) (grpc.DialOption, error) {
-	authorizer := tlsconfig.AuthorizeAny()
-
-	switch {
-	case p.hasServerID:
-		authorizer = tlsconfig.AuthorizeID(p.serverID)
-	case p.hasTrustDomain:
-		authorizer = tlsconfig.AuthorizeMemberOf(p.trustDomain)
-		p.logger.Warn().Msg("SPIFFE client credentials using trust domain membership authorizer; set server_spiffe_id for stricter verification")
-	default:
-		p.logger.Warn().Msg("SPIFFE client credentials have no server_spiffe_id or trust_domain; allowing any SPIFFE endpoint")
+	if !p.hasServerID {
+		return nil, errServerSPIFFEIDRequired
 	}
 
+	authorizer := tlsconfig.AuthorizeID(p.serverID)
 	tlsConfig := tlsconfig.MTLSClientConfig(p.source, p.source, authorizer)
 
 	return grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)), nil
 }
 
 func (p *SpiffeProvider) GetServerCredentials(_ context.Context) (grpc.ServerOption, error) {
-	authorizer := tlsconfig.AuthorizeAny()
-
-	if p.hasTrustDomain {
-		authorizer = tlsconfig.AuthorizeMemberOf(p.trustDomain)
+	if !p.hasTrustDomain {
+		return nil, errTrustDomainRequired
 	}
 
+	authorizer := tlsconfig.AuthorizeMemberOf(p.trustDomain)
 	tlsConfig := tlsconfig.MTLSServerConfig(p.source, p.source, authorizer)
 
 	return grpc.Creds(credentials.NewTLS(tlsConfig)), nil
@@ -488,16 +480,14 @@ func (p *SpiffeProvider) Close() error {
 // NewSecurityProvider creates the appropriate security provider based on mode.
 func NewSecurityProvider(ctx context.Context, config *models.SecurityConfig, log logger.Logger) (SecurityProvider, error) {
 	if config == nil {
-		log.Warn().Msg("SECURITY WARNING: No security config provided, using no security")
-
-		return &NoSecurityProvider{logger: log}, nil
+		log.Error().Msg("ERROR: No security config provided")
+		return nil, errSecurityConfigRequired
 	}
 
 	// Defensive check: ensure mode is a non-empty string
 	if config.Mode == "" {
-		log.Warn().Msg("SECURITY WARNING: Empty security mode, using no security")
-
-		return &NoSecurityProvider{logger: log}, nil
+		log.Error().Msg("ERROR: Empty security mode")
+		return nil, errSecurityConfigRequired
 	}
 
 	log.Info().Str("mode", string(config.Mode)).Msg("Creating security provider")

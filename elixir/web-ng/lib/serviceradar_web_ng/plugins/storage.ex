@@ -2,7 +2,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   @moduledoc """
   Storage backend for plugin package blobs.
 
-  Currently supports filesystem storage with signed upload/download URLs.
+  Currently supports filesystem storage with signed upload/download tokens.
   """
 
   alias Jetstream.API.Object
@@ -96,14 +96,14 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   def verify_token(_action, _token), do: {:error, :invalid_token}
 
-  @spec upload_url(String.t(), String.t()) :: String.t()
-  def upload_url(package_id, token) do
-    EndpointConfig.base_url() <> "/api/plugin-packages/#{package_id}/blob?token=#{token}"
+  @spec upload_url(String.t()) :: String.t()
+  def upload_url(package_id) do
+    EndpointConfig.base_url() <> "/api/plugin-packages/#{package_id}/blob"
   end
 
-  @spec download_url(String.t(), String.t()) :: String.t()
-  def download_url(package_id, token) do
-    EndpointConfig.base_url() <> "/api/plugin-packages/#{package_id}/blob?token=#{token}"
+  @spec download_url(String.t()) :: String.t()
+  def download_url(package_id) do
+    EndpointConfig.base_url() <> "/api/plugin-packages/#{package_id}/blob/download"
   end
 
   @spec put_blob(String.t(), binary()) :: :ok | {:error, term()}
@@ -113,6 +113,16 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
       :jetstream -> put_blob_jetstream(object_key, payload)
     end
   end
+
+  @spec put_blob_file(String.t(), String.t()) :: :ok | {:error, term()}
+  def put_blob_file(object_key, source_path) when is_binary(source_path) do
+    case backend() do
+      :filesystem -> put_blob_file_filesystem(object_key, source_path)
+      :jetstream -> put_blob_file_jetstream(object_key, source_path)
+    end
+  end
+
+  def put_blob_file(_object_key, _source_path), do: {:error, :invalid_path}
 
   @spec fetch_blob(String.t()) ::
           {:ok, {:file, String.t()} | {:binary, binary()}} | {:error, term()}
@@ -153,6 +163,24 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     |> :crypto.hash(payload)
     |> Base.encode16(case: :lower)
   end
+
+  @spec sha256_file(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def sha256_file(path) when is_binary(path) do
+    digest =
+      path
+      |> File.stream!(65_536, [])
+      |> Enum.reduce(:crypto.hash_init(:sha256), fn chunk, acc ->
+        :crypto.hash_update(acc, chunk)
+      end)
+      |> :crypto.hash_final()
+      |> Base.encode16(case: :lower)
+
+    {:ok, digest}
+  rescue
+    error in File.Error -> {:error, error.reason}
+  end
+
+  def sha256_file(_path), do: {:error, :invalid_path}
 
   defp config do
     Application.get_env(:serviceradar_web_ng, :plugin_storage, [])
@@ -247,6 +275,25 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   end
 
   @sobelow_skip ["Traversal.FileModule"]
+  defp put_blob_file_filesystem(object_key, source_path) do
+    case safe_path(object_key) do
+      {:ok, path} ->
+        dir = Path.dirname(path)
+
+        with :ok <- File.mkdir_p(dir) do
+          File.cp(source_path, path)
+        end
+
+      {:error, reason} = error ->
+        Logger.error(
+          "plugin blob path resolution failed backend=filesystem object_key=#{inspect(object_key)} base_path=#{base_path()} reason=#{inspect(reason)}"
+        )
+
+        error
+    end
+  end
+
+  @sobelow_skip ["Traversal.FileModule"]
   defp write_blob_file(path, payload, object_key, dir) do
     case File.write(path, payload) do
       :ok ->
@@ -292,6 +339,18 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
       with {:ok, _} <- ensure_bucket(conn),
            {:ok, io} <- StringIO.open(payload),
            {:ok, _meta} <- Object.put(conn, bucket_name(), object_key, io) do
+        :ok
+      end
+    end)
+  end
+
+  defp put_blob_file_jetstream(object_key, source_path) do
+    with_jetstream(fn conn ->
+      with {:ok, _} <- ensure_bucket(conn),
+           {:ok, _meta} <-
+             File.open(source_path, [:read, :binary], fn io ->
+               Object.put(conn, bucket_name(), object_key, io)
+             end) do
         :ok
       end
     end)

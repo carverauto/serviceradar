@@ -58,8 +58,9 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageControllerTest do
 
     conn =
       "PUT"
-      |> Plug.Test.conn("/api/plugin-packages/#{package.id}/blob?token=#{token}", payload)
+      |> Plug.Test.conn("/api/plugin-packages/#{package.id}/blob", payload)
       |> Plug.Conn.put_req_header("content-type", "application/wasm")
+      |> Plug.Conn.put_req_header("x-serviceradar-plugin-token", token)
       |> ServiceRadarWebNGWeb.Endpoint.call([])
 
     assert conn.status == 201
@@ -68,6 +69,55 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageControllerTest do
     assert updated.content_hash == Storage.sha256(payload)
     assert updated.wasm_object_key == object_key
     assert Storage.blob_exists?(object_key)
+  end
+
+  test "POST /api/plugin-packages/:id/blob/download returns the blob when token is in header", %{
+    conn: _conn
+  } do
+    _plugin = create_plugin()
+    package = create_package()
+    object_key = Storage.object_key_for(package)
+    payload = "downloadable-wasm-binary"
+    assert :ok = Storage.put_blob(object_key, payload)
+    {token, _expires_at} = Storage.sign_token(:download, package.id, object_key, 300)
+
+    package =
+      package
+      |> Ash.Changeset.for_update(:update, %{wasm_object_key: object_key}, actor: system_actor())
+      |> Ash.update!(actor: system_actor())
+
+    conn =
+      "POST"
+      |> Plug.Test.conn("/api/plugin-packages/#{package.id}/blob/download", "")
+      |> Plug.Conn.put_req_header("x-serviceradar-plugin-token", token)
+      |> ServiceRadarWebNGWeb.Endpoint.call([])
+
+    assert conn.status == 200
+    assert conn.resp_body == payload
+    assert ["application/wasm; charset=utf-8"] = Plug.Conn.get_resp_header(conn, "content-type")
+  end
+
+  test "POST /api/plugin-packages/:id/blob/download rejects query-string token fallback", %{
+    conn: _conn
+  } do
+    _plugin = create_plugin()
+    package = create_package()
+    object_key = Storage.object_key_for(package)
+    payload = "downloadable-wasm-binary"
+    assert :ok = Storage.put_blob(object_key, payload)
+    {token, _expires_at} = Storage.sign_token(:download, package.id, object_key, 300)
+
+    package =
+      package
+      |> Ash.Changeset.for_update(:update, %{wasm_object_key: object_key}, actor: system_actor())
+      |> Ash.update!(actor: system_actor())
+
+    conn =
+      "POST"
+      |> Plug.Test.conn("/api/plugin-packages/#{package.id}/blob/download?token=#{token}", "")
+      |> ServiceRadarWebNGWeb.Endpoint.call([])
+
+    assert conn.status == 401
   end
 
   defp reload_package(id) do

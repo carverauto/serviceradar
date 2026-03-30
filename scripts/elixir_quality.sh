@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/elixir_quality.sh --project <path> [--phoenix]
+Usage: scripts/elixir_quality.sh --project <path> [--phoenix] [--force-check-dialyzer]
 
 Runs the repository-standard Elixir quality contract for a single Mix project.
 EOF
@@ -13,6 +13,7 @@ EOF
 project=""
 phoenix="false"
 skip_dialyzer="false"
+force_check_dialyzer="false"
 skip_credo="false"
 skip_warnings_as_errors="false"
 
@@ -28,6 +29,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-dialyzer)
       skip_dialyzer="true"
+      shift
+      ;;
+    --force-check-dialyzer)
+      force_check_dialyzer="true"
       shift
       ;;
     --skip-credo)
@@ -91,7 +96,13 @@ fi
 run mix deps.audit "${deps_audit_args[@]}"
 
 if [[ "${skip_dialyzer}" != "true" ]]; then
-  run mix dialyzer --force-check
+  dialyzer_args=()
+
+  if [[ "${force_check_dialyzer}" == "true" ]]; then
+    dialyzer_args+=(--force-check)
+  fi
+
+  run mix dialyzer "${dialyzer_args[@]}"
 fi
 
 if [[ "${phoenix}" == "true" ]]; then

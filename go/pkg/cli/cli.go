@@ -430,7 +430,6 @@ func (SpireJoinTokenHandler) Parse(args []string, cfg *CmdConfig) error {
 	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
 	apiKey := fs.String("api-key", "", "API key for authenticating with core")
 	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
-	tlsSkip := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	ttl := fs.Int("ttl", 0, "Join token TTL in seconds")
 	agentID := fs.String("agent-spiffe-id", "", "Optional alias SPIFFE ID to assign to the agent")
 	noDownstream := fs.Bool("no-downstream", false, "Do not register a downstream entry")
@@ -455,7 +454,6 @@ func (SpireJoinTokenHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.CoreAPIURL = *coreURL
 	cfg.APIKey = *apiKey
 	cfg.BearerToken = *bearer
-	cfg.TLSSkipVerify = *tlsSkip
 	cfg.JoinTokenTTLSeconds = *ttl
 	cfg.AgentSPIFFEID = *agentID
 	cfg.NoDownstream = *noDownstream
@@ -481,7 +479,6 @@ func (EdgePackageDownloadHandler) Parse(args []string, cfg *CmdConfig) error {
 	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
 	apiKey := fs.String("api-key", "", "API key for authenticating with core")
 	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
-	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	packageID := fs.String("id", "", "Edge package identifier")
 	downloadToken := fs.String("download-token", "", "Edge package download token")
 	output := fs.String("output", "", "Optional file path for writing onboarding artifacts (JSON)")
@@ -494,7 +491,6 @@ func (EdgePackageDownloadHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.CoreAPIURL = *coreURL
 	cfg.APIKey = *apiKey
 	cfg.BearerToken = *bearer
-	cfg.TLSSkipVerify = *skipTLS
 	cfg.EdgePackageID = *packageID
 	cfg.EdgePackageDownloadToken = *downloadToken
 	cfg.EdgePackageOutput = *output
@@ -512,7 +508,6 @@ func (EdgePackageRevokeHandler) Parse(args []string, cfg *CmdConfig) error {
 	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
 	apiKey := fs.String("api-key", "", "API key for authenticating with core")
 	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
-	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	packageID := fs.String("id", "", "Edge package identifier")
 	reason := fs.String("reason", "", "Optional revocation reason")
 
@@ -523,7 +518,6 @@ func (EdgePackageRevokeHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.CoreAPIURL = *coreURL
 	cfg.APIKey = *apiKey
 	cfg.BearerToken = *bearer
-	cfg.TLSSkipVerify = *skipTLS
 	cfg.EdgePackageID = *packageID
 	cfg.EdgePackageReason = *reason
 
@@ -557,8 +551,8 @@ type EnrollHandler struct{}
 // Parse reads flags for the enroll subcommand.
 func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
 	fs := flag.NewFlagSet("enroll", flag.ExitOnError)
-	token := fs.String("token", "", "Enrollment token (edgepkg-v1 or collector token)")
-	coreURL := fs.String("core-url", "", "Core API base URL (fallback if token omits base URL)")
+	token := fs.String("token", "", "Enrollment token (edgepkg-v2 or collectorpkg-v2)")
+	coreURL := fs.String("core-url", "", "Core API base URL (required only when the signed token does not embed one)")
 	hostIP := fs.String("host-ip", "", "Override detected host IP (agent enrollment only)")
 	configPath := fs.String("config", "/etc/serviceradar/agent.json", "Agent config path")
 	configDir := fs.String("config-dir", "/etc/serviceradar", "Collector config directory")
@@ -566,7 +560,6 @@ func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
 	certDir := fs.String("cert-dir", "/etc/serviceradar/certs", "Certificate directory")
 	credsDir := fs.String("creds-dir", "/etc/serviceradar/creds", "Collector credentials directory")
 	force := fs.Bool("force", false, "Overwrite existing config/certs instead of backing them up")
-	insecure := fs.Bool("insecure", true, "Skip TLS verification for bundle download")
 	caFile := fs.String("ca-file", "", "CA bundle path for verifying the core API TLS cert")
 
 	if err := fs.Parse(args); err != nil {
@@ -582,7 +575,6 @@ func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.EnrollCertDir = *certDir
 	cfg.EnrollCredsDir = *credsDir
 	cfg.EnrollForce = *force
-	cfg.EnrollInsecure = *insecure
 	cfg.EnrollCAFile = *caFile
 
 	return nil
@@ -642,7 +634,6 @@ func parseEdgePackageCreateFlags(args []string, cfg *CmdConfig) error {
 	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
 	apiKey := fs.String("api-key", "", "API key for authenticating with core")
 	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
-	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	label := fs.String("label", "", "Display label for the package (required)")
 	componentID := fs.String("component-id", "", "Optional component identifier (defaults to generated slug)")
 	componentType := fs.String("component-type", "gateway", "Component type (gateway, agent, checker[:kind])")
@@ -671,7 +662,6 @@ func parseEdgePackageCreateFlags(args []string, cfg *CmdConfig) error {
 	cfg.CoreAPIURL = *coreURL
 	cfg.APIKey = *apiKey
 	cfg.BearerToken = *bearer
-	cfg.TLSSkipVerify = *skipTLS
 	cfg.EdgePackageLabel = *label
 	cfg.EdgePackageComponentID = *componentID
 	cfg.EdgePackageParentType = strings.ToLower(strings.TrimSpace(*parentType))
@@ -739,7 +729,6 @@ func parseEdgePackageListFlags(args []string, cfg *CmdConfig) error {
 	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
 	apiKey := fs.String("api-key", "", "API key for authenticating with core")
 	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
-	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	limit := fs.Int("limit", 50, "Maximum number of packages to return")
 	gatewayID := fs.String("gateway-id", "", "Filter by gateway identifier")
 	parentID := fs.String("parent-id", "", "Filter by parent identifier")
@@ -759,7 +748,6 @@ func parseEdgePackageListFlags(args []string, cfg *CmdConfig) error {
 	cfg.CoreAPIURL = *coreURL
 	cfg.APIKey = *apiKey
 	cfg.BearerToken = *bearer
-	cfg.TLSSkipVerify = *skipTLS
 	cfg.EdgePackageLimit = *limit
 	cfg.EdgePackageGatewayFilter = strings.TrimSpace(*gatewayID)
 	cfg.EdgePackageParentFilter = strings.TrimSpace(*parentID)
@@ -776,10 +764,9 @@ func parseEdgePackageShowFlags(args []string, cfg *CmdConfig) error {
 	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
 	apiKey := fs.String("api-key", "", "API key for authenticating with core")
 	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
-	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	id := fs.String("id", "", "Edge package identifier")
 	output := fs.String("output", "text", "Output format: text or json")
-	reissue := fs.Bool("reissue-token", false, "Emit edgepkg-v1 string using --download-token")
+	reissue := fs.Bool("reissue-token", false, "Emit a signed edgepkg-v2 token using --download-token")
 	downloadToken := fs.String("download-token", "", "Download token to encode when --reissue-token is set")
 
 	if err := fs.Parse(args); err != nil {
@@ -789,7 +776,6 @@ func parseEdgePackageShowFlags(args []string, cfg *CmdConfig) error {
 	cfg.CoreAPIURL = *coreURL
 	cfg.APIKey = *apiKey
 	cfg.BearerToken = *bearer
-	cfg.TLSSkipVerify = *skipTLS
 	cfg.EdgePackageID = *id
 	cfg.EdgeOutputFormat = strings.ToLower(strings.TrimSpace(*output))
 	cfg.EdgePackageReissueToken = *reissue

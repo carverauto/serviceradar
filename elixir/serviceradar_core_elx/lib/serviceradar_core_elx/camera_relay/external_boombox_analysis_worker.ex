@@ -8,6 +8,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.ExternalBoomboxAnalysisWorker do
 
   alias ServiceRadar.Camera.AnalysisContract
   alias ServiceRadarCoreElx.CameraRelay.BoomboxHelpers
+  alias ServiceRadarCoreElx.CameraRelay.SecureTempCapture
 
   @default_host {127, 0, 0, 1}
   @default_worker_id "external-boombox-analysis-worker"
@@ -128,18 +129,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.ExternalBoomboxAnalysisWorker do
   end
 
   defp decode_capture_with_boombox(payload) when is_binary(payload) do
-    path = temp_capture_path()
-
-    try do
-      File.write!(path, payload, [:binary])
+    SecureTempCapture.with_payload_file("serviceradar-external-boombox", payload, ".h264", fn path ->
       BoomboxHelpers.decode_capture(path)
-    after
-      _ = File.rm(path)
-    end
-  end
-
-  defp temp_capture_path do
-    Path.join(System.tmp_dir!(), "serviceradar-external-boombox-#{System.unique_integer([:positive])}.h264")
+    end)
   end
 
   defp string_value(input, key) do

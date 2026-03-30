@@ -59,6 +59,26 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
     end
   end
 
+  describe "create_tarball/4 for otel" do
+    test "normalizes newline-bearing grpc port overrides before writing TOML" do
+      {:ok, tarball} =
+        CollectorBundleGenerator.create_tarball(
+          sample_otel_package(%{
+            "server" => %{"port" => "4317\nmalicious = true"}
+          }),
+          sample_nats_creds(),
+          sample_tls_key(),
+          nats_url: "nats://serviceradar-nats:4222"
+        )
+
+      files = extract_files(tarball)
+      otel_toml = find_file(files, "otel.toml")
+
+      assert otel_toml =~ "port = 4317"
+      refute otel_toml =~ "malicious = true"
+    end
+  end
+
   describe "update_command/3" do
     test "uses the public collector bundle path for standard collectors" do
       command =
@@ -72,8 +92,11 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
         )
 
       assert command =~
-               "https://demo.serviceradar.cloud/api/collectors/12345678-abcd-efgh-ijkl-1234567890ab/bundle?token=download-token"
+               "https://demo.serviceradar.cloud/api/collectors/12345678-abcd-efgh-ijkl-1234567890ab/bundle"
 
+      assert command =~ "-X POST"
+      assert command =~ "x-serviceradar-download-token: ${SR_TOKEN}"
+      refute command =~ "download-token"
       assert command =~ "sudo ./update.sh"
       refute command =~ "/api/edge/collectors/"
     end
@@ -87,10 +110,31 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
         )
 
       assert command =~
-               "https://demo.serviceradar.cloud/api/collectors/12345678-abcd-efgh-ijkl-1234567890ab/bundle?token=download-token"
+               "https://demo.serviceradar.cloud/api/collectors/12345678-abcd-efgh-ijkl-1234567890ab/bundle"
 
+      assert command =~ "-X POST"
+      assert command =~ "x-serviceradar-download-token: ${SR_TOKEN}"
+      refute command =~ "download-token"
       assert command =~ "./deploy.sh"
       refute command =~ "sudo ./update.sh"
+    end
+
+    test "quotes bundle URLs as shell literals" do
+      command =
+        CollectorBundleGenerator.update_command(
+          %CollectorPackage{
+            id: "12345678-abcd-efgh-ijkl-1234567890ab",
+            collector_type: :flowgger
+          },
+          "download-token",
+          base_url: "https://demo.serviceradar.cloud/$(touch /tmp/pwned)"
+        )
+
+      assert command =~
+               "'https://demo.serviceradar.cloud/$(touch /tmp/pwned)/api/collectors/12345678-abcd-efgh-ijkl-1234567890ab/bundle'"
+
+      refute command =~
+               "\"https://demo.serviceradar.cloud/$(touch /tmp/pwned)/api/collectors/12345678-abcd-efgh-ijkl-1234567890ab/bundle\""
     end
   end
 
@@ -118,6 +162,16 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
         "namespace" => "demo",
         "release_name" => "falcosidekick-nats-auth"
       }
+    }
+  end
+
+  defp sample_otel_package(config_overrides \\ %{}) do
+    %CollectorPackage{
+      id: "87654321-dcba-hgfe-lkji-0987654321ba",
+      collector_type: :otel,
+      site: "demo",
+      inserted_at: ~U[2026-03-08 12:00:00Z],
+      config_overrides: config_overrides
     }
   end
 

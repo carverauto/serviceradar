@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.PubSub, as: EdgePubSub
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.Shell
   alias ServiceRadarWebNGWeb.GatewayHelpers
 
   require Logger
@@ -28,7 +29,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       security_mode = OnboardingPackages.configured_security_mode()
 
       {gateway_options, default_gateway_id} = load_gateway_state()
-      base_url = request_base_url(socket)
       actor = user_actor(socket)
 
       socket =
@@ -49,7 +49,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         |> assign(:host_ip_value, "")
         |> assign(:gateway_options, gateway_options)
         |> assign(:default_gateway_id, default_gateway_id)
-        |> assign(:base_url, base_url)
 
       if connected?(socket) do
         EdgePubSub.subscribe_packages()
@@ -163,12 +162,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
     if form.valid? do
       # Show loading state while creating package and generating certificates
-      base_url = Map.get(socket.assigns, :base_url) || request_base_url(socket)
+      base_url = base_url()
 
-      socket =
-        socket
-        |> assign(:creating, true)
-        |> assign(:base_url, base_url)
+      socket = assign(socket, :creating, true)
 
       # Extract validated form data
       actor = get_actor(socket)
@@ -533,10 +529,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           </div>
         <% else %>
           <%= if @created_tokens do %>
-            <.success_content
-              created_tokens={@created_tokens}
-              base_url={Map.get(assigns, :base_url) || base_url()}
-            />
+            <.success_content created_tokens={@created_tokens} />
           <% else %>
             <h3 class="text-lg font-bold">Create Edge Package</h3>
             <p class="py-2 text-sm text-base-content/70">
@@ -669,7 +662,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     download_token = assigns.created_tokens.download_token
     certificate_data = Map.get(assigns.created_tokens, :certificate_data)
     component_type = to_string(package.component_type)
-    base_url = Map.get(assigns, :base_url) || base_url()
+    base_url = base_url()
 
     onboarding_token =
       case ServiceRadarWebNG.Edge.encode_onboarding_token(package.id, download_token, base_url) do
@@ -679,7 +672,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
     enroll_cmd =
       if component_type == "agent" and is_binary(onboarding_token) do
-        "sudo /usr/local/bin/serviceradar-cli enroll --token #{onboarding_token}"
+        "sudo /usr/local/bin/serviceradar-cli enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(onboarding_token)}"
       end
 
     docker_cmd =
@@ -816,7 +809,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         <div class="collapse collapse-arrow bg-base-200">
           <input type="checkbox" />
           <div class="collapse-title text-sm font-medium">
-            Show onboarding token (edgepkg-v1)
+            Show onboarding token (edgepkg-v2)
           </div>
           <div class="collapse-content">
             <div class="flex items-center gap-2">
@@ -879,26 +872,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp base_url do
     ServiceRadarWebNGWeb.Endpoint.url()
   end
-
-  defp request_base_url(socket) do
-    case Phoenix.LiveView.get_connect_info(socket, :uri) do
-      %URI{} = uri ->
-        uri
-        |> Map.put(:path, nil)
-        |> Map.put(:query, nil)
-        |> Map.put(:fragment, nil)
-        |> Map.put(:userinfo, nil)
-        |> normalize_port()
-        |> URI.to_string()
-
-      _ ->
-        base_url()
-    end
-  end
-
-  defp normalize_port(%URI{scheme: "http", port: 80} = uri), do: %{uri | port: nil}
-  defp normalize_port(%URI{scheme: "https", port: 443} = uri), do: %{uri | port: nil}
-  defp normalize_port(uri), do: uri
 
   defp maybe_return_to_index(socket) do
     if socket.assigns.live_action == :new do

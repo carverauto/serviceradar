@@ -76,7 +76,10 @@ var (
 	errReleaseArtifactURLInvalid      = errors.New("release artifact url must use https")
 	errReleaseArtifactPlatformInvalid = errors.New("release artifact platform does not match this agent")
 	errReleaseRedirectInsecure        = errors.New("release artifact redirects must use https")
+	errReleaseRedirectOriginChanged   = errors.New("release artifact redirects must preserve origin")
 	errReleaseRedirectLimitExceeded   = errors.New("release artifact redirect limit exceeded")
+	errReleaseGatewaySecurityRequired = errors.New("gateway security configuration is required for release download")
+	errReleaseGatewayCAAppendFailed   = errors.New("failed to append gateway CA certificate")
 )
 
 // ReleaseSigningPublicKey is set at build time for managed release verification.
@@ -701,7 +704,7 @@ func releaseHTTPClient(payload releaseUpdatePayload, cfg releaseStageConfig) (*h
 
 func gatewayArtifactHTTPClient(security *models.SecurityConfig) (*http.Client, error) {
 	if security == nil {
-		return nil, fmt.Errorf("gateway security configuration is required for release download")
+		return nil, errReleaseGatewaySecurityRequired
 	}
 
 	tlsConfig, err := gatewayArtifactTLSConfig(security)
@@ -735,7 +738,7 @@ func gatewayArtifactTLSConfig(security *models.SecurityConfig) (*tls.Config, err
 
 	rootCAs := x509.NewCertPool()
 	if !rootCAs.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to append gateway CA certificate")
+		return nil, errReleaseGatewayCAAppendFailed
 	}
 
 	return &tls.Config{
@@ -760,5 +763,41 @@ func validateReleaseRedirect(req *http.Request, via []*http.Request) error {
 	if req == nil || req.URL == nil || !strings.EqualFold(req.URL.Scheme, "https") {
 		return errReleaseRedirectInsecure
 	}
+	if len(via) == 0 || via[0] == nil || via[0].URL == nil {
+		return errReleaseRedirectOriginChanged
+	}
+	if !sameReleaseOrigin(via[0].URL, req.URL) {
+		return errReleaseRedirectOriginChanged
+	}
 	return nil
+}
+
+func sameReleaseOrigin(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if !strings.EqualFold(a.Scheme, b.Scheme) {
+		return false
+	}
+	if !strings.EqualFold(a.Hostname(), b.Hostname()) {
+		return false
+	}
+	return releaseURLPort(a) == releaseURLPort(b)
+}
+
+func releaseURLPort(parsed *url.URL) string {
+	if parsed == nil {
+		return ""
+	}
+	if port := parsed.Port(); port != "" {
+		return port
+	}
+	switch {
+	case strings.EqualFold(parsed.Scheme, "https"):
+		return "443"
+	case strings.EqualFold(parsed.Scheme, "http"):
+		return "80"
+	default:
+		return ""
+	}
 }

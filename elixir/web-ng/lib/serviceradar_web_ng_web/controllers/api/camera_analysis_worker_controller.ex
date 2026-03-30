@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Camera.AnalysisWorkerAlertRouter
+  alias ServiceRadar.Policies.OutboundURLPolicy
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.CameraAnalysisWorkers
   alias ServiceRadarWebNG.RBAC
@@ -130,6 +131,9 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
     with {:ok, worker_id} <- required_string(params, "worker_id"),
          {:ok, adapter} <- required_string(params, "adapter"),
          {:ok, endpoint_url} <- required_string(params, "endpoint_url"),
+         {:ok, endpoint_url} <- validate_worker_url(endpoint_url, "endpoint_url", true),
+         {:ok, health_endpoint_url} <-
+           validate_worker_url(Map.get(params, "health_endpoint_url"), "health_endpoint_url", false),
          {:ok, capabilities} <- normalize_string_list(Map.get(params, "capabilities")),
          {:ok, headers} <- normalize_map(Map.get(params, "headers"), "headers"),
          {:ok, metadata} <- normalize_map(Map.get(params, "metadata"), "metadata"),
@@ -149,7 +153,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
          display_name: normalize_optional_string(Map.get(params, "display_name")),
          adapter: adapter,
          endpoint_url: endpoint_url,
-         health_endpoint_url: normalize_optional_string(Map.get(params, "health_endpoint_url")),
+         health_endpoint_url: health_endpoint_url,
          health_path: normalize_optional_string(Map.get(params, "health_path")),
          health_timeout_ms: health_timeout_ms,
          probe_interval_ms: probe_interval_ms,
@@ -162,19 +166,19 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
   end
 
   defp normalize_update_attrs(params) do
-    attrs =
-      %{}
-      |> maybe_put(:display_name, normalize_optional_string(Map.get(params, "display_name")))
-      |> maybe_put(:adapter, normalize_optional_string(Map.get(params, "adapter")))
-      |> maybe_put(:endpoint_url, normalize_optional_string(Map.get(params, "endpoint_url")))
-      |> maybe_put(
-        :health_endpoint_url,
-        normalize_optional_string(Map.get(params, "health_endpoint_url"))
-      )
-      |> maybe_put(:health_path, normalize_optional_string(Map.get(params, "health_path")))
-      |> maybe_put(:enabled, normalize_optional_boolean(Map.get(params, "enabled")))
-
-    with {:ok, attrs} <-
+    with {:ok, endpoint_url} <-
+           validate_worker_url(Map.get(params, "endpoint_url"), "endpoint_url", false),
+         {:ok, health_endpoint_url} <-
+           validate_worker_url(Map.get(params, "health_endpoint_url"), "health_endpoint_url", false),
+         attrs =
+           %{}
+           |> maybe_put(:display_name, normalize_optional_string(Map.get(params, "display_name")))
+           |> maybe_put(:adapter, normalize_optional_string(Map.get(params, "adapter")))
+           |> maybe_put(:endpoint_url, endpoint_url)
+           |> maybe_put(:health_endpoint_url, health_endpoint_url)
+           |> maybe_put(:health_path, normalize_optional_string(Map.get(params, "health_path")))
+           |> maybe_put(:enabled, normalize_optional_boolean(Map.get(params, "enabled"))),
+         {:ok, attrs} <-
            maybe_put_positive_integer(
              attrs,
              :health_timeout_ms,
@@ -265,6 +269,24 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
   end
 
   defp normalize_optional_string(_value), do: nil
+
+  defp validate_worker_url(value, field_name, required?) do
+    normalized = normalize_optional_string(value)
+
+    cond do
+      is_nil(normalized) and required? ->
+        {:error, :invalid_request, "#{field_name} is required"}
+
+      is_nil(normalized) ->
+        {:ok, nil}
+
+      true ->
+        case OutboundURLPolicy.validate_https_public_url(normalized) do
+          {:ok, _uri} -> {:ok, normalized}
+          {:error, _reason} -> {:error, :invalid_request, "#{field_name} must be an HTTPS URL to a public host"}
+        end
+    end
+  end
 
   defp normalize_optional_boolean(value, default \\ nil)
   defp normalize_optional_boolean(nil, default), do: default

@@ -4,12 +4,21 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0]
 
+  @private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+  @public_key "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
+
   setup %{conn: conn} do
     previous_nats_url = Application.get_env(:serviceradar, :nats_url)
+    previous_private_key = Application.get_env(:serviceradar_web_ng, :onboarding_token_private_key)
+    previous_public_key = Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key)
     Application.put_env(:serviceradar, :nats_url, "nats://serviceradar-nats:4222")
+    Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, @private_key)
+    Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, @public_key)
 
     on_exit(fn ->
       Application.put_env(:serviceradar, :nats_url, previous_nats_url)
+      Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, previous_private_key)
+      Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, previous_public_key)
     end)
 
     user = admin_user_fixture()
@@ -39,7 +48,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
       assert html =~ "Step 1: Download and deploy the bundle"
       assert html =~ "Step 2: Run the bundle command"
       assert html =~ "serviceradar-runtime-certs"
-      assert html =~ "/api/collectors/"
+      assert html =~ "http://localhost:4002/api/collectors/"
       assert html =~ "./deploy.sh"
 
       refute html =~ "sudo apt install serviceradar-falcosidekick"

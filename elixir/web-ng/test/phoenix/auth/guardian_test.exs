@@ -125,6 +125,13 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
       assert {:error, :invalid_token_type} = Guardian.verify_token(token, token_type: "refresh")
     end
 
+    test "rejects refresh tokens when no explicit token type is requested" do
+      user = user_fixture()
+
+      {:ok, token, _claims} = Guardian.create_refresh_token(user)
+      assert {:error, :invalid_token_type} = Guardian.verify_token(token)
+    end
+
     test "rejects invalid token" do
       assert {:error, _reason} = Guardian.verify_token("invalid_token")
     end
@@ -162,17 +169,27 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
   end
 
   describe "exchange_refresh_token/1" do
-    test "exchanges refresh token for new access token" do
+    test "exchanges refresh token for rotated credentials" do
       user = user_fixture()
 
       {:ok, refresh_token, _claims} = Guardian.create_refresh_token(user)
 
-      assert {:ok, returned_user, new_access_token, new_claims} =
+      assert {:ok, returned_user, credentials} =
                Guardian.exchange_refresh_token(refresh_token)
 
       assert returned_user.id == user.id
-      assert is_binary(new_access_token)
-      assert new_claims["typ"] == "access"
+      assert is_binary(credentials.access_token)
+      assert credentials.access_claims["typ"] == "access"
+      assert is_binary(credentials.refresh_token)
+      assert credentials.refresh_claims["typ"] == "refresh"
+    end
+
+    test "rejects a reused refresh token after successful exchange" do
+      user = user_fixture()
+      {:ok, refresh_token, _claims} = Guardian.create_refresh_token(user)
+
+      assert {:ok, _returned_user, _credentials} = Guardian.exchange_refresh_token(refresh_token)
+      assert {:error, :revoked} = Guardian.exchange_refresh_token(refresh_token)
     end
 
     test "rejects access token for exchange" do

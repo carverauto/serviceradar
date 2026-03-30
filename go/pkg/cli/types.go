@@ -36,7 +36,6 @@ type CmdConfig struct {
 	CoreAPIURL                 string
 	APIKey                     string
 	BearerToken                string
-	TLSSkipVerify              bool
 	JoinTokenTTLSeconds        int
 	AgentSPIFFEID              string
 	DownstreamSPIFFEID         string
@@ -89,7 +88,6 @@ type CmdConfig struct {
 	EnrollCertDir              string
 	EnrollCredsDir             string
 	EnrollForce                bool
-	EnrollInsecure             bool
 	EnrollCAFile               string
 	// NATS bootstrap configuration
 	NATSBootstrapToken   string

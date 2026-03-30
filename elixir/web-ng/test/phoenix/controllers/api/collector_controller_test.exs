@@ -6,11 +6,37 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
 
-  describe "GET /api/collectors/:id/bundle" do
+  defmodule BrokenCollectorBundleGenerator do
+    @moduledoc false
+    def create_tarball(_package, _creds, _tls_key, _opts), do: {:error, %{secret: "collector-bundle-secret"}}
+  end
+
+  describe "POST /api/admin/collectors/:id/download" do
+    test "accepts a download token from the POST body", %{conn: _conn} do
+      {package, token} = create_ready_collector_package(:flowgger)
+
+      conn = post(build_conn(), ~p"/api/admin/collectors/#{package.id}/download", %{"download_token" => token})
+
+      assert %{"package" => %{"status" => "delivered"}} = json_response(conn, 200)
+    end
+
+    test "rejects query-string token fallback", %{conn: _conn} do
+      {package, token} = create_ready_collector_package(:flowgger)
+
+      conn = post(build_conn(), ~p"/api/admin/collectors/#{package.id}/download?download_token=#{token}", %{})
+
+      assert json_response(conn, 400)["error"] == "download_token is required"
+    end
+  end
+
+  describe "POST /api/collectors/:id/bundle" do
     test "downloads a standard collector bundle from the public route", %{conn: _conn} do
       {package, token} = create_ready_collector_package(:flowgger)
 
-      conn = get(build_conn(), ~p"/api/collectors/#{package.id}/bundle?token=#{token}")
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", token)
+        |> post(~p"/api/collectors/#{package.id}/bundle", %{})
 
       assert response_content_type(conn, :gzip) =~ "application/gzip"
 
@@ -32,7 +58,10 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
           }
         })
 
-      conn = get(build_conn(), ~p"/api/collectors/#{package.id}/bundle?token=#{token}")
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", token)
+        |> post(~p"/api/collectors/#{package.id}/bundle", %{})
 
       assert response_content_type(conn, :gzip) =~ "application/gzip"
 
@@ -75,11 +104,61 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
 
       {package, token} = create_ready_collector_package(:flowgger)
 
-      conn = get(build_conn(), ~p"/api/collectors/#{package.id}/bundle?token=#{token}")
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", token)
+        |> post(~p"/api/collectors/#{package.id}/bundle", %{})
 
       assert json_response(conn, 403) == %{
                "error" => "collector onboarding is disabled for this deployment"
              }
+    end
+
+    test "rejects query-string token fallback on the public bundle route", %{conn: _conn} do
+      {package, token} = create_ready_collector_package(:flowgger)
+
+      conn = post(build_conn(), ~p"/api/collectors/#{package.id}/bundle?download_token=#{token}", %{})
+
+      assert json_response(conn, 400)["error"] == "download token is required"
+    end
+
+    test "redacts internal bundle generation errors from the client", %{conn: _conn} do
+      previous = Application.get_env(:serviceradar_web_ng, :collector_bundle_generator)
+      Application.put_env(:serviceradar_web_ng, :collector_bundle_generator, BrokenCollectorBundleGenerator)
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_web_ng, :collector_bundle_generator, previous)
+      end)
+
+      {package, token} = create_ready_collector_package(:flowgger)
+
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", token)
+        |> post(~p"/api/collectors/#{package.id}/bundle", %{})
+
+      assert json_response(conn, 500)["error"] == "bundle creation failed"
+      refute conn.resp_body =~ "collector-bundle-secret"
+    end
+  end
+
+  describe "POST /api/admin/collectors/:id/download" do
+    test "returns a shell-literal-safe install script", %{conn: _conn} do
+      {package, token} =
+        create_ready_collector_package(:flowgger, %{
+          site: "$(touch /tmp/site-pwned)",
+          hostname: "$(touch /tmp/host-pwned)"
+        })
+
+      conn =
+        post(build_conn(), ~p"/api/admin/collectors/#{package.id}/download", %{"download_token" => token})
+
+      install_script = json_response(conn, 200)["install_script"]
+
+      assert install_script =~ "SITE='$(touch /tmp/site-pwned)'"
+      assert install_script =~ "HOSTNAME='$(touch /tmp/host-pwned)'"
+      refute install_script =~ ~s|SITE="$(touch /tmp/site-pwned)"|
+      refute install_script =~ ~s|HOSTNAME="$(touch /tmp/host-pwned)"|
     end
   end
 
@@ -91,8 +170,8 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
     attrs =
       %{
         collector_type: collector_type,
-        site: "demo",
-        hostname: "collector-#{unique}.example.com",
+        site: Map.get(overrides, :site, "demo"),
+        hostname: Map.get(overrides, :hostname, "collector-#{unique}.example.com"),
         config_overrides: Map.get(overrides, :config_overrides, %{})
       }
 

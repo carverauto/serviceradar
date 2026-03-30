@@ -71,20 +71,22 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
                "assets" => [
                  %{
                    "name" => "serviceradar-agent-release-manifest.json",
-                   "browser_download_url" => "https://downloads.example/github/manifest.json"
+                   "browser_download_url" =>
+                     "https://github.com/carverauto/serviceradar/releases/download/v1.2.3/serviceradar-agent-release-manifest.json"
                  },
                  %{
                    "name" => "serviceradar-agent-release-manifest.sig",
-                   "browser_download_url" => "https://downloads.example/github/manifest.sig"
+                   "browser_download_url" =>
+                     "https://github.com/carverauto/serviceradar/releases/download/v1.2.3/serviceradar-agent-release-manifest.sig"
                  }
                ]
              }
            }}
 
-        String.ends_with?(url, "/github/manifest.json") ->
+        String.ends_with?(url, "/serviceradar-agent-release-manifest.json") ->
           {:ok, %Req.Response{status: 200, body: ReleaseSourceImporterTest.manifest_json()}}
 
-        String.ends_with?(url, "/github/manifest.sig") ->
+        String.ends_with?(url, "/serviceradar-agent-release-manifest.sig") ->
           {:ok, %Req.Response{status: 200, body: ReleaseSourceImporterTest.signature()}}
 
         true ->
@@ -108,15 +110,17 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
                "tag_name" => "v9.9.9",
                "name" => "Forgejo Release",
                "body" => "Forgejo release notes",
-               "html_url" => "https://forgejo.example.com/acme/serviceradar/releases/tag/v9.9.9",
+               "html_url" => "https://code.carverauto.dev/acme/serviceradar/releases/tag/v9.9.9",
                "assets" => [
                  %{
                    "name" => "custom-manifest.json",
-                   "browser_download_url" => "https://forgejo.example.com/assets/custom-manifest.json"
+                   "browser_download_url" =>
+                     "https://code.carverauto.dev/acme/serviceradar/releases/download/v9.9.9/custom-manifest.json"
                  },
                  %{
                    "name" => "custom-manifest.sig",
-                   "browser_download_url" => "https://forgejo.example.com/assets/custom-manifest.sig"
+                   "browser_download_url" =>
+                     "https://code.carverauto.dev/acme/serviceradar/releases/download/v9.9.9/custom-manifest.sig"
                  }
                ]
              }
@@ -172,7 +176,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
     assert {:ok, attrs} =
              ReleaseSourceImporter.import(%{
                "provider" => "forgejo",
-               "repo_url" => "https://forgejo.example.com/acme/serviceradar",
+               "repo_url" => "https://code.carverauto.dev/acme/serviceradar",
                "release_tag" => "v9.9.9",
                "manifest_asset_name" => "custom-manifest.json",
                "signature_asset_name" => "custom-manifest.sig"
@@ -182,7 +186,16 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
     assert get_in(attrs, [:metadata, "source", "provider"]) == "forgejo"
 
     assert get_in(attrs, [:metadata, "source", "repo_url"]) ==
-             "https://forgejo.example.com/acme/serviceradar"
+             "https://code.carverauto.dev/acme/serviceradar"
+  end
+
+  test "rejects Forgejo repository URLs on untrusted hosts" do
+    assert {:error, "Forgejo repository URL must look like https://code.carverauto.dev/<owner>/<repo>"} =
+             ReleaseSourceImporter.import(%{
+               "provider" => "forgejo",
+               "repo_url" => "https://forgejo.example.com/acme/serviceradar",
+               "release_tag" => "v9.9.9"
+             })
   end
 
   test "returns a helpful error when the release asset is missing" do

@@ -38,9 +38,6 @@ spec:
           readOnly: true
         - name: zen-data
           mountPath: /var/lib/serviceradar
-        - name: spire-agent-socket
-          mountPath: /run/spire/sockets
-          readOnly: true
         env:
         - name: CONFIG_SOURCE
           value: "kv"
@@ -50,12 +47,6 @@ spec:
           value: "serviceradar-datasvc:50057"
         - name: KV_SEC_MODE
           value: "mtls"
-        - name: KV_TRUST_DOMAIN
-          value: "carverauto.dev"
-        - name: KV_SERVER_SPIFFE_ID
-          value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-datasvc"
-        - name: KV_WORKLOAD_SOCKET
-          value: "unix:/run/spire/sockets/agent.sock"
         - name: KV_CERT_DIR
           value: "/etc/serviceradar/certs"
         - name: NATS_URL
@@ -113,10 +104,6 @@ spec:
       - name: zen-data
         persistentVolumeClaim:
           claimName: serviceradar-zen-data
-      - name: spire-agent-socket
-        hostPath:
-          path: /run/spire/sockets
-          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

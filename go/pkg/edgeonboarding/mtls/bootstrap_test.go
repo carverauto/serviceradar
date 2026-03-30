@@ -79,6 +79,8 @@ func TestBootstrap_FromBundlePath(t *testing.T) {
 }
 
 func TestBootstrap_FromToken(t *testing.T) {
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
 	bundle := Bundle{
 		CACertPEM:  testCACert,
 		ClientCert: testClientCert,
@@ -86,13 +88,15 @@ func TestBootstrap_FromToken(t *testing.T) {
 		ServerName: "token.serviceradar",
 	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Contains(t, r.URL.Path, "/api/admin/edge-packages/")
 		assert.Contains(t, r.URL.Path, "/download")
 
 		resp := deliverPayload{
-			Package:    struct{ PackageID string `json:"package_id"` }{PackageID: "test-pkg-123"},
+			Package: struct {
+				PackageID string `json:"package_id"`
+			}{PackageID: "test-pkg-123"},
 			MTLSBundle: &bundle,
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -103,13 +107,14 @@ func TestBootstrap_FromToken(t *testing.T) {
 	tmpDir := t.TempDir()
 	certDir := filepath.Join(tmpDir, "certs")
 
-	token := makeTestToken("test-pkg-123", "dl-token-abc", server.URL)
+	token := makeSignedTestToken(t, "test-pkg-123", "dl-token-abc", server.URL)
 
 	cfg := &BootstrapConfig{
 		Token:       token,
 		CertDir:     certDir,
 		ServiceName: "token-test",
 		Role:        models.RoleAgent,
+		HTTPClient:  server.Client(),
 	}
 
 	secCfg, err := Bootstrap(context.Background(), cfg)
@@ -125,19 +130,22 @@ func TestBootstrap_FromToken(t *testing.T) {
 }
 
 func TestBootstrap_FromToken_ServerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("internal error"))
 	}))
 	defer server.Close()
 
 	tmpDir := t.TempDir()
-	token := makeTestToken("test-pkg", "dl-token", server.URL)
+	token := makeSignedTestToken(t, "test-pkg", "dl-token", server.URL)
 
 	cfg := &BootstrapConfig{
 		Token:       token,
 		CertDir:     filepath.Join(tmpDir, "certs"),
 		ServiceName: "test",
+		HTTPClient:  server.Client(),
 	}
 
 	_, err := Bootstrap(context.Background(), cfg)
@@ -146,9 +154,13 @@ func TestBootstrap_FromToken_ServerError(t *testing.T) {
 }
 
 func TestBootstrap_FromToken_MissingBundle(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := deliverPayload{
-			Package:    struct{ PackageID string `json:"package_id"` }{PackageID: "test-pkg"},
+			Package: struct {
+				PackageID string `json:"package_id"`
+			}{PackageID: "test-pkg"},
 			MTLSBundle: nil,
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -157,12 +169,13 @@ func TestBootstrap_FromToken_MissingBundle(t *testing.T) {
 	defer server.Close()
 
 	tmpDir := t.TempDir()
-	token := makeTestToken("test-pkg", "dl-token", server.URL)
+	token := makeSignedTestToken(t, "test-pkg", "dl-token", server.URL)
 
 	cfg := &BootstrapConfig{
 		Token:       token,
 		CertDir:     filepath.Join(tmpDir, "certs"),
 		ServiceName: "test",
+		HTTPClient:  server.Client(),
 	}
 
 	_, err := Bootstrap(context.Background(), cfg)
@@ -235,10 +248,10 @@ func TestEnsureScheme(t *testing.T) {
 	}{
 		{"", "", true},
 		{"   ", "", true},
-		{"http://example.com", "http://example.com", false},
+		{"http://example.com", "", true},
 		{"https://example.com", "https://example.com", false},
-		{"example.com", "http://example.com", false},
-		{"example.com:8080", "http://example.com:8080", false},
+		{"example.com", "https://example.com", false},
+		{"example.com:8080", "https://example.com:8080", false},
 	}
 
 	for _, tt := range tests {

@@ -603,6 +603,7 @@ defmodule Monitoring.PluginAssignmentConfig do
   field :source_repo_url, 19, type: :string, json_name: "sourceRepoUrl"
   field :source_commit, 20, type: :string, json_name: "sourceCommit"
   field :download_url, 21, type: :string, json_name: "downloadUrl"
+  field :download_token, 22, type: :string, json_name: "downloadToken"
 end
 
 defmodule Monitoring.SysmonConfig.ThresholdsEntry do

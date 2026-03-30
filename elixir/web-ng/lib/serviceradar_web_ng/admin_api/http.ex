@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
 
   @behaviour ServiceRadarWebNG.AdminApi
 
+  alias ServiceRadarWebNG.AdminApi.Path
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Web.EndpointConfig
 
@@ -15,7 +16,7 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
 
   @impl true
   def get_user(scope, id) do
-    request(scope, :get, "/api/admin/users/#{id}", %{})
+    request(scope, :get, Path.admin_path(["users", id]), %{})
   end
 
   @impl true
@@ -25,17 +26,17 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
 
   @impl true
   def update_user(scope, id, attrs) do
-    request(scope, :patch, "/api/admin/users/#{id}", attrs)
+    request(scope, :patch, Path.admin_path(["users", id]), attrs)
   end
 
   @impl true
   def deactivate_user(scope, id) do
-    request(scope, :post, "/api/admin/users/#{id}/deactivate", %{})
+    request(scope, :post, Path.admin_path(["users", id, "deactivate"]), %{})
   end
 
   @impl true
   def reactivate_user(scope, id) do
-    request(scope, :post, "/api/admin/users/#{id}/reactivate", %{})
+    request(scope, :post, Path.admin_path(["users", id, "reactivate"]), %{})
   end
 
   @impl true
@@ -55,7 +56,7 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
 
   @impl true
   def get_role_profile(scope, id) do
-    request(scope, :get, "/api/admin/role-profiles/#{id}", %{})
+    request(scope, :get, Path.admin_path(["role-profiles", id]), %{})
   end
 
   @impl true
@@ -65,12 +66,12 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
 
   @impl true
   def update_role_profile(scope, id, attrs) do
-    request(scope, :patch, "/api/admin/role-profiles/#{id}", attrs)
+    request(scope, :patch, Path.admin_path(["role-profiles", id]), attrs)
   end
 
   @impl true
   def delete_role_profile(scope, id) do
-    request(scope, :delete, "/api/admin/role-profiles/#{id}", %{})
+    request(scope, :delete, Path.admin_path(["role-profiles", id]), %{})
   end
 
   @impl true

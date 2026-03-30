@@ -76,7 +76,16 @@ Download and extract the bundle, then run the deploy script:
 
 ```bash
 # Download and extract
-curl -fsSL ".../api/admin/collectors/<ID>/bundle?token=<TOKEN>" | tar xzf -
+SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"
+if [ -z "$SR_TOKEN" ]; then
+  read -rsp "Download token: " SR_TOKEN
+  echo
+fi
+
+curl -fsSL -X POST \
+  -H "x-serviceradar-download-token: ${SR_TOKEN}" \
+  "https://your-instance.serviceradar.cloud/api/collectors/<ID>/bundle" | tar xzf -
+
 cd collector-package-*/
 
 # Deploy (verifies runtime cert secret + helm upgrade)

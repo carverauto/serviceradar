@@ -71,10 +71,16 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLAssertionValidator do
     expected_recipient = normalize(Map.get(config, :acs_url))
 
     cond do
-      audience != nil and expected_audience != nil and audience != expected_audience ->
+      expected_audience != nil and audience == nil ->
         {:error, :invalid_audience}
 
-      recipient != nil and expected_recipient != nil and recipient != expected_recipient ->
+      expected_recipient != nil and recipient == nil ->
+        {:error, :invalid_recipient}
+
+      expected_audience != nil and audience != expected_audience ->
+        {:error, :invalid_audience}
+
+      expected_recipient != nil and recipient != expected_recipient ->
         {:error, :invalid_recipient}
 
       true ->

@@ -40,7 +40,8 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
       source_type: "github",
       source_repo_url: "https://github.com/acme/demo",
       source_commit: "abc123",
-      download_url: "https://internal/download"
+      download_url: "https://internal/download",
+      download_token: "download-token-1"
     }
 
     config = AgentConfigGenerator.to_proto_plugin_config([assignment], %{})
@@ -48,6 +49,7 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
 
     assert proto.source_repo_url == "https://github.com/acme/demo"
     assert proto.source_commit == "abc123"
+    assert proto.download_token == "download-token-1"
   end
 
   test "plugin config resolves secret refs into runtime params without leaking secret material" do
@@ -79,6 +81,7 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
       source_repo_url: "",
       source_commit: "",
       download_url: "",
+      download_token: "",
       plugin_package: %{
         manifest: %{},
         config_schema: %{

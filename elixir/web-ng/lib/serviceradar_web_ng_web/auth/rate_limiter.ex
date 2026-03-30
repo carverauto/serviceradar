@@ -51,25 +51,7 @@ defmodule ServiceRadarWebNGWeb.Auth.RateLimiter do
   """
   @spec check_rate_limit(String.t(), String.t(), keyword()) :: :ok | {:error, pos_integer()}
   def check_rate_limit(action, key, opts \\ []) do
-    limit = Keyword.get(opts, :limit, @default_limit)
-    window_seconds = Keyword.get(opts, :window_seconds, @default_window_seconds)
-
-    cache_key = {action, key}
-    now = System.system_time(:second)
-    window_start = now - window_seconds
-
-    # Get current attempts within the window
-    attempts = get_attempts(cache_key, window_start)
-    count = length(attempts)
-
-    if count >= limit do
-      # Find when the oldest attempt will expire
-      oldest = Enum.min(attempts, fn -> now end)
-      retry_after = max(1, oldest + window_seconds - now)
-      {:error, retry_after}
-    else
-      :ok
-    end
+    GenServer.call(__MODULE__, {:check_rate_limit, action, key, opts})
   end
 
   @doc """
@@ -79,19 +61,16 @@ defmodule ServiceRadarWebNGWeb.Auth.RateLimiter do
   """
   @spec record_attempt(String.t(), String.t()) :: :ok
   def record_attempt(action, key) do
-    cache_key = {action, key}
-    now = System.system_time(:second)
+    GenServer.call(__MODULE__, {:record_attempt, action, key})
+  end
 
-    # Get existing attempts
-    attempts = get_attempts(cache_key, 0)
-
-    # Add new attempt
-    new_attempts = [now | attempts]
-
-    # Store (will be cleaned up by periodic cleanup)
-    :ets.insert(@table, {cache_key, new_attempts})
-
-    :ok
+  @doc """
+  Atomically checks the current rate limit window and records the attempt when allowed.
+  """
+  @spec check_rate_limit_and_record(String.t(), String.t(), keyword()) ::
+          :ok | {:error, pos_integer()}
+  def check_rate_limit_and_record(action, key, opts \\ []) do
+    GenServer.call(__MODULE__, {:check_rate_limit_and_record, action, key, opts})
   end
 
   @doc """
@@ -125,7 +104,57 @@ defmodule ServiceRadarWebNGWeb.Auth.RateLimiter do
     {:noreply, state}
   end
 
+  @impl true
+  def handle_call({:check_rate_limit, action, key, opts}, _from, state) do
+    {:reply, do_check_rate_limit(action, key, opts), state}
+  end
+
+  def handle_call({:record_attempt, action, key}, _from, state) do
+    do_record_attempt(action, key, @default_window_seconds)
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:check_rate_limit_and_record, action, key, opts}, _from, state) do
+    window_seconds = Keyword.get(opts, :window_seconds, @default_window_seconds)
+
+    result =
+      case do_check_rate_limit(action, key, opts) do
+        :ok ->
+          do_record_attempt(action, key, window_seconds)
+          :ok
+
+        {:error, _retry_after} = error ->
+          error
+      end
+
+    {:reply, result, state}
+  end
+
   ## Private Functions
+
+  defp do_check_rate_limit(action, key, opts) do
+    limit = Keyword.get(opts, :limit, @default_limit)
+    window_seconds = Keyword.get(opts, :window_seconds, @default_window_seconds)
+    cache_key = {action, key}
+    now = System.system_time(:second)
+    window_start = now - window_seconds
+    attempts = get_attempts(cache_key, window_start)
+
+    if length(attempts) >= limit do
+      oldest = Enum.min(attempts, fn -> now end)
+      {:error, max(1, oldest + window_seconds - now)}
+    else
+      :ok
+    end
+  end
+
+  defp do_record_attempt(action, key, window_seconds) do
+    cache_key = {action, key}
+    now = System.system_time(:second)
+    attempts = get_attempts(cache_key, now - window_seconds)
+    :ets.insert(@table, {cache_key, [now | attempts]})
+    :ok
+  end
 
   defp get_attempts(cache_key, window_start) do
     case :ets.lookup(@table, cache_key) do

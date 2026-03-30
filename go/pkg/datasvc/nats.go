@@ -39,22 +39,24 @@ import (
 )
 
 type NATSStore struct {
-	nc             *nats.Conn
-	ctx            context.Context
-	natsURL        string
-	credsFile      string
-	security       *models.SecurityConfig
-	bucket         string
-	defaultDomain  string
-	bucketHistory  uint32
-	bucketTTL      time.Duration
-	bucketMaxBytes int64
-	objectBucket   string
-	jsByDomain     map[string]jetstream.JetStream
-	kvByDomain     map[string]jetstream.KeyValue
-	objectStores   map[string]jetstream.ObjectStore
-	mu             sync.Mutex
-	connectFn      func() (*nats.Conn, error)
+	nc               *nats.Conn
+	ctx              context.Context
+	natsURL          string
+	credsFile        string
+	security         *models.SecurityConfig
+	bucket           string
+	defaultDomain    string
+	bucketHistory    uint32
+	bucketTTL        time.Duration
+	bucketMaxBytes   int64
+	objectMaxBytes   int64
+	objectStoreBytes int64
+	objectBucket     string
+	jsByDomain       map[string]jetstream.JetStream
+	kvByDomain       map[string]jetstream.KeyValue
+	objectStores     map[string]jetstream.ObjectStore
+	mu               sync.Mutex
+	connectFn        func() (*nats.Conn, error)
 }
 
 const (
@@ -70,19 +72,21 @@ func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 	}
 
 	store := &NATSStore{
-		ctx:            ctx,
-		natsURL:        cfg.NATSURL,
-		credsFile:      cfg.NATSCredsFile,
-		security:       cloneSecurityConfig(cfg.NATSSecurity),
-		bucket:         cfg.Bucket,
-		defaultDomain:  cfg.Domain,
-		bucketHistory:  cfg.BucketHistory,
-		bucketTTL:      time.Duration(cfg.BucketTTL),
-		bucketMaxBytes: cfg.BucketMaxBytes,
-		objectBucket:   cfg.ObjectBucket,
-		jsByDomain:     make(map[string]jetstream.JetStream),
-		kvByDomain:     make(map[string]jetstream.KeyValue),
-		objectStores:   make(map[string]jetstream.ObjectStore),
+		ctx:              ctx,
+		natsURL:          cfg.NATSURL,
+		credsFile:        cfg.NATSCredsFile,
+		security:         cloneSecurityConfig(cfg.NATSSecurity),
+		bucket:           cfg.Bucket,
+		defaultDomain:    cfg.Domain,
+		bucketHistory:    cfg.BucketHistory,
+		bucketTTL:        time.Duration(cfg.BucketTTL),
+		bucketMaxBytes:   cfg.BucketMaxBytes,
+		objectMaxBytes:   cfg.ObjectMaxBytes,
+		objectStoreBytes: cfg.ObjectStoreBytes,
+		objectBucket:     cfg.ObjectBucket,
+		jsByDomain:       make(map[string]jetstream.JetStream),
+		kvByDomain:       make(map[string]jetstream.KeyValue),
+		objectStores:     make(map[string]jetstream.ObjectStore),
 	}
 
 	if store.bucketHistory == 0 {
@@ -93,6 +97,12 @@ func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 	}
 	if store.bucketMaxBytes < 0 {
 		store.bucketMaxBytes = 0
+	}
+	if store.objectMaxBytes < 0 {
+		store.objectMaxBytes = 0
+	}
+	if store.objectStoreBytes < 0 {
+		store.objectStoreBytes = 0
 	}
 
 	store.connectFn = store.connect
@@ -844,7 +854,7 @@ func (n *NATSStore) ensureObjectStoreLocked(ctx context.Context, domain string, 
 
 	store, err := js.ObjectStore(ctx, bucket)
 	if err != nil {
-		cfg := jetstream.ObjectStoreConfig{Bucket: bucket}
+		cfg := n.objectStoreConfig(bucket)
 		store, err = js.CreateObjectStore(ctx, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("object store init failed for domain %q: %w", domain, err)
@@ -854,6 +864,14 @@ func (n *NATSStore) ensureObjectStoreLocked(ctx context.Context, domain string, 
 	n.objectStores[domain] = store
 
 	return store, nil
+}
+
+func (n *NATSStore) objectStoreConfig(bucket string) jetstream.ObjectStoreConfig {
+	cfg := jetstream.ObjectStoreConfig{Bucket: bucket}
+	if n.objectStoreBytes > 0 {
+		cfg.MaxBytes = n.objectStoreBytes
+	}
+	return cfg
 }
 
 func (n *NATSStore) resetConnectionLocked() {

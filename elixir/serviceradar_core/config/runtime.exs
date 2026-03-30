@@ -54,6 +54,23 @@ config :serviceradar_core,
   geolite_mmdb_dir: geolite_dir
 
 if config_env() == :prod do
+  read_secret_env = fn env_name, file_env_name ->
+    case System.get_env(env_name) do
+      nil ->
+        case System.get_env(file_env_name) do
+          nil -> nil
+          "" -> nil
+          path -> path |> File.read!() |> String.trim()
+        end
+
+      "" ->
+        nil
+
+      value ->
+        value
+    end
+  end
+
   cloak_key =
     case System.get_env("CLOAK_KEY") do
       nil -> nil
@@ -278,7 +295,7 @@ if config_env() == :prod do
       end
     end)
     |> then(fn acc ->
-      case System.get_env("PLUGIN_STORAGE_SIGNING_SECRET") do
+      case read_secret_env.("PLUGIN_STORAGE_SIGNING_SECRET", "PLUGIN_STORAGE_SIGNING_SECRET_FILE") do
         nil -> acc
         "" -> acc
         value -> Keyword.put(acc, :signing_secret, value)

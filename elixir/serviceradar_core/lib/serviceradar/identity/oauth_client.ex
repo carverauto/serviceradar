@@ -155,13 +155,9 @@ defmodule ServiceRadar.Identity.OAuthClient do
 
     update :record_use do
       description "Record client usage"
-      # Non-atomic: increments use_count based on current value
-      require_atomic? false
       accept @client_usage_fields
-
-      change fn changeset, _context ->
-        AccessCredentialChanges.record_use(changeset)
-      end
+      change atomic_update(:last_used_at, expr(now()))
+      change atomic_update(:use_count, expr(use_count + 1))
     end
 
     update :revoke do

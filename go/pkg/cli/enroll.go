@@ -19,8 +19,8 @@ func RunEnroll(cfg *CmdConfig) error {
 		fmt.Printf(format+"\n", args...)
 	}
 
-	if strings.HasPrefix(token, "edgepkg-v1:") {
-		client, err := edgeonboarding.BuildHTTPClient(cfg.EnrollCAFile, cfg.EnrollInsecure)
+	if edgeonboarding.IsStructuredToken(token) {
+		client, err := edgeonboarding.BuildHTTPClient(cfg.EnrollCAFile)
 		if err != nil {
 			return err
 		}
@@ -38,7 +38,7 @@ func RunEnroll(cfg *CmdConfig) error {
 		return edgeonboarding.EnrollAgentFromToken(context.Background(), opts)
 	}
 
-	client, err := edgeonboarding.BuildHTTPClient(cfg.EnrollCAFile, cfg.EnrollInsecure)
+	client, err := edgeonboarding.BuildHTTPClient(cfg.EnrollCAFile)
 	if err != nil {
 		return err
 	}

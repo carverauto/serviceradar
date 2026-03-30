@@ -16,6 +16,24 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCacheTest do
   # ConfigCache uses ETS which is started by the application
   # These tests verify the caching functionality
 
+  setup do
+    previous_loader = Application.get_env(:serviceradar_web_ng, :auth_settings_loader)
+
+    on_exit(fn ->
+      if previous_loader do
+        Application.put_env(:serviceradar_web_ng, :auth_settings_loader, previous_loader)
+      else
+        Application.delete_env(:serviceradar_web_ng, :auth_settings_loader)
+      end
+
+      if :ets.whereis(ConfigCache) != :undefined do
+        :ets.delete(ConfigCache, :auth_settings)
+      end
+    end)
+
+    :ok
+  end
+
   describe "get_cached/1 and put_cached/3" do
     setup do
       # Use unique keys for each test to avoid collisions
@@ -144,6 +162,45 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCacheTest do
         {:ok, _settings} -> :ok
         {:error, _reason} -> :ok
       end
+    end
+  end
+
+  describe "single-flight refresh" do
+    test "concurrent cache misses share one loader invocation" do
+      counter = start_supervised!({Agent, fn -> 0 end})
+      parent = self()
+
+      Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn ->
+        send(parent, {:loader_called, self()})
+
+        receive do
+          :release_loader -> :ok
+        end
+
+        Agent.update(counter, &(&1 + 1))
+        {:ok, %{mode: :password_only, is_enabled: false}}
+      end)
+
+      if :ets.whereis(ConfigCache) != :undefined do
+        :ets.delete(ConfigCache, :auth_settings)
+      end
+
+      task =
+        Task.async(fn ->
+          1..5
+          |> Task.async_stream(fn _ -> ConfigCache.get_config() end, max_concurrency: 5, timeout: :infinity)
+          |> Enum.map(fn {:ok, result} -> result end)
+        end)
+
+      assert_receive {:loader_called, loader_pid}
+      refute_receive {:loader_called, _other_loader}, 50
+
+      send(loader_pid, :release_loader)
+
+      results = Task.await(task, :infinity)
+
+      assert Enum.all?(results, &match?({:ok, %{mode: :password_only}}, &1))
+      assert Agent.get(counter, & &1) == 1
     end
   end
 end

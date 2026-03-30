@@ -232,12 +232,30 @@ endif
 .PHONY: lint-elixir
 lint-elixir: ## Run the repository-standard Elixir analyzer contract across elixir/*
 	@set -eu; \
-		projects="connection::--skip-dialyzer datasvc:: elixir_uuid::--skip-dialyzer serviceradar_agent_gateway:: serviceradar_core:: serviceradar_core_elx:: serviceradar_srql:: web-ng::--phoenix"; \
+		projects="connection::--skip-dialyzer datasvc::--skip-dialyzer elixir_uuid::--skip-dialyzer serviceradar_agent_gateway::--skip-dialyzer serviceradar_core::--skip-dialyzer serviceradar_core_elx::--skip-dialyzer serviceradar_srql::--skip-dialyzer web-ng::--phoenix --skip-dialyzer"; \
 	for entry in $$projects; do \
 		project="$${entry%%::*}"; \
 		args="$${entry#*::}"; \
 		echo "$(COLOR_BOLD)Running Elixir quality ($${project})$(COLOR_RESET)"; \
 		./scripts/elixir_quality.sh --project "elixir/$${project}" $$args; \
+	done
+
+.PHONY: lint-elixir-dialyzer
+lint-elixir-dialyzer: ## Run Dialyzer across elixir/* on demand
+	@set -eu; \
+		projects="connection datasvc elixir_uuid serviceradar_agent_gateway serviceradar_core serviceradar_core_elx serviceradar_srql web-ng"; \
+	for project in $$projects; do \
+		echo "$(COLOR_BOLD)Running Elixir Dialyzer ($${project})$(COLOR_RESET)"; \
+		(cd "elixir/$${project}" && mix deps.get && mix deps.compile && mix compile && mix dialyzer); \
+	done
+
+.PHONY: format-elixir
+format-elixir: ## Run mix format across the Elixir projects under elixir/*
+	@set -eu; \
+		projects="connection datasvc elixir_uuid serviceradar_agent_gateway serviceradar_core serviceradar_core_elx serviceradar_srql web-ng"; \
+	for project in $$projects; do \
+		echo "$(COLOR_BOLD)Formatting Elixir project ($${project})$(COLOR_RESET)"; \
+		(cd "elixir/$${project}" && mix format); \
 	done
 
 .PHONY: lint-go

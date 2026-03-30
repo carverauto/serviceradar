@@ -43,27 +43,9 @@ ensure_spire_cli() {
     if [ -x "$SERVER_BIN" ]; then
         return
     fi
-    echo "[spire-bootstrap] downloading SPIRE CLI from ${SPIRE_DOWNLOAD_URL}"
-    mkdir -p "$SPIRE_BIN_DIR"
-    tmp_dir="$(mktemp -d)"
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$SPIRE_DOWNLOAD_URL" -o "${tmp_dir}/spire.tgz"
-    elif command -v wget >/dev/null 2>&1; then
-        wget -qO "${tmp_dir}/spire.tgz" "$SPIRE_DOWNLOAD_URL"
-    else
-        echo "[spire-bootstrap] ERROR: curl or wget required to download SPIRE CLI" >&2
-        exit 1
-    fi
-    tar -xzf "${tmp_dir}/spire.tgz" -C "$tmp_dir"
-    found_bin="$(find "$tmp_dir" -name spire-server -type f | head -n1 || true)"
-    if [ -z "$found_bin" ]; then
-        echo "[spire-bootstrap] ERROR: failed to extract spire-server binary" >&2
-        exit 1
-    fi
-    cp "$found_bin" "$SERVER_BIN"
-    chmod +x "$SERVER_BIN"
-    echo "[spire-bootstrap] installed spire-server CLI to ${SERVER_BIN}"
-    rm -rf "$tmp_dir"
+    echo "[spire-bootstrap] ERROR: expected vetted spire-server binary at ${SERVER_BIN}" >&2
+    echo "[spire-bootstrap] Refusing to download and execute SPIRE CLI from ${SPIRE_DOWNLOAD_URL} without integrity verification" >&2
+    exit 1
 }
 
 ensure_workload_entry() {

@@ -165,6 +165,37 @@ func TestAccountSigner_CreateAccount_WithLimits(t *testing.T) {
 	}
 }
 
+func TestAccountSigner_CreateAccount_DefaultJetStreamLimitsAreFinite(t *testing.T) {
+	op := newTestOperator(t)
+	signer := NewAccountSigner(op)
+
+	result, err := signer.CreateAccount("bounded-ns", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateAccount() error = %v", err)
+	}
+
+	claims, err := jwt.DecodeAccountClaims(result.AccountJWT)
+	if err != nil {
+		t.Fatalf("jwt.DecodeAccountClaims() error = %v", err)
+	}
+
+	if claims.Limits.MemoryStorage <= 0 {
+		t.Errorf("MemoryStorage = %d, want finite positive limit", claims.Limits.MemoryStorage)
+	}
+	if claims.Limits.DiskStorage <= 0 {
+		t.Errorf("DiskStorage = %d, want finite positive limit", claims.Limits.DiskStorage)
+	}
+	if claims.Limits.Streams <= 0 {
+		t.Errorf("Streams = %d, want finite positive limit", claims.Limits.Streams)
+	}
+	if claims.Limits.Consumer <= 0 {
+		t.Errorf("Consumer = %d, want finite positive limit", claims.Limits.Consumer)
+	}
+	if !claims.Limits.MaxBytesRequired {
+		t.Error("MaxBytesRequired = false, want true")
+	}
+}
+
 func TestAccountSigner_CreateAccount_WithCustomMappings(t *testing.T) {
 	op := newTestOperator(t)
 	signer := NewAccountSigner(op)
@@ -198,6 +229,44 @@ func TestAccountSigner_CreateAccount_WithCustomMappings(t *testing.T) {
 		if len(mappings) == 0 || string(mappings[0].Subject) != "custom-ns.custom.>" {
 			t.Errorf("custom.> mapping = %v, want 'custom-ns.custom.>'", mappings)
 		}
+	}
+}
+
+func TestAccountSigner_CreateAccount_RejectsOutOfScopeExports(t *testing.T) {
+	op := newTestOperator(t)
+	signer := NewAccountSigner(op)
+
+	_, err := signer.CreateAccount("tenant-a", nil, nil, []StreamExport{
+		{Subject: "tenant-b.logs.>", Name: "foreign-export"},
+	})
+	if err == nil {
+		t.Fatal("CreateAccount() expected error for out-of-scope export, got nil")
+	}
+	if !strings.Contains(err.Error(), ErrSubjectOutOfScope.Error()) {
+		t.Fatalf("expected ErrSubjectOutOfScope, got %v", err)
+	}
+}
+
+func TestAccountSigner_SignAccountJWT_RejectsImports(t *testing.T) {
+	op := newTestOperator(t)
+	signer := NewAccountSigner(op)
+
+	result, err := signer.CreateAccount("tenant-a", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateAccount() error = %v", err)
+	}
+
+	_, _, err = signer.SignAccountJWT("tenant-a", result.AccountSeed, nil, nil, nil, []StreamImport{
+		{
+			Subject:          "platform.provisioning.>",
+			AccountPublicKey: "ACYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+		},
+	}, nil)
+	if err == nil {
+		t.Fatal("SignAccountJWT() expected error for stream import, got nil")
+	}
+	if !strings.Contains(err.Error(), ErrImportNotAllowed.Error()) {
+		t.Fatalf("expected ErrImportNotAllowed, got %v", err)
 	}
 }
 

@@ -61,16 +61,35 @@ defmodule ServiceRadar.Plugins.Manifest do
     "tcp_close",
     "udp_sendto"
   ]
+  @max_yaml_bytes 262_144
 
   @doc """
   Parse and validate a plugin manifest from YAML.
   """
   @spec from_yaml(String.t()) :: {:ok, t()} | {:error, [String.t()]}
   def from_yaml(yaml) when is_binary(yaml) do
-    with {:ok, map} <- parse_yaml(yaml) do
+    with {:ok, map} <- parse_yaml_map(yaml) do
       from_map(map)
     end
   end
+
+  @doc """
+  Parse plugin manifest YAML into a map using the same safety checks as validation.
+  """
+  @spec parse_yaml_map(String.t()) :: {:ok, map()} | {:error, [String.t()]}
+  def parse_yaml_map(yaml) when is_binary(yaml) do
+    with :ok <- validate_yaml_size(yaml),
+         :ok <- validate_yaml_safety(yaml),
+         {:ok, value} <- parse_yaml(yaml),
+         true <- is_map(value) do
+      {:ok, value}
+    else
+      false -> {:error, ["manifest yaml must decode to a map"]}
+      {:error, errors} when is_list(errors) -> {:error, errors}
+    end
+  end
+
+  def parse_yaml_map(_yaml), do: {:error, ["manifest yaml must be a string"]}
 
   @doc """
   Validate a plugin manifest map (already parsed).
@@ -179,6 +198,25 @@ defmodule ServiceRadar.Plugins.Manifest do
     end
   rescue
     error -> {:error, ["invalid yaml: #{Exception.message(error)}"]}
+  end
+
+  defp validate_yaml_size(yaml) when byte_size(yaml) > @max_yaml_bytes do
+    {:error, ["manifest yaml exceeds maximum size"]}
+  end
+
+  defp validate_yaml_size(_yaml), do: :ok
+
+  defp validate_yaml_safety(yaml) do
+    if yaml_uses_aliases?(yaml) do
+      {:error, ["yaml anchors and aliases are not allowed"]}
+    else
+      :ok
+    end
+  end
+
+  defp yaml_uses_aliases?(yaml) do
+    Regex.match?(~r/(^|[\s\[{,])[&*][A-Za-z0-9_-]+/m, yaml) or
+      Regex.match?(~r/(^|\s)<<\s*:/m, yaml)
   end
 
   defp required_string(map, key, errors) do

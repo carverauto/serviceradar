@@ -23,7 +23,7 @@ use log::{info, warn};
 use serde::Serialize;
 use std::pin::Pin;
 use std::sync::Once;
-use std::{fs, net::SocketAddr};
+use std::{fs, net::SocketAddr, path::PathBuf};
 use tokio::net::UdpSocket;
 
 use tonic::{
@@ -278,51 +278,84 @@ impl AgentService for TrapdAgentService {
 
 async fn start_grpc_server(cfg: Config) -> Result<()> {
     let addr: std::net::SocketAddr = match cfg.grpc_listen_addr {
-        Some(a) => a.parse()?,
+        Some(ref a) => a.parse()?,
         None => return Ok(()),
     };
 
-    match cfg.grpc_security.as_ref() {
-        Some(sec) => match sec.mode {
-            SecurityMode::None => {
-                warn!("trapd gRPC server starting without TLS; clients must allow plaintext");
-                serve_with_tls(addr, None).await
-            }
-            SecurityMode::Mtls => {
-                let cert_path = sec
-                    .cert_file
-                    .as_ref()
-                    .map(|p| sec.resolve_path(p))
-                    .expect("validated earlier");
-                let key_path = sec
-                    .key_file
-                    .as_ref()
-                    .map(|p| sec.resolve_path(p))
-                    .expect("validated earlier");
-                let ca_path = sec.client_ca_path().expect("validated earlier");
-
-                let cert = fs::read(&cert_path)?;
-                let key = fs::read(&key_path)?;
-                let identity = Identity::from_pem(cert, key);
-                let ca = Certificate::from_pem(fs::read(&ca_path)?);
-                let tls = ServerTlsConfig::new().identity(identity).client_ca_root(ca);
-                serve_with_tls(addr, Some(tls)).await
-            }
-            SecurityMode::Spiffe => {
-                let trust_domain = sec.trust_domain.as_deref().expect("validated earlier");
-                let workload_socket = sec
-                    .workload_socket
-                    .as_deref()
-                    .filter(|s| !s.trim().is_empty())
-                    .unwrap_or(DEFAULT_WORKLOAD_SOCKET);
-                serve_with_spiffe(addr, workload_socket, trust_domain).await
-            }
-        },
-        None => serve_with_tls(addr, None).await,
+    match resolve_grpc_server_transport(&cfg)? {
+        GrpcServerTransport::Mtls {
+            cert_path,
+            key_path,
+            ca_path,
+        } => {
+            let cert = fs::read(&cert_path)?;
+            let key = fs::read(&key_path)?;
+            let identity = Identity::from_pem(cert, key);
+            let ca = Certificate::from_pem(fs::read(&ca_path)?);
+            let tls = ServerTlsConfig::new().identity(identity).client_ca_root(ca);
+            serve_with_tls(addr, tls).await
+        }
+        GrpcServerTransport::Spiffe {
+            workload_socket,
+            trust_domain,
+        } => serve_with_spiffe(addr, &workload_socket, &trust_domain).await,
     }
 }
 
-async fn serve_with_tls(addr: SocketAddr, tls: Option<ServerTlsConfig>) -> Result<()> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GrpcServerTransport {
+    Mtls {
+        cert_path: PathBuf,
+        key_path: PathBuf,
+        ca_path: PathBuf,
+    },
+    Spiffe {
+        workload_socket: String,
+        trust_domain: String,
+    },
+}
+
+fn resolve_grpc_server_transport(cfg: &Config) -> Result<GrpcServerTransport> {
+    let sec = cfg
+        .grpc_security
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("grpc_security is required when grpc_listen_addr is set"))?;
+
+    match sec.mode {
+        SecurityMode::None => {
+            anyhow::bail!("grpc_security.mode \"none\" is not allowed when grpc_listen_addr is set")
+        }
+        SecurityMode::Mtls => Ok(GrpcServerTransport::Mtls {
+            cert_path: sec
+                .cert_file
+                .as_ref()
+                .map(|p| sec.resolve_path(p))
+                .ok_or_else(|| anyhow::anyhow!("missing trapd gRPC cert_file"))?,
+            key_path: sec
+                .key_file
+                .as_ref()
+                .map(|p| sec.resolve_path(p))
+                .ok_or_else(|| anyhow::anyhow!("missing trapd gRPC key_file"))?,
+            ca_path: sec
+                .client_ca_path()
+                .ok_or_else(|| anyhow::anyhow!("missing trapd gRPC client_ca_file or ca_file"))?,
+        }),
+        SecurityMode::Spiffe => Ok(GrpcServerTransport::Spiffe {
+            workload_socket: sec
+                .workload_socket
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or(DEFAULT_WORKLOAD_SOCKET)
+                .to_string(),
+            trust_domain: sec
+                .trust_domain
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("missing trapd gRPC trust_domain"))?,
+        }),
+    }
+}
+
+async fn serve_with_tls(addr: SocketAddr, tls: ServerTlsConfig) -> Result<()> {
     let service = TrapdAgentService;
     let (mut health_reporter, health_service) = health_reporter();
     health_reporter
@@ -333,12 +366,8 @@ async fn serve_with_tls(addr: SocketAddr, tls: Option<ServerTlsConfig>) -> Resul
         .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
         .build_v1()?;
 
-    let mut server_builder = Server::builder();
-    if let Some(tls) = tls {
-        server_builder = server_builder.tls_config(tls)?;
-    }
-
-    server_builder
+    Server::builder()
+        .tls_config(tls)?
         .add_service(health_service)
         .add_service(AgentServiceServer::new(service))
         .add_service(reflection_service)
@@ -417,4 +446,86 @@ async fn serve_with_spiffe(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::SecurityConfig;
+    use std::path::Path;
+
+    fn base_config() -> Config {
+        Config {
+            listen_addr: "0.0.0.0:162".into(),
+            nats_url: "tls://serviceradar-nats:4222".into(),
+            nats_domain: None,
+            stream_name: "events".into(),
+            subject: "logs.snmp".into(),
+            nats_creds_file: None,
+            nats_security: None,
+            grpc_listen_addr: Some("0.0.0.0:50043".into()),
+            grpc_security: Some(SecurityConfig {
+                mode: SecurityMode::Spiffe,
+                trust_domain: Some("carverauto.dev".into()),
+                workload_socket: None,
+                ..Default::default()
+            }),
+        }
+    }
+
+    #[test]
+    fn resolve_grpc_server_transport_rejects_none_mode() {
+        let mut cfg = base_config();
+        if let Some(sec) = cfg.grpc_security.as_mut() {
+            sec.mode = SecurityMode::None;
+        }
+
+        let err = resolve_grpc_server_transport(&cfg).expect_err("expected validation error");
+        assert!(
+            err.to_string().contains("grpc_security.mode \"none\""),
+            "expected none-mode error, got {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_grpc_server_transport_defaults_spiffe_socket() {
+        let cfg = base_config();
+
+        let transport =
+            resolve_grpc_server_transport(&cfg).expect("expected spiffe transport resolution");
+
+        assert_eq!(
+            transport,
+            GrpcServerTransport::Spiffe {
+                workload_socket: DEFAULT_WORKLOAD_SOCKET.to_string(),
+                trust_domain: "carverauto.dev".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_grpc_server_transport_resolves_mtls_paths() {
+        let mut cfg = base_config();
+        cfg.grpc_security = Some(SecurityConfig {
+            mode: SecurityMode::Mtls,
+            cert_dir: Some("/etc/serviceradar/certs".into()),
+            cert_file: Some("trapd.pem".into()),
+            key_file: Some("trapd-key.pem".into()),
+            ca_file: Some("root.pem".into()),
+            client_ca_file: Some("client-root.pem".into()),
+            ..Default::default()
+        });
+
+        let transport =
+            resolve_grpc_server_transport(&cfg).expect("expected mtls transport resolution");
+
+        assert_eq!(
+            transport,
+            GrpcServerTransport::Mtls {
+                cert_path: Path::new("/etc/serviceradar/certs/trapd.pem").to_path_buf(),
+                key_path: Path::new("/etc/serviceradar/certs/trapd-key.pem").to_path_buf(),
+                ca_path: Path::new("/etc/serviceradar/certs/client-root.pem").to_path_buf(),
+            }
+        );
+    }
 }

@@ -101,7 +101,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
           source_type: String.t() | nil,
           source_repo_url: String.t() | nil,
           source_commit: String.t() | nil,
-          download_url: String.t() | nil
+          download_url: String.t() | nil,
+          download_token: String.t() | nil
         }
 
   @doc """
@@ -338,6 +339,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     package = assignment.plugin_package
     manifest = normalize_map(package.manifest)
     config_schema = normalize_map(package.config_schema)
+    download_request = StorageToken.download_request(package.id, package.wasm_object_key)
 
     %{
       assignment_id: to_string(assignment.id),
@@ -358,7 +360,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       wasm_object_key: package.wasm_object_key,
       content_hash: package.content_hash,
       source_type: normalize_source_type(package.source_type),
-      download_url: StorageToken.download_url(package.id, package.wasm_object_key)
+      download_url: download_request && download_request.url,
+      download_token: download_request && download_request.token
     }
   end
 
@@ -592,6 +595,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     assignment
     |> Map.delete(:download_url)
     |> Map.delete("download_url")
+    |> Map.delete(:download_token)
+    |> Map.delete("download_token")
   end
 
   defp stable_plugin_assignment(assignment), do: assignment
@@ -622,14 +627,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp normalize_limit(_), do: 0
 
   defp to_proto_plugin_assignment(assignment) do
-    params =
-      case SecretRefs.resolve_runtime_params(
-             proto_assignment_config_schema(assignment),
-             normalize_map(assignment.params)
-           ) do
-        {:ok, resolved} -> resolved
-        {:error, _} -> normalize_map(assignment.params)
-      end
+    params = resolved_assignment_params(assignment)
+    source_fields = proto_assignment_source_fields(assignment)
 
     %Monitoring.PluginAssignmentConfig{
       assignment_id: assignment.assignment_id,
@@ -640,21 +639,44 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       entrypoint: assignment.entrypoint,
       runtime: assignment.runtime || "",
       outputs: assignment.outputs,
-      capabilities: assignment.capabilities || [],
+      capabilities: assignment_capabilities(assignment),
       params_json: encode_json(params),
       permissions_json: encode_json(assignment.permissions),
       resources_json: encode_json(assignment.resources),
       enabled: assignment.enabled,
       interval_sec: assignment.interval_sec,
       timeout_sec: assignment.timeout_sec,
-      wasm_object_key: assignment.wasm_object_key || "",
-      content_hash: assignment.content_hash || "",
-      source_type: assignment.source_type || "",
-      source_repo_url: Map.get(assignment, :source_repo_url, ""),
-      source_commit: Map.get(assignment, :source_commit, ""),
-      download_url: assignment.download_url || ""
+      wasm_object_key: assignment_string(assignment.wasm_object_key),
+      content_hash: assignment_string(assignment.content_hash),
+      source_type: assignment_string(assignment.source_type),
+      source_repo_url: source_fields.source_repo_url,
+      source_commit: source_fields.source_commit,
+      download_url: assignment_string(assignment.download_url),
+      download_token: source_fields.download_token
     }
   end
+
+  defp resolved_assignment_params(assignment) do
+    params = normalize_map(assignment.params)
+
+    case SecretRefs.resolve_runtime_params(proto_assignment_config_schema(assignment), params) do
+      {:ok, resolved} -> resolved
+      {:error, _} -> params
+    end
+  end
+
+  defp proto_assignment_source_fields(assignment) do
+    %{
+      source_repo_url: Map.get(assignment, :source_repo_url, ""),
+      source_commit: Map.get(assignment, :source_commit, ""),
+      download_token: assignment_string(Map.get(assignment, :download_token, ""))
+    }
+  end
+
+  defp assignment_capabilities(assignment), do: assignment.capabilities || []
+
+  defp assignment_string(nil), do: ""
+  defp assignment_string(value), do: value
 
   defp proto_assignment_config_schema(assignment) do
     plugin_package =

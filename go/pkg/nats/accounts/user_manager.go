@@ -94,6 +94,9 @@ func GenerateUserCredentials(
 	claims.IssuerAccount = accountPublicKey
 
 	// Apply permissions based on credential type
+	if err := validateUserPermissions(permissions); err != nil {
+		return nil, err
+	}
 	applyUserPermissions(claims, namespace, credType, permissions)
 
 	// Set expiration if specified
@@ -118,6 +121,35 @@ func GenerateUserCredentials(
 		CredsFileContent: credsContent,
 		ExpiresAt:        expiresAt,
 	}, nil
+}
+
+func validateUserPermissions(custom *UserPermissions) error {
+	if custom == nil {
+		return nil
+	}
+
+	for _, subject := range custom.PublishAllow {
+		if !userSubjectWithinApprovedScope(subject) {
+			return fmt.Errorf("%w: publish subject %q", ErrSubjectOutOfScope, subject)
+		}
+	}
+	for _, subject := range custom.PublishDeny {
+		if !userSubjectWithinApprovedScope(subject) {
+			return fmt.Errorf("%w: publish deny subject %q", ErrSubjectOutOfScope, subject)
+		}
+	}
+	for _, subject := range custom.SubscribeAllow {
+		if !userSubjectWithinApprovedScope(subject) {
+			return fmt.Errorf("%w: subscribe subject %q", ErrSubjectOutOfScope, subject)
+		}
+	}
+	for _, subject := range custom.SubscribeDeny {
+		if !userSubjectWithinApprovedScope(subject) {
+			return fmt.Errorf("%w: subscribe deny subject %q", ErrSubjectOutOfScope, subject)
+		}
+	}
+
+	return nil
 }
 
 // applyUserPermissions sets permissions on user claims based on credential type.

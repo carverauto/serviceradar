@@ -8,9 +8,21 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
   Run with: mix test test/phoenix/auth/oidc_client_test.exs
   """
 
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
+  alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OIDCClient
+
+  setup do
+    maybe_start_config_cache()
+    clear_auth_cache()
+
+    on_exit(fn ->
+      clear_auth_cache()
+    end)
+
+    :ok
+  end
 
   describe "extract_user_info/1" do
     test "extracts standard OIDC claims" do
@@ -20,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
         "sub" => "oidc|12345"
       }
 
-      result = OIDCClient.extract_user_info(claims)
+      assert {:ok, result} = OIDCClient.extract_user_info(claims)
 
       assert to_string(result.email) == "user@example.com"
       assert result.name == "Test User"
@@ -34,20 +46,21 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
         # name is missing
       }
 
-      result = OIDCClient.extract_user_info(claims)
+      assert {:ok, result} = OIDCClient.extract_user_info(claims)
 
       assert to_string(result.email) == "user@example.com"
       assert result.name == nil
       assert result.external_id == "oidc|12345"
     end
 
-    test "handles empty claims" do
+    test "rejects missing external id" do
       claims = %{}
-      result = OIDCClient.extract_user_info(claims)
+      assert {:error, :missing_external_id} = OIDCClient.extract_user_info(claims)
+    end
 
-      assert result.email == nil
-      assert result.name == nil
-      assert result.external_id == nil
+    test "rejects missing email" do
+      claims = %{"sub" => "oidc|12345"}
+      assert {:error, :missing_email} = OIDCClient.extract_user_info(claims)
     end
 
     test "handles claims with different key types" do
@@ -58,7 +71,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
         "sub" => "sub123"
       }
 
-      result = OIDCClient.extract_user_info(claims)
+      assert {:ok, result} = OIDCClient.extract_user_info(claims)
       assert to_string(result.email) == "test@example.com"
     end
   end
@@ -95,6 +108,58 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
       # Should be either not_configured or discovery_failed
       assert match?({:error, _}, result)
     end
+
+    test "rejects a discovery-provided authorization endpoint that violates outbound policy" do
+      put_oidc_settings(%{
+        is_enabled: true,
+        mode: :active_sso,
+        provider_type: :oidc,
+        oidc_client_id: "client-id",
+        oidc_client_secret_encrypted: "client-secret",
+        oidc_discovery_url: "https://idp.example.com",
+        oidc_scopes: "openid email profile"
+      })
+
+      ConfigCache.put_cached(
+        "oidc_metadata:https://idp.example.com",
+        %{
+          "issuer" => "https://idp.example.com",
+          "authorization_endpoint" => "https://127.0.0.1/authorize",
+          "token_endpoint" => "https://idp.example.com/token",
+          "jwks_uri" => "https://idp.example.com/jwks"
+        },
+        ttl: to_timeout(minute: 5)
+      )
+
+      assert {:error, :discovery_failed} = OIDCClient.authorize_url()
+    end
+  end
+
+  describe "exchange_code/2" do
+    test "rejects a discovery-provided token endpoint that violates outbound policy" do
+      put_oidc_settings(%{
+        is_enabled: true,
+        mode: :active_sso,
+        provider_type: :oidc,
+        oidc_client_id: "client-id",
+        oidc_client_secret_encrypted: "client-secret",
+        oidc_discovery_url: "https://idp.example.com",
+        oidc_scopes: "openid email profile"
+      })
+
+      ConfigCache.put_cached(
+        "oidc_metadata:https://idp.example.com",
+        %{
+          "issuer" => "https://idp.example.com",
+          "authorization_endpoint" => "https://idp.example.com/authorize",
+          "token_endpoint" => "https://127.0.0.1/token",
+          "jwks_uri" => "https://idp.example.com/jwks"
+        },
+        ttl: to_timeout(minute: 5)
+      )
+
+      assert {:error, :token_exchange_failed} = OIDCClient.exchange_code("auth-code")
+    end
   end
 
   describe "validate_config/0" do
@@ -112,9 +177,33 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
 
     test "verify_id_token returns error when not configured" do
       fake_token = "header.payload.signature"
-      result = OIDCClient.verify_id_token(fake_token)
+      result = OIDCClient.verify_id_token(fake_token, nonce: "nonce")
 
       assert match?({:error, _}, result)
     end
+
+    test "verify_id_token fails closed when nonce is missing" do
+      fake_token = "header.payload.signature"
+      assert {:error, :missing_nonce} = OIDCClient.verify_id_token(fake_token)
+    end
+  end
+
+  defp maybe_start_config_cache do
+    case Process.whereis(ConfigCache) do
+      nil -> start_supervised!({ConfigCache, ttl_ms: 60_000})
+      _pid -> :ok
+    end
+  end
+
+  defp clear_auth_cache do
+    if :ets.whereis(ConfigCache) != :undefined do
+      :ets.delete(ConfigCache, :auth_settings)
+      ConfigCache.clear_cache()
+    end
+  end
+
+  defp put_oidc_settings(settings) when is_map(settings) do
+    expires_at = System.monotonic_time(:millisecond) + to_timeout(minute: 5)
+    :ets.insert(ConfigCache, {:auth_settings, settings, expires_at})
   end
 end

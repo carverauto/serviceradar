@@ -69,15 +69,17 @@ type datasvcLogger struct {
 	logger zerolog.Logger
 }
 
-func (l *datasvcLogger) Trace() *zerolog.Event                                { return l.logger.Trace() }
-func (l *datasvcLogger) Debug() *zerolog.Event                                { return l.logger.Debug() }
-func (l *datasvcLogger) Info() *zerolog.Event                                 { return l.logger.Info() }
-func (l *datasvcLogger) Warn() *zerolog.Event                                 { return l.logger.Warn() }
-func (l *datasvcLogger) Error() *zerolog.Event                                { return l.logger.Error() }
-func (l *datasvcLogger) Fatal() *zerolog.Event                                { return l.logger.Fatal() }
-func (l *datasvcLogger) Panic() *zerolog.Event                                { return l.logger.Panic() }
-func (l *datasvcLogger) With() zerolog.Context                                { return l.logger.With() }
-func (l *datasvcLogger) WithComponent(component string) zerolog.Logger        { return l.logger.With().Str("component", component).Logger() }
+func (l *datasvcLogger) Trace() *zerolog.Event { return l.logger.Trace() }
+func (l *datasvcLogger) Debug() *zerolog.Event { return l.logger.Debug() }
+func (l *datasvcLogger) Info() *zerolog.Event  { return l.logger.Info() }
+func (l *datasvcLogger) Warn() *zerolog.Event  { return l.logger.Warn() }
+func (l *datasvcLogger) Error() *zerolog.Event { return l.logger.Error() }
+func (l *datasvcLogger) Fatal() *zerolog.Event { return l.logger.Fatal() }
+func (l *datasvcLogger) Panic() *zerolog.Event { return l.logger.Panic() }
+func (l *datasvcLogger) With() zerolog.Context { return l.logger.With() }
+func (l *datasvcLogger) WithComponent(component string) zerolog.Logger {
+	return l.logger.With().Str("component", component).Logger()
+}
 func (l *datasvcLogger) WithFields(fields map[string]interface{}) zerolog.Logger {
 	ctx := l.logger.With()
 	for k, v := range fields {
@@ -288,8 +290,15 @@ func (s *Server) UploadObject(stream proto.DataService_UploadObjectServer) error
 		}()
 
 		chunk := initial
+		var totalBytes int64
 		for {
 			if data := chunk.GetData(); len(data) > 0 {
+				totalBytes += int64(len(data))
+				if maxBytes := s.config.ObjectMaxBytes; maxBytes > 0 && totalBytes > maxBytes {
+					writeErrCh <- errObjectTooLarge
+					_ = writer.CloseWithError(errObjectTooLarge)
+					return
+				}
 				if _, err := writer.Write(data); err != nil {
 					writeErrCh <- err
 					return
@@ -326,9 +335,15 @@ func (s *Server) UploadObject(stream proto.DataService_UploadObjectServer) error
 
 	writeErr := <-writeErrCh
 	if putErr != nil {
+		if errors.Is(putErr, errObjectTooLarge) {
+			return status.Errorf(codes.ResourceExhausted, "object %s exceeds configured upload limit", meta.GetKey())
+		}
 		return status.Errorf(codes.Internal, "failed to store object %s: %v", meta.GetKey(), putErr)
 	}
 	if writeErr != nil {
+		if errors.Is(writeErr, errObjectTooLarge) {
+			return status.Errorf(codes.ResourceExhausted, "object %s exceeds configured upload limit", meta.GetKey())
+		}
 		return status.Errorf(codes.Internal, "failed to stream object %s: %v", meta.GetKey(), writeErr)
 	}
 

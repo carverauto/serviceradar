@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
 
   import Ecto.Query, only: [from: 2]
 
+  alias ServiceRadar.Observability.OutboundFeedPolicy
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadar.Types.Cidr
@@ -70,12 +71,17 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     source_url = Keyword.get(config, :source_url, @default_source_url)
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
+    validate_url = Keyword.get(config, :validate_url, &OutboundFeedPolicy.validate/1)
+    http_get = Keyword.get(config, :http_get, &default_http_get/2)
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
 
     failure_reschedule_seconds =
       Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
 
-    case fetch_provider_rows(source_url, timeout_ms) do
+    case fetch_provider_rows(source_url, timeout_ms,
+           validate_url: validate_url,
+           http_get: http_get
+         ) do
       {:ok, payload, rows, etag} when rows != [] ->
         case promote_snapshot(source_url, payload, rows, etag) do
           :ok ->
@@ -98,7 +104,10 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
         schedule_next(failure_reschedule_seconds)
 
       {:error, reason} ->
-        Logger.warning("Cloud-provider CIDR dataset fetch failed", reason: inspect(reason))
+        Logger.warning("Cloud-provider CIDR dataset fetch failed",
+          reason: OutboundFeedPolicy.format_reason(reason)
+        )
+
         schedule_next(failure_reschedule_seconds)
     end
   end
@@ -112,14 +121,18 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
     if cluster_enabled, do: cluster_coordinator == true, else: true
   end
 
-  defp fetch_provider_rows(source_url, timeout_ms) do
-    req_opts = [
-      receive_timeout: timeout_ms,
-      retry: false,
-      finch: ServiceRadar.Finch
-    ]
+  defp fetch_provider_rows(source_url, timeout_ms, opts) do
+    validate_url = Keyword.get(opts, :validate_url, &OutboundFeedPolicy.validate/1)
+    http_get = Keyword.get(opts, :http_get, &default_http_get/2)
 
-    case Req.get(source_url, req_opts) do
+    with :ok <- validate_url.(source_url),
+         {:ok, %Req.Response{status: 200, body: body, headers: headers}} <-
+           http_get.(source_url, OutboundFeedPolicy.req_opts(timeout_ms)),
+         {:ok, list} <- parse_provider_payload(body),
+         rows when is_list(rows) <- normalize_provider_rows(list) do
+      payload = if is_binary(body), do: body, else: Jason.encode!(body)
+      {:ok, payload, rows, header(headers, "etag")}
+    else
       {:ok, %Req.Response{status: 200, body: body, headers: headers}} ->
         with {:ok, list} <- parse_provider_payload(body),
              rows when is_list(rows) <- normalize_provider_rows(list) do
@@ -137,6 +150,8 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
     e ->
       {:error, e}
   end
+
+  defp default_http_get(url, opts), do: Req.get(url, opts)
 
   defp parse_provider_payload(body) when is_binary(body), do: Jason.decode(body)
   defp parse_provider_payload(body) when is_list(body), do: {:ok, body}

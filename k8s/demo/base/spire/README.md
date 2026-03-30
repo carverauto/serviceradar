@@ -2,6 +2,8 @@
 
 Manifests in this directory bootstrap SPIFFE/SPIRE inside the `demo` Kubernetes namespace alongside the rest of the ServiceRadar stack. They also provision the shared `cnpg` CloudNativePG cluster that now serves as the primary Postgres backing store for SPIRE and future demo workloads. These manifests are **not** part of the default demo kustomization; apply them separately while we iterate on the onboarding workflow.
 
+The SPIRE control-plane resources in this directory are separate from the workload socket wiring that was removed from the default `k8s/demo/base` manifests. After applying `k8s/demo/base/spire`, also apply `k8s/demo/spire-workloads` to re-enable the `/run/spire/sockets` hostPath mounts and SPIRE-specific workload runtime wiring intentionally.
+
 ## Quick Start
 
 1. **Provision the database secret (demo namespace)**  

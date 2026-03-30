@@ -46,7 +46,7 @@ In the web UI:
 The UI will show a one-liner enroll command that looks like:
 
 ```bash
-sudo /usr/local/bin/serviceradar-cli enroll --token edgepkg-v1:<token>
+sudo /usr/local/bin/serviceradar-cli enroll --core-url https://demo.serviceradar.cloud --token edgepkg-v2:<token>
 ```
 
 ## 3. Enroll The Host
@@ -54,12 +54,15 @@ sudo /usr/local/bin/serviceradar-cli enroll --token edgepkg-v1:<token>
 On the host where you installed the agent, paste the enroll command from the UI:
 
 ```bash
-sudo /usr/local/bin/serviceradar-cli enroll --token edgepkg-v1:<token>
+sudo /usr/local/bin/serviceradar-cli enroll --core-url https://demo.serviceradar.cloud --token edgepkg-v2:<token>
 ```
 
 Notes:
 
 - Treat the token as a secret (it grants enrollment).
+- Bundle/package download tokens are accepted only in explicit request headers or POST bodies, never in URL query strings.
+- Enrollment requires verified HTTPS. `serviceradar-cli enroll` no longer supports an insecure TLS bypass.
+- Only signed `edgepkg-v2` tokens are accepted for agent enrollment.
 - If you need to re-enroll, generate a new agent package to get a fresh token.
 
 ## 4. Verify

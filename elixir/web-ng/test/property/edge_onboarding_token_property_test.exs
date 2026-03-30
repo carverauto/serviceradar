@@ -6,6 +6,9 @@ defmodule ServiceRadarWebNG.EdgeOnboardingTokenPropertyTest do
   alias ServiceRadarWebNG.Generators.EdgeOnboardingGenerators
   alias ServiceRadarWebNG.TestSupport.PropertyOpts
 
+  @private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+  @public_key "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
+
   property "edge onboarding tokens round-trip and are base64url (no padding)" do
     check all(
             package_id <- EdgeOnboardingGenerators.package_id(),
@@ -13,11 +16,18 @@ defmodule ServiceRadarWebNG.EdgeOnboardingTokenPropertyTest do
             api <- EdgeOnboardingGenerators.core_api_url(),
             max_runs: PropertyOpts.max_runs()
           ) do
-      assert {:ok, token} = OnboardingToken.encode(package_id, download_token, api)
-      assert String.starts_with?(token, "edgepkg-v1:")
-      assert token =~ ~r/^edgepkg-v1:[A-Za-z0-9_-]+$/
+      assert {:ok, token} =
+               OnboardingToken.encode(
+                 package_id,
+                 download_token,
+                 api,
+                 private_key: @private_key
+               )
 
-      assert {:ok, payload} = OnboardingToken.decode(token)
+      assert String.starts_with?(token, "edgepkg-v2:")
+      assert token =~ ~r/^edgepkg-v2:[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+
+      assert {:ok, payload} = OnboardingToken.decode(token, public_key: @public_key)
 
       expected = maybe_put_api(%{pkg: package_id, dl: download_token}, api)
 

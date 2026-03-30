@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/carverauto/serviceradar-sdk-go/sdk"
 )
@@ -82,15 +83,59 @@ func TestBuildCameraDescriptors(t *testing.T) {
 	}
 }
 
-func TestWithWebSocketCredentials(t *testing.T) {
-	rawURL := "wss://camera.local/vapix/ws-data-stream?sources=events"
-	got := sdk.WithURLUserInfo(rawURL, "root", "secret")
-	want := "wss://root:secret@camera.local/vapix/ws-data-stream?sources=events"
+func TestAxisEventHeaders(t *testing.T) {
+	headers := axisEventHeaders("Basic cm9vdDpzZWNyZXQ=")
+	if got := headers["Authorization"]; got != "Basic cm9vdDpzZWNyZXQ=" {
+		t.Fatalf("unexpected authorization header: %q", got)
+	}
 
-	if got != want {
-		t.Fatalf("unexpected websocket url: %s", got)
+	if got := axisEventHeaders(""); got != nil {
+		t.Fatalf("expected nil headers for empty auth, got %#v", got)
 	}
 }
+
+func TestCollectAxisEventsUsesCredentialFreeWebSocketURL(t *testing.T) {
+	originalDial := axisEventWebSocketConnect
+	defer func() { axisEventWebSocketConnect = originalDial }()
+
+	var gotURL string
+	var gotHeaders map[string]string
+	axisEventWebSocketConnect = func(rawURL string, headers map[string]string, timeout time.Duration) (axisEventWebSocket, error) {
+		gotURL = rawURL
+		gotHeaders = headers
+		return &stubAxisEventWebSocket{}, nil
+	}
+
+	events, result := collectAxisEvents(
+		"https",
+		"camera.local",
+		"Basic cm9vdDpzZWNyZXQ=",
+		"events",
+		"",
+		2*time.Second,
+	)
+
+	if len(events) != 0 {
+		t.Fatalf("expected no events from stub connection, got %d", len(events))
+	}
+	if result.Error != "" {
+		t.Fatalf("unexpected websocket result error: %s", result.Error)
+	}
+	if gotURL != "wss://camera.local/vapix/ws-data-stream?sources=events" {
+		t.Fatalf("unexpected websocket url: %s", gotURL)
+	}
+	if gotHeaders["Authorization"] != "Basic cm9vdDpzZWNyZXQ=" {
+		t.Fatalf("unexpected authorization header: %#v", gotHeaders)
+	}
+}
+
+type stubAxisEventWebSocket struct{}
+
+func (s *stubAxisEventWebSocket) Send([]byte, time.Duration) error { return nil }
+
+func (s *stubAxisEventWebSocket) Recv([]byte, time.Duration) (int, error) { return 0, nil }
+
+func (s *stubAxisEventWebSocket) Close() error { return nil }
 
 func TestBuildAxisStreamSourceURLPrefersRelaySource(t *testing.T) {
 	cfg := StreamConfig{

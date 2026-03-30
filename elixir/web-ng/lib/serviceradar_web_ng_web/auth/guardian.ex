@@ -125,7 +125,15 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
     end
   end
 
-  defp verify_token_type(_claims, nil), do: :ok
+  @default_allowed_token_types ~w(access api)
+
+  defp verify_token_type(claims, nil) do
+    if Map.get(claims, "typ") in @default_allowed_token_types do
+      :ok
+    else
+      {:error, :invalid_token_type}
+    end
+  end
 
   defp verify_token_type(claims, expected_type) do
     if Map.get(claims, "typ") == expected_type do
@@ -206,14 +214,22 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   @doc """
   Exchanges a refresh token for a new access token.
 
-  Returns `{:ok, {old_token, old_claims}, {new_token, new_claims}}` on success.
-  The old refresh token should be invalidated after this call.
+  Returns `{:ok, user, credentials}` on success, where `credentials` contains
+  newly issued access and refresh tokens and claims.
   """
   def exchange_refresh_token(refresh_token) do
     with {:ok, claims} <- decode_and_verify(refresh_token, %{}, token_type: "refresh"),
          {:ok, user} <- resource_from_claims(claims),
-         {:ok, new_access_token, new_claims} <- create_access_token(user) do
-      {:ok, user, new_access_token, new_claims}
+         :ok <- revoke_refresh_token(claims, user),
+         {:ok, new_access_token, new_access_claims} <- create_access_token(user),
+         {:ok, new_refresh_token, new_refresh_claims} <- create_refresh_token(user) do
+      {:ok, user,
+       %{
+         access_token: new_access_token,
+         access_claims: new_access_claims,
+         refresh_token: new_refresh_token,
+         refresh_claims: new_refresh_claims
+       }}
     end
   end
 
@@ -258,6 +274,31 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
 
   defp access_token_ttl do
     {session_idle_timeout_seconds(), :second}
+  end
+
+  defp revoke_refresh_token(claims, user) do
+    jti = Map.get(claims, "jti")
+
+    if is_binary(jti) and jti != "" do
+      ttl = refresh_token_revocation_ttl(claims)
+
+      TokenRevocation.revoke_token(jti,
+        reason: :refresh_rotated,
+        user_id: user.id,
+        ttl: ttl
+      )
+    else
+      {:error, :missing_jti}
+    end
+  end
+
+  defp refresh_token_revocation_ttl(claims) do
+    now = System.system_time(:second)
+
+    case Map.get(claims, "exp") do
+      exp when is_integer(exp) and exp > now -> (exp - now) * 1000
+      _ -> 1_000
+    end
   end
 
   defp refresh_token_ttl do

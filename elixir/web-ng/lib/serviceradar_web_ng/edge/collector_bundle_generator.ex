@@ -43,6 +43,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadarWebNG.Shell
+  alias ServiceRadarWebNG.TempArchive
   alias ServiceRadarWebNG.Web.EndpointConfig
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
@@ -108,23 +110,27 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   Generates a one-liner install command for updating an existing collector.
   """
   @spec update_command(CollectorPackage.t(), String.t(), keyword()) :: String.t()
-  def update_command(package, download_token, opts \\ [])
+  def update_command(package, _download_token, opts \\ [])
 
-  def update_command(%{collector_type: :falcosidekick} = package, download_token, opts) do
+  def update_command(%{collector_type: :falcosidekick} = package, _download_token, opts) do
     base_url = Keyword.get_lazy(opts, :base_url, &default_base_url/0)
+    bundle_url = "#{base_url}/api/collectors/#{package.id}/bundle"
 
     String.trim("""
-    curl -fsSL "#{base_url}/api/collectors/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" #{Shell.literal(bundle_url)} | tar xzf - && \\
     cd collector-package-#{short_id(package.id)} && \\
     ./deploy.sh
     """)
   end
 
-  def update_command(package, download_token, opts) do
+  def update_command(package, _download_token, opts) do
     base_url = Keyword.get_lazy(opts, :base_url, &default_base_url/0)
+    bundle_url = "#{base_url}/api/collectors/#{package.id}/bundle"
 
     String.trim("""
-    curl -fsSL "#{base_url}/api/collectors/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" #{Shell.literal(bundle_url)} | tar xzf - && \\
     cd collector-package-#{short_id(package.id)} && \\
     sudo ./update.sh
     """)
@@ -211,7 +217,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     site = package.site || "default"
 
     # Apply any config overrides
-    grpc_port = get_in(package.config_overrides, ["server", "port"]) || 4317
+    grpc_port = normalize_port(get_in(package.config_overrides, ["server", "port"]), 4317)
 
     """
     # ServiceRadar OpenTelemetry Collector Configuration
@@ -221,7 +227,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     [server]
     bind_address = "0.0.0.0"
-    port = #{grpc_port}
+    port = #{encode_toml_value(grpc_port)}
 
     [nats]
     url = #{encode_toml_value(nats_url)}
@@ -408,21 +414,16 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   end
 
   defp generate_falcosidekick_deploy_script(package) do
-    s_package_id = sanitize_shell_arg(package.id)
-
     namespace =
       get_in(package.config_overrides || %{}, ["namespace"]) || "demo"
 
     release_name =
       get_in(package.config_overrides || %{}, ["release_name"]) || "falcosidekick-nats-auth"
 
-    s_namespace = sanitize_shell_arg(namespace)
-    s_release = sanitize_shell_arg(release_name)
-
     """
     #!/bin/bash
     # ServiceRadar Falcosidekick Deploy Script
-    # Package ID: #{s_package_id}
+    # Package ID: #{package.id}
     # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
     #
     # Verifies the shared runtime cert secret exists, then deploys/upgrades
@@ -431,8 +432,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     set -e
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    NAMESPACE="#{s_namespace}"
-    RELEASE="#{s_release}"
+    NAMESPACE=#{Shell.literal(namespace)}
+    RELEASE=#{Shell.literal(release_name)}
     SECRET_NAME="serviceradar-runtime-certs"
 
     echo "ServiceRadar Falcosidekick Deploy"
@@ -484,15 +485,11 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     collector_type = to_string(package.collector_type)
     config_file = config_filename(package)
 
-    s_collector_type = sanitize_shell_arg(collector_type)
-    s_package_id = sanitize_shell_arg(package.id)
-    s_service_name = "serviceradar-#{s_collector_type}"
-
     """
     #!/bin/bash
     # ServiceRadar Collector Update Script
-    # Collector: #{s_collector_type}
-    # Package ID: #{s_package_id}
+    # Collector: #{collector_type}
+    # Package ID: #{package.id}
     # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
     #
     # This script updates credentials, certificates, and configuration for an
@@ -501,8 +498,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     set -e
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    COLLECTOR_TYPE="#{s_collector_type}"
-    SERVICE_NAME="#{s_service_name}"
+    COLLECTOR_TYPE=#{Shell.literal(collector_type)}
+    SERVICE_NAME=#{Shell.literal("serviceradar-#{collector_type}")}
     CONFIG_DIR="/etc/serviceradar"
     CERTS_DIR="$CONFIG_DIR/certs"
     CREDS_DIR="$CONFIG_DIR/creds"
@@ -571,14 +568,25 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     """
   end
 
-  defp sanitize_shell_arg(value) when is_binary(value) do
-    String.replace(value, "\"", "-")
-  end
-
   defp encode_toml_value(value) do
     # Jason encoding works well for TOML strings/numbers/booleans
     Jason.encode!(value)
   end
+
+  defp normalize_port(nil, default), do: default
+
+  defp normalize_port(value, default) when is_integer(value) do
+    if value > 0 and value <= 65_535, do: value, else: default
+  end
+
+  defp normalize_port(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {port, ""} -> normalize_port(port, default)
+      _ -> default
+    end
+  end
+
+  defp normalize_port(_, default), do: default
 
   defp generate_readme(%{collector_type: :falcosidekick} = package) do
     namespace =
@@ -712,7 +720,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     Prefer the enrollment command from the UI (token required):
 
     ```bash
-    /usr/local/bin/serviceradar-cli enroll --token <token>
+    /usr/local/bin/serviceradar-cli enroll --core-url <your-serviceradar-url> --token <token>
     ```
 
     If you already downloaded this bundle, run the update script:
@@ -789,38 +797,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   @sobelow_skip ["Traversal.FileModule"]
   defp create_tar_gz(files) do
-    # Create tarball entries
-    entries =
-      Enum.map(files, fn {name, content} ->
-        data =
-          case content do
-            nil -> ""
-            _ -> IO.iodata_to_binary(content)
-          end
-
-        {String.to_charlist(name), data}
-      end)
-
-    tmp_path =
-      Path.join(
-        System.tmp_dir!(),
-        "serviceradar-collector-bundle-#{:erlang.unique_integer([:positive])}.tar.gz"
-      )
-
-    try do
-      case :erl_tar.create(String.to_charlist(tmp_path), entries, [:compressed]) do
-        :ok ->
-          case File.read(tmp_path) do
-            {:ok, tarball} -> {:ok, tarball}
-            {:error, reason} -> {:error, reason}
-          end
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    after
-      _ = File.rm(tmp_path)
-    end
+    TempArchive.create_tar_gz("serviceradar-collector-bundle", files)
   end
 
   defp default_base_url do

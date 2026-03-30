@@ -114,7 +114,13 @@ fn enforce_api_key(headers: &HeaderMap, api_keys: &ApiKeyStore) -> Result<()> {
 }
 
 async fn initialize_api_keys(config: &AppConfig) -> anyhow::Result<ApiKeyStore> {
-    let store = ApiKeyStore::new(config.api_key.clone());
+    let initial_api_key = config
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+    let store = ApiKeyStore::new(initial_api_key);
 
     if let Some(kv_key) = &config.api_key_kv_key {
         let mut kv_client = KvClient::connect_from_env().await?;
@@ -157,10 +163,20 @@ async fn initialize_api_keys(config: &AppConfig) -> anyhow::Result<ApiKeyStore> 
                 }
             }
         });
-    } else if store.current().is_some() {
-        info!("SRQL API key configured via environment");
-    } else {
-        warn!("SRQL_API_KEY not set; API key authentication disabled");
+    } else if store.current().is_none() {
+        return Err(anyhow::anyhow!(
+            "SRQL API authentication requires SRQL_API_KEY or SRQL_API_KEY_KV_KEY"
+        ));
+    }
+
+    if store.current().is_some() {
+        if config.api_key_kv_key.is_some() {
+            info!("SRQL API key configured via datasvc KV");
+        } else {
+            info!("SRQL API key configured via environment");
+        }
+    } else if config.api_key_kv_key.is_some() {
+        warn!("SRQL API key watcher initialized without an active key");
     }
 
     Ok(store)
@@ -278,5 +294,85 @@ impl FixedWindowLimiter {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+    use std::{net::SocketAddr, time::Duration};
+
+    fn test_config() -> AppConfig {
+        AppConfig {
+            listen_addr: SocketAddr::from(([127, 0, 0, 1], 8480)),
+            database_url: "postgres://unused/db".to_string(),
+            age_graph_name: "platform_graph".to_string(),
+            max_pool_size: 1,
+            pg_ssl_root_cert: None,
+            pg_ssl_cert: None,
+            pg_ssl_key: None,
+            api_key: None,
+            api_key_kv_key: None,
+            allowed_origins: None,
+            default_limit: 100,
+            max_limit: 500,
+            request_timeout: Duration::from_secs(30),
+            rate_limit_max_requests: 120,
+            rate_limit_window: Duration::from_secs(60),
+        }
+    }
+
+    #[tokio::test]
+    async fn initialize_api_keys_rejects_missing_configuration() {
+        let err = match initialize_api_keys(&test_config()).await {
+            Ok(_) => panic!("expected missing auth configuration error"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string()
+                .contains("SRQL API authentication requires SRQL_API_KEY"),
+            "expected missing auth message, got {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn initialize_api_keys_accepts_environment_key() {
+        let mut config = test_config();
+        config.api_key = Some(" test-api-key ".to_string());
+
+        let store = initialize_api_keys(&config)
+            .await
+            .expect("expected api key initialization to succeed");
+
+        assert_eq!(store.current().as_deref(), Some("test-api-key"));
+    }
+
+    #[test]
+    fn enforce_api_key_rejects_missing_or_wrong_header() {
+        let store = ApiKeyStore::new(Some("expected-key".to_string()));
+        let headers = HeaderMap::new();
+
+        assert!(matches!(
+            enforce_api_key(&headers, &store),
+            Err(ServiceError::Auth)
+        ));
+
+        let mut wrong_headers = HeaderMap::new();
+        wrong_headers.insert("x-api-key", HeaderValue::from_static("wrong-key"));
+        assert!(matches!(
+            enforce_api_key(&wrong_headers, &store),
+            Err(ServiceError::Auth)
+        ));
+    }
+
+    #[test]
+    fn enforce_api_key_accepts_matching_header() {
+        let store = ApiKeyStore::new(Some("expected-key".to_string()));
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", HeaderValue::from_static("expected-key"));
+
+        enforce_api_key(&headers, &store).expect("expected auth success");
     }
 }

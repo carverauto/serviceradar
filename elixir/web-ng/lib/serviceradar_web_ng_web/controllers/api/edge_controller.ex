@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   alias ServiceRadarWebNGWeb.ClientIP
 
   require Ash.Query
+  require Logger
 
   action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
@@ -189,10 +190,10 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   POST /api/admin/edge-packages/:id/download
 
   Delivers a package to the client, returning tokens and certificates.
-  Requires a valid download_token in the request body.
+  Requires a valid download token in the request body.
   """
-  def download(conn, %{"id" => id} = params) do
-    download_token = params["download_token"]
+  def download(conn, %{"id" => id}) do
+    download_token = conn |> body_param("download_token") |> normalize_download_token()
 
     if download_token in [nil, ""] do
       conn
@@ -256,9 +257,11 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   end
 
   defp handle_bundle_error(conn, {:bundle_error, reason}) do
+    Logger.error("Edge bundle generation failed: #{inspect(reason)}")
+
     conn
     |> put_status(:internal_server_error)
-    |> json(%{error: "Failed to generate bundle: #{inspect(reason)}"})
+    |> json(%{error: "bundle_generation_failed"})
   end
 
   defp handle_bundle_error(conn, reason)
@@ -267,43 +270,68 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   end
 
   defp handle_bundle_error(conn, reason) do
+    Logger.error("Edge bundle request failed: #{inspect(reason)}")
+
     conn
     |> put_status(:internal_server_error)
-    |> json(%{error: "bundle request failed: #{inspect(reason)}"})
+    |> json(%{error: "bundle_request_failed"})
   end
 
   @doc """
-  GET /api/edge-packages/:id/bundle
+  POST /api/edge-packages/:id/bundle
 
   Downloads the package as a tarball containing certificates, config, and install script.
-  Requires a valid download token as a query parameter.
+  Requires a valid download token in the `x-serviceradar-download-token` header or request body.
 
-  Query params:
-    - token: the download token (required)
+  Request fields:
+    - x-serviceradar-download-token header, or
+    - download_token: the download token (required)
 
   Returns: application/gzip tarball
   """
-  def bundle(conn, %{"id" => id, "token" => download_token}) when byte_size(download_token) > 0 do
+  def bundle(conn, %{"id" => id}) do
+    download_token = extract_download_token(conn)
     source_ip = ClientIP.get(conn)
-    base_url = request_base_url(conn)
+    base_url = ServiceRadarWebNGWeb.Endpoint.url()
 
-    case bundle_with_token(id, download_token, source_ip, base_url) do
-      {:ok, tarball, filename} ->
-        conn
-        |> put_resp_content_type("application/gzip")
-        |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
-        |> send_resp(200, tarball)
+    if download_token in [nil, ""] do
+      conn
+      |> put_status(:bad_request)
+      |> json(%{error: "download token is required"})
+    else
+      case bundle_with_token(id, download_token, source_ip, base_url) do
+        {:ok, tarball, filename} ->
+          conn
+          |> put_resp_content_type("application/gzip")
+          |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
+          |> send_resp(200, tarball)
 
-      {:error, reason} ->
-        handle_bundle_error(conn, reason)
+        {:error, reason} ->
+          handle_bundle_error(conn, reason)
+      end
     end
   end
 
-  def bundle(conn, %{"id" => _id}) do
+  defp extract_download_token(conn) do
     conn
-    |> put_status(:bad_request)
-    |> json(%{error: "token query parameter is required"})
+    |> Plug.Conn.get_req_header("x-serviceradar-download-token")
+    |> List.first()
+    |> normalize_download_token()
+    |> case do
+      nil ->
+        conn |> body_param("download_token") |> normalize_download_token()
+
+      token ->
+        token
+    end
   end
+
+  defp normalize_download_token(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalize_download_token(_value), do: nil
 
   defp bundle_with_token(id, download_token, source_ip, base_url) do
     opts = [actor: nil, source_ip: source_ip, authorize?: false]
@@ -312,7 +340,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
            OnboardingPackages.deliver(id, download_token, opts),
          {:ok, tarball} <-
            wrap_bundle_error(
-             BundleGenerator.create_tarball(package, bundle_pem || "", join_token,
+             bundle_generator().create_tarball(package, bundle_pem || "", join_token,
                download_token: download_token,
                base_url: base_url
              )
@@ -322,29 +350,20 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
     end
   end
 
-  defp request_base_url(conn) do
-    scheme = to_string(conn.scheme)
-    host = conn.host
-
-    port =
-      case {conn.scheme, conn.port} do
-        {:http, 80} -> nil
-        {:https, 443} -> nil
-        _ -> conn.port
-      end
-
-    authority =
-      if is_integer(port) do
-        "#{host}:#{port}"
-      else
-        host
-      end
-
-    "#{scheme}://#{authority}"
-  end
-
   defp wrap_bundle_error({:ok, tarball}), do: {:ok, tarball}
   defp wrap_bundle_error({:error, reason}), do: {:error, {:bundle_error, reason}}
+
+  defp bundle_generator do
+    Application.get_env(:serviceradar_web_ng, :edge_bundle_generator, BundleGenerator)
+  end
+
+  defp body_param(conn, key) when is_binary(key) do
+    case conn.body_params do
+      %Plug.Conn.Unfetched{} -> nil
+      body when is_map(body) -> Map.get(body, key)
+      _ -> nil
+    end
+  end
 
   @doc """
   POST /api/admin/edge-packages/:id/revoke

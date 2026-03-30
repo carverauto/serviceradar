@@ -105,6 +105,16 @@ func TestNATSStoreReconnectsAfterConnectionClosure(t *testing.T) {
 	require.NoError(t, store.Close())
 }
 
+func TestObjectStoreConfigIncludesMaxBytes(t *testing.T) {
+	t.Parallel()
+
+	store := &NATSStore{objectStoreBytes: 4096}
+
+	cfg := store.objectStoreConfig("bounded-objects")
+	require.Equal(t, "bounded-objects", cfg.Bucket)
+	require.EqualValues(t, 4096, cfg.MaxBytes)
+}
+
 func runJetStreamServer(t *testing.T, opts *server.Options) *server.Server {
 	t.Helper()
 

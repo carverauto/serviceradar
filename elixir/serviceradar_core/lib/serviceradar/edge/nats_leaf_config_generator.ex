@@ -110,6 +110,8 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
   """
   @spec generate_setup_script(map()) :: String.t()
   def generate_setup_script(edge_site) do
+    site_name = shell_single_quote(edge_site.name)
+
     """
     #!/bin/bash
     # NATS Leaf Server Setup Script
@@ -117,7 +119,9 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
 
     set -e
 
-    echo "Setting up NATS leaf server for #{edge_site.name}..."
+    SITE_NAME='#{site_name}'
+
+    printf 'Setting up NATS leaf server for %s...\n' "$SITE_NAME"
 
     # Check if running as root
     if [ "$EUID" -ne 0 ]; then
@@ -287,5 +291,11 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
 
     For help, contact your ServiceRadar administrator.
     """
+  end
+
+  defp shell_single_quote(value) do
+    value
+    |> to_string()
+    |> String.replace("'", "'\"'\"'")
   end
 end

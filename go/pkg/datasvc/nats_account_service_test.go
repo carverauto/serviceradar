@@ -163,7 +163,7 @@ func TestNATSAccountServer_CreateAccount(t *testing.T) {
 		req := &proto.CreateAccountRequest{
 			AccountName: "mapped-account",
 			SubjectMappings: []*proto.SubjectMapping{
-				{From: "events.>", To: "mapped.events.>"},
+				{From: "events.>", To: "mapped-account.events.>"},
 			},
 		}
 
@@ -174,6 +174,28 @@ func TestNATSAccountServer_CreateAccount(t *testing.T) {
 
 		if resp.AccountPublicKey == "" {
 			t.Error("Expected non-empty account public key")
+		}
+	})
+
+	t.Run("rejects out of scope exports", func(t *testing.T) {
+		req := &proto.CreateAccountRequest{
+			AccountName: "tenant-a",
+			Exports: []*proto.StreamExport{
+				{Subject: "tenant-b.logs.>", Name: "foreign"},
+			},
+		}
+
+		_, err := server.CreateAccount(ctx, req)
+		if err == nil {
+			t.Fatal("Expected error for out-of-scope export")
+		}
+
+		st, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("Expected gRPC status error, got: %v", err)
+		}
+		if st.Code() != codes.InvalidArgument {
+			t.Errorf("Expected InvalidArgument, got: %v", st.Code())
 		}
 	})
 
@@ -257,6 +279,27 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 		if resp.ExpiresAtUnix == 0 {
 			t.Error("Expected non-zero expiration timestamp")
+		}
+	})
+
+	t.Run("rejects out of scope custom permissions", func(t *testing.T) {
+		req := &proto.GenerateUserCredentialsRequest{
+			AccountName: "test-ns",
+			AccountSeed: createResp.AccountSeed,
+			UserName:    "bad-user",
+			Permissions: &proto.UserPermissions{
+				PublishAllow: []string{"$SYS.REQ.CLAIMS.UPDATE"},
+			},
+		}
+
+		_, err := server.GenerateUserCredentials(ctx, req)
+		if err == nil {
+			t.Fatal("Expected error for out-of-scope permissions")
+		}
+
+		st, _ := status.FromError(err)
+		if st.Code() != codes.InvalidArgument {
+			t.Errorf("Expected InvalidArgument, got: %v", st.Code())
 		}
 	})
 
@@ -391,6 +434,29 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 
 		if resp.AccountJwt == "" {
 			t.Error("Expected non-empty account JWT")
+		}
+	})
+
+	t.Run("rejects imports", func(t *testing.T) {
+		req := &proto.SignAccountJWTRequest{
+			AccountName: "resign-account",
+			AccountSeed: createResp.AccountSeed,
+			Imports: []*proto.StreamImport{
+				{
+					Subject:          "platform.provisioning.>",
+					AccountPublicKey: "ACYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+				},
+			},
+		}
+
+		_, err := server.SignAccountJWT(ctx, req)
+		if err == nil {
+			t.Fatal("Expected error for imports")
+		}
+
+		st, _ := status.FromError(err)
+		if st.Code() != codes.InvalidArgument {
+			t.Errorf("Expected InvalidArgument, got: %v", st.Code())
 		}
 	})
 

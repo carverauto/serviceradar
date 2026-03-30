@@ -5,20 +5,25 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
 
   use Plug.Router
 
+  alias ServiceRadarAgentGateway.ComponentIdentityResolver
+
   require Logger
 
   @download_timeout 30_000
   @download_path "/artifacts/releases/download"
   @target_header "x-serviceradar-release-target-id"
   @command_header "x-serviceradar-release-command-id"
+  @allowed_component_types [:agent]
 
   plug(:match)
   plug(:dispatch)
 
   get @download_path do
-    with {:ok, target_id} <- required_header(conn, @target_header),
+    with {:ok, caller_identity} <- resolve_identity(conn),
+         :ok <- authorize_caller_identity(caller_identity),
+         {:ok, target_id} <- required_header(conn, @target_header),
          {:ok, command_id} <- required_header(conn, @command_header),
-         {:ok, download} <- resolve_download(conn, target_id, command_id),
+         {:ok, download} <- resolve_download(conn, target_id, command_id, caller_identity),
          {:ok, data} <- download_object(conn, download.object_key) do
       conn
       |> Plug.Conn.put_resp_content_type(download.content_type || "application/octet-stream")
@@ -33,6 +38,9 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
 
       {:error, :missing_command_id} ->
         send_json_error(conn, 400, "missing release command id")
+
+      {:error, :unauthenticated} ->
+        send_json_error(conn, 401, "invalid client certificate")
 
       {:error, :unauthorized} ->
         send_json_error(conn, 403, "release artifact access denied")
@@ -133,12 +141,13 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
   defp normalize_core_result({:ok, {:error, reason}}), do: {:error, reason}
   defp normalize_core_result(other), do: other
 
-  defp resolve_download(conn, target_id, command_id) do
+  defp resolve_download(conn, target_id, command_id, caller_identity) do
     opts = conn.private[:release_artifact_server_opts] || []
 
     case Keyword.get(opts, :resolve_download) do
+      fun when is_function(fun, 3) -> fun.(target_id, command_id, caller_identity.component_id)
       fun when is_function(fun, 2) -> fun.(target_id, command_id)
-      _ -> core_rpc(:resolve_release_artifact_download, [target_id, command_id])
+      _ -> core_rpc(:resolve_release_artifact_download, [target_id, command_id, caller_identity.component_id])
     end
   end
 
@@ -151,10 +160,7 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
 
       _ ->
         with {:ok, channel} <- GenServer.call(ServiceRadar.DataService.Client, :get_channel, @download_timeout) do
-          case ServiceRadar.Sync.Client.download_object(channel, object_key, timeout: @download_timeout) do
-            {:ok, {_info, data}} -> {:ok, data}
-            {:error, reason} -> {:error, reason}
-          end
+          download_object_from_channel(channel, object_key)
         end
     end
   end
@@ -167,4 +173,43 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
       end
     end)
   end
+
+  defp resolve_identity(conn) do
+    opts = conn.private[:release_artifact_server_opts] || []
+
+    case Keyword.get(opts, :resolve_identity) do
+      fun when is_function(fun, 1) ->
+        fun.(conn)
+
+      _ ->
+        conn
+        |> Plug.Conn.get_peer_data()
+        |> Map.get(:ssl_cert)
+        |> resolve_identity_from_cert()
+    end
+  rescue
+    _error ->
+      {:error, :unauthenticated}
+  end
+
+  defp download_object_from_channel(channel, object_key) do
+    case ServiceRadar.Sync.Client.download_object(channel, object_key, timeout: @download_timeout) do
+      {:ok, {_info, data}} -> {:ok, data}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp resolve_identity_from_cert(cert_der) when is_binary(cert_der) do
+    case ComponentIdentityResolver.resolve_from_cert(cert_der) do
+      {:ok, identity} -> {:ok, identity}
+      {:error, _reason} -> {:error, :unauthenticated}
+    end
+  end
+
+  defp resolve_identity_from_cert(_), do: {:error, :unauthenticated}
+
+  defp authorize_caller_identity(%{component_id: component_id, component_type: component_type})
+       when is_binary(component_id) and component_type in @allowed_component_types, do: :ok
+
+  defp authorize_caller_identity(_identity), do: {:error, :unauthorized}
 end

@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.TopologySnapshotControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  alias ServiceRadarWebNG.Accounts.Scope
+
   setup :register_and_log_in_user
 
   setup do
@@ -71,5 +73,28 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotControllerTest do
     assert conn.status == 500
     assert body["error"] == "snapshot_build_failed"
     refute Map.has_key?(body, "reason")
+  end
+
+  test "show fails closed without an authenticated scope", %{conn: conn} do
+    Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
+
+    conn = ServiceRadarWebNGWeb.TopologySnapshotController.show(conn, %{})
+
+    assert conn.halted
+    assert conn.status == 401
+    assert Jason.decode!(conn.resp_body) == %{"error" => "unauthorized"}
+  end
+
+  test "show returns forbidden without topology snapshot permission", %{conn: conn} do
+    Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
+
+    conn =
+      conn
+      |> assign(:current_scope, %Scope{user: %{id: "viewer", email: "viewer@example.com"}, permissions: MapSet.new()})
+      |> ServiceRadarWebNGWeb.TopologySnapshotController.show(%{})
+
+    assert conn.halted
+    assert conn.status == 403
+    assert Jason.decode!(conn.resp_body) == %{"error" => "forbidden"}
   end
 end

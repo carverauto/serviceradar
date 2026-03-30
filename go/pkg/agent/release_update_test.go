@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -165,7 +166,7 @@ func TestStageAgentReleaseRejectsArtifactPlatformMismatch(t *testing.T) {
 	}
 }
 
-func TestStageAgentReleaseAllowsHTTPSRedirects(t *testing.T) {
+func TestStageAgentReleaseAllowsSameOriginHTTPSRedirects(t *testing.T) {
 	binaryData := []byte("binary")
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -195,6 +196,40 @@ func TestStageAgentReleaseAllowsHTTPSRedirects(t *testing.T) {
 	}
 }
 
+func TestStageAgentReleaseRejectsRedirectToDifferentHTTPSHost(t *testing.T) {
+	binaryData := []byte("binary")
+	artifactServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(binaryData))
+	}))
+	defer artifactServer.Close()
+
+	redirectServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, artifactServer.URL+"/artifact", http.StatusFound)
+	}))
+	defer redirectServer.Close()
+
+	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+		URL:    redirectServer.URL,
+		SHA256: digestHex(binaryData),
+		OS:     runtime.GOOS,
+		Arch:   runtime.GOARCH,
+	})
+
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  httpClient,
+	})
+	if !errors.Is(err, errReleaseRedirectOriginChanged) {
+		t.Fatalf("expected errReleaseRedirectOriginChanged, got %v", err)
+	}
+}
+
 func TestStageAgentReleaseRejectsRedirectToHTTP(t *testing.T) {
 	binaryData := []byte("binary")
 	insecureServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -220,6 +255,63 @@ func TestStageAgentReleaseRejectsRedirectToHTTP(t *testing.T) {
 	})
 	if !errors.Is(err, errReleaseRedirectInsecure) {
 		t.Fatalf("expected errReleaseRedirectInsecure, got %v", err)
+	}
+}
+
+func TestStageAgentReleaseRejectsGatewayRedirectToDifferentHost(t *testing.T) {
+	binaryData := []byte("gateway-binary")
+	artifactServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(binaryData))
+	}))
+	defer artifactServer.Close()
+
+	gatewayServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-ServiceRadar-Release-Target-ID"); got != "target-123" {
+			t.Fatalf("target header = %q, want %q", got, "target-123")
+		}
+		if got := r.Header.Get("X-ServiceRadar-Release-Command-ID"); got != "command-123" {
+			t.Fatalf("command header = %q, want %q", got, "command-123")
+		}
+		http.Redirect(w, r, artifactServer.URL+"/artifact", http.StatusFound)
+	}))
+	defer gatewayServer.Close()
+
+	gatewayURL, err := url.Parse(gatewayServer.URL)
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	port, err := strconv.Atoi(gatewayURL.Port())
+	if err != nil {
+		t.Fatalf("Atoi() error = %v", err)
+	}
+
+	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+		URL:    "https://releases.example.com/serviceradar-agent",
+		SHA256: digestHex(binaryData),
+		OS:     runtime.GOOS,
+		Arch:   runtime.GOARCH,
+	})
+	payload.ArtifactTransport = releaseArtifactTransport{
+		Kind:     "gateway_https",
+		Path:     "/artifacts/releases/download",
+		Port:     port,
+		TargetID: "target-123",
+	}
+
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	_, err = stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  httpClient,
+		GatewayAddr: gatewayURL.Host,
+		CommandID:   "command-123",
+	})
+	if !errors.Is(err, errReleaseRedirectOriginChanged) {
+		t.Fatalf("expected errReleaseRedirectOriginChanged, got %v", err)
 	}
 }
 

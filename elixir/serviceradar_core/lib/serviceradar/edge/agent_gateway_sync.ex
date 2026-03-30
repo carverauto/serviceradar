@@ -98,10 +98,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     AgentReleaseManager.reconcile_agent(agent_id)
   end
 
-  @spec resolve_release_artifact_download(String.t(), String.t()) ::
+  @spec resolve_release_artifact_download(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
-  def resolve_release_artifact_download(target_id, command_id) do
-    ReleaseArtifactDelivery.resolve_download(target_id, command_id)
+  def resolve_release_artifact_download(target_id, command_id, caller_agent_id) do
+    ReleaseArtifactDelivery.resolve_download(target_id, command_id, caller_agent_id)
   end
 
   @doc """

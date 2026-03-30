@@ -171,8 +171,8 @@ pub struct Config {
     #[serde(default = "default_kv_bucket")]
     pub kv_bucket: String,
     pub agent_id: String,
-    #[serde(default = "default_listen_addr")]
-    pub listen_addr: String,
+    #[serde(default)]
+    pub listen_addr: Option<String>,
     #[serde(default)]
     pub security: Option<SecurityConfig>,
     #[serde(default)]
@@ -181,10 +181,6 @@ pub struct Config {
 
 fn default_kv_bucket() -> String {
     "serviceradar-datasvc".to_string()
-}
-
-fn default_listen_addr() -> String {
-    "0.0.0.0:50055".to_string()
 }
 
 impl Config {
@@ -198,7 +194,6 @@ impl Config {
 
     pub fn validate(&self) -> Result<()> {
         ensure!(!self.nats_url.is_empty(), "nats_url is required");
-        ensure!(!self.listen_addr.is_empty(), "listen_addr is required");
         ensure!(!self.stream_name.is_empty(), "stream_name is required");
         ensure!(!self.consumer_name.is_empty(), "consumer_name is required");
         ensure!(
@@ -220,7 +215,12 @@ impl Config {
             );
         }
 
-        if let Some(sec) = &self.grpc_security {
+        if let Some(addr) = &self.listen_addr {
+            ensure!(!addr.trim().is_empty(), "listen_addr cannot be empty");
+            let sec = self.grpc_security.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("grpc_security is required when listen_addr is set")
+            })?;
+
             match sec.mode() {
                 SecurityMode::Mtls => {
                     ensure!(
@@ -236,7 +236,11 @@ impl Config {
                         "grpc_security.trust_domain is required for spiffe mode"
                     );
                 }
-                SecurityMode::None => {}
+                SecurityMode::None => {
+                    anyhow::bail!(
+                        "grpc_security.mode \"none\" is not allowed when listen_addr is set"
+                    );
+                }
             }
         }
 
@@ -412,7 +416,7 @@ mod tests {
         assert_eq!(cfg.agent_id, "default-agent");
         assert_eq!(cfg.kv_bucket, "serviceradar-datasvc");
         assert_eq!(cfg.result_subject_suffix.as_deref(), Some(".processed"));
-        assert_eq!(cfg.listen_addr, "0.0.0.0:50055");
+        assert_eq!(cfg.listen_addr.as_deref(), Some("0.0.0.0:50055"));
         let grpc_sec = cfg.grpc_security.as_ref().unwrap();
         assert_eq!(grpc_sec.mode(), SecurityMode::Mtls);
         assert!(grpc_sec.cert_file_path().is_some());
@@ -434,11 +438,67 @@ mod tests {
             nats_creds_file: None,
             kv_bucket: String::new(),
             agent_id: String::new(),
-            listen_addr: String::new(),
+            listen_addr: Some(String::new()),
             security: None,
             grpc_security: None,
         };
         assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validate_rejects_grpc_without_security() {
+        let cfg = Config {
+            nats_url: "nats://localhost:4222".to_string(),
+            domain: None,
+            stream_name: "events".to_string(),
+            consumer_name: "zen-consumer".to_string(),
+            subjects: vec!["logs.syslog".to_string()],
+            subject_prefix: None,
+            result_subject: None,
+            result_subject_suffix: None,
+            decision_keys: vec!["passthrough".to_string()],
+            decision_groups: Vec::new(),
+            nats_creds_file: None,
+            kv_bucket: "serviceradar-datasvc".to_string(),
+            agent_id: "agent-01".to_string(),
+            listen_addr: Some("0.0.0.0:50055".to_string()),
+            security: None,
+            grpc_security: None,
+        };
+
+        let err = cfg.validate().expect_err("expected validation error");
+        assert!(
+            err.to_string().contains("grpc_security is required"),
+            "expected missing grpc security error, got {err}"
+        );
+    }
+
+    #[test]
+    fn test_config_validate_rejects_grpc_none_mode() {
+        let cfg = Config {
+            nats_url: "nats://localhost:4222".to_string(),
+            domain: None,
+            stream_name: "events".to_string(),
+            consumer_name: "zen-consumer".to_string(),
+            subjects: vec!["logs.syslog".to_string()],
+            subject_prefix: None,
+            result_subject: None,
+            result_subject_suffix: None,
+            decision_keys: vec!["passthrough".to_string()],
+            decision_groups: Vec::new(),
+            nats_creds_file: None,
+            kv_bucket: "serviceradar-datasvc".to_string(),
+            agent_id: "agent-01".to_string(),
+            listen_addr: Some("0.0.0.0:50055".to_string()),
+            security: None,
+            grpc_security: Some(SecurityConfig::default()),
+        };
+
+        let err = cfg.validate().expect_err("expected validation error");
+        assert!(
+            err.to_string().contains("grpc_security.mode \"none\""),
+            "expected insecure grpc mode error, got {err}"
+        );
     }
 
     #[test]
@@ -495,7 +555,7 @@ mod tests {
             nats_creds_file: None,
             kv_bucket: "test-kv".to_string(),
             agent_id: "test-agent".to_string(),
-            listen_addr: "0.0.0.0:50055".to_string(),
+            listen_addr: None,
             security: None,
             grpc_security: None,
         };

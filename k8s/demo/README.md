@@ -48,7 +48,10 @@ If you explicitly want SPIFFE/SPIRE in the demo namespace, apply it separately a
 
 ```bash
 kubectl apply -k k8s/demo/base/spire
+kubectl apply -k k8s/demo/spire-workloads
 ```
+
+That SPIRE opt-in path keeps the control-plane resources and workload socket wiring explicit. The default `base/`, `prod/`, and `staging/` paths do not require `/run/spire/sockets`.
 
 ### Manual Kustomize apply
 
@@ -73,8 +76,16 @@ Use `kubectl -n <namespace> get ingress serviceradar-ingress` to confirm DNS and
 
 The shared ConfigMap JSON lives in `base/configmap.yaml`. Override or extend behavior by editing the overlay manifests:
 
-1. Update `prod/` or `staging/` manifests (ingress, service aliases, external Services) for environment-specific changes.
+1. Update `prod/` or `staging/` manifests (ingress, service aliases, optional external Services) for environment-specific changes.
 2. Run `kubectl kustomize <overlay>` to verify the rendered YAML before applying.
+
+Datasvc stays internal-only by default in both overlays. If you intentionally need an external datasvc gRPC service for a troubleshooting workflow, apply the optional manifest directly from the overlay directory instead of relying on the shipped overlay defaults:
+
+```bash
+kubectl apply -f k8s/demo/prod/serviceradar-datasvc-grpc-external.yaml
+# or
+kubectl apply -f k8s/demo/staging/serviceradar-datasvc-grpc-external.yaml
+```
 
 ## Image Updates
 

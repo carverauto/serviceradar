@@ -3,6 +3,8 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
   Validates signed agent release metadata before it is stored in the catalog.
   """
 
+  alias ServiceRadar.Edge.ReleaseFetchPolicy
+
   @release_public_key_env "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
   @required_artifact_fields ~w(url sha256 os arch)
 
@@ -111,13 +113,16 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
         errors
 
       url ->
-        case URI.parse(url) do
-          %URI{scheme: "https", host: host} when is_binary(host) and host != "" ->
+        case ReleaseFetchPolicy.validate(url) do
+          :ok ->
             errors
 
           _ ->
             [
-              %{field: :manifest, message: "release artifact #{index} url must use https"}
+              %{
+                field: :manifest,
+                message: "release artifact #{index} url must use a trusted public https host"
+              }
               | errors
             ]
         end

@@ -20,6 +20,11 @@ Files:
   tooling. These files are ignored by git so operators can fetch upstream
   credentials without committing them.
 
+The helper scripts now expect vetted `spire-server` and `spire-agent` binaries
+to already exist at the configured binary paths. They intentionally refuse to
+download and execute SPIRE artifacts from the network at runtime without an
+explicit integrity-verification step.
+
 The entire SPIRE lifecycle is now self-managed: running `docker compose up`
 starts the server/agent pair automatically, and every container mounts the
 shared socket volume so they can obtain SPIFFE SVIDs without any manual

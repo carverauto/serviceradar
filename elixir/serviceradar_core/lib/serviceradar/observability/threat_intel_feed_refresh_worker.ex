@@ -15,6 +15,7 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.NetflowSettings
+  alias ServiceRadar.Observability.OutboundFeedPolicy
   alias ServiceRadar.Observability.ThreatIntelIndicator
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -111,7 +112,7 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
   end
 
   defp do_refresh_feed(url, actor, now, expires_at, timeout_ms, max_indicators_per_feed) do
-    Logger.info("Threat intel feed refresh", url: url)
+    Logger.info("Threat intel feed refresh", url: OutboundFeedPolicy.redact_url(url))
 
     with {:ok, body} <- download_feed(url, timeout_ms) do
       source = normalize_source(url)
@@ -125,21 +126,28 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
   end
 
   defp download_feed(url, timeout_ms) do
-    req_opts = [
-      receive_timeout: timeout_ms,
-      finch: ServiceRadar.Finch
-    ]
-
-    case Req.get(url, req_opts) do
+    with :ok <- OutboundFeedPolicy.validate(url),
+         {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) <-
+           Req.get(url, OutboundFeedPolicy.req_opts(timeout_ms)) do
+      {:ok, body}
+    else
       {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
         {:ok, body}
 
       {:ok, %Req.Response{status: status}} ->
-        Logger.warning("Threat intel feed download failed", url: url, status: status)
+        Logger.warning("Threat intel feed download failed",
+          url: OutboundFeedPolicy.redact_url(url),
+          status: status
+        )
+
         {:error, {:http_status, status}}
 
       {:error, reason} ->
-        Logger.warning("Threat intel feed download failed", url: url, error: inspect(reason))
+        Logger.warning("Threat intel feed download failed",
+          url: url,
+          error: OutboundFeedPolicy.format_reason(reason)
+        )
+
         {:error, reason}
     end
   end

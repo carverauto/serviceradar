@@ -45,6 +45,14 @@ defmodule ServiceRadarWebNG.Plugins.StorageTest do
     assert {:error, :invalid_token} = Storage.verify_token(:download, tampered)
   end
 
+  test "upload_url/download_url return queryless endpoints" do
+    assert Storage.upload_url("pkg-1") =~ "/api/plugin-packages/pkg-1/blob"
+    refute Storage.upload_url("pkg-1") =~ "?token="
+
+    assert Storage.download_url("pkg-1") =~ "/api/plugin-packages/pkg-1/blob/download"
+    refute Storage.download_url("pkg-1") =~ "?token="
+  end
+
   test "filesystem backend stores and fetches blobs" do
     package = %PluginPackage{id: "pkg-1", plugin_id: "http-check", version: "1.0.0"}
     key = Storage.object_key_for(package)

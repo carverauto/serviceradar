@@ -11,7 +11,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
        %{
          worker_id: "worker-http",
          adapter: "http",
-         endpoint_url: "http://worker-http.local/analyze",
+         endpoint_url: "https://example.com/analyze",
          capabilities: ["object_detection", "people_count"],
          enabled: true,
          health_status: "healthy",
@@ -36,7 +36,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
        %{
          worker_id: "worker-disabled",
          adapter: "http",
-         endpoint_url: "http://worker-disabled.local/analyze",
+         endpoint_url: "https://example.com/disabled",
          capabilities: ["object_detection"],
          enabled: false,
          health_status: "healthy",
@@ -49,7 +49,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
        %{
          worker_id: "worker-unhealthy",
          adapter: "http",
-         endpoint_url: "http://worker-unhealthy.local/analyze",
+         endpoint_url: "https://example.com/unhealthy",
          capabilities: ["object_detection"],
          enabled: true,
          health_status: "unhealthy",
@@ -82,7 +82,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
          %{
            worker_id: "worker-alpha",
            adapter: "http",
-           endpoint_url: "http://worker-alpha.local/analyze",
+           endpoint_url: "https://example.com/alpha",
            capabilities: ["object_detection"],
            enabled: true,
            health_status: "unhealthy",
@@ -91,7 +91,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
          %{
            worker_id: "worker-beta",
            adapter: "http",
-           endpoint_url: "http://worker-beta.local/analyze",
+           endpoint_url: "https://example.com/beta",
            capabilities: ["object_detection", "people_count"],
            enabled: true,
            health_status: "healthy",
@@ -106,14 +106,14 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
              AnalysisWorkerResolver.resolve_http_worker(
                %{
                  worker_id: "direct-worker",
-                 endpoint_url: "http://worker.local/analyze",
+                 endpoint_url: "https://example.com/direct",
                  headers: %{"authorization" => "Bearer direct"}
                },
                resource: ResourceStub
              )
 
     assert worker.worker_id == "direct-worker"
-    assert worker.endpoint_url == "http://worker.local/analyze"
+    assert worker.endpoint_url == "https://example.com/direct"
     assert worker.selection_mode == "direct"
     assert worker.headers == %{"authorization" => "Bearer direct"}
   end
@@ -126,7 +126,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
              )
 
     assert worker.worker_id == "worker-http"
-    assert worker.endpoint_url == "http://worker-http.local/analyze"
+    assert worker.endpoint_url == "https://example.com/analyze"
     assert worker.selection_mode == "worker_id"
   end
 
@@ -164,6 +164,26 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
     assert {:error, {:unsupported_worker_adapter, "grpc"}} =
              AnalysisWorkerResolver.resolve_http_worker(
                %{registered_worker_id: "worker-grpc"},
+               resource: ResourceStub
+             )
+  end
+
+  test "rejects unsafe direct worker endpoints" do
+    assert {:error, {:unsafe_worker_endpoint, :disallowed_scheme}} =
+             AnalysisWorkerResolver.resolve_http_worker(
+               %{
+                 worker_id: "direct-worker",
+                 endpoint_url: "http://example.com/analyze"
+               },
+               resource: ResourceStub
+             )
+
+    assert {:error, {:unsafe_worker_endpoint, :disallowed_host}} =
+             AnalysisWorkerResolver.resolve_http_worker(
+               %{
+                 worker_id: "direct-worker",
+                 endpoint_url: "https://127.0.0.1/analyze"
+               },
                resource: ResourceStub
              )
   end

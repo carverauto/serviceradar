@@ -6,6 +6,10 @@
 {{- if hasKey $agentVals "hostNetwork" }}
   {{- $agentHostNetwork = $agentVals.hostNetwork }}
 {{- end }}
+{{- $skipKubeletVerification := false }}
+{{- if hasKey $agentVals "skipKubeletVerification" }}
+  {{- $skipKubeletVerification = $agentVals.skipKubeletVerification }}
+{{- end }}
 {{- $bundle := default "spire-bundle" .Values.spire.bundleConfigMap }}
 {{- $trustDomain := .Values.spire.trustDomain }}
 {{- $clusterName := .Values.spire.clusterName }}
@@ -72,7 +76,7 @@ data:
 
       WorkloadAttestor "k8s" {
         plugin_data {
-          skip_kubelet_verification = true
+          skip_kubelet_verification = {{ $skipKubeletVerification }}
           node_name_env = "MY_NODE_NAME"
         }
       }

@@ -33,7 +33,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     :gpg_verified_at
   ]
 
-  @package_create_fields [:plugin_id, :version | @package_fields]
+  @package_create_fields [:plugin_id, :version | List.delete(@package_fields, :wasm_object_key)]
   @approval_fields [
     :approved_capabilities,
     :approved_permissions,

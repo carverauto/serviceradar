@@ -115,10 +115,10 @@ pub struct OnboardingResult {
 /// Configuration for mTLS bootstrap.
 #[derive(Debug, Clone)]
 pub struct MtlsBootstrapConfig {
-    /// The edgepkg-v1 token containing package ID and download token.
+    /// The signed edgepkg-v2 token containing package ID and download token.
     pub token: String,
 
-    /// Core API host for mTLS bundle download (e.g., http://core:8090).
+    /// Core API URL for mTLS bundle download (e.g., https://core.example.com:8090).
     /// Used as fallback if the token doesn't contain an API URL.
     pub host: Option<String>,
 
@@ -135,7 +135,7 @@ pub struct MtlsBootstrapConfig {
 /// Try to perform edge onboarding based on environment variables.
 ///
 /// Checks for:
-/// - `ONBOARDING_TOKEN`: The edgepkg-v1 token
+/// - `ONBOARDING_TOKEN`: The signed edgepkg-v2 token
 /// - `CORE_API_URL`: Optional Core API base URL (fallback if not in token)
 /// - `KV_ENDPOINT`: Required for SPIRE-based onboarding
 ///

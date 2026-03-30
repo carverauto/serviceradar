@@ -439,7 +439,9 @@ webNg:
   clusterDnsQuery: ""
   clusterCoreDnsQuery: ""
   clusterGatewayDnsQuery: ""
-  clusterCookie: "serviceradar_dev_cookie"
+  # Optional override for the Erlang cluster cookie. Leave empty to auto-generate
+  # a unique install-scoped value in the shared secrets secret.
+  clusterCookie: ""
   kubernetesNodeBasename: "serviceradar_web_ng"
   datasvc:
     host: "serviceradar-datasvc"
@@ -749,7 +751,8 @@ spire:
     adminIDs: []
     initConfigImage: busybox
     serviceName: spire-server
-    serviceType: LoadBalancer
+    serviceType: ClusterIP
+    exposeHealthPort: false
     dataPVC:
       size: 1Gi
       storageClass: ""
@@ -758,6 +761,7 @@ spire:
     logLevel: DEBUG
     waitForImage: cgr.dev/chainguard/wait-for-it
     hostNetwork: true
+    skipKubeletVerification: false
   tokenAudience: spire-server
   additionalAgentNamespaces: []
   postgres:
@@ -848,8 +852,9 @@ secrets:
   existingSecretName: serviceradar-secrets
   # Provide adminBcryptHash to avoid in-cluster generation.
   adminBcryptHash: ""
-  # Base64-encoded 32-byte key for edge onboarding; used by core and seeded into config.
-  edgeOnboardingKey: "5yV33bvFfRKBz5y20XPVnxyysYhXc/LXdG4jtrvrkN0="
+  # Optional base64-encoded 32-byte key for edge onboarding. Leave empty to
+  # auto-generate a unique install-scoped value in the shared secrets secret.
+  edgeOnboardingKey: ""
   # Base64-encoded 32-byte key for AshCloak (optional override).
   cloakKey: ""
 # Network sweep defaults (can be tuned per-deploy)

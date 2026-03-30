@@ -54,7 +54,6 @@ func (NatsBootstrapHandler) Parse(args []string, cfg *CmdConfig) error {
 	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
 	apiKey := fs.String("api-key", "", "API key for authenticating with core")
 	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
-	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	token := fs.String("token", "", "Platform bootstrap token")
 	outputDir := fs.String("output-dir", defaultNATSOutputDir, "Directory to write NATS configuration files")
 	operatorName := fs.String("operator-name", defaultNATSOperatorName, "Name for the NATS operator")
@@ -83,7 +82,6 @@ func (NatsBootstrapHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.CoreAPIURL = *coreURL
 	cfg.APIKey = *apiKey
 	cfg.BearerToken = *bearer
-	cfg.TLSSkipVerify = *skipTLS
 	cfg.NATSBootstrapToken = *token
 	cfg.NATSOutputDir = *outputDir
 	cfg.NATSOperatorName = *operatorName
@@ -117,7 +115,6 @@ func (AdminNatsBootstrapTokenHandler) Parse(args []string, cfg *CmdConfig) error
 	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
 	apiKey := fs.String("api-key", "", "API key for authenticating with core")
 	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
-	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	expires := fs.String("expires", defaultNATSBootstrapTTL, "Token expiration time (e.g., 24h, 4h)")
 	output := fs.String("output", "text", "Output format: text or json")
 
@@ -128,7 +125,6 @@ func (AdminNatsBootstrapTokenHandler) Parse(args []string, cfg *CmdConfig) error
 	cfg.CoreAPIURL = *coreURL
 	cfg.APIKey = *apiKey
 	cfg.BearerToken = *bearer
-	cfg.TLSSkipVerify = *skipTLS
 	cfg.NATSBootstrapExpires = *expires
 	cfg.NATSOutputFormat = strings.ToLower(strings.TrimSpace(*output))
 
@@ -207,7 +203,7 @@ func runNatsBootstrapCreate(cfg *CmdConfig) error {
 	req.Header.Set("Accept", "application/json")
 	applyAuthHeaders(req, cfg)
 
-	resp, err := newHTTPClient(cfg.TLSSkipVerify).Do(req)
+	resp, err := newHTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("request NATS bootstrap: %w", err)
 	}
@@ -726,7 +722,7 @@ func RunAdminNatsGenerateBootstrapToken(cfg *CmdConfig) error {
 	req.Header.Set("Accept", "application/json")
 	applyAuthHeaders(req, cfg)
 
-	resp, err := newHTTPClient(cfg.TLSSkipVerify).Do(req)
+	resp, err := newHTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("request bootstrap token: %w", err)
 	}
@@ -776,7 +772,7 @@ func RunAdminNatsStatus(cfg *CmdConfig) error {
 	req.Header.Set("Accept", "application/json")
 	applyAuthHeaders(req, cfg)
 
-	resp, err := newHTTPClient(cfg.TLSSkipVerify).Do(req)
+	resp, err := newHTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("request NATS status: %w", err)
 	}
@@ -844,7 +840,6 @@ func parseAdminNatsStatusFlags(args []string, cfg *CmdConfig) error {
 	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
 	apiKey := fs.String("api-key", "", "API key for authenticating with core")
 	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
-	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	output := fs.String("output", "text", "Output format: text or json")
 
 	if err := fs.Parse(args); err != nil {
@@ -854,7 +849,6 @@ func parseAdminNatsStatusFlags(args []string, cfg *CmdConfig) error {
 	cfg.CoreAPIURL = *coreURL
 	cfg.APIKey = *apiKey
 	cfg.BearerToken = *bearer
-	cfg.TLSSkipVerify = *skipTLS
 	cfg.NATSOutputFormat = strings.ToLower(strings.TrimSpace(*output))
 
 	return nil
@@ -865,7 +859,6 @@ func parseAdminNatsAccountFlags(args []string, cfg *CmdConfig) error {
 	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
 	apiKey := fs.String("api-key", "", "API key for authenticating with core")
 	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
-	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	output := fs.String("output", "text", "Output format: text or json")
 	limit := fs.Int("limit", 50, "Maximum number of accounts to return")
 
@@ -876,7 +869,6 @@ func parseAdminNatsAccountFlags(args []string, cfg *CmdConfig) error {
 	cfg.CoreAPIURL = *coreURL
 	cfg.APIKey = *apiKey
 	cfg.BearerToken = *bearer
-	cfg.TLSSkipVerify = *skipTLS
 	cfg.NATSOutputFormat = strings.ToLower(strings.TrimSpace(*output))
 	cfg.NATSAccountLimit = *limit
 
@@ -912,7 +904,7 @@ func RunAdminNatsAccounts(cfg *CmdConfig) error {
 	req.Header.Set("Accept", "application/json")
 	applyAuthHeaders(req, cfg)
 
-	resp, err := newHTTPClient(cfg.TLSSkipVerify).Do(req)
+	resp, err := newHTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("request NATS accounts: %w", err)
 	}

@@ -29,6 +29,7 @@ defmodule ServiceRadar.Identity.IdentityCache do
   @default_ttl_ms to_timeout(minute: 5)
   @cleanup_interval_ms to_timeout(minute: 1)
   @max_size 100_000
+  @eviction_scan_chunk 1_000
 
   @type cached_record :: %{
           canonical_device_id: String.t(),
@@ -181,6 +182,8 @@ defmodule ServiceRadar.Identity.IdentityCache do
   @impl true
   def init(opts) do
     ttl_ms = Keyword.get(opts, :ttl_ms, @default_ttl_ms)
+    max_size = Keyword.get(opts, :max_size, @max_size)
+    eviction_scan_chunk = Keyword.get(opts, :eviction_scan_chunk, @eviction_scan_chunk)
 
     # Create ETS table
     :ets.new(@table_name, [
@@ -196,13 +199,13 @@ defmodule ServiceRadar.Identity.IdentityCache do
 
     Logger.info("Identity cache started with TTL=#{ttl_ms}ms")
 
-    {:ok, %{ttl_ms: ttl_ms}}
+    {:ok, %{ttl_ms: ttl_ms, max_size: max_size, eviction_scan_chunk: eviction_scan_chunk}}
   end
 
   @impl true
   def handle_info(:cleanup, state) do
     cleanup_expired()
-    maybe_evict_oversized()
+    maybe_evict_oversized(state.max_size, state.eviction_scan_chunk)
     schedule_cleanup()
     {:noreply, state}
   end
@@ -237,12 +240,12 @@ defmodule ServiceRadar.Identity.IdentityCache do
       :ok
   end
 
-  defp maybe_evict_oversized do
+  defp maybe_evict_oversized(max_size, eviction_scan_chunk) do
     case :ets.info(@table_name, :size) do
-      size when is_integer(size) and size > @max_size ->
+      size when is_integer(size) and size > max_size ->
         # Evict oldest 10% of entries
         evict_count = div(size, 10)
-        evict_oldest(evict_count)
+        evict_oldest(evict_count, eviction_scan_chunk)
 
       _ ->
         :ok
@@ -252,22 +255,45 @@ defmodule ServiceRadar.Identity.IdentityCache do
       :ok
   end
 
-  defp evict_oldest(count) when count > 0 do
-    # Get all entries sorted by expiration time (oldest first)
-    entries =
-      @table_name
-      |> :ets.tab2list()
-      |> Enum.sort_by(fn {_key, _record, expires_at} -> expires_at end)
-      |> Enum.take(count)
+  defp evict_oldest(count, eviction_scan_chunk) when count > 0 do
+    entries = oldest_entries(count, eviction_scan_chunk)
 
-    Enum.each(entries, fn {key, _record, _expires_at} ->
+    Enum.each(entries, fn {key, _expires_at} ->
       :ets.delete(@table_name, key)
     end)
 
-    Logger.debug("Identity cache: evicted #{count} oldest entries (size limit)")
+    Logger.debug("Identity cache: evicted #{length(entries)} oldest entries (size limit)")
   end
 
-  defp evict_oldest(_count), do: :ok
+  defp evict_oldest(_count, _eviction_scan_chunk), do: :ok
+
+  defp oldest_entries(count, eviction_scan_chunk) do
+    match_spec = [{{:"$1", :_, :"$2"}, [], [{{:"$1", :"$2"}}]}]
+
+    case :ets.select(@table_name, match_spec, eviction_scan_chunk) do
+      :"$end_of_table" ->
+        []
+
+      {chunk, continuation} ->
+        collect_oldest_entries(continuation, count, Enum.sort_by(chunk, &elem(&1, 1)))
+    end
+  end
+
+  defp collect_oldest_entries(continuation, count, candidates) do
+    case :ets.select(continuation) do
+      :"$end_of_table" ->
+        Enum.take(candidates, count)
+
+      {chunk, next_continuation} ->
+        next_candidates =
+          candidates
+          |> Kernel.++(chunk)
+          |> Enum.sort_by(&elem(&1, 1))
+          |> Enum.take(count)
+
+        collect_oldest_entries(next_continuation, count, next_candidates)
+    end
+  end
 
   defp emit_cache_telemetry(result) do
     :telemetry.execute(

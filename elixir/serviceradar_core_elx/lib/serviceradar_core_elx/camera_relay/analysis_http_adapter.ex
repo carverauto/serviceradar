@@ -4,11 +4,12 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapter do
   """
 
   alias ServiceRadar.Camera.AnalysisContract
+  alias ServiceRadar.Policies.OutboundFetch
 
   @default_timeout_ms 2_000
 
   def deliver(input, worker, opts \\ []) when is_map(input) and is_map(worker) do
-    request_module = Keyword.get(opts, :request_module, Req)
+    request_module = Keyword.get(opts, :request_module, OutboundFetch)
     finch = Keyword.get(opts, :finch, ServiceRadar.Finch)
     endpoint_url = required_string!(worker, :endpoint_url)
     timeout_ms = positive_integer(value(worker, :timeout_ms), @default_timeout_ms)
@@ -40,7 +41,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapter do
   end
 
   def probe_health(worker, opts \\ []) when is_map(worker) do
-    request_module = Keyword.get(opts, :request_module, Req)
+    request_module = Keyword.get(opts, :request_module, OutboundFetch)
     finch = Keyword.get(opts, :finch, ServiceRadar.Finch)
     timeout_ms = health_timeout_ms(worker)
 

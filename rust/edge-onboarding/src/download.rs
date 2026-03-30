@@ -138,8 +138,8 @@ fn ensure_scheme(host: &str) -> Result<String> {
     if host.is_empty() {
         return Err(Error::CoreApiHostRequired);
     }
-    if host.starts_with("http://") || host.starts_with("https://") {
+    if host.starts_with("https://") {
         return Ok(host.to_string());
     }
-    Ok(format!("http://{}", host))
+    Err(Error::CoreApiUrlMustUseHttps)
 }

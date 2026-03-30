@@ -27,10 +27,10 @@ Commands:
   edge package show    Display detailed information for a package
   edge package download Download onboarding artifacts (tar.gz or JSON)
   edge package revoke  Revoke an onboarding package (alias: edge-package-revoke)
-  edge package token   Emit an edgepkg-v1 token (alias: edge-package-token)
+  edge package token   Emit a signed edgepkg-v2 token (alias: edge-package-token)
   edge package mtls    Issue an mTLS sysmon-osx package (alias for create with mTLS defaults)
   edge-package-download Download the onboarding archive for a package (tar.gz)
-  edge-package-token    Emit an edgepkg-v1 onboarding token for ONBOARDING_TOKEN
+  edge-package-token    Emit a signed edgepkg-v2 onboarding token for ONBOARDING_TOKEN
   edge-package-revoke   Revoke an onboarding package and downstream entry
 
 Options for bcrypt generation:
@@ -96,7 +96,6 @@ Options for spire-join-token:
   -core-url string        Core API base URL (default http://localhost:8090)
   -api-key string         API key used to authenticate with core
   -bearer string          Bearer token used to authenticate with core
-  -tls-skip-verify        Skip TLS certificate verification
   -ttl int                Join token TTL in seconds
   -agent-spiffe-id string Optional alias SPIFFE ID to assign to the agent
   -no-downstream          Do not register a downstream entry
@@ -111,8 +110,8 @@ Options for spire-join-token:
   -output string          Write the response JSON to the given file path
 
 Options for enroll:
-  -token string           Enrollment token (edgepkg-v1 or collector token)
-  -core-url string        Core API base URL (fallback if token omits base URL)
+  -token string           Enrollment token (edgepkg-v2 or collectorpkg-v2)
+  -core-url string        Core API base URL (required only when the signed token does not embed one)
   -host-ip string         Override detected host IP (agent enrollment only)
   -config string          Agent config path (default /etc/serviceradar/agent.json)
   -config-dir string      Collector config directory (default /etc/serviceradar)
@@ -120,14 +119,12 @@ Options for enroll:
   -cert-dir string        Certificate directory (default /etc/serviceradar/certs)
   -creds-dir string       Collector credentials directory (default /etc/serviceradar/creds)
   -force                  Overwrite existing config/certs during enrollment
-  -insecure               Skip TLS verification for bundle download (default true)
   -ca-file string         CA bundle path for verifying the core API TLS cert
 
 Options for edge-package-download:
   -core-url string        Core API base URL (default http://localhost:8090)
   -api-key string         API key used to authenticate with core
   -bearer string          Bearer token used to authenticate with core
-  -tls-skip-verify        Skip TLS certificate verification
   -id string              Edge package identifier
   -download-token string  Edge package download token
   -output string          Optional file path for writing the onboarding archive
@@ -142,7 +139,6 @@ Options for edge-package-revoke:
   -core-url string        Core API base URL (default http://localhost:8090)
   -api-key string         API key used to authenticate with core
   -bearer string          Bearer token used to authenticate with core
-  -tls-skip-verify        Skip TLS certificate verification
   -id string              Edge package identifier
   -reason string          Optional revocation reason
 
@@ -150,7 +146,6 @@ Options for edge package create:
   --core-url string            Core API base URL (default http://localhost:8090)
   --api-key string             API key used to authenticate with core
   --bearer string              Bearer token used to authenticate with core
-  --tls-skip-verify            Skip TLS certificate verification
   --label string               Display label for the package (required)
   --component-type string      Component type (gateway, agent, checker[:kind], default gateway)
   --component-id string        Optional component identifier override
@@ -173,7 +168,6 @@ Options for edge package list:
   --core-url string        Core API base URL (default http://localhost:8090)
   --api-key string         API key used to authenticate with core
   --bearer string          Bearer token used to authenticate with core
-  --tls-skip-verify        Skip TLS certificate verification
   --limit int              Maximum number of packages to return (default 50)
   --status value           Filter by status (repeatable)
   --component-type value   Filter by component type (repeatable)
@@ -186,10 +180,9 @@ Options for edge package show:
   --core-url string        Core API base URL (default http://localhost:8090)
   --api-key string         API key used to authenticate with core
   --bearer string          Bearer token used to authenticate with core
-  --tls-skip-verify        Skip TLS certificate verification
   --id string              Edge package identifier (required)
   --output string          Output format: text or json (default text)
-  --reissue-token          Emit an edgepkg-v1 token using --download-token
+  --reissue-token          Emit a signed edgepkg-v2 token using --download-token
   --download-token string  Download token to encode when --reissue-token is set
 `)
 }

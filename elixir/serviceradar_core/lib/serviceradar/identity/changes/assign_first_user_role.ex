@@ -13,45 +13,52 @@ defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
 
   use Ash.Resource.Change
 
+  alias ServiceRadar.Repo
+
   require Logger
+
+  @first_user_lock_key 20_260_328
 
   @impl true
   def change(changeset, _opts, _context) do
-    # Only apply during create actions
-    if changeset.action_type == :create do
-      # Check if role is already explicitly set
-      case Ash.Changeset.get_attribute(changeset, :role) do
-        nil ->
-          maybe_assign_admin(changeset)
-
-        :viewer ->
-          # Default was applied, check if we should override
-          maybe_assign_admin(changeset)
-
-        _other_role ->
-          # Role was explicitly set, don't override
-          changeset
-      end
+    if changeset.action_type == :create and should_determine_role?(changeset) do
+      Ash.Changeset.before_action(changeset, &maybe_assign_admin/1)
     else
       changeset
     end
   end
 
   defp maybe_assign_admin(changeset) do
-    # DB connection's search_path determines the schema
-    if first_user?() do
-      Logger.info("Assigning admin role to first user")
-      Ash.Changeset.force_change_attribute(changeset, :role, :admin)
-    else
-      changeset
+    case assign_first_user_role(changeset) do
+      {:ok, true} ->
+        Logger.info("Assigning admin role to first user")
+        Ash.Changeset.force_change_attribute(changeset, :role, :admin)
+
+      {:ok, false} ->
+        changeset
+
+      {:error, reason} ->
+        Ash.Changeset.add_error(changeset,
+          field: :role,
+          message: "could not determine initial admin role",
+          vars: [reason: inspect(reason)]
+        )
     end
   end
 
-  # Check if this is the first user in the current schema.
-  # The database connection's search_path determines which schema to query.
-  defp first_user? do
-    count = count_users_in_current_schema()
-    count == 0
+  defp should_determine_role?(changeset) do
+    case Ash.Changeset.get_attribute(changeset, :role) do
+      nil -> true
+      :viewer -> true
+      _other_role -> false
+    end
+  end
+
+  defp assign_first_user_role(_changeset) do
+    with {:ok, _} <- Repo.query("SELECT pg_advisory_xact_lock($1)", [@first_user_lock_key]),
+         {:ok, count} <- count_users_in_current_schema() do
+      {:ok, count == 0}
+    end
   end
 
   defp count_users_in_current_schema do
@@ -62,12 +69,9 @@ defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
         select: count(u.id)
       )
 
-    # DB connection's search_path determines the schema
-    case ServiceRadar.Repo.one(query) do
-      nil -> 0
-      count -> count
+    case Repo.one(query) do
+      nil -> {:ok, 0}
+      count -> {:ok, count}
     end
-  rescue
-    _ -> 0
   end
 end

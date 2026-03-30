@@ -1,23 +1,17 @@
 defmodule ServiceRadar.Identity.AccessCredentialChangesTest do
   use ExUnit.Case, async: true
 
+  alias Ash.Resource.Info
   alias ServiceRadar.Identity.AccessCredentialChanges
   alias ServiceRadar.Identity.ApiToken
+  alias ServiceRadar.Identity.OAuthClient
 
-  test "record_use increments use_count and sets last_used_at" do
-    changeset =
-      ApiToken
-      |> Ash.Changeset.new()
-      |> Ash.Changeset.change_attribute(:name, "token")
-      |> Ash.Changeset.change_attribute(:token_hash, String.duplicate("a", 64))
-      |> Ash.Changeset.change_attribute(:token_prefix, "prefix123")
-      |> Ash.Changeset.change_attribute(:user_id, Ecto.UUID.generate())
-      |> Ash.Changeset.change_attribute(:use_count, 2)
+  test "api token and oauth client record_use actions remain atomic" do
+    api_token_action = Info.action(ApiToken, :record_use)
+    oauth_client_action = Info.action(OAuthClient, :record_use)
 
-    updated = AccessCredentialChanges.record_use(changeset)
-
-    assert updated.attributes.use_count == 3
-    assert %DateTime{} = updated.attributes.last_used_at
+    refute api_token_action.require_atomic? == false
+    refute oauth_client_action.require_atomic? == false
   end
 
   test "init_secret hashes the raw secret and sets shared credential fields" do

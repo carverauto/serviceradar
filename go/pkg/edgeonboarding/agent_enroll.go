@@ -10,15 +10,12 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/carverauto/serviceradar/go/pkg/edgeonboarding/mtls"
 )
 
 var (
@@ -30,6 +27,12 @@ var (
 	ErrCoreAPIHostRequired  = errors.New("core API host is required")
 )
 
+const (
+	defaultAgentOverridesPath = "/etc/serviceradar/kv-overrides.env"
+	bundleAgentOverridesName  = "/config/agent-env-overrides.env"
+	releasePublicKeyEnv       = "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
+)
+
 // EnrollOptions controls the agent enrollment workflow.
 type EnrollOptions struct {
 	Token         string
@@ -37,6 +40,7 @@ type EnrollOptions struct {
 	HostIP        string
 	ConfigPath    string
 	CertDir       string
+	OverridesPath string
 	HTTPClient    *http.Client
 	Logf          func(string, ...interface{})
 	Errorf        func(string, ...interface{})
@@ -45,7 +49,7 @@ type EnrollOptions struct {
 
 // EnrollAgentFromToken downloads an edge onboarding bundle and writes agent config + certs.
 func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
-	payload, err := mtls.ParseToken(opts.Token, opts.CoreHost)
+	payload, err := parseOnboardingToken(opts.Token, "", opts.CoreHost)
 	if err != nil {
 		return fmt.Errorf("parse onboarding token: %w", err)
 	}
@@ -56,15 +60,14 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 	}
 
 	bundleURL := fmt.Sprintf(
-		"%s/api/edge-packages/%s/bundle?token=%s",
+		"%s/api/edge-packages/%s/bundle",
 		strings.TrimRight(baseURL, "/"),
-		url.PathEscape(payload.PackageID),
-		url.QueryEscape(payload.DownloadToken),
+		payload.PackageID,
 	)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, bundleURL, nil)
+	req, err := newBundleDownloadRequest(ctx, bundleURL, payload.DownloadToken)
 	if err != nil {
-		return fmt.Errorf("build bundle request: %w", err)
+		return err
 	}
 
 	client := opts.HTTPClient
@@ -92,6 +95,9 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 	if err != nil {
 		return err
 	}
+
+	overridesPath := resolveAgentOverridesPath(opts.OverridesPath)
+	overrideUpdates := extractEnvOverrides(bundle.EnvOverrides)
 
 	if opts.SkipOverwrite {
 		if fileExists(opts.ConfigPath) {
@@ -132,7 +138,13 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 		return fmt.Errorf("write CA chain: %w", err)
 	}
 
-	if err := chownAgentAssets(opts.ConfigPath, certDir, opts.Logf); err != nil {
+	if len(overrideUpdates) > 0 {
+		if err := writeAgentOverrides(overridesPath, overrideUpdates); err != nil {
+			return err
+		}
+	}
+
+	if err := chownAgentAssets(opts.ConfigPath, certDir, overridesPath, opts.Logf); err != nil {
 		return err
 	}
 
@@ -152,6 +164,7 @@ type bundlePayload struct {
 	ComponentCert []byte
 	ComponentKey  []byte
 	CAChain       []byte
+	EnvOverrides  []byte
 }
 
 func extractBundle(reader io.Reader) (*bundlePayload, error) {
@@ -186,6 +199,8 @@ func extractBundle(reader io.Reader) (*bundlePayload, error) {
 			payload.ComponentKey, err = io.ReadAll(tr)
 		case strings.HasSuffix(name, "/certs/ca-chain.pem"):
 			payload.CAChain, err = io.ReadAll(tr)
+		case strings.HasSuffix(name, bundleAgentOverridesName):
+			payload.EnvOverrides, err = io.ReadAll(tr)
 		default:
 			continue
 		}
@@ -241,6 +256,116 @@ func updateAgentConfig(configJSON []byte, hostIPOverride, certDirOverride string
 	}
 
 	return updated, certDir, nil
+}
+
+func resolveAgentOverridesPath(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return defaultAgentOverridesPath
+	}
+
+	return strings.TrimSpace(path)
+}
+
+func extractEnvOverrides(content []byte) map[string]string {
+	updates := make(map[string]string)
+	allowedKeys := map[string]struct{}{
+		releasePublicKeyEnv: {},
+	}
+
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" {
+			continue
+		}
+
+		if _, allowed := allowedKeys[key]; !allowed {
+			continue
+		}
+
+		updates[key] = value
+	}
+
+	return updates
+}
+
+func writeAgentOverrides(path string, updates map[string]string) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read agent overrides: %w", err)
+	}
+
+	merged := mergeEnvOverrides(existing, updates)
+	if err := writeFileAtomic(path, merged, 0644); err != nil {
+		return fmt.Errorf("write agent overrides: %w", err)
+	}
+
+	return nil
+}
+
+func mergeEnvOverrides(existing []byte, updates map[string]string) []byte {
+	if len(updates) == 0 {
+		return append([]byte(nil), existing...)
+	}
+
+	lines := strings.Split(string(existing), "\n")
+	output := make([]string, 0, len(lines)+len(updates))
+	remaining := make(map[string]string, len(updates))
+
+	for key, value := range updates {
+		remaining[key] = value
+	}
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			output = append(output, line)
+			continue
+		}
+
+		key, _, ok := strings.Cut(line, "=")
+		key = strings.TrimSpace(key)
+		if !ok || key == "" {
+			output = append(output, line)
+			continue
+		}
+
+		if replacement, exists := remaining[key]; exists {
+			output = append(output, fmt.Sprintf("%s=%s", key, replacement))
+			delete(remaining, key)
+			continue
+		}
+
+		output = append(output, line)
+	}
+
+	for key, value := range remaining {
+		output = append(output, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	if len(output) == 0 {
+		return nil
+	}
+
+	return []byte(strings.Join(output, "\n") + "\n")
 }
 
 func detectHostIP() string {
@@ -325,14 +450,7 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 }
 
 func normalizeCoreURL(raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", ErrCoreAPIHostRequired
-	}
-	if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
-		return trimmed, nil
-	}
-	return "http://" + trimmed, nil
+	return normalizeBaseURL(raw)
 }
 
 func fileExists(path string) bool {
@@ -396,7 +514,7 @@ func backupName(path string) string {
 	return fmt.Sprintf("%s.bak.%s", path, ts)
 }
 
-func chownAgentAssets(configPath, certDir string, logf func(string, ...interface{})) error {
+func chownAgentAssets(configPath, certDir, overridesPath string, logf func(string, ...interface{})) error {
 	if os.Geteuid() != 0 {
 		return nil
 	}
@@ -415,6 +533,7 @@ func chownAgentAssets(configPath, certDir string, logf func(string, ...interface
 	paths := []string{
 		configPath,
 		certDir,
+		overridesPath,
 		filepath.Join(certDir, "component.pem"),
 		filepath.Join(certDir, "component-key.pem"),
 		filepath.Join(certDir, "ca-chain.pem"),

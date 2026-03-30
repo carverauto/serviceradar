@@ -20,14 +20,23 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
   permissions:
     allowed_domains: []
   """
+  @alias_manifest """
+  defaults: &defaults
+    id: bad
+  <<: *defaults
+  """
 
   @wasm_blob <<0, 1, 2, 3, 4>>
+  @large_wasm :binary.copy(<<1>>, Storage.max_upload_bytes() + 1)
 
   def manifest_yaml, do: @manifest_yaml
+  def alias_manifest, do: @alias_manifest
   def wasm_blob, do: @wasm_blob
+  def large_wasm, do: @large_wasm
 
   defmodule MockClient do
     @moduledoc false
+
     def get(url, _opts) do
       cond do
         String.contains?(url, "api.github.com/repos/acme/demo/commits/") ->
@@ -35,7 +44,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
            %Req.Response{
              status: 200,
              body: %{
-               "sha" => "abc123",
+               "sha" => String.duplicate("a", 40),
                "commit" => %{
                  "verification" => %{
                    "verified" => true,
@@ -49,14 +58,14 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
         String.contains?(url, "api.github.com/repos/acme/demo") ->
           {:ok, %Req.Response{status: 200, body: %{"default_branch" => "main"}}}
 
-        String.contains?(url, "raw.githubusercontent.com/acme/demo/main/plugin.yaml") ->
+        String.contains?(url, "raw.githubusercontent.com/acme/demo/#{String.duplicate("a", 40)}/plugin.yaml") ->
           {:ok,
            %Req.Response{
              status: 200,
              body: GitHubImporterTest.manifest_yaml()
            }}
 
-        String.contains?(url, "raw.githubusercontent.com/acme/demo/main/plugin.wasm") ->
+        String.contains?(url, "raw.githubusercontent.com/acme/demo/#{String.duplicate("a", 40)}/plugin.wasm") ->
           {:ok,
            %Req.Response{
              status: 200,
@@ -71,6 +80,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
 
   defmodule UnverifiedClient do
     @moduledoc false
+
     def get(url, _opts) do
       cond do
         String.contains?(url, "api.github.com/repos/acme/demo/commits/") ->
@@ -78,7 +88,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
            %Req.Response{
              status: 200,
              body: %{
-               "sha" => "abc123",
+               "sha" => String.duplicate("a", 40),
                "commit" => %{
                  "verification" => %{
                    "verified" => false,
@@ -91,14 +101,14 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
         String.contains?(url, "api.github.com/repos/acme/demo") ->
           {:ok, %Req.Response{status: 200, body: %{"default_branch" => "main"}}}
 
-        String.contains?(url, "raw.githubusercontent.com/acme/demo/main/plugin.yaml") ->
+        String.contains?(url, "raw.githubusercontent.com/acme/demo/#{String.duplicate("a", 40)}/plugin.yaml") ->
           {:ok,
            %Req.Response{
              status: 200,
              body: GitHubImporterTest.manifest_yaml()
            }}
 
-        String.contains?(url, "raw.githubusercontent.com/acme/demo/main/plugin.wasm") ->
+        String.contains?(url, "raw.githubusercontent.com/acme/demo/#{String.duplicate("a", 40)}/plugin.wasm") ->
           {:ok,
            %Req.Response{
              status: 200,
@@ -111,9 +121,34 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
     end
   end
 
+  defmodule OversizedClient do
+    @moduledoc false
+
+    def get(url, opts), do: GitHubImporterTest.handle(url, opts, GitHubImporterTest.large_wasm())
+  end
+
+  defmodule AliasManifestClient do
+    @moduledoc false
+
+    def get(url, opts) do
+      if String.contains?(url, "raw.githubusercontent.com") and String.ends_with?(url, "/plugin.yaml") do
+        {:ok, %Req.Response{status: 200, body: GitHubImporterTest.alias_manifest()}}
+      else
+        GitHubImporterTest.handle(url, opts, GitHubImporterTest.wasm_blob())
+      end
+    end
+  end
+
+  defmodule RepoAwareClient do
+    @moduledoc false
+
+    def get(url, opts), do: GitHubImporterTest.handle(url, opts, GitHubImporterTest.wasm_blob())
+  end
+
   setup do
     original_client = Application.get_env(:serviceradar_web_ng, :github_http_client)
     original_policy = Application.get_env(:serviceradar_web_ng, :plugin_verification)
+    original_token = Application.get_env(:serviceradar_web_ng, :github_token)
 
     Application.put_env(:serviceradar_web_ng, :github_http_client, MockClient)
 
@@ -123,17 +158,9 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
     )
 
     on_exit(fn ->
-      if is_nil(original_client) do
-        Application.delete_env(:serviceradar_web_ng, :github_http_client)
-      else
-        Application.put_env(:serviceradar_web_ng, :github_http_client, original_client)
-      end
-
-      if is_nil(original_policy) do
-        Application.delete_env(:serviceradar_web_ng, :plugin_verification)
-      else
-        Application.put_env(:serviceradar_web_ng, :plugin_verification, original_policy)
-      end
+      restore_env(:github_http_client, original_client)
+      restore_env(:plugin_verification, original_policy)
+      restore_env(:github_token, original_token)
     end)
 
     :ok
@@ -150,7 +177,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
     assert result.content_hash == Storage.sha256(@wasm_blob)
     assert result.gpg_key_id == "octo"
     assert result.gpg_verified_at
-    assert result.source_commit == "abc123"
+    assert result.source_commit == String.duplicate("a", 40)
   end
 
   test "rejects unverified commits when policy requires gpg" do
@@ -166,4 +193,129 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
                source_repo_url: @repo_url
              })
   end
+
+  test "rejects verified commits when trusted signer allowlist is missing" do
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: true,
+      allow_unsigned_uploads: true,
+      trusted_github_signers: []
+    )
+
+    assert {:error, :trusted_signers_not_configured} =
+             GitHubImporter.fetch(%{
+               source_repo_url: @repo_url
+             })
+  end
+
+  test "rejects verified commits from untrusted signers" do
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: true,
+      allow_unsigned_uploads: true,
+      trusted_github_signers: ["trusted-maintainer"]
+    )
+
+    assert {:error, :untrusted_signer} =
+             GitHubImporter.fetch(%{
+               source_repo_url: @repo_url
+             })
+  end
+
+  test "accepts verified commits from trusted signers" do
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: true,
+      allow_unsigned_uploads: true,
+      trusted_github_signers: ["octo"]
+    )
+
+    assert {:ok, result} =
+             GitHubImporter.fetch(%{
+               source_repo_url: @repo_url
+             })
+
+    assert result.gpg_key_id == "octo"
+  end
+
+  test "rejects oversized wasm blobs before import succeeds" do
+    Application.put_env(:serviceradar_web_ng, :github_http_client, OversizedClient)
+
+    assert {:error, :payload_too_large} =
+             GitHubImporter.fetch(%{
+               source_repo_url: @repo_url
+             })
+  end
+
+  test "rejects authenticated imports outside trusted repository boundaries" do
+    Application.put_env(:serviceradar_web_ng, :github_token, "secret-token")
+    Application.put_env(:serviceradar_web_ng, :github_http_client, RepoAwareClient)
+
+    Application.put_env(:serviceradar_web_ng, :plugin_verification, trusted_github_owners: ["trusted-owner"])
+
+    assert {:error, :untrusted_repo} =
+             GitHubImporter.fetch(%{
+               source_repo_url: @repo_url
+             })
+  end
+
+  test "accepts authenticated imports for trusted repositories" do
+    Application.put_env(:serviceradar_web_ng, :github_token, "secret-token")
+    Application.put_env(:serviceradar_web_ng, :github_http_client, RepoAwareClient)
+
+    Application.put_env(:serviceradar_web_ng, :plugin_verification, trusted_github_repositories: ["acme/demo"])
+
+    assert {:ok, result} =
+             GitHubImporter.fetch(%{
+               source_repo_url: @repo_url
+             })
+
+    assert result.source_commit == String.duplicate("a", 40)
+  end
+
+  test "rejects invalid git refs" do
+    assert {:error, :invalid_ref} =
+             GitHubImporter.fetch(%{
+               source_repo_url: @repo_url,
+               source_commit: "../bad"
+             })
+  end
+
+  test "rejects traversal-style manifest paths" do
+    assert {:error, :invalid_manifest_path} =
+             GitHubImporter.fetch(%{
+               source_repo_url: @repo_url,
+               manifest_path: "../plugin.yaml"
+             })
+  end
+
+  test "rejects hostile yaml aliases in manifests" do
+    Application.put_env(:serviceradar_web_ng, :github_http_client, AliasManifestClient)
+
+    assert {:error, {:invalid_manifest, errors}} =
+             GitHubImporter.fetch(%{
+               source_repo_url: @repo_url
+             })
+
+    assert "yaml anchors and aliases are not allowed" in errors
+  end
+
+  def handle(url, _opts, wasm_blob) do
+    cond do
+      String.contains?(url, "api.github.com/repos/acme/demo/commits/") ->
+        MockClient.get(url, [])
+
+      String.contains?(url, "api.github.com/repos/acme/demo") ->
+        MockClient.get(url, [])
+
+      String.contains?(url, "raw.githubusercontent.com/acme/demo/#{String.duplicate("a", 40)}/plugin.yaml") ->
+        {:ok, %Req.Response{status: 200, body: GitHubImporterTest.manifest_yaml()}}
+
+      String.contains?(url, "raw.githubusercontent.com/acme/demo/#{String.duplicate("a", 40)}/plugin.wasm") ->
+        {:ok, %Req.Response{status: 200, body: wasm_blob}}
+
+      true ->
+        {:ok, %Req.Response{status: 404, body: ""}}
+    end
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 end

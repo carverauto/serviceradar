@@ -237,7 +237,10 @@ spec:
         - name: RELEASE_DISTRIBUTION
           value: "name"
         - name: RELEASE_COOKIE
-          value: {{ default "serviceradar_dev_cookie" $webNg.clusterCookie | quote }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: cluster-cookie
         - name: DATASVC_ENABLED
           value: "false"
         - name: SECRET_KEY_BASE
