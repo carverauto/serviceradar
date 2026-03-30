@@ -47,88 +47,9 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
          :ok <- require_permission(conn, "plugins.stage") do
       scope = get_scope(conn)
 
-      attrs = %{
-        plugin_id: params["plugin_id"],
-        name: params["name"],
-        version: params["version"],
-        description: params["description"],
-        entrypoint: params["entrypoint"],
-        runtime: params["runtime"],
-        outputs: params["outputs"],
-        manifest: params["manifest"],
-        config_schema: params["config_schema"],
-        display_contract: params["display_contract"],
-        content_hash: params["content_hash"],
-        signature: params["signature"],
-        source_type: normalize_source_type(params["source_type"]),
-        source_repo_url: params["source_repo_url"],
-        source_commit: params["source_commit"],
-        gpg_key_id: params["gpg_key_id"],
-        gpg_verified_at: parse_datetime(params["gpg_verified_at"])
-      }
-
-      case attrs.source_type do
-        :invalid ->
-          conn
-          |> put_status(:bad_request)
-          |> json(%{error: "invalid_source_type"})
-
-        _ ->
-          case Plugins.create_package(attrs, scope: scope) do
-            {:ok, package} ->
-              conn
-              |> put_status(:created)
-              |> json(package_to_json(package))
-
-            {:error, :missing_repo_url} ->
-              conn
-              |> put_status(:bad_request)
-              |> json(%{error: "missing_repo_url"})
-
-            {:error, :invalid_repo_url} ->
-              conn
-              |> put_status(:bad_request)
-              |> json(%{error: "invalid_repo_url"})
-
-            {:error, :untrusted_repo} ->
-              conn
-              |> put_status(:forbidden)
-              |> json(%{error: "untrusted_repo"})
-
-            {:error, :invalid_ref} ->
-              conn
-              |> put_status(:bad_request)
-              |> json(%{error: "invalid_ref"})
-
-            {:error, :invalid_manifest_path} ->
-              conn
-              |> put_status(:bad_request)
-              |> json(%{error: "invalid_manifest_path"})
-
-            {:error, :invalid_wasm_path} ->
-              conn
-              |> put_status(:bad_request)
-              |> json(%{error: "invalid_wasm_path"})
-
-            {:error, :verification_required} ->
-              conn
-              |> put_status(:unprocessable_entity)
-              |> json(%{error: "verification_required"})
-
-            {:error, :payload_too_large} ->
-              conn
-              |> put_status(:request_entity_too_large)
-              |> json(%{error: "payload_too_large"})
-
-            {:error, {:invalid_manifest, errors}} ->
-              conn
-              |> put_status(:unprocessable_entity)
-              |> json(%{error: "validation_error", details: format_manifest_errors(errors)})
-
-            {:error, error} ->
-              {:error, error}
-          end
-      end
+      params
+      |> create_package_attrs()
+      |> create_package(conn, scope)
     end
   end
 
@@ -399,6 +320,102 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
   end
 
   defp parse_list(_), do: nil
+
+  defp create_package_attrs(params) do
+    %{
+      plugin_id: params["plugin_id"],
+      name: params["name"],
+      version: params["version"],
+      description: params["description"],
+      entrypoint: params["entrypoint"],
+      runtime: params["runtime"],
+      outputs: params["outputs"],
+      manifest: params["manifest"],
+      config_schema: params["config_schema"],
+      display_contract: params["display_contract"],
+      content_hash: params["content_hash"],
+      signature: params["signature"],
+      source_type: normalize_source_type(params["source_type"]),
+      source_repo_url: params["source_repo_url"],
+      source_commit: params["source_commit"],
+      gpg_key_id: params["gpg_key_id"],
+      gpg_verified_at: parse_datetime(params["gpg_verified_at"])
+    }
+  end
+
+  defp create_package(%{source_type: :invalid}, conn, _scope) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "invalid_source_type"})
+  end
+
+  defp create_package(attrs, conn, scope) do
+    attrs
+    |> Plugins.create_package(scope: scope)
+    |> render_create_package_result(conn)
+  end
+
+  defp render_create_package_result({:ok, package}, conn) do
+    conn
+    |> put_status(:created)
+    |> json(package_to_json(package))
+  end
+
+  defp render_create_package_result({:error, :missing_repo_url}, conn) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "missing_repo_url"})
+  end
+
+  defp render_create_package_result({:error, :invalid_repo_url}, conn) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "invalid_repo_url"})
+  end
+
+  defp render_create_package_result({:error, :untrusted_repo}, conn) do
+    conn
+    |> put_status(:forbidden)
+    |> json(%{error: "untrusted_repo"})
+  end
+
+  defp render_create_package_result({:error, :invalid_ref}, conn) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "invalid_ref"})
+  end
+
+  defp render_create_package_result({:error, :invalid_manifest_path}, conn) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "invalid_manifest_path"})
+  end
+
+  defp render_create_package_result({:error, :invalid_wasm_path}, conn) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "invalid_wasm_path"})
+  end
+
+  defp render_create_package_result({:error, :verification_required}, conn) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "verification_required"})
+  end
+
+  defp render_create_package_result({:error, :payload_too_large}, conn) do
+    conn
+    |> put_status(:request_entity_too_large)
+    |> json(%{error: "payload_too_large"})
+  end
+
+  defp render_create_package_result({:error, {:invalid_manifest, errors}}, conn) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "validation_error", details: format_manifest_errors(errors)})
+  end
+
+  defp render_create_package_result({:error, error}, _conn), do: {:error, error}
 
   defp normalize_source_type(nil), do: nil
   defp normalize_source_type(""), do: nil

@@ -14,7 +14,7 @@ name = "flowgger"
 path = "src/lib.rs"
 
 [features]
-capnp-recompile = ["capnpc", "capnp"]
+capnp-recompile = []
 coroutines = ["may", "tls"]
 default = ["syslog", "tls", "gelf" ]
 redis-input = ["redis"]
@@ -29,15 +29,10 @@ rfc5424=[]
 passthrough=[]
 file = ["notify", "glob"]
 
-[build-dependencies.capnpc]
-version = "0.10"
-optional = true
-
 [build-dependencies]
 tonic-build = { workspace = true }
 
 [dependencies]
-capnp = { version = "0.24", optional = true }
 clap = "4"
 flate2 = "1"
 glob = { version = "0.3", optional = true }
