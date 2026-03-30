@@ -33,7 +33,6 @@ ServiceRadar is a multi-component system made up of Go services (core, sync, reg
 - `docs/docs/` – User and architecture documentation (notably `architecture.md`, `agents.md`).
 - `k8s/demo/` – Demo cluster manifests (faker, core, sync, CNPG, etc.).
 - `docker/`, `docker/images/` – Container builds and push targets.
-- `web/` – Next.js UI and API routes.
 - `elixir/web-ng/` – Phoenix (next-gen) UI/API monolith.
 - `proto/` – Protobuf definitions and generated Go code.
 
@@ -50,7 +49,6 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
 - Bazel tests/images: `bazel test --config=remote //...`, `bazel run //docker/images:<target>_push`.
 - Bazel-managed Rust dep refresh: `scripts/update-rust-bazel-deps.sh [repin-mode] [verify-target]` or `make update-rust-deps REPIN=workspace`.
-- Web (Next.js) lint/build: `cd web && npm install && npm run lint && npm run build` (if needed).
 - Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`.
 
 Prefer Bazel targets when modifying code that already has BUILD files. Always run gofmt/cargo fmt where applicable (Go formatting handled by `gofmt`, Rust by `cargo fmt`).
@@ -89,7 +87,7 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 - Capture the tag for compose: `git rev-parse HEAD` and use `APP_TAG=sha-<sha>`.
 - Pull fresh images: `APP_TAG=sha-<sha> docker compose pull`.
 - Restart the stack: `APP_TAG=sha-<sha> docker compose up -d --force-recreate`.
-- Verify: `docker compose ps` (one-shot jobs like cert-generator/config-updater exit once finished; nginx may sit in "health: starting" briefly).
+- Verify: `docker compose ps` (one-shot jobs like cert-generator/config-updater exit once finished).
 
 ## Local Development with Docker CNPG
 

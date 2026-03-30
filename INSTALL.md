@@ -9,7 +9,7 @@ ServiceRadar is typically deployed as a platform stack (Docker Compose or Kubern
 ```bash
 git clone https://github.com/carverauto/serviceradar.git
 cd serviceradar
-cp .env.example .env
+cp .env-sample .env
 docker compose up -d
 
 # Get your admin password
