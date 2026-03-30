@@ -270,9 +270,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
   end
 
   defp ensure_safe_worker_urls(worker) when is_map(worker) do
-    with :ok <- validate_worker_endpoint(map_value(worker, :endpoint_url)),
-         :ok <- validate_optional_worker_url(map_value(worker, :health_endpoint_url)) do
-      :ok
+    with :ok <- validate_worker_endpoint(map_value(worker, :endpoint_url)) do
+      validate_optional_worker_url(map_value(worker, :health_endpoint_url))
     end
   end
 

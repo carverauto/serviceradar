@@ -19,10 +19,10 @@ defmodule ServiceRadarCoreElx.ApplicationTest do
 
   defp unique_tmp_dir!(prefix) do
     dir =
-      Path.join(
-        System.tmp_dir!(),
-        "#{prefix}-" <> (:crypto.strong_rand_bytes(8) |> Base.url_encode64(padding: false))
-      )
+    Path.join(
+      System.tmp_dir!(),
+      "#{prefix}-" <> (8 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false))
+    )
 
     File.mkdir_p!(dir)
     dir
