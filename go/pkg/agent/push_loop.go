@@ -28,6 +28,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -2330,10 +2331,17 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	p.server.mu.RUnlock()
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = ""
+	}
 	helloReq := &proto.AgentHelloRequest{
 		AgentId:       agentID,
 		Version:       Version, // Agent version from version.go
 		Capabilities:  getAgentCapabilities(),
+		Hostname:      hostname,
+		Os:            runtime.GOOS,
+		Arch:          runtime.GOARCH,
 		ConfigVersion: p.getConfigVersion(),
 	}
 
