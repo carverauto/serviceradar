@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.7
+
+UniFi Protect camera support, Ash and NATS security refreshes, and cluster-safe control-plane hardening across Kubernetes and Docker Compose.
+
+## Whats New
+
+**1.2.7**
+- Added end-to-end IP camera support with UniFi Protect live feeds, camera inventory ingestion, relay/session plumbing, and related topology/device UI updates.
+- Updated the Elixir Ash stack across the platform, including newer `ash`, `spark`, `splode`, `reactor`, and related packages to pick up framework fixes and security hardening.
+- Hardened NATS and JetStream handling with tighter account-scope guardrails, safer account/user management paths, and improved release-artifact/object-storage security boundaries.
+- Moved `web-ng` token revocation into CNPG so revoked sessions are durable and cluster-safe instead of relying on pod-local filesystem state.
+- Removed the abandoned `core-elx` internal camera-media gRPC ingress and aligned the platform-internal camera relay path to the ERTS-only transport model, alongside broader Docker Compose/bootstrap hardening.
+
 # ServiceRadar v1.2.6
 
 Agent fleet self-update management, gateway-served rollout delivery, and import-ready release assets for operator-driven upgrades.
