@@ -915,8 +915,9 @@ if config_env() == :prod do
 
   if is_binary(agent_release_public_key) and String.trim(agent_release_public_key) != "" do
     trimmed_agent_release_public_key = String.trim(agent_release_public_key)
-    config :serviceradar_web_ng, :agent_release_public_key, trimmed_agent_release_public_key
     config :serviceradar_core, :agent_release_public_key, trimmed_agent_release_public_key
+
+    config :serviceradar_web_ng, :agent_release_public_key, trimmed_agent_release_public_key
   end
 
   if is_binary(onboarding_token_private_key) and String.trim(onboarding_token_private_key) != "" do
