@@ -434,8 +434,8 @@ Restart the checker using the persisted config:
 3. Build and push Bazel images:
    - Authenticate to GHCR if needed: `./scripts/docker-login.sh`.
    - Run `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
-   - Run `bazel run --config=remote //docker/images:push_all`. This reuses the build artifacts, publishes `latest`, `sha-<commit>`, and short-digest tags, and refreshes the embedded `build-info.json`.
-   - If a single image needs republishing, run `bazel run //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`).
+   - Run `bazel run --config=remote_push //docker/images:push_all`. This reuses the build artifacts, downloads OCI publish metadata locally, publishes `latest`, `sha-<commit>`, and short-digest tags, and refreshes the embedded `build-info.json`.
+   - If a single image needs republishing, run `bazel run --config=remote_push //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`).
    - Capture the new image identifiers you care about (for example `git rev-parse HEAD` for the commit tag or the full digest printed during the push). You'll use these when refreshing Kubernetes.
 4. Roll the demo namespace:
    - Run `helm upgrade --install serviceradar helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --atomic` so the mutable-tag demo workloads roll to the newest published `latest` images.
