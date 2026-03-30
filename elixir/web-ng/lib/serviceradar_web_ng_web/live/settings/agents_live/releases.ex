@@ -97,7 +97,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       |> Map.new()
       |> Map.put("version", version)
 
-    {:noreply, assign_rollout_form_and_preview(socket, params)}
+    {:noreply,
+     socket
+     |> assign_rollout_form_and_preview(params)
+     |> put_flash(:info, "Selected release #{version} for rollout")}
   end
 
   def handle_event("preview_rollout", %{"rollout" => params}, socket) do
