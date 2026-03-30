@@ -44,6 +44,7 @@ defmodule ServiceRadar.DataService.Client do
 
   use GenServer
 
+  alias GRPC.Client.Adapters.Gun
   alias Proto.KVService.Stub
 
   require Logger
@@ -78,6 +79,43 @@ defmodule ServiceRadar.DataService.Client do
       true
     else
       false
+    end
+  end
+
+  @doc """
+  Gets the current datasvc gRPC channel from the supervised client.
+  """
+  @spec get_channel(keyword()) :: {:ok, GRPC.Channel.t()} | {:error, term()}
+  def get_channel(opts \\ []) do
+    safe_call(:get_channel, opts[:timeout] || @default_timeout)
+  end
+
+  @doc """
+  Executes `fun` with an active datasvc gRPC channel.
+
+  Falls back to a direct connection when the supervised client is unavailable.
+  """
+  @spec with_channel((GRPC.Channel.t() -> result), keyword()) :: result | {:error, term()}
+        when result: term()
+  def with_channel(fun, opts \\ []) when is_function(fun, 1) do
+    timeout = opts[:timeout] || @default_timeout
+
+    case get_channel(timeout: timeout) do
+      {:ok, channel} ->
+        fun.(channel)
+
+      {:error, reason} ->
+        Logger.warning(
+          "DataService.Client unavailable for channel request (#{inspect(reason)}), opening direct datasvc connection"
+        )
+
+        with {:ok, channel} <- connect(Keyword.put_new(opts, :connect_timeout_ms, timeout)) do
+          try do
+            fun.(channel)
+          after
+            _ = disconnect_direct_channel(channel)
+          end
+        end
     end
   end
 
@@ -120,6 +158,16 @@ defmodule ServiceRadar.DataService.Client do
   @spec put_many([{String.t(), binary()}], keyword()) :: :ok | {:error, term()}
   def put_many(entries, opts \\ []) do
     safe_call({:put_many, entries, opts}, opts[:timeout] || @default_timeout)
+  end
+
+  @doc """
+  Opens a one-off datasvc gRPC channel using the configured runtime settings.
+  """
+  @spec connect(keyword()) :: {:ok, GRPC.Channel.t()} | {:error, term()}
+  def connect(opts \\ []) do
+    opts
+    |> build_config()
+    |> open_direct_channel()
   end
 
   defp safe_call(msg, timeout) do
@@ -435,7 +483,7 @@ defmodule ServiceRadar.DataService.Client do
     end
   end
 
-  defp connect(config) do
+  defp open_channel(config) do
     endpoint = "#{config.host}:#{config.port}"
 
     case build_cred_opts(config) do
@@ -447,6 +495,23 @@ defmodule ServiceRadar.DataService.Client do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp open_direct_channel(config) do
+    with {:ok, cred_opts} <- build_cred_opts(config) do
+      channel = %GRPC.Channel{
+        host: config.host,
+        port: config.port,
+        scheme: direct_channel_scheme(config),
+        cred: Keyword.get(cred_opts, :cred),
+        adapter: Gun
+      }
+
+      Gun.connect(
+        channel,
+        connect_timeout: config.connect_timeout_ms
+      )
     end
   end
 
@@ -523,12 +588,27 @@ defmodule ServiceRadar.DataService.Client do
 
   defp default_sec_mode(false, _config), do: :plaintext
 
+  defp direct_channel_scheme(config) do
+    if normalize_sec_mode(config) == :plaintext, do: "http", else: "https"
+  end
+
+  defp disconnect_direct_channel(%GRPC.Channel{adapter: adapter} = channel)
+       when is_atom(adapter) do
+    if function_exported?(adapter, :disconnect, 1) do
+      adapter.disconnect(channel)
+    else
+      :ok
+    end
+  end
+
+  defp disconnect_direct_channel(_channel), do: :ok
+
   defp start_connect_task(state) do
     parent = self()
 
     {:ok, pid} =
       Task.start(fn ->
-        send(parent, {:connect_result, connect(state.config)})
+        send(parent, {:connect_result, open_channel(state.config)})
       end)
 
     ref = Process.monitor(pid)

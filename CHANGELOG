@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.8
+
+Managed-agent release import reliability fixes, first-class chart support for the release verification key, and safer operator key recovery tooling.
+
+## Whats New
+
+**1.2.8**
+- Fixed repository release import in `web-ng` so datasvc-backed artifact mirroring no longer crashes when the supervised datasvc client is absent and can fall back to a direct gRPC channel safely.
+- Added first-class Helm support for `webNg.agentReleasePublicKey`, and wired `web-ng` runtime config to expose that verification key consistently for release validation and onboarding bundle generation.
+- Added a manual GitHub Actions workflow to derive `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` from the release-environment private key without exposing the private signing secret.
+
 # ServiceRadar v1.2.7
 
 UniFi Protect camera support, Ash and NATS security refreshes, and cluster-safe control-plane hardening across Kubernetes and Docker Compose.
