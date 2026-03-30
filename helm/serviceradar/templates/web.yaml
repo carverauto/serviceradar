@@ -4,6 +4,7 @@
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $webHost := default .Values.ingress.host $webNg.host -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $agentReleasePublicKey := default "" $webNg.agentReleasePublicKey -}}
 {{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
@@ -195,6 +196,10 @@ spec:
           value: {{ default "false" $webNg.devRoutes | quote }}
         - name: SERVICERADAR_LOCAL_MAILER
           value: {{ default "false" $webNg.localMailer | quote }}
+        {{- if $agentReleasePublicKey }}
+        - name: SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY
+          value: {{ $agentReleasePublicKey | quote }}
+        {{- end }}
         - name: SERVICERADAR_ADMIN_EMAIL
           value: "root@localhost"
         - name: SERVICERADAR_ADMIN_PASSWORD
@@ -242,7 +247,7 @@ spec:
               name: {{ $secrets | quote }}
               key: cluster-cookie
         - name: DATASVC_ENABLED
-          value: "false"
+          value: "true"
         - name: SECRET_KEY_BASE
           valueFrom:
             secretKeyRef:

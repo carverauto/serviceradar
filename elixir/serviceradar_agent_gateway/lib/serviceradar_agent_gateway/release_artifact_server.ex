@@ -159,9 +159,10 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
         fun.(object_key)
 
       _ ->
-        with {:ok, channel} <- GenServer.call(ServiceRadar.DataService.Client, :get_channel, @download_timeout) do
-          download_object_from_channel(channel, object_key)
-        end
+        ServiceRadar.DataService.Client.with_channel(
+          fn channel -> download_object_from_channel(channel, object_key) end,
+          timeout: @download_timeout
+        )
     end
   end
 
