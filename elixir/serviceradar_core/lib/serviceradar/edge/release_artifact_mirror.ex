@@ -134,17 +134,19 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     end
   end
 
-  defp manifest_artifacts(manifest) when is_map(manifest) do
-    artifacts = manifest |> map_get_any(["artifacts", :artifacts], []) |> List.wrap()
+  defp manifest_artifacts(manifest) do
+    if is_map(manifest) do
+      artifacts = manifest |> map_get_any(["artifacts", :artifacts], []) |> List.wrap()
 
-    if artifacts == [] do
-      {:error, "release manifest must include at least one artifact"}
+      if artifacts == [] do
+        {:error, "release manifest must include at least one artifact"}
+      else
+        {:ok, artifacts}
+      end
     else
-      {:ok, artifacts}
+      {:error, "release manifest must be a map"}
     end
   end
-
-  defp manifest_artifacts(_manifest), do: {:error, "release manifest must be a map"}
 
   defp download_source_artifact(source_url, timeout, validate_url, http_get) do
     with_temp_file("release-artifact-mirror", fn tmp_path ->
@@ -266,7 +268,7 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
   defp build_object_metadata(object_key, file_name, data, attrs) do
     %Proto.ObjectMetadata{
       key: object_key,
-      content_type: MIME.from_path(file_name || "artifact.bin"),
+      content_type: MIME.from_path(file_name),
       sha256: Map.fetch!(attrs, :sha256),
       total_size: byte_size(data),
       attributes:
