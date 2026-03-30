@@ -119,16 +119,16 @@ build-web-ng: ## Build just the web-ng OCI image with Bazel (remote)
 
 .PHONY: push-web-ng
 push-web-ng: ## Build and push just the web-ng OCI image to GHCR (remote)
-	@bazel run --config=remote --stamp //docker/images:web_ng_image_amd64_push
+	@bazel run --config=remote_push --stamp //docker/images:web_ng_image_amd64_push
 
 .PHONY: push_all
 push_all: ## Build and push all OCI images to GHCR (CI only, see issue #2517)
 	@set -eu; \
 	if [ -n "$(PUSH_TAG)" ]; then \
-		bazel run --config=remote --stamp //:push -- --tag "$(PUSH_TAG)"; \
+		bazel run --config=remote_push --stamp //:push -- --tag "$(PUSH_TAG)"; \
 		$(MAKE) verify_publish VERIFY_TAG="$(PUSH_TAG)"; \
 	else \
-		bazel run --config=remote --stamp //:push; \
+		bazel run --config=remote_push --stamp //:push; \
 		$(MAKE) verify_publish; \
 	fi
 

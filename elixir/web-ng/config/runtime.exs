@@ -453,17 +453,6 @@ if client_ip_overrides != [] do
   config :serviceradar_web_ng, :client_ip, Keyword.merge(client_ip_defaults, client_ip_overrides)
 end
 
-case System.get_env("SERVICERADAR_TOKEN_REVOCATION_STORE_PATH") do
-  nil ->
-    :ok
-
-  "" ->
-    :ok
-
-  store_path ->
-    config :serviceradar_web_ng, :token_revocation, store_path: store_path
-end
-
 # libcluster configuration for ERTS cluster formation
 # Strategy selection: kubernetes, epmd, dns, or gossip (future)
 hosted_cluster_contract =

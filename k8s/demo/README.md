@@ -104,7 +104,7 @@ When validating CNPG migrations in `demo-staging`, remember to ship the updated
 
 ```bash
 # Build + push the toolbox image (Bazel prints the sha tag)
-bazel run --config=remote //docker/images:tools_image_amd64_push
+bazel run --config=remote_push --stamp //docker/images:tools_image_amd64_push
 
 # Update k8s/demo/staging/kustomization.yaml so the images block includes:
 # - name: ghcr.io/carverauto/serviceradar-tools

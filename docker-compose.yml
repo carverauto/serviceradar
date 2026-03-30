@@ -173,6 +173,7 @@ services:
     hostname: core-elx-migrations
     environment:
       - CLUSTER_ENABLED=false
+      - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
       - SERVICERADAR_CORE_REPO_ENABLED=true
       - SERVICERADAR_CORE_OBAN_ENABLED=false
       - SERVICERADAR_CORE_RUN_MIGRATIONS=true

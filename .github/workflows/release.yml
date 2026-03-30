@@ -269,7 +269,7 @@ jobs:
             extra_args+=(-- --tag "${RELEASE_TAG}")
           fi
 
-          if ! bazel run --config=remote --stamp //:push "${extra_args[@]}"; then
+          if ! bazel run --config=remote_push --stamp //:push "${extra_args[@]}"; then
             if [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
               echo "Remote bazel run failed; retrying locally without remote executor/cache" >&2
               bazel run \

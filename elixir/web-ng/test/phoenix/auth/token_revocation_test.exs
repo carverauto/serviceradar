@@ -2,23 +2,14 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocationTest do
   @moduledoc """
   Tests for token revocation service.
 
-  These tests don't require database access but need the application started
-  (for ETS tables). The test_helper.exs currently requires database connection,
-  so these tests run as part of the standard test suite.
-
   Run with: mix test test/phoenix/auth/token_revocation_test.exs
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadarWebNG.DataCase, async: false
 
   alias ServiceRadarWebNG.Auth.TokenRevocation
 
-  # TokenRevocation uses ETS which is started by the application
-  # These tests verify the module's public API
-
   setup do
-    File.rm_rf!(Path.join(System.tmp_dir!(), "serviceradar_web_ng_test"))
-
     # Generate unique JTI for each test to avoid collisions
     jti = "test_jti_#{System.unique_integer([:positive])}"
     user_id = Ecto.UUID.generate()

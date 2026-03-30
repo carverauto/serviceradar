@@ -175,6 +175,15 @@ build:remote --config=remote_base
 build:remote --remote_cache=grpcs://remote.buildbuddy.io
 build:remote --remote_timeout=10m
 
+# Remote image publish profile.
+# rules_oci push flows need descriptor/config artifacts available locally; using
+# minimal downloads can fail later with "Lost inputs no longer available remotely"
+# when BuildBuddy evicts intermediate CAS entries before the local push step runs.
+build:remote_push --config=remote
+build:remote_push --remote_download_outputs=all
+run:remote_push --config=remote
+run:remote_push --remote_download_outputs=all
+
 # Enable clang-tidy diagnostics via --config=clang-tidy
 build:clang-tidy --features=clang_tidy
 test:clang-tidy --features=clang_tidy

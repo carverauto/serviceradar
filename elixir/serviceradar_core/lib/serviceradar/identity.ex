@@ -40,6 +40,7 @@ defmodule ServiceRadar.Identity do
     resource ServiceRadar.Identity.User
     resource ServiceRadar.Identity.RoleProfile
     resource ServiceRadar.Identity.UserAuthEvent
+    resource ServiceRadar.Identity.RevokedToken
     resource ServiceRadar.Identity.ApiToken
     resource ServiceRadar.Identity.OAuthClient
     resource ServiceRadar.Identity.DeviceAliasState

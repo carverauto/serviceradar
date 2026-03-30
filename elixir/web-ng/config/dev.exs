@@ -166,9 +166,6 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
 config :serviceradar_web_ng, :api_auth, api_keys: [System.get_env("SERVICERADAR_API_KEY", "dev-api-key-for-testing")]
 config :serviceradar_web_ng, :base_url, System.get_env("BASE_URL", "http://192.168.2.134:4000")
 
-config :serviceradar_web_ng, :token_revocation,
-  store_path: Path.join(System.tmp_dir!(), "serviceradar_web_ng_dev/revoked_tokens.dets")
-
 # AshAuthentication token signing secret for development
 config :serviceradar_web_ng,
        :token_signing_secret,

@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "agent_enroll.go",
         "bootstrap.go",
+        "bundle_request.go",
         "collector_enroll.go",
         "config.go",
         "deployment.go",
