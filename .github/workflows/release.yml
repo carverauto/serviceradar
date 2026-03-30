@@ -297,7 +297,7 @@ jobs:
           ./scripts/verify-ghcr-publish.sh "${verify_tags[@]}"
 
       - name: Install Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           version: v3.14.4
 
