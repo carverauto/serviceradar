@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.10
+
+Container-managed agent rollout exclusions, Kubernetes-safe agent startup, and verification updates for freshly published agent images.
+
+## Whats New
+
+**1.2.10**
+- Excluded Docker-managed and Kubernetes-managed agents from both connected and custom managed-release rollout cohorts so container workloads no longer block or accidentally participate in self-update rollouts.
+- Updated chart-managed and image-default container agent startup to run the seed binary directly instead of the self-updating wrapper, avoiding `/var/lib/serviceradar/agent` permission failures in Kubernetes.
+- Persisted `deployment_type` metadata from agent hello messages so the control plane can distinguish bare-metal agents from externally managed container deployments.
+- Updated the GHCR publish verifier to accept the new container agent command, so `make push_all` can validate freshly published agent images again.
+
 # ServiceRadar v1.2.9
 
 Managed-agent rollout artifact correctness fixes, safer datasvc-backed gateway delivery, and more deterministic agent config application.
