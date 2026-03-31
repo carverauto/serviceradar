@@ -9,8 +9,32 @@ defmodule ServiceRadarWebNGWeb.UserSessionControllerTest do
 
   import ServiceRadarWebNG.AccountsFixtures
 
+  alias ServiceRadarWebNG.Accounts
+
   setup do
     %{user: user_fixture()}
+  end
+
+  describe "POST /users/update-password" do
+    test "denies viewers without password permission", %{conn: conn} do
+      user = set_password(user_fixture(%{role: :viewer}))
+
+      conn =
+        conn
+        |> log_in_user(user)
+        |> init_test_session(%{"sudo_authenticated_at" => DateTime.to_unix(DateTime.utc_now())})
+        |> post(~p"/users/update-password", %{
+          "user" => %{
+            "current_password" => valid_user_password(),
+            "password" => "new valid password",
+            "password_confirmation" => "new valid password"
+          }
+        })
+
+      assert redirected_to(conn) == ~p"/settings/profile"
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "not allowed to change the password"
+      assert Accounts.get_user_by_email_and_password(user.email, valid_user_password())
+    end
   end
 
   describe "DELETE /users/log-out" do

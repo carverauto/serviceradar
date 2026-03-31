@@ -7,9 +7,13 @@ defmodule ServiceRadarWebNGWeb.UserSessionController do
   """
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadar.Identity.Constants
   alias ServiceRadarWebNG.Accounts
   alias ServiceRadarWebNG.Auth.TokenRevocation
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.UserAuth
+
+  @password_manage_permission Constants.password_manage_permission()
 
   @doc """
   Updates the user's password.
@@ -18,33 +22,41 @@ defmodule ServiceRadarWebNGWeb.UserSessionController do
   Revokes all tokens for the user after password change.
   """
   def update_password(conn, %{"user" => user_params}) do
-    user = conn.assigns.current_scope.user
+    scope = conn.assigns.current_scope
+    user = scope.user
     sudo_at_unix = get_session(conn, "sudo_authenticated_at")
     sudo_at = sudo_at_unix && DateTime.from_unix!(sudo_at_unix)
 
-    if Accounts.sudo_mode?(user, sudo_at) do
-      case Accounts.update_user_password(user, user_params) do
-        {:ok, _user} ->
-          # Revoke all tokens for this user - password change invalidates all sessions
-          TokenRevocation.revoke_all_for_user(user.id, reason: :password_changed)
+    cond do
+      not RBAC.can?(scope, @password_manage_permission) ->
+        conn
+        |> put_flash(:error, "You are not allowed to change the password for this account.")
+        |> redirect(to: ~p"/settings/profile")
 
-          # After password change, user should re-authenticate
-          # Broadcast disconnect to any other LiveView sessions
-          UserAuth.disconnect_sessions([user.id])
+      not Accounts.sudo_mode?(user, sudo_at) ->
+        conn
+        |> put_flash(:error, "Sudo mode required. Please re-authenticate.")
+        |> redirect(to: ~p"/settings/profile")
 
-          conn
-          |> put_flash(:info, "Password updated successfully! Please sign in again.")
-          |> UserAuth.log_out_user()
+      true ->
+        case Accounts.update_user_password(user, user_params, scope: scope) do
+          {:ok, _user} ->
+            # Revoke all tokens for this user - password change invalidates all sessions
+            TokenRevocation.revoke_all_for_user(user.id, reason: :password_changed)
 
-        {:error, changeset} ->
-          conn
-          |> put_flash(:error, "Failed to update password: #{format_password_error(changeset)}")
-          |> redirect(to: ~p"/settings/profile")
-      end
-    else
-      conn
-      |> put_flash(:error, "Sudo mode required. Please re-authenticate.")
-      |> redirect(to: ~p"/settings/profile")
+            # After password change, user should re-authenticate
+            # Broadcast disconnect to any other LiveView sessions
+            UserAuth.disconnect_sessions([user.id])
+
+            conn
+            |> put_flash(:info, "Password updated successfully! Please sign in again.")
+            |> UserAuth.log_out_user()
+
+          {:error, changeset} ->
+            conn
+            |> put_flash(:error, "Failed to update password: #{format_password_error(changeset)}")
+            |> redirect(to: ~p"/settings/profile")
+        end
     end
   end
 

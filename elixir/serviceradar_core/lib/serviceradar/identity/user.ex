@@ -34,12 +34,14 @@ defmodule ServiceRadar.Identity.User do
   alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Identity.Validations.CurrentPassword
   alias ServiceRadar.Identity.Validations.PasswordConfirmationMatches
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
   alias ServiceRadar.Policies.Checks.ActorIsNil
 
   @allowed_roles Constants.allowed_roles()
   @auth_manage_permission Constants.auth_manage_permission()
-  @auth_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
-                      permission: @auth_manage_permission}
+  @password_manage_permission Constants.password_manage_permission()
+  @auth_manage_check {ActorHasPermission, permission: @auth_manage_permission}
+  @password_manage_check {ActorHasPermission, permission: @password_manage_permission}
   @user_admin_fields [:email, :display_name, :role, :role_profile_id]
   @user_profile_fields [:email, :display_name]
   @display_name_fields [:display_name]
@@ -50,7 +52,6 @@ defmodule ServiceRadar.Identity.User do
   @self_service_actions [
     :update,
     :update_email,
-    :change_password,
     :record_authentication,
     :record_login
   ]
@@ -350,6 +351,11 @@ defmodule ServiceRadar.Identity.User do
       authorize_if expr(id == ^actor(:id))
 
       authorize_if @auth_manage_check
+    end
+
+    policy action(:change_password) do
+      authorize_if expr(id == ^actor(:id))
+      authorize_if @password_manage_check
     end
 
     # Admin-only user management
