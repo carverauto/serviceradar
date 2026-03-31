@@ -161,13 +161,34 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   def handle_event("create_rollout", %{"rollout" => params}, socket) do
     scope = socket.assigns.current_scope
-    agent_ids = rollout_agent_ids(params, socket.assigns.connected_agents)
+
+    preview =
+      build_rollout_preview(
+        params,
+        socket.assigns.releases,
+        socket.assigns.connected_agents,
+        scope
+      )
+
+    agent_ids = Map.get(preview, :compatible_agent_ids, [])
 
     cond do
       blank?(params["version"]) ->
         {:noreply,
          socket
          |> put_flash(:error, "Select a release version for the rollout")
+         |> assign_rollout_form_and_preview(params)}
+
+      preview.unknown_count > 0 ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Resolve the unknown agent IDs before starting the rollout")
+         |> assign_rollout_form_and_preview(params)}
+
+      agent_ids == [] and preview.selected_count > 0 ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "No compatible agents are available for the selected release")
          |> assign_rollout_form_and_preview(params)}
 
       agent_ids == [] ->
@@ -182,17 +203,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
           agent_ids: agent_ids,
           batch_size: params["batch_size"],
           batch_delay_seconds: params["batch_delay_seconds"],
-          notes: presence(params["notes"])
+          notes: presence(params["notes"]),
+          metadata: rollout_submission_metadata(preview, params)
         }
 
         case AgentReleaseManager.create_rollout(attrs, scope: scope) do
           {:ok, rollout} ->
             {:noreply,
              socket
-             |> put_flash(
-               :info,
-               "Created rollout for #{rollout.desired_version} targeting #{length(agent_ids)} agents"
-             )
+             |> put_flash(:info, rollout_created_message(rollout, preview))
              |> load_page_data()
              |> assign(:rollout_form, rollout_form(%{}, socket.assigns.releases))}
 
@@ -1380,6 +1399,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       cohort: "connected",
       selected_count: 0,
       compatible_count: 0,
+      compatible_agent_ids: [],
       unsupported_count: 0,
       unknown_count: 0,
       supported_platforms: [],
@@ -1399,26 +1419,32 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     {selected_agents, unknown_agent_ids, selected_count, cohort} =
       rollout_preview_targets(params, connected_agents, scope)
 
-    unsupported_agents =
+    {compatible_agents, unsupported_agents} =
       case selected_release do
         nil ->
-          []
+          {selected_agents, []}
 
         release ->
           selected_agents
-          |> Enum.filter(&(not release_supports_agent?(release, &1)))
-          |> Enum.map(fn agent ->
-            %{
-              agent_id: agent.uid,
-              platform_label: agent_platform_label(agent) || "unknown platform"
-            }
+          |> Enum.split_with(&release_supports_agent?(release, &1))
+          |> then(fn {compatible_agents, unsupported_agents} ->
+            unsupported_agents =
+              Enum.map(unsupported_agents, fn agent ->
+                %{
+                  agent_id: agent.uid,
+                  platform_label: agent_platform_label(agent) || "unknown platform"
+                }
+              end)
+
+            {compatible_agents, unsupported_agents}
           end)
       end
 
     %{
       cohort: cohort,
       selected_count: selected_count,
-      compatible_count: max(length(selected_agents) - length(unsupported_agents), 0),
+      compatible_count: length(compatible_agents),
+      compatible_agent_ids: Enum.map(compatible_agents, & &1.uid),
       unsupported_count: length(unsupported_agents),
       unknown_count: length(unknown_agent_ids),
       supported_platforms: if(selected_release, do: artifact_platforms(selected_release.manifest), else: []),
@@ -1475,7 +1501,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     agent_os = metadata_field(metadata, [:os, "os"])
     agent_arch = metadata_field(metadata, [:arch, "arch"])
 
-    release
+    release.manifest
     |> artifact_list()
     |> Enum.any?(fn artifact ->
       artifact_matches_platform?(
@@ -1505,8 +1531,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp rollout_preview_actionable?(preview) do
     not preview.release_missing? and
-      preview.selected_count > 0 and
-      preview.unsupported_count == 0 and
+      preview.compatible_count > 0 and
       preview.unknown_count == 0
   end
 
@@ -1521,8 +1546,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       preview.unknown_count > 0 ->
         "Rollout creation is blocked until unresolved agent IDs are corrected or removed."
 
+      preview.compatible_count == 0 ->
+        "Rollout creation is blocked until the cohort includes at least one agent supported by the published release."
+
       preview.unsupported_count > 0 ->
-        "Rollout creation is blocked until the cohort matches the published release platforms."
+        "Unsupported agents will be skipped; the rollout will target the compatible subset."
 
       true ->
         nil
@@ -1531,6 +1559,34 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp rollout_preview_scope_text(%{cohort: "custom"}), do: "Current custom cohort"
   defp rollout_preview_scope_text(_preview), do: "Current connected cohort"
+  defp rollout_submission_metadata(preview, params) do
+    compact_map(%{
+      requested_cohort: preview.cohort,
+      requested_agent_ids: rollout_requested_agent_ids(params),
+      skipped_unsupported_agent_ids: Enum.map(preview.unsupported_agents, & &1.agent_id)
+    })
+  end
+
+  defp rollout_requested_agent_ids(params) do
+    params
+    |> rollout_agent_ids([])
+    |> case do
+      [] -> nil
+      agent_ids -> agent_ids
+    end
+  end
+
+  defp rollout_created_message(rollout, preview) do
+    base = "Created rollout for #{rollout.desired_version} targeting #{length(preview.compatible_agent_ids)} agents"
+
+    if preview.unsupported_count > 0 do
+      suffix = if preview.unsupported_count == 1, do: "agent", else: "agents"
+      base <> " and skipped #{preview.unsupported_count} unsupported #{suffix}"
+    else
+      base
+    end
+  end
+
 
   defp release_provider_label("github"), do: "GitHub Releases"
   defp release_provider_label("forgejo"), do: "Forgejo Releases"
