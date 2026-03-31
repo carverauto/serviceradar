@@ -9,13 +9,12 @@ CURRENT_LINK="${RUNTIME_ROOT}/current"
 
 mkdir -p "${VERSIONS_DIR}" "${RUNTIME_ROOT}/tmp"
 
-if [ ! -e "${CURRENT_LINK}" ]; then
-    mkdir -p "${SEED_DIR}"
-    if [ ! -x "${SEED_DIR}/serviceradar-agent" ]; then
-        cp "${SEED_BINARY}" "${SEED_DIR}/serviceradar-agent"
-        chmod 0755 "${SEED_DIR}/serviceradar-agent"
-    fi
+mkdir -p "${SEED_DIR}"
+cp "${SEED_BINARY}" "${SEED_DIR}/serviceradar-agent.new"
+chmod 0755 "${SEED_DIR}/serviceradar-agent.new"
+mv -Tf "${SEED_DIR}/serviceradar-agent.new" "${SEED_DIR}/serviceradar-agent"
 
+if [ ! -e "${CURRENT_LINK}" ]; then
     ln -sfn "versions/seed-installed" "${CURRENT_LINK}.new"
     mv -Tf "${CURRENT_LINK}.new" "${CURRENT_LINK}"
 fi
