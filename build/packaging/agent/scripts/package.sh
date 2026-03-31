@@ -40,9 +40,11 @@ mkdir -p lib/systemd/system
 
 echo "Building Go binary..."
 
+AGENT_LDFLAGS="-X github.com/carverauto/serviceradar/go/cmd/agent.Version=${VERSION}"
+
 # Build Go binaries
 cd "${BASE_DIR}/go/cmd/agent"
-GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-agent-build/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"
+GOOS=linux GOARCH=amd64 go build -ldflags "${AGENT_LDFLAGS}" -o "../../serviceradar-agent-build/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"
 cd "${BASE_DIR}/go/cmd/agent-updater"
 GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-agent-build/usr/local/bin/serviceradar-agent-updater"
 cd "${BASE_DIR}/go/cmd/cli"
