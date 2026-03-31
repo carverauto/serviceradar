@@ -10,7 +10,7 @@ defmodule ServiceRadar.Identity.Validations.CurrentPasswordTest do
       |> Ash.Changeset.new()
       |> Map.put(:data, %{hashed_password: Bcrypt.hash_pwd_salt("current-password")})
 
-    assert CurrentPassword.validate(changeset, %{required_message: "is required"}, %{}) ==
+    assert CurrentPassword.validate(changeset, [required_message: "is required"], %{}) ==
              {:error, field: :current_password, message: "is required"}
   end
 
@@ -21,7 +21,19 @@ defmodule ServiceRadar.Identity.Validations.CurrentPasswordTest do
       |> Ash.Changeset.set_argument(:current_password, "current-password")
       |> Map.put(:data, %{hashed_password: Bcrypt.hash_pwd_salt("current-password")})
 
-    assert CurrentPassword.validate(changeset, %{required_message: "is required"}, %{}) == :ok
+    assert CurrentPassword.validate(changeset, [required_message: "is required"], %{}) == :ok
+  end
+
+
+
+  test "falls back to the default required message when opts omit it" do
+    changeset =
+      User
+      |> Ash.Changeset.new()
+      |> Map.put(:data, %{hashed_password: Bcrypt.hash_pwd_salt("current-password")})
+
+    assert CurrentPassword.validate(changeset, [], %{}) ==
+             {:error, field: :current_password, message: "is required"}
   end
 
   test "returns the no-password message when provided" do
@@ -33,10 +45,10 @@ defmodule ServiceRadar.Identity.Validations.CurrentPasswordTest do
 
     assert CurrentPassword.validate(
              changeset,
-             %{
+             [
                required_message: "is required to change password",
                no_password_message: "you don't have a password set"
-             },
+             ],
              %{}
            ) ==
              {:error, field: :current_password, message: "you don't have a password set"}
