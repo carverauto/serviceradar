@@ -35,14 +35,15 @@ chmod 755 /var/lib/serviceradar/agent
 chmod 755 /var/lib/serviceradar/agent/versions
 chmod 755 /var/lib/serviceradar/agent/tmp
 
-# Seed the ServiceRadar-managed runtime tree on first install.
+# Refresh the package-provided seed runtime on every install, but leave the
+# active current symlink alone unless it has never been initialized.
 if [ -x /usr/local/lib/serviceradar/agent/serviceradar-agent-seed ]; then
     mkdir -p /var/lib/serviceradar/agent/versions/seed-installed
-    if [ ! -x /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent ]; then
-        cp /usr/local/lib/serviceradar/agent/serviceradar-agent-seed /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent
-        chmod 0755 /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent
-        chown serviceradar:serviceradar /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent
-    fi
+    cp /usr/local/lib/serviceradar/agent/serviceradar-agent-seed /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new
+    chmod 0755 /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new
+    chown serviceradar:serviceradar /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new
+    mv -Tf /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent
+    chown serviceradar:serviceradar /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent
 fi
 
 if [ ! -e /var/lib/serviceradar/agent/current ]; then

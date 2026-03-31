@@ -374,12 +374,36 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       Map.new(grouped_targets, fn {rollout_id, rollout_targets} ->
         {rollout_id,
          rollout_targets
-         |> Enum.sort_by(&{&1.inserted_at, &1.agent_id}, {:desc, :asc})
+         |> Enum.sort(&rollout_target_precedes?/2)
          |> Enum.take(8)
          |> Enum.map(&rollout_target_detail(&1, agents_by_uid))}
       end)
 
     {summaries, target_details}
+  end
+
+  defp rollout_target_precedes?(left, right) do
+    case compare_rollout_target_inserted_at(left.inserted_at, right.inserted_at) do
+      :eq -> to_string(left.agent_id) <= to_string(right.agent_id)
+      :lt -> false
+      :gt -> true
+    end
+  end
+
+  defp compare_rollout_target_inserted_at(%DateTime{} = left, %DateTime{} = right),
+    do: DateTime.compare(left, right)
+
+  defp compare_rollout_target_inserted_at(left, right),
+    do: compare_rollout_target_naive(left, right)
+
+  defp compare_rollout_target_naive(left, right) do
+    cond do
+      left == right -> :eq
+      is_nil(left) -> :lt
+      is_nil(right) -> :gt
+      left < right -> :lt
+      true -> :gt
+    end
   end
 
   defp list_rollout_agents([], _scope), do: []
