@@ -105,7 +105,7 @@ check_config() {
       ;;
     ghcr.io/carverauto/serviceradar-agent)
       assert_eq "$(jq -c '.config.Entrypoint // []' <<<"$config")" '[]' "${ref}:${tag} entrypoint"
-      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/usr/local/bin/serviceradar-agent","-config","/etc/serviceradar/agent.json"]' "${ref}:${tag} cmd"
+      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/usr/local/lib/serviceradar/agent/serviceradar-agent-seed","-config","/etc/serviceradar/agent.json"]' "${ref}:${tag} cmd"
       assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
       ;;
     ghcr.io/carverauto/serviceradar-log-collector)
