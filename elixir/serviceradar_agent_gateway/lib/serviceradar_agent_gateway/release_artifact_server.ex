@@ -145,9 +145,18 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
     opts = conn.private[:release_artifact_server_opts] || []
 
     case Keyword.get(opts, :resolve_download) do
-      fun when is_function(fun, 3) -> fun.(target_id, command_id, caller_identity.component_id)
-      fun when is_function(fun, 2) -> fun.(target_id, command_id)
-      _ -> core_rpc(:resolve_release_artifact_download, [target_id, command_id, caller_identity.component_id])
+      fun when is_function(fun, 3) ->
+        fun.(target_id, command_id, caller_identity.component_id)
+
+      fun when is_function(fun, 2) ->
+        fun.(target_id, command_id)
+
+      _ ->
+        core_rpc(:resolve_release_artifact_download, [
+          target_id,
+          command_id,
+          caller_identity.component_id
+        ])
     end
   end
 
@@ -159,9 +168,10 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
         fun.(object_key)
 
       _ ->
-        ServiceRadar.DataService.Client.with_channel(
+        ServiceRadar.DataService.Client.with_direct_channel(
           fn channel -> download_object_from_channel(channel, object_key) end,
-          timeout: @download_timeout
+          timeout: @download_timeout,
+          connect_timeout_ms: @download_timeout
         )
     end
   end
