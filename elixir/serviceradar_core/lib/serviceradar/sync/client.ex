@@ -197,14 +197,21 @@ defmodule ServiceRadar.Sync.Client do
   Returns the complete binary data after receiving all chunks.
   """
   @spec download_object(GRPC.Channel.t(), String.t(), keyword()) ::
-          {:ok, {Proto.ObjectInfo.t(), binary()}} | {:error, term()}
+          {:ok, {Proto.ObjectInfo.t() | nil, binary()}} | {:error, term()}
   def download_object(channel, key, opts \\ []) do
     timeout = opts[:timeout] || @default_timeout
     request = %Proto.DownloadObjectRequest{key: key}
 
     case Proto.DataService.Stub.download_object(channel, request, timeout: timeout) do
       {:ok, stream} ->
-        collect_download_chunks(stream)
+        stream
+        |> normalize_download_stream(timeout)
+        |> collect_download_chunks()
+
+      {:ok, stream, _headers} ->
+        stream
+        |> normalize_download_stream(timeout)
+        |> collect_download_chunks()
 
       {:error, reason} = error ->
         Logger.error("Error downloading object #{key}: #{inspect(reason)}")
@@ -250,26 +257,40 @@ defmodule ServiceRadar.Sync.Client do
     end
   end
 
-  # Helper: Collect download chunks into a single binary
-  defp collect_download_chunks(stream) do
-    collect_download_chunks(stream, nil, [])
+  defp normalize_download_stream(%{__interface__: _} = stream, timeout) do
+    case GRPC.Stub.recv(stream, timeout: timeout) do
+      {:ok, enumerable} -> enumerable
+      {:ok, enumerable, _headers} -> enumerable
+      {:error, reason} -> [{:error, reason}]
+    end
   end
 
-  defp collect_download_chunks(stream, info, acc) do
-    case GRPC.Stub.recv(stream) do
-      {:ok, chunk} ->
+  defp normalize_download_stream(stream, _timeout), do: stream
+
+  # Helper: Collect download chunks into a single binary
+  defp collect_download_chunks(stream) do
+    stream
+    |> Enum.reduce_while({:ok, {nil, []}}, fn
+      {:ok, chunk}, {:ok, {info, acc}} ->
         new_info = chunk.info || info
         new_acc = [chunk.data | acc]
 
         if chunk.is_final do
-          data = acc |> Enum.reverse() |> IO.iodata_to_binary()
-          {:ok, {new_info, data}}
+          {:halt, {:ok, {new_info, new_acc |> Enum.reverse() |> IO.iodata_to_binary()}}}
         else
-          collect_download_chunks(stream, new_info, new_acc)
+          {:cont, {:ok, {new_info, new_acc}}}
         end
 
-      {:error, reason} ->
-        {:error, reason}
+      {:trailers, _trailers}, {:ok, _} = state ->
+        {:cont, state}
+
+      {:error, reason}, _state ->
+        {:halt, {:error, reason}}
+    end)
+    |> case do
+      {:ok, {info, data}} when is_binary(data) -> {:ok, {info, data}}
+      {:ok, {info, acc}} -> {:ok, {info, acc |> Enum.reverse() |> IO.iodata_to_binary()}}
+      {:error, _} = error -> error
     end
   end
 

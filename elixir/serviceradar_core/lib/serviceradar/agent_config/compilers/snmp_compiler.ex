@@ -163,7 +163,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       |> Enum.map(fn device -> compile_device_target(device, profile, oids, actor) end)
       |> Enum.reject(&is_nil/1)
 
-    compiled_targets = merge_targets(profile_targets, query_targets)
+    compiled_targets =
+      profile_targets
+      |> merge_targets(query_targets)
+      |> sort_targets()
 
     %{
       "enabled" => profile.enabled and compiled_targets != [],
@@ -535,7 +538,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   # Compile OIDs to the expected format
   defp compile_oids(oids) do
-    Enum.map(oids, fn oid ->
+    oids
+    |> Enum.map(fn oid ->
       %{
         "oid" => Map.get(oid, "oid"),
         "name" => Map.get(oid, "name"),
@@ -544,6 +548,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         "delta" => Map.get(oid, "delta", false)
       }
     end)
+    |> sort_oids()
   end
 
   defp load_profile_targets(profile, actor) do
@@ -555,8 +560,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, targets} ->
         targets
+        |> Enum.sort_by(&target_sort_key/1)
         |> Enum.map(&compile_profile_target(&1, profile))
         |> Enum.reject(&is_nil/1)
+        |> sort_targets()
 
       {:error, reason} ->
         Logger.warning("SNMPCompiler: failed to load profile targets - #{inspect(reason)}")
@@ -618,6 +625,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       Map.put_new(acc, key, oid)
     end)
     |> Map.values()
+    |> sort_oids()
   end
 
   defp derive_packet_oid(%{"name" => name, "oid" => oid})
@@ -717,6 +725,24 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       Map.put_new(acc, key, target)
     end)
     |> Map.values()
+  end
+
+  defp sort_targets(targets) when is_list(targets) do
+    Enum.sort_by(targets, &target_sort_key/1)
+  end
+
+  defp sort_oids(oids) when is_list(oids) do
+    Enum.sort_by(oids, fn oid ->
+      {Map.get(oid, "name", ""), Map.get(oid, "oid", "")}
+    end)
+  end
+
+  defp target_sort_key(target) do
+    {
+      Map.get(target, "host", ""),
+      Map.get(target, "name", ""),
+      Map.get(target, "id", "")
+    }
   end
 
   # Resolve credentials: device override → profile fallback

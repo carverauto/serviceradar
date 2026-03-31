@@ -21,13 +21,15 @@ defmodule ServiceRadar.Identity.Validations.CurrentPassword do
   def validate(changeset, opts, _context) do
     current_password = Ash.Changeset.get_argument(changeset, :current_password)
     user = changeset.data
+    required_message = Keyword.get(opts, :required_message, "is required")
+    no_password_message = Keyword.get(opts, :no_password_message)
 
     cond do
       no_password_set?(user) ->
-        validate_no_password(current_password, opts.no_password_message)
+        validate_no_password(current_password, no_password_message)
 
       blank?(current_password) ->
-        {:error, field: :current_password, message: opts.required_message}
+        {:error, field: :current_password, message: required_message}
 
       Bcrypt.verify_pass(current_password, user.hashed_password) ->
         :ok
