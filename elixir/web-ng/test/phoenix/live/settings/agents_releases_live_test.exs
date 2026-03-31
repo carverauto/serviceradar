@@ -730,12 +730,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert html =~ "linux/amd64"
     assert html =~ "linux/arm64"
     assert html =~ "1 unsupported"
-    assert html =~ "Rollout creation is blocked until the cohort includes at least one agent supported by the published release."
+
+    assert html =~
+             "Rollout creation is blocked until the cohort includes at least one agent supported by the published release."
+
     assert has_element?(lv, "#create-rollout-form button[disabled]")
     assert html =~ "No compatible agents are available for the selected release"
   end
 
-  test "creates a rollout for the compatible subset when the cohort includes unsupported agents", %{conn: conn, scope: scope} do
+  test "creates a rollout for the compatible subset when the cohort includes unsupported agents", %{
+    conn: conn,
+    scope: scope
+  } do
     version = "3.3.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
 
@@ -803,6 +809,132 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert rollout
     assert rollout.cohort_agent_ids == [compatible_id]
     assert get_in(rollout.metadata || %{}, ["skipped_unsupported_agent_ids"]) == [unsupported_id]
+  end
+
+  test "rollout metadata keeps all skipped unsupported agent ids", %{conn: conn, scope: scope} do
+    version = "3.4.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+    compatible_id = "agent-release-compatible-#{System.unique_integer([:positive])}"
+
+    unsupported_ids =
+      for _ <- 1..9 do
+        "agent-release-unsupported-#{System.unique_integer([:positive])}"
+      end
+
+    for {agent_id, arch} <- [{compatible_id, "amd64"} | Enum.map(unsupported_ids, &{&1, "arm64"})] do
+      Agent
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: agent_id,
+          name: "Metadata Test Agent #{arch}",
+          gateway_id: gateway.id,
+          version: "1.0.0",
+          type_id: 4,
+          type: "Performance",
+          capabilities: ["agent"],
+          metadata: %{"os" => "linux", "arch" => arch}
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+    end
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
+
+    html =
+      lv
+      |> form("#create-rollout-form", %{
+        "rollout" => %{
+          "version" => version,
+          "cohort" => "custom",
+          "batch_size" => "1",
+          "batch_delay_seconds" => "0",
+          "agent_ids" => Enum.join([compatible_id | unsupported_ids], "\n"),
+          "notes" => "metadata rollout"
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "Created rollout for #{version} targeting 1 agents and skipped 9 unsupported agents"
+
+    rollout =
+      AgentReleaseRollout
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(expr(desired_version == ^version))
+      |> Ash.Query.sort(inserted_at: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.read!(scope: scope)
+      |> List.first()
+
+    assert rollout
+    assert rollout.cohort_agent_ids == [compatible_id]
+    assert get_in(rollout.metadata || %{}, ["skipped_unsupported_agent_ids"]) == unsupported_ids
+  end
+
+  test "create rollout normalizes surrounding whitespace in the selected version", %{conn: conn, scope: scope} do
+    version = "4.4.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+    compatible_id = "agent-release-whitespace-#{System.unique_integer([:positive])}"
+
+    Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{
+        uid: compatible_id,
+        name: "Whitespace Version Agent",
+        gateway_id: gateway.id,
+        version: "1.0.0",
+        type_id: 4,
+        type: "Performance",
+        capabilities: ["agent"],
+        metadata: %{"os" => "linux", "arch" => "amd64"}
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
+
+    html =
+      lv
+      |> form("#create-rollout-form", %{
+        "rollout" => %{
+          "version" => "  #{version}  ",
+          "cohort" => "custom",
+          "batch_size" => "1",
+          "batch_delay_seconds" => "0",
+          "agent_ids" => compatible_id,
+          "notes" => "whitespace rollout"
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "Created rollout for #{version} targeting 1 agents"
   end
 
   test "selecting a published release updates the rollout form version", %{conn: conn, scope: scope} do
