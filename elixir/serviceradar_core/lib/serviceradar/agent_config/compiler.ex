@@ -101,8 +101,29 @@ defmodule ServiceRadar.AgentConfig.Compiler do
   @spec content_hash(compiled_config()) :: String.t()
   def content_hash(config) when is_map(config) do
     config
-    |> Jason.encode!()
+    |> normalize_for_hash()
+    |> :erlang.term_to_binary()
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end
+
+  defp normalize_for_hash(value) when is_map(value) do
+    value
+    |> Enum.map(fn {key, nested_value} ->
+      {normalize_hash_key(key), normalize_for_hash(nested_value)}
+    end)
+    |> Enum.sort_by(&elem(&1, 0))
+  end
+
+  defp normalize_for_hash(value) when is_list(value) do
+    Enum.map(value, &normalize_for_hash/1)
+  end
+
+  defp normalize_for_hash(value), do: value
+
+  defp normalize_hash_key(key) when is_atom(key), do: {:atom, Atom.to_string(key)}
+  defp normalize_hash_key(key) when is_binary(key), do: {:string, key}
+  defp normalize_hash_key(key) when is_integer(key), do: {:integer, key}
+  defp normalize_hash_key(key) when is_float(key), do: {:float, key}
+  defp normalize_hash_key(key), do: {:other, inspect(key)}
 end
