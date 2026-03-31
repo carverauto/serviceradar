@@ -409,11 +409,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     end
   end
 
-  defp compare_rollout_target_inserted_at(%DateTime{} = left, %DateTime{} = right),
-    do: DateTime.compare(left, right)
+  defp compare_rollout_target_inserted_at(%DateTime{} = left, %DateTime{} = right), do: DateTime.compare(left, right)
 
-  defp compare_rollout_target_inserted_at(left, right),
-    do: compare_rollout_target_naive(left, right)
+  defp compare_rollout_target_inserted_at(left, right), do: compare_rollout_target_naive(left, right)
 
   defp compare_rollout_target_naive(left, right) do
     cond do
@@ -1401,6 +1399,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       compatible_count: 0,
       compatible_agent_ids: [],
       unsupported_count: 0,
+      unsupported_agent_ids: [],
       unknown_count: 0,
       supported_platforms: [],
       unsupported_agents: [],
@@ -1413,6 +1412,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     selected_release =
       params
       |> Map.get("version")
+      |> normalize_release_version()
       |> presence()
       |> find_release_by_version(releases)
 
@@ -1446,6 +1446,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       compatible_count: length(compatible_agents),
       compatible_agent_ids: Enum.map(compatible_agents, & &1.uid),
       unsupported_count: length(unsupported_agents),
+      unsupported_agent_ids: Enum.map(unsupported_agents, & &1.agent_id),
       unknown_count: length(unknown_agent_ids),
       supported_platforms: if(selected_release, do: artifact_platforms(selected_release.manifest), else: []),
       unsupported_agents: Enum.take(unsupported_agents, 8),
@@ -1559,13 +1560,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp rollout_preview_scope_text(%{cohort: "custom"}), do: "Current custom cohort"
   defp rollout_preview_scope_text(_preview), do: "Current connected cohort"
+
   defp rollout_submission_metadata(preview, params) do
     compact_map(%{
       requested_cohort: preview.cohort,
       requested_agent_ids: rollout_requested_agent_ids(params),
-      skipped_unsupported_agent_ids: Enum.map(preview.unsupported_agents, & &1.agent_id)
+      skipped_unsupported_agent_ids: preview.unsupported_agent_ids
     })
   end
+
+  defp normalize_release_version(version) when is_binary(version), do: String.trim(version)
+  defp normalize_release_version(version), do: version
 
   defp rollout_requested_agent_ids(params) do
     params
@@ -1586,7 +1591,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       base
     end
   end
-
 
   defp release_provider_label("github"), do: "GitHub Releases"
   defp release_provider_label("forgejo"), do: "Forgejo Releases"
