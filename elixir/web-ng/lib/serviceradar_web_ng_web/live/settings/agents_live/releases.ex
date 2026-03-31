@@ -1475,7 +1475,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
         {selected_agents, unknown_agent_ids, length(agent_ids), "custom"}
 
       _ ->
-        connected_agents = Enum.reject(connected_agents, &kubernetes_managed_agent?/1)
+        connected_agents = Enum.reject(connected_agents, &externally_managed_agent?/1)
         {connected_agents, [], length(connected_agents), "connected"}
     end
   end
@@ -1493,11 +1493,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     end
   end
 
-  defp kubernetes_managed_agent?(%Agent{metadata: metadata}) when is_map(metadata) do
-    metadata_field(metadata, [:deployment_type, "deployment_type"]) == "kubernetes"
+  defp externally_managed_agent?(%Agent{metadata: metadata}) when is_map(metadata) do
+    metadata_field(metadata, [:deployment_type, "deployment_type"]) in ["kubernetes", "docker"]
   end
 
-  defp kubernetes_managed_agent?(_agent), do: false
+  defp externally_managed_agent?(_agent), do: false
 
   defp find_release_by_version(nil, _releases), do: nil
 

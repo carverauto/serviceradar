@@ -399,7 +399,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     refute has_element?(lv, "#create-rollout-form button[disabled]")
   end
 
-  test "ignores kubernetes-managed agents in the connected rollout cohort", %{conn: conn, scope: scope} do
+  test "ignores container-managed agents in the connected rollout cohort", %{conn: conn, scope: scope} do
     version = "2.3.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
 
@@ -420,6 +420,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
             uid: "agent-preview-host-#{System.unique_integer([:positive])}",
             name: "Host Agent",
             metadata: %{"os" => "linux", "arch" => "amd64", "deployment_type" => "bare-metal"}
+          },
+          %{
+            uid: "agent-preview-docker-#{System.unique_integer([:positive])}",
+            name: "Docker Agent",
+            metadata: %{"os" => "linux", "arch" => "amd64", "deployment_type" => "docker"}
           },
           %{
             uid: "agent-preview-k8s-#{System.unique_integer([:positive])}",
@@ -449,7 +454,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     assert html =~ "1 selected"
     assert html =~ "1 compatible"
-    refute html =~ "2 selected"
+    refute html =~ "3 selected"
     refute html =~ "Unsupported agents will be skipped"
     refute has_element?(lv, "#create-rollout-form button[disabled]")
   end
