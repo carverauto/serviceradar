@@ -197,17 +197,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       mapper_failed: 0
     }
 
-    Enum.reduce_while(batches, {:ok, initial_stats}, fn {batch, batch_num}, {:ok, acc_stats} ->
+    batches
+    |> Enum.reduce_while({:ok, initial_stats}, fn {batch, batch_num}, {:ok, acc_stats} ->
       batch_start = System.monotonic_time(:millisecond)
 
-      case process_batch(
-             batch,
-             execution_id,
-             sweep_group_id,
-             agent_id,
-             actor,
-             mapper_promotion_opts
-           ) do
+      case process_batch(batch, execution_id, sweep_group_id, actor) do
         {:ok, batch_stats} ->
           batch_elapsed = System.monotonic_time(:millisecond) - batch_start
 
@@ -227,6 +221,22 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           {:halt, {:error, reason}}
       end
     end)
+    |> case do
+      {:ok, stats} ->
+        promotion_stats =
+          process_mapper_promotions(
+            results,
+            sweep_group_id,
+            agent_id,
+            actor,
+            mapper_promotion_opts
+          )
+
+        {:ok, merge_stats(stats, promotion_stats)}
+
+      {:error, _} = error ->
+        error
+    end
   end
 
   defp finalize_results(
@@ -282,14 +292,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     error
   end
 
-  defp process_batch(
-         results,
-         execution_id,
-         sweep_group_id,
-         agent_id,
-         actor,
-         mapper_promotion_opts
-       ) do
+  defp process_batch(results, execution_id, sweep_group_id, actor) do
     # Step 1: Extract all IPs for bulk device lookup
     ips = results |> Enum.map(&extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
@@ -337,21 +340,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         # Step 9: Update device availability
         update_device_availability(results, all_devices, sweep_group_id, actor)
 
-        promotion_stats =
-          MapperPromotion.promote(
-            results,
-            all_devices,
-            sweep_group_id,
-            agent_id,
-            Keyword.put(mapper_promotion_opts, :actor, actor)
-          )
-
         final_stats =
           stats
           |> Map.put(:devices_created, map_size(created_device_map))
           |> Map.put(:devices_updated, length(known_ips) + length(detected_ips))
           |> Map.put(:aliases_confirmed, length(detected_ips))
-          |> Map.merge(prefix_promotion_stats(promotion_stats))
 
         {:ok, final_stats}
 
@@ -385,6 +378,29 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       mapper_skipped: Map.get(stats, :skipped, 0),
       mapper_failed: Map.get(stats, :failed, 0)
     }
+  end
+
+  defp process_mapper_promotions([], _sweep_group_id, _agent_id, _actor, _mapper_promotion_opts) do
+    prefix_promotion_stats(%{})
+  end
+
+  defp process_mapper_promotions(results, sweep_group_id, agent_id, actor, mapper_promotion_opts) do
+    ips =
+      results
+      |> Enum.map(&extract_ip/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor, include_deleted: true)
+
+    results
+    |> MapperPromotion.promote(
+      device_map,
+      sweep_group_id,
+      agent_id,
+      Keyword.put(mapper_promotion_opts, :actor, actor)
+    )
+    |> prefix_promotion_stats()
   end
 
   defp create_available_unknown_devices(_results, [], _sweep_group_id, _actor), do: %{}
