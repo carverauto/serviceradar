@@ -706,11 +706,14 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp request_metadata(request) do
+    labels = request_value(request, :labels)
+
     base = %{
       hostname: request_value(request, :hostname),
       os: request_value(request, :os),
       arch: request_value(request, :arch),
-      labels: request_value(request, :labels)
+      labels: labels,
+      deployment_type: label_value(labels, [:deployment_type, "deployment_type"])
     }
 
     compact_metadata(base)
@@ -725,6 +728,18 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       _ -> nil
     end
   end
+
+  defp label_value(labels, keys) when is_map(labels) do
+    Enum.find_value(List.wrap(keys), fn key ->
+      case Map.get(labels, key) do
+        nil -> nil
+        "" -> nil
+        value -> value
+      end
+    end)
+  end
+
+  defp label_value(_labels, _keys), do: nil
 
   defp compact_metadata(metadata) do
     metadata
