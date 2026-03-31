@@ -322,6 +322,99 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert device.metadata["sweep_mapper_promotion"]["command_id"] == "cmd-#{unique_id}"
   end
 
+  test "ingest results dispatches mapper promotion once across multiple ingest batches", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = System.unique_integer([:positive])
+    ip_one = "10.3.2.#{rem(unique_id, 200) + 10}"
+    ip_two = "10.3.3.#{rem(unique_id, 200) + 10}"
+    mapper_job_name = "mapper-multibatch-#{unique_id}"
+    partition = "partition-multibatch-#{unique_id}"
+
+    {:ok, _agent} =
+      Agent
+      |> Ash.Changeset.for_create(:register, %{uid: agent_id}, actor: actor)
+      |> Ash.create(actor: actor)
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "Sweep MultiBatch #{unique_id}", partition: partition, agent_id: agent_id},
+        actor: actor,
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, mapper_job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: mapper_job_name,
+          partition: partition,
+          discovery_mode: :snmp,
+          discovery_type: :full
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    dispatcher = fn job, opts ->
+      send(
+        self(),
+        {:mapper_multibatch_dispatch, job.id, job.name, Enum.sort(Keyword.get(opts, :seeds, []))}
+      )
+
+      {:ok, "cmd-multibatch-#{unique_id}"}
+    end
+
+    filler_results =
+      for idx <- 1..499 do
+        %{
+          "host_ip" => "10.3.200.#{idx}",
+          "hostname" => "filler-#{unique_id}-#{idx}",
+          "available" => false,
+          "error" => "timeout"
+        }
+      end
+
+    results =
+      [
+        %{
+          "host_ip" => ip_one,
+          "hostname" => "multibatch-one-#{unique_id}",
+          "available" => true
+        }
+      ] ++
+        filler_results ++
+        [
+          %{
+            "host_ip" => ip_two,
+            "hostname" => "multibatch-two-#{unique_id}",
+            "available" => true
+          }
+        ]
+
+    assert {:ok, stats} =
+             SweepResultsIngestor.ingest_results(results, Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               config_version: "hash-multibatch-#{unique_id}",
+               mapper_promotion_opts: [dispatcher: dispatcher, cooldown_seconds: 900]
+             )
+
+    assert stats.mapper_dispatched == 1
+
+    mapper_job_id = mapper_job.id
+
+    assert_receive {:mapper_multibatch_dispatch, ^mapper_job_id, ^mapper_job_name, seeds}
+    assert seeds == Enum.sort([ip_one, ip_two])
+    refute_receive {:mapper_multibatch_dispatch, _, _, _}
+  end
+
   test "ingest results suppresses duplicate mapper promotion during cooldown", %{
     actor: actor,
     agent_id: agent_id

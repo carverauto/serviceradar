@@ -91,7 +91,7 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   @doc """
-  Executes `fun` with an active datasvc gRPC channel.
+  Executes fun with an active datasvc gRPC channel.
 
   Falls back to a direct connection when the supervised client is unavailable.
   """
@@ -109,13 +109,25 @@ defmodule ServiceRadar.DataService.Client do
           "DataService.Client unavailable for channel request (#{inspect(reason)}), opening direct datasvc connection"
         )
 
-        with {:ok, channel} <- connect(Keyword.put_new(opts, :connect_timeout_ms, timeout)) do
-          try do
-            fun.(channel)
-          after
-            _ = disconnect_direct_channel(channel)
-          end
-        end
+        with_direct_channel(fun, Keyword.put_new(opts, :connect_timeout_ms, timeout))
+    end
+  end
+
+  @doc """
+  Executes fun with a one-off direct datasvc connection.
+
+  Use this for isolated long-lived streaming calls so concurrent callers do not
+  contend on the supervised shared connection.
+  """
+  @spec with_direct_channel((GRPC.Channel.t() -> result), keyword()) :: result | {:error, term()}
+        when result: term()
+  def with_direct_channel(fun, opts \\ []) when is_function(fun, 1) do
+    with {:ok, channel} <- connect(opts) do
+      try do
+        fun.(channel)
+      after
+        _ = disconnect_direct_channel(channel)
+      end
     end
   end
 

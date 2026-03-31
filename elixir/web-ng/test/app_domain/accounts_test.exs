@@ -3,7 +3,10 @@ defmodule ServiceRadarWebNG.AccountsTest do
 
   import ServiceRadarWebNG.AccountsFixtures
 
+  alias Ash.Error.Forbidden
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadarWebNG.Accounts
+  alias ServiceRadarWebNG.Accounts.Scope
 
   describe "get_user_by_email/1" do
     test "does not return the user if the email does not exist" do
@@ -94,30 +97,49 @@ defmodule ServiceRadarWebNG.AccountsTest do
 
   describe "update_user_password/2" do
     setup do
-      %{user: set_password(user_fixture())}
+      user = set_password(user_fixture(%{role: :operator}))
+      scope = Scope.for_user(user, permissions: RBAC.permissions_for_user(user))
+      %{user: user, scope: scope}
     end
 
-    test "validates password", %{user: user} do
+    test "validates password", %{user: user, scope: scope} do
       {:error, error} =
-        Accounts.update_user_password(user, %{
-          current_password: valid_user_password(),
-          password: "not valid",
-          password_confirmation: "another"
-        })
+        Accounts.update_user_password(
+          user,
+          %{
+            current_password: valid_user_password(),
+            password: "not valid",
+            password_confirmation: "another"
+          }, scope: scope)
 
-      # Ash error format
       assert has_error?(error, :password) or has_error?(error, :password_confirmation)
     end
 
-    test "updates the password", %{user: user} do
+    test "updates the password", %{user: user, scope: scope} do
       {:ok, updated_user} =
-        Accounts.update_user_password(user, %{
-          current_password: valid_user_password(),
-          password: "new valid password",
-          password_confirmation: "new valid password"
-        })
+        Accounts.update_user_password(
+          user,
+          %{
+            current_password: valid_user_password(),
+            password: "new valid password",
+            password_confirmation: "new valid password"
+          }, scope: scope)
 
       assert Accounts.get_user_by_email_and_password(updated_user.email, "new valid password")
+    end
+
+    test "forbids viewers from changing their own password" do
+      user = set_password(user_fixture(%{role: :viewer}))
+      scope = Scope.for_user(user, permissions: RBAC.permissions_for_user(user))
+
+      assert {:error, %Forbidden{}} =
+               Accounts.update_user_password(
+                 user,
+                 %{
+                   current_password: valid_user_password(),
+                   password: "new valid password",
+                   password_confirmation: "new valid password"
+                 }, scope: scope)
     end
   end
 

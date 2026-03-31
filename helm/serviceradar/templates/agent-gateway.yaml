@@ -7,6 +7,15 @@
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $clusterCoreNodeBasename := default $coreClusterNodeBasename $gateway.clusterCoreNodeBasename -}}
+{{- $datasvc := default (dict) $gateway.datasvc -}}
+{{- $datasvcHost := default "serviceradar-datasvc" $datasvc.host -}}
+{{- $datasvcPort := default 50057 $datasvc.port -}}
+{{- $datasvcSecMode := default "mtls" $datasvc.secMode -}}
+{{- $datasvcSecModeLower := lower $datasvcSecMode -}}
+{{- $datasvcTLS := ternary "true" "false" (ne $datasvcSecModeLower "plaintext") -}}
+{{- $datasvcCertDir := default "/etc/serviceradar/certs" $datasvc.certDir -}}
+{{- $datasvcCertName := default "gateway" $datasvc.certName -}}
+{{- $datasvcServerName := default "datasvc.serviceradar" $datasvc.serverName -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -104,6 +113,24 @@ spec:
           value: {{ $clusterCoreNodeBasename | quote }}
         - name: GATEWAY_CERT_DIR
           value: "/etc/serviceradar/certs"
+        - name: DATASVC_ENABLED
+          value: "true"
+        - name: DATASVC_ADDRESS
+          value: {{ printf "%s:%v" $datasvcHost $datasvcPort | quote }}
+        - name: DATASVC_HOST
+          value: {{ $datasvcHost | quote }}
+        - name: DATASVC_PORT
+          value: {{ $datasvcPort | quote }}
+        - name: DATASVC_SEC_MODE
+          value: {{ $datasvcSecMode | quote }}
+        - name: DATASVC_SSL
+          value: {{ $datasvcTLS | quote }}
+        - name: DATASVC_CERT_DIR
+          value: {{ $datasvcCertDir | quote }}
+        - name: DATASVC_CERT_NAME
+          value: {{ $datasvcCertName | quote }}
+        - name: DATASVC_SERVER_NAME
+          value: {{ $datasvcServerName | quote }}
         {{- with $.Values.otelExporter }}
         {{- if .enabled }}
         - name: OTEL_EXPORTER_OTLP_ENDPOINT

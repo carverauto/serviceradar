@@ -248,7 +248,7 @@ config :serviceradar_core, :spiffe,
 config :serviceradar_core,
   repo_enabled: System.get_env("SERVICERADAR_CORE_REPO_ENABLED", "false") in ~w(true 1 yes),
   vault_enabled: false,
-  datasvc_enabled: false,
+  datasvc_enabled: System.get_env("DATASVC_ENABLED", "false") in ~w(true 1 yes),
   cluster_enabled: System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes),
   # =============================================================================
   # PubSub Configuration

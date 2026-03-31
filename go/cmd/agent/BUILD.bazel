@@ -1,4 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+load("@serviceradar_version//:defs.bzl", "FULL_VERSION")
 
 go_library(
     name = "agent_lib",
@@ -24,4 +25,7 @@ go_binary(
     name = "agent",
     embed = [":agent_lib"],
     visibility = ["//visibility:public"],
+    x_defs = {
+        "github.com/carverauto/serviceradar/go/cmd/agent.Version": FULL_VERSION,
+    },
 )
