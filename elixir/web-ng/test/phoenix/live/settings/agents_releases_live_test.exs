@@ -536,6 +536,92 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert target.desired_version == version
   end
 
+  test "custom cohorts ignore container-managed agents", %{conn: conn, scope: scope} do
+    version = "3.0.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+
+    host_id = "agent-preview-custom-host-#{System.unique_integer([:positive])}"
+    docker_id = "agent-preview-custom-docker-#{System.unique_integer([:positive])}"
+    k8s_id = "agent-preview-custom-k8s-#{System.unique_integer([:positive])}"
+
+    for attrs <- [
+          %{
+            uid: host_id,
+            name: "Host Agent",
+            metadata: %{"os" => "linux", "arch" => "amd64", "deployment_type" => "bare-metal"}
+          },
+          %{
+            uid: docker_id,
+            name: "Docker Agent",
+            metadata: %{"os" => "linux", "arch" => "amd64", "deployment_type" => "docker"}
+          },
+          %{
+            uid: k8s_id,
+            name: "Kubernetes Agent",
+            metadata: %{"os" => "linux", "arch" => "amd64", "deployment_type" => "kubernetes"}
+          }
+        ] do
+      Agent
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: attrs.uid,
+          name: attrs.name,
+          gateway_id: gateway.id,
+          version: "1.0.0",
+          type_id: 4,
+          type: "Performance",
+          capabilities: ["agent"],
+          metadata: attrs.metadata
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+    end
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
+
+    html =
+      lv
+      |> form("#create-rollout-form", %{
+        "rollout" => %{
+          "version" => version,
+          "cohort" => "custom",
+          "batch_size" => "1",
+          "batch_delay_seconds" => "0",
+          "agent_ids" => Enum.join([host_id, docker_id, k8s_id], "\n"),
+          "notes" => "custom cohort filter"
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "Created rollout for #{version} targeting 1 agents"
+
+    rollout =
+      AgentReleaseRollout
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(expr(desired_version == ^version))
+      |> Ash.Query.sort(inserted_at: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.read!(scope: scope)
+      |> List.first()
+
+    assert rollout
+    assert rollout.cohort_agent_ids == [host_id]
+  end
+
   test "updates rollout compatibility preview for custom cohorts with unresolved ids", %{conn: conn, scope: scope} do
     version = "3.0.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
