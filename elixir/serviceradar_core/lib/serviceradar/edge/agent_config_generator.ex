@@ -396,39 +396,236 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          %PluginPackage{} = package,
          manifest
        ) do
-    cond_result =
-      cond do
-        map_present?(assignment.permissions_override) ->
-          assignment.permissions_override
-
-        map_present?(package.approved_permissions) ->
-          package.approved_permissions
-
-        true ->
-          Map.get(manifest, "permissions") || Map.get(manifest, :permissions) || %{}
-      end
-
-    normalize_map(cond_result)
+    manifest
+    |> fetch_map_value(:permissions, %{})
+    |> normalize_permissions()
+    |> narrow_permissions(package.approved_permissions)
+    |> narrow_permissions(assignment.permissions_override)
   end
 
   defp effective_resources(%PluginAssignment{} = assignment, %PluginPackage{} = package, manifest) do
-    cond_result =
-      cond do
-        map_present?(assignment.resources_override) ->
-          assignment.resources_override
-
-        map_present?(package.approved_resources) ->
-          package.approved_resources
-
-        true ->
-          Map.get(manifest, "resources") || Map.get(manifest, :resources) || %{}
-      end
-
-    normalize_map(cond_result)
+    manifest
+    |> fetch_map_value(:resources, %{})
+    |> normalize_resources()
+    |> narrow_resources(package.approved_resources)
+    |> narrow_resources(assignment.resources_override)
   end
 
   defp map_present?(map) when is_map(map), do: map_size(map) > 0
   defp map_present?(_), do: false
+
+  defp fetch_map_value(map, key, default \\ nil)
+
+  defp fetch_map_value(map, key, default) when is_map(map) do
+    cond do
+      Map.has_key?(map, key) -> Map.get(map, key)
+      Map.has_key?(map, to_string(key)) -> Map.get(map, to_string(key))
+      true -> default
+    end
+  end
+
+  defp fetch_map_value(_map, _key, default), do: default
+
+  defp normalize_permissions(raw) do
+    %{
+      allowed_domains: normalize_string_list(fetch_map_value(raw, :allowed_domains, [])),
+      allowed_networks: normalize_string_list(fetch_map_value(raw, :allowed_networks, [])),
+      allowed_ports: normalize_int_list(fetch_map_value(raw, :allowed_ports, []))
+    }
+  end
+
+  defp narrow_permissions(base, override) do
+    override = normalize_map(override)
+
+    %{
+      allowed_domains:
+        narrow_string_scope(
+          Map.get(base, :allowed_domains, []),
+          fetch_override_list(override, :allowed_domains)
+        ),
+      allowed_networks:
+        narrow_string_scope(
+          Map.get(base, :allowed_networks, []),
+          fetch_override_list(override, :allowed_networks)
+        ),
+      allowed_ports:
+        narrow_port_scope(
+          Map.get(base, :allowed_ports, []),
+          fetch_override_list(override, :allowed_ports)
+        )
+    }
+  end
+
+  defp fetch_override_list(map, key) when is_map(map) do
+    cond do
+      Map.has_key?(map, key) -> {:present, Map.get(map, key)}
+      Map.has_key?(map, to_string(key)) -> {:present, Map.get(map, to_string(key))}
+      true -> :absent
+    end
+  end
+
+  defp fetch_override_list(_map, _key), do: :absent
+
+  defp narrow_string_scope(base, :absent), do: base
+
+  defp narrow_string_scope(base, {:present, override}) do
+    override = normalize_string_list(override)
+
+    if base == [] do
+      []
+    else
+      allowed = MapSet.new(override)
+      Enum.filter(base, &MapSet.member?(allowed, &1))
+    end
+  end
+
+  defp narrow_port_scope(base, :absent), do: base
+
+  defp narrow_port_scope(base, {:present, override}) do
+    override = normalize_int_list(override)
+
+    cond do
+      base == [] ->
+        override
+
+      override == [] ->
+        base
+
+      true ->
+        allowed = MapSet.new(override)
+        Enum.filter(base, &MapSet.member?(allowed, &1))
+    end
+  end
+
+  defp normalize_resources(raw) do
+    %{
+      requested_memory_mb: normalize_positive_int(fetch_map_value(raw, :requested_memory_mb)),
+      requested_cpu_ms: normalize_positive_int(fetch_map_value(raw, :requested_cpu_ms)),
+      max_open_connections: normalize_nonneg_int(fetch_map_value(raw, :max_open_connections))
+    }
+    |> drop_nil_entries()
+  end
+
+  defp narrow_resources(base, override) do
+    override = normalize_map(override)
+
+    %{
+      requested_memory_mb:
+        narrow_positive_resource(
+          Map.get(base, :requested_memory_mb),
+          fetch_override_value(override, :requested_memory_mb)
+        ),
+      requested_cpu_ms:
+        narrow_positive_resource(
+          Map.get(base, :requested_cpu_ms),
+          fetch_override_value(override, :requested_cpu_ms)
+        ),
+      max_open_connections:
+        narrow_nonneg_resource(
+          Map.get(base, :max_open_connections),
+          fetch_override_value(override, :max_open_connections)
+        )
+    }
+    |> drop_nil_entries()
+  end
+
+  defp fetch_override_value(map, key) when is_map(map) do
+    cond do
+      Map.has_key?(map, key) -> {:present, Map.get(map, key)}
+      Map.has_key?(map, to_string(key)) -> {:present, Map.get(map, to_string(key))}
+      true -> :absent
+    end
+  end
+
+  defp fetch_override_value(_map, _key), do: :absent
+
+  defp narrow_positive_resource(base, :absent), do: base
+
+  defp narrow_positive_resource(base, {:present, override}) do
+    case normalize_positive_int(override) do
+      nil ->
+        base
+
+      narrowed when is_integer(base) and base > 0 ->
+        min(base, narrowed)
+
+      narrowed ->
+        narrowed
+    end
+  end
+
+  defp narrow_nonneg_resource(base, :absent), do: base
+
+  defp narrow_nonneg_resource(base, {:present, override}) do
+    case normalize_nonneg_int(override) do
+      nil ->
+        base
+
+      0 when is_integer(base) and base > 0 ->
+        base
+
+      narrowed when is_integer(base) and base > 0 ->
+        min(base, narrowed)
+
+      narrowed ->
+        narrowed
+    end
+  end
+
+  defp normalize_positive_int(value) when is_integer(value) and value > 0, do: value
+
+  defp normalize_positive_int(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _ -> nil
+    end
+  end
+
+  defp normalize_positive_int(_value), do: nil
+
+  defp normalize_nonneg_int(value) when is_integer(value) and value >= 0, do: value
+
+  defp normalize_nonneg_int(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} when parsed >= 0 -> parsed
+      _ -> nil
+    end
+  end
+
+  defp normalize_nonneg_int(_value), do: nil
+
+  defp normalize_string_list(list) when is_list(list) do
+    list
+    |> Enum.map(&normalize_string_item/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_string_list(_list), do: []
+
+  defp normalize_string_item(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      item -> item
+    end
+  end
+
+  defp normalize_string_item(_value), do: nil
+
+  defp normalize_int_list(list) when is_list(list) do
+    list
+    |> Enum.map(&normalize_positive_int/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_int_list(_list), do: []
+
+  defp drop_nil_entries(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
 
   defp normalize_map(nil), do: %{}
   defp normalize_map(map) when is_map(map), do: map
