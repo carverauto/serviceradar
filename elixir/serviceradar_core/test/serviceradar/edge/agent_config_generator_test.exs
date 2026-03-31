@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
 
   @moduletag :integration
@@ -324,6 +325,115 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       refute config1.plugins == []
       assert hd(config1.plugins).download_token != hd(config2.plugins).download_token
       assert hd(config1.plugins).download_url == hd(config2.plugins).download_url
+    end
+
+    test "plugin assignment overrides cannot widen approved permissions or resources", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      manifest = %{
+        "permissions" => %{
+          "allowed_domains" => ["approved.example.com"],
+          "allowed_networks" => ["10.0.0.0/24"],
+          "allowed_ports" => [443]
+        },
+        "resources" => %{
+          "requested_memory_mb" => 64,
+          "requested_cpu_ms" => 1000,
+          "max_open_connections" => 2
+        }
+      }
+
+      {:ok, _plugin} =
+        Plugin
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            plugin_id: "plugin-override-#{unique_id}",
+            name: "Plugin Override #{unique_id}"
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, package} =
+        PluginPackage
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            plugin_id: "plugin-override-#{unique_id}",
+            name: "Plugin Override #{unique_id}",
+            version: "1.0.0",
+            entrypoint: "run_check",
+            outputs: "serviceradar.plugin_result.v1",
+            manifest: manifest,
+            config_schema: %{},
+            display_contract: %{},
+            wasm_object_key: "plugins/#{unique_id}/plugin.wasm",
+            content_hash: "sha256:#{unique_id}",
+            signature: %{},
+            source_type: :upload
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, package} =
+        package
+        |> Ash.Changeset.for_update(
+          :approve,
+          %{
+            approved_by: "test",
+            approved_permissions: %{allowed_ports: [443]},
+            approved_resources: %{requested_memory_mb: 32}
+          },
+          actor: actor
+        )
+        |> Ash.update()
+
+      {:ok, _assignment} =
+        PluginAssignment
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            agent_uid: agent_uid,
+            plugin_package_id: package.id,
+            enabled: true,
+            interval_seconds: 60,
+            timeout_seconds: 10,
+            params: %{},
+            permissions_override: %{
+              allowed_domains: ["approved.example.com", "evil.example.com"],
+              allowed_networks: ["10.0.0.0/24", "192.168.0.0/16"],
+              allowed_ports: [443, 8443]
+            },
+            resources_override: %{
+              requested_memory_mb: 128,
+              requested_cpu_ms: 2000,
+              max_open_connections: 10
+            }
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      [plugin] = config.plugins
+
+      assert Jason.decode!(plugin.permissions_json) == %{
+               "allowed_domains" => ["approved.example.com"],
+               "allowed_networks" => ["10.0.0.0/24"],
+               "allowed_ports" => [443]
+             }
+
+      assert Jason.decode!(plugin.resources_json) == %{
+               "requested_memory_mb" => 32,
+               "requested_cpu_ms" => 1000,
+               "max_open_connections" => 2
+             }
     end
   end
 
