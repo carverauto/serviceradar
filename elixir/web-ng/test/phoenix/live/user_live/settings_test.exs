@@ -7,14 +7,24 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
   alias ServiceRadarWebNG.Accounts
 
   describe "Settings page" do
-    test "renders settings page", %{conn: conn} do
+    test "renders password controls for users with password permission", %{conn: conn} do
       {:ok, _lv, html} =
         conn
-        |> log_in_user(user_fixture())
+        |> log_in_user(user_fixture(%{role: :operator}))
         |> live(~p"/settings/profile")
 
       assert html =~ "Change Email"
       assert html =~ "Save Password"
+    end
+
+    test "hides password controls for viewers", %{conn: conn} do
+      {:ok, _lv, html} =
+        conn
+        |> log_in_user(user_fixture(%{role: :viewer}))
+        |> live(~p"/settings/profile")
+
+      assert html =~ "Change Email"
+      refute html =~ "Save Password"
     end
 
     test "redirects if user is not logged in", %{conn: conn} do
@@ -85,8 +95,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
 
   describe "update password form" do
     setup %{conn: conn} do
-      # User created with a password
-      user = user_fixture()
+      user = user_fixture(%{role: :operator})
       %{conn: log_in_user(conn, user), user: user}
     end
 

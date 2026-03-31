@@ -174,8 +174,8 @@ defmodule ServiceRadarWebNG.Accounts do
       {:error, %Ash.Error{}}
 
   """
-  def update_user_password(user, attrs) do
-    AshUsers.update_password(user, attrs)
+  def update_user_password(user, attrs, opts \\ []) do
+    AshUsers.update_password(user, attrs, opts)
   end
 
   @doc ~S"""

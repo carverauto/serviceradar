@@ -210,6 +210,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "settings.password.manage",
+          label: "Change own password",
+          description: "Change the signed-in user's password from profile settings",
+          default_roles: @operator_roles
+        },
+        %{
           key: "settings.rbac.manage",
           label: "Manage RBAC policies",
           description: "Manage role profiles and permissions",

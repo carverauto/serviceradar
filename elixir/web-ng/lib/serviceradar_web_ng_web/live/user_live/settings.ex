@@ -6,9 +6,13 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Identity.Constants
   alias ServiceRadarWebNG.Accounts
+  alias ServiceRadarWebNG.RBAC
 
   on_mount {ServiceRadarWebNGWeb.UserAuth, :require_sudo_mode}
+
+  @password_manage_permission Constants.password_manage_permission()
 
   @impl true
   def render(assigns) do
@@ -18,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
         <div>
           <h1 class="text-2xl font-semibold text-base-content">Account Settings</h1>
           <p class="text-sm text-base-content/60">
-            Manage your login email and password.
+            Manage your login email and account profile settings.
           </p>
         </div>
 
@@ -58,56 +62,58 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
           </.form>
         </.ui_panel>
 
-        <.ui_panel>
-          <:header>
-            <div>
-              <div class="text-sm font-semibold">Password</div>
-              <p class="text-xs text-base-content/60">
-                Rotate your password and confirm the new credentials.
-              </p>
-            </div>
-          </:header>
+        <%= if @can_change_password do %>
+          <.ui_panel>
+            <:header>
+              <div>
+                <div class="text-sm font-semibold">Password</div>
+                <p class="text-xs text-base-content/60">
+                  Rotate your password and confirm the new credentials.
+                </p>
+              </div>
+            </:header>
 
-          <.form
-            for={@password_form}
-            id="password_form"
-            action={~p"/users/update-password"}
-            method="post"
-            phx-change="validate_password"
-            phx-submit="update_password"
-            phx-trigger-action={@trigger_submit}
-          >
-            <input
-              name="user[email]"
-              type="hidden"
-              id="hidden_user_email"
-              autocomplete="username"
-              value={@current_email}
-            />
-            <.input
-              field={@password_form[:current_password]}
-              type="password"
-              label="Current password"
-              autocomplete="current-password"
-            />
-            <.input
-              field={@password_form[:password]}
-              type="password"
-              label="New password"
-              autocomplete="new-password"
-              required
-            />
-            <.input
-              field={@password_form[:password_confirmation]}
-              type="password"
-              label="Confirm new password"
-              autocomplete="new-password"
-            />
-            <.button variant="primary" phx-disable-with="Saving...">
-              Save Password
-            </.button>
-          </.form>
-        </.ui_panel>
+            <.form
+              for={@password_form}
+              id="password_form"
+              action={~p"/users/update-password"}
+              method="post"
+              phx-change="validate_password"
+              phx-submit="update_password"
+              phx-trigger-action={@trigger_submit}
+            >
+              <input
+                name="user[email]"
+                type="hidden"
+                id="hidden_user_email"
+                autocomplete="username"
+                value={@current_email}
+              />
+              <.input
+                field={@password_form[:current_password]}
+                type="password"
+                label="Current password"
+                autocomplete="current-password"
+              />
+              <.input
+                field={@password_form[:password]}
+                type="password"
+                label="New password"
+                autocomplete="new-password"
+                required
+              />
+              <.input
+                field={@password_form[:password_confirmation]}
+                type="password"
+                label="Confirm new password"
+                autocomplete="new-password"
+              />
+              <.button variant="primary" phx-disable-with="Saving...">
+                Save Password
+              </.button>
+            </.form>
+          </.ui_panel>
+        <% end %>
       </div>
     </Layouts.app>
     """
@@ -128,17 +134,20 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   end
 
   def mount(_params, session, socket) do
-    user = socket.assigns.current_scope.user
-    email_ash_form = build_email_form(user)
-    password_ash_form = build_password_form(user)
+    scope = socket.assigns.current_scope
+    user = scope.user
+    can_change_password = RBAC.can?(scope, @password_manage_permission)
+    email_ash_form = build_email_form(user, scope)
+    password_ash_form = if can_change_password, do: build_password_form(user, scope)
 
     socket =
       socket
+      |> assign(:can_change_password, can_change_password)
       |> assign(:current_email, user.email)
       |> assign(:email_ash_form, email_ash_form)
       |> assign(:password_ash_form, password_ash_form)
       |> assign(:email_form, to_form(email_ash_form))
-      |> assign(:password_form, to_form(password_ash_form))
+      |> assign(:password_form, if(password_ash_form, do: to_form(password_ash_form)))
       |> assign(:trigger_submit, false)
       |> assign(:sudo_at, mount_sudo_at(session))
 
@@ -157,20 +166,20 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   end
 
   # Build AshPhoenix.Form for email update
-  defp build_email_form(user) do
+  defp build_email_form(user, scope) do
     AshPhoenix.Form.for_update(user, :update_email,
       domain: ServiceRadar.Identity,
       as: "user",
-      actor: user
+      scope: scope
     )
   end
 
   # Build AshPhoenix.Form for password change
-  defp build_password_form(user) do
+  defp build_password_form(user, scope) do
     AshPhoenix.Form.for_update(user, :change_password,
       domain: ServiceRadar.Identity,
       as: "user",
-      actor: user
+      scope: scope
     )
   end
 
@@ -210,6 +219,10 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
     end
   end
 
+  def handle_event("validate_password", _params, %{assigns: %{can_change_password: false}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("validate_password", %{"user" => user_params}, socket) do
     ash_form = AshPhoenix.Form.validate(socket.assigns.password_ash_form, user_params)
 
@@ -217,6 +230,13 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
      socket
      |> assign(:password_ash_form, ash_form)
      |> assign(:password_form, to_form(ash_form))}
+  end
+
+  def handle_event("update_password", _params, %{assigns: %{can_change_password: false}} = socket) do
+    {:noreply,
+     socket
+     |> put_flash(:error, "You are not allowed to change the password for this account.")
+     |> push_navigate(to: ~p"/settings/profile")}
   end
 
   def handle_event("update_password", %{"user" => user_params}, socket) do
