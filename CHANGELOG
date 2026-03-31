@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.9
+
+Managed-agent rollout artifact correctness fixes, safer datasvc-backed gateway delivery, and more deterministic agent config application.
+
+## Whats New
+
+**1.2.9**
+- Fixed managed agent release artifacts so rolled agents report the real release version instead of `dev`, allowing rollout reconciliation to complete after restart.
+- Updated the managed agent runtime to include platform fields in `Hello`, so rollout compatibility checks keep working after agents self-update.
+- Hardened datasvc-backed release delivery in `agent-gateway` by isolating streamed artifact downloads from the shared datasvc client connection.
+- Reduced repeated sweep-triggered mapper churn by making sweep promotion one-shot per execution and normalizing agent config hashing/input ordering for stable recompiles.
+- Added RBAC gating for password changes and fixed the profile email/password validator path that was crashing for demo users.
+
 # ServiceRadar v1.2.8
 
 Managed-agent release import reliability fixes, first-class chart support for the release verification key, and safer operator key recovery tooling.
