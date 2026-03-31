@@ -59,6 +59,8 @@ spec:
         - name: agent
           image: ghcr.io/carverauto/serviceradar-agent:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "agent") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          command: ["/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"]
+          args: ["-config", "/etc/serviceradar/agent.json"]
           {{- include "serviceradar.networkContainerSecurityContext" . | nindent 10 }}
           volumeMounts:
           - name: serviceradar-config
