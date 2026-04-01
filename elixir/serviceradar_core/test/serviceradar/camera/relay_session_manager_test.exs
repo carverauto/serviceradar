@@ -143,6 +143,65 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert_receive {:mark_failed, _session_id, :agent_offline}
   end
 
+  test "treats mark_opening as idempotent when the session already advanced" do
+    parent = self()
+    camera_source_id = Ecto.UUID.generate()
+    stream_profile_id = Ecto.UUID.generate()
+    relay_session_id = Ecto.UUID.generate()
+
+    source_fetcher = fn ^camera_source_id ->
+      {:ok,
+       %{id: camera_source_id, assigned_agent_id: "agent-1", assigned_gateway_id: "gateway-1"}}
+    end
+
+    profile_fetcher = fn ^camera_source_id, ^stream_profile_id ->
+      {:ok, %{id: stream_profile_id, camera_source_id: camera_source_id}}
+    end
+
+    session_creator = fn attrs, _actor ->
+      {:ok, Map.put(attrs, :id, relay_session_id)}
+    end
+
+    dispatch_open = fn _agent_id, _payload, _opts, _actor ->
+      {:ok, Ecto.UUID.generate()}
+    end
+
+    mark_opening = fn _session, _command_id, _lease_token, _lease_expires_at, _actor ->
+      raise KeyError,
+        key: :field,
+        term: [required_message: "is required", no_password_message: nil]
+    end
+
+    session_loader = fn ^relay_session_id ->
+      send(parent, {:session_load, relay_session_id})
+
+      {:ok,
+       %{
+         id: relay_session_id,
+         camera_source_id: camera_source_id,
+         stream_profile_id: stream_profile_id,
+         agent_id: "agent-1",
+         gateway_id: "gateway-1",
+         status: :opening,
+         termination_kind: nil
+       }}
+    end
+
+    assert {:ok, session} =
+             RelaySessionManager.request_open(camera_source_id, stream_profile_id,
+               source_fetcher: source_fetcher,
+               profile_fetcher: profile_fetcher,
+               session_creator: session_creator,
+               dispatch_open: dispatch_open,
+               mark_opening: mark_opening,
+               session_loader: session_loader
+             )
+
+    assert session.id == relay_session_id
+    assert session.status == :opening
+    assert_receive {:session_load, ^relay_session_id}
+  end
+
   test "uses a system actor for relay writes while preserving the viewer requester" do
     parent = self()
     camera_source_id = Ecto.UUID.generate()
