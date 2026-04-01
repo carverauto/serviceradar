@@ -13,18 +13,16 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   publish:
     runs-on: arc-runner-set
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GHCR_DOCKER_AUTH: ${{ secrets.GHCR_DOCKER_AUTH }}
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-      GHCR_REGISTRY: ghcr.io
+      OCI_REGISTRY: registry.carverauto.dev
+      OCI_PROJECT: serviceradar
+      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
     steps:
       - name: Checkout
@@ -117,40 +115,31 @@ jobs:
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
-      - name: Authenticate Docker for GHCR
+      - name: Authenticate Docker for OCI registry
         run: |
           set -euo pipefail
-          login_ghcr() {
+          login_registry() {
             local user="${1:-}"
             local token="${2:-}"
             if [[ -z "${user}" || -z "${token}" ]]; then
               return 1
             fi
-            echo "${token}" | docker login ghcr.io -u "${user}" --password-stdin
+            echo "${token}" | docker login "${OCI_REGISTRY}" -u "${user}" --password-stdin
           }
 
-          if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
-            if ! login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"; then
-              echo "GHCR_TOKEN login failed; falling back to GITHUB_TOKEN." >&2
-              login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"
-              export GHCR_USERNAME="${GITHUB_ACTOR:-github-actions}"
-              export GHCR_TOKEN="${GITHUB_TOKEN:-}"
-            else
-              export GHCR_USERNAME="${GHCR_USERNAME}"
-              export GHCR_TOKEN="${GHCR_TOKEN}"
-            fi
-          else
-            login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"
-            export GHCR_USERNAME="${GITHUB_ACTOR:-github-actions}"
-            export GHCR_TOKEN="${GITHUB_TOKEN:-}"
+          if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
+            echo "Missing Harbor robot credentials. Set HARBOR_ROBOT_USERNAME and HARBOR_ROBOT_SECRET." >&2
+            exit 1
           fi
 
-          export GHCR_DOCKER_AUTH=""
-          unset GHCR_DOCKER_AUTH || true
+          login_registry "${OCI_USERNAME}" "${OCI_TOKEN}"
+
+          export OCI_DOCKER_AUTH=""
+          unset OCI_DOCKER_AUTH || true
           {
-            echo "GHCR_USERNAME=${GHCR_USERNAME}"
-            echo "GHCR_TOKEN=${GHCR_TOKEN}"
-            echo "GHCR_DOCKER_AUTH="
+            echo "OCI_USERNAME=${OCI_USERNAME}"
+            echo "OCI_TOKEN=${OCI_TOKEN}"
+            echo "OCI_DOCKER_AUTH="
           } >> "${GITHUB_ENV}"
 
           chmod +x ./buildbuddy_setup_docker_auth.sh
