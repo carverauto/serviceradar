@@ -1,0 +1,111 @@
+name: Source Security Scan
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Optional release tag whose release should receive the generated bundle."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  source-security:
+    runs-on: arc-runner-set
+    env:
+      FORGEJO_URL: https://code.carverauto.dev
+      FORGEJO_REPOSITORY: carverauto/serviceradar
+      FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Syft
+        run: ./scripts/install-syft.sh
+
+      - name: Install OSV-Scanner
+        run: ./scripts/install-osv-scanner.sh
+
+      - name: Resolve release tag
+        id: release
+        env:
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG}"
+          if [[ -z "${tag}" && "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Generate source SBOM and vulnerability report
+        run: |
+          set -euo pipefail
+          mkdir -p out/security/source
+
+          syft scan dir:. \
+            -c .syft.yaml \
+            -o spdx-json=out/security/source/serviceradar-source.spdx.json \
+            -o syft-text=out/security/source/serviceradar-source.sbom.txt
+
+          osv-scanner scan source -r . \
+            --format json \
+            --output-file out/security/source/serviceradar-source.osv.json
+
+      - name: Bundle source security artifacts
+        run: |
+          set -euo pipefail
+          tar -C out/security/source -czf out/security/serviceradar-source-security.tar.gz .
+
+      - name: Wait for release to exist
+        if: ${{ steps.release.outputs.tag != '' }}
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          api_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/tags/${RELEASE_TAG}"
+          for _ in $(seq 1 30); do
+            if curl -fsS -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" "${api_url}" >/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for release ${RELEASE_TAG} to exist" >&2
+          exit 1
+
+      - name: Upload source security bundle to release
+        if: ${{ steps.release.outputs.tag != '' }}
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ./scripts/upload-forgejo-release-asset.sh \
+            "${RELEASE_TAG}" \
+            out/security/serviceradar-source-security.tar.gz
+
+      - name: Summarize source security outputs
+        run: |
+          set -euo pipefail
+          {
+            echo "## Source Security Scan"
+            echo
+            echo "Generated:"
+            echo "- \`serviceradar-source.spdx.json\`"
+            echo "- \`serviceradar-source.sbom.txt\`"
+            echo "- \`serviceradar-source.osv.json\`"
+            if [[ -n "${{ steps.release.outputs.tag }}" ]]; then
+              echo
+              echo "Uploaded release asset:"
+              echo "- \`serviceradar-source-security.tar.gz\` on \`${{ steps.release.outputs.tag }}\`"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
