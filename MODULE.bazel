@@ -216,7 +216,7 @@ buildbuddy_toolchain_ext.gcc_toolchain(
 
 # Make the generated platform default to our custom executor image.
 buildbuddy_toolchain_ext.platform(
-    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.23",
+    container_image = "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.23",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
@@ -344,7 +344,7 @@ oci_ext.pull(
 oci_ext.pull(
     name = "serviceradar_cert_generator",
     digest = "sha256:882587dffa59b709fc11c3ed5d304ef8af1c281c943cca19fda7af263e9707ea",
-    image = "ghcr.io/carverauto/serviceradar-cert-generator",
+    image = "registry.carverauto.dev/serviceradar/serviceradar-cert-generator",
     platforms = [
         "linux/amd64",
     ],
@@ -352,7 +352,7 @@ oci_ext.pull(
 oci_ext.pull(
     name = "serviceradar_tools",
     digest = "sha256:c9b4e23ec638e3b2582477d11ca977b76c3c4297b42a64177628067f15a6fb82",
-    image = "ghcr.io/carverauto/serviceradar-tools",
+    image = "registry.carverauto.dev/serviceradar/serviceradar-tools",
     platforms = [
         "linux/amd64",
     ],

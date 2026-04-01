@@ -55,7 +55,7 @@ NEXT_VERSION ?= $(shell git describe --tags --abbrev=0 | awk -F. '{$$NF = $$NF +
 RELEASE ?= 1
 
 # Container configuration
-REGISTRY ?= ghcr.io/carverauto/serviceradar
+REGISTRY ?= registry.carverauto.dev/serviceradar
 KO_DOCKER_REPO ?= $(REGISTRY)
 PLATFORMS ?= linux/amd64,linux/arm64
 
