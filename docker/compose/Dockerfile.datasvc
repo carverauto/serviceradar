@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Multi-stage build for ServiceRadar data services (KV + object store)
-FROM golang:latest AS builder
+FROM golang:1.25.0 AS builder
 
 WORKDIR /src
 
