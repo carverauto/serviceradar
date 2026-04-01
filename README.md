@@ -7,6 +7,13 @@
 
 # ServiceRadar
 
+> [!IMPORTANT]
+> Active development for ServiceRadar has moved to Forgejo:
+> https://code.carverauto.dev/carverauto/serviceradar
+>
+> GitHub remains available for visibility and historical context, but new issues,
+> pull requests, and source changes should go to Forgejo.
+
 <img width="1470" height="836" alt="Screenshot 2025-12-16 at 10 09 19 PM" src="https://github.com/user-attachments/assets/e64ca26b-f4d8-42df-ab81-2de1d7941f92" />
 <img width="1470" height="801" alt="Screenshot 2026-02-16 at 8 39 36 PM" src="https://github.com/user-attachments/assets/4f959217-4e53-487b-ae78-30c2fd3344b3" />
 <img width="1470" height="804" alt="Screenshot 2026-02-16 at 8 36 26 PM" src="https://github.com/user-attachments/assets/bec3d2cb-c311-4a26-848d-2fece4a5af86" />
