@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       OCI_REGISTRY: registry.carverauto.dev

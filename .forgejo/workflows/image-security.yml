@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   image-security:
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     env:
       OCI_REGISTRY: registry.carverauto.dev
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}

@@ -35,7 +35,7 @@ on:
 jobs:
   assets_js:
     name: Assets JS (Bun)
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: elixir/web-ng/assets
