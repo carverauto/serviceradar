@@ -1,0 +1,65 @@
+defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
+  use ServiceRadarWebNGWeb.ConnCase, async: false
+
+  import Phoenix.LiveViewTest
+
+  alias ServiceRadar.AgentTracker
+  alias ServiceRadarWebNG.AccountsFixtures
+
+  setup %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{role: :admin})
+    %{conn: log_in_user(conn, user)}
+  end
+
+  test "renders connected agent runtime metadata", %{conn: conn} do
+    agent_id = "agent-runtime-#{System.unique_integer([:positive])}"
+
+    on_exit(fn ->
+      AgentTracker.remove_agent(agent_id)
+    end)
+
+    :ok =
+      AgentTracker.track_agent(agent_id, %{
+        service_count: 7,
+        partition: "edge-a",
+        source_ip: "10.0.0.21",
+        gateway_id: "gateway-demo",
+        version: "1.2.10",
+        hostname: "dusk01",
+        os: "linux",
+        arch: "amd64"
+      })
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/cluster")
+
+    assert html =~ "Connected Agents"
+    assert html =~ agent_id
+    assert html =~ "dusk01"
+    assert html =~ "1.2.10"
+    assert html =~ "linux/amd64"
+    assert html =~ "gateway-demo"
+    assert html =~ "edge-a"
+  end
+
+  test "shows explicit placeholders when runtime metadata is unavailable", %{conn: conn} do
+    agent_id = "agent-runtime-missing-#{System.unique_integer([:positive])}"
+
+    on_exit(fn ->
+      AgentTracker.remove_agent(agent_id)
+    end)
+
+    :ok =
+      AgentTracker.track_agent(agent_id, %{
+        service_count: 1,
+        source_ip: "10.0.0.55"
+      })
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/cluster")
+
+    assert html =~ agent_id
+    assert html =~ "Unknown version"
+    assert html =~ "Unknown platform"
+    assert html =~ "Unknown gateway"
+    assert html =~ "Partition unknown"
+  end
+end

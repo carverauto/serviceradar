@@ -110,7 +110,9 @@ defmodule ServiceRadarWebNG.AccountsTest do
             current_password: valid_user_password(),
             password: "not valid",
             password_confirmation: "another"
-          }, scope: scope)
+          },
+          scope: scope
+        )
 
       assert has_error?(error, :password) or has_error?(error, :password_confirmation)
     end
@@ -123,7 +125,9 @@ defmodule ServiceRadarWebNG.AccountsTest do
             current_password: valid_user_password(),
             password: "new valid password",
             password_confirmation: "new valid password"
-          }, scope: scope)
+          },
+          scope: scope
+        )
 
       assert Accounts.get_user_by_email_and_password(updated_user.email, "new valid password")
     end
@@ -139,7 +143,9 @@ defmodule ServiceRadarWebNG.AccountsTest do
                    current_password: valid_user_password(),
                    password: "new valid password",
                    password_confirmation: "new valid password"
-                 }, scope: scope)
+                 },
+                 scope: scope
+               )
     end
   end
 
