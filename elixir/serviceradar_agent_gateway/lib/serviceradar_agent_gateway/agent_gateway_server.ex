@@ -101,10 +101,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
     partition_id = resolve_partition(identity, request.partition)
     capabilities = normalize_capabilities(request.capabilities || [])
+    source_ip = get_peer_ip(stream)
 
-    ensure_agent_record(identity, agent_id, partition_id, request, get_peer_ip(stream))
-    ensure_device_for_agent(identity, agent_id, partition_id, request, get_peer_ip(stream))
+    ensure_agent_record(identity, agent_id, partition_id, request, source_ip)
+    ensure_device_for_agent(identity, agent_id, partition_id, request, source_ip)
     ensure_agent_registered(identity, agent_id, partition_id, capabilities, stream)
+    track_connected_agent(agent_id, partition_id, request, source_ip)
 
     # Registration is stored in the registry and DB; acceptance remains cert-based.
     config_outdated = config_outdated?(request.config_version)
@@ -390,7 +392,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp normalize_service_message(nil, source), do: normalize_message("", source)
 
-  defp normalize_service_message(message, source) when is_binary(message), do: normalize_message(message, source)
+  defp normalize_service_message(message, source) when is_binary(message),
+    do: normalize_message(message, source)
 
   defp normalize_service_message(message, source) when is_list(message),
     do: message |> IO.iodata_to_binary() |> normalize_message(source)
@@ -407,7 +410,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         :ok
 
       {:error, reason} ->
-        Logger.warning("Failed to process status for service #{service.service_name}: #{inspect(reason)}")
+        Logger.warning(
+          "Failed to process status for service #{service.service_name}: #{inspect(reason)}"
+        )
     end
   end
 
@@ -494,12 +499,16 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         {identity, component_type}
 
       nil ->
-        Logger.warning("Component type missing from client certificate: component_id=#{component_id}")
+        Logger.warning(
+          "Component type missing from client certificate: component_id=#{component_id}"
+        )
 
         raise GRPC.RPCError, status: :permission_denied, message: "component_type missing"
 
       _ ->
-        Logger.warning("Invalid component type in client certificate: component_id=#{component_id}")
+        Logger.warning(
+          "Invalid component type in client certificate: component_id=#{component_id}"
+        )
 
         raise GRPC.RPCError, status: :permission_denied, message: "invalid component_type"
     end
@@ -517,7 +526,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
 
     if component_id != cert_component_id do
-      Logger.warning("Component identity mismatch: request=#{component_id} cert=#{cert_component_id}")
+      Logger.warning(
+        "Component identity mismatch: request=#{component_id} cert=#{cert_component_id}"
+      )
 
       raise GRPC.RPCError, status: :permission_denied, message: "component_id mismatch"
     end
@@ -639,6 +650,26 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
+  defp track_connected_agent(agent_id, partition_id, request, source_ip) do
+    labels = request_value(request, :labels)
+
+    metadata =
+      compact_metadata(%{
+        partition: partition_id,
+        source_ip: source_ip,
+        gateway_id: Config.gateway_id(),
+        version: request_value(request, :version),
+        hostname: request_value(request, :hostname),
+        os: request_value(request, :os),
+        arch: request_value(request, :arch),
+        deployment_type: label_value(labels, [:deployment_type, "deployment_type"])
+      })
+
+    ServiceRadar.AgentTracker.track_agent(agent_id, metadata)
+  rescue
+    _ -> :ok
+  end
+
   defp device_attrs_from_request(partition_id, request, source_ip) do
     capabilities = if request, do: request.capabilities || [], else: []
 
@@ -674,7 +705,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp maybe_add_config_source(attrs, nil), do: attrs
 
-  defp maybe_add_config_source(attrs, config_source), do: Map.put(attrs, :config_source, config_source)
+  defp maybe_add_config_source(attrs, config_source),
+    do: Map.put(attrs, :config_source, config_source)
 
   defp agent_record_attrs(agent_id, partition_id, request, source_ip) do
     metadata =
@@ -816,7 +848,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           true
 
         {:badrpc, reason} ->
-          Logger.debug("RPC call to #{node} for #{inspect(process_name)} failed: #{inspect(reason)}")
+          Logger.debug(
+            "RPC call to #{node} for #{inspect(process_name)} failed: #{inspect(reason)}"
+          )
 
           false
 
@@ -898,7 +932,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp handle_config_response({:error, :core_unavailable}, agent_id, config_version) do
-    Logger.warning("Core unavailable for config request: agent_id=#{agent_id}, version=#{config_version}")
+    Logger.warning(
+      "Core unavailable for config request: agent_id=#{agent_id}, version=#{config_version}"
+    )
 
     unavailable_config_response(config_version)
   end
@@ -921,7 +957,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp handle_config_response({:ok, {:error, reason}}, agent_id, _config_version) do
-    Logger.warning("Failed to generate config for agent #{agent_id}: #{inspect(reason)}, returning empty config")
+    Logger.warning(
+      "Failed to generate config for agent #{agent_id}: #{inspect(reason)}, returning empty config"
+    )
 
     empty_config_response("v0-error")
   end
@@ -1050,7 +1088,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     refresh_agent_heartbeat(identity, agent_id, partition, chunk, stream)
   end
 
-  defp ensure_stream_registration(true, _identity, _agent_id, _partition, _chunk, _stream), do: :ok
+  defp ensure_stream_registration(true, _identity, _agent_id, _partition, _chunk, _stream),
+    do: :ok
 
   defp chunk_metadata(agent_id, partition, peer_ip, chunk, chunk_index, total_chunks) do
     %{
@@ -1076,12 +1115,21 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           log_invalid_service_status(metadata, service, e)
 
         e ->
-          Logger.warning("Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}")
+          Logger.warning(
+            "Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}"
+          )
       end
     end)
   end
 
-  defp next_stream_status_state(state, agent_id, total_services, pinned_total_chunks, chunk_index, chunk) do
+  defp next_stream_status_state(
+         state,
+         agent_id,
+         total_services,
+         pinned_total_chunks,
+         chunk_index,
+         chunk
+       ) do
     if chunk.is_final do
       validate_final_chunk!(chunk_index, pinned_total_chunks)
       record_push_metrics(agent_id, total_services)
@@ -1109,7 +1157,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
-  defp validate_final_chunk!(chunk_index, total_chunks) when chunk_index == total_chunks - 1, do: :ok
+  defp validate_final_chunk!(chunk_index, total_chunks) when chunk_index == total_chunks - 1,
+    do: :ok
 
   defp validate_final_chunk!(_chunk_index, _total_chunks) do
     raise GRPC.RPCError,
@@ -1155,7 +1204,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         session
 
       {:error, reason} ->
-        Logger.warning("Failed to register control stream for agent #{agent_id}: #{inspect(reason)}")
+        Logger.warning(
+          "Failed to register control stream for agent #{agent_id}: #{inspect(reason)}"
+        )
 
         raise GRPC.RPCError,
           status: :internal,

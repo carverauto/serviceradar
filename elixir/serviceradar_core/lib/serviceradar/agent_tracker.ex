@@ -32,24 +32,26 @@ defmodule ServiceRadar.AgentTracker do
   end
 
   @doc """
-  Track an agent that has pushed status.
+  Track an agent that has pushed status or announced itself via hello.
   """
   @spec track_agent(String.t(), map()) :: :ok
   def track_agent(agent_id, metadata \\ %{}) do
-    now = System.monotonic_time(:millisecond)
+    now_mono = System.monotonic_time(:millisecond)
+    now = DateTime.utc_now()
 
-    agent_info = %{
-      agent_id: agent_id,
-      last_seen: DateTime.utc_now(),
-      last_seen_mono: now,
-      service_count: Map.get(metadata, :service_count, 0),
-      partition: Map.get(metadata, :partition),
-      source_ip: Map.get(metadata, :source_ip)
-    }
+    agent_info =
+      agent_id
+      |> existing_agent_info()
+      |> Map.merge(normalize_metadata(metadata))
+      |> Map.merge(%{
+        agent_id: agent_id,
+        last_seen: now,
+        last_seen_mono: now_mono
+      })
+      |> Map.put_new(:service_count, 0)
 
     :ets.insert(@table, {agent_id, agent_info})
 
-    # Broadcast for UI updates
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
       "agent:status",
@@ -152,6 +154,51 @@ defmodule ServiceRadar.AgentTracker do
   def handle_info(_msg, state), do: {:noreply, state}
 
   # Private Functions
+
+  defp existing_agent_info(agent_id) do
+    case :ets.lookup(@table, agent_id) do
+      [{_key, info}] -> info
+      [] -> %{}
+    end
+  rescue
+    ArgumentError -> %{}
+  end
+
+  defp normalize_metadata(metadata) when is_map(metadata) do
+    %{
+      service_count: metadata_value(metadata, :service_count),
+      partition: metadata_value(metadata, :partition),
+      source_ip: metadata_value(metadata, :source_ip),
+      gateway_id: metadata_value(metadata, :gateway_id),
+      version: metadata_value(metadata, :version),
+      hostname: metadata_value(metadata, :hostname),
+      os: metadata_value(metadata, :os),
+      arch: metadata_value(metadata, :arch),
+      deployment_type: metadata_value(metadata, :deployment_type)
+    }
+    |> compact_metadata()
+  end
+
+  defp normalize_metadata(_), do: %{}
+
+  defp metadata_value(metadata, key) do
+    case Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key)) do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp compact_metadata(metadata) do
+    metadata
+    |> Enum.reject(fn
+      {_key, nil} -> true
+      {_key, ""} -> true
+      {_key, []} -> true
+      {_key, %{} = value} -> map_size(value) == 0
+      _ -> false
+    end)
+    |> Map.new()
+  end
 
   defp schedule_cleanup do
     Process.send_after(self(), :cleanup, @cleanup_interval_ms)

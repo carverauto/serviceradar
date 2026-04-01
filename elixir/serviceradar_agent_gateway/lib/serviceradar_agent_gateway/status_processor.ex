@@ -98,7 +98,8 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     metadata = %{
       service_count: 1,
       partition: status[:partition],
-      source_ip: status[:source_ip]
+      source_ip: status[:source_ip],
+      gateway_id: status[:gateway_id]
     }
 
     ServiceRadar.AgentTracker.track_agent(agent_id, metadata)
