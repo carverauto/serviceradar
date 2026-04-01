@@ -57,6 +57,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   publish:
@@ -270,6 +271,14 @@ jobs:
               exit 1
             fi
           fi
+
+          if ! command -v cosign >/dev/null 2>&1; then
+            COSIGN_VERSION=v3.0.2
+            sudo curl -sSfL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" -o /usr/local/bin/cosign
+            sudo chmod +x /usr/local/bin/cosign
+          fi
+
+          COSIGN_KEYLESS=true ./scripts/sign-oci-publish.sh
 
           if ! command -v skopeo >/dev/null 2>&1; then
             sudo apt-get update -qq && sudo apt-get install -y -qq skopeo >/dev/null 2>&1
