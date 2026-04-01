@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: faker
-        image: ghcr.io/carverauto/serviceradar-faker:latest
+        image: registry.carverauto.dev/serviceradar/serviceradar-faker:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

@@ -61,7 +61,7 @@ The SPIRE control-plane resources in this directory are separate from the worklo
 
 ## CNPG rebuild with TimescaleDB + AGE + PostGIS
 
-The SPIRE manifests now rely on the custom `ghcr.io/carverauto/serviceradar-cnpg`
+The SPIRE manifests now rely on the custom `registry.carverauto.dev/serviceradar/serviceradar-cnpg`
 image, which ships PostgreSQL 18 along with TimescaleDB, Apache AGE, and PostGIS
 extensions. Follow this workflow whenever you need a clean rebuild (for example
 when refreshing the demo cluster or cutting over from the stock CloudNativePG

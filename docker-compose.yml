@@ -61,7 +61,7 @@ services:
       - serviceradar-net
 
   cnpg:
-    image: ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2
+    image: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2
     container_name: serviceradar-cnpg-mtls
     user: "0:0"
     entrypoint: ["/bin/sh", "/check-cnpg-major-version.sh"]
@@ -168,7 +168,7 @@ services:
       - serviceradar-net
 
   core-elx-migrations:
-    image: ghcr.io/carverauto/serviceradar-core-elx:${APP_TAG:-latest}
+    image: registry.carverauto.dev/serviceradar/serviceradar-core-elx:${APP_TAG:-latest}
     container_name: serviceradar-core-elx-migrations
     hostname: core-elx-migrations
     environment:
@@ -213,7 +213,7 @@ services:
       - serviceradar-net
 
   core-elx:
-    image: ghcr.io/carverauto/serviceradar-core-elx:${APP_TAG:-latest}
+    image: registry.carverauto.dev/serviceradar/serviceradar-core-elx:${APP_TAG:-latest}
     container_name: serviceradar-core-elx-mtls
     hostname: core-elx
     environment:
@@ -308,7 +308,7 @@ services:
 
   # Bootstrap NATS operator/account credentials (idempotent).
   nats-creds-init:
-    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
+    image: registry.carverauto.dev/serviceradar/serviceradar-tools:${APP_TAG:-latest}
     container_name: serviceradar-nats-creds-init
     volumes:
       - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds
@@ -435,7 +435,7 @@ services:
     restart: unless-stopped
 
   datasvc:
-    image: ghcr.io/carverauto/serviceradar-datasvc:${APP_TAG:-latest}
+    image: registry.carverauto.dev/serviceradar/serviceradar-datasvc:${APP_TAG:-latest}
     container_name: serviceradar-datasvc-mtls
     cpus: "2.0"
     ports:
@@ -469,7 +469,7 @@ services:
     restart: unless-stopped
 
   agent:
-    image: ghcr.io/carverauto/serviceradar-agent:${APP_TAG:-latest}
+    image: registry.carverauto.dev/serviceradar/serviceradar-agent:${APP_TAG:-latest}
     container_name: serviceradar-agent-mtls
     hostname: agent
     # Note: agent is push-based and doesn't expose a gRPC server
@@ -499,7 +499,7 @@ services:
     restart: unless-stopped
 
   agent-gateway:
-    image: ghcr.io/carverauto/serviceradar-agent-gateway:${APP_TAG:-latest}
+    image: registry.carverauto.dev/serviceradar/serviceradar-agent-gateway:${APP_TAG:-latest}
     container_name: serviceradar-agent-gateway-mtls
     hostname: agent-gateway
     environment:
@@ -551,7 +551,7 @@ services:
     restart: unless-stopped
 
   log-collector:
-    image: ghcr.io/carverauto/serviceradar-log-collector:${APP_TAG:-latest}
+    image: registry.carverauto.dev/serviceradar/serviceradar-log-collector:${APP_TAG:-latest}
     container_name: serviceradar-log-collector-mtls
     build:
       context: .
@@ -582,7 +582,7 @@ services:
     restart: unless-stopped
 
   trapd:
-    image: ghcr.io/carverauto/serviceradar-trapd:${APP_TAG:-latest}
+    image: registry.carverauto.dev/serviceradar/serviceradar-trapd:${APP_TAG:-latest}
     container_name: serviceradar-trapd-mtls
     ports:
       - "162:162/udp"
@@ -607,7 +607,7 @@ services:
     restart: unless-stopped
 
   flow-collector:
-    image: ghcr.io/carverauto/serviceradar-flow-collector:${APP_TAG:-latest}
+    image: registry.carverauto.dev/serviceradar/serviceradar-flow-collector:${APP_TAG:-latest}
     container_name: serviceradar-flow-collector-mtls
     build:
       context: .
@@ -662,7 +662,7 @@ services:
     restart: unless-stopped
 
   zen:
-    image: ghcr.io/carverauto/serviceradar-zen:${APP_TAG:-latest}
+    image: registry.carverauto.dev/serviceradar/serviceradar-zen:${APP_TAG:-latest}
     container_name: serviceradar-zen-mtls
     ports:
       - "50040:50040"
@@ -692,7 +692,7 @@ services:
     restart: unless-stopped
 
   db-event-writer:
-    image: ghcr.io/carverauto/serviceradar-db-event-writer:${APP_TAG:-latest}
+    image: registry.carverauto.dev/serviceradar/serviceradar-db-event-writer:${APP_TAG:-latest}
     container_name: serviceradar-db-event-writer-mtls
     ports:
       - "50041:50041"
@@ -737,7 +737,7 @@ services:
     restart: unless-stopped
 
   web-ng:
-    image: ghcr.io/carverauto/serviceradar-web-ng:${APP_TAG:-latest}
+    image: registry.carverauto.dev/serviceradar/serviceradar-web-ng:${APP_TAG:-latest}
     container_name: serviceradar-web-ng-mtls
     environment:
       - PORT=4000

@@ -17,10 +17,10 @@ spec:
     spec:
       serviceAccountName: serviceradar-trapd
       imagePullSecrets:
-        - name: ghcr-io-cred
+        - name: registry-carverauto-dev-cred
       containers:
       - name: trapd
-        image: ghcr.io/carverauto/serviceradar-trapd:latest
+        image: registry.carverauto.dev/serviceradar/serviceradar-trapd:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 162

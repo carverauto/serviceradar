@@ -5,9 +5,9 @@ metadata:
   namespace: demo
 spec:
   instances: 3
-  imageName: ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2@sha256:a78b3afd204e4805f562649d74f2f2e391d8fb32d74ddf0a757d5360e583130a
+  imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2@sha256:a78b3afd204e4805f562649d74f2f2e391d8fb32d74ddf0a757d5360e583130a
   imagePullSecrets:
-    - name: ghcr-io-cred
+    - name: registry-carverauto-dev-cred
 
   storage:
     size: 100Gi

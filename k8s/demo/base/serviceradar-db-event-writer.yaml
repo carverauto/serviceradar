@@ -17,10 +17,10 @@ spec:
     spec:
       serviceAccountName: serviceradar-db-event-writer
       imagePullSecrets:
-        - name: ghcr-io-cred
+        - name: registry-carverauto-dev-cred
       containers:
       - name: db-event-writer
-        image: ghcr.io/carverauto/serviceradar-db-event-writer:latest
+        image: registry.carverauto.dev/serviceradar/serviceradar-db-event-writer:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 50041

@@ -20,7 +20,7 @@ spec:
       restartPolicy: OnFailure
       containers:
       - name: cnpg-client-ca
-        image: ghcr.io/carverauto/serviceradar-tools:latest
+        image: registry.carverauto.dev/serviceradar/serviceradar-tools:latest
         imagePullPolicy: Always
         command: ["/bin/sh", "-c"]
         args:

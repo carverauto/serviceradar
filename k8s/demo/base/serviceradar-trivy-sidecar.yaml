@@ -70,10 +70,10 @@ spec:
         runAsGroup: 0
       serviceAccountName: serviceradar-trivy-sidecar
       imagePullSecrets:
-      - name: ghcr-io-cred
+      - name: registry-carverauto-dev-cred
       containers:
       - name: trivy-sidecar
-        image: ghcr.io/carverauto/serviceradar-trivy-sidecar:sha-4582835936b4-v7
+        image: registry.carverauto.dev/serviceradar/serviceradar-trivy-sidecar:sha-4582835936b4-v7
         imagePullPolicy: Always
         env:
         - name: CLUSTER_ID

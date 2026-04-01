@@ -18,10 +18,10 @@ spec:
       restartPolicy: OnFailure
       serviceAccountName: serviceradar-zen
       imagePullSecrets:
-        - name: ghcr-io-cred
+        - name: registry-carverauto-dev-cred
       initContainers:
         - name: wait-for-nats
-          image: ghcr.io/carverauto/serviceradar-tools:latest
+          image: registry.carverauto.dev/serviceradar/serviceradar-tools:latest
           imagePullPolicy: Always
           command: ["/usr/local/bin/wait-for-port"]
           args:
@@ -35,7 +35,7 @@ spec:
             - "2s"
       containers:
         - name: zen-rules-bootstrap
-          image: ghcr.io/carverauto/serviceradar-tools:latest
+          image: registry.carverauto.dev/serviceradar/serviceradar-tools:latest
           imagePullPolicy: Always
           command: ["/bin/sh", "-c"]
           args:

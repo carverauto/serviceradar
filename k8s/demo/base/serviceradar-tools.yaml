@@ -18,7 +18,7 @@ spec:
     spec:
       initContainers:
       - name: init-debug-tools
-        image: ghcr.io/carverauto/serviceradar-tools:latest
+        image: registry.carverauto.dev/serviceradar/serviceradar-tools:latest
         imagePullPolicy: Always
         command: ["/bin/bash", "-c"]
         args:
@@ -100,7 +100,7 @@ spec:
           mountPath: /shared
       containers:
       - name: tools
-        image: ghcr.io/carverauto/serviceradar-tools:latest
+        image: registry.carverauto.dev/serviceradar/serviceradar-tools:latest
         imagePullPolicy: Always
         command: ["/bin/bash", "-c"]
         args:

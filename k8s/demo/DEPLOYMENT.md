@@ -19,7 +19,7 @@ The ServiceRadar Kubernetes deployment includes:
 2. **kubectl** configured with cluster access
 3. **cert-manager** installed for automatic TLS certificate provisioning
 4. **Ingress controller** (nginx recommended)
-5. **GitHub Container Registry access** for pulling images
+5. **Harbor registry access** for pulling images from `registry.carverauto.dev`
 
 ### Required Tools
 - `openssl` - For generating secrets
@@ -35,14 +35,14 @@ git clone <repository-url>
 cd serviceradar/k8s/demo
 ```
 
-### 2. Create GitHub Container Registry Secret
+### 2. Create Harbor Registry Secret
 ```bash
 # Replace demo with demo-staging to target the rehearsal namespace
 NAMESPACE=demo
-kubectl create secret docker-registry ghcr-io-cred \
-  --docker-server=ghcr.io \
-  --docker-username=YOUR_GITHUB_USERNAME \
-  --docker-password=YOUR_GITHUB_TOKEN \
+kubectl create secret docker-registry registry-carverauto-dev-cred \
+  --docker-server=registry.carverauto.dev \
+  --docker-username=YOUR_HARBOR_USERNAME \
+  --docker-password=YOUR_HARBOR_CLI_SECRET_OR_ROBOT_TOKEN \
   --namespace=$NAMESPACE
 ```
 
