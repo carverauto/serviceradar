@@ -21,7 +21,7 @@ spec:
       serviceAccountName: {{ .Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer" }}
       containers:
         - name: kv-bootstrap
-          image: ghcr.io/carverauto/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
+          image: registry.carverauto.dev/serviceradar/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           env:
             - name: NATS_URL

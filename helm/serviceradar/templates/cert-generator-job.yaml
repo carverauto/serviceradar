@@ -1,4 +1,4 @@
-{{- $certJobImage := default "ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2" .Values.cnpg.imageName -}}
+{{- $certJobImage := default "registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2" .Values.cnpg.imageName -}}
 ---
 apiVersion: v1
 kind: ServiceAccount

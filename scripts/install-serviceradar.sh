@@ -22,7 +22,7 @@ set -e
 # Configuration
 VERSION="1.0.52"
 RELEASE_TAG="1.0.52"
-RELEASE_URL="https://github.com/carverauto/serviceradar/releases/download/${RELEASE_TAG}"
+RELEASE_URL="https://code.carverauto.dev/carverauto/serviceradar/releases/download/${RELEASE_TAG}"
 TEMP_DIR="/tmp/serviceradar-install"
 GATEWAY_CONFIG="/etc/serviceradar/gateway.json"
 SR_CERT_DIR="/etc/serviceradar/certs"

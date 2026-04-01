@@ -37,7 +37,7 @@ declare_loaded_oci_image_amd64(
     name = "arc_runner_image_amd64",
     base = "@arc_runner_linux_amd64//:arc_runner_linux_amd64",
     image_title = "arc-runner",
-    repo_tags = ["ghcr.io/carverauto/arc-runner:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/arc-runner:local"],
 )
 
 declare_common_tools_layer()
@@ -101,7 +101,7 @@ declare_web_ng_release_container_amd64(
     workdir = "/app",
     exposed_ports = ["4000/tcp"],
     image_title = "serviceradar-web-ng",
-    local_repo_tag = "ghcr.io/carverauto/serviceradar-web-ng:local",
+    local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-web-ng:local",
     target_compatible_with = [],
 )
 
@@ -120,7 +120,7 @@ declare_elixir_release_container_amd64(
     },
     workdir = "/app",
     image_title = "serviceradar-core-elx",
-    local_repo_tag = "ghcr.io/carverauto/serviceradar-core-elx:local",
+    local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-core-elx:local",
 )
 
 # elixir agent-gateway -------------------------------------------------------
@@ -142,7 +142,7 @@ declare_elixir_release_container_with_debs_amd64(
     },
     workdir = "/app",
     image_title = "serviceradar-agent-gateway",
-    local_repo_tag = "ghcr.io/carverauto/serviceradar-agent-gateway:local",
+    local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-agent-gateway:local",
 )
 
 declare_service_container_amd64(
@@ -174,7 +174,7 @@ declare_service_container_amd64(
     cmd = ["/usr/local/lib/serviceradar/agent/serviceradar-agent-seed", "-config", "/etc/serviceradar/agent.json"],
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["50051/tcp"],
-    repo_tags = ["ghcr.io/carverauto/serviceradar-agent:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-agent:local"],
 )
 
 declare_service_container_amd64(
@@ -200,7 +200,7 @@ declare_service_container_amd64(
     cmd = ["serviceradar-db-event-writer"],
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["50041/tcp"],
-    repo_tags = ["ghcr.io/carverauto/serviceradar-db-event-writer:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-db-event-writer:local"],
 )
 
 declare_service_container_amd64(
@@ -225,7 +225,7 @@ declare_service_container_amd64(
     cmd = ["/usr/local/bin/serviceradar-datasvc"],
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["50057/tcp"],
-    repo_tags = ["ghcr.io/carverauto/serviceradar-datasvc:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-datasvc:local"],
 )
 
 declare_service_container_amd64(
@@ -256,7 +256,7 @@ declare_service_container_amd64(
     cmd = ["serviceradar-log-collector"],
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["514/udp", "4317/tcp", "50044/tcp"],
-    repo_tags = ["ghcr.io/carverauto/serviceradar-log-collector:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-log-collector:local"],
 )
 
 declare_multiarch_image_index(
@@ -287,7 +287,7 @@ declare_service_container_amd64(
     cmd = ["serviceradar-trapd"],
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["162/udp", "50043/tcp"],
-    repo_tags = ["ghcr.io/carverauto/serviceradar-trapd:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-trapd:local"],
 )
 
 declare_multiarch_image_index(
@@ -316,7 +316,7 @@ declare_service_container_amd64(
     cmd = ["--config", "/etc/serviceradar/flow-collector.json"],
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["2055/udp", "6343/udp"],
-    repo_tags = ["ghcr.io/carverauto/serviceradar-flow-collector:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-flow-collector:local"],
 )
 
 declare_multiarch_image_index(
@@ -343,7 +343,7 @@ declare_service_container_amd64(
     entrypoint = ["/usr/local/bin/serviceradar-bmp-collector"],
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["11019/tcp", "8080/tcp"],
-    repo_tags = ["ghcr.io/carverauto/arancini:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/arancini:local"],
 )
 
 declare_multiarch_image_index(
@@ -376,7 +376,7 @@ declare_service_container_amd64(
     cmd = ["/usr/local/bin/serviceradar-rperf-checker", "--config", "/etc/serviceradar/checkers/rperf.json"],
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["50059/tcp"],
-    repo_tags = ["ghcr.io/carverauto/serviceradar-rperf-client:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-rperf-client:local"],
 )
 
 declare_multiarch_image_index(
@@ -402,7 +402,7 @@ declare_service_container_amd64(
     cmd = ["/usr/local/bin/serviceradar-faker", "-config", "/etc/serviceradar/faker.json"],
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["8080/tcp"],
-    repo_tags = ["ghcr.io/carverauto/serviceradar-faker:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-faker:local"],
 )
 
 declare_multiarch_image_index(
@@ -446,7 +446,7 @@ declare_service_container_amd64(
     cmd = ["serviceradar-zen"],
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["50040/tcp"],
-    repo_tags = ["ghcr.io/carverauto/serviceradar-zen:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-zen:local"],
 )
 
 declare_multiarch_image_index(
@@ -472,14 +472,14 @@ declare_service_container_amd64(
     ],
     cmd = ["/usr/local/bin/update-config.sh"],
     workdir = "/",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-config-updater:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-config-updater:local"],
 )
 
 declare_custom_base_service_container_amd64(
     name = "cert_generator_image_amd64",
     base = "@serviceradar_cert_generator_linux_amd64//:serviceradar_cert_generator_linux_amd64",
     image_title = "serviceradar-cert-generator",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-cert-generator:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-cert-generator:local"],
     files = {
         "//docker/compose:entrypoint-certs.sh": "entrypoint-certs.sh",
     },
@@ -499,7 +499,7 @@ declare_custom_base_service_container_amd64(
     name = "tools_image_amd64",
     base = "@alpine_3_23_linux_amd64//:alpine_3_23_linux_amd64",
     image_title = "serviceradar-tools",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-tools:local"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-tools:local"],
     files = {
         "//go/cmd/cli:cli": "usr/local/bin/serviceradar-cli",
         "//rust/consumers/zen:zen_put_rule": "usr/local/bin/zen-put-rule",
@@ -552,5 +552,5 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
-# --- GHCR publishing ---------------------------------------------------------
+# --- OCI publishing ----------------------------------------------------------
 declare_ghcr_push_targets()

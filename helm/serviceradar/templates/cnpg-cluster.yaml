@@ -62,7 +62,7 @@ metadata:
   annotations:
     "helm.sh/resource-policy": "keep"
 spec:
-  imageName: {{ default "ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2" $cnpg.imageName }}
+  imageName: {{ default "registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2" $cnpg.imageName }}
   instances: {{ default 3 $cnpg.instances }}
   {{- if .Values.image.registryPullSecret }}
   imagePullSecrets:

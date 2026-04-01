@@ -39,9 +39,10 @@ const (
 )
 
 var (
-	errGithubAPI              = errors.New("github api error")
-	errGithubUpload           = errors.New("github upload error")
+	errForgejoAPI             = errors.New("forgejo api error")
+	errForgejoUpload          = errors.New("forgejo upload error")
 	errEmptyUploadURL         = errors.New("upload URL is empty")
+	errAssetDownloadURL       = errors.New("release asset download url not found")
 	errRunfileNotFound        = errors.New("runfile not found")
 	errNoArtifacts            = errors.New("no artifacts listed in manifest")
 	errEmptyTag               = errors.New("tag is empty")
@@ -61,15 +62,17 @@ type runfileResolver struct {
 }
 
 type githubClient struct {
-	token  string
-	repo   string
-	http   *http.Client
-	dryRun bool
+	token   string
+	repo    string
+	baseURL string
+	http    *http.Client
+	dryRun  bool
 }
 
 type releaseAsset struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	ID                 int64  `json:"id"`
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
 type release struct {
@@ -113,18 +116,19 @@ type agentReleaseManifestArtifact struct {
 }
 
 func main() {
-	repoFlag := flag.String("repo", "carverauto/serviceradar", "GitHub repository in owner/repo format")
-	tagFlag := flag.String("tag", "", "GitHub release tag to create or update")
+	repoFlag := flag.String("repo", "carverauto/serviceradar", "Repository in owner/repo format")
+	tagFlag := flag.String("tag", "", "Release tag to create or update")
 	nameFlag := flag.String("name", "", "Release name (defaults to the tag)")
 	commitFlag := flag.String("commit", "", "Commit SHA to associate with the release tag")
 	notesFlag := flag.String("notes", "", "Release notes text; overrides --notes_file when set")
 	notesFileFlag := flag.String("notes_file", "", "Path to a file containing release notes")
 	draftFlag := flag.Bool("draft", false, "Create the release as a draft")
 	prereleaseFlag := flag.Bool("prerelease", false, "Mark the release as a pre-release")
-	dryRunFlag := flag.Bool("dry_run", false, "Print actions without calling the GitHub API")
+	dryRunFlag := flag.Bool("dry_run", false, "Print actions without calling the Forgejo API")
 	overwriteAssetsFlag := flag.Bool("overwrite_assets", true, "Replace existing assets that share the same name")
 	appendNotesFlag := flag.Bool("append_notes", false, "Append release notes when the release already exists")
 	manifestFlag := flag.String("manifest", defaultManifestRunfile, "Path to the package manifest runfile")
+	forgejoURLFlag := flag.String("forgejo-url", firstNonEmpty(strings.TrimSpace(os.Getenv("FORGEJO_URL")), "https://code.carverauto.dev"), "Base Forgejo URL")
 
 	flag.Parse()
 
@@ -142,12 +146,18 @@ func main() {
 		failf("invalid tag %q: %v", *tagFlag, err)
 	}
 
-	token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
+	token := strings.TrimSpace(os.Getenv("FORGEJO_TOKEN"))
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("GITEA_TOKEN"))
+	}
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
+	}
 	if token == "" {
 		token = strings.TrimSpace(os.Getenv("GH_TOKEN"))
 	}
 	if token == "" && !*dryRunFlag {
-		failf("GITHUB_TOKEN (or GH_TOKEN) must be set unless --dry_run is used")
+		failf("FORGEJO_TOKEN, GITEA_TOKEN, GITHUB_TOKEN, or GH_TOKEN must be set unless --dry_run is used")
 	}
 
 	resolver, err := newRunfileResolver()
@@ -190,7 +200,12 @@ func main() {
 		name = strings.TrimSpace(*tagFlag)
 	}
 
-	client := newGithubClient(token, repo, *dryRunFlag)
+	forgejoURL := strings.TrimRight(strings.TrimSpace(*forgejoURLFlag), "/")
+	if forgejoURL == "" {
+		failf("--forgejo-url must not be empty")
+	}
+
+	client := newGithubClient(token, repo, forgejoURL, *dryRunFlag)
 
 	rel, created, err := ensureRelease(client, ensureReleaseArgs{
 		tag:         *tagFlag,
@@ -237,11 +252,14 @@ func main() {
 		failf("failed to upload managed agent runtime asset %q: %v", runtimeUploadName, err)
 	}
 
+	runtimeURL, err := client.getReleaseAssetDownloadURL(rel.TagName, runtimeUploadName)
+	if err != nil {
+		failf("failed to resolve managed agent runtime download url: %v", err)
+	}
+
 	tempDir, manifestAssets, err := buildManagedAgentManifestAssets(
 		releaseVersion,
-		repo,
-		rel.TagName,
-		runtimeUploadName,
+		runtimeURL,
 		agentRuntimeArtifact,
 		*dryRunFlag,
 	)
@@ -295,9 +313,7 @@ func managedAgentRuntimeUploadName(version string) string {
 
 func buildManagedAgentManifestAssets(
 	version string,
-	repo string,
-	tag string,
-	runtimeUploadName string,
+	runtimeURL string,
 	runtimeArtifactPath string,
 	dryRun bool,
 ) (string, []uploadAsset, error) {
@@ -310,7 +326,7 @@ func buildManagedAgentManifestAssets(
 		Version: version,
 		Artifacts: []agentReleaseManifestArtifact{
 			{
-				URL:        browserDownloadURL(repo, tag, runtimeUploadName),
+				URL:        runtimeURL,
 				SHA256:     runtimeDigest,
 				OS:         defaultAgentRuntimeOS,
 				Arch:       defaultAgentRuntimeArch,
@@ -377,15 +393,6 @@ func buildManagedAgentManifestAssets(
 			uploadName: defaultAgentManifestSigAssetName,
 		},
 	}, nil
-}
-
-func browserDownloadURL(repo, tag, assetName string) string {
-	return fmt.Sprintf(
-		"https://github.com/%s/releases/download/%s/%s",
-		repo,
-		url.PathEscape(tag),
-		url.PathEscape(assetName),
-	)
 }
 
 func fileSHA256(path string) (string, error) {
@@ -491,7 +498,7 @@ func ensureRelease(client *githubClient, args ensureReleaseArgs) (*release, bool
 			Body:       args.notes,
 			Draft:      args.draft,
 			Prerelease: args.prerelease,
-			UploadURL:  fmt.Sprintf("https://uploads.github.com/repos/%s/releases/{id}", client.repo),
+			UploadURL:  fmt.Sprintf("%s/api/v1/repos/%s/releases/dry-run/assets", client.baseURL, client.repo),
 		}, true, nil
 	}
 
@@ -538,11 +545,12 @@ func ensureRelease(client *githubClient, args ensureReleaseArgs) (*release, bool
 	return existing, false, nil
 }
 
-func newGithubClient(token, repo string, dryRun bool) *githubClient {
+func newGithubClient(token, repo, baseURL string, dryRun bool) *githubClient {
 	return &githubClient{
-		token:  token,
-		repo:   repo,
-		dryRun: dryRun,
+		token:   token,
+		repo:    repo,
+		baseURL: strings.TrimRight(baseURL, "/"),
+		dryRun:  dryRun,
 		http: &http.Client{
 			Timeout: 45 * time.Second,
 		},
@@ -557,11 +565,10 @@ func (c *githubClient) request(method, endpoint string, body io.Reader, contentT
 
 	if !c.dryRun {
 		if c.token != "" {
-			req.Header.Set("Authorization", "Bearer "+c.token)
+			req.Header.Set("Authorization", "token "+c.token)
 		}
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("Accept", "application/json")
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -580,13 +587,13 @@ func (c *githubClient) request(method, endpoint string, body io.Reader, contentT
 			_ = resp.Body.Close()
 		}()
 		data, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("%w: %s (%s)", errGithubAPI, resp.Status, strings.TrimSpace(string(data)))
+		return nil, fmt.Errorf("%w: %s (%s)", errForgejoAPI, resp.Status, strings.TrimSpace(string(data)))
 	}
 	return resp, nil
 }
 
 func (c *githubClient) getReleaseByTag(tag string) (*release, error) {
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", c.repo, url.PathEscape(tag))
+	endpoint := fmt.Sprintf("%s/api/v1/repos/%s/releases/tags/%s", c.baseURL, c.repo, url.PathEscape(tag))
 	resp, err := c.request(http.MethodGet, endpoint, nil, "")
 	if err != nil {
 		var apiErr *url.Error
@@ -611,7 +618,7 @@ func (c *githubClient) getReleaseByTag(tag string) (*release, error) {
 }
 
 func (c *githubClient) createRelease(tag, name, commit, notes string, draft, prerelease bool) (*release, error) {
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/releases", c.repo)
+	endpoint := fmt.Sprintf("%s/api/v1/repos/%s/releases", c.baseURL, c.repo)
 	payload := releaseRequest{
 		TagName:    tag,
 		Name:       name,
@@ -644,7 +651,7 @@ func (c *githubClient) createRelease(tag, name, commit, notes string, draft, pre
 }
 
 func (c *githubClient) updateRelease(id int64, payload releaseRequest) (*release, error) {
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/releases/%d", c.repo, id)
+	endpoint := fmt.Sprintf("%s/api/v1/repos/%s/releases/%d", c.baseURL, c.repo, id)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
@@ -666,7 +673,7 @@ func (c *githubClient) updateRelease(id int64, payload releaseRequest) (*release
 }
 
 func (c *githubClient) deleteAsset(id int64) error {
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/releases/assets/%d", c.repo, id)
+	endpoint := fmt.Sprintf("%s/api/v1/repos/%s/releases/assets/%d", c.baseURL, c.repo, id)
 	resp, err := c.request(http.MethodDelete, endpoint, nil, "")
 	if err != nil {
 		return err
@@ -716,12 +723,11 @@ func (c *githubClient) uploadAsset(uploadURL, assetPath, uploadName string) erro
 
 	if !c.dryRun {
 		if c.token != "" {
-			req.Header.Set("Authorization", "Bearer "+c.token)
+			req.Header.Set("Authorization", "token "+c.token)
 		}
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
 	if c.dryRun {
 		fmt.Printf("[dry-run] POST %s (size=%d)\n", endpoint, info.Size())
@@ -737,9 +743,29 @@ func (c *githubClient) uploadAsset(uploadURL, assetPath, uploadName string) erro
 	}()
 	if resp.StatusCode >= 400 {
 		data, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("%w: %s (%s)", errGithubUpload, resp.Status, strings.TrimSpace(string(data)))
+		return fmt.Errorf("%w: %s (%s)", errForgejoUpload, resp.Status, strings.TrimSpace(string(data)))
 	}
 	return nil
+}
+
+func (c *githubClient) getReleaseAssetDownloadURL(tag, assetName string) (string, error) {
+	if c.dryRun {
+		return fmt.Sprintf("%s/%s/releases/download/%s/%s", c.baseURL, c.repo, url.PathEscape(tag), url.PathEscape(assetName)), nil
+	}
+
+	rel, err := c.getReleaseByTag(tag)
+	if err != nil {
+		return "", err
+	}
+	if rel == nil {
+		return "", fmt.Errorf("%w: release %q not found", errAssetDownloadURL, tag)
+	}
+	for _, asset := range rel.Assets {
+		if asset.Name == assetName && strings.TrimSpace(asset.BrowserDownloadURL) != "" {
+			return asset.BrowserDownloadURL, nil
+		}
+	}
+	return "", fmt.Errorf("%w: %s", errAssetDownloadURL, assetName)
 }
 
 func mimeTypeForExtension(ext string) string {

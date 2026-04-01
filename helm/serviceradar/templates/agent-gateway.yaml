@@ -51,7 +51,7 @@ spec:
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       containers:
       - name: agent-gateway
-        image: ghcr.io/carverauto/serviceradar-agent-gateway:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "agentGateway") }}
+        image: registry.carverauto.dev/serviceradar/serviceradar-agent-gateway:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "agentGateway") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:

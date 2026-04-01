@@ -5,10 +5,10 @@ set -o pipefail
 
 mkdir -p "${HOME}/.docker"
 config_path="${HOME}/.docker/config.json"
-registry="${GHCR_REGISTRY:-ghcr.io}"
+registry="${OCI_REGISTRY:-${GHCR_REGISTRY:-ghcr.io}}"
 dockerhub_registry="https://index.docker.io/v1/"
 
-if [[ -f "${config_path}" && -z "${DOCKER_AUTH_CONFIG_JSON:-}" && -z "${GHCR_DOCKER_AUTH:-}" && -z "${GHCR_USERNAME:-}" && -z "${GHCR_TOKEN:-}" ]]; then
+if [[ -f "${config_path}" && -z "${DOCKER_AUTH_CONFIG_JSON:-}" && -z "${OCI_DOCKER_AUTH:-}" && -z "${OCI_USERNAME:-}" && -z "${OCI_TOKEN:-}" && -z "${GHCR_DOCKER_AUTH:-}" && -z "${GHCR_USERNAME:-}" && -z "${GHCR_TOKEN:-}" ]]; then
   echo "Docker config already present at ${config_path}; nothing to do." >&2
   exit 0
 fi
@@ -20,8 +20,12 @@ fi
 
 declare -A auths
 
-if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
+if [[ -n "${OCI_USERNAME:-}" && -n "${OCI_TOKEN:-}" ]]; then
+  auths["${registry}"]=$(printf '%s:%s' "${OCI_USERNAME}" "${OCI_TOKEN}" | base64 | tr -d '\n')
+elif [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
   auths["${registry}"]=$(printf '%s:%s' "${GHCR_USERNAME}" "${GHCR_TOKEN}" | base64 | tr -d '\n')
+elif [[ -n "${OCI_DOCKER_AUTH:-}" ]]; then
+  auths["${registry}"]="${OCI_DOCKER_AUTH}"
 elif [[ -n "${GHCR_DOCKER_AUTH:-}" ]]; then
   auths["${registry}"]="${GHCR_DOCKER_AUTH}"
 fi
@@ -35,6 +39,8 @@ if (( ${#auths[@]} == 0 )); then
 Missing registry credentials.
 Provide one of the following before running this script:
   * DOCKER_AUTH_CONFIG_JSON: Full docker config JSON.
+  * OCI_DOCKER_AUTH: Base64-encoded "username:token" string for ${registry}.
+  * OCI_USERNAME and OCI_TOKEN environment variables.
   * GHCR_DOCKER_AUTH: Base64-encoded "username:token" string for ${registry}.
   * GHCR_USERNAME and GHCR_TOKEN environment variables.
 Optional (helps avoid Docker Hub rate limits):

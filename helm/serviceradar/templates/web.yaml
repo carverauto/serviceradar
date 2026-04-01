@@ -108,7 +108,7 @@ spec:
       {{- end }}
       {{- if $migrationsEnabled }}
       - name: wait-migrations
-        image: ghcr.io/carverauto/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
+        image: registry.carverauto.dev/serviceradar/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         command: ["/bin/sh", "-c"]
@@ -173,7 +173,7 @@ spec:
       {{- end }}
       containers:
       - name: web-ng
-        image: ghcr.io/carverauto/serviceradar-web-ng:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "webNg") }}
+        image: registry.carverauto.dev/serviceradar/serviceradar-web-ng:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "webNg") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:

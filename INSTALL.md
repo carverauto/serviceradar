@@ -7,7 +7,7 @@ ServiceRadar is typically deployed as a platform stack (Docker Compose or Kubern
 ### Docker Compose
 
 ```bash
-git clone https://github.com/carverauto/serviceradar.git
+git clone https://code.carverauto.dev/carverauto/serviceradar.git
 cd serviceradar
 cp .env-sample .env
 docker compose up -d
@@ -19,7 +19,7 @@ docker compose logs config-updater | grep \"Password:\"
 ### Kubernetes (Helm)
 
 ```bash
-helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
+helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
   -n serviceradar --create-namespace
 ```
 

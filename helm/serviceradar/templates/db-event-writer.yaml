@@ -28,7 +28,7 @@ spec:
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       containers:
       - name: db-event-writer
-        image: ghcr.io/carverauto/serviceradar-db-event-writer:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "dbEventWriter") }}
+        image: registry.carverauto.dev/serviceradar/serviceradar-db-event-writer:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "dbEventWriter") }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:
         - containerPort: 50041

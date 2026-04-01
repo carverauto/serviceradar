@@ -62,9 +62,7 @@ func TestBuildManagedAgentManifestAssets(t *testing.T) {
 
 	tempDir, assets, err := buildManagedAgentManifestAssets(
 		"1.2.6",
-		"carverauto/serviceradar",
-		"v1.2.6",
-		managedAgentRuntimeUploadName("1.2.6"),
+		"https://code.carverauto.dev/attachments/runtime.tar.gz",
 		runtimeArtifactPath,
 		false,
 	)
@@ -95,7 +93,7 @@ func TestBuildManagedAgentManifestAssets(t *testing.T) {
 	}
 
 	artifact := manifest.Artifacts[0]
-	if artifact.URL != "https://github.com/carverauto/serviceradar/releases/download/v1.2.6/serviceradar-agent_1.2.6_linux_amd64.tar.gz" {
+	if artifact.URL != "https://code.carverauto.dev/attachments/runtime.tar.gz" {
 		t.Fatalf("artifact URL = %q", artifact.URL)
 	}
 	digest := sha256.Sum256(runtimeArtifact)

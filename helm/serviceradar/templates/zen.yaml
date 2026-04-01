@@ -24,7 +24,7 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: zen
-        image: ghcr.io/carverauto/serviceradar-zen{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "zen") }}
+        image: registry.carverauto.dev/serviceradar/serviceradar-zen{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "zen") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:

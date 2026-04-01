@@ -80,7 +80,7 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: cnpg-client-ca
-        image: ghcr.io/carverauto/serviceradar-tools:{{ $toolsTag }}
+        image: registry.carverauto.dev/serviceradar/serviceradar-tools:{{ $toolsTag }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         command: ["/bin/sh", "-c"]
         env:
