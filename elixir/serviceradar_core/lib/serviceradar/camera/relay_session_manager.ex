@@ -10,6 +10,8 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.Edge.AgentCommandBus
 
+  require Logger
+
   @default_lease_ttl_seconds 30
 
   @spec request_open(Ecto.UUID.t(), Ecto.UUID.t(), keyword()) ::
@@ -102,12 +104,14 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
            ) do
         {:ok, command_id} ->
           with {:ok, updated_session} <-
-                 mark_opening.(
+                 mark_session_opening_safely(
                    session,
                    command_id,
                    lease_token,
                    lease_expiry(opts),
-                   write_actor
+                   write_actor,
+                   mark_opening,
+                   session_loader
                  ) do
             load_session_result(updated_session, session_loader)
           end
@@ -204,6 +208,41 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
       ash_opts
     )
   end
+
+  defp mark_session_opening_safely(
+         session,
+         command_id,
+         lease_token,
+         lease_expires_at,
+         actor,
+         mark_opening,
+         session_loader
+       ) do
+    mark_opening.(session, command_id, lease_token, lease_expires_at, actor)
+  rescue
+    error ->
+      recover_mark_opening_transition(session, error, session_loader)
+  else
+    {:error, reason} -> recover_mark_opening_transition(session, reason, session_loader)
+    other -> other
+  end
+
+  defp recover_mark_opening_transition(%{id: session_id}, reason, session_loader)
+       when is_binary(session_id) do
+    case session_loader.(session_id) do
+      {:ok, %{status: status} = session} when status in [:opening, :active] ->
+        Logger.warning(
+          "Recovered camera relay mark_opening transition for #{session_id} after #{inspect(reason)}"
+        )
+
+        {:ok, session}
+
+      _other ->
+        {:error, reason}
+    end
+  end
+
+  defp recover_mark_opening_transition(_session, reason, _session_loader), do: {:error, reason}
 
   defp mark_session_closing(session, close_reason, _actor, ash_opts) do
     RelaySession.request_close(session, %{close_reason: close_reason}, ash_opts)
