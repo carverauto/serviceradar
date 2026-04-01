@@ -86,8 +86,8 @@ jobs:
           ensure_pkg_config
           protoc --version || (echo "protoc installation failed" && exit 1)
 
-      - name: Setup Bazel
-        uses: bazelbuild/setup-bazelisk@v3
+      - name: Install Bazelisk
+        run: ./scripts/install-bazelisk.sh
 
       - name: Verify Bazel version
         run: |
