@@ -212,29 +212,20 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   end
 
   def handle_info({:agent_status, agent_info}, socket) do
-    agent_id = agent_info[:agent_id]
+    case agent_id_from(agent_info) do
+      nil ->
+        {:noreply, socket}
 
-    if is_nil(agent_id) or agent_id == "" do
-      {:noreply, socket}
-    else
-      updated_cache =
-        Map.put(socket.assigns.agents_cache, agent_id, %{
-          agent_id: agent_id,
-          last_seen: agent_info[:last_seen] || DateTime.utc_now(),
-          last_seen_mono: System.monotonic_time(:millisecond),
-          service_count: agent_info[:service_count] || 0,
-          partition: agent_info[:partition],
-          source_ip: agent_info[:source_ip]
-        })
+      _agent_id ->
+        updated_cache = upsert_agent_cache_entry(socket.assigns.agents_cache, agent_info)
+        agents = compute_connected_agents(updated_cache)
+        cluster_health = build_cluster_health(socket.assigns.gateways, agents)
 
-      agents = compute_connected_agents(updated_cache)
-      cluster_health = build_cluster_health(socket.assigns.gateways, agents)
-
-      {:noreply,
-       socket
-       |> assign(:agents_cache, updated_cache)
-       |> assign(:agents, agents)
-       |> assign(:cluster_health, cluster_health)}
+        {:noreply,
+         socket
+         |> assign(:agents_cache, updated_cache)
+         |> assign(:agents, agents)
+         |> assign(:cluster_health, cluster_health)}
     end
   end
 
@@ -494,10 +485,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   # Components
 
-  attr :title, :string, required: true
-  attr :value, :any, required: true
-  attr :variant, :string, default: "info"
-  attr :icon, :string, required: true
+  attr(:title, :string, required: true)
+  attr(:value, :any, required: true)
+  attr(:variant, :string, default: "info")
+  attr(:icon, :string, required: true)
 
   defp health_card(assigns) do
     bg_class =
@@ -536,8 +527,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     """
   end
 
-  attr :gateways, :list, required: true
-  attr :expanded, :boolean, default: false
+  attr(:gateways, :list, required: true)
+  attr(:expanded, :boolean, default: false)
 
   defp gateways_table(assigns) do
     ~H"""
@@ -601,8 +592,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     """
   end
 
-  attr :agents, :list, required: true
-  attr :expanded, :boolean, default: false
+  attr(:agents, :list, required: true)
+  attr(:expanded, :boolean, default: false)
 
   defp agents_table(assigns) do
     ~H"""
@@ -611,19 +602,21 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         <thead>
           <tr class="text-xs uppercase tracking-wide text-base-content/60">
             <th>Status</th>
-            <th>Agent ID</th>
+            <th>Agent</th>
+            <th :if={@expanded}>Runtime</th>
+            <th :if={@expanded}>Gateway</th>
             <th :if={@expanded}>Last Seen</th>
             <th :if={@expanded}>Services</th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@agents == []}>
-            <td colspan={if @expanded, do: 4, else: 2} class="text-center text-base-content/60 py-6">
+            <td colspan={if @expanded, do: 6, else: 2} class="text-center text-base-content/60 py-6">
               No agents have pushed status yet
             </td>
           </tr>
           <%= for agent <- @agents do %>
-            <tr class="hover:bg-base-200/40 cursor-pointer">
+            <tr class="hover:bg-base-200/40 cursor-pointer align-top">
               <td>
                 <.link navigate={~p"/agents/#{agent.agent_id}"} class="flex items-center gap-1.5">
                   <span class={"size-2 rounded-full #{if agent.active, do: "bg-success", else: "bg-warning"}"}>
@@ -632,8 +625,30 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
                 </.link>
               </td>
               <td>
-                <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
-                  {agent.agent_id}
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="block">
+                  <div class="font-mono text-xs">{agent.agent_id}</div>
+                  <div
+                    :if={agent_identity_details(agent) != nil}
+                    class="text-[11px] text-base-content/60 mt-1"
+                  >
+                    {agent_identity_details(agent)}
+                  </div>
+                </.link>
+              </td>
+              <td :if={@expanded}>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="block">
+                  <div class="font-mono text-xs">{agent_version_label(agent)}</div>
+                  <div class="text-[11px] text-base-content/60 mt-1">
+                    {agent_platform_label(agent)}
+                  </div>
+                </.link>
+              </td>
+              <td :if={@expanded}>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="block">
+                  <div class="font-mono text-xs">{agent_gateway_label(agent)}</div>
+                  <div class="text-[11px] text-base-content/60 mt-1">
+                    {agent_partition_label(agent)}
+                  </div>
                 </.link>
               </td>
               <td :if={@expanded}>
@@ -654,7 +669,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     """
   end
 
-  attr :type, :atom, required: true
+  attr(:type, :atom, required: true)
 
   defp event_badge(assigns) do
     {label, variant} =
@@ -785,18 +800,58 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       end)
 
     Enum.reduce(all_agents, %{}, fn agent, acc ->
-      agent_id = Map.get(agent, :agent_id) || Map.get(agent, "agent_id")
-
-      Map.put(acc, agent_id, %{
-        agent_id: agent_id,
-        last_seen: Map.get(agent, :last_seen) || Map.get(agent, "last_seen"),
-        last_seen_mono: Map.get(agent, :last_seen_mono) || Map.get(agent, "last_seen_mono"),
-        service_count: Map.get(agent, :service_count) || Map.get(agent, "service_count") || 0,
-        partition: Map.get(agent, :partition) || Map.get(agent, "partition"),
-        source_ip: Map.get(agent, :source_ip) || Map.get(agent, "source_ip")
-      })
+      case agent_id_from(agent) do
+        nil -> acc
+        agent_id -> Map.put(acc, agent_id, normalize_agent_entry(agent))
+      end
     end)
   end
+
+  defp agent_id_from(agent) do
+    agent_id = Map.get(agent, :agent_id) || Map.get(agent, "agent_id")
+
+    if is_binary(agent_id) and agent_id != "", do: agent_id
+  end
+
+  defp normalize_agent_entry(agent) do
+    %{
+      agent_id: agent_id_from(agent),
+      last_seen: fetch_agent_field(agent, :last_seen, "last_seen", nil),
+      last_seen_mono: fetch_agent_field(agent, :last_seen_mono, "last_seen_mono", nil),
+      service_count: fetch_agent_field(agent, :service_count, "service_count", 0),
+      partition: fetch_agent_field(agent, :partition, "partition", nil),
+      source_ip: fetch_agent_field(agent, :source_ip, "source_ip", nil),
+      gateway_id: fetch_agent_field(agent, :gateway_id, "gateway_id", nil),
+      version: fetch_agent_field(agent, :version, "version", nil),
+      hostname: fetch_agent_field(agent, :hostname, "hostname", nil),
+      os: fetch_agent_field(agent, :os, "os", nil),
+      arch: fetch_agent_field(agent, :arch, "arch", nil),
+      deployment_type: fetch_agent_field(agent, :deployment_type, "deployment_type", nil)
+    }
+  end
+
+  defp fetch_agent_field(agent, atom_key, string_key, default) do
+    Map.get(agent, atom_key) || Map.get(agent, string_key) || default
+  end
+
+  defp upsert_agent_cache_entry(cache, agent) do
+    agent_id = agent_id_from(agent)
+    incoming = normalize_agent_entry(agent)
+
+    Map.update(cache, agent_id, incoming, fn existing ->
+      merge_agent_entries(existing, incoming)
+    end)
+  end
+
+  defp merge_agent_entries(existing, incoming) do
+    Map.merge(existing, incoming, fn _key, old_value, new_value ->
+      if present_value?(new_value), do: new_value, else: old_value
+    end)
+  end
+
+  defp present_value?(value) when value in [nil, "", []], do: false
+  defp present_value?(%{} = value), do: map_size(value) > 0
+  defp present_value?(_value), do: true
 
   defp compute_gateways(gateways_cache) do
     now_ms = System.system_time(:millisecond)
@@ -938,10 +993,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
     # Query job counts by queue and state
     query =
-      from j in Oban.Job,
+      from(j in Oban.Job,
         where: j.state in ["available", "executing", "scheduled", "retryable"],
         group_by: [j.queue, j.state],
         select: {j.queue, j.state, count(j.id)}
+      )
 
     results = ServiceRadar.Repo.all(query)
 
@@ -984,6 +1040,50 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   defp format_time(nil), do: "—"
   defp format_time(%DateTime{} = dt), do: Calendar.strftime(dt, "%H:%M:%S")
   defp format_time(_), do: "—"
+
+  defp agent_identity_details(agent) do
+    [
+      present_text(Map.get(agent, :hostname)),
+      present_text(Map.get(agent, :source_ip))
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> case do
+      [] -> nil
+      parts -> Enum.join(parts, " • ")
+    end
+  end
+
+  defp agent_version_label(agent) do
+    present_text(Map.get(agent, :version)) || "Unknown version"
+  end
+
+  defp agent_platform_label(agent) do
+    os = present_text(Map.get(agent, :os))
+    arch = present_text(Map.get(agent, :arch))
+
+    cond do
+      os && arch -> "#{os}/#{arch}"
+      os -> "#{os}/unknown"
+      arch -> "unknown/#{arch}"
+      true -> "Unknown platform"
+    end
+  end
+
+  defp agent_gateway_label(agent) do
+    present_text(Map.get(agent, :gateway_id)) || "Unknown gateway"
+  end
+
+  defp agent_partition_label(agent) do
+    present_text(Map.get(agent, :partition)) || "Partition unknown"
+  end
+
+  defp present_text(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp present_text(_value), do: nil
 
   defp format_timestamp(nil), do: "—"
 
