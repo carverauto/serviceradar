@@ -51,16 +51,17 @@ jobs:
       - name: Generate source SBOM and vulnerability report
         run: |
           set -euo pipefail
+          rm -rf out/security/source
           mkdir -p out/security/source
+
+          osv-scanner scan source -r . \
+            --format json \
+            --output-file out/security/source/serviceradar-source.osv.json
 
           syft scan dir:. \
             -c .syft.yaml \
             -o spdx-json=out/security/source/serviceradar-source.spdx.json \
             -o syft-text=out/security/source/serviceradar-source.sbom.txt
-
-          osv-scanner scan source -r . \
-            --format json \
-            --output-file out/security/source/serviceradar-source.osv.json
 
       - name: Bundle source security artifacts
         run: |
