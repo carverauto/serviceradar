@@ -131,7 +131,7 @@ geoipMmdb:
 
 webNg:
   gatewayAddress: "demo-gw.serviceradar.cloud:50052"
-  agentReleasePublicKey: "VLy2uqCU3yrgyfqWTMO38cFALzITeboN9+opFiCiEvY="
+  agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   extraEnv:
     # City MMDB is large; we only enable it in demo where we can allocate more memory.
     GEOLITE_CITY_ENABLED: "true"
