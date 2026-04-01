@@ -108,7 +108,7 @@ After publishing, run the repo-local verification script against the tag you car
 ```bash
 make verify_publish
 make verify_publish VERIFY_TAG="v$(git describe --tags --always)"
-./scripts/verify-ghcr-publish.sh latest "sha-$(git rev-parse HEAD)"
+./scripts/verify-oci-publish.sh latest "sha-$(git rev-parse HEAD)"
 ```
 
 The script checks:

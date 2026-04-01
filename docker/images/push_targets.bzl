@@ -7,7 +7,7 @@ load("//docker/images:image_inventory.bzl", "PUBLISHABLE_IMAGES")
 load("@rules_multirun//:defs.bzl", "command", "multirun")
 
 
-def declare_ghcr_push_targets():
+def declare_oci_push_targets():
     """Registers oci_push targets and helper binaries for OCI publishing."""
 
     push_command_targets = []
