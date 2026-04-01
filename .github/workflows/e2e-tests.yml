@@ -44,7 +44,7 @@ permissions:
 jobs:
   check-skip:
     name: Check Skip Staging
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     if: github.event_name == 'workflow_run'
     outputs:
       skip: ${{ steps.check.outputs.skip }}
@@ -74,7 +74,7 @@ jobs:
 
   e2e-staging:
     name: E2E Tests (Staging)
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     needs: [check-skip]
     # For workflow_run: only run if release succeeded and not skipped
     # For workflow_dispatch: run if staging selected or default
@@ -142,7 +142,7 @@ jobs:
 
   e2e-demo:
     name: E2E Tests (Demo)
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     # Only run for manual dispatch with demo selected
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'demo'
     environment: demo
@@ -185,7 +185,7 @@ jobs:
   # Summary job for branch protection
   e2e-summary:
     name: E2E Tests Summary
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     needs: [check-skip, e2e-staging]
     if: always()
     steps:

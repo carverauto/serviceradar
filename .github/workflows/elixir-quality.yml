@@ -37,7 +37,7 @@ on:
 jobs:
   quality:
     name: Elixir Quality (${{ matrix.name }})
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:

@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   generate-sbom:
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
