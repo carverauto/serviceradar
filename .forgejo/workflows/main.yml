@@ -94,8 +94,8 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Setup Bazel
-        uses: bazelbuild/setup-bazelisk@v3
+      - name: Install Bazelisk
+        run: ./scripts/install-bazelisk.sh
 
       - name: Verify Bazel version
         run: |
