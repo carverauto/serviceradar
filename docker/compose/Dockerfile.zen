@@ -12,7 +12,7 @@ COPY go/cmd/tools/waitforport ./go/cmd/tools/waitforport
 RUN GOTOOLCHAIN=auto CGO_ENABLED=0 GOOS=linux go build -o /wait-for-port ./go/cmd/tools/waitforport
 
 # Multi-stage build for ServiceRadar Zen service (Rust) - FIXED
-FROM rust:latest AS builder
+FROM rust:1.78-bullseye AS builder
 
 # Build from workspace root so workspace dependencies resolve
 WORKDIR /usr/src

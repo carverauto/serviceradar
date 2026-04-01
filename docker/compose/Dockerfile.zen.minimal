@@ -1,5 +1,5 @@
 # Minimal build focusing only on zen consumer to avoid workspace issues
-FROM rust:latest AS builder
+FROM rust:1.78-bullseye AS builder
 
 WORKDIR /usr/src
 
