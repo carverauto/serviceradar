@@ -7,6 +7,8 @@
 
 # ServiceRadar
 
+Active source development and releases now live at `https://code.carverauto.dev/carverauto/serviceradar`.
+
 <img width="1470" height="836" alt="Screenshot 2025-12-16 at 10 09 19 PM" src="https://github.com/user-attachments/assets/e64ca26b-f4d8-42df-ab81-2de1d7941f92" />
 <img width="1470" height="801" alt="Screenshot 2026-02-16 at 8 39 36 PM" src="https://github.com/user-attachments/assets/4f959217-4e53-487b-ae78-30c2fd3344b3" />
 <img width="1470" height="804" alt="Screenshot 2026-02-16 at 8 36 26 PM" src="https://github.com/user-attachments/assets/bec3d2cb-c311-4a26-848d-2fece4a5af86" />
@@ -14,11 +16,6 @@
 
 
 https://github.com/user-attachments/assets/1cf2b90a-06f4-4ba7-b229-79720b16e0aa
-
-[![CI](https://github.com/carverauto/serviceradar/actions/workflows/main.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/main.yml)
-[![Go Linter](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml)
-[![Go Tests](https://github.com/carverauto/serviceradar/actions/workflows/tests-golang.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/tests-golang.yml)
-[![Rust Tests](https://github.com/carverauto/serviceradar/actions/workflows/tests-rust.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/tests-rust.yml)
 
 [![CNCF Landscape](https://img.shields.io/badge/CNCF%20Landscape-5699C6)](https://landscape.cncf.io/?item=observability-and-analysis--observability--serviceradar)
 [![FOSSA Status](https://app.fossa.com/api/projects/custom%2B57999%2Fgit%40github.com%3Acarverauto%2Fserviceradar.git.svg?type=shield&issueType=security)](https://app.fossa.com/projects/custom%2B57999%2Fgit%40github.com%3Acarverauto%2Fserviceradar.git?ref=badge_shield&issueType=security)
@@ -71,7 +68,7 @@ Get ServiceRadar running in under 5 minutes:
 export SERVICERADAR_HOST=<my-vm-ip>
 export GATEWAY_PUBLIC_BIND=0.0.0.0
 
-git clone https://github.com/carverauto/serviceradar.git
+git clone https://code.carverauto.dev/carverauto/serviceradar.git
 cd serviceradar
 
 docker compose up -d
@@ -84,21 +81,21 @@ docker compose logs config-updater
 
 ## Kubernetes / Helm Deployment
 
-ServiceRadar provides an official Helm chart for Kubernetes deployments, published to GHCR as an OCI artifact.
+ServiceRadar provides an official Helm chart for Kubernetes deployments, published to Harbor as an OCI artifact.
 
 ```bash
 # Inspect chart metadata and default values
-helm show chart oci://ghcr.io/carverauto/charts/serviceradar --version 1.1.1
-helm show values oci://ghcr.io/carverauto/charts/serviceradar --version 1.1.1 > values.yaml
+helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version 1.1.1
+helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version 1.1.1 > values.yaml
 
 # Install a pinned release (recommended)
-helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
+helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
   --version 1.1.1 \
   -n serviceradar --create-namespace \
   --set global.imageTag="v1.1.1"
 
 # Track mutable images (staging/dev): pulls :latest and forces re-pull
-helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
+helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
   --version 1.1.1 \
   -n serviceradar --create-namespace \
   --set global.imageTag="latest" \
@@ -115,13 +112,13 @@ Docker Compose notes:
 - Set `APP_TAG` in `.env` to pin release images (example: `APP_TAG=v1.1.1`).
 - Set `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in `.env` to default to the dev overlay without `-f`.
 
-**Chart URL:** `oci://ghcr.io/carverauto/charts/serviceradar`
+**Chart URL:** `oci://registry.carverauto.dev/serviceradar/charts/serviceradar`
 
 Notes:
-- [Chart](https://github.com/carverauto/serviceradar/blob/staging/helm/serviceradar/Chart.yaml) versions are like `1.1.1`; ServiceRadar image tags are like `v1.1.1`.
-- If your cluster requires registry credentials, set `image.registryPullSecret` (default `ghcr-io-cred`).
+- [Chart](helm/serviceradar/Chart.yaml) versions are like `1.1.1`; ServiceRadar image tags are like `v1.1.1`.
+- If your cluster requires registry credentials, set `image.registryPullSecret` (default `registry-carverauto-dev-cred`).
 
-For ArgoCD deployments, use `ghcr.io/carverauto/charts` as the repository URL (without the `oci://` prefix):
+For ArgoCD deployments, use `registry.carverauto.dev/serviceradar/charts` as the repository URL (without the `oci://` prefix):
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -134,7 +131,7 @@ spec:
     server: https://kubernetes.default.svc
     namespace: serviceradar
   source:
-    repoURL: ghcr.io/carverauto/charts
+    repoURL: registry.carverauto.dev/serviceradar/charts
     chart: serviceradar
     targetRevision: "1.1.1"
     helm:

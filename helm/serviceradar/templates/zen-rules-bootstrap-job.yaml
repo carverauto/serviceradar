@@ -25,7 +25,7 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       initContainers:
         - name: wait-for-nats
-          image: ghcr.io/carverauto/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
+          image: registry.carverauto.dev/serviceradar/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 10 }}
           command: ["/usr/local/bin/wait-for-port"]
@@ -47,7 +47,7 @@ spec:
               memory: "32Mi"
       containers:
         - name: zen-rules-bootstrap
-          image: ghcr.io/carverauto/serviceradar-tools{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "tools") }}
+          image: registry.carverauto.dev/serviceradar/serviceradar-tools{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "tools") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 10 }}
           command: ["/bin/sh", "-c"]

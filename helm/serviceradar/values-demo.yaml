@@ -17,7 +17,7 @@ global:
   forceRolloutOnUpgrade: true
 
 image:
-  registryPullSecret: ghcr-io-cred
+  registryPullSecret: registry-carverauto-dev-cred
 
 tools:
   enabled: true

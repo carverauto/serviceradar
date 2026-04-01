@@ -2,16 +2,16 @@
 
 This chart packages the ServiceRadar demo stack for Helm-based installs.
 
-Official chart location (OCI/GHCR):
-- Chart: `oci://ghcr.io/carverauto/charts/serviceradar`
-- ArgoCD repoURL (no `oci://` prefix): `ghcr.io/carverauto/charts`
+Official chart location (OCI/Harbor):
+- Chart: `oci://registry.carverauto.dev/serviceradar/charts/serviceradar`
+- ArgoCD repoURL (no `oci://` prefix): `registry.carverauto.dev/serviceradar/charts`
 
 ## Installation
 
 ### From Published OCI Chart (Recommended)
 
 ```bash
-helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
+helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
   --version 1.0.78 \
   -n serviceradar --create-namespace \
   --set global.imageTag="v1.0.78"
@@ -96,7 +96,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 - That shared secret also owns the default edge onboarding signing key and Erlang cluster cookie. Leave `secrets.edgeOnboardingKey` and `webNg.clusterCookie` empty to auto-generate unique install-scoped values; set them explicitly only when you need deterministic secret material or are rotating to a planned replacement.
 - If `secrets.autoGenerate=false`, your pre-created secret must also include `edge-onboarding-key`, `cluster-cookie`, `web-ng-secret-key-base`, and the other runtime keys expected by the chart.
 - A pre-install hook also generates the runtime certificate bundle and publishes it to `certs.runtimeSecretName` (default `serviceradar-runtime-certs`).
-- The chart does not generate image pull secrets; create `ghcr-io-cred` (or override `image.registryPullSecret`).
+- The chart does not generate image pull secrets; create `registry-carverauto-dev-cred` (or override `image.registryPullSecret`).
 - SPIFFE/SPIRE is optional. Enable it with `--set spire.enabled=true` (and `--set spire.postgres.enabled=true` if you also want the in-chart SPIRE database resources).
 - When SPIRE mode is enabled, the SPIRE server now stays internal by default (`spire.server.serviceType=ClusterIP`), the SPIRE health port is not published unless you explicitly set `spire.server.exposeHealthPort=true`, and kubelet verification stays enabled unless you explicitly set `spire.agent.skipKubeletVerification=true`.
 - The SPIRE controller manager sidecar can be disabled with `--set spire.controllerManager.enabled=false` if you do not need webhook-managed entries.

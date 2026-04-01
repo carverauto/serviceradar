@@ -36,20 +36,19 @@ get_version_file() {
     return 1
 }
 
-# Function to get latest GHCR tag using GitHub API
-get_ghcr_latest() {
-    local package_name="$1"
-    local url="https://api.github.com/orgs/carverauto/packages/container/serviceradar-${package_name}/versions"
-    
-    # Try to get the latest version from GHCR
-    if command -v curl >/dev/null 2>&1; then
-        local latest_tag=$(curl -s "$url" 2>/dev/null | \
-            jq -r '.[0].metadata.container.tags[]? // empty' 2>/dev/null | \
-            grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | \
-            head -1)
-        
+# Function to get latest registry tag using skopeo
+get_registry_latest() {
+    local repo="${OCI_VERSION_REPOSITORY:-registry.carverauto.dev/serviceradar/serviceradar-core-elx}"
+
+    if command -v skopeo >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+        local latest_tag
+        latest_tag=$(skopeo list-tags "docker://${repo}" 2>/dev/null | \
+            jq -r '.Tags[]? // empty' | \
+            grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$' | \
+            sort -V | tail -n1)
+
         if [[ -n "$latest_tag" ]]; then
-            echo "$latest_tag"
+            echo "${latest_tag#v}"
             return 0
         fi
     fi
@@ -65,6 +64,12 @@ check_image_exists() {
     return 1
 }
 
+check_version_image_exists() {
+    local repo="${OCI_VERSION_REPOSITORY:-registry.carverauto.dev/serviceradar/serviceradar-core-elx}"
+    local version="$1"
+    check_image_exists "${repo}:v${version}" || check_image_exists "${repo}:${version}"
+}
+
 # Main logic
 main() {
     local version=""
@@ -76,7 +81,7 @@ main() {
         log "Found git tag: $version"
         
         # Verify the image exists
-        if check_image_exists "ghcr.io/carverauto/serviceradar-core:$version"; then
+        if check_version_image_exists "$version"; then
             echo "$version"
             return 0
         else
@@ -89,7 +94,7 @@ main() {
         log "Found VERSION file: $version"
         
         # Verify the image exists
-        if check_image_exists "ghcr.io/carverauto/serviceradar-core:$version"; then
+        if check_version_image_exists "$version"; then
             echo "$version"
             return 0
         else
@@ -97,9 +102,9 @@ main() {
         fi
     fi
     
-    # Method 3: Try to get latest from GHCR API
-    if version=$(get_ghcr_latest "core"); then
-        log "Found latest GHCR version: $version"
+    # Method 3: Try to get latest from the OCI registry
+    if version=$(get_registry_latest); then
+        log "Found latest registry version: $version"
         echo "$version"
         return 0
     fi

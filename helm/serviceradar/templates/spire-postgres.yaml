@@ -34,7 +34,7 @@
 {{- end }}
 {{- $imageName := $pg.imageName }}
 {{- if not $imageName }}
-  {{- $imageRepo := default "ghcr.io/carverauto/serviceradar-cnpg" $pg.image }}
+  {{- $imageRepo := default "registry.carverauto.dev/serviceradar/serviceradar-cnpg" $pg.image }}
   {{- $imageTag := default "latest" $pg.imageTag }}
   {{- $imageName = printf "%s:%s" $imageRepo $imageTag }}
 {{- end }}
