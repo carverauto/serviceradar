@@ -422,7 +422,7 @@ webNg:
   devRoutes: "false"
   localMailer: "false"
   # Trusted Ed25519 public key used to verify signed agent release manifests.
-  agentReleasePublicKey: ""
+  agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   # Extra environment variables for the web-ng pod.
   extraEnv: {}
   # Resource requests/limits for web-ng.
