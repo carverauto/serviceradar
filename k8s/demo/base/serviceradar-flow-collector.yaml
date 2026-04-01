@@ -70,10 +70,10 @@ spec:
     spec:
       serviceAccountName: serviceradar-flow-collector
       imagePullSecrets:
-      - name: ghcr-io-cred
+      - name: registry-carverauto-dev-cred
       containers:
       - name: flow-collector
-        image: ghcr.io/carverauto/serviceradar-flow-collector:latest
+        image: registry.carverauto.dev/serviceradar/serviceradar-flow-collector:latest
         imagePullPolicy: Always
         ports:
         - name: netflow

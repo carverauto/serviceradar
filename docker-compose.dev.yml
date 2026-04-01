@@ -87,7 +87,7 @@ services:
 
   # Faker service - generates fake data for development/testing
   faker:
-    image: ghcr.io/carverauto/serviceradar-faker:${APP_TAG:-latest}
+    image: registry.carverauto.dev/serviceradar/serviceradar-faker:${APP_TAG:-latest}
     container_name: serviceradar-faker-mtls
     hostname: faker
     ports:

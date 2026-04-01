@@ -107,14 +107,14 @@ if ! kubectl get secret serviceradar-db-credentials -n $NAMESPACE >/dev/null 2>&
     echo "✅ Created serviceradar-db-credentials"
 fi
 
-# Check if ghcr.io credentials exist
-if ! kubectl get secret ghcr-io-cred -n $NAMESPACE >/dev/null 2>&1; then
-    echo "⚠️  GitHub Container Registry credentials not found!"
+# Check if Harbor credentials exist
+if ! kubectl get secret registry-carverauto-dev-cred -n $NAMESPACE >/dev/null 2>&1; then
+    echo "⚠️  Harbor registry credentials not found!"
     echo "Please create the secret manually:"
-    echo "kubectl create secret docker-registry ghcr-io-cred \\"
-    echo "  --docker-server=ghcr.io \\"
-    echo "  --docker-username=YOUR_GITHUB_USERNAME \\"
-    echo "  --docker-password=YOUR_GITHUB_TOKEN \\"
+    echo "kubectl create secret docker-registry registry-carverauto-dev-cred \\"
+    echo "  --docker-server=registry.carverauto.dev \\"
+    echo "  --docker-username=YOUR_HARBOR_USERNAME \\"
+    echo "  --docker-password=YOUR_HARBOR_CLI_SECRET_OR_ROBOT_TOKEN \\"
     echo "  --namespace=$NAMESPACE"
     exit 1
 fi

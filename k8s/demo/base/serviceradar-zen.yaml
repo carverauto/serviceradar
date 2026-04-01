@@ -17,10 +17,10 @@ spec:
     spec:
       serviceAccountName: serviceradar-zen
       imagePullSecrets:
-        - name: ghcr-io-cred
+        - name: registry-carverauto-dev-cred
       containers:
       - name: zen
-        image: ghcr.io/carverauto/serviceradar-zen:latest
+        image: registry.carverauto.dev/serviceradar/serviceradar-zen:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 50040

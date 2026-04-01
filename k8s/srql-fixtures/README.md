@@ -7,7 +7,7 @@ This directory provisions the long-lived Postgres/Timescale/Apache AGE fixture t
 - `namespace.yaml` – creates the `srql-fixtures` namespace.
 - `cnpg-test-credentials.yaml` – placeholder secret for the bootstrap user/password (replace before applying).
 - `cnpg-test-admin-credentials.yaml` – placeholder secret for the superuser that can drop/re-create the fixture database (replace before applying).
-- `cnpg-cluster.yaml` – CNPG `Cluster` spec that enables TimescaleDB + AGE using `ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2` (matches `docker-compose.yml`).
+- `cnpg-cluster.yaml` – CNPG `Cluster` spec that enables TimescaleDB + AGE using `registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2` (matches `docker-compose.yml`).
 - `services.yaml` – exposes a `LoadBalancer` targeting the CNPG primary. It’s annotated with `metallb.universe.tf/address-pool: k3s-pool` and `metallb.universe.tf/allow-shared-ip: serviceradar-public`, so MetalLB assigns one of the public addresses already used by the demo stack (currently `23.138.124.18`). ExternalDNS also sees the `external-dns.alpha.kubernetes.io/hostname: srql-fixture.serviceradar.cloud.` annotation and creates a matching A/AAAA record. In-cluster workloads should continue using the default `srql-fixture-rw` service the operator provisions automatically.
 - No network policy is applied; the LoadBalancer is publicly reachable once MetalLB advertises it. Use the shared secret/DSN guarding to control access.
 
@@ -15,12 +15,12 @@ This directory provisions the long-lived Postgres/Timescale/Apache AGE fixture t
 
 ```bash
 kubectl apply -f k8s/srql-fixtures/namespace.yaml
-# Copy/paste your container-registry pull secret (or re-create ghcr-io-cred) into the namespace.
-kubectl -n srql-fixtures get secret ghcr-io-cred >/dev/null 2>&1 || \
-  kubectl -n srql-fixtures create secret docker-registry ghcr-io-cred \
-    --docker-server=ghcr.io \
-    --docker-username='<gh-username>' \
-    --docker-password='<ghcr-token>'
+# Copy/paste your Harbor pull secret (or re-create registry-carverauto-dev-cred) into the namespace.
+kubectl -n srql-fixtures get secret registry-carverauto-dev-cred >/dev/null 2>&1 || \
+  kubectl -n srql-fixtures create secret docker-registry registry-carverauto-dev-cred \
+    --docker-server=registry.carverauto.dev \
+    --docker-username='<harbor-username>' \
+    --docker-password='<harbor-cli-secret-or-robot-token>'
 # Create/update the credentials secrets before the cluster (pick your own passwords).
 kubectl apply -f k8s/srql-fixtures/cnpg-test-credentials.yaml
 kubectl apply -f k8s/srql-fixtures/cnpg-test-admin-credentials.yaml

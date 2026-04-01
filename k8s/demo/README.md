@@ -31,7 +31,7 @@ This directory contains Kubernetes manifests for deploying ServiceRadar in the d
 
 - Kubernetes cluster with ingress + cert-manager
 - `kubectl` configured for the cluster (and optionally `kubectl kustomize`)
-- GitHub Container Registry credentials stored as `ghcr-io-cred` (see `DEPLOYMENT.md`)
+- Harbor registry credentials stored as `registry-carverauto-dev-cred` (see `DEPLOYMENT.md`)
 
 ### Deploy with the helper script
 
@@ -93,7 +93,7 @@ Update the `images:` stanza in the overlay you are deploying:
 
 ```yaml
 images:
-- name: ghcr.io/carverauto/serviceradar-core
+- name: registry.carverauto.dev/serviceradar/serviceradar-core
   newTag: sha-<commit>
 ```
 
@@ -107,7 +107,7 @@ When validating CNPG migrations in `demo-staging`, remember to ship the updated
 bazel run --config=remote_push --stamp //docker/images:tools_image_amd64_push
 
 # Update k8s/demo/staging/kustomization.yaml so the images block includes:
-# - name: ghcr.io/carverauto/serviceradar-tools
+# - name: registry.carverauto.dev/serviceradar/serviceradar-tools
 #   newTag: sha-<digest from bazel output>
 
 # Apply the overlay again so the deployment picks up the pinned image

@@ -110,6 +110,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     image_tag = Keyword.get(opts, :image_tag, "latest")
     component_type = effective_component_type(package.component_type)
     bundle_url = "#{base_url}/api/edge-packages/#{package.id}/bundle"
+    image_ref = component_image_ref(component_type, image_tag)
 
     String.trim("""
     SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
@@ -118,7 +119,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     docker run -d --name serviceradar-#{component_type} \\
       -v $(pwd)/certs:/etc/serviceradar/certs:ro \\
       -v $(pwd)/config:/etc/serviceradar/config:ro \\
-      ghcr.io/carverauto/serviceradar-#{component_type}:#{image_tag}
+      #{image_ref}
     """)
   end
 
@@ -258,7 +259,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
         public_key ->
           [
-            {"#{package_dir}/config/agent-env-overrides.env", "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=#{public_key}\n"}
+            {"#{package_dir}/config/agent-env-overrides.env",
+             "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=#{public_key}\n"}
           ]
       end
     else
@@ -295,7 +297,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     Jason.encode!(value)
   end
 
-  defp encode_yaml_value(value) when is_integer(value) or is_float(value) or is_boolean(value) or is_nil(value) do
+  defp encode_yaml_value(value)
+       when is_integer(value) or is_float(value) or is_boolean(value) or is_nil(value) do
     Jason.encode!(value)
   end
 
@@ -312,6 +315,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     component_type = effective_component_type(package.component_type)
     enrollment_token = onboarding_token(package, opts)
     base_url = Keyword.get(opts, :base_url, default_base_url())
+    container_image = component_image_ref(component_type, "latest")
 
     if component_type == "agent" and is_binary(enrollment_token) do
       return_agent_enroll_script(package, enrollment_token, base_url)
@@ -373,7 +377,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
               --restart unless-stopped \\
               -v "$CERT_DIR:/etc/serviceradar/certs:ro" \\
               -v "$CONFIG_DIR:/etc/serviceradar/config:ro" \\
-              "ghcr.io/carverauto/serviceradar-$COMPONENT_TYPE:latest"
+              "#{container_image}"
 
           echo ""
           echo "Container started. Check status with:"
@@ -543,15 +547,26 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   # Kubernetes manifest generation
 
-  defp generate_kubernetes_files(package_dir, package, cert_pem, key_pem, ca_chain_pem, join_token, opts) do
+  defp generate_kubernetes_files(
+         package_dir,
+         package,
+         cert_pem,
+         key_pem,
+         ca_chain_pem,
+         join_token,
+         opts
+       ) do
     namespace = Keyword.get(opts, :namespace, "serviceradar")
     image_tag = Keyword.get(opts, :image_tag, "latest")
 
     [
       {"#{package_dir}/kubernetes/namespace.yaml", generate_k8s_namespace(namespace)},
-      {"#{package_dir}/kubernetes/secret.yaml", generate_k8s_secret(package, cert_pem, key_pem, ca_chain_pem, namespace)},
-      {"#{package_dir}/kubernetes/configmap.yaml", generate_k8s_configmap(package, join_token, namespace, opts)},
-      {"#{package_dir}/kubernetes/deployment.yaml", generate_k8s_deployment(package, namespace, image_tag)},
+      {"#{package_dir}/kubernetes/secret.yaml",
+       generate_k8s_secret(package, cert_pem, key_pem, ca_chain_pem, namespace)},
+      {"#{package_dir}/kubernetes/configmap.yaml",
+       generate_k8s_configmap(package, join_token, namespace, opts)},
+      {"#{package_dir}/kubernetes/deployment.yaml",
+       generate_k8s_deployment(package, namespace, image_tag)},
       {"#{package_dir}/kubernetes/kustomization.yaml", generate_k8s_kustomization()}
     ]
   end
@@ -640,6 +655,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     component_type = effective_component_type(package.component_type)
     component_id = package.component_id || package.id
     grpc_port = grpc_port_for_component(component_type)
+    image_ref = component_image_ref(component_type, image_tag)
 
     s_component_type = sanitize_k8s_label(component_type)
     s_component_id = sanitize_k8s_label(component_id)
@@ -671,7 +687,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
           serviceAccountName: serviceradar-#{s_component_type}
           containers:
             - name: #{s_component_type}
-              image: ghcr.io/carverauto/serviceradar-#{s_component_type}:#{image_tag}
+              image: #{image_ref}
               args:
                 - --config
                 - /etc/serviceradar/config/config.yaml
@@ -760,6 +776,10 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     EndpointConfig.base_url()
   end
 
+  defp component_image_ref(component_type, image_tag) do
+    "registry.carverauto.dev/serviceradar/serviceradar-#{component_type}:#{image_tag}"
+  end
+
   defp default_gateway_addr(base_url) do
     env_gateway_addr = Application.get_env(:serviceradar_web_ng, :gateway_addr)
 
@@ -784,8 +804,11 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
              base_url,
              private_key: onboarding_token_private_key
            ) do
-        {:ok, token} -> token
-        {:error, reason} -> raise ArgumentError, "failed to generate signed onboarding token: #{inspect(reason)}"
+        {:ok, token} ->
+          token
+
+        {:error, reason} ->
+          raise ArgumentError, "failed to generate signed onboarding token: #{inspect(reason)}"
       end
     end
   end
@@ -830,6 +853,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp quick_start_section(component_type, _token, _base_url) do
+    image_ref = component_image_ref(component_type, "latest")
+
     """
     ## Quick Start
 
@@ -845,7 +870,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     docker run -d --name serviceradar-#{component_type} \\
       -v $(pwd)/certs:/etc/serviceradar/certs:ro \\
       -v $(pwd)/config:/etc/serviceradar/config:ro \\
-      ghcr.io/carverauto/serviceradar-#{component_type}:latest
+      #{image_ref}
     ```
 
     ### systemd
@@ -924,8 +949,11 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     |> Keyword.get(:agent_release_public_key)
     |> normalize_string()
     |> case do
-      nil -> normalize_string(Application.get_env(:serviceradar_web_ng, :agent_release_public_key))
-      public_key -> public_key
+      nil ->
+        normalize_string(Application.get_env(:serviceradar_web_ng, :agent_release_public_key))
+
+      public_key ->
+        public_key
     end
   end
 

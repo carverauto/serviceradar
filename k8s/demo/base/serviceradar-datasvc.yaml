@@ -16,10 +16,10 @@ spec:
         app.kubernetes.io/part-of: serviceradar
     spec:
       imagePullSecrets:
-        - name: ghcr-io-cred
+        - name: registry-carverauto-dev-cred
       containers:
       - name: datasvc
-        image: ghcr.io/carverauto/serviceradar-datasvc:latest
+        image: registry.carverauto.dev/serviceradar/serviceradar-datasvc:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 50057
