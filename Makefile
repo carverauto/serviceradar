@@ -118,11 +118,11 @@ build-web-ng: ## Build just the web-ng OCI image with Bazel (remote)
 	@bazel build --config=remote //docker/images:web_ng_image_amd64
 
 .PHONY: push-web-ng
-push-web-ng: ## Build and push just the web-ng OCI image to the OCI registry (remote)
+push-web-ng: ## Build and push just the web-ng OCI image to the configured OCI registry (remote)
 	@bazel run --config=remote_push --stamp //docker/images:web_ng_image_amd64_push
 
 .PHONY: push_all
-push_all: ## Build, sign, and verify all OCI images in the configured registry
+push_all: ## Build, sign, and verify all OCI images in the configured OCI registry
 	@set -eu; \
 	COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
 	if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
@@ -146,9 +146,9 @@ push_all: ## Build, sign, and verify all OCI images in the configured registry
 .PHONY: verify_publish
 verify_publish: ## Verify published OCI image shape and runtime metadata (set VERIFY_TAG=<tag> to include an extra tag)
 	@set -eu; \
-	./scripts/verify-ghcr-publish.sh latest "sha-$$(git rev-parse HEAD)"; \
+	./scripts/verify-oci-publish.sh latest "sha-$$(git rev-parse HEAD)"; \
 	if [ -n "$(VERIFY_TAG)" ]; then \
-		./scripts/verify-ghcr-publish.sh "$(VERIFY_TAG)"; \
+		./scripts/verify-oci-publish.sh "$(VERIFY_TAG)"; \
 	fi
 
 .PHONY: check-dev-image-tags

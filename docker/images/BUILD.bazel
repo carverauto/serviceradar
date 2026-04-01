@@ -3,7 +3,7 @@
 load("//docker/images:apk.bzl", "apk_rootfs_amd64", "declare_alpine_netutils_rootfs_amd64", "declare_apk_rootfs_targets")
 load("//docker/images:cnpg_image.bzl", "declare_cnpg_image_amd64")
 load("//docker/images:image_inventory.bzl", "publishable_image_labels")
-load("//docker/images:push_targets.bzl", "declare_ghcr_push_targets")
+load("//docker/images:push_targets.bzl", "declare_oci_push_targets")
 load(
     "//docker/images:release_images.bzl",
     "declare_elixir_release_container_amd64",
@@ -553,4 +553,4 @@ filegroup(
 )
 
 # --- OCI publishing ----------------------------------------------------------
-declare_ghcr_push_targets()
+declare_oci_push_targets()

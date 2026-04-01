@@ -143,7 +143,7 @@ fi
 "${BAZEL_BINARY}" run "${BAZEL_FLAGS[@]}" //docker/images:push_all -- --tag "${TAG}" "${PUSH_ARGS[@]}"
 
 if [[ "${PUSH_DRY_RUN:-0}" != "1" ]]; then
-    VERIFY_SCRIPT="${REPO_ROOT}/scripts/verify-ghcr-publish.sh"
+    VERIFY_SCRIPT="${REPO_ROOT}/scripts/verify-oci-publish.sh"
     if [[ ! -x "${VERIFY_SCRIPT}" ]]; then
         echo "Publish verification script is missing or not executable: ${VERIFY_SCRIPT}" >&2
         exit 1

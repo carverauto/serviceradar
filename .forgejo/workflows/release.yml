@@ -281,7 +281,7 @@ jobs:
           if [[ -n "${RELEASE_TAG}" ]]; then
             verify_tags+=("${RELEASE_TAG}")
           fi
-          ./scripts/verify-ghcr-publish.sh "${verify_tags[@]}"
+          ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
 
       - name: Install Helm
         run: ./scripts/install-helm.sh
