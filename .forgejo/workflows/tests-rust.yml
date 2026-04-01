@@ -1,0 +1,167 @@
+name: Rust Tests
+on:
+  push:
+    paths:
+      - 'rust/rperf-client/**'
+      - 'rust/rperf-server/**'
+      - 'rust/trapd/**'
+      - 'rust/consumers/zen/**'
+      - 'rust/log-collector/**'
+      - 'rust/srql/**'
+      - '.github/workflows/tests-rust.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  test-rust:
+    runs-on: arc-runner-set
+    env:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+      SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+      SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+      SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+    strategy:
+      matrix:
+        project:
+          - rust/rperf-client
+          - rust/rperf-server
+          - rust/trapd
+          - rust/consumers/zen
+          - rust/log-collector
+          - rust/srql
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+            third_party/bazel-repo-cache
+            third_party/bazel-disk-cache
+            third_party/distdir
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
+
+      - name: Install dependencies
+        run: |
+          ensure_pkg_config() {
+            if command -v pkg-config >/dev/null 2>&1; then
+              return
+            fi
+
+            if command -v apt-get >/dev/null 2>&1; then
+              sudo apt-get install -y pkg-config
+            elif command -v dnf >/dev/null 2>&1; then
+              if ! sudo dnf install -y pkgconfig; then
+                sudo dnf install -y pkgconf-pkg-config
+              fi
+            elif command -v yum >/dev/null 2>&1; then
+              if ! sudo yum install -y pkgconfig; then
+                sudo yum install -y pkgconf-pkg-config
+              fi
+            elif command -v microdnf >/dev/null 2>&1; then
+              if ! sudo microdnf install -y pkgconfig; then
+                sudo microdnf install -y pkgconf-pkg-config
+              fi
+            else
+              echo "pkg-config is required but no supported package manager was found." >&2
+              exit 1
+            fi
+          }
+
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler cmake flex bison
+          elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake flex bison
+          elif command -v yum >/dev/null 2>&1; then
+            sudo yum install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake flex bison
+          elif command -v microdnf >/dev/null 2>&1; then
+            sudo microdnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake flex bison
+          else
+            echo "Unsupported package manager; please install gcc, g++ (or clang), make, OpenSSL headers, pkg-config, and protoc manually." >&2
+            exit 1
+          fi
+
+          ensure_pkg_config
+          protoc --version || (echo "protoc installation failed" && exit 1)
+
+      - name: Setup Bazel
+        uses: bazelbuild/setup-bazelisk@v3
+
+      - name: Verify Bazel version
+        run: |
+          set -euo pipefail
+          expected="$(tr -d '\r\n' < .bazelversion)"
+          actual="$(bazel --version | awk '{print $NF}')"
+          echo "Expected Bazel: ${expected}"
+          echo "Resolved Bazel: ${actual}"
+          test "${actual}" = "${expected}"
+
+      - name: Configure SRQL fixture database for tests
+        if: ${{ matrix.project == 'rust/srql' }}
+        env:
+          SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SRQL_TEST_DATABASE_URL:-}" ] || [ -z "${SRQL_TEST_ADMIN_URL:-}" ]; then
+            echo "SRQL fixture DSNs must be configured via SRQL_TEST_DATABASE_URL and SRQL_TEST_ADMIN_URL secrets." >&2
+            exit 1
+          fi
+
+          if [ -z "${SRQL_TEST_DATABASE_CA_CERT:-}" ]; then
+            echo "SRQL_TEST_DATABASE_CA_CERT secret must be configured to verify SRQL fixture TLS." >&2
+            exit 1
+          fi
+
+          ca_file="${RUNNER_TEMP}/srql-fixture-ca.crt"
+          printf "%s" "${SRQL_TEST_DATABASE_CA_CERT}" > "${ca_file}"
+
+          {
+            echo "PGSSLROOTCERT=${ca_file}"
+            echo "SRQL_TEST_DATABASE_CA_CERT_FILE=${ca_file}"
+          } >> "$GITHUB_ENV"
+
+      - name: Configure remote cache
+        if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
+        run: |
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Cargo build
+        uses: actions/cache@v5
+        with:
+          path: ${{ matrix.project }}/target
+          key: ${{ runner.os }}-cargo-build-${{ matrix.project }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run Clippy
+        run: |
+          cd ${{ matrix.project }} && cargo clippy -- -D warnings
+
+      - name: Run Tests
+        env:
+          DOCKER_BUILDKIT: 1
+        run: |
+          cd ${{ matrix.project }} && cargo test

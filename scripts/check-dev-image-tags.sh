@@ -15,7 +15,7 @@ fi
 
 compose_files=(docker-compose.yml docker-compose.spiffe.yml)
 for file in "${compose_files[@]}"; do
-  matched=$(rg -n 'image:\s+ghcr.io/carverauto/serviceradar-' "$file" || true)
+  matched=$(rg -n 'image:\s+registry.carverauto.dev/serviceradar/serviceradar-' "$file" || true)
   matched=$(printf '%s\n' "$matched" | rg -v 'serviceradar-cnpg' || true)
   matched=$(printf '%s\n' "$matched" | rg -F -v '${APP_TAG:-latest}' || true)
   if [[ -n "$matched" ]]; then

@@ -297,5 +297,5 @@ tar -C "$${ROOT_DIR}" -cf "$${OUT_TAR}" .
     oci_load(
         name = "cnpg_image_amd64_tar",
         image = ":cnpg_image_amd64",
-        repo_tags = ["ghcr.io/carverauto/serviceradar-cnpg:local"],
+        repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-cnpg:local"],
     )

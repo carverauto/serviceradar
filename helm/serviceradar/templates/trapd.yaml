@@ -23,7 +23,7 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: trapd
-        image: ghcr.io/carverauto/serviceradar-trapd{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "trapd") }}
+        image: registry.carverauto.dev/serviceradar/serviceradar-trapd{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "trapd") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.bindServiceContainerSecurityContext" . | nindent 8 }}
         ports:

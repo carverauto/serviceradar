@@ -57,7 +57,7 @@ spec:
               mountPath: {{ default "/var/lib/serviceradar/checkers" $agentStorage.basePath | quote }}
       containers:
         - name: agent
-          image: ghcr.io/carverauto/serviceradar-agent:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "agent") }}
+          image: registry.carverauto.dev/serviceradar/serviceradar-agent:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "agent") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           command: ["/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"]
           args: ["-config", "/etc/serviceradar/agent.json"]
