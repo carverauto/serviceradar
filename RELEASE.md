@@ -1,16 +1,14 @@
 # Publishing ServiceRadar Releases with Bazel
 
-This guide explains how to publish a ServiceRadar release from Bazel, including pushing container images to Harbor and uploading Debian/RPM packages to a source-hosted release. The workflow is fully hermetic: Bazel builds every artifact and the publish steps reuse the generated outputs directly from the runfiles tree.
+This guide explains how to publish a ServiceRadar release from Bazel, including pushing container images and Helm charts to Harbor and uploading Debian/RPM packages to the Forgejo release for the tagged version. The workflow is fully hermetic: Bazel builds every artifact and the publish steps reuse the generated outputs directly from the runfiles tree.
 
-The registry cutover is complete in this repo. Release-note and asset publication is still documented against the legacy GitHub-oriented workflow and should be migrated to Forgejo before that path becomes authoritative again.
+## Forgejo Actions workflow
 
-## GitHub Actions workflow
-
-Tags that follow the `v*` convention automatically trigger `.github/workflows/release.yml`. The job:
+Tags that follow the `v*` convention automatically trigger `.forgejo/workflows/release.yml`. The job:
 
 - Ensures the tag matches the `VERSION` file and extracts the matching entry from `CHANGELOG` via `scripts/extract-changelog.py` (falling back to a default note when absent).
-- Runs `bazel run --config=remote --stamp //build/release:publish_packages` so that Bazel builds and uploads every Debian/RPM asset to the GitHub release.
-- Verifies the resulting release with the GitHub API and fails if no `.deb` or `.rpm` assets are present.
+- Runs `bazel run --config=remote --stamp //build/release:publish_packages` so that Bazel builds and uploads every Debian/RPM asset to the Forgejo release.
+- Verifies the resulting release with the Forgejo API and fails if no `.deb` or `.rpm` assets are present.
 - Normalises the uploaded asset names to include the release version (for example `serviceradar-core_1.0.53-pre14_amd64.deb`).
 
 Use `workflow_dispatch` to re-run or dry-run the pipeline with alternative options (draft releases, appending notes, skipping asset overwrites, etc.).
@@ -28,7 +26,7 @@ The script validates that `CHANGELOG` already contains a section for the version
 ## Prerequisites
 
 - `bazel`/Bazelisk configured for this repository.
-- A GitHub personal access token with the `repo` scope. Export it as either `GITHUB_TOKEN` or `GH_TOKEN` in the environment that will run the publish step.
+- A Forgejo personal access token with release write scope. Export it as `FORGEJO_TOKEN` (or `GITEA_TOKEN`) in the environment that will run the publish step.
 - Harbor robot credentials (see `docs/GHCR_PUBLISHING.md`) when pushing containers.
 
 > **Tip:** Use `--stamp` on publish commands so Bazel injects the `STABLE_COMMIT_SHA` from `scripts/workspace_status.sh`.
@@ -52,14 +50,15 @@ bazel run --stamp //build/release:publish_packages -- \
 The `publish_packages` binary performs the following:
 
 1. Builds every `pkg_deb` and `pkg_rpm` target declared via `build/packaging/packages.bzl` (transitively pulled in through `//build/release:package_artifacts`).
-2. Creates or updates the GitHub release identified by `--tag` (optionally pointing to `--commit` or the stamped commit SHA).
+2. Creates or updates the Forgejo release identified by `--tag` (optionally pointing to `--commit` or the stamped commit SHA).
 3. Uploads each generated `.deb` and `.rpm` file, replacing existing assets when `--overwrite_assets` (default `true`).
 
 ### Useful flags
 
 | Flag | Description |
 |------|-------------|
-| `--repo` | GitHub repository, defaults to `carverauto/serviceradar`. |
+| `--repo` | Repository, defaults to `carverauto/serviceradar`. |
+| `--forgejo-url` | Forgejo base URL, defaults to `https://code.carverauto.dev` or `$FORGEJO_URL`. |
 | `--name` | Release display name; defaults to the value of `--tag`. |
 | `--commit` | Override the commit SHA for the release. Falls back to `GITHUB_SHA`, `COMMIT_SHA`, or `STABLE_COMMIT_SHA`. |
 | `--notes` / `--notes_file` | Supply release notes inline or from a file (relative paths are resolved via Bazel runfiles). |
@@ -69,7 +68,7 @@ The `publish_packages` binary performs the following:
 
 ### Environment variables
 
-- `GITHUB_TOKEN` / `GH_TOKEN` – Required unless `--dry_run` is set.
+- `FORGEJO_TOKEN` / `GITEA_TOKEN` / `GITHUB_TOKEN` / `GH_TOKEN` – Required unless `--dry_run` is set.
 - `COMMIT_SHA`, `STABLE_COMMIT_SHA`, or `GITHUB_SHA` – Optional; used automatically when `--commit` is omitted.
 
 ## Step 3 – Verify the release
@@ -78,12 +77,12 @@ After the commands complete:
 
 - Confirm container images in Harbor (`registry.carverauto.dev/serviceradar/serviceradar-*`).
 - Run `make verify_publish VERIFY_TAG="v$(cat VERSION)"` to confirm published image shape and runtime metadata for `latest`, `sha-<commit>`, and the release tag.
-- Verify that the GitHub release contains the expected `.deb` and `.rpm` assets.
+- Verify that the Forgejo release contains the expected `.deb` and `.rpm` assets.
 - Optionally attach checksums or additional assets by re-running `publish_packages` with extra files staged in `build/release/package_manifest.txt`.
 
 ## Troubleshooting
 
-- Use `--dry_run` to inspect which assets would be uploaded without touching GitHub.
+- Use `--dry_run` to inspect which assets would be uploaded without touching Forgejo.
 - The manifest `//build/release:package_manifest` lists every package path consumed by the publisher; inspect it with `bazel build //build/release:package_manifest && cat bazel-bin/build/release/package_manifest.txt` if you need to confirm coverage.
 - If Bazel fails while building packages, rebuild the specific target (e.g., `bazel build //build/packaging/core:core_deb`) to diagnose before rerunning the publish command.
 
@@ -111,7 +110,7 @@ Ensure the following BuildBuddy secrets are defined before enabling the workflow
 
 - `HARBOR_ROBOT_USERNAME`
 - `HARBOR_ROBOT_SECRET`
-- `GITHUB_TOKEN`
+- `FORGEJO_TOKEN`
 - `BUILDBUDDY_API_KEY` (or `BUILDBUDDY_ORG_API_KEY`) – required so Bazel’s `--config=remote` can authenticate to BuildBuddy inside the workflow.
 
 Once the secrets are present, enable the “Release” workflow in BuildBuddy. A push to a `v*` tag (or a manual workflow dispatch) will authenticate to Harbor, push all images, and publish the Debian/RPM assets to the matching release target configured by the workflow.
