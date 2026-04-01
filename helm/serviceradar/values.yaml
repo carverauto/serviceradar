@@ -20,7 +20,7 @@ global:
   forceRolloutOnUpgrade: false
 
 image:
-  registryPullSecret: ghcr-io-cred
+  registryPullSecret: registry-carverauto-dev-cred
   tags:
     # Default tag for ServiceRadar images. Use global.imageTag to override all at once.
     appTag: &appTag "latest"
@@ -358,7 +358,7 @@ cnpg:
   instances: 3
   storageClass: local-path
   storageSize: 100Gi
-  imageName: ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2
+  imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2
   sharedPreloadLibraries:
     - timescaledb
     - age
@@ -655,7 +655,7 @@ flowCollector:
 bmpCollector:
   enabled: false
   image:
-    repository: ghcr.io/carverauto/arancini
+    repository: registry.carverauto.dev/serviceradar/arancini
     tag: "latest"
     pullPolicy: IfNotPresent
   config:
@@ -778,9 +778,9 @@ spire:
     password: ""
     # If blank, Helm generates a random password and stores it in spire-db-credentials.
     # Existing secrets are reused; delete the secret to rotate.
-    image: ghcr.io/carverauto/serviceradar-cnpg
+    image: registry.carverauto.dev/serviceradar/serviceradar-cnpg
     imageTag: ""
-    imageName: ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2
+    imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2
     imagePullSecrets: []
     sharedPreloadLibraries:
       - timescaledb

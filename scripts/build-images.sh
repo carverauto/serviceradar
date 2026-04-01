@@ -6,8 +6,8 @@
 set -euo pipefail
 
 # Configuration
-REGISTRY="ghcr.io"
-IMAGE_PREFIX="ghcr.io/carverauto/serviceradar"
+REGISTRY="registry.carverauto.dev"
+IMAGE_PREFIX="registry.carverauto.dev/serviceradar/serviceradar"
 DEFAULT_TAG="latest"
 DEFAULT_PLATFORM="linux/amd64,linux/arm64"
 BUILDER_NAME="multiarch"
@@ -57,7 +57,7 @@ usage() {
     cat << EOF
 Usage: $0 [OPTIONS] [SERVICES...]
 
-Build and push ServiceRadar Docker images to GitHub Container Registry (GHCR)
+Build and push ServiceRadar Docker images to the Harbor OCI registry
 
 OPTIONS:
   -t, --tag TAG             Tag for the images (default: $DEFAULT_TAG)
@@ -105,8 +105,8 @@ EXAMPLES:
   $0 --local core
 
 AUTHENTICATION:
-  Before pushing, login to GHCR:
-  echo \$GITHUB_TOKEN | docker login ghcr.io -u \$GITHUB_USERNAME --password-stdin
+  Before pushing, login to Harbor:
+  echo \$HARBOR_ROBOT_SECRET | docker login ${REGISTRY} -u \$HARBOR_ROBOT_USERNAME --password-stdin
 
 EOF
 }

@@ -1,6 +1,8 @@
 # Publishing ServiceRadar Releases with Bazel
 
-This guide explains how to publish a ServiceRadar release from Bazel, including pushing container images to GHCR and uploading Debian/RPM packages to a GitHub release. The workflow is fully hermetic: Bazel builds every artifact and the publish steps reuse the generated outputs directly from the runfiles tree.
+This guide explains how to publish a ServiceRadar release from Bazel, including pushing container images to Harbor and uploading Debian/RPM packages to a source-hosted release. The workflow is fully hermetic: Bazel builds every artifact and the publish steps reuse the generated outputs directly from the runfiles tree.
+
+The registry cutover is complete in this repo. Release-note and asset publication is still documented against the legacy GitHub-oriented workflow and should be migrated to Forgejo before that path becomes authoritative again.
 
 ## GitHub Actions workflow
 
@@ -27,7 +29,7 @@ The script validates that `CHANGELOG` already contains a section for the version
 
 - `bazel`/Bazelisk configured for this repository.
 - A GitHub personal access token with the `repo` scope. Export it as either `GITHUB_TOKEN` or `GH_TOKEN` in the environment that will run the publish step.
-- Docker credentials for GHCR (see `docs/GHCR_PUBLISHING.md`) when pushing containers.
+- Harbor robot credentials (see `docs/GHCR_PUBLISHING.md`) when pushing containers.
 
 > **Tip:** Use `--stamp` on publish commands so Bazel injects the `STABLE_COMMIT_SHA` from `scripts/workspace_status.sh`.
 
@@ -37,7 +39,7 @@ The script validates that `CHANGELOG` already contains a section for the version
 bazel run --stamp //docker/images:push_all -- --tag v$(cat VERSION)
 ```
 
-Refer to `docs/GHCR_PUBLISHING.md` for more details on configuring registry credentials and tagging conventions.
+Refer to `docs/GHCR_PUBLISHING.md` for more details on configuring Harbor credentials and tagging conventions.
 
 ## Step 2 – Publish Debian and RPM artifacts
 
@@ -74,7 +76,7 @@ The `publish_packages` binary performs the following:
 
 After the commands complete:
 
-- Confirm container images in GHCR (`ghcr.io/carverauto/serviceradar-*`).
+- Confirm container images in Harbor (`registry.carverauto.dev/serviceradar/serviceradar-*`).
 - Run `make verify_publish VERIFY_TAG="v$(cat VERSION)"` to confirm published image shape and runtime metadata for `latest`, `sha-<commit>`, and the release tag.
 - Verify that the GitHub release contains the expected `.deb` and `.rpm` assets.
 - Optionally attach checksums or additional assets by re-running `publish_packages` with extra files staged in `build/release/package_manifest.txt`.
@@ -107,9 +109,9 @@ The repository includes a BuildBuddy workflow (`.buildbuddy/workflows.yaml`) tha
 
 Ensure the following BuildBuddy secrets are defined before enabling the workflow:
 
-- `GHCR_USERNAME`
-- `GHCR_TOKEN`
+- `HARBOR_ROBOT_USERNAME`
+- `HARBOR_ROBOT_SECRET`
 - `GITHUB_TOKEN`
 - `BUILDBUDDY_API_KEY` (or `BUILDBUDDY_ORG_API_KEY`) – required so Bazel’s `--config=remote` can authenticate to BuildBuddy inside the workflow.
 
-Once the secrets are present, enable the “Release” workflow in BuildBuddy. A push to a `v*` tag (or a manual workflow dispatch) will authenticate to GHCR, push all images, and publish the Debian/RPM assets to the matching GitHub release.
+Once the secrets are present, enable the “Release” workflow in BuildBuddy. A push to a `v*` tag (or a manual workflow dispatch) will authenticate to Harbor, push all images, and publish the Debian/RPM assets to the matching release target configured by the workflow.

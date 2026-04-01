@@ -20,7 +20,7 @@ Usage: {{ include "serviceradar.imageTag" (dict "Values" .Values "service" "core
 {{/*
 Build an image ref suffix for a service.
 Uses image.digests.<service> when set, otherwise falls back to :tag behavior.
-Usage: ghcr.io/carverauto/serviceradar-core-elx{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "core") }}
+Usage: registry.carverauto.dev/serviceradar/serviceradar-core-elx{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "core") }}
 */}}
 {{- define "serviceradar.imageRefSuffix" -}}
 {{- $image := .Values.image | default dict -}}

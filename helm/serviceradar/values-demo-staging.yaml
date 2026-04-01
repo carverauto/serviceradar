@@ -8,7 +8,7 @@ global:
   imagePullPolicy: Always
 
 image:
-  registryPullSecret: ghcr-io-cred
+  registryPullSecret: registry-carverauto-dev-cred
 
 agentGateway:
   enabled: true

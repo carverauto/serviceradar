@@ -87,7 +87,7 @@ def main() -> int:
     values["global"].setdefault("imagePullPolicy", "Always")
 
     values.setdefault("image", {})
-    values["image"].setdefault("registryPullSecret", "ghcr-io-cred")
+    values["image"].setdefault("registryPullSecret", "registry-carverauto-dev-cred")
     values["image"].setdefault("tags", {})
     tags = values["image"]["tags"]
 

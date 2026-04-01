@@ -1,4 +1,4 @@
-"""Helpers for publishing OCI images to GHCR."""
+"""Helpers for publishing OCI images to the configured registry."""
 
 load("@rules_oci//oci:defs.bzl", "oci_push")
 load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template")
@@ -8,7 +8,7 @@ load("@rules_multirun//:defs.bzl", "command", "multirun")
 
 
 def declare_ghcr_push_targets():
-    """Registers oci_push targets and helper binaries for GHCR publishing."""
+    """Registers oci_push targets and helper binaries for OCI publishing."""
 
     push_command_targets = []
 

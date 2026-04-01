@@ -1,0 +1,65 @@
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: lint
+on: [push, pull_request]
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write
+jobs:
+  lint:
+    name: lint
+    runs-on: arc-runner-set
+    # Removed the invalid job-level env block here
+    steps:
+      # Added a step to inject GOCACHE into the job's environment
+      - name: Set GOCACHE
+        run: echo "GOCACHE=${{ runner.temp }}/go-build" >> $GITHUB_ENV
+
+      - name: checkout
+        uses: actions/checkout@v6
+        
+      - name: setup go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          
+      - name: go toolchain info
+        run: |
+          go version
+          go env GOMOD GOCACHE GOMODCACHE GOPROXY GOTOOLCHAIN
+
+      - name: Prefetch Go modules
+        run: |
+          for attempt in 1 2 3; do
+            if go mod download; then
+              exit 0
+            fi
+            echo "go mod download failed on attempt $attempt; retrying..." >&2
+            sleep $((attempt * 5))
+          done
+          exit 1
+          
+      - name: Install golangci-lint
+        run: |
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.3
+
+      - name: golangci-lint
+        run: make lint-go
+          
+      - name: go mod tidy check
+        uses: katexochen/go-tidy-check@v2

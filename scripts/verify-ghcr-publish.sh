@@ -17,19 +17,23 @@ else
   TAGS=("$@")
 fi
 
+REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
+OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
+OCI_REPOSITORY_BASE="${REGISTRY_HOST}/${OCI_PROJECT}"
+
 declare -a IMAGE_SPECS=(
-  "ghcr.io/carverauto/serviceradar-web-ng|single"
-  "ghcr.io/carverauto/serviceradar-core-elx|single"
-  "ghcr.io/carverauto/serviceradar-agent-gateway|single"
-  "ghcr.io/carverauto/serviceradar-agent|single"
-  "ghcr.io/carverauto/serviceradar-log-collector|index"
-  "ghcr.io/carverauto/serviceradar-trapd|index"
-  "ghcr.io/carverauto/serviceradar-flow-collector|index"
-  "ghcr.io/carverauto/arancini|index"
-  "ghcr.io/carverauto/serviceradar-rperf-client|index"
-  "ghcr.io/carverauto/serviceradar-faker|index"
-  "ghcr.io/carverauto/serviceradar-zen|index"
-  "ghcr.io/carverauto/serviceradar-tools|single"
+  "${OCI_REPOSITORY_BASE}/serviceradar-web-ng|single"
+  "${OCI_REPOSITORY_BASE}/serviceradar-core-elx|single"
+  "${OCI_REPOSITORY_BASE}/serviceradar-agent-gateway|single"
+  "${OCI_REPOSITORY_BASE}/serviceradar-agent|single"
+  "${OCI_REPOSITORY_BASE}/serviceradar-log-collector|index"
+  "${OCI_REPOSITORY_BASE}/serviceradar-trapd|index"
+  "${OCI_REPOSITORY_BASE}/serviceradar-flow-collector|index"
+  "${OCI_REPOSITORY_BASE}/arancini|index"
+  "${OCI_REPOSITORY_BASE}/serviceradar-rperf-client|index"
+  "${OCI_REPOSITORY_BASE}/serviceradar-faker|index"
+  "${OCI_REPOSITORY_BASE}/serviceradar-zen|index"
+  "${OCI_REPOSITORY_BASE}/serviceradar-tools|single"
 )
 
 fail() {
@@ -83,62 +87,62 @@ check_config() {
   local config
   config="$(skopeo inspect --override-arch amd64 --config "docker://${ref}:${tag}")"
 
-  case "$ref" in
-    ghcr.io/carverauto/serviceradar-web-ng)
+  case "${ref##*/}" in
+    serviceradar-web-ng)
       assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/app/bin/serviceradar_web_ng"]' "${ref}:${tag} entrypoint"
       assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["start"]' "${ref}:${tag} cmd"
       assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/app" "${ref}:${tag} workdir"
       assert_contains_env "$config" "PHX_SERVER=true" "${ref}:${tag}"
       assert_contains_env "$config" "MIX_ENV=prod" "${ref}:${tag}"
       ;;
-    ghcr.io/carverauto/serviceradar-core-elx)
+    serviceradar-core-elx)
       assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/app/bin/serviceradar_core_elx"]' "${ref}:${tag} entrypoint"
       assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["start"]' "${ref}:${tag} cmd"
       assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/app" "${ref}:${tag} workdir"
       assert_contains_env "$config" "MIX_ENV=prod" "${ref}:${tag}"
       ;;
-    ghcr.io/carverauto/serviceradar-agent-gateway)
+    serviceradar-agent-gateway)
       assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/app/bin/serviceradar_agent_gateway"]' "${ref}:${tag} entrypoint"
       assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["start"]' "${ref}:${tag} cmd"
       assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/app" "${ref}:${tag} workdir"
       assert_contains_env "$config" "MIX_ENV=prod" "${ref}:${tag}"
       ;;
-    ghcr.io/carverauto/serviceradar-agent)
+    serviceradar-agent)
       assert_eq "$(jq -c '.config.Entrypoint // []' <<<"$config")" '[]' "${ref}:${tag} entrypoint"
       assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/usr/local/lib/serviceradar/agent/serviceradar-agent-seed","-config","/etc/serviceradar/agent.json"]' "${ref}:${tag} cmd"
       assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
       ;;
-    ghcr.io/carverauto/serviceradar-log-collector)
+    serviceradar-log-collector)
       assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/entrypoint.sh"]' "${ref}:${tag} entrypoint"
       assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["serviceradar-log-collector"]' "${ref}:${tag} cmd"
       assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
       ;;
-    ghcr.io/carverauto/serviceradar-flow-collector)
+    serviceradar-flow-collector)
       assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/serviceradar-flow-collector"]' "${ref}:${tag} entrypoint"
       assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["--config","/etc/serviceradar/flow-collector.json"]' "${ref}:${tag} cmd"
       assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
       ;;
-    ghcr.io/carverauto/arancini)
+    arancini)
       assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/serviceradar-bmp-collector"]' "${ref}:${tag} entrypoint"
       assert_eq "$(jq -c '.config.Cmd // []' <<<"$config")" '[]' "${ref}:${tag} cmd"
       assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
       ;;
-    ghcr.io/carverauto/serviceradar-rperf-client)
+    serviceradar-rperf-client)
       assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/entrypoint.sh"]' "${ref}:${tag} entrypoint"
       assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/usr/local/bin/serviceradar-rperf-checker","--config","/etc/serviceradar/checkers/rperf.json"]' "${ref}:${tag} cmd"
       assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
       ;;
-    ghcr.io/carverauto/serviceradar-faker)
+    serviceradar-faker)
       assert_eq "$(jq -c '.config.Entrypoint // []' <<<"$config")" '[]' "${ref}:${tag} entrypoint"
       assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/usr/local/bin/serviceradar-faker","-config","/etc/serviceradar/faker.json"]' "${ref}:${tag} cmd"
       assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
       ;;
-    ghcr.io/carverauto/serviceradar-zen)
+    serviceradar-zen)
       assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/entrypoint.sh"]' "${ref}:${tag} entrypoint"
       assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["serviceradar-zen"]' "${ref}:${tag} cmd"
       assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
       ;;
-    ghcr.io/carverauto/serviceradar-tools)
+    serviceradar-tools)
       assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/entrypoint.sh"]' "${ref}:${tag} entrypoint"
       assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/bin/sh"]' "${ref}:${tag} cmd"
       assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/" "${ref}:${tag} workdir"
@@ -156,4 +160,4 @@ for tag in "${TAGS[@]}"; do
   done
 done
 
-echo "verified GHCR publish metadata for tags: ${TAGS[*]}"
+echo "verified OCI publish metadata for tags: ${TAGS[*]}"

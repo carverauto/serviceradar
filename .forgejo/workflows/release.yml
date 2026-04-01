@@ -57,6 +57,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   publish:
@@ -65,11 +66,10 @@ jobs:
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      OCI_REGISTRY: registry.carverauto.dev
-      OCI_PROJECT: serviceradar
-      OCI_CHART_REPOSITORY: serviceradar/charts
-      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
-      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      GHCR_DOCKER_AUTH: ${{ secrets.GHCR_DOCKER_AUTH }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GHCR_REGISTRY: ghcr.io
       ALLOW_LOCAL_FALLBACK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.allow_local_fallback || 'false' }}
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
     steps:
@@ -213,31 +213,47 @@ jobs:
           cat "$notes_file"
           echo "--------------------------------"
 
-      - name: Authenticate Docker for OCI registry
+      - name: Authenticate Docker for GHCR
+        env:
+          GHCR_DOCKER_AUTH: ${{ secrets.GHCR_DOCKER_AUTH }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
-          login_registry() {
+          login_ghcr() {
             local user="${1:-}"
             local token="${2:-}"
             if [[ -z "${user}" || -z "${token}" ]]; then
               return 1
             fi
-            echo "${token}" | docker login "${OCI_REGISTRY}" -u "${user}" --password-stdin
+            echo "${token}" | docker login ghcr.io -u "${user}" --password-stdin
           }
 
-          if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
-            echo "Missing Harbor robot credentials. Set HARBOR_ROBOT_USERNAME and HARBOR_ROBOT_SECRET." >&2
-            exit 1
+          # Prefer GHCR_USERNAME/GHCR_TOKEN when provided; fall back to GITHUB_TOKEN.
+          if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
+            if ! login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"; then
+              echo "GHCR_TOKEN login failed; falling back to GITHUB_TOKEN." >&2
+              login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"
+              export GHCR_USERNAME="${GITHUB_ACTOR:-github-actions}"
+              export GHCR_TOKEN="${GITHUB_TOKEN:-}"
+            else
+              export GHCR_USERNAME="${GHCR_USERNAME}"
+              export GHCR_TOKEN="${GHCR_TOKEN}"
+            fi
+          else
+            login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"
+            export GHCR_USERNAME="${GITHUB_ACTOR:-github-actions}"
+            export GHCR_TOKEN="${GITHUB_TOKEN:-}"
           fi
 
-          login_registry "${OCI_USERNAME}" "${OCI_TOKEN}"
-
-          export OCI_DOCKER_AUTH=""
-          unset OCI_DOCKER_AUTH || true
+          export GHCR_DOCKER_AUTH=""
+          unset GHCR_DOCKER_AUTH || true
           {
-            echo "OCI_USERNAME=${OCI_USERNAME}"
-            echo "OCI_TOKEN=${OCI_TOKEN}"
-            echo "OCI_DOCKER_AUTH="
+            echo "GHCR_USERNAME=${GHCR_USERNAME}"
+            echo "GHCR_TOKEN=${GHCR_TOKEN}"
+            echo "GHCR_DOCKER_AUTH="
           } >> "${GITHUB_ENV}"
 
           chmod +x ./buildbuddy_setup_docker_auth.sh
@@ -289,32 +305,43 @@ jobs:
       - name: Publish Helm chart to OCI registry
         env:
           VERSION: ${{ steps.release.outputs.version }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
           set -euo pipefail
-          login_registry() {
+          login_ghcr() {
             local user="${1:-}"
             local token="${2:-}"
             if [[ -z "${user}" || -z "${token}" ]]; then
               return 1
             fi
-            echo "${token}" | helm registry login "${OCI_REGISTRY}" -u "${user}" --password-stdin
+            echo "${token}" | helm registry login ghcr.io -u "${user}" --password-stdin
           }
 
-          if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
-            echo "Missing Harbor robot credentials. Set HARBOR_ROBOT_USERNAME and HARBOR_ROBOT_SECRET." >&2
-            exit 1
+          # Login to GHCR for Helm OCI (fallback to GITHUB_TOKEN if needed).
+          if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
+            if ! login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"; then
+              echo "GHCR_TOKEN Helm login failed; falling back to GITHUB_TOKEN." >&2
+              if ! login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"; then
+                echo "GITHUB_TOKEN Helm login failed; unable to authenticate to GHCR." >&2
+                exit 1
+              fi
+            fi
+          else
+            if ! login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"; then
+              echo "GITHUB_TOKEN Helm login failed; unable to authenticate to GHCR." >&2
+              exit 1
+            fi
           fi
-
-          login_registry "${OCI_USERNAME}" "${OCI_TOKEN}"
 
           # Package and push chart
           helm package helm/serviceradar
-          helm push "serviceradar-${VERSION}.tgz" "oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}"
+          helm push "serviceradar-${VERSION}.tgz" oci://ghcr.io/carverauto/charts
 
           # Cleanup
           rm -f "serviceradar-${VERSION}.tgz"
 
-          echo "Published Helm chart: oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}/serviceradar:${VERSION}"
+          echo "Published Helm chart: oci://ghcr.io/carverauto/charts/serviceradar:${VERSION}"
 
       - name: Publish release packages and agent manifest assets
         env:

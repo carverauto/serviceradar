@@ -1,24 +1,24 @@
-# Publishing ServiceRadar Images to GHCR with Bazel
+# Publishing ServiceRadar Images to Harbor with Bazel
 
-This note describes the Bazel-native workflow for building and pushing the ServiceRadar container images to the GitHub Container Registry (GHCR). It also covers the minimal secret configuration required in BuildBuddy so that CI runs can authenticate against `ghcr.io` without leaking credentials into the repository.
+This note describes the Bazel-native workflow for building and pushing the ServiceRadar container images to Harbor. It also covers the minimal secret configuration required in BuildBuddy so that CI runs can authenticate against `registry.carverauto.dev` without leaking credentials into the repository.
 
 ## Overview
 
-- Each image defined in `docker/images/BUILD.bazel` now has a matching `oci_push` target that uploads the image to `ghcr.io/carverauto/<image-name>`.
+- Each image defined in `docker/images/BUILD.bazel` now has a matching `oci_push` target that uploads the image to `registry.carverauto.dev/serviceradar/<image-name>`.
 - The canonical aggregate publish target is `//:push`, which delegates to `//docker/images:push_all`.
-- `//docker/images:push_all` writes a temporary Docker config that contains the GHCR credentials and runs the per-image push targets in parallel via `rules_multirun` with `jobs = 0`.
+- `//docker/images:push_all` writes a temporary Docker config that contains the Harbor credentials and runs the per-image push targets in parallel via `rules_multirun` with `jobs = 0`.
 - Tags are generated via Bazel stamping: every push always publishes a `latest` tag plus a `sha-<commit>` tag (falling back to `sha-dev` when Bazel runs without `--stamp`). Additional tags can be supplied at runtime via `--tag <value>` arguments passed to any `oci_push` target.
 
 ## Required secrets
 
-Create a classic GitHub Personal Access Token (PAT) with the `write:packages` and `read:packages` scopes. Store the following secrets in BuildBuddy (Settings → Secrets):
+Create a Harbor robot account with push/pull permission on the `serviceradar` project. Store the following secrets in BuildBuddy (Settings -> Secrets):
 
 | Secret name | Value                                             |
 |-------------|---------------------------------------------------|
-| `GHCR_USERNAME` | Your GitHub username (or org/bot account)       |
-| `GHCR_TOKEN`    | The generated PAT                               |
+| `OCI_USERNAME` | Harbor robot username (for example `robot$serviceradar-ci`) |
+| `OCI_TOKEN`    | Harbor robot secret                                         |
 
-If you prefer a different registry host (for example, GHES), you may also define an optional `GHCR_REGISTRY` secret (defaults to `ghcr.io`).
+Set `OCI_REGISTRY=registry.carverauto.dev` when the workflow does not already export it.
 
 Alternatively, you can store an entire Docker auth configuration JSON in a single secret (for example `DOCKER_AUTH_CONFIG_JSON`) and let the helper script write it verbatim.
 
@@ -29,8 +29,8 @@ The repository includes `buildbuddy_setup_docker_auth.sh`. The script materialis
 The script supports three input modes. Set exactly one of them via BuildBuddy secrets (replace placeholders with the matching `@@SECRET_NAME@@` syntax):
 
 1. `DOCKER_AUTH_CONFIG_JSON` – a raw docker config snippet.
-2. `GHCR_DOCKER_AUTH` – a base64 encoded `username:token` pair for the registry.
-3. `GHCR_USERNAME` and `GHCR_TOKEN` – the script performs the base64 encoding for you. Optional `GHCR_REGISTRY` overrides `ghcr.io`.
+2. `OCI_DOCKER_AUTH` – a base64 encoded `username:token` pair for the registry.
+3. `OCI_USERNAME` and `OCI_TOKEN` – the script performs the base64 encoding for you. Optional `OCI_REGISTRY` overrides `registry.carverauto.dev`.
 
 Example BuildBuddy workflow fragment:
 
@@ -43,9 +43,9 @@ actions:
       "run  --config=remote_push --stamp //:push",
     ]
     env = {
-      GHCR_USERNAME = "@@GHCR_USERNAME@@",
-      GHCR_TOKEN = "@@GHCR_TOKEN@@",
-      # Optional: GHCR_REGISTRY = "@@GHCR_REGISTRY@@",
+      OCI_REGISTRY = "registry.carverauto.dev",
+      OCI_USERNAME = "@@OCI_USERNAME@@",
+      OCI_TOKEN = "@@OCI_TOKEN@@",
     }
 ```
 
@@ -57,12 +57,11 @@ When configuring the BuildBuddy workflow that invokes the publish step, export t
 
 ```yaml
 steps:
-  - name: "Push GHCR images"
+  - name: "Push Harbor images"
     env:
-      GHCR_USERNAME: "@@GHCR_USERNAME@@"
-      GHCR_TOKEN: "@@GHCR_TOKEN@@"
-      # Optional override if you are not pushing to ghcr.io
-      # GHCR_REGISTRY: "@@GHCR_REGISTRY@@"
+      OCI_REGISTRY: "registry.carverauto.dev"
+      OCI_USERNAME: "@@OCI_USERNAME@@"
+      OCI_TOKEN: "@@OCI_TOKEN@@"
     script: |
       bazel run --config=remote_push --stamp //:push -- --tag "v${BUILD_TAG}"
 ```
@@ -78,17 +77,16 @@ If you prefer the script style locally, just run:
 For local pushes without the script you can export the same environment variables manually:
 
 ```bash
-export GHCR_USERNAME="carver-bot"
-export GHCR_TOKEN="ghp_xxx"
-# Optional
-# export GHCR_REGISTRY="ghcr.io"
+export OCI_REGISTRY="registry.carverauto.dev"
+export OCI_USERNAME='robot$serviceradar-ci'
+export OCI_TOKEN="replace-with-harbor-robot-secret"
 
 make push_all PUSH_TAG="v$(git describe --tags --always)"
 ```
 
 ## Command usage
 
-- `make push_all` – pushes all images with the default `latest` and `sha-<commit>` tags, then verifies the published GHCR state.
+- `make push_all` – pushes all images with the default `latest` and `sha-<commit>` tags, then verifies the published Harbor state.
 - `make push_all PUSH_TAG=v1.2.3` – pushes all images with an extra tag and verifies `latest`, `sha-<commit>`, and `v1.2.3`.
 - `bazel build --config=remote //:images` – builds the canonical publishable image set, including current multi-arch image indexes.
 - `bazel run --stamp //:push` – pushes all images with the default `latest` and `sha-<commit>` tags.
