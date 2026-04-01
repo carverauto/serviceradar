@@ -71,7 +71,7 @@ ENV CC=/usr/bin/gcc \
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 
-ARG GHCR_CNPG_IMAGE="ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2"
+ARG GHCR_CNPG_IMAGE="registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2"
 ARG GHCR_USERNAME=""
 
 # Fetch the CNPG test fixture image into a local docker-archive so Bazel
