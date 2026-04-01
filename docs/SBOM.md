@@ -1,161 +1,141 @@
 # Software Bill of Materials (SBOM)
 
-ServiceRadar generates comprehensive Software Bills of Materials (SBOMs) to provide transparency about dependencies and support supply chain security.
+ServiceRadar generates SBOMs and vulnerability reports in Forgejo Actions using:
 
-## SBOM Types
+- **Syft** for SPDX SBOM generation
+- **OSV-Scanner** for vulnerability detection
+- **Forgejo Actions** for automation
+- **Harbor** for published container images
 
-### 1. Source Code SBOM
-**Workflow:** `.github/workflows/sbom-syft.yml`
+Trivy is intentionally not part of this workflow.
 
-- Scans the entire source repository
-- Includes all Go, Rust, and JavaScript dependencies
-- Generated weekly and on releases
-- Format: SPDX JSON
-- Location: GitHub Actions artifacts and release assets
+## Workflows
 
-**Use cases:**
-- Development dependency tracking
-- Source code auditing
-- License compliance
+### 1. Source Security Scan
+**Workflow:** `.forgejo/workflows/source-security.yml`
 
-### 2. Container Image SBOMs (Recommended for Deployment)
-**Workflow:** `.github/workflows/sbom-images.yml`
+This workflow scans the repository itself and generates:
 
-- Generates per-image SBOMs for each container
-- Attached as OCI attestations (signed with cosign)
-- Format: SPDX JSON + human-readable table
-- Triggered automatically after releases
+- `serviceradar-source.spdx.json`
+- `serviceradar-source.sbom.txt`
+- `serviceradar-source.osv.json`
 
-**Use cases:**
-- Runtime dependency verification
-- Vulnerability scanning
-- Deployment compliance
-- Supply chain security
+It runs on:
 
-## Verifying Container Image SBOMs
+- pushes to `main`
+- pushes to `staging`
+- tagged releases (`v*`)
+- manual dispatch
 
-### Prerequisites
-```bash
-# Install cosign
-brew install cosign  # macOS
-# or
-curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /usr/local/bin/cosign
-chmod +x /usr/local/bin/cosign
+For tagged releases, it uploads a bundled archive named:
+
+- `serviceradar-source-security.tar.gz`
+
+### 2. Image Security Scan
+**Workflow:** `.forgejo/workflows/image-security.yml`
+
+This workflow scans the released Harbor images for a given tag and generates, for each publishable image:
+
+- SPDX JSON SBOM
+- human-readable text SBOM
+- OSV JSON vulnerability report
+
+It runs on:
+
+- tagged releases (`v*`)
+- manual dispatch with a tag
+
+For tagged releases, it uploads a bundled archive named:
+
+- `serviceradar-image-security-<tag>.tar.gz`
+
+## Registry Paths
+
+Container images are scanned from Harbor, not GHCR:
+
+```text
+registry.carverauto.dev/serviceradar/<image>:<tag>
 ```
 
-### Verify SBOM Attestation
+The image list is derived from:
+
+- `docker/images/image_inventory.bzl`
+
+## Local Verification
+
+### Install Tools
 ```bash
-# Verify the SBOM attestation is signed and valid
-cosign verify-attestation \
-  --type spdx \
-  --certificate-identity-regexp='.*' \
-  --certificate-oidc-issuer-regexp='.*' \
-  ghcr.io/carverauto/serviceradar-core:v1.0.56
+./scripts/install-syft.sh
+./scripts/install-osv-scanner.sh
 ```
 
-### Download and Inspect SBOM
+### Generate a Source SBOM
 ```bash
-# Download the SBOM from the attestation
-cosign download attestation \
-  ghcr.io/carverauto/serviceradar-core:v1.0.56 | \
-  jq -r '.payload' | base64 -d | \
-  jq '.predicate' > core-sbom.json
-
-# View packages
-jq -r '.packages[].name' core-sbom.json | sort | uniq
-
-# Count packages
-jq '.packages | length' core-sbom.json
+syft scan dir:. \
+  -c .syft.yaml \
+  -o spdx-json=serviceradar-source.spdx.json \
+  -o syft-text=serviceradar-source.sbom.txt
 ```
 
-### Scan for Vulnerabilities
+### Scan the Source Tree for Vulnerabilities
 ```bash
-# Using Grype (install: brew install grype)
-grype ghcr.io/carverauto/serviceradar-core:v1.0.56
-
-# Using Trivy (install: brew install trivy)
-trivy image ghcr.io/carverauto/serviceradar-core:v1.0.56
+osv-scanner scan source -r . \
+  --format json \
+  --output-file serviceradar-source.osv.json
 ```
 
-## SBOM Locations
-
-### GitHub Release Assets
-Each release includes:
-- `serviceradar-source.spdx.json` - Source code SBOM
-- `serviceradar-<component>.spdx.json` - Per-image SBOM (SPDX JSON)
-- `serviceradar-<component>.sbom.txt` - Per-image SBOM (human-readable)
-
-### OCI Attestations
-Each container image has an attached SBOM attestation accessible via:
+### Scan a Released Harbor Image
 ```bash
-cosign download attestation <image>
+IMAGE="registry.carverauto.dev/serviceradar/serviceradar-core-elx:v1.2.10"
+
+syft scan "registry:${IMAGE}" \
+  -o spdx-json=serviceradar-core-elx.spdx.json \
+  -o syft-text=serviceradar-core-elx.sbom.txt
+
+osv-scanner scan image "${IMAGE}" \
+  --format json \
+  --output-file serviceradar-core-elx.osv.json
 ```
 
-### GitHub Actions Artifacts
-Available as workflow artifacts for 90 days after generation.
+## Output Files
 
-## Available Container SBOMs
+### Source scan outputs
+- `serviceradar-source.spdx.json`
+- `serviceradar-source.sbom.txt`
+- `serviceradar-source.osv.json`
 
-The following container images have dedicated SBOMs:
+### Image scan outputs
+Per image:
+- `<image>.spdx.json`
+- `<image>.sbom.txt`
+- `<image>.osv.json`
 
-- `serviceradar-core`
-- `serviceradar-agent`
-- `serviceradar-zen`
-- `serviceradar-mapper`
-- `serviceradar-datasvc`
-- `serviceradar-poller`
-- `serviceradar-flowgger`
-- `serviceradar-trapd`
-- `serviceradar-otel`
-- `serviceradar-web-ng`
-- `serviceradar-srql`
-- `serviceradar-db-event-writer`
+## Release Assets
 
-## Technical Details
+For tagged releases, the workflows upload bundles to the Forgejo release:
 
-### Tools Used
-- **Syft** (v1.38.0): SBOM generation
-- **Cosign** (v2.4.1): Signing and attestation
-- **SPDX**: Standard format for SBOMs
+- `serviceradar-source-security.tar.gz`
+- `serviceradar-image-security-<tag>.tar.gz`
 
-### Signing
-Images are signed using keyless signing via Sigstore/Cosign with GitHub OIDC tokens. This provides:
-- No key management required
-- Transparency log via Rekor
-- Certificate-based verification
+## Exclusions
 
-### Exclusions
-Source SBOM excludes:
+Source SBOM generation excludes the paths listed in:
+
+- `.syft.yaml`
+
+These exclusions remove bulky or generated trees such as:
+
 - `node_modules/`
 - `vendor/`
-- Test directories
-- Build artifacts
-- Documentation build artifacts
+- `target/`
+- `.git/`
+- `build/`
+- `dist/`
+- `.cache/`
+- Bazel output trees
 
-## Compliance
+## Notes
 
-SBOMs support compliance with:
-- Executive Order 14028 (Improving the Nation's Cybersecurity)
-- NIST SP 800-218 (Secure Software Development Framework)
-- CISA software supply chain guidelines
-
-## Automation
-
-SBOMs are generated automatically:
-- **Source SBOM**: Weekly (Monday 00:00 UTC) and on releases
-- **Image SBOMs**: After successful release artifact publication
-- **Manual trigger**: Available via GitHub Actions workflow dispatch
-
-## FAQ
-
-**Q: Why two types of SBOMs?**
-A: Source SBOMs track all development dependencies. Image SBOMs show only what's deployed in production containers.
-
-**Q: Can I scan images before pulling?**
-A: Yes! Download the SBOM attestation and scan it with Grype or Trivy without pulling the image.
-
-**Q: Are SBOMs signed?**
-A: Yes, container image SBOMs are signed with cosign using keyless signing.
-
-**Q: How do I know what vulnerabilities are in an image?**
-A: Use Grype or Trivy to scan the image or its SBOM for known CVEs.
+- Syft produces the SBOMs; it does not decide vulnerability severity.
+- OSV-Scanner reports vulnerabilities based on the OSV database.
+- Harbor stores the released images, but the trust and scanning policy is driven by the Forgejo workflows in this repository.
