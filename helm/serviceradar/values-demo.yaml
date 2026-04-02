@@ -12,7 +12,7 @@ topologySpread:
 global:
   # Demo uses an immutable ServiceRadar image tag so Kyverno can verify
   # signatures without requiring digest-pinned user-facing values.
-  imageTag: "sha-ff77da50bee57bda07036888c757ea8c8359d7e7"
+  imageTag: "sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c"
   imagePullPolicy: Always
   forceRolloutOnUpgrade: true
 
@@ -329,7 +329,7 @@ bmpCollector:
   enabled: true
   image:
     repository: registry.carverauto.dev/serviceradar/arancini
-    tag: "sha-ff77da50bee57bda07036888c757ea8c8359d7e7"
+    tag: "sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c"
   args:
     - "--bmp-address=0.0.0.0:11019"
     - "--kafka-disable"
